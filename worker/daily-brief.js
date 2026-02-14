@@ -474,7 +474,7 @@ export async function gatherDailyBriefData(env, type, opts = {}) {
       const d = await kvGetJSON(KV, `timed:latest:${sym}`).catch(() => null);
       return { sym, data: d };
     })),
-    // Open trades
+    // Open trades (Active Trader)
     kvGetJSON(KV, "timed:trades:all").catch(() => []),
     // Finnhub earnings (this week)
     fetchFinnhubEarnings(env, weekStart, weekEnd),
@@ -587,6 +587,40 @@ export async function gatherDailyBriefData(env, type, opts = {}) {
   const trades = Array.isArray(tradesRaw) ? tradesRaw : [];
   const openTrades = trades.filter(t => t.status === "OPEN" || t.status === "TP_HIT_TRIM");
 
+  // ── Today's trade activity from D1 (for brief enrichment) ──────────
+  let todayTradeEntries = [];
+  let todayTradeExits = [];
+  let todayTradeTrimsDefends = [];
+  let investorPositions = [];
+  if (db) {
+    const todayStart = new Date(today + "T00:00:00Z").getTime();
+    const todayEnd = todayStart + 86400000;
+    // For morning brief, also include yesterday's exits for context
+    const yesterdayStart = todayStart - 86400000;
+    try {
+      const [entryRes, exitRes, trimRes, investorRes] = await Promise.all([
+        db.prepare(
+          "SELECT te.*, t.ticker, t.direction, t.rank, t.rr, t.status AS trade_status FROM trade_events te JOIN trades t ON te.trade_id = t.trade_id WHERE te.type = 'ENTRY' AND te.ts >= ?1 AND te.ts < ?2 ORDER BY te.ts DESC"
+        ).bind(todayStart, todayEnd).all().catch(() => ({ results: [] })),
+        db.prepare(
+          "SELECT te.*, t.ticker, t.direction, t.pnl_pct, t.exit_reason, t.status AS trade_status FROM trade_events te JOIN trades t ON te.trade_id = t.trade_id WHERE te.type = 'EXIT' AND te.ts >= ?1 AND te.ts < ?2 ORDER BY te.ts DESC"
+        ).bind(type === "morning" ? yesterdayStart : todayStart, todayEnd).all().catch(() => ({ results: [] })),
+        db.prepare(
+          "SELECT te.*, t.ticker, t.direction, t.status AS trade_status FROM trade_events te JOIN trades t ON te.trade_id = t.trade_id WHERE te.type IN ('TRIM', 'DEFEND') AND te.ts >= ?1 AND te.ts < ?2 ORDER BY te.ts DESC"
+        ).bind(todayStart, todayEnd).all().catch(() => ({ results: [] })),
+        db.prepare(
+          "SELECT * FROM investor_positions WHERE status = 'OPEN' ORDER BY total_shares * COALESCE(avg_entry, 0) DESC LIMIT 20"
+        ).all().catch(() => ({ results: [] })),
+      ]);
+      todayTradeEntries = (entryRes?.results || []).slice(0, 10);
+      todayTradeExits = (exitRes?.results || []).slice(0, 10);
+      todayTradeTrimsDefends = (trimRes?.results || []).slice(0, 10);
+      investorPositions = (investorRes?.results || []).slice(0, 20);
+    } catch (e) {
+      console.error("[BRIEF] Error fetching trade events/investor positions:", e);
+    }
+  }
+
   // ES technical summary from candles (enhanced with 5-min for overnight range)
   const esTechnical = summarizeTechnical(
     esCandles?.candles || [], esCandlesH1?.candles || [],
@@ -636,9 +670,30 @@ export async function gatherDailyBriefData(env, type, opts = {}) {
       ticker: t.ticker, direction: t.direction, pnlPct: t.pnlPct,
       entryPrice: t.entryPrice, status: t.status,
     })).slice(0, 15),
+    // Today's trade activity (Active Trader)
+    todayEntries: todayTradeEntries.map(e => ({
+      ticker: e.ticker, direction: e.direction, price: e.price,
+      rank: e.rank, rr: e.rr, reason: e.reason,
+      meta: e.meta_json ? (typeof e.meta_json === "string" ? JSON.parse(e.meta_json) : e.meta_json) : null,
+    })),
+    todayExits: todayTradeExits.map(e => ({
+      ticker: e.ticker, direction: e.direction, price: e.price,
+      pnlPct: e.pnl_pct, exitReason: e.exit_reason || e.reason,
+      tradeStatus: e.trade_status,
+    })),
+    todayTrimsDefends: todayTradeTrimsDefends.map(e => ({
+      ticker: e.ticker, direction: e.direction, type: e.type, price: e.price,
+      qtyPctDelta: e.qty_pct_delta, qtyPctTotal: e.qty_pct_total,
+      reason: e.reason,
+    })),
+    // Investor portfolio positions
+    investorPositions: investorPositions.map(p => ({
+      ticker: p.ticker, shares: p.total_shares, avgEntry: p.avg_entry,
+      costBasis: p.cost_basis, thesis: p.thesis, stage: p.investor_stage,
+    })),
     alpacaEconNews: (alpacaEconNews || []).slice(0, 10),
     morningPrediction: morningBrief?.es_prediction || null,
-    morningContent: type === "evening" ? (morningBrief?.content || "").slice(0, 500) : null,
+    morningContent: type === "evening" ? (morningBrief?.content || "").slice(0, 1500) : null,
   };
 }
 
@@ -655,12 +710,18 @@ function summarizeTechnical(dailyCandles, hourlyCandles, fiveMinCandles, latestD
   const last = closes[closes.length - 1];
   const prev = closes[closes.length - 2];
 
-  // Simple ATR from daily candles
+  // True Range ATR from daily candles: max(H-L, |H-prevC|, |L-prevC|)
+  // Matches the client-side ATR in fetchAtrFibLevels for consistency
   let atrSum = 0;
+  let atrCount = 0;
   for (let i = 1; i < recent.length; i++) {
-    atrSum += Math.abs(Number(recent[i].h) - Number(recent[i].l));
+    const h = Number(recent[i].h);
+    const l = Number(recent[i].l);
+    const pc = Number(recent[i - 1].c);
+    const tr = Math.max(h - l, Math.abs(h - pc), Math.abs(l - pc));
+    if (tr > 0) { atrSum += tr; atrCount++; }
   }
-  const atr14 = recent.length > 1 ? atrSum / (recent.length - 1) : 0;
+  const atr14 = atrCount > 0 ? atrSum / atrCount : 0;
 
   // Recent hourly structure
   const h1Closes = (hourlyCandles || []).slice(-20).map(c => Number(c.c)).filter(Number.isFinite);
@@ -733,23 +794,28 @@ function summarizeTechnical(dailyCandles, hourlyCandles, fiveMinCandles, latestD
   // from the previous daily close (anchor). These are tighter, more
   // actionable than traditional pivot levels for intraday trading.
   let atrFibLevels = null;
-  const anchor = pivots?.prevClose || last; // previous daily close or latest
-  if (fiveMinCandles && fiveMinCandles.length >= 14 && anchor > 0) {
-    // Compute ATR from last 14 5-min candles (intraday volatility)
-    const m5ForAtr = fiveMinCandles.slice(-14);
-    let m5AtrSum = 0;
-    for (const c of m5ForAtr) {
-      m5AtrSum += Math.abs(Number(c.h) - Number(c.l));
-    }
-    const m5Atr = m5AtrSum / m5ForAtr.length;
+  // Use previous daily close as anchor — matches the client-side chart levels exactly
+  const prevDayCandle = recent[recent.length - 2];
+  const anchor = prevDayCandle ? Number(prevDayCandle.c) : (pivots?.prevClose || last);
+  if (anchor > 0 && atr14 > 0) {
+    // Use the daily true-range ATR directly (already computed above)
+    const dayAtr = atr14;
 
-    // Scale 5-min ATR to approximate session ATR
-    // A full RTH session is ~78 5-min bars; use sqrt scaling: sessionATR ≈ m5Atr * sqrt(78/1)
-    // But more practical: use daily ATR directly as the "day ATR" and 5m ATR for micro levels
-    const dayAtr = atr14 > 0 ? atr14 : m5Atr * Math.sqrt(78);
+    // Also compute 5m ATR for micro-level reference
+    let m5Atr = 0;
+    if (fiveMinCandles && fiveMinCandles.length >= 14) {
+      const m5ForAtr = fiveMinCandles.slice(-14);
+      let m5AtrSum = 0;
+      for (const c of m5ForAtr) {
+        const h = Number(c.h), l = Number(c.l);
+        m5AtrSum += Math.abs(h - l);
+      }
+      m5Atr = m5AtrSum / m5ForAtr.length;
+    }
 
     const rnd = (v) => Math.round(v * 100) / 100;
-    const fibs = [0.236, 0.382, 0.500, 0.618, 0.786, 1.0];
+    // Match client-side fibs exactly (no 0.786)
+    const fibs = [0.236, 0.382, 0.500, 0.618, 1.0];
 
     atrFibLevels = {
       anchor: rnd(anchor),
@@ -783,6 +849,50 @@ function summarizeTechnical(dailyCandles, hourlyCandles, fiveMinCandles, latestD
     }
   }
 
+  // ── Multi-day Structure Context ──────────────────────────────────────
+  // Provides the AI with swing-level context for scenario analysis
+  const rnd2 = (v) => Math.round(v * 100) / 100;
+  let structureContext = null;
+  if (recent.length >= 5) {
+    const allCloses = recent.map(c => Number(c.c));
+    const allHighs = recent.map(c => Number(c.h));
+    const allLows = recent.map(c => Number(c.l));
+
+    // 5-day trend: is price making higher highs/higher lows or lower?
+    const c5 = allCloses.slice(-5);
+    const fiveDayChange = c5[c5.length - 1] - c5[0];
+    const fiveDayChangePct = ((fiveDayChange / c5[0]) * 100);
+    const recentHigherHighs = allHighs.slice(-4).every((h, i) => i === 0 || h >= allHighs[allHighs.length - 4 + i - 1]);
+    const recentLowerLows = allLows.slice(-4).every((l, i) => i === 0 || l <= allLows[allLows.length - 4 + i - 1]);
+
+    // Key swing levels from 10 daily candles
+    const swingHigh = Math.max(...allHighs);
+    const swingLow = Math.min(...allLows);
+
+    // Weekly candle approximation (last 5 trading days)
+    const weekCandles = dailyCandles.slice(-5);
+    const weekOpen = Number(weekCandles[0]?.o || weekCandles[0]?.c);
+    const weekHigh = Math.max(...weekCandles.map(c => Number(c.h)));
+    const weekLow = Math.min(...weekCandles.map(c => Number(c.l)));
+    const weekClose = Number(weekCandles[weekCandles.length - 1]?.c);
+
+    structureContext = {
+      fiveDayChange: rnd2(fiveDayChange),
+      fiveDayChangePct: rnd2(fiveDayChangePct),
+      trendBias: recentHigherHighs ? "HIGHER_HIGHS" : recentLowerLows ? "LOWER_LOWS" : "MIXED",
+      tenDaySwingHigh: rnd2(swingHigh),
+      tenDaySwingLow: rnd2(swingLow),
+      weeklyCandleApprox: {
+        open: rnd2(weekOpen),
+        high: rnd2(weekHigh),
+        low: rnd2(weekLow),
+        close: rnd2(weekClose),
+        bodyType: weekClose > weekOpen ? "BULLISH" : weekClose < weekOpen ? "BEARISH" : "DOJI",
+        rangePct: rnd2(((weekHigh - weekLow) / weekLow) * 100),
+      },
+    };
+  }
+
   return {
     available: true,
     lastClose: last,
@@ -794,6 +904,7 @@ function summarizeTechnical(dailyCandles, hourlyCandles, fiveMinCandles, latestD
     pivots,
     overnightRange,
     atrFibLevels,
+    structureContext,
     vixPrice: Number(latestData?.price) || null,
     state: latestData?.state || "",
     phaseZone: latestData?.phase_zone || "",
@@ -809,23 +920,35 @@ function summarizeES(dailyCandles, hourlyCandles, latestData) {
 // AI Prompt Construction & Generation
 // ═══════════════════════════════════════════════════════════════════════
 
-const ANALYST_SYSTEM_PROMPT = `You are a senior market strategist writing a daily brief for an active trading desk that includes both swing traders AND intraday/day traders. Your style is authoritative yet accessible, similar to FS Insight or a top-tier macro research firm.
+const ANALYST_SYSTEM_PROMPT = `You are a senior market strategist and Head of Technical Strategy at a top-tier macro research firm (think Mark Newton at FS Insight, Tom Lee, or a CMT-level analyst). You write daily briefs for an active trading desk that includes both swing traders AND intraday/day traders.
 
-Guidelines:
-- Write in a professional, concise style with clear section headers using markdown ##
-- Reference specific price levels, percentages, and data points
-- For ES/NQ projections, cite structure (EMAs, SuperTrend, FVGs), key support/resistance levels, ATR-based targets, pivot points, and VIX context
-- For day trading levels, provide SPECIFIC numbers: ATR Fibonacci levels (38.2%, 50%, 61.8% of daily ATR), overnight high/low, previous session high/low/close, and Golden Gate status
-- For earnings, note pre-market/after-hours timing and surprise vs estimate. ALWAYS include the current price (CP) and daily change in parentheses next to the ticker symbol, e.g., "ESNT ($148.52, +1.30%): Pre-Market, EPS Est: 1.77...". When chart setup data is available, add a brief assessment of the technical picture.
-- For macro/economic events, explain the MARKET IMPACT concisely — especially for major data releases (CPI, PPI, FOMC, NFP, GDP, etc.)
-  - When actual data is available: compare to estimate and previous, explain if above/below consensus and what it means for rate expectations, risk appetite, and sector rotation
+Your analysis style is:
+- **Structural**: You think in terms of wave counts (Elliott Wave), measured moves, Fibonacci retracements/extensions, and pattern completions. You identify whether moves are impulsive or corrective.
+- **Conditional**: You present "if X, then Y; if not, then Z" scenarios. Always give both the bull case AND the bear case with specific invalidation levels.
+- **Specific**: Every claim has a price level, percentage, or data point attached. Never say "market may go higher" — say "a bounce toward the 6894-6918 resistance zone is likely before a decision point."
+- **Time-aware**: You reference timeframes and durations — "near-term weakness into 2/20 before a rebound into early March" rather than just "weakness expected."
+- **Contextual**: You zoom out to the larger trend before zooming in. "Despite huge micro-volatility, the larger trend since November has been neutral/range-bound between X and Y."
+
+Writing Guidelines:
+- Write in a professional, authoritative yet accessible style with clear section headers using markdown ##
+- Reference specific price levels, percentages, zones (e.g., "6894-6918 resistance zone"), and data points
+- For ES/NQ projections: analyze the STRUCTURE of recent price action:
+  - Is this a three-wave corrective move or a five-wave impulse? What does that imply?
+  - Where are key support/resistance zones (not just single levels — zones)?
+  - What do bulls need to see vs what do bears need to see? State specific prices.
+  - Reference EMAs (21, 48, 200), SuperTrend levels, any visible FVGs (Fair Value Gaps), and VIX context
+  - Give a clear directional thesis WITH invalidation: "Bullish above X, targeting Y. Below X, bearish toward Z."
+- For day trading levels: provide SPECIFIC numbers: ATR Fibonacci levels (38.2%, 50%, 61.8% of daily ATR), overnight high/low, previous session high/low/close, and Golden Gate status
+- For earnings: note pre-market/after-hours timing and surprise vs estimate. ALWAYS include the current price (CP) and daily change in parentheses next to the ticker, e.g., "ESNT ($148.52, +1.30%)". When chart setup data is available, add a brief technical assessment.
+- For macro/economic events: explain the MARKET IMPACT — especially for major releases (CPI, PPI, FOMC, NFP, GDP, etc.)
+  - When actual data is available: compare to estimate and previous, explain what it means for rate expectations, risk appetite, and sector rotation
   - Note if the release happened pre-market and how futures reacted
 - Include 1-2 Trader's Almanac insights when relevant (seasonal patterns, historical tendencies for this time of year)
 - End each brief with clear, actionable takeaways for BOTH swing traders and day traders
 - Use ticker symbols in CAPS (e.g., AAPL, ES1!)
 - Format percentage changes inline like: AAPL +2.30%, XLK -1.10%
-- CRITICAL: ALL economic data values (CPI, PPI, GDP, etc.) MUST use EXACTLY two decimal places (e.g., 2.40%, 0.30%, not 2.4%, 0.3%). Copy the values from the data EXACTLY as provided — do NOT round or truncate.
-- Keep total length to 1000-1500 words
+- CRITICAL: ALL economic data values (CPI, PPI, GDP, etc.) MUST use EXACTLY two decimal places (e.g., 2.40%, 0.30%, not 2.4%, 0.3%). Copy values EXACTLY as provided.
+- Keep total length to 1500-2500 words — be thorough, not terse
 - Do NOT use emojis`;
 
 function fmtEconValue(val, unit) {
@@ -908,24 +1031,72 @@ ${(data.alpacaEconNews || []).length > 0
     ? data.alpacaEconNews.map(n => `- [${(n.created_at || "").slice(0, 16)}] ${n.headline}${n.summary ? " — " + n.summary.slice(0, 150) : ""}`).join("\n")
     : "No major economic/macro news headlines found."}
 
-## Open Positions:
+## Active Trader — Open Positions:
 ${data.openTrades.length > 0
-    ? data.openTrades.map(t => `${t.ticker} (${t.direction}, P&L: ${t.pnlPct != null ? t.pnlPct.toFixed(1) + "%" : "N/A"})`).join(", ")
-    : "No open positions."}
+    ? data.openTrades.map(t => `${t.ticker} (${t.direction}, Entry: $${t.entryPrice ?? "N/A"}, P&L: ${t.pnlPct != null ? t.pnlPct.toFixed(1) + "%" : "N/A"}, Status: ${t.status})`).join("\n")
+    : "No open Active Trader positions."}
+
+## Active Trader — New Entries Today:
+${(data.todayEntries || []).length > 0
+    ? data.todayEntries.map(e => `${e.ticker} ${e.direction} @ $${e.price ?? "N/A"} (Rank: ${e.rank ?? "N/A"}, R:R: ${e.rr != null ? e.rr.toFixed(1) : "N/A"}, Reason: ${e.reason || "Signal"})`).join("\n")
+    : "No new entries today."}
+
+## Active Trader — Yesterday's Exits:
+${(data.todayExits || []).length > 0
+    ? data.todayExits.map(e => `${e.ticker} ${e.direction} @ $${e.price ?? "N/A"} (P&L: ${e.pnlPct != null ? e.pnlPct.toFixed(1) + "%" : "N/A"}, Reason: ${e.exitReason || "N/A"}, Result: ${e.tradeStatus})`).join("\n")
+    : "No recent exits."}
+
+## Active Trader — Trims & Defends Today:
+${(data.todayTrimsDefends || []).length > 0
+    ? data.todayTrimsDefends.map(e => `${e.type}: ${e.ticker} ${e.direction} @ $${e.price ?? "N/A"} (${e.type === "TRIM" ? `Trimmed ${e.qtyPctDelta ?? "?"}%, Total trimmed: ${e.qtyPctTotal ?? "?"}%` : `SL tightened`}, Reason: ${e.reason || "N/A"})`).join("\n")
+    : "No trims or defends today."}
+
+## Investor Portfolio — Current Holdings:
+${(data.investorPositions || []).length > 0
+    ? data.investorPositions.map(p => `${p.ticker}: ${p.shares} shares @ avg $${p.avgEntry != null ? p.avgEntry.toFixed(2) : "N/A"} (Stage: ${p.stage || "N/A"}${p.thesis ? `, Thesis: ${p.thesis.slice(0, 80)}` : ""})`).join("\n")
+    : "No investor positions."}
 
 ## Required Sections:
-1. **Earnings Watch** — What tickers have earnings today and this week? Pre-market or after-hours? If any pre-market results are in, how did they do?
-2. **Macro & Economic Calendar** — Focus HEAVILY on TODAY'S data releases first. For major releases (CPI, PPI, NFP, FOMC, GDP, etc.): explain the numbers vs consensus, what it means for Fed policy / rate cuts, how futures reacted, and sector implications. If yesterday had a major release, discuss its lingering impact on today's market. Also note upcoming releases this week.
-3. **ES Outlook** — Project ES direction today based on structure, EMAs, key support/resistance levels, ATR, and VIX. State specific price levels.
-4. **Day Trader Levels & Actionable Takeaway** — Use the ATR Fibonacci levels from the technical summaries for BOTH ES and NQ. These are the PRIMARY day trading levels (NOT the wide pivot points):
-   - **ATR Fib Levels**: List the 38.2%, 50%, 61.8%, and 100% ATR levels above and below the anchor (prev close). These define the intraday playing field.
-   - **Golden Gate Status**: If the Golden Gate is OPEN_UP or OPEN_DOWN, highlight this prominently — it means price has already crossed the 38.2% ATR level and traders should target the 50% and 61.8% levels.
-   - **Overnight/pre-market range**: key reference for the opening print
-   - **Actionable setups**: "If ES holds above the +38.2% ATR at $XXXX, target the +50% at $XXXX and +61.8% at $XXXX" or "If ES breaks below the -38.2% at $XXXX, the Golden Gate opens down — target -50% at $XXXX"
-   - Note any major data release timing that could cause volatility spikes (e.g., "CPI at 8:30 AM — expect elevated volatility, wait for the first 15-min candle to close")
-5. **Trader's Almanac** — Any seasonal patterns or historical tendencies for this date/week/month.
+1. **Market Context & Macro** — Start with the BIG PICTURE. What is the dominant regime right now? (Trending, range-bound, volatile?) What macro forces are driving it? If today has a major economic release (CPI, PPI, NFP, FOMC, GDP, etc.), LEAD with it: explain the numbers vs consensus, what it means for Fed policy / rate cuts, how futures reacted, and sector implications. If yesterday had a major release, discuss lingering impact. Note upcoming releases this week.
 
-End with a concise "ES Prediction" line like: "ES Prediction: Expect a range-bound session between 6050-6100, with a slight bullish bias toward 6080."`;
+2. **Structure & Scenario Analysis (ES & NQ)** — This is the MOST IMPORTANT section. Analyze like a CMT-level strategist:
+   - **Current Structure**: Is this week's decline (or rally) a three-wave corrective move or a five-wave impulse? What does the pattern imply? Reference the prior swing levels and whether they held/broke.
+   - **Key Zones** (not just single levels): e.g., "Resistance zone at 6894-6918" or "Support cluster at 5940-5960 (confluence of 50-day EMA + prior swing low)"
+   - **Bull Case**: What do bulls need to see? Specify price levels. "Bulls need ES to reclaim 6918 to negate the bearish count. Above there, 6950-6975 becomes the target."
+   - **Bear Case**: What do bears need? "If ES fails to hold 6830, the next leg down targets 6750-6780 zone. A break below 6750 would confirm a five-wave decline."
+   - **Base Case / Primary Thesis**: Your most probable scenario with conditional logic: "My base case: a bounce into the 6894-6918 zone before stalling. If this is a three-wave correction, we should see a higher low above 6830 by mid-next-week."
+   - **Time Context**: When? "Near-term weakness into Feb 20 before a rebound into early March" — give a timeline, not just direction.
+   - Reference VIX (elevated = wider ranges, compressed = breakout pending), EMAs, and any visible pattern setups.
+
+3. **Day Trader Levels & Game Plan** — Use the ATR Fibonacci levels for BOTH ES and NQ:
+   - **ATR Fib Levels**: List the 38.2%, 50%, 61.8%, and 100% ATR levels above and below the anchor (prev close). These define the intraday playing field.
+   - **Golden Gate Status**: If OPEN_UP or OPEN_DOWN, highlight prominently — price has crossed the 38.2% ATR level, so target the 50% and 61.8%.
+   - **Overnight/pre-market range**: key reference for the opening print
+   - **Conditional Game Plan**: Write it as a decision tree:
+     "If ES opens above [overnight high] and holds the +23.6% ATR at $XXXX → bullish bias, target +38.2% at $XXXX, then +50% at $XXXX"
+     "If ES rejects at [level] and breaks below the overnight low at $XXXX → bearish, target -38.2% at $XXXX"
+   - Note any major data release timing that could cause volatility spikes (e.g., "CPI at 8:30 AM — expect elevated volatility, wait for the first 15-min candle to close before committing")
+
+4. **Earnings Watch** — What tickers have earnings today and this week? Pre-market or after-hours? Any pre-market results? Key names to watch.
+
+5. **Sector Spotlight** — Which sectors are leading/lagging? Any notable rotations? What does sector breadth tell us about market health?
+
+6. **Trader's Almanac** — Seasonal patterns, options expiry effects, historical tendencies for this date/week/month. If it's a notable calendar week (OPEX, month-end, quarter-end), mention how that historically affects price action.
+
+7. **Active Trader Book** — If we have open positions, entries, or exits:
+   - Discuss each OPEN position briefly: what's the thesis, how is it performing, should we hold/trim/exit?
+   - For NEW ENTRIES today: explain WHY we entered — what setup triggered it (rank, R:R, signals)?
+   - For YESTERDAY'S EXITS: were they winners or losers? What can we learn?
+   - For TRIMS/DEFENDS: explain the risk management logic.
+
+8. **Investor Portfolio** — If we have investor holdings:
+   - Brief update on each holding's performance and whether the long-term thesis is intact.
+   - Note any notable price action on holdings today.
+   - Any DCA opportunities based on current levels?
+
+End with TWO clear sections:
+- **Swing Trader Takeaway**: What should position traders be doing today? (Holding, adding, reducing, hedging?)
+- **ES Prediction**: One specific, falsifiable prediction line like: "ES Prediction: Bounce toward 6894-6918 resistance zone before stalling. Bullish above 6918, bearish below 6830. Expected range: 6830-6920."`;
 }
 
 function buildEveningPrompt(data) {
@@ -945,6 +1116,9 @@ ${data.sectors.map(s => `${s.sym}: ${s.dayChangePct >= 0 ? "+" : ""}${s.dayChang
 
 ## This Morning's ES Prediction:
 ${data.morningPrediction || "No morning prediction available."}
+
+## This Morning's Full Brief Summary (first 1000 chars):
+${data.morningContent ? data.morningContent.slice(0, 1000) : "Morning brief not available."}
 
 ## Today's Economic Data Releases:
 ${data.todayEconomicEvents.length > 0
@@ -966,21 +1140,71 @@ ${data.todayEarnings.filter(e => e.hour === "amc").length > 0
     ? data.todayEarnings.filter(e => e.hour === "amc").map(e => `${e.symbol}: EPS Est: ${e.epsEstimate ?? "N/A"}${e.epsActual != null ? `, EPS Actual: ${e.epsActual}` : ", Results pending"}, Rev Est: ${e.revenueEstimate ? "$" + (e.revenueEstimate / 1e9).toFixed(1) + "B" : "N/A"}${e.revenueActual ? `, Rev Actual: $${(e.revenueActual / 1e9).toFixed(1)}B` : ""}`).join("\n")
     : "No major after-hours earnings today."}
 
-## Open Positions:
+## Active Trader — Open Positions (EOD):
 ${data.openTrades.length > 0
-    ? data.openTrades.map(t => `${t.ticker} (${t.direction}, P&L: ${t.pnlPct != null ? t.pnlPct.toFixed(1) + "%" : "N/A"})`).join(", ")
-    : "No open positions."}
+    ? data.openTrades.map(t => `${t.ticker} (${t.direction}, Entry: $${t.entryPrice ?? "N/A"}, P&L: ${t.pnlPct != null ? t.pnlPct.toFixed(1) + "%" : "N/A"}, Status: ${t.status})`).join("\n")
+    : "No open Active Trader positions."}
+
+## Active Trader — Entries Today:
+${(data.todayEntries || []).length > 0
+    ? data.todayEntries.map(e => `${e.ticker} ${e.direction} @ $${e.price ?? "N/A"} (Rank: ${e.rank ?? "N/A"}, R:R: ${e.rr != null ? e.rr.toFixed(1) : "N/A"}, Reason: ${e.reason || "Signal"})`).join("\n")
+    : "No new entries today."}
+
+## Active Trader — Exits Today:
+${(data.todayExits || []).length > 0
+    ? data.todayExits.map(e => `${e.ticker} ${e.direction} @ $${e.price ?? "N/A"} (P&L: ${e.pnlPct != null ? e.pnlPct.toFixed(1) + "%" : "N/A"}, Reason: ${e.exitReason || "N/A"}, Result: ${e.tradeStatus})`).join("\n")
+    : "No exits today."}
+
+## Active Trader — Trims & Defends Today:
+${(data.todayTrimsDefends || []).length > 0
+    ? data.todayTrimsDefends.map(e => `${e.type}: ${e.ticker} ${e.direction} @ $${e.price ?? "N/A"} (${e.type === "TRIM" ? `Trimmed ${e.qtyPctDelta ?? "?"}%, Total: ${e.qtyPctTotal ?? "?"}%` : `SL tightened`}, Reason: ${e.reason || "N/A"})`).join("\n")
+    : "No trims or defends today."}
+
+## Investor Portfolio — Current Holdings:
+${(data.investorPositions || []).length > 0
+    ? data.investorPositions.map(p => `${p.ticker}: ${p.shares} shares @ avg $${p.avgEntry != null ? p.avgEntry.toFixed(2) : "N/A"} (Stage: ${p.stage || "N/A"}${p.thesis ? `, Thesis: ${p.thesis.slice(0, 80)}` : ""})`).join("\n")
+    : "No investor positions."}
 
 ## Required Sections:
-1. **Market Recap** — How did the market perform today? Key movers, breadth, notable action. If a major data release happened (CPI, PPI, NFP, etc.), lead with how the market reacted.
-2. **ES Prediction Review** — Was our morning prediction correct? Reflect on what happened vs what was expected. Be honest about misses.
-3. **Economic Data Impact** — If any major economic data was released today, analyze the impact: was it above/below consensus? How did it affect rate expectations, risk appetite, sector rotation? What are the implications going forward?
-4. **Day Trader Session Review** — Review today's intraday action on ES and NQ: Did key levels (pivot, R1/R2, S1/S2) hold or break? What was the session range vs ATR? Were there any notable intraday setups or traps?
-5. **After-Hours Earnings** — For any after-hours reports, how did they do? Current price vs close? Impact on the ticker?
-6. **Sector Spotlight** — Which S&P sectors stood out today and why?
-7. **Looking Ahead** — Closing thoughts on market pulse and where we expect the market to go for the remainder of the week/month. Note any upcoming economic releases or earnings that could move markets.
+1. **Market Recap & Session Narrative** — Tell the STORY of today's session. Don't just list numbers — explain the narrative arc: How did we open? What drove the morning action? Was there a reversal? What triggered it? Lead with the most market-moving event. Reference specific times when key moves occurred.
 
-End with a concise summary line.`;
+2. **ES Prediction Scorecard** — Was our morning prediction correct? Grade it honestly (HIT, PARTIAL, MISS). What was predicted vs what happened? Why did reality differ from the forecast (if it did)? What can we learn from this for future predictions?
+
+3. **Structural Update (ES & NQ)** — Now that today's session is complete, update the structural picture:
+   - Has the structure changed? Did today confirm or negate our morning thesis?
+   - Where are we in the larger pattern? (e.g., "Today's bounce confirms wave 4 is still developing. Wave 5 lower into the 6750 zone may still be ahead.")
+   - Key levels that were tested — did they hold? "The 6830 support held all day, setting up a potential failed breakdown."
+   - Updated bull/bear thresholds for tomorrow.
+
+4. **Day Trader Session Review** — How did the ATR Fibonacci levels perform today? Did price respect the levels? Which levels acted as support/resistance? What was today's range vs expected ATR? Any notable intraday patterns (failed breakdowns, V-reversals, range compression)?
+
+5. **Macro & Data Impact** — If any major economic data was released today, deep-dive on the impact: how did markets react in the first 30 minutes? Did the reaction hold or reverse? What does the data mean for the Fed path and rate expectations going forward?
+
+6. **After-Hours Earnings** — Any after-hours reports and their impact? Key numbers vs estimates.
+
+7. **Sector Analysis** — Which sectors led/lagged today and WHY? Any notable rotation patterns? What does sector breadth tell us (narrow leadership = fragile, broad participation = healthy)?
+
+8. **Looking Ahead: Next Week Setup** — This is the strategic section. Looking at the weekly candle that's forming:
+   - What does this week's price action tell us about next week's probable direction?
+   - Key events next week (economic calendar, earnings, OPEX, etc.)
+   - Specific levels to watch: "If ES starts next week above 6900, the bounce has legs toward 6950-6975. Below 6830 and we're likely heading to test the February lows."
+   - Time-based expectations: "I expect a potential retest of [level] early next week before the next directional move by mid-week."
+
+9. **Active Trader Session Report** — Segmented review of our trading book today:
+   - **Entries**: What did we enter today and WHY? Reference the setup quality, rank, R:R, and what signals were active. Was it a good entry in hindsight?
+   - **Exits**: What did we exit and WHY? Hit TP? Hit SL? Signal reversal? Was it a winner or loser? What can we learn?
+   - **Trims/Defends**: What did we trim or defend and WHY? Explain the risk management logic.
+   - **Open Positions EOD**: Brief status update on each open position — is the thesis still intact? P&L status?
+
+10. **Investor Portfolio Update** — If we have investor holdings:
+    - How did each holding perform today?
+    - Is the long-term thesis still intact?
+    - Any DCA opportunities at current levels?
+    - Any notable company news or earnings affecting holdings?
+
+End with TWO sections:
+- **Swing Trader Positioning**: What should position traders do going into tomorrow/next week? (Hold, add, reduce, hedge, wait?)
+- **Key Levels to Watch**: A clean list of the 3-5 most important support and resistance levels for ES going into the next session.`;
 }
 
 /**
@@ -991,7 +1215,7 @@ async function callOpenAI(env, systemPrompt, userPrompt) {
   const apiKey = env?.OPENAI_API_KEY;
   if (!apiKey) throw new Error("OPENAI_API_KEY not configured");
 
-  const model = env?.DAILY_BRIEF_MODEL || "gpt-4o-mini";
+  const model = env?.DAILY_BRIEF_MODEL || "gpt-4o";
   const resp = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
     headers: {
@@ -1004,10 +1228,10 @@ async function callOpenAI(env, systemPrompt, userPrompt) {
         { role: "system", content: systemPrompt },
         { role: "user", content: userPrompt },
       ],
-      temperature: 0.7,
-      max_tokens: 3500,
+      temperature: 0.65,
+      max_tokens: 5000,
     }),
-    signal: AbortSignal.timeout(60000), // 60s timeout
+    signal: AbortSignal.timeout(90000), // 90s timeout for larger model
   });
 
   if (!resp.ok) {
@@ -1179,6 +1403,16 @@ export async function generateDailyBrief(env, type, opts = {}) {
       await opts.notifyDiscord(env, embed).catch(e =>
         console.warn("[DAILY BRIEF] Discord notification failed:", String(e).slice(0, 100))
       );
+    }
+
+    // 9. In-app notification (broadcast to all users)
+    if (opts.d1InsertNotification) {
+      await opts.d1InsertNotification(env, {
+        email: null, type: "daily_brief",
+        title: `${type === "morning" ? "Morning" : "Evening"} Brief — ${data.today}`,
+        body: esPrediction || `${type === "morning" ? "Morning" : "Evening"} brief published.`,
+        link: "/daily-brief.html",
+      }).catch(() => {});
     }
 
     return { ok: true, id: briefId, elapsed, chars: content.length };

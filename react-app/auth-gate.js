@@ -341,6 +341,116 @@
     );
   }
 
+  // ── Paywall Screen ────────────────────────────────────────────────────────
+  // Shown when user.tier === "free" and no active subscription.
+  // Offers Timed Trading Pro subscription with first month free trial.
+  function PaywallScreen({ user, apiBase }) {
+    const [loading, setLoading] = React.useState(false);
+    const [error, setError] = React.useState(null);
+    const h = React.createElement;
+    const font = '"Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+
+    const handleStartTrial = async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const res = await fetch(`${apiBase}/timed/stripe/create-checkout`, {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            success_url: window.location.origin + "/index-react.html?stripe=success",
+            cancel_url: window.location.origin + "/index-react.html?stripe=cancel",
+          }),
+        });
+        const json = await res.json();
+        if (json.ok && json.url) {
+          window.location.href = json.url;
+        } else {
+          setError(json.error === "stripe_not_configured"
+            ? "Payments are not yet configured. Please contact support."
+            : (json.details || json.error || "Failed to create checkout session"));
+          setLoading(false);
+        }
+      } catch (e) {
+        setError("Network error. Please try again.");
+        setLoading(false);
+      }
+    };
+
+    const features = [
+      "Real-time multi-timeframe scoring (9 TFs, 200+ tickers)",
+      "Kanban pipeline with automated trade signals",
+      "Daily AI-powered morning & evening briefs",
+      "Active Trader trade management (entry, trim, defend, exit)",
+      "Investor portfolio tracking with DCA automation",
+      "Browser push & in-app notifications",
+      "Full historical trail & time travel replay",
+    ];
+
+    return h("div", {
+      style: {
+        minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center",
+        background: "#0b0e11", fontFamily: font,
+      },
+    },
+      h("div", { style: { width: "100%", maxWidth: "480px", padding: "40px", textAlign: "center" } },
+        // Logo
+        h("div", { style: { marginBottom: "24px" } },
+          h("img", { src: "/logo.svg", alt: "Timed Trading", style: { height: "40px", opacity: 0.9 } }),
+        ),
+        // Badge
+        h("span", {
+          style: {
+            display: "inline-block", padding: "4px 12px", borderRadius: "20px", fontSize: "11px",
+            fontWeight: "600", color: "#00c853", background: "rgba(0,200,83,0.1)",
+            border: "1px solid rgba(0,200,83,0.2)", marginBottom: "16px", letterSpacing: "0.5px",
+          },
+        }, "FIRST MONTH FREE"),
+        // Title
+        h("h1", { style: { fontSize: "24px", fontWeight: "700", color: "#e5e7eb", margin: "0 0 8px" } },
+          "Timed Trading Pro"),
+        h("p", { style: { fontSize: "32px", fontWeight: "800", color: "#ffffff", margin: "0 0 4px" } },
+          "$60", h("span", { style: { fontSize: "16px", color: "#6b7280", fontWeight: "400" } }, "/month")),
+        h("p", { style: { fontSize: "13px", color: "#6b7280", margin: "0 0 24px" } },
+          "Cancel anytime. No refunds. Charged monthly after trial."),
+        // Features
+        h("div", {
+          style: {
+            textAlign: "left", background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)",
+            borderRadius: "12px", padding: "20px", marginBottom: "24px",
+          },
+        },
+          ...features.map((f) =>
+            h("div", { key: f, style: { display: "flex", alignItems: "flex-start", gap: "10px", marginBottom: "10px" } },
+              h("span", { style: { color: "#00c853", fontSize: "14px", lineHeight: "20px", flexShrink: 0 } }, "\u2713"),
+              h("span", { style: { fontSize: "13px", color: "#9ca3af", lineHeight: "20px" } }, f),
+            ),
+          ),
+        ),
+        // CTA Button
+        h("button", {
+          onClick: handleStartTrial,
+          disabled: loading,
+          style: {
+            width: "100%", padding: "14px 24px", borderRadius: "10px", fontSize: "15px", fontWeight: "600",
+            color: "#fff", background: loading ? "#374151" : "linear-gradient(135deg, #00c853, #00a844)",
+            border: "none", cursor: loading ? "wait" : "pointer", transition: "all 0.15s",
+          },
+        }, loading ? "Redirecting to Stripe..." : "Start Free Trial"),
+        // Error
+        error && h("p", { style: { color: "#ff5252", fontSize: "13px", marginTop: "12px" } }, error),
+        // Signed in info
+        h("p", { style: { fontSize: "12px", color: "#374151", marginTop: "16px" } },
+          "Signed in as ", h("span", { style: { color: "#6b7280" } }, user?.email || "Unknown")),
+        h("a", {
+          href: "/splash.html",
+          style: { fontSize: "12px", color: "#4b5563", textDecoration: "underline", display: "inline-block", marginTop: "8px" },
+        }, "Back to home"),
+      ),
+    );
+  }
+
   // ── Terms Gate Screen ────────────────────────────────────────────────────
   // Shown after authentication, before dashboard access.
   // User must accept Terms of Use to continue.
@@ -375,16 +485,16 @@
       }
     };
 
-    const handleSignOut = () => {
+    const handleSignOut = async () => {
       clearSession();
+      // Clear CF Access cookie via app-domain logout only
       const iframe = document.createElement("iframe");
       iframe.style.display = "none";
-      iframe.src = "https://timedtrading.cloudflareaccess.com/cdn-cgi/access/logout";
+      iframe.src = window.location.origin + "/cdn-cgi/access/logout";
       document.body.appendChild(iframe);
-      setTimeout(() => {
-        try { document.body.removeChild(iframe); } catch {}
-        window.location.href = "/splash.html";
-      }, 1500);
+      await new Promise(r => setTimeout(r, 1500));
+      try { document.body.removeChild(iframe); } catch {}
+      window.location.href = "/splash.html";
     };
 
     const chartIcon = h("svg", { width: "36", height: "36", viewBox: "0 0 24 24", fill: "none", stroke: "white", strokeWidth: "2", strokeLinecap: "round", strokeLinejoin: "round" },
@@ -646,6 +756,16 @@
       const required = TIER_ORDER[requiredTier] ?? 0;
       const current = TIER_ORDER[user.tier] ?? 0;
       if (current < required) {
+        // For pro-tier pages: show paywall if user is free with no active subscription
+        if (requiredTier === "pro" && (user.tier === "free" || !user.tier)) {
+          const subStatus = user.subscription_status;
+          if (subStatus !== "trialing" && subStatus !== "active") {
+            return React.createElement(PaywallScreen, {
+              user: user,
+              apiBase: apiBase,
+            });
+          }
+        }
         return React.createElement(AccessDeniedScreen, {
           user: user,
           requiredTier: requiredTier,
@@ -719,19 +839,21 @@
       .toUpperCase();
     const displayName = user.display_name || user.email?.split("@")[0] || "User";
 
-    const handleLogout = () => {
+    const handleLogout = async () => {
       clearSession();
-      // Clear the CF Access JWT cookie via a hidden iframe, then redirect
-      // back to the splash page (public landing page).
+      try { sessionStorage.setItem("tt_logout", "1"); } catch {}
+      // Clear CF Access cookie via app-domain logout in a hidden iframe,
+      // then redirect to the splash page.
+      // IMPORTANT: Only hit the app domain — hitting the team domain
+      // (cloudflareaccess.com) revokes the entire session and can prevent
+      // re-authentication, creating a login loop.
       const iframe = document.createElement("iframe");
       iframe.style.display = "none";
-      iframe.src = "https://timedtrading.cloudflareaccess.com/cdn-cgi/access/logout";
+      iframe.src = window.location.origin + "/cdn-cgi/access/logout";
       document.body.appendChild(iframe);
-      // Give the iframe time to clear the cookie, then redirect to splash
-      setTimeout(() => {
-        try { document.body.removeChild(iframe); } catch {}
-        window.location.href = "/splash.html";
-      }, 1500);
+      await new Promise(r => setTimeout(r, 1500));
+      try { document.body.removeChild(iframe); } catch {}
+      window.location.href = "/splash.html";
     };
 
     if (compact) {
@@ -840,39 +962,86 @@
                   user.tier === "free" ? "MEMBER" : user.tier,
                 ),
             ),
+            // My Account button (Stripe Customer Portal for subscription management)
+            (user.tier === "pro" || user.subscription_status === "trialing" || user.subscription_status === "active") &&
+            React.createElement(
+              "button",
+              {
+                onClick: async () => {
+                  setShowMenu(false);
+                  try {
+                    const res = await fetch("/timed/stripe/portal", {
+                      method: "POST",
+                      credentials: "include",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ return_url: window.location.href }),
+                    });
+                    const json = await res.json();
+                    if (json.ok && json.url) {
+                      window.location.href = json.url;
+                    } else {
+                      console.warn("[Account] Portal error:", json.error);
+                    }
+                  } catch (e) {
+                    console.warn("[Account] Portal request failed:", e);
+                  }
+                },
+                style: {
+                  width: "100%",
+                  padding: "8px 12px",
+                  borderRadius: "6px",
+                  border: "none",
+                  background: "transparent",
+                  color: "#00c853",
+                  fontSize: "13px",
+                  textAlign: "left",
+                  cursor: "pointer",
+                  fontFamily: "inherit",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "8px",
+                },
+                onMouseEnter: (e) =>
+                  (e.currentTarget.style.background = "rgba(0, 200, 83, 0.06)"),
+                onMouseLeave: (e) =>
+                  (e.currentTarget.style.background = "transparent"),
+              },
+              React.createElement("svg", {
+                width: "14", height: "14", viewBox: "0 0 24 24", fill: "none",
+                stroke: "currentColor", strokeWidth: "2", strokeLinecap: "round", strokeLinejoin: "round",
+              },
+                React.createElement("path", { d: "M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" }),
+                React.createElement("circle", { cx: "12", cy: "7", r: "4" }),
+              ),
+              "My Account",
+            ),
             // Switch Account button
             React.createElement(
               "button",
               {
-                onClick: () => {
+                onClick: async () => {
                   clearSession();
-                  // Robustly clear CF Access session using both fetch and iframe,
-                  // then redirect to the app. CF Access will intercept (no valid JWT)
-                  // and show the "Sign in with: Google" page for a fresh OAuth flow.
-                  // Google should then show the account chooser (if multiple accounts).
-                  try {
-                    fetch("https://timedtrading.cloudflareaccess.com/cdn-cgi/access/logout", {
-                      credentials: "include",
-                      mode: "no-cors",
-                    }).catch(() => {});
-                  } catch (_) {}
+                  // Clear CF Access cookie via app-domain logout only.
+                  // IMPORTANT: Do NOT hit the team domain (cloudflareaccess.com) — that
+                  // revokes the entire CF Access session and can create a login loop
+                  // that persists even after clearing cookies.
                   const iframe = document.createElement("iframe");
                   iframe.style.display = "none";
-                  iframe.src = "https://timedtrading.cloudflareaccess.com/cdn-cgi/access/logout";
+                  iframe.src = window.location.origin + "/cdn-cgi/access/logout";
                   document.body.appendChild(iframe);
-                  // Also attempt to clear the CF_Authorization cookie directly
+                  // Also attempt direct cookie deletion (may work if not HttpOnly)
                   try {
-                    const domain = window.location.hostname;
+                    const d = window.location.hostname;
                     document.cookie = "CF_Authorization=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
-                    document.cookie = "CF_Authorization=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/; domain=" + domain + ";";
-                    document.cookie = "CF_Authorization=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/; domain=." + domain + ";";
+                    document.cookie = "CF_Authorization=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/; domain=" + d;
+                    document.cookie = "CF_Authorization=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/; domain=." + d;
                   } catch (_) {}
-                  // Wait 2s for logout to propagate, then redirect to app
-                  // CF Access will intercept → show login page → user clicks Google → fresh OAuth
-                  setTimeout(() => {
-                    try { document.body.removeChild(iframe); } catch {}
-                    window.location.href = "/index-react.html";
-                  }, 2000);
+                  await new Promise(r => setTimeout(r, 1500));
+                  try { document.body.removeChild(iframe); } catch {}
+                  // Redirect to splash — when user clicks Sign In, CF Access will
+                  // start a fresh OAuth flow. Google account chooser appears because
+                  // the CF Access app-level session was invalidated.
+                  window.location.href = "/splash.html";
                 },
                 style: {
                   width: "100%",
@@ -887,9 +1056,9 @@
                   fontFamily: "inherit",
                 },
                 onMouseEnter: (e) =>
-                  (e.target.style.background = "rgba(255, 255, 255, 0.04)"),
+                  (e.currentTarget.style.background = "rgba(255, 255, 255, 0.04)"),
                 onMouseLeave: (e) =>
-                  (e.target.style.background = "transparent"),
+                  (e.currentTarget.style.background = "transparent"),
               },
               "Switch Account",
             ),
@@ -911,9 +1080,9 @@
                   fontFamily: "inherit",
                 },
                 onMouseEnter: (e) =>
-                  (e.target.style.background = "rgba(239, 68, 68, 0.1)"),
+                  (e.currentTarget.style.background = "rgba(239, 68, 68, 0.1)"),
                 onMouseLeave: (e) =>
-                  (e.target.style.background = "transparent"),
+                  (e.currentTarget.style.background = "transparent"),
               },
               "Sign Out",
             ),
@@ -962,8 +1131,534 @@
     );
   }
 
+  // ── Notification Center (Bell Icon + Dropdown) ───────────────────────────
+  function NotificationCenter({ apiBase }) {
+    const h = React.createElement;
+    const [open, setOpen] = React.useState(false);
+    const [notifications, setNotifications] = React.useState([]);
+    const [unreadCount, setUnreadCount] = React.useState(0);
+    const [loading, setLoading] = React.useState(false);
+    const [selectedNotification, setSelectedNotification] = React.useState(null); // modal
+    const bellRef = React.useRef(null);
+
+    // Type-to-icon color mapping
+    const typeColors = {
+      trade_entry: "#00c853",
+      trade_exit: "#ff5252",
+      trade_trim: "#ff9800",
+      daily_brief: "#42a5f5",
+      system: "#6b7280",
+      kanban: "#a78bfa",
+    };
+    const typeLabels = {
+      trade_entry: "Trade Entry",
+      trade_exit: "Trade Exit",
+      trade_trim: "Trade Trim/Defend",
+      daily_brief: "Daily Brief",
+      system: "System",
+      kanban: "Kanban Update",
+    };
+
+    const fetchNotifications = React.useCallback(async () => {
+      try {
+        const res = await fetch(`${apiBase}/timed/notifications?limit=20`, { credentials: "include" });
+        if (res.ok) {
+          const json = await res.json();
+          if (json.ok) {
+            setNotifications(json.notifications || []);
+            setUnreadCount(json.unread_count || 0);
+          }
+        }
+      } catch {}
+    }, [apiBase]);
+
+    // Poll every 60s for new notifications
+    React.useEffect(() => {
+      fetchNotifications();
+      const iv = setInterval(fetchNotifications, 60000);
+      return () => clearInterval(iv);
+    }, [fetchNotifications]);
+
+    // Close dropdown on outside click (but not when modal is open)
+    React.useEffect(() => {
+      const handler = (e) => {
+        if (selectedNotification) return; // modal handles its own clicks
+        if (bellRef.current && !bellRef.current.contains(e.target)) setOpen(false);
+      };
+      document.addEventListener("mousedown", handler);
+      return () => document.removeEventListener("mousedown", handler);
+    }, [selectedNotification]);
+
+    const markAllRead = async () => {
+      try {
+        await fetch(`${apiBase}/timed/notifications/read`, {
+          method: "POST", credentials: "include",
+          headers: { "Content-Type": "application/json" }, body: "{}",
+        });
+        setUnreadCount(0);
+        setNotifications(prev => prev.map(n => ({ ...n, read_at: n.read_at || Date.now() })));
+      } catch {}
+    };
+
+    const clearAll = async () => {
+      try {
+        await fetch(`${apiBase}/timed/notifications/clear`, {
+          method: "POST", credentials: "include",
+        });
+        setNotifications([]);
+        setUnreadCount(0);
+      } catch {}
+    };
+
+    const markSingleRead = async (n) => {
+      if (!n.read_at) {
+        try {
+          await fetch(`${apiBase}/timed/notifications/read`, {
+            method: "POST", credentials: "include",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ id: n.id }),
+          });
+          setUnreadCount(prev => Math.max(0, prev - 1));
+          setNotifications(prev => prev.map(x => x.id === n.id ? { ...x, read_at: Date.now() } : x));
+        } catch {}
+      }
+    };
+
+    const handleClick = async (n) => {
+      await markSingleRead(n);
+      // Always open the detail modal — never navigate away on click.
+      // If the notification has a link, it's shown as a button inside the modal.
+      setSelectedNotification(n);
+      setOpen(false);
+    };
+
+    const formatTime = (ts) => {
+      if (!ts) return "";
+      const d = new Date(ts);
+      const diff = Date.now() - d.getTime();
+      if (diff < 60000) return "Just now";
+      if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`;
+      if (diff < 86400000) return `${Math.floor(diff / 3600000)}h ago`;
+      return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+    };
+
+    const formatFullTime = (ts) => {
+      if (!ts) return "";
+      return new Date(ts).toLocaleString("en-US", {
+        month: "short", day: "numeric", year: "numeric",
+        hour: "numeric", minute: "2-digit", hour12: true,
+      });
+    };
+
+    // ── Notification Detail Modal ──
+    const modal = selectedNotification && h("div", {
+      style: {
+        position: "fixed", inset: 0, zIndex: 50000, display: "flex", alignItems: "center", justifyContent: "center",
+        background: "rgba(0,0,0,0.7)", backdropFilter: "blur(4px)",
+      },
+      onClick: (e) => { if (e.target === e.currentTarget) setSelectedNotification(null); },
+    },
+      h("div", {
+        style: {
+          width: "90%", maxWidth: "520px", maxHeight: "80vh", background: "#141720",
+          border: "1px solid rgba(255,255,255,0.08)", borderRadius: "16px",
+          overflow: "hidden", display: "flex", flexDirection: "column",
+          fontFamily: '"Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+        },
+      },
+        // Modal header
+        h("div", {
+          style: {
+            display: "flex", justifyContent: "space-between", alignItems: "center",
+            padding: "16px 20px", borderBottom: "1px solid rgba(255,255,255,0.06)",
+          },
+        },
+          h("div", { style: { display: "flex", alignItems: "center", gap: "10px" } },
+            h("div", {
+              style: {
+                width: "10px", height: "10px", borderRadius: "50%",
+                background: typeColors[selectedNotification.type] || "#6b7280",
+              },
+            }),
+            h("span", { style: { fontSize: "11px", color: "#6b7280", fontWeight: "600", textTransform: "uppercase", letterSpacing: "0.04em" } },
+              typeLabels[selectedNotification.type] || selectedNotification.type || "Notification"),
+          ),
+          h("button", {
+            onClick: () => setSelectedNotification(null),
+            style: { background: "none", border: "none", cursor: "pointer", fontSize: "18px", color: "#6b7280", padding: "4px" },
+          }, "\u2715"),
+        ),
+        // Modal body
+        h("div", { style: { padding: "20px", overflowY: "auto", flex: 1 } },
+          h("h3", { style: { fontSize: "16px", fontWeight: "700", color: "#e5e7eb", margin: "0 0 8px" } },
+            selectedNotification.title),
+          h("div", { style: { fontSize: "11px", color: "#374151", marginBottom: "16px" } },
+            formatFullTime(selectedNotification.created_at)),
+          selectedNotification.body && h("div", {
+            style: {
+              fontSize: "13px", color: "#9ca3af", lineHeight: "1.7", whiteSpace: "pre-wrap",
+              wordBreak: "break-word",
+            },
+          }, selectedNotification.body),
+        ),
+        // Modal footer
+        h("div", {
+          style: {
+            padding: "12px 20px", borderTop: "1px solid rgba(255,255,255,0.06)",
+            display: "flex", justifyContent: "space-between", alignItems: "center",
+          },
+        },
+          selectedNotification.link
+            ? h("a", {
+                href: selectedNotification.link,
+                style: { fontSize: "12px", color: "#00c853", textDecoration: "none", fontWeight: "500" },
+              }, "View Details \u2192")
+            : h("span"),
+          h("button", {
+            onClick: () => setSelectedNotification(null),
+            style: {
+              padding: "8px 16px", borderRadius: "8px", border: "1px solid rgba(255,255,255,0.08)",
+              background: "rgba(255,255,255,0.04)", color: "#e5e7eb", fontSize: "12px",
+              fontWeight: "500", cursor: "pointer", fontFamily: "inherit",
+            },
+          }, "Close"),
+        ),
+      ),
+    );
+
+    return h("div", { ref: bellRef, style: { position: "relative", display: "inline-flex" } },
+      // Bell button
+      h("button", {
+        onClick: () => { setOpen(!open); if (!open) fetchNotifications(); },
+        style: {
+          position: "relative", background: "none", border: "none", cursor: "pointer",
+          padding: "4px 6px", borderRadius: "6px", display: "flex", alignItems: "center",
+        },
+        title: "Notifications",
+      },
+        h("svg", {
+          width: "18", height: "18", viewBox: "0 0 24 24", fill: "none",
+          stroke: unreadCount > 0 ? "#00c853" : "#6b7280", strokeWidth: "2",
+          strokeLinecap: "round", strokeLinejoin: "round",
+        },
+          h("path", { d: "M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" }),
+          h("path", { d: "M13.73 21a2 2 0 0 1-3.46 0" }),
+        ),
+        // Badge
+        unreadCount > 0 && h("span", {
+          style: {
+            position: "absolute", top: "0", right: "2px", minWidth: "16px", height: "16px",
+            borderRadius: "8px", background: "#ff5252", color: "#fff", fontSize: "10px",
+            fontWeight: "700", display: "flex", alignItems: "center", justifyContent: "center",
+            padding: "0 4px", lineHeight: "1",
+          },
+        }, unreadCount > 9 ? "9+" : unreadCount),
+      ),
+      // Dropdown
+      open && h("div", {
+        style: {
+          position: "absolute", top: "calc(100% + 8px)", right: "0", width: "340px", maxHeight: "420px",
+          background: "#141720", border: "1px solid rgba(255,255,255,0.08)", borderRadius: "12px",
+          boxShadow: "0 16px 48px rgba(0,0,0,0.5)", zIndex: 10000, overflow: "hidden",
+          fontFamily: '"Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+        },
+      },
+        // Header
+        h("div", {
+          style: {
+            display: "flex", justifyContent: "space-between", alignItems: "center",
+            padding: "12px 16px", borderBottom: "1px solid rgba(255,255,255,0.06)",
+          },
+        },
+          h("span", { style: { fontSize: "13px", fontWeight: "600", color: "#e5e7eb" } }, "Notifications"),
+          h("div", { style: { display: "flex", gap: "8px" } },
+            unreadCount > 0 && h("button", {
+              onClick: markAllRead,
+              style: { background: "none", border: "none", cursor: "pointer", fontSize: "11px", color: "#00c853" },
+            }, "Mark All Read"),
+            notifications.length > 0 && h("button", {
+              onClick: clearAll,
+              style: { background: "none", border: "none", cursor: "pointer", fontSize: "11px", color: "#6b7280" },
+            }, "Clear All"),
+          ),
+        ),
+        // List
+        h("div", { style: { overflowY: "auto", maxHeight: "360px" } },
+          notifications.length === 0
+            ? h("div", { style: { padding: "32px 16px", textAlign: "center" } },
+                h("p", { style: { fontSize: "13px", color: "#4b5563" } }, "No notifications yet"),
+              )
+            : notifications.map(n =>
+                h("div", {
+                  key: n.id,
+                  onClick: () => handleClick(n),
+                  style: {
+                    display: "flex", alignItems: "flex-start", gap: "10px", padding: "10px 16px",
+                    cursor: "pointer",
+                    background: n.read_at ? "transparent" : "rgba(0,200,83,0.03)",
+                    borderBottom: "1px solid rgba(255,255,255,0.03)",
+                    transition: "background 0.15s",
+                  },
+                  onMouseEnter: (e) => { e.currentTarget.style.background = "rgba(255,255,255,0.03)"; },
+                  onMouseLeave: (e) => { e.currentTarget.style.background = n.read_at ? "transparent" : "rgba(0,200,83,0.03)"; },
+                },
+                  // Type indicator dot
+                  h("div", {
+                    style: {
+                      width: "8px", height: "8px", borderRadius: "50%", flexShrink: 0, marginTop: "5px",
+                      background: typeColors[n.type] || "#6b7280",
+                    },
+                  }),
+                  h("div", { style: { flex: 1, minWidth: 0 } },
+                    h("div", {
+                      style: {
+                        fontSize: "12px", fontWeight: n.read_at ? "500" : "600",
+                        color: n.read_at ? "#9ca3af" : "#e5e7eb", marginBottom: "2px",
+                      },
+                    }, n.title),
+                    n.body && h("div", {
+                      style: { fontSize: "11px", color: "#6b7280", lineHeight: "1.4", overflow: "hidden",
+                        textOverflow: "ellipsis", whiteSpace: "nowrap" },
+                    }, n.body),
+                    h("div", { style: { fontSize: "10px", color: "#374151", marginTop: "2px" } }, formatTime(n.created_at)),
+                  ),
+                  // Unread dot
+                  !n.read_at && h("div", {
+                    style: { width: "6px", height: "6px", borderRadius: "50%", background: "#00c853", flexShrink: 0, marginTop: "6px" },
+                  }),
+                ),
+              ),
+        ),
+      ),
+      // Notification Detail Modal — rendered via portal to document.body
+      // so it's not clipped by parent overflow/transform/backdrop-filter.
+      modal && ReactDOM.createPortal(modal, document.body),
+    );
+  }
+
+  // ── VIP Admin Panel ──────────────────────────────────────────────────────
+  // Modal panel for managing users (admin-only). Fetches from GET /timed/admin/users
+  // and allows Set VIP, Revoke, Set Admin actions.
+  function VIPAdminPanel({ apiBase, onClose }) {
+    const h = React.createElement;
+    const [users, setUsers] = React.useState([]);
+    const [loading, setLoading] = React.useState(true);
+    const [filter, setFilter] = React.useState("");
+    const [actionLoading, setActionLoading] = React.useState(null);
+    const [message, setMessage] = React.useState(null);
+
+    const fetchUsers = React.useCallback(async () => {
+      setLoading(true);
+      try {
+        const res = await fetch(`${apiBase}/timed/admin/users`, { credentials: "include" });
+        if (res.ok) {
+          const json = await res.json();
+          if (json.ok) setUsers(json.users || []);
+        }
+      } catch {} finally { setLoading(false); }
+    }, [apiBase]);
+
+    React.useEffect(() => { fetchUsers(); }, [fetchUsers]);
+
+    const setTier = async (email, tier, expiresAt) => {
+      setActionLoading(email);
+      setMessage(null);
+      try {
+        const params = new URLSearchParams({ tier });
+        if (expiresAt) params.set("expires_at", expiresAt);
+        const res = await fetch(`${apiBase}/timed/admin/users/${encodeURIComponent(email)}/tier?${params}`, {
+          method: "POST", credentials: "include",
+        });
+        const json = await res.json();
+        if (json.ok) {
+          setMessage({ type: "success", text: `${email} → ${tier}` });
+          fetchUsers();
+        } else {
+          setMessage({ type: "error", text: json.error || "Failed" });
+        }
+      } catch (e) {
+        setMessage({ type: "error", text: String(e.message || e) });
+      } finally { setActionLoading(null); }
+    };
+
+    const filtered = users.filter(u =>
+      !filter || (u.email || "").toLowerCase().includes(filter.toLowerCase())
+      || (u.display_name || "").toLowerCase().includes(filter.toLowerCase())
+    );
+
+    const formatDate = (ts) => {
+      if (!ts) return "—";
+      return new Date(ts).toLocaleString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" });
+    };
+
+    const tierBadge = (tier) => {
+      const colors = { admin: "#a78bfa", pro: "#00c853", free: "#6b7280" };
+      return h("span", {
+        style: {
+          display: "inline-block", padding: "2px 8px", borderRadius: "4px", fontSize: "11px",
+          fontWeight: "600", color: colors[tier] || "#6b7280",
+          background: `${colors[tier] || "#6b7280"}15`, border: `1px solid ${colors[tier] || "#6b7280"}30`,
+        },
+      }, (tier || "free").toUpperCase());
+    };
+
+    return h("div", {
+      style: {
+        position: "fixed", inset: 0, zIndex: 50000, display: "flex", alignItems: "center", justifyContent: "center",
+        background: "rgba(0,0,0,0.7)", backdropFilter: "blur(4px)",
+      },
+      onClick: (e) => { if (e.target === e.currentTarget) onClose(); },
+    },
+      h("div", {
+        style: {
+          width: "90%", maxWidth: "900px", maxHeight: "85vh", background: "#141720",
+          border: "1px solid rgba(255,255,255,0.08)", borderRadius: "16px",
+          display: "flex", flexDirection: "column", overflow: "hidden",
+        },
+      },
+        // Header
+        h("div", {
+          style: {
+            display: "flex", justifyContent: "space-between", alignItems: "center",
+            padding: "16px 20px", borderBottom: "1px solid rgba(255,255,255,0.06)",
+          },
+        },
+          h("div", null,
+            h("h2", { style: { fontSize: "16px", fontWeight: "700", color: "#e5e7eb", margin: 0 } }, "VIP Admin Panel"),
+            h("p", { style: { fontSize: "12px", color: "#6b7280", margin: "4px 0 0" } },
+              `${users.length} users total`),
+          ),
+          h("button", {
+            onClick: onClose,
+            style: { background: "none", border: "none", cursor: "pointer", fontSize: "18px", color: "#6b7280", padding: "4px" },
+          }, "\u2715"),
+        ),
+        // Search
+        h("div", { style: { padding: "12px 20px", borderBottom: "1px solid rgba(255,255,255,0.04)" } },
+          h("input", {
+            type: "text", placeholder: "Search by email or name...",
+            value: filter, onChange: (e) => setFilter(e.target.value),
+            style: {
+              width: "100%", padding: "8px 12px", borderRadius: "8px", fontSize: "13px",
+              background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)",
+              color: "#e5e7eb", outline: "none",
+            },
+          }),
+          message && h("div", {
+            style: {
+              marginTop: "8px", padding: "6px 12px", borderRadius: "6px", fontSize: "12px",
+              color: message.type === "success" ? "#00c853" : "#ff5252",
+              background: message.type === "success" ? "rgba(0,200,83,0.08)" : "rgba(255,82,82,0.08)",
+            },
+          }, message.text),
+        ),
+        // Table
+        h("div", { style: { overflowY: "auto", flex: 1, padding: "0 20px 20px" } },
+          loading
+            ? h("div", { style: { textAlign: "center", padding: "40px", color: "#6b7280" } }, "Loading users...")
+            : h("table", {
+                style: { width: "100%", borderCollapse: "collapse", fontSize: "12px" },
+              },
+                h("thead", null,
+                  h("tr", { style: { borderBottom: "1px solid rgba(255,255,255,0.06)" } },
+                    ["Email", "Name", "Tier", "Sub Status", "Last Login", "Created", "Actions"].map(col =>
+                      h("th", {
+                        key: col,
+                        style: { padding: "8px 6px", textAlign: "left", color: "#6b7280", fontWeight: "600", fontSize: "11px", whiteSpace: "nowrap" },
+                      }, col),
+                    ),
+                  ),
+                ),
+                h("tbody", null,
+                  filtered.map(u =>
+                    h("tr", {
+                      key: u.email,
+                      style: { borderBottom: "1px solid rgba(255,255,255,0.03)" },
+                    },
+                      h("td", { style: { padding: "8px 6px", color: "#e5e7eb", maxWidth: "200px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, u.email),
+                      h("td", { style: { padding: "8px 6px", color: "#9ca3af" } }, u.display_name || "—"),
+                      h("td", { style: { padding: "8px 6px" } }, tierBadge(u.tier)),
+                      h("td", { style: { padding: "8px 6px", color: "#6b7280" } }, u.subscription_status || "none"),
+                      h("td", { style: { padding: "8px 6px", color: "#6b7280", whiteSpace: "nowrap" } }, formatDate(u.last_login_at)),
+                      h("td", { style: { padding: "8px 6px", color: "#6b7280", whiteSpace: "nowrap" } }, formatDate(u.created_at)),
+                      h("td", { style: { padding: "8px 6px", whiteSpace: "nowrap" } },
+                        h("div", { style: { display: "flex", gap: "4px" } },
+                          u.tier !== "pro" && h("button", {
+                            onClick: () => setTier(u.email, "pro", null),
+                            disabled: actionLoading === u.email,
+                            style: {
+                              padding: "3px 8px", borderRadius: "4px", fontSize: "10px", fontWeight: "600",
+                              background: "rgba(0,200,83,0.1)", border: "1px solid rgba(0,200,83,0.2)",
+                              color: "#00c853", cursor: "pointer",
+                            },
+                          }, "Set VIP"),
+                          u.tier !== "free" && h("button", {
+                            onClick: () => setTier(u.email, "free", String(Date.now())),
+                            disabled: actionLoading === u.email,
+                            style: {
+                              padding: "3px 8px", borderRadius: "4px", fontSize: "10px", fontWeight: "600",
+                              background: "rgba(255,82,82,0.1)", border: "1px solid rgba(255,82,82,0.2)",
+                              color: "#ff5252", cursor: "pointer",
+                            },
+                          }, "Revoke"),
+                          u.tier !== "admin" && u.role !== "admin" && h("button", {
+                            onClick: () => setTier(u.email, "admin", null),
+                            disabled: actionLoading === u.email,
+                            style: {
+                              padding: "3px 8px", borderRadius: "4px", fontSize: "10px", fontWeight: "600",
+                              background: "rgba(167,139,250,0.1)", border: "1px solid rgba(167,139,250,0.2)",
+                              color: "#a78bfa", cursor: "pointer",
+                            },
+                          }, "Set Admin"),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+        ),
+      ),
+    );
+  }
+
+  // ── Push Notification Registration ──────────────────────────────────────
+  // Register service worker and request push subscription
+  async function registerPushNotifications(apiBase) {
+    if (!("serviceWorker" in navigator) || !("PushManager" in window)) return;
+    try {
+      const reg = await navigator.serviceWorker.register("/service-worker.js");
+      // Don't auto-prompt — wait for user action or after a few page loads
+      const prompted = localStorage.getItem("tt_push_prompted");
+      if (prompted) return;
+      // After 3rd page load, show a tasteful prompt
+      const visits = Number(localStorage.getItem("tt_visit_count") || 0) + 1;
+      localStorage.setItem("tt_visit_count", String(visits));
+      if (visits < 3) return;
+      localStorage.setItem("tt_push_prompted", "1");
+      const permission = await Notification.requestPermission();
+      if (permission !== "granted") return;
+      const vapidKey = window.__TIMED_VAPID_PUBLIC_KEY;
+      if (!vapidKey) return;
+      const sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: vapidKey,
+      });
+      const subJson = sub.toJSON();
+      await fetch(`${apiBase}/timed/push/subscribe`, {
+        method: "POST", credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ endpoint: subJson.endpoint, keys: subJson.keys }),
+      });
+    } catch (e) {
+      console.warn("[PUSH] Registration failed:", e);
+    }
+  }
+
   // Export to window
   window.TimedAuthGate = AuthGate;
   window.TimedUserBadge = UserBadge;
+  window.TimedNotificationCenter = NotificationCenter;
+  window.TimedVIPAdminPanel = VIPAdminPanel;
   window.TimedAuthHelpers = { getStoredSession, storeSession, clearSession };
+  window.TimedPushRegister = registerPushNotifications;
 })();

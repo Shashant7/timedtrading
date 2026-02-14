@@ -852,7 +852,7 @@
       const root = ReactDOM.createRoot(document.getElementById("root"));
       root.render(
         _AuthGate
-          ? React.createElement(_AuthGate, { apiBase: API_BASE },
+          ? React.createElement(_AuthGate, { apiBase: API_BASE, requiredTier: "pro" },
               (user) => React.createElement(InvestorDashboard, { user })
             )
           : React.createElement(InvestorDashboard)

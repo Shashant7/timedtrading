@@ -693,6 +693,7 @@
                 >
                   {loading ? "Loading..." : "Refresh"}
                 </button>
+                {window.TimedNotificationCenter && <window.TimedNotificationCenter apiBase="" />}
                 {window.TimedUserBadge && <window.TimedUserBadge user={window.TimedAuthHelpers?.getStoredSession()} compact />}
               </div>
             </nav>

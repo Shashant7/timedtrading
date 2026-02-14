@@ -7324,6 +7324,7 @@
                 </div>
                 <div className="flex items-center gap-3">
                   <span className="text-[11px] text-[#4b5563]">Paper · $1k/trade</span>
+                  {window.TimedNotificationCenter && <window.TimedNotificationCenter apiBase={API_BASE} />}
                   {window.TimedUserBadge && <window.TimedUserBadge user={window.TimedAuthHelpers?.getStoredSession()} compact />}
                 </div>
               </nav>
@@ -8575,7 +8576,7 @@
         const AuthGate = window.TimedAuthGate;
         const root = ReactDOM.createRoot ? ReactDOM.createRoot(rootElement) : null;
         const app = (
-          <AuthGate apiBase={API_BASE}>
+          <AuthGate apiBase={API_BASE} requiredTier="pro">
             {(user) => (
               <TrackerErrorBoundary>
                 <App user={user} />

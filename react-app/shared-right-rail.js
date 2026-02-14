@@ -62,7 +62,7 @@
     // ═══════════════════════════════════════════════════════════════════════
     // TradingView Lightweight Charts Sub-Component for Right Rail
     // ═══════════════════════════════════════════════════════════════════════
-    function LWChart({ candles: rawCandles, chartTf, overlays, onCrosshair }) {
+    function LWChart({ candles: rawCandles, chartTf, overlays, onCrosshair, height: propHeight }) {
       const containerRef = useRef(null);
       const chartInstanceRef = useRef(null);
       const candleSeriesRef = useRef(null);
@@ -198,9 +198,10 @@
         if (!containerRef.current || !LWC || mapped.length < 2) return;
 
         // Create chart
+        const chartHeight = propHeight || 320;
         const chart = LWC.createChart(containerRef.current, {
           width: containerRef.current.clientWidth,
-          height: 320,
+          height: chartHeight,
           layout: {
             background: { type: "solid", color: "#0b0e11" },
             textColor: "#6b7280",
@@ -223,19 +224,33 @@
             borderColor: "rgba(38,50,95,0.5)",
             timeVisible: !["D", "W", "M"].includes(String(chartTf)),
             secondsVisible: false,
+            tickMarkFormatter: (time) => {
+              try {
+                const d = new Date(time * 1000);
+                return d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: "America/New_York" });
+              } catch { return ""; }
+            },
+          },
+          localization: {
+            timeFormatter: (time) => {
+              try {
+                const d = new Date(time * 1000);
+                return d.toLocaleString("en-US", { hour: "numeric", minute: "2-digit", second: "2-digit", timeZone: "America/New_York" });
+              } catch { return ""; }
+            },
           },
           handleScroll: { vertTouchDrag: false },
         });
         chartInstanceRef.current = chart;
 
-        // Candlestick series
+        // Candlestick series — standardized colors across all charts (matches Kanban sparklines)
         const candleSeries = chart.addCandlestickSeries({
-          upColor: "rgba(56,189,248,0.95)",
-          downColor: "rgba(251,146,60,0.95)",
-          borderUpColor: "rgba(56,189,248,0.95)",
-          borderDownColor: "rgba(251,146,60,0.95)",
-          wickUpColor: "rgba(56,189,248,0.80)",
-          wickDownColor: "rgba(251,146,60,0.80)",
+          upColor: "#22c55e",
+          downColor: "#ef4444",
+          borderUpColor: "#22c55e",
+          borderDownColor: "#ef4444",
+          wickUpColor: "#22c55e",
+          wickDownColor: "#ef4444",
         });
         candleSeries.setData(mapped);
         candleSeriesRef.current = candleSeries;
@@ -308,7 +323,7 @@
           candleSeriesRef.current = null;
           overlaySeriesRef.current = {};
         };
-      }, [mapped, indicatorData, chartTf, LWC]);
+      }, [mapped, indicatorData, chartTf, LWC, propHeight]);
 
       if (!LWC) {
         return React.createElement("div", { className: "text-xs text-[#6b7280]" }, "Charts library not loaded.");
@@ -375,7 +390,7 @@
         React.createElement("div", {
           ref: containerRef,
           className: "rounded-lg overflow-hidden",
-          style: { height: 320, background: "#0b0e11" },
+          style: { height: propHeight || 320, background: "#0b0e11" },
         }),
         // Status bar
         React.createElement("div", { className: "mt-1 text-[10px] text-[#6b7280] flex items-center justify-between" },
@@ -486,6 +501,15 @@
         // Model signal data (ticker + sector + market level)
         const [modelSignal, setModelSignal] = useState(null);
         const [chartOverlays, setChartOverlays] = useState({ ema21: true, ema48: true, ema200: false, supertrend: false, tdSequential: false });
+        const [chartExpanded, setChartExpanded] = useState(false);
+
+        // Close expanded chart on Escape
+        useEffect(() => {
+          if (!chartExpanded) return;
+          const onKey = (e) => { if (e.key === "Escape") setChartExpanded(false); };
+          window.addEventListener("keydown", onKey);
+          return () => window.removeEventListener("keydown", onKey);
+        }, [chartExpanded]);
         
         // Accordion states (MUST be at component level, not inside IIFE blocks)
         const [scoreExpanded, setScoreExpanded] = useState(true);
@@ -1155,52 +1179,100 @@
                     })()}
                   </div>
 
-                  {/* ── Indicator Pills — Quality, Timeframe, Strength, Trend ── */}
+                  {/* ── Badges & Indicator Pills — with inline descriptions ── */}
                   {(() => {
+                    const flags = ticker?.flags || {};
                     const pills = [];
-                    // Quality score
-                    const q = Number(ticker?.quality_score ?? ticker?.quality ?? ticker?.q);
-                    if (Number.isFinite(q)) {
-                      const qColor = q >= 80 ? "bg-green-500/20 text-green-300 border-green-500/40" : q >= 60 ? "bg-yellow-500/20 text-yellow-300 border-yellow-500/40" : "bg-red-500/20 text-red-300 border-red-500/40";
-                      pills.push({ label: `Q:${Math.round(q)}`, cls: qColor, tip: `Quality Score: ${Math.round(q)}/100 — composite measure of setup quality` });
+                    const badges = [];
+
+                    // ── Badges (emoji-based, from flags + isPrimeBubble) ──
+                    if (isPrimeBubble(ticker)) badges.push({ icon: "💎", label: "Prime", tip: "Prime: Top-ranked setup with high conviction" });
+                    if (flags.flip_watch) badges.push({ icon: "🎯", label: "Entry Zone", tip: "Entry Zone: Price is near optimal entry level" });
+                    if (flags.momentum_elite) badges.push({ icon: "🔥", label: "MoElite", tip: "MoElite: Elite momentum alignment across timeframes" });
+                    if (flags.sq30_on && !flags.sq30_release) badges.push({ icon: "🧨", label: "Squeeze", tip: "Squeeze: Bollinger Band squeeze detected — volatility expansion expected" });
+                    if (flags.sq30_release) badges.push({ icon: "⚡", label: "Release", tip: "Release: Squeeze has fired — momentum breakout in progress" });
+
+                    // ── Indicator Pills ──
+
+                    // Entry Quality score
+                    const eqScore = Number(ticker?.entry_quality?.score) || 0;
+                    if (eqScore > 0) {
+                      const eqColor = eqScore >= 70 ? "bg-emerald-500/20 text-emerald-300 border-emerald-400/40" : eqScore >= 50 ? "bg-amber-500/20 text-amber-300 border-amber-400/40" : "bg-rose-500/20 text-rose-300 border-rose-400/40";
+                      pills.push({ label: `Q:${eqScore}`, cls: eqColor, desc: "Entry Quality", tip: `Entry Quality: Structure=${ticker?.entry_quality?.structure || 0} Momentum=${ticker?.entry_quality?.momentum || 0} Confirm=${ticker?.entry_quality?.confirmation || 0}` });
                     }
-                    // Timeframe alignment
-                    const tfNum = Number(ticker?.tf_aligned_count ?? ticker?.tf_aligned);
-                    const tfTotal = Number(ticker?.tf_total ?? 5);
-                    if (Number.isFinite(tfNum)) {
-                      const tfColor = tfNum >= 3 ? "bg-green-500/15 text-green-300 border-green-500/30" : tfNum >= 2 ? "bg-yellow-500/15 text-yellow-300 border-yellow-500/30" : "bg-white/5 text-[#6b7280] border-white/10";
-                      pills.push({ label: `${tfNum}/${Number.isFinite(tfTotal) ? tfTotal : 5} TF`, cls: tfColor, tip: `Timeframe Alignment: ${tfNum} of ${Number.isFinite(tfTotal) ? tfTotal : 5} timeframes aligned` });
+
+                    // Swing Consensus (multi-timeframe alignment)
+                    const swingBullCt = Number(ticker?.swing_consensus?.bullish_count) || 0;
+                    const swingBearCt = Number(ticker?.swing_consensus?.bearish_count) || 0;
+                    const swingDir = ticker?.swing_consensus?.direction || null;
+                    const freshCrossTf = ticker?.swing_consensus?.freshest_cross_tf || null;
+                    if (swingBullCt > 0 || swingBearCt > 0) {
+                      const tfColor = swingDir === "LONG" ? "bg-cyan-500/20 text-cyan-300 border-cyan-400/40" : swingDir === "SHORT" ? "bg-rose-500/20 text-rose-300 border-rose-400/40" : "bg-slate-500/20 text-slate-300 border-slate-400/40";
+                      pills.push({ label: `${swingBullCt}/5 TF`, cls: tfColor, desc: "Bullish Timeframes", tip: `Swing Consensus: ${swingBullCt}/5 bullish, ${swingBearCt}/5 bearish${freshCrossTf ? `, fresh ${freshCrossTf} cross` : ""}` });
                     }
+
+                    // Volatility Tier
+                    const volTier = String(ticker?.volatility_tier || "");
+                    if (volTier) {
+                      const vColor = volTier === "LOW" ? "bg-blue-500/15 text-blue-300 border-blue-400/30" : volTier === "MEDIUM" ? "bg-slate-500/15 text-slate-300 border-slate-400/30" : volTier === "HIGH" ? "bg-orange-500/15 text-orange-300 border-orange-400/30" : "bg-red-500/15 text-red-300 border-red-400/30";
+                      pills.push({ label: volTier, cls: vColor, desc: "Volatility", tip: `Volatility: ${ticker?.volatility_atr_pct || "?"}% daily ATR` });
+                    }
+
+                    // Regime
+                    const regimeCombined = ticker?.regime?.combined || null;
+                    const regimeLabel = {
+                      STRONG_BULL: "Strong Bull", EARLY_BULL: "Early Bull", LATE_BULL: "Late Bull",
+                      COUNTER_TREND_BULL: "CT Bull", NEUTRAL: "Neutral", COUNTER_TREND_BEAR: "CT Bear",
+                      EARLY_BEAR: "Early Bear", LATE_BEAR: "Late Bear", STRONG_BEAR: "Strong Bear",
+                    }[regimeCombined] || null;
+                    if (regimeLabel) {
+                      const rColor = regimeCombined?.includes("BULL") ? "bg-emerald-500/15 text-emerald-300 border-emerald-400/30" : regimeCombined?.includes("BEAR") ? "bg-rose-500/15 text-rose-300 border-rose-400/30" : "bg-slate-500/15 text-slate-300 border-slate-400/30";
+                      pills.push({ label: regimeLabel, cls: rColor, desc: "Regime", tip: `Regime: Daily=${ticker?.regime?.daily || "?"}, Weekly=${ticker?.regime?.weekly || "?"}` });
+                    }
+
+                    // Fresh EMA Cross
+                    if (freshCrossTf) {
+                      pills.push({ label: `${freshCrossTf}x`, cls: "bg-purple-500/15 text-purple-300 border-purple-400/30", desc: "Fresh Cross", tip: `Fresh EMA cross on ${freshCrossTf}` });
+                    }
+
                     // Strength / exhaustion
                     const strength = String(ticker?.strength || ticker?.move_strength || "").toUpperCase();
                     if (strength) {
                       const sColor = strength === "EXTREME" ? "bg-purple-500/15 text-purple-300 border-purple-500/40" : strength === "STRONG" ? "bg-blue-500/15 text-blue-300 border-blue-500/30" : "bg-white/5 text-[#6b7280] border-white/10";
-                      pills.push({ label: strength, cls: sColor, tip: `Move Strength: ${strength} — intensity of the current move` });
+                      pills.push({ label: strength, cls: sColor, desc: "Strength", tip: `Move Strength: ${strength} — intensity of the current move` });
                     }
+
                     // Trend
                     const trend = String(ticker?.trend || ticker?.weekly_trend || "").replace(/_/g, " ");
                     if (trend) {
                       const tU = trend.toUpperCase();
                       const tColor = tU.includes("BULL") ? "bg-green-500/15 text-green-300 border-green-500/30" : tU.includes("BEAR") ? "bg-red-500/15 text-red-300 border-red-500/30" : "bg-white/5 text-[#6b7280] border-white/10";
                       const tLabel = trend.split(" ").map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(" ");
-                      pills.push({ label: tLabel, cls: tColor, tip: `Weekly Trend: ${tLabel}` });
+                      pills.push({ label: tLabel, cls: tColor, desc: "Trend", tip: `Weekly Trend: ${tLabel}` });
                     }
-                    // Badges (Prime, MoElite, Squeeze, etc.)
-                    const badges = [];
-                    if (ticker?.is_prime || ticker?.prime) badges.push({ icon: "⭐", label: "Prime", tip: "Prime: Top-ranked setup with high conviction" });
-                    if (ticker?.is_entry_zone || ticker?.entry_zone) badges.push({ icon: "🎯", label: "Entry Zone", tip: "Entry Zone: Price is near optimal entry level" });
-                    if (ticker?.is_mo_elite || ticker?.mo_elite) badges.push({ icon: "🔥", label: "MoElite", tip: "MoElite: Elite momentum alignment across timeframes" });
-                    if (ticker?.squeeze_on || ticker?.flags?.squeeze_on) badges.push({ icon: "🧨", label: "Squeeze", tip: "Squeeze: Bollinger Band squeeze detected — volatility expansion expected" });
-                    if (ticker?.squeeze_release || ticker?.flags?.squeeze_release) badges.push({ icon: "⚡", label: "Release", tip: "Release: Squeeze has fired — momentum breakout in progress" });
+
                     if (pills.length === 0 && badges.length === 0) return null;
                     return (
-                      <div className="mt-2 flex items-center gap-1.5 flex-wrap text-[10px]">
-                        {pills.map((p, i) => (
-                          <span key={`ip-${i}`} className={`px-1.5 py-0.5 rounded border font-semibold cursor-default ${p.cls}`} title={p.tip}>{p.label}</span>
-                        ))}
-                        {badges.map((b, i) => (
-                          <span key={`ib-${i}`} className="px-1.5 py-0.5 rounded border bg-white/5 border-white/10 text-[#d1d5db] font-semibold cursor-default" title={b.tip}>{b.icon} {b.label}</span>
-                        ))}
+                      <div className="mt-2 flex flex-col gap-1.5">
+                        {/* Badges row */}
+                        {badges.length > 0 && (
+                          <div className="flex items-center gap-1.5 flex-wrap text-[10px]">
+                            {badges.map((b, i) => (
+                              <span key={`ib-${i}`} className="px-1.5 py-0.5 rounded border bg-white/5 border-white/10 text-[#d1d5db] font-semibold cursor-default" title={b.tip}>{b.icon} {b.label}</span>
+                            ))}
+                          </div>
+                        )}
+                        {/* Indicator pills with descriptions */}
+                        {pills.length > 0 && (
+                          <div className="flex items-center gap-2 flex-wrap text-[10px]">
+                            {pills.map((p, i) => (
+                              <span key={`ip-${i}`} className="inline-flex items-center gap-1 cursor-default" title={p.tip}>
+                                <span className={`px-1.5 py-0.5 rounded border font-semibold ${p.cls}`}>{p.label}</span>
+                                <span className="text-[#6b7280] text-[9px]">{p.desc}</span>
+                              </span>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     );
                   })()}
@@ -1499,7 +1571,7 @@
 
                       {prime && (
                         <div className="mb-4 p-3 bg-green-500/20 border-2 border-green-500 rounded-lg text-center font-bold text-green-500 prime-glow">
-                          ⭐ PRIME SETUP ⭐
+                          💎 PRIME SETUP 💎
                         </div>
                       )}
 
@@ -1596,7 +1668,21 @@
                       {/* Chart */}
                       <div className="mb-4 p-3 bg-white/[0.03] border-2 border-white/[0.06] rounded-lg">
                         <div className="flex items-center justify-between gap-2 mb-3">
-                          <div className="text-sm text-[#6b7280]">Chart</div>
+                          <div className="flex items-center gap-2">
+                            <div className="text-sm text-[#6b7280]">Chart</div>
+                            <button
+                              onClick={() => setChartExpanded(true)}
+                              className="p-1 rounded hover:bg-white/[0.06] text-[#6b7280] hover:text-white transition-colors"
+                              title="Expand chart"
+                            >
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                <polyline points="15 3 21 3 21 9" />
+                                <polyline points="9 21 3 21 3 15" />
+                                <line x1="21" y1="3" x2="14" y2="10" />
+                                <line x1="3" y1="21" x2="10" y2="14" />
+                              </svg>
+                            </button>
+                          </div>
                           <div className="flex items-center gap-1 flex-wrap">
                             {[
                               { tf: "1", label: "1m" },
@@ -1654,6 +1740,85 @@
                           })()
                         )}
                       </div>
+
+                      {/* Expanded Chart Modal */}
+                      {chartExpanded && ReactDOM.createPortal(
+                        <div
+                          className="fixed inset-0 z-[9999] flex items-center justify-center p-6"
+                          onClick={(e) => { if (e.target === e.currentTarget) setChartExpanded(false); }}
+                        >
+                          {/* Darkened overlay */}
+                          <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" />
+
+                          {/* Modal content */}
+                          <div className="relative w-full max-w-5xl bg-[#0f1117] border border-white/[0.08] rounded-xl shadow-2xl overflow-hidden" style={{ maxHeight: "85vh" }}>
+                            {/* Modal header */}
+                            <div className="flex items-center justify-between px-4 py-3 border-b border-white/[0.06]">
+                              <div className="flex items-center gap-3">
+                                <span className="text-sm font-semibold text-white">{ticker?.ticker || "Chart"}</span>
+                                <div className="flex items-center gap-1 flex-wrap">
+                                  {[
+                                    { tf: "1", label: "1m" },
+                                    { tf: "5", label: "5m" },
+                                    { tf: "10", label: "10m" },
+                                    { tf: "30", label: "30m" },
+                                    { tf: "60", label: "1H" },
+                                    { tf: "240", label: "4H" },
+                                    { tf: "D", label: "D" },
+                                    { tf: "W", label: "W" },
+                                    { tf: "M", label: "M" },
+                                  ].map((t) => {
+                                    const active = String(chartTf) === String(t.tf);
+                                    return (
+                                      <button
+                                        key={`modal-tf-${t.tf}`}
+                                        onClick={() => setChartTf(String(t.tf))}
+                                        className={`px-2 py-1 rounded border text-[11px] font-semibold transition-all ${
+                                          active
+                                            ? "border-blue-400 bg-blue-500/20 text-blue-200"
+                                            : "border-white/[0.06] bg-white/[0.02] text-[#6b7280] hover:text-white"
+                                        }`}
+                                      >
+                                        {t.label}
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                              <button
+                                onClick={() => setChartExpanded(false)}
+                                className="p-1.5 rounded-lg hover:bg-white/[0.06] text-[#6b7280] hover:text-white transition-colors"
+                                title="Close"
+                              >
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                  <line x1="18" y1="6" x2="6" y2="18" />
+                                  <line x1="6" y1="6" x2="18" y2="18" />
+                                </svg>
+                              </button>
+                            </div>
+
+                            {/* Modal chart body */}
+                            <div className="p-4" style={{ height: "calc(85vh - 56px)" }}>
+                              {chartLoading ? (
+                                <div className="flex items-center justify-center h-full text-sm text-[#6b7280]">Loading candles…</div>
+                              ) : chartError ? (
+                                <div className="flex items-center justify-center h-full text-sm text-yellow-300">Failed to load candles: {chartError}</div>
+                              ) : !Array.isArray(chartCandles) || chartCandles.length < 2 ? (
+                                <div className="flex items-center justify-center h-full text-sm text-[#6b7280]">No candles yet for this timeframe.</div>
+                              ) : (
+                                <LWChart
+                                  candles={chartCandles}
+                                  chartTf={chartTf}
+                                  overlays={chartOverlays}
+                                  onCrosshair={(key) => setChartOverlays(prev => ({ ...prev, [key]: !prev[key] }))}
+                                  height={Math.min(window.innerHeight * 0.75, 700)}
+                                />
+                              )}
+                            </div>
+                          </div>
+                        </div>,
+                        document.body
+                      )}
 
                       {/* Unified Risk / Reward Levels — single source of truth */}
                       {(() => {

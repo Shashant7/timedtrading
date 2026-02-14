@@ -360,6 +360,16 @@ const ROUTES = [
   ["GET", "/timed/etf/groups", "GET /timed/etf/groups"],
   ["GET", (p) => /^\/timed\/etf\/holdings\/[A-Z]+$/i.test(p), "GET /timed/etf/holdings/:symbol"],
   ["POST", "/timed/etf/sync", "POST /timed/etf/sync"],
+  // ── Notifications ──
+  ["POST", "/timed/push/subscribe", "POST /timed/push/subscribe"],
+  ["GET", "/timed/notifications", "GET /timed/notifications"],
+  ["POST", "/timed/notifications/read", "POST /timed/notifications/read"],
+  ["POST", "/timed/notifications/clear", "POST /timed/notifications/clear"],
+  // ── Stripe / Subscriptions ──
+  ["POST", "/timed/stripe/create-checkout", "POST /timed/stripe/create-checkout"],
+  ["POST", "/timed/stripe/webhook", "POST /timed/stripe/webhook"],
+  ["POST", "/timed/stripe/portal", "POST /timed/stripe/portal"],
+  ["GET", "/timed/subscription", "GET /timed/subscription"],
 ];
 
 function getRouteKey(method, pathname) {
@@ -504,6 +514,19 @@ function prevTradingDayKey(dayKey) {
     if (!isNyWeekend(ms)) return k;
   }
   return null;
+}
+
+// Return today's NY date rolled back to the last weekday (skip Sat/Sun).
+// On weekends, returns the most recent Friday. On weekdays, returns today.
+// This is the "current trading day" for daily-change calculations.
+function currentTradingDayKey() {
+  let ms = Date.now();
+  for (let i = 0; i < 3; i++) {
+    const k = nyTradingDayKey(ms);
+    if (k && !isNyWeekend(ms)) return k;
+    ms -= 24 * 60 * 60 * 1000;
+  }
+  return nyTradingDayKey(Date.now()); // fallback
 }
 
 // True when previous state is from before today's market open and current bar is at/after open (AH/PM gap bridge).
@@ -6783,6 +6806,13 @@ async function processTradeSimulation(
                   error: String(err),
                 }))
               : { ok: false, skipped: true, reason: "critical_only" };
+            // In-app notification for trade exit
+            ctx.waitUntil(d1InsertNotification(env, {
+              email: null, type: "trade_exit",
+              title: `EXIT: ${sym} ${String(trade.direction || "").toUpperCase()}`,
+              body: `Closed ${sym} @ $${Number(trade.exitPrice).toFixed(2)} (P&L: ${Number(trade.pnlPct || 0) >= 0 ? "+" : ""}${Number(trade.pnlPct || 0).toFixed(1)}%, ${String(trade.status || "").toUpperCase()})`,
+              link: `/simulation-dashboard.html`,
+            }));
             await upsertAlertSafe({
               alert_id: buildAlertId(sym, tsMs, "TRADE_EXIT"),
               ticker: sym,
@@ -7056,6 +7086,13 @@ async function processTradeSimulation(
                   error: String(err),
                 }))
               : { ok: false, skipped: true, reason: "critical_only" };
+            // In-app notification for trade trim
+            ctx.waitUntil(d1InsertNotification(env, {
+              email: null, type: "trade_trim",
+              title: `TRIM: ${sym} ${dir}`,
+              body: `Trimmed ${sym} ${dir} to ${tgt}% (P&L: ${Number(pnlPctAtTrim || 0) >= 0 ? "+" : ""}${Number(pnlPctAtTrim || 0).toFixed(1)}%)`,
+              link: `/index-react.html?ticker=${sym}`,
+            }));
             await upsertAlertSafe({
               alert_id: buildAlertId(sym, tsMs, "TRADE_TRIM"),
               ticker: sym,
@@ -7935,6 +7972,13 @@ async function processTradeSimulation(
                         error: String(err),
                       }))
                     : { ok: false, skipped: true, reason: "critical_only" };
+                  // In-app notification for trade entry
+                  ctx.waitUntil(d1InsertNotification(env, {
+                    email: null, type: "trade_entry",
+                    title: `ENTRY: ${sym} ${direction}`,
+                    body: `Entered ${sym} ${direction} @ $${Number(entryPx).toFixed(2)} (Rank: ${Number(trade.rank || 0)}, R:R: ${Number(trade.rr || 0).toFixed(1)})`,
+                    link: `/index-react.html?ticker=${sym}`,
+                  }));
                   await upsertAlertSafe({
                     alert_id: buildAlertId(sym, tsMs, "TRADE_ENTRY"),
                     ticker: sym,
@@ -11486,6 +11530,92 @@ async function d1EnsureMlV1Schema(env) {
   }
 }
 
+// ═══════════════════════════════════════════════════════════════════════
+// Notification Center — D1 Schema & Helpers
+// ═══════════════════════════════════════════════════════════════════════
+
+let _notifSchemaReady = false;
+async function d1EnsureNotificationSchema(env) {
+  if (_notifSchemaReady) return;
+  const db = env?.DB;
+  if (!db) return;
+  try {
+    await db.prepare(`
+      CREATE TABLE IF NOT EXISTS push_subscriptions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        email TEXT NOT NULL,
+        endpoint TEXT NOT NULL,
+        p256dh TEXT NOT NULL,
+        auth TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        UNIQUE(email, endpoint)
+      )
+    `).run();
+    await db.prepare(`
+      CREATE TABLE IF NOT EXISTS user_notifications (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        email TEXT,
+        type TEXT NOT NULL,
+        title TEXT NOT NULL,
+        body TEXT,
+        link TEXT,
+        read_at INTEGER,
+        created_at INTEGER NOT NULL
+      )
+    `).run();
+    await db.prepare(`
+      CREATE INDEX IF NOT EXISTS idx_user_notif_email ON user_notifications(email, created_at DESC)
+    `).run();
+    _notifSchemaReady = true;
+  } catch (e) {
+    console.error("[NOTIF] Schema init failed:", String(e).slice(0, 200));
+  }
+}
+
+/** Insert a notification for a user (or broadcast if email is null) */
+async function d1InsertNotification(env, { email, type, title, body, link }) {
+  const db = env?.DB;
+  if (!db) return;
+  try {
+    await d1EnsureNotificationSchema(env);
+    await db.prepare(`
+      INSERT INTO user_notifications (email, type, title, body, link, created_at)
+      VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+    `).bind(email || null, type, title, body || null, link || null, Date.now()).run();
+  } catch (e) {
+    console.warn("[NOTIF] Insert failed:", String(e).slice(0, 100));
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// Subscription / Stripe — D1 Schema Helpers
+// ═══════════════════════════════════════════════════════════════════════
+
+let _stripeSchemaReady = false;
+async function d1EnsureStripeSchema(env) {
+  if (_stripeSchemaReady) return;
+  const db = env?.DB;
+  if (!db) return;
+  try {
+    // Add Stripe columns to users table (idempotent ALTER TABLE)
+    const cols = [
+      ["stripe_customer_id", "TEXT"],
+      ["stripe_subscription_id", "TEXT"],
+      ["subscription_status", "TEXT DEFAULT 'none'"],
+    ];
+    for (const [col, type] of cols) {
+      try {
+        await db.prepare(`ALTER TABLE users ADD COLUMN ${col} ${type}`).run();
+      } catch {
+        // Column already exists — ignore
+      }
+    }
+    _stripeSchemaReady = true;
+  } catch (e) {
+    console.error("[STRIPE] Schema migration failed:", String(e).slice(0, 200));
+  }
+}
+
 async function d1EnqueueMlV1(env, ticker, payload, horizonsMs) {
   const db = env?.DB;
   if (!db) return { ok: false, skipped: true, reason: "no_db_binding" };
@@ -12050,12 +12180,43 @@ async function mergeFreshnessIntoLatest(KV, prices) {
         if (!snap || !(Number(snap.p) > 0)) return;
         const existing = await kvGetJSON(KV, `timed:latest:${sym}`);
         if (!existing || typeof existing !== "object") return;
+        // CRITICAL: Don't overwrite existing non-zero day_change with 0.
+        // When market is closed or prevClose is unavailable, the price feed
+        // computes dc=0/dp=0, which would erase the last known good values.
+        // Only update if the new value is meaningfully non-zero, OR if existing is missing.
+        const newDc = Number.isFinite(snap.dc) ? snap.dc : null;
+        const newDp = Number.isFinite(snap.dp) ? snap.dp : null;
+        const existDc = existing.day_change;
+        const existDp = existing.day_change_pct;
+        const updatedPrice = Number(snap.p);
+        const updatedPc = Number(snap.pc) || existing.prev_close || 0;
+
+        // If existing day_change is 0 (stale) but we have valid price + prev_close,
+        // recompute from scratch so the UI shows a real value.
+        let finalDc, finalDp;
+        if (newDc !== null && newDc !== 0) {
+          // Fresh non-zero value from the price feed — use it
+          finalDc = newDc;
+          finalDp = newDp;
+        } else if (Number.isFinite(existDc) && existDc !== 0) {
+          // Existing non-zero value — preserve it
+          finalDc = existDc;
+          finalDp = existDp;
+        } else if (updatedPrice > 0 && updatedPc > 0 && updatedPc !== updatedPrice) {
+          // Both existing and new are 0/null, but we have price + prev_close — recompute
+          finalDc = Math.round((updatedPrice - updatedPc) * 100) / 100;
+          finalDp = Math.round(((updatedPrice - updatedPc) / updatedPc) * 10000) / 100;
+        } else {
+          finalDc = existDc ?? newDc ?? 0;
+          finalDp = existDp ?? newDp ?? 0;
+        }
+
         const updated = {
           ...existing,
-          price: Number(snap.p),
-          prev_close: Number(snap.pc) || existing.prev_close,
-          day_change: Number.isFinite(snap.dc) ? snap.dc : existing.day_change,
-          day_change_pct: Number.isFinite(snap.dp) ? snap.dp : existing.day_change_pct,
+          price: updatedPrice,
+          prev_close: updatedPc || existing.prev_close,
+          day_change: finalDc,
+          day_change_pct: finalDp,
           ingest_ts: now,
           ingest_time: ingestTime,
         };
@@ -14492,6 +14653,7 @@ const SECTOR_MAP = {
   KWEB: "ETF",
   ETHT: "ETF",
   XHB: "ETF",
+  DIA: "ETF",
   GOLD: "Basic Materials",
 };
 
@@ -15891,6 +16053,14 @@ export default {
                           err,
                         );
                       });
+                      // In-app notification for kanban stage transition
+                      const stageLabels = { enter_now: "Entry Signal", hold: "Holding", defend: "Defending", exit: "Exit Signal", setup: "Setup" };
+                      await d1InsertNotification(env, {
+                        email: null, type: "kanban",
+                        title: `${stageLabels[finalStage] || finalStage.toUpperCase()}: ${ticker}`,
+                        body: `${ticker} moved to ${stageLabels[finalStage] || finalStage} (from ${prevStage || "new"})`,
+                        link: `/index-react.html?ticker=${ticker}`,
+                      }).catch(() => {});
                     } catch (e) {
                       console.error(
                         `[KANBAN DISCORD] ${ticker} ${finalStage}:`,
@@ -17989,6 +18159,8 @@ export default {
               const existing = await kvGetJSON(KV, `timed:latest:${ticker}`);
               const scored = await computeServerSideScores(ticker, d1GetCandles, env, existing);
               if (scored) {
+                scored.rank = computeRank(scored);
+                scored.score = scored.rank;
                 // Merge capture-specific fields into the scored result
                 scored.script_version = payload.script_version || scored.script_version;
                 scored.session = payload.session ?? scored.session;
@@ -18246,6 +18418,14 @@ export default {
                             err,
                           );
                         });
+                        // In-app notification for kanban stage transition
+                        const stageLabels2 = { enter_now: "Entry Signal", hold: "Holding", defend: "Defending", exit: "Exit Signal", setup: "Setup" };
+                        await d1InsertNotification(env, {
+                          email: null, type: "kanban",
+                          title: `${stageLabels2[finalStage] || finalStage.toUpperCase()}: ${ticker}`,
+                          body: `${ticker} moved to ${stageLabels2[finalStage] || finalStage} (from ${prevStage || "new"})`,
+                          link: `/index-react.html?ticker=${ticker}`,
+                        }).catch(() => {});
                       } catch (e) {
                         console.error(
                           `[KANBAN DISCORD] ${ticker} ${finalStage}:`,
@@ -19066,7 +19246,7 @@ export default {
         return sendJSON(
           { ok: true, tickers, count: tickers.length },
           200,
-          corsHeaders(env, req),
+          { ...corsHeaders(env, req), "Cache-Control": "public, max-age=300" },
         );
       }
 
@@ -19089,7 +19269,124 @@ export default {
             corsHeaders(env, req),
           );
         }
-        // Read from D1 (single query) for UI performance
+        // KV snapshot fast-path: serve pre-assembled snapshot if fresh (<300s old)
+        // Scoring cron rebuilds the snapshot every 5 min, so 300s TTL matches the cycle.
+        // Falls through to D1 if snapshot is missing or stale
+        try {
+          const snapshot = await kvGetJSON(KV, "timed:all:snapshot");
+          if (snapshot?.data && snapshot?.built_at && (Date.now() - snapshot.built_at) < 300000) {
+            // Snapshot is fresh — serve directly from KV (no D1 query)
+            const removedSet = new Set((await kvGetJSON(KV, "timed:removed")) || []);
+            const activeSet = new Set(Object.keys(SECTOR_MAP).filter(t => !removedSet.has(t)));
+            const data = {};
+            for (const [sym, payload] of Object.entries(snapshot.data)) {
+              if (activeSet.has(sym)) data[sym] = payload;
+            }
+
+            // ── Overlay live prices + daily change from timed:prices ──
+            // The scoring cron builds the snapshot every 5 min, but timed:prices is updated
+            // every minute by the price feed. This overlay ensures the frontend always sees
+            // the freshest prices and daily-change values even between scoring runs.
+            try {
+              const livePrices = await kvGetJSON(KV, "timed:prices");
+              if (livePrices?.prices) {
+                const pricesUpdatedAt = livePrices.updated_at || Date.now();
+                // Load daily prev_close for accurate bestPc.
+                // Try KV cache first; if stale/empty, fall back to D1 daily candle query.
+                let pcCache = {};
+                try {
+                  const cached = await kvGetJSON(KV, "timed:cache:daily_prev_close");
+                  if (cached?.dailyCandle && Object.keys(cached.dailyCandle).length >= 50) {
+                    pcCache = cached.dailyCandle;
+                  }
+                } catch (_) {}
+                // If KV cache is empty/stale, query D1 directly (one lightweight GROUP BY query)
+                if (Object.keys(pcCache).length < 50 && env?.DB) {
+                  try {
+                    const todayNY = currentTradingDayKey();
+                    const cutoffMs = todayNY
+                      ? (nyWallTimeToUtcMs(todayNY, 0, 0, 0) || new Date(todayNY + "T00:00:00Z").getTime())
+                      : Date.now();
+                    const dcRows = await env.DB.prepare(
+                      `SELECT ticker, c, MAX(ts) as latest_ts FROM ticker_candles
+                       WHERE tf = 'D' AND ts < ?1 GROUP BY ticker`
+                    ).bind(cutoffMs).all();
+                    for (const r of (dcRows?.results || [])) {
+                      const sym = String(r.ticker).toUpperCase();
+                      const close = Number(r.c);
+                      if (Number.isFinite(close) && close > 0) pcCache[sym] = close;
+                    }
+                  } catch (_) { /* D1 unavailable — proceed with what we have */ }
+                }
+
+                for (const sym of Object.keys(data)) {
+                  const pf = livePrices.prices[sym];
+                  if (!pf || !(Number(pf.p) > 0)) continue;
+                  const obj = data[sym];
+
+                  // Update live price
+                  obj.price = pf.p;
+                  obj._live_price = pf.p;
+                  obj._price_updated_at = pricesUpdatedAt;
+                  obj._live_daily_high = pf.dh;
+                  obj._live_daily_low = pf.dl;
+                  obj._live_daily_volume = pf.dv;
+
+                  // Pick best prev_close: daily candle > pf.pc (if divergent) > stored
+                  const dailyCandlePc = pcCache[sym] || 0;
+                  const pfPc = Number(pf.pc);
+                  const pfP = Number(pf.p);
+                  const pfPcUsable = Number.isFinite(pfPc) && pfPc > 0 && pfP > 0
+                    && (Math.abs(pfPc - pfP) / pfP * 100) > 0.05;
+                  let bestPc = dailyCandlePc > 0
+                    ? dailyCandlePc
+                    : pfPcUsable
+                      ? pfPc
+                      : (obj.prev_close || obj._live_prev_close || 0);
+                  // Sanity: skip extreme daily change (>25%)
+                  if (bestPc > 0 && pfP > 0 && Math.abs((pfP - bestPc) / bestPc * 100) > 25) {
+                    bestPc = obj.prev_close || obj._live_prev_close || 0;
+                  }
+                  if (bestPc > 0) obj._live_prev_close = bestPc;
+
+                  // Apply daily change from price feed if non-zero
+                  const pfDc = Number(pf.dc);
+                  const pfDp = Number(pf.dp);
+                  if (Number.isFinite(pfDp) && pfDp !== 0) {
+                    obj.day_change_pct = pfDp;
+                    obj.change_pct = pfDp;
+                    if (Number.isFinite(pfDc) && pfDc !== 0) {
+                      obj.day_change = pfDc;
+                      obj.change = pfDc;
+                    }
+                    if (bestPc > 0) obj.prev_close = bestPc;
+                  } else if (!Number.isFinite(Number(obj.day_change_pct)) || Number(obj.day_change_pct) === 0) {
+                    // Price feed has no daily change AND snapshot has none — compute from bestPc
+                    if (bestPc > 0 && pfP > 0) {
+                      const computedDc = Math.round((pfP - bestPc) * 100) / 100;
+                      const computedDp = Math.round(((pfP - bestPc) / bestPc) * 10000) / 100;
+                      if (computedDp !== 0) {
+                        obj.day_change = computedDc;
+                        obj.day_change_pct = computedDp;
+                        obj.change = computedDc;
+                        obj.change_pct = computedDp;
+                        obj.prev_close = bestPc;
+                      }
+                    }
+                  }
+                }
+              }
+            } catch (_) { /* price overlay failed — serve snapshot as-is */ }
+
+            return sendJSON(
+              { ok: true, data, count: Object.keys(data).length, source: "kv_snapshot", built_at: snapshot.built_at },
+              200,
+              { ...corsHeaders(env, req), "Cache-Control": "public, max-age=15" },
+            );
+          }
+        } catch (_) { /* fall through to D1 */ }
+
+        // Read from D1 (single query) — fallback when KV snapshot is stale or missing
         try {
           if (!env?.DB) {
             return sendJSON(
@@ -19171,18 +19468,18 @@ export default {
           // ── Execution readiness pre-check (shared across all tickers) ──
           // Compute once: RTH + load open positions for per-ticker concentration checks.
           let execRthBlock = null; // shared RTH/weekend block (applies to all)
-          let execOpenPositions = []; // open positions for per-ticker sector/direction checks
+          // OPTIMIZATION: Reuse openPositionsMap (loaded above at line ~19278) instead of
+          // querying D1 again. This eliminates a duplicate SELECT on every /timed/all request.
+          let execOpenPositions = [];
           try {
-            // Use the reliable isNyRegularMarketOpen() — uses Intl.DateTimeFormat.formatToParts
-            // instead of the brittle toLocaleString + Date parsing pattern.
             if (!isNyRegularMarketOpen()) {
               const nowDow = new Date().toLocaleString("en-US", { timeZone: "America/New_York", weekday: "short" });
               execRthBlock = (nowDow === "Sat" || nowDow === "Sun") ? "weekend" : "outside_RTH";
             }
-            const openPosResult = await env.DB.prepare(
-              `SELECT ticker, direction FROM positions WHERE status = 'OPEN'`
-            ).all();
-            execOpenPositions = openPosResult?.results || [];
+            // Derive from openPositionsMap — already has ticker + direction for all OPEN positions
+            for (const [sym, pos] of openPositionsMap) {
+              execOpenPositions.push({ ticker: sym, direction: pos.direction });
+            }
           } catch { /* non-critical */ }
           // Daily entry count (shared across all tickers)
           let execDailyLimitBlock = null;
@@ -19564,9 +19861,8 @@ export default {
           let allDailyPcMap = {};
           try {
             if (env?.DB) {
-              // Compute today's midnight ET in UTC ms.
-              // nyTradingDayKey returns "YYYY-MM-DD" in NY timezone.
-              const todayNY = nyTradingDayKey(Date.now());
+              // Use current trading day (roll back on weekends so we get correct prev_close).
+              const todayNY = currentTradingDayKey();
               if (todayNY) {
                 // Parse as midnight in ET. We detect EST vs EDT by comparing
                 // a known date's NY representation against UTC.
@@ -19579,15 +19875,15 @@ export default {
                 // todayNY midnight ET = todayNY + etOffsetHours in UTC
                 const cutoffMs = new Date(`${todayNY}T00:00:00Z`).getTime() + etOffsetHours * 3600000;
 
+                // Use MAX(ts) + GROUP BY to get one row per ticker instead of scanning
+                // the entire candles table (SQLite bare-column guarantee on MAX).
                 const dcRows = await env.DB.prepare(
-                  `SELECT ticker, c FROM ticker_candles WHERE tf = 'D' AND ts < ?1 ORDER BY ts DESC`
+                  `SELECT ticker, c, MAX(ts) as latest_ts FROM ticker_candles WHERE tf = 'D' AND ts < ?1 GROUP BY ticker`
                 ).bind(cutoffMs).all();
                 for (const r of (dcRows?.results || [])) {
                   const sym = String(r.ticker).toUpperCase();
-                  if (!allDailyPcMap[sym]) {
-                    const close = Number(r.c);
-                    if (Number.isFinite(close) && close > 0) allDailyPcMap[sym] = close;
-                  }
+                  const close = Number(r.c);
+                  if (Number.isFinite(close) && close > 0) allDailyPcMap[sym] = close;
                 }
               }
             }
@@ -19629,6 +19925,32 @@ export default {
                   bestPc = obj.prev_close || obj._live_prev_close || undefined;
                 }
                 if (bestPc > 0) obj._live_prev_close = bestPc;
+                // Apply daily change from price feed if it has meaningful non-zero values.
+                // This ensures daily change survives page refresh even when D1/KV stored values are stale.
+                const pfDc = Number(pf.dc);
+                const pfDp = Number(pf.dp);
+                if (Number.isFinite(pfDp) && pfDp !== 0) {
+                  obj.day_change_pct = pfDp;
+                  obj.change_pct = pfDp;
+                  if (Number.isFinite(pfDc) && pfDc !== 0) {
+                    obj.day_change = pfDc;
+                    obj.change = pfDc;
+                  }
+                  if (bestPc > 0) obj.prev_close = bestPc;
+                } else if (!Number.isFinite(Number(obj.day_change_pct)) || Number(obj.day_change_pct) === 0) {
+                  // No price feed daily change AND no stored daily change — compute from bestPc
+                  if (bestPc > 0 && pf.p > 0) {
+                    const computedDc = Math.round((pf.p - bestPc) * 100) / 100;
+                    const computedDp = Math.round(((pf.p - bestPc) / bestPc) * 10000) / 100;
+                    if (computedDp !== 0) {
+                      obj.day_change = computedDc;
+                      obj.day_change_pct = computedDp;
+                      obj.change = computedDc;
+                      obj.change_pct = computedDp;
+                      obj.prev_close = bestPc;
+                    }
+                  }
+                }
                 obj._live_daily_high = pf.dh;
                 obj._live_daily_low = pf.dl;
                 obj._live_daily_volume = pf.dv;
@@ -19715,7 +20037,7 @@ export default {
               d1_max_updated_at: maxUpdatedAt || null,
             },
             200,
-            corsHeaders(env, req),
+            { ...corsHeaders(env, req), "Cache-Control": "public, max-age=15" },
           );
         } catch (e) {
           console.error(`[D1 LATEST] /timed/all failed:`, String(e));
@@ -20405,12 +20727,17 @@ export default {
           }
 
           const sinceRaw = url.searchParams.get("since");
+          const cursorRaw = url.searchParams.get("cursor");
           const limitRaw = url.searchParams.get("limit");
           const includeKanbanRaw = url.searchParams.get("include_kanban");
+          // cursor takes precedence over since (both represent a timestamp lower bound)
           const since =
+            cursorRaw != null && cursorRaw !== "" ? Number(cursorRaw) :
             sinceRaw != null && sinceRaw !== "" ? Number(sinceRaw) : null;
-          const limit =
-            limitRaw != null && limitRaw !== "" ? Number(limitRaw) : 5000;
+          const limit = Math.min(
+            limitRaw != null && limitRaw !== "" ? Number(limitRaw) : 1000,
+            5000,
+          );
           // include_kanban=1 or include_kanban=true to get kanban_stage, entry_ts, move_status in trail points
           // Useful for Time Travel replay feature
           const includeKanban = includeKanbanRaw === "1" || includeKanbanRaw === "true";
@@ -20442,6 +20769,10 @@ export default {
             const d1IsSparse = d1Trail.length < 2;
             const kvIsRicher = kvTrail.length > d1Trail.length;
             if (!d1IsSparse || !kvIsRicher) {
+              // Compute next_cursor for pagination: if we hit the limit, the last trail point's ts is the cursor
+              const nextCursor = d1Trail.length >= limit && d1Trail.length > 0
+                ? Number(d1Trail[d1Trail.length - 1]?.ts) || null
+                : null;
               return sendJSON(
                 {
                   ok: true,
@@ -20449,6 +20780,7 @@ export default {
                   trail: d1Trail,
                   count: d1Trail.length,
                   source: d1Result.source,
+                  next_cursor: nextCursor,
                 },
                 200,
                 {
@@ -20462,7 +20794,10 @@ export default {
           }
 
           // KV response (either fallback, or D1 is sparse/unavailable)
-          const trail = kvTrail;
+          const trail = kvTrail.slice(0, limit);
+          const nextCursor = kvTrail.length > limit && trail.length > 0
+            ? Number(trail[trail.length - 1]?.ts) || null
+            : null;
 
           return sendJSON(
             {
@@ -20471,6 +20806,7 @@ export default {
               trail,
               count: trail.length,
               source: "kv",
+              next_cursor: nextCursor,
               note: d1Result.ok
                 ? d1Trail.length > 0
                   ? `D1 returned sparse rows (${d1Trail.length}) — using KV recent window`
@@ -21235,6 +21571,8 @@ export default {
                         const existing = await kvGetJSON(KV, `timed:latest:${tk}`);
                         const scored = await computeServerSideScores(tk, d1GetCandles, env, existing);
                         if (scored) {
+                          scored.rank = computeRank(scored);
+                          scored.score = scored.rank;
                           scored.data_source = "alpaca";
                           scored.trigger_ts = Date.now();
                           await kvPutJSON(KV, `timed:latest:${tk}`, scored);
@@ -21979,7 +22317,7 @@ export default {
             expectedVersion: CURRENT_DATA_VERSION,
           },
           200,
-          corsHeaders(env, req),
+          { ...corsHeaders(env, req), "Cache-Control": "public, max-age=60" },
         );
       }
 
@@ -22412,13 +22750,15 @@ export default {
           "SOXL", "SPGI", "SPY", "STRL", "STX", "SWK", "TJX", "TLN", "TSM", "TSLA", "TT", "TWLO", "ULTA",
           "UTHR", "UUUU", "US500", "VIX", "VST", "WAL", "WDC", "WFRD", "WM", "WMT", "WTS",
           "XLB", "XLC", "XLE", "XLF", "XLI", "XLK", "XLP", "XLRE", "XLU", "XLV", "XLY", "XOM",
-          "ES", "NQ", "BTC", "ETH",
+          "ES", "NQ", "RTY", "YM", "DIA", "BTC", "ETH",
         ]);
 
         const tickerMap = {
           "BRK.B": "BRK-B",
           ES: "ES1!",
           NQ: "NQ1!",
+          RTY: "RTY1!",
+          YM: "YM1!",
           BTC: "BTCUSD",
           ETH: "ETHUSD",
         };
@@ -24629,6 +24969,9 @@ export default {
           );
         }
 
+        result.rank = computeRank(result);
+        result.score = result.rank;
+
         // Save to KV + D1 for immediate propagation
         await kvPutJSON(KV, `timed:latest:${tickerParam}`, result);
         ctx.waitUntil(d1UpsertTickerLatest(env, tickerParam, result));
@@ -24709,9 +25052,9 @@ export default {
                   }
                 }
                 if (price > 0) {
-                  const pc = prevClose > 0 ? prevClose : price;
-                  const dc = prevClose > 0 ? Math.round((price - prevClose) * 100) / 100 : 0;
-                  const dp = prevClose > 0 ? Math.round(((price - prevClose) / prevClose) * 10000) / 100 : 0;
+                  const pc = prevClose > 0 ? prevClose : 0;
+                  const dc = prevClose > 0 ? Math.round((price - prevClose) * 100) / 100 : null;
+                  const dp = prevClose > 0 ? Math.round(((price - prevClose) / prevClose) * 10000) / 100 : null;
                   prices[sym] = { p: Math.round(price * 100) / 100, pc: Math.round(pc * 100) / 100, dc, dp, t: Date.now() };
                 }
               } catch (_) { /* best-effort */ }
@@ -25852,6 +26195,7 @@ export default {
               display_name: user.display_name,
               role: user.role,
               tier: user.tier,
+              subscription_status: user.subscription_status || null,
               last_login_at: user.last_login_at,
               terms_accepted_at: user.terms_accepted_at || null,
             },
@@ -25954,8 +26298,9 @@ export default {
         try {
           const DB = env?.DB;
           if (!DB) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
+          await d1EnsureStripeSchema(env);
           const { results } = await DB.prepare(
-            `SELECT email, display_name, role, tier, created_at, last_login_at, expires_at FROM users ORDER BY last_login_at DESC`
+            `SELECT email, display_name, role, tier, subscription_status, stripe_customer_id, created_at, last_login_at, expires_at FROM users ORDER BY last_login_at DESC`
           ).all();
           return sendJSON({ ok: true, users: results || [] }, 200, corsHeaders(env, req));
         } catch (e) {
@@ -25988,6 +26333,341 @@ export default {
           ).bind(tier, expiresAt, Date.now(), email).run();
 
           return sendJSON({ ok: true, email, tier, expires_at: expiresAt }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // ═══════════════════════════════════════════════════════════════
+      // Notification Center Endpoints
+      // ═══════════════════════════════════════════════════════════════
+
+      // POST /timed/push/subscribe — Store push subscription for authenticated user
+      if (routeKey === "POST /timed/push/subscribe") {
+        try {
+          const user = await authenticateUser(req, env);
+          if (!user?.email) return sendJSON({ ok: false, error: "auth_required" }, 401, corsHeaders(env, req));
+          const body = await readBodyAsJSON(req);
+          const { endpoint, keys } = body || {};
+          if (!endpoint || !keys?.p256dh || !keys?.auth) {
+            return sendJSON({ ok: false, error: "missing_subscription_fields" }, 400, corsHeaders(env, req));
+          }
+          const db = env?.DB;
+          if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
+          await d1EnsureNotificationSchema(env);
+          await db.prepare(`
+            INSERT INTO push_subscriptions (email, endpoint, p256dh, auth, created_at)
+            VALUES (?1, ?2, ?3, ?4, ?5)
+            ON CONFLICT(email, endpoint) DO UPDATE SET p256dh = excluded.p256dh, auth = excluded.auth
+          `).bind(user.email.toLowerCase(), endpoint, keys.p256dh, keys.auth, Date.now()).run();
+          return sendJSON({ ok: true }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // GET /timed/notifications — Returns user's notifications (unread first, paginated)
+      if (routeKey === "GET /timed/notifications") {
+        try {
+          const user = await authenticateUser(req, env);
+          if (!user?.email) return sendJSON({ ok: false, error: "auth_required" }, 401, corsHeaders(env, req));
+          const db = env?.DB;
+          if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
+          await d1EnsureNotificationSchema(env);
+          const limit = Math.min(Number(url.searchParams.get("limit")) || 50, 100);
+          const offset = Number(url.searchParams.get("offset")) || 0;
+          const email = user.email.toLowerCase();
+          // Get user-specific + broadcast notifications, unread first
+          const { results } = await db.prepare(`
+            SELECT id, email, type, title, body, link, read_at, created_at
+            FROM user_notifications
+            WHERE email = ?1 OR email IS NULL
+            ORDER BY read_at IS NOT NULL ASC, created_at DESC
+            LIMIT ?2 OFFSET ?3
+          `).bind(email, limit, offset).all();
+          // Unread count
+          const countRow = await db.prepare(`
+            SELECT COUNT(*) as cnt FROM user_notifications
+            WHERE (email = ?1 OR email IS NULL) AND read_at IS NULL
+          `).bind(email).first();
+          return sendJSON({
+            ok: true,
+            notifications: results || [],
+            unread_count: countRow?.cnt || 0,
+          }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // POST /timed/notifications/read — Mark one or all as read
+      if (routeKey === "POST /timed/notifications/read") {
+        try {
+          const user = await authenticateUser(req, env);
+          if (!user?.email) return sendJSON({ ok: false, error: "auth_required" }, 401, corsHeaders(env, req));
+          const db = env?.DB;
+          if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
+          await d1EnsureNotificationSchema(env);
+          const body = await readBodyAsJSON(req);
+          const now = Date.now();
+          const email = user.email.toLowerCase();
+          if (body?.id) {
+            // Mark single notification as read
+            await db.prepare(`
+              UPDATE user_notifications SET read_at = ?1 WHERE id = ?2 AND (email = ?3 OR email IS NULL)
+            `).bind(now, body.id, email).run();
+          } else {
+            // Mark all as read
+            await db.prepare(`
+              UPDATE user_notifications SET read_at = ?1 WHERE (email = ?2 OR email IS NULL) AND read_at IS NULL
+            `).bind(now, email).run();
+          }
+          return sendJSON({ ok: true }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // POST /timed/notifications/clear — Clear all notifications
+      if (routeKey === "POST /timed/notifications/clear") {
+        try {
+          const user = await authenticateUser(req, env);
+          if (!user?.email) return sendJSON({ ok: false, error: "auth_required" }, 401, corsHeaders(env, req));
+          const db = env?.DB;
+          if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
+          await d1EnsureNotificationSchema(env);
+          const email = user.email.toLowerCase();
+          await db.prepare(`
+            DELETE FROM user_notifications WHERE email = ?1
+          `).bind(email).run();
+          return sendJSON({ ok: true }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // ═══════════════════════════════════════════════════════════════
+      // Stripe / Subscription Endpoints
+      // ═══════════════════════════════════════════════════════════════
+
+      // POST /timed/stripe/create-checkout — Creates a Stripe Checkout Session (authenticated)
+      if (routeKey === "POST /timed/stripe/create-checkout") {
+        try {
+          const user = await authenticateUser(req, env);
+          if (!user?.email) return sendJSON({ ok: false, error: "auth_required" }, 401, corsHeaders(env, req));
+          const stripeKey = env.STRIPE_SECRET_KEY;
+          const priceId = env.STRIPE_PRICE_ID;
+          if (!stripeKey || !priceId) {
+            return sendJSON({ ok: false, error: "stripe_not_configured" }, 503, corsHeaders(env, req));
+          }
+          await d1EnsureStripeSchema(env);
+          const body = await readBodyAsJSON(req);
+          const parsed = body?.obj || {};
+          const successUrl = parsed.success_url || `${url.origin}/index-react.html?stripe=success`;
+          const cancelUrl = parsed.cancel_url || `${url.origin}/index-react.html?stripe=cancel`;
+          // Create Stripe Checkout Session
+          const params = new URLSearchParams({
+            "mode": "subscription",
+            "customer_email": user.email,
+            "line_items[0][price]": priceId,
+            "line_items[0][quantity]": "1",
+            "subscription_data[trial_period_days]": "30",
+            "success_url": successUrl,
+            "cancel_url": cancelUrl,
+            "metadata[user_email]": user.email,
+          });
+          const stripeResp = await fetch("https://api.stripe.com/v1/checkout/sessions", {
+            method: "POST",
+            headers: {
+              "Authorization": `Bearer ${stripeKey}`,
+              "Content-Type": "application/x-www-form-urlencoded",
+            },
+            body: params.toString(),
+          });
+          const session = await stripeResp.json();
+          if (!stripeResp.ok) {
+            console.error("[STRIPE] Checkout creation failed:", JSON.stringify(session).slice(0, 300));
+            return sendJSON({ ok: false, error: "stripe_checkout_failed", details: session.error?.message }, 500, corsHeaders(env, req));
+          }
+          return sendJSON({ ok: true, url: session.url }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // POST /timed/stripe/webhook — Handles Stripe webhook events (unauthenticated, signature-verified)
+      if (routeKey === "POST /timed/stripe/webhook") {
+        try {
+          const stripeKey = env.STRIPE_SECRET_KEY;
+          const webhookSecret = env.STRIPE_WEBHOOK_SECRET;
+          if (!stripeKey || !webhookSecret) {
+            return sendJSON({ ok: false, error: "stripe_not_configured" }, 503);
+          }
+          const rawBody = await req.text();
+          const sigHeader = req.headers.get("stripe-signature") || "";
+          // Verify webhook signature
+          const parts = {};
+          for (const item of sigHeader.split(",")) {
+            const [k, v] = item.split("=");
+            if (k && v) parts[k.trim()] = v.trim();
+          }
+          const timestamp = parts.t;
+          const signature = parts.v1;
+          if (!timestamp || !signature) {
+            return sendJSON({ ok: false, error: "invalid_signature" }, 400);
+          }
+          // Compute expected signature
+          const signedPayload = `${timestamp}.${rawBody}`;
+          const key = await crypto.subtle.importKey(
+            "raw",
+            new TextEncoder().encode(webhookSecret),
+            { name: "HMAC", hash: "SHA-256" },
+            false,
+            ["sign"],
+          );
+          const sig = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(signedPayload));
+          const expectedSig = Array.from(new Uint8Array(sig)).map(b => b.toString(16).padStart(2, "0")).join("");
+          if (expectedSig !== signature) {
+            console.warn("[STRIPE WEBHOOK] Signature mismatch");
+            return sendJSON({ ok: false, error: "signature_mismatch" }, 400);
+          }
+          const event = JSON.parse(rawBody);
+          const db = env?.DB;
+          if (!db) return sendJSON({ ok: false, error: "no_db" }, 500);
+          await d1EnsureStripeSchema(env);
+          const eventType = event.type;
+          console.log(`[STRIPE WEBHOOK] Event: ${eventType}`);
+          if (eventType === "checkout.session.completed") {
+            const session = event.data.object;
+            const email = (session.customer_email || session.metadata?.user_email || "").toLowerCase();
+            if (email) {
+              await db.prepare(`
+                UPDATE users SET tier = 'pro', stripe_customer_id = ?1, stripe_subscription_id = ?2,
+                subscription_status = 'active', expires_at = NULL, updated_at = ?3 WHERE email = ?4
+              `).bind(session.customer || null, session.subscription || null, Date.now(), email).run();
+              console.log(`[STRIPE] checkout.session.completed for ${email}`);
+              await d1InsertNotification(env, {
+                email, type: "system",
+                title: "Subscription Activated",
+                body: "Welcome to Timed Trading Pro! Your subscription is now active.",
+                link: "/index-react.html",
+              });
+            }
+          } else if (eventType === "customer.subscription.updated") {
+            const sub = event.data.object;
+            const custId = sub.customer;
+            const status = sub.status; // active, trialing, past_due, canceled, etc.
+            if (custId) {
+              await db.prepare(`
+                UPDATE users SET subscription_status = ?1, updated_at = ?2 WHERE stripe_customer_id = ?3
+              `).bind(status, Date.now(), custId).run();
+              console.log(`[STRIPE] subscription.updated: ${custId} → ${status}`);
+            }
+          } else if (eventType === "customer.subscription.deleted") {
+            const sub = event.data.object;
+            const custId = sub.customer;
+            if (custId) {
+              await db.prepare(`
+                UPDATE users SET tier = 'free', subscription_status = 'canceled', expires_at = ?1, updated_at = ?2 WHERE stripe_customer_id = ?3
+              `).bind(Date.now(), Date.now(), custId).run();
+              console.log(`[STRIPE] subscription.deleted: ${custId}`);
+              // Get email for notification
+              const userRow = await db.prepare(`SELECT email FROM users WHERE stripe_customer_id = ?1`).bind(custId).first();
+              if (userRow?.email) {
+                await d1InsertNotification(env, {
+                  email: userRow.email, type: "system",
+                  title: "Subscription Canceled",
+                  body: "Your Timed Trading Pro subscription has been canceled.",
+                  link: "/splash.html",
+                });
+              }
+            }
+          } else if (eventType === "invoice.payment_failed") {
+            const invoice = event.data.object;
+            const custId = invoice.customer;
+            if (custId) {
+              // Grace period: 3 days
+              const gracePeriodMs = 3 * 24 * 60 * 60 * 1000;
+              await db.prepare(`
+                UPDATE users SET tier = 'free', subscription_status = 'past_due', expires_at = ?1, updated_at = ?2 WHERE stripe_customer_id = ?3
+              `).bind(Date.now() + gracePeriodMs, Date.now(), custId).run();
+              console.log(`[STRIPE] invoice.payment_failed: ${custId} — 3-day grace period`);
+              const userRow = await db.prepare(`SELECT email FROM users WHERE stripe_customer_id = ?1`).bind(custId).first();
+              if (userRow?.email) {
+                await d1InsertNotification(env, {
+                  email: userRow.email, type: "system",
+                  title: "Payment Failed",
+                  body: "Your payment failed. Please update your payment method within 3 days to keep your Pro access.",
+                  link: "/index-react.html",
+                });
+              }
+            }
+          }
+          return new Response(JSON.stringify({ ok: true }), { status: 200, headers: { "Content-Type": "application/json" } });
+        } catch (e) {
+          console.error("[STRIPE WEBHOOK] Error:", String(e).slice(0, 300));
+          return new Response(JSON.stringify({ ok: false, error: String(e?.message || e) }), { status: 500, headers: { "Content-Type": "application/json" } });
+        }
+      }
+
+      // POST /timed/stripe/portal — Creates a Stripe Customer Portal session (authenticated)
+      if (routeKey === "POST /timed/stripe/portal") {
+        try {
+          const user = await authenticateUser(req, env);
+          if (!user?.email) return sendJSON({ ok: false, error: "auth_required" }, 401, corsHeaders(env, req));
+          const stripeKey = env.STRIPE_SECRET_KEY;
+          if (!stripeKey) return sendJSON({ ok: false, error: "stripe_not_configured" }, 503, corsHeaders(env, req));
+          await d1EnsureStripeSchema(env);
+          const db = env?.DB;
+          if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
+          const userRow = await db.prepare(`SELECT stripe_customer_id FROM users WHERE email = ?1`).bind(user.email.toLowerCase()).first();
+          if (!userRow?.stripe_customer_id) {
+            return sendJSON({ ok: false, error: "no_stripe_customer" }, 400, corsHeaders(env, req));
+          }
+          const body = await readBodyAsJSON(req);
+          const parsed = body?.obj || {};
+          const returnUrl = parsed.return_url || `${url.origin}/index-react.html`;
+          const params = new URLSearchParams({
+            "customer": userRow.stripe_customer_id,
+            "return_url": returnUrl,
+          });
+          const portalResp = await fetch("https://api.stripe.com/v1/billing_portal/sessions", {
+            method: "POST",
+            headers: {
+              "Authorization": `Bearer ${stripeKey}`,
+              "Content-Type": "application/x-www-form-urlencoded",
+            },
+            body: params.toString(),
+          });
+          const portalSession = await portalResp.json();
+          if (!portalResp.ok) {
+            return sendJSON({ ok: false, error: "portal_creation_failed", details: portalSession.error?.message }, 500, corsHeaders(env, req));
+          }
+          return sendJSON({ ok: true, url: portalSession.url }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // GET /timed/subscription — Returns current subscription status (authenticated)
+      if (routeKey === "GET /timed/subscription") {
+        try {
+          const user = await authenticateUser(req, env);
+          if (!user?.email) return sendJSON({ ok: false, error: "auth_required" }, 401, corsHeaders(env, req));
+          const db = env?.DB;
+          if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
+          await d1EnsureStripeSchema(env);
+          const row = await db.prepare(`
+            SELECT tier, subscription_status, stripe_customer_id, stripe_subscription_id, expires_at
+            FROM users WHERE email = ?1
+          `).bind(user.email.toLowerCase()).first();
+          return sendJSON({
+            ok: true,
+            tier: row?.tier || "free",
+            subscription_status: row?.subscription_status || "none",
+            has_stripe: !!row?.stripe_customer_id,
+            expires_at: row?.expires_at || null,
+          }, 200, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e?.message || e) }, 500, corsHeaders(env, req));
         }
@@ -28802,6 +29482,7 @@ Provide 3-5 actionable next steps:
             SECTOR_MAP,
             d1GetCandles,
             notifyDiscord,
+            d1InsertNotification,
           });
           return sendJSON(result, 200, corsHeaders(env, req));
         } catch (e) {
@@ -33677,6 +34358,7 @@ Provide 3-5 actionable next steps:
               SECTOR_MAP,
               d1GetCandles,
               notifyDiscord,
+              d1InsertNotification,
             });
             console.log(`[DAILY BRIEF CRON] Morning: ${result.ok ? "OK" : result.error} (${result.elapsed || 0}ms)`);
           } catch (e) {
@@ -33699,6 +34381,7 @@ Provide 3-5 actionable next steps:
               SECTOR_MAP,
               d1GetCandles,
               notifyDiscord,
+              d1InsertNotification,
             });
             console.log(`[DAILY BRIEF CRON] Evening: ${result.ok ? "OK" : result.error} (${result.elapsed || 0}ms)`);
           } catch (e) {
@@ -33768,7 +34451,7 @@ Provide 3-5 actionable next steps:
           // Excluded: futures (ES1!, NQ1!), crypto (BTCUSD, ETHUSD), indices (US500, VIX).
           // BRK-B is mapped to BRK.B by alpacaFetchAllBars (via ALPACA_SYM_MAP).
           const ALPACA_SYMBOL_BLOCKLIST = new Set([
-            "ES1!", "NQ1!", "GC1!", "SI1!",  // futures
+            "ES1!", "NQ1!", "YM1!", "RTY1!", "GC1!", "SI1!",  // futures
             "BTCUSD", "ETHUSD",               // crypto (Alpaca uses /v1beta3/crypto endpoint)
             "US500", "VIX",                    // indices (not tradable stocks)
           ]);
@@ -33812,7 +34495,7 @@ Provide 3-5 actionable next steps:
         const allTickers = Object.keys(SECTOR_MAP);
         // Alpaca universe: same filter as bar cron — stocks/ETFs only (exclude futures, crypto, indices)
         const ALPACA_SYMBOL_BLOCKLIST = new Set([
-          "ES1!", "NQ1!", "GC1!", "SI1!", "BTCUSD", "ETHUSD", "US500", "VIX", "BRK-B",
+          "ES1!", "NQ1!", "YM1!", "RTY1!", "GC1!", "SI1!", "BTCUSD", "ETHUSD", "US500", "VIX", "BRK-B",
         ]);
         const alpacaUniverseTickers = allTickers.filter(
           (t) => !ALPACA_SYMBOL_BLOCKLIST.has(t) && /^[A-Z]{1,5}$/.test(t)
@@ -33830,57 +34513,144 @@ Provide 3-5 actionable next steps:
         // ═══════════════════════════════════════════════════════════════════════
 
         // Source 1: Daily candles — the authoritative previous close.
-        // Query the most recent daily candle BEFORE today for each ticker.
+        // OPTIMIZATION: Cache in KV keyed by trading day. Daily candle prev_close
+        // only changes once per day (at market close), so querying D1 once per trading day
+        // and serve from KV cache for the rest of the day. On weekends, use last weekday.
+        const todayTradingDay = currentTradingDayKey();
+        const prevCloseCacheKey = "timed:cache:daily_prev_close";
         let dailyCandlePrevCloseMap = {};
+        let d1PrevCloseMap = {};
+        let prevCloseCacheHit = false;
         try {
-          if (env?.DB) {
-            // Use midnight UTC today as the cutoff — daily candle timestamps are
-            // typically at midnight UTC of the trading day. This excludes today's
-            // intraday bar (which has the current price, not the final close).
-            const todayMidnightUTC = new Date();
-            todayMidnightUTC.setUTCHours(0, 0, 0, 0);
-            const cutoffMs = todayMidnightUTC.getTime();
+          const cached = await kvGetJSON(KV, prevCloseCacheKey);
+          const dcCount = cached?.dailyCandle ? Object.keys(cached.dailyCandle).length : 0;
+          if (cached && cached.day === todayTradingDay && dcCount >= 50 && cached.d1Latest) {
+            dailyCandlePrevCloseMap = cached.dailyCandle;
+            d1PrevCloseMap = cached.d1Latest;
+            prevCloseCacheHit = true;
+            console.log(`[PRICE CRON] prev_close cache HIT (day=${todayTradingDay}, ${dcCount} tickers)`);
+          } else if (cached) {
+            console.log(`[PRICE CRON] prev_close cache STALE (day=${cached.day}, dcCount=${dcCount}, today=${todayTradingDay}) — rebuilding`);
+          }
+        } catch (_) { /* cache miss, fall through to D1 */ }
 
-            const dcRows = await env.DB.prepare(
-              `SELECT ticker, c, ts FROM ticker_candles
-               WHERE tf = 'D' AND ts < ?1
-               ORDER BY ts DESC`
-            ).bind(cutoffMs).all();
-            // Take only the FIRST (most recent) row per ticker
-            for (const r of (dcRows?.results || [])) {
-              const sym = String(r.ticker).toUpperCase();
-              if (!dailyCandlePrevCloseMap[sym]) {
+        if (!prevCloseCacheHit) {
+          // Cache miss or new trading day — query D1 and rebuild cache
+          try {
+            if (env?.DB) {
+              // Cutoff: midnight ET today (converted to UTC ms).
+              // Daily candle timestamps use midnight ET (= 5 AM UTC in EST, 4 AM UTC in EDT).
+              // We need the cutoff to be >= midnight ET today so yesterday's candle IS included
+              // while today's candle is excluded.
+              // Example: Thu Feb 12 → cutoff = midnight ET Feb 12 = 5 AM UTC Feb 12 (EST).
+              //   Wed candle (ts = midnight ET Feb 12 = 5 AM UTC) → 5 AM < 5 AM → EXCLUDED (tie).
+              //   But we actually want Wed's candle! The backfill uses midnight ET as ts, so
+              //   we use nyWallTimeToUtcMs which precisely converts NY wall time to UTC.
+              //   Wed candle ts = midnight ET Thu (Feb 12) → EXCLUDED.
+              //   Tue candle ts = midnight ET Wed (Feb 11) → INCLUDED.
+              //   Correction: Alpaca daily bars use the TRADING DAY date at midnight ET.
+              //   Wed Feb 11 bar → ts = midnight ET Feb 11 → INCLUDED ← wrong, we want Wed bar.
+              //
+              // Actually, the convention is: daily bar for Wed has ts = midnight ET *of Wed* (start-of-day).
+              // So Wed bar ts = 2026-02-11T05:00:00Z (midnight ET Wed = 5 AM UTC Wed).
+              // cutoff should be midnight ET Thu (today) = 2026-02-12T05:00:00Z.
+              // Wed bar 05:00 < 05:00 Thu → EXCLUDED with strict <. Need <=.
+              //
+              // Simplest correct approach: use midnight ET of today as cutoff.
+              // Yesterday's bar ts = midnight ET yesterday < midnight ET today → INCLUDED ✓
+              // Today's bar ts = midnight ET today = cutoff → EXCLUDED with strict < ✓
+              const cutoffMs = nyWallTimeToUtcMs(todayTradingDay, 0, 0, 0) || new Date(todayTradingDay + "T00:00:00Z").getTime();
+
+              // Use MAX(ts) + GROUP BY to get one row per ticker (SQLite "bare columns"
+              // guarantee: c comes from the row containing the MAX ts).
+              const dcRows = await env.DB.prepare(
+                `SELECT ticker, c, MAX(ts) as latest_ts FROM ticker_candles
+                 WHERE tf = 'D' AND ts < ?1
+                 GROUP BY ticker`
+              ).bind(cutoffMs).all();
+              for (const r of (dcRows?.results || [])) {
+                const sym = String(r.ticker).toUpperCase();
                 const close = Number(r.c);
                 if (Number.isFinite(close) && close > 0) {
                   dailyCandlePrevCloseMap[sym] = close;
                 }
               }
+              console.log(`[PRICE CRON] Daily candle prev_close loaded from D1 for ${Object.keys(dailyCandlePrevCloseMap).length} tickers`);
             }
-            console.log(`[PRICE CRON] Daily candle prev_close loaded for ${Object.keys(dailyCandlePrevCloseMap).length} tickers`);
+          } catch (e) {
+            console.error("[PRICE CRON] Daily candle prevClose load failed:", String(e));
           }
-        } catch (e) {
-          console.error("[PRICE CRON] Daily candle prevClose load failed:", String(e));
-        }
 
-        // Source 2: ticker_latest scoring data (fallback for tickers without daily candles)
-        let d1PrevCloseMap = {};
-        try {
-          if (env?.DB) {
-            const rows = await env.DB.prepare(
-              `SELECT ticker, payload_json FROM ticker_latest`
-            ).all();
-            for (const r of (rows?.results || [])) {
-              try {
-                const obj = JSON.parse(r.payload_json);
-                const pc = Number(obj?.prev_close);
-                if (Number.isFinite(pc) && pc > 0) {
-                  d1PrevCloseMap[String(r.ticker).toUpperCase()] = pc;
+          // Source 1b: Fallback — derive prev_close from 1-MINUTE candles for missing tickers.
+          // The price feed writes 1m candles every minute, so this data is always fresh.
+          // We find the last 1m candle AT or BEFORE previous trading day's 4 PM ET close.
+          try {
+            const prevDay = prevTradingDayKey(todayTradingDay);
+            const prevCloseMs = prevDay ? nyWallTimeToUtcMs(prevDay, 16, 0, 0) : null;
+            if (env?.DB && prevCloseMs && Number.isFinite(prevCloseMs)) {
+              const missingTickers = allTickers.filter(t => !dailyCandlePrevCloseMap[t]);
+              if (missingTickers.length > 0) {
+                const lookbackStart = prevCloseMs - 8 * 3600 * 1000; // 8h back (~9 AM ET start)
+                for (let i = 0; i < missingTickers.length; i += 200) {
+                  const batch = missingTickers.slice(i, i + 200);
+                  const stmts = batch.map(sym =>
+                    env.DB.prepare(
+                      `SELECT c FROM ticker_candles WHERE ticker = ?1 AND tf = '1'
+                       AND ts >= ?2 AND ts <= ?3 ORDER BY ts DESC LIMIT 1`
+                    ).bind(sym.toUpperCase(), lookbackStart, prevCloseMs + 60000)
+                  );
+                  const results = await env.DB.batch(stmts);
+                  for (let j = 0; j < batch.length; j++) {
+                    const row = results[j]?.results?.[0];
+                    const close = Number(row?.c);
+                    if (Number.isFinite(close) && close > 0) {
+                      dailyCandlePrevCloseMap[batch[j]] = close;
+                    }
+                  }
                 }
-              } catch (_) {}
+                console.log(`[PRICE CRON] 1m-candle prev_close fallback added ${missingTickers.length - allTickers.filter(t => !dailyCandlePrevCloseMap[t]).length} tickers (total: ${Object.keys(dailyCandlePrevCloseMap).length})`);
+              }
             }
+          } catch (e) {
+            console.warn("[PRICE CRON] 1m-candle prev_close fallback failed:", String(e).slice(0, 200));
           }
-        } catch (e) {
-          console.error("[PRICE CRON] D1 prevClose load failed:", String(e));
+
+          // Source 2: ticker_latest scoring data (fallback for tickers without daily candles)
+          try {
+            if (env?.DB) {
+              const rows = await env.DB.prepare(
+                `SELECT ticker, payload_json FROM ticker_latest`
+              ).all();
+              for (const r of (rows?.results || [])) {
+                try {
+                  const obj = JSON.parse(r.payload_json);
+                  const pc = Number(obj?.prev_close);
+                  if (Number.isFinite(pc) && pc > 0) {
+                    d1PrevCloseMap[String(r.ticker).toUpperCase()] = pc;
+                  }
+                } catch (_) {}
+              }
+            }
+          } catch (e) {
+            console.error("[PRICE CRON] D1 prevClose load failed:", String(e));
+          }
+
+          // Write cache to KV (TTL = 48 hours, covers full trading day + weekend gap)
+          // On Friday, the cache survives through Sunday so we keep showing
+          // Thursday's prev_close during the entire weekend.
+          try {
+            if (Object.keys(dailyCandlePrevCloseMap).length > 0) {
+              await kvPutJSON(KV, prevCloseCacheKey, {
+                day: todayTradingDay,
+                dailyCandle: dailyCandlePrevCloseMap,
+                d1Latest: d1PrevCloseMap,
+                built_at: Date.now(),
+              }, 48 * 3600);
+              console.log(`[PRICE CRON] prev_close cache WRITTEN (day=${todayTradingDay})`);
+            }
+          } catch (e) {
+            console.warn("[PRICE CRON] Failed to write prev_close cache:", String(e?.message || e));
+          }
         }
 
         // Helper: pick best prev_close with priority: daily candle > D1 latest > Alpaca
@@ -33926,15 +34696,15 @@ Provide 3-5 actionable next steps:
           const prevClose = pickPrevClose(sym, snap.prevDailyClose, price);
           const dailyChange = (price && prevClose && prevClose > 0)
             ? Math.round((price - prevClose) * 100) / 100
-            : 0;
+            : null; // null instead of 0 so mergeFreshnessIntoLatest preserves existing
           const dailyChangePct = (price && prevClose && prevClose > 0)
             ? Math.round(((price - prevClose) / prevClose) * 10000) / 100
-            : 0;
+            : null;
           prices[sym] = {
             p: Math.round(price * 100) / 100,          // current price
             pc: Math.round(prevClose * 100) / 100,      // previous close
-            dc: dailyChange,                              // daily change $
-            dp: dailyChangePct,                           // daily change %
+            dc: dailyChange,                              // daily change $ (null if unknown)
+            dp: dailyChangePct,                           // daily change % (null if unknown)
             dh: Math.round((snap.dailyHigh || 0) * 100) / 100,  // daily high
             dl: Math.round((snap.dailyLow || 0) * 100) / 100,   // daily low
             dv: snap.dailyVolume || 0,                    // daily volume
@@ -33953,10 +34723,10 @@ Provide 3-5 actionable next steps:
             const prevClose = pickPrevClose(sym, snap.prevDailyClose, price);
             const dailyChange = (price && prevClose && prevClose > 0)
               ? Math.round((price - prevClose) * 100) / 100
-              : 0;
+              : null;
             const dailyChangePct = (price && prevClose && prevClose > 0)
               ? Math.round(((price - prevClose) / prevClose) * 10000) / 100
-              : 0;
+              : null;
             prices[sym] = {
               p: Math.round(price * 100) / 100,
               pc: Math.round(prevClose * 100) / 100,
@@ -33984,8 +34754,8 @@ Provide 3-5 actionable next steps:
             if (tvData && tvData.price > 0) {
               const prevClose = Number(tvData.prev_close || tvData.previous_close || 0);
               const price = Number(tvData.price);
-              const dc = prevClose > 0 ? Math.round((price - prevClose) * 100) / 100 : 0;
-              const dp = prevClose > 0 ? Math.round(((price - prevClose) / prevClose) * 10000) / 100 : 0;
+              const dc = prevClose > 0 ? Math.round((price - prevClose) * 100) / 100 : null;
+              const dp = prevClose > 0 ? Math.round(((price - prevClose) / prevClose) * 10000) / 100 : null;
               prices[tvSym] = {
                 p: Math.round(price * 100) / 100,
                 pc: Math.round(prevClose * 100) / 100,
@@ -34018,9 +34788,12 @@ Provide 3-5 actionable next steps:
                 }
               }
               if (price > 0) {
-                const pc = prevClose > 0 ? prevClose : price;
-                const dc = prevClose > 0 ? Math.round((price - prevClose) * 100) / 100 : 0;
-                const dp = prevClose > 0 ? Math.round(((price - prevClose) / prevClose) * 10000) / 100 : 0;
+                // Use 0 (not price) when prevClose unavailable — never pretend prev_close = current price
+                const pc = prevClose > 0 ? prevClose : 0;
+                // Use null (not 0) when prevClose unavailable so
+                // mergeFreshnessIntoLatest preserves existing non-zero values
+                const dc = prevClose > 0 ? Math.round((price - prevClose) * 100) / 100 : null;
+                const dp = prevClose > 0 ? Math.round(((price - prevClose) / prevClose) * 10000) / 100 : null;
                 prices[sym] = {
                   p: Math.round(price * 100) / 100,
                   pc: Math.round(pc * 100) / 100,
@@ -34062,8 +34835,8 @@ Provide 3-5 actionable next steps:
                 if (divergePct > 2) {
                   // Our candle data is more trustworthy — override Alpaca's bad price
                   const prevClose = prices[sym].pc;
-                  const dc = prevClose > 0 ? Math.round((candlePrice - prevClose) * 100) / 100 : 0;
-                  const dp = prevClose > 0 ? Math.round(((candlePrice - prevClose) / prevClose) * 10000) / 100 : 0;
+                  const dc = prevClose > 0 ? Math.round((candlePrice - prevClose) * 100) / 100 : null;
+                  const dp = prevClose > 0 ? Math.round(((candlePrice - prevClose) / prevClose) * 10000) / 100 : null;
                   console.log(`[PRICE SANITY] ${sym}: Alpaca $${alpacaPrice} diverges ${divergePct.toFixed(1)}% from candle $${candlePrice} — using candle`);
                   prices[sym] = { ...prices[sym], p: Math.round(candlePrice * 100) / 100, dc, dp };
                 }
@@ -34358,6 +35131,11 @@ Provide 3-5 actionable next steps:
             // Without this, qualifiesForEnter blocks entries after 7 days (trigger_stale).
             result.trigger_ts = now;
 
+            // Compute rank/score — computeServerSideScores builds technical data
+            // but doesn't score; computeRank produces the 0-100 composite score.
+            result.rank = computeRank(result);
+            result.score = result.rank;
+
             // Overnight signal injection (throttled to once/day)
             try {
               const currentSession = getSessionType(Date.now());
@@ -34526,6 +35304,32 @@ Provide 3-5 actionable next steps:
           total: tickersToScore.length,
         });
 
+        // ── KV Hot Cache: Pre-assemble /timed/all snapshot ──────────────
+        // Writes a ready-to-serve snapshot so /timed/all can serve from KV
+        // instead of querying D1 per request, reducing D1 load to near-zero
+        // for the most-hit endpoint.
+        ctx.waitUntil((async () => {
+          try {
+            const removedSet = new Set((await kvGetJSON(KV, "timed:removed")) || []);
+            const activeSyms = Object.keys(SECTOR_MAP).filter(t => !removedSet.has(t));
+            const snapshot = {};
+            for (const sym of activeSyms) {
+              const payload = await kvGetJSON(KV, `timed:latest:${sym}`);
+              if (payload && typeof payload === "object") {
+                snapshot[sym] = payload;
+              }
+            }
+            await kvPutJSON(KV, "timed:all:snapshot", {
+              data: snapshot,
+              count: Object.keys(snapshot).length,
+              built_at: Date.now(),
+            });
+            console.log(`[SCORING] KV hot cache snapshot built: ${Object.keys(snapshot).length} tickers`);
+          } catch (e) {
+            console.warn("[SCORING] KV hot cache build failed:", String(e?.message || e));
+          }
+        })());
+
         // ── Push scoring deltas to WebSocket clients via PriceHub DO ──
         if (Object.keys(scoredUpdates).length > 0) {
           ctx.waitUntil(notifyPriceHub(env, {
@@ -34646,6 +35450,8 @@ Provide 3-5 actionable next steps:
           // ── FINAL RECONCILIATION: Clean phantom/duplicate trades right before write ──
           // This is the last write to timed:trades:all in the cron cycle, so cleanup
           // here can't be overwritten by processTradeSimulation calls.
+          // NOTE: Re-query D1 here intentionally — processTradeSimulation may have
+          // opened/closed positions since the first reconciliation query above.
           try {
             const d1PosCheck = await env.DB.prepare(
               `SELECT ticker FROM positions WHERE status = 'OPEN'`
