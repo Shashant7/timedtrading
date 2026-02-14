@@ -999,36 +999,6 @@
               ),
               "My Account",
             ),
-            // Switch Account button
-            React.createElement(
-              "button",
-              {
-                onClick: async () => {
-                  clearSession();
-                  // ?switch=1 tells logout.html to also clear the CF Access
-                  // global session on the team domain, forcing a full re-auth
-                  // with IdP account chooser.
-                  window.location.href = "/logout.html?switch=1";
-                },
-                style: {
-                  width: "100%",
-                  padding: "8px 12px",
-                  borderRadius: "6px",
-                  border: "none",
-                  background: "transparent",
-                  color: "#9ca3af",
-                  fontSize: "13px",
-                  textAlign: "left",
-                  cursor: "pointer",
-                  fontFamily: "inherit",
-                },
-                onMouseEnter: (e) =>
-                  (e.currentTarget.style.background = "rgba(255, 255, 255, 0.04)"),
-                onMouseLeave: (e) =>
-                  (e.currentTarget.style.background = "transparent"),
-              },
-              "Switch Account",
-            ),
             // Sign Out button
             React.createElement(
               "button",
