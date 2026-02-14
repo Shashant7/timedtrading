@@ -35421,64 +35421,81 @@ Provide 3-5 actionable next steps:
         // the full sparkline payload to all WS clients every 5 minutes.
         // Clients use this to render sparklines with zero HTTP candle requests.
         //
-        // IMPORTANT: Only append new price points during extended trading hours
-        // (4 AM - 8 PM ET on weekdays). This covers pre-market, RTH, and after-hours
-        // so sparklines show gaps and AH/PM price movement naturally.
-        // Outside these hours (overnight + weekends), stale prices are skipped so the
-        // last session's real intraday movement is preserved for context.
+        // IMPORTANT: Only append sparkline points when a ticker's market is active.
+        // Three ticker types with different sessions:
+        //   Stocks:  4 AM – 8 PM ET on weekdays (PM + RTH + AH)
+        //   Futures: 6 PM ET Sunday – 5 PM ET Friday (nearly 24h, except Sat + Sun before 6 PM)
+        //   Crypto:  24/7 always
+        // Outside each ticker's session, stale prices are skipped to preserve
+        // the last session's real intraday movement.
         try {
           const SPARK_KV_KEY = "timed:sparklines";
           const SPARK_MAX_POINTS = 400; // ~6.5h at 1m resolution, enough for any session
           const minuteTs = Math.floor(Date.now() / 60000) * 60000;
-          // Extended hours: weekdays 4 AM - 8 PM ET (covers PM + RTH + AH)
-          const marketOpen = (() => {
-            try {
-              const now = new Date();
-              const wd = String(NY_WD_FMT.format(now)).toLowerCase();
-              const isWeekday = wd.startsWith("mon") || wd.startsWith("tue") || wd.startsWith("wed") || wd.startsWith("thu") || wd.startsWith("fri");
-              if (!isWeekday) return false;
-              const parts = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour12: false, hour: "2-digit", minute: "2-digit" }).formatToParts(now);
-              const map = {};
-              for (const p of parts) map[p.type] = Number(p.value);
-              const mins = (map.hour || 0) * 60 + (map.minute || 0);
-              return mins >= 240 && mins < 1200; // 4:00 AM – 8:00 PM ET
-            } catch { return true; }
-          })();
+
+          // Compute ET time context once for all tickers
+          const _sparkNow = new Date();
+          const _sparkWd = String(NY_WD_FMT.format(_sparkNow)).toLowerCase();
+          const _sparkIsWeekday = _sparkWd.startsWith("mon") || _sparkWd.startsWith("tue") || _sparkWd.startsWith("wed") || _sparkWd.startsWith("thu") || _sparkWd.startsWith("fri");
+          const _sparkIsSunday = _sparkWd.startsWith("sun");
+          const _sparkIsSaturday = _sparkWd.startsWith("sat");
+          const _sparkIsFriday = _sparkWd.startsWith("fri");
+          let _sparkEtMins = 0;
+          try {
+            const parts = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour12: false, hour: "2-digit", minute: "2-digit" }).formatToParts(_sparkNow);
+            const map = {};
+            for (const p of parts) map[p.type] = Number(p.value);
+            _sparkEtMins = (map.hour || 0) * 60 + (map.minute || 0);
+          } catch {}
+
+          // Per-ticker session check
+          const _CRYPTO_SYMS = new Set(["BTCUSD", "ETHUSD", "BTCUSDT", "ETHUSDT", "BTC", "ETH"]);
+          function isTickerSessionActive(sym) {
+            // Crypto: always active (24/7)
+            if (_CRYPTO_SYMS.has(sym) || sym.endsWith("USD") || sym.endsWith("USDT")) return true;
+            // Futures: 6 PM ET Sunday – 5 PM ET Friday
+            if (FUTURES_TICKERS.has(sym) || sym.endsWith("1!")) {
+              if (_sparkIsSaturday) return false;                           // All day Saturday: closed
+              if (_sparkIsSunday) return _sparkEtMins >= 1080;              // Sunday: open from 6 PM ET (1080 min)
+              if (_sparkIsFriday) return _sparkEtMins < 1020;               // Friday: close at 5 PM ET (1020 min)
+              return true;                                                  // Mon-Thu: always open (24h sessions)
+            }
+            // Stocks (default): 4 AM – 8 PM ET on weekdays (PM + RTH + AH)
+            if (!_sparkIsWeekday) return false;
+            return _sparkEtMins >= 240 && _sparkEtMins < 1200;
+          }
 
           // Read existing sparkline data from KV
           let sparkMap = (await kvGetJSON(KV, SPARK_KV_KEY)) || {};
 
           // Bootstrap is handled by GET /timed/sparklines endpoint (D1 fallback)
-          // when KV is empty. The cron only appends new points during market hours.
+          // when KV is empty. The cron only appends new points during each ticker's session.
 
-          // Only append new data points during extended trading hours
-          if (marketOpen) {
-            let appended = 0;
-            for (const [sym, snap] of Object.entries(prices)) {
-              const price = snap.p;
-              if (!Number.isFinite(price) || price <= 0) continue;
-              if (!sparkMap[sym]) sparkMap[sym] = [];
-              const arr = sparkMap[sym];
-              // Deduplicate: skip if last point has same timestamp
-              if (arr.length > 0 && arr[arr.length - 1].t === minuteTs) {
-                // Update close price of existing point (same minute)
-                arr[arr.length - 1].c = price;
-              } else {
-                arr.push({ t: minuteTs, c: price, o: price });
-              }
-              // Trim to max points
-              if (arr.length > SPARK_MAX_POINTS) {
-                sparkMap[sym] = arr.slice(arr.length - SPARK_MAX_POINTS);
-              }
-              appended++;
+          // Append new data points only for tickers whose session is active
+          let appended = 0;
+          let skippedClosed = 0;
+          for (const [sym, snap] of Object.entries(prices)) {
+            const price = snap.p;
+            if (!Number.isFinite(price) || price <= 0) continue;
+            if (!isTickerSessionActive(sym)) { skippedClosed++; continue; }
+            if (!sparkMap[sym]) sparkMap[sym] = [];
+            const arr = sparkMap[sym];
+            // Deduplicate: skip if last point has same timestamp
+            if (arr.length > 0 && arr[arr.length - 1].t === minuteTs) {
+              // Update close price of existing point (same minute)
+              arr[arr.length - 1].c = price;
+            } else {
+              arr.push({ t: minuteTs, c: price, o: price });
             }
-
-            // Remove tickers no longer in the price feed (cleanup)
-            for (const sym of Object.keys(sparkMap)) {
-              if (!prices[sym]) delete sparkMap[sym];
+            // Trim to max points
+            if (arr.length > SPARK_MAX_POINTS) {
+              sparkMap[sym] = arr.slice(arr.length - SPARK_MAX_POINTS);
             }
+            appended++;
+          }
 
-            // Persist to KV (non-blocking)
+          // Persist to KV if anything was appended (non-blocking)
+          if (appended > 0) {
             ctx.waitUntil(kvPutJSON(KV, SPARK_KV_KEY, sparkMap).catch(e =>
               console.warn("[SPARKLINES] KV put failed:", String(e).slice(0, 120))
             ));
@@ -35492,7 +35509,7 @@ Provide 3-5 actionable next steps:
               data: sparkMap,
               updated_at: Date.now(),
             }));
-            console.log(`[SPARKLINES] Pushed ${Object.keys(sparkMap).length} tickers to WS (market ${marketOpen ? "OPEN" : "CLOSED"})`);
+            console.log(`[SPARKLINES] Pushed ${Object.keys(sparkMap).length} tickers to WS (appended=${appended}, skippedClosed=${skippedClosed})`);
           }
         } catch (sparkErr) {
           console.warn("[SPARKLINES] error:", String(sparkErr).slice(0, 200));
