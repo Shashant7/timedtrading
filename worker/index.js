@@ -35388,54 +35388,97 @@ Provide 3-5 actionable next steps:
         // a rolling array of {t, c, o} values per ticker in KV and push
         // the full sparkline payload to all WS clients every 5 minutes.
         // Clients use this to render sparklines with zero HTTP candle requests.
+        //
+        // IMPORTANT: Only append new price points during equity RTH (9:30-4 PM ET weekdays).
+        // Outside market hours, prices are stale and appending them would create flat lines
+        // that push out the previous session's real intraday movement. By skipping outside RTH,
+        // the last trading day's sparklines are preserved and shown for context.
         try {
           const SPARK_KV_KEY = "timed:sparklines";
           const SPARK_MAX_POINTS = 400; // ~6.5h at 1m resolution, enough for any session
           const minuteTs = Math.floor(Date.now() / 60000) * 60000;
+          const marketOpen = isNyRegularMarketOpen();
 
           // Read existing sparkline data from KV
           let sparkMap = (await kvGetJSON(KV, SPARK_KV_KEY)) || {};
 
-          // Append current price for each ticker
-          let appended = 0;
-          for (const [sym, snap] of Object.entries(prices)) {
-            const price = snap.p;
-            if (!Number.isFinite(price) || price <= 0) continue;
-            if (!sparkMap[sym]) sparkMap[sym] = [];
-            const arr = sparkMap[sym];
-            // Deduplicate: skip if last point has same timestamp
-            if (arr.length > 0 && arr[arr.length - 1].t === minuteTs) {
-              // Update close price of existing point (same minute)
-              arr[arr.length - 1].c = price;
-            } else {
-              arr.push({ t: minuteTs, c: price, o: price });
+          // Bootstrap: if sparkMap is empty (first deploy or cleared), seed from D1
+          // by querying the last 100 5m candles for the top tickers.
+          // This runs once and gives sparklines context even before the next market open.
+          if (Object.keys(sparkMap).length === 0 && env?.DB) {
+            try {
+              const db = env.DB;
+              const tickerSyms = Object.keys(prices).slice(0, 250); // up to 250 tickers
+              // Batch query: get last 100 5m candles per ticker (covers ~8h)
+              const batchSize = 50; // D1 batch limit per call
+              for (let i = 0; i < tickerSyms.length; i += batchSize) {
+                const chunk = tickerSyms.slice(i, i + batchSize);
+                const stmts = chunk.map(sym =>
+                  db.prepare(
+                    `SELECT ts, o, c FROM ticker_candles WHERE ticker = ?1 AND tf = '5' ORDER BY ts DESC LIMIT 100`
+                  ).bind(sym.toUpperCase())
+                );
+                const results = await db.batch(stmts);
+                for (let j = 0; j < chunk.length; j++) {
+                  const rows = results[j]?.results || [];
+                  if (rows.length < 2) continue;
+                  sparkMap[chunk[j]] = rows
+                    .map(r => ({ t: Number(r.ts), c: Number(r.c), o: Number(r.o) }))
+                    .filter(p => Number.isFinite(p.t) && Number.isFinite(p.c))
+                    .reverse(); // oldest first
+                }
+              }
+              if (Object.keys(sparkMap).length > 0) {
+                console.log(`[SPARKLINES] Bootstrapped ${Object.keys(sparkMap).length} tickers from D1`);
+                ctx.waitUntil(kvPutJSON(KV, SPARK_KV_KEY, sparkMap).catch(() => {}));
+              }
+            } catch (bootErr) {
+              console.warn("[SPARKLINES] Bootstrap from D1 failed:", String(bootErr).slice(0, 200));
             }
-            // Trim to max points
-            if (arr.length > SPARK_MAX_POINTS) {
-              sparkMap[sym] = arr.slice(arr.length - SPARK_MAX_POINTS);
-            }
-            appended++;
           }
 
-          // Remove tickers no longer in the price feed (cleanup)
-          for (const sym of Object.keys(sparkMap)) {
-            if (!prices[sym]) delete sparkMap[sym];
+          // Only append new data points during market hours
+          if (marketOpen) {
+            let appended = 0;
+            for (const [sym, snap] of Object.entries(prices)) {
+              const price = snap.p;
+              if (!Number.isFinite(price) || price <= 0) continue;
+              if (!sparkMap[sym]) sparkMap[sym] = [];
+              const arr = sparkMap[sym];
+              // Deduplicate: skip if last point has same timestamp
+              if (arr.length > 0 && arr[arr.length - 1].t === minuteTs) {
+                // Update close price of existing point (same minute)
+                arr[arr.length - 1].c = price;
+              } else {
+                arr.push({ t: minuteTs, c: price, o: price });
+              }
+              // Trim to max points
+              if (arr.length > SPARK_MAX_POINTS) {
+                sparkMap[sym] = arr.slice(arr.length - SPARK_MAX_POINTS);
+              }
+              appended++;
+            }
+
+            // Remove tickers no longer in the price feed (cleanup)
+            for (const sym of Object.keys(sparkMap)) {
+              if (!prices[sym]) delete sparkMap[sym];
+            }
+
+            // Persist to KV (non-blocking)
+            ctx.waitUntil(kvPutJSON(KV, SPARK_KV_KEY, sparkMap).catch(e =>
+              console.warn("[SPARKLINES] KV put failed:", String(e).slice(0, 120))
+            ));
           }
 
-          // Persist to KV (non-blocking)
-          ctx.waitUntil(kvPutJSON(KV, SPARK_KV_KEY, sparkMap).catch(e =>
-            console.warn("[SPARKLINES] KV put failed:", String(e).slice(0, 120))
-          ));
-
-          // Push to WS clients every 5 minutes (or first minute of hour for fresh connections)
-          // This keeps bandwidth reasonable while ensuring sparklines stay current.
+          // Push to WS clients every 5 minutes (even outside market hours so new
+          // connections get the preserved previous-session sparklines).
           if (_utcM % 5 === 0) {
             ctx.waitUntil(notifyPriceHub(env, {
               type: "sparklines",
               data: sparkMap,
               updated_at: Date.now(),
             }));
-            console.log(`[SPARKLINES] Pushed ${Object.keys(sparkMap).length} tickers to WS clients`);
+            console.log(`[SPARKLINES] Pushed ${Object.keys(sparkMap).length} tickers to WS (market ${marketOpen ? "OPEN" : "CLOSED"})`);
           }
         } catch (sparkErr) {
           console.warn("[SPARKLINES] error:", String(sparkErr).slice(0, 200));
