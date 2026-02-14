@@ -694,6 +694,15 @@
       }
     }, [user]);
 
+    // Register push notifications once authenticated (progressive, after 3rd visit).
+    // Placed here (before conditional returns) to obey Rules of Hooks.
+    // Fully wrapped in catch — must never crash the app.
+    useEffect(() => {
+      if (user) {
+        try { registerPushNotifications(apiBase).catch(() => {}); } catch (_) {}
+      }
+    }, [user, apiBase]);
+
     if (state === "checking" && !user) {
       // Show minimal loading state
       return React.createElement(
@@ -782,14 +791,6 @@
         },
       });
     }
-
-    // Register push notifications once authenticated (progressive, after 3rd visit).
-    // Fully wrapped in catch — must never crash the app.
-    useEffect(() => {
-      if (user) {
-        try { registerPushNotifications(apiBase).catch(() => {}); } catch (_) {}
-      }
-    }, [user, apiBase]);
 
     // Authenticated, tier-authorized, and terms accepted — render children with user context
     const appContent = typeof children === "function" ? children(user) : children;
