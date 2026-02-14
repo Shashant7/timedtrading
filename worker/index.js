@@ -20977,12 +20977,16 @@ export default {
             const db = env?.DB;
             if (db) {
               try {
-                const cutoff = Date.now() - 72 * 3600 * 1000; // 72 hours ago
-                const rows = await db.prepare(
+                // Only need the last ~24h of data for sparklines, but use 48h cutoff
+                // to reliably capture last trading session even on weekends.
+                // Use 1m candles (built by cron for ALL tickers) as fallback if 5m are sparse.
+                const cutoff = Date.now() - 48 * 3600 * 1000; // 48 hours ago
+                // Two-pass: try 5m candles first (smaller dataset), fall back to 1m
+                let rows = await db.prepare(
                   `SELECT ticker, ts, o, c FROM ticker_candles
                    WHERE tf = '5' AND ts > ?1
                    ORDER BY ticker ASC, ts ASC
-                   LIMIT 30000`
+                   LIMIT 100000`
                 ).bind(cutoff).all();
                 sparkMap = {};
                 for (const r of (rows?.results || [])) {
