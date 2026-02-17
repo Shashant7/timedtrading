@@ -2129,43 +2129,33 @@
         return hr * 60 + mn;
       }
 
-      // Session fraction: maps a candle timestamp to 0–1 within the session window
-      // 0 = session open, 1 = session close
-      // Accepts seconds OR milliseconds (auto-detected)
-      function _sessionFraction(ts, sym) {
-        const min = _tsToEtMin(ts);
-        if (isNaN(min)) return 1;
+      // Session fraction: maps a candle timestamp to 0–1 within the display window.
+      // All asset types display the same 390-minute horizontal width:
+      //   Equities: fixed 9:30 AM – 4:00 PM ET
+      //   Crypto & Futures: rolling 390-min window ending at anchorMs (default: now)
+      // anchorMs: optional reference point for the right edge of the rolling window.
+      //   Live sessions: omit (defaults to Date.now())
+      //   Frozen sessions: pass the session close timestamp so the window
+      //   aligns to the last 390 minutes of that completed session.
+      function _sessionFraction(ts, sym, anchorMs) {
         const cfg = _getSessionConfig(sym);
         if (cfg.sessionDur === 390) {
           // Equity: simple linear 570→960
+          const min = _tsToEtMin(ts);
+          if (isNaN(min)) return 1;
           if (min < cfg.openMin) return 0;
           if (min >= cfg.closeMin) return 1;
           return (min - cfg.openMin) / cfg.sessionDur;
         }
-        if (cfg.sessionDur === 1440) {
-          // 24/7 crypto: rolling 24h window from now.
-          // Each timestamp maps to a unique frac (no day-boundary overlap).
-          // Uses rolling window instead of midnight-to-midnight so sparklines
-          // always have data even when today's candle ingestion hasn't run yet.
-          const tsMs = _toMs(ts);
-          const now = Date.now();
-          const windowMs = 24 * 60 * 60 * 1000;
-          const cutoff = now - windowMs;
-          if (tsMs < cutoff) return -1; // older than 24h → exclude
-          return Math.max(0, Math.min(1, (tsMs - cutoff) / windowMs));
-        }
-        // Continuous futures (wraps midnight): 1080 → 0 → 1020
-        // Minutes past session open, handling midnight wrap
-        let elapsed;
-        if (min >= cfg.openMin) {
-          elapsed = min - cfg.openMin; // same day, after 6 PM
-        } else if (min < cfg.closeMin) {
-          elapsed = (1440 - cfg.openMin) + min; // next day, before 5 PM
-        } else {
-          // Between 5 PM and 6 PM ET = session gap
-          return 1;
-        }
-        return Math.max(0, Math.min(1, elapsed / cfg.sessionDur));
+        // Crypto & Futures: rolling 390-minute window so horizontal scale
+        // matches equities. Anchor = now (live) or session close (frozen).
+        const SPARK_WINDOW_MS = 390 * 60 * 1000;
+        const tsMs = _toMs(ts);
+        const anchor = anchorMs || Date.now();
+        const cutoff = anchor - SPARK_WINDOW_MS;
+        if (tsMs < cutoff) return -1;
+        if (tsMs > anchor) return 1;
+        return Math.max(0, Math.min(1, (tsMs - cutoff) / SPARK_WINDOW_MS));
       }
 
       // Compute session open time as epoch MILLISECONDS for "today's" session
@@ -2265,73 +2255,68 @@
         const closeHr = Math.floor(cfg.closeMin / 60);
         const closeMn = cfg.closeMin % 60;
 
+        // Crypto & Futures: rolling 390-min window (matches equity RTH width).
+        // Live sessions: now - 390min → now. Frozen: last 390min of completed session.
+        const SPARK_WINDOW = 390 * 60 * 1000;
+
         if (cfg.sessionDur === 1440) {
-          // 24/7 crypto: rolling 24h window (now - 24h → now).
-          // Matches _sessionFraction's rolling window so filter + frac are consistent.
-          // Ensures sparklines always have data even when today's candle ingestion is stale.
-          const openMs = Date.now() - 24 * 60 * 60 * 1000;
+          // 24/7 crypto: always live, rolling 390-min window from now.
+          const openMs = Date.now() - SPARK_WINDOW;
           return { openMs, closeMs: null };
         }
 
         if (cfg.sessionDur > 500) {
-          // Continuous futures: 6 PM ET → 5 PM ET next day (23h sessions, Sun–Fri)
+          // Continuous futures: live rolling 390-min window, or frozen last-390-min slice.
           const nowEtMin = _tsToEtMin(Date.now());
-          let openMs = Date.UTC(yr, mo - 1, dy, openHr - etOffset, openMn, 0);
-          if (nowEtMin < cfg.openMin) openMs -= 86400000;
+          let fullSessionOpenMs = Date.UTC(yr, mo - 1, dy, openHr - etOffset, openMn, 0);
+          if (nowEtMin < cfg.openMin) fullSessionOpenMs -= 86400000;
 
           // Weekend detection: futures close Friday ~5 PM ET and reopen Sunday ~6 PM ET.
-          // During the weekend gap, show the last completed session (Thu 6pm→Fri 5pm) frozen.
           const etDow = new Date().toLocaleDateString("en-US", { timeZone: "America/New_York", weekday: "short" });
 
-          // Friday after close (5 PM ET): market closed for weekend.
-          // Show last completed session (Thu 6pm → Fri 5pm) frozen.
+          // Friday after close (5 PM ET): show last 390 min of completed session frozen.
           if (etDow === "Fri" && nowEtMin >= cfg.closeMin) {
-            let frozenOpen;
+            let fullOpen;
             if (nowEtMin >= cfg.openMin) {
-              // After 6 PM: openMs = Friday 6 PM, shift to Thursday 6 PM
-              frozenOpen = openMs - 86400000;
+              fullOpen = fullSessionOpenMs - 86400000;
             } else {
-              // Between 5-6 PM gap: openMs already shifted to Thursday 6 PM (line above)
-              frozenOpen = openMs;
+              fullOpen = fullSessionOpenMs;
             }
-            const closeMs = frozenOpen + cfg.sessionDur * 60000;
-            return { openMs: frozenOpen, closeMs, _frozen: true };
+            const fullClose = fullOpen + cfg.sessionDur * 60000;
+            return { openMs: fullClose - SPARK_WINDOW, closeMs: fullClose, _frozen: true };
           }
 
           if (etDow === "Sat") {
-            // Saturday: last session was Thu 6pm → Fri 5pm. Show frozen.
-            // Compute from Saturday's 6 PM anchor, always go back exactly 2 days to Thursday 6 PM.
             const satAnchor = Date.UTC(yr, mo - 1, dy, openHr - etOffset, openMn, 0);
-            const thuOpen = satAnchor - 2 * 86400000; // Sat 6 PM - 2 days = Thu 6 PM
-            const closeMs = thuOpen + cfg.sessionDur * 60000; // Thu 6 PM + 23h = Fri 5 PM
-            return { openMs: thuOpen, closeMs, _frozen: true };
+            const thuOpen = satAnchor - 2 * 86400000;
+            const fullClose = thuOpen + cfg.sessionDur * 60000;
+            return { openMs: fullClose - SPARK_WINDOW, closeMs: fullClose, _frozen: true };
           }
           if (etDow === "Sun" && nowEtMin < cfg.openMin) {
-            // Sunday before 6pm: market still closed. Same last session.
-            openMs -= 2 * 86400000; // shift back 2 days (Sun→Fri → Thu 6pm)
-            const closeMs = openMs + cfg.sessionDur * 60000;
-            return { openMs, closeMs, _frozen: true };
+            const sunOpen = fullSessionOpenMs - 2 * 86400000;
+            const fullClose = sunOpen + cfg.sessionDur * 60000;
+            return { openMs: fullClose - SPARK_WINDOW, closeMs: fullClose, _frozen: true };
           }
 
           // Futures holiday handling: early close or full close
           const todayETFut = _getETDateStr(new Date());
           if (_FUTURES_FULL_CLOSE.has(todayETFut)) {
-            // Full close: show previous session frozen
             const prevDay = _previousTradingDay(todayETFut);
             const [pyr, pmo, pdy] = prevDay.split("-").map(Number);
             const prevOpen = Date.UTC(pyr, pmo - 1, pdy, openHr - etOffset, openMn, 0);
-            const prevClose = prevOpen + cfg.sessionDur * 60000;
-            return { openMs: prevOpen, closeMs: prevClose, _frozen: true };
+            const fullClose = prevOpen + cfg.sessionDur * 60000;
+            return { openMs: fullClose - SPARK_WINDOW, closeMs: fullClose, _frozen: true };
           }
           if (_FUTURES_EARLY_CLOSE.has(todayETFut)) {
-            // Early close at 1 PM ET (780 minutes): if past early close, freeze
-            const earlyCloseMin = 780; // 1 PM ET
+            const earlyCloseMin = 780;
             if (nowEtMin >= earlyCloseMin) {
-              return { openMs, closeMs: openMs + (earlyCloseMin - cfg.openMin + 1440) % 1440 * 60000, _frozen: true };
+              const fullClose = fullSessionOpenMs + ((earlyCloseMin - cfg.openMin + 1440) % 1440) * 60000;
+              return { openMs: fullClose - SPARK_WINDOW, closeMs: fullClose, _frozen: true };
             }
           }
 
-          return { openMs, closeMs: null };
+          // Live: rolling 390-min window from now
+          return { openMs: Date.now() - SPARK_WINDOW, closeMs: null };
         }
 
         // Equity RTH: 9:30 (570) – 4 PM (960)
@@ -2433,12 +2418,18 @@
           }
           return filtered;
         }
-        // Continuous futures: when current session has no data (market closed / weekend),
-        // return the most recent contiguous chunk of candles (~1 session worth) instead
-        // of ALL raw candles, which would cause chaotic multi-day overlay.
-        // Take the last ~280 candles (roughly 23h of 5-min bars).
-        const maxSessionCandles = Math.min(rawCandles.length, 300);
-        return rawCandles.slice(-maxSessionCandles);
+        // Crypto / Futures fallback: when the 390-min window filter returns empty
+        // (market closed, stale KV data), show the most recent chunk of candles.
+        // 400 = one full 390-min display window at 1-min resolution.
+        if (w._frozen && filtered.length < 2 && rawCandles.length >= 2) {
+          const chunk = rawCandles.slice(-400);
+          const closes = chunk.map(c => Number(c.c ?? c.close ?? 0)).filter(v => v > 0);
+          if (closes.length >= 2) {
+            const allSame = closes.every(v => v === closes[0]);
+            if (!allSame) return chunk;
+          }
+        }
+        return filtered.length >= 2 ? filtered : rawCandles.slice(-400);
       }
 
       // Find index of first candle at or after session open
@@ -11316,13 +11307,18 @@
                 const lastCandleTs = _toMs(Number(candles[candles.length - 1]?.t ?? candles[candles.length - 1]?.ts ?? 0));
                 const isYesterdayFallback = w?.openMs && lastCandleTs > 0 && lastCandleTs < w.openMs;
 
+                // Anchor for rolling window: frozen sessions use closeMs so the
+                // 390-min window aligns to the end of the completed session.
+                const cfg = _getSessionConfig(sym);
+                const sparkAnchor = (cfg.sessionDur !== 390) ? (w?._frozen ? w.closeMs : undefined) : undefined;
+
                 const pts = [];
                 let rthOpenPrice = null;
                 for (const c of candles) {
                   const ts = Number(c.t ?? c.ts ?? c.timestamp ?? 0);
                   const cl = Number(c.c ?? c.close ?? 0);
                   if (!ts || cl <= 0) continue;
-                  const frac = _sessionFraction(ts, sym);
+                  const frac = _sessionFraction(ts, sym, sparkAnchor);
                   if (frac >= 0 && frac <= 1) {
                     pts.push({ frac, cl });
                     if (rthOpenPrice === null) {
@@ -11333,7 +11329,7 @@
                 }
                 if (pts.length < 2) return null;
 
-                // Anchor sparkline left edge: if data starts mid-session,
+                // Anchor sparkline left edge: if data starts mid-window,
                 // extend with a flat line from frac=0 at the open price.
                 if (pts[0].frac > 0.02 && rthOpenPrice != null) {
                   pts.unshift({ frac: 0, cl: rthOpenPrice });
@@ -12287,6 +12283,14 @@
           if (!rawCandles || rawCandles.length < 2) return <span className="text-gray-700 text-[9px]">—</span>;
           const candles = React.useMemo(() => _filterTodaySession(rawCandles, sparkSym), [rawCandles, sparkSym]);
 
+          // Compute anchor for rolling-window types (crypto/futures)
+          const sparkAnchor = React.useMemo(() => {
+            const cfg = _getSessionConfig(sparkSym);
+            if (cfg.sessionDur === 390) return undefined; // equities use fixed window
+            const w = _getSessionWindowMs(sparkSym);
+            return w?._frozen ? w.closeMs : undefined;
+          }, [sparkSym]);
+
           // Build session-mapped points
           const points = React.useMemo(() => {
             const pts = [];
@@ -12294,11 +12298,11 @@
               const ts = Number(c.t ?? c.ts ?? c.timestamp ?? 0);
               const cl = Number(c.c ?? c.close ?? 0);
               if (!ts || cl <= 0) continue;
-              const frac = _sessionFraction(ts, sparkSym);
+              const frac = _sessionFraction(ts, sparkSym, sparkAnchor);
               if (frac >= 0 && frac <= 1) pts.push({ frac, cl, ts });
             }
             return pts;
-          }, [candles, sparkSym]);
+          }, [candles, sparkSym, sparkAnchor]);
 
           if (points.length < 2) return <span className="text-gray-700 text-[9px]">—</span>;
           const closes = points.map(p => p.cl);
@@ -16740,12 +16744,14 @@
                       const gradColor = up ? "#22c55e" : "#ef4444";
                       let sparkSvg = null;
                       if (candles && candles.length >= 2) {
+                        const _mpCfg = _getSessionConfig(sym);
+                        const _mpAnchor = (_mpCfg.sessionDur !== 390) ? (() => { const _w = _getSessionWindowMs(sym); return _w?._frozen ? _w.closeMs : undefined; })() : undefined;
                         const pts = [];
                         for (const c of candles) {
                           const ts = Number(c.t ?? c.ts ?? c.timestamp ?? 0);
                           const cl = Number(c.c ?? c.close ?? 0);
                           if (!ts || cl <= 0) continue;
-                          const frac = _sessionFraction(ts, sym);
+                          const frac = _sessionFraction(ts, sym, _mpAnchor);
                           if (frac >= 0 && frac <= 1) pts.push({ frac, cl });
                         }
                         if (pts.length >= 2) {
