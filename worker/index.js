@@ -52,6 +52,8 @@ import {
   alpacaCronFetchCrypto,
   alpacaBackfill,
   alpacaFetchSnapshots,
+  alpacaFetchAllBars,
+  alpacaBarToCandle,
   computeServerSideScores,
   computeTfBundle,
   assembleTickerData,
@@ -304,6 +306,7 @@ const ROUTES = [
   ["GET", "/timed/prices", "GET /timed/prices"],
   ["GET", "/timed/candles", "GET /timed/candles"],
   ["GET", "/timed/sparklines", "GET /timed/sparklines"],
+  ["POST", "/timed/sparklines/rebuild", "POST /timed/sparklines/rebuild"],
   ["GET", "/timed/market-calendar", "GET /timed/market-calendar"],
   ["GET", "/timed/trail/performance", "GET /timed/trail/performance"],
   ["GET", "/timed/trail", "GET /timed/trail"],
@@ -21221,6 +21224,107 @@ export default {
         } catch (e) {
           console.error("[SPARKLINES] GET failed:", String(e));
           return sendJSON({ ok: false, error: "internal_error" }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // POST /timed/sparklines/rebuild — Admin-only: rebuild sparklines from Alpaca 1m bars.
+      // Fetches today's RTH 1-minute bars for all equity tickers, builds sparkline arrays,
+      // and writes to KV. This replaces noisy snapshot-based data with real candle data.
+      // The cron then continues appending new points on top of this clean foundation.
+      if (routeKey === "POST /timed/sparklines/rebuild") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        try {
+          if (!env.ALPACA_API_KEY_ID || !env.ALPACA_API_SECRET_KEY) {
+            return sendJSON({ ok: false, error: "alpaca_not_configured" }, 400, corsHeaders(env, req));
+          }
+
+          // Determine today's RTH window in UTC for the Alpaca API
+          const now = new Date();
+          const etDateStr = now.toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+          const [yr, mo, dy] = etDateStr.split("-").map(Number);
+          const testUtc = new Date(Date.UTC(yr, mo - 1, dy, 12, 0, 0));
+          const etHour = parseInt(testUtc.toLocaleString("en-US", { timeZone: "America/New_York", hour12: false, hour: "2-digit" }));
+          const etOffset = etHour - 12;
+          const rthOpenUtc = new Date(Date.UTC(yr, mo - 1, dy, 9 - etOffset, 30, 0));
+          const rthCloseUtc = new Date(Date.UTC(yr, mo - 1, dy, 16 - etOffset, 0, 0));
+
+          // Get all equity tickers (exclude futures, crypto, etc.)
+          const ALPACA_BLOCKLIST = new Set([
+            "ES1!", "NQ1!", "YM1!", "RTY1!", "CL1!", "GC1!", "SI1!",
+            "BTCUSD", "ETHUSD", "US500", "VIX", "SPX",
+          ]);
+          const allTickers = Object.keys(SECTOR_MAP).filter(
+            t => !ALPACA_BLOCKLIST.has(t) && /^[A-Z]{1,5}(-[A-Z]{1,2})?$/.test(t)
+          );
+
+          // Fetch 1-minute bars from Alpaca in batches (50 symbols per batch)
+          const BATCH_SIZE = 50;
+          const sparkMap = {};
+          let totalBars = 0;
+          let totalTickers = 0;
+          const startIso = rthOpenUtc.toISOString();
+          const endIso = (rthCloseUtc < now ? rthCloseUtc : now).toISOString();
+
+          for (let i = 0; i < allTickers.length; i += BATCH_SIZE) {
+            const batch = allTickers.slice(i, i + BATCH_SIZE);
+            try {
+              const barsBySymbol = await alpacaFetchAllBars(env, batch, "1", startIso, endIso, 10000);
+              for (const [sym, bars] of Object.entries(barsBySymbol)) {
+                if (!Array.isArray(bars) || bars.length < 2) continue;
+                const points = [];
+                for (const bar of bars) {
+                  const candle = alpacaBarToCandle(bar);
+                  if (!candle || !Number.isFinite(candle.ts)) continue;
+                  const { ts, o, c } = candle;
+                  if (!Number.isFinite(o) || !Number.isFinite(c) || c <= 0) continue;
+                  points.push({ t: ts, o, c });
+                }
+                if (points.length >= 2) {
+                  // Use original SECTOR_MAP casing for the symbol key
+                  const normalSym = sym.toUpperCase();
+                  sparkMap[normalSym] = points.slice(-400);
+                  totalBars += points.length;
+                  totalTickers++;
+                }
+              }
+            } catch (batchErr) {
+              console.warn(`[SPARKLINE REBUILD] Batch ${i / BATCH_SIZE} failed:`, String(batchErr).slice(0, 200));
+            }
+          }
+
+          // Preserve non-equity sparklines (crypto, futures) from existing KV
+          try {
+            const existing = await kvGetJSON(KV, "timed:sparklines");
+            if (existing) {
+              for (const [sym, arr] of Object.entries(existing)) {
+                if (!sparkMap[sym] && Array.isArray(arr) && arr.length >= 2) {
+                  sparkMap[sym] = arr;
+                }
+              }
+            }
+          } catch (_) {}
+
+          // Write to KV
+          await kvPutJSON(KV, "timed:sparklines", sparkMap);
+
+          // Push to WebSocket clients immediately
+          ctx.waitUntil(notifyPriceHub(env, {
+            type: "sparklines",
+            data: sparkMap,
+            updated_at: Date.now(),
+          }));
+
+          console.log(`[SPARKLINE REBUILD] Done: ${totalTickers} tickers, ${totalBars} bars total`);
+          return sendJSON({
+            ok: true,
+            tickers_rebuilt: totalTickers,
+            total_bars: totalBars,
+            total_in_kv: Object.keys(sparkMap).length,
+          }, 200, corsHeaders(env, req));
+        } catch (e) {
+          console.error("[SPARKLINE REBUILD] Failed:", String(e));
+          return sendJSON({ ok: false, error: String(e?.message || e) }, 500, corsHeaders(env, req));
         }
       }
 
