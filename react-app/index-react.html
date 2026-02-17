@@ -11333,13 +11333,16 @@
                 }
                 if (pts.length < 2) return null;
 
-                // Anchor sparkline edges: if data starts mid-session or ends
-                // early, extend with flat lines at the open/last close price
-                // so the sparkline fills the full card width.
+                // Anchor sparkline left edge: if data starts mid-session,
+                // extend with a flat line from frac=0 at the open price.
                 if (pts[0].frac > 0.02 && rthOpenPrice != null) {
                   pts.unshift({ frac: 0, cl: rthOpenPrice });
                 }
-                if (pts[pts.length - 1].frac < 0.98) {
+                // Anchor right edge ONLY for frozen/completed sessions.
+                // During live trading, the sparkline should end at the current time
+                // (not extend a flat line to the session close — that looks wrong).
+                const sessionFrozen = w?._frozen === true;
+                if (sessionFrozen && pts[pts.length - 1].frac < 0.98) {
                   pts.push({ frac: 1, cl: pts[pts.length - 1].cl });
                 }
 
@@ -12327,7 +12330,7 @@
               if (d < minD) { minD = d; closest = p; }
             }
             const timeStr = closest.ts
-              ? new Date(closest.ts * 1000).toLocaleTimeString("en-US", { timeZone: "America/New_York", hour: "numeric", minute: "2-digit" })
+              ? new Date(_toMs(closest.ts)).toLocaleTimeString("en-US", { timeZone: "America/New_York", hour: "numeric", minute: "2-digit" })
               : "—";
             setTooltip({ price: closest.price, time: timeStr, x: e.clientX, y: e.clientY });
           };

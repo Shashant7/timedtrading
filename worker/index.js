@@ -21148,26 +21148,50 @@ export default {
         try {
           let sparkMap = await kvGetJSON(KV, "timed:sparklines");
 
-          // Fallback: if KV has no sparkline data, bootstrap from D1's 5m candles.
-          // Uses a single efficient query with time cutoff (last 168h / 7 days to cover
-          // weekends + holidays like 3-day weekends).
+          // Fallback: if KV has no sparkline data, bootstrap from D1 candles.
+          // Tries 1-minute candles first (best resolution for sparklines), falls back
+          // to 5-minute if 1m data is sparse. Uses last 48h for 1m (covers current +
+          // previous session) and 168h for 5m (covers weekends + holidays).
           if (!sparkMap || Object.keys(sparkMap).length === 0) {
             const db = env?.DB;
             if (db) {
               try {
-                const cutoff = Date.now() - 168 * 3600 * 1000; // 7 days ago
+                // Try 1-minute candles first (Alpaca stream writes these to D1)
+                const cutoff1m = Date.now() - 48 * 3600 * 1000; // 48h ago
                 let rows = await db.prepare(
                   `SELECT ticker, ts, o, c FROM ticker_candles
-                   WHERE tf = '5' AND ts > ?1
+                   WHERE tf = '1' AND ts > ?1
                    ORDER BY ticker ASC, ts ASC
                    LIMIT 200000`
-                ).bind(cutoff).all();
+                ).bind(cutoff1m).all();
                 sparkMap = {};
                 for (const r of (rows?.results || [])) {
                   const sym = r.ticker;
                   if (!sparkMap[sym]) sparkMap[sym] = [];
                   sparkMap[sym].push({ t: Number(r.ts), c: Number(r.c), o: Number(r.o) });
                 }
+                const tickerCount1m = Object.keys(sparkMap).length;
+
+                // If 1m data is sparse (<10 tickers), supplement with 5m candles
+                if (tickerCount1m < 10) {
+                  const cutoff5m = Date.now() - 168 * 3600 * 1000; // 7 days ago
+                  rows = await db.prepare(
+                    `SELECT ticker, ts, o, c FROM ticker_candles
+                     WHERE tf = '5' AND ts > ?1
+                     ORDER BY ticker ASC, ts ASC
+                     LIMIT 200000`
+                  ).bind(cutoff5m).all();
+                  for (const r of (rows?.results || [])) {
+                    const sym = r.ticker;
+                    if (sparkMap[sym] && sparkMap[sym].length >= 2) continue; // already have 1m data
+                    if (!sparkMap[sym]) sparkMap[sym] = [];
+                    sparkMap[sym].push({ t: Number(r.ts), c: Number(r.c), o: Number(r.o) });
+                  }
+                  console.log(`[SPARKLINES] Bootstrap: ${tickerCount1m} tickers from 1m, ${Object.keys(sparkMap).length - tickerCount1m} supplemented from 5m`);
+                } else {
+                  console.log(`[SPARKLINES] Bootstrap: ${tickerCount1m} tickers from 1m candles`);
+                }
+
                 // Post-process: remove stale flat-line data per ticker.
                 // If all close prices for a ticker are identical, it's holiday noise — drop it.
                 // Also trim to last 400 points per ticker to keep KV size reasonable.
@@ -21177,7 +21201,6 @@ export default {
                   const closes = arr.map(p => p.c);
                   const allSame = closes.every(v => v === closes[0]);
                   if (allSame) { delete sparkMap[sym]; continue; }
-                  // Keep only last 400 points
                   if (arr.length > 400) sparkMap[sym] = arr.slice(-400);
                 }
                 // Cache to KV for subsequent requests (non-blocking)
@@ -36042,7 +36065,7 @@ Provide 3-5 actionable next steps:
         // the last session's real intraday movement.
         try {
           const SPARK_KV_KEY = "timed:sparklines";
-          const SPARK_MAX_POINTS = 400; // ~6.5h at 1m resolution, enough for any session
+          const SPARK_MAX_POINTS = 400; // Covers full equity RTH (390 min) + margin
           const minuteTs = Math.floor(Date.now() / 60000) * 60000;
 
           // Compute ET time context once for all tickers
@@ -36060,41 +36083,88 @@ Provide 3-5 actionable next steps:
             _sparkEtMins = (map.hour || 0) * 60 + (map.minute || 0);
           } catch {}
 
-          // Per-ticker session check — uses dynamic market calendar
-          function isTickerSessionActive(sym) {
-            if (_cronCalendar) return _calIsTickerSessionActive(_cronCalendar, sym, _sparkNow);
-            // Static fallback (shouldn't happen — calendar loaded at cron start)
+          // Sparkline-specific session check: ONLY RTH (9:30-4 PM ET) for equities.
+          // The general isTickerSessionActive uses 4 AM - 8 PM which wastes the
+          // 400-point rolling window on pre/post-market data the frontend never shows.
+          // Futures + crypto keep their full session windows (they display all of it).
+          function isSparklineSessionActive(sym) {
             const _CRYPTO_SYMS = new Set(["BTCUSD", "ETHUSD", "BTCUSDT", "ETHUSDT", "BTC", "ETH"]);
-            if (_CRYPTO_SYMS.has(sym) || sym.endsWith("USD") || sym.endsWith("USDT")) return true;
+            const isCrypto = _CRYPTO_SYMS.has(sym) || sym.endsWith("USD") || sym.endsWith("USDT");
+            if (isCrypto) return true;
+            const isFut = sym.endsWith("1!") || ["ES1!", "NQ1!", "CL1!", "GC1!", "SI1!", "US500", "SPX", "VIX"].includes(sym);
+            if (isFut) {
+              if (_cronCalendar) return _calIsTickerSessionActive(_cronCalendar, sym, _sparkNow);
+              if (_sparkIsSaturday) return false;
+              if (_sparkIsSunday) return _sparkEtMins >= 1080;
+              if (_sparkIsFriday) return _sparkEtMins < 1020;
+              return true;
+            }
+            // Equities: RTH only (9:30 AM – 4:00 PM ET)
+            // This ensures all 400 points cover the displayable range,
+            // matching the frontend's _sessionFraction mapping (570-960 ET mins).
+            if (_cronCalendar) {
+              const dateStr = _calGetETDateStr(_sparkNow);
+              if (_calIsEquityHoliday(_cronCalendar, dateStr)) return false;
+            }
             if (!_sparkIsWeekday) return false;
-            return _sparkEtMins >= 240 && _sparkEtMins < 1200;
+            return _sparkEtMins >= 570 && _sparkEtMins < 960;
           }
+
+          // Session start timestamps for detecting new-day transitions.
+          // Equities: 9:30 AM ET today. Futures: 6 PM ET previous calendar day.
+          const _todayET = _calGetETDateStr(_sparkNow);
+          let _equitySessionStartMs = 0;
+          try {
+            const [yr, mo, dy] = _todayET.split("-").map(Number);
+            const testUtc = new Date(Date.UTC(yr, mo - 1, dy, 12, 0, 0));
+            const etHour = parseInt(testUtc.toLocaleString("en-US", { timeZone: "America/New_York", hour12: false, hour: "2-digit" }));
+            const etOffset = etHour - 12;
+            _equitySessionStartMs = Date.UTC(yr, mo - 1, dy, 9 - etOffset, 30, 0);
+          } catch (_) {}
 
           // Read existing sparkline data from KV
           let sparkMap = (await kvGetJSON(KV, SPARK_KV_KEY)) || {};
 
-          // Bootstrap is handled by GET /timed/sparklines endpoint (D1 fallback)
-          // when KV is empty. The cron only appends new points during each ticker's session.
-
-          // Append new data points only for tickers whose session is active
+          // Append new data points only for tickers whose session is active.
+          // Uses bar close price (c) from Alpaca stream when available for true
+          // 1-minute candle fidelity; falls back to snapshot price (p).
           let appended = 0;
           let skippedClosed = 0;
+          let sessionResets = 0;
           for (const [sym, snap] of Object.entries(prices)) {
-            const price = snap.p;
+            // Prefer bar close (c) from Alpaca stream for true 1m candle data.
+            // The stream writes {t, o, h, l, c, v} fields; snapshot API sets {p}.
+            // Bar close reflects actual last-trade-of-minute vs point-in-time snapshot.
+            const barClose = Number(snap.c);
+            const price = (Number.isFinite(barClose) && barClose > 0) ? barClose : snap.p;
             if (!Number.isFinite(price) || price <= 0) continue;
-            if (!isTickerSessionActive(sym)) { skippedClosed++; continue; }
+            if (!isSparklineSessionActive(sym)) { skippedClosed++; continue; }
             if (!sparkMap[sym]) sparkMap[sym] = [];
             const arr = sparkMap[sym];
+
+            // Session reset: if the last stored point is from a previous session,
+            // clear the array so the new session starts fresh (no stale mix).
+            if (arr.length > 0 && _equitySessionStartMs > 0) {
+              const lastTs = arr[arr.length - 1].t;
+              const isCrypto = sym.endsWith("USD") || sym.endsWith("USDT");
+              const isFut = sym.endsWith("1!");
+              if (!isCrypto && !isFut && lastTs < _equitySessionStartMs && minuteTs >= _equitySessionStartMs) {
+                sparkMap[sym] = [];
+                sessionResets++;
+              }
+            }
+            const current = sparkMap[sym];
+
             // Deduplicate: skip if last point has same timestamp
-            if (arr.length > 0 && arr[arr.length - 1].t === minuteTs) {
-              // Update close price of existing point (same minute)
-              arr[arr.length - 1].c = price;
+            if (current.length > 0 && current[current.length - 1].t === minuteTs) {
+              current[current.length - 1].c = price;
             } else {
-              arr.push({ t: minuteTs, c: price, o: price });
+              const openPrice = Number(snap.o);
+              current.push({ t: minuteTs, c: price, o: (Number.isFinite(openPrice) && openPrice > 0) ? openPrice : price });
             }
             // Trim to max points
-            if (arr.length > SPARK_MAX_POINTS) {
-              sparkMap[sym] = arr.slice(arr.length - SPARK_MAX_POINTS);
+            if (current.length > SPARK_MAX_POINTS) {
+              sparkMap[sym] = current.slice(current.length - SPARK_MAX_POINTS);
             }
             appended++;
           }
@@ -36114,7 +36184,7 @@ Provide 3-5 actionable next steps:
               data: sparkMap,
               updated_at: Date.now(),
             }));
-            console.log(`[SPARKLINES] Pushed ${Object.keys(sparkMap).length} tickers to WS (appended=${appended}, skippedClosed=${skippedClosed})`);
+            console.log(`[SPARKLINES] Pushed ${Object.keys(sparkMap).length} tickers to WS (appended=${appended}, skippedClosed=${skippedClosed}, sessionResets=${sessionResets})`);
           }
         } catch (sparkErr) {
           console.warn("[SPARKLINES] error:", String(sparkErr).slice(0, 200));
