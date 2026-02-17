@@ -254,56 +254,14 @@ function parseForexFactoryHTML(html, dateStr) {
     });
   }
 
-  // If regex parsing yielded nothing, try a keyword-based fallback
-  // Look for known economic event names in text-stripped HTML
+  // Keyword fallback REMOVED — it was the root cause of false positives.
+  // The old approach searched the ENTIRE page text for "CPI m/m" etc.,
+  // matching sidebar/navigation/ads content from other dates. This caused
+  // the Daily Brief to report CPI releases on days without CPI data.
+  // Now ForexFactory only returns events found via structured HTML row parsing.
+  // Finnhub API is the primary source of truth for which events happened on which date.
   if (events.length === 0) {
-    // Strip all HTML tags and attributes to avoid matching timestamps/IDs
-    const textOnly = html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
-
-    const knownEvents = [
-      { kw: "CPI m/m", impact: "high" },
-      { kw: "CPI y/y", impact: "high" },
-      { kw: "Core CPI m/m", impact: "high" },
-      { kw: "Core CPI y/y", impact: "high" },
-      { kw: "PPI m/m", impact: "high" },
-      { kw: "Core PPI", impact: "high" },
-      { kw: "Non-Farm Employment", impact: "high" },
-      { kw: "Unemployment Rate", impact: "high" },
-      { kw: "FOMC Statement", impact: "high" },
-      { kw: "Federal Funds Rate", impact: "high" },
-      { kw: "Advance GDP", impact: "high" },
-      { kw: "GDP q/q", impact: "high" },
-      { kw: "Retail Sales m/m", impact: "high" },
-      { kw: "Core PCE", impact: "high" },
-      { kw: "ISM Manufacturing", impact: "high" },
-      { kw: "ISM Services", impact: "high" },
-      { kw: "Initial Jobless Claims", impact: "medium" },
-      { kw: "Consumer Confidence", impact: "medium" },
-      { kw: "Building Permits", impact: "medium" },
-    ];
-
-    for (const { kw, impact } of knownEvents) {
-      const idx = textOnly.toLowerCase().indexOf(kw.toLowerCase());
-      if (idx === -1) continue;
-
-      // Get a small window of text around the keyword
-      const context = textOnly.slice(idx, idx + 80);
-      // Only match small numbers that look like economic data (not timestamps)
-      // Economic data is typically: -5.0 to 999.9, optionally with % or K/M/B
-      const nums = context.match(/-?\d{1,3}\.\d{1,2}%?/g) || [];
-
-      events.push({
-        date: dateStr,
-        time: "",
-        country: "US",
-        event: kw,
-        impact,
-        actual: nums[0] || null,
-        estimate: nums[1] || null,
-        prev: nums[2] || null,
-        unit: nums[0]?.includes("%") ? "%" : "",
-      });
-    }
+    console.log(`[FF] No structured rows parsed for ${dateStr} — returning empty (keyword fallback disabled)`);
   }
 
   return events;
@@ -560,28 +518,59 @@ export async function gatherDailyBriefData(env, type, opts = {}) {
     return e;
   }));
 
-  // ── Economic Data: ForexFactory (primary) + Finnhub (fallback) ──
-  // ForexFactory gives structured calendar data with actuals
-  const ffTodayEvents = Array.isArray(ffToday) ? ffToday : [];
-  const ffYesterdayEvents = Array.isArray(ffYesterday) ? ffYesterday : [];
-
-  // Finnhub (fallback if ForexFactory is empty)
+  // ── Economic Data: Finnhub (primary, structured API) + ForexFactory (supplement) ──
+  // Finnhub returns structured calendar data with correct dates — reliable.
+  // ForexFactory scraping is fragile: HTML changes, keyword fallback can match
+  // events from sidebars/navigation (e.g. CPI from last week showing as "today").
+  // Strategy: use Finnhub as source of truth for WHICH events happened today;
+  // supplement with ForexFactory actuals only when the event name matches.
   const econWeek = Array.isArray(econWeekRaw?.events) ? econWeekRaw.events : (Array.isArray(econWeekRaw) ? econWeekRaw : []);
   const usEcon = econWeek.filter(e =>
     e.country === "US" && (e.impact === "high" || e.impact === "medium")
   );
   const dateOf = (e) => (e.date || "").slice(0, 10);
 
-  // Use ForexFactory if available, otherwise Finnhub
-  const todayEcon = ffTodayEvents.length > 0
-    ? ffTodayEvents.filter(e => e.impact === "high" || e.impact === "medium")
-    : usEcon.filter(e => dateOf(e) === today);
-  const yesterdayEcon = ffYesterdayEvents.length > 0
-    ? ffYesterdayEvents.filter(e => e.impact === "high" || e.impact === "medium")
-    : usEcon.filter(e => dateOf(e) === yesterday);
+  // Finnhub events for today, yesterday, and rest of week
+  let todayEcon = usEcon.filter(e => dateOf(e) === today);
+  let yesterdayEcon = usEcon.filter(e => dateOf(e) === yesterday);
   const weekEcon = usEcon.filter(e => dateOf(e) !== today && dateOf(e) !== yesterday);
 
-  console.log(`[ECON] Sources: FF today=${ffTodayEvents.length}, FF yesterday=${ffYesterdayEvents.length}, Finnhub=${econWeek.length}, Alpaca news=${(alpacaEconNews || []).length}`);
+  // Supplement Finnhub today's events with ForexFactory actuals (if available)
+  // Only merge if the event name fuzzy-matches — prevents false positives
+  const ffTodayEvents = Array.isArray(ffToday) ? ffToday.filter(e => e.impact === "high" || e.impact === "medium") : [];
+  const ffYesterdayEvents = Array.isArray(ffYesterday) ? ffYesterday.filter(e => e.impact === "high" || e.impact === "medium") : [];
+  if (ffTodayEvents.length > 0 && todayEcon.length > 0) {
+    const finnhubNames = new Set(todayEcon.map(e => (e.event || "").toLowerCase()));
+    for (const ffe of ffTodayEvents) {
+      const ffName = (ffe.event || "").toLowerCase();
+      const matched = todayEcon.find(fe => ffName.includes((fe.event || "").toLowerCase().slice(0, 10)));
+      if (matched && ffe.actual && !matched.actual) {
+        matched.actual = ffe.actual;
+        matched.estimate = matched.estimate || ffe.estimate;
+        matched.prev = matched.prev || ffe.prev;
+      }
+    }
+  }
+  // If Finnhub returned nothing for today but ForexFactory has events,
+  // cross-validate: only include FF events that are NOT in the week list
+  // (prevents last week's CPI showing as today's release)
+  if (todayEcon.length === 0 && ffTodayEvents.length > 0) {
+    const weekNames = new Set(weekEcon.map(e => (e.event || "").toLowerCase()));
+    const validated = ffTodayEvents.filter(e => {
+      const name = (e.event || "").toLowerCase();
+      return !weekNames.has(name);
+    });
+    if (validated.length > 0) {
+      todayEcon = validated;
+      console.log(`[ECON] Using ${validated.length} FF-only events for today (cross-validated against week)`);
+    }
+  }
+  // Same for yesterday
+  if (yesterdayEcon.length === 0 && ffYesterdayEvents.length > 0) {
+    yesterdayEcon = ffYesterdayEvents;
+  }
+
+  console.log(`[ECON] Sources: Finnhub today=${todayEcon.length}, yesterday=${yesterdayEcon.length}, week=${weekEcon.length}, FF today=${ffTodayEvents.length}, FF yesterday=${ffYesterdayEvents.length}, Alpaca news=${(alpacaEconNews || []).length}`);
 
   // Open trades summary
   const trades = Array.isArray(tradesRaw) ? tradesRaw : [];
