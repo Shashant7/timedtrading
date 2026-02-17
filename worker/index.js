@@ -21293,19 +21293,25 @@ export default {
             }
           }
 
-          // Preserve non-equity sparklines (crypto, futures) from existing KV
+          // Preserve crypto/futures sparklines ONLY for active SECTOR_MAP tickers.
+          // Previously preserved ALL existing entries, causing 10K+ stale entries
+          // that exceeded KV's 25 MB value limit and silently failed writes.
+          const activeTickers = new Set(Object.keys(SECTOR_MAP));
           try {
             const existing = await kvGetJSON(KV, "timed:sparklines");
             if (existing) {
+              let preserved = 0;
               for (const [sym, arr] of Object.entries(existing)) {
-                if (!sparkMap[sym] && Array.isArray(arr) && arr.length >= 2) {
+                if (!sparkMap[sym] && activeTickers.has(sym) && Array.isArray(arr) && arr.length >= 2) {
                   sparkMap[sym] = arr;
+                  preserved++;
                 }
               }
+              console.log(`[SPARKLINE REBUILD] Preserved ${preserved} non-equity sparklines from existing KV (dropped ${Object.keys(existing).length - preserved} stale entries)`);
             }
           } catch (_) {}
 
-          // Write to KV
+          // Write to KV (clean data, only active tickers)
           await kvPutJSON(KV, "timed:sparklines", sparkMap);
 
           // Push to WebSocket clients immediately
