@@ -383,15 +383,9 @@
         display: none; /* Chrome, Safari, Opera */
       }
 
-      /* Admin-only nav links: greyed out with lock for non-admin users */
+      /* Admin-only nav links: hidden for non-admin users */
       body:not([data-user-role="admin"]) a[data-admin-only] {
-        opacity: 0.35;
-        pointer-events: none;
-        position: relative;
-      }
-      body:not([data-user-role="admin"]) a[data-admin-only]::after {
-        content: " 🔒";
-        font-size: 9px;
+        display: none !important;
       }
     </style>
   </head>
@@ -403,7 +397,7 @@
       </div>
     </div>
 
-    <script src="auth-gate.js"></script>
+    <script src="auth-gate.js?v=20260217b"></script>
     <script src="shared-price-utils.js?v=20260211a"></script>
     <script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
     <script src="shared-right-rail.compiled.js?v=20260213b" type="text/babel"></script>
@@ -2081,13 +2075,13 @@
       // Futures & extended-hours tickers: Sun 6 PM → Fri 5 PM ET
       const _CONTINUOUS_TICKERS = new Set([
         "ES1!", "NQ1!", "YM1!", "RTY1!", "CL1!", "GC1!", "SI1!", "ZB1!", "ZN1!", "6E1!", "6J1!",
-        "ES", "NQ", "BTC", "ETH", "GC", "SI", "US500", "USOIL", "GOLD", "SILVER", "DXY",
+        "ES", "NQ", "BTC", "ETH", "GC", "SI", "US500", "SPX", "USOIL", "GOLD", "SILVER", "DXY",
       ]);
 
       // Market Pulse tickers: indices + S&P sector ETFs + crypto
       const MARKET_PULSE_TICKERS = [
         // Indices / futures / commodities
-        "US500", "ES1!", "NQ1!", "SPY", "QQQ", "IWM", "GC1!", "SI1!", "VIX",
+        "SPX", "US500", "ES1!", "NQ1!", "SPY", "QQQ", "IWM", "CL1!", "GC1!", "SI1!", "VIX",
         // Crypto
         "BTCUSD", "ETHUSD",
         // S&P 500 sector ETFs
@@ -2182,12 +2176,82 @@
         return w?.openMs ?? 0;
       }
 
+      // US market holidays (YYYY-MM-DD in ET). Equities fully closed; futures may have early close.
+      // These are static fallbacks — overwritten at startup by /timed/market-calendar API.
+      let _US_EQUITY_HOLIDAYS = new Set([
+        "2026-01-01", "2026-01-19", "2026-02-16", "2026-04-03", "2026-05-25",
+        "2026-06-19", "2026-07-03", "2026-09-07", "2026-11-26", "2026-12-25",
+        "2027-01-01", "2027-01-18", "2027-02-15", "2027-03-26", "2027-05-31",
+        "2027-06-18", "2027-07-05", "2027-09-06", "2027-11-25", "2027-12-24",
+      ]);
+      let _FUTURES_EARLY_CLOSE = new Set([
+        "2026-01-20", "2026-02-17", "2026-07-03", "2026-11-27", "2026-12-24",
+        "2027-01-19", "2027-02-16", "2027-11-26", "2027-12-23",
+      ]);
+      let _FUTURES_FULL_CLOSE = new Set([
+        "2026-01-01", "2026-04-03", "2026-12-25",
+        "2027-01-01", "2027-03-26", "2027-12-25",
+      ]);
+      let _EQUITY_EARLY_CLOSES = new Set([
+        "2026-11-27", "2026-12-24",
+        "2027-11-26", "2027-12-23",
+      ]);
+      let _marketCalendarLoaded = false;
+
+      // Fetch dynamic calendar from API and update the holiday/close sets.
+      // Called once at app startup; falls back to static values on failure.
+      async function _loadMarketCalendar() {
+        try {
+          const res = await fetch(`${API_BASE}/timed/market-calendar?_t=${Date.now()}`, { cache: "no-store" });
+          if (!res.ok) return;
+          const json = await res.json();
+          if (!json.ok) return;
+          const eq = json.equity || {};
+          const fut = json.futures || {};
+          if (Array.isArray(eq.holidays) && eq.holidays.length > 0) {
+            _US_EQUITY_HOLIDAYS = new Set(eq.holidays);
+          }
+          if (Array.isArray(eq.early_closes) && eq.early_closes.length > 0) {
+            _EQUITY_EARLY_CLOSES = new Set(eq.early_closes);
+          }
+          if (Array.isArray(fut.early_closes) && fut.early_closes.length > 0) {
+            _FUTURES_EARLY_CLOSE = new Set(fut.early_closes);
+          }
+          if (Array.isArray(fut.full_closes) && fut.full_closes.length > 0) {
+            _FUTURES_FULL_CLOSE = new Set(fut.full_closes);
+          }
+          _marketCalendarLoaded = true;
+          console.log(`[CALENDAR] Loaded: ${_US_EQUITY_HOLIDAYS.size} equity holidays, source=${json.source}`);
+        } catch (e) {
+          console.warn("[CALENDAR] Failed to load, using static fallback:", e?.message || e);
+        }
+      }
+      _loadMarketCalendar();
+      function _getETDateStr(d) {
+        return d.toLocaleDateString("en-CA", { timeZone: "America/New_York" }); // "YYYY-MM-DD"
+      }
+      function _isEquityHoliday(dateStr) {
+        return _US_EQUITY_HOLIDAYS.has(dateStr);
+      }
+      function _previousTradingDay(etDateStr) {
+        const [yr, mo, dy] = etDateStr.split("-").map(Number);
+        let d = new Date(yr, mo - 1, dy);
+        for (let i = 0; i < 10; i++) {
+          d.setDate(d.getDate() - 1);
+          const ds = d.toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+          const dow = d.toLocaleDateString("en-US", { timeZone: "America/New_York", weekday: "short" });
+          if (dow !== "Sat" && dow !== "Sun" && !_isEquityHoliday(ds)) return ds;
+        }
+        return etDateStr; // fallback
+      }
+
       // Session window { openMs, closeMs } for filtering candles.
       // Equities RTH 9:30–4 PM ET:
       //   Pre-market: use yesterday's RTH (no live pre-market painting)
       //   During RTH: today 9:30 → now
       //   After-hours: today 9:30 → 4 PM (completed session)
       // Continuous tickers: unchanged (6 PM–5 PM).
+      // Holidays: equities show last trading day's session frozen.
       function _getSessionWindowMs(sym) {
         const cfg = _getSessionConfig(sym);
         const now = new Date();
@@ -2249,6 +2313,24 @@
             return { openMs, closeMs, _frozen: true };
           }
 
+          // Futures holiday handling: early close or full close
+          const todayETFut = _getETDateStr(new Date());
+          if (_FUTURES_FULL_CLOSE.has(todayETFut)) {
+            // Full close: show previous session frozen
+            const prevDay = _previousTradingDay(todayETFut);
+            const [pyr, pmo, pdy] = prevDay.split("-").map(Number);
+            const prevOpen = Date.UTC(pyr, pmo - 1, pdy, openHr - etOffset, openMn, 0);
+            const prevClose = prevOpen + cfg.sessionDur * 60000;
+            return { openMs: prevOpen, closeMs: prevClose, _frozen: true };
+          }
+          if (_FUTURES_EARLY_CLOSE.has(todayETFut)) {
+            // Early close at 1 PM ET (780 minutes): if past early close, freeze
+            const earlyCloseMin = 780; // 1 PM ET
+            if (nowEtMin >= earlyCloseMin) {
+              return { openMs, closeMs: openMs + (earlyCloseMin - cfg.openMin + 1440) % 1440 * 60000, _frozen: true };
+            }
+          }
+
           return { openMs, closeMs: null };
         }
 
@@ -2270,11 +2352,33 @@
           return { openMs, closeMs, _yesterdayFallback: false, _frozen: true };
         }
 
+        // Holiday detection: if today is a US equity holiday, show last trading day's session
+        const todayET = _getETDateStr(new Date());
+        if (_isEquityHoliday(todayET)) {
+          const prevDay = _previousTradingDay(todayET);
+          const [pyr, pmo, pdy] = prevDay.split("-").map(Number);
+          const prevOpen = Date.UTC(pyr, pmo - 1, pdy, openHr - etOffset, openMn, 0);
+          const prevClose = Date.UTC(pyr, pmo - 1, pdy, closeHr - etOffset, closeMn, 0);
+          return { openMs: prevOpen, closeMs: prevClose, _yesterdayFallback: false, _frozen: true };
+        }
+
         if (nowEtMin < cfg.openMin) {
-          // Pre-market: show yesterday's RTH (last completed session), NOT live pre-market
-          openMs -= 86400000;
-          closeMs -= 86400000;
-          return { openMs, closeMs, _yesterdayFallback: false };
+          // Pre-market: show the last completed RTH session.
+          // "yesterday" might be a holiday or weekend (e.g. Tue pre-market after Mon holiday),
+          // so find the actual last trading day using _previousTradingDay.
+          const yesterdayDate = new Date(Date.now() - 86400000);
+          const yesterdayET = _getETDateStr(yesterdayDate);
+          const yDow = yesterdayDate.toLocaleDateString("en-US", { timeZone: "America/New_York", weekday: "short" });
+          let prevDay;
+          if (yDow === "Sat" || yDow === "Sun" || _isEquityHoliday(yesterdayET)) {
+            prevDay = _previousTradingDay(yesterdayET);
+          } else {
+            prevDay = yesterdayET;
+          }
+          const [pyr, pmo, pdy] = prevDay.split("-").map(Number);
+          const prevOpen = Date.UTC(pyr, pmo - 1, pdy, openHr - etOffset, openMn, 0);
+          const prevClose = Date.UTC(pyr, pmo - 1, pdy, closeHr - etOffset, closeMn, 0);
+          return { openMs: prevOpen, closeMs: prevClose, _yesterdayFallback: false, _frozen: true };
         }
         if (nowEtMin >= cfg.closeMin) {
           // After-hours: show today's completed RTH (frozen)
@@ -2301,11 +2405,10 @@
           return true;
         });
         if (filtered.length >= 2) return filtered;
-        // Equities: NEVER fall back to raw candles (multi-day overlay = chaotic).
-        // But when it's RTH and today has no data yet (bar cron delayed), show yesterday's
-        // completed session as a graceful fallback instead of a blank card.
+        // Equities: avoid multi-day overlay. But handle fallback scenarios:
         const cfg = _getSessionConfig(sym);
         if (cfg.sessionDur === 390) {
+          // During RTH: if today has no data yet (bar cron delayed), show yesterday's session
           if (w._yesterdayFallback && w._yOpenMs && w._yCloseMs) {
             const yFiltered = rawCandles.filter(c => {
               const ts = Number(c.t ?? c.ts ?? c.timestamp ?? 0);
@@ -2313,6 +2416,20 @@
               return tsMs >= w._yOpenMs && tsMs <= w._yCloseMs;
             });
             if (yFiltered.length >= 2) return yFiltered;
+          }
+          // Frozen session (weekend/holiday/after-hours): if the session window filter
+          // returned empty (KV data may not span back to last trading day), show the
+          // most recent chunk of raw candles. Filter out stale flat-line data first.
+          if (w._frozen && filtered.length < 2 && rawCandles.length >= 2) {
+            // Take the last ~80 candles (one equity session worth of 5m bars)
+            const chunk = rawCandles.slice(-80);
+            // Detect stale data: if ALL close prices are identical, the data is from
+            // a holiday/weekend with no real trades — skip it
+            const closes = chunk.map(c => Number(c.c ?? c.close ?? 0)).filter(v => v > 0);
+            if (closes.length >= 2) {
+              const allSame = closes.every(v => v === closes[0]);
+              if (!allSame) return chunk;
+            }
           }
           return filtered;
         }
@@ -11200,7 +11317,6 @@
                 const isYesterdayFallback = w?.openMs && lastCandleTs > 0 && lastCandleTs < w.openMs;
 
                 const pts = [];
-                // Track the RTH session open price (the `open` of the first candle in the session)
                 let rthOpenPrice = null;
                 for (const c of candles) {
                   const ts = Number(c.t ?? c.ts ?? c.timestamp ?? 0);
@@ -11209,21 +11325,31 @@
                   const frac = _sessionFraction(ts, sym);
                   if (frac >= 0 && frac <= 1) {
                     pts.push({ frac, cl });
-                    // The first candle in the session = RTH open; use its `o` (open) price
                     if (rthOpenPrice === null) {
                       const op = Number(c.o ?? c.open ?? 0);
-                      rthOpenPrice = op > 0 ? op : cl; // fallback to close if open not available
+                      rthOpenPrice = op > 0 ? op : cl;
                     }
                   }
                 }
                 if (pts.length < 2) return null;
+
+                // Anchor sparkline edges: if data starts mid-session or ends
+                // early, extend with flat lines at the open/last close price
+                // so the sparkline fills the full card width.
+                if (pts[0].frac > 0.02 && rthOpenPrice != null) {
+                  pts.unshift({ frac: 0, cl: rthOpenPrice });
+                }
+                if (pts[pts.length - 1].frac < 0.98) {
+                  pts.push({ frac: 1, cl: pts[pts.length - 1].cl });
+                }
+
                 const closes = pts.map(p => p.cl);
-                // Include the RTH open price in the min/max range so the line always fits
-                const allPrices = rthOpenPrice != null ? [...closes, rthOpenPrice] : closes;
-                const lo = Math.min(...allPrices);
-                const hi = Math.max(...allPrices);
+                // Use ONLY actual close prices for the vertical range (not rthOpenPrice)
+                // to maximize visual detail of intraday movement. Including the open
+                // price compresses the sparkline when there's a gap up/down at open.
+                const lo = Math.min(...closes);
+                const hi = Math.max(...closes);
                 const range = hi - lo || 1;
-                // Use viewBox coordinates; SVG stretches to fill card via CSS
                 const VW = 1000, VH = 500, padT = 40, padB = 40;
                 const plotH = VH - padT - padB;
                 const svgPts = pts.map(p => ({
@@ -11235,11 +11361,11 @@
                 const lineColor = up ? "#34d399" : "#f87171";
                 const gradColor = up ? "#22c55e" : "#ef4444";
                 const lastPt = svgPts[svgPts.length - 1];
-                // Open line position: align with the sparkline's first point (where the line starts)
-                // This visually represents where the market opened for this session.
+                // Open line: positioned at the rthOpenPrice level relative to the data range
                 let openTopPct = null;
-                if (svgPts.length >= 1) {
-                  const openY = svgPts[0].y;
+                if (rthOpenPrice != null) {
+                  const clampedOpen = Math.max(lo, Math.min(hi, rthOpenPrice));
+                  const openY = padT + plotH - ((clampedOpen - lo) / range) * plotH;
                   if (Number.isFinite(openY)) {
                     openTopPct = (openY / VH) * 100;
                   }
@@ -11265,7 +11391,7 @@
                 // Only show live pulsing dot when data is from today (not yesterday fallback)
                 const showPulse = isInRTH && !isYesterdayFallback;
                 // Dim the sparkline when showing yesterday's stale data during live hours
-                const sparkOpacity = isYesterdayFallback && isInRTH ? 0.25 : 0.50;
+                const sparkOpacity = isYesterdayFallback && isInRTH ? 0.25 : 0.60;
                 return (
                   <React.Fragment>
                     <svg viewBox={`0 0 ${VW} ${VH}`} preserveAspectRatio="none"
@@ -11273,15 +11399,15 @@
                       style={{ zIndex: 1, overflow: "visible" }}>
                       <defs>
                         <linearGradient id={gId} x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="0%" stopColor={gradColor} stopOpacity={isYesterdayFallback && isInRTH ? "0.04" : "0.08"} />
-                          <stop offset="100%" stopColor={gradColor} stopOpacity="0.01" />
+                          <stop offset="0%" stopColor={gradColor} stopOpacity={isYesterdayFallback && isInRTH ? "0.04" : "0.12"} />
+                          <stop offset="100%" stopColor={gradColor} stopOpacity="0.02" />
                         </linearGradient>
                       </defs>
                       {/* Gradient fill under line */}
                       <polygon points={`${svgPts[0].x.toFixed(1)},${VH} ${polyStr} ${lastPt.x.toFixed(1)},${VH}`}
                         fill={`url(#${gId})`} />
-                      {/* Price line — subtle, no glow */}
-                      <polyline points={polyStr} fill="none" stroke={lineColor} strokeWidth="1.2"
+                      {/* Price line */}
+                      <polyline points={polyStr} fill="none" stroke={lineColor} strokeWidth="1.5"
                         strokeLinejoin="round" strokeLinecap="round" opacity={sparkOpacity}
                         vectorEffect="non-scaling-stroke" />
                       {/* Pulsing live dot at end of sparkline — only during RTH with fresh data */}
@@ -15404,9 +15530,9 @@
         if (!isOpen) return null;
 
         return (
-          <div className="fixed right-0 top-0 h-full w-96 bg-white/[0.03] border-l border-white/[0.06] flex flex-col shadow-lg z-50 slide-in-right">
+          <div className="fixed right-0 top-0 h-full w-96 border-l border-white/[0.08] flex flex-col shadow-2xl z-50 slide-in-right" style={{background:"rgba(10,12,18,0.98)", backdropFilter:"blur(20px)"}}>
             {/* Header */}
-            <div className="flex items-center justify-between p-4 border-b border-white/[0.06] bg-white/[0.02]">
+            <div className="flex items-center justify-between p-4 border-b border-white/[0.08]" style={{background:"rgba(15,18,25,0.95)"}}>
               <div className="flex items-center gap-2">
                 <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center text-white font-bold text-sm">
                   AI
@@ -15551,7 +15677,8 @@
             {/* Input */}
             <form
               onSubmit={handleSend}
-              className="p-4 border-t border-white/[0.06] bg-white/[0.02]"
+              className="p-4 border-t border-white/[0.08]"
+              style={{background:"rgba(12,14,20,0.98)"}}
             >
               <div className="flex gap-2">
                 <input
@@ -16055,6 +16182,7 @@
         // AI Assistant removed (unused)
         // Admin panel moved to dedicated /admin-clients.html page
         const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+        const [showAiChat, setShowAiChat] = useState(false);
         const [showWelcomeDashboard, setShowWelcomeDashboard] = useState(() => {
           // Check if user has seen dashboard welcome page before
           const hasSeenWelcome = localStorage.getItem(
@@ -16523,7 +16651,7 @@
                       <a href="screener.html" className="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Screener</a>
                       <a href="ticker-management.html" data-admin-only="true" className="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Tickers</a>
                       {(window.TimedAuthHelpers?.getStoredSession()?.role === "admin" || window.TimedAuthHelpers?.getStoredSession()?.tier === "admin") && (
-                        <a href="admin-clients.html" className="px-3 py-1 rounded-md text-[13px] text-[#a78bfa]/80 hover:text-[#a78bfa] hover:bg-[#a78bfa]/[0.06] transition-all font-medium">Admin</a>
+                        <a href="admin-clients.html" data-admin-only="true" className="px-3 py-1 rounded-md text-[13px] text-[#a78bfa]/80 hover:text-[#a78bfa] hover:bg-[#a78bfa]/[0.06] transition-all font-medium">Admin</a>
                       )}
                       <a href="daily-brief.html" id="nav-daily-brief" className="relative px-3 py-1 rounded-md text-[13px] text-[#f59e0b]/80 hover:text-[#f59e0b] hover:bg-[#f59e0b]/[0.06] transition-all font-medium">
                         Daily Brief
@@ -16535,6 +16663,7 @@
                     <button onClick={() => setShowWelcomeDashboard(true)} className="hidden md:inline-flex px-2 py-1 rounded-md text-[11px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Guide</button>
                     <button onClick={() => { try { localStorage.removeItem("tt_coachmarks_completed_v1"); } catch {} window.__restartCoachmarks?.(); }} className="hidden md:inline-flex px-2 py-1 rounded-md text-[11px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all" title="Restart the UI tour">Tour</button>
                     <a href="/faq.html" className="hidden md:inline-flex px-2 py-1 rounded-md text-[11px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all" title="Frequently Asked Questions">FAQ</a>
+                    <button onClick={() => setShowAiChat(true)} className="hidden md:inline-flex px-2 py-1 rounded-md text-[11px] text-[#60a5fa] hover:text-[#93bbfc] hover:bg-[#60a5fa]/[0.06] transition-all font-medium" title="Ask the AI assistant">Ask AI</button>
                     <button
                       onClick={refetch}
                       className="px-2 md:px-3 py-1 rounded-md text-[11px] md:text-[12px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] border border-white/[0.06] transition-all"
@@ -16564,20 +16693,24 @@
                     <a href="simulation-dashboard.html" className="px-3 py-2 rounded-md text-[13px] text-[#9ca3af] hover:text-white hover:bg-white/[0.04] transition-all" onClick={() => setMobileMenuOpen(false)}>Trades</a>
                     <a href="model-dashboard.html" className="px-3 py-2 rounded-md text-[13px] text-[#9ca3af] hover:text-white hover:bg-white/[0.04] transition-all" onClick={() => setMobileMenuOpen(false)}>Model</a>
                     <a href="screener.html" className="px-3 py-2 rounded-md text-[13px] text-[#9ca3af] hover:text-white hover:bg-white/[0.04] transition-all" onClick={() => setMobileMenuOpen(false)}>Screener</a>
-                    <a href="ticker-management.html" className="px-3 py-2 rounded-md text-[13px] text-[#9ca3af] hover:text-white hover:bg-white/[0.04] transition-all" onClick={() => setMobileMenuOpen(false)}>Tickers</a>
+                    <a href="ticker-management.html" data-admin-only="true" className="px-3 py-2 rounded-md text-[13px] text-[#9ca3af] hover:text-white hover:bg-white/[0.04] transition-all" onClick={() => setMobileMenuOpen(false)}>Tickers</a>
                     {(window.TimedAuthHelpers?.getStoredSession()?.role === "admin" || window.TimedAuthHelpers?.getStoredSession()?.tier === "admin") && (
-                      <a href="admin-clients.html" className="px-3 py-2 rounded-md text-[13px] text-[#a78bfa]/80 hover:text-[#a78bfa] hover:bg-[#a78bfa]/[0.06] transition-all font-medium" onClick={() => setMobileMenuOpen(false)}>Admin</a>
+                      <a href="admin-clients.html" data-admin-only="true" className="px-3 py-2 rounded-md text-[13px] text-[#a78bfa]/80 hover:text-[#a78bfa] hover:bg-[#a78bfa]/[0.06] transition-all font-medium" onClick={() => setMobileMenuOpen(false)}>Admin</a>
                     )}
                     <a href="daily-brief.html" className="px-3 py-2 rounded-md text-[13px] text-[#f59e0b]/80 hover:text-[#f59e0b] hover:bg-[#f59e0b]/[0.06] transition-all font-medium" onClick={() => setMobileMenuOpen(false)}>Daily Brief</a>
                     <div className="border-t border-white/[0.06] mt-1 pt-1 flex items-center gap-2">
                       <button onClick={() => { setShowWelcomeDashboard(true); setMobileMenuOpen(false); }} className="px-3 py-2 rounded-md text-[12px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Guide</button>
                       <a href="/faq.html" className="px-3 py-2 rounded-md text-[12px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">FAQ</a>
+                      <button onClick={() => { setShowAiChat(true); setMobileMenuOpen(false); }} className="px-3 py-2 rounded-md text-[12px] text-[#60a5fa] hover:text-white hover:bg-white/[0.04] transition-all">Ask AI</button>
                       <a href="mailto:support@timed-trading.com" className="px-3 py-2 rounded-md text-[12px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Contact</a>
                     </div>
                   </div>
                 )}
               </nav>
               {/* Admin panel moved to dedicated /admin-clients.html page */}
+
+              {/* AI Chat Panel */}
+              <AIChatInterface isOpen={showAiChat} onClose={() => setShowAiChat(false)} tickerData={data} />
 
               <div className="mx-auto w-full px-2 sm:px-4 lg:px-5">
                 <header className="mb-4 pt-3">
@@ -16641,7 +16774,7 @@
                         </button>
                       );
                     };
-                    const indices = ["US500", "ES1!", "NQ1!", "SPY", "QQQ", "IWM", "GC1!", "SI1!", "VIX", "BTCUSD", "ETHUSD"];
+                    const indices = ["SPX", "US500", "ES1!", "NQ1!", "SPY", "QQQ", "IWM", "CL1!", "GC1!", "SI1!", "VIX", "BTCUSD", "ETHUSD"];
                     const sectorETFs = ["XLK", "XLF", "XLY", "XLP", "XLC", "XLI", "XLB", "XLE", "XLRE", "XLU", "XLV"];
                     const indexChips = indices.map(s => renderPulseChip(s)).filter(Boolean);
                     const sectorChips = sectorETFs.map(s => renderPulseChip(s)).filter(Boolean);
@@ -17542,8 +17675,8 @@
           }
 
           console.log("[App] Dashboard initialized successfully");
-          // Register push notifications (progressive, after 3rd visit)
-          if (window.TimedPushRegister) window.TimedPushRegister("");
+          // Push notification registration is handled by AuthGate after server-verified auth.
+          // Do NOT call TimedPushRegister here — it would fire before auth is confirmed.
         } catch (error) {
           console.error("Error rendering app:", error);
           const rootElement = document.getElementById("root");

@@ -2733,15 +2733,16 @@ export async function alpacaCronFetchLatest(env, allTickers, upsertCandle) {
   //   0: D, W, M          — daily+ TFs, small payloads
   //   1: 30, 60, 240      — medium-frequency intraday
   //   2: 5, 10             — scoring-critical intraday
-  //   3: 1                 — 1-minute bars (largest payload)
+  //
+  // COST OPTIMIZATION: 1m group REMOVED — 1m candles are not used for scoring.
+  // Sparklines use live prices from the price feed (KV/WebSocket), not D1 candles.
+  // Now 3 groups → each ticker/TF refreshed every 6 minutes (3 groups × 2 halves).
   //
   // Ticker halves: even minutes → first half, odd → second half.
-  // Each ticker gets refreshed every 8 minutes (4 TF groups × 2 halves).
   const TF_GROUPS = [
     ["D", "W", "M"],
     ["30", "60", "240"],
     ["5", "10"],
-    ["1"],
   ];
   const minuteOfHour = new Date().getUTCMinutes();
   const groupIdx = minuteOfHour % TF_GROUPS.length;

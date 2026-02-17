@@ -12,7 +12,7 @@
     <script crossorigin src="https://unpkg.com/prop-types@15/prop-types.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
-    <script src="auth-gate.js"></script>
+    <script src="auth-gate.js?v=20260217b"></script>
     <style>
       * { box-sizing: border-box; }
       body { margin: 0; background: #0a0a0f; color: #e5e7eb; font-family: 'Inter', system-ui, sans-serif; }
@@ -33,21 +33,26 @@
       .stage-reduce { background: rgba(239,68,68,0.15); color: #f87171; border: 1px solid rgba(239,68,68,0.3); }
       .stage-research { background: rgba(139,92,246,0.15); color: #a78bfa; border: 1px solid rgba(139,92,246,0.3); }
       .stage-exited { background: rgba(107,114,128,0.15); color: #9ca3af; border: 1px solid rgba(107,114,128,0.3); }
-      /* Admin-only nav links: greyed out with lock for non-admin users */
+      /* Admin-only nav links: hidden for non-admin users */
       body:not([data-user-role="admin"]) a[data-admin-only] {
-        opacity: 0.35;
-        pointer-events: none;
-        position: relative;
-      }
-      body:not([data-user-role="admin"]) a[data-admin-only]::after {
-        content: " 🔒";
-        font-size: 9px;
+        display: none !important;
       }
       /* Scrollbar styling */
       ::-webkit-scrollbar { width: 4px; }
       ::-webkit-scrollbar-track { background: transparent; }
       ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 4px; }
       ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.15); }
+      /* Responsive 3-panel layout */
+      .investor-3panel { min-height: 0; }
+      @media (min-width: 1024px) {
+        .investor-3panel { height: min(480px, calc(100vh - 340px)); min-height: 280px; }
+      }
+      /* Slide-in overlay from right (mobile right rail) */
+      @keyframes slideInRight {
+        from { transform: translateX(100%); opacity: 0; }
+        to { transform: translateX(0); opacity: 1; }
+      }
+      .slide-in-right { animation: slideInRight 0.3s ease-out; }
     </style>
   </head>
   <body>
@@ -241,8 +246,8 @@
 
         const hasAny = stages.some(s => grouped[s].length > 0);
 
-        return React.createElement("div", { className: "flex-1 overflow-hidden" },
-          React.createElement("div", { className: "grid grid-cols-4 gap-2 h-full" },
+        return React.createElement("div", { className: "flex-1 overflow-x-auto overflow-y-hidden" },
+          React.createElement("div", { className: "grid grid-cols-4 gap-2 h-full min-w-[640px] lg:min-w-0" },
             ...stages.map(stage =>
               React.createElement("div", { key: stage, className: "flex flex-col min-h-0" },
                 React.createElement("div", { className: "flex items-center justify-between mb-2 px-1 shrink-0" },
@@ -715,7 +720,7 @@
               React.createElement("a", { href: "simulation-dashboard.html", className: "px-3 py-2 rounded-md text-[13px] text-[#9ca3af] hover:text-white hover:bg-white/[0.04] transition-all", onClick: () => setMobileMenuOpen(false) }, "Trades"),
               React.createElement("a", { href: "model-dashboard.html", className: "px-3 py-2 rounded-md text-[13px] text-[#9ca3af] hover:text-white hover:bg-white/[0.04] transition-all", onClick: () => setMobileMenuOpen(false) }, "Model"),
               React.createElement("a", { href: "screener.html", className: "px-3 py-2 rounded-md text-[13px] text-[#9ca3af] hover:text-white hover:bg-white/[0.04] transition-all", onClick: () => setMobileMenuOpen(false) }, "Screener"),
-              React.createElement("a", { href: "ticker-management.html", className: "px-3 py-2 rounded-md text-[13px] text-[#9ca3af] hover:text-white hover:bg-white/[0.04] transition-all", onClick: () => setMobileMenuOpen(false) }, "Tickers"),
+              React.createElement("a", { href: "ticker-management.html", "data-admin-only": "true", className: "px-3 py-2 rounded-md text-[13px] text-[#9ca3af] hover:text-white hover:bg-white/[0.04] transition-all", onClick: () => setMobileMenuOpen(false) }, "Tickers"),
               React.createElement("a", { href: "daily-brief.html", className: "px-3 py-2 rounded-md text-[13px] text-[#f59e0b]/80 hover:text-[#f59e0b] hover:bg-[#f59e0b]/[0.06] transition-all font-medium", onClick: () => setMobileMenuOpen(false) }, "Daily Brief"),
               React.createElement("div", { className: "border-t border-white/[0.06] mt-1 pt-1 flex items-center gap-2" },
                 React.createElement("a", { href: "/faq.html", className: "px-3 py-2 rounded-md text-[12px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all" }, "FAQ"),
@@ -843,10 +848,10 @@
             ),
           ),
 
-          // ═══ 3-Panel: Viewport | Action Kanban | Detail (fixed height) ═══
-          React.createElement("div", { className: "flex gap-3 px-4 shrink-0", style: { height: "min(480px, calc(100vh - 340px))", minHeight: "280px" } },
-            // Left: Viewport (scrollable ticker list)
-            React.createElement("div", { className: "w-64 flex-shrink-0 flex flex-col min-h-0" },
+          // ═══ 3-Panel: Viewport | Action Kanban | Detail (responsive) ═══
+          React.createElement("div", { className: "investor-3panel flex flex-col lg:flex-row gap-3 px-4 shrink-0" },
+            // Left: Viewport (scrollable ticker list — hidden on mobile)
+            React.createElement("div", { className: "hidden lg:flex w-64 flex-shrink-0 flex-col min-h-0" },
               React.createElement("div", { className: "text-[10px] text-[#4b5563] mb-1 px-1 shrink-0" }, `${filteredTickers.length} ticker${filteredTickers.length !== 1 ? "s" : ""}`),
               React.createElement(TickerListViewport, {
                 tickers: filteredTickers,
@@ -857,8 +862,8 @@
               }),
             ),
 
-            // Center: Action Kanban
-            React.createElement("div", { className: "flex-1 flex flex-col min-h-0 min-w-0" },
+            // Center: Action Kanban (horizontally scrollable on mobile)
+            React.createElement("div", { className: "flex-1 flex flex-col min-h-[200px] lg:min-h-0 min-w-0" },
               React.createElement(ActionBoardHeader, { actionCount }),
               filteredTickers.length > 0
                 ? React.createElement(ActionKanban, { tickers: filteredTickers, onSelect: setSelectedTicker, selectedTicker })
@@ -868,9 +873,34 @@
                   ),
             ),
 
-            // Right: Detail
-            React.createElement("div", { className: "w-80 flex-shrink-0 overflow-y-auto min-h-0" },
+            // Right: Detail — inline on desktop, hidden on mobile (slide-in overlay below)
+            React.createElement("div", { className: "hidden lg:block w-80 flex-shrink-0 overflow-y-auto min-h-0" },
               React.createElement(TickerDeepDive, { ticker: selectedTicker, data: selectedData }),
+            ),
+          ),
+
+          // ═══ Mobile Right Rail — fixed slide-in overlay (lg: hidden) ═══
+          selectedTicker && React.createElement("div", { className: "lg:hidden" },
+            // Backdrop
+            React.createElement("div", {
+              className: "fixed inset-0 bg-black/50 z-40",
+              onClick: () => setSelectedTicker(null),
+            }),
+            // Slide-in panel
+            React.createElement("div", {
+              className: "fixed right-0 top-0 w-full sm:w-[380px] h-full bg-[#0a0a0f] border-l border-white/[0.06] z-50 slide-in-right shadow-xl overflow-y-auto",
+            },
+              // Close button
+              React.createElement("div", { className: "sticky top-0 z-10 flex items-center justify-between p-3 border-b border-white/[0.06] bg-[#0a0a0f]/95 backdrop-blur-sm" },
+                React.createElement("span", { className: "text-xs text-[#6b7280] font-medium" }, selectedTicker),
+                React.createElement("button", {
+                  onClick: () => setSelectedTicker(null),
+                  className: "text-[#6b7280] hover:text-white transition-colors text-lg leading-none w-7 h-7 flex items-center justify-center rounded hover:bg-white/[0.06]",
+                }, "\u2715"),
+              ),
+              React.createElement("div", { className: "p-3" },
+                React.createElement(TickerDeepDive, { ticker: selectedTicker, data: selectedData }),
+              ),
             ),
           ),
 

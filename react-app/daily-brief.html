@@ -14,7 +14,7 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
-    <script src="auth-gate.js"></script>
+    <script src="auth-gate.js?v=20260217b"></script>
     <style>
       :root {
         --tt-bg-base: #0b0e11;
@@ -75,13 +75,7 @@
       ::-webkit-scrollbar-track { background: transparent; }
       ::-webkit-scrollbar-thumb { background: #374151; border-radius: 3px; }
       body:not([data-user-role="admin"]) a[data-admin-only] {
-        opacity: 0.35;
-        pointer-events: none;
-        position: relative;
-      }
-      body:not([data-user-role="admin"]) a[data-admin-only]::after {
-        content: " 🔒";
-        font-size: 9px;
+        display: none !important;
       }
       /* Markdown styling for brief content */
       .brief-content h2 {
@@ -487,18 +481,34 @@
           });
           seriesRef.current = candleSeries;
 
-          // Initial full load with retry + fallback to 1m if sparse data
+          // Initial full load with retry + multi-timeframe fallback chain
           const loadWithRetry = async (retriesLeft = 2) => {
             let raw = await fetchCandles(limit);
-            // If 5m has very few candles, try fetching more or fall back to 1m
-            if (raw.length < 5 && (tf === "5" || tf === "10")) {
-              const fallbackRes = await fetch(
+            // If selected TF has very few candles, cascade through fallback TFs
+            if (raw.length < 5 && (tf === "5" || tf === "10" || tf === "30" || tf === "60")) {
+              // Try 1m with more data
+              const fallback1mRes = await fetch(
                 `${API_BASE}/timed/candles?ticker=${encodeURIComponent(sym)}&tf=1&limit=500`,
                 { cache: "no-store" }
-              );
-              const fallbackData = await fallbackRes.json();
-              if (fallbackData.ok && fallbackData.candles?.length > raw.length) {
-                raw = fallbackData.candles;
+              ).catch(() => null);
+              if (fallback1mRes) {
+                const fallback1mData = await fallback1mRes.json().catch(() => ({}));
+                if (fallback1mData.ok && fallback1mData.candles?.length > raw.length) {
+                  raw = fallback1mData.candles;
+                }
+              }
+            }
+            // If still no data, try daily as last resort
+            if (raw.length < 2) {
+              const fallbackDRes = await fetch(
+                `${API_BASE}/timed/candles?ticker=${encodeURIComponent(sym)}&tf=D&limit=30`,
+                { cache: "no-store" }
+              ).catch(() => null);
+              if (fallbackDRes) {
+                const fallbackDData = await fallbackDRes.json().catch(() => ({}));
+                if (fallbackDData.ok && fallbackDData.candles?.length > raw.length) {
+                  raw = fallbackDData.candles;
+                }
               }
             }
             if (raw.length === 0 && retriesLeft > 0) {
@@ -507,10 +517,19 @@
             }
             return raw;
           };
-          loadWithRetry().then(raw => {
+          loadWithRetry().then(async (raw) => {
             const mapped = mapCandles(raw);
             if (mapped.length === 0) {
-              setError("No data");
+              // Try to show last known price even when chart data is unavailable
+              try {
+                const latestRes = await fetch(`${API_BASE}/timed/latest?ticker=${encodeURIComponent(sym)}`, { cache: "no-store" });
+                const latestData = await latestRes.json();
+                if (latestData?.price) {
+                  setLastPrice(Number(latestData.price));
+                  if (latestData.day_change_pct != null) setChange(Number(latestData.day_change_pct));
+                }
+              } catch (_) {}
+              setError("Chart data unavailable — candles still loading");
               setLoading(false);
               return;
             }
@@ -962,7 +981,7 @@
                   <a href="simulation-dashboard.html" className="px-3 py-2 rounded-md text-[13px] text-[#9ca3af] hover:text-white hover:bg-white/[0.04] transition-all" onClick={() => setMobileMenuOpen(false)}>Trades</a>
                   <a href="model-dashboard.html" className="px-3 py-2 rounded-md text-[13px] text-[#9ca3af] hover:text-white hover:bg-white/[0.04] transition-all" onClick={() => setMobileMenuOpen(false)}>Model</a>
                   <a href="screener.html" className="px-3 py-2 rounded-md text-[13px] text-[#9ca3af] hover:text-white hover:bg-white/[0.04] transition-all" onClick={() => setMobileMenuOpen(false)}>Screener</a>
-                  <a href="ticker-management.html" className="px-3 py-2 rounded-md text-[13px] text-[#9ca3af] hover:text-white hover:bg-white/[0.04] transition-all" onClick={() => setMobileMenuOpen(false)}>Tickers</a>
+                  <a href="ticker-management.html" data-admin-only="true" className="px-3 py-2 rounded-md text-[13px] text-[#9ca3af] hover:text-white hover:bg-white/[0.04] transition-all" onClick={() => setMobileMenuOpen(false)}>Tickers</a>
                   <a href="daily-brief.html" className="px-3 py-2 rounded-md text-[13px] text-[#f59e0b] bg-[#f59e0b]/[0.08] font-medium" onClick={() => setMobileMenuOpen(false)}>Daily Brief</a>
                   <div className="border-t border-white/[0.06] mt-1 pt-1 flex items-center gap-2">
                     <a href="/faq.html" className="px-3 py-2 rounded-md text-[12px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">FAQ</a>

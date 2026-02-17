@@ -11,7 +11,7 @@
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
-    <script src="auth-gate.js"></script>
+    <script src="auth-gate.js?v=20260217b"></script>
     <script>
       tailwind.config = {
         theme: {
@@ -44,15 +44,9 @@
       .tab-active { border-bottom: 2px solid #10b981; color: #e8eaf0; }
       .tab-inactive { border-bottom: 2px solid transparent; color: #626b7d; }
       .tab-inactive:hover { color: #9098a8; }
-      /* Admin-only nav links: greyed out with lock for non-admin users */
+      /* Admin-only nav links: hidden for non-admin users */
       body:not([data-user-role="admin"]) a[data-admin-only] {
-        opacity: 0.35;
-        pointer-events: none;
-        position: relative;
-      }
-      body:not([data-user-role="admin"]) a[data-admin-only]::after {
-        content: " 🔒";
-        font-size: 9px;
+        display: none !important;
       }
     </style>
   </head>
@@ -153,7 +147,7 @@ function NavHeader() {
           <a href="simulation-dashboard.html" className="px-3 py-2 rounded-md text-[13px] text-[#9ca3af] hover:text-white hover:bg-white/[0.04] transition-all" onClick={() => setMobileMenuOpen(false)}>Trades</a>
           <a href="model-dashboard.html" className="px-3 py-2 rounded-md text-[13px] text-white bg-white/[0.07] font-medium" onClick={() => setMobileMenuOpen(false)}>Model</a>
           <a href="screener.html" className="px-3 py-2 rounded-md text-[13px] text-[#9ca3af] hover:text-white hover:bg-white/[0.04] transition-all" onClick={() => setMobileMenuOpen(false)}>Screener</a>
-          <a href="ticker-management.html" className="px-3 py-2 rounded-md text-[13px] text-[#9ca3af] hover:text-white hover:bg-white/[0.04] transition-all" onClick={() => setMobileMenuOpen(false)}>Tickers</a>
+          <a href="ticker-management.html" data-admin-only="true" className="px-3 py-2 rounded-md text-[13px] text-[#9ca3af] hover:text-white hover:bg-white/[0.04] transition-all" onClick={() => setMobileMenuOpen(false)}>Tickers</a>
           <a href="daily-brief.html" className="px-3 py-2 rounded-md text-[13px] text-[#f59e0b]/80 hover:text-[#f59e0b] hover:bg-[#f59e0b]/[0.06] transition-all font-medium" onClick={() => setMobileMenuOpen(false)}>Daily Brief</a>
           <div className="border-t border-white/[0.06] mt-1 pt-1 flex items-center gap-2">
             <a href="/faq.html" className="px-3 py-2 rounded-md text-[12px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">FAQ</a>

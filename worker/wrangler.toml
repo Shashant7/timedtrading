@@ -17,9 +17,18 @@ database_id = "99fae5d6-98df-4e29-bab5-0665cac7a9ff"
 name = "PRICE_HUB"
 class_name = "PriceHub"
 
+# Durable Object: AlpacaStream — real-time Alpaca WebSocket price streaming
+[[durable_objects.bindings]]
+name = "ALPACA_STREAM"
+class_name = "AlpacaStream"
+
 [[migrations]]
 tag = "v1"
 new_classes = ["PriceHub"]
+
+[[migrations]]
+tag = "v2"
+new_classes = ["AlpacaStream"]
 
 [vars]
 DISCORD_ENABLE = "true"
@@ -90,6 +99,11 @@ database_id = "99fae5d6-98df-4e29-bab5-0665cac7a9ff"
 [[env.production.durable_objects.bindings]]
 name = "PRICE_HUB"
 class_name = "PriceHub"
+
+# Durable Object: AlpacaStream — real-time Alpaca WebSocket price streaming
+[[env.production.durable_objects.bindings]]
+name = "ALPACA_STREAM"
+class_name = "AlpacaStream"
 
 # Environment variables (non-sensitive config - stored here for persistence)
 # IMPORTANT: Secrets (API keys, webhooks) are NOT stored here for security

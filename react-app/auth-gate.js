@@ -123,7 +123,7 @@
         h("div", { style: { textAlign: "center", marginBottom: "32px" } },
           h("div", { style: { width: "72px", height: "72px", borderRadius: "20px", background: "linear-gradient(135deg, #00c853 0%, #00e676 50%, #69f0ae 100%)", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 24px", animation: "tt-glow 4s ease-in-out infinite" } }, chartIcon),
           h("h1", { style: { fontSize: "28px", fontWeight: "700", color: "#f0f2f5", margin: "0 0 8px", letterSpacing: "-0.03em" } }, "Timed Trading"),
-          h("p", { style: { fontSize: "14px", color: "#6b7280", margin: "0", lineHeight: "1.5" } }, "Swing and position trading intelligence"),
+          h("p", { style: { fontSize: "14px", color: "#6b7280", margin: "0", lineHeight: "1.5" } }, "Active trading and investing intelligence"),
         ),
 
         // Card
@@ -143,27 +143,6 @@
                   h("span", { style: { width: "16px", height: "16px", border: "2px solid rgba(255,255,255,0.1)", borderTopColor: "#00c853", borderRadius: "50%", animation: "spin 0.8s linear infinite" } }),
                   "Authenticating...")
               : h(React.Fragment, null, googleIcon, "Continue with Google"),
-          ),
-
-          // Separator
-          h("div", { style: { display: "flex", alignItems: "center", gap: "12px", margin: "20px 0" } },
-            h("div", { style: { flex: 1, height: "1px", background: "rgba(255,255,255,0.06)" } }),
-            h("span", { style: { fontSize: "11px", color: "#374151", textTransform: "uppercase", letterSpacing: "0.05em" } }, "or"),
-            h("div", { style: { flex: 1, height: "1px", background: "rgba(255,255,255,0.06)" } }),
-          ),
-
-          // One-time login code button
-          h("button", {
-            onClick: onRetry, disabled: loading,
-            style: { width: "100%", padding: "12px 20px", borderRadius: "12px", border: "1px solid rgba(255,255,255,0.06)", background: "transparent", color: "#9ca3af", fontSize: "13px", fontWeight: "500", cursor: loading ? "not-allowed" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: "8px", transition: "all 0.2s", fontFamily: "inherit" },
-            onMouseEnter: (e) => { if (!loading) { e.currentTarget.style.background = "rgba(255,255,255,0.03)"; e.currentTarget.style.color = "#d1d5db"; } },
-            onMouseLeave: (e) => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = "#9ca3af"; },
-          },
-            h("svg", { width: "16", height: "16", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "2", strokeLinecap: "round", strokeLinejoin: "round" },
-              h("rect", { x: "3", y: "5", width: "18", height: "14", rx: "2" }),
-              h("polyline", { points: "3 7 12 13 21 7" }),
-            ),
-            "Sign in with email code",
           ),
 
           // Session note
@@ -186,7 +165,7 @@
 
   // ── Access Denied Screen ──────────────────────────────────────────────────
   function AccessDeniedScreen({ user, requiredTier }) {
-    const tierLabels = { free: "Member", pro: "Pro", admin: "Admin" };
+    const tierLabels = { free: "Member", pro: "Pro", vip: "VIP", admin: "Admin" };
     return React.createElement(
       "div",
       {
@@ -615,8 +594,10 @@
     const [state, setState] = useState("checking"); // checking | authenticated | unauthenticated
     const [user, setUser] = useState(null);
     const [error, setError] = useState(null);
+    const [serverVerified, setServerVerified] = useState(false); // true only after /timed/me confirms auth
+    const [stripeActivating, setStripeActivating] = useState(false); // true when waiting for Stripe webhook
 
-    const TIER_ORDER = { free: 0, pro: 1, admin: 2 };
+    const TIER_ORDER = { free: 0, pro: 1, vip: 1, admin: 2 };
 
     const verifyAuth = useCallback(
       async (showError) => {
@@ -633,11 +614,13 @@
               const session = storeSession(json.user);
               setUser(session);
               setState("authenticated");
+              setServerVerified(true);
               return;
             }
           }
           // Not authenticated
           clearSession();
+          setServerVerified(false);
           if (showError) {
             setError(
               "Authentication required. Click below to sign in.",
@@ -664,6 +647,15 @@
     );
 
     useEffect(() => {
+      // Clean up ?_auth= cache-buster from login redirect (keep URL tidy)
+      try {
+        const u = new URL(window.location.href);
+        if (u.searchParams.has("_auth")) {
+          u.searchParams.delete("_auth");
+          window.history.replaceState(null, "", u.pathname + u.search + u.hash);
+        }
+      } catch (_) {}
+
       // First check localStorage cache
       const cached = getStoredSession();
       if (cached) {
@@ -676,13 +668,94 @@
       }
     }, [verifyAuth]);
 
+    // Stripe success redirect: poll /timed/me until tier updates from webhook
+    useEffect(() => {
+      const params = new URLSearchParams(window.location.search);
+      if (!params.has("stripe") || params.get("stripe") !== "success") return;
+      if (!user || (user.tier !== "free" && user.tier)) return; // Already upgraded
+
+      setStripeActivating(true);
+      let cancelled = false;
+      let attempts = 0;
+      const maxAttempts = 15; // 15 * 2s = 30s max wait
+
+      const poll = async () => {
+        while (!cancelled && attempts < maxAttempts) {
+          attempts++;
+          await new Promise(r => setTimeout(r, 2000));
+          if (cancelled) return;
+          try {
+            const res = await fetch(`${apiBase}/timed/me`, { credentials: "include", cache: "no-store" });
+            if (res.ok) {
+              const json = await res.json();
+              if (json.ok && json.authenticated && json.user) {
+                const u = json.user;
+                if (u.tier === "pro" || u.tier === "vip" || u.tier === "admin" ||
+                    u.subscription_status === "trialing" || u.subscription_status === "active") {
+                  const session = storeSession(u);
+                  setUser(session);
+                  setStripeActivating(false);
+                  // Clean up ?stripe=success from URL
+                  const cleanUrl = new URL(window.location.href);
+                  cleanUrl.searchParams.delete("stripe");
+                  window.history.replaceState({}, "", cleanUrl.pathname + cleanUrl.search);
+                  return;
+                }
+              }
+            }
+          } catch { /* retry */ }
+        }
+        // Timeout: webhook may be slow, show message
+        setStripeActivating(false);
+        // Force one more refresh
+        verifyAuth(false).catch(() => {});
+      };
+      poll();
+      return () => { cancelled = true; };
+    }, [user, apiBase, verifyAuth]);
+
     const handleLogin = useCallback(() => {
-      // Navigate to the exact path protected by Cloudflare Access.
-      // CF Access policies are configured for specific paths WITH the .html
-      // extension (e.g., /index-react.html). If the browser is on /index-react
-      // (without .html), CF Access won't intercept and auth won't trigger.
-      // Always redirect to the .html path to ensure CF Access kicks in.
-      window.location.href = "/index-react.html";
+      // Force CF Access re-authentication flow:
+      // 1. Clear localStorage session so stale cached data can't bypass auth.
+      // 2. Clear CF_Authorization cookie client-side (may not work if HttpOnly).
+      // 3. Use hidden iframe to hit /cdn-cgi/access/logout which clears the
+      //    HttpOnly CF_Authorization cookie server-side (Set-Cookie response).
+      // 4. After iframe loads (cookie cleared), redirect to /index-react.html
+      //    with a cache-buster query param. This forces a fresh server request
+      //    that CF Access can intercept at the CDN level, showing the identity
+      //    provider login page (Google SSO).
+      //    NOTE: Never redirect to /cdn-cgi/access/login — it requires
+      //    server-generated JWT params and breaks from client-side JS.
+      clearSession();
+
+      // Attempt client-side cookie deletion (handles non-HttpOnly cases)
+      try {
+        const d = window.location.hostname;
+        document.cookie = "CF_Authorization=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
+        document.cookie = "CF_Authorization=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/; domain=" + d;
+        document.cookie = "CF_Authorization=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/; domain=." + d;
+      } catch (_) {}
+
+      // Use hidden iframe for server-side cookie clearing (handles HttpOnly)
+      let redirected = false;
+      const doRedirect = () => {
+        if (redirected) return;
+        redirected = true;
+        // Cache-busted URL forces a fresh server request that CF Access intercepts
+        window.location.href = "/index-react.html?_auth=" + Date.now();
+      };
+      try {
+        const iframe = document.createElement("iframe");
+        iframe.style.display = "none";
+        iframe.onload = () => setTimeout(doRedirect, 300);
+        iframe.onerror = () => doRedirect();
+        iframe.src = window.location.origin + "/cdn-cgi/access/logout";
+        document.body.appendChild(iframe);
+      } catch (_) {
+        doRedirect();
+      }
+      // Safety timeout: if iframe doesn't respond in 3 seconds, redirect anyway
+      setTimeout(doRedirect, 3000);
     }, []);
 
     // Set user role on body for CSS-based admin gating of nav links
@@ -694,14 +767,16 @@
       }
     }, [user]);
 
-    // Register push notifications once authenticated (progressive, after 3rd visit).
+    // Register push notifications once authenticated AND server-verified.
     // Placed here (before conditional returns) to obey Rules of Hooks.
+    // Only fires after /timed/me confirms the session is valid server-side,
+    // preventing 401s from stale cached sessions (e.g. after sign-out).
     // Fully wrapped in catch — must never crash the app.
     useEffect(() => {
-      if (user) {
+      if (user && serverVerified) {
         try { registerPushNotifications(apiBase).catch(() => {}); } catch (_) {}
       }
-    }, [user, apiBase]);
+    }, [user, serverVerified, apiBase]);
 
     if (state === "checking" && !user) {
       // Show minimal loading state
@@ -756,15 +831,41 @@
       });
     }
 
+    // Stripe activation in progress: show loading screen instead of paywall
+    if (stripeActivating) {
+      return React.createElement("div", {
+        style: {
+          minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center",
+          background: "#0b0e11", flexDirection: "column", gap: "16px",
+        },
+      },
+        React.createElement("div", {
+          style: {
+            width: "40px", height: "40px", border: "3px solid rgba(255,255,255,0.06)",
+            borderTopColor: "#00c853", borderRadius: "50%", animation: "spin 0.8s linear infinite",
+          },
+        }),
+        React.createElement("p", {
+          style: { fontSize: "16px", color: "#e5e7eb", fontWeight: "600" },
+        }, "Setting up your account..."),
+        React.createElement("p", {
+          style: { fontSize: "13px", color: "#6b7280", maxWidth: "300px", textAlign: "center" },
+        }, "Your payment was received. We're activating your subscription. This usually takes a few seconds."),
+      );
+    }
+
     // Tier gating: if requiredTier is set, check the user has sufficient access
+    // VIP users have the same access as Pro users (explicit check for robustness).
+    // Users with subscription_status "manual" (admin-granted) bypass the paywall.
     if (requiredTier && user) {
+      const effectiveTier = user.tier === "vip" ? "pro" : user.tier;
       const required = TIER_ORDER[requiredTier] ?? 0;
-      const current = TIER_ORDER[user.tier] ?? 0;
+      const current = TIER_ORDER[effectiveTier] ?? 0;
       if (current < required) {
         // For pro-tier pages: show paywall if user is free with no active subscription
-        if (requiredTier === "pro" && (user.tier === "free" || !user.tier)) {
+        if (requiredTier === "pro" && (effectiveTier === "free" || !effectiveTier)) {
           const subStatus = user.subscription_status;
-          if (subStatus !== "trialing" && subStatus !== "active") {
+          if (subStatus !== "trialing" && subStatus !== "active" && subStatus !== "manual") {
             return React.createElement(PaywallScreen, {
               user: user,
               apiBase: apiBase,
@@ -955,24 +1056,46 @@
                       background:
                         user.tier === "admin"
                           ? "rgba(139, 92, 246, 0.15)"
-                          : user.tier === "pro"
-                            ? "rgba(0, 200, 83, 0.15)"
-                            : "rgba(255,255,255,0.06)",
+                          : user.tier === "vip"
+                            ? "rgba(251, 191, 36, 0.15)"
+                            : user.tier === "pro"
+                              ? "rgba(0, 200, 83, 0.15)"
+                              : "rgba(255,255,255,0.06)",
                       color:
                         user.tier === "admin"
                           ? "#a78bfa"
-                          : user.tier === "pro"
-                            ? "#00c853"
-                            : "#6b7280",
+                          : user.tier === "vip"
+                            ? "#fbbf24"
+                            : user.tier === "pro"
+                              ? "#00c853"
+                              : "#6b7280",
                       textTransform: "uppercase",
                       letterSpacing: "0.04em",
                     },
                   },
-                  user.tier === "free" ? "MEMBER" : user.tier,
+                  user.tier === "free" ? "MEMBER" : user.tier === "vip" ? "VIP" : user.tier,
                 ),
             ),
+            // Trial days remaining badge
+            user.subscription_status === "trialing" && user.trial_end &&
+            (() => {
+              const daysLeft = Math.max(0, Math.ceil((Number(user.trial_end) - Date.now()) / (24 * 60 * 60 * 1000)));
+              return React.createElement("div", {
+                style: {
+                  padding: "8px 12px", borderRadius: "8px",
+                  background: daysLeft <= 7 ? "rgba(251,191,36,0.08)" : "rgba(0,200,83,0.06)",
+                  border: daysLeft <= 7 ? "1px solid rgba(251,191,36,0.2)" : "1px solid rgba(0,200,83,0.15)",
+                  fontSize: "12px", color: daysLeft <= 7 ? "#fbbf24" : "#00c853",
+                  fontWeight: "500", textAlign: "center",
+                },
+              },
+                React.createElement("span", { style: { fontSize: "16px", fontWeight: "700", display: "block" } }, String(daysLeft)),
+                daysLeft === 1 ? "day left in trial" : "days left in trial",
+              );
+            })(),
             // My Account button (Stripe Customer Portal for subscription management)
-            (user.tier === "pro" || user.subscription_status === "trialing" || user.subscription_status === "active") &&
+            // VIP users don't have Stripe subscriptions, so hide this for them
+            user.tier !== "vip" && (user.tier === "pro" || user.subscription_status === "trialing" || user.subscription_status === "active") &&
             React.createElement(
               "button",
               {
@@ -989,10 +1112,13 @@
                     if (json.ok && json.url) {
                       window.location.href = json.url;
                     } else {
-                      console.warn("[Account] Portal error:", json.error);
+                      const msg = json.error === "stripe_not_configured"
+                        ? "Account management is not available yet. Please contact support."
+                        : "Unable to open account management. Please try again.";
+                      alert(msg);
                     }
                   } catch (e) {
-                    console.warn("[Account] Portal request failed:", e);
+                    alert("Unable to connect. Please check your network and try again.");
                   }
                 },
                 style: {
@@ -1545,13 +1671,13 @@
                       h("td", { style: { padding: "8px 6px", color: "#6b7280", whiteSpace: "nowrap" } }, formatDate(u.created_at)),
                       h("td", { style: { padding: "8px 6px", whiteSpace: "nowrap" } },
                         h("div", { style: { display: "flex", gap: "4px" } },
-                          u.tier !== "pro" && h("button", {
-                            onClick: () => setTier(u.email, "pro", null),
+                          u.tier !== "vip" && u.tier !== "pro" && h("button", {
+                            onClick: () => setTier(u.email, "vip", null),
                             disabled: actionLoading === u.email,
                             style: {
                               padding: "3px 8px", borderRadius: "4px", fontSize: "10px", fontWeight: "600",
-                              background: "rgba(0,200,83,0.1)", border: "1px solid rgba(0,200,83,0.2)",
-                              color: "#00c853", cursor: "pointer",
+                              background: "rgba(251,191,36,0.1)", border: "1px solid rgba(251,191,36,0.2)",
+                              color: "#fbbf24", cursor: "pointer",
                             },
                           }, "Set VIP"),
                           u.tier !== "free" && h("button", {

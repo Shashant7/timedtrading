@@ -23,6 +23,9 @@ FILE_MAP = {
     "CME_MINI_RTY1!": "RTY1!",
     "CBOT_MINI_YM1!": "YM1!",
     "AMEX_DIA": "DIA",
+    "NYMEX_CL1!": "CL1!",
+    "TVC_SPX": "SPX",
+    "SP_SPX": "SPX",
 }
 
 TF_MAP = {

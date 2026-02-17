@@ -78,7 +78,7 @@ export default {
       const ip = request.headers.get("CF-Connecting-IP");
       if (ip) headers.set("CF-Connecting-IP", ip);
 
-      const init = { method: request.method, headers };
+      const init = { method: request.method, headers, redirect: "manual" };
 
       // Forward body for methods that carry one
       if (!["GET", "HEAD", "OPTIONS"].includes(request.method)) {
@@ -95,6 +95,18 @@ export default {
         respHeaders.delete("Access-Control-Allow-Headers");
         respHeaders.delete("Access-Control-Allow-Credentials");
         respHeaders.delete("Access-Control-Max-Age");
+
+        // Rewrite Location header on redirects: Worker origin → production origin
+        // Since we use redirect: "manual", 3xx responses are passed through.
+        // The Worker's Location header points to its own origin; rewrite it
+        // so the client browser redirects to the production domain instead.
+        const location = respHeaders.get("Location");
+        if (location && response.status >= 300 && response.status < 400) {
+          respHeaders.set(
+            "Location",
+            location.replace(WORKER_ORIGIN, url.origin),
+          );
+        }
 
         return new Response(response.body, {
           status: response.status,

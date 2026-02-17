@@ -17,15 +17,9 @@
           --tt-accent: #22c55e;
         }
         body { font-family: "Inter", -apple-system, BlinkMacSystemFont, sans-serif; background: var(--tt-bg-base); color: var(--tt-text); -webkit-font-smoothing: antialiased; }
-        /* Admin-only nav links: greyed out with lock for non-admin users */
+        /* Admin-only nav links: hidden for non-admin users */
         body:not([data-user-role="admin"]) a[data-admin-only] {
-          opacity: 0.35;
-          pointer-events: none;
-          position: relative;
-        }
-        body:not([data-user-role="admin"]) a[data-admin-only]::after {
-          content: " 🔒";
-          font-size: 9px;
+          display: none !important;
         }
         .code-block { background: var(--tt-bg-surface); padding: 1rem; border-radius: 0.5rem; overflow-x: auto; border: 1px solid var(--tt-border); }
         pre { margin: 0; white-space: pre-wrap; word-wrap: break-word; }

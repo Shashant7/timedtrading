@@ -677,15 +677,9 @@
     }
     .sg-sub-nav a:hover { color: var(--text-primary); background: var(--bg-surface); }
 
-    /* Admin-only nav links: greyed out with lock for non-admin users */
+    /* Admin-only nav links: hidden for non-admin users */
     body:not([data-user-role="admin"]) a[data-admin-only] {
-      opacity: 0.35;
-      pointer-events: none;
-      position: relative;
-    }
-    body:not([data-user-role="admin"]) a[data-admin-only]::after {
-      content: " 🔒";
-      font-size: 9px;
+      display: none !important;
     }
 
     /* ── Responsive ── */

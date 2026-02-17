@@ -949,7 +949,17 @@ Writing Guidelines:
 - Format percentage changes inline like: AAPL +2.30%, XLK -1.10%
 - CRITICAL: ALL economic data values (CPI, PPI, GDP, etc.) MUST use EXACTLY two decimal places (e.g., 2.40%, 0.30%, not 2.4%, 0.3%). Copy values EXACTLY as provided.
 - Keep total length to 1500-2500 words — be thorough, not terse
-- Do NOT use emojis`;
+- Do NOT use emojis
+
+Timed Trading Scoring Model Reference (ALWAYS reference these signals):
+- **state**: Current model signal state — LONG (bullish setup), SHORT (bearish setup), WATCH (neutral, waiting for confirmation), or FLAT (no position/signal)
+- **htf_score**: Higher-Timeframe composite score (0-100). Incorporates weekly/monthly trend alignment, EMAs, SuperTrend, and macro health. Above 65 = strong bullish structure, below 40 = bearish pressure.
+- **ltf_score**: Lower-Timeframe composite score (0-100). Incorporates intraday/daily momentum, mean-reversion signals, and short-term breadth. Divergence between HTF and LTF scores indicates potential reversals.
+- **phase_zone**: Current market phase classification — e.g., "markup" (trending up), "distribution" (topping), "markdown" (trending down), "accumulation" (basing/bottoming), "recovery" (early reversal)
+- **rank**: Overall ticker rank relative to the universe (higher = stronger)
+- **flags**: Active signal flags — e.g., golden_gate_up/down (ATR breakout), supertrend_flip, ema_cross, rs_new_high, accum_zone
+
+CRITICAL: You MUST explicitly reference our scoring model signals (state, HTF/LTF scores, phase zone) when analyzing market direction and structure. These are the primary quantitative signals that drive our analysis and trading decisions. When the HTF score is strong but LTF is weak (or vice versa), discuss the divergence and what it implies. Always mention the current state and phase zone for ES and NQ.`;
 
 function fmtEconValue(val, unit) {
   if (val == null || val === "") return null;
@@ -987,6 +997,13 @@ function buildMorningPrompt(data) {
 
 ## Market Data (as of pre-market):
 ${JSON.stringify(data.market, null, 1)}
+
+## Timed Trading Scoring Model Signals (MUST reference in your analysis):
+${Object.entries(data.market).filter(([, v]) => v).map(([sym, v]) => {
+  const parts = [`${sym}: State=${v.state || "N/A"}, HTF=${v.htf_score}, LTF=${v.ltf_score}, Phase=${v.phase_zone || "N/A"}, Rank=${v.rank}`];
+  if (v.flags && Object.keys(v.flags).length > 0) parts.push(`Flags=[${Object.entries(v.flags).filter(([,f]) => f).map(([k]) => k).join(", ")}]`);
+  return parts.join(", ");
+}).join("\n")}
 
 ## ES Technical Summary:
 ${JSON.stringify(data.esTechnical, null, 1)}
@@ -1104,6 +1121,13 @@ function buildEveningPrompt(data) {
 
 ## Market Close Data:
 ${JSON.stringify(data.market, null, 1)}
+
+## Timed Trading Scoring Model Signals at Close (MUST reference in your analysis):
+${Object.entries(data.market).filter(([, v]) => v).map(([sym, v]) => {
+  const parts = [`${sym}: State=${v.state || "N/A"}, HTF=${v.htf_score}, LTF=${v.ltf_score}, Phase=${v.phase_zone || "N/A"}, Rank=${v.rank}`];
+  if (v.flags && Object.keys(v.flags).length > 0) parts.push(`Flags=[${Object.entries(v.flags).filter(([,f]) => f).map(([k]) => k).join(", ")}]`);
+  return parts.join(", ");
+}).join("\n")}
 
 ## ES Technical Summary:
 ${JSON.stringify(data.esTechnical, null, 1)}

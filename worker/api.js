@@ -111,6 +111,13 @@ export function requireKeyOr401(req, env) {
   );
 }
 
+// COST OPTIMIZATION: Rate limiting now uses Workers Cache API (caches.default)
+// instead of KV. The Cache API is free and eliminates ~6-10M KV read+write
+// operations per month (~$15-25/month savings).
+//
+// How it works: We store a JSON counter in the Cache API keyed by a synthetic URL.
+// Cache entries auto-expire via Cache-Control max-age (replaces KV expirationTtl).
+// On cache miss, the counter starts at 0 (fail-open, same as KV timeout behavior).
 export async function checkRateLimit(
   KV,
   identifier,
@@ -118,19 +125,17 @@ export async function checkRateLimit(
   limit = 100,
   window = 3600,
 ) {
-  const key = `ratelimit:${identifier}:${endpoint}`;
-
-  const withTimeout = (p, ms) =>
-    Promise.race([
-      p,
-      new Promise((_, reject) =>
-        setTimeout(() => reject(new Error("rate_limit_kv_timeout")), ms),
-      ),
-    ]);
-
+  const cacheKey = `https://rate-limit.internal/${identifier}/${endpoint}`;
   try {
-    const count = await withTimeout(KV.get(key), 750);
-    const current = count ? Number(count) : 0;
+    const cache = caches.default;
+    const cached = await cache.match(cacheKey);
+    let current = 0;
+    if (cached) {
+      try {
+        const data = await cached.json();
+        current = Number(data.count) || 0;
+      } catch { /* corrupt cache entry, reset */ }
+    }
 
     if (current >= limit) {
       return {
@@ -140,17 +145,13 @@ export async function checkRateLimit(
       };
     }
 
-    try {
-      await withTimeout(
-        KV.put(key, String(current + 1), { expirationTtl: window }),
-        750,
-      );
-    } catch (e) {
-      console.warn(
-        `[RATE LIMIT] KV.put timeout for ${endpoint}:`,
-        String(e?.message || e),
-      );
-    }
+    const newResponse = new Response(JSON.stringify({ count: current + 1 }), {
+      headers: {
+        "Content-Type": "application/json",
+        "Cache-Control": `max-age=${window}`,
+      },
+    });
+    await cache.put(cacheKey, newResponse);
 
     return {
       allowed: true,
@@ -159,7 +160,7 @@ export async function checkRateLimit(
     };
   } catch (e) {
     console.warn(
-      `[RATE LIMIT] KV.get timeout for ${endpoint}:`,
+      `[RATE LIMIT] Cache API error for ${endpoint}:`,
       String(e?.message || e),
     );
     return {
@@ -457,7 +458,7 @@ export async function requireUser(req, env, opts = {}) {
   }
 
   if (opts.tier) {
-    const tierOrder = { free: 0, pro: 1, admin: 2 };
+    const tierOrder = { free: 0, pro: 1, vip: 1, admin: 2 };
     const required = tierOrder[opts.tier] || 0;
     const current = tierOrder[user.tier] || 0;
     if (current < required) {
@@ -511,6 +512,7 @@ export async function requireKeyOrAdmin(req, env) {
   return keyResult; // Return the 401 from API key check
 }
 
+// COST OPTIMIZATION: Fixed-window rate limiting also uses Workers Cache API.
 export async function checkRateLimitFixedWindow(
   KV,
   identifier,
@@ -519,28 +521,54 @@ export async function checkRateLimitFixedWindow(
   window = 3600,
 ) {
   const bucket = Math.floor(Date.now() / (window * 1000));
-  const key = `ratelimit:${identifier}:${endpoint}:${bucket}`;
-  const count = await KV.get(key);
-  const current = count ? Number(count) : 0;
-
+  const cacheKey = `https://rate-limit.internal/${identifier}/${endpoint}/${bucket}`;
   const resetAt = (bucket + 1) * window * 1000;
 
-  if (current >= limit) {
+  try {
+    const cache = caches.default;
+    const cached = await cache.match(cacheKey);
+    let current = 0;
+    if (cached) {
+      try {
+        const data = await cached.json();
+        current = Number(data.count) || 0;
+      } catch { /* corrupt, reset */ }
+    }
+
+    if (current >= limit) {
+      return {
+        allowed: false,
+        remaining: 0,
+        resetAt,
+        limit,
+        key: cacheKey,
+      };
+    }
+
+    const ttl = Math.max(60, Math.ceil((resetAt - Date.now()) / 1000));
+    const newResponse = new Response(JSON.stringify({ count: current + 1 }), {
+      headers: {
+        "Content-Type": "application/json",
+        "Cache-Control": `max-age=${ttl}`,
+      },
+    });
+    await cache.put(cacheKey, newResponse);
+
     return {
-      allowed: false,
-      remaining: 0,
+      allowed: true,
+      remaining: limit - current - 1,
       resetAt,
       limit,
-      key,
+      key: cacheKey,
+    };
+  } catch (e) {
+    console.warn(`[RATE LIMIT] Cache API error for ${endpoint}:`, String(e?.message || e));
+    return {
+      allowed: true,
+      remaining: Math.max(0, limit - 1),
+      resetAt,
+      limit,
+      key: cacheKey,
     };
   }
-
-  await KV.put(key, String(current + 1), { expirationTtl: window + 60 });
-  return {
-    allowed: true,
-    remaining: limit - current - 1,
-    resetAt,
-    limit,
-    key,
-  };
 }

@@ -308,16 +308,46 @@
 
         chart.timeScale().fitContent();
 
-        // Resize
+        // Resize — use ResizeObserver for portal/modal mount detection + window fallback
+        let resizeObserver = null;
         const handleResize = () => {
           if (containerRef.current && chart) {
-            chart.applyOptions({ width: containerRef.current.clientWidth });
+            const w = containerRef.current.clientWidth;
+            if (w > 0) {
+              chart.applyOptions({ width: w });
+            }
           }
         };
+        if (typeof ResizeObserver !== "undefined" && containerRef.current) {
+          resizeObserver = new ResizeObserver(handleResize);
+          resizeObserver.observe(containerRef.current);
+        }
         window.addEventListener("resize", handleResize);
+
+        // Settle: when chart mounts inside a React portal (expanded modal),
+        // the container may not have its final width yet. Use rAF to sync.
+        requestAnimationFrame(() => {
+          if (containerRef.current && chart) {
+            const w = containerRef.current.clientWidth;
+            if (w > 0) {
+              chart.applyOptions({ width: w });
+            }
+            chart.timeScale().fitContent();
+          }
+          // Safety net for slow portal reflow
+          setTimeout(() => {
+            if (containerRef.current && chart) {
+              const w = containerRef.current.clientWidth;
+              if (w > 0) {
+                chart.applyOptions({ width: w });
+              }
+            }
+          }, 150);
+        });
 
         return () => {
           window.removeEventListener("resize", handleResize);
+          if (resizeObserver) resizeObserver.disconnect();
           chart.remove();
           chartInstanceRef.current = null;
           candleSeriesRef.current = null;

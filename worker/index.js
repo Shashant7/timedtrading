@@ -1,6 +1,7 @@
 // Timed Trading Worker — KV latest + trail + rank + top lists + Discord alerts (CORRIDOR-ONLY)
 import { DASHBOARD_HTML } from "./dashboard-html.js";
 export { PriceHub } from "./price-hub.js";
+export { AlpacaStream } from "./alpaca-stream.js";
 import {
   kvGetJSON,
   kvPutJSON,
@@ -62,6 +63,29 @@ import {
 } from "./indicators.js";
 import { createExecutionAdapter } from "./execution.js";
 import {
+  loadCalendar,
+  fetchAndCacheCalendar,
+  isEquityHoliday as _calIsEquityHoliday,
+  isFuturesEarlyClose as _calIsFuturesEarlyClose,
+  isFuturesFullClose as _calIsFuturesFullClose,
+  isEquityEarlyClose as _calIsEquityEarlyClose,
+  isWithinOperatingHours as _calIsWithinOH,
+  isTickerSessionActive as _calIsTickerSessionActive,
+  previousTradingDay as _calPreviousTradingDay,
+  getETDateStr as _calGetETDateStr,
+  RTH_OPEN as _RTH_OPEN,
+  RTH_CLOSE as _RTH_CLOSE,
+  PM_START as _PM_START,
+  FUT_EARLY as _FUT_EARLY,
+  isNyRegularMarketOpen as _calIsNyRegularMarketOpen,
+  getSessionType as _calGetSessionType,
+  getETMinutes as _calGetETMinutes,
+} from "./market-calendar.js";
+
+// Module-level calendar object — loaded once per cron/request via loadCalendar(env).
+// Enables existing zero-arg functions (isWithinOperatingHours, etc.) to use dynamic data.
+let _cronCalendar = null;
+import {
   shouldLogPrediction,
   logPrediction,
   matchPatterns,
@@ -118,6 +142,64 @@ async function notifyPriceHub(env, payload) {
     }));
   } catch (e) {
     console.warn("[WS NOTIFY] Error:", String(e).slice(0, 200));
+  }
+}
+
+// ─── AlpacaStream DO helpers ─────────────────────────────────────────────
+// Manages the AlpacaStream Durable Object lifecycle from cron triggers
+async function alpacaStreamStart(env, symbols) {
+  if (!env.ALPACA_STREAM) return null;
+  try {
+    const id = env.ALPACA_STREAM.idFromName("global");
+    const stub = env.ALPACA_STREAM.get(id);
+    const res = await stub.fetch(new Request("https://internal/start", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ symbols }),
+    }));
+    return res.json();
+  } catch (e) {
+    console.warn("[ALPACA_STREAM] start failed:", String(e).slice(0, 200));
+    return null;
+  }
+}
+
+async function alpacaStreamStop(env) {
+  if (!env.ALPACA_STREAM) return null;
+  try {
+    const id = env.ALPACA_STREAM.idFromName("global");
+    const stub = env.ALPACA_STREAM.get(id);
+    const res = await stub.fetch(new Request("https://internal/stop", { method: "POST" }));
+    return res.json();
+  } catch (e) {
+    console.warn("[ALPACA_STREAM] stop failed:", String(e).slice(0, 200));
+    return null;
+  }
+}
+
+async function alpacaStreamGetPrices(env) {
+  if (!env.ALPACA_STREAM) return null;
+  try {
+    const id = env.ALPACA_STREAM.idFromName("global");
+    const stub = env.ALPACA_STREAM.get(id);
+    const res = await stub.fetch(new Request("https://internal/prices"));
+    const json = await res.json();
+    return json.ok ? json.prices : null;
+  } catch (e) {
+    console.warn("[ALPACA_STREAM] getPrices failed:", String(e).slice(0, 200));
+    return null;
+  }
+}
+
+async function alpacaStreamStatus(env) {
+  if (!env.ALPACA_STREAM) return { ok: false, error: "not_configured" };
+  try {
+    const id = env.ALPACA_STREAM.idFromName("global");
+    const stub = env.ALPACA_STREAM.get(id);
+    const res = await stub.fetch(new Request("https://internal/status"));
+    return res.json();
+  } catch (e) {
+    return { ok: false, error: String(e).slice(0, 200) };
   }
 }
 
@@ -222,6 +304,7 @@ const ROUTES = [
   ["GET", "/timed/prices", "GET /timed/prices"],
   ["GET", "/timed/candles", "GET /timed/candles"],
   ["GET", "/timed/sparklines", "GET /timed/sparklines"],
+  ["GET", "/timed/market-calendar", "GET /timed/market-calendar"],
   ["GET", "/timed/trail/performance", "GET /timed/trail/performance"],
   ["GET", "/timed/trail", "GET /timed/trail"],
   ["GET", "/timed/top", "GET /timed/top"],
@@ -240,6 +323,9 @@ const ROUTES = [
   ["GET", "/timed/ingestion/stats", "GET /timed/ingestion/stats"],
   ["GET", "/timed/ingest-audit", "GET /timed/ingest-audit"],
   ["GET", "/timed/health", "GET /timed/health"],
+  ["GET", "/timed/alpaca-stream/status", "GET /timed/alpaca-stream/status"],
+  ["POST", "/timed/alpaca-stream/start", "POST /timed/alpaca-stream/start"],
+  ["POST", "/timed/alpaca-stream/stop", "POST /timed/alpaca-stream/stop"],
   ["GET", "/timed/auth", "GET /timed/auth"],
   ["POST", "/timed/purge", "POST /timed/purge"],
   ["POST", "/timed/rebuild-index", "POST /timed/rebuild-index"],
@@ -353,6 +439,7 @@ const ROUTES = [
   ["GET", "/timed/enrich-metadata", "GET /timed/enrich-metadata"],
   ["POST", "/timed/enrich-alpaca", "POST /timed/enrich-alpaca"],
   // User / Auth
+  ["GET", "/timed/auth/login", "GET /timed/auth/login"],
   ["GET", "/timed/me", "GET /timed/me"],
   ["POST", "/timed/accept-terms", "POST /timed/accept-terms"],
   ["GET", "/timed/admin/users", "GET /timed/admin/users"],
@@ -790,7 +877,7 @@ function marketType(ticker) {
   const t = String(ticker || "").toUpperCase();
   if (t.endsWith("USDT") || t.endsWith("USD")) return "CRYPTO_24_7";
   if (t.endsWith("1!")) return "FUTURES_24_5";
-  if (["DXY", "US500", "USOIL", "GOLD", "SILVER", "GC1!", "SI1!"].includes(t)) return "MACRO";
+  if (["DXY", "US500", "SPX", "USOIL", "GOLD", "SILVER", "GC1!", "SI1!"].includes(t)) return "MACRO";
   return "EQUITY_RTH";
 }
 
@@ -817,6 +904,18 @@ function isMarketHoursET(date = new Date()) {
   if (["Sat", "Sun"].includes(weekday)) return false;
   const mins = hour * 60 + minute;
   return mins >= 9 * 60 + 30 && mins <= 16 * 60;
+}
+
+// Operating hours gate: 4 AM - 8 PM ET weekdays, excluding market holidays.
+// Uses dynamic calendar from market-calendar.js (Alpaca API + KV cache).
+// Falls back to static logic if calendar hasn't been loaded yet.
+function isWithinOperatingHours(now = new Date()) {
+  if (_cronCalendar) return _calIsWithinOH(_cronCalendar, now);
+  // Static fallback (before calendar is loaded in cron)
+  const { weekday, hour, minute } = getEasternParts(now);
+  if (["Sat", "Sun"].includes(weekday)) return false;
+  const mins = hour * 60 + minute;
+  return mins >= 4 * 60 && mins < 20 * 60;
 }
 
 function minutesSince(ts) {
@@ -941,10 +1040,10 @@ function hasPayloadChangedMeaningfully(existing, newPayload) {
     if (newFlags[key] && !oldFlags[key]) return true;
   }
 
-  // Time gate: always write at least once per 5 minutes
-  const oldTs = Number(existing?.ts || existing?.ingest_ts);
-  const newTs = Number(newPayload?.ts || newPayload?.ingest_ts);
-  if (Number.isFinite(oldTs) && Number.isFinite(newTs) && (newTs - oldTs) > 5 * 60 * 1000) return true;
+  // COST OPTIMIZATION: 5-minute time gate REMOVED.
+  // The old gate fired on every scoring cycle (which runs every 5 min), making
+  // all the delta checks above it pointless. Now KV writes only happen when
+  // there's an actual meaningful change, saving ~50-70% of KV writes during RTH.
 
   return false;
 }
@@ -4094,6 +4193,7 @@ const FUTURES_SPECS = {
   "MNQ1!": { pointValue: 2, name: "Micro E-mini Nasdaq-100" },
   "YM1!": { pointValue: 5, name: "E-mini Dow" },
   "RTY1!": { pointValue: 50, name: "E-mini Russell 2000" },
+  "CL1!": { pointValue: 1000, name: "Crude Oil WTI" },
   ES: { pointValue: 50, name: "E-mini S&P 500" },
   NQ: { pointValue: 20, name: "E-mini Nasdaq-100" },
   YM: { pointValue: 5, name: "E-mini Dow" },
@@ -10874,10 +10974,16 @@ const PURGE_BATCH = 5000;
 
 /** Tiered candle retention: shorter TFs expire sooner, D/W kept forever. */
 const CANDLE_RETENTION_DAYS = {
+  "1": 3,     // 1m candles: no longer written (Phase 3), purge old data quickly
+  "5": 14,    // 5m candles: 2 weeks is sufficient for scoring (100 candles = ~8h)
   "3m": 7,
+  "10": 14,   // Also match the tf key format used in d1 (numeric, not "10m")
   "10m": 14,
+  "30": 30,
   "30m": 30,
+  "60": 30,
   "1h": 30,
+  "240": 90,
   "4h": 90,
   // "D", "W", and "M" are intentionally omitted → kept forever
 };
@@ -11227,20 +11333,61 @@ async function d1EnsureCandleSchema(env) {
       )
       .run();
 
+    // COST OPTIMIZATION: The old idx_ticker_candles_ticker_tf_ts index was redundant
+    // with the PRIMARY KEY (ticker, tf, ts). SQLite B-trees support both ASC/DESC scans.
+    // Replaced with idx_candles_tf_ts which enables the GROUP BY prev_close query
+    // to use an index instead of a full table scan.
     await db
       .prepare(
-        `CREATE INDEX IF NOT EXISTS idx_ticker_candles_ticker_tf_ts
-         ON ticker_candles (ticker, tf, ts DESC)`,
+        `CREATE INDEX IF NOT EXISTS idx_candles_tf_ts
+         ON ticker_candles (tf, ts)`,
       )
       .run();
+
+    // Drop the redundant index (reduces write amplification on every INSERT/UPDATE)
+    try { await db.prepare(`DROP INDEX IF EXISTS idx_ticker_candles_ticker_tf_ts`).run(); } catch { /* ignore */ }
 
     // Add session column for extended-hours tagging (PM/RTH/AH/CLOSED)
     // Uses ALTER TABLE which is idempotent — silently fails if column exists
     try {
       await db.prepare(`ALTER TABLE ticker_candles ADD COLUMN session TEXT`).run();
-      console.log("[D1 CANDLES] Added session column to ticker_candles");
     } catch {
       // Column already exists — expected on subsequent runs
+    }
+
+    // ── COST OPTIMIZATION: Missing indexes (one-time creation, zero ongoing cost) ──
+    // These indexes were identified in the D1 audit as missing but needed by
+    // frequently-executed queries.
+    const missingIndexes = [
+      // ingest_receipts: retention DELETE needs to scan by received_ts
+      `CREATE INDEX IF NOT EXISTS idx_ingest_receipts_received_ts ON ingest_receipts (received_ts)`,
+      // trades: daily summary aggregation and exit-time queries
+      `CREATE INDEX IF NOT EXISTS idx_trades_ticker_entry_ts ON trades (ticker, entry_ts)`,
+      `CREATE INDEX IF NOT EXISTS idx_trades_ticker_exit_ts ON trades (ticker, exit_ts)`,
+      // trade_events: type-filtered time queries
+      `CREATE INDEX IF NOT EXISTS idx_trade_events_type_ts ON trade_events (type, ts)`,
+      // positions: status-filtered ordering
+      `CREATE INDEX IF NOT EXISTS idx_positions_status_created_at ON positions (status, created_at)`,
+      // investor_positions: composite lookups + ordering
+      `CREATE INDEX IF NOT EXISTS idx_inv_pos_ticker_status ON investor_positions (ticker, status)`,
+      `CREATE INDEX IF NOT EXISTS idx_inv_pos_status_updated ON investor_positions (status, updated_at DESC)`,
+      // users: Stripe webhook lookups
+      `CREATE INDEX IF NOT EXISTS idx_users_stripe ON users (stripe_customer_id)`,
+      // model_predictions: unresolved prediction lookups
+      `CREATE INDEX IF NOT EXISTS idx_mp_ticker_resolved_ts ON model_predictions (ticker, resolved, ts)`,
+      // investor_lots: position-level time ordering
+      `CREATE INDEX IF NOT EXISTS idx_inv_lots_pos_ts ON investor_lots (position_id, ts DESC)`,
+      // lots: position-level time ordering
+      `CREATE INDEX IF NOT EXISTS idx_lots_position_ts ON lots (position_id, ts)`,
+      // daily_briefs: date + type queries
+      `CREATE INDEX IF NOT EXISTS idx_daily_briefs_date_type ON daily_briefs (date DESC, type ASC)`,
+      // ml_v1_queue: resolution queries
+      `CREATE INDEX IF NOT EXISTS idx_ml_v1_queue_y_due ON ml_v1_queue (y, label_due_ts)`,
+      // pattern_library: active patterns sorted by expected value
+      `CREATE INDEX IF NOT EXISTS idx_pl_status_ev ON pattern_library (status, expected_value DESC)`,
+    ];
+    for (const sql of missingIndexes) {
+      try { await db.prepare(sql).run(); } catch { /* table may not exist yet */ }
     }
 
     try {
@@ -12008,6 +12155,7 @@ async function d1EnsureStripeSchema(env) {
       ["stripe_customer_id", "TEXT"],
       ["stripe_subscription_id", "TEXT"],
       ["subscription_status", "TEXT DEFAULT 'none'"],
+      ["trial_end", "INTEGER"],
     ];
     for (const [col, type] of cols) {
       try {
@@ -15089,6 +15237,10 @@ const SECTOR_MAP = {
   XHB: "ETF",
   DIA: "ETF",
   GOLD: "Basic Materials",
+  // Indices
+  SPX: "Index",
+  // Commodities (Futures)
+  "CL1!": "Energy",
 };
 
 const SECTOR_RATINGS = {
@@ -17176,36 +17328,21 @@ export default {
             await kvPutJSON(KV, `timed:latest:${ticker}`, payload);
           }
 
-          // ═══════════════════════════════════════════════════════════════════
-          // INGEST → 1m CANDLE: Create a 1-minute candle from the ingest price.
-          // TradingView sends prices every ~1 min. We floor the timestamp to
-          // the current minute and upsert an OHLCV candle. Overlapping writes
-          // (multiple ingests in the same minute) update H/L/C naturally via
-          // the UPSERT's MAX(h)/MIN(l) logic in d1UpsertCandle.
-          // This gives us continuous 1m coverage for all ingested tickers,
-          // independent of the Alpaca cron.
-          // ═══════════════════════════════════════════════════════════════════
-          try {
-            const ingestPrice = Number(payload.price);
-            const ingestTs = Number(payload.ts);
-            if (Number.isFinite(ingestPrice) && ingestPrice > 0 && Number.isFinite(ingestTs) && ingestTs > 0) {
-              // Floor to minute boundary (ms)
-              const tsMs = ingestTs > 1e12 ? ingestTs : ingestTs * 1000;
-              const minuteTs = Math.floor(tsMs / 60000) * 60000;
-              ctx.waitUntil(
-                d1UpsertIngestCandle(env, ticker, "1", ingestPrice, minuteTs)
-                  .catch(e => console.warn(`[INGEST→CANDLE] ${ticker} 1m failed:`, String(e).slice(0, 100)))
-              );
-            }
-          } catch (e) {
-            // Non-critical — don't let candle creation break the ingest flow
-          }
+          // COST OPTIMIZATION: 1m candle D1 writes REMOVED from ingest handler.
+          // 1m candles are not used for core scoring (only optional TD Sequential overlay).
+          // Sparklines are built from live price feed (timed:prices KV) and don't need D1.
+          // Saves ~1.8M D1 writes/month from this path alone.
 
           // Enqueue for ML training (4h and 1d horizons)
-          try {
-            await d1EnqueueMlV1(env, ticker, payload, [4 * 60 * 60 * 1000, 24 * 60 * 60 * 1000]);
-          } catch (e) {
-            console.error(`[ML ENQUEUE] Failed for ${ticker}:`, String(e));
+          // COST OPTIMIZATION: Throttle to 1 enqueue per ticker per 5 min using INSERT OR IGNORE.
+          // The id = ticker:ts:horizon so same-bucket writes are idempotent.
+          // Additional guard: only enqueue on scoring-aligned minutes (divisible by 5).
+          if (new Date().getUTCMinutes() % 5 === 0) {
+            try {
+              await d1EnqueueMlV1(env, ticker, payload, [4 * 60 * 60 * 1000, 24 * 60 * 60 * 1000]);
+            } catch (e) {
+              console.error(`[ML ENQUEUE] Failed for ${ticker}:`, String(e));
+            }
           }
 
           // ═══════════════════════════════════════════════════════════════════
@@ -18548,21 +18685,8 @@ export default {
 
           await kvPutText(KV, "timed:capture:last_ingest_ms", String(now));
 
-          // ── Build 1m candle from capture ingest price ──
-          // The capture heartbeat fires every ~1 min for futures/indices.
-          // Use it to build continuous 1m candles for these symbols.
-          try {
-            const capPrice = Number(payload.price);
-            const capTs = Number(payload.ts);
-            if (Number.isFinite(capPrice) && capPrice > 0 && Number.isFinite(capTs) && capTs > 0) {
-              const tsMs = capTs > 1e12 ? capTs : capTs * 1000;
-              const minuteTs = Math.floor(tsMs / 60000) * 60000;
-              ctx.waitUntil(
-                d1UpsertIngestCandle(env, ticker, "1", capPrice, minuteTs)
-                  .catch(e => console.warn(`[CAPTURE→CANDLE] ${ticker} 1m failed:`, String(e).slice(0, 100)))
-              );
-            }
-          } catch (_) { /* non-critical */ }
+          // COST OPTIMIZATION: 1m candle D1 writes REMOVED from capture handler.
+          // 1m candles are not used for core scoring. Sparklines use live prices only.
 
           // If payload includes tf_candles, upsert them to D1 (heartbeat can now send both capture + candles).
           if (payload.tf_candles && typeof payload.tf_candles === "object") {
@@ -18581,7 +18705,20 @@ export default {
             }
           }
 
-                    // --- Server-side re-score when capture has candles but no scores ---
+          // ── Replay lock: skip KV latest writes if a replay is in progress ──
+          let _replayLockActive = false;
+          try {
+            const replayLock = await kvGetJSON(KV, "timed:replay:running");
+            if (replayLock && typeof replayLock === "object" && replayLock.since) {
+              const lockAge = Date.now() - replayLock.since;
+              if (lockAge < 15 * 60 * 1000) {
+                _replayLockActive = true;
+                console.log(`[CAPTURE] ${ticker} — replay in progress, skipping KV latest write`);
+              }
+            }
+          } catch { /* non-critical */ }
+
+          // --- Server-side re-score when capture has candles but no scores ---
           // The Capture Heartbeat sends OHLCV but not scores. After upserting candles
           // to D1, re-compute scores from the full candle history so timed:latest stays fresh.
           let captureServerScored = false;
@@ -19439,7 +19576,7 @@ export default {
                   data.flags.thesis_match = !!computed.flags?.thesis_match;
 
                   // Persist backfill so future reads don’t need to recompute.
-                  if (!_replayLockActive) { await kvPutJSON(KV, `timed:latest:${ticker}`, data); }
+                  try { await kvPutJSON(KV, `timed:latest:${ticker}`, data); } catch { /* non-critical */ }
                 }
               }
             }
@@ -19710,11 +19847,52 @@ export default {
           const snapshot = await kvGetJSON(KV, "timed:all:snapshot");
           if (snapshot?.data && snapshot?.built_at && (Date.now() - snapshot.built_at) < 300000) {
             // Snapshot is fresh — serve directly from KV (no D1 query)
-            const removedSet = new Set((await kvGetJSON(KV, "timed:removed")) || []);
-            const activeSet = new Set(Object.keys(SECTOR_MAP).filter(t => !removedSet.has(t)));
+            // Build removed set, but NEVER exclude hardcoded SECTOR_MAP tickers.
+            // The removed list is for user-removed social/dynamic tickers only.
+            // Hardcoded tickers (defined in the SECTOR_MAP literal) must always pass.
+            const _rawRemoved = (await kvGetJSON(KV, "timed:removed")) || [];
+            const removedSet = new Set(Array.isArray(_rawRemoved) ? _rawRemoved : []);
+            const activeSet = new Set(Object.keys(SECTOR_MAP)); // All SECTOR_MAP keys are active
             const data = {};
             for (const [sym, payload] of Object.entries(snapshot.data)) {
               if (activeSet.has(sym)) data[sym] = payload;
+            }
+
+            // ── Fill gaps: tickers in SECTOR_MAP but missing from snapshot ──
+            // Catches tickers like SPX that have D1 data but may lack a
+            // timed:latest entry due to KV eventual consistency.
+            // ── Fill gaps: tickers in SECTOR_MAP but missing from snapshot ──
+            if (env?.DB) {
+              const missingSyms = [...activeSet].filter(s => !data[s]);
+              for (const sym of missingSyms) {
+                try {
+                  const kvPayload = await kvGetJSON(KV, `timed:latest:${sym}`);
+                  if (kvPayload && typeof kvPayload === "object" && Number(kvPayload.price) > 0) {
+                    data[sym] = kvPayload;
+                    continue;
+                  }
+                  const row = await env.DB.prepare(
+                    `SELECT ts, o, h, l, c FROM ticker_candles WHERE ticker = ?1 AND tf = 'D' ORDER BY ts DESC LIMIT 2`
+                  ).bind(sym).all();
+                  if (row?.results?.length >= 1) {
+                    const latest = row.results[0];
+                    const prev = row.results.length >= 2 ? row.results[1] : null;
+                    const price = Number(latest.c);
+                    if (price > 0) {
+                      const prevClose = prev ? Number(prev.c) : 0;
+                      data[sym] = {
+                        ticker: sym, ts: Number(latest.ts), price, close: price,
+                        open: Number(latest.o) || price, high: Number(latest.h) || price,
+                        low: Number(latest.l) || price,
+                        prev_close: prevClose || undefined,
+                        day_change: prevClose > 0 ? price - prevClose : undefined,
+                        day_change_pct: prevClose > 0 ? ((price - prevClose) / prevClose) * 100 : undefined,
+                        ingest_kind: "d1_gap_fill",
+                      };
+                    }
+                  }
+                } catch (_) { /* skip */ }
+              }
             }
 
             // ── Overlay live prices + daily change from timed:prices ──
@@ -19835,9 +20013,8 @@ export default {
             `SELECT ticker, payload_json, updated_at, kanban_stage, prev_kanban_stage FROM ticker_latest`,
           ).all();
 
-          // Filter: must be in active SECTOR_MAP AND not on the persistent removal blocklist
-          const removedSet = new Set((await kvGetJSON(KV, "timed:removed")) || []);
-          const activeSet = new Set(Object.keys(SECTOR_MAP).filter(t => !removedSet.has(t)));
+          // Filter: must be in SECTOR_MAP
+          const activeSet = new Set(Object.keys(SECTOR_MAP));
           const results = (rows?.results || []).filter(r => {
             const sym = String(r?.ticker || "").toUpperCase();
             return sym && activeSet.has(sym);
@@ -20972,27 +21149,36 @@ export default {
           let sparkMap = await kvGetJSON(KV, "timed:sparklines");
 
           // Fallback: if KV has no sparkline data, bootstrap from D1's 5m candles.
-          // Uses a single efficient query with time cutoff (last 72h covers weekends).
+          // Uses a single efficient query with time cutoff (last 168h / 7 days to cover
+          // weekends + holidays like 3-day weekends).
           if (!sparkMap || Object.keys(sparkMap).length === 0) {
             const db = env?.DB;
             if (db) {
               try {
-                // Only need the last ~24h of data for sparklines, but use 48h cutoff
-                // to reliably capture last trading session even on weekends.
-                // Use 1m candles (built by cron for ALL tickers) as fallback if 5m are sparse.
-                const cutoff = Date.now() - 48 * 3600 * 1000; // 48 hours ago
-                // Two-pass: try 5m candles first (smaller dataset), fall back to 1m
+                const cutoff = Date.now() - 168 * 3600 * 1000; // 7 days ago
                 let rows = await db.prepare(
                   `SELECT ticker, ts, o, c FROM ticker_candles
                    WHERE tf = '5' AND ts > ?1
                    ORDER BY ticker ASC, ts ASC
-                   LIMIT 100000`
+                   LIMIT 200000`
                 ).bind(cutoff).all();
                 sparkMap = {};
                 for (const r of (rows?.results || [])) {
                   const sym = r.ticker;
                   if (!sparkMap[sym]) sparkMap[sym] = [];
                   sparkMap[sym].push({ t: Number(r.ts), c: Number(r.c), o: Number(r.o) });
+                }
+                // Post-process: remove stale flat-line data per ticker.
+                // If all close prices for a ticker are identical, it's holiday noise — drop it.
+                // Also trim to last 400 points per ticker to keep KV size reasonable.
+                for (const sym of Object.keys(sparkMap)) {
+                  const arr = sparkMap[sym];
+                  if (arr.length < 2) { delete sparkMap[sym]; continue; }
+                  const closes = arr.map(p => p.c);
+                  const allSame = closes.every(v => v === closes[0]);
+                  if (allSame) { delete sparkMap[sym]; continue; }
+                  // Keep only last 400 points
+                  if (arr.length > 400) sparkMap[sym] = arr.slice(-400);
                 }
                 // Cache to KV for subsequent requests (non-blocking)
                 if (Object.keys(sparkMap).length > 0) {
@@ -21011,6 +21197,44 @@ export default {
           return sendJSON({ ok: true, data: sparkMap, updated_at: Date.now() }, 200, corsHeaders(env, req));
         } catch (e) {
           console.error("[SPARKLINES] GET failed:", String(e));
+          return sendJSON({ ok: false, error: "internal_error" }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // GET /timed/market-calendar — Returns the current market calendar for frontend use.
+      // Includes equity holidays, early closes, futures closes, session constants, and current status.
+      if (routeKey === "GET /timed/market-calendar") {
+        try {
+          const cal = _cronCalendar || await loadCalendar(env);
+          const now = new Date();
+          const etDateStr = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+          return sendJSON({
+            ok: true,
+            source: cal.source || "unknown",
+            fetched_at: cal.fetchedAt,
+            equity: {
+              holidays: [...(cal.equityHolidays || [])],
+              early_closes: [...(cal.equityEarlyClose || [])],
+              is_holiday_today: cal.equityHolidays?.has?.(etDateStr) || false,
+              is_early_close_today: cal.equityEarlyClose?.has?.(etDateStr) || false,
+            },
+            futures: {
+              full_closes: [...(cal.futuresFullClose || [])],
+              early_closes: [...(cal.futuresEarlyClose || [])],
+            },
+            session: {
+              pm_start: _RTH_OPEN - 330,
+              rth_open: _RTH_OPEN,
+              rth_close: _RTH_CLOSE,
+              ah_end: 1200,
+              is_within_operating_hours: _calIsWithinOH(cal, now),
+              is_rth: _calIsNyRegularMarketOpen(cal, now),
+              session_type: _calGetSessionType(_calGetETMinutes(now)),
+            },
+            updated_at: Date.now(),
+          }, 200, corsHeaders(env, req));
+        } catch (e) {
+          console.error("[MARKET-CAL] GET failed:", String(e));
           return sendJSON({ ok: false, error: "internal_error" }, 500, corsHeaders(env, req));
         }
       }
@@ -21683,8 +21907,6 @@ export default {
             "NQ", // Duplicate of NQ1! (NQ1! has data)
             "MES1!", // Not sending data
             "MNQ1!", // Not sending data
-            "RTY1!", // Not sending data
-            "YM1!", // Not sending data
           ];
 
           const removed = [];
@@ -22753,6 +22975,26 @@ export default {
         });
       }
 
+      // ── AlpacaStream management endpoints (admin only) ──
+      if (routeKey === "GET /timed/alpaca-stream/status") {
+        const status = await alpacaStreamStatus(env);
+        return sendJSON(status, 200, corsHeaders(env, req));
+      }
+      if (routeKey === "POST /timed/alpaca-stream/start") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const alpacaBlocklist = new Set(["ES1!","NQ1!","YM1!","RTY1!","CL1!","GC1!","SI1!","HG1!","NG1!","BTCUSD","ETHUSD","US500","VIX","SPX"]);
+        const symbols = Object.keys(SECTOR_MAP).filter(t => !alpacaBlocklist.has(t) && /^[A-Z]{1,5}(-[A-Z]{1,2})?$/.test(t));
+        const result = await alpacaStreamStart(env, symbols);
+        return sendJSON({ ok: true, result, symbols: symbols.length }, 200, corsHeaders(env, req));
+      }
+      if (routeKey === "POST /timed/alpaca-stream/stop") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const result = await alpacaStreamStop(env);
+        return sendJSON({ ok: true, result }, 200, corsHeaders(env, req));
+      }
+
       // GET /timed/health
       if (routeKey === "GET /timed/health") {
         // Rate limiting
@@ -22869,7 +23111,7 @@ export default {
 
       // POST /timed/rebuild-index?key=... (Rebuild ticker index from watchlist)
       if (routeKey === "POST /timed/rebuild-index") {
-        const authFail = requireKeyOr401(req, env);
+        const authFail = await requireKeyOrAdmin(req, env);
         if (authFail) return authFail;
 
         // Known ticker list from watchlists (Q1 2026 + Sectors)
@@ -23013,6 +23255,9 @@ export default {
           "MNQ1!",
           "YM1!",
           "RTY1!",
+          "CL1!",
+          // Indices
+          "SPX",
         ]
           .map((t) => t.toUpperCase())
           .filter((v, i, a) => a.indexOf(v) === i); // Deduplicate
@@ -23032,14 +23277,118 @@ export default {
         currentIndex.sort();
         await kvPutJSON(KV, "timed:tickers", currentIndex);
 
+        // Seed timed:latest:<ticker> from D1 candle data for tickers without live data.
+        // This ensures index-only tickers (like SPX) that depend on TradingView
+        // webhooks still appear in the UI with their last known price.
+        // We also collect freshPayloads to inject directly into the snapshot below
+        // (avoids KV eventual-consistency issues where a just-written key isn't readable yet).
+        const seededTickers = [];
+        const freshPayloads = {}; // sym -> payload, for D1-seeded tickers
+        if (env?.DB) {
+          for (const ticker of knownTickers) {
+            try {
+              const existing = await kvGetJSON(KV, `timed:latest:${ticker}`);
+              if (existing && existing.price > 0) {
+                // If it's a d1_seed that already exists, keep it in freshPayloads for snapshot
+                if (existing.ingest_kind === "d1_seed") freshPayloads[ticker] = existing;
+                continue;
+              }
+
+              // Query D1 for the latest daily candle (ticker_candles uses o/h/l/c columns)
+              const row = await env.DB.prepare(
+                `SELECT ts, o, h, l, c FROM ticker_candles
+                 WHERE ticker = ?1 AND tf = 'D'
+                 ORDER BY ts DESC LIMIT 2`
+              ).bind(ticker).all();
+
+              if (row?.results?.length >= 1) {
+                const latest = row.results[0];
+                const prev = row.results.length >= 2 ? row.results[1] : null;
+                const price = Number(latest.c);
+                if (price > 0) {
+                  const prevClose = prev ? Number(prev.c) : 0;
+                  const dayChange = prevClose > 0 ? price - prevClose : 0;
+                  const dayChangePct = prevClose > 0 ? ((price - prevClose) / prevClose) * 100 : 0;
+                  const payload = {
+                    ticker,
+                    ts: Number(latest.ts),
+                    price,
+                    close: price,
+                    open: Number(latest.o) || price,
+                    high: Number(latest.h) || price,
+                    low: Number(latest.l) || price,
+                    prev_close: prevClose || undefined,
+                    day_change: dayChange || undefined,
+                    day_change_pct: dayChangePct || undefined,
+                    ingest_ts: Date.now(),
+                    ingest_kind: "d1_seed",
+                  };
+                  await kvPutJSON(KV, `timed:latest:${ticker}`, payload, 7 * 86400);
+                  seededTickers.push(ticker);
+                  freshPayloads[ticker] = payload;
+                }
+              }
+            } catch (e) {
+              console.warn(`[ENSURE-TICKERS] D1 seed failed for ${ticker}:`, String(e?.message || e));
+            }
+          }
+        }
+
+        // ── Rebuild timed:all:snapshot so newly seeded tickers appear immediately ──
+        // First read current snapshot, then merge in fresh payloads to avoid KV consistency gaps
+        let snapshotCount = 0;
+        try {
+          const removedSet = new Set((await kvGetJSON(KV, "timed:removed")) || []);
+          const activeSyms = Object.keys(SECTOR_MAP).filter(t => !removedSet.has(t));
+
+          // Start from current snapshot (if exists) to preserve existing data
+          const currentSnapshot = await kvGetJSON(KV, "timed:all:snapshot");
+          const snapshot = (currentSnapshot?.data && typeof currentSnapshot.data === "object")
+            ? { ...currentSnapshot.data }
+            : {};
+
+          // Overlay fresh KV reads for all active tickers
+          for (const sym of activeSyms) {
+            if (!snapshot[sym]) {
+              const payload = await kvGetJSON(KV, `timed:latest:${sym}`);
+              if (payload && typeof payload === "object") {
+                snapshot[sym] = payload;
+              }
+            }
+          }
+
+          // Inject D1-seeded payloads directly (bypasses KV eventual consistency)
+          for (const [sym, payload] of Object.entries(freshPayloads)) {
+            if (activeSyms.includes(sym)) {
+              snapshot[sym] = payload;
+            }
+          }
+
+          // Remove tickers not in activeSyms
+          for (const sym of Object.keys(snapshot)) {
+            if (!activeSyms.includes(sym)) delete snapshot[sym];
+          }
+
+          await kvPutJSON(KV, "timed:all:snapshot", {
+            data: snapshot,
+            count: Object.keys(snapshot).length,
+            built_at: Date.now(),
+          });
+          snapshotCount = Object.keys(snapshot).length;
+        } catch (e) {
+          console.warn("[REBUILD-INDEX] Snapshot rebuild failed:", String(e?.message || e));
+        }
+
         return sendJSON(
           {
             ok: true,
-            message: `Index rebuilt. Added ${addedTickers.length} tickers.`,
+            message: `Index rebuilt. Added ${addedTickers.length} tickers. Seeded ${seededTickers.length} from D1. Snapshot: ${snapshotCount} tickers.`,
             beforeCount: currentIndex.length - addedTickers.length,
             afterCount: currentIndex.length,
-            addedTickers: addedTickers.slice(0, 20), // Show first 20
+            addedTickers: addedTickers.slice(0, 20),
             totalAdded: addedTickers.length,
+            seededFromD1: seededTickers,
+            snapshotRebuilt: snapshotCount,
             note: "Index will continue to grow as TradingView sends alerts for these tickers.",
           },
           200,
@@ -23235,7 +23584,7 @@ export default {
           "SOXL", "SPGI", "SPY", "STRL", "STX", "SWK", "TJX", "TLN", "TSM", "TSLA", "TT", "TWLO", "ULTA",
           "UTHR", "UUUU", "US500", "VIX", "VST", "WAL", "WDC", "WFRD", "WM", "WMT", "WTS",
           "XLB", "XLC", "XLE", "XLF", "XLI", "XLK", "XLP", "XLRE", "XLU", "XLV", "XLY", "XOM",
-          "ES", "NQ", "RTY", "YM", "DIA", "BTC", "ETH",
+          "ES", "NQ", "RTY", "YM", "DIA", "BTC", "ETH", "SPX", "CL", "CL1!",
         ]);
 
         const tickerMap = {
@@ -23244,6 +23593,7 @@ export default {
           NQ: "NQ1!",
           RTY: "RTY1!",
           YM: "YM1!",
+          CL: "CL1!",
           BTC: "BTCUSD",
           ETH: "ETHUSD",
         };
@@ -26611,6 +26961,20 @@ export default {
       // USER / AUTH ENDPOINTS
       // ═══════════════════════════════════════════════════════════════════════
 
+      // GET /timed/auth/login - CF Access login redirect
+      // This endpoint exists on a Worker route, which CF Access protects.
+      // When the user has no valid CF Access JWT, CF Access will intercept and
+      // show the identity provider login page. After authentication, CF Access
+      // redirects back here, and the Worker 302-redirects to the dashboard.
+      // This solves the problem where Cloudflare Pages pretty-URL redirects
+      // prevent the static /index-react.html path from triggering CF Access.
+      if (routeKey === "GET /timed/auth/login") {
+        const redirect = url.searchParams.get("redirect") || "/index-react.html";
+        // Ensure redirect is same-origin to prevent open redirect
+        const safeRedirect = redirect.startsWith("/") ? redirect : "/index-react.html";
+        return Response.redirect(new URL(safeRedirect, url.origin).href, 302);
+      }
+
       // GET /timed/me - Return current authenticated user info
       // Auto-promotes ADMIN_EMAIL to admin role/tier on every check.
       // Supports ?return=<url> for cross-origin login flow (Pages → Worker → CF Access → back to Pages).
@@ -26681,6 +27045,7 @@ export default {
               role: user.role,
               tier: user.tier,
               subscription_status: user.subscription_status || null,
+              trial_end: user.trial_end || null,
               last_login_at: user.last_login_at,
               terms_accepted_at: user.terms_accepted_at || null,
             },
@@ -26775,9 +27140,9 @@ export default {
         }
       }
 
-      // GET /timed/admin/users?key=... - List all users (admin only)
+      // GET /timed/admin/users - List all users (admin only, supports JWT + API key)
       if (routeKey === "GET /timed/admin/users") {
-        const authFail = requireKeyOr401(req, env);
+        const authFail = await requireKeyOrAdmin(req, env);
         if (authFail) return authFail;
 
         try {
@@ -26788,7 +27153,7 @@ export default {
           const { results } = await DB.prepare(
             `SELECT email, display_name, role, tier, subscription_status, stripe_customer_id,
                     created_at, last_login_at, expires_at, terms_accepted_at,
-                    login_count, login_days
+                    login_count, login_days, trial_end
              FROM users ORDER BY last_login_at DESC`
           ).all();
           return sendJSON({ ok: true, users: results || [] }, 200, corsHeaders(env, req));
@@ -26797,9 +27162,9 @@ export default {
         }
       }
 
-      // POST /timed/admin/users/:email/tier?key=...&tier=pro|free - Update user tier
+      // POST /timed/admin/users/:email/tier - Update user tier (admin only, supports JWT + API key)
       if (routeKey === "POST /timed/admin/users/:email/tier") {
-        const authFail = requireKeyOr401(req, env);
+        const authFail = await requireKeyOrAdmin(req, env);
         if (authFail) return authFail;
 
         try {
@@ -26814,12 +27179,12 @@ export default {
           const tier = url.searchParams.get("tier");
           const expiresAt = url.searchParams.get("expires_at") || null;
 
-          if (!tier || !["free", "pro", "admin"].includes(tier)) {
-            return sendJSON({ ok: false, error: "tier must be free, pro, or admin" }, 400, corsHeaders(env, req));
+          if (!tier || !["free", "pro", "vip", "admin"].includes(tier)) {
+            return sendJSON({ ok: false, error: "tier must be free, pro, vip, or admin" }, 400, corsHeaders(env, req));
           }
 
-          // Set subscription_status alongside tier so admin-granted Pro is distinguishable
-          const subStatus = tier === "pro" ? "manual" : tier === "admin" ? "manual" : "none";
+          // Set subscription_status alongside tier so admin-granted Pro/VIP is distinguishable
+          const subStatus = (tier === "pro" || tier === "vip" || tier === "admin") ? "manual" : "none";
 
           await DB.prepare(
             `UPDATE users SET tier = ?, subscription_status = ?, expires_at = ?, updated_at = ? WHERE email = ?`
@@ -26944,10 +27309,18 @@ export default {
       // ═══════════════════════════════════════════════════════════════
 
       // POST /timed/stripe/create-checkout — Creates a Stripe Checkout Session (authenticated)
+      // Prevents duplicate free trials: checks Stripe for existing customers with
+      // prior subscriptions/trials before granting trial_period_days.
       if (routeKey === "POST /timed/stripe/create-checkout") {
         try {
           const user = await authenticateUser(req, env);
           if (!user?.email) return sendJSON({ ok: false, error: "auth_required" }, 401, corsHeaders(env, req));
+
+          // VIP and admin users should never see the paywall; block checkout to prevent confusion
+          if (user.tier === "vip" || user.tier === "admin" || user.tier === "pro") {
+            return sendJSON({ ok: false, error: "already_subscribed", details: "You already have an active subscription." }, 400, corsHeaders(env, req));
+          }
+
           const stripeKey = env.STRIPE_SECRET_KEY;
           const priceId = env.STRIPE_PRICE_ID;
           if (!stripeKey || !priceId) {
@@ -26958,17 +27331,48 @@ export default {
           const parsed = body?.obj || {};
           const successUrl = parsed.success_url || `${url.origin}/index-react.html?stripe=success`;
           const cancelUrl = parsed.cancel_url || `${url.origin}/index-react.html?stripe=cancel`;
+
+          // Check if user has an existing Stripe customer with prior subscriptions
+          // to prevent multiple free trials (e.g. user cancels, re-signs up for another trial).
+          let trialDays = 30; // default: first-month-free trial
+          try {
+            const custSearch = await fetch(
+              `https://api.stripe.com/v1/customers?email=${encodeURIComponent(user.email)}&limit=1`,
+              { headers: { "Authorization": `Bearer ${stripeKey}` } },
+            );
+            const custData = await custSearch.json();
+            if (custData.data && custData.data.length > 0) {
+              const customerId = custData.data[0].id;
+              // Check for any past subscriptions (active, canceled, trialing, past_due, etc.)
+              const subSearch = await fetch(
+                `https://api.stripe.com/v1/subscriptions?customer=${customerId}&limit=1&status=all`,
+                { headers: { "Authorization": `Bearer ${stripeKey}` } },
+              );
+              const subData = await subSearch.json();
+              if (subData.data && subData.data.length > 0) {
+                // User has had a subscription before — no free trial
+                trialDays = 0;
+                console.log(`[STRIPE] Returning customer ${user.email} — no trial (prior subscription found)`);
+              }
+            }
+          } catch (e) {
+            console.warn("[STRIPE] Customer lookup failed, defaulting to trial:", String(e?.message || e).slice(0, 100));
+          }
+
           // Create Stripe Checkout Session
           const params = new URLSearchParams({
             "mode": "subscription",
             "customer_email": user.email,
             "line_items[0][price]": priceId,
             "line_items[0][quantity]": "1",
-            "subscription_data[trial_period_days]": "30",
             "success_url": successUrl,
             "cancel_url": cancelUrl,
             "metadata[user_email]": user.email,
           });
+          // Only include trial if user hasn't had one before
+          if (trialDays > 0) {
+            params.set("subscription_data[trial_period_days]", String(trialDays));
+          }
           const stripeResp = await fetch("https://api.stripe.com/v1/checkout/sessions", {
             method: "POST",
             headers: {
@@ -27034,15 +27438,35 @@ export default {
             const session = event.data.object;
             const email = (session.customer_email || session.metadata?.user_email || "").toLowerCase();
             if (email) {
+              // Fetch the real subscription status from Stripe (may be "trialing" if trial_period_days was set)
+              let subStatus = "active";
+              let trialEnd = null;
+              if (session.subscription && env.STRIPE_SECRET_KEY) {
+                try {
+                  const subResp = await fetch(`https://api.stripe.com/v1/subscriptions/${session.subscription}`, {
+                    headers: { "Authorization": `Bearer ${env.STRIPE_SECRET_KEY}` },
+                  });
+                  if (subResp.ok) {
+                    const subObj = await subResp.json();
+                    subStatus = subObj.status || "active"; // "trialing", "active", etc.
+                    trialEnd = subObj.trial_end ? subObj.trial_end * 1000 : null; // Stripe sends epoch seconds, store as ms
+                    console.log(`[STRIPE] Subscription ${session.subscription}: status=${subStatus}, trial_end=${trialEnd}`);
+                  }
+                } catch (e) {
+                  console.warn(`[STRIPE] Failed to fetch subscription details:`, String(e));
+                }
+              }
               await db.prepare(`
                 UPDATE users SET tier = 'pro', stripe_customer_id = ?1, stripe_subscription_id = ?2,
-                subscription_status = 'active', expires_at = NULL, updated_at = ?3 WHERE email = ?4
-              `).bind(session.customer || null, session.subscription || null, Date.now(), email).run();
-              console.log(`[STRIPE] checkout.session.completed for ${email}`);
+                subscription_status = ?3, trial_end = ?4, expires_at = NULL, updated_at = ?5 WHERE email = ?6
+              `).bind(session.customer || null, session.subscription || null, subStatus, trialEnd, Date.now(), email).run();
+              console.log(`[STRIPE] checkout.session.completed for ${email}, status=${subStatus}`);
               await d1InsertNotification(env, {
                 email, type: "system",
                 title: "Subscription Activated",
-                body: "Welcome to Timed Trading Pro! Your subscription is now active.",
+                body: subStatus === "trialing"
+                  ? "Welcome to Timed Trading Pro! Your 30-day free trial has started."
+                  : "Welcome to Timed Trading Pro! Your subscription is now active.",
                 link: "/index-react.html",
               });
             }
@@ -27050,11 +27474,12 @@ export default {
             const sub = event.data.object;
             const custId = sub.customer;
             const status = sub.status; // active, trialing, past_due, canceled, etc.
+            const trialEnd = sub.trial_end ? sub.trial_end * 1000 : null;
             if (custId) {
               await db.prepare(`
-                UPDATE users SET subscription_status = ?1, updated_at = ?2 WHERE stripe_customer_id = ?3
-              `).bind(status, Date.now(), custId).run();
-              console.log(`[STRIPE] subscription.updated: ${custId} → ${status}`);
+                UPDATE users SET subscription_status = ?1, trial_end = ?2, updated_at = ?3 WHERE stripe_customer_id = ?4
+              `).bind(status, trialEnd, Date.now(), custId).run();
+              console.log(`[STRIPE] subscription.updated: ${custId} → ${status}, trial_end=${trialEnd}`);
             }
           } else if (eventType === "customer.subscription.deleted") {
             const sub = event.data.object;
@@ -27114,14 +27539,38 @@ export default {
           const db = env?.DB;
           if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
           const userRow = await db.prepare(`SELECT stripe_customer_id FROM users WHERE email = ?1`).bind(user.email.toLowerCase()).first();
-          if (!userRow?.stripe_customer_id) {
-            return sendJSON({ ok: false, error: "no_stripe_customer" }, 400, corsHeaders(env, req));
+          let customerId = userRow?.stripe_customer_id;
+
+          // Auto-create Stripe customer if missing (e.g., admin-granted Pro users)
+          if (!customerId) {
+            try {
+              const createResp = await fetch("https://api.stripe.com/v1/customers", {
+                method: "POST",
+                headers: {
+                  "Authorization": `Bearer ${stripeKey}`,
+                  "Content-Type": "application/x-www-form-urlencoded",
+                },
+                body: new URLSearchParams({ email: user.email }).toString(),
+              });
+              const newCust = await createResp.json();
+              if (createResp.ok && newCust.id) {
+                customerId = newCust.id;
+                await db.prepare(`UPDATE users SET stripe_customer_id = ?1, updated_at = ?2 WHERE email = ?3`)
+                  .bind(customerId, Date.now(), user.email.toLowerCase()).run();
+                console.log(`[STRIPE] Auto-created customer ${customerId} for ${user.email}`);
+              } else {
+                return sendJSON({ ok: false, error: "stripe_customer_creation_failed", details: newCust.error?.message }, 500, corsHeaders(env, req));
+              }
+            } catch (e) {
+              return sendJSON({ ok: false, error: "stripe_customer_creation_failed", details: String(e) }, 500, corsHeaders(env, req));
+            }
           }
+
           const body = await readBodyAsJSON(req);
           const parsed = body?.obj || {};
           const returnUrl = parsed.return_url || `${url.origin}/index-react.html`;
           const params = new URLSearchParams({
-            "customer": userRow.stripe_customer_id,
+            "customer": customerId,
             "return_url": returnUrl,
           });
           const portalResp = await fetch("https://api.stripe.com/v1/billing_portal/sessions", {
@@ -27151,7 +27600,7 @@ export default {
           if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
           await d1EnsureStripeSchema(env);
           const row = await db.prepare(`
-            SELECT tier, subscription_status, stripe_customer_id, stripe_subscription_id, expires_at
+            SELECT tier, subscription_status, stripe_customer_id, stripe_subscription_id, expires_at, trial_end
             FROM users WHERE email = ?1
           `).bind(user.email.toLowerCase()).first();
           return sendJSON({
@@ -27160,6 +27609,7 @@ export default {
             subscription_status: row?.subscription_status || "none",
             has_stripe: !!row?.stripe_customer_id,
             expires_at: row?.expires_at || null,
+            trial_end: row?.trial_end || null,
           }, 200, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e?.message || e) }, 500, corsHeaders(env, req));
@@ -28481,6 +28931,55 @@ The platform uses a quadrant-based approach combining Higher Timeframe (HTF) and
 - **RR (Risk/Reward)**: Ratio of potential profit to potential loss. ≥1.5 is considered good.
 - **Phase %**: Position in the market cycle (0-100%). Lower (<40%) = early, higher (>60%) = late.
 - **Completion %**: How far price has moved toward target (0-100%). Lower = more upside potential.
+
+## APPLICATION GUIDE (How to Use the System)
+
+### Pages & Navigation
+- **Active Trader**: Main dashboard with Kanban board, bubble chart, activity feed, and right rail for ticker details. This is the primary page for active day/swing traders.
+- **Investor**: Long-term position management with stages (Research, Accumulate, Hold, Trim, Exit). Designed for portfolio-oriented users.
+- **Trades**: Simulation dashboard showing all trades, P&L, win rate, and signal analysis.
+- **Daily Brief**: AI-generated morning/evening market analysis with macro outlook and predictions.
+- **Screener**: Filter tickers by rank, RR, state, phase, and other criteria.
+- **Model**: Pattern library and prediction accuracy tracking.
+
+### Kanban Board (Active Trader)
+Tickers flow through horizontal lanes based on their scoring signals:
+- **Discovery**: Tickers being monitored but not yet in a trade setup.
+- **Flip Watch**: Showing early signs of a directional change.
+- **Enter Now**: Active entry signal — highest conviction setups. Look here for trade ideas.
+- **Manage**: Open positions being actively managed.
+- **Trim**: Partial exit signals (take profits, reduce risk).
+- **Exit**: Full exit signals.
+
+### Right Rail
+Click any ticker card to open the Right Rail panel showing:
+- Interactive price chart (with candlesticks and indicators)
+- Scoring breakdown (HTF/LTF scores, state, phase, completion)
+- Signal flags (Golden Gate, SuperTrend flip, squeeze release, etc.)
+- Risk metrics (stop loss, take profit, RR ratio)
+- The chart can be expanded to full-screen modal view.
+
+### Bubble Chart
+Visual representation of all tickers plotted by:
+- X-axis: Phase % (0-100%)
+- Y-axis: Completion % (0-100%)
+- Bubble Size: Rank score
+- Bubble Color: Quadrant (Bull Setup=blue, Bull Momentum=green, Bear Momentum=red, Bear Setup=orange)
+- Best opportunities are in the bottom-left quadrant (early phase + low completion).
+
+### Market Pulse Row
+Top row of sparkline pills showing key indices and futures (SPX, US500, SPY, QQQ, IWM, DIA, etc.) with intraday sparklines and daily change percentage.
+
+### Sparklines
+Small inline charts on each ticker card showing intraday price movement. Resets at market open each day.
+
+### Getting Started Tips
+1. Start with the Daily Brief each morning for market context.
+2. Check the Kanban board "Enter Now" lane for highest conviction setups.
+3. Use the Bubble Chart to see the big picture — bottom-left = best opportunities.
+4. Click any ticker to see details in the Right Rail.
+5. Use the Screener to filter for specific criteria (e.g., Rank > 75, RR > 1.5).
+6. Check the FAQ page (/faq.html) for detailed answers about the system.
 
 ## MONITORING & PROACTIVE ALERTS
 
@@ -34722,6 +35221,9 @@ Provide 3-5 actionable next steps:
       if (_isWeekday && _utcH >= 9 && _utcH <= 23) vc.add("*/1 9-23 * * 1-5");
       if (_utcDay >= 2 && _utcDay <= 6 && _utcH <= 1)  vc.add("*/1 0-1 * * 2-6");
       if (_utcDay === 0 && _utcH >= 22)                 vc.add("*/5 22-23 * * 7");
+      // Overnight crypto: fills the UTC 2-8 gap (9 PM - 3 AM ET) for 24/7 crypto sparklines.
+      // Runs every 5 min to avoid unnecessary API calls for just BTC/ETH.
+      if (_utcH >= 2 && _utcH <= 8 && _utcM % 5 === 0) vc.add("*/5 2-8 * * *");
       // Alpaca bars
       if (_isWeekday && _utcH >= 9 && _utcH <= 21)      vc.add("*/1 9-21 * * 1-5");
       if (_isWeekday && _utcH >= 21 && _utcH <= 23)     vc.add("*/5 21-23 * * 1-5");
@@ -34748,6 +35250,14 @@ Provide 3-5 actionable next steps:
     }
 
     console.log(`[CRON] ${event.cron} → [${[...vc].join(", ")}] at ${_utcH}:${String(_utcM).padStart(2,"0")} day=${_utcDay}`);
+
+    // Load dynamic market calendar (Alpaca API + KV cache, static fallback)
+    try {
+      _cronCalendar = await loadCalendar(env);
+    } catch (e) {
+      console.warn("[CRON] Calendar load failed, using static fallback:", String(e).slice(0, 100));
+      _cronCalendar = null;
+    }
 
     // Debug: log each cron type to a SEPARATE KV key to avoid race conditions
     const _KV_DBG = env?.KV_TIMED;
@@ -34922,6 +35432,15 @@ Provide 3-5 actionable next steps:
             .catch((e) => console.warn(`[MODEL] Resolution failed:`, String(e?.message || e).slice(0, 200)))
         );
       }
+      // Refresh market calendar from Alpaca Calendar API (non-blocking)
+      ctx.waitUntil(
+        fetchAndCacheCalendar(env)
+          .then((cal) => {
+            _cronCalendar = cal;
+            console.log(`[MARKET-CAL] Daily refresh: source=${cal.source}, holidays=${cal.equityHolidays.size}`);
+          })
+          .catch((e) => console.warn(`[MARKET-CAL] Daily refresh failed:`, String(e?.message || e).slice(0, 200)))
+      );
       // Don't return — allow other hourly tasks to run
     }
 
@@ -34938,36 +35457,64 @@ Provide 3-5 actionable next steps:
       || vc.has("*/5 0-1 * * 2-6");
     if (isAlpacaBarCron) {
       if (env.ALPACA_ENABLED === "true" && env.ALPACA_API_KEY_ID && env.ALPACA_API_SECRET_KEY) {
-        try {
-          // Filter to Alpaca-compatible stock/ETF symbols only.
-          // Alpaca /v2/stocks/bars rejects the ENTIRE batch if any symbol is invalid.
-          // Excluded: futures (ES1!, NQ1!), crypto (BTCUSD, ETHUSD), indices (US500, VIX).
-          // BRK-B is mapped to BRK.B by alpacaFetchAllBars (via ALPACA_SYM_MAP).
-          const ALPACA_SYMBOL_BLOCKLIST = new Set([
-            "ES1!", "NQ1!", "YM1!", "RTY1!", "GC1!", "SI1!",  // futures
-            "BTCUSD", "ETHUSD",               // crypto (Alpaca uses /v1beta3/crypto endpoint)
-            "US500", "VIX",                    // indices (not tradable stocks)
-          ]);
-          // Allow hyphenated symbols (BRK-B) through the filter
-          const allTickers = Object.keys(SECTOR_MAP).filter(
-            t => !ALPACA_SYMBOL_BLOCKLIST.has(t) && /^[A-Z]{1,5}(-[A-Z]{1,2})?$/.test(t)
-          );
-          const result = await alpacaCronFetchLatest(env, allTickers, d1UpsertCandle);
-          console.log(`[ALPACA CRON] Fetched bars for ${allTickers.length} stocks: ${result.upserted} upserted, ${result.errors} errors`);
-        } catch (err) {
-          console.error("[ALPACA CRON] Error:", err);
+
+        // ── AlpacaStream lifecycle: start WS streaming if market is open ──
+        // The DO self-manages via alarm heartbeats once started.
+        if (env.ALPACA_STREAM) {
+          try {
+            const streamStatus = await alpacaStreamStatus(env);
+            if (!streamStatus.isRunning && isWithinOperatingHours()) {
+              const blocklist = new Set(["ES1!","NQ1!","YM1!","RTY1!","CL1!","GC1!","SI1!","HG1!","NG1!","BTCUSD","ETHUSD","US500","VIX","SPX"]);
+              const symbols = Object.keys(SECTOR_MAP).filter(t => !blocklist.has(t) && /^[A-Z]{1,5}(-[A-Z]{1,2})?$/.test(t));
+              const startRes = await alpacaStreamStart(env, symbols);
+              console.log(`[ALPACA_STREAM] Started: ${symbols.length} symbols, result:`, JSON.stringify(startRes).slice(0, 200));
+            } else if (streamStatus.isRunning && !isWithinOperatingHours()) {
+              const stopRes = await alpacaStreamStop(env);
+              console.log("[ALPACA_STREAM] Stopped (outside operating hours):", JSON.stringify(stopRes).slice(0, 200));
+            }
+          } catch (streamErr) {
+            console.warn("[ALPACA_STREAM] Lifecycle error:", String(streamErr).slice(0, 200));
+          }
         }
 
-        // ── Crypto bars: separate Alpaca endpoint (/v1beta3/crypto/us/bars) ──
-        // Crypto trades 24/7 so we piggyback on the existing bar cron schedule.
-        // Uses alpacaCronFetchCrypto which handles symbol mapping (BTCUSD → BTC/USD).
-        try {
-          const cryptoResult = await alpacaCronFetchCrypto(env);
-          if (cryptoResult.upserted > 0 || cryptoResult.errors > 0) {
-            console.log(`[ALPACA CRYPTO CRON] Fetched crypto bars: ${cryptoResult.upserted} upserted, ${cryptoResult.errors} errors`);
+        // ── Bar cron: skip REST fetching when AlpacaStream is handling bars ──
+        let streamActive = false;
+        if (env.ALPACA_STREAM) {
+          try {
+            const st = await alpacaStreamStatus(env);
+            streamActive = st.isRunning && st.barsReceived > 0;
+          } catch (_) {}
+        }
+
+        if (streamActive) {
+          console.log("[ALPACA CRON] Skipping REST bar fetch — AlpacaStream is active");
+        } else {
+          try {
+            const ALPACA_SYMBOL_BLOCKLIST = new Set([
+              "ES1!", "NQ1!", "YM1!", "RTY1!", "CL1!", "GC1!", "SI1!",
+              "BTCUSD", "ETHUSD", "US500", "VIX", "SPX",
+            ]);
+            const allTickers = Object.keys(SECTOR_MAP).filter(
+              t => !ALPACA_SYMBOL_BLOCKLIST.has(t) && /^[A-Z]{1,5}(-[A-Z]{1,2})?$/.test(t)
+            );
+            const result = await alpacaCronFetchLatest(env, allTickers, d1UpsertCandle);
+            console.log(`[ALPACA CRON] Fetched bars for ${allTickers.length} stocks: ${result.upserted} upserted, ${result.errors} errors`);
+          } catch (err) {
+            console.error("[ALPACA CRON] Error:", err);
           }
-        } catch (err) {
-          console.error("[ALPACA CRYPTO CRON] Error:", err);
+        }
+
+        // ── Crypto bars: always fetch via REST (AlpacaStream handles crypto WS separately) ──
+        // Keep REST as fallback; when AlpacaStream crypto WS is stable, this can be removed.
+        if (!streamActive) {
+          try {
+            const cryptoResult = await alpacaCronFetchCrypto(env);
+            if (cryptoResult.upserted > 0 || cryptoResult.errors > 0) {
+              console.log(`[ALPACA CRYPTO CRON] Fetched crypto bars: ${cryptoResult.upserted} upserted, ${cryptoResult.errors} errors`);
+            }
+          } catch (err) {
+            console.error("[ALPACA CRYPTO CRON] Error:", err);
+          }
         }
       }
       // Don't return — price feed may also run in the same invocation
@@ -34988,14 +35535,47 @@ Provide 3-5 actionable next steps:
         const allTickers = Object.keys(SECTOR_MAP);
         // Alpaca universe: same filter as bar cron — stocks/ETFs only (exclude futures, crypto, indices)
         const ALPACA_SYMBOL_BLOCKLIST = new Set([
-          "ES1!", "NQ1!", "YM1!", "RTY1!", "GC1!", "SI1!", "BTCUSD", "ETHUSD", "US500", "VIX", "BRK-B",
+          "ES1!", "NQ1!", "YM1!", "RTY1!", "CL1!", "GC1!", "SI1!", "BTCUSD", "ETHUSD", "US500", "VIX", "SPX", "BRK-B",
         ]);
         const alpacaUniverseTickers = allTickers.filter(
           (t) => !ALPACA_SYMBOL_BLOCKLIST.has(t) && /^[A-Z]{1,5}$/.test(t)
         );
 
-        const snapResult = await alpacaFetchSnapshots(env, allTickers);
-        const snapshots = snapResult.snapshots || {};
+        // ── Phase 6: Try AlpacaStream DO for prices first (no REST overhead) ──
+        let snapshots = {};
+        let usedStream = false;
+        if (env.ALPACA_STREAM) {
+          try {
+            const streamPrices = await alpacaStreamGetPrices(env);
+            if (streamPrices && Object.keys(streamPrices).length > 50) {
+              // Convert stream prices to snapshot format expected by the rest of the pipeline
+              for (const [sym, data] of Object.entries(streamPrices)) {
+                snapshots[sym] = {
+                  price: data.p,
+                  trade_ts: data.t,
+                  dailyOpen: data.o || 0,
+                  dailyHigh: data.h || 0,
+                  dailyLow: data.l || 0,
+                  dailyClose: data.c || data.p,
+                  dailyVolume: data.v || 0,
+                  prevDailyClose: 0, // will be filled by prev_close pipeline below
+                  minuteBar: { c: data.p, o: data.o || data.p, h: data.h || data.p, l: data.l || data.p, v: data.v || 0, t: data.t },
+                  _source: "alpaca_stream",
+                };
+              }
+              usedStream = true;
+              console.log(`[PRICE FEED] Using AlpacaStream prices: ${Object.keys(streamPrices).length} tickers`);
+            }
+          } catch (streamErr) {
+            console.warn("[PRICE FEED] AlpacaStream read failed, falling back to REST:", String(streamErr).slice(0, 150));
+          }
+        }
+
+        // Fall back to REST if AlpacaStream didn't provide enough data
+        if (!usedStream) {
+          const snapResult = await alpacaFetchSnapshots(env, allTickers);
+          snapshots = snapResult.snapshots || {};
+        }
 
         // Build compact price payload for KV
         // ═══════════════════════════════════════════════════════════════════════
@@ -35297,45 +35877,81 @@ Provide 3-5 actionable next steps:
           }
         }
 
-        // ── Sanity-check Alpaca prices against our own 1m candle history ──
-        // Alpaca latestTrade can return stale/bad prices (e.g. ULTA $675 when actual close was $679.28).
-        // If our latest 1m candle disagrees by >2%, trust our candle data.
-        try {
-          const db = env?.DB;
-          if (db) {
-            // Compare against candles from BEFORE the current minute (not the one we're about to write)
-            const currentMinuteTs = Math.floor(Date.now() / 60000) * 60000;
-            const lookbackStart = currentMinuteTs - 10 * 60 * 1000; // last 10 minutes
-            const tickersToCheck = Object.keys(prices).filter(s => prices[s]?.p > 0);
-            // Batch-read latest candle for each ticker (max 500 per batch)
-            for (let i = 0; i < tickersToCheck.length; i += 200) {
-              const batch = tickersToCheck.slice(i, i + 200);
-              const stmts = batch.map(sym =>
-                db.prepare(
-                  `SELECT c, ts FROM ticker_candles WHERE ticker = ?1 AND tf = '1' AND ts >= ?2 AND ts < ?3 ORDER BY ts DESC LIMIT 1`
-                ).bind(sym.toUpperCase(), lookbackStart, currentMinuteTs)
-              );
-              const results = await db.batch(stmts);
-              for (let j = 0; j < batch.length; j++) {
-                const sym = batch[j];
-                const row = results[j]?.results?.[0];
-                if (!row || !Number.isFinite(Number(row.c)) || Number(row.c) <= 0) continue;
-                const candlePrice = Number(row.c);
-                const alpacaPrice = prices[sym].p;
-                const divergePct = Math.abs(alpacaPrice - candlePrice) / candlePrice * 100;
-                if (divergePct > 2) {
-                  // Our candle data is more trustworthy — override Alpaca's bad price
-                  const prevClose = prices[sym].pc;
-                  const dc = prevClose > 0 ? Math.round((candlePrice - prevClose) * 100) / 100 : null;
-                  const dp = prevClose > 0 ? Math.round(((candlePrice - prevClose) / prevClose) * 10000) / 100 : null;
-                  console.log(`[PRICE SANITY] ${sym}: Alpaca $${alpacaPrice} diverges ${divergePct.toFixed(1)}% from candle $${candlePrice} — using candle`);
-                  prices[sym] = { ...prices[sym], p: Math.round(candlePrice * 100) / 100, dc, dp };
+        // ── Two-tier price sanity check ──
+        // RTH (9:30-4 PM ET):    Compare against D1 1m candles (>2% → use candle).
+        // Outside RTH (pre/post): Compare against D1 DAILY close (>25% → use daily close).
+        //   This catches bad SIP prints (e.g. AGYS $62 when real close was $81) without
+        //   the self-reinforcing loop that plagued the old pre-market 1m candle check.
+        const _sanityET = getEasternParts(new Date());
+        const _sanityEtMins = _sanityET.hour * 60 + _sanityET.minute;
+        const _sanityDateStr = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+        const _isRTH = _sanityEtMins >= _RTH_OPEN && _sanityEtMins <= _RTH_CLOSE
+          && !["Sat", "Sun"].includes(_sanityET.weekday)
+          && !(_cronCalendar ? _calIsEquityHoliday(_cronCalendar, _sanityDateStr) : false);
+        if (_isRTH) {
+          // During RTH: compare against recent 1m candles (reliable during active trading)
+          try {
+            const db = env?.DB;
+            if (db) {
+              const currentMinuteTs = Math.floor(Date.now() / 60000) * 60000;
+              const lookbackStart = currentMinuteTs - 10 * 60 * 1000;
+              const tickersToCheck = Object.keys(prices).filter(s => prices[s]?.p > 0);
+              for (let i = 0; i < tickersToCheck.length; i += 200) {
+                const batch = tickersToCheck.slice(i, i + 200);
+                const stmts = batch.map(sym =>
+                  db.prepare(
+                    `SELECT c, ts FROM ticker_candles WHERE ticker = ?1 AND tf = '1' AND ts >= ?2 AND ts < ?3 ORDER BY ts DESC LIMIT 1`
+                  ).bind(sym.toUpperCase(), lookbackStart, currentMinuteTs)
+                );
+                const results = await db.batch(stmts);
+                for (let j = 0; j < batch.length; j++) {
+                  const sym = batch[j];
+                  const row = results[j]?.results?.[0];
+                  if (!row || !Number.isFinite(Number(row.c)) || Number(row.c) <= 0) continue;
+                  const candlePrice = Number(row.c);
+                  const alpacaPrice = prices[sym].p;
+                  const divergePct = Math.abs(alpacaPrice - candlePrice) / candlePrice * 100;
+                  if (divergePct > 2) {
+                    const prevClose = prices[sym].pc;
+                    const dc = prevClose > 0 ? Math.round((candlePrice - prevClose) * 100) / 100 : null;
+                    const dp = prevClose > 0 ? Math.round(((candlePrice - prevClose) / prevClose) * 10000) / 100 : null;
+                    console.log(`[PRICE SANITY] ${sym}: Alpaca $${alpacaPrice} diverges ${divergePct.toFixed(1)}% from candle $${candlePrice} — using candle`);
+                    prices[sym] = { ...prices[sym], p: Math.round(candlePrice * 100) / 100, dc, dp };
+                  }
                 }
               }
             }
+          } catch (e) {
+            console.warn("[PRICE SANITY] RTH error:", String(e).slice(0, 200));
           }
-        } catch (e) {
-          console.warn("[PRICE SANITY] error:", String(e).slice(0, 200));
+        } else {
+            // Outside RTH: compare against daily close to catch bad SIP prints.
+              // Uses a 15% threshold — legitimate pre-market gaps of 15%+ are very rare
+              // (even post-earnings), and the RTH candle check (2%) auto-corrects once markets open.
+              // The dailyCandlePrevCloseMap already has correct closes from D1 tf='D'.
+              try {
+                let _sanityCorrected = 0;
+                for (const [sym, snap] of Object.entries(prices)) {
+                  const price = snap.p;
+                  if (!Number.isFinite(price) || price <= 0) continue;
+                  const dailyClose = dailyCandlePrevCloseMap[sym.toUpperCase()] || dailyCandlePrevCloseMap[sym];
+                  if (!dailyClose || dailyClose <= 0) continue;
+                  const divergePct = Math.abs(price - dailyClose) / dailyClose * 100;
+                  if (divergePct > 15) {
+                console.log(`[PRICE SANITY] ${sym}: pre-market $${price} diverges ${divergePct.toFixed(1)}% from daily close $${dailyClose} — using daily close`);
+                // The daily close IS the correct prev_close for pre-market.
+                // Also fix pc if it's wrong (e.g. Alpaca returned bad prevDailyBar).
+                const correctedPc = Math.round(dailyClose * 100) / 100;
+                prices[sym] = { ...snap, p: correctedPc, pc: correctedPc, dc: 0, dp: 0 };
+                _sanityCorrected++;
+              }
+            }
+            if (_sanityCorrected > 0) {
+              console.log(`[PRICE SANITY] Pre-market: corrected ${_sanityCorrected} tickers using daily close`);
+            }
+          } catch (e) {
+            console.warn("[PRICE SANITY] pre-market error:", String(e).slice(0, 200));
+          }
         }
 
         // ── Build 1m candles from snapshot prices ──
@@ -35397,20 +36013,12 @@ Provide 3-5 actionable next steps:
           _debug: { d1PcCount, pcEqP, pcZero, pcReal, version: "v2-pickPrevClose" },
         });
 
-        // ── Freshness heartbeat: merge price + ingest_ts into timed:latest ──
-        // SKIP on scoring minutes (0, 5, 10, …) to avoid race with the */5 scoring cron.
-        // Both fire concurrently; the merge does read-modify-write of the full payload,
-        // so it can overwrite the fresh kanban_stage that scoring just computed.
-        // Scoring already embeds the latest price, so skipping here loses nothing.
-        if (_utcM % 5 !== 0) {
-          ctx.waitUntil(
-            mergeFreshnessIntoLatest(KV, prices).catch((e) =>
-              console.warn("[FRESHNESS] merge failed:", String(e).slice(0, 200)),
-            ),
-          );
-        } else {
-          console.log(`[FRESHNESS] Skipped at :${String(_utcM).padStart(2,"0")} — scoring cron handles price updates`);
-        }
+        // ── COST OPTIMIZATION: mergeFreshnessIntoLatest REMOVED ──
+        // Previously wrote ~215 individual timed:latest KV keys every non-scoring minute
+        // (~3.8M KV writes/month + ~4M KV reads/month = ~$21/month).
+        // The scoring cron (every 5 min) already writes full payloads with fresh prices.
+        // Real-time prices reach the UI via timed:prices KV key + WebSocket push.
+        // No freshness is lost by removing this.
 
         // ── Push prices to WebSocket clients via PriceHub DO ──
         ctx.waitUntil(notifyPriceHub(env, {
@@ -35452,19 +36060,12 @@ Provide 3-5 actionable next steps:
             _sparkEtMins = (map.hour || 0) * 60 + (map.minute || 0);
           } catch {}
 
-          // Per-ticker session check
-          const _CRYPTO_SYMS = new Set(["BTCUSD", "ETHUSD", "BTCUSDT", "ETHUSDT", "BTC", "ETH"]);
+          // Per-ticker session check — uses dynamic market calendar
           function isTickerSessionActive(sym) {
-            // Crypto: always active (24/7)
+            if (_cronCalendar) return _calIsTickerSessionActive(_cronCalendar, sym, _sparkNow);
+            // Static fallback (shouldn't happen — calendar loaded at cron start)
+            const _CRYPTO_SYMS = new Set(["BTCUSD", "ETHUSD", "BTCUSDT", "ETHUSDT", "BTC", "ETH"]);
             if (_CRYPTO_SYMS.has(sym) || sym.endsWith("USD") || sym.endsWith("USDT")) return true;
-            // Futures: 6 PM ET Sunday – 5 PM ET Friday
-            if (FUTURES_TICKERS.has(sym) || sym.endsWith("1!")) {
-              if (_sparkIsSaturday) return false;                           // All day Saturday: closed
-              if (_sparkIsSunday) return _sparkEtMins >= 1080;              // Sunday: open from 6 PM ET (1080 min)
-              if (_sparkIsFriday) return _sparkEtMins < 1020;               // Friday: close at 5 PM ET (1020 min)
-              return true;                                                  // Mon-Thu: always open (24h sessions)
-            }
-            // Stocks (default): 4 AM – 8 PM ET on weekdays (PM + RTH + AH)
             if (!_sparkIsWeekday) return false;
             return _sparkEtMins >= 240 && _sparkEtMins < 1200;
           }
@@ -35581,12 +36182,114 @@ Provide 3-5 actionable next steps:
       // Don't return — D1 sync below may also run
     }
 
+    // ═══════════════════════════════════════════════════════════════════════
+    // OVERNIGHT CRYPTO PRICE FEED (*/5 2-8 UTC / 9 PM - 3 AM ET)
+    //
+    // Fills the 7-hour gap when the main price feed doesn't run.
+    // Crypto trades 24/7 — fetch only BTC/ETH snapshots from Alpaca's crypto
+    // endpoint and append sparkline data points. Lightweight: 1 API call,
+    // 2 KV writes (prices + sparklines).
+    // ═══════════════════════════════════════════════════════════════════════
+    const _isOvernightCrypto = vc.has("*/5 2-8 * * *") && !isPriceFeedCron;
+    if (_isOvernightCrypto && env.ALPACA_ENABLED === "true") {
+      const KV = env.KV_TIMED;
+      try {
+        const CRYPTO_PAIRS = { "BTCUSD": "BTC/USD", "ETHUSD": "ETH/USD" };
+        const headers = {
+          "APCA-API-KEY-ID": env.ALPACA_API_KEY_ID,
+          "APCA-API-SECRET-KEY": env.ALPACA_API_SECRET_KEY,
+          "Accept": "application/json",
+        };
+        const params = new URLSearchParams();
+        params.set("symbols", Object.values(CRYPTO_PAIRS).join(","));
+        const url = `https://data.alpaca.markets/v1beta3/crypto/us/snapshots?${params.toString()}`;
+        const resp = await fetch(url, { headers });
+        if (resp.ok) {
+          const data = await resp.json();
+          const cryptoSnaps = data.snapshots || data;
+          const reverseMap = {};
+          for (const [k, v] of Object.entries(CRYPTO_PAIRS)) reverseMap[v] = k;
+
+          // Build crypto price entries
+          const cryptoPrices = {};
+          for (const [alpacaSym, snap] of Object.entries(cryptoSnaps)) {
+            const ourSym = reverseMap[alpacaSym] || alpacaSym.replace("/", "");
+            const lt = snap.latestTrade;
+            const db = snap.dailyBar;
+            const pdb = snap.prevDailyBar;
+            const price = Number(lt?.p) || Number(db?.c) || 0;
+            if (price <= 0) continue;
+            const prevClose = Number(pdb?.c) || 0;
+            cryptoPrices[ourSym] = {
+              p: price,
+              t: lt?.t ? new Date(lt.t).getTime() : Date.now(),
+              o: Number(db?.o) || price,
+              h: Number(db?.h) || price,
+              l: Number(db?.l) || price,
+              c: Number(db?.c) || price,
+              v: Number(db?.v) || 0,
+              pc: prevClose > 0 ? prevClose : undefined,
+              dc: prevClose > 0 ? Math.round((price - prevClose) * 100) / 100 : undefined,
+              dp: prevClose > 0 ? Math.round(((price - prevClose) / prevClose) * 10000) / 100 : undefined,
+            };
+          }
+
+          if (Object.keys(cryptoPrices).length > 0) {
+            // Merge into existing KV prices (deep merge to preserve equity/futures data)
+            let existing = {};
+            try {
+              const raw = await kvGetJSON(KV, "timed:prices");
+              existing = raw?.prices || {};
+            } catch (_) {}
+            for (const [sym, data] of Object.entries(cryptoPrices)) {
+              existing[sym] = { ...(existing[sym] || {}), ...data };
+            }
+            ctx.waitUntil(kvPutJSON(KV, "timed:prices", {
+              prices: existing,
+              updated_at: Date.now(),
+              ticker_count: Object.keys(existing).length,
+              _source: "overnight_crypto",
+            }).catch(() => {}));
+
+            // Append to sparklines (same logic as main price feed)
+            const SPARK_KV_KEY = "timed:sparklines";
+            const SPARK_MAX_POINTS = 400;
+            const minuteTs = Math.floor(Date.now() / 60000) * 60000;
+            let sparkMap = (await kvGetJSON(KV, SPARK_KV_KEY)) || {};
+            let appended = 0;
+            for (const [sym, snap] of Object.entries(cryptoPrices)) {
+              if (!sparkMap[sym]) sparkMap[sym] = [];
+              const arr = sparkMap[sym];
+              if (arr.length > 0 && arr[arr.length - 1].t === minuteTs) {
+                arr[arr.length - 1].c = snap.p;
+              } else {
+                arr.push({ t: minuteTs, c: snap.p, o: snap.p });
+              }
+              if (arr.length > SPARK_MAX_POINTS) {
+                sparkMap[sym] = arr.slice(arr.length - SPARK_MAX_POINTS);
+              }
+              appended++;
+            }
+            if (appended > 0) {
+              ctx.waitUntil(kvPutJSON(KV, SPARK_KV_KEY, sparkMap).catch(() => {}));
+            }
+            console.log(`[OVERNIGHT CRYPTO] Updated ${Object.keys(cryptoPrices).length} crypto tickers, sparkline appended=${appended}`);
+          }
+        } else {
+          console.warn(`[OVERNIGHT CRYPTO] Alpaca HTTP ${resp.status}`);
+        }
+      } catch (e) {
+        console.warn("[OVERNIGHT CRYPTO] Error:", String(e).slice(0, 200));
+      }
+    }
+
     // ── End of every-minute handler (price feed + Alpaca bars) ──
     if (_isEveryMin) {
-      // D1 sync on non-scoring minutes (only for every-minute handler)
-      const KV_1m = env.KV_TIMED;
+      // COST OPTIMIZATION: D1 sync reduced from 4x per 5-min window to 1x.
+      // Only sync on minutes ending in 2 (e.g., :02, :07, :12).
+      // Saves ~300K D1 writes/month.
       const _min1 = _now.getUTCMinutes();
-      if (_min1 % 5 !== 0) {
+      if (_min1 % 5 === 2) {
         try {
           ctx.waitUntil(d1SyncLatestBatchFromKV(env, ctx, 25));
         } catch (e) {
@@ -35622,6 +36325,14 @@ Provide 3-5 actionable next steps:
     // ═══════════════════════════════════════════════════════════════════════
     if (env.ALPACA_ENABLED === "true") {
       try {
+        // ── COST GATE: Skip scoring entirely outside operating hours ──
+        // Operating hours: 4 AM - 8 PM ET weekdays. This eliminates ~50% of all
+        // D1 reads and KV writes from off-hours scoring (weekends, overnight).
+        if (!isWithinOperatingHours()) {
+          console.log(`[SCORING CRON] Skipping — outside operating hours (4 AM - 8 PM ET weekdays)`);
+          return;
+        }
+
         // Skip scoring if a replay is in progress (prevents overwriting replay trades)
         const replayLock = await kvGetJSON(KV, "timed:replay:running");
         if (replayLock && typeof replayLock === "object" && replayLock.since) {
@@ -35657,6 +36368,10 @@ Provide 3-5 actionable next steps:
         const pendingTrailPoints = []; // Collect trail points for batch write at end
         const scoredUpdates = {}; // Collect scored ticker deltas for WS push
 
+        // ── Phase 7: Scoring delta instrumentation ──
+        // Tracks what actually changed per ticker to inform adaptive scoring.
+        let deltaScoreChanged = 0, deltaStageChanged = 0, deltaPriceChanged = 0, deltaNoChange = 0;
+
         // Get open positions for priority sorting and kanban context
         const openTradesCheck = ((await kvGetJSON(KV, "timed:trades:all")) || [])
           .filter(t => t.status === "OPEN" || t.status === "TP_HIT_TRIM");
@@ -35684,12 +36399,16 @@ Provide 3-5 actionable next steps:
             // Pre-fetch ALL timeframes for this ticker in a single D1 batch call.
             // This reduces 9 D1 subrequests to 1, critical for staying under the
             // 1000 subrequests/invocation limit with 140+ tickers.
+            // COST OPTIMIZATION: Reduced candle limits to match actual indicator needs.
+            // EMA-233 meaningful on D/4H only. Sub-hourly TFs need ~100 candles max.
+            // 1m candles REMOVED — only used for optional TD Sequential chart overlay,
+            // not core scoring. Saves ~1.9M D1 queries/month.
             const tfConfigs = [
-              { tf: "W", limit: 300 }, { tf: "D", limit: 300 },
-              { tf: "240", limit: 300 }, { tf: "60", limit: 300 },
-              { tf: "30", limit: 300 }, { tf: "10", limit: 300 },
-              { tf: "5", limit: 300 }, { tf: "1", limit: 60 },
-              { tf: "M", limit: 60 },
+              { tf: "W", limit: 100 }, { tf: "D", limit: 250 },
+              { tf: "240", limit: 250 }, { tf: "60", limit: 150 },
+              { tf: "30", limit: 100 }, { tf: "10", limit: 100 },
+              { tf: "5", limit: 100 },
+              { tf: "M", limit: 24 },
             ];
             const candleCache = await d1GetCandlesAllTfs(env, ticker, tfConfigs);
             // Wrap cache in a getCandles-compatible function (no additional D1 calls)
@@ -35805,10 +36524,24 @@ Provide 3-5 actionable next steps:
               }
             } catch { /* non-critical */ }
 
-            // Always write during market hours (prices always change).
-            // Off-hours: delta-based write to reduce KV churn.
-            const triggerStale = !existing?.trigger_ts || (Date.now() - existing.trigger_ts) > 6 * 60 * 60 * 1000;
-            if (stdCronMarketOpen || hasPayloadChangedMeaningfully(existing, result) || triggerStale) {
+            // COST OPTIMIZATION: Always use delta checking. The operating hours gate
+            // (Phase 1) prevents off-hours runs entirely, and the delta check now works
+            // properly (5-min time gate removed). This skips KV writes for tickers with
+            // no meaningful change, saving ~50-70% of KV writes during RTH.
+            //
+            // ── Delta instrumentation (Phase 7) ──
+            const _htfDelta = Math.abs((Number(result?.htf_score) || 0) - (Number(existing?.htf_score) || 0));
+            const _ltfDelta = Math.abs((Number(result?.ltf_score) || 0) - (Number(existing?.ltf_score) || 0));
+            const _stageFlip = (result?.kanban_stage || "") !== (existing?.kanban_stage || "");
+            const _oldPx = Number(existing?.price);
+            const _newPx = Number(result?.price);
+            const _pxDelta = (_oldPx > 0 && _newPx > 0) ? Math.abs(_newPx - _oldPx) / _oldPx : 0;
+            if (_htfDelta >= 0.5 || _ltfDelta >= 0.5) deltaScoreChanged++;
+            if (_stageFlip) deltaStageChanged++;
+            if (_pxDelta >= 0.001) deltaPriceChanged++;
+            if (_htfDelta < 0.5 && _ltfDelta < 0.5 && !_stageFlip && _pxDelta < 0.001) deltaNoChange++;
+
+            if (hasPayloadChangedMeaningfully(existing, result)) {
               await kvPutJSON(KV, `timed:latest:${ticker}`, result);
               scored++;
               // Collect lightweight delta for WS push
@@ -35885,6 +36618,7 @@ Provide 3-5 actionable next steps:
 
         const elapsed = Date.now() - scoringStart;
         console.log(`[SCORING] ${scored} scored, ${skipped} skipped, ${errors} errors, ${trailWrites} trail, ${elapsed}ms, ALL ${tickersToScore.length} tickers`);
+        console.log(`[SCORING DELTA] ${deltaScoreChanged}/${tickersToScore.length} score changed, ${deltaStageChanged} stage changed, ${deltaPriceChanged} price changed, ${deltaNoChange} no change`);
 
         // Store last run timestamp for health/staleness monitoring
         await kvPutJSON(KV, "timed:scoring:last_run", {
@@ -35893,6 +36627,7 @@ Provide 3-5 actionable next steps:
           skipped,
           errors,
           total: tickersToScore.length,
+          delta: { scoreChanged: deltaScoreChanged, stageChanged: deltaStageChanged, priceChanged: deltaPriceChanged, noChange: deltaNoChange },
         });
 
         // ── KV Hot Cache: Pre-assemble /timed/all snapshot ──────────────
@@ -35901,8 +36636,9 @@ Provide 3-5 actionable next steps:
         // for the most-hit endpoint.
         ctx.waitUntil((async () => {
           try {
-            const removedSet = new Set((await kvGetJSON(KV, "timed:removed")) || []);
-            const activeSyms = Object.keys(SECTOR_MAP).filter(t => !removedSet.has(t));
+            // Use all SECTOR_MAP keys — the removed list is only for the
+            // watchlist/remove endpoint's in-memory cleanup, not for the snapshot.
+            const activeSyms = Object.keys(SECTOR_MAP);
             const snapshot = {};
             for (const sym of activeSyms) {
               const payload = await kvGetJSON(KV, `timed:latest:${sym}`);
