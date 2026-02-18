@@ -10968,9 +10968,27 @@ async function appendCaptureTrail(KV, ticker, point, maxN = 48) {
   await kvPutJSON(KV, key, keep);
 }
 
+/** Per-ticker KV key prefixes to clean when a ticker is removed. */
+const TICKER_KV_PREFIXES = [
+  "timed:latest:", "timed:trail:", "timed:sector_map:",
+  "timed:momentum:", "timed:momentum:marketcap:", "timed:momentum:adr:",
+  "timed:momentum:volume:", "timed:momentum:changes:", "timed:momentum:history:",
+  "timed:context:", "timed:heartbeat:",
+  "timed:prevstate:", "timed:prevcorridor:", "timed:prevsqueeze:",
+  "timed:prevsqueezerel:", "timed:prevmomentumelite:",
+  "timed:prev_close:", "timed:prev_flip_watch:",
+  "timed:fundamentals:", "timed:pe_history:",
+  "timed:capture:latest:", "timed:capture:trail:", "timed:capture:raw:",
+  "timed:ingest:raw:", "timed:ingest:missing:",
+];
+
 /** Data lifecycle: aggregate timed_trail older than 48h into trail_5m_facts, then purge old raw data. */
 const DATA_LIFECYCLE_48H_MS = 48 * 60 * 60 * 1000;
 const DATA_LIFECYCLE_7D_MS = 7 * 24 * 60 * 60 * 1000;
+const DATA_LIFECYCLE_30D_MS = 30 * 24 * 60 * 60 * 1000;
+const DATA_LIFECYCLE_60D_MS = 60 * 24 * 60 * 60 * 1000;
+const DATA_LIFECYCLE_90D_MS = 90 * 24 * 60 * 60 * 1000;
+const DATA_LIFECYCLE_180D_MS = 180 * 24 * 60 * 60 * 1000;
 const PURGE_BATCH = 5000;
 
 /** Tiered candle retention: shorter TFs expire sooner, D/W/M kept forever.
@@ -11222,7 +11240,39 @@ async function runDataLifecycle(env, opts = {}) {
       console.log(`[DATA LIFECYCLE] Total candles purged: ${totalCandlesPurged}`);
     }
 
-    // 6. Purge ALL D1 data for tickers on the removal blocklist
+    // 6. Retention purges for secondary D1 tables
+    const retentionPurges = [
+      { table: "alerts", col: "ts", cutoff: now - DATA_LIFECYCLE_90D_MS, where: null },
+      { table: "model_predictions", col: "ts", cutoff: now - DATA_LIFECYCLE_180D_MS, where: "AND resolved = 1" },
+      { table: "model_outcomes", col: "resolution_ts", cutoff: now - DATA_LIFECYCLE_180D_MS, where: null },
+      { table: "ml_v1_queue", col: "created_at", cutoff: now - DATA_LIFECYCLE_30D_MS, where: null },
+      { table: "user_notifications", col: "created_at", cutoff: now - DATA_LIFECYCLE_60D_MS, where: "AND read_at IS NOT NULL" },
+      { table: "trail_5m_facts", col: "bucket_ts", cutoff: now - DATA_LIFECYCLE_180D_MS, where: null },
+    ];
+    for (const { table, col, cutoff, where } of retentionPurges) {
+      try {
+        let purged = 0;
+        const whereClause = where ? ` ${where}` : "";
+        for (;;) {
+          const del = await db
+            .prepare(`DELETE FROM ${table} WHERE rowid IN (SELECT rowid FROM ${table} WHERE ${col} < ?1${whereClause} LIMIT ?2)`)
+            .bind(cutoff, PURGE_BATCH)
+            .run();
+          const n = del?.meta?.changes ?? 0;
+          purged += n;
+          if (n < PURGE_BATCH) break;
+        }
+        if (purged > 0) {
+          console.log(`[DATA LIFECYCLE] Purged ${table}: ${purged} rows`);
+        }
+      } catch (e) {
+        if (!String(e?.message || "").includes("no such table")) {
+          console.error(`[DATA LIFECYCLE] ${table} purge error:`, e);
+        }
+      }
+    }
+
+    // 7. Purge ALL D1 + KV data for tickers on the removal blocklist
     try {
       const KV = env?.KV_TIMED || null;
       const removedList = KV ? await KV.get("timed:removed", "json") : null;
@@ -11242,9 +11292,15 @@ async function runDataLifecycle(env, opts = {}) {
               }
             } catch (_) { /* table may not exist */ }
           }
+          // Clean orphaned per-ticker KV keys
+          if (KV) {
+            for (const prefix of TICKER_KV_PREFIXES) {
+              try { await KV.delete(`${prefix}${ticker}`); } catch (_) {}
+            }
+          }
         }
         if (totalRemoved > 0) {
-          console.log(`[DATA LIFECYCLE] Purged ${totalRemoved} rows for ${removedList.length} removed tickers`);
+          console.log(`[DATA LIFECYCLE] Purged ${totalRemoved} D1 rows for ${removedList.length} removed tickers`);
         }
       }
     } catch (removedErr) {
@@ -22334,15 +22390,13 @@ export default {
             delete SECTOR_MAP[ticker];
           }
 
-          // 4) Clean up ALL KV data for removed tickers (preserves D1 candle data)
+          // 4) Clean up ALL per-ticker KV data for removed tickers
           const cleanKV = body.cleanKV !== false; // default true
           if (cleanKV) {
             for (const ticker of removed) {
-              try {
-                await KV.delete(`timed:latest:${ticker}`);
-                await KV.delete(`timed:trail:${ticker}`);
-                await KV.delete(`timed:sector_map:${ticker}`); // Prevent re-add via loadSectorMappingsFromKV
-              } catch (_) { /* best-effort */ }
+              for (const prefix of TICKER_KV_PREFIXES) {
+                try { await KV.delete(`${prefix}${ticker}`); } catch (_) {}
+              }
             }
           }
 

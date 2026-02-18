@@ -4,7 +4,7 @@
 - [x] Remove all sparkline backend code (routes, handlers, cron sections) from worker/index.js
 - [x] Remove all sparkline frontend code (helpers, components, state, props) from index-react.html
 - [x] Clean up sparkline references in shared-right-rail.js, brand-kit.html, faq.html, etc.
-- [ ] Delete `timed:sparklines` KV key post-deployment: `wrangler kv key delete --namespace-id=e48593af3ef74bf986b2592909ed40cb 'timed:sparklines'`
+- [x] Delete `timed:sparklines` KV key from production
 
 ## Phase 2: Stop 1m Candle Writes — DONE (2026-02-17)
 - [x] Delete the 1m candle D1 write block from the price feed cron (worker/index.js)
@@ -27,10 +27,20 @@
 - [x] Crypto bar fetching moved before operating-hours gate for true 24/7 coverage
 - [x] Tiered TF refresh: 5m/10m/30m/60m/240m every tick, D/W/M hourly only
 
-## Phase 4: Retention Audit — PENDING
-- [ ] Review and adjust retention for model training (6-12 months)
-- [ ] Purge stale D1 tables
-- [ ] Clean up unused KV keys
+## Phase 4: Retention Audit — DONE (2026-02-18)
+- [x] Tiered candle retention: 5m/10m/30m=90d, 1h=180d, 4h=365d, D/W/M=forever
+- [x] ingest_receipts: 7-day purge
+- [x] timed_trail: 48h aggregate-then-purge
+- [x] alerts: 90-day purge
+- [x] model_predictions (resolved): 180-day purge
+- [x] model_outcomes: 180-day purge
+- [x] ml_v1_queue: 30-day purge
+- [x] user_notifications (read): 60-day purge
+- [x] trail_5m_facts: 180-day purge (rolls up into permanent trail_daily_summary)
+- [x] Removed-ticker D1 purge across all tables (driven by timed:removed blocklist)
+- [x] Expanded per-ticker KV cleanup: 25 key prefixes cleaned on removal + lifecycle cron
+- [x] Deleted timed:sparklines KV key
+- [x] Removed 14 tickers from SECTOR_MAP, restored GRNY
 
 ## Phase 5: User-Added Tickers — PENDING
 - [ ] `user_tickers` D1 table
