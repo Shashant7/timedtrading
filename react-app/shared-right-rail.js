@@ -1348,7 +1348,207 @@
                   {railTab === "ANALYSIS" ? (
                     <>
                       {/* ═══════════════════════════════════════════════════════════ */}
-                      {/* MODEL INTELLIGENCE — Prominent, data-driven signal card    */}
+                      {/* 1. CONTEXT                                                  */}
+                      {/* ═══════════════════════════════════════════════════════════ */}
+                      {(() => {
+                        const baseCtx =
+                          ticker?.context && typeof ticker.context === "object"
+                            ? ticker.context
+                            : null;
+                        const mergedCtx =
+                          latestTicker?.context &&
+                          typeof latestTicker.context === "object"
+                            ? latestTicker.context
+                            : null;
+                        const ctx = mergedCtx || baseCtx;
+                        if (!ctx) return null;
+                        const name = ctx.name || ctx.companyName || ctx.company_name;
+                        const description =
+                          ctx.description ||
+                          ctx.businessSummary ||
+                          ctx.business_summary;
+                        const sector = ctx.sector;
+                        const industry = ctx.industry;
+                        const country = ctx.country;
+                        const marketCap =
+                          Number(ctx.market_cap || ctx.marketCap || 0) || 0;
+                        const lastEarnTs = Number(ctx.last_earnings_ts || ctx.lastEarningsTs || 0) || 0;
+                        const events = ctx.events && typeof ctx.events === "object" ? ctx.events : null;
+
+                        // Merge model signal-level sector info
+                        const msSectorData = modelSignal?.sector;
+                        const enrichedSector = sector || msSectorData?.sector || null;
+                        const enrichedIndustry = industry || null;
+
+                        const fmtDate = (ts) => {
+                          if (!ts) return "—";
+                          const d = typeof ts === "number" && ts > 1e12
+                            ? new Date(ts) : typeof ts === "number" ? new Date(ts * 1000) : new Date(ts);
+                          if (isNaN(d)) return "—";
+                          return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+                        };
+                        const fmtMCap = (val) => {
+                          if (val >= 1e12) return `$${(val / 1e12).toFixed(2)}T`;
+                          if (val >= 1e9) return `$${(val / 1e9).toFixed(2)}B`;
+                          if (val >= 1e6) return `$${(val / 1e6).toFixed(0)}M`;
+                          return `$${val.toLocaleString()}`;
+                        };
+                        return (
+                          <div className="mb-4 p-3 bg-white/[0.03] border border-white/[0.06] rounded-lg">
+                            <div className="text-xs text-[#6b7280] font-semibold uppercase tracking-wide mb-2">Context</div>
+                            {name ? (
+                              <div className="text-sm font-semibold text-white leading-snug">
+                                {name}
+                              </div>
+                            ) : null}
+                            {description ? (
+                              <div className="mt-1 text-xs text-[#6b7280] leading-snug">
+                                {description}
+                              </div>
+                            ) : null}
+                            <div className="mt-1 text-[11px] text-[#6b7280]">
+                              {[enrichedSector, enrichedIndustry, country]
+                                .filter(Boolean)
+                                .join(" • ") || "—"}
+                            </div>
+
+                            {(marketCap || lastEarnTs || events?.next_earnings_ts) ? (
+                              <div className="mt-2 grid grid-cols-2 gap-2 text-[10px]">
+                                {marketCap ? (
+                                  <div className="p-2 bg-white/[0.02] border border-white/[0.06] rounded">
+                                    <div className="text-[9px] text-[#6b7280] mb-1">
+                                      Market Cap
+                                    </div>
+                                    <div className="text-xs font-semibold text-white">
+                                      {fmtMCap(marketCap)}
+                                    </div>
+                                  </div>
+                                ) : null}
+                                {events?.next_earnings_ts ? (
+                                  <div className="p-2 bg-blue-500/10 border border-blue-500/30 rounded">
+                                    <div className="text-[9px] text-blue-400 mb-1">
+                                      Next Earnings
+                                    </div>
+                                    <div className="text-xs font-semibold text-white">
+                                      {fmtDate(events.next_earnings_ts)}
+                                    </div>
+                                  </div>
+                                ) : lastEarnTs ? (
+                                  <div className="p-2 bg-white/[0.02] border border-white/[0.06] rounded">
+                                    <div className="text-[9px] text-[#6b7280] mb-1">
+                                      Last Earnings
+                                    </div>
+                                    <div className="text-xs font-semibold text-white">
+                                      {fmtDate(lastEarnTs)}
+                                    </div>
+                                  </div>
+                                ) : null}
+                              </div>
+                            ) : null}
+                          </div>
+                        );
+                      })()}
+
+                      {/* ═══════════════════════════════════════════════════════════ */}
+                      {/* 2. PRIME SETUP BANNER                                      */}
+                      {/* ═══════════════════════════════════════════════════════════ */}
+                      {prime && (
+                        <div className="mb-4 p-3 bg-green-500/20 border-2 border-green-500 rounded-lg text-center font-bold text-green-500 prime-glow">
+                          💎 PRIME SETUP 💎
+                        </div>
+                      )}
+
+                      {/* ═══════════════════════════════════════════════════════════ */}
+                      {/* 3. SYSTEM GUIDANCE                                          */}
+                      {/* ═══════════════════════════════════════════════════════════ */}
+                      <div
+                        className={`mb-4 p-4 rounded-lg border-2 ${actionInfo.bg} border-current/30`}
+                      >
+                        <div className="flex items-center justify-between mb-3">
+                          <div className="text-sm text-[#6b7280] font-semibold">
+                            System Guidance
+                          </div>
+                          {(() => {
+                            const stage = String(ticker?.kanban_stage || "").toLowerCase();
+                            const isEnterLane = stage === "enter_now" || stage === "enter";
+                            if (isEnterLane) {
+                              return (
+                                <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-green-500/20 text-green-400">
+                                  Enter
+                                </span>
+                              );
+                            }
+                            if (decisionSummary) {
+                              return (
+                                <span className={`px-2 py-0.5 rounded text-[10px] font-semibold ${decisionSummary.bg} ${decisionSummary.tone}`}>
+                                  {decisionSummary.status}
+                                </span>
+                              );
+                            }
+                            return null;
+                          })()}
+                        </div>
+                        <div
+                          className={`text-lg font-bold mb-2 ${actionInfo.color}`}
+                        >
+                          {actionInfo.action}
+                        </div>
+                        <div className="text-sm text-[#cbd5ff] leading-relaxed">
+                          {actionInfo.description}
+                        </div>
+                        
+                        {/* Old SL/TP grid removed — Risk / Reward Levels block below
+                           now serves as the single source of truth (3-Tier TP system) */}
+
+                        {/* Plain English Reasons */}
+                        {(() => {
+                          const ms = ticker?.move_status && typeof ticker.move_status === "object" ? ticker.move_status : null;
+                          const reasonsRaw = Array.isArray(ms?.reasons) ? ms.reasons : [];
+                          const reasons = reasonsRaw.filter((x) => x != null && String(x).trim()).slice(0, 5);
+                          
+                          const translateReason = (r) => {
+                            const key = String(r || "").trim().toLowerCase();
+                            const translations = {
+                              'sl_breached': 'Stop loss price was hit',
+                              'tp_reached': 'Target price was reached',
+                              'daily_ema_regime_break': 'Price broke below key moving average support',
+                              'ichimoku_regime_break': 'Trend structure weakened significantly',
+                              'late_cycle': 'Move is in late stage, risk of reversal',
+                              'overextended': 'Price stretched too far too fast',
+                              'left_entry_corridor': 'Price moved outside ideal entry zone',
+                              'corridor': 'Price is in ideal entry zone',
+                              'aligned': 'All timeframes show same direction',
+                              'prime': 'Setup meets all quality criteria',
+                              'sq30_release': 'Consolidation breakout detected',
+                              'momentum_elite': 'Stock has strong fundamental momentum',
+                              'high_rank': 'Ranks highly vs other opportunities',
+                              'good_rr': 'Favorable risk vs reward ratio'
+                            };
+                            return translations[key] || key.replace(/_/g, ' ');
+                          };
+                          
+                          if (reasons.length === 0) return null;
+                          
+                          return (
+                            <div className="mt-3 pt-3 border-t border-current/20">
+                              <div className="text-xs text-[#6b7280] mb-2 font-semibold">
+                                Key Factors:
+                              </div>
+                              <div className="space-y-1.5">
+                                {reasons.map((reason, idx) => (
+                                  <div key={`reason-${idx}`} className="flex gap-2 text-xs text-[#cbd5ff]">
+                                    <span className="text-cyan-400">•</span>
+                                    <span>{translateReason(reason)}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          );
+                        })()}
+                      </div>
+
+                      {/* ═══════════════════════════════════════════════════════════ */}
+                      {/* 4. MODEL INTELLIGENCE                                      */}
                       {/* ═══════════════════════════════════════════════════════════ */}
                       {(() => {
                         const ms = modelSignal;
@@ -1450,406 +1650,9 @@
                         );
                       })()}
 
-                      {/* Context (optional enrichment from /timed/ingest-context) */}
-                      {(() => {
-                        const baseCtx =
-                          ticker?.context && typeof ticker.context === "object"
-                            ? ticker.context
-                            : null;
-                        const latestCtx =
-                          latestTicker?.context &&
-                          typeof latestTicker.context === "object"
-                            ? latestTicker.context
-                            : null;
-                        const ctx =
-                          baseCtx || latestCtx
-                            ? { ...(baseCtx || {}), ...(latestCtx || {}) }
-                            : null;
-                        if (!ctx) return null;
-                        const clean = (v) =>
-                          v == null
-                            ? ""
-                            : String(v)
-                                // Some capture strings can contain stray control chars (e.g. \r),
-                                // which render oddly in the browser.
-                                .replace(/\\r/g, "r")
-                                .replace(/\r/g, "r")
-                                .trim();
-
-                        const name = clean(ctx.name);
-                        const description = clean(ctx.description);
-                        const sector = clean(ctx.sector);
-                        const industry = clean(ctx.industry);
-                        const country = clean(ctx.country);
-                        const marketCapRaw = ctx.market_cap != null ? Number(ctx.market_cap) : null;
-                        const marketCap = Number.isFinite(marketCapRaw) && marketCapRaw > 0 ? marketCapRaw : null;
-                        const fmtMCap = (v) => {
-                          if (!v) return null;
-                          if (v >= 1e12) return `$${(v / 1e12).toFixed(1)}T`;
-                          if (v >= 1e9) return `$${(v / 1e9).toFixed(1)}B`;
-                          if (v >= 1e6) return `$${(v / 1e6).toFixed(0)}M`;
-                          return `$${v.toLocaleString()}`;
-                        };
-                        const tr =
-                          ctx.technical_rating &&
-                          typeof ctx.technical_rating === "object"
-                            ? ctx.technical_rating
-                            : null;
-                        const trStatus =
-                          tr && tr.status ? String(tr.status) : null;
-                        const trValue =
-                          tr && Number.isFinite(Number(tr.value))
-                            ? Number(tr.value)
-                            : null;
-                        const events =
-                          ctx.events && typeof ctx.events === "object"
-                            ? ctx.events
-                            : null;
-                        const lastEarnTs =
-                          events &&
-                          Number.isFinite(Number(events.last_earnings_ts))
-                            ? Number(events.last_earnings_ts)
-                            : null;
-                        const lastDivTs =
-                          events &&
-                          Number.isFinite(Number(events.last_dividend_ts))
-                            ? Number(events.last_dividend_ts)
-                            : null;
-
-                        const fmtDate = (ms) => {
-                          if (!Number.isFinite(Number(ms))) return "—";
-                          try {
-                            return new Date(Number(ms)).toLocaleDateString(
-                              "en-US",
-                              {
-                                month: "short",
-                                day: "numeric",
-                                year: "numeric",
-                              },
-                            );
-                          } catch {
-                            return "—";
-                          }
-                        };
-
-                        return (
-                          <div className="mb-4 p-3 bg-white/[0.03] border-2 border-white/[0.06] rounded-lg">
-                            <div className="text-sm text-[#6b7280] mb-2">
-                              Context
-                            </div>
-                            {latestTickerLoading ? (
-                              <div className="text-xs text-[#4b5563]">
-                                Loading context…
-                              </div>
-                            ) : null}
-                            {latestTickerError ? (
-                              <div className="text-xs text-yellow-300">
-                                Context unavailable: {latestTickerError}
-                              </div>
-                            ) : null}
-                            {name ? (
-                              <div className="text-sm font-semibold text-white leading-snug">
-                                {name}
-                              </div>
-                            ) : null}
-                            {description ? (
-                              <div className="mt-1 text-xs text-[#6b7280] leading-snug">
-                                {description}
-                              </div>
-                            ) : null}
-                            <div className="mt-1 text-[11px] text-[#6b7280]">
-                              {[sector, industry, country]
-                                .filter(Boolean)
-                                .join(" • ") || "—"}
-                            </div>
-
-                            {(marketCap || lastEarnTs || events?.next_earnings_ts) ? (
-                              <div className="mt-2 grid grid-cols-2 gap-2 text-[10px]">
-                                {marketCap ? (
-                                  <div className="p-2 bg-white/[0.02] border border-white/[0.06] rounded">
-                                    <div className="text-[9px] text-[#6b7280] mb-1">
-                                      Market Cap
-                                    </div>
-                                    <div className="text-xs font-semibold text-white">
-                                      {fmtMCap(marketCap)}
-                                    </div>
-                                  </div>
-                                ) : null}
-                                {events?.next_earnings_ts ? (
-                                  <div className="p-2 bg-blue-500/10 border border-blue-500/30 rounded">
-                                    <div className="text-[9px] text-blue-400 mb-1">
-                                      Next Earnings
-                                    </div>
-                                    <div className="text-xs font-semibold text-white">
-                                      {fmtDate(events.next_earnings_ts)}
-                                    </div>
-                                  </div>
-                                ) : lastEarnTs ? (
-                                  <div className="p-2 bg-white/[0.02] border border-white/[0.06] rounded">
-                                    <div className="text-[9px] text-[#6b7280] mb-1">
-                                      Last Earnings
-                                    </div>
-                                    <div className="text-xs font-semibold text-white">
-                                      {fmtDate(lastEarnTs)}
-                                    </div>
-                                  </div>
-                                ) : null}
-                              </div>
-                            ) : null}
-                          </div>
-                        );
-                      })()}
-
-                      {prime && (
-                        <div className="mb-4 p-3 bg-green-500/20 border-2 border-green-500 rounded-lg text-center font-bold text-green-500 prime-glow">
-                          💎 PRIME SETUP 💎
-                        </div>
-                      )}
-
-                      {/* Sector block removed — sector info shown in Model Intelligence card */}
-
-                      {/* Merged Guidance + System Decision */}
-                      <div
-                        className={`mb-4 p-4 rounded-lg border-2 ${actionInfo.bg} border-current/30`}
-                      >
-                        <div className="flex items-center justify-between mb-3">
-                          <div className="text-sm text-[#6b7280] font-semibold">
-                            System Guidance
-                          </div>
-                          {(() => {
-                            // When kanban says Enter, don't show a contradictory Blocked/Waiting badge
-                            const stage = String(ticker?.kanban_stage || "").toLowerCase();
-                            const isEnterLane = stage === "enter_now" || stage === "enter";
-                            if (isEnterLane) {
-                              return (
-                                <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-green-500/20 text-green-400">
-                                  Enter
-                                </span>
-                              );
-                            }
-                            if (decisionSummary) {
-                              return (
-                                <span className={`px-2 py-0.5 rounded text-[10px] font-semibold ${decisionSummary.bg} ${decisionSummary.tone}`}>
-                                  {decisionSummary.status}
-                                </span>
-                              );
-                            }
-                            return null;
-                          })()}
-                        </div>
-                        <div
-                          className={`text-lg font-bold mb-2 ${actionInfo.color}`}
-                        >
-                          {actionInfo.action}
-                        </div>
-                        <div className="text-sm text-[#cbd5ff] leading-relaxed">
-                          {actionInfo.description}
-                        </div>
-                        
-                        {/* Old SL/TP grid removed — Risk / Reward Levels block below
-                           now serves as the single source of truth (3-Tier TP system) */}
-
-                        {/* Plain English Reasons */}
-                        {(() => {
-                          const ms = ticker?.move_status && typeof ticker.move_status === "object" ? ticker.move_status : null;
-                          const reasonsRaw = Array.isArray(ms?.reasons) ? ms.reasons : [];
-                          const reasons = reasonsRaw.filter((x) => x != null && String(x).trim()).slice(0, 5);
-                          
-                          const translateReason = (r) => {
-                            const key = String(r || "").trim().toLowerCase();
-                            const translations = {
-                              'sl_breached': 'Stop loss price was hit',
-                              'tp_reached': 'Target price was reached',
-                              'daily_ema_regime_break': 'Price broke below key moving average support',
-                              'ichimoku_regime_break': 'Trend structure weakened significantly',
-                              'late_cycle': 'Move is in late stage, risk of reversal',
-                              'overextended': 'Price stretched too far too fast',
-                              'left_entry_corridor': 'Price moved outside ideal entry zone',
-                              'corridor': 'Price is in ideal entry zone',
-                              'aligned': 'All timeframes show same direction',
-                              'prime': 'Setup meets all quality criteria',
-                              'sq30_release': 'Consolidation breakout detected',
-                              'momentum_elite': 'Stock has strong fundamental momentum',
-                              'high_rank': 'Ranks highly vs other opportunities',
-                              'good_rr': 'Favorable risk vs reward ratio'
-                            };
-                            return translations[key] || key.replace(/_/g, ' ');
-                          };
-                          
-                          if (reasons.length === 0) return null;
-                          
-                          return (
-                            <div className="mt-3 pt-3 border-t border-current/20">
-                              <div className="text-xs text-[#6b7280] mb-2 font-semibold">
-                                Key Factors:
-                              </div>
-                              <div className="space-y-1.5">
-                                {reasons.map((reason, idx) => (
-                                  <div key={`reason-${idx}`} className="flex gap-2 text-xs text-[#cbd5ff]">
-                                    <span className="text-cyan-400">•</span>
-                                    <span>{translateReason(reason)}</span>
-                                  </div>
-                                ))}
-                              </div>
-                            </div>
-                          );
-                        })()}
-                      </div>
-
-                      {/* Chart */}
-                      <div className="mb-4 p-3 bg-white/[0.03] border-2 border-white/[0.06] rounded-lg">
-                        <div className="flex items-center justify-between gap-2 mb-3">
-                          <div className="flex items-center gap-2">
-                            <div className="text-sm text-[#6b7280]">Chart</div>
-                            <button
-                              onClick={() => setChartExpanded(true)}
-                              className="p-1 rounded hover:bg-white/[0.06] text-[#6b7280] hover:text-white transition-colors"
-                              title="Expand chart"
-                            >
-                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                <polyline points="15 3 21 3 21 9" />
-                                <polyline points="9 21 3 21 3 15" />
-                                <line x1="21" y1="3" x2="14" y2="10" />
-                                <line x1="3" y1="21" x2="10" y2="14" />
-                              </svg>
-                            </button>
-                          </div>
-                          <div className="flex items-center gap-1 flex-wrap">
-                            {[
-                              { tf: "5", label: "5m" },
-                              { tf: "10", label: "10m" },
-                              { tf: "30", label: "30m" },
-                              { tf: "60", label: "1H" },
-                              { tf: "240", label: "4H" },
-                              { tf: "D", label: "D" },
-                              { tf: "W", label: "W" },
-                              { tf: "M", label: "M" },
-                            ].map((t) => {
-                              const active = String(chartTf) === String(t.tf);
-                              return (
-                                <button
-                                  key={`tf-${t.tf}`}
-                                  onClick={() => setChartTf(String(t.tf))}
-                                  className={`px-2 py-1 rounded border text-[11px] font-semibold transition-all ${
-                                    active
-                                      ? "border-blue-400 bg-blue-500/20 text-blue-200"
-                                      : "border-white/[0.06] bg-white/[0.02] text-[#6b7280] hover:text-white"
-                                  }`}
-                                  title={`Show ${t.label} candles`}
-                                >
-                                  {t.label}
-                                </button>
-                              );
-                            })}
-                          </div>
-                        </div>
-
-                        {chartLoading ? (
-                          <div className="text-xs text-[#6b7280]">
-                            Loading candles…
-                          </div>
-                        ) : chartError ? (
-                          <div className="text-xs text-yellow-300">
-                            Failed to load candles: {chartError}
-                          </div>
-                        ) : !Array.isArray(chartCandles) ||
-                          chartCandles.length < 2 ? (
-                          <div className="text-xs text-[#6b7280]">
-                            No candles yet for this timeframe.
-                          </div>
-                        ) : (
-                          (() => {
-                            return (
-                              <LWChart
-                                candles={chartCandles}
-                                chartTf={chartTf}
-                                overlays={chartOverlays}
-                                onCrosshair={(key) => setChartOverlays(prev => ({ ...prev, [key]: !prev[key] }))}
-                              />
-                            );
-                          })()
-                        )}
-                      </div>
-
-                      {/* Expanded Chart Modal */}
-                      {chartExpanded && ReactDOM.createPortal(
-                        <div
-                          className="fixed inset-0 z-[9999] flex items-center justify-center p-6"
-                          onClick={(e) => { if (e.target === e.currentTarget) setChartExpanded(false); }}
-                        >
-                          {/* Darkened overlay */}
-                          <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" />
-
-                          {/* Modal content */}
-                          <div className="relative w-full max-w-5xl bg-[#0f1117] border border-white/[0.08] rounded-xl shadow-2xl overflow-hidden" style={{ maxHeight: "85vh" }}>
-                            {/* Modal header */}
-                            <div className="flex items-center justify-between px-4 py-3 border-b border-white/[0.06]">
-                              <div className="flex items-center gap-3">
-                                <span className="text-sm font-semibold text-white">{ticker?.ticker || "Chart"}</span>
-                                <div className="flex items-center gap-1 flex-wrap">
-                                  {[
-                                    { tf: "5", label: "5m" },
-                                    { tf: "10", label: "10m" },
-                                    { tf: "30", label: "30m" },
-                                    { tf: "60", label: "1H" },
-                                    { tf: "240", label: "4H" },
-                                    { tf: "D", label: "D" },
-                                    { tf: "W", label: "W" },
-                                    { tf: "M", label: "M" },
-                                  ].map((t) => {
-                                    const active = String(chartTf) === String(t.tf);
-                                    return (
-                                      <button
-                                        key={`modal-tf-${t.tf}`}
-                                        onClick={() => setChartTf(String(t.tf))}
-                                        className={`px-2 py-1 rounded border text-[11px] font-semibold transition-all ${
-                                          active
-                                            ? "border-blue-400 bg-blue-500/20 text-blue-200"
-                                            : "border-white/[0.06] bg-white/[0.02] text-[#6b7280] hover:text-white"
-                                        }`}
-                                      >
-                                        {t.label}
-                                      </button>
-                                    );
-                                  })}
-                                </div>
-                              </div>
-                              <button
-                                onClick={() => setChartExpanded(false)}
-                                className="p-1.5 rounded-lg hover:bg-white/[0.06] text-[#6b7280] hover:text-white transition-colors"
-                                title="Close"
-                              >
-                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                  <line x1="18" y1="6" x2="6" y2="18" />
-                                  <line x1="6" y1="6" x2="18" y2="18" />
-                                </svg>
-                              </button>
-                            </div>
-
-                            {/* Modal chart body */}
-                            <div className="p-4" style={{ height: "calc(85vh - 56px)" }}>
-                              {chartLoading ? (
-                                <div className="flex items-center justify-center h-full text-sm text-[#6b7280]">Loading candles…</div>
-                              ) : chartError ? (
-                                <div className="flex items-center justify-center h-full text-sm text-yellow-300">Failed to load candles: {chartError}</div>
-                              ) : !Array.isArray(chartCandles) || chartCandles.length < 2 ? (
-                                <div className="flex items-center justify-center h-full text-sm text-[#6b7280]">No candles yet for this timeframe.</div>
-                              ) : (
-                                <LWChart
-                                  candles={chartCandles}
-                                  chartTf={chartTf}
-                                  overlays={chartOverlays}
-                                  onCrosshair={(key) => setChartOverlays(prev => ({ ...prev, [key]: !prev[key] }))}
-                                  height={Math.min(window.innerHeight * 0.75, 700)}
-                                />
-                              )}
-                            </div>
-                          </div>
-                        </div>,
-                        document.body
-                      )}
-
-                      {/* Unified Risk / Reward Levels — single source of truth */}
+                      {/* ═══════════════════════════════════════════════════════════ */}
+                      {/* 5. RISK / REWARD LEVELS                                    */}
+                      {/* ═══════════════════════════════════════════════════════════ */}
                       {(() => {
                         // Use position SL/TP when available (correct for SHORT trades)
                         const posSlRaw = ticker?.has_open_position ? Number(ticker?.position_sl) : NaN;
@@ -1940,9 +1743,9 @@
                           return Math.max(0, Math.min(1, currentMove / totalMove));
                         };
                         const tierCards = [
-                          { tp: tpTrim, rr: rrTrim, label: "TP1", sub: "Trim 60%", icon: "🎯", bg: "bg-yellow-500/10", border: "border-yellow-500/30", text: "text-yellow-400" },
-                          { tp: tpExit, rr: rrExit, label: "TP2", sub: "Exit 85%", icon: "💰", bg: "bg-orange-500/10", border: "border-orange-500/30", text: "text-orange-400" },
-                          { tp: tpRunner, rr: rrRunner, label: "TP3", sub: "Runner", icon: "🚀", bg: "bg-teal-500/10", border: "border-teal-500/30", text: "text-teal-400" },
+                          { tp: tpTrim, rr: rrTrim, label: "Take Profit 1", sub: "Trim 60%", icon: "🎯", bg: "bg-yellow-500/10", border: "border-yellow-500/30", text: "text-yellow-400" },
+                          { tp: tpExit, rr: rrExit, label: "Take Profit 2", sub: "Exit 85%", icon: "💰", bg: "bg-orange-500/10", border: "border-orange-500/30", text: "text-orange-400" },
+                          { tp: tpRunner, rr: rrRunner, label: "Take Profit 3", sub: "Runner", icon: "🚀", bg: "bg-teal-500/10", border: "border-teal-500/30", text: "text-teal-400" },
                         ];
                         return (
                           <div className="mb-4 space-y-2">
@@ -1951,7 +1754,7 @@
                               <div className="space-y-1.5">
                                 {/* Original SL — always shown when SL exists */}
                                 <div className={`p-2.5 rounded border flex items-center justify-between ${tslActive ? "bg-white/[0.02] border-white/[0.08]" : "bg-red-500/10 border-red-500/30"}`}>
-                                  <span className={`text-xs font-semibold ${tslActive ? "text-[#6b7280]" : "text-red-400"}`} title="Stop Loss">SL</span>
+                                  <span className={`text-xs font-semibold ${tslActive ? "text-[#6b7280]" : "text-red-400"}`}>Stop Loss</span>
                                   <span className={`text-xs font-bold ${tslActive ? "text-[#6b7280]" : "text-red-400"}`}>{tslActive && slOrig ? `$${slOrig.toFixed(2)}` : `$${sl.toFixed(2)}`}</span>
                                   {!tslActive && Number.isFinite(slDistPct) && <span className="text-[9px] text-red-300/70">{slDistPct.toFixed(1)}% risk</span>}
                                   {tslActive && <span className="text-[9px] text-[#4b5563]">original</span>}
@@ -1984,7 +1787,7 @@
                                         </div>
                                       </div>
                                       <div className="h-1.5 bg-white/[0.06] rounded-full overflow-hidden">
-                                        <div className={`h-full ${tier.label === "TP1" ? "bg-yellow-500" : tier.label === "TP2" ? "bg-orange-500" : "bg-teal-500"} transition-all`} style={{ width: `${Math.round(progress * 100)}%` }} />
+                                        <div className={`h-full ${tier.label.includes("1") ? "bg-yellow-500" : tier.label.includes("2") ? "bg-orange-500" : "bg-teal-500"} transition-all`} style={{ width: `${Math.round(progress * 100)}%` }} />
                                       </div>
                                     </div>
                                   );
@@ -2012,18 +1815,11 @@
                                 </>
                               ) : null}
                             </div>
-                            {/* Summary R:R (to TP2/Exit target — the main RR from backend) */}
-                            {Number.isFinite(rr) && (
-                              <div className="mt-2 pt-2 border-t border-white/[0.04] flex items-center justify-between text-xs">
-                                <span className="text-[10px] text-[#6b7280]">R:R (to TP2)</span>
-                                <span className={`font-bold ${rr >= 2 ? 'text-teal-400' : rr >= 1 ? 'text-blue-400' : 'text-orange-400'}`}>{rr.toFixed(2)}:1</span>
-                              </div>
-                            )}
                           </div>
                         );
                       })()}
 
-                      {/* Chart, Trend Alignment, Swing Analysis, Score, Rank, Momentum Elite, Score Breakdown */}
+                      {/* 6-10. Trend Alignment, Swing Analysis, Momentum Elite, Rank, Score + Breakdown */}
                       <div className="space-y-2.5 text-sm">
                         {/* Trend Alignment — moved up under Chart */}
                         {(() => {
@@ -2179,15 +1975,45 @@
                           );
                         })()}
 
-                        {/* Score */}
-                        <div className="flex justify-between items-center py-1 border-b border-white/[0.06]/50">
-                          <span className="text-[#6b7280]">Score</span>
-                          <span className="font-semibold text-blue-400 text-lg">
-                            {Number.isFinite(displayScore)
-                              ? displayScore.toFixed(1)
-                              : "—"}
-                          </span>
-                        </div>
+                        {/* Momentum Elite */}
+                        {(() => {
+                          const mp = ticker?.momentum_pct || {};
+                          const adr14 = Number(ticker?.adr_14);
+                          const avgVol30 = Number(ticker?.avg_vol_30);
+                          const w = mp.week != null ? Number(mp.week) : null;
+                          const m = mp.month != null ? Number(mp.month) : null;
+                          const m3 = mp.three_months != null ? Number(mp.three_months) : null;
+                          const m6 = mp.six_months != null ? Number(mp.six_months) : null;
+                          const okAdr = Number.isFinite(adr14) && adr14 >= 2;
+                          const okVol = Number.isFinite(avgVol30) && avgVol30 >= 2_000_000;
+                          const okW = Number.isFinite(w) && w >= 10;
+                          const okM = Number.isFinite(m) && m >= 25;
+                          const ok3 = Number.isFinite(m3) && m3 >= 50;
+                          const ok6 = Number.isFinite(m6) && m6 >= 100;
+                          const okAnyMomentum = okW || okM || ok3 || ok6;
+                          const okBase = okAdr && okVol;
+                          const computedElite = okBase && okAnyMomentum;
+                          const elite = !!flags.momentum_elite || computedElite;
+                          if (!elite) return null;
+                          return (
+                            <div className="border-t border-white/[0.06] my-3 pt-3">
+                              <div className="flex items-center justify-between mb-2">
+                                <span className="text-sm font-extrabold text-purple-300 tracking-wide">🚀 MOMENTUM ELITE</span>
+                                <span className="text-[10px] px-2 py-0.5 rounded border bg-purple-500/25 border-purple-400/50 text-purple-200 font-bold">ACTIVE</span>
+                              </div>
+                              <div className="text-[10px] text-purple-200/70 space-y-0.5">
+                                {okAdr && <div>✅ ADR(14D) ≥ $2 • ${adr14.toFixed(2)}</div>}
+                                {okVol && <div>✅ Vol(30D) ≥ 2M • {(avgVol30 / 1_000_000).toFixed(2)}M</div>}
+                                {okW && <div>✅ 1W momentum {w.toFixed(1)}%</div>}
+                                {okM && <div>✅ 1M momentum {m.toFixed(1)}%</div>}
+                                {ok3 && <div>✅ 3M momentum {m3.toFixed(1)}%</div>}
+                                {ok6 && <div>✅ 6M momentum {m6.toFixed(1)}%</div>}
+                              </div>
+                            </div>
+                          );
+                        })()}
+
+                        {/* Rank */}
                         {rankTotal > 0 && (
                           <div className="flex justify-between items-center py-1 border-b border-white/[0.06]/50">
                             <span className="text-[#6b7280]">Rank</span>
@@ -2203,7 +2029,18 @@
                             </span>
                           </div>
                         )}
-                        {/* Model Score (Worker-provided) — REMOVED: replaced by Model Intelligence card */}
+
+                        {/* Score */}
+                        <div className="flex justify-between items-center py-1 border-b border-white/[0.06]/50">
+                          <span className="text-[#6b7280]">Score</span>
+                          <span className="font-semibold text-blue-400 text-lg">
+                            {Number.isFinite(displayScore)
+                              ? displayScore.toFixed(1)
+                              : "—"}
+                          </span>
+                        </div>
+
+                        {/* Dead code — Model Score removed */}
                         {false && (() => {
                           const ml =
                             ticker?.ml ||
@@ -2293,44 +2130,6 @@
                                 </>
                               )}
                             </>
-                          );
-                        })()}
-
-                        {/* Momentum Elite — before Score Breakdown */}
-                        {(() => {
-                          const mp = ticker?.momentum_pct || {};
-                          const adr14 = Number(ticker?.adr_14);
-                          const avgVol30 = Number(ticker?.avg_vol_30);
-                          const w = mp.week != null ? Number(mp.week) : null;
-                          const m = mp.month != null ? Number(mp.month) : null;
-                          const m3 = mp.three_months != null ? Number(mp.three_months) : null;
-                          const m6 = mp.six_months != null ? Number(mp.six_months) : null;
-                          const okAdr = Number.isFinite(adr14) && adr14 >= 2;
-                          const okVol = Number.isFinite(avgVol30) && avgVol30 >= 2_000_000;
-                          const okW = Number.isFinite(w) && w >= 10;
-                          const okM = Number.isFinite(m) && m >= 25;
-                          const ok3 = Number.isFinite(m3) && m3 >= 50;
-                          const ok6 = Number.isFinite(m6) && m6 >= 100;
-                          const okAnyMomentum = okW || okM || ok3 || ok6;
-                          const okBase = okAdr && okVol;
-                          const computedElite = okBase && okAnyMomentum;
-                          const elite = !!flags.momentum_elite || computedElite;
-                          if (!elite) return null;
-                          return (
-                            <div className="border-t border-white/[0.06] my-3 pt-3">
-                              <div className="flex items-center justify-between mb-2">
-                                <span className="text-sm font-extrabold text-purple-300 tracking-wide">🚀 MOMENTUM ELITE</span>
-                                <span className="text-[10px] px-2 py-0.5 rounded border bg-purple-500/25 border-purple-400/50 text-purple-200 font-bold">ACTIVE</span>
-                              </div>
-                              <div className="text-[10px] text-purple-200/70 space-y-0.5">
-                                {okAdr && <div>✅ ADR(14D) ≥ $2 • ${adr14.toFixed(2)}</div>}
-                                {okVol && <div>✅ Vol(30D) ≥ 2M • {(avgVol30 / 1_000_000).toFixed(2)}M</div>}
-                                {okW && <div>✅ 1W momentum {w.toFixed(1)}%</div>}
-                                {okM && <div>✅ 1M momentum {m.toFixed(1)}%</div>}
-                                {ok3 && <div>✅ 3M momentum {m3.toFixed(1)}%</div>}
-                                {ok6 && <div>✅ 6M momentum {m6.toFixed(1)}%</div>}
-                              </div>
-                            </div>
                           );
                         })()}
 

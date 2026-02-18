@@ -401,17 +401,51 @@
         });
         chart.timeScale().fitContent();
 
-        // Resize
+        // Resize — use ResizeObserver for portal/modal mount detection + window fallback
+        let resizeObserver = null;
         const handleResize = () => {
           if (containerRef.current && chart) {
-            chart.applyOptions({
-              width: containerRef.current.clientWidth
-            });
+            const w = containerRef.current.clientWidth;
+            if (w > 0) {
+              chart.applyOptions({
+                width: w
+              });
+            }
           }
         };
+        if (typeof ResizeObserver !== "undefined" && containerRef.current) {
+          resizeObserver = new ResizeObserver(handleResize);
+          resizeObserver.observe(containerRef.current);
+        }
         window.addEventListener("resize", handleResize);
+
+        // Settle: when chart mounts inside a React portal (expanded modal),
+        // the container may not have its final width yet. Use rAF to sync.
+        requestAnimationFrame(() => {
+          if (containerRef.current && chart) {
+            const w = containerRef.current.clientWidth;
+            if (w > 0) {
+              chart.applyOptions({
+                width: w
+              });
+            }
+            chart.timeScale().fitContent();
+          }
+          // Safety net for slow portal reflow
+          setTimeout(() => {
+            if (containerRef.current && chart) {
+              const w = containerRef.current.clientWidth;
+              if (w > 0) {
+                chart.applyOptions({
+                  width: w
+                });
+              }
+            }
+          }, 150);
+        });
         return () => {
           window.removeEventListener("resize", handleResize);
+          if (resizeObserver) resizeObserver.disconnect();
           chart.remove();
           chartInstanceRef.current = null;
           candleSeriesRef.current = null;
@@ -1483,6 +1517,134 @@
       }))), /*#__PURE__*/React.createElement("div", {
         className: "p-6 pt-4"
       }, railTab === "ANALYSIS" ? /*#__PURE__*/React.createElement(React.Fragment, null, (() => {
+        const baseCtx = ticker?.context && typeof ticker.context === "object" ? ticker.context : null;
+        const mergedCtx = latestTicker?.context && typeof latestTicker.context === "object" ? latestTicker.context : null;
+        const ctx = mergedCtx || baseCtx;
+        if (!ctx) return null;
+        const name = ctx.name || ctx.companyName || ctx.company_name;
+        const description = ctx.description || ctx.businessSummary || ctx.business_summary;
+        const sector = ctx.sector;
+        const industry = ctx.industry;
+        const country = ctx.country;
+        const marketCap = Number(ctx.market_cap || ctx.marketCap || 0) || 0;
+        const lastEarnTs = Number(ctx.last_earnings_ts || ctx.lastEarningsTs || 0) || 0;
+        const events = ctx.events && typeof ctx.events === "object" ? ctx.events : null;
+
+        // Merge model signal-level sector info
+        const msSectorData = modelSignal?.sector;
+        const enrichedSector = sector || msSectorData?.sector || null;
+        const enrichedIndustry = industry || null;
+        const fmtDate = ts => {
+          if (!ts) return "—";
+          const d = typeof ts === "number" && ts > 1e12 ? new Date(ts) : typeof ts === "number" ? new Date(ts * 1000) : new Date(ts);
+          if (isNaN(d)) return "—";
+          return d.toLocaleDateString("en-US", {
+            month: "short",
+            day: "numeric",
+            year: "numeric"
+          });
+        };
+        const fmtMCap = val => {
+          if (val >= 1e12) return `$${(val / 1e12).toFixed(2)}T`;
+          if (val >= 1e9) return `$${(val / 1e9).toFixed(2)}B`;
+          if (val >= 1e6) return `$${(val / 1e6).toFixed(0)}M`;
+          return `$${val.toLocaleString()}`;
+        };
+        return /*#__PURE__*/React.createElement("div", {
+          className: "mb-4 p-3 bg-white/[0.03] border border-white/[0.06] rounded-lg"
+        }, /*#__PURE__*/React.createElement("div", {
+          className: "text-xs text-[#6b7280] font-semibold uppercase tracking-wide mb-2"
+        }, "Context"), name ? /*#__PURE__*/React.createElement("div", {
+          className: "text-sm font-semibold text-white leading-snug"
+        }, name) : null, description ? /*#__PURE__*/React.createElement("div", {
+          className: "mt-1 text-xs text-[#6b7280] leading-snug"
+        }, description) : null, /*#__PURE__*/React.createElement("div", {
+          className: "mt-1 text-[11px] text-[#6b7280]"
+        }, [enrichedSector, enrichedIndustry, country].filter(Boolean).join(" • ") || "—"), marketCap || lastEarnTs || events?.next_earnings_ts ? /*#__PURE__*/React.createElement("div", {
+          className: "mt-2 grid grid-cols-2 gap-2 text-[10px]"
+        }, marketCap ? /*#__PURE__*/React.createElement("div", {
+          className: "p-2 bg-white/[0.02] border border-white/[0.06] rounded"
+        }, /*#__PURE__*/React.createElement("div", {
+          className: "text-[9px] text-[#6b7280] mb-1"
+        }, "Market Cap"), /*#__PURE__*/React.createElement("div", {
+          className: "text-xs font-semibold text-white"
+        }, fmtMCap(marketCap))) : null, events?.next_earnings_ts ? /*#__PURE__*/React.createElement("div", {
+          className: "p-2 bg-blue-500/10 border border-blue-500/30 rounded"
+        }, /*#__PURE__*/React.createElement("div", {
+          className: "text-[9px] text-blue-400 mb-1"
+        }, "Next Earnings"), /*#__PURE__*/React.createElement("div", {
+          className: "text-xs font-semibold text-white"
+        }, fmtDate(events.next_earnings_ts))) : lastEarnTs ? /*#__PURE__*/React.createElement("div", {
+          className: "p-2 bg-white/[0.02] border border-white/[0.06] rounded"
+        }, /*#__PURE__*/React.createElement("div", {
+          className: "text-[9px] text-[#6b7280] mb-1"
+        }, "Last Earnings"), /*#__PURE__*/React.createElement("div", {
+          className: "text-xs font-semibold text-white"
+        }, fmtDate(lastEarnTs))) : null) : null);
+      })(), prime && /*#__PURE__*/React.createElement("div", {
+        className: "mb-4 p-3 bg-green-500/20 border-2 border-green-500 rounded-lg text-center font-bold text-green-500 prime-glow"
+      }, "\uD83D\uDC8E PRIME SETUP \uD83D\uDC8E"), /*#__PURE__*/React.createElement("div", {
+        className: `mb-4 p-4 rounded-lg border-2 ${actionInfo.bg} border-current/30`
+      }, /*#__PURE__*/React.createElement("div", {
+        className: "flex items-center justify-between mb-3"
+      }, /*#__PURE__*/React.createElement("div", {
+        className: "text-sm text-[#6b7280] font-semibold"
+      }, "System Guidance"), (() => {
+        const stage = String(ticker?.kanban_stage || "").toLowerCase();
+        const isEnterLane = stage === "enter_now" || stage === "enter";
+        if (isEnterLane) {
+          return /*#__PURE__*/React.createElement("span", {
+            className: "px-2 py-0.5 rounded text-[10px] font-semibold bg-green-500/20 text-green-400"
+          }, "Enter");
+        }
+        if (decisionSummary) {
+          return /*#__PURE__*/React.createElement("span", {
+            className: `px-2 py-0.5 rounded text-[10px] font-semibold ${decisionSummary.bg} ${decisionSummary.tone}`
+          }, decisionSummary.status);
+        }
+        return null;
+      })()), /*#__PURE__*/React.createElement("div", {
+        className: `text-lg font-bold mb-2 ${actionInfo.color}`
+      }, actionInfo.action), /*#__PURE__*/React.createElement("div", {
+        className: "text-sm text-[#cbd5ff] leading-relaxed"
+      }, actionInfo.description), (() => {
+        const ms = ticker?.move_status && typeof ticker.move_status === "object" ? ticker.move_status : null;
+        const reasonsRaw = Array.isArray(ms?.reasons) ? ms.reasons : [];
+        const reasons = reasonsRaw.filter(x => x != null && String(x).trim()).slice(0, 5);
+        const translateReason = r => {
+          const key = String(r || "").trim().toLowerCase();
+          const translations = {
+            'sl_breached': 'Stop loss price was hit',
+            'tp_reached': 'Target price was reached',
+            'daily_ema_regime_break': 'Price broke below key moving average support',
+            'ichimoku_regime_break': 'Trend structure weakened significantly',
+            'late_cycle': 'Move is in late stage, risk of reversal',
+            'overextended': 'Price stretched too far too fast',
+            'left_entry_corridor': 'Price moved outside ideal entry zone',
+            'corridor': 'Price is in ideal entry zone',
+            'aligned': 'All timeframes show same direction',
+            'prime': 'Setup meets all quality criteria',
+            'sq30_release': 'Consolidation breakout detected',
+            'momentum_elite': 'Stock has strong fundamental momentum',
+            'high_rank': 'Ranks highly vs other opportunities',
+            'good_rr': 'Favorable risk vs reward ratio'
+          };
+          return translations[key] || key.replace(/_/g, ' ');
+        };
+        if (reasons.length === 0) return null;
+        return /*#__PURE__*/React.createElement("div", {
+          className: "mt-3 pt-3 border-t border-current/20"
+        }, /*#__PURE__*/React.createElement("div", {
+          className: "text-xs text-[#6b7280] mb-2 font-semibold"
+        }, "Key Factors:"), /*#__PURE__*/React.createElement("div", {
+          className: "space-y-1.5"
+        }, reasons.map((reason, idx) => /*#__PURE__*/React.createElement("div", {
+          key: `reason-${idx}`,
+          className: "flex gap-2 text-xs text-[#cbd5ff]"
+        }, /*#__PURE__*/React.createElement("span", {
+          className: "text-cyan-400"
+        }, "\u2022"), /*#__PURE__*/React.createElement("span", null, translateReason(reason))))));
+      })()), (() => {
         const ms = modelSignal;
         const pm = (latestTicker || ticker)?.pattern_match;
         const ts = ms?.ticker;
@@ -1579,328 +1741,6 @@
           className: "mt-2 text-[10px] text-amber-300/80 bg-amber-500/10 border border-amber-500/20 rounded px-2 py-1"
         }, mk.riskFlag));
       })(), (() => {
-        const baseCtx = ticker?.context && typeof ticker.context === "object" ? ticker.context : null;
-        const latestCtx = latestTicker?.context && typeof latestTicker.context === "object" ? latestTicker.context : null;
-        const ctx = baseCtx || latestCtx ? {
-          ...(baseCtx || {}),
-          ...(latestCtx || {})
-        } : null;
-        if (!ctx) return null;
-        const clean = v => v == null ? "" : String(v)
-        // Some capture strings can contain stray control chars (e.g. \r),
-        // which render oddly in the browser.
-        .replace(/\\r/g, "r").replace(/\r/g, "r").trim();
-        const name = clean(ctx.name);
-        const description = clean(ctx.description);
-        const sector = clean(ctx.sector);
-        const industry = clean(ctx.industry);
-        const country = clean(ctx.country);
-        const marketCapRaw = ctx.market_cap != null ? Number(ctx.market_cap) : null;
-        const marketCap = Number.isFinite(marketCapRaw) && marketCapRaw > 0 ? marketCapRaw : null;
-        const fmtMCap = v => {
-          if (!v) return null;
-          if (v >= 1e12) return `$${(v / 1e12).toFixed(1)}T`;
-          if (v >= 1e9) return `$${(v / 1e9).toFixed(1)}B`;
-          if (v >= 1e6) return `$${(v / 1e6).toFixed(0)}M`;
-          return `$${v.toLocaleString()}`;
-        };
-        const tr = ctx.technical_rating && typeof ctx.technical_rating === "object" ? ctx.technical_rating : null;
-        const trStatus = tr && tr.status ? String(tr.status) : null;
-        const trValue = tr && Number.isFinite(Number(tr.value)) ? Number(tr.value) : null;
-        const events = ctx.events && typeof ctx.events === "object" ? ctx.events : null;
-        const lastEarnTs = events && Number.isFinite(Number(events.last_earnings_ts)) ? Number(events.last_earnings_ts) : null;
-        const lastDivTs = events && Number.isFinite(Number(events.last_dividend_ts)) ? Number(events.last_dividend_ts) : null;
-        const fmtDate = ms => {
-          if (!Number.isFinite(Number(ms))) return "—";
-          try {
-            return new Date(Number(ms)).toLocaleDateString("en-US", {
-              month: "short",
-              day: "numeric",
-              year: "numeric"
-            });
-          } catch {
-            return "—";
-          }
-        };
-        return /*#__PURE__*/React.createElement("div", {
-          className: "mb-4 p-3 bg-white/[0.03] border-2 border-white/[0.06] rounded-lg"
-        }, /*#__PURE__*/React.createElement("div", {
-          className: "text-sm text-[#6b7280] mb-2"
-        }, "Context"), latestTickerLoading ? /*#__PURE__*/React.createElement("div", {
-          className: "text-xs text-[#4b5563]"
-        }, "Loading context\u2026") : null, latestTickerError ? /*#__PURE__*/React.createElement("div", {
-          className: "text-xs text-yellow-300"
-        }, "Context unavailable: ", latestTickerError) : null, name ? /*#__PURE__*/React.createElement("div", {
-          className: "text-sm font-semibold text-white leading-snug"
-        }, name) : null, description ? /*#__PURE__*/React.createElement("div", {
-          className: "mt-1 text-xs text-[#6b7280] leading-snug"
-        }, description) : null, /*#__PURE__*/React.createElement("div", {
-          className: "mt-1 text-[11px] text-[#6b7280]"
-        }, [sector, industry, country].filter(Boolean).join(" • ") || "—"), marketCap || lastEarnTs || events?.next_earnings_ts ? /*#__PURE__*/React.createElement("div", {
-          className: "mt-2 grid grid-cols-2 gap-2 text-[10px]"
-        }, marketCap ? /*#__PURE__*/React.createElement("div", {
-          className: "p-2 bg-white/[0.02] border border-white/[0.06] rounded"
-        }, /*#__PURE__*/React.createElement("div", {
-          className: "text-[9px] text-[#6b7280] mb-1"
-        }, "Market Cap"), /*#__PURE__*/React.createElement("div", {
-          className: "text-xs font-semibold text-white"
-        }, fmtMCap(marketCap))) : null, events?.next_earnings_ts ? /*#__PURE__*/React.createElement("div", {
-          className: "p-2 bg-blue-500/10 border border-blue-500/30 rounded"
-        }, /*#__PURE__*/React.createElement("div", {
-          className: "text-[9px] text-blue-400 mb-1"
-        }, "Next Earnings"), /*#__PURE__*/React.createElement("div", {
-          className: "text-xs font-semibold text-white"
-        }, fmtDate(events.next_earnings_ts))) : lastEarnTs ? /*#__PURE__*/React.createElement("div", {
-          className: "p-2 bg-white/[0.02] border border-white/[0.06] rounded"
-        }, /*#__PURE__*/React.createElement("div", {
-          className: "text-[9px] text-[#6b7280] mb-1"
-        }, "Last Earnings"), /*#__PURE__*/React.createElement("div", {
-          className: "text-xs font-semibold text-white"
-        }, fmtDate(lastEarnTs))) : null) : null);
-      })(), prime && /*#__PURE__*/React.createElement("div", {
-        className: "mb-4 p-3 bg-green-500/20 border-2 border-green-500 rounded-lg text-center font-bold text-green-500 prime-glow"
-      }, "\uD83D\uDC8E PRIME SETUP \uD83D\uDC8E"), /*#__PURE__*/React.createElement("div", {
-        className: `mb-4 p-4 rounded-lg border-2 ${actionInfo.bg} border-current/30`
-      }, /*#__PURE__*/React.createElement("div", {
-        className: "flex items-center justify-between mb-3"
-      }, /*#__PURE__*/React.createElement("div", {
-        className: "text-sm text-[#6b7280] font-semibold"
-      }, "System Guidance"), (() => {
-        // When kanban says Enter, don't show a contradictory Blocked/Waiting badge
-        const stage = String(ticker?.kanban_stage || "").toLowerCase();
-        const isEnterLane = stage === "enter_now" || stage === "enter";
-        if (isEnterLane) {
-          return /*#__PURE__*/React.createElement("span", {
-            className: "px-2 py-0.5 rounded text-[10px] font-semibold bg-green-500/20 text-green-400"
-          }, "Enter");
-        }
-        if (decisionSummary) {
-          return /*#__PURE__*/React.createElement("span", {
-            className: `px-2 py-0.5 rounded text-[10px] font-semibold ${decisionSummary.bg} ${decisionSummary.tone}`
-          }, decisionSummary.status);
-        }
-        return null;
-      })()), /*#__PURE__*/React.createElement("div", {
-        className: `text-lg font-bold mb-2 ${actionInfo.color}`
-      }, actionInfo.action), /*#__PURE__*/React.createElement("div", {
-        className: "text-sm text-[#cbd5ff] leading-relaxed"
-      }, actionInfo.description), (() => {
-        const ms = ticker?.move_status && typeof ticker.move_status === "object" ? ticker.move_status : null;
-        const reasonsRaw = Array.isArray(ms?.reasons) ? ms.reasons : [];
-        const reasons = reasonsRaw.filter(x => x != null && String(x).trim()).slice(0, 5);
-        const translateReason = r => {
-          const key = String(r || "").trim().toLowerCase();
-          const translations = {
-            'sl_breached': 'Stop loss price was hit',
-            'tp_reached': 'Target price was reached',
-            'daily_ema_regime_break': 'Price broke below key moving average support',
-            'ichimoku_regime_break': 'Trend structure weakened significantly',
-            'late_cycle': 'Move is in late stage, risk of reversal',
-            'overextended': 'Price stretched too far too fast',
-            'left_entry_corridor': 'Price moved outside ideal entry zone',
-            'corridor': 'Price is in ideal entry zone',
-            'aligned': 'All timeframes show same direction',
-            'prime': 'Setup meets all quality criteria',
-            'sq30_release': 'Consolidation breakout detected',
-            'momentum_elite': 'Stock has strong fundamental momentum',
-            'high_rank': 'Ranks highly vs other opportunities',
-            'good_rr': 'Favorable risk vs reward ratio'
-          };
-          return translations[key] || key.replace(/_/g, ' ');
-        };
-        if (reasons.length === 0) return null;
-        return /*#__PURE__*/React.createElement("div", {
-          className: "mt-3 pt-3 border-t border-current/20"
-        }, /*#__PURE__*/React.createElement("div", {
-          className: "text-xs text-[#6b7280] mb-2 font-semibold"
-        }, "Key Factors:"), /*#__PURE__*/React.createElement("div", {
-          className: "space-y-1.5"
-        }, reasons.map((reason, idx) => /*#__PURE__*/React.createElement("div", {
-          key: `reason-${idx}`,
-          className: "flex gap-2 text-xs text-[#cbd5ff]"
-        }, /*#__PURE__*/React.createElement("span", {
-          className: "text-cyan-400"
-        }, "\u2022"), /*#__PURE__*/React.createElement("span", null, translateReason(reason))))));
-      })()), /*#__PURE__*/React.createElement("div", {
-        className: "mb-4 p-3 bg-white/[0.03] border-2 border-white/[0.06] rounded-lg"
-      }, /*#__PURE__*/React.createElement("div", {
-        className: "flex items-center justify-between gap-2 mb-3"
-      }, /*#__PURE__*/React.createElement("div", {
-        className: "flex items-center gap-2"
-      }, /*#__PURE__*/React.createElement("div", {
-        className: "text-sm text-[#6b7280]"
-      }, "Chart"), /*#__PURE__*/React.createElement("button", {
-        onClick: () => setChartExpanded(true),
-        className: "p-1 rounded hover:bg-white/[0.06] text-[#6b7280] hover:text-white transition-colors",
-        title: "Expand chart"
-      }, /*#__PURE__*/React.createElement("svg", {
-        width: "14",
-        height: "14",
-        viewBox: "0 0 24 24",
-        fill: "none",
-        stroke: "currentColor",
-        strokeWidth: "2",
-        strokeLinecap: "round",
-        strokeLinejoin: "round"
-      }, /*#__PURE__*/React.createElement("polyline", {
-        points: "15 3 21 3 21 9"
-      }), /*#__PURE__*/React.createElement("polyline", {
-        points: "9 21 3 21 3 15"
-      }), /*#__PURE__*/React.createElement("line", {
-        x1: "21",
-        y1: "3",
-        x2: "14",
-        y2: "10"
-      }), /*#__PURE__*/React.createElement("line", {
-        x1: "3",
-        y1: "21",
-        x2: "10",
-        y2: "14"
-      })))), /*#__PURE__*/React.createElement("div", {
-        className: "flex items-center gap-1 flex-wrap"
-      }, [{
-        tf: "5",
-        label: "5m"
-      }, {
-        tf: "10",
-        label: "10m"
-      }, {
-        tf: "30",
-        label: "30m"
-      }, {
-        tf: "60",
-        label: "1H"
-      }, {
-        tf: "240",
-        label: "4H"
-      }, {
-        tf: "D",
-        label: "D"
-      }, {
-        tf: "W",
-        label: "W"
-      }, {
-        tf: "M",
-        label: "M"
-      }].map(t => {
-        const active = String(chartTf) === String(t.tf);
-        return /*#__PURE__*/React.createElement("button", {
-          key: `tf-${t.tf}`,
-          onClick: () => setChartTf(String(t.tf)),
-          className: `px-2 py-1 rounded border text-[11px] font-semibold transition-all ${active ? "border-blue-400 bg-blue-500/20 text-blue-200" : "border-white/[0.06] bg-white/[0.02] text-[#6b7280] hover:text-white"}`,
-          title: `Show ${t.label} candles`
-        }, t.label);
-      }))), chartLoading ? /*#__PURE__*/React.createElement("div", {
-        className: "text-xs text-[#6b7280]"
-      }, "Loading candles\u2026") : chartError ? /*#__PURE__*/React.createElement("div", {
-        className: "text-xs text-yellow-300"
-      }, "Failed to load candles: ", chartError) : !Array.isArray(chartCandles) || chartCandles.length < 2 ? /*#__PURE__*/React.createElement("div", {
-        className: "text-xs text-[#6b7280]"
-      }, "No candles yet for this timeframe.") : (() => {
-        return /*#__PURE__*/React.createElement(LWChart, {
-          candles: chartCandles,
-          chartTf: chartTf,
-          overlays: chartOverlays,
-          onCrosshair: key => setChartOverlays(prev => ({
-            ...prev,
-            [key]: !prev[key]
-          }))
-        });
-      })()), chartExpanded && ReactDOM.createPortal(/*#__PURE__*/React.createElement("div", {
-        className: "fixed inset-0 z-[9999] flex items-center justify-center p-6",
-        onClick: e => {
-          if (e.target === e.currentTarget) setChartExpanded(false);
-        }
-      }, /*#__PURE__*/React.createElement("div", {
-        className: "absolute inset-0 bg-black/80 backdrop-blur-sm"
-      }), /*#__PURE__*/React.createElement("div", {
-        className: "relative w-full max-w-5xl bg-[#0f1117] border border-white/[0.08] rounded-xl shadow-2xl overflow-hidden",
-        style: {
-          maxHeight: "85vh"
-        }
-      }, /*#__PURE__*/React.createElement("div", {
-        className: "flex items-center justify-between px-4 py-3 border-b border-white/[0.06]"
-      }, /*#__PURE__*/React.createElement("div", {
-        className: "flex items-center gap-3"
-      }, /*#__PURE__*/React.createElement("span", {
-        className: "text-sm font-semibold text-white"
-      }, ticker?.ticker || "Chart"), /*#__PURE__*/React.createElement("div", {
-        className: "flex items-center gap-1 flex-wrap"
-      }, [{
-        tf: "5",
-        label: "5m"
-      }, {
-        tf: "10",
-        label: "10m"
-      }, {
-        tf: "30",
-        label: "30m"
-      }, {
-        tf: "60",
-        label: "1H"
-      }, {
-        tf: "240",
-        label: "4H"
-      }, {
-        tf: "D",
-        label: "D"
-      }, {
-        tf: "W",
-        label: "W"
-      }, {
-        tf: "M",
-        label: "M"
-      }].map(t => {
-        const active = String(chartTf) === String(t.tf);
-        return /*#__PURE__*/React.createElement("button", {
-          key: `modal-tf-${t.tf}`,
-          onClick: () => setChartTf(String(t.tf)),
-          className: `px-2 py-1 rounded border text-[11px] font-semibold transition-all ${active ? "border-blue-400 bg-blue-500/20 text-blue-200" : "border-white/[0.06] bg-white/[0.02] text-[#6b7280] hover:text-white"}`
-        }, t.label);
-      }))), /*#__PURE__*/React.createElement("button", {
-        onClick: () => setChartExpanded(false),
-        className: "p-1.5 rounded-lg hover:bg-white/[0.06] text-[#6b7280] hover:text-white transition-colors",
-        title: "Close"
-      }, /*#__PURE__*/React.createElement("svg", {
-        width: "18",
-        height: "18",
-        viewBox: "0 0 24 24",
-        fill: "none",
-        stroke: "currentColor",
-        strokeWidth: "2",
-        strokeLinecap: "round",
-        strokeLinejoin: "round"
-      }, /*#__PURE__*/React.createElement("line", {
-        x1: "18",
-        y1: "6",
-        x2: "6",
-        y2: "18"
-      }), /*#__PURE__*/React.createElement("line", {
-        x1: "6",
-        y1: "6",
-        x2: "18",
-        y2: "18"
-      })))), /*#__PURE__*/React.createElement("div", {
-        className: "p-4",
-        style: {
-          height: "calc(85vh - 56px)"
-        }
-      }, chartLoading ? /*#__PURE__*/React.createElement("div", {
-        className: "flex items-center justify-center h-full text-sm text-[#6b7280]"
-      }, "Loading candles\u2026") : chartError ? /*#__PURE__*/React.createElement("div", {
-        className: "flex items-center justify-center h-full text-sm text-yellow-300"
-      }, "Failed to load candles: ", chartError) : !Array.isArray(chartCandles) || chartCandles.length < 2 ? /*#__PURE__*/React.createElement("div", {
-        className: "flex items-center justify-center h-full text-sm text-[#6b7280]"
-      }, "No candles yet for this timeframe.") : /*#__PURE__*/React.createElement(LWChart, {
-        candles: chartCandles,
-        chartTf: chartTf,
-        overlays: chartOverlays,
-        onCrosshair: key => setChartOverlays(prev => ({
-          ...prev,
-          [key]: !prev[key]
-        })),
-        height: Math.min(window.innerHeight * 0.75, 700)
-      })))), document.body), (() => {
         // Use position SL/TP when available (correct for SHORT trades)
         const posSlRaw = ticker?.has_open_position ? Number(ticker?.position_sl) : NaN;
         const posTpRaw = ticker?.has_open_position ? Number(ticker?.position_tp) : NaN;
@@ -1977,7 +1817,7 @@
         const tierCards = [{
           tp: tpTrim,
           rr: rrTrim,
-          label: "TP1",
+          label: "Take Profit 1",
           sub: "Trim 60%",
           icon: "🎯",
           bg: "bg-yellow-500/10",
@@ -1986,7 +1826,7 @@
         }, {
           tp: tpExit,
           rr: rrExit,
-          label: "TP2",
+          label: "Take Profit 2",
           sub: "Exit 85%",
           icon: "💰",
           bg: "bg-orange-500/10",
@@ -1995,7 +1835,7 @@
         }, {
           tp: tpRunner,
           rr: rrRunner,
-          label: "TP3",
+          label: "Take Profit 3",
           sub: "Runner",
           icon: "🚀",
           bg: "bg-teal-500/10",
@@ -2011,9 +1851,8 @@
         }, /*#__PURE__*/React.createElement("div", {
           className: `p-2.5 rounded border flex items-center justify-between ${tslActive ? "bg-white/[0.02] border-white/[0.08]" : "bg-red-500/10 border-red-500/30"}`
         }, /*#__PURE__*/React.createElement("span", {
-          className: `text-xs font-semibold ${tslActive ? "text-[#6b7280]" : "text-red-400"}`,
-          title: "Stop Loss"
-        }, "SL"), /*#__PURE__*/React.createElement("span", {
+          className: `text-xs font-semibold ${tslActive ? "text-[#6b7280]" : "text-red-400"}`
+        }, "Stop Loss"), /*#__PURE__*/React.createElement("span", {
           className: `text-xs font-bold ${tslActive ? "text-[#6b7280]" : "text-red-400"}`
         }, tslActive && slOrig ? `$${slOrig.toFixed(2)}` : `$${sl.toFixed(2)}`), !tslActive && Number.isFinite(slDistPct) && /*#__PURE__*/React.createElement("span", {
           className: "text-[9px] text-red-300/70"
@@ -2054,7 +1893,7 @@
           }, tier.rr.toFixed(2), ":1"))), /*#__PURE__*/React.createElement("div", {
             className: "h-1.5 bg-white/[0.06] rounded-full overflow-hidden"
           }, /*#__PURE__*/React.createElement("div", {
-            className: `h-full ${tier.label === "TP1" ? "bg-yellow-500" : tier.label === "TP2" ? "bg-orange-500" : "bg-teal-500"} transition-all`,
+            className: `h-full ${tier.label.includes("1") ? "bg-yellow-500" : tier.label.includes("2") ? "bg-orange-500" : "bg-teal-500"} transition-all`,
             style: {
               width: `${Math.round(progress * 100)}%`
             }
@@ -2079,13 +1918,7 @@
           className: "font-bold text-teal-400"
         }, "$", legacyMax.toFixed(2))), Number.isFinite(tpPct(legacyMax)) && /*#__PURE__*/React.createElement("span", {
           className: "text-[9px] text-[#6b7280]"
-        }, tpPct(legacyMax).toFixed(1), "%"))) : null), Number.isFinite(rr) && /*#__PURE__*/React.createElement("div", {
-          className: "mt-2 pt-2 border-t border-white/[0.04] flex items-center justify-between text-xs"
-        }, /*#__PURE__*/React.createElement("span", {
-          className: "text-[10px] text-[#6b7280]"
-        }, "R:R (to TP2)"), /*#__PURE__*/React.createElement("span", {
-          className: `font-bold ${rr >= 2 ? 'text-teal-400' : rr >= 1 ? 'text-blue-400' : 'text-orange-400'}`
-        }, rr.toFixed(2), ":1")));
+        }, tpPct(legacyMax).toFixed(1), "%"))) : null));
       })(), /*#__PURE__*/React.createElement("div", {
         className: "space-y-2.5 text-sm"
       }, (() => {
@@ -2259,13 +2092,37 @@
         }, volTier), Number.isFinite(volPct) && /*#__PURE__*/React.createElement("span", {
           className: "text-[#6b7280]"
         }, volPct, "% ATR/px")))));
-      })(), /*#__PURE__*/React.createElement("div", {
-        className: "flex justify-between items-center py-1 border-b border-white/[0.06]/50"
-      }, /*#__PURE__*/React.createElement("span", {
-        className: "text-[#6b7280]"
-      }, "Score"), /*#__PURE__*/React.createElement("span", {
-        className: "font-semibold text-blue-400 text-lg"
-      }, Number.isFinite(displayScore) ? displayScore.toFixed(1) : "—")), rankTotal > 0 && /*#__PURE__*/React.createElement("div", {
+      })(), (() => {
+        const mp = ticker?.momentum_pct || {};
+        const adr14 = Number(ticker?.adr_14);
+        const avgVol30 = Number(ticker?.avg_vol_30);
+        const w = mp.week != null ? Number(mp.week) : null;
+        const m = mp.month != null ? Number(mp.month) : null;
+        const m3 = mp.three_months != null ? Number(mp.three_months) : null;
+        const m6 = mp.six_months != null ? Number(mp.six_months) : null;
+        const okAdr = Number.isFinite(adr14) && adr14 >= 2;
+        const okVol = Number.isFinite(avgVol30) && avgVol30 >= 2_000_000;
+        const okW = Number.isFinite(w) && w >= 10;
+        const okM = Number.isFinite(m) && m >= 25;
+        const ok3 = Number.isFinite(m3) && m3 >= 50;
+        const ok6 = Number.isFinite(m6) && m6 >= 100;
+        const okAnyMomentum = okW || okM || ok3 || ok6;
+        const okBase = okAdr && okVol;
+        const computedElite = okBase && okAnyMomentum;
+        const elite = !!flags.momentum_elite || computedElite;
+        if (!elite) return null;
+        return /*#__PURE__*/React.createElement("div", {
+          className: "border-t border-white/[0.06] my-3 pt-3"
+        }, /*#__PURE__*/React.createElement("div", {
+          className: "flex items-center justify-between mb-2"
+        }, /*#__PURE__*/React.createElement("span", {
+          className: "text-sm font-extrabold text-purple-300 tracking-wide"
+        }, "\uD83D\uDE80 MOMENTUM ELITE"), /*#__PURE__*/React.createElement("span", {
+          className: "text-[10px] px-2 py-0.5 rounded border bg-purple-500/25 border-purple-400/50 text-purple-200 font-bold"
+        }, "ACTIVE")), /*#__PURE__*/React.createElement("div", {
+          className: "text-[10px] text-purple-200/70 space-y-0.5"
+        }, okAdr && /*#__PURE__*/React.createElement("div", null, "\u2705 ADR(14D) \u2265 $2 \u2022 $", adr14.toFixed(2)), okVol && /*#__PURE__*/React.createElement("div", null, "\u2705 Vol(30D) \u2265 2M \u2022 ", (avgVol30 / 1_000_000).toFixed(2), "M"), okW && /*#__PURE__*/React.createElement("div", null, "\u2705 1W momentum ", w.toFixed(1), "%"), okM && /*#__PURE__*/React.createElement("div", null, "\u2705 1M momentum ", m.toFixed(1), "%"), ok3 && /*#__PURE__*/React.createElement("div", null, "\u2705 3M momentum ", m3.toFixed(1), "%"), ok6 && /*#__PURE__*/React.createElement("div", null, "\u2705 6M momentum ", m6.toFixed(1), "%")));
+      })(), rankTotal > 0 && /*#__PURE__*/React.createElement("div", {
         className: "flex justify-between items-center py-1 border-b border-white/[0.06]/50"
       }, /*#__PURE__*/React.createElement("span", {
         className: "text-[#6b7280]"
@@ -2273,7 +2130,13 @@
         className: "font-semibold"
       }, rankPosition > 0 ? `#${rankPosition} of ${rankTotal}` : "—", rankAsOfText && /*#__PURE__*/React.createElement("span", {
         className: "ml-2 text-[10px] text-[#6b7280] font-normal"
-      }, "(as of ", rankAsOfText, ")"))), false && (() => {
+      }, "(as of ", rankAsOfText, ")"))), /*#__PURE__*/React.createElement("div", {
+        className: "flex justify-between items-center py-1 border-b border-white/[0.06]/50"
+      }, /*#__PURE__*/React.createElement("span", {
+        className: "text-[#6b7280]"
+      }, "Score"), /*#__PURE__*/React.createElement("span", {
+        className: "font-semibold text-blue-400 text-lg"
+      }, Number.isFinite(displayScore) ? displayScore.toFixed(1) : "—")), false && (() => {
         const ml = ticker?.ml || ticker?.model || ticker?.model_v1 || ticker?.ml_v1 || null;
         if (!ml || typeof ml !== "object") return null;
         const p4h = Number(ml?.p_win_4h ?? ml?.p4h ?? ml?.pWin4h);
@@ -2363,36 +2226,6 @@
         }, /*#__PURE__*/React.createElement("span", {
           className: interp1d.color
         }, interp1d.text))));
-      })(), (() => {
-        const mp = ticker?.momentum_pct || {};
-        const adr14 = Number(ticker?.adr_14);
-        const avgVol30 = Number(ticker?.avg_vol_30);
-        const w = mp.week != null ? Number(mp.week) : null;
-        const m = mp.month != null ? Number(mp.month) : null;
-        const m3 = mp.three_months != null ? Number(mp.three_months) : null;
-        const m6 = mp.six_months != null ? Number(mp.six_months) : null;
-        const okAdr = Number.isFinite(adr14) && adr14 >= 2;
-        const okVol = Number.isFinite(avgVol30) && avgVol30 >= 2_000_000;
-        const okW = Number.isFinite(w) && w >= 10;
-        const okM = Number.isFinite(m) && m >= 25;
-        const ok3 = Number.isFinite(m3) && m3 >= 50;
-        const ok6 = Number.isFinite(m6) && m6 >= 100;
-        const okAnyMomentum = okW || okM || ok3 || ok6;
-        const okBase = okAdr && okVol;
-        const computedElite = okBase && okAnyMomentum;
-        const elite = !!flags.momentum_elite || computedElite;
-        if (!elite) return null;
-        return /*#__PURE__*/React.createElement("div", {
-          className: "border-t border-white/[0.06] my-3 pt-3"
-        }, /*#__PURE__*/React.createElement("div", {
-          className: "flex items-center justify-between mb-2"
-        }, /*#__PURE__*/React.createElement("span", {
-          className: "text-sm font-extrabold text-purple-300 tracking-wide"
-        }, "\uD83D\uDE80 MOMENTUM ELITE"), /*#__PURE__*/React.createElement("span", {
-          className: "text-[10px] px-2 py-0.5 rounded border bg-purple-500/25 border-purple-400/50 text-purple-200 font-bold"
-        }, "ACTIVE")), /*#__PURE__*/React.createElement("div", {
-          className: "text-[10px] text-purple-200/70 space-y-0.5"
-        }, okAdr && /*#__PURE__*/React.createElement("div", null, "\u2705 ADR(14D) \u2265 $2 \u2022 $", adr14.toFixed(2)), okVol && /*#__PURE__*/React.createElement("div", null, "\u2705 Vol(30D) \u2265 2M \u2022 ", (avgVol30 / 1_000_000).toFixed(2), "M"), okW && /*#__PURE__*/React.createElement("div", null, "\u2705 1W momentum ", w.toFixed(1), "%"), okM && /*#__PURE__*/React.createElement("div", null, "\u2705 1M momentum ", m.toFixed(1), "%"), ok3 && /*#__PURE__*/React.createElement("div", null, "\u2705 3M momentum ", m3.toFixed(1), "%"), ok6 && /*#__PURE__*/React.createElement("div", null, "\u2705 6M momentum ", m6.toFixed(1), "%")));
       })(), (() => {
         const breakdown = calculateScoreBreakdown(ticker);
         const breakdownComponents = [{
