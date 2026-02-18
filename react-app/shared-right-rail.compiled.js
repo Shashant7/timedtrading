@@ -1550,37 +1550,37 @@
           if (val >= 1e6) return `$${(val / 1e6).toFixed(0)}M`;
           return `$${val.toLocaleString()}`;
         };
+        const nextEarnTs = Number(events?.next_earnings_ts || 0) || 0;
+        const lastEarnEvt = Number(events?.last_earnings_ts || 0) || lastEarnTs;
         return /*#__PURE__*/React.createElement("div", {
-          className: "mb-4 p-3 bg-white/[0.03] border border-white/[0.06] rounded-lg"
+          className: "mb-3 px-2.5 py-2 bg-white/[0.03] border border-white/[0.06] rounded-lg"
         }, /*#__PURE__*/React.createElement("div", {
-          className: "text-xs text-[#6b7280] font-semibold uppercase tracking-wide mb-2"
-        }, "Context"), name ? /*#__PURE__*/React.createElement("div", {
-          className: "text-sm font-semibold text-white leading-snug"
-        }, name) : null, description ? /*#__PURE__*/React.createElement("div", {
-          className: "mt-1 text-xs text-[#6b7280] leading-snug"
-        }, description) : null, /*#__PURE__*/React.createElement("div", {
-          className: "mt-1 text-[11px] text-[#6b7280]"
-        }, [enrichedSector, enrichedIndustry, country].filter(Boolean).join(" • ") || "—"), marketCap || lastEarnTs || events?.next_earnings_ts ? /*#__PURE__*/React.createElement("div", {
-          className: "mt-2 grid grid-cols-2 gap-2 text-[10px]"
-        }, marketCap ? /*#__PURE__*/React.createElement("div", {
-          className: "p-2 bg-white/[0.02] border border-white/[0.06] rounded"
-        }, /*#__PURE__*/React.createElement("div", {
-          className: "text-[9px] text-[#6b7280] mb-1"
-        }, "Market Cap"), /*#__PURE__*/React.createElement("div", {
-          className: "text-xs font-semibold text-white"
-        }, fmtMCap(marketCap))) : null, events?.next_earnings_ts ? /*#__PURE__*/React.createElement("div", {
-          className: "p-2 bg-blue-500/10 border border-blue-500/30 rounded"
-        }, /*#__PURE__*/React.createElement("div", {
-          className: "text-[9px] text-blue-400 mb-1"
-        }, "Next Earnings"), /*#__PURE__*/React.createElement("div", {
-          className: "text-xs font-semibold text-white"
-        }, fmtDate(events.next_earnings_ts))) : lastEarnTs ? /*#__PURE__*/React.createElement("div", {
-          className: "p-2 bg-white/[0.02] border border-white/[0.06] rounded"
-        }, /*#__PURE__*/React.createElement("div", {
-          className: "text-[9px] text-[#6b7280] mb-1"
-        }, "Last Earnings"), /*#__PURE__*/React.createElement("div", {
-          className: "text-xs font-semibold text-white"
-        }, fmtDate(lastEarnTs))) : null) : null);
+          className: "flex items-center justify-between gap-2"
+        }, name ? /*#__PURE__*/React.createElement("div", {
+          className: "text-xs font-semibold text-white truncate"
+        }, name) : null, marketCap ? /*#__PURE__*/React.createElement("span", {
+          className: "text-[10px] text-slate-400 font-medium whitespace-nowrap"
+        }, fmtMCap(marketCap)) : null), /*#__PURE__*/React.createElement("div", {
+          className: "text-[10px] text-[#6b7280] mt-0.5"
+        }, [enrichedSector, enrichedIndustry, country].filter(Boolean).join(" • ") || "—"), description ? /*#__PURE__*/React.createElement("div", {
+          className: "mt-1 text-[10px] text-[#6b7280] leading-snug",
+          style: {
+            display: "-webkit-box",
+            WebkitLineClamp: 2,
+            WebkitBoxOrient: "vertical",
+            overflow: "hidden"
+          }
+        }, description) : null, lastEarnEvt || nextEarnTs ? /*#__PURE__*/React.createElement("div", {
+          className: "mt-1.5 flex items-center gap-3 text-[10px]"
+        }, lastEarnEvt ? /*#__PURE__*/React.createElement("span", {
+          className: "text-[#6b7280]"
+        }, "Last Earnings: ", /*#__PURE__*/React.createElement("span", {
+          className: "text-slate-300 font-medium"
+        }, fmtDate(lastEarnEvt))) : null, nextEarnTs ? /*#__PURE__*/React.createElement("span", {
+          className: "text-blue-400"
+        }, "Next: ", /*#__PURE__*/React.createElement("span", {
+          className: "font-medium text-blue-300"
+        }, fmtDate(nextEarnTs))) : null) : null);
       })(), prime && /*#__PURE__*/React.createElement("div", {
         className: "mb-4 p-3 bg-green-500/20 border-2 border-green-500 rounded-lg text-center font-bold text-green-500 prime-glow"
       }, "\uD83D\uDC8E PRIME SETUP \uD83D\uDC8E"), /*#__PURE__*/React.createElement("div", {
