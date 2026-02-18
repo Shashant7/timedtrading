@@ -181,12 +181,16 @@ async function alpacaStreamStop(env) {
   }
 }
 
-async function alpacaStreamGetPrices(env) {
+async function alpacaStreamGetPrices(env, symbols = null) {
   if (!env.ALPACA_STREAM) return null;
   try {
     const id = env.ALPACA_STREAM.idFromName("global");
     const stub = env.ALPACA_STREAM.get(id);
-    const res = await stub.fetch(new Request("https://internal/prices"));
+    const u = new URL("https://internal/prices");
+    if (Array.isArray(symbols) && symbols.length > 0) {
+      u.searchParams.set("symbols", symbols.map(s => String(s || "").toUpperCase().trim()).filter(Boolean).join(","));
+    }
+    const res = await stub.fetch(new Request(u.toString()));
     const json = await res.json();
     return json.ok ? json.prices : null;
   } catch (e) {
@@ -328,6 +332,7 @@ const ROUTES = [
   ["GET", "/timed/ingest-audit", "GET /timed/ingest-audit"],
   ["GET", "/timed/health", "GET /timed/health"],
   ["GET", "/timed/alpaca-stream/status", "GET /timed/alpaca-stream/status"],
+  ["GET", "/timed/alpaca-stream/prices", "GET /timed/alpaca-stream/prices"],
   ["POST", "/timed/alpaca-stream/start", "POST /timed/alpaca-stream/start"],
   ["POST", "/timed/alpaca-stream/stop", "POST /timed/alpaca-stream/stop"],
   ["GET", "/timed/auth", "GET /timed/auth"],
@@ -446,6 +451,16 @@ const ROUTES = [
   ["GET", "/timed/auth/login", "GET /timed/auth/login"],
   ["GET", "/timed/me", "GET /timed/me"],
   ["POST", "/timed/accept-terms", "POST /timed/accept-terms"],
+  // ── User-Added Tickers (Phase 5) ──
+  ["GET", "/timed/user-tickers", "GET /timed/user-tickers"],
+  ["POST", "/timed/user-tickers", "POST /timed/user-tickers"],
+  ["DELETE", (p) => /^\/timed\/user-tickers\/[A-Z0-9!.-]+$/i.test(p), "DELETE /timed/user-tickers/:ticker"],
+  ["GET", "/timed/user-tickers/system-stats", "GET /timed/user-tickers/system-stats"],
+  // ── User Tickers (Phase 5) ──
+  ["GET", "/timed/user-tickers", "GET /timed/user-tickers"],
+  ["POST", "/timed/user-tickers", "POST /timed/user-tickers"],
+  ["DELETE", (p) => /^\/timed\/user-tickers\/[A-Z0-9._!-]+$/i.test(p), "DELETE /timed/user-tickers/:ticker"],
+  ["GET", "/timed/user-tickers/system-stats", "GET /timed/user-tickers/system-stats"],
   ["GET", "/timed/admin/users", "GET /timed/admin/users"],
   ["POST", (p) => /^\/timed\/admin\/users\/[^/]+\/tier$/.test(p), "POST /timed/admin/users/:email/tier"],
   // ── ETF Holdings Sync ──
@@ -7658,9 +7673,9 @@ async function processTradeSimulation(
     //   Gate 2: Directional concentration — max 5 same-direction positions
     //   Gate 3: Correlation guard — block if highly correlated with existing
     //   Safety net: MAX_DAILY_ENTRIES to prevent runaway crons
-    const MAX_PER_SECTOR = 3;           // max open positions in one sector
+    const MAX_PER_SECTOR = 5;           // max open positions in one sector
     const MAX_SAME_DIRECTION = 12;      // max positions in same direction (long/short)
-    const CORRELATION_SECTOR_THRESHOLD = 2; // if 2+ positions already in same sector, treat as correlated
+    const CORRELATION_SECTOR_THRESHOLD = 3; // if 3+ positions already in same sector, require higher quality
     const MAX_DAILY_ENTRIES = 10;       // safety net (up from 5)
     
     let smartGateBlocked = false;
@@ -7815,6 +7830,19 @@ async function processTradeSimulation(
       }
     }
     if (isEnter && !weekendNow && !outsideRTH && enterCooldownOk && !sameEnterCycle && !openTrade && !recentTradeBlocked && !smartGateBlocked) {
+      // Clear stale block reason from KV so UI shows "ready" immediately
+      if (!isReplay && KV) {
+        try {
+          const latestKey = `timed:latest:${sym}`;
+          const cur = await kvGetJSON(KV, latestKey);
+          if (cur && (cur.__entry_block_reason || cur.__setup_reason)) {
+            delete cur.__entry_block_reason;
+            delete cur.__setup_reason;
+            cur.__execution_ready = true;
+            await kvPutJSON(KV, latestKey, cur);
+          }
+        } catch (_) { /* non-critical */ }
+      }
       console.log(`[ENTRY_CREATE_START] ${sym} passed all gates, attempting trade creation`);
       const entryPx = Number(entryPxCandidate);
       let slCandidate = Number(tickerData?.sl ?? tickerData?.sl_price ?? tickerData?.stop_loss);
@@ -12549,6 +12577,127 @@ async function d1EnsureAdminSchema(env) {
   } catch (e) {
     console.error("[ADMIN] Schema migration failed:", String(e).slice(0, 200));
   }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// Phase 5 — User-Added Tickers
+// ═══════════════════════════════════════════════════════════════════════
+
+let _userTickersSchemaReady = false;
+async function d1EnsureUserTickersSchema(env) {
+  if (_userTickersSchemaReady) return;
+  const db = env?.DB;
+  if (!db) return;
+  try {
+    await db.prepare(
+      `CREATE TABLE IF NOT EXISTS user_tickers (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_email TEXT NOT NULL,
+        ticker TEXT NOT NULL,
+        added_at INTEGER NOT NULL,
+        deleted_at INTEGER,
+        UNIQUE(user_email, ticker)
+      )`
+    ).run();
+    try {
+      await db.prepare(`CREATE INDEX IF NOT EXISTS idx_ut_email ON user_tickers(user_email)`).run();
+      await db.prepare(`CREATE INDEX IF NOT EXISTS idx_ut_ticker ON user_tickers(ticker)`).run();
+    } catch { /* indexes may already exist */ }
+    _userTickersSchemaReady = true;
+  } catch (e) {
+    console.error("[USER_TICKERS] Schema migration failed:", String(e).slice(0, 200));
+  }
+}
+
+const USER_TICKER_SLOT_LIMITS = { free: 3, member: 3, pro: 10, vip: 10, admin: 50 };
+const USER_TICKER_SYSTEM_CAP = 200;
+const USER_TICKER_HOLD_DAYS = 7;
+const USER_TICKER_DAILY_SWAPS = 1;
+
+async function d1GetActiveUserTickers(env) {
+  const db = env?.DB;
+  if (!db) return [];
+  try {
+    await d1EnsureUserTickersSchema(env);
+    const rows = await db.prepare(
+      `SELECT DISTINCT ticker FROM user_tickers WHERE deleted_at IS NULL`
+    ).all();
+    return (rows?.results || []).map(r => r.ticker);
+  } catch (e) {
+    console.warn("[USER_TICKERS] Failed to fetch active tickers:", String(e?.message || e).slice(0, 200));
+    return [];
+  }
+}
+
+let _userTickersCache = null;
+let _userTickersCacheTs = 0;
+async function d1GetActiveUserTickersCached(env) {
+  const now = Date.now();
+  if (_userTickersCache && (now - _userTickersCacheTs) < 60_000) return _userTickersCache;
+  _userTickersCache = await d1GetActiveUserTickers(env);
+  _userTickersCacheTs = now;
+  return _userTickersCache;
+}
+
+function getUserSlotLimit(user) {
+  const tier = String(user?.tier || user?.role || "free").toLowerCase();
+  return USER_TICKER_SLOT_LIMITS[tier] || USER_TICKER_SLOT_LIMITS.free;
+}
+
+async function d1GetUserSlots(env, email) {
+  const db = env?.DB;
+  if (!db) return [];
+  await d1EnsureUserTickersSchema(env);
+  const rows = await db.prepare(
+    `SELECT * FROM user_tickers WHERE user_email = ? ORDER BY added_at DESC`
+  ).bind(email).all();
+  const now = Date.now();
+  return (rows?.results || []).map(r => ({
+    ...r,
+    active: r.deleted_at == null,
+    held: r.deleted_at != null && (now - r.deleted_at) < USER_TICKER_HOLD_DAYS * 86400000,
+  }));
+}
+
+async function d1CountUniqueNewUserTickers(env) {
+  const db = env?.DB;
+  if (!db) return 0;
+  try {
+    await d1EnsureUserTickersSchema(env);
+    const coreSet = new Set(Object.keys(SECTOR_MAP));
+    const rows = await db.prepare(
+      `SELECT DISTINCT ticker FROM user_tickers WHERE deleted_at IS NULL`
+    ).all();
+    let count = 0;
+    for (const r of rows?.results || []) {
+      if (!coreSet.has(r.ticker)) count++;
+    }
+    return count;
+  } catch { return 0; }
+}
+
+async function d1CountUserSwapsToday(env, email) {
+  const db = env?.DB;
+  if (!db) return 0;
+  const todayStart = new Date();
+  todayStart.setUTCHours(0, 0, 0, 0);
+  try {
+    const row = await db.prepare(
+      `SELECT COUNT(*) as cnt FROM user_tickers WHERE user_email = ? AND deleted_at >= ?`
+    ).bind(email, todayStart.getTime()).first();
+    return row?.cnt || 0;
+  } catch { return 0; }
+}
+
+async function d1TickerHasCandles(env, ticker) {
+  const db = env?.DB;
+  if (!db) return false;
+  try {
+    const row = await db.prepare(
+      `SELECT 1 FROM ticker_candles WHERE ticker = ? LIMIT 1`
+    ).bind(ticker).first();
+    return !!row;
+  } catch { return false; }
 }
 
 async function d1EnqueueMlV1(env, ticker, payload, horizonsMs) {
@@ -20033,7 +20182,7 @@ export default {
                     const pSector = getSector(String(p.ticker).toUpperCase()) || "UNKNOWN";
                     if (pSector === tkSector && tkSector !== "UNKNOWN") sectorCnt++;
                   }
-                  if (sectorCnt >= 3) blockReasons.push(`sector_full:${sectorCnt}/3 ${tkSector}`);
+                  if (sectorCnt >= 5) blockReasons.push(`sector_full:${sectorCnt}/5 ${tkSector}`);
                   // Directional concentration
                   let dirCnt = 0;
                   for (const p of openPositions) {
@@ -20041,7 +20190,7 @@ export default {
                   }
                   if (dirCnt >= 12) blockReasons.push(`direction_full:${dirCnt}/12 ${tkDir}`);
                   // Correlation guard
-                  if (sectorCnt >= 2 && !blockReasons.some(r => r.startsWith("sector_full"))) {
+                  if (sectorCnt >= 3 && !blockReasons.some(r => r.startsWith("sector_full"))) {
                     const eq = Number(data?.entry_quality?.score || data?.__entry_quality) || 0;
                     if (eq > 0 && eq < 75) blockReasons.push(`correlated:${sectorCnt} in ${tkSector}`);
                   }
@@ -20331,6 +20480,66 @@ export default {
               }
             } catch (_) { /* price overlay failed — serve snapshot as-is */ }
 
+            // ── Read-time execution readiness (RTH + concentration gates) ──
+            // The snapshot carries block reasons from the scoring cron, which may
+            // be stale (e.g. "outside_RTH" written pre-market, still present after
+            // market opens). Re-evaluate at read time using current clock.
+            try {
+              let snapRthBlock = null;
+              if (!isNyRegularMarketOpen()) {
+                const nowDow = new Date().toLocaleString("en-US", { timeZone: "America/New_York", weekday: "short" });
+                snapRthBlock = (nowDow === "Sat" || nowDow === "Sun") ? "weekend" : "outside_RTH";
+              }
+              // Load open positions for concentration checks (lightweight D1 query)
+              let snapOpenPositions = [];
+              if (env?.DB && !snapRthBlock) {
+                try {
+                  const posResult = await env.DB.prepare(
+                    `SELECT ticker, direction FROM positions WHERE status = 'OPEN'`
+                  ).all();
+                  snapOpenPositions = posResult?.results || [];
+                } catch { /* non-critical */ }
+              }
+              for (const sym of Object.keys(data)) {
+                const obj = data[sym];
+                if (!obj) continue;
+                // Skip position tickers — their block reasons are managed differently
+                const isPositionTicker = snapOpenPositions.some(p => String(p.ticker).toUpperCase() === sym);
+                if (isPositionTicker) continue;
+                const tickerBlockReasons = [];
+                if (snapRthBlock) tickerBlockReasons.push(snapRthBlock);
+                // Per-ticker concentration checks (only during RTH)
+                if (!snapRthBlock && snapOpenPositions.length > 0) {
+                  const tkSector = getSector(sym) || "UNKNOWN";
+                  const entryPathCheck = String(obj?.__entry_path || obj?.entry_path || obj?.state || "").toLowerCase();
+                  const tkDir = entryPathCheck.includes("short") ? "SHORT" : "LONG";
+                  let sectorCnt = 0;
+                  for (const p of snapOpenPositions) {
+                    const pSector = getSector(String(p.ticker).toUpperCase()) || "UNKNOWN";
+                    if (pSector === tkSector && tkSector !== "UNKNOWN") sectorCnt++;
+                  }
+                  if (sectorCnt >= 5) tickerBlockReasons.push(`sector_full:${sectorCnt}/5 ${tkSector}`);
+                  let dirCnt = 0;
+                  for (const p of snapOpenPositions) {
+                    if (String(p.direction).toUpperCase() === tkDir) dirCnt++;
+                  }
+                  if (dirCnt >= 12) tickerBlockReasons.push(`direction_full:${dirCnt}/12 ${tkDir}`);
+                  if (sectorCnt >= 3 && !tickerBlockReasons.some(r => r.startsWith("sector_full"))) {
+                    const eq = Number(obj?.entry_quality?.score || obj?.__entry_quality) || 0;
+                    if (eq > 0 && eq < 75) tickerBlockReasons.push(`correlated:${sectorCnt} in ${tkSector}`);
+                  }
+                }
+                delete obj.__entry_block_reason;
+                if (tickerBlockReasons.length > 0) {
+                  obj.__execution_ready = false;
+                  obj.__execution_block_reason = tickerBlockReasons.join("+");
+                } else {
+                  obj.__execution_ready = true;
+                  delete obj.__execution_block_reason;
+                }
+              }
+            } catch (_) { /* non-critical — serve snapshot with original block reasons */ }
+
             return sendJSON(
               { ok: true, data, count: Object.keys(data).length, source: "kv_snapshot", built_at: snapshot.built_at },
               200,
@@ -20560,15 +20769,15 @@ export default {
                       const pSector = getSector(String(p.ticker).toUpperCase()) || "UNKNOWN";
                       if (pSector === tkSector && tkSector !== "UNKNOWN") sectorCnt++;
                     }
-                    if (sectorCnt >= 3) tickerBlockReasons.push(`sector_full:${sectorCnt}/3 ${tkSector}`);
+                    if (sectorCnt >= 5) tickerBlockReasons.push(`sector_full:${sectorCnt}/5 ${tkSector}`);
                     // Directional concentration
                     let dirCnt = 0;
                     for (const p of execOpenPositions) {
                       if (String(p.direction).toUpperCase() === tkDir) dirCnt++;
                     }
                     if (dirCnt >= 12) tickerBlockReasons.push(`direction_full:${dirCnt}/12 ${tkDir}`);
-                    // Correlation guard: 2+ in same sector → need higher quality
-                    if (sectorCnt >= 2 && !tickerBlockReasons.some(r => r.startsWith("sector_full"))) {
+                    // Correlation guard: 3+ in same sector → need higher quality
+                    if (sectorCnt >= 3 && !tickerBlockReasons.some(r => r.startsWith("sector_full"))) {
                       const eq = Number(obj?.entry_quality?.score || obj?.__entry_quality) || 0;
                       if (eq > 0 && eq < 75) tickerBlockReasons.push(`correlated:${sectorCnt} in ${tkSector}`);
                     }
@@ -21464,8 +21673,11 @@ export default {
         try {
           const cached = await kvGetJSON(KV, "timed:prices");
           if (cached) {
+            const resp = { ok: true, prices: cached.prices || {}, updated_at: cached.updated_at || 0 };
+            if (cached._debug) resp._debug = cached._debug;
+            if (cached._source) resp._source = cached._source;
             return sendJSON(
-              { ok: true, prices: cached.prices || {}, updated_at: cached.updated_at || 0 },
+              resp,
               200,
               { ...corsHeaders(env, req), "Cache-Control": "public, max-age=15" },
             );
@@ -23282,11 +23494,21 @@ export default {
         const status = await alpacaStreamStatus(env);
         return sendJSON(status, 200, corsHeaders(env, req));
       }
+      if (routeKey === "GET /timed/alpaca-stream/prices") {
+        const symbolsParam = url.searchParams.get("symbols");
+        const syms = symbolsParam
+          ? symbolsParam.split(",").map(s => s.trim().toUpperCase()).filter(Boolean)
+          : null;
+        const prices = await alpacaStreamGetPrices(env, syms);
+        return sendJSON({ ok: true, prices: prices || {}, count: prices ? Object.keys(prices).length : 0 }, 200, corsHeaders(env, req));
+      }
       if (routeKey === "POST /timed/alpaca-stream/start") {
         const authFail = await requireKeyOrAdmin(req, env);
         if (authFail) return authFail;
-        const alpacaBlocklist = new Set(["ES1!","NQ1!","YM1!","RTY1!","CL1!","GC1!","SI1!","HG1!","NG1!","BTCUSD","ETHUSD","US500","VX1!","SPX"]);
-        const symbols = Object.keys(SECTOR_MAP).filter(t => !alpacaBlocklist.has(t) && /^[A-Z]{1,5}(-[A-Z]{1,2})?$/.test(t));
+            const alpacaBlocklist = new Set(["ES1!","NQ1!","YM1!","RTY1!","CL1!","GC1!","SI1!","HG1!","NG1!","BTCUSD","ETHUSD","US500","VX1!","SPX"]);
+            // IMPORTANT: avoid dash tickers (except BRK-B which is normalized in the DO),
+            // since a single invalid symbol can break Alpaca subscriptions.
+            const symbols = Object.keys(SECTOR_MAP).filter(t => !alpacaBlocklist.has(t) && (/^[A-Z]{1,5}$/.test(t) || t === "BRK-B"));
         const result = await alpacaStreamStart(env, symbols);
         return sendJSON({ ok: true, result, symbols: symbols.length }, 200, corsHeaders(env, req));
       }
@@ -23338,6 +23560,9 @@ export default {
               : null,
             scoringLastRunMs: scoringTs || null,
             minutesSinceScoring: scoringTs ? (Date.now() - scoringTs) / 60000 : null,
+            scoringElapsedMs: scoringLast?.elapsedMs || null,
+            scoringCore: scoringLast?.core || null,
+            scoringUserAdded: scoringLast?.userAdded || null,
             tickers: tickers.length,
             captureTickers: Array.isArray(captureTickers)
               ? captureTickers.length
@@ -26167,7 +26392,8 @@ export default {
             const prevClose = snap.prevDailyClose;
             const dc = (price && prevClose && prevClose > 0) ? Math.round((price - prevClose) * 100) / 100 : 0;
             const dp = (price && prevClose && prevClose > 0) ? Math.round(((price - prevClose) / prevClose) * 10000) / 100 : 0;
-            prices[sym] = { p: Math.round(price * 100) / 100, pc: Math.round(prevClose * 100) / 100, dc, dp, t: Date.now() };
+            const srcTs = Number(snap?.trade_ts || snap?.minuteBar?.t || snap?.minuteBar?.ts) || 0;
+            prices[sym] = { p: Math.round(price * 100) / 100, pc: Math.round(prevClose * 100) / 100, dc, dp, t: srcTs || Date.now() };
           }
           // Fallback for tickers missing from Alpaca (e.g. single-letter "W")
           const missing = allTickers.filter(s => !prices[s] || !(Number(prices[s]?.p) > 0));
@@ -26177,21 +26403,25 @@ export default {
               try {
                 let price = 0;
                 let prevClose = 0;
+                let srcTs = 0;
                 const res = await d1GetCandles(env, sym, "5", 1);
-                if (res?.ok && res.candles?.length > 0 && Number.isFinite(res.candles[0].c))
+                if (res?.ok && res.candles?.length > 0 && Number.isFinite(res.candles[0].c)) {
                   price = Number(res.candles[0].c);
+                  srcTs = Number(res.candles[0].ts) || 0;
+                }
                 if (!(price > 0) && KV) {
                   const latest = await kvGetJSON(KV, `timed:latest:${sym}`);
                   if (latest && Number(latest.price) > 0) {
                     price = Number(latest.price);
                     prevClose = Number(latest.prev_close || latest.previous_close || 0) || 0;
+                    srcTs = Number(latest.ts || latest.ingest_ts || latest.data_source_ts) || 0;
                   }
                 }
                 if (price > 0) {
                   const pc = prevClose > 0 ? prevClose : 0;
                   const dc = prevClose > 0 ? Math.round((price - prevClose) * 100) / 100 : null;
                   const dp = prevClose > 0 ? Math.round(((price - prevClose) / prevClose) * 10000) / 100 : null;
-                  prices[sym] = { p: Math.round(price * 100) / 100, pc: Math.round(pc * 100) / 100, dc, dp, t: Date.now() };
+                  prices[sym] = { p: Math.round(price * 100) / 100, pc: Math.round(pc * 100) / 100, dc, dp, t: srcTs || Date.now() };
                 }
               } catch (_) { /* best-effort */ }
             }
@@ -27388,6 +27618,200 @@ export default {
           return sendJSON({ ok: true, terms_accepted_at: now }, 200, corsHeaders(env, req));
         } catch (e) {
           console.error("[TERMS] Error recording acceptance:", e);
+          return sendJSON({ ok: false, error: String(e?.message || e) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // ═══════════════════════════════════════════════════════════════════════
+      // USER-ADDED TICKERS — Phase 5
+      // ═══════════════════════════════════════════════════════════════════════
+
+      if (routeKey === "GET /timed/user-tickers/system-stats") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        try {
+          const uniqueNew = await d1CountUniqueNewUserTickers(env);
+          const allActive = await d1GetActiveUserTickers(env);
+          return sendJSON({
+            ok: true,
+            unique_new_tickers: uniqueNew,
+            total_active_links: allActive.length,
+            system_cap: USER_TICKER_SYSTEM_CAP,
+            capacity_remaining: Math.max(0, USER_TICKER_SYSTEM_CAP - uniqueNew),
+          }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      if (routeKey === "GET /timed/user-tickers") {
+        try {
+          const user = await authenticateUser(req, env);
+          if (!user?.email) return sendJSON({ ok: false, error: "auth_required" }, 401, corsHeaders(env, req));
+          const slots = await d1GetUserSlots(env, user.email);
+          const limit = getUserSlotLimit(user);
+          const activeCount = slots.filter(s => s.active || s.held).length;
+          return sendJSON({
+            ok: true,
+            tickers: slots.map(s => ({
+              ticker: s.ticker,
+              added_at: s.added_at,
+              deleted_at: s.deleted_at,
+              active: s.active,
+              held: s.held,
+              held_until: s.held ? s.deleted_at + USER_TICKER_HOLD_DAYS * 86400000 : null,
+            })),
+            slots_used: activeCount,
+            slots_max: limit,
+            tier: user.tier || "free",
+          }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      if (routeKey === "POST /timed/user-tickers") {
+        try {
+          const user = await authenticateUser(req, env);
+          if (!user?.email) return sendJSON({ ok: false, error: "auth_required" }, 401, corsHeaders(env, req));
+
+          const { obj: body } = await readBodyAsJSON(req);
+          const rawTicker = String(body?.ticker || "").toUpperCase().trim();
+          if (!rawTicker || !/^[A-Z]{1,5}(-[A-Z]{1,2})?$/.test(rawTicker)) {
+            return sendJSON({ ok: false, error: "invalid_ticker", detail: "Must be 1-5 uppercase letters (e.g. PLTR, BRK-B)" }, 400, corsHeaders(env, req));
+          }
+
+          const db = env?.DB;
+          if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
+          await d1EnsureUserTickersSchema(env);
+
+          const slots = await d1GetUserSlots(env, user.email);
+          const limit = getUserSlotLimit(user);
+          const activeOrHeld = slots.filter(s => s.active || s.held);
+
+          // Check if already active
+          const existing = slots.find(s => s.ticker === rawTicker && s.active);
+          if (existing) {
+            return sendJSON({ ok: false, error: "already_added", ticker: rawTicker }, 409, corsHeaders(env, req));
+          }
+
+          // Check slot limit
+          if (activeOrHeld.length >= limit) {
+            return sendJSON({
+              ok: false, error: "slot_limit_reached",
+              slots_used: activeOrHeld.length, slots_max: limit,
+              tier: user.tier || "free",
+              detail: `You have ${activeOrHeld.length}/${limit} slots used. Upgrade your plan for more.`,
+            }, 403, corsHeaders(env, req));
+          }
+
+          // Check daily swap budget (only if this is a "re-add after delete" scenario)
+          const swapsToday = await d1CountUserSwapsToday(env, user.email);
+          const wasDeleted = slots.find(s => s.ticker === rawTicker && s.deleted_at != null);
+          if (!wasDeleted && swapsToday >= USER_TICKER_DAILY_SWAPS) {
+            // Only enforce swap limit for genuinely new tickers after a delete happened today
+            const deletedToday = slots.some(s => s.deleted_at != null && s.deleted_at >= new Date().setUTCHours(0, 0, 0, 0));
+            if (deletedToday) {
+              return sendJSON({
+                ok: false, error: "daily_swap_limit",
+                detail: `Max ${USER_TICKER_DAILY_SWAPS} swap(s) per day. Try again tomorrow.`,
+              }, 429, corsHeaders(env, req));
+            }
+          }
+
+          // Check system-wide cap for genuinely new tickers
+          const isInCore = !!SECTOR_MAP[rawTicker];
+          const isAlreadyInSystem = isInCore || (await d1GetActiveUserTickers(env)).includes(rawTicker);
+          if (!isAlreadyInSystem) {
+            const uniqueCount = await d1CountUniqueNewUserTickers(env);
+            if (uniqueCount >= USER_TICKER_SYSTEM_CAP) {
+              return sendJSON({
+                ok: false, error: "system_cap_reached",
+                detail: "The system is at capacity for new unique tickers. Try adding a ticker that's already being tracked.",
+              }, 503, corsHeaders(env, req));
+            }
+          }
+
+          // Upsert: re-activate if soft-deleted, or insert new
+          const now = Date.now();
+          if (wasDeleted) {
+            await db.prepare(
+              `UPDATE user_tickers SET deleted_at = NULL, added_at = ? WHERE user_email = ? AND ticker = ?`
+            ).bind(now, user.email, rawTicker).run();
+          } else {
+            await db.prepare(
+              `INSERT INTO user_tickers (user_email, ticker, added_at) VALUES (?, ?, ?)
+               ON CONFLICT(user_email, ticker) DO UPDATE SET deleted_at = NULL, added_at = excluded.added_at`
+            ).bind(user.email, rawTicker, now).run();
+          }
+
+          // Invalidate the scoring cache
+          _userTickersCache = null;
+
+          // Trigger backfill if ticker has no candle data yet
+          let backfillTriggered = false;
+          if (!isInCore && !(await d1TickerHasCandles(env, rawTicker))) {
+            try {
+              await alpacaBackfill(env, [rawTicker], d1UpsertCandle, "all", 30);
+              backfillTriggered = true;
+              console.log(`[USER_TICKERS] Backfilled candles for new ticker ${rawTicker}`);
+            } catch (e) {
+              console.warn(`[USER_TICKERS] Backfill failed for ${rawTicker}:`, String(e?.message || e).slice(0, 200));
+            }
+          }
+
+          console.log(`[USER_TICKERS] ${user.email} added ${rawTicker} (core: ${isInCore}, backfill: ${backfillTriggered})`);
+          return sendJSON({
+            ok: true,
+            ticker: rawTicker,
+            is_core_ticker: isInCore,
+            backfill_triggered: backfillTriggered,
+            slots_used: activeOrHeld.length + 1,
+            slots_max: limit,
+          }, 200, corsHeaders(env, req));
+        } catch (e) {
+          console.error("[USER_TICKERS] POST error:", e);
+          return sendJSON({ ok: false, error: String(e?.message || e) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      if (routeKey === "DELETE /timed/user-tickers/:ticker") {
+        try {
+          const user = await authenticateUser(req, env);
+          if (!user?.email) return sendJSON({ ok: false, error: "auth_required" }, 401, corsHeaders(env, req));
+
+          const tickerFromPath = url.pathname.split("/timed/user-tickers/")[1]?.toUpperCase();
+          if (!tickerFromPath) return sendJSON({ ok: false, error: "missing_ticker" }, 400, corsHeaders(env, req));
+
+          const db = env?.DB;
+          if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
+          await d1EnsureUserTickersSchema(env);
+
+          const existing = await db.prepare(
+            `SELECT * FROM user_tickers WHERE user_email = ? AND ticker = ? AND deleted_at IS NULL`
+          ).bind(user.email, tickerFromPath).first();
+
+          if (!existing) {
+            return sendJSON({ ok: false, error: "not_found", ticker: tickerFromPath }, 404, corsHeaders(env, req));
+          }
+
+          const now = Date.now();
+          await db.prepare(
+            `UPDATE user_tickers SET deleted_at = ? WHERE user_email = ? AND ticker = ?`
+          ).bind(now, user.email, tickerFromPath).run();
+
+          _userTickersCache = null;
+
+          const heldUntil = now + USER_TICKER_HOLD_DAYS * 86400000;
+          console.log(`[USER_TICKERS] ${user.email} removed ${tickerFromPath} (slot held until ${new Date(heldUntil).toISOString()})`);
+
+          return sendJSON({
+            ok: true,
+            ticker: tickerFromPath,
+            held_until: heldUntil,
+            detail: `Slot held for ${USER_TICKER_HOLD_DAYS} days. It will free on ${new Date(heldUntil).toLocaleDateString()}.`,
+          }, 200, corsHeaders(env, req));
+        } catch (e) {
           return sendJSON({ ok: false, error: String(e?.message || e) }, 500, corsHeaders(env, req));
         }
       }
@@ -35757,12 +36181,29 @@ Provide 3-5 actionable next steps:
         if (env.ALPACA_STREAM) {
           try {
             const streamStatus = await alpacaStreamStatus(env);
-            if (!streamStatus.isRunning && isWithinOperatingHours()) {
+            const shouldBeRunning = isWithinOperatingHours();
+            // Self-heal: if the stream is running but not producing trades/quotes during operating hours,
+            // restart it to pick up updated subscriptions / feed config.
+            if (streamStatus.isRunning && shouldBeRunning) {
+              const uptime = Number(streamStatus.uptime) || 0;
+              const bars = Number(streamStatus.barsReceived) || 0;
+              const trades = Number(streamStatus.tradesReceived) || 0;
+              const stocksConnected = !!streamStatus.stocksConnected;
+              // After 2 minutes, we should have at least some bars/trades if the stream is healthy.
+              if (uptime > 120 && stocksConnected && (bars > 0) && trades === 0) {
+                console.warn(`[ALPACA_STREAM] Restarting — tradesReceived=0 after uptime=${uptime}s (bars=${bars}).`);
+                await alpacaStreamStop(env);
+              }
+            }
+
+            if (!streamStatus.isRunning && shouldBeRunning) {
               const blocklist = new Set(["ES1!","NQ1!","YM1!","RTY1!","CL1!","GC1!","SI1!","HG1!","NG1!","BTCUSD","ETHUSD","US500","VX1!","SPX"]);
-              const symbols = Object.keys(SECTOR_MAP).filter(t => !blocklist.has(t) && /^[A-Z]{1,5}(-[A-Z]{1,2})?$/.test(t));
+              const userAddedForStream = await d1GetActiveUserTickersCached(env);
+              const symbols = [...new Set([...Object.keys(SECTOR_MAP), ...userAddedForStream])]
+                .filter(t => !blocklist.has(t) && (/^[A-Z]{1,5}$/.test(t) || t === "BRK-B"));
               const startRes = await alpacaStreamStart(env, symbols);
               console.log(`[ALPACA_STREAM] Started: ${symbols.length} symbols, result:`, JSON.stringify(startRes).slice(0, 200));
-            } else if (streamStatus.isRunning && !isWithinOperatingHours()) {
+            } else if (streamStatus.isRunning && !shouldBeRunning) {
               const stopRes = await alpacaStreamStop(env);
               console.log("[ALPACA_STREAM] Stopped (outside operating hours):", JSON.stringify(stopRes).slice(0, 200));
             }
@@ -35788,11 +36229,15 @@ Provide 3-5 actionable next steps:
               "ES1!", "NQ1!", "YM1!", "RTY1!", "CL1!", "GC1!", "SI1!",
               "BTCUSD", "ETHUSD", "US500", "VX1!", "SPX",
             ]);
-            const allTickers = Object.keys(SECTOR_MAP).filter(
+            const userAddedForAlpaca = await d1GetActiveUserTickersCached(env);
+            const allTickers = [...new Set([
+              ...Object.keys(SECTOR_MAP),
+              ...userAddedForAlpaca,
+            ])].filter(
               t => !ALPACA_SYMBOL_BLOCKLIST.has(t) && /^[A-Z]{1,5}(-[A-Z]{1,2})?$/.test(t)
             );
             const result = await alpacaCronFetchLatest(env, allTickers, d1UpsertCandle);
-            console.log(`[ALPACA CRON] Fetched bars for ${allTickers.length} stocks: ${result.upserted} upserted, ${result.errors} errors`);
+            console.log(`[ALPACA CRON] Fetched bars for ${allTickers.length} stocks (${userAddedForAlpaca.length} user-added): ${result.upserted} upserted, ${result.errors} errors`);
           } catch (err) {
             console.error("[ALPACA CRON] Error:", err);
           }
@@ -35832,7 +36277,8 @@ Provide 3-5 actionable next steps:
     if (isPriceFeedCron && env.ALPACA_ENABLED === "true") {
       const KV = env.KV_TIMED;
       try {
-        const allTickers = Object.keys(SECTOR_MAP);
+        const userAddedForPriceFeed = await d1GetActiveUserTickersCached(env);
+        const allTickers = [...new Set([...Object.keys(SECTOR_MAP), ...userAddedForPriceFeed])];
 
         // ── Lightweight mode: overlay TV futures + crypto onto existing prices ──
         // Runs during 2-8 AM UTC when stocks aren't actively trading.
@@ -35943,7 +36389,8 @@ Provide 3-5 actionable next steps:
         let usedStream = false;
         if (env.ALPACA_STREAM) {
           try {
-            const streamPrices = await alpacaStreamGetPrices(env);
+            // Request only our equity universe to keep payload small and avoid KV size blowups.
+            const streamPrices = await alpacaStreamGetPrices(env, alpacaUniverseTickers);
             if (streamPrices && Object.keys(streamPrices).length > 50) {
               // Convert stream prices to snapshot format expected by the rest of the pipeline
               for (const [sym, data] of Object.entries(streamPrices)) {
@@ -36167,6 +36614,12 @@ Provide 3-5 actionable next steps:
           const dailyChangePct = (price && prevClose && prevClose > 0)
             ? Math.round(((price - prevClose) / prevClose) * 10000) / 100
             : null;
+          const srcTs = (() => {
+            const t1 = Number(snap?.trade_ts) || 0;
+            const t2 = Number(snap?.minuteBar?.ts || snap?.minuteBar?.t) || 0;
+            const t = Math.max(t1, t2);
+            return Number.isFinite(t) && t > 0 ? t : 0;
+          })();
           prices[sym] = {
             p: Math.round(price * 100) / 100,          // current price
             pc: Math.round(prevClose * 100) / 100,      // previous close
@@ -36175,7 +36628,7 @@ Provide 3-5 actionable next steps:
             dh: Math.round((snap.dailyHigh || 0) * 100) / 100,  // daily high
             dl: Math.round((snap.dailyLow || 0) * 100) / 100,   // daily low
             dv: snap.dailyVolume || 0,                    // daily volume
-            t: Date.now(),                                // per-ticker timestamp
+            t: srcTs,                                     // per-ticker source timestamp (trade/bar)
           };
         }
 
@@ -36194,6 +36647,12 @@ Provide 3-5 actionable next steps:
             const dailyChangePct = (price && prevClose && prevClose > 0)
               ? Math.round(((price - prevClose) / prevClose) * 10000) / 100
               : null;
+            const srcTs = (() => {
+              const t1 = Number(snap?.trade_ts) || 0;
+              const t2 = Number(snap?.minuteBar?.ts || snap?.minuteBar?.t) || 0;
+              const t = Math.max(t1, t2);
+              return Number.isFinite(t) && t > 0 ? t : 0;
+            })();
             prices[sym] = {
               p: Math.round(price * 100) / 100,
               pc: Math.round(prevClose * 100) / 100,
@@ -36202,7 +36661,7 @@ Provide 3-5 actionable next steps:
               dh: Math.round((snap.dailyHigh || 0) * 100) / 100,
               dl: Math.round((snap.dailyLow || 0) * 100) / 100,
               dv: snap.dailyVolume || 0,
-              t: Date.now(),
+              t: srcTs,
             };
           }
         }
@@ -36244,14 +36703,18 @@ Provide 3-5 actionable next steps:
             try {
               let price = 0;
               let prevClose = 0;
+              let srcTs = 0;
               const res = await d1GetCandles(env, sym, "5", 1);
-              if (res?.ok && res.candles?.length > 0 && Number.isFinite(res.candles[0].c))
+              if (res?.ok && res.candles?.length > 0 && Number.isFinite(res.candles[0].c)) {
                 price = Number(res.candles[0].c);
+                srcTs = Number(res.candles[0].ts) || 0;
+              }
               if (!(price > 0)) {
                 const latest = await kvGetJSON(KV, `timed:latest:${sym}`);
                 if (latest && Number(latest.price) > 0) {
                   price = Number(latest.price);
                   prevClose = Number(latest.prev_close || latest.previous_close || 0) || 0;
+                  srcTs = Number(latest.ts || latest.ingest_ts || latest.data_source_ts) || 0;
                 }
               }
               if (price > 0) {
@@ -36266,7 +36729,7 @@ Provide 3-5 actionable next steps:
                   pc: Math.round(pc * 100) / 100,
                   dc, dp,
                   dh: price, dl: price, dv: 0,
-                  t: Date.now(),
+                  t: srcTs || 0,
                 };
               }
             } catch (_) { /* best-effort */ }
@@ -36373,33 +36836,78 @@ Provide 3-5 actionable next steps:
         // Guard: if >50% of tickers have pc == p, the prev_close pipeline likely
         // failed (transient KV/D1 error). Preserve the last known good KV data
         // instead of overwriting with broken daily-change values.
+        // EXCEPTION: when data comes from the live WebSocket stream (usedStream=true),
+        // p==pc is a genuine market condition (stocks trading near yesterday's close),
+        // NOT an API staleness signal. Always trust stream data.
         const totalWithPrice = pcEqP + pcZero + pcReal;
         const pcEqPRatio = totalWithPrice > 0 ? pcEqP / totalWithPrice : 0;
-        if (pcEqP > 20 && pcEqPRatio > 0.5) {
-          console.warn(`[PRICE FEED] SKIPPING KV write — pcEqP=${pcEqP}/${totalWithPrice} (${(pcEqPRatio * 100).toFixed(0)}%) suggests prev_close pipeline failure. Preserving last good data.`);
+        const priceUpdateTs = Date.now();
+        let canWrite = usedStream || !(pcEqP > 20 && pcEqPRatio > 0.5);
+        let rescue = null;
+        if (!canWrite && env.ALPACA_STREAM) {
+          try {
+            const streamPrices = await alpacaStreamGetPrices(env);
+            const spCount = streamPrices ? Object.keys(streamPrices).length : 0;
+            let applied = 0;
+            if (streamPrices && spCount > 50) {
+              const now = Date.now();
+              for (const [symRaw, sp] of Object.entries(streamPrices)) {
+                const sym = String(symRaw || "").toUpperCase();
+                const cur = prices[sym];
+                if (!cur) continue;
+                const p = Number(sp?.p);
+                if (!(Number.isFinite(p) && p > 0)) continue;
+                const ts = Number(sp?.t) || 0;
+                if (ts > 0 && (now - ts) > 10 * 60 * 1000) continue;
+
+                const px = Math.round(p * 100) / 100;
+                const pc = Number(cur?.pc) || 0;
+                const dc = pc > 0 ? Math.round((px - pc) * 100) / 100 : null;
+                const dp = pc > 0 ? Math.round(((px - pc) / pc) * 10000) / 100 : null;
+
+                prices[sym] = {
+                  ...cur,
+                  p: px,
+                  dc,
+                  dp,
+                  t: (Number.isFinite(ts) && ts > 0) ? ts : (cur?.t || priceUpdateTs),
+                };
+                applied++;
+              }
+
+              const pcEqP2 = Object.values(prices).filter(v => v.pc === v.p && v.p > 0).length;
+              const pcZero2 = Object.values(prices).filter(v => v.pc === 0).length;
+              const pcReal2 = Object.values(prices).filter(v => v.pc > 0 && v.pc !== v.p).length;
+              const total2 = pcEqP2 + pcZero2 + pcReal2;
+              const ratio2 = total2 > 0 ? pcEqP2 / total2 : 0;
+              rescue = { ok: true, source: "alpaca_stream", spCount, applied, pcEqP2, pcZero2, pcReal2, ratio2 };
+              canWrite = true;
+              console.log(`[PRICE FEED] Rescue applied: ${applied}/${spCount} stream prices merged, pcEqP=${pcEqP2}/${total2} (${(ratio2 * 100).toFixed(0)}%)`);
+            } else {
+              rescue = { ok: false, source: "alpaca_stream", spCount, error: "insufficient_stream_prices" };
+            }
+          } catch (e) {
+            rescue = { ok: false, source: "alpaca_stream", error: String(e?.message || e).slice(0, 160) };
+          }
+        }
+
+        if (!canWrite) {
+          console.warn(`[PRICE FEED] SKIPPING KV write + WS push — pcEqP=${pcEqP}/${totalWithPrice} (${(pcEqPRatio * 100).toFixed(0)}%) suggests prev_close pipeline failure. Preserving last good data.`);
         } else {
-          const priceUpdateTs = Date.now();
           await kvPutJSON(KV, "timed:prices", {
             prices,
             updated_at: priceUpdateTs,
             ticker_count: Object.keys(prices).length,
-            _debug: { d1PcCount, dcMapCount, pcEqP, pcZero, pcReal, cacheHit: prevCloseCacheHit, usedStream, version: "v3-guard", _dbgTickers },
+            _debug: { d1PcCount, dcMapCount, pcEqP, pcZero, pcReal, cacheHit: prevCloseCacheHit, usedStream, rescue, version: "v4-stream-rescue", _dbgTickers },
           });
+
+          // Push prices to WS clients only when KV was written (data is clean)
+          ctx.waitUntil(notifyPriceHub(env, {
+            type: "prices",
+            data: prices,
+            updated_at: priceUpdateTs,
+          }));
         }
-
-        // ── COST OPTIMIZATION: mergeFreshnessIntoLatest REMOVED ──
-        // Previously wrote ~215 individual timed:latest KV keys every non-scoring minute
-        // (~3.8M KV writes/month + ~4M KV reads/month = ~$21/month).
-        // The scoring cron (every 5 min) already writes full payloads with fresh prices.
-        // Real-time prices reach the UI via timed:prices KV key + WebSocket push.
-        // No freshness is lost by removing this.
-
-        // ── Push prices to WebSocket clients via PriceHub DO ──
-        ctx.waitUntil(notifyPriceHub(env, {
-          type: "prices",
-          data: prices,
-          updated_at: priceUpdateTs,
-        }));
 
         // ── SL/TP Exit Checking on price loop ──
         // Check open positions against current prices for fast SL/TP reaction
@@ -36542,10 +37050,12 @@ Provide 3-5 actionable next steps:
         }
 
         const scoringStart = Date.now();
-        const allTickers = Object.keys(SECTOR_MAP);
+        const coreTickers = Object.keys(SECTOR_MAP);
+        const userAddedTickers = await d1GetActiveUserTickersCached(env);
+        const allTickers = [...new Set([...coreTickers, ...userAddedTickers])];
 
-        // Score ALL tickers every cycle — no more rolling cursor
-        // With ~140 tickers and 15-way parallelism, full cycle completes in ~10-15s
+        // Score ALL tickers every cycle (core + user-added)
+        // With ~140+ tickers and 15-way parallelism, full cycle completes in ~10-15s
         let scored = 0, skipped = 0, errors = 0, trailWrites = 0;
         const pendingTrailPoints = []; // Collect trail points for batch write at end
         const scoredUpdates = {}; // Collect scored ticker deltas for WS push
@@ -36733,6 +37243,7 @@ Provide 3-5 actionable next steps:
                 dir: result.bias_direction,
                 price: result.price || result.close,
                 ts: result.trigger_ts,
+                blockReason: result.__entry_block_reason || null,
               };
             } else {
               skipped++;
@@ -36799,8 +37310,13 @@ Provide 3-5 actionable next steps:
         }
 
         const elapsed = Date.now() - scoringStart;
-        console.log(`[SCORING] ${scored} scored, ${skipped} skipped, ${errors} errors, ${trailWrites} trail, ${elapsed}ms, ALL ${tickersToScore.length} tickers`);
+        const userTickerCount = userAddedTickers.length;
+        const coreTickerCount = coreTickers.length;
+        console.log(`[SCORING] ${scored} scored, ${skipped} skipped, ${errors} errors, ${trailWrites} trail, ${elapsed}ms, ALL ${tickersToScore.length} tickers (${coreTickerCount} core + ${userTickerCount} user-added)`);
         console.log(`[SCORING DELTA] ${deltaScoreChanged}/${tickersToScore.length} score changed, ${deltaStageChanged} stage changed, ${deltaPriceChanged} price changed, ${deltaNoChange} no change`);
+        if (elapsed > 25000) {
+          console.warn(`[SCORING CAPACITY] Scoring took ${elapsed}ms — approaching 30s limit. Consider optimization if user-added tickers continue to grow.`);
+        }
 
         // Store last run timestamp for health/staleness monitoring
         await kvPutJSON(KV, "timed:scoring:last_run", {
@@ -36809,6 +37325,9 @@ Provide 3-5 actionable next steps:
           skipped,
           errors,
           total: tickersToScore.length,
+          core: coreTickerCount,
+          userAdded: userTickerCount,
+          elapsedMs: elapsed,
           delta: { scoreChanged: deltaScoreChanged, stageChanged: deltaStageChanged, priceChanged: deltaPriceChanged, noChange: deltaNoChange },
         });
 
@@ -36818,9 +37337,8 @@ Provide 3-5 actionable next steps:
         // for the most-hit endpoint.
         ctx.waitUntil((async () => {
           try {
-            // Use all SECTOR_MAP keys — the removed list is only for the
-            // watchlist/remove endpoint's in-memory cleanup, not for the snapshot.
-            const activeSyms = Object.keys(SECTOR_MAP);
+            // Use all SECTOR_MAP keys + user-added tickers
+            const activeSyms = [...new Set([...Object.keys(SECTOR_MAP), ...userAddedTickers])];
             const snapshot = {};
             for (const sym of activeSyms) {
               const payload = await kvGetJSON(KV, `timed:latest:${sym}`);
@@ -37027,7 +37545,8 @@ Provide 3-5 actionable next steps:
     if (allowExecution) {
       try {
         const execRemovedSet = new Set((await kvGetJSON(KV, "timed:removed")) || []);
-        const executionTickers = Object.keys(SECTOR_MAP).filter(t => !execRemovedSet.has(t));
+        const userAddedForExec = await d1GetActiveUserTickersCached(env);
+        const executionTickers = [...new Set([...Object.keys(SECTOR_MAP), ...userAddedForExec])].filter(t => !execRemovedSet.has(t));
         console.log(`[KANBAN CRON] Evaluating ${executionTickers.length} tickers`);
         for (const sym of executionTickers) {
           if (!sym) continue;

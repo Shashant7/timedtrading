@@ -65,3 +65,14 @@
 - [x] Queued actions count in account summary row with hover tooltip
 - [x] `useQueuedActions()` React hook for frontend
 - [x] Discord notification on queue drain summary
+
+---
+
+## P0: Hard refresh shows stale prices (and flickers) — IN PROGRESS (2026-02-18)
+- [x] Update price feed cron to preserve **per-ticker source timestamps** (trade/bar time) in `timed:prices` payload (`prices[sym].t`) instead of stamping `Date.now()`.
+- [x] Improve missing-ticker fallback to use the **candle timestamp** when sourcing from D1 5m candles.
+- [x] Update `react-app/index-react.html` price merges (initial load, HTTP poll, WS handler) to use `pf.t` (per-ticker ts) for `_price_updated_at` and overwrite guards, not `updated_at` alone.
+- [ ] Mirror the same frontend fix to the duplicate `react-app/react-app/index-react.html` if it’s a deployed copy.
+- [ ] Verification:
+  - [ ] `GET /timed/prices` returns `prices[SYM].t` values that are not “now” when the underlying print is old.
+  - [ ] Hard refresh no longer shows “Friday close” before live prices arrive; no visible flicker back to stale after WS updates.

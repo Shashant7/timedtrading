@@ -177,7 +177,7 @@
                 React.createElement("span", { className: "flex items-center gap-1" },
                   React.createElement("span", { className: "w-2 h-2 rounded-full bg-amber-400 inline-block" }),
                   React.createElement("span", { className: "text-amber-400 font-semibold" }, "50-69"),
-                  React.createElement("span", { className: "text-[#6b7280]" }, "Moderate — mixed signals, monitor"),
+                  React.createElement("span", { className: "text-[#6b7280]" }, "Moderate — mixed indicators, monitor"),
                 ),
                 React.createElement("span", { className: "flex items-center gap-1" },
                   React.createElement("span", { className: "w-2 h-2 rounded-full bg-red-400 inline-block" }),
@@ -473,7 +473,7 @@
             ),
             data.stage === "accumulate" && React.createElement("span", {
               className: "text-[9px] text-emerald-400/80 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20",
-            }, "Auto-buying at rebalance"),
+            }, "DCA alert at next rebalance"),
             data.stage === "watch" && React.createElement("span", {
               className: "text-[9px] text-amber-400/80 bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/20",
             }, "Starter position at rebalance"),
@@ -824,6 +824,7 @@
           React.createElement("div", { className: "px-4 pb-2 shrink-0 space-y-2" },
             React.createElement(MarketHealthBar, { health, loading }),
             acctSummary && React.createElement("div", { className: "card p-2.5 fade-in" },
+              React.createElement("div", { className: "text-[10px] text-[#6b7280] mb-1.5 font-medium" }, "Timed Trading Simulated Portfolio (hypothetical)"),
               React.createElement("div", { className: "flex items-center justify-between flex-wrap gap-3 text-[11px]" },
                 React.createElement("span", { className: "text-[#6b7280]" }, "Account ",
                   React.createElement("span", { className: "text-white font-bold tabular-nums" }, fmtUsd(acctSummary.accountValue || 0)),
@@ -938,5 +939,8 @@
           .catch(function() {});
       })();
     </script>
+    <footer id="legal-footer" style="position:fixed;bottom:0;left:0;right:0;z-index:9999;background:rgba(10,10,15,0.92);backdrop-filter:blur(6px);border-top:1px solid rgba(255,255,255,0.06);padding:6px 16px;text-align:center;font-size:10px;color:#6b7280;line-height:1.4;">
+      For informational and educational purposes only. Not investment advice. Past performance does not guarantee future results. All trading involves risk of loss. <a href="/terms.html" style="color:#6b7280;text-decoration:underline;">Full Terms</a>
+    </footer>
   </body>
 </html>

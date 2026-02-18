@@ -1595,7 +1595,7 @@
                         const describeTickerDir = (d, net) => {
                           if (d === "BULLISH") return net > 0.4 ? "Strong upward momentum — model and scoring both favor higher prices" : "Leaning bullish — more factors point up than down";
                           if (d === "BEARISH") return net < -0.4 ? "Strong downward pressure — model and scoring both suggest lower prices" : "Leaning bearish — more factors point down than up";
-                          return "Mixed signals — no clear directional edge right now";
+                          return "Mixed indicators — no clear directional edge right now";
                         };
                         const describeSector = (regime, pct) => {
                           if (regime === "BULLISH") return `${pct}% of sector tickers trending up — sector tailwind`;
@@ -1622,7 +1622,7 @@
                             {(ts || pm) && (
                               <div className={`rounded-lg p-2.5 mb-2 border ${dirBg(ts?.direction || pm?.direction)}`}>
                                 <div className="flex items-center justify-between mb-1">
-                                  <span className="text-[10px] text-slate-400 uppercase font-semibold">Ticker Signal</span>
+                                  <span className="text-[10px] text-slate-400 uppercase font-semibold">Ticker Indicator</span>
                                   <span className={`text-xs font-bold ${dirColor(ts?.direction || pm?.direction)}`}>
                                     {ts?.direction || pm?.direction || "—"}
                                   </span>
@@ -2097,21 +2097,21 @@
                             const e = Number(ev);
                             if (!Number.isFinite(p) || !Number.isFinite(e)) return null;
                             
-                            // Strong signals
-                            if (p >= 70 && e >= 15) return { text: "🎯 Strong buy - high win%, great reward", color: "text-green-400", bg: "bg-green-500/10" };
+                            // Strong patterns
+                            if (p >= 70 && e >= 15) return { text: "🎯 Strong pattern - high historical win%, favorable reward", color: "text-green-400", bg: "bg-green-500/10" };
                             if (p >= 60 && e >= 10) return { text: "✅ Good setup - favorable odds", color: "text-green-400", bg: "bg-green-500/10" };
                             
                             // Positive but cautious
                             if (e >= 5 && p >= 55) return { text: "🟢 Decent - small edge, manage risk", color: "text-blue-400", bg: "bg-blue-500/10" };
                             if (e >= 0 && p >= 60) return { text: "⚖️ Neutral - breakeven odds", color: "text-yellow-400", bg: "bg-yellow-500/10" };
                             
-                            // Warning signals
+                            // Warning patterns
                             if (p >= 70 && e < 0) return { text: "⚠️ Too late - missed the entry", color: "text-orange-400", bg: "bg-orange-500/10" };
                             if (e < -5 && p >= 50) return { text: "🛑 Skip - poor risk/reward", color: "text-red-400", bg: "bg-red-500/10" };
                             if (p < 45) return { text: "❌ Avoid - low probability", color: "text-red-400", bg: "bg-red-500/10" };
                             
                             // Default
-                            return { text: "🤔 Unclear signal - use caution", color: "text-gray-400", bg: "bg-gray-500/10" };
+                            return { text: "🤔 Unclear pattern - use caution", color: "text-gray-400", bg: "bg-gray-500/10" };
                           };
                           
                           const interp4h = has4h ? interpretML(p4h, ev4h) : null;
@@ -2315,7 +2315,7 @@
                                     'ST_FLIP_30M': 'Momentum flip detected (30min)',
                                     'ST_FLIP_1H': 'Momentum flip detected (1hr)',
                                     'EMA_CROSS_1H_13_48': 'Moving average crossover (1hr)',
-                                    'BUYABLE_DIP_1H_13_48': 'Pullback entry opportunity (1hr)',
+                                    'BUYABLE_DIP_1H_13_48': 'Pullback pattern detected (1hr)',
                                     'EMA_CROSS_30M_13_48': 'Moving average crossover (30min)'
                                   };
                                   
@@ -2359,7 +2359,7 @@
                             </div>
                           ) : (
                             <div className="text-xs text-[#6b7280]">
-                              No trigger signals detected.
+                              No trigger patterns detected.
                             </div>
                           )}
                         </div>
@@ -2705,10 +2705,10 @@
                                 </div>
                               </div>
 
-                              {/* Signals */}
+                              {/* TD Sequential Patterns */}
                               <div className="mb-4 p-3 bg-white/[0.03] rounded-lg border border-white/[0.06]">
                                 <div className="text-xs text-[#6b7280] mb-2">
-                                  Signals
+                                  TD Sequential Patterns
                                 </div>
                                 <div className="space-y-2">
                                   {(tdSeq.td9_bullish === true ||
@@ -2760,13 +2760,13 @@
                                     !tdSeq.td13_bullish &&
                                     !tdSeq.td13_bearish && (
                                       <div className="text-xs text-[#6b7280]">
-                                        No TD9/TD13 signals active
+                                        No TD9/TD13 patterns active
                                       </div>
                                     )}
                                 </div>
                               </div>
 
-                              {/* Exit Signals */}
+                              {/* Exit Patterns */}
                               {(tdSeq.exit_long === true ||
                                 tdSeq.exit_long === "true" ||
                                 tdSeq.exit_short === true ||
@@ -2781,7 +2781,7 @@
                                 >
                                   <div className="flex items-center justify-between">
                                     <span className="text-xs text-[#6b7280]">
-                                      Exit Signal
+                                      Exit Indicator
                                     </span>
                                     <span className="font-bold text-sm text-red-400">
                                       {tdSeq.exit_long === true ||
@@ -3222,7 +3222,7 @@
                                 >
                                   <div className="flex items-center justify-between">
                                     <span className="text-xs text-[#6b7280]">
-                                      Valuation Signal
+                                      Valuation Indicator
                                     </span>
                                     <span
                                       className={`font-bold text-sm ${signalColor}`}

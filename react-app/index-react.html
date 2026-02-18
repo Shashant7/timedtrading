@@ -533,9 +533,10 @@
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), 60000); // 60s timeout
 
-            // Fetch both ticker data and ticker index to ensure all 133 tickers are shown
+            // Fetch ticker data, ticker index, AND live prices in parallel
+            // so the initial render never shows stale scoring-snapshot prices.
             const timestamp = Date.now();
-            const [dataRes, tickersRes] = await Promise.all([
+            const [dataRes, tickersRes, pricesRes] = await Promise.all([
               fetch(`${API_BASE}/timed/all?_t=${timestamp}`, {
                 signal: controller.signal,
                 cache: "no-store",
@@ -558,6 +559,10 @@
                   "X-Request-ID": `tickers-${timestamp}`,
                 },
               }),
+              fetch(`${API_BASE}/timed/prices?_t=${timestamp}`, {
+                signal: controller.signal,
+                cache: "no-store",
+              }).catch(() => null),
             ]);
 
             clearTimeout(timeoutId);
@@ -664,7 +669,62 @@
                 }
               });
 
-              setData(mergedData);
+              // Merge fresh prices from the parallel /timed/prices fetch so even
+              // the very first setData (when prev is empty) has live prices.
+              try {
+                if (pricesRes && pricesRes.ok) {
+                  const pj = await pricesRes.json();
+                  if (pj.ok && pj.prices) {
+                    const pts = pj.updated_at || Date.now();
+                    for (const [sym, pf] of Object.entries(pj.prices)) {
+                      const ns = normTicker(sym);
+                      const obj = mergedData[ns];
+                      if (!obj || !(Number(pf.p) > 0)) continue;
+                      const perSymTs = Number(pf.t) || pts;
+                      const curTs = obj._price_updated_at || 0;
+                      if (perSymTs >= curTs) {
+                        obj.price = pf.p;
+                        obj._live_price = pf.p;
+                        obj._price_updated_at = perSymTs;
+                        if (pf.dh) obj._live_daily_high = pf.dh;
+                        if (pf.dl) obj._live_daily_low = pf.dl;
+                        if (pf.dv) obj._live_daily_volume = pf.dv;
+                        const dp = Number(pf.dp);
+                        const dc = Number(pf.dc);
+                        if (Number.isFinite(dp)) { obj.day_change_pct = dp; obj.change_pct = dp; }
+                        if (Number.isFinite(dc)) { obj.day_change = dc; obj.change = dc; }
+                      }
+                    }
+                  }
+                }
+              } catch (_) { /* prices fetch failed — continue with /timed/all data */ }
+
+              // Preserve live price fields from current data so the 3-min
+              // full refresh doesn't cause a price flicker back to candle close.
+              // Uses timestamp comparison: if the user already has a NEWER price
+              // from WS or price poll, never overwrite it with the /timed/all response.
+              setData(prev => {
+                if (!prev || typeof prev !== "object" || Object.keys(prev).length === 0) return mergedData;
+                const LIVE_KEYS = ["_live_price", "_live_prev_close", "_live_daily_high", "_live_daily_low", "_live_daily_volume", "_price_updated_at", "day_change_pct", "change_pct", "day_change", "change"];
+                const result = { ...mergedData };
+                for (const sym of Object.keys(result)) {
+                  const old = prev[sym];
+                  if (!old) continue;
+                  const oldTs = old._price_updated_at || 0;
+                  const newTs = result[sym]?._price_updated_at || 0;
+                  // Keep prev price if: (a) prev has a live price AND (b) prev is
+                  // at least as recent as the incoming data (or incoming has no ts).
+                  if (old._live_price > 0 && (oldTs >= newTs || !newTs)) {
+                    const merged = { ...result[sym] };
+                    for (const k of LIVE_KEYS) {
+                      if (old[k] != null) merged[k] = old[k];
+                    }
+                    merged.price = old._live_price;
+                    result[sym] = merged;
+                  }
+                }
+                return result;
+              });
               setLastUpdate(new Date());
               setError(null);
               sessionStorage.removeItem("fetchData_abortRetry");
@@ -846,23 +906,24 @@
             const json = await res.json();
             if (!json.ok || !json.prices) return;
 
-            setPriceLastUpdated(json.updated_at || Date.now());
+            const feedTs = json.updated_at || Date.now();
+            setPriceLastUpdated(feedTs);
 
-            const currentData = tickerDataRef.current;
             const setter = setTickerDataRef.current;
-            // Merge prices into existing tickerData — only update tickers whose price actually changed
-            if (currentData && typeof currentData === "object" && Object.keys(currentData).length > 0) {
-              const updatedData = { ...currentData };
+            if (!setter) return;
+
+            setter(prev => {
+              if (!prev || typeof prev !== "object" || Object.keys(prev).length === 0) return prev;
+              const updatedData = { ...prev };
               let changed = false;
               for (const [sym, priceInfo] of Object.entries(json.prices)) {
                 const normalizedSym = normTicker(sym);
                 const existing = updatedData[normalizedSym];
                 if (!existing || !(priceInfo.p > 0)) continue;
-                // Skip update if price hasn't changed (avoid re-render churn)
                 if (existing._live_price === priceInfo.p) continue;
-                // Use price feed's prev_close — but reject when it ≈ current price
-                // (known Alpaca bug: prevDailyBar.close = current price → 0% daily change).
-                // NEVER set _live_prev_close to 0 — preserve existing value.
+                const perSymTs = Number(priceInfo.t) || feedTs;
+                // Don't overwrite a more recent WS price with an older HTTP poll
+                if (existing._price_updated_at && existing._price_updated_at > perSymTs) continue;
                 const feedPc = Number(priceInfo.pc);
                 const feedP = Number(priceInfo.p);
                 const feedPcUsable = Number.isFinite(feedPc) && feedPc > 0 && feedP > 0
@@ -870,11 +931,9 @@
                 const bestPc = feedPcUsable
                   ? feedPc
                   : (existing._live_prev_close || existing.prev_close || undefined);
-                // Merge dc/dp from price feed so daily change displays for SPY, sector ETFs, etc.
-                // Worker has D1 daily candles + Alpaca; frontend may not have _live_prev_close when pc≈price.
                 const feedDc = Number(priceInfo.dc);
                 const feedDp = Number(priceInfo.dp);
-                const merged = {
+                updatedData[normalizedSym] = {
                   ...existing,
                   price: priceInfo.p,
                   _live_price: priceInfo.p,
@@ -882,20 +941,16 @@
                   _live_daily_high: priceInfo.dh,
                   _live_daily_low: priceInfo.dl,
                   _live_daily_volume: priceInfo.dv,
-                  _price_updated_at: json.updated_at || Date.now(),
+                  _price_updated_at: perSymTs,
                   ...(Number.isFinite(feedDp) ? { day_change_pct: feedDp, change_pct: feedDp } : {}),
                   ...(Number.isFinite(feedDc) ? { day_change: feedDc, change: feedDc } : {}),
                 };
-                updatedData[normalizedSym] = merged;
                 changed = true;
               }
-              if (changed && setter) {
-                setter(updatedData);
-                priceUpdateRef.current++;
-              }
-            }
+              if (changed) priceUpdateRef.current++;
+              return changed ? updatedData : prev;
+            });
           } catch (e) {
-            // Price feed is non-critical — silently fail
             console.warn("[PRICE FEED] Error:", e);
           }
         }, []); // stable callback — reads from refs
@@ -949,66 +1004,77 @@
                 setWsLastMessage(Date.now());
 
                 if (msg.type === "prices" && msg.data) {
-                  const currentData = tickerDataRef.current;
                   const setter = setTickerDataRef.current;
-                  if (!currentData || typeof currentData !== "object" || Object.keys(currentData).length === 0) return;
+                  if (!setter) return;
+                  const wsTs = msg.updated_at || Date.now();
 
-                  const updatedData = { ...currentData };
-                  let changed = false;
-                  for (const [sym, priceInfo] of Object.entries(msg.data)) {
-                    const normalizedSym = normTicker(sym);
-                    const existing = updatedData[normalizedSym];
-                    if (!existing || !(priceInfo.p > 0)) continue;
-                    if (existing._live_price === priceInfo.p) continue;
-                    // Same merge logic as usePriceFeed
-                    const feedPc = Number(priceInfo.pc);
-                    const feedP = Number(priceInfo.p);
-                    const feedPcUsable = Number.isFinite(feedPc) && feedPc > 0 && feedP > 0
-                      && (Math.abs(feedPc - feedP) / feedP * 100) > 0.05;
-                    const bestPc = feedPcUsable
-                      ? feedPc
-                      : (existing._live_prev_close || existing.prev_close || undefined);
-                    const feedDc = Number(priceInfo.dc);
-                    const feedDp = Number(priceInfo.dp);
-                    updatedData[normalizedSym] = {
-                      ...existing,
-                      price: priceInfo.p,
-                      _live_price: priceInfo.p,
-                      ...(bestPc > 0 ? { _live_prev_close: bestPc } : {}),
-                      _live_daily_high: priceInfo.dh,
-                      _live_daily_low: priceInfo.dl,
-                      _live_daily_volume: priceInfo.dv,
-                      _price_updated_at: msg.updated_at || Date.now(),
-                      ...(Number.isFinite(feedDp) ? { day_change_pct: feedDp, change_pct: feedDp } : {}),
-                      ...(Number.isFinite(feedDc) ? { day_change: feedDc, change: feedDc } : {}),
-                    };
-                    changed = true;
-                  }
-                  if (changed && setter) setter(updatedData);
+                  setter(prev => {
+                    if (!prev || typeof prev !== "object" || Object.keys(prev).length === 0) return prev;
+                    const updatedData = { ...prev };
+                    let changed = false;
+                    for (const [sym, priceInfo] of Object.entries(msg.data)) {
+                      const normalizedSym = normTicker(sym);
+                      const existing = updatedData[normalizedSym];
+                      if (!existing || !(priceInfo.p > 0)) continue;
+                      if (existing._live_price === priceInfo.p) continue;
+                      const perSymTs = Number(priceInfo.t) || wsTs;
+                      if (existing._price_updated_at && existing._price_updated_at > perSymTs) continue;
+                      const feedPc = Number(priceInfo.pc);
+                      const feedP = Number(priceInfo.p);
+                      const feedPcUsable = Number.isFinite(feedPc) && feedPc > 0 && feedP > 0
+                        && (Math.abs(feedPc - feedP) / feedP * 100) > 0.05;
+                      const bestPc = feedPcUsable
+                        ? feedPc
+                        : (existing._live_prev_close || existing.prev_close || undefined);
+                      const feedDc = Number(priceInfo.dc);
+                      const feedDp = Number(priceInfo.dp);
+                      updatedData[normalizedSym] = {
+                        ...existing,
+                        price: priceInfo.p,
+                        _live_price: priceInfo.p,
+                        ...(bestPc > 0 ? { _live_prev_close: bestPc } : {}),
+                        _live_daily_high: priceInfo.dh,
+                        _live_daily_low: priceInfo.dl,
+                        _live_daily_volume: priceInfo.dv,
+                        _price_updated_at: perSymTs,
+                        ...(Number.isFinite(feedDp) ? { day_change_pct: feedDp, change_pct: feedDp } : {}),
+                        ...(Number.isFinite(feedDc) ? { day_change: feedDc, change: feedDc } : {}),
+                      };
+                      changed = true;
+                    }
+                    return changed ? updatedData : prev;
+                  });
                 }
 
                 if (msg.type === "scoring" && msg.data) {
-                  const currentData = tickerDataRef.current;
                   const setter = setTickerDataRef.current;
-                  if (!currentData || typeof currentData !== "object") return;
+                  if (!setter) return;
 
-                  const updatedData = { ...currentData };
-                  let changed = false;
-                  for (const [sym, update] of Object.entries(msg.data)) {
-                    const normalizedSym = normTicker(sym);
-                    const existing = updatedData[normalizedSym];
-                    if (!existing) continue;
-                    updatedData[normalizedSym] = {
-                      ...existing,
-                      ...(update.score != null ? { eqScore: update.score, eq_score: update.score } : {}),
-                      ...(update.stage ? { kanban_stage: update.stage } : {}),
-                      ...(update.dir ? { bias_direction: update.dir } : {}),
-                      ...(update.price > 0 ? { price: update.price } : {}),
-                      _scoring_updated_at: update.ts || Date.now(),
-                    };
-                    changed = true;
-                  }
-                  if (changed && setter) setter(updatedData);
+                  setter(prev => {
+                    if (!prev || typeof prev !== "object") return prev;
+                    const updatedData = { ...prev };
+                    let changed = false;
+                    for (const [sym, update] of Object.entries(msg.data)) {
+                      const normalizedSym = normTicker(sym);
+                      const existing = updatedData[normalizedSym];
+                      if (!existing) continue;
+                      const hasLivePrice = existing._live_price > 0;
+                      updatedData[normalizedSym] = {
+                        ...existing,
+                        ...(update.score != null ? { eqScore: update.score, eq_score: update.score } : {}),
+                        ...(update.stage ? { kanban_stage: update.stage } : {}),
+                        ...(update.dir ? { bias_direction: update.dir } : {}),
+                        ...(!hasLivePrice && update.price > 0 ? { price: update.price } : {}),
+                        ...(update.blockReason !== undefined ? {
+                          __entry_block_reason: update.blockReason || undefined,
+                          __execution_block_reason: update.blockReason || undefined,
+                        } : {}),
+                        _scoring_updated_at: update.ts || Date.now(),
+                      };
+                      changed = true;
+                    }
+                    return changed ? updatedData : prev;
+                  });
                 }
 
               } catch (e) {
@@ -1133,6 +1199,79 @@
         }, [fetchActions]);
         const pending = actions.filter(a => a.status === "PENDING");
         return { actions, pending, refetch: fetchActions };
+      }
+
+      // User-Added Tickers hook (Phase 5)
+      function useUserTickers() {
+        const [slots, setSlots] = useState([]);
+        const [slotsUsed, setSlotsUsed] = useState(0);
+        const [slotsMax, setSlotsMax] = useState(3);
+        const [tier, setTier] = useState("free");
+        const [adding, setAdding] = useState(false);
+        const [error, setError] = useState(null);
+
+        const fetchSlots = useCallback(async () => {
+          try {
+            const res = await fetch(`${API_BASE}/timed/user-tickers?_t=${Date.now()}`, { cache: "no-store" });
+            if (!res.ok) return;
+            const json = await res.json();
+            if (json.ok) {
+              setSlots(json.tickers || []);
+              setSlotsUsed(json.slots_used || 0);
+              setSlotsMax(json.slots_max || 3);
+              setTier(json.tier || "free");
+            }
+          } catch { /* best-effort */ }
+        }, []);
+
+        useEffect(() => {
+          fetchSlots();
+          const iv = setInterval(fetchSlots, 120000);
+          return () => clearInterval(iv);
+        }, [fetchSlots]);
+
+        const addTicker = useCallback(async (ticker) => {
+          setError(null);
+          setAdding(true);
+          try {
+            const res = await fetch(`${API_BASE}/timed/user-tickers`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ ticker: ticker.toUpperCase().trim() }),
+            });
+            const json = await res.json();
+            if (!json.ok) {
+              setError(json.detail || json.error || "Failed to add ticker");
+              return false;
+            }
+            await fetchSlots();
+            return true;
+          } catch (e) {
+            setError(String(e?.message || e));
+            return false;
+          } finally { setAdding(false); }
+        }, [fetchSlots]);
+
+        const removeTicker = useCallback(async (ticker) => {
+          setError(null);
+          try {
+            const res = await fetch(`${API_BASE}/timed/user-tickers/${encodeURIComponent(ticker.toUpperCase())}`, {
+              method: "DELETE",
+            });
+            const json = await res.json();
+            if (!json.ok) {
+              setError(json.detail || json.error || "Failed to remove ticker");
+              return false;
+            }
+            await fetchSlots();
+            return true;
+          } catch (e) {
+            setError(String(e?.message || e));
+            return false;
+          }
+        }, [fetchSlots]);
+
+        return { slots, slotsUsed, slotsMax, tier, adding, error, addTicker, removeTicker, refetch: fetchSlots, setError };
       }
 
       // Account Summary hook — single source of truth from account_ledger (GET /timed/account-summary)
@@ -6849,7 +6988,7 @@
 
           // EXIT stage — most urgent, close immediately
           if (stage === "exit") {
-            const exitReason = metaReason || (slBreached ? "TSL breached" : "Exit signal triggered");
+            const exitReason = metaReason || (slBreached ? "TSL breached" : "Exit indicator triggered");
             return {
               action: "🚨 EXIT — Close Position",
               description: `System says EXIT. Reason: ${exitReason}. ${priceSummary} Close the position now to ${isProfit ? "lock in remaining gains" : "limit losses"}. Do not average down or widen your stop.`,
@@ -6858,9 +6997,9 @@
             };
           }
 
-          // DEFEND stage — tighten stops, warning signals
+          // DEFEND stage — tighten stops, warning indicators
           if (stage === "defend" || (stage === "hold" && meta?.bucket === "defend")) {
-            const defendReason = metaReason || "Warning signals detected";
+            const defendReason = metaReason || "Warning indicators detected";
             return {
               action: "🛡 DEFEND — Tighten Stop",
               description: `System says DEFEND. Reason: ${defendReason}. ${priceSummary} The system is tightening TSL to ${isProfit ? "protect gains" : "limit further downside"}. Do NOT trim yet — just defending. Monitor for recovery (back to HOLD) or further deterioration (to EXIT).`,
@@ -6884,7 +7023,7 @@
           if (stage === "just_entered") {
             return {
               action: "🆕 JUST ENTERED — Monitor",
-              description: `Position recently opened. ${priceSummary} Watch for confirmation and initial move in your favor. The system will promote to HOLD once the position stabilizes, or to DEFEND/EXIT if adverse signals appear.`,
+              description: `Position recently opened. ${priceSummary} Watch for confirmation and initial move in your favor. The system will promote to HOLD once the position stabilizes, or to DEFEND/EXIT if adverse indicators appear.`,
               color: "text-sky-300",
               bg: "bg-sky-500/15",
             };
@@ -6899,7 +7038,7 @@
                 : "Monitor alignment.";
             return {
               action: isProfit ? "🔒 HOLD — Trend Intact" : "🔄 HOLD — Position Building",
-              description: `System says HOLD. Position is healthy and working as expected. ${priceSummary} ${holdExtra} TSL at $${sl > 0 ? sl.toFixed(2) : "N/A"}, TP at $${tp > 0 ? tp.toFixed(2) : "N/A"}. ${comp > 0.5 ? `Completion at ${(comp * 100).toFixed(0)}% — watch for trim signals.` : "Let the trade develop."}`,
+              description: `System says HOLD. Position is healthy and working as expected. ${priceSummary} ${holdExtra} TSL at $${sl > 0 ? sl.toFixed(2) : "N/A"}, TP at $${tp > 0 ? tp.toFixed(2) : "N/A"}. ${comp > 0.5 ? `Completion at ${(comp * 100).toFixed(0)}% — watch for trim indicators.` : "Let the trade develop."}`,
               color: isProfit ? "text-teal-300" : "text-sky-300",
               bg: isProfit ? "bg-teal-500/15" : "bg-sky-500/15",
             };
@@ -6979,11 +7118,21 @@
         // ─── Closed-trade guidance: recently exited ───
         if (trade && tradeIsClosed) {
           const pnl = Number(trade?.pnl ?? trade?.realizedPnl) || 0;
+          const pnlPct = Number(trade?.pnl_pct ?? trade?.pnlPct) || 0;
+          const exitPx = Number(trade?.exit_price ?? trade?.exitPrice) || 0;
+          const entPx = Number(trade?.entryPrice ?? trade?.entry_price) || 0;
+          const exitReason = String(trade?.exit_reason ?? trade?.exitReason ?? "").replace(/_/g, " ");
+          const trDir = String(trade?.direction || "").toUpperCase();
+          const pnlStr = pnlPct !== 0 ? `${pnlPct >= 0 ? "+" : ""}${pnlPct.toFixed(1)}%` : pnl !== 0 ? `$${pnl >= 0 ? "+" : ""}${pnl.toFixed(2)}` : "";
+          const exitPxStr = exitPx > 0 ? ` at $${exitPx.toFixed(2)}` : "";
+          const entPxStr = entPx > 0 ? `${trDir === "LONG" ? "Long" : trDir === "SHORT" ? "Short" : "Entry"} from $${entPx.toFixed(2)}, exited${exitPxStr}` : `Exited${exitPxStr}`;
+          const reasonStr = exitReason ? ` Reason: ${exitReason.replace(/\b\w/g, c => c.toUpperCase())}.` : "";
+          const isWin = tradeStatus === "WIN" || pnl > 0;
           return {
-            action: pnl >= 0 ? "✅ Trade Closed — Win" : "❌ Trade Closed — Loss",
-            description: `Most recent trade closed with ${pnl >= 0 ? "a profit" : "a loss"} of $${Math.abs(pnl).toFixed(2)}. ${pnl >= 0 ? "Well managed." : "Review the setup and signals for lessons."} The ticker is now back in the scoring pipeline and will progress through stages if a new setup forms.`,
-            color: pnl >= 0 ? "text-emerald-300" : "text-rose-300",
-            bg: pnl >= 0 ? "bg-emerald-500/15" : "bg-rose-500/15",
+            action: isWin ? "✅ Trade Closed — Win" : "❌ Trade Closed — Loss",
+            description: `${entPxStr}${pnlStr ? ` (${pnlStr})` : ""}.${reasonStr} ${isWin ? "Well managed." : "Review the setup and indicators for lessons."} The ticker is now back in the scoring pipeline and will re-enter stages if a new setup forms.`,
+            color: isWin ? "text-emerald-300" : "text-rose-300",
+            bg: isWin ? "bg-emerald-500/15" : "bg-rose-500/15",
           };
         }
 
@@ -7040,7 +7189,7 @@
           // enter_now / enter
           return {
             action: late ? "Enter Now (Late-cycle)" : "Enter Now",
-            description: `Ticker meets the system's entry criteria and is in the Enter lane. Review current price levels, SL/TP targets below, and position sizing before executing. ${isPullback ? "Currently in pullback — this can offer a better entry if price holds above SL. " : ""}${caution}`.trim(),
+            description: `Ticker meets the system's entry criteria and is in the Enter lane. Review model levels and SL/TP targets below; you decide sizing and execution based on your own risk parameters. ${isPullback ? "Currently in pullback — this can offer a better entry if price holds above SL. " : ""}${caution}`.trim(),
             color: late ? "text-yellow-300" : "text-teal-300",
             bg: late ? "bg-yellow-500/15" : "bg-teal-500/15",
           };
@@ -7051,7 +7200,7 @@
         // EXIT stage — system says close, even if no trade tracked here
         if (stage === "exit") {
           const exitMeta = ticker?.kanban_meta || {};
-          const exitReason = exitMeta?.reason || "Exit signal triggered";
+          const exitReason = exitMeta?.reason || "Exit indicator triggered";
           return {
             action: "🚨 EXIT — Close Position",
             description: `System says EXIT. Reason: ${exitReason}. If you have an open position, close it now. The setup has deteriorated beyond recovery thresholds.`,
@@ -7060,9 +7209,9 @@
           };
         }
 
-        // DEFEND stage: Warning signals, tighten TSL
+        // DEFEND stage: Warning indicators, tighten TSL
         if (stage === "defend" || (stage === "hold" && ticker?.kanban_meta?.bucket === "defend")) {
-          const defendReason = ticker?.kanban_meta?.reason || "Warning signals detected";
+          const defendReason = ticker?.kanban_meta?.reason || "Warning indicators detected";
           return {
             action: "🛡 DEFEND — Tighten Stop",
             description: `System says DEFEND. Reason: ${defendReason}. The system is tightening TSL to protect gains or limit losses. Do NOT trim yet — just defending. Monitor for recovery (back to HOLD) or further deterioration (to EXIT).`,
@@ -7087,7 +7236,7 @@
         if (stage === "hold") {
           return {
             action: "🔒 HOLD — Position Healthy",
-            description: `System says HOLD. Position is working as expected. ${isAligned ? "All timeframes aligned — conditions favor holding." : isPullback ? "HTF trend intact, LTF pulling back — normal behavior." : "Monitor alignment."} ${comp > 0.5 ? `Completion at ${(comp * 100).toFixed(0)}% — watch for trim signals.` : "Let the trade develop."}`,
+            description: `System says HOLD. Position is working as expected. ${isAligned ? "All timeframes aligned — conditions favor holding." : isPullback ? "HTF trend intact, LTF pulling back — normal behavior." : "Monitor alignment."} ${comp > 0.5 ? `Completion at ${(comp * 100).toFixed(0)}% — watch for trim indicators.` : "Let the trade develop."}`,
             color: "text-teal-300",
             bg: "bg-teal-500/15",
           };
@@ -7097,7 +7246,7 @@
         if (stage === "just_entered") {
           return {
             action: "🆕 JUST ENTERED — Monitor",
-            description: "Position recently opened. Watch for confirmation and initial move in your favor. The system will promote to HOLD once the position stabilizes, or to DEFEND/EXIT if adverse signals appear.",
+            description: "Position recently opened. Watch for confirmation and initial move in your favor. The system will promote to HOLD once the position stabilizes, or to DEFEND/EXIT if adverse indicators appear.",
             color: "text-sky-300",
             bg: "bg-sky-500/15",
           };
@@ -7129,13 +7278,13 @@
               momentumElite
                 ? "While Momentum Elite suggests continued strength, "
                 : ""
-            }Market is approaching exhaustion zone. Wait for pullback to better entry or trim existing positions by 30-50% to reduce risk. Look for phase reset or continuation signals before adding size.`,
+            }Market is approaching exhaustion zone. Wait for pullback to better entry or trim existing positions by 30-50% to reduce risk. Look for phase reset or continuation patterns before adding size.`,
             color: "text-orange-400",
             bg: "bg-orange-500/20",
           };
         }
 
-        // Momentum Elite + Prime setup = strongest signal
+        // Momentum Elite + Prime setup = strongest pattern
         if (momentumElite && isPrime && inCorridor && rank >= 75 && rr >= 1.5) {
           const momentumStr =
             momentumPct.month != null
@@ -7147,13 +7296,13 @@
             action: "Initiate Position - High Conviction",
             description: `Momentum Elite stock${momentumStr} showing Prime setup with exceptional alignment. Both HTF and LTF are aligned, price is in entry corridor, rank is strong (${rank}), and risk/reward is favorable (${rr.toFixed(
               2,
-            )}:1). This represents a high-probability setup with strong fundamentals backing the technical signal. Consider entering with full position size, using TP levels as profit targets.`,
+            )}:1). This represents a high-probability setup with strong fundamentals backing the technical pattern. Review TP levels as potential profit targets. Use model signals as one input; you decide sizing and execution.`,
             color: "text-teal-400",
             bg: "bg-teal-500/20",
           };
         }
 
-        // Momentum Elite + Squeeze release = strong momentum signal
+        // Momentum Elite + Squeeze release = strong momentum pattern
         if (momentumElite && sqRelease && inCorridor && isAligned) {
           const momentumStr =
             momentumPct.week != null
@@ -7213,13 +7362,13 @@
           };
         }
 
-        // Squeeze release in corridor = strong signal
+        // Squeeze release in corridor = strong pattern
         if (sqRelease && inCorridor && isAligned) {
           return {
             action: "Initiate Position - Squeeze Release",
             description: `Squeeze release detected with timeframe alignment in entry corridor. This indicates pent-up energy being released in the direction of the trend. ${
               momentumElite
-                ? "Momentum Elite status adds fundamental backing to this technical signal. "
+                ? "Momentum Elite status adds fundamental backing to this technical pattern. "
                 : ""
             }Early phase (${(phase * 100).toFixed(0)}%) and low completion (${(
               comp * 100
@@ -7249,7 +7398,7 @@
               rank >= 70 ? "strong" : "moderate"
             } (${rank}) with RR of ${rr.toFixed(
               2,
-            )}:1. Monitor for entry confirmation or wait for squeeze release signal before initiating position.`,
+            )}:1. Monitor for entry confirmation or wait for squeeze release pattern before initiating position.`,
             color: "text-blue-400",
             bg: "bg-blue-500/20",
           };
@@ -7267,7 +7416,7 @@
               sqOn
                 ? "Squeeze building suggests potential momentum when released. "
                 : ""
-            }Monitor for corridor entry and confirmation signals before initiating position.`,
+            }Monitor for corridor entry and confirmation patterns before initiating position.`,
             color: "text-cyan-400",
             bg: "bg-cyan-500/20",
           };
@@ -7285,7 +7434,7 @@
               inCorridor
                 ? "Price is in entry corridor, making this a high-probability setup when squeeze releases. "
                 : "Wait for price to enter corridor and squeeze to release before entering. "
-            }Monitor closely for squeeze release signal, which typically provides strong directional momentum.`,
+            }Monitor closely for squeeze release pattern, which typically provides strong directional momentum.`,
             color: "text-yellow-400",
             bg: "bg-yellow-500/20",
           };
@@ -7304,7 +7453,7 @@
                   0,
                 )}%), reducing upside potential. `
               : ""
-          }Wait for better conditions, confirmation signals, or entry corridor alignment before considering position.`,
+          }Wait for better conditions, confirmation patterns, or entry corridor alignment before considering position.`,
           color: "text-[#6b7280]",
           bg: "bg-white/[0.04]",
         };
@@ -8306,8 +8455,8 @@
                   </h3>
                   <ul className="text-sm text-[#6b7280] list-disc list-inside space-y-1">
                     <li>
-                      <strong className="text-white">Win Rate:</strong>{" "}
-                      Percentage of winning trades
+                      <strong className="text-white">Historical Win Rate:</strong>{" "}
+                      Percentage of past trades that were profitable
                     </li>
                     <li>
                       <strong className="text-white">Total P&L:</strong> Sum of
@@ -8433,7 +8582,7 @@
                       </strong>
                       <br />
                       <span className="text-xs ml-4">
-                        • Focus on setups with high win rates
+                        • Focus on setups with high historical win rates
                       </span>
                       <br />
                       <span className="text-xs ml-4">
@@ -9911,7 +10060,7 @@
 
         const PILL_TOOLTIPS = {
           "💎 Prime":
-            "Top-quality setup: strong rank (≥70), good R:R (≥1.5), early phase + confirmation signal (aligned, thesis, winner pattern, squeeze release, or momentum).",
+            "Top-quality setup: strong rank (≥70), good R:R (≥1.5), early phase + confirmation pattern (aligned, thesis, winner pattern, squeeze release, or momentum).",
           "🎯 Entry Zone":
             "Flip Watch active — ticker is in or near the scoring entry corridor. Actionable timing window.",
           "🧨 In Squeeze":
@@ -11003,12 +11152,21 @@
               {/* Indicator pills moved to Right Rail */}
 
 
-              {/* ── Execution badge: trim/exit for OPEN trades only (closed trades in discovery lanes are historical noise) ── */}
-              {hasOpenTrade && openTrade && (() => {
+              {/* ── Execution badge: trim (open trades) or exited (recently closed) ── */}
+              {openTrade && (() => {
                 const trimPct = Number(openTrade.trimmed_pct ?? openTrade.trimmedPct ?? 0);
                 const trimPx = Number(openTrade.trim_price ?? openTrade.trimPrice) || 0;
+                const exitPx = Number(openTrade.exit_price ?? openTrade.exitPrice) || 0;
+                const pnlPct = Number(openTrade.pnl_pct ?? openTrade.pnlPct) || 0;
+                const tradeStatus = String(openTrade.status || "").toUpperCase();
+                const tradeClosed = tradeStatus === "WIN" || tradeStatus === "LOSS" || !!(openTrade.exit_ts ?? openTrade.exitTs);
                 let badge = null;
-                if (trimPct > 0) {
+                if (tradeClosed) {
+                  const reason = String(openTrade.exit_reason ?? openTrade.exitReason ?? "").replace(/_/g, " ");
+                  const pxStr = exitPx > 0 ? ` @ $${exitPx.toFixed(2)}` : "";
+                  const pnlStr = Number.isFinite(pnlPct) && pnlPct !== 0 ? ` (${pnlPct >= 0 ? "+" : ""}${pnlPct.toFixed(1)}%)` : "";
+                  badge = { label: `Exited${pxStr}${pnlStr}`, cls: tradeStatus === "WIN" ? "text-[#00e676]" : "text-rose-400" };
+                } else if (hasOpenTrade && trimPct > 0) {
                   const pxStr = trimPx > 0 ? ` @ $${trimPx.toFixed(2)}` : "";
                   badge = { label: `Trimmed ${(trimPct * 100).toFixed(0)}%${pxStr}`, cls: "text-yellow-400" };
                 }
@@ -11188,7 +11346,7 @@
           }));
         };
 
-        // Early Movers logic (trigger flags - for live signals)
+        // Early Movers logic (trigger flags - for live indicators)
         const flipWatch = tickers
           .filter((t) => {
             const flags = t?.flags || {};
@@ -11253,13 +11411,17 @@
               const trimPct = Number(trade?.trimmed_pct ?? trade?.trimmedPct ?? 0);
               const isClosed = st === "WIN" || st === "LOSS" || !!(trade?.exit_ts ?? trade?.exitTs) || trimPct >= 0.9999;
               const isOpen = !isClosed && (st === "OPEN" || st === "TP_HIT_TRIM" || !st);
-              // Closed trades: DON'T override to "exit" — that lane is for active
-              // positions being managed toward exit.  Closed trades keep whatever
-              // discovery stage the backend assigned (watch/setup/enter).
               if (isOpen) {
                 if (st === "TP_HIT_TRIM" || trimPct > 0) stage = "trim";
                 else if (stage !== "defend" && stage !== "trim" && stage !== "exit" &&
                          stage !== "hold" && stage !== "active" && stage !== "just_entered") stage = "hold";
+              }
+              // Recently closed trades (< 24h) count in Exit lane — unless scorer is promoting a new setup
+              if (isClosed) {
+                const exitMs = Number(trade.exit_ts ?? trade.exitTs ?? 0);
+                const scorerStage = String(t?.kanban_stage || "");
+                const newOpportunity = ["setup", "enter", "enter_now", "just_flipped"].includes(scorerStage);
+                if (exitMs > 0 && (Date.now() - exitMs) < 24 * 60 * 60 * 1000 && !newOpportunity) stage = "exit";
               }
             }
             if (stage === "setup" || stage === "setup_watch" || stage === "flip_watch") counts.setup++;
@@ -11555,6 +11717,13 @@
             if (trade && isOpen) {
               if (status === "TP_HIT_TRIM" || trimmedPct > 0) stage = "trim";
               else if (!["defend", "trim", "exit", "hold", "active", "just_entered"].includes(stage)) stage = "hold";
+            }
+            // Recently closed trades stay in Exit lane for 24h — unless scorer is promoting a new setup
+            if (trade && isClosed) {
+              const exitMs = Number(trade.exit_ts ?? trade.exitTs ?? 0);
+              const scorerStage = String(t?.kanban_stage || "");
+              const newOpportunity = ["setup", "enter", "enter_now", "just_flipped"].includes(scorerStage);
+              if (exitMs > 0 && (Date.now() - exitMs) < 24 * 60 * 60 * 1000 && !newOpportunity) stage = "exit";
             }
             // Map server stages to UI stages
             let uiStage;
@@ -12168,9 +12337,7 @@
             // TRADE LIFECYCLE OVERRIDE — open trades NEVER fall back to
             // discovery lanes (setup/enter).  They stay in management lanes.
             // Priority: exit > trim > defend > hold (based on trade state)
-            // Closed trades: keep the backend's discovery stage — Exit lane
-            // is for ACTIVE positions being managed toward exit, not for
-            // tickers whose trades already closed (WIN/LOSS).
+            // Recently closed trades (< 24h) → Exit lane for visibility.
             // ═══════════════════════════════════════════════════════════════
             if (trade && isOpen) {
               // Trim lane: partial TP hit or manually trimmed
@@ -12186,6 +12353,14 @@
               else if (stage !== "hold" && stage !== "active" && stage !== "just_entered") {
                 stage = "hold";
               }
+            }
+
+            // Recently closed trades stay in Exit lane for 24h — unless scorer is promoting a new setup
+            if (trade && isClosed) {
+              const exitMs = Number(trade.exit_ts ?? trade.exitTs ?? 0);
+              const scorerStage = String(t?.kanban_stage || "");
+              const newOpportunity = ["setup", "enter", "enter_now", "just_flipped"].includes(scorerStage);
+              if (exitMs > 0 && (Date.now() - exitMs) < 24 * 60 * 60 * 1000 && !newOpportunity) stage = "exit";
             }
 
             // Map server stages to UI lanes
@@ -12344,7 +12519,7 @@
                 <KanbanColumn
                   laneKey="defend"
                   title="Defend"
-                  subtitle="Warning signals - tighten stops"
+                  subtitle="Warning indicators - tighten stops"
                   count={defend.length}
                   icon="🛡"
                   color="border-orange-500"
@@ -15334,13 +15509,21 @@
             const status = String(trade.status || "").toUpperCase();
             const isClosed = status === "WIN" || status === "LOSS" || !!(trade.exit_ts ?? trade.exitTs) || Number(trade?.trimmed_pct ?? trade?.trimmedPct ?? 0) >= 0.9999;
             const isOpen = !isClosed && (status === "OPEN" || status === "TP_HIT_TRIM" || !status);
-            return isOpen ? trade : null;
+            // Return open trades, or recently closed trades (< 24h) for Exit lane visibility
+            if (isOpen) return trade;
+            if (isClosed) {
+              const exitMs = Number(trade.exit_ts ?? trade.exitTs ?? 0);
+              if (exitMs > 0 && (Date.now() - exitMs) < 24 * 60 * 60 * 1000) return trade;
+            }
+            return null;
           })();
 
-          // Effective stage for right rail when card is in Hold (open trade overrides server stage)
+          // Effective stage for right rail
           const effectiveStage = (() => {
             if (!openTrade) return null;
             const status = String(openTrade.status || "").toUpperCase();
+            const tradeClosed = status === "WIN" || status === "LOSS" || !!(openTrade.exit_ts ?? openTrade.exitTs);
+            if (tradeClosed) return "exit";
             const stage = String(foundTicker?.kanban_stage ?? "").trim().toLowerCase();
             if (status === "TP_HIT_TRIM" || (Number(openTrade.trimmed_pct ?? openTrade.trimmedPct ?? 0) > 0)) return "trim";
             if (stage === "defend" || stage === "trim" || stage === "exit") return stage;
@@ -15415,6 +15598,7 @@
         const { trades } = useTrades();
         const { summary: accountSummary } = useAccountSummary("trader");
         const { pending: queuedPending } = useQueuedActions();
+        const userTickers = useUserTickers();
         const { sectors } = useSectors();
         const [filters, setFilters] = useState(() => {
           // Safety check: reset to defaults if localStorage was cleared
@@ -15471,6 +15655,17 @@
         // Admin panel moved to dedicated /admin-clients.html page
         const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
         const [showAiChat, setShowAiChat] = useState(false);
+        const [showAddTicker, setShowAddTicker] = useState(false);
+        const [addTickerInput, setAddTickerInput] = useState("");
+        const addTickerRef = useRef(null);
+        useEffect(() => {
+          if (!showAddTicker) return;
+          const handler = (e) => {
+            if (addTickerRef.current && !addTickerRef.current.contains(e.target)) setShowAddTicker(false);
+          };
+          document.addEventListener("mousedown", handler);
+          return () => document.removeEventListener("mousedown", handler);
+        }, [showAddTicker]);
         const [showWelcomeDashboard, setShowWelcomeDashboard] = useState(() => {
           // Check if user has seen dashboard welcome page before
           const hasSeenWelcome = localStorage.getItem(
@@ -15920,7 +16115,7 @@
                       <span className="text-[14px] md:text-[15px] font-bold text-white hidden sm:inline" style={{letterSpacing:"-0.03em"}}>Timed Trading</span>
                     </a>
                     {wsConnected ? (
-                      <span className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-sky-500/10 border border-sky-500/25 shrink-0" title="WebSocket connected — real-time push active">
+                      <span className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-sky-500/10 border border-sky-500/25 shrink-0" title="WebSocket connected — live model updates active">
                         <span className="w-1.5 h-1.5 rounded-full bg-sky-400 animate-pulse" />
                         <span className="text-[9px] text-sky-400 font-medium">LIVE</span>
                       </span>
@@ -16233,6 +16428,92 @@
                       ⭐ Saved{savedTickers.size > 0 ? ` (${savedTickers.size})` : ""}
                     </button>
 
+                    {/* Add Custom Ticker (Phase 5) */}
+                    <div className="relative" ref={addTickerRef}>
+                      <button
+                        onClick={() => setShowAddTicker(!showAddTicker)}
+                        className={`px-3 py-1.5 rounded-lg border text-xs font-semibold transition-colors ${
+                          showAddTicker
+                            ? "bg-cyan-500/20 border-cyan-500/40 text-cyan-300"
+                            : "bg-white/[0.02] border-white/[0.06] text-[#6b7280] hover:text-cyan-300 hover:bg-cyan-500/10"
+                        }`}
+                        title={`Add custom tickers (${userTickers.slotsUsed}/${userTickers.slotsMax} slots)`}
+                      >
+                        + Add Ticker{userTickers.slotsUsed > 0 ? ` (${userTickers.slotsUsed}/${userTickers.slotsMax})` : ""}
+                      </button>
+                      {showAddTicker && (
+                        <div className="absolute top-full left-0 mt-1.5 z-50 w-[320px] bg-[#1a1e2e] border border-white/[0.12] rounded-xl shadow-2xl p-3" onClick={e => e.stopPropagation()}>
+                          <div className="text-[11px] text-[#6b7280] mb-2 flex justify-between items-center">
+                            <span>Custom Tickers — <span className="text-white">{userTickers.slotsUsed}/{userTickers.slotsMax}</span> slots</span>
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-white/[0.06] border border-white/[0.08] text-[#8b95a5]">{userTickers.tier}</span>
+                          </div>
+                          <form onSubmit={async (e) => {
+                            e.preventDefault();
+                            const val = addTickerInput.toUpperCase().trim();
+                            if (!val) return;
+                            const ok = await userTickers.addTicker(val);
+                            if (ok) { setAddTickerInput(""); refetch(); }
+                          }} className="flex gap-1.5 mb-2">
+                            <input
+                              type="text"
+                              value={addTickerInput}
+                              onChange={e => { setAddTickerInput(e.target.value.toUpperCase()); userTickers.setError(null); }}
+                              placeholder="e.g. PLTR"
+                              maxLength={6}
+                              className="flex-1 px-2.5 py-1.5 rounded-lg bg-white/[0.06] border border-white/[0.10] text-white text-xs placeholder:text-[#4b5563] focus:outline-none focus:border-cyan-500/50"
+                              autoFocus
+                            />
+                            <button
+                              type="submit"
+                              disabled={userTickers.adding || !addTickerInput.trim()}
+                              className="px-3 py-1.5 rounded-lg bg-cyan-600/80 hover:bg-cyan-500/80 text-white text-xs font-semibold disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                            >
+                              {userTickers.adding ? "..." : "Add"}
+                            </button>
+                          </form>
+                          {userTickers.error && (
+                            <div className="text-[10px] text-rose-400 mb-2 px-1">{userTickers.error}</div>
+                          )}
+                          {userTickers.slots.length > 0 ? (
+                            <div className="max-h-[200px] overflow-y-auto space-y-1">
+                              {userTickers.slots.filter(s => s.active).map(s => (
+                                <div key={s.ticker} className="flex items-center justify-between px-2 py-1 rounded bg-white/[0.03] border border-white/[0.06] text-xs">
+                                  <span className="text-white font-medium">{s.ticker}</span>
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-[10px] text-[#4b5563]">{new Date(s.added_at).toLocaleDateString()}</span>
+                                    <button
+                                      onClick={async () => {
+                                        if (confirm(`Remove ${s.ticker}? Slot will be held for 7 days.`)) {
+                                          await userTickers.removeTicker(s.ticker);
+                                        }
+                                      }}
+                                      className="text-[#4b5563] hover:text-rose-400 transition-colors"
+                                      title="Remove ticker"
+                                    >
+                                      ✕
+                                    </button>
+                                  </div>
+                                </div>
+                              ))}
+                              {userTickers.slots.filter(s => s.held && !s.active).map(s => (
+                                <div key={`held-${s.ticker}`} className="flex items-center justify-between px-2 py-1 rounded bg-white/[0.02] border border-white/[0.04] text-xs opacity-50">
+                                  <span className="text-[#6b7280]">{s.ticker}</span>
+                                  <span className="text-[10px] text-[#4b5563]">held until {new Date(s.held_until).toLocaleDateString()}</span>
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <div className="text-[11px] text-[#4b5563] text-center py-2">No custom tickers added yet</div>
+                          )}
+                          {userTickers.slotsUsed >= userTickers.slotsMax && (
+                            <div className="text-[10px] text-amber-400/70 mt-2 text-center">
+                              All slots used. Upgrade to Pro for {userTickers.tier === "member" || userTickers.tier === "free" ? "10 slots" : "more slots"}.
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+
                     {/* Time Travel */}
                     <div className="flex-1 min-w-[200px]">
                       <TimeTravelSlider
@@ -16465,7 +16746,7 @@
         {
           target: "[data-coachmark='nav-modes']",
           title: "Navigation Modes",
-          body: "Switch between Active Trader for real-time opportunities, Investor for long-term portfolio analysis, Trades for execution history, and Model for strategy performance. Each mode is tailored to a different workflow.",
+          body: "Switch between Active Trader for fresh model signals, Investor for the Timed Trading Simulated Portfolio, Trades for execution history, and Model for strategy performance. Each mode is tailored to a different workflow.",
           position: "bottom",
           icon: "compass",
         },
@@ -17042,5 +17323,8 @@
           .catch(() => {});
       })();
     </script>
+    <footer id="legal-footer" style="position:fixed;bottom:0;left:0;right:0;z-index:9999;background:rgba(10,10,15,0.92);backdrop-filter:blur(6px);border-top:1px solid rgba(255,255,255,0.06);padding:6px 16px;text-align:center;font-size:10px;color:#6b7280;line-height:1.4;">
+      For informational and educational purposes only. Not investment advice. Past performance does not guarantee future results. All trading involves risk of loss. <a href="/terms.html" style="color:#6b7280;text-decoration:underline;">Full Terms</a>
+    </footer>
   </body>
 </html>

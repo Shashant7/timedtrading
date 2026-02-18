@@ -16,12 +16,19 @@
 
 // Cloudflare Workers' fetch() requires https:// URLs for WebSocket upgrades;
 // the Upgrade: websocket header handles the protocol switch.
-const STOCKS_WS_URL = "https://stream.data.alpaca.markets/v2/sip";
+const STOCKS_WS_URLS = {
+  iex: "https://stream.data.alpaca.markets/v2/iex",
+  sip: "https://stream.data.alpaca.markets/v2/sip",
+};
 const CRYPTO_WS_URL = "https://stream.data.alpaca.markets/v1beta3/crypto/us";
 
 // Crypto symbol mapping: our internal symbols → Alpaca's format
 const CRYPTO_MAP = { "BTCUSD": "BTC/USD", "ETHUSD": "ETH/USD" };
 const CRYPTO_REVERSE = { "BTC/USD": "BTCUSD", "ETH/USD": "ETHUSD" };
+
+// Symbol normalization for Alpaca WS: BRK-B → BRK.B, etc.
+const ALPACA_SYM_MAP = { "BRK-B": "BRK.B" };
+const ALPACA_SYM_REVERSE = { "BRK.B": "BRK-B" };
 
 // Tickers that are NOT available on Alpaca stocks WS (handled by TradingView)
 const NON_ALPACA_TICKERS = new Set([
@@ -43,6 +50,7 @@ export class AlpacaStream {
     this.lastPricePush = 0;  // epoch ms of last PriceHub push
     this.lastKvWrite = 0;    // epoch ms of last KV timed:prices write
     this.stockSymbols = [];  // symbols subscribed on stocks WS
+    this.reverseSymMap = {}; // Alpaca symbol → our symbol
     this.reconnectAttempts = 0;
     this.isRunning = false;
     this.startedAt = 0;
@@ -58,8 +66,17 @@ export class AlpacaStream {
     if (request.method === "POST" && url.pathname === "/start") {
       try {
         const body = await request.json().catch(() => ({}));
-        const symbols = body.symbols || [];
-        if (symbols.length > 0) this.stockSymbols = symbols;
+        const symbols = Array.isArray(body.symbols) ? body.symbols : [];
+        if (symbols.length > 0) {
+          // Normalize to Alpaca format for subscription, while preserving reverse mapping.
+          this.reverseSymMap = {};
+          this.stockSymbols = symbols.map((s) => {
+            const sym = String(s || "").toUpperCase().trim();
+            const alp = ALPACA_SYM_MAP[sym] || sym;
+            this.reverseSymMap[alp] = ALPACA_SYM_REVERSE[alp] || sym;
+            return alp;
+          }).filter(Boolean);
+        }
 
         if (!this.isRunning) {
           this.isRunning = true;
@@ -105,6 +122,22 @@ export class AlpacaStream {
 
     // GET /prices — return current in-memory prices (used by cron as data source)
     if (url.pathname === "/prices") {
+      const symbolsParam = url.searchParams.get("symbols");
+      if (symbolsParam) {
+        const want = new Set(
+          String(symbolsParam)
+            .split(",")
+            .map((s) => (ALPACA_SYM_MAP[String(s || "").toUpperCase().trim()] || String(s || "").toUpperCase().trim()))
+            .filter(Boolean),
+        );
+        const out = {};
+        for (const alpSym of want) {
+          const ours = this.reverseSymMap[alpSym] || ALPACA_SYM_REVERSE[alpSym] || alpSym;
+          const v = this.prices[ours] || this.prices[alpSym];
+          if (v) out[ours] = v;
+        }
+        return _json({ ok: true, prices: out, updated_at: Date.now() });
+      }
       return _json({ ok: true, prices: this.prices, updated_at: Date.now() });
     }
 
@@ -156,7 +189,9 @@ export class AlpacaStream {
     } catch (_) {}
 
     try {
-      const resp = await fetch(STOCKS_WS_URL, {
+      const feed = String(this.env.ALPACA_STOCKS_FEED || "iex").toLowerCase();
+      const wsUrl = STOCKS_WS_URLS[feed] || STOCKS_WS_URLS.iex;
+      const resp = await fetch(wsUrl, {
         headers: { "Upgrade": "websocket" },
       });
       const ws = resp.webSocket;
@@ -256,20 +291,15 @@ export class AlpacaStream {
       if (T === "success" && msg.msg === "authenticated") {
         console.log("[AlpacaStream] Stocks authenticated, subscribing to bars...");
         this.reconnectAttempts = 0;
-        // Subscribe to minute bars for all stock symbols
-        // Use wildcard if we have many symbols, or list them explicitly
-        if (this.stockSymbols.length > 150) {
-          // Wildcard subscription for bars (covers all symbols)
-          this.stocksWs.send(JSON.stringify({
-            action: "subscribe",
-            bars: ["*"],
-          }));
-        } else {
-          this.stocksWs.send(JSON.stringify({
-            action: "subscribe",
-            bars: this.stockSymbols,
-          }));
-        }
+        // Subscribe to real-time trades + quotes (fresh price), and bars (OHLC/volume).
+        // IMPORTANT: avoid wildcard subscriptions, which can flood the DO with thousands of symbols.
+        // We only subscribe to our explicit universe.
+        this.stocksWs.send(JSON.stringify({
+          action: "subscribe",
+          trades: this.stockSymbols,
+          quotes: this.stockSymbols,
+          bars: this.stockSymbols,
+        }));
         continue;
       }
 
@@ -290,7 +320,7 @@ export class AlpacaStream {
       // Bar message: T="b"
       if (T === "b") {
         this.barsReceived++;
-        const sym = msg.S;
+        const sym = this.reverseSymMap[msg.S] || ALPACA_SYM_REVERSE[msg.S] || msg.S;
         if (!sym) continue;
         const close = Number(msg.c);
         const ts = msg.t ? new Date(msg.t).getTime() : Date.now();
@@ -315,7 +345,7 @@ export class AlpacaStream {
       // Trade message: T="t" (for real-time price updates)
       if (T === "t") {
         this.tradesReceived++;
-        const sym = msg.S;
+        const sym = this.reverseSymMap[msg.S] || ALPACA_SYM_REVERSE[msg.S] || msg.S;
         const price = Number(msg.p);
         if (!sym || !Number.isFinite(price) || price <= 0) continue;
         const ts = msg.t ? new Date(msg.t).getTime() : Date.now();
@@ -327,6 +357,26 @@ export class AlpacaStream {
             this.prices[sym].t = ts;
           } else {
             this.prices[sym] = { p: price, t: ts, src: "alpaca_ws" };
+          }
+        }
+        continue;
+      }
+
+      // Quote message: T="q" (use midpoint if it is the freshest source)
+      if (T === "q") {
+        const sym = this.reverseSymMap[msg.S] || ALPACA_SYM_REVERSE[msg.S] || msg.S;
+        const bid = Number(msg.bp);
+        const ask = Number(msg.ap);
+        if (!sym || !(bid > 0) || !(ask > 0) || ask < bid) continue;
+        const mid = Math.round((bid + ask) / 2 * 100) / 100;
+        const ts = msg.t ? new Date(msg.t).getTime() : Date.now();
+        if (!Number.isFinite(mid) || mid <= 0) continue;
+        if (!this.prices[sym] || ts >= (this.prices[sym].t || 0)) {
+          if (this.prices[sym]) {
+            this.prices[sym].p = mid;
+            this.prices[sym].t = ts;
+          } else {
+            this.prices[sym] = { p: mid, t: ts, src: "alpaca_ws_quote" };
           }
         }
         continue;

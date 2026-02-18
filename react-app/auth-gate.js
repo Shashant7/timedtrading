@@ -361,11 +361,11 @@
     };
 
     const features = [
-      "Real-time multi-timeframe scoring (9 TFs, 200+ tickers)",
+      "Freshly updated model scoring (8 TFs, 200+ tickers)",
       "Kanban pipeline with automated trade signals",
       "Daily AI-powered morning & evening briefs",
       "Active Trader trade management (entry, trim, defend, exit)",
-      "Investor portfolio tracking with DCA automation",
+      "Investor: TT Simulated Portfolio with DCA automation",
       "Browser push & in-app notifications",
       "Full historical trail & time travel replay",
     ];

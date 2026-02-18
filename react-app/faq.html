@@ -355,7 +355,7 @@
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
           </button>
           <div class="faq-a">
-            <p>Each ticker receives a composite score (0&ndash;100) computed from multiple timeframes (5-minute through monthly). The engine evaluates trend direction, momentum strength, mean-reversion signals, volume profiles, and risk/reward ratios. Higher scores indicate stronger trade setups. Scores update every minute during market hours.</p>
+            <p>Each ticker receives a composite score (0&ndash;100) computed from multiple timeframes (5-minute through monthly). The engine evaluates trend direction, momentum strength, mean-reversion signals, volume profiles, and risk/reward ratios. Higher scores indicate stronger trade setups. Scores stay fresh throughout market hours.</p>
           </div>
         </div>
 
@@ -403,9 +403,9 @@
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
           </button>
           <div class="faq-a">
-            <p>The Investor Dashboard provides a portfolio-level view of your positions and the overall universe health. Key sections include:</p>
+            <p>The Investor Dashboard provides a portfolio-level view of the <strong>Timed Trading Simulated Portfolio</strong> &mdash; a hypothetical model portfolio, not your personal holdings. Everything shown is automated and simulated. Key sections include:</p>
             <ul>
-              <li><strong>Portfolio Health</strong> &mdash; An aggregate score reflecting how well your current positions align with the scoring engine's signals.</li>
+              <li><strong>Portfolio Health</strong> &mdash; An aggregate score reflecting how well the TT Simulated Portfolio aligns with the scoring engine's model signals.</li>
               <li><strong>Sector Heatmap</strong> &mdash; Visual breakdown of strength/weakness across all 11 GICS sectors. Green indicates bullish momentum, red indicates bearish pressure.</li>
               <li><strong>Universe Score Distribution</strong> &mdash; A histogram showing how scores are distributed across all 200+ tickers. Clusters at the high end suggest broad bullish conditions; clusters at the low end suggest caution.</li>
               <li><strong>Top Movers</strong> &mdash; Tickers with the largest score changes over the last session, highlighting where momentum is shifting fastest.</li>
@@ -427,9 +427,9 @@
           <div class="faq-a">
             <p>Your subscription gives you full access to:</p>
             <ul>
-              <li>Real-time scoring and signals across 200+ tickers</li>
+              <li>Freshly updated model scoring and signals across 200+ tickers</li>
               <li>Active Trader dashboard with Kanban pipeline</li>
-              <li>Investor dashboard with portfolio-level analytics</li>
+              <li>Investor dashboard with TT Simulated Portfolio analytics</li>
               <li>Screener with custom filters</li>
               <li>Daily Brief pre-market summaries</li>
               <li>Paper trading simulator</li>
@@ -446,21 +446,6 @@
             <p>You can cancel anytime directly from your Stripe billing portal. Look for the "Manage Subscription" link in your account, or visit the Stripe customer portal URL from your original subscription confirmation email. Your access continues until the end of your current billing period. If you have any trouble, email <a href="mailto:support@timed-trading.com">support@timed-trading.com</a> and we'll help.</p>
           </div>
         </div>
-      </div>
-
-      <!-- ── Technical ── -->
-      <div class="faq-section">
-        <h2>Technical</h2>
-
-        <div class="faq-item">
-          <button class="faq-q" onclick="this.parentElement.classList.toggle('open')">
-            How often does data update?
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
-          </button>
-          <div class="faq-a">
-            <p>Prices and scores update every minute during market hours via WebSocket push. You'll see a green <strong>LIVE</strong> indicator in the navigation bar when real-time data is flowing. Outside market hours, data is cached from the most recent session.</p>
-          </div>
-        </div>
 
         <div class="faq-item">
           <button class="faq-q" onclick="this.parentElement.classList.toggle('open')">
@@ -471,7 +456,6 @@
             <p>Yes. Timed Trading works in any modern mobile browser (Safari, Chrome, Firefox). The interface is responsive and adapts to smaller screens. For the best experience on mobile, we recommend using the app in landscape mode for the Kanban view, or portrait for the Viewport list.</p>
           </div>
         </div>
-
       </div>
 
       <!-- ── Contact CTA ── -->
@@ -502,11 +486,12 @@
         <a href="/faq.html">FAQ</a>
         <a href="mailto:support@timed-trading.com">Contact</a>
         <a href="/index-react.html">Active Trader</a>
+        <a href="/investor-dashboard.html">Investor</a>
       </div>
     </div>
     <div class="nav-inner">
       <div class="footer-disclaimer">
-        Not a registered investment advisor. For entertainment &amp; educational purposes only. Not financial advice. <a href="/terms.html">Full Terms</a>
+        Timed Trading is not a registered investment adviser, broker-dealer, or financial planner. For informational and educational purposes only. Not investment advice. Past performance does not guarantee future results. All trading involves risk of loss. <a href="/terms.html">Full Terms</a>
       </div>
     </div>
   </footer>
