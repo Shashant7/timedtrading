@@ -6994,9 +6994,25 @@ async function processTradeSimulation(
       const p = Number(trimPrice);
       if (!Number.isFinite(p) || p <= 0) return;
       const oldTrim = clamp(Number(trade.trimmedPct || 0), 0, 1);
-      if (oldTrim >= 0.9999) return; // already fully trimmed / closed
+      if (oldTrim >= 0.9999) return;
       const tgt = clamp(Number(targetTrimPct), 0, 1);
       if (tgt <= oldTrim + 1e-6) return;
+
+      // Atomic CAS: verify D1 hasn't been trimmed by a parallel invocation.
+      // Only proceed if D1's trimmed_pct still matches what we read.
+      if (env?.DB && !isReplay && trade.trade_id) {
+        try {
+          const cas = await env.DB.prepare(
+            `UPDATE trades SET trimmed_pct = ? WHERE trade_id = ? AND COALESCE(trimmed_pct, 0) < ?`
+          ).bind(tgt, trade.trade_id, tgt - 1e-6).run();
+          if (!cas?.meta?.changes) {
+            console.log(`[TRIM CAS] ${sym} trim to ${(tgt * 100).toFixed(0)}% blocked — D1 already at or beyond target`);
+            return;
+          }
+        } catch (e) {
+          console.warn(`[TRIM CAS] ${sym} CAS check failed, proceeding:`, e?.message);
+        }
+      }
       const delta = tgt - oldTrim;
       const shares = Number(trade.shares);
       if (!Number.isFinite(shares)) return;
