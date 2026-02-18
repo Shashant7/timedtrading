@@ -9,7 +9,7 @@ const API_KEY = "AwesomeSauce";
 
 const TICKERS = [
   // Sample stocks
-  "AAPL", "MSFT", "TSLA", "GOOG", "AMD", "META", "AMZN", "NVDA", "SPY", "QQQ",
+  "AAPL", "MSFT", "TSLA", "GOOGL", "AMD", "META", "AMZN", "NVDA", "SPY", "QQQ",
   // Crypto
   "BTCUSD", "ETHUSD",
   // Futures (TV-sourced)

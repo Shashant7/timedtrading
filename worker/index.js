@@ -4213,7 +4213,7 @@ const FUTURES_TICKERS = new Set([
 // These need special handling (different market structure, sizing, SL logic)
 const NON_EQUITY_BLOCKLIST = new Set([
   // Volatility indices
-  "VIX", "VX1!", "UVXY", "SVXY", "VXX", "VIXY",
+  "VX1!", "UVXY", "SVXY", "VXX", "VIXY",
   // Commodities / Metals
   "SILVER", "GOLD", "COPPER", "PLATINUM", "PALLADIUM",
   // Crypto (if ever ingested)
@@ -11221,6 +11221,35 @@ async function runDataLifecycle(env, opts = {}) {
     if (totalCandlesPurged > 0) {
       console.log(`[DATA LIFECYCLE] Total candles purged: ${totalCandlesPurged}`);
     }
+
+    // 6. Purge ALL D1 data for tickers on the removal blocklist
+    try {
+      const KV = env?.KV_TIMED || null;
+      const removedList = KV ? await KV.get("timed:removed", "json") : null;
+      if (Array.isArray(removedList) && removedList.length > 0) {
+        let totalRemoved = 0;
+        for (const ticker of removedList) {
+          for (const table of ["ticker_candles", "ticker_index", "ticker_latest", "timed_trail", "trail_5m_facts", "trail_daily_summary"]) {
+            try {
+              for (;;) {
+                const del = await db
+                  .prepare(`DELETE FROM ${table} WHERE rowid IN (SELECT rowid FROM ${table} WHERE ticker = ?1 LIMIT ?2)`)
+                  .bind(ticker, PURGE_BATCH)
+                  .run();
+                const n = del?.meta?.changes ?? 0;
+                totalRemoved += n;
+                if (n < PURGE_BATCH) break;
+              }
+            } catch (_) { /* table may not exist */ }
+          }
+        }
+        if (totalRemoved > 0) {
+          console.log(`[DATA LIFECYCLE] Purged ${totalRemoved} rows for ${removedList.length} removed tickers`);
+        }
+      }
+    } catch (removedErr) {
+      console.error("[DATA LIFECYCLE] Removed-ticker purge error:", removedErr);
+    }
   } catch (err) {
     console.error("[DATA LIFECYCLE] Error:", err);
   }
@@ -15034,7 +15063,6 @@ const SECTOR_MAP = {
   RBLX: "Consumer Discretionary",
   ULTA: "Consumer Discretionary",
   APP: "Consumer Discretionary",
-  W: "Consumer Discretionary",
   // Industrials
   CAT: "Industrials",
   GE: "Industrials",
@@ -15177,7 +15205,7 @@ const SECTOR_MAP = {
   "NQ1!": "Futures",
   "GC1!": "Futures",
   "SI1!": "Futures",
-  VIX: "Futures",
+  "VX1!": "Futures",
   US500: "Futures",
   // Additional tracked tickers
   "BRK-B": "Financials",
@@ -15186,36 +15214,26 @@ const SECTOR_MAP = {
   ABT: "Health Care",
   LLY: "Health Care",
   UNH: "Health Care",
-  CRVS: "Health Care",
-  IBRX: "Health Care",
   LMND: "Financials",
   // Information Technology
   ARM: "Information Technology",
   CRM: "Information Technology",
-  GOOG: "Communication Services",
   INTC: "Information Technology",
   INTU: "Information Technology",
-  QCOM: "Information Technology",
   SHOP: "Information Technology",
-  SMCI: "Information Technology",
   SNDK: "Information Technology",
   TSM: "Information Technology",
-  WDAY: "Information Technology",
   WDC: "Information Technology",
   HUBS: "Information Technology",
   IREN: "Information Technology",
   CRWV: "Information Technology",
   U: "Information Technology",
-  ONDS: "Information Technology",
   TEM: "Information Technology",
-  FIG: "Information Technology",
   // Consumer Discretionary
   CVNA: "Consumer Discretionary",
   DKNG: "Consumer Discretionary",
   JD: "Consumer Discretionary",
   LULU: "Consumer Discretionary",
-  GRAB: "Consumer Discretionary",
-  OPEN: "Consumer Discretionary",
   MCD: "Consumer Staples",
   CELH: "Consumer Staples",
   SPOT: "Communication Services",
@@ -15229,8 +15247,6 @@ const SECTOR_MAP = {
   // Aerospace & Defense
   ASTS: "Aerospace & Defense",
   // Financials
-  IBKR: "Financials",
-  PYPL: "Financials",
   XYZ: "Financials",
   SBET: "Financials",
   // Energy
@@ -15248,7 +15264,6 @@ const SECTOR_MAP = {
   // ETFs
   AGQ: "ETF",
   GDX: "ETF",
-  GDXJ: "ETF",
   IAU: "ETF",
   SLV: "ETF",
   SOXL: "ETF",
@@ -23533,30 +23548,28 @@ export default {
         const approvedTickers = new Set([
           "AAPL", "AEHR", "AGQ", "ALB", "ALLY", "AMD", "AMGN", "AMZN", "ANET", "APLD", "APP", "ASTS",
           "AU", "AVAV", "AVGO", "AWI", "AXON", "AXP", "AYI", "B", "BA", "BABA", "BE", "BK", "BMNR",
-          "BRK-B", "BRK.B", "BTCUSD", "BWXT", "CAT", "CCJ", "CDNS", "CLS", "COIN", "COST", "CRS", "CRVS",
+          "BRK-B", "BRK.B", "BTCUSD", "BWXT", "CAT", "CCJ", "CDNS", "CLS", "COIN", "COST", "CRS",
           "CRWD", "CRWV", "CSCO", "CSX", "CVNA", "CVX", "DCI", "DE", "DY", "EME", "EMR", "ENS", "ES1!", "ETHA",
-          "ETHT", "ETHUSD", "ETN", "EWBC", "EXPE", "FIX", "FSLR", "GDXJ", "GE", "GEV", "GILD",
-          "GLXY", "GOLD", "GOOGL", "GS", "HII", "HIMS", "HL", "HOOD", "IAU", "IBP", "IBRX", "IESC",
+          "ETHT", "ETHUSD", "ETN", "EWBC", "EXPE", "FIX", "FSLR", "GE", "GEV", "GILD",
+          "GLXY", "GOLD", "GOOGL", "GS", "HII", "HIMS", "HL", "HOOD", "IAU", "IBP", "IESC",
           "INTC", "INTU", "IONQ", "IOT", "IREN", "ITT", "IWM", "JCI", "JOBY", "JPM", "KLAC", "KO",
           "KTOS", "LLY", "LITE", "LRCX", "LULU", "MCD", "MDB", "META", "MLI", "MNST", "MP", "MSFT", "MSTR", "MTB", "MTZ",
-          "MU", "NBIS", "NEU", "NFLX", "NKE", "NQ1!", "NVDA", "NXT", "ON", "ONDS", "ORCL", "PANW",
+          "MU", "NBIS", "NEU", "NFLX", "NKE", "NQ1!", "NVDA", "NXT", "ON", "ORCL", "PANW",
           "PATH", "PEGA", "PH", "PI", "PLTR", "PNC", "PSTG", "PWR", "QLYS", "QQQ", "RBLX", "RDDT",
           "RGLD", "RIOT", "RKLB", "SANM", "SGI", "SHOP", "SILVER", "SLV", "SN", "SNDK", "SOFI",
           "SOXL", "SPGI", "SPY", "STRL", "STX", "SWK", "TJX", "TLN", "TSM", "TSLA", "TT", "TWLO", "ULTA",
           "UTHR", "UUUU", "US500", "VST", "VX1!", "WAL", "WDC", "WFRD", "WM", "WMT", "WTS",
           "XLB", "XLC", "XLE", "XLF", "XLI", "XLK", "XLP", "XLRE", "XLU", "XLV", "XLY", "XOM",
-          "ES", "NQ", "RTY", "YM", "DIA", "BTC", "ETH", "SPX", "CL", "CL1!",
+          "NQ", "RTY", "YM", "DIA", "BTC", "SPX", "CL", "CL1!",
         ]);
 
         const tickerMap = {
           "BRK.B": "BRK-B",
-          ES: "ES1!",
           NQ: "NQ1!",
           RTY: "RTY1!",
           YM: "YM1!",
           CL: "CL1!",
           BTC: "BTCUSD",
-          ETH: "ETHUSD",
         };
 
         let approvedSet = new Set(approvedTickers);
