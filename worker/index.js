@@ -36128,23 +36128,41 @@ Provide 3-5 actionable next steps:
 
         // Store in KV with timestamp + debug
         const d1PcCount = Object.keys(d1PrevCloseMap).length;
+        const dcMapCount = Object.keys(dailyCandlePrevCloseMap).length;
         const pcEqP = Object.values(prices).filter(v => v.pc === v.p && v.p > 0).length;
         const pcZero = Object.values(prices).filter(v => v.pc === 0).length;
         const pcReal = Object.values(prices).filter(v => v.pc > 0 && v.pc !== v.p).length;
-        console.log(`[PRICE FEED] d1PrevCloseMap: ${d1PcCount} tickers, pc==p: ${pcEqP}, pc==0: ${pcZero}, pc_real: ${pcReal}`);
-        // Sample debug: log a few tickers' prev_close sources
-        for (const dbgSym of ["CAT", "TSLA", "AAPL"]) {
+        console.log(`[PRICE FEED] d1PcCount=${d1PcCount}, dcMapCount=${dcMapCount}, cacheHit=${prevCloseCacheHit}, usedStream=${usedStream}, pc==p: ${pcEqP}, pc==0: ${pcZero}, pc_real: ${pcReal}`);
+        // Detailed prev_close debug for sample tickers
+        const _dbgTickers = {};
+        for (const dbgSym of ["AAPL", "TSLA", "IBP", "HIMS"]) {
           const snap = snapshots[dbgSym];
           const p = prices[dbgSym];
-          console.log(`[PRICE FEED DBG] ${dbgSym}: d1pc=${d1PrevCloseMap[dbgSym]}, alpPc=${snap?.prevDailyClose}, price=${snap?.price}, stored_pc=${p?.pc}, stored_dc=${p?.dc}`);
+          const dcVal = dailyCandlePrevCloseMap[dbgSym];
+          const d1Val = d1PrevCloseMap[dbgSym];
+          _dbgTickers[dbgSym] = {
+            snapPrice: snap?.price, snapPrevDC: snap?.prevDailyClose,
+            dcMap: dcVal, d1Map: d1Val,
+            finalP: p?.p, finalPc: p?.pc, finalDc: p?.dc,
+          };
+          console.log(`[PRICE FEED DBG] ${dbgSym}: dcMap=${dcVal}, d1Map=${d1Val}, snapPDC=${snap?.prevDailyClose}, snapPrice=${snap?.price}, finalPc=${p?.pc}, finalDc=${p?.dc}`);
         }
-        const priceUpdateTs = Date.now();
-        await kvPutJSON(KV, "timed:prices", {
-          prices,
-          updated_at: priceUpdateTs,
-          ticker_count: Object.keys(prices).length,
-          _debug: { d1PcCount, pcEqP, pcZero, pcReal, version: "v2-pickPrevClose" },
-        });
+        // Guard: if >50% of tickers have pc == p, the prev_close pipeline likely
+        // failed (transient KV/D1 error). Preserve the last known good KV data
+        // instead of overwriting with broken daily-change values.
+        const totalWithPrice = pcEqP + pcZero + pcReal;
+        const pcEqPRatio = totalWithPrice > 0 ? pcEqP / totalWithPrice : 0;
+        if (pcEqP > 20 && pcEqPRatio > 0.5) {
+          console.warn(`[PRICE FEED] SKIPPING KV write — pcEqP=${pcEqP}/${totalWithPrice} (${(pcEqPRatio * 100).toFixed(0)}%) suggests prev_close pipeline failure. Preserving last good data.`);
+        } else {
+          const priceUpdateTs = Date.now();
+          await kvPutJSON(KV, "timed:prices", {
+            prices,
+            updated_at: priceUpdateTs,
+            ticker_count: Object.keys(prices).length,
+            _debug: { d1PcCount, dcMapCount, pcEqP, pcZero, pcReal, cacheHit: prevCloseCacheHit, usedStream, version: "v3-guard", _dbgTickers },
+          });
+        }
 
         // ── COST OPTIMIZATION: mergeFreshnessIntoLatest REMOVED ──
         // Previously wrote ~215 individual timed:latest KV keys every non-scoring minute
@@ -36232,8 +36250,21 @@ Provide 3-5 actionable next steps:
             _equitySessionStartMs = Date.UTC(yr, mo - 1, dy, 9 - etOffset, 30, 0);
           } catch (_) {}
 
-          // Read existing sparkline data from KV
-          let sparkMap = (await kvGetJSON(KV, SPARK_KV_KEY)) || {};
+          // Read existing sparkline data from KV and prune stale tickers.
+          // Only keep tickers in SECTOR_MAP to prevent unbounded growth
+          // (previously accumulated 10K+ stale entries → hit 25 MB KV limit).
+          const _activeTickers = new Set(Object.keys(SECTOR_MAP));
+          let _rawSparkMap = (await kvGetJSON(KV, SPARK_KV_KEY)) || {};
+          let sparkMap = {};
+          for (const [sym, arr] of Object.entries(_rawSparkMap)) {
+            if (_activeTickers.has(sym) && Array.isArray(arr)) {
+              sparkMap[sym] = arr;
+            }
+          }
+          if (Object.keys(_rawSparkMap).length !== Object.keys(sparkMap).length) {
+            console.log(`[SPARKLINES] Pruned ${Object.keys(_rawSparkMap).length - Object.keys(sparkMap).length} stale entries (kept ${Object.keys(sparkMap).length})`);
+          }
+          _rawSparkMap = null; // free memory
 
           // Append new data points only for tickers whose session is active.
           // Uses bar close price (c) from Alpaca stream when available for true
@@ -36435,7 +36466,13 @@ Provide 3-5 actionable next steps:
             const SPARK_KV_KEY = "timed:sparklines";
             const SPARK_MAX_POINTS = 400;
             const minuteTs = Math.floor(Date.now() / 60000) * 60000;
-            let sparkMap = (await kvGetJSON(KV, SPARK_KV_KEY)) || {};
+            const _cryptoActive = new Set(Object.keys(SECTOR_MAP));
+            let _rawCryptoSpark = (await kvGetJSON(KV, SPARK_KV_KEY)) || {};
+            let sparkMap = {};
+            for (const [s, a] of Object.entries(_rawCryptoSpark)) {
+              if (_cryptoActive.has(s) && Array.isArray(a)) sparkMap[s] = a;
+            }
+            _rawCryptoSpark = null;
             let appended = 0;
             for (const [sym, snap] of Object.entries(cryptoPrices)) {
               if (!sparkMap[sym]) sparkMap[sym] = [];
