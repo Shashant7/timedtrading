@@ -11558,10 +11558,8 @@
             const trade = tradeByTicker.get(sym);
             const status = trade ? String(trade.status || "").toUpperCase() : "";
             const trimmedPct = Number(trade?.trimmed_pct ?? trade?.trimmedPct ?? 0);
-            const isClosed = status === "WIN" || status === "LOSS" || !!(trade?.exit_ts ?? trade?.exitTs) || trimmedPct >= 0.9999;
-            const isOpen = !isClosed && (status === "OPEN" || status === "TP_HIT_TRIM" || !status);
-            // Closed trades: keep the backend's discovery stage (watch/setup/enter).
-            // Only OPEN trades get promoted to management lanes.
+            const isClosed = (status === "WIN" || status === "LOSS" || !!(trade?.exit_ts ?? trade?.exitTs)) && trimmedPct < 0.9999;
+            const isOpen = !isClosed && (status === "OPEN" || status === "TP_HIT_TRIM" || trimmedPct >= 0.9999 || !status);
             if (trade && isOpen) {
               if (status === "TP_HIT_TRIM" || trimmedPct > 0) stage = "trim";
               else if (!["defend", "trim", "exit", "hold", "active", "just_entered"].includes(stage)) stage = "hold";
@@ -12168,11 +12166,10 @@
             const status = trade ? String(trade.status || "").toUpperCase() : "";
             const trimmedPct = Number(trade?.trimmed_pct ?? trade?.trimmedPct ?? 0);
             const isClosed =
-              status === "WIN" ||
+              (status === "WIN" ||
               status === "LOSS" ||
-              !!(trade?.exit_ts ?? trade?.exitTs) ||
-              trimmedPct >= 0.9999;
-            const isOpen = !isClosed && (status === "OPEN" || status === "TP_HIT_TRIM" || !status);
+              !!(trade?.exit_ts ?? trade?.exitTs)) && trimmedPct < 0.9999;
+            const isOpen = !isClosed && (status === "OPEN" || status === "TP_HIT_TRIM" || trimmedPct >= 0.9999 || !status);
 
             // ═══════════════════════════════════════════════════════════════
             // TRADE LIFECYCLE OVERRIDE — open trades NEVER fall back to
