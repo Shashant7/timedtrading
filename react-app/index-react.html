@@ -1457,7 +1457,7 @@
           "XLK", "XLF", "XLY", "XLP", "XLC", "XLI", "XLB",
           "XLE", "XLRE", "XLU", "XLV",
         ]),
-        Futures: new Set(["ES1!", "NQ1!", "GC1!", "SI1!", "CL1!", "BTCUSD", "ETHUSD", "VIX"]),
+        Futures: new Set(["ES1!", "NQ1!", "RTY1!", "YM1!", "GC1!", "SI1!", "CL1!", "BTCUSD", "ETHUSD", "VX1!"]),
       };
 
       // Load GRNY/GRNI/GRNJ dynamically from backend ETF sync
@@ -2058,7 +2058,7 @@
       // Market Pulse tickers: indices + S&P sector ETFs + crypto
       const MARKET_PULSE_TICKERS = [
         // Indices / futures / commodities
-        "SPX", "US500", "ES1!", "NQ1!", "SPY", "QQQ", "IWM", "CL1!", "GC1!", "SI1!", "VIX",
+        "SPX", "US500", "ES1!", "NQ1!", "RTY1!", "YM1!", "SPY", "QQQ", "IWM", "CL1!", "GC1!", "SI1!", "VX1!",
         // Crypto
         "BTCUSD", "ETHUSD",
         // S&P 500 sector ETFs
@@ -15931,11 +15931,13 @@
                         </button>
                       );
                     };
-                    const indices = ["VIX", "SPX", "SPY", "US500", "ES1!", "QQQ", "NQ1!", "IWM", "BTCUSD", "ETHUSD", "GC1!", "SI1!", "CL1!"];
+                    const row1 = ["VX1!", "SPX", "SPY", "QQQ", "IWM", "BTCUSD", "ETHUSD"];
+                    const row2 = ["US500", "ES1!", "NQ1!", "RTY1!", "YM1!", "GC1!", "SI1!", "CL1!"];
                     const sectorETFs = ["XLK", "XLF", "XLY", "XLP", "XLC", "XLI", "XLB", "XLE", "XLRE", "XLU", "XLV"];
-                    const indexChips = indices.map(s => renderPulseChip(s)).filter(Boolean);
+                    const row1Chips = row1.map(s => renderPulseChip(s)).filter(Boolean);
+                    const row2Chips = row2.map(s => renderPulseChip(s)).filter(Boolean);
                     const sectorChips = sectorETFs.map(s => renderPulseChip(s)).filter(Boolean);
-                    if (indexChips.length === 0 && sectorChips.length === 0) return null;
+                    if (row1Chips.length === 0 && row2Chips.length === 0 && sectorChips.length === 0) return null;
                     const freshness = (() => {
                       if (!priceLastUpdated || priceLastUpdated <= 0) return null;
                       const ago = Math.round((Date.now() - priceLastUpdated) / 1000);
@@ -15949,8 +15951,11 @@
                           <span className="text-[10px] text-[#6b7280] font-semibold tracking-wide uppercase">Market Pulse</span>
                           {freshness && <span className="text-[9px] text-[#4b5563] tabular-nums">updated {freshness}</span>}
                         </div>
-                        {indexChips.length > 0 && (
-                          <div className="flex items-center gap-2 overflow-x-auto pb-1" style={{ scrollbarWidth: "none" }}>{indexChips}</div>
+                        {row1Chips.length > 0 && (
+                          <div className="flex items-center gap-2 overflow-x-auto pb-1" style={{ scrollbarWidth: "none" }}>{row1Chips}</div>
+                        )}
+                        {row2Chips.length > 0 && (
+                          <div className="flex items-center gap-2 overflow-x-auto pt-1 pb-1" style={{ scrollbarWidth: "none" }}>{row2Chips}</div>
                         )}
                         {sectorChips.length > 0 && (
                           <div className="flex items-center gap-2 overflow-x-auto pt-1.5 pb-1" style={{ scrollbarWidth: "none" }}>{sectorChips}</div>

@@ -38,7 +38,7 @@
       // Auth via CF Access JWT cookie (sent automatically with credentials: "include")
       const TFS = ["M", "W", "D", "240", "60", "30", "10", "5"];
       const TF_LABELS = { M: "M", W: "W", D: "D", "240": "4H", "60": "1H", "30": "30m", "10": "10m", "5": "5m" };
-      const TV_TICKERS = new Set(["ES1!", "NQ1!", "GOLD", "SILVER", "US500", "VIX", "GC1!", "SI1!"]);
+      const TV_TICKERS = new Set(["ES1!", "NQ1!", "GOLD", "SILVER", "US500", "VX1!", "GC1!", "SI1!"]);
 
       // ── Company Names ──
       const COMPANY_NAMES = {
@@ -101,7 +101,7 @@
         SP_Sectors: new Set([
           "XLK","XLF","XLY","XLP","XLC","XLI","XLB","XLE","XLRE","XLU","XLV",
         ]),
-        Futures: new Set(["ES1!","NQ1!","BTCUSD","ETHUSD","ETHA","VIX"]),
+        Futures: new Set(["ES1!","NQ1!","RTY1!","YM1!","GC1!","SI1!","CL1!","BTCUSD","ETHUSD","VX1!"]),
       };
       // ETF weight map: { "AAPL": { GRNY: 2.50, GRNI: 2.55 }, ... }
       let _etfWeightMap = {};

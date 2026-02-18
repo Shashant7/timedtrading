@@ -384,7 +384,7 @@ function getWeekRange(dateStr) {
 // Market Data Aggregation
 // ═══════════════════════════════════════════════════════════════════════
 
-const MARKET_PULSE_SYMS = ["ES1!", "NQ1!", "SPY", "QQQ", "IWM", "VIX"];
+const MARKET_PULSE_SYMS = ["ES1!", "NQ1!", "SPY", "QQQ", "IWM", "VX1!"];
 const SECTOR_ETFS = ["XLK", "XLF", "XLY", "XLP", "XLC", "XLI", "XLB", "XLE", "XLRE", "XLU", "XLV"];
 
 /**
@@ -1272,7 +1272,7 @@ function buildDiscordBriefEmbed(type, data, content, esPrediction) {
   const m = data.market || {};
   const fmtMkt = (sym, d) => d ? `${sym} ${d.price?.toFixed?.(2) ?? d.price} (${d.dayChangePct >= 0 ? "+" : ""}${d.dayChangePct?.toFixed?.(2) ?? "0"}%)` : null;
   const mktParts = [
-    fmtMkt("ES", m.ES), fmtMkt("NQ", m.NQ), fmtMkt("VIX", m.VIX),
+    fmtMkt("ES", m.ES), fmtMkt("NQ", m.NQ), fmtMkt("VX1!", m["VX1!"]),
   ].filter(Boolean);
   if (mktParts.length > 0) {
     fields.push({ name: "Market Snapshot", value: mktParts.join(" | "), inline: false });

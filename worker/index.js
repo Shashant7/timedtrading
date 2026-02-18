@@ -4213,7 +4213,7 @@ const FUTURES_TICKERS = new Set([
 // These need special handling (different market structure, sizing, SL logic)
 const NON_EQUITY_BLOCKLIST = new Set([
   // Volatility indices
-  "VIX", "UVXY", "SVXY", "VXX", "VIXY",
+  "VIX", "VX1!", "UVXY", "SVXY", "VXX", "VIXY",
   // Commodities / Metals
   "SILVER", "GOLD", "COPPER", "PLATINUM", "PALLADIUM",
   // Crypto (if ever ingested)
@@ -22944,7 +22944,7 @@ export default {
       if (routeKey === "POST /timed/alpaca-stream/start") {
         const authFail = await requireKeyOrAdmin(req, env);
         if (authFail) return authFail;
-        const alpacaBlocklist = new Set(["ES1!","NQ1!","YM1!","RTY1!","CL1!","GC1!","SI1!","HG1!","NG1!","BTCUSD","ETHUSD","US500","VIX","SPX"]);
+        const alpacaBlocklist = new Set(["ES1!","NQ1!","YM1!","RTY1!","CL1!","GC1!","SI1!","HG1!","NG1!","BTCUSD","ETHUSD","US500","VX1!","SPX"]);
         const symbols = Object.keys(SECTOR_MAP).filter(t => !alpacaBlocklist.has(t) && /^[A-Z]{1,5}(-[A-Z]{1,2})?$/.test(t));
         const result = await alpacaStreamStart(env, symbols);
         return sendJSON({ ok: true, result, symbols: symbols.length }, 200, corsHeaders(env, req));
@@ -23543,7 +23543,7 @@ export default {
           "PATH", "PEGA", "PH", "PI", "PLTR", "PNC", "PSTG", "PWR", "QLYS", "QQQ", "RBLX", "RDDT",
           "RGLD", "RIOT", "RKLB", "SANM", "SGI", "SHOP", "SILVER", "SLV", "SN", "SNDK", "SOFI",
           "SOXL", "SPGI", "SPY", "STRL", "STX", "SWK", "TJX", "TLN", "TSM", "TSLA", "TT", "TWLO", "ULTA",
-          "UTHR", "UUUU", "US500", "VIX", "VST", "WAL", "WDC", "WFRD", "WM", "WMT", "WTS",
+          "UTHR", "UUUU", "US500", "VST", "VX1!", "WAL", "WDC", "WFRD", "WM", "WMT", "WTS",
           "XLB", "XLC", "XLE", "XLF", "XLI", "XLK", "XLP", "XLRE", "XLU", "XLV", "XLY", "XOM",
           "ES", "NQ", "RTY", "YM", "DIA", "BTC", "ETH", "SPX", "CL", "CL1!",
         ]);
@@ -35418,7 +35418,7 @@ Provide 3-5 actionable next steps:
           try {
             const streamStatus = await alpacaStreamStatus(env);
             if (!streamStatus.isRunning && isWithinOperatingHours()) {
-              const blocklist = new Set(["ES1!","NQ1!","YM1!","RTY1!","CL1!","GC1!","SI1!","HG1!","NG1!","BTCUSD","ETHUSD","US500","VIX","SPX"]);
+              const blocklist = new Set(["ES1!","NQ1!","YM1!","RTY1!","CL1!","GC1!","SI1!","HG1!","NG1!","BTCUSD","ETHUSD","US500","VX1!","SPX"]);
               const symbols = Object.keys(SECTOR_MAP).filter(t => !blocklist.has(t) && /^[A-Z]{1,5}(-[A-Z]{1,2})?$/.test(t));
               const startRes = await alpacaStreamStart(env, symbols);
               console.log(`[ALPACA_STREAM] Started: ${symbols.length} symbols, result:`, JSON.stringify(startRes).slice(0, 200));
@@ -35446,7 +35446,7 @@ Provide 3-5 actionable next steps:
           try {
             const ALPACA_SYMBOL_BLOCKLIST = new Set([
               "ES1!", "NQ1!", "YM1!", "RTY1!", "CL1!", "GC1!", "SI1!",
-              "BTCUSD", "ETHUSD", "US500", "VIX", "SPX",
+              "BTCUSD", "ETHUSD", "US500", "VX1!", "SPX",
             ]);
             const allTickers = Object.keys(SECTOR_MAP).filter(
               t => !ALPACA_SYMBOL_BLOCKLIST.has(t) && /^[A-Z]{1,5}(-[A-Z]{1,2})?$/.test(t)
@@ -35505,7 +35505,7 @@ Provide 3-5 actionable next steps:
           } catch (_) {}
 
           // 1. Overlay TV futures heartbeats
-          const TV_FUTURES_LIGHT = ["ES1!", "NQ1!", "GC1!", "SI1!", "VIX", "US500", "CL1!"];
+          const TV_FUTURES_LIGHT = ["ES1!", "NQ1!", "GC1!", "SI1!", "VX1!", "US500", "CL1!"];
           let tvUpdated = 0;
           for (const tvSym of TV_FUTURES_LIGHT) {
             try {
@@ -35592,7 +35592,7 @@ Provide 3-5 actionable next steps:
 
         // Alpaca universe: same filter as bar cron — stocks/ETFs only (exclude futures, crypto, indices)
         const ALPACA_SYMBOL_BLOCKLIST = new Set([
-          "ES1!", "NQ1!", "YM1!", "RTY1!", "CL1!", "GC1!", "SI1!", "BTCUSD", "ETHUSD", "US500", "VIX", "SPX", "BRK-B",
+          "ES1!", "NQ1!", "YM1!", "RTY1!", "CL1!", "GC1!", "SI1!", "BTCUSD", "ETHUSD", "US500", "VX1!", "SPX", "BRK-B",
         ]);
         const alpacaUniverseTickers = allTickers.filter(
           (t) => !ALPACA_SYMBOL_BLOCKLIST.has(t) && /^[A-Z]{1,5}$/.test(t)
@@ -35871,7 +35871,7 @@ Provide 3-5 actionable next steps:
         // These come from TradingView Pine heartbeat alerts.
         // Pine sends syminfo.ticker (e.g. "GC1!", "SI1!", "ES1!", "NQ1!")
         // stored as timed:heartbeat:{ticker}. Also check timed:latest:{ticker} as fallback.
-        const TV_FUTURES = ["ES1!", "NQ1!", "GC1!", "SI1!", "VIX", "US500"];
+        const TV_FUTURES = ["ES1!", "NQ1!", "GC1!", "SI1!", "VX1!", "US500"];
         for (const tvSym of TV_FUTURES) {
           try {
             // Try heartbeat first (fresher, 2d TTL), then latest as fallback

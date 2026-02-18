@@ -13,7 +13,7 @@ const TICKERS = [
   // Crypto
   "BTCUSD", "ETHUSD",
   // Futures (TV-sourced)
-  "ES1!", "NQ1!", "GOLD", "SILVER", "US500", "VIX"
+  "ES1!", "NQ1!", "GOLD", "SILVER", "US500", "VX1!"
 ];
 
 const TIMEFRAMES = ["1", "5", "10", "30", "60", "240", "D", "W", "M"];

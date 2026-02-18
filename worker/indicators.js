@@ -2544,7 +2544,7 @@ export async function alpacaFetchSnapshots(env, symbols) {
   // Crypto pairs that need the crypto endpoint (not the stocks endpoint)
   const CRYPTO_PAIRS = { "BTCUSD": "BTC/USD", "ETHUSD": "ETH/USD" };
   // Non-Alpaca tickers (futures/commodities from TradingView) — skip entirely
-  const NON_ALPACA = new Set(["ES1!", "NQ1!", "GOLD", "SILVER", "VIX", "US500", "GC1!", "SI1!"]);
+  const NON_ALPACA = new Set(["ES1!", "NQ1!", "GOLD", "SILVER", "VX1!", "US500", "GC1!", "SI1!"]);
 
   // Symbol normalization for Alpaca API: BRK-B → BRK.B, etc.
   const ALPACA_SYM_MAP = { "BRK-B": "BRK.B" };

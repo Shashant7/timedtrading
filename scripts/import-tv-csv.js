@@ -156,6 +156,7 @@ const TV_TICKER_MAP = {
   "CME_MINI_MNQ1!": "NQ1!",   // Micro E-mini NQ → same as NQ1!
   "CAPITALCOM_US500": "US500",
   "TVC_VIX": "VIX",
+  "CBOE_VX1!": "VX1!",
   "TVC_GOLD": "GC1!",
   "TVC_SILVER": "SI1!",
   "COMEX_GC1!": "GC1!",

@@ -26,7 +26,7 @@ const CRYPTO_REVERSE = { "BTC/USD": "BTCUSD", "ETH/USD": "ETHUSD" };
 // Tickers that are NOT available on Alpaca stocks WS (handled by TradingView)
 const NON_ALPACA_TICKERS = new Set([
   "ES1!", "NQ1!", "YM1!", "RTY1!", "CL1!", "GC1!", "SI1!", "HG1!", "NG1!",
-  "MES1!", "MNQ1!", "BTCUSD", "ETHUSD", "US500", "VIX", "SPX",
+  "MES1!", "MNQ1!", "BTCUSD", "ETHUSD", "US500", "VX1!", "SPX",
 ]);
 
 export class AlpacaStream {
