@@ -1457,7 +1457,7 @@
           "XLK", "XLF", "XLY", "XLP", "XLC", "XLI", "XLB",
           "XLE", "XLRE", "XLU", "XLV",
         ]),
-        Futures: new Set(["ES1!", "NQ1!", "BTCUSD", "ETHUSD", "ETHA", "VIX"]),
+        Futures: new Set(["ES1!", "NQ1!", "GC1!", "SI1!", "CL1!", "BTCUSD", "ETHUSD", "VIX"]),
       };
 
       // Load GRNY/GRNI/GRNJ dynamically from backend ETF sync
@@ -12197,14 +12197,14 @@
 
         return (
           <div>
-            {/* Legend Bar: Badges only (Indicator pills moved to Right Rail) */}
-            <div className="mb-2 px-2 py-1 rounded-lg border border-white/[0.04] bg-white/[0.015] flex items-center flex-nowrap gap-x-4 text-[10px] text-[#6b7280] overflow-x-auto">
+            {/* Legend Bar: Badges with descriptions (matches Table View) */}
+            <div className="mb-2 px-2 py-1.5 rounded-lg border border-white/[0.04] bg-white/[0.015] flex items-center flex-nowrap gap-x-5 text-[10px] text-[#6b7280] overflow-x-auto">
               <span className="text-[11px] font-semibold text-white/70 shrink-0">Badges</span>
-              <span className="shrink-0">💎 Prime</span>
-              <span className="shrink-0">🎯 Entry Zone</span>
-              <span className="shrink-0">🔥 MoElite</span>
-              <span className="shrink-0">🧨 Squeeze</span>
-              <span className="shrink-0">⚡ Release</span>
+              <span className="shrink-0">💎 <span className="text-[#8b95a5]">Prime — top-quality setup</span></span>
+              <span className="shrink-0">🎯 <span className="text-[#8b95a5]">Entry Zone — actionable window</span></span>
+              <span className="shrink-0">🔥 <span className="text-[#8b95a5]">MoElite — strong momentum</span></span>
+              <span className="shrink-0">🧨 <span className="text-[#8b95a5]">Squeeze — pressure building</span></span>
+              <span className="shrink-0">⚡ <span className="text-[#8b95a5]">Release — breakout firing</span></span>
             </div>
             <div>
               <div className="flex flex-col">
