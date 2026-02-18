@@ -1552,17 +1552,14 @@
         };
         const nextEarnTs = Number(events?.next_earnings_ts || 0) || 0;
         const lastEarnEvt = Number(events?.last_earnings_ts || 0) || lastEarnTs;
+        const showDesc = description && description !== name;
         return /*#__PURE__*/React.createElement("div", {
           className: "mb-3 px-2.5 py-2 bg-white/[0.03] border border-white/[0.06] rounded-lg"
-        }, /*#__PURE__*/React.createElement("div", {
-          className: "flex items-center justify-between gap-2"
         }, name ? /*#__PURE__*/React.createElement("div", {
           className: "text-xs font-semibold text-white truncate"
-        }, name) : null, marketCap ? /*#__PURE__*/React.createElement("span", {
-          className: "text-[10px] text-slate-400 font-medium whitespace-nowrap"
-        }, fmtMCap(marketCap)) : null), /*#__PURE__*/React.createElement("div", {
+        }, name) : null, /*#__PURE__*/React.createElement("div", {
           className: "text-[10px] text-[#6b7280] mt-0.5"
-        }, [enrichedSector, enrichedIndustry, country].filter(Boolean).join(" • ") || "—"), description ? /*#__PURE__*/React.createElement("div", {
+        }, [enrichedSector, enrichedIndustry, country].filter(Boolean).join(" • ") || "—"), showDesc ? /*#__PURE__*/React.createElement("div", {
           className: "mt-1 text-[10px] text-[#6b7280] leading-snug",
           style: {
             display: "-webkit-box",
@@ -1570,16 +1567,29 @@
             WebkitBoxOrient: "vertical",
             overflow: "hidden"
           }
-        }, description) : null, lastEarnEvt || nextEarnTs ? /*#__PURE__*/React.createElement("div", {
-          className: "mt-1.5 flex items-center gap-3 text-[10px]"
-        }, lastEarnEvt ? /*#__PURE__*/React.createElement("span", {
-          className: "text-[#6b7280]"
-        }, "Last Earnings: ", /*#__PURE__*/React.createElement("span", {
-          className: "text-slate-300 font-medium"
-        }, fmtDate(lastEarnEvt))) : null, nextEarnTs ? /*#__PURE__*/React.createElement("span", {
-          className: "text-blue-400"
-        }, "Next: ", /*#__PURE__*/React.createElement("span", {
-          className: "font-medium text-blue-300"
+        }, description) : null, marketCap || lastEarnEvt || nextEarnTs ? /*#__PURE__*/React.createElement("div", {
+          className: `mt-1.5 grid gap-1.5 text-[10px]`,
+          style: {
+            gridTemplateColumns: `repeat(${[marketCap, lastEarnEvt, nextEarnTs].filter(Boolean).length}, 1fr)`
+          }
+        }, marketCap ? /*#__PURE__*/React.createElement("div", {
+          className: "p-1.5 bg-white/[0.02] border border-white/[0.06] rounded text-center"
+        }, /*#__PURE__*/React.createElement("div", {
+          className: "text-[9px] text-[#6b7280]"
+        }, "MCap"), /*#__PURE__*/React.createElement("div", {
+          className: "text-[11px] font-semibold text-white"
+        }, fmtMCap(marketCap))) : null, lastEarnEvt ? /*#__PURE__*/React.createElement("div", {
+          className: "p-1.5 bg-white/[0.02] border border-white/[0.06] rounded text-center"
+        }, /*#__PURE__*/React.createElement("div", {
+          className: "text-[9px] text-[#6b7280]"
+        }, "Last Earnings"), /*#__PURE__*/React.createElement("div", {
+          className: "text-[11px] font-semibold text-white"
+        }, fmtDate(lastEarnEvt))) : null, nextEarnTs ? /*#__PURE__*/React.createElement("div", {
+          className: "p-1.5 bg-blue-500/10 border border-blue-500/30 rounded text-center"
+        }, /*#__PURE__*/React.createElement("div", {
+          className: "text-[9px] text-blue-400"
+        }, "Next Earnings"), /*#__PURE__*/React.createElement("div", {
+          className: "text-[11px] font-semibold text-blue-300"
         }, fmtDate(nextEarnTs))) : null) : null);
       })(), prime && /*#__PURE__*/React.createElement("div", {
         className: "mb-4 p-3 bg-green-500/20 border-2 border-green-500 rounded-lg text-center font-bold text-green-500 prime-glow"
