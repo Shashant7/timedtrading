@@ -319,6 +319,7 @@ const ROUTES = [
   ["POST", "/timed/watchlist/add", "POST /timed/watchlist/add"],
   ["POST", "/timed/watchlist/remove", "POST /timed/watchlist/remove"],
   ["GET", "/timed/activity", "GET /timed/activity"],
+  ["GET", "/timed/queued-actions", "GET /timed/queued-actions"],
   ["GET", "/timed/check-ticker", "GET /timed/check-ticker"],
   ["GET", "/timed/ingest-status", "GET /timed/ingest-status"],
   ["GET", "/timed/ingestion/stats", "GET /timed/ingestion/stats"],
@@ -504,8 +505,11 @@ function isNyWeekend(tsMs) {
   }
 }
 
-// Check if NY regular trading hours (9:30 AM - 4:00 PM ET weekdays)
+// Check if NY regular trading hours — delegates to calendar-aware version when available.
+// Handles weekends, holidays, and early-close days.
 function isNyRegularMarketOpen(now = new Date()) {
+  if (_cronCalendar) return _calIsNyRegularMarketOpen(_cronCalendar, now);
+  // Fallback before calendar is loaded (cold start): weekday + time only
   try {
     const wd = String(NY_WD_FMT.format(now)).toLowerCase();
     const isWeekday = wd.startsWith("mon") || wd.startsWith("tue") || wd.startsWith("wed") || wd.startsWith("thu") || wd.startsWith("fri");
@@ -514,7 +518,7 @@ function isNyRegularMarketOpen(now = new Date()) {
     const map = {};
     for (const p of parts) map[p.type] = Number(p.value);
     const mins = (map.hour || 0) * 60 + (map.minute || 0);
-    return mins >= 570 && mins < 960; // 9:30 AM - 3:59 PM ET (no new entries at 4:00 PM close)
+    return mins >= 570 && mins < 960;
   } catch {
     return true; // fail open
   }
@@ -7359,6 +7363,10 @@ async function processTradeSimulation(
       const rsi4H = tickerData?.tf_tech?.["4H"]?.rsi?.r5 ?? 50;
       if (rsi1H >= 75 || rsi1H <= 25 || rsi4H >= 80 || rsi4H <= 20) {
         console.log(`[FUSE EXIT] ${sym} fuse check blocked: outside RTH (rsi1H=${rsi1H} rsi4H=${rsi4H}), signal-based exits wait for market open`);
+        if (!isReplay && env?.DB) {
+          const session = _cronCalendar ? _calGetSessionType(_calGetETMinutes()) : "CLOSED";
+          d1QueueAction(env, { ticker: sym, action: "exit", direction: openTrade.direction, session, snapshot: { price: pxNow, exit_reason: `fuse_rsi_1h=${rsi1H}_4h=${rsi4H}` }, reason: "outside_RTH" });
+        }
       }
     }
 
@@ -7386,6 +7394,10 @@ async function processTradeSimulation(
       }
     } else if (isExit && openTrade && outsideRTH && !exitAllowedOutsideRTH && !fuseExitFired) {
       console.log(`[TRADE SIM] ${sym} exit blocked: outside RTH (reason=${exitReasonRaw}), only SL/max-loss exits allowed pre/post-market`);
+      if (!isReplay && env?.DB) {
+        const session = _cronCalendar ? _calGetSessionType(_calGetETMinutes()) : "CLOSED";
+        d1QueueAction(env, { ticker: sym, action: "exit", direction: openTrade.direction, session, snapshot: { price: pxNow, exit_reason: exitReasonRaw }, reason: weekendNow ? "weekend" : "outside_RTH" });
+      }
     } else if (isExit && openTrade && !exitMinAgeOk && !fuseExitFired) {
       const ageMin = Number.isFinite(entryMsNorm) ? Math.round((now - entryMsNorm) / 60000) : 0;
       console.log(
@@ -7565,6 +7577,10 @@ async function processTradeSimulation(
       // Outside RTH: only allow price-driven trims (TP actually hit). Signal/completion-based trims wait for RTH.
       if (target > 0 && outsideRTH && !trimIsPriceDriven) {
         console.log(`[TRADE SIM] ${sym} trim blocked: outside RTH, non-price-driven trim (completion/signal-based), waiting for market open`);
+        if (!isReplay && env?.DB) {
+          const session = _cronCalendar ? _calGetSessionType(_calGetETMinutes()) : "CLOSED";
+          d1QueueAction(env, { ticker: sym, action: "trim", direction: openTrade?.direction, session, snapshot: { price: pxNow, target_pct: target }, reason: weekendNow ? "weekend" : "outside_RTH" });
+        }
         target = 0;
       }
       
@@ -7743,6 +7759,19 @@ async function processTradeSimulation(
         } catch (e) {
           console.error(`[ENTRY_BLOCKED→SETUP] ${sym} KV update failed: ${e.message}`);
         }
+      }
+
+      // Queue entry for market open if blocked by time-based reasons
+      if (!isReplay && env?.DB && (weekendNow || outsideRTH)) {
+        const session = _cronCalendar ? _calGetSessionType(_calGetETMinutes()) : "CLOSED";
+        d1QueueAction(env, {
+          ticker: sym,
+          action: "enter",
+          direction: direction || null,
+          session,
+          snapshot: { price: Number(tickerData?.price), sl: Number(tickerData?.sl), tp: Number(tickerData?.tp), rank: Number(tickerData?.rank), state: tickerData?.state, entry_path: tickerData?.__entry_path },
+          reason: weekendNow ? "weekend" : outsideRTH ? "outside_RTH" : "holiday",
+        });
       }
     }
     if (isEnter && !weekendNow && !outsideRTH && enterCooldownOk && !sameEnterCycle && !openTrade && !recentTradeBlocked && !smartGateBlocked) {
@@ -11248,6 +11277,8 @@ async function runDataLifecycle(env, opts = {}) {
       { table: "ml_v1_queue", col: "created_at", cutoff: now - DATA_LIFECYCLE_30D_MS, where: null },
       { table: "user_notifications", col: "created_at", cutoff: now - DATA_LIFECYCLE_60D_MS, where: "AND read_at IS NOT NULL" },
       { table: "trail_5m_facts", col: "bucket_ts", cutoff: now - DATA_LIFECYCLE_180D_MS, where: null },
+      { table: "queued_actions", col: "resolved_at", cutoff: now - DATA_LIFECYCLE_7D_MS, where: "AND status != 'PENDING'" },
+      { table: "queued_actions", col: "queued_at", cutoff: now - 24 * 60 * 60 * 1000, where: "AND status = 'PENDING'" },
     ];
     for (const { table, col, cutoff, where } of retentionPurges) {
       try {
@@ -11824,6 +11855,181 @@ async function d1EnsureNotificationSchema(env) {
     _notifSchemaReady = true;
   } catch (e) {
     console.error("[NOTIF] Schema init failed:", String(e).slice(0, 200));
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// Action Queue — D1 Schema & Helpers
+// Captures signals blocked by outsideRTH/weekend for drain at market open.
+// ═══════════════════════════════════════════════════════════════════════
+
+let _queueSchemaReady = false;
+async function d1EnsureQueueSchema(env) {
+  if (_queueSchemaReady) return;
+  const db = env?.DB;
+  if (!db) return;
+  try {
+    await db.prepare(`
+      CREATE TABLE IF NOT EXISTS queued_actions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        ticker TEXT NOT NULL,
+        action TEXT NOT NULL,
+        direction TEXT,
+        session TEXT,
+        snapshot_json TEXT,
+        reason TEXT,
+        status TEXT NOT NULL DEFAULT 'PENDING',
+        resolution TEXT,
+        queued_at INTEGER NOT NULL,
+        resolved_at INTEGER
+      )
+    `).run();
+    await db.prepare(`
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_queued_actions_pending
+      ON queued_actions(ticker, action) WHERE status = 'PENDING'
+    `).run();
+    await db.prepare(`
+      CREATE INDEX IF NOT EXISTS idx_queued_actions_status
+      ON queued_actions(status, queued_at)
+    `).run();
+    _queueSchemaReady = true;
+  } catch (e) {
+    console.error("[QUEUE] Schema init failed:", String(e).slice(0, 200));
+  }
+}
+
+async function d1QueueAction(env, { ticker, action, direction, session, snapshot, reason }) {
+  const db = env?.DB;
+  if (!db) return;
+  try {
+    await d1EnsureQueueSchema(env);
+    const snapshotStr = snapshot ? JSON.stringify(snapshot) : null;
+    await db.prepare(`
+      INSERT INTO queued_actions (ticker, action, direction, session, snapshot_json, reason, status, queued_at)
+      VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'PENDING', ?7)
+      ON CONFLICT(ticker, action) WHERE status = 'PENDING'
+      DO UPDATE SET direction=excluded.direction, session=excluded.session,
+                    snapshot_json=excluded.snapshot_json, reason=excluded.reason,
+                    queued_at=excluded.queued_at
+    `).bind(ticker, action, direction || null, session || null, snapshotStr, reason || null, Date.now()).run();
+    console.log(`[QUEUE] Queued ${ticker}/${action} (reason=${reason}, session=${session})`);
+  } catch (e) {
+    console.error(`[QUEUE] Insert failed for ${ticker}/${action}:`, String(e).slice(0, 200));
+  }
+}
+
+async function d1ResolveQueuedAction(env, { ticker, action, status, resolution }) {
+  const db = env?.DB;
+  if (!db) return;
+  try {
+    await db.prepare(`
+      UPDATE queued_actions SET status = ?3, resolution = ?4, resolved_at = ?5
+      WHERE ticker = ?1 AND action = ?2 AND status = 'PENDING'
+    `).bind(ticker, action, status, resolution || null, Date.now()).run();
+  } catch (e) {
+    console.error(`[QUEUE] Resolve failed for ${ticker}/${action}:`, String(e).slice(0, 200));
+  }
+}
+
+/**
+ * Drain queued actions at market open. Called once per day at first RTH scoring cycle.
+ * Re-evaluates each PENDING action against fresh data. Executes if still valid, expires if stale.
+ */
+async function drainQueuedActions(env) {
+  const db = env?.DB;
+  const KV = env?.KV_TIMED;
+  if (!db || !KV) return { executed: 0, expired: 0 };
+
+  const throttleKey = `timed:queue:drained:${_calGetETDateStr()}`;
+  const alreadyDrained = await KV.get(throttleKey);
+  if (alreadyDrained) return { executed: 0, expired: 0, skipped: true };
+
+  try {
+    await d1EnsureQueueSchema(env);
+    const rows = await db.prepare(
+      `SELECT id, ticker, action, direction, snapshot_json, reason FROM queued_actions WHERE status = 'PENDING' ORDER BY queued_at ASC`
+    ).all();
+    const pending = rows?.results || [];
+    if (pending.length === 0) {
+      await KV.put(throttleKey, "1", { expirationTtl: 24 * 3600 });
+      return { executed: 0, expired: 0 };
+    }
+
+    console.log(`[QUEUE DRAIN] Processing ${pending.length} pending actions at market open`);
+    let executed = 0, expired = 0;
+
+    for (const row of pending) {
+      const { ticker, action, direction } = row;
+      try {
+        const latestData = await kvGetJSON(KV, `timed:latest:${ticker}`);
+        if (!latestData) {
+          await d1ResolveQueuedAction(env, { ticker, action, status: "EXPIRED", resolution: "no_latest_data" });
+          expired++;
+          continue;
+        }
+
+        const currentStage = String(latestData.kanban_stage || "").toLowerCase();
+
+        if (action === "enter") {
+          const stillEnter = currentStage === "enter" || currentStage === "enter_now";
+          if (stillEnter) {
+            await processTradeSimulation(KV, ticker, latestData, null, env);
+            await d1ResolveQueuedAction(env, { ticker, action, status: "EXECUTED", resolution: "still_qualifies" });
+            executed++;
+          } else {
+            await d1ResolveQueuedAction(env, { ticker, action, status: "EXPIRED", resolution: `stage_changed_to_${currentStage}` });
+            expired++;
+          }
+        } else if (action === "exit") {
+          const stillExit = currentStage === "exit";
+          if (stillExit) {
+            await processTradeSimulation(KV, ticker, latestData, null, env);
+            await d1ResolveQueuedAction(env, { ticker, action, status: "EXECUTED", resolution: "still_qualifies" });
+            executed++;
+          } else {
+            await d1ResolveQueuedAction(env, { ticker, action, status: "EXPIRED", resolution: `stage_changed_to_${currentStage}` });
+            expired++;
+          }
+        } else if (action === "trim") {
+          const stillTrim = currentStage === "trim";
+          if (stillTrim) {
+            await processTradeSimulation(KV, ticker, latestData, null, env);
+            await d1ResolveQueuedAction(env, { ticker, action, status: "EXECUTED", resolution: "still_qualifies" });
+            executed++;
+          } else {
+            await d1ResolveQueuedAction(env, { ticker, action, status: "EXPIRED", resolution: `stage_changed_to_${currentStage}` });
+            expired++;
+          }
+        } else {
+          await d1ResolveQueuedAction(env, { ticker, action, status: "EXPIRED", resolution: "unknown_action" });
+          expired++;
+        }
+      } catch (e) {
+        console.error(`[QUEUE DRAIN] Error processing ${ticker}/${action}:`, String(e).slice(0, 200));
+        await d1ResolveQueuedAction(env, { ticker, action, status: "EXPIRED", resolution: `error:${String(e).slice(0, 100)}` });
+        expired++;
+      }
+    }
+
+    await KV.put(throttleKey, "1", { expirationTtl: 24 * 3600 });
+    console.log(`[QUEUE DRAIN] Complete: ${executed} executed, ${expired} expired`);
+
+    if ((executed > 0 || expired > 0) && shouldSendDiscordAlert(env, "SYSTEM")) {
+      const details = pending.map(r => `${r.ticker} ${r.action} → ${r.ticker === r.ticker ? "" : ""}`).slice(0, 10);
+      notifyDiscord(env, {
+        embeds: [{
+          title: "📋 Queue Drain Summary",
+          description: `Processed **${pending.length}** queued actions at market open.\n✅ Executed: **${executed}** | ❌ Expired: **${expired}**`,
+          color: executed > 0 ? 0x00e676 : 0xffa726,
+          timestamp: new Date().toISOString(),
+        }],
+      }).catch(() => {});
+    }
+
+    return { executed, expired };
+  } catch (e) {
+    console.error("[QUEUE DRAIN] Fatal error:", e);
+    return { executed: 0, expired: 0, error: String(e) };
   }
 }
 
@@ -22430,6 +22636,29 @@ export default {
             500,
             corsHeaders(env, req),
           );
+        }
+      }
+
+      // GET /timed/queued-actions
+      if (routeKey === "GET /timed/queued-actions") {
+        try {
+          await d1EnsureQueueSchema(env);
+          const db = env?.DB;
+          if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
+          const pending = await db.prepare(
+            `SELECT id, ticker, action, direction, session, reason, status, resolution, queued_at, resolved_at
+             FROM queued_actions WHERE status = 'PENDING' OR resolved_at > ?1
+             ORDER BY queued_at DESC LIMIT 50`
+          ).bind(Date.now() - 24 * 60 * 60 * 1000).all();
+          return sendJSON({
+            ok: true,
+            actions: (pending?.results || []).map(r => ({
+              ...r,
+              snapshot: undefined,
+            })),
+          }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e).slice(0, 200) }, 500, corsHeaders(env, req));
         }
       }
 
@@ -36580,21 +36809,28 @@ Provide 3-5 actionable next steps:
       }
     }
 
-    // --- MARKET-HOURS GATE: Only run trade/execution logic when US market is open ---
-    // This prevents phantom entries, trims, and exits during weekends and overnight
-    // when prices are stale.
+    // --- MARKET-HOURS GATE: Only run trade/execution logic during operating hours ---
+    // Uses calendar-aware isWithinOperatingHours (4 AM - 8 PM ET weekdays, excl holidays).
     const executionMarketOpen = isNyRegularMarketOpen();
-    // Extended window: also allow during pre-market (4am-9:30am ET) and after-hours (4pm-8pm ET)
-    const nowExecCheck = new Date();
-    const etHourStr = nowExecCheck.toLocaleString("en-US", { timeZone: "America/New_York", hour: "numeric", hour12: false });
-    const etHour = Number(etHourStr) || 0;
-    const etDayStr = nowExecCheck.toLocaleString("en-US", { timeZone: "America/New_York", weekday: "short" });
-    const isWeekdayExec = !["Sat", "Sun"].includes(etDayStr);
-    const isExtendedHours = isWeekdayExec && (etHour >= 4 && etHour < 20); // 4am-8pm ET weekdays
-    const allowExecution = executionMarketOpen || isExtendedHours;
+    const allowExecution = _cronCalendar ? _calIsWithinOH(_cronCalendar) : executionMarketOpen;
 
     if (!allowExecution) {
-      console.log(`[EXECUTION GATE] Market closed (ET hour=${etHour}, day=${etDayStr}). Skipping trade updates and Kanban executions.`);
+      const _gateNow = new Date();
+      const _gateDayStr = _gateNow.toLocaleString("en-US", { timeZone: "America/New_York", weekday: "short" });
+      const _gateHourStr = _gateNow.toLocaleString("en-US", { timeZone: "America/New_York", hour: "numeric", hour12: false });
+      console.log(`[EXECUTION GATE] Market closed (ET hour=${_gateHourStr}, day=${_gateDayStr}). Skipping trade updates and Kanban executions.`);
+    }
+
+    // Drain queued actions at market open (once per day, first RTH cycle)
+    if (executionMarketOpen) {
+      try {
+        const drainResult = await drainQueuedActions(env);
+        if (drainResult && !drainResult.skipped && (drainResult.executed > 0 || drainResult.expired > 0)) {
+          console.log(`[CRON] Queue drain: ${drainResult.executed} executed, ${drainResult.expired} expired`);
+        }
+      } catch (e) {
+        console.error("[CRON] Queue drain error:", e);
+      }
     }
 
     // Update open trades (runs every 5 minutes, ONLY during market/extended hours)

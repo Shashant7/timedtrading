@@ -49,8 +49,19 @@
 - [ ] Dashboard visibility and tier-based limits
 - [ ] Immediate price display on add (pending state)
 
-## Phase 6: Action Queue (Extended Hours) — PENDING
-- [ ] `queued_actions` D1 table
-- [ ] PM/AH signal capture
-- [ ] RTH open drain logic
-- [ ] Dashboard notifications for queued actions
+## Phase 6: Action Queue + Execution Visibility — DONE (2026-02-18)
+- [x] Fixed `isNyRegularMarketOpen()` to delegate to calendar-aware version (holiday bug)
+- [x] Fixed cron execution gate to use `isWithinOperatingHours` (holiday-aware)
+- [x] `queued_actions` D1 table with schema + unique index
+- [x] `d1QueueAction` / `d1ResolveQueuedAction` helper functions
+- [x] PM/AH signal capture: entry, exit, trim, fuse-exit signals queued when blocked
+- [x] `drainQueuedActions()` — re-evaluates pending actions at first RTH cycle
+- [x] Drain wired into cron (runs once per day at market open, throttled by KV)
+- [x] GET `/timed/queued-actions` API endpoint
+- [x] `queued_actions` retention: 7d resolved, 24h stale pending
+- [x] "New" kanban lane (between Enter and Hold) for `just_entered` tickers
+- [x] Execution badges on cards: Entered $X / Trimmed Y% / Exited +/-Z%
+- [x] "Blocked" badge on Enter/Setup lane cards (cooldown, smart gate, sector full, etc.)
+- [x] Queued actions count in account summary row with hover tooltip
+- [x] `useQueuedActions()` React hook for frontend
+- [x] Discord notification on queue drain summary
