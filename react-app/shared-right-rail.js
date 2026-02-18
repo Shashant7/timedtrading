@@ -1459,6 +1459,14 @@
                           {(() => {
                             const stage = String(ticker?.kanban_stage || "").toLowerCase();
                             const isEnterLane = stage === "enter_now" || stage === "enter";
+                            const blockReason = ticker?.__execution_block_reason || ticker?.__entry_block_reason;
+                            if (isEnterLane && blockReason) {
+                              return (
+                                <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-amber-500/20 text-amber-400">
+                                  Blocked
+                                </span>
+                              );
+                            }
                             if (isEnterLane) {
                               return (
                                 <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-green-500/20 text-green-400">
@@ -1484,9 +1492,27 @@
                         <div className="text-sm text-[#cbd5ff] leading-relaxed">
                           {actionInfo.description}
                         </div>
-                        
-                        {/* Old SL/TP grid removed — Risk / Reward Levels block below
-                           now serves as the single source of truth (3-Tier TP system) */}
+
+                        {(() => {
+                          const raw = ticker?.__execution_block_reason || ticker?.__entry_block_reason;
+                          if (!raw) return null;
+                          const formatted = String(raw).split("+").map(r => {
+                            if (r.startsWith("sector_full:")) return r.replace("sector_full:", "Sector full: ");
+                            if (r.startsWith("direction_full:")) return r.replace("direction_full:", "Direction full: ");
+                            if (r.startsWith("correlated:")) return r.replace("correlated:", "Correlated: ");
+                            if (r.startsWith("daily_limit:")) return r.replace("daily_limit:", "Daily limit: ");
+                            if (r === "cooldown") return "Cooldown active";
+                            if (r === "smart_gate") return "Smart gate";
+                            if (r === "outside_RTH") return "Outside regular trading hours";
+                            return r.replace(/_/g, " ");
+                          }).join(", ");
+                          return (
+                            <div className="mt-3 px-3 py-2 rounded bg-amber-500/10 border border-amber-500/30">
+                              <span className="text-[10px] text-amber-300/70 font-semibold">Blocked: </span>
+                              <span className="text-xs text-amber-200 font-semibold">{formatted}</span>
+                            </div>
+                          );
+                        })()}
 
                         {/* Plain English Reasons */}
                         {(() => {
