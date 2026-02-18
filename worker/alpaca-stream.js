@@ -137,10 +137,7 @@ export class AlpacaStream {
       await this._writePricesToKv();
     }
 
-    // Flush bar buffer to D1 every ~5 minutes
-    if (now - this.lastFlush >= 4.5 * 60_000 && this.barBuffer.length > 0) {
-      await this._flushBarsToD1();
-    }
+    // 1m bar D1 flush disabled (Phase 2 cost optimization — 1m candles no longer stored)
 
     // Schedule next alarm
     await this.state.storage.setAlarm(Date.now() + 50_000);
@@ -319,17 +316,7 @@ export class AlpacaStream {
           src: "alpaca_ws",
         };
 
-        // Buffer for D1 flush (5-minute candle aggregation will be done by existing cron)
-        this.barBuffer.push({
-          ticker: sym,
-          ts: Math.floor(ts / 60000) * 60000, // floor to minute
-          o: Number(msg.o) || close,
-          h: Number(msg.h) || close,
-          l: Number(msg.l) || close,
-          c: close,
-          v: Number(msg.v) || 0,
-          tf: "1",
-        });
+        // 1m bar D1 buffer disabled (Phase 2 cost optimization)
         continue;
       }
 
@@ -413,12 +400,7 @@ export class AlpacaStream {
           src: "alpaca_ws_crypto",
         };
 
-        this.barBuffer.push({
-          ticker: sym, ts: Math.floor(ts / 60000) * 60000,
-          o: Number(msg.o) || close, h: Number(msg.h) || close,
-          l: Number(msg.l) || close, c: close,
-          v: Number(msg.v) || 0, tf: "1",
-        });
+        // 1m bar D1 buffer disabled (Phase 2 cost optimization)
         continue;
       }
 

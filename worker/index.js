@@ -305,8 +305,6 @@ const ROUTES = [
   ["GET", "/timed/all", "GET /timed/all"],
   ["GET", "/timed/prices", "GET /timed/prices"],
   ["GET", "/timed/candles", "GET /timed/candles"],
-  ["GET", "/timed/sparklines", "GET /timed/sparklines"],
-  ["POST", "/timed/sparklines/rebuild", "POST /timed/sparklines/rebuild"],
   ["GET", "/timed/market-calendar", "GET /timed/market-calendar"],
   ["GET", "/timed/trail/performance", "GET /timed/trail/performance"],
   ["GET", "/timed/trail", "GET /timed/trail"],
@@ -1467,7 +1465,7 @@ function triggerSummaryAndScore(tickerData) {
   if (has("ST_FLIP_30M")) score += 1;
   score += 3 * matchSide("BUYABLE_DIP_1H_13_48_LONG", "BUYABLE_DIP_1H_13_48_SHORT");  // Was +7
 
-  // LTF triggers (1m, 3m, 5m, 10m) — keep same weights (minor contributors)
+  // LTF triggers (5m, 10m) — keep same weights (minor contributors)
   if (has("SQUEEZE_RELEASE_10M")) score += 1;  // Was +3
   if (has("SQUEEZE_RELEASE_5M")) score += 1;   // Was +2
   if (has("SQUEEZE_RELEASE_3M")) score += 0.5; // Was +1
@@ -1642,7 +1640,7 @@ function triggerReasonCorroboration(tickerData) {
         : `uncorroborated ${rawReason}${rawDir ? " (" + rawDir + ")" : ""}`,
     };
   }
-  // LTF EMA cross (10m, 5m, 3m, 1m): corroborate if triggers[] or flags match
+  // LTF EMA cross (10m, 5m): corroborate if triggers[] or flags match
   if (
     /^EMA_CROSS_(10M|5M|3M|1M)_13_48$/i.test(rawReason) ||
     (rawReason.includes("EMA_CROSS") && /10M|5M|3M|1M/.test(rawReason))
@@ -1667,7 +1665,7 @@ function triggerReasonCorroboration(tickerData) {
         : `uncorroborated ${rawReason}${rawDir ? " (" + rawDir + ")" : ""}`,
     };
   }
-  // LTF squeeze release (10m, 5m, 3m, 1m)
+  // LTF squeeze release (10m, 5m)
   if (
     /^SQUEEZE_RELEASE_(10M|5M|3M|1M)$/i.test(rawReason) ||
     (rawReason.includes("SQUEEZE_RELEASE") && /10M|5M|3M|1M/.test(rawReason))
@@ -10975,19 +10973,19 @@ const DATA_LIFECYCLE_48H_MS = 48 * 60 * 60 * 1000;
 const DATA_LIFECYCLE_7D_MS = 7 * 24 * 60 * 60 * 1000;
 const PURGE_BATCH = 5000;
 
-/** Tiered candle retention: shorter TFs expire sooner, D/W kept forever. */
+/** Tiered candle retention: shorter TFs expire sooner, D/W/M kept forever.
+ *  1m and 3m entries removed — no longer written, existing rows purged by one-time cleanup.
+ *  5m/10m increased to 90 days to support 6-12 month model training data. */
 const CANDLE_RETENTION_DAYS = {
-  "1": 3,     // 1m candles: no longer written (Phase 3), purge old data quickly
-  "5": 14,    // 5m candles: 2 weeks is sufficient for scoring (100 candles = ~8h)
-  "3m": 7,
-  "10": 14,   // Also match the tf key format used in d1 (numeric, not "10m")
-  "10m": 14,
-  "30": 30,
-  "30m": 30,
-  "60": 30,
-  "1h": 30,
-  "240": 90,
-  "4h": 90,
+  "5": 90,
+  "10": 90,
+  "10m": 90,
+  "30": 90,
+  "30m": 90,
+  "60": 180,
+  "1h": 180,
+  "240": 365,
+  "4h": 365,
   // "D", "W", and "M" are intentionally omitted → kept forever
 };
 
@@ -11197,6 +11195,27 @@ async function runDataLifecycle(env, opts = {}) {
         }
       } catch (candleErr) {
         console.error(`[DATA LIFECYCLE] Candle purge error for ${tf}:`, candleErr);
+      }
+    }
+    // One-time purge: delete ALL remaining 1m and 3m candles (no longer written as of Phase 2).
+    for (const deadTf of ["1", "3m"]) {
+      try {
+        let deadPurged = 0;
+        for (;;) {
+          const del = await db
+            .prepare(`DELETE FROM ticker_candles WHERE rowid IN (SELECT rowid FROM ticker_candles WHERE tf = ?1 LIMIT ?2)`)
+            .bind(deadTf, PURGE_BATCH)
+            .run();
+          const n = del?.meta?.changes ?? 0;
+          deadPurged += n;
+          if (n < PURGE_BATCH) break;
+        }
+        if (deadPurged > 0) {
+          console.log(`[DATA LIFECYCLE] Purged ALL ${deadTf} candles: ${deadPurged} (deprecated TF)`);
+          totalCandlesPurged += deadPurged;
+        }
+      } catch (e) {
+        console.error(`[DATA LIFECYCLE] ${deadTf} purge error:`, e);
       }
     }
     if (totalCandlesPurged > 0) {
@@ -17333,7 +17352,6 @@ export default {
 
           // COST OPTIMIZATION: 1m candle D1 writes REMOVED from ingest handler.
           // 1m candles are not used for core scoring (only optional TD Sequential overlay).
-          // Sparklines are built from live price feed (timed:prices KV) and don't need D1.
           // Saves ~1.8M D1 writes/month from this path alone.
 
           // Enqueue for ML training (4h and 1d horizons)
@@ -18689,7 +18707,7 @@ export default {
           await kvPutText(KV, "timed:capture:last_ingest_ms", String(now));
 
           // COST OPTIMIZATION: 1m candle D1 writes REMOVED from capture handler.
-          // 1m candles are not used for core scoring. Sparklines use live prices only.
+          // 1m candles are not used for core scoring.
 
           // If payload includes tf_candles, upsert them to D1 (heartbeat can now send both capture + candles).
           if (payload.tf_candles && typeof payload.tf_candles === "object") {
@@ -21141,196 +21159,6 @@ export default {
         } catch (e) {
           console.error("[PRICES] /timed/prices error:", e);
           return sendJSON({ ok: false, error: "internal_error" }, 500, corsHeaders(env, req));
-        }
-      }
-
-      // GET /timed/sparklines — Returns pre-computed sparkline data for all tickers from KV.
-      // Single fast read replaces 200+ D1 candle queries per client page load.
-      // Falls back to D1 query if KV is empty (first deploy, KV cleared, etc.).
-      if (routeKey === "GET /timed/sparklines") {
-        try {
-          let sparkMap = await kvGetJSON(KV, "timed:sparklines");
-
-          // Fallback: if KV has no sparkline data, bootstrap from D1 candles.
-          // Tries 1-minute candles first (best resolution for sparklines), falls back
-          // to 5-minute if 1m data is sparse. Uses last 48h for 1m (covers current +
-          // previous session) and 168h for 5m (covers weekends + holidays).
-          if (!sparkMap || Object.keys(sparkMap).length === 0) {
-            const db = env?.DB;
-            if (db) {
-              try {
-                // Try 1-minute candles first (Alpaca stream writes these to D1)
-                const cutoff1m = Date.now() - 48 * 3600 * 1000; // 48h ago
-                let rows = await db.prepare(
-                  `SELECT ticker, ts, o, c FROM ticker_candles
-                   WHERE tf = '1' AND ts > ?1
-                   ORDER BY ticker ASC, ts ASC
-                   LIMIT 200000`
-                ).bind(cutoff1m).all();
-                sparkMap = {};
-                for (const r of (rows?.results || [])) {
-                  const sym = r.ticker;
-                  if (!sparkMap[sym]) sparkMap[sym] = [];
-                  sparkMap[sym].push({ t: Number(r.ts), c: Number(r.c), o: Number(r.o) });
-                }
-                const tickerCount1m = Object.keys(sparkMap).length;
-
-                // If 1m data is sparse (<10 tickers), supplement with 5m candles
-                if (tickerCount1m < 10) {
-                  const cutoff5m = Date.now() - 168 * 3600 * 1000; // 7 days ago
-                  rows = await db.prepare(
-                    `SELECT ticker, ts, o, c FROM ticker_candles
-                     WHERE tf = '5' AND ts > ?1
-                     ORDER BY ticker ASC, ts ASC
-                     LIMIT 200000`
-                  ).bind(cutoff5m).all();
-                  for (const r of (rows?.results || [])) {
-                    const sym = r.ticker;
-                    if (sparkMap[sym] && sparkMap[sym].length >= 2) continue; // already have 1m data
-                    if (!sparkMap[sym]) sparkMap[sym] = [];
-                    sparkMap[sym].push({ t: Number(r.ts), c: Number(r.c), o: Number(r.o) });
-                  }
-                  console.log(`[SPARKLINES] Bootstrap: ${tickerCount1m} tickers from 1m, ${Object.keys(sparkMap).length - tickerCount1m} supplemented from 5m`);
-                } else {
-                  console.log(`[SPARKLINES] Bootstrap: ${tickerCount1m} tickers from 1m candles`);
-                }
-
-                // Post-process: remove stale flat-line data per ticker.
-                // If all close prices for a ticker are identical, it's holiday noise — drop it.
-                // Also trim to last 400 points per ticker to keep KV size reasonable.
-                for (const sym of Object.keys(sparkMap)) {
-                  const arr = sparkMap[sym];
-                  if (arr.length < 2) { delete sparkMap[sym]; continue; }
-                  const closes = arr.map(p => p.c);
-                  const allSame = closes.every(v => v === closes[0]);
-                  if (allSame) { delete sparkMap[sym]; continue; }
-                  if (arr.length > 400) sparkMap[sym] = arr.slice(-400);
-                }
-                // Cache to KV for subsequent requests (non-blocking)
-                if (Object.keys(sparkMap).length > 0) {
-                  ctx.waitUntil(kvPutJSON(KV, "timed:sparklines", sparkMap).catch(() => {}));
-                  console.log(`[SPARKLINES] Bootstrapped ${Object.keys(sparkMap).length} tickers from D1 → KV`);
-                }
-              } catch (d1Err) {
-                console.warn("[SPARKLINES] D1 fallback failed:", String(d1Err).slice(0, 200));
-                sparkMap = {};
-              }
-            } else {
-              sparkMap = {};
-            }
-          }
-
-          return sendJSON({ ok: true, data: sparkMap, updated_at: Date.now() }, 200, corsHeaders(env, req));
-        } catch (e) {
-          console.error("[SPARKLINES] GET failed:", String(e));
-          return sendJSON({ ok: false, error: "internal_error" }, 500, corsHeaders(env, req));
-        }
-      }
-
-      // POST /timed/sparklines/rebuild — Admin-only: rebuild sparklines from Alpaca 1m bars.
-      // Fetches today's RTH 1-minute bars for all equity tickers, builds sparkline arrays,
-      // and writes to KV. This replaces noisy snapshot-based data with real candle data.
-      // The cron then continues appending new points on top of this clean foundation.
-      if (routeKey === "POST /timed/sparklines/rebuild") {
-        const authFail = await requireKeyOrAdmin(req, env);
-        if (authFail) return authFail;
-        try {
-          if (!env.ALPACA_API_KEY_ID || !env.ALPACA_API_SECRET_KEY) {
-            return sendJSON({ ok: false, error: "alpaca_not_configured" }, 400, corsHeaders(env, req));
-          }
-
-          // Determine today's RTH window in UTC for the Alpaca API
-          const now = new Date();
-          const etDateStr = now.toLocaleDateString("en-CA", { timeZone: "America/New_York" });
-          const [yr, mo, dy] = etDateStr.split("-").map(Number);
-          const testUtc = new Date(Date.UTC(yr, mo - 1, dy, 12, 0, 0));
-          const etHour = parseInt(testUtc.toLocaleString("en-US", { timeZone: "America/New_York", hour12: false, hour: "2-digit" }));
-          const etOffset = etHour - 12;
-          const rthOpenUtc = new Date(Date.UTC(yr, mo - 1, dy, 9 - etOffset, 30, 0));
-          const rthCloseUtc = new Date(Date.UTC(yr, mo - 1, dy, 16 - etOffset, 0, 0));
-
-          // Get all equity tickers (exclude futures, crypto, etc.)
-          const ALPACA_BLOCKLIST = new Set([
-            "ES1!", "NQ1!", "YM1!", "RTY1!", "CL1!", "GC1!", "SI1!",
-            "BTCUSD", "ETHUSD", "US500", "VIX", "SPX",
-          ]);
-          const allTickers = Object.keys(SECTOR_MAP).filter(
-            t => !ALPACA_BLOCKLIST.has(t) && /^[A-Z]{1,5}(-[A-Z]{1,2})?$/.test(t)
-          );
-
-          // Fetch 1-minute bars from Alpaca in batches (50 symbols per batch)
-          const BATCH_SIZE = 50;
-          const sparkMap = {};
-          let totalBars = 0;
-          let totalTickers = 0;
-          const startIso = rthOpenUtc.toISOString();
-          const endIso = (rthCloseUtc < now ? rthCloseUtc : now).toISOString();
-
-          for (let i = 0; i < allTickers.length; i += BATCH_SIZE) {
-            const batch = allTickers.slice(i, i + BATCH_SIZE);
-            try {
-              const barsBySymbol = await alpacaFetchAllBars(env, batch, "1", startIso, endIso, 10000);
-              for (const [sym, bars] of Object.entries(barsBySymbol)) {
-                if (!Array.isArray(bars) || bars.length < 2) continue;
-                const points = [];
-                for (const bar of bars) {
-                  const candle = alpacaBarToCandle(bar);
-                  if (!candle || !Number.isFinite(candle.ts)) continue;
-                  const { ts, o, c } = candle;
-                  if (!Number.isFinite(o) || !Number.isFinite(c) || c <= 0) continue;
-                  points.push({ t: ts, o, c });
-                }
-                if (points.length >= 2) {
-                  // Use original SECTOR_MAP casing for the symbol key
-                  const normalSym = sym.toUpperCase();
-                  sparkMap[normalSym] = points.slice(-400);
-                  totalBars += points.length;
-                  totalTickers++;
-                }
-              }
-            } catch (batchErr) {
-              console.warn(`[SPARKLINE REBUILD] Batch ${i / BATCH_SIZE} failed:`, String(batchErr).slice(0, 200));
-            }
-          }
-
-          // Preserve crypto/futures sparklines ONLY for active SECTOR_MAP tickers.
-          // Previously preserved ALL existing entries, causing 10K+ stale entries
-          // that exceeded KV's 25 MB value limit and silently failed writes.
-          const activeTickers = new Set(Object.keys(SECTOR_MAP));
-          try {
-            const existing = await kvGetJSON(KV, "timed:sparklines");
-            if (existing) {
-              let preserved = 0;
-              for (const [sym, arr] of Object.entries(existing)) {
-                if (!sparkMap[sym] && activeTickers.has(sym) && Array.isArray(arr) && arr.length >= 2) {
-                  sparkMap[sym] = arr;
-                  preserved++;
-                }
-              }
-              console.log(`[SPARKLINE REBUILD] Preserved ${preserved} non-equity sparklines from existing KV (dropped ${Object.keys(existing).length - preserved} stale entries)`);
-            }
-          } catch (_) {}
-
-          // Write to KV (clean data, only active tickers)
-          await kvPutJSON(KV, "timed:sparklines", sparkMap);
-
-          // Push to WebSocket clients immediately
-          ctx.waitUntil(notifyPriceHub(env, {
-            type: "sparklines",
-            data: sparkMap,
-            updated_at: Date.now(),
-          }));
-
-          console.log(`[SPARKLINE REBUILD] Done: ${totalTickers} tickers, ${totalBars} bars total`);
-          return sendJSON({
-            ok: true,
-            tickers_rebuilt: totalTickers,
-            total_bars: totalBars,
-            total_in_kv: Object.keys(sparkMap).length,
-          }, 200, corsHeaders(env, req));
-        } catch (e) {
-          console.error("[SPARKLINE REBUILD] Failed:", String(e));
-          return sendJSON({ ok: false, error: String(e?.message || e) }, 500, corsHeaders(env, req));
         }
       }
 
@@ -26009,7 +25837,7 @@ export default {
               try {
                 let price = 0;
                 let prevClose = 0;
-                const res = await d1GetCandles(env, sym, "1", 1);
+                const res = await d1GetCandles(env, sym, "5", 1);
                 if (res?.ok && res.candles?.length > 0 && Number.isFinite(res.candles[0].c))
                   price = Number(res.candles[0].c);
                 if (!(price > 0) && KV) {
@@ -26096,8 +25924,8 @@ export default {
 
         // Expected minimums per TF (approximate for good chart + scoring coverage)
         // Canonical 9 TFs (3m dropped)
-        const expected = { "1": 1950, "5": 500, "10": 500, "30": 300, "60": 300, "240": 300, "D": 250, "W": 200, "M": 60 };
-        const tfs = ["M", "W", "D", "240", "60", "30", "10", "5", "1"];
+        const expected = { "5": 500, "10": 500, "30": 300, "60": 300, "240": 300, "D": 250, "W": 200, "M": 60 };
+        const tfs = ["M", "W", "D", "240", "60", "30", "10", "5"];
 
         // Expected trading days in the last N calendar days (for gap detection)
         // Intraday TFs: check last 30 calendar days (~21 trading days)
@@ -29101,10 +28929,7 @@ Visual representation of all tickers plotted by:
 - Best opportunities are in the bottom-left quadrant (early phase + low completion).
 
 ### Market Pulse Row
-Top row of sparkline pills showing key indices and futures (SPX, US500, SPY, QQQ, IWM, DIA, etc.) with intraday sparklines and daily change percentage.
-
-### Sparklines
-Small inline charts on each ticker card showing intraday price movement. Resets at market open each day.
+Top row showing key indices and futures (SPX, US500, SPY, QQQ, IWM, DIA, etc.) with daily change percentage.
 
 ### Getting Started Tips
 1. Start with the Daily Brief each morning for market context.
@@ -35354,16 +35179,15 @@ Provide 3-5 actionable next steps:
       if (_isWeekday && _utcH >= 9 && _utcH <= 23) vc.add("*/1 9-23 * * 1-5");
       if (_utcDay >= 2 && _utcDay <= 6 && _utcH <= 1)  vc.add("*/1 0-1 * * 2-6");
       if (_utcDay === 0 && _utcH >= 22)                 vc.add("*/5 22-23 * * 7");
-      // Overnight crypto: fills the UTC 2-8 gap (9 PM - 3 AM ET) for 24/7 crypto sparklines.
+      // Overnight crypto: fills the UTC 2-8 gap (9 PM - 3 AM ET) for 24/7 crypto prices.
       // Runs every 5 min to avoid unnecessary API calls for just BTC/ETH.
       if (_utcH >= 2 && _utcH <= 8 && _utcM % 5 === 0) vc.add("*/5 2-8 * * *");
-      // Alpaca bars
-      if (_isWeekday && _utcH >= 9 && _utcH <= 21)      vc.add("*/1 9-21 * * 1-5");
-      if (_isWeekday && _utcH >= 21 && _utcH <= 23)     vc.add("*/5 21-23 * * 1-5");
-      if (_utcDay >= 2 && _utcDay <= 6 && _utcH <= 1)   vc.add("*/5 0-1 * * 2-6");
     }
     if (_isEvery5Min) {
       vc.add("*/5 * * * *");
+      // Alpaca bars: unified 5-min cadence during operating hours (4AM-8PM ET = 9-23 UTC + 0-1 UTC next day)
+      if (_isWeekday && _utcH >= 9 && _utcH <= 23)                vc.add("*/5 9-23 * * 1-5");
+      if (_utcDay >= 2 && _utcDay <= 6 && _utcH <= 1)             vc.add("*/5 0-1 * * 2-6");
       if (_isWeekday && _utcM % 15 === 0)                          vc.add("*/15 * * * 1-5");
       if (_utcH % 6 === 0 && _utcM === 0)                          vc.add("0 */6 * * *");
       if (_isWeekday && _utcH === 14 && _utcM === 45)              vc.add("45 14 * * 1-5");
@@ -35578,15 +35402,12 @@ Provide 3-5 actionable next steps:
     }
 
     // ═══════════════════════════════════════════════════════════════════════
-    // ALPACA BAR FETCHING — extended hours coverage
-    //   Pre-market + RTH: */1 9-21 * * 1-5  (4AM-4PM ET = 9-21 UTC, every 1 min)
-    //   After-hours:      */5 21-23 * * 1-5  (4PM-6PM ET, every 5 min)
-    //                     */5 23 * * 1-5     (6PM-7PM ET, every 5 min)
-    //                     */5 0-1 * * 2-6    (7PM-8PM ET, every 5 min)
-    // This cron fetches bars from Alpaca and stores them in D1.
+    // ALPACA BAR FETCHING — 5-min cadence, 4 AM - 8 PM ET (Phase 3)
+    //   Weekdays: */5 9-23 * * 1-5  (9:00-23:55 UTC)
+    //             */5 0-1 * * 2-6   (00:00-01:55 UTC, = Mon-Fri evenings ET)
+    // Fetches bars from Alpaca and stores them in D1.
     // ═══════════════════════════════════════════════════════════════════════
-    const isAlpacaBarCron = vc.has("*/1 9-21 * * 1-5")
-      || vc.has("*/5 21-23 * * 1-5")
+    const isAlpacaBarCron = vc.has("*/5 9-23 * * 1-5")
       || vc.has("*/5 0-1 * * 2-6");
     if (isAlpacaBarCron) {
       if (env.ALPACA_ENABLED === "true" && env.ALPACA_API_KEY_ID && env.ALPACA_API_SECRET_KEY) {
@@ -35787,23 +35608,22 @@ Provide 3-5 actionable next steps:
             console.error("[PRICE CRON] Daily candle prevClose load failed:", String(e));
           }
 
-          // Source 1b: Fallback — derive prev_close from 1-MINUTE candles for missing tickers.
-          // The price feed writes 1m candles every minute, so this data is always fresh.
-          // We find the last 1m candle AT or BEFORE previous trading day's 4 PM ET close.
+          // Source 1b: Fallback — derive prev_close from 5-MINUTE candles for missing tickers.
+          // We find the last 5m candle AT or BEFORE previous trading day's 4 PM ET close.
           try {
             const prevDay = prevTradingDayKey(todayTradingDay);
             const prevCloseMs = prevDay ? nyWallTimeToUtcMs(prevDay, 16, 0, 0) : null;
             if (env?.DB && prevCloseMs && Number.isFinite(prevCloseMs)) {
               const missingTickers = allTickers.filter(t => !dailyCandlePrevCloseMap[t]);
               if (missingTickers.length > 0) {
-                const lookbackStart = prevCloseMs - 8 * 3600 * 1000; // 8h back (~9 AM ET start)
+                const lookbackStart = prevCloseMs - 8 * 3600 * 1000;
                 for (let i = 0; i < missingTickers.length; i += 200) {
                   const batch = missingTickers.slice(i, i + 200);
                   const stmts = batch.map(sym =>
                     env.DB.prepare(
-                      `SELECT c FROM ticker_candles WHERE ticker = ?1 AND tf = '1'
+                      `SELECT c FROM ticker_candles WHERE ticker = ?1 AND tf = '5'
                        AND ts >= ?2 AND ts <= ?3 ORDER BY ts DESC LIMIT 1`
-                    ).bind(sym.toUpperCase(), lookbackStart, prevCloseMs + 60000)
+                    ).bind(sym.toUpperCase(), lookbackStart, prevCloseMs + 300000)
                   );
                   const results = await env.DB.batch(stmts);
                   for (let j = 0; j < batch.length; j++) {
@@ -35814,7 +35634,7 @@ Provide 3-5 actionable next steps:
                     }
                   }
                 }
-                console.log(`[PRICE CRON] 1m-candle prev_close fallback added ${missingTickers.length - allTickers.filter(t => !dailyCandlePrevCloseMap[t]).length} tickers (total: ${Object.keys(dailyCandlePrevCloseMap).length})`);
+                console.log(`[PRICE CRON] 5m-candle prev_close fallback added ${missingTickers.length - allTickers.filter(t => !dailyCandlePrevCloseMap[t]).length} tickers (total: ${Object.keys(dailyCandlePrevCloseMap).length})`);
               }
             }
           } catch (e) {
@@ -35974,14 +35794,14 @@ Provide 3-5 actionable next steps:
         }
 
         // Fallback for tickers still missing after initial + retry (e.g. Alpaca delayed/unavailable).
-        // Use latest 1m candle or timed:latest so the UI shows a valid price.
+        // Use latest 5m candle or timed:latest so the UI shows a valid price.
         const missingFromSnap = allTickers.filter(s => !prices[s] || !(Number(prices[s]?.p) > 0));
         if (missingFromSnap.length > 0 && env?.DB) {
           for (const sym of missingFromSnap) {
             try {
               let price = 0;
               let prevClose = 0;
-              const res = await d1GetCandles(env, sym, "1", 1);
+              const res = await d1GetCandles(env, sym, "5", 1);
               if (res?.ok && res.candles?.length > 0 && Number.isFinite(res.candles[0].c))
                 price = Number(res.candles[0].c);
               if (!(price > 0)) {
@@ -36011,10 +35831,10 @@ Provide 3-5 actionable next steps:
         }
 
         // ── Two-tier price sanity check ──
-        // RTH (9:30-4 PM ET):    Compare against D1 1m candles (>2% → use candle).
+        // RTH (9:30-4 PM ET):    Compare against D1 5m candles (>2% → use candle).
         // Outside RTH (pre/post): Compare against D1 DAILY close (>25% → use daily close).
         //   This catches bad SIP prints (e.g. AGYS $62 when real close was $81) without
-        //   the self-reinforcing loop that plagued the old pre-market 1m candle check.
+        //   the self-reinforcing loop that plagued the old pre-market candle check.
         const _sanityET = getEasternParts(new Date());
         const _sanityEtMins = _sanityET.hour * 60 + _sanityET.minute;
         const _sanityDateStr = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
@@ -36022,18 +35842,17 @@ Provide 3-5 actionable next steps:
           && !["Sat", "Sun"].includes(_sanityET.weekday)
           && !(_cronCalendar ? _calIsEquityHoliday(_cronCalendar, _sanityDateStr) : false);
         if (_isRTH) {
-          // During RTH: compare against recent 1m candles (reliable during active trading)
           try {
             const db = env?.DB;
             if (db) {
               const currentMinuteTs = Math.floor(Date.now() / 60000) * 60000;
-              const lookbackStart = currentMinuteTs - 10 * 60 * 1000;
+              const lookbackStart = currentMinuteTs - 15 * 60 * 1000;
               const tickersToCheck = Object.keys(prices).filter(s => prices[s]?.p > 0);
               for (let i = 0; i < tickersToCheck.length; i += 200) {
                 const batch = tickersToCheck.slice(i, i + 200);
                 const stmts = batch.map(sym =>
                   db.prepare(
-                    `SELECT c, ts FROM ticker_candles WHERE ticker = ?1 AND tf = '1' AND ts >= ?2 AND ts < ?3 ORDER BY ts DESC LIMIT 1`
+                    `SELECT c, ts FROM ticker_candles WHERE ticker = ?1 AND tf = '5' AND ts >= ?2 AND ts < ?3 ORDER BY ts DESC LIMIT 1`
                   ).bind(sym.toUpperCase(), lookbackStart, currentMinuteTs)
                 );
                 const results = await db.batch(stmts);
@@ -36048,7 +35867,7 @@ Provide 3-5 actionable next steps:
                     const prevClose = prices[sym].pc;
                     const dc = prevClose > 0 ? Math.round((candlePrice - prevClose) * 100) / 100 : null;
                     const dp = prevClose > 0 ? Math.round(((candlePrice - prevClose) / prevClose) * 10000) / 100 : null;
-                    console.log(`[PRICE SANITY] ${sym}: Alpaca $${alpacaPrice} diverges ${divergePct.toFixed(1)}% from candle $${candlePrice} — using candle`);
+                    console.log(`[PRICE SANITY] ${sym}: Alpaca $${alpacaPrice} diverges ${divergePct.toFixed(1)}% from 5m candle $${candlePrice} — using candle`);
                     prices[sym] = { ...prices[sym], p: Math.round(candlePrice * 100) / 100, dc, dp };
                   }
                 }
@@ -36085,45 +35904,6 @@ Provide 3-5 actionable next steps:
           } catch (e) {
             console.warn("[PRICE SANITY] pre-market error:", String(e).slice(0, 200));
           }
-        }
-
-        // ── Build 1m candles from snapshot prices ──
-        // Every minute we have prices for ALL tickers. Use them to build/update
-        // 1m candles in D1, providing continuous coverage independent of the
-        // Alpaca bar cron and TradingView webhooks.
-        try {
-          const db = env?.DB;
-          if (db) {
-            const minuteTs = Math.floor(Date.now() / 60000) * 60000;
-            const updatedAt = Date.now();
-            const stmts = [];
-            for (const [sym, snap] of Object.entries(prices)) {
-              const price = snap.p;
-              if (!Number.isFinite(price) || price <= 0) continue;
-              stmts.push(
-                db.prepare(
-                  `INSERT INTO ticker_candles (ticker, tf, ts, o, h, l, c, v, updated_at)
-                   VALUES (?1, '1', ?2, ?3, ?4, ?5, ?6, NULL, ?7)
-                   ON CONFLICT(ticker, tf, ts) DO UPDATE SET
-                     h = MAX(ticker_candles.h, excluded.h),
-                     l = MIN(ticker_candles.l, excluded.l),
-                     c = excluded.c,
-                     updated_at = excluded.updated_at`
-                ).bind(sym.toUpperCase(), minuteTs, price, price, price, price, updatedAt)
-              );
-            }
-            // Batch write in chunks of 500 (D1 limit)
-            for (let i = 0; i < stmts.length; i += 500) {
-              ctx.waitUntil(
-                db.batch(stmts.slice(i, i + 500)).catch(e =>
-                  console.warn(`[PRICE→CANDLE] batch ${i/500} failed:`, String(e).slice(0, 120))
-                )
-              );
-            }
-          }
-        } catch (candleErr) {
-          // Non-critical — don't break the price feed
-          console.warn(`[PRICE→CANDLE] error:`, String(candleErr).slice(0, 120));
         }
 
         // Store in KV with timestamp + debug
@@ -36177,159 +35957,6 @@ Provide 3-5 actionable next steps:
           data: prices,
           updated_at: priceUpdateTs,
         }));
-
-        // ── Build & push sparkline data via KV + PriceHub ──
-        // Instead of 200+ D1 candle reads per client page load, we maintain
-        // a rolling array of {t, c, o} values per ticker in KV and push
-        // the full sparkline payload to all WS clients every 5 minutes.
-        // Clients use this to render sparklines with zero HTTP candle requests.
-        //
-        // IMPORTANT: Only append sparkline points when a ticker's market is active.
-        // Three ticker types with different sessions:
-        //   Stocks:  4 AM – 8 PM ET on weekdays (PM + RTH + AH)
-        //   Futures: 6 PM ET Sunday – 5 PM ET Friday (nearly 24h, except Sat + Sun before 6 PM)
-        //   Crypto:  24/7 always
-        // Outside each ticker's session, stale prices are skipped to preserve
-        // the last session's real intraday movement.
-        try {
-          const SPARK_KV_KEY = "timed:sparklines";
-          const SPARK_MAX_POINTS = 400; // Covers full equity RTH (390 min) + margin
-          const minuteTs = Math.floor(Date.now() / 60000) * 60000;
-
-          // Compute ET time context once for all tickers
-          const _sparkNow = new Date();
-          const _sparkWd = String(NY_WD_FMT.format(_sparkNow)).toLowerCase();
-          const _sparkIsWeekday = _sparkWd.startsWith("mon") || _sparkWd.startsWith("tue") || _sparkWd.startsWith("wed") || _sparkWd.startsWith("thu") || _sparkWd.startsWith("fri");
-          const _sparkIsSunday = _sparkWd.startsWith("sun");
-          const _sparkIsSaturday = _sparkWd.startsWith("sat");
-          const _sparkIsFriday = _sparkWd.startsWith("fri");
-          let _sparkEtMins = 0;
-          try {
-            const parts = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour12: false, hour: "2-digit", minute: "2-digit" }).formatToParts(_sparkNow);
-            const map = {};
-            for (const p of parts) map[p.type] = Number(p.value);
-            _sparkEtMins = (map.hour || 0) * 60 + (map.minute || 0);
-          } catch {}
-
-          // Sparkline-specific session check: ONLY RTH (9:30-4 PM ET) for equities.
-          // The general isTickerSessionActive uses 4 AM - 8 PM which wastes the
-          // 400-point rolling window on pre/post-market data the frontend never shows.
-          // Futures + crypto keep their full session windows (they display all of it).
-          function isSparklineSessionActive(sym) {
-            const _CRYPTO_SYMS = new Set(["BTCUSD", "ETHUSD", "BTCUSDT", "ETHUSDT", "BTC", "ETH"]);
-            const isCrypto = _CRYPTO_SYMS.has(sym) || sym.endsWith("USD") || sym.endsWith("USDT");
-            if (isCrypto) return true;
-            const isFut = sym.endsWith("1!") || ["ES1!", "NQ1!", "CL1!", "GC1!", "SI1!", "US500", "SPX", "VIX"].includes(sym);
-            if (isFut) {
-              if (_cronCalendar) return _calIsTickerSessionActive(_cronCalendar, sym, _sparkNow);
-              if (_sparkIsSaturday) return false;
-              if (_sparkIsSunday) return _sparkEtMins >= 1080;
-              if (_sparkIsFriday) return _sparkEtMins < 1020;
-              return true;
-            }
-            // Equities: RTH only (9:30 AM – 4:00 PM ET)
-            // This ensures all 400 points cover the displayable range,
-            // matching the frontend's _sessionFraction mapping (570-960 ET mins).
-            if (_cronCalendar) {
-              const dateStr = _calGetETDateStr(_sparkNow);
-              if (_calIsEquityHoliday(_cronCalendar, dateStr)) return false;
-            }
-            if (!_sparkIsWeekday) return false;
-            return _sparkEtMins >= 570 && _sparkEtMins < 960;
-          }
-
-          // Session start timestamps for detecting new-day transitions.
-          // Equities: 9:30 AM ET today. Futures: 6 PM ET previous calendar day.
-          const _todayET = _calGetETDateStr(_sparkNow);
-          let _equitySessionStartMs = 0;
-          try {
-            const [yr, mo, dy] = _todayET.split("-").map(Number);
-            const testUtc = new Date(Date.UTC(yr, mo - 1, dy, 12, 0, 0));
-            const etHour = parseInt(testUtc.toLocaleString("en-US", { timeZone: "America/New_York", hour12: false, hour: "2-digit" }));
-            const etOffset = etHour - 12;
-            _equitySessionStartMs = Date.UTC(yr, mo - 1, dy, 9 - etOffset, 30, 0);
-          } catch (_) {}
-
-          // Read existing sparkline data from KV and prune stale tickers.
-          // Only keep tickers in SECTOR_MAP to prevent unbounded growth
-          // (previously accumulated 10K+ stale entries → hit 25 MB KV limit).
-          const _activeTickers = new Set(Object.keys(SECTOR_MAP));
-          let _rawSparkMap = (await kvGetJSON(KV, SPARK_KV_KEY)) || {};
-          let sparkMap = {};
-          for (const [sym, arr] of Object.entries(_rawSparkMap)) {
-            if (_activeTickers.has(sym) && Array.isArray(arr)) {
-              sparkMap[sym] = arr;
-            }
-          }
-          if (Object.keys(_rawSparkMap).length !== Object.keys(sparkMap).length) {
-            console.log(`[SPARKLINES] Pruned ${Object.keys(_rawSparkMap).length - Object.keys(sparkMap).length} stale entries (kept ${Object.keys(sparkMap).length})`);
-          }
-          _rawSparkMap = null; // free memory
-
-          // Append new data points only for tickers whose session is active.
-          // Uses bar close price (c) from Alpaca stream when available for true
-          // 1-minute candle fidelity; falls back to snapshot price (p).
-          let appended = 0;
-          let skippedClosed = 0;
-          let sessionResets = 0;
-          for (const [sym, snap] of Object.entries(prices)) {
-            // Prefer bar close (c) from Alpaca stream for true 1m candle data.
-            // The stream writes {t, o, h, l, c, v} fields; snapshot API sets {p}.
-            // Bar close reflects actual last-trade-of-minute vs point-in-time snapshot.
-            const barClose = Number(snap.c);
-            const price = (Number.isFinite(barClose) && barClose > 0) ? barClose : snap.p;
-            if (!Number.isFinite(price) || price <= 0) continue;
-            if (!isSparklineSessionActive(sym)) { skippedClosed++; continue; }
-            if (!sparkMap[sym]) sparkMap[sym] = [];
-            const arr = sparkMap[sym];
-
-            // Session reset: if the last stored point is from a previous session,
-            // clear the array so the new session starts fresh (no stale mix).
-            if (arr.length > 0 && _equitySessionStartMs > 0) {
-              const lastTs = arr[arr.length - 1].t;
-              const isCrypto = sym.endsWith("USD") || sym.endsWith("USDT");
-              const isFut = sym.endsWith("1!");
-              if (!isCrypto && !isFut && lastTs < _equitySessionStartMs && minuteTs >= _equitySessionStartMs) {
-                sparkMap[sym] = [];
-                sessionResets++;
-              }
-            }
-            const current = sparkMap[sym];
-
-            // Deduplicate: skip if last point has same timestamp
-            if (current.length > 0 && current[current.length - 1].t === minuteTs) {
-              current[current.length - 1].c = price;
-            } else {
-              const openPrice = Number(snap.o);
-              current.push({ t: minuteTs, c: price, o: (Number.isFinite(openPrice) && openPrice > 0) ? openPrice : price });
-            }
-            // Trim to max points
-            if (current.length > SPARK_MAX_POINTS) {
-              sparkMap[sym] = current.slice(current.length - SPARK_MAX_POINTS);
-            }
-            appended++;
-          }
-
-          // Persist to KV if anything was appended (non-blocking)
-          if (appended > 0) {
-            ctx.waitUntil(kvPutJSON(KV, SPARK_KV_KEY, sparkMap).catch(e =>
-              console.warn("[SPARKLINES] KV put failed:", String(e).slice(0, 120))
-            ));
-          }
-
-          // Push to WS clients every 5 minutes (even outside market hours so new
-          // connections get the preserved previous-session sparklines).
-          if (_utcM % 5 === 0) {
-            ctx.waitUntil(notifyPriceHub(env, {
-              type: "sparklines",
-              data: sparkMap,
-              updated_at: Date.now(),
-            }));
-            console.log(`[SPARKLINES] Pushed ${Object.keys(sparkMap).length} tickers to WS (appended=${appended}, skippedClosed=${skippedClosed}, sessionResets=${sessionResets})`);
-          }
-        } catch (sparkErr) {
-          console.warn("[SPARKLINES] error:", String(sparkErr).slice(0, 200));
-        }
 
         // ── SL/TP Exit Checking on price loop ──
         // Check open positions against current prices for fast SL/TP reaction
@@ -36398,8 +36025,7 @@ Provide 3-5 actionable next steps:
     //
     // Fills the 7-hour gap when the main price feed doesn't run.
     // Crypto trades 24/7 — fetch only BTC/ETH snapshots from Alpaca's crypto
-    // endpoint and append sparkline data points. Lightweight: 1 API call,
-    // 2 KV writes (prices + sparklines).
+    // endpoint and update prices. Lightweight: 1 API call, 1 KV write.
     // ═══════════════════════════════════════════════════════════════════════
     const _isOvernightCrypto = vc.has("*/5 2-8 * * *") && !isPriceFeedCron;
     if (_isOvernightCrypto && env.ALPACA_ENABLED === "true") {
@@ -36462,35 +36088,7 @@ Provide 3-5 actionable next steps:
               _source: "overnight_crypto",
             }).catch(() => {}));
 
-            // Append to sparklines (same logic as main price feed)
-            const SPARK_KV_KEY = "timed:sparklines";
-            const SPARK_MAX_POINTS = 400;
-            const minuteTs = Math.floor(Date.now() / 60000) * 60000;
-            const _cryptoActive = new Set(Object.keys(SECTOR_MAP));
-            let _rawCryptoSpark = (await kvGetJSON(KV, SPARK_KV_KEY)) || {};
-            let sparkMap = {};
-            for (const [s, a] of Object.entries(_rawCryptoSpark)) {
-              if (_cryptoActive.has(s) && Array.isArray(a)) sparkMap[s] = a;
-            }
-            _rawCryptoSpark = null;
-            let appended = 0;
-            for (const [sym, snap] of Object.entries(cryptoPrices)) {
-              if (!sparkMap[sym]) sparkMap[sym] = [];
-              const arr = sparkMap[sym];
-              if (arr.length > 0 && arr[arr.length - 1].t === minuteTs) {
-                arr[arr.length - 1].c = snap.p;
-              } else {
-                arr.push({ t: minuteTs, c: snap.p, o: snap.p });
-              }
-              if (arr.length > SPARK_MAX_POINTS) {
-                sparkMap[sym] = arr.slice(arr.length - SPARK_MAX_POINTS);
-              }
-              appended++;
-            }
-            if (appended > 0) {
-              ctx.waitUntil(kvPutJSON(KV, SPARK_KV_KEY, sparkMap).catch(() => {}));
-            }
-            console.log(`[OVERNIGHT CRYPTO] Updated ${Object.keys(cryptoPrices).length} crypto tickers, sparkline appended=${appended}`);
+            console.log(`[OVERNIGHT CRYPTO] Updated ${Object.keys(cryptoPrices).length} crypto tickers`);
           }
         } else {
           console.warn(`[OVERNIGHT CRYPTO] Alpaca HTTP ${resp.status}`);
@@ -36500,7 +36098,7 @@ Provide 3-5 actionable next steps:
       }
     }
 
-    // ── End of every-minute handler (price feed + Alpaca bars) ──
+    // ── End of every-minute handler (price feed only; bars moved to */5 in Phase 3) ──
     if (_isEveryMin) {
       // COST OPTIMIZATION: D1 sync reduced from 4x per 5-min window to 1x.
       // Only sync on minutes ending in 2 (e.g., :02, :07, :12).
@@ -36540,6 +36138,17 @@ Provide 3-5 actionable next steps:
     // Priority order: P0 open positions → P1 setup/enter → P2 rest
     // Parallel: 10 tickers concurrently, each with 7+ concurrent D1 reads
     // ═══════════════════════════════════════════════════════════════════════
+    // ── Crypto bar fetching: true 24/7 coverage ──
+    // Runs on EVERY */5 tick regardless of operating hours.
+    // Crypto trades 24/7; only 2 tickers (BTCUSD, ETHUSD), lightweight.
+    if (env.ALPACA_ENABLED === "true" && env.ALPACA_API_KEY_ID && env.ALPACA_API_SECRET_KEY) {
+      ctx.waitUntil(
+        alpacaCronFetchCrypto(env)
+          .then(r => { if (r.upserted > 0) console.log(`[SCORING→CRYPTO] ${r.upserted} bars upserted`); })
+          .catch(e => console.warn("[SCORING→CRYPTO] error:", String(e).slice(0, 150)))
+      );
+    }
+
     if (env.ALPACA_ENABLED === "true") {
       try {
         // ── COST GATE: Skip scoring entirely outside operating hours ──
@@ -36562,18 +36171,6 @@ Provide 3-5 actionable next steps:
             console.warn(`[SCORING CRON] Stale replay lock (${Math.round(lockAge / 1000)}s old), clearing and proceeding`);
             await kvPutJSON(KV, "timed:replay:running", null);
           }
-        }
-
-        // ── Crypto bar fetching: 24/7 coverage ──
-        // The Alpaca bar cron only runs during equity hours (weekdays).
-        // Crypto trades 24/7, so we piggyback on the scoring cron for continuous coverage.
-        // Non-blocking (ctx.waitUntil), idempotent (ON CONFLICT UPDATE), 2 tickers only.
-        if (env.ALPACA_API_KEY_ID && env.ALPACA_API_SECRET_KEY) {
-          ctx.waitUntil(
-            alpacaCronFetchCrypto(env)
-              .then(r => { if (r.upserted > 0) console.log(`[SCORING→CRYPTO] ${r.upserted} bars upserted`); })
-              .catch(e => console.warn("[SCORING→CRYPTO] error:", String(e).slice(0, 150)))
-          );
         }
 
         const scoringStart = Date.now();

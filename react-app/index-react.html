@@ -915,7 +915,7 @@
       // useWebSocket — real-time price + scoring push via Durable Object
       // Falls back to usePriceFeed polling if WS connection fails.
       // ─────────────────────────────────────────────────────────────────────
-      function useWebSocket(tickerData, setTickerData, sparklineCallbackRef) {
+      function useWebSocket(tickerData, setTickerData) {
         const wsRef = useRef(null);
         const reconnectTimer = useRef(null);
         const reconnectDelay = useRef(1000); // exponential backoff: 1s → 2s → 4s → max 30s
@@ -1011,14 +1011,6 @@
                   if (changed && setter) setter(updatedData);
                 }
 
-                // Sparkline data pushed by cron every 5 minutes
-                if (msg.type === "sparklines" && msg.data) {
-                  try {
-                    if (sparklineCallbackRef?.current) {
-                      sparklineCallbackRef.current(msg.data);
-                    }
-                  } catch (_) {}
-                }
               } catch (e) {
                 // Ignore malformed messages
               }
@@ -2063,21 +2055,6 @@
       const getStaleInfo = window.TimedPriceUtils.getStaleInfo;
       const getDailyChange = window.TimedPriceUtils.getDailyChange;
 
-      // ══════════════════════════════════════════════════════════════════
-      // Sparkline helpers — session-aware time axis
-      // ══════════════════════════════════════════════════════════════════
-
-      // True 24/7 crypto tickers — use midnight-to-midnight session
-      const _24_7_CRYPTO = new Set([
-        "BTCUSD", "ETHUSD", "BTCUSDT", "ETHUSDT",
-      ]);
-
-      // Futures & extended-hours tickers: Sun 6 PM → Fri 5 PM ET
-      const _CONTINUOUS_TICKERS = new Set([
-        "ES1!", "NQ1!", "YM1!", "RTY1!", "CL1!", "GC1!", "SI1!", "ZB1!", "ZN1!", "6E1!", "6J1!",
-        "ES", "NQ", "BTC", "ETH", "GC", "SI", "US500", "SPX", "USOIL", "GOLD", "SILVER", "DXY",
-      ]);
-
       // Market Pulse tickers: indices + S&P sector ETFs + crypto
       const MARKET_PULSE_TICKERS = [
         // Indices / futures / commodities
@@ -2087,363 +2064,6 @@
         // S&P 500 sector ETFs
         "XLK", "XLF", "XLY", "XLP", "XLC", "XLI", "XLB", "XLE", "XLRE", "XLU", "XLV",
       ];
-
-      // Session config: returns { openMin, closeMin, sessionDur, label }
-      // openMin/closeMin are ET minutes from midnight (may wrap: 1080 → 1020 next day = 23h)
-      function _getSessionConfig(sym) {
-        const s = String(sym || "").toUpperCase();
-        // 24/7 crypto: midnight ET (0) → midnight next day (1440) — full 24h
-        if (_24_7_CRYPTO.has(s)) {
-          return { openMin: 0, closeMin: 1440, sessionDur: 1440, label: "24/7" };
-        }
-        if (_CONTINUOUS_TICKERS.has(s) || s.endsWith("1!") || s.endsWith("USDT") || s.endsWith("USD")) {
-          // Futures: 6:00 PM ET (1080) → 5:00 PM ET next day (1020)
-          // Session duration: 23 hours = 1380 minutes
-          return { openMin: 1080, closeMin: 1020, sessionDur: 1380, label: "6PM–5PM" };
-        }
-        // Equity RTH: 9:30 AM ET (570) → 4:00 PM ET (960)
-        return { openMin: 570, closeMin: 960, sessionDur: 390, label: "9:30–4PM" };
-      }
-
-      // Convert a Unix timestamp to ET minutes-from-midnight
-      // Auto-detects seconds vs milliseconds (> 1e12 = ms)
-      const _etFmt = new Intl.DateTimeFormat("en-US", {
-        timeZone: "America/New_York", hour12: false,
-        hour: "2-digit", minute: "2-digit"
-      });
-      function _toMs(ts) {
-        if (!ts) return 0;
-        return ts > 1e12 ? ts : ts * 1000;
-      }
-      function _tsToEtMin(ts) {
-        if (!ts) return NaN;
-        const d = new Date(_toMs(ts));
-        const parts = _etFmt.formatToParts(d);
-        let hr = 0, mn = 0;
-        for (const p of parts) {
-          if (p.type === "hour") hr = parseInt(p.value);
-          if (p.type === "minute") mn = parseInt(p.value);
-        }
-        // Handle midnight: formatToParts returns "24" for midnight in hour12: false
-        if (hr === 24) hr = 0;
-        return hr * 60 + mn;
-      }
-
-      // Session fraction: maps a candle timestamp to 0–1 within the display window.
-      // All asset types display the same 390-minute horizontal width:
-      //   Equities: fixed 9:30 AM – 4:00 PM ET
-      //   Crypto & Futures: rolling 390-min window ending at anchorMs (default: now)
-      // anchorMs: optional reference point for the right edge of the rolling window.
-      //   Live sessions: omit (defaults to Date.now())
-      //   Frozen sessions: pass the session close timestamp so the window
-      //   aligns to the last 390 minutes of that completed session.
-      function _sessionFraction(ts, sym, anchorMs) {
-        const cfg = _getSessionConfig(sym);
-        if (cfg.sessionDur === 390) {
-          // Equity: simple linear 570→960
-          const min = _tsToEtMin(ts);
-          if (isNaN(min)) return 1;
-          if (min < cfg.openMin) return 0;
-          if (min >= cfg.closeMin) return 1;
-          return (min - cfg.openMin) / cfg.sessionDur;
-        }
-        // Crypto & Futures: rolling 390-minute window so horizontal scale
-        // matches equities. Anchor = now (live) or session close (frozen).
-        const SPARK_WINDOW_MS = 390 * 60 * 1000;
-        const tsMs = _toMs(ts);
-        const anchor = anchorMs || Date.now();
-        const cutoff = anchor - SPARK_WINDOW_MS;
-        if (tsMs < cutoff) return -1;
-        if (tsMs > anchor) return 1;
-        return Math.max(0, Math.min(1, (tsMs - cutoff) / SPARK_WINDOW_MS));
-      }
-
-      // Compute session open time as epoch MILLISECONDS for "today's" session
-      // Equity: today 9:30 AM ET → epoch ms
-      // Continuous: today (or yesterday if before 6 PM) 6:00 PM ET → epoch ms
-      function _getSessionOpenMs(sym) {
-        const w = _getSessionWindowMs(sym);
-        return w?.openMs ?? 0;
-      }
-
-      // US market holidays (YYYY-MM-DD in ET). Equities fully closed; futures may have early close.
-      // These are static fallbacks — overwritten at startup by /timed/market-calendar API.
-      let _US_EQUITY_HOLIDAYS = new Set([
-        "2026-01-01", "2026-01-19", "2026-02-16", "2026-04-03", "2026-05-25",
-        "2026-06-19", "2026-07-03", "2026-09-07", "2026-11-26", "2026-12-25",
-        "2027-01-01", "2027-01-18", "2027-02-15", "2027-03-26", "2027-05-31",
-        "2027-06-18", "2027-07-05", "2027-09-06", "2027-11-25", "2027-12-24",
-      ]);
-      let _FUTURES_EARLY_CLOSE = new Set([
-        "2026-01-20", "2026-02-17", "2026-07-03", "2026-11-27", "2026-12-24",
-        "2027-01-19", "2027-02-16", "2027-11-26", "2027-12-23",
-      ]);
-      let _FUTURES_FULL_CLOSE = new Set([
-        "2026-01-01", "2026-04-03", "2026-12-25",
-        "2027-01-01", "2027-03-26", "2027-12-25",
-      ]);
-      let _EQUITY_EARLY_CLOSES = new Set([
-        "2026-11-27", "2026-12-24",
-        "2027-11-26", "2027-12-23",
-      ]);
-      let _marketCalendarLoaded = false;
-
-      // Fetch dynamic calendar from API and update the holiday/close sets.
-      // Called once at app startup; falls back to static values on failure.
-      async function _loadMarketCalendar() {
-        try {
-          const res = await fetch(`${API_BASE}/timed/market-calendar?_t=${Date.now()}`, { cache: "no-store" });
-          if (!res.ok) return;
-          const json = await res.json();
-          if (!json.ok) return;
-          const eq = json.equity || {};
-          const fut = json.futures || {};
-          if (Array.isArray(eq.holidays) && eq.holidays.length > 0) {
-            _US_EQUITY_HOLIDAYS = new Set(eq.holidays);
-          }
-          if (Array.isArray(eq.early_closes) && eq.early_closes.length > 0) {
-            _EQUITY_EARLY_CLOSES = new Set(eq.early_closes);
-          }
-          if (Array.isArray(fut.early_closes) && fut.early_closes.length > 0) {
-            _FUTURES_EARLY_CLOSE = new Set(fut.early_closes);
-          }
-          if (Array.isArray(fut.full_closes) && fut.full_closes.length > 0) {
-            _FUTURES_FULL_CLOSE = new Set(fut.full_closes);
-          }
-          _marketCalendarLoaded = true;
-          console.log(`[CALENDAR] Loaded: ${_US_EQUITY_HOLIDAYS.size} equity holidays, source=${json.source}`);
-        } catch (e) {
-          console.warn("[CALENDAR] Failed to load, using static fallback:", e?.message || e);
-        }
-      }
-      _loadMarketCalendar();
-      function _getETDateStr(d) {
-        return d.toLocaleDateString("en-CA", { timeZone: "America/New_York" }); // "YYYY-MM-DD"
-      }
-      function _isEquityHoliday(dateStr) {
-        return _US_EQUITY_HOLIDAYS.has(dateStr);
-      }
-      function _previousTradingDay(etDateStr) {
-        const [yr, mo, dy] = etDateStr.split("-").map(Number);
-        let d = new Date(yr, mo - 1, dy);
-        for (let i = 0; i < 10; i++) {
-          d.setDate(d.getDate() - 1);
-          const ds = d.toLocaleDateString("en-CA", { timeZone: "America/New_York" });
-          const dow = d.toLocaleDateString("en-US", { timeZone: "America/New_York", weekday: "short" });
-          if (dow !== "Sat" && dow !== "Sun" && !_isEquityHoliday(ds)) return ds;
-        }
-        return etDateStr; // fallback
-      }
-
-      // Session window { openMs, closeMs } for filtering candles.
-      // Equities RTH 9:30–4 PM ET:
-      //   Pre-market: use yesterday's RTH (no live pre-market painting)
-      //   During RTH: today 9:30 → now
-      //   After-hours: today 9:30 → 4 PM (completed session)
-      // Continuous tickers: unchanged (6 PM–5 PM).
-      // Holidays: equities show last trading day's session frozen.
-      function _getSessionWindowMs(sym) {
-        const cfg = _getSessionConfig(sym);
-        const now = new Date();
-        const etDateStr = now.toLocaleDateString("en-US", { timeZone: "America/New_York" });
-        const [mo, dy, yr] = etDateStr.split("/").map(Number);
-        const testUtc = new Date(Date.UTC(yr, mo - 1, dy, 12, 0, 0));
-        const etHour = parseInt(testUtc.toLocaleString("en-US", { timeZone: "America/New_York", hour12: false, hour: "2-digit" }));
-        const etOffset = etHour - 12;
-        const openHr = Math.floor(cfg.openMin / 60);
-        const openMn = cfg.openMin % 60;
-        const closeHr = Math.floor(cfg.closeMin / 60);
-        const closeMn = cfg.closeMin % 60;
-
-        // Crypto & Futures: rolling 390-min window (matches equity RTH width).
-        // Live sessions: now - 390min → now. Frozen: last 390min of completed session.
-        const SPARK_WINDOW = 390 * 60 * 1000;
-
-        if (cfg.sessionDur === 1440) {
-          // 24/7 crypto: always live, rolling 390-min window from now.
-          const openMs = Date.now() - SPARK_WINDOW;
-          return { openMs, closeMs: null };
-        }
-
-        if (cfg.sessionDur > 500) {
-          // Continuous futures: live rolling 390-min window, or frozen last-390-min slice.
-          const nowEtMin = _tsToEtMin(Date.now());
-          let fullSessionOpenMs = Date.UTC(yr, mo - 1, dy, openHr - etOffset, openMn, 0);
-          if (nowEtMin < cfg.openMin) fullSessionOpenMs -= 86400000;
-
-          // Weekend detection: futures close Friday ~5 PM ET and reopen Sunday ~6 PM ET.
-          const etDow = new Date().toLocaleDateString("en-US", { timeZone: "America/New_York", weekday: "short" });
-
-          // Friday after close (5 PM ET): show last 390 min of completed session frozen.
-          if (etDow === "Fri" && nowEtMin >= cfg.closeMin) {
-            let fullOpen;
-            if (nowEtMin >= cfg.openMin) {
-              fullOpen = fullSessionOpenMs - 86400000;
-            } else {
-              fullOpen = fullSessionOpenMs;
-            }
-            const fullClose = fullOpen + cfg.sessionDur * 60000;
-            return { openMs: fullClose - SPARK_WINDOW, closeMs: fullClose, _frozen: true };
-          }
-
-          if (etDow === "Sat") {
-            const satAnchor = Date.UTC(yr, mo - 1, dy, openHr - etOffset, openMn, 0);
-            const thuOpen = satAnchor - 2 * 86400000;
-            const fullClose = thuOpen + cfg.sessionDur * 60000;
-            return { openMs: fullClose - SPARK_WINDOW, closeMs: fullClose, _frozen: true };
-          }
-          if (etDow === "Sun" && nowEtMin < cfg.openMin) {
-            const sunOpen = fullSessionOpenMs - 2 * 86400000;
-            const fullClose = sunOpen + cfg.sessionDur * 60000;
-            return { openMs: fullClose - SPARK_WINDOW, closeMs: fullClose, _frozen: true };
-          }
-
-          // Futures holiday handling: early close or full close
-          const todayETFut = _getETDateStr(new Date());
-          if (_FUTURES_FULL_CLOSE.has(todayETFut)) {
-            const prevDay = _previousTradingDay(todayETFut);
-            const [pyr, pmo, pdy] = prevDay.split("-").map(Number);
-            const prevOpen = Date.UTC(pyr, pmo - 1, pdy, openHr - etOffset, openMn, 0);
-            const fullClose = prevOpen + cfg.sessionDur * 60000;
-            return { openMs: fullClose - SPARK_WINDOW, closeMs: fullClose, _frozen: true };
-          }
-          if (_FUTURES_EARLY_CLOSE.has(todayETFut)) {
-            const earlyCloseMin = 780;
-            if (nowEtMin >= earlyCloseMin) {
-              const fullClose = fullSessionOpenMs + ((earlyCloseMin - cfg.openMin + 1440) % 1440) * 60000;
-              return { openMs: fullClose - SPARK_WINDOW, closeMs: fullClose, _frozen: true };
-            }
-          }
-
-          // Live: rolling 390-min window from now
-          return { openMs: Date.now() - SPARK_WINDOW, closeMs: null };
-        }
-
-        // Equity RTH: 9:30 (570) – 4 PM (960)
-        const nowEtMin = _tsToEtMin(Date.now());
-        let openMs = Date.UTC(yr, mo - 1, dy, openHr - etOffset, openMn, 0);
-        let closeMs = Date.UTC(yr, mo - 1, dy, closeHr - etOffset, closeMn, 0);
-
-        // Weekend detection: equity markets closed Sat & Sun. Show Friday's completed RTH frozen.
-        const etDowEq = new Date().toLocaleDateString("en-US", { timeZone: "America/New_York", weekday: "short" });
-        if (etDowEq === "Sat") {
-          openMs -= 86400000; // shift to Friday
-          closeMs -= 86400000;
-          return { openMs, closeMs, _yesterdayFallback: false, _frozen: true };
-        }
-        if (etDowEq === "Sun") {
-          openMs -= 2 * 86400000; // shift to Friday
-          closeMs -= 2 * 86400000;
-          return { openMs, closeMs, _yesterdayFallback: false, _frozen: true };
-        }
-
-        // Holiday detection: if today is a US equity holiday, show last trading day's session
-        const todayET = _getETDateStr(new Date());
-        if (_isEquityHoliday(todayET)) {
-          const prevDay = _previousTradingDay(todayET);
-          const [pyr, pmo, pdy] = prevDay.split("-").map(Number);
-          const prevOpen = Date.UTC(pyr, pmo - 1, pdy, openHr - etOffset, openMn, 0);
-          const prevClose = Date.UTC(pyr, pmo - 1, pdy, closeHr - etOffset, closeMn, 0);
-          return { openMs: prevOpen, closeMs: prevClose, _yesterdayFallback: false, _frozen: true };
-        }
-
-        if (nowEtMin < cfg.openMin) {
-          // Pre-market: show the last completed RTH session.
-          // "yesterday" might be a holiday or weekend (e.g. Tue pre-market after Mon holiday),
-          // so find the actual last trading day using _previousTradingDay.
-          const yesterdayDate = new Date(Date.now() - 86400000);
-          const yesterdayET = _getETDateStr(yesterdayDate);
-          const yDow = yesterdayDate.toLocaleDateString("en-US", { timeZone: "America/New_York", weekday: "short" });
-          let prevDay;
-          if (yDow === "Sat" || yDow === "Sun" || _isEquityHoliday(yesterdayET)) {
-            prevDay = _previousTradingDay(yesterdayET);
-          } else {
-            prevDay = yesterdayET;
-          }
-          const [pyr, pmo, pdy] = prevDay.split("-").map(Number);
-          const prevOpen = Date.UTC(pyr, pmo - 1, pdy, openHr - etOffset, openMn, 0);
-          const prevClose = Date.UTC(pyr, pmo - 1, pdy, closeHr - etOffset, closeMn, 0);
-          return { openMs: prevOpen, closeMs: prevClose, _yesterdayFallback: false, _frozen: true };
-        }
-        if (nowEtMin >= cfg.closeMin) {
-          // After-hours: show today's completed RTH (frozen)
-          return { openMs, closeMs, _yesterdayFallback: false, _frozen: true };
-        }
-        // During RTH: today 9:30 → now (no upper bound)
-        // Also provide yesterday's session window for fallback when today has no data yet
-        return { openMs, closeMs: null, _yesterdayFallback: true,
-          _yOpenMs: openMs - 86400000, _yCloseMs: closeMs - 86400000 };
-      }
-
-      // Filter candles to the relevant session (ticker-aware, RTH 9:30–4 for equities)
-      // Pre-market: yesterday's RTH only (avoids "painting live" pre-market noise)
-      // During RTH: if today's session has < 2 candles (bar cron delayed), fall back to yesterday's completed session.
-      function _filterTodaySession(rawCandles, sym) {
-        if (!rawCandles || rawCandles.length < 2) return rawCandles;
-        const w = _getSessionWindowMs(sym);
-        if (!w || !w.openMs) return rawCandles;
-        const filtered = rawCandles.filter(c => {
-          const ts = Number(c.t ?? c.ts ?? c.timestamp ?? 0);
-          const tsMs = _toMs(ts);
-          if (tsMs < w.openMs) return false;
-          if (w.closeMs != null && tsMs > w.closeMs) return false;
-          return true;
-        });
-        if (filtered.length >= 2) return filtered;
-        // Equities: avoid multi-day overlay. But handle fallback scenarios:
-        const cfg = _getSessionConfig(sym);
-        if (cfg.sessionDur === 390) {
-          // During RTH: if today has no data yet (bar cron delayed), show yesterday's session
-          if (w._yesterdayFallback && w._yOpenMs && w._yCloseMs) {
-            const yFiltered = rawCandles.filter(c => {
-              const ts = Number(c.t ?? c.ts ?? c.timestamp ?? 0);
-              const tsMs = _toMs(ts);
-              return tsMs >= w._yOpenMs && tsMs <= w._yCloseMs;
-            });
-            if (yFiltered.length >= 2) return yFiltered;
-          }
-          // Frozen session (weekend/holiday/after-hours): if the session window filter
-          // returned empty (KV data may not span back to last trading day), show the
-          // most recent chunk of raw candles. Filter out stale flat-line data first.
-          if (w._frozen && filtered.length < 2 && rawCandles.length >= 2) {
-            // Take the last ~80 candles (one equity session worth of 5m bars)
-            const chunk = rawCandles.slice(-80);
-            // Detect stale data: if ALL close prices are identical, the data is from
-            // a holiday/weekend with no real trades — skip it
-            const closes = chunk.map(c => Number(c.c ?? c.close ?? 0)).filter(v => v > 0);
-            if (closes.length >= 2) {
-              const allSame = closes.every(v => v === closes[0]);
-              if (!allSame) return chunk;
-            }
-          }
-          return filtered;
-        }
-        // Crypto / Futures fallback: when the 390-min window filter returns empty
-        // (market closed, stale KV data), show the most recent chunk of candles.
-        // 400 = one full 390-min display window at 1-min resolution.
-        if (w._frozen && filtered.length < 2 && rawCandles.length >= 2) {
-          const chunk = rawCandles.slice(-400);
-          const closes = chunk.map(c => Number(c.c ?? c.close ?? 0)).filter(v => v > 0);
-          if (closes.length >= 2) {
-            const allSame = closes.every(v => v === closes[0]);
-            if (!allSame) return chunk;
-          }
-        }
-        return filtered.length >= 2 ? filtered : rawCandles.slice(-400);
-      }
-
-      // Find index of first candle at or after session open
-      function _findOpenIdx(candles, sym) {
-        if (!candles || candles.length === 0) return -1;
-        const cfg = _getSessionConfig(sym);
-        for (let i = 0; i < candles.length; i++) {
-          const ts = Number(candles[i].t ?? candles[i].ts ?? candles[i].timestamp ?? 0);
-          if (!ts) continue;
-          const frac = _sessionFraction(ts, sym);
-          if (frac >= 0) return i;
-        }
-        return -1;
-      }
 
       // Shared card skin (used by Kanban + Viewport cards)
       // - background tint by daily % change (blue/orange)
@@ -11100,7 +10720,7 @@
       // ─────────────────────────────────────────────────────────────
       // Shared compact card renderer (used by both Kanban + Viewport)
       // ─────────────────────────────────────────────────────────────
-      function renderCompactCardFn(t, { onSelectTicker, savedTickers, toggleSavedTicker, tradeByTicker, sparkData: cardSparkData } = {}) {
+      function renderCompactCardFn(t, { onSelectTicker, savedTickers, toggleSavedTicker, tradeByTicker } = {}) {
           const state = String(t?.state || "");
           const htfBull = state.startsWith("HTF_BULL");
           const htfBear = state.startsWith("HTF_BEAR");
@@ -11293,157 +10913,7 @@
                 height: "138px",
               }}
             >
-              {/* ── Background Sparkline — full card, absolute positioned ── */}
-              {/* SVG sparkline + HTML div open line (div avoids SVG non-uniform scaling issues) */}
-              {(() => {
-                const rawCandles = cardSparkData?.[sym];
-                if (!rawCandles || rawCandles.length < 2) return null;
-                const candles = _filterTodaySession(rawCandles, sym);
-                if (!candles || candles.length < 2) return null;
-
-                // Detect if we're showing yesterday's fallback during RTH
-                // by checking if the last candle is from before today's session open
-                const w = _getSessionWindowMs(sym);
-                const lastCandleTs = _toMs(Number(candles[candles.length - 1]?.t ?? candles[candles.length - 1]?.ts ?? 0));
-                const isYesterdayFallback = w?.openMs && lastCandleTs > 0 && lastCandleTs < w.openMs;
-
-                // Anchor for rolling window: frozen sessions use closeMs so the
-                // 390-min window aligns to the end of the completed session.
-                const cfg = _getSessionConfig(sym);
-                const sparkAnchor = (cfg.sessionDur !== 390) ? (w?._frozen ? w.closeMs : undefined) : undefined;
-
-                const pts = [];
-                let rthOpenPrice = null;
-                for (const c of candles) {
-                  const ts = Number(c.t ?? c.ts ?? c.timestamp ?? 0);
-                  const cl = Number(c.c ?? c.close ?? 0);
-                  if (!ts || cl <= 0) continue;
-                  const frac = _sessionFraction(ts, sym, sparkAnchor);
-                  if (frac >= 0 && frac <= 1) {
-                    pts.push({ frac, cl });
-                    if (rthOpenPrice === null) {
-                      const op = Number(c.o ?? c.open ?? 0);
-                      rthOpenPrice = op > 0 ? op : cl;
-                    }
-                  }
-                }
-                if (pts.length < 2) return null;
-
-                // Anchor sparkline left edge: if data starts mid-window,
-                // extend with a flat line from frac=0 at the open price.
-                if (pts[0].frac > 0.02 && rthOpenPrice != null) {
-                  pts.unshift({ frac: 0, cl: rthOpenPrice });
-                }
-                // Anchor right edge ONLY for frozen/completed sessions.
-                // During live trading, the sparkline should end at the current time
-                // (not extend a flat line to the session close — that looks wrong).
-                const sessionFrozen = w?._frozen === true;
-                if (sessionFrozen && pts[pts.length - 1].frac < 0.98) {
-                  pts.push({ frac: 1, cl: pts[pts.length - 1].cl });
-                }
-
-                const closes = pts.map(p => p.cl);
-                // Use ONLY actual close prices for the vertical range (not rthOpenPrice)
-                // to maximize visual detail of intraday movement. Including the open
-                // price compresses the sparkline when there's a gap up/down at open.
-                const lo = Math.min(...closes);
-                const hi = Math.max(...closes);
-                const range = hi - lo || 1;
-                const VW = 1000, VH = 500, padT = 40, padB = 40;
-                const plotH = VH - padT - padB;
-                const svgPts = pts.map(p => ({
-                  x: p.frac * VW,
-                  y: padT + plotH - ((p.cl - lo) / range) * plotH,
-                }));
-                const polyStr = svgPts.map(p => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" ");
-                const up = closes[closes.length - 1] >= closes[0];
-                const lineColor = up ? "#34d399" : "#f87171";
-                const gradColor = up ? "#22c55e" : "#ef4444";
-                const lastPt = svgPts[svgPts.length - 1];
-                // Open line: positioned at the rthOpenPrice level relative to the data range
-                let openTopPct = null;
-                if (rthOpenPrice != null) {
-                  const clampedOpen = Math.max(lo, Math.min(hi, rthOpenPrice));
-                  const openY = padT + plotH - ((clampedOpen - lo) / range) * plotH;
-                  if (Number.isFinite(openY)) {
-                    openTopPct = (openY / VH) * 100;
-                  }
-                }
-                const gId = `cbg-${sym}`;
-                // Determine if market is in RTH for this ticker (for pulsing dot)
-                const isInRTH = (() => {
-                  const cfg = _getSessionConfig(sym);
-                  if (cfg.sessionDur === 1440) return true; // 24/7 crypto — always "live"
-                  const c = getNyClock();
-                  const m = c.totalMin;
-                  if (cfg.openMin < cfg.closeMin) {
-                    // Normal session (e.g., stocks 570–960)
-                    if (c.dow === 0 || c.dow === 6) return false;
-                    return m >= cfg.openMin && m < cfg.closeMin;
-                  } else {
-                    // Wrap session (e.g., futures 1080–1020 next day)
-                    // Active Sun 6PM – Fri 5PM; closed Sat
-                    if (c.dow === 6) return false; // Saturday closed
-                    return m >= cfg.openMin || m < cfg.closeMin;
-                  }
-                })();
-                // Only show live pulsing dot when data is from today (not yesterday fallback)
-                const showPulse = isInRTH && !isYesterdayFallback;
-                // Dim the sparkline when showing yesterday's stale data during live hours
-                const sparkOpacity = isYesterdayFallback && isInRTH ? 0.25 : 0.60;
-                return (
-                  <React.Fragment>
-                    <svg viewBox={`0 0 ${VW} ${VH}`} preserveAspectRatio="none"
-                      className="absolute inset-0 w-full h-full pointer-events-none"
-                      style={{ zIndex: 1, overflow: "visible" }}>
-                      <defs>
-                        <linearGradient id={gId} x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="0%" stopColor={gradColor} stopOpacity={isYesterdayFallback && isInRTH ? "0.04" : "0.12"} />
-                          <stop offset="100%" stopColor={gradColor} stopOpacity="0.02" />
-                        </linearGradient>
-                      </defs>
-                      {/* Gradient fill under line */}
-                      <polygon points={`${svgPts[0].x.toFixed(1)},${VH} ${polyStr} ${lastPt.x.toFixed(1)},${VH}`}
-                        fill={`url(#${gId})`} />
-                      {/* Price line */}
-                      <polyline points={polyStr} fill="none" stroke={lineColor} strokeWidth="1.5"
-                        strokeLinejoin="round" strokeLinecap="round" opacity={sparkOpacity}
-                        vectorEffect="non-scaling-stroke" />
-                      {/* Pulsing live dot at end of sparkline — only during RTH with fresh data */}
-                      {showPulse && (
-                        <circle cx={lastPt.x} cy={lastPt.y} r="6" fill={lineColor} opacity="0.9"
-                          vectorEffect="non-scaling-stroke">
-                          <animate attributeName="r" values="4;7;4" dur="2s" repeatCount="indefinite" />
-                          <animate attributeName="opacity" values="0.9;0.4;0.9" dur="2s" repeatCount="indefinite" />
-                        </circle>
-                      )}
-                      {/* "Yesterday" label when showing stale data during RTH */}
-                      {isYesterdayFallback && isInRTH && (
-                        <text x={VW / 2} y={padT - 10} textAnchor="middle" fill="rgba(255,255,255,0.25)"
-                          fontSize="28" fontFamily="Inter, sans-serif" fontWeight="500">
-                          Yesterday
-                        </text>
-                      )}
-                    </svg>
-                    {/* RTH Session Open price — HTML div dashed line (avoids SVG scaling issues) */}
-                    {openTopPct != null && (
-                      <div
-                        className="absolute left-0 right-0 pointer-events-none"
-                        style={{
-                          top: `${openTopPct.toFixed(2)}%`,
-                          height: 0,
-                          borderTop: "1px dashed rgba(255,255,255,0.18)",
-                          boxShadow: "0 0 2px rgba(255,255,255,0.04)",
-                          zIndex: 2,
-                        }}
-                      />
-                    )}
-                  </React.Fragment>
-                );
-              })()}
-
-              {/* Content wrapper — above the background sparkline */}
-              <div className="relative flex flex-col flex-1 min-h-0" style={{ zIndex: 10 }}>
+              <div className="relative flex flex-col flex-1 min-h-0">
 
               {/* ── Section 1: Header — Ticker + Direction + Price ──────── */}
               <div className="flex items-center justify-between px-2.5 pt-2 pb-1">
@@ -11520,7 +10990,6 @@
 
               {/* Indicator pills moved to Right Rail */}
 
-              {/* Sparkline is now rendered as full-card background (first child) */}
 
               {/* ── Entry block reason (setup lane due to execution gates) ── */}
               {stage === "setup" && (t?.__execution_block_reason || t?.__entry_block_reason) && (() => {
@@ -12016,8 +11485,6 @@
         savedTickers = new Set(),
         toggleSavedTicker = null,
         contextData = null,
-        sparkData: parentSparkData = {},
-        fetchSparklines = null,
       }) {
         const [sortCol, setSortCol] = React.useState(() => {
           try { return localStorage.getItem("tt_tableSort_col") || "ticker"; } catch { return "ticker"; }
@@ -12264,112 +11731,6 @@
 
         const STAGE_KEYS = ["watch", "setup", "enter", "hold", "defend", "trim", "exit"];
 
-        // ─── Sparkline: use parent's shared sparkline data ───
-        const sparkData = parentSparkData;
-
-        // Trigger fetch for visible tickers when they change — memoized key avoids re-computation
-        const _filteredTickerKey = React.useMemo(() => filtered.map(t => t?.ticker).filter(Boolean).join(","), [filtered]);
-        React.useEffect(() => {
-          if (!filtered.length || !fetchSparklines) return;
-          const syms = filtered.map(t => String(t?.ticker || "").toUpperCase()).filter(Boolean);
-          fetchSparklines(syms);
-        }, [_filteredTickerKey, fetchSparklines]);
-
-        // ─── Sparkline SVG component — session-aware time axis with tooltip ───
-        const sparklineIdRef = React.useRef(0);
-        const Sparkline = React.memo(({ candles: rawCandles, sym: sparkSym, width = 72, height = 24 }) => {
-          const [tooltip, setTooltip] = React.useState(null);
-          const gradId = React.useMemo(() => `spk-tbl-${++sparklineIdRef.current}`, []);
-          if (!rawCandles || rawCandles.length < 2) return <span className="text-gray-700 text-[9px]">—</span>;
-          const candles = React.useMemo(() => _filterTodaySession(rawCandles, sparkSym), [rawCandles, sparkSym]);
-
-          // Compute anchor for rolling-window types (crypto/futures)
-          const sparkAnchor = React.useMemo(() => {
-            const cfg = _getSessionConfig(sparkSym);
-            if (cfg.sessionDur === 390) return undefined; // equities use fixed window
-            const w = _getSessionWindowMs(sparkSym);
-            return w?._frozen ? w.closeMs : undefined;
-          }, [sparkSym]);
-
-          // Build session-mapped points
-          const points = React.useMemo(() => {
-            const pts = [];
-            for (const c of candles) {
-              const ts = Number(c.t ?? c.ts ?? c.timestamp ?? 0);
-              const cl = Number(c.c ?? c.close ?? 0);
-              if (!ts || cl <= 0) continue;
-              const frac = _sessionFraction(ts, sparkSym, sparkAnchor);
-              if (frac >= 0 && frac <= 1) pts.push({ frac, cl, ts });
-            }
-            return pts;
-          }, [candles, sparkSym, sparkAnchor]);
-
-          if (points.length < 2) return <span className="text-gray-700 text-[9px]">—</span>;
-          const closes = points.map(p => p.cl);
-          const lo = Math.min(...closes);
-          const hi = Math.max(...closes);
-          const range = hi - lo || 1;
-          const pad = 1;
-          const w = width - pad * 2;
-          const h = height - pad * 2;
-
-          const svgPts = points.map(p => ({
-            x: pad + p.frac * w,
-            y: pad + h - ((p.cl - lo) / range) * h,
-            ts: p.ts,
-            price: p.cl,
-          }));
-          const polyStr = svgPts.map(p => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" ");
-          const up = closes[closes.length - 1] >= closes[0];
-          const color = up ? "#22c55e" : "#ef4444";
-          const lastPt = svgPts[svgPts.length - 1];
-
-          const handleMouseMove = (e) => {
-            const rect = e.currentTarget.getBoundingClientRect();
-            const svgX = e.clientX - rect.left;
-            let closest = svgPts[0];
-            let minD = 999;
-            for (const p of svgPts) {
-              const d = Math.abs(p.x - svgX);
-              if (d < minD) { minD = d; closest = p; }
-            }
-            const timeStr = closest.ts
-              ? new Date(_toMs(closest.ts)).toLocaleTimeString("en-US", { timeZone: "America/New_York", hour: "numeric", minute: "2-digit" })
-              : "—";
-            setTooltip({ price: closest.price, time: timeStr, x: e.clientX, y: e.clientY });
-          };
-          const handleMouseLeave = () => setTooltip(null);
-          return (
-            <>
-              <svg width={width} height={height} className="block" style={{ minWidth: width, shapeRendering: "geometricPrecision" }}
-                onMouseMove={handleMouseMove} onMouseLeave={handleMouseLeave}>
-              <defs>
-                <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor={color} stopOpacity="0.18" />
-                  <stop offset="100%" stopColor={color} stopOpacity="0" />
-                </linearGradient>
-              </defs>
-              {/* Session open: horizontal dashed line at first point (market open level) */}
-              <line x1={pad} y1={svgPts[0].y} x2={pad + w} y2={svgPts[0].y}
-                stroke="rgba(255,255,255,0.18)" strokeWidth="0.8" strokeDasharray="3,2"
-                strokeLinecap="round" />
-              {/* Gradient fill under line */}
-              <polygon points={`${svgPts[0].x.toFixed(1)},${pad + h} ${polyStr} ${lastPt.x.toFixed(1)},${pad + h}`} fill={`url(#${gradId})`} />
-              {/* Price line */}
-              <polyline points={polyStr} fill="none" stroke={color} strokeWidth="1.1" strokeLinejoin="round" strokeLinecap="round" opacity="0.92" />
-              {/* Now dot */}
-              <circle cx={lastPt.x} cy={lastPt.y} r="1.8" fill={color} opacity="0.95" />
-            </svg>
-            {tooltip && (
-              <div className="fixed z-[9999] pointer-events-none px-2 py-1 rounded text-[10px] bg-black/90 text-white border border-white/20 shadow-lg"
-                style={{ left: tooltip.x + 10, top: tooltip.y + 10 }}>
-                ${tooltip.price.toFixed(2)} • {tooltip.time} ET
-              </div>
-            )}
-            </>
-          );
-        });
-
         return (
           <div className="mb-4">
             {/* Stage filter pills */}
@@ -12406,10 +11767,6 @@
               {Object.entries(STAGE_META).map(([k, v]) => (
                 <span key={k} className="shrink-0">{v.icon} {v.label}</span>
               ))}
-              <span className="text-white/10 shrink-0">|</span>
-              <span className="text-[11px] font-semibold text-white/70 shrink-0">Sparkline</span>
-              <span className="shrink-0"><span style={{ color: "#f59e0b" }}>|</span> = Session Open</span>
-              <span className="shrink-0">Equities 9:30AM–4PM · Futures 6PM–5PM · Crypto 24/7 ET</span>
             </div>
 
             {/* Table */}
@@ -12424,7 +11781,6 @@
                       Ticker{sortArrow("ticker")}
                     </th>
                     <th className="px-2 py-2 text-left text-[11px] font-medium text-gray-400">Name</th>
-                    <th className="px-1 py-2 text-center text-[11px] font-medium text-gray-400" title="Intraday sparkline (1m or 5m)">Spark</th>
                     <th className="px-1 py-2 text-right text-[11px] font-medium text-gray-400 cursor-pointer hover:text-white select-none" onClick={() => handleSort("price")}>
                       CP{sortArrow("price")}
                     </th>
@@ -12521,10 +11877,6 @@
                         </td>
                         {/* Name */}
                         <td className="px-2 py-1 text-[11px] text-gray-400 truncate max-w-[120px]" title={name}>{name || "—"}</td>
-                        {/* Sparkline */}
-                        <td className="px-1 py-0.5 text-center">
-                          <Sparkline candles={sparkData[sym]} sym={sym} width={72} height={24} />
-                        </td>
                         {/* Current Price */}
                         <td className="px-1 py-1 text-right text-[11px] text-white font-medium tabular-nums">
                           {price > 0 ? `$${price.toFixed(2)}` : <span className="text-gray-600">—</span>}
@@ -12726,20 +12078,10 @@
         rankTotal = null,
         savedTickers = new Set(),
         toggleSavedTicker = null,
-        sparkData: sparkDataProp = {},
-        fetchSparklines = null,
       }) {
         const now = Date.now();
         const laneScrollTopRef = React.useRef({});
         const [expandedTicker, setExpandedTicker] = React.useState(null);
-
-        // Trigger sparkline fetch for all visible tickers — use stable key, not just length
-        const _kanbanTickerKey = React.useMemo(() => tickers.map(t => t?.ticker).filter(Boolean).join(","), [tickers]);
-        React.useEffect(() => {
-          if (!fetchSparklines || !tickers.length) return;
-          const syms = tickers.map(t => String(t?.ticker || "").toUpperCase()).filter(Boolean);
-          fetchSparklines(syms);
-        }, [_kanbanTickerKey, fetchSparklines]);
         const toggleExpanded = (sym) => {
           const t = String(sym || "").toUpperCase();
           if (!t) return;
@@ -12887,8 +12229,8 @@
         // Compact card renderer — memoized so KanbanColumn React.memo can skip re-renders
         // when only prices change (same card renderer reference → shallow equal).
         const renderCompactCard = React.useCallback(
-          (t) => renderCompactCardFn(t, { onSelectTicker, savedTickers, toggleSavedTicker, tradeByTicker, sparkData: sparkDataProp }),
-          [onSelectTicker, savedTickers, toggleSavedTicker, tradeByTicker, sparkDataProp],
+          (t) => renderCompactCardFn(t, { onSelectTicker, savedTickers, toggleSavedTicker, tradeByTicker }),
+          [onSelectTicker, savedTickers, toggleSavedTicker, tradeByTicker],
         );
 
         if (
@@ -13021,7 +12363,6 @@
         thesisMode = false,
         savedTickers = new Set(),
         toggleSavedTicker = null,
-        sparkData: sparkDataProp = {},
       }) {
         const [view, setView] = React.useState(defaultView); // prime | eligible | watch | all | today
         const [dir, setDir] = React.useState("ALL"); // ALL | LONG | SHORT
@@ -13818,7 +13159,7 @@
               {filtered.length === 0 ? (
                 <div className="text-xs text-[#4b5563] p-3">No matches.</div>
               ) : (
-                filtered.map((item) => renderCompactCardFn(item.t, { onSelectTicker, savedTickers, toggleSavedTicker, tradeByTicker, sparkData: sparkDataProp }))
+                filtered.map((item) => renderCompactCardFn(item.t, { onSelectTicker, savedTickers, toggleSavedTicker, tradeByTicker }))
               )}
             </div>
           </div>
@@ -16022,10 +15363,9 @@
           refetch,
           setData: setTickerData,
         } = useTickerData();
-        // Ref-based callback for WebSocket sparkline updates (set below after sparkline cache is created)
-        const wsSparklineCallbackRef = useRef(null);
+
         // Real-time price feed: WS push (primary) + HTTP poll fallback (every 30s)
-        const { wsConnected, wsLastMessage } = useWebSocket(data, setTickerData, wsSparklineCallbackRef);
+        const { wsConnected, wsLastMessage } = useWebSocket(data, setTickerData);
         const { priceLastUpdated } = usePriceFeed(data, setTickerData);
         const { trades } = useTrades();
         const { summary: accountSummary } = useAccountSummary("trader");
@@ -16080,111 +15420,6 @@
             });
           });
         }, [dashboardViewMode]);
-        // ── Shared sparkline data (used by Table view and Kanban cards) ──
-        // Persistent cache: survives re-renders, and reloads from sessionStorage on page refresh.
-        const SPARK_CACHE_KEY = "tt_sparkCache";
-        const SPARK_TTL = 5 * 60 * 1000; // 5 min TTL per ticker before re-fetch
-        const sparkCacheGlobalRef = useRef(() => {
-          // Hydrate from sessionStorage on first render
-          try {
-            const raw = sessionStorage.getItem(SPARK_CACHE_KEY);
-            if (raw) {
-              const parsed = JSON.parse(raw);
-              // Filter out entries older than 30 min (stale from previous session)
-              const now = Date.now();
-              const valid = {};
-              for (const [k, v] of Object.entries(parsed)) {
-                if (v && v.ts && (now - v.ts) < 30 * 60 * 1000) valid[k] = v;
-              }
-              return valid;
-            }
-          } catch (_) {}
-          return {};
-        });
-        // Evaluate lazy initializer once
-        if (typeof sparkCacheGlobalRef.current === "function") {
-          sparkCacheGlobalRef.current = sparkCacheGlobalRef.current();
-        }
-        const [globalSparkData, setGlobalSparkData] = useState(() => {
-          const cache = sparkCacheGlobalRef.current;
-          const out = {};
-          for (const [k, v] of Object.entries(cache)) {
-            if (v && v.data) out[k] = v.data;
-          }
-          return out;
-        });
-        const sparkInFlightRef = useRef(new Set());
-
-        // Persist cache to sessionStorage (debounced)
-        const persistSparkCacheTimer = useRef(null);
-        const persistSparkCache = useCallback(() => {
-          clearTimeout(persistSparkCacheTimer.current);
-          persistSparkCacheTimer.current = setTimeout(() => {
-            try {
-              // Persist close + open prices (needed for RTH open line) and timestamps
-              const compact = {};
-              for (const [k, v] of Object.entries(sparkCacheGlobalRef.current)) {
-                if (v && v.data && v.data.length >= 2) {
-                  compact[k] = { data: v.data.map(c => ({ c: c.c ?? c.close, t: c.t ?? c.ts, o: c.o ?? c.open ?? null })), ts: v.ts };
-                }
-              }
-              sessionStorage.setItem(SPARK_CACHE_KEY, JSON.stringify(compact));
-            } catch (_) {} // quota exceeded — ignore
-          }, 1000);
-        }, []);
-
-        // ── Sparkline data: pushed via WebSocket + one-time HTTP fetch on load ──
-        // Instead of 200+ individual D1 candle requests per page load, sparklines
-        // are pre-computed server-side and pushed via PriceHub every 5 minutes.
-        // On initial load, we fetch the full set from GET /timed/sparklines (single KV read).
-
-        // Helper: populate sparkline cache from server data { SYM: [{t,c,o}, ...], ... }
-        const applySparklineData = useCallback((sparkMap) => {
-          if (!sparkMap || typeof sparkMap !== "object") return;
-          const now = Date.now();
-          let count = 0;
-          for (const [sym, points] of Object.entries(sparkMap)) {
-            if (!Array.isArray(points) || points.length < 2) continue;
-            sparkCacheGlobalRef.current[sym] = { data: points, ts: now };
-            count++;
-          }
-          if (count > 0) {
-            const next = {};
-            for (const [s, v] of Object.entries(sparkCacheGlobalRef.current)) {
-              if (v && v.data) next[s] = v.data;
-            }
-            setGlobalSparkData({ ...next });
-            persistSparkCache();
-            console.log(`[SPARKLINES] Applied ${count} tickers from server`);
-          }
-        }, [persistSparkCache]);
-
-        // Wire up the WebSocket sparkline callback (ref was created before useWebSocket call)
-        useEffect(() => {
-          wsSparklineCallbackRef.current = applySparklineData;
-          return () => { wsSparklineCallbackRef.current = null; };
-        }, [applySparklineData]);
-
-        // One-time fetch of sparklines from KV on initial load
-        useEffect(() => {
-          (async () => {
-            try {
-              const res = await fetch(`${API_BASE}/timed/sparklines`, { cache: "no-store" });
-              if (!res.ok) return;
-              const json = await res.json();
-              if (json.ok && json.data) {
-                applySparklineData(json.data);
-              }
-            } catch (e) {
-              console.warn("[SPARKLINES] Initial fetch failed:", e);
-            }
-          })();
-        }, [applySparklineData]);
-
-        // fetchSparklines is kept as a no-op so existing Table/Kanban refs don't break
-        const fetchSparklines = useCallback(() => {
-          // Sparklines are now pushed via WebSocket; no per-ticker HTTP fetching needed
-        }, []);
 
         // AI Assistant removed (unused)
         // Admin panel moved to dedicated /admin-clients.html page
@@ -16724,54 +15959,15 @@
 
                   {/* ═══ 1. MARKET PULSE — right below top header ═══ */}
                   {(() => {
-                    const sparkData = globalSparkData || {};
                     const allData = data && typeof data === "object" ? data : {};
                     const renderPulseChip = (sym) => {
-                      const rawCandles = sparkData[sym];
                       const td = allData[sym];
-                      const livePrice = Number(td?.price ?? td?.close ?? 0);
-                      const candles = rawCandles && rawCandles.length >= 2 ? _filterTodaySession(rawCandles, sym) : null;
-                      const lastClose = candles && candles.length >= 2 ? Number(candles[candles.length - 1]?.c ?? candles[candles.length - 1]?.close ?? 0) : 0;
-                      const firstClose = candles && candles.length >= 2 ? Number(candles[0]?.c ?? candles[0]?.close ?? 0) : 0;
-                      const price = livePrice > 0 ? livePrice : lastClose;
+                      const price = Number(td?.price ?? td?.close ?? 0);
                       if (price <= 0) return null;
                       let pct = null;
                       if (td) { const dc = getDailyChange(td); if (dc && Number.isFinite(dc.dayPct)) pct = dc.dayPct; }
-                      if (pct === null && firstClose > 0 && lastClose > 0) pct = ((lastClose - firstClose) / firstClose) * 100;
                       if (pct === null) pct = 0;
                       const up = pct >= 0;
-                      const lineColor = up ? "#34d399" : "#f87171";
-                      const gradColor = up ? "#22c55e" : "#ef4444";
-                      let sparkSvg = null;
-                      if (candles && candles.length >= 2) {
-                        const _mpCfg = _getSessionConfig(sym);
-                        const _mpAnchor = (_mpCfg.sessionDur !== 390) ? (() => { const _w = _getSessionWindowMs(sym); return _w?._frozen ? _w.closeMs : undefined; })() : undefined;
-                        const pts = [];
-                        for (const c of candles) {
-                          const ts = Number(c.t ?? c.ts ?? c.timestamp ?? 0);
-                          const cl = Number(c.c ?? c.close ?? 0);
-                          if (!ts || cl <= 0) continue;
-                          const frac = _sessionFraction(ts, sym, _mpAnchor);
-                          if (frac >= 0 && frac <= 1) pts.push({ frac, cl });
-                        }
-                        if (pts.length >= 2) {
-                          const closes = pts.map(p => p.cl);
-                          const lo = Math.min(...closes); const hi = Math.max(...closes);
-                          const range = hi - lo || 1;
-                          const W = 56, H = 18, pad = 1, iw = W - pad * 2, ih = H - pad * 2;
-                          const svgPts = pts.map(p => ({ x: pad + p.frac * iw, y: pad + ih - ((p.cl - lo) / range) * ih }));
-                          const polyStr = svgPts.map(p => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" ");
-                          const lastPt = svgPts[svgPts.length - 1];
-                          const gId = `mpg2-${sym}`;
-                          sparkSvg = (
-                            <svg width={W} height={H} className="block flex-shrink-0" style={{ shapeRendering: "geometricPrecision" }}>
-                              <defs><linearGradient id={gId} x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor={gradColor} stopOpacity="0.3" /><stop offset="100%" stopColor={gradColor} stopOpacity="0.02" /></linearGradient></defs>
-                              <polygon points={`${svgPts[0].x.toFixed(1)},${H} ${polyStr} ${lastPt.x.toFixed(1)},${H}`} fill={`url(#${gId})`} />
-                              <polyline points={polyStr} fill="none" stroke={lineColor} strokeWidth="1.2" strokeLinejoin="round" strokeLinecap="round" />
-                            </svg>
-                          );
-                        }
-                      }
                       const borderCls = up ? "border-teal-500/20" : "border-rose-500/20";
                       return (
                         <button key={`mp2-${sym}`} onClick={() => handleTickerSelect(sym)}
@@ -16779,7 +15975,6 @@
                           <span className="text-[10px] text-white font-bold">{sym}</span>
                           <span className="text-[9px] text-gray-400">${price >= 1000 ? price.toFixed(0) : price.toFixed(2)}</span>
                           <span className={`text-[9px] font-semibold ${up ? "text-teal-400" : "text-rose-400"}`}>{pct >= 0 ? "+" : ""}{pct.toFixed(2)}%</span>
-                          {sparkSvg}
                         </button>
                       );
                     };
@@ -17028,8 +16223,6 @@
                         savedTickers={savedTickers}
                         toggleSavedTicker={toggleSavedTicker}
                         contextData={data}
-                        sparkData={globalSparkData}
-                        fetchSparklines={fetchSparklines}
                       />
                     ) : (
                       <EarlyMoversPanel
@@ -17040,8 +16233,6 @@
                         rankTotal={allTickersWithRanks.length}
                         savedTickers={savedTickers}
                         toggleSavedTicker={toggleSavedTicker}
-                        sparkData={globalSparkData}
-                        fetchSparklines={fetchSparklines}
                       />
                     )}
                   </div>
@@ -17089,7 +16280,6 @@
                           thesisMode={isThesisModeActive(filters)}
                           savedTickers={savedTickers}
                           toggleSavedTicker={toggleSavedTicker}
-                          sparkData={globalSparkData}
                         />
                       </div>
 
@@ -17225,7 +16415,7 @@
         {
           target: "[data-coachmark='view-toggle']",
           title: "Cards, Table & Saved",
-          body: "Toggle between Card view (visual Kanban cards with sparklines) and Table view (sortable data grid). Use the Saved button to bookmark tickers and quickly filter your watchlist.",
+          body: "Toggle between Card view (visual Kanban cards) and Table view (sortable data grid). Use the Saved button to bookmark tickers and quickly filter your watchlist.",
           position: "bottom",
           icon: "layout",
         },

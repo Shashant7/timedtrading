@@ -310,7 +310,7 @@
         });
         chartInstanceRef.current = chart;
 
-        // Candlestick series — standardized colors across all charts (matches Kanban sparklines)
+        // Candlestick series — standardized colors across all charts
         const candleSeries = chart.addCandlestickSeries({
           upColor: "#22c55e",
           downColor: "#ef4444",
@@ -1756,9 +1756,6 @@
       })))), /*#__PURE__*/React.createElement("div", {
         className: "flex items-center gap-1 flex-wrap"
       }, [{
-        tf: "1",
-        label: "1m"
-      }, {
         tf: "5",
         label: "5m"
       }, {
@@ -1827,9 +1824,6 @@
       }, ticker?.ticker || "Chart"), /*#__PURE__*/React.createElement("div", {
         className: "flex items-center gap-1 flex-wrap"
       }, [{
-        tf: "1",
-        label: "1m"
-      }, {
         tf: "5",
         label: "5m"
       }, {
@@ -3133,9 +3127,6 @@
       }, "Chart (REMOVED)"), /*#__PURE__*/React.createElement("div", {
         className: "flex items-center gap-1 flex-wrap"
       }, [{
-        tf: "1",
-        label: "1m"
-      }, {
         tf: "5",
         label: "5m"
       }, {

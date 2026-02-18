@@ -243,7 +243,7 @@
         });
         chartInstanceRef.current = chart;
 
-        // Candlestick series — standardized colors across all charts (matches Kanban sparklines)
+        // Candlestick series — standardized colors across all charts
         const candleSeries = chart.addCandlestickSeries({
           upColor: "#22c55e",
           downColor: "#ef4444",
@@ -1715,7 +1715,6 @@
                           </div>
                           <div className="flex items-center gap-1 flex-wrap">
                             {[
-                              { tf: "1", label: "1m" },
                               { tf: "5", label: "5m" },
                               { tf: "10", label: "10m" },
                               { tf: "30", label: "30m" },
@@ -1788,7 +1787,6 @@
                                 <span className="text-sm font-semibold text-white">{ticker?.ticker || "Chart"}</span>
                                 <div className="flex items-center gap-1 flex-wrap">
                                   {[
-                                    { tf: "1", label: "1m" },
                                     { tf: "5", label: "5m" },
                                     { tf: "10", label: "10m" },
                                     { tf: "30", label: "30m" },
@@ -3771,7 +3769,6 @@
                           <div className="text-sm text-[#6b7280]">Chart (REMOVED)</div>
                           <div className="flex items-center gap-1 flex-wrap">
                             {[
-                              { tf: "1", label: "1m" },
                               { tf: "5", label: "5m" },
                               { tf: "10", label: "10m" },
                               { tf: "30", label: "30m" },

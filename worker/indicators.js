@@ -1962,13 +1962,12 @@ export function computeTDSequential(candles, tf, opts = {}) {
  *   - Counts from the highest-tf active signal are preferred
  *   - per_tf breakdown includes ALL available TFs for chart overlays
  *
- * @param {object} candlesByTf - { "1": [...], "5": [...], "10": [...], "30": [...], "60": [...], "240": [...], D: [...], W: [...], M: [...] }
+ * @param {object} candlesByTf - { "5": [...], "10": [...], "30": [...], "60": [...], "240": [...], D: [...], W: [...], M: [...] }
  * @param {boolean} htfBull - Higher-timeframe bullish bias
  * @returns {object} merged td_sequential object with per_tf breakdown for all TFs
  */
 export function computeTDSequentialMultiTF(candlesByTf, htfBull = true) {
-  // Compute TD Sequential on ALL available TFs
-  const allTfs = ["1", "5", "10", "30", "60", "240", "D", "W", "M"];
+  const allTfs = ["5", "10", "30", "60", "240", "D", "W", "M"];
   const results = {};
   const perTf = {};
 
@@ -2132,18 +2131,18 @@ const TF_TO_ALPACA = {
   "M": "1Month",
 };
 
-// Canonical 9 timeframes: 1m, 5m, 10m, 30m, 1H, 4H, D, W, M
-// (3m dropped — too noisy, causes whiplash)
+// Canonical 8 timeframes: 5m, 10m, 30m, 1H, 4H, D, W, M
+// (1m + 3m dropped — 1m: Phase 2 cost optimization; 3m: too noisy)
 
 // All timeframes we need for scoring
 // M (Monthly) included for investor-grade scoring (computeInvestorScore)
 const ALL_TFS = ["M", "W", "D", "240", "60", "30", "10", "5"];
 
-// All timeframes we fetch from Alpaca for candle storage
-const CRON_FETCH_TFS = ["M", "W", "D", "240", "60", "30", "10", "5", "1"];
+// All timeframes we fetch from Alpaca for candle storage (1m removed — Phase 2 cost optimization)
+const CRON_FETCH_TFS = ["M", "W", "D", "240", "60", "30", "10", "5"];
 
-// TD Sequential timeframes — computed on ALL 9 TFs for chart overlays
-const TD_SEQ_TFS = ["1", "5", "10", "30", "60", "240", "D", "W", "M"];
+// TD Sequential timeframes — computed on 8 TFs for chart overlays (1m removed)
+const TD_SEQ_TFS = ["5", "10", "30", "60", "240", "D", "W", "M"];
 
 /**
  * Fetch historical bars from Alpaca for multiple symbols.
@@ -2380,19 +2379,16 @@ export async function alpacaCronFetchCrypto(env) {
   const CRYPTO_TICKERS = Object.keys(CRYPTO_SYMBOL_MAP);
   if (CRYPTO_TICKERS.length === 0) return { ok: true, upserted: 0 };
 
-  // Same 4-group TF rotation as stocks
-  const TF_GROUPS = [
-    ["D", "W", "M"],
-    ["30", "60", "240"],
-    ["5", "10"],
-    ["1"],
-  ];
+  // Phase 3: tiered TF refresh matching stock bar cron.
+  // D/W/M hourly only (crypto bars rarely need sub-hourly D/W/M updates).
+  // Intraday TFs every tick (only 2 tickers, very lightweight).
   const minuteOfHour = new Date().getUTCMinutes();
-  const groupIdx = minuteOfHour % TF_GROUPS.length;
-  const tfsThisCycle = TF_GROUPS[groupIdx];
+  const isTopOfHour = minuteOfHour < 5;
+  const tfsThisCycle = isTopOfHour
+    ? ["5", "10", "30", "60", "240", "D", "W", "M"]
+    : ["5", "10", "30", "60", "240"];
 
   const TF_LOOKBACK_MS = {
-    "1":   60 * 60 * 1000,          // 1 hour (crypto trades 24/7, more catch-up needed)
     "5":   4 * 60 * 60 * 1000,      // 4 hours
     "10":  6 * 60 * 60 * 1000,      // 6 hours
     "30":  12 * 60 * 60 * 1000,     // 12 hours
@@ -2427,7 +2423,11 @@ export async function alpacaCronFetchCrypto(env) {
                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
                ON CONFLICT(ticker, tf, ts) DO UPDATE SET
                  o=excluded.o, h=excluded.h, l=excluded.l, c=excluded.c, v=excluded.v,
-                 updated_at=excluded.updated_at`
+                 updated_at=excluded.updated_at
+               WHERE ticker_candles.c != excluded.c
+                  OR ticker_candles.h != excluded.h
+                  OR ticker_candles.l != excluded.l
+                  OR ticker_candles.v IS NOT excluded.v`
             ).bind(sym.toUpperCase(), tf, ts, o, h, l, c, v != null ? v : null, updatedAt)
           );
         }
@@ -2450,8 +2450,8 @@ export async function alpacaCronFetchCrypto(env) {
     }
   }
 
-  console.log(`[ALPACA CRYPTO CRON] Group ${groupIdx} TFs=[${tfsThisCycle}] upserted=${totalUpserted} errors=${totalErrors}`);
-  return { ok: true, upserted: totalUpserted, errors: totalErrors, tickers: CRYPTO_TICKERS.length, group: groupIdx, tfs: tfsThisCycle };
+  console.log(`[ALPACA CRYPTO CRON] TFs=[${tfsThisCycle}] upserted=${totalUpserted} errors=${totalErrors}${isTopOfHour ? " (hourly D/W/M)" : ""}`);
+  return { ok: true, upserted: totalUpserted, errors: totalErrors, tickers: CRYPTO_TICKERS.length, tfs: tfsThisCycle };
 }
 
 /**
@@ -2725,39 +2725,28 @@ export async function alpacaCronFetchLatest(env, allTickers, upsertCandle) {
     return { ok: false, error: "no_db_binding" };
   }
 
-  // 4-group TF rotation × 2-group ticker rotation = 8 combinations.
-  // Each cron tick (1 per minute) processes 1 TF group × 1 ticker half.
-  // This keeps each invocation's D1 write volume under the wall-clock time limit.
+  // Phase 3: 5-min cadence with tiered TF refresh.
+  //   Every tick:    5m, 10m       — scoring-critical intraday (10-min refresh per ticker)
+  //   Every tick:    30m, 60m, 240m — medium-frequency intraday (10-min refresh per ticker)
+  //   Hourly only:   D, W, M       — daily+ TFs, rarely change intraday (2-hour refresh per ticker)
   //
-  // TF Groups:
-  //   0: D, W, M          — daily+ TFs, small payloads
-  //   1: 30, 60, 240      — medium-frequency intraday
-  //   2: 5, 10             — scoring-critical intraday
-  //
-  // COST OPTIMIZATION: 1m group REMOVED — 1m candles are not used for scoring.
-  // Sparklines use live prices from the price feed (KV/WebSocket), not D1 candles.
-  // Now 3 groups → each ticker/TF refreshed every 6 minutes (3 groups × 2 halves).
-  //
-  // Ticker halves: even minutes → first half, odd → second half.
-  const TF_GROUPS = [
-    ["D", "W", "M"],
-    ["30", "60", "240"],
-    ["5", "10"],
-  ];
+  // Ticker halves: alternating by 5-min slot index to spread load.
   const minuteOfHour = new Date().getUTCMinutes();
-  const groupIdx = minuteOfHour % TF_GROUPS.length;
-  const tfsThisCycle = TF_GROUPS[groupIdx];
+  const slotIdx = Math.floor(minuteOfHour / 5); // 0-11 within the hour
+  const isTopOfHour = minuteOfHour < 5;
 
-  // Split tickers into 2 halves to reduce per-invocation load
-  const halfIdx = Math.floor(minuteOfHour / TF_GROUPS.length) % 2;
+  const tfsThisCycle = isTopOfHour
+    ? ["5", "10", "30", "60", "240", "D", "W", "M"]
+    : ["5", "10", "30", "60", "240"];
+
+  const halfIdx = slotIdx % 2;
   const mid = Math.ceil(allTickers.length / 2);
   const tickersThisCycle = halfIdx === 0 ? allTickers.slice(0, mid) : allTickers.slice(mid);
-  console.log(`[ALPACA CRON] Group ${groupIdx} TFs=[${tfsThisCycle}] half=${halfIdx} tickers=${tickersThisCycle.length}/${allTickers.length}`);
+  console.log(`[ALPACA CRON] TFs=[${tfsThisCycle}] half=${halfIdx} tickers=${tickersThisCycle.length}/${allTickers.length} slot=${slotIdx}${isTopOfHour ? " (hourly D/W/M)" : ""}`);
 
   // Lookback windows per TF — just enough to catch up if a cron tick was missed.
   // Shorter windows = smaller Alpaca responses = faster fetches.
   const TF_LOOKBACK_MS = {
-    "1":   30 * 60 * 1000,         // 30 minutes (covers ~4 cron ticks of missed 1m)
     "5":   2 * 60 * 60 * 1000,     // 2 hours
     "10":  3 * 60 * 60 * 1000,     // 3 hours
     "30":  6 * 60 * 60 * 1000,     // 6 hours
@@ -2797,7 +2786,11 @@ export async function alpacaCronFetchLatest(env, allTickers, upsertCandle) {
                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
                ON CONFLICT(ticker, tf, ts) DO UPDATE SET
                  o=excluded.o, h=excluded.h, l=excluded.l, c=excluded.c, v=excluded.v,
-                 updated_at=excluded.updated_at`
+                 updated_at=excluded.updated_at
+               WHERE ticker_candles.c != excluded.c
+                  OR ticker_candles.h != excluded.h
+                  OR ticker_candles.l != excluded.l
+                  OR ticker_candles.v IS NOT excluded.v`
             ).bind(sym.toUpperCase(), tf, ts, o, h, l, c, v != null ? v : null, updatedAt)
           );
         }
@@ -2832,8 +2825,8 @@ export async function alpacaCronFetchLatest(env, allTickers, upsertCandle) {
     }
   }
 
-  console.log(`[ALPACA CRON] Group ${groupIdx} half=${halfIdx} TFs=[${tfsThisCycle}] tickers=${tickersThisCycle.length} upserted=${totalUpserted} errors=${totalErrors}`);
-  return { ok: true, upserted: totalUpserted, errors: totalErrors, tickers: tickersThisCycle.length, totalTickers: allTickers.length, group: groupIdx, half: halfIdx, tfs: tfsThisCycle };
+  console.log(`[ALPACA CRON] half=${halfIdx} TFs=[${tfsThisCycle}] tickers=${tickersThisCycle.length} upserted=${totalUpserted} errors=${totalErrors}${isTopOfHour ? " (hourly D/W/M)" : ""}`);
+  return { ok: true, upserted: totalUpserted, errors: totalErrors, tickers: tickersThisCycle.length, totalTickers: allTickers.length, half: halfIdx, tfs: tfsThisCycle };
 }
 
 /**
@@ -2877,7 +2870,7 @@ export async function alpacaBackfill(env, tickers, _unused, tfKey = "all", since
   let startDates;
   if (typeof sinceDays === "number" && sinceDays > 0) {
     const start = new Date(now.getTime() - sinceDays * DAY_MS).toISOString();
-    startDates = { "M": start, "W": start, "D": start, "240": start, "60": start, "30": start, "10": start, "5": start, "1": start };
+    startDates = { "M": start, "W": start, "D": start, "240": start, "60": start, "30": start, "10": start, "5": start };
   } else {
     const tradingCalDays = (bars, barMinutes) => Math.ceil(bars * barMinutes / 390 * 7 / 5) + 5;
     startDates = {
@@ -2889,7 +2882,6 @@ export async function alpacaBackfill(env, tickers, _unused, tfKey = "all", since
       "30": new Date(now.getTime() - tradingCalDays(1000, 30) * DAY_MS).toISOString(),
       "10": new Date(now.getTime() - tradingCalDays(3000, 10) * DAY_MS).toISOString(),
       "5": new Date(now.getTime() - tradingCalDays(5000, 5) * DAY_MS).toISOString(),
-      "1": new Date(now.getTime() - tradingCalDays(390, 1) * DAY_MS).toISOString(),
     };
   }
 

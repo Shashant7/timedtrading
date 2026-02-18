@@ -354,7 +354,7 @@ export function isNyRegularMarketOpen(cal, now = new Date()) {
 
 /**
  * Per-ticker session check: is this ticker's market currently active?
- * Used by sparkline append to skip stale data outside sessions.
+ * Used by session-aware append to skip stale data outside sessions.
  */
 export function isTickerSessionActive(cal, sym, now = new Date()) {
   // Crypto: always active (24/7)

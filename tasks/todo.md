@@ -1,60 +1,46 @@
-# Current Task — Go-To-Market Readiness Implementation
+# Site-Wide Cleanup — D1 Cost Optimization
 
-## Summary
-Implemented all four workstreams from the GTM readiness plan: Subscription & Monetization (Stripe), Notification Center, Performance & Scale Hardening, and Enhanced Daily Brief.
+## Phase 1: Remove Sparklines — DONE (2026-02-17)
+- [x] Remove all sparkline backend code (routes, handlers, cron sections) from worker/index.js
+- [x] Remove all sparkline frontend code (helpers, components, state, props) from index-react.html
+- [x] Clean up sparkline references in shared-right-rail.js, brand-kit.html, faq.html, etc.
+- [ ] Delete `timed:sparklines` KV key post-deployment: `wrangler kv key delete --namespace-id=e48593af3ef74bf986b2592909ed40cb 'timed:sparklines'`
 
-## Changes Made
+## Phase 2: Stop 1m Candle Writes — DONE (2026-02-17)
+- [x] Delete the 1m candle D1 write block from the price feed cron (worker/index.js)
+- [x] Update RTH price sanity check to use tf='5' instead of tf='1' (wider 15min lookback)
+- [x] Update prev_close fallback to use tf='5' instead of tf='1'
+- [x] Update missing-ticker fallback to use d1GetCandles(env, sym, "5", 1)
+- [x] Remove "1" and "3m" from CANDLE_RETENTION_DAYS, increase 5m/10m to 90d, 60m to 180d, 240m to 365d
+- [x] Disable AlpacaStream 1m bar buffer and D1 flush (alpaca-stream.js)
+- [x] Remove "1" from CRON_FETCH_TFS, TD_SEQ_TFS, crypto TF_GROUPS, stock TF_LOOKBACK_MS, backfill startDates (indicators.js)
+- [x] Remove 1m from chart TF dropdowns in shared-right-rail.js and shared-right-rail.compiled.js
+- [x] Remove 1m from ticker-management.html TFS and TF_LABELS
+- [x] Add one-time purge loop for all tf='1' and tf='3m' rows in data lifecycle cron
+- [x] Update scoring comments to reflect 8 TFs (not 9)
 
-### Workstream 4: Enhanced Daily Brief — Trade Activity — DONE (already implemented)
-- [x] Trade activity data (entries/exits/trims/defends) already in `gatherDailyBriefData()`
-- [x] Investor positions query already in place
-- [x] Morning prompt includes Active Trader + Investor Portfolio sections
-- [x] Evening prompt includes Active Trader Session Report + Investor Portfolio Update
+## Phase 3: Optimize Bar Cron — DONE (2026-02-18)
+- [x] Move bar cron from */1 to */5 virtual cron (index.js cron dispatch)
+- [x] Extend bar cron to unified 4AM-8PM ET window via */5 9-23 + */5 0-1 virtual crons
+- [x] D/W/M fetch gated to top-of-hour only in alpacaCronFetchLatest and alpacaCronFetchCrypto
+- [x] Skip unchanged bars: conditional WHERE clause on D1 upserts (stock + crypto)
+- [x] Crypto bar fetching moved before operating-hours gate for true 24/7 coverage
+- [x] Tiered TF refresh: 5m/10m/30m/60m/240m every tick, D/W/M hourly only
 
-### Workstream 3: Performance & Scale Hardening — DONE
-- [x] CDN Caching Headers: `/timed/tickers` (5min), `/timed/all` (15s), `/timed/health` (60s)
-- [x] KV Hot Cache: Pre-assembled `timed:all:snapshot` written during scoring cron
-- [x] Trail Query Pagination: `cursor` param support, default limit 1000, max 5000, `next_cursor` in response
+## Phase 4: Retention Audit — PENDING
+- [ ] Review and adjust retention for model training (6-12 months)
+- [ ] Purge stale D1 tables
+- [ ] Clean up unused KV keys
 
-### Workstream 2: Notification Center — DONE
-- [x] D1 Schema: `push_subscriptions` and `user_notifications` tables with indexes
-- [x] API Endpoints: `POST /timed/push/subscribe`, `GET /timed/notifications`, `POST /timed/notifications/read`, `POST /timed/notifications/clear`
-- [x] Service Worker: `react-app/service-worker.js` with push event handling, notification click navigation
-- [x] Bell Icon UI: `NotificationCenter` component in `auth-gate.js`, added to all 5 dashboard pages
-- [x] Integration: `d1InsertNotification()` calls added to trade ENTRY, EXIT, TRIM code paths and daily brief generation
-- [x] Progressive push registration: after 3rd page visit, request permission and subscribe
+## Phase 5: User-Added Tickers — PENDING
+- [ ] `user_tickers` D1 table
+- [ ] Add/remove API endpoints with Alpaca validation
+- [ ] Cron universe expansion (merge user tickers into scoring)
+- [ ] Dashboard visibility and tier-based limits
+- [ ] Immediate price display on add (pending state)
 
-### Workstream 1: Subscription & Monetization — DONE
-- [x] D1 Schema: `stripe_customer_id`, `stripe_subscription_id`, `subscription_status` columns on users table
-- [x] `POST /timed/stripe/create-checkout`: Creates Stripe Checkout Session with 30-day trial
-- [x] `POST /timed/stripe/webhook`: Handles checkout.session.completed, subscription.updated/deleted, invoice.payment_failed with HMAC signature verification
-- [x] `POST /timed/stripe/portal`: Creates Stripe Customer Portal session for manage/cancel
-- [x] `GET /timed/subscription`: Returns current subscription status
-- [x] Splash Page: Pricing section with plan card, features, "First Month Free" badge, CTA
-- [x] PaywallScreen: Full paywall component in `auth-gate.js` with Stripe redirect
-- [x] Gate Logic: Shows PaywallScreen when user.tier=free and subscription_status is not trialing/active
-- [x] VIP Admin Panel: Modal with user table, search, Set VIP/Revoke/Set Admin actions
-- [x] Admin button in nav bar (visible only for admin users)
-- [x] GET /timed/admin/users now returns subscription_status for admin panel
-
-## Files Changed
-- `worker/index.js` — Caching headers, trail pagination, KV hot cache, notification schema/endpoints, Stripe schema/endpoints, notification integration
-- `worker/daily-brief.js` — In-app notification on brief generation
-- `react-app/auth-gate.js` — PaywallScreen, NotificationCenter, VIPAdminPanel, push registration
-- `react-app/splash.html` — Pricing section with CSS and HTML
-- `react-app/service-worker.js` — New file for browser push notifications
-- `react-app/index-react.html` — NotificationCenter in nav, Admin button, push registration
-- `react-app/simulation-dashboard.html` — NotificationCenter in nav
-- `react-app/ticker-management.html` — NotificationCenter in nav
-- `react-app/model-dashboard.html` — NotificationCenter in nav
-- `react-app/screener.html` — NotificationCenter in nav
-
-## Manual Steps Required (Not Code)
-- [x] Create Stripe account and product/price ($60/month recurring)
-- [x] Enable Stripe Customer Portal
-- [x] Set up Stripe Webhook endpoint for the 4 events
-- [x] Store secrets via `wrangler secret put`: STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET, STRIPE_PRICE_ID
-- [ ] Generate VAPID key pair for Web Push and set as Worker secret + frontend config
-- [x] Add Cloudflare Access bypass rule for `/timed/stripe/webhook` path
-- [x] Deploy: `cd worker && npx wrangler deploy && npx wrangler deploy --env production` — DONE (2026-02-14)
-- [x] Push to git for Pages deployment — DONE (2026-02-14)
+## Phase 6: Action Queue (Extended Hours) — PENDING
+- [ ] `queued_actions` D1 table
+- [ ] PM/AH signal capture
+- [ ] RTH open drain logic
+- [ ] Dashboard notifications for queued actions
