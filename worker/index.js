@@ -14458,21 +14458,22 @@ async function d1LoadTradesForSimulation(env) {
         if (!isOpen) continue;
 
         if (!posOpen.has(sym)) {
-          // No position — close the orphan trade in memory AND D1
-          t.status = "CLOSED";
+          const pnlVal = Number(t.pnl || t.realizedPnl || 0);
+          t.status = pnlVal > 0 ? "WIN" : pnlVal < 0 ? "LOSS" : "FLAT";
           t.exitReason = t.exitReason || "reconciled_no_position";
           t.exit_ts = t.exit_ts || Date.now();
           db.prepare(
-            `UPDATE trades SET status='CLOSED', exit_reason=COALESCE(exit_reason,'reconciled_no_position'), exit_ts=COALESCE(exit_ts,?), updated_at=datetime('now') WHERE trade_id=? AND status='OPEN'`
-          ).bind(Date.now(), t.trade_id).run().catch(() => {});
+            `UPDATE trades SET status=?, exit_reason=COALESCE(exit_reason,'reconciled_no_position'), exit_ts=COALESCE(exit_ts,?), updated_at=datetime('now') WHERE trade_id=? AND status IN ('OPEN','TP_HIT_TRIM')`
+          ).bind(t.status, Date.now(), t.trade_id).run().catch(() => {});
         } else if (seenTicker.has(sym)) {
-          // Duplicate — close the extra in memory AND D1
-          t.status = "CLOSED";
+          const pnlVal = Number(t.pnl || t.realizedPnl || 0);
+          t.status = pnlVal > 0 ? "WIN" : pnlVal < 0 ? "LOSS" : "FLAT";
           t.exitReason = "dedup_reconcile";
           t.exit_ts = t.exit_ts || Date.now();
+          if (!t.exitPrice && t.trim_price) t.exitPrice = t.trim_price;
           db.prepare(
-            `UPDATE trades SET status='CLOSED', exit_reason='dedup_reconcile', exit_ts=COALESCE(exit_ts,?), updated_at=datetime('now') WHERE trade_id=? AND status='OPEN'`
-          ).bind(Date.now(), t.trade_id).run().catch(() => {});
+            `UPDATE trades SET status=?, exit_reason='dedup_reconcile', exit_price=COALESCE(exit_price,?), exit_ts=COALESCE(exit_ts,?), updated_at=datetime('now') WHERE trade_id=? AND status IN ('OPEN','TP_HIT_TRIM','CLOSED')`
+          ).bind(t.status, t.exitPrice || null, Date.now(), t.trade_id).run().catch(() => {});
         } else {
           seenTicker.add(sym);
         }
@@ -36909,9 +36910,11 @@ Provide 3-5 actionable next steps:
             }
             // Deduplicate (keep first OPEN per ticker)
             if (seenOpen.has(sym)) {
-              trade.status = "CLOSED";
+              const pnlVal = Number(trade.pnl || trade.realizedPnl || 0);
+              trade.status = pnlVal > 0 ? "WIN" : pnlVal < 0 ? "LOSS" : "FLAT";
               trade.exit_reason = "dedup_reconcile";
               trade.exitTime = trade.exitTime || new Date().toISOString();
+              if (!trade.exitPrice && trade.trim_price) trade.exitPrice = trade.trim_price;
               dupsFixed++;
               continue;
             }
@@ -36981,14 +36984,17 @@ Provide 3-5 actionable next steps:
               if (!isO) continue;
 
               if (!d1OpenSet.has(sym)) {
-                t.status = t.status === "TP_HIT_TRIM" ? "WIN" : "CLOSED";
+                const pnlR = Number(t.pnl || t.realizedPnl || 0);
+                t.status = pnlR > 0 ? "WIN" : pnlR < 0 ? "LOSS" : "FLAT";
                 t.exit_reason = t.exit_reason || "reconciled_no_d1_position";
                 t.exitTime = t.exitTime || new Date().toISOString();
                 fixedFinal++;
               } else if (seenOpenFinal.has(sym)) {
-                t.status = "CLOSED";
+                const pnlR = Number(t.pnl || t.realizedPnl || 0);
+                t.status = pnlR > 0 ? "WIN" : pnlR < 0 ? "LOSS" : "FLAT";
                 t.exit_reason = "dedup_reconcile";
                 t.exitTime = t.exitTime || new Date().toISOString();
+                if (!t.exitPrice && t.trim_price) t.exitPrice = t.trim_price;
                 fixedFinal++;
               } else {
                 seenOpenFinal.add(sym);
@@ -37137,7 +37143,8 @@ Provide 3-5 actionable next steps:
               // Check 1: Is there a matching D1 OPEN position?
               if (!d1OpenTickers.has(sym)) {
                 // D1 says closed/missing → close the KV trade
-                trade.status = trade.status === "TP_HIT_TRIM" ? "WIN" : "CLOSED";
+                const pnlR = Number(trade.pnl || trade.realizedPnl || 0);
+                trade.status = pnlR > 0 ? "WIN" : pnlR < 0 ? "LOSS" : "FLAT";
                 trade.exit_reason = trade.exit_reason || "reconciled_no_d1_position";
                 trade.exitTime = trade.exitTime || new Date().toISOString();
                 staleFixed++;
@@ -37146,9 +37153,11 @@ Provide 3-5 actionable next steps:
               // Check 2: Deduplicate (only one OPEN trade per ticker)
               const stillOpen = trade.status === "OPEN" || trade.status === "TP_HIT_TRIM";
               if (stillOpen && seenOpen.has(sym)) {
-                trade.status = "CLOSED";
+                const pnlR = Number(trade.pnl || trade.realizedPnl || 0);
+                trade.status = pnlR > 0 ? "WIN" : pnlR < 0 ? "LOSS" : "FLAT";
                 trade.exit_reason = "dedup_reconcile";
                 trade.exitTime = trade.exitTime || new Date().toISOString();
+                if (!trade.exitPrice && trade.trim_price) trade.exitPrice = trade.trim_price;
                 dupsRemoved++;
                 console.log(`[TRADE RECONCILE] Removed duplicate KV trade: ${sym}`);
               }
