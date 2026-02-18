@@ -6576,6 +6576,27 @@ async function processTradeSimulation(
       return false;
     }) || null;
     
+    // ZOMBIE FIX: If trade is 100% trimmed but not formally closed, close it now.
+    if (openTrade && clamp(Number(openTrade.trimmedPct || 0), 0, 1) >= 0.9999 && isOpenTradeStatus(openTrade.status)) {
+      const zombiePnl = Number(openTrade.realizedPnl || openTrade.pnl || 0);
+      openTrade.status = zombiePnl > 0 ? "WIN" : zombiePnl < 0 ? "LOSS" : "FLAT";
+      openTrade.exitPrice = Number(openTrade.trim_price || openTrade.trimPrice || pxNow) || 0;
+      openTrade.exitReason = "TP_FULL";
+      openTrade.exit_ts = openTrade.trim_ts || Date.now();
+      openTrade.pnl = zombiePnl;
+      if (Number.isFinite(openTrade.entryPrice) && openTrade.entryPrice > 0) {
+        openTrade.pnlPct = (zombiePnl / (openTrade.entryPrice * (Number(openTrade.shares) || 1))) * 100;
+      }
+      console.log(`[ZOMBIE FIX] ${sym} trade 100% trimmed but status was ${openTrade.status} — closed as ${openTrade.status}`);
+      if (env?.DB) {
+        try {
+          await env.DB.prepare(`UPDATE trades SET status=?, exit_price=?, exit_reason=?, exit_ts=?, pnl=?, pnl_pct=? WHERE trade_id=?`)
+            .bind(openTrade.status, openTrade.exitPrice, openTrade.exitReason, openTrade.exit_ts, openTrade.pnl, openTrade.pnlPct || 0, openTrade.trade_id || openTrade.id).run();
+        } catch (e) { console.error(`[ZOMBIE FIX] D1 update failed for ${sym}:`, e); }
+      }
+      openTrade = null; // no longer open
+    }
+
     // If we have an open trade from KV but no D1 context, try to use trade's SL
     if (openTrade && !openPositionContext && Number.isFinite(openTrade.sl)) {
       openPositionContext = {
@@ -6973,6 +6994,7 @@ async function processTradeSimulation(
       const p = Number(trimPrice);
       if (!Number.isFinite(p) || p <= 0) return;
       const oldTrim = clamp(Number(trade.trimmedPct || 0), 0, 1);
+      if (oldTrim >= 0.9999) return; // already fully trimmed / closed
       const tgt = clamp(Number(targetTrimPct), 0, 1);
       if (tgt <= oldTrim + 1e-6) return;
       const delta = tgt - oldTrim;
@@ -6989,7 +7011,7 @@ async function processTradeSimulation(
         dirSign;
       trade.realizedPnl = Number(trade.realizedPnl || 0) + pnlRealized;
       trade.trimmedPct = tgt;
-      const isFullClose = tgt >= 0.9999;
+      const isFullClose = tgt >= 0.9999 || trade.trimmedPct >= 0.9999;
       trade.status = isFullClose
         ? (trade.realizedPnl > 0 ? "WIN" : trade.realizedPnl < 0 ? "LOSS" : "FLAT")
         : tgt > 0
@@ -7384,7 +7406,7 @@ async function processTradeSimulation(
     const isSLExit = /\bSL\b|stop.?loss|max.?loss/i.test(String(exitReasonRaw));
     // Outside RTH: only allow price-driven exits (SL breach, max loss). Signal-based exits wait for RTH.
     const exitAllowedOutsideRTH = isSLExit;
-    if (isExit && !weekendNow && (!outsideRTH || exitAllowedOutsideRTH) && exitCooldownOk && exitMinAgeOk && !fuseExitFired && openTrade && isOpenTradeStatus(openTrade.status)) {
+    if (isExit && !weekendNow && (!outsideRTH || exitAllowedOutsideRTH) && exitCooldownOk && exitMinAgeOk && !fuseExitFired && openTrade && isOpenTradeStatus(openTrade.status) && clamp(Number(openTrade.trimmedPct || 0), 0, 1) < 0.9999) {
       if (flatPriceExit && !isSLExit) {
         // Price hasn't moved — keep holding instead of closing at $0 P&L
         console.log(`[TRADE SIM] ${sym} exit skipped: flat price (entry=$${Number(openTrade.entryPrice).toFixed(2)} exit=$${pxNow.toFixed(2)}), holding`);
@@ -7416,7 +7438,7 @@ async function processTradeSimulation(
     const lastDefendMs = Number(execState.lastDefendMs);
     const defendCooldownOk = !Number.isFinite(lastDefendMs) || now - lastDefendMs >= 5 * 60 * 1000; // 5m
     
-    if (isDefend && !weekendNow && defendCooldownOk && openTrade && Number.isFinite(pxNow)) {
+    if (isDefend && !weekendNow && defendCooldownOk && openTrade && Number.isFinite(pxNow) && clamp(Number(openTrade.trimmedPct || 0), 0, 1) < 0.9999) {
       const entryPx = Number(openTrade.entryPrice);
       const dir = String(openTrade.direction || "").toUpperCase();
       const isLong = dir === "LONG";
@@ -7514,7 +7536,7 @@ async function processTradeSimulation(
     // Trim targets are based on which TP level price has reached
     // ─────────────────────────────────────────────────────────────────────────
     // CRITICAL: Verify trade is actually still open before trimming (prevents ghost events on closed trades)
-    if (isTrim && !weekendNow && trimCooldownOk && trimMinAgeOk && openTrade && isOpenTradeStatus(openTrade.status) && Number.isFinite(pxNow)) {
+    if (isTrim && !weekendNow && trimCooldownOk && trimMinAgeOk && openTrade && isOpenTradeStatus(openTrade.status) && Number.isFinite(pxNow) && clamp(Number(openTrade.trimmedPct || 0), 0, 1) < 0.9999) {
       const tpArray = Array.isArray(openTrade.tpArray) ? openTrade.tpArray : [];
       const entryPx = Number(openTrade.entryPrice);
       const dir = String(openTrade.direction || "").toUpperCase();
