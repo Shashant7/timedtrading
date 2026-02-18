@@ -1496,6 +1496,8 @@
                         {(() => {
                           const raw = ticker?.__execution_block_reason || ticker?.__entry_block_reason;
                           if (!raw) return null;
+                          const rrStage = String(ticker?.kanban_stage || "").toLowerCase();
+                          if (rrStage !== "enter" && rrStage !== "enter_now") return null;
                           const formatted = String(raw).split("+").map(r => {
                             const sm = r.match(/^sector_full:(\d+)\/(\d+)\s*(.*)/);
                             if (sm) return `Max ${sm[3] || "sector"} positions reached (${sm[1]}/${sm[2]})`;

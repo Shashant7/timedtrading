@@ -11003,20 +11003,12 @@
               {/* Indicator pills moved to Right Rail */}
 
 
-              {/* ── Execution badge: last trade action (trim or exit only — entry shown above) ── */}
-              {openTrade && (() => {
+              {/* ── Execution badge: trim/exit for OPEN trades only (closed trades in discovery lanes are historical noise) ── */}
+              {hasOpenTrade && openTrade && (() => {
                 const trimPct = Number(openTrade.trimmed_pct ?? openTrade.trimmedPct ?? 0);
                 const trimPx = Number(openTrade.trim_price ?? openTrade.trimPrice) || 0;
-                const exitTs = openTrade.exit_ts ?? openTrade.exitTs ?? 0;
-                const exitPx = Number(openTrade.exit_price ?? openTrade.exitPrice) || 0;
-                const pnlPct = Number(openTrade.pnl_pct ?? openTrade.pnlPct) || null;
-                const status = String(openTrade.status || "").toUpperCase();
                 let badge = null;
-                if (exitTs && (status === "WIN" || status === "LOSS")) {
-                  const pxStr = exitPx > 0 ? ` $${exitPx.toFixed(2)}` : "";
-                  const pctStr = pnlPct != null ? ` (${pnlPct >= 0 ? "+" : ""}${pnlPct.toFixed(1)}%)` : "";
-                  badge = { label: `Exited${pxStr}${pctStr}`, cls: pnlPct >= 0 ? "text-[#00e676]" : "text-rose-400" };
-                } else if (trimPct > 0) {
+                if (trimPct > 0) {
                   const pxStr = trimPx > 0 ? ` @ $${trimPx.toFixed(2)}` : "";
                   badge = { label: `Trimmed ${(trimPct * 100).toFixed(0)}%${pxStr}`, cls: "text-yellow-400" };
                 }
@@ -11028,8 +11020,8 @@
                 );
               })()}
 
-              {/* ── Entry block reason (enter/setup lane due to execution gates) ── */}
-              {(stage === "setup" || stage === "enter" || stage === "enter_now") && (t?.__execution_block_reason || t?.__entry_block_reason) && (() => {
+              {/* ── Entry block reason (enter lane only — setup cards don't need execution gate info) ── */}
+              {(stage === "enter" || stage === "enter_now") && (t?.__execution_block_reason || t?.__entry_block_reason) && (() => {
                 const formatted = formatBlockReason(t.__execution_block_reason || t.__entry_block_reason);
                 return (
                   <div className="px-2 py-0.5 text-[9px] text-amber-300/80">
@@ -11558,8 +11550,8 @@
             const trade = tradeByTicker.get(sym);
             const status = trade ? String(trade.status || "").toUpperCase() : "";
             const trimmedPct = Number(trade?.trimmed_pct ?? trade?.trimmedPct ?? 0);
-            const isClosed = (status === "WIN" || status === "LOSS" || !!(trade?.exit_ts ?? trade?.exitTs)) && trimmedPct < 0.9999;
-            const isOpen = !isClosed && (status === "OPEN" || status === "TP_HIT_TRIM" || trimmedPct >= 0.9999 || !status);
+            const isClosed = status === "WIN" || status === "LOSS" || !!(trade?.exit_ts ?? trade?.exitTs) || trimmedPct >= 0.9999;
+            const isOpen = !isClosed && (status === "OPEN" || status === "TP_HIT_TRIM" || !status);
             if (trade && isOpen) {
               if (status === "TP_HIT_TRIM" || trimmedPct > 0) stage = "trim";
               else if (!["defend", "trim", "exit", "hold", "active", "just_entered"].includes(stage)) stage = "hold";
@@ -12166,10 +12158,11 @@
             const status = trade ? String(trade.status || "").toUpperCase() : "";
             const trimmedPct = Number(trade?.trimmed_pct ?? trade?.trimmedPct ?? 0);
             const isClosed =
-              (status === "WIN" ||
+              status === "WIN" ||
               status === "LOSS" ||
-              !!(trade?.exit_ts ?? trade?.exitTs)) && trimmedPct < 0.9999;
-            const isOpen = !isClosed && (status === "OPEN" || status === "TP_HIT_TRIM" || trimmedPct >= 0.9999 || !status);
+              !!(trade?.exit_ts ?? trade?.exitTs) ||
+              trimmedPct >= 0.9999;
+            const isOpen = !isClosed && (status === "OPEN" || status === "TP_HIT_TRIM" || !status);
 
             // ═══════════════════════════════════════════════════════════════
             // TRADE LIFECYCLE OVERRIDE — open trades NEVER fall back to
