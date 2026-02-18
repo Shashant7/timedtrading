@@ -35482,11 +35482,114 @@ Provide 3-5 actionable next steps:
     // ═══════════════════════════════════════════════════════════════════════
     const isPriceFeedCron = vc.has("*/1 9-23 * * 1-5")
       || vc.has("*/1 0-1 * * 2-6")
-      || vc.has("*/5 22-23 * * 7");
+      || vc.has("*/5 22-23 * * 7")
+      || vc.has("*/5 2-8 * * *");
+    // Lightweight mode: during 2-8 AM UTC, only overlay TV futures + crypto onto existing prices.
+    // Skips expensive Alpaca stock REST fetch and D1 prev_close rebuild.
+    const isLightweightPriceFeed = isPriceFeedCron
+      && !vc.has("*/1 9-23 * * 1-5")
+      && !vc.has("*/1 0-1 * * 2-6");
     if (isPriceFeedCron && env.ALPACA_ENABLED === "true") {
       const KV = env.KV_TIMED;
       try {
         const allTickers = Object.keys(SECTOR_MAP);
+
+        // ── Lightweight mode: overlay TV futures + crypto onto existing prices ──
+        // Runs during 2-8 AM UTC when stocks aren't actively trading.
+        // Avoids expensive Alpaca REST, D1 prev_close rebuild, and sanity checks.
+        if (isLightweightPriceFeed) {
+          let existing = {};
+          try {
+            const raw = await kvGetJSON(KV, "timed:prices");
+            existing = raw?.prices || {};
+          } catch (_) {}
+
+          // 1. Overlay TV futures heartbeats
+          const TV_FUTURES_LIGHT = ["ES1!", "NQ1!", "GC1!", "SI1!", "VIX", "US500", "CL1!"];
+          let tvUpdated = 0;
+          for (const tvSym of TV_FUTURES_LIGHT) {
+            try {
+              const hbData = await kvGetJSON(KV, `timed:heartbeat:${tvSym}`);
+              const latestData = await kvGetJSON(KV, `timed:latest:${tvSym}`);
+              const tvData = (hbData && hbData.price > 0) ? hbData : latestData;
+              if (tvData && tvData.price > 0) {
+                const prevClose = Number(tvData.prev_close || tvData.previous_close || 0);
+                const price = Number(tvData.price);
+                const dc = prevClose > 0 ? Math.round((price - prevClose) * 100) / 100 : null;
+                const dp = prevClose > 0 ? Math.round(((price - prevClose) / prevClose) * 10000) / 100 : null;
+                const prev = existing[tvSym] || {};
+                existing[tvSym] = {
+                  ...prev,
+                  p: Math.round(price * 100) / 100,
+                  pc: prevClose > 0 ? Math.round(prevClose * 100) / 100 : (prev.pc || 0),
+                  dc: dc ?? prev.dc, dp: dp ?? prev.dp,
+                  dh: Math.round(Number(tvData.high || tvData.dailyHigh || 0) * 100) / 100 || prev.dh,
+                  dl: Math.round(Number(tvData.low || tvData.dailyLow || 0) * 100) / 100 || prev.dl,
+                  t: Number(tvData.ts || tvData.ingest_ts || 0) || Date.now(),
+                };
+                tvUpdated++;
+              }
+            } catch (_) {}
+          }
+
+          // 2. Overlay crypto from Alpaca snapshots
+          let cryptoUpdated = 0;
+          try {
+            const CRYPTO_PAIRS = { "BTCUSD": "BTC/USD", "ETHUSD": "ETH/USD" };
+            const headers = {
+              "APCA-API-KEY-ID": env.ALPACA_API_KEY_ID,
+              "APCA-API-SECRET-KEY": env.ALPACA_API_SECRET_KEY,
+              "Accept": "application/json",
+            };
+            const params = new URLSearchParams();
+            params.set("symbols", Object.values(CRYPTO_PAIRS).join(","));
+            const url = `https://data.alpaca.markets/v1beta3/crypto/us/snapshots?${params.toString()}`;
+            const resp = await fetch(url, { headers });
+            if (resp.ok) {
+              const data = await resp.json();
+              const cryptoSnaps = data.snapshots || data;
+              const reverseMap = {};
+              for (const [k, v] of Object.entries(CRYPTO_PAIRS)) reverseMap[v] = k;
+              for (const [alpacaSym, snap] of Object.entries(cryptoSnaps)) {
+                const ourSym = reverseMap[alpacaSym] || alpacaSym.replace("/", "");
+                const lt = snap.latestTrade;
+                const db = snap.dailyBar;
+                const pdb = snap.prevDailyBar;
+                const price = Number(lt?.p) || Number(db?.c) || 0;
+                if (price <= 0) continue;
+                const prevClose = Number(pdb?.c) || 0;
+                const prev = existing[ourSym] || {};
+                existing[ourSym] = {
+                  ...prev,
+                  p: price,
+                  pc: prevClose > 0 ? prevClose : (prev.pc || 0),
+                  dc: prevClose > 0 ? Math.round((price - prevClose) * 100) / 100 : prev.dc,
+                  dp: prevClose > 0 ? Math.round(((price - prevClose) / prevClose) * 10000) / 100 : prev.dp,
+                  t: lt?.t ? new Date(lt.t).getTime() : Date.now(),
+                };
+                cryptoUpdated++;
+              }
+            }
+          } catch (_) {}
+
+          // 3. Write merged result + push to PriceHub
+          const lightUpdateTs = Date.now();
+          await kvPutJSON(KV, "timed:prices", {
+            prices: existing,
+            updated_at: lightUpdateTs,
+            ticker_count: Object.keys(existing).length,
+            _source: "lightweight_overnight",
+          });
+          ctx.waitUntil(notifyPriceHub(env, {
+            type: "prices",
+            data: existing,
+            updated_at: lightUpdateTs,
+          }));
+          console.log(`[PRICE FEED LIGHT] TV futures: ${tvUpdated}, crypto: ${cryptoUpdated}, total: ${Object.keys(existing).length}`);
+          // Skip the rest of the heavy pipeline
+        } else {
+        // ── Full pipeline (active hours) ──
+
         // Alpaca universe: same filter as bar cron — stocks/ETFs only (exclude futures, crypto, indices)
         const ALPACA_SYMBOL_BLOCKLIST = new Set([
           "ES1!", "NQ1!", "YM1!", "RTY1!", "CL1!", "GC1!", "SI1!", "BTCUSD", "ETHUSD", "US500", "VIX", "SPX", "BRK-B",
@@ -36014,89 +36117,14 @@ Provide 3-5 actionable next steps:
         // NOTE: Scoring chain removed from price feed to prevent dual-scoring race.
         // The */5 cron handler is the SOLE scoring loop. Running scoring here AND
         // in the */5 handler caused concurrent KV writes → kanban stage oscillation.
+        } // end of full pipeline else block
       } catch (e) {
         console.error("[PRICE FEED] Error:", e);
       }
       // Don't return — D1 sync below may also run
     }
 
-    // ═══════════════════════════════════════════════════════════════════════
-    // OVERNIGHT CRYPTO PRICE FEED (*/5 2-8 UTC / 9 PM - 3 AM ET)
-    //
-    // Fills the 7-hour gap when the main price feed doesn't run.
-    // Crypto trades 24/7 — fetch only BTC/ETH snapshots from Alpaca's crypto
-    // endpoint and update prices. Lightweight: 1 API call, 1 KV write.
-    // ═══════════════════════════════════════════════════════════════════════
-    const _isOvernightCrypto = vc.has("*/5 2-8 * * *") && !isPriceFeedCron;
-    if (_isOvernightCrypto && env.ALPACA_ENABLED === "true") {
-      const KV = env.KV_TIMED;
-      try {
-        const CRYPTO_PAIRS = { "BTCUSD": "BTC/USD", "ETHUSD": "ETH/USD" };
-        const headers = {
-          "APCA-API-KEY-ID": env.ALPACA_API_KEY_ID,
-          "APCA-API-SECRET-KEY": env.ALPACA_API_SECRET_KEY,
-          "Accept": "application/json",
-        };
-        const params = new URLSearchParams();
-        params.set("symbols", Object.values(CRYPTO_PAIRS).join(","));
-        const url = `https://data.alpaca.markets/v1beta3/crypto/us/snapshots?${params.toString()}`;
-        const resp = await fetch(url, { headers });
-        if (resp.ok) {
-          const data = await resp.json();
-          const cryptoSnaps = data.snapshots || data;
-          const reverseMap = {};
-          for (const [k, v] of Object.entries(CRYPTO_PAIRS)) reverseMap[v] = k;
-
-          // Build crypto price entries
-          const cryptoPrices = {};
-          for (const [alpacaSym, snap] of Object.entries(cryptoSnaps)) {
-            const ourSym = reverseMap[alpacaSym] || alpacaSym.replace("/", "");
-            const lt = snap.latestTrade;
-            const db = snap.dailyBar;
-            const pdb = snap.prevDailyBar;
-            const price = Number(lt?.p) || Number(db?.c) || 0;
-            if (price <= 0) continue;
-            const prevClose = Number(pdb?.c) || 0;
-            cryptoPrices[ourSym] = {
-              p: price,
-              t: lt?.t ? new Date(lt.t).getTime() : Date.now(),
-              o: Number(db?.o) || price,
-              h: Number(db?.h) || price,
-              l: Number(db?.l) || price,
-              c: Number(db?.c) || price,
-              v: Number(db?.v) || 0,
-              pc: prevClose > 0 ? prevClose : undefined,
-              dc: prevClose > 0 ? Math.round((price - prevClose) * 100) / 100 : undefined,
-              dp: prevClose > 0 ? Math.round(((price - prevClose) / prevClose) * 10000) / 100 : undefined,
-            };
-          }
-
-          if (Object.keys(cryptoPrices).length > 0) {
-            // Merge into existing KV prices (deep merge to preserve equity/futures data)
-            let existing = {};
-            try {
-              const raw = await kvGetJSON(KV, "timed:prices");
-              existing = raw?.prices || {};
-            } catch (_) {}
-            for (const [sym, data] of Object.entries(cryptoPrices)) {
-              existing[sym] = { ...(existing[sym] || {}), ...data };
-            }
-            ctx.waitUntil(kvPutJSON(KV, "timed:prices", {
-              prices: existing,
-              updated_at: Date.now(),
-              ticker_count: Object.keys(existing).length,
-              _source: "overnight_crypto",
-            }).catch(() => {}));
-
-            console.log(`[OVERNIGHT CRYPTO] Updated ${Object.keys(cryptoPrices).length} crypto tickers`);
-          }
-        } else {
-          console.warn(`[OVERNIGHT CRYPTO] Alpaca HTTP ${resp.status}`);
-        }
-      } catch (e) {
-        console.warn("[OVERNIGHT CRYPTO] Error:", String(e).slice(0, 200));
-      }
-    }
+    // (Overnight crypto handler removed — absorbed into lightweight price feed above)
 
     // ── End of every-minute handler (price feed only; bars moved to */5 in Phase 3) ──
     if (_isEveryMin) {

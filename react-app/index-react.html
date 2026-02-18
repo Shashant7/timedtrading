@@ -15936,9 +15936,19 @@
                     const indexChips = indices.map(s => renderPulseChip(s)).filter(Boolean);
                     const sectorChips = sectorETFs.map(s => renderPulseChip(s)).filter(Boolean);
                     if (indexChips.length === 0 && sectorChips.length === 0) return null;
+                    const freshness = (() => {
+                      if (!priceLastUpdated || priceLastUpdated <= 0) return null;
+                      const ago = Math.round((Date.now() - priceLastUpdated) / 1000);
+                      if (ago < 60) return `${ago}s ago`;
+                      if (ago < 3600) return `${Math.floor(ago / 60)}m ago`;
+                      return `${Math.floor(ago / 3600)}h ago`;
+                    })();
                     return (
                       <div className="mb-4">
-                        <div className="text-[10px] text-[#6b7280] font-semibold mb-1.5 tracking-wide uppercase">Market Pulse</div>
+                        <div className="flex items-center gap-2 mb-1.5">
+                          <span className="text-[10px] text-[#6b7280] font-semibold tracking-wide uppercase">Market Pulse</span>
+                          {freshness && <span className="text-[9px] text-[#4b5563] tabular-nums">updated {freshness}</span>}
+                        </div>
                         {indexChips.length > 0 && (
                           <div className="flex items-center gap-2 overflow-x-auto pb-1" style={{ scrollbarWidth: "none" }}>{indexChips}</div>
                         )}

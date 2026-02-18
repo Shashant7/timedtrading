@@ -127,17 +127,9 @@ export class AlpacaStream {
       await this._connectCrypto();
     }
 
-    // Push prices to PriceHub every ~60 seconds
-    if (now - this.lastPricePush >= 55_000) {
-      await this._pushPricesToHub();
-    }
-
-    // Write prices to KV every ~60 seconds
-    if (now - this.lastKvWrite >= 55_000) {
-      await this._writePricesToKv();
-    }
-
-    // 1m bar D1 flush disabled (Phase 2 cost optimization — 1m candles no longer stored)
+    // KV write + PriceHub push removed — the price feed cron (every 1 min active / 5 min overnight)
+    // is the single authoritative writer to timed:prices. It reads this DO's in-memory prices
+    // via GET /prices. This eliminates ~1,500 redundant KV writes/day and ~288 DO calls/day.
 
     // Schedule next alarm
     await this.state.storage.setAlarm(Date.now() + 50_000);
