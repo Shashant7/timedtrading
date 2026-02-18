@@ -1710,7 +1710,7 @@
         const describeTickerDir = (d, net) => {
           if (d === "BULLISH") return net > 0.4 ? "Strong upward momentum — model and scoring both favor higher prices" : "Leaning bullish — more factors point up than down";
           if (d === "BEARISH") return net < -0.4 ? "Strong downward pressure — model and scoring both suggest lower prices" : "Leaning bearish — more factors point down than up";
-          return "Mixed signals — no clear directional edge right now";
+          return "Mixed indicators — no clear directional edge right now";
         };
         const describeSector = (regime, pct) => {
           if (regime === "BULLISH") return `${pct}% of sector tickers trending up — sector tailwind`;
@@ -1745,7 +1745,7 @@
           className: "flex items-center justify-between mb-1"
         }, /*#__PURE__*/React.createElement("span", {
           className: "text-[10px] text-slate-400 uppercase font-semibold"
-        }, "Ticker Signal"), /*#__PURE__*/React.createElement("span", {
+        }, "Ticker Indicator"), /*#__PURE__*/React.createElement("span", {
           className: `text-xs font-bold ${dirColor(ts?.direction || pm?.direction)}`
         }, ts?.direction || pm?.direction || "—")), /*#__PURE__*/React.createElement("div", {
           className: "flex items-center gap-3 text-[11px]"
@@ -2201,9 +2201,9 @@
           const e = Number(ev);
           if (!Number.isFinite(p) || !Number.isFinite(e)) return null;
 
-          // Strong signals
+          // Strong patterns
           if (p >= 70 && e >= 15) return {
-            text: "🎯 Strong buy - high win%, great reward",
+            text: "🎯 Strong pattern - high historical win%, favorable reward",
             color: "text-green-400",
             bg: "bg-green-500/10"
           };
@@ -2225,7 +2225,7 @@
             bg: "bg-yellow-500/10"
           };
 
-          // Warning signals
+          // Warning patterns
           if (p >= 70 && e < 0) return {
             text: "⚠️ Too late - missed the entry",
             color: "text-orange-400",
@@ -2244,7 +2244,7 @@
 
           // Default
           return {
-            text: "🤔 Unclear signal - use caution",
+            text: "🤔 Unclear pattern - use caution",
             color: "text-gray-400",
             bg: "bg-gray-500/10"
           };
@@ -2358,7 +2358,7 @@
             'ST_FLIP_30M': 'Momentum flip detected (30min)',
             'ST_FLIP_1H': 'Momentum flip detected (1hr)',
             'EMA_CROSS_1H_13_48': 'Moving average crossover (1hr)',
-            'BUYABLE_DIP_1H_13_48': 'Pullback entry opportunity (1hr)',
+            'BUYABLE_DIP_1H_13_48': 'Pullback pattern detected (1hr)',
             'EMA_CROSS_30M_13_48': 'Moving average crossover (30min)'
           };
 
@@ -2398,7 +2398,7 @@
         }, translateTrigger(t)));
       })) : /*#__PURE__*/React.createElement("div", {
         className: "text-xs text-[#6b7280]"
-      }, "No trigger signals detected."))), /*#__PURE__*/React.createElement("div", {
+      }, "No trigger patterns detected."))), /*#__PURE__*/React.createElement("div", {
         className: "mt-6 pt-6 border-t-2 border-white/[0.06]"
       }, /*#__PURE__*/React.createElement("div", {
         className: "text-sm font-bold text-[#6b7280] mb-4"
@@ -2573,7 +2573,7 @@
           className: "mb-4 p-3 bg-white/[0.03] rounded-lg border border-white/[0.06]"
         }, /*#__PURE__*/React.createElement("div", {
           className: "text-xs text-[#6b7280] mb-2"
-        }, "Signals"), /*#__PURE__*/React.createElement("div", {
+        }, "TD Sequential Patterns"), /*#__PURE__*/React.createElement("div", {
           className: "space-y-2"
         }, (tdSeq.td9_bullish === true || tdSeq.td9_bullish === "true") && /*#__PURE__*/React.createElement("div", {
           className: "flex items-center gap-2"
@@ -2601,13 +2601,13 @@
           className: "text-xs text-[#6b7280]"
         }, "Bearish (Leadup Complete)")), !tdSeq.td9_bullish && !tdSeq.td9_bearish && !tdSeq.td13_bullish && !tdSeq.td13_bearish && /*#__PURE__*/React.createElement("div", {
           className: "text-xs text-[#6b7280]"
-        }, "No TD9/TD13 signals active"))), (tdSeq.exit_long === true || tdSeq.exit_long === "true" || tdSeq.exit_short === true || tdSeq.exit_short === "true") && /*#__PURE__*/React.createElement("div", {
+        }, "No TD9/TD13 patterns active"))), (tdSeq.exit_long === true || tdSeq.exit_long === "true" || tdSeq.exit_short === true || tdSeq.exit_short === "true") && /*#__PURE__*/React.createElement("div", {
           className: `mb-4 p-3 rounded-lg border-2 ${tdSeq.exit_long === true || tdSeq.exit_long === "true" ? "bg-red-500/20 border-red-500/50" : "bg-red-500/20 border-red-500/50"}`
         }, /*#__PURE__*/React.createElement("div", {
           className: "flex items-center justify-between"
         }, /*#__PURE__*/React.createElement("span", {
           className: "text-xs text-[#6b7280]"
-        }, "Exit Signal"), /*#__PURE__*/React.createElement("span", {
+        }, "Exit Indicator"), /*#__PURE__*/React.createElement("span", {
           className: "font-bold text-sm text-red-400"
         }, tdSeq.exit_long === true || tdSeq.exit_long === "true" ? "EXIT LONG" : "EXIT SHORT")), /*#__PURE__*/React.createElement("div", {
           className: "text-xs text-[#6b7280] mt-1"
@@ -2842,7 +2842,7 @@
           className: "flex items-center justify-between"
         }, /*#__PURE__*/React.createElement("span", {
           className: "text-xs text-[#6b7280]"
-        }, "Valuation Signal"), /*#__PURE__*/React.createElement("span", {
+        }, "Valuation Indicator"), /*#__PURE__*/React.createElement("span", {
           className: `font-bold text-sm ${signalColor}`
         }, fund.valuation_signal.toUpperCase())), fund.valuation_confidence && /*#__PURE__*/React.createElement("div", {
           className: "text-xs text-[#6b7280] mt-1"

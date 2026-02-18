@@ -36559,7 +36559,7 @@ Provide 3-5 actionable next steps:
           return 0; // No usable prev_close
         }
 
-        const prices = {};
+        let prices = {};
         for (const [sym, snap] of Object.entries(snapshots)) {
           const price = snap.price;
           const prevClose = pickPrevClose(sym, snap.prevDailyClose, price);
@@ -36778,8 +36778,34 @@ Provide 3-5 actionable next steps:
         const totalWithPrice = pcEqP + pcZero + pcReal;
         const pcEqPRatio = totalWithPrice > 0 ? pcEqP / totalWithPrice : 0;
         const priceUpdateTs = Date.now();
-        if (pcEqP > 20 && pcEqPRatio > 0.5) {
-          console.warn(`[PRICE FEED] SKIPPING KV write + WS push — pcEqP=${pcEqP}/${totalWithPrice} (${(pcEqPRatio * 100).toFixed(0)}%) suggests prev_close pipeline failure. Preserving last good data.`);
+        const pcDegraded = pcEqP > 20 && pcEqPRatio > 0.5;
+        if (pcDegraded) {
+          // prev_close pipeline degraded — preserve last good dc/dp but still update prices (p).
+          // Prices from Alpaca are always correct; only daily-change fields are suspect.
+          console.warn(`[PRICE FEED] pcEqP=${pcEqP}/${totalWithPrice} (${(pcEqPRatio * 100).toFixed(0)}%) — merging fresh prices into existing KV, preserving daily change.`);
+          try {
+            const existing = await kvGetJSON(KV, "timed:prices");
+            const oldPrices = existing?.prices || {};
+            const merged = {};
+            for (const [sym, cur] of Object.entries(prices)) {
+              const old = oldPrices[sym];
+              if (old && Number(old.pc) > 0 && old.pc !== old.p) {
+                // Preserve last good daily-change data, update price
+                merged[sym] = { ...cur, pc: old.pc, dc: old.dc, dp: old.dp };
+              } else {
+                merged[sym] = cur;
+              }
+            }
+            await kvPutJSON(KV, "timed:prices", {
+              prices: merged,
+              updated_at: priceUpdateTs,
+              ticker_count: Object.keys(merged).length,
+              _debug: { d1PcCount, dcMapCount, pcEqP, pcZero, pcReal, cacheHit: prevCloseCacheHit, usedStream, version: "v3-merge", pcDegraded: true, _dbgTickers },
+            });
+            prices = merged;
+          } catch (e) {
+            console.error(`[PRICE FEED] Merge fallback failed:`, String(e).slice(0, 200));
+          }
         } else {
           await kvPutJSON(KV, "timed:prices", {
             prices,
@@ -36787,14 +36813,14 @@ Provide 3-5 actionable next steps:
             ticker_count: Object.keys(prices).length,
             _debug: { d1PcCount, dcMapCount, pcEqP, pcZero, pcReal, cacheHit: prevCloseCacheHit, usedStream, version: "v3-guard", _dbgTickers },
           });
-
-          // Push prices to WS clients only when KV was written (data is clean)
-          ctx.waitUntil(notifyPriceHub(env, {
-            type: "prices",
-            data: prices,
-            updated_at: priceUpdateTs,
-          }));
         }
+
+        // Always push prices to WS clients — prices are always correct even when daily change is degraded
+        ctx.waitUntil(notifyPriceHub(env, {
+          type: "prices",
+          data: prices,
+          updated_at: priceUpdateTs,
+        }));
 
         // ── SL/TP Exit Checking on price loop ──
         // Check open positions against current prices for fast SL/TP reaction
