@@ -7,6 +7,7 @@
       content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes"
     />
     <title>Timed Trading</title>
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' stop-color='%2300c853'/%3E%3Cstop offset='50%25' stop-color='%2300e676'/%3E%3Cstop offset='100%25' stop-color='%2369f0ae'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='24' height='24' rx='5.5' fill='url(%23g)'/%3E%3Cpolyline points='22 7 13.5 15.5 8.5 10.5 2 17' fill='none' stroke='white' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3Cpolyline points='16 7 22 7 22 13' fill='none' stroke='white' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
@@ -177,21 +178,40 @@
       }
 
       .loading-spinner {
-        border: 2px solid var(--tt-border);
-        border-top-color: var(--tt-accent);
-        border-radius: 50%;
-        width: 20px;
-        height: 20px;
-        animation: spin 1s linear infinite;
+        width: 28px;
+        height: 28px;
+        position: relative;
+        display: inline-block;
       }
-
+      .loading-spinner::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        border-radius: 6px;
+        background: linear-gradient(135deg, rgba(0,200,83,0.15), rgba(0,200,83,0.04));
+        animation: tt-loader-pulse 1.6s ease-in-out infinite;
+      }
+      .loading-spinner::after {
+        content: "";
+        position: absolute;
+        left: 3px; right: 3px; top: 50%; height: 2px;
+        background: linear-gradient(90deg, transparent, #00c853, #00e676, #69f0ae, transparent);
+        background-size: 200% 100%;
+        border-radius: 1px;
+        animation: tt-loader-sweep 1.2s ease-in-out infinite;
+      }
+      @keyframes tt-loader-pulse {
+        0%, 100% { opacity: 0.4; transform: scale(0.92); }
+        50% { opacity: 1; transform: scale(1); }
+      }
+      @keyframes tt-loader-sweep {
+        0% { background-position: -100% 0; opacity: 0.5; }
+        50% { opacity: 1; }
+        100% { background-position: 200% 0; opacity: 0.5; }
+      }
       @keyframes spin {
-        0% {
-          transform: rotate(0deg);
-        }
-        100% {
-          transform: rotate(360deg);
-        }
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
       }
       @keyframes pulse-badge {
         0%, 100% { opacity: 1; transform: scale(1); }
@@ -391,9 +411,17 @@
   </head>
   <body>
     <div id="root">
-      <div style="padding: 40px; text-align: center; color: #f0f2f5">
-        <div class="loading-spinner" style="margin: 0 auto 20px"></div>
-        <p>Loading dashboard...</p>
+      <div style="display:flex; flex-direction:column; align-items:center; justify-content:center; height:100vh; gap:20px; color:#f0f2f5; background:#0d1117">
+        <div style="position:relative; width:48px; height:48px">
+          <svg viewBox="0 0 24 24" width="48" height="48" style="position:absolute; inset:0">
+            <defs><linearGradient id="lg" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#00c853"/><stop offset="50%" stop-color="#00e676"/><stop offset="100%" stop-color="#69f0ae"/></linearGradient></defs>
+            <rect width="24" height="24" rx="5.5" fill="url(#lg)" opacity="0.15"/>
+            <polyline points="22 7 13.5 15.5 8.5 10.5 2 17" fill="none" stroke="url(#lg)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="50" style="animation: tt-line-draw 1.8s ease-in-out infinite"/>
+            <polyline points="16 7 22 7 22 13" fill="none" stroke="url(#lg)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="20" style="animation: tt-line-draw 1.8s ease-in-out 0.3s infinite"/>
+          </svg>
+        </div>
+        <p style="font-family:Inter,sans-serif; font-size:13px; color:#6b7280; letter-spacing:0.02em">Loading dashboard...</p>
+        <style>@keyframes tt-line-draw { 0% { stroke-dashoffset:50; opacity:0.3 } 50% { stroke-dashoffset:0; opacity:1 } 100% { stroke-dashoffset:-50; opacity:0.3 } }</style>
       </div>
     </div>
 
@@ -7057,8 +7085,8 @@
             return {
               action: "🎯 Target Reached — Take Profit",
               description: `Price has reached the first take-profit target ($${tp.toFixed(2)}). ${priceSummary} Consider trimming 50–75% to lock in gains. ${isAligned ? "Trend still aligned — trail the stop on the remaining runner." : "Alignment weakening — consider full exit."}`,
-              color: "text-emerald-400",
-              bg: "bg-emerald-500/20",
+              color: "text-[#00e676]",
+              bg: "bg-[#00c853]/20",
             };
           }
 
@@ -7127,8 +7155,8 @@
           return {
             action: isWin ? "✅ Trade Closed — Win" : "❌ Trade Closed — Loss",
             description: `${entPxStr}${pnlStr ? ` (${pnlStr})` : ""}.${reasonStr} ${isWin ? "Well managed." : "Review the setup and indicators for lessons."} The ticker is now back in the scoring pipeline and will re-enter stages if a new setup forms.`,
-            color: isWin ? "text-emerald-300" : "text-rose-300",
-            bg: isWin ? "bg-emerald-500/15" : "bg-rose-500/15",
+            color: isWin ? "text-[#69f0ae]" : "text-rose-300",
+            bg: isWin ? "bg-[#00c853]/15" : "bg-rose-500/15",
           };
         }
 
@@ -11280,7 +11308,7 @@
 
                 // Fill: always left-to-right toward TP (since markers are mirrored for SHORT)
                 const fillColor = fillPct >= 50
-                  ? (fillPct >= 80 ? "bg-emerald-500/70" : "bg-emerald-500/50")
+                  ? (fillPct >= 80 ? "bg-[#00c853]/70" : "bg-[#00c853]/50")
                   : (fillPct <= 20 ? "bg-rose-500/55" : "bg-white/[0.30]");
 
                 return (
@@ -11303,7 +11331,7 @@
                       {(() => { const o = registerMarker(ep, "EP"); return <Marker val={ep} label="EP" color="bg-yellow-400/80" textColor="text-yellow-300" bottom={o.bottom} />; })()}
                       {(() => { const o = registerMarker(tp1, "TP"); return <Marker val={tp1} label="TP" color="bg-teal-400/80" textColor="text-teal-300" bottom={o.bottom} />; })()}
                       {(() => { const o = registerMarker(tp2, "TP2"); return <Marker val={tp2} label="TP2" color="bg-teal-400/80" textColor="text-teal-300" bottom={o.bottom} />; })()}
-                      {(() => { const o = registerMarker(xp, "XP"); return <Marker val={xp} label="XP" color="bg-emerald-400" textColor="text-emerald-300" bold bottom={o.bottom} />; })()}
+                      {(() => { const o = registerMarker(xp, "XP"); return <Marker val={xp} label="XP" color="bg-[#00e676]" textColor="text-[#69f0ae]" bold bottom={o.bottom} />; })()}
                     </div>
                   </div>
                 );
@@ -11656,7 +11684,7 @@
         watch:  { label: "Watch",  icon: "👁", cls: "bg-gray-700/60 text-gray-300 border-gray-500/40" },
         setup:  { label: "Setup",  icon: "📋", cls: "bg-amber-900/40 text-amber-400 border-amber-500/40" },
         enter:  { label: "Enter",  icon: "🎯", cls: "bg-teal-900/40 text-teal-400 border-teal-500/40" },
-        new:    { label: "New",    icon: "🆕", cls: "bg-emerald-900/40 text-emerald-400 border-emerald-500/40" },
+        new:    { label: "New",    icon: "🆕", cls: "bg-[#00c853]/10 text-[#00e676] border-[#00c853]/40" },
         hold:   { label: "Hold",   icon: "🔒", cls: "bg-cyan-900/40 text-cyan-400 border-cyan-500/40" },
         defend: { label: "Defend", icon: "🛡", cls: "bg-orange-900/40 text-orange-400 border-orange-500/40" },
         trim:   { label: "Trim",   icon: "✂️", cls: "bg-yellow-900/40 text-yellow-400 border-yellow-500/40" },
@@ -11882,7 +11910,7 @@
           };
           const fillPct = cp ? pct(cp) : 0;
           const slMovedPastEntry = ep && sl && ((dir === "LONG" && sl > ep) || (dir === "SHORT" && sl < ep));
-          const fillColor = fillPct >= 50 ? (fillPct >= 80 ? "bg-emerald-500/70" : "bg-emerald-500/50") : (fillPct <= 20 ? "bg-rose-500/55" : "bg-white/[0.30]");
+          const fillColor = fillPct >= 50 ? (fillPct >= 80 ? "bg-[#00c853]/70" : "bg-[#00c853]/50") : (fillPct <= 20 ? "bg-rose-500/55" : "bg-white/[0.30]");
           const Mk = ({ val, label, color, tc, bottom, dimmed }) => {
             if (!val) return null;
             return (
@@ -11911,7 +11939,7 @@
                 <Mk val={ep} label="EP" color="bg-yellow-400/80" tc="text-yellow-300" />
                 <Mk val={tp1} label="TP" color="bg-teal-400/80" tc="text-teal-300" />
                 <Mk val={tp2} label="TP2" color="bg-teal-400/80" tc="text-teal-300" bottom />
-                <Mk val={xp} label="XP" color="bg-emerald-400" tc="text-emerald-300" />
+                <Mk val={xp} label="XP" color="bg-[#00e676]" tc="text-[#69f0ae]" />
               </div>
             </div>
           );
@@ -12489,7 +12517,7 @@
                   subtitle="Entered today — position just opened"
                   count={newEntries.length}
                   icon="🆕"
-                  color="border-emerald-500"
+                  color="border-[#00c853]"
                   items={newEntries}
                   showProgress={true}
                   showOpen={true}
@@ -16357,9 +16385,9 @@
                           <span className="text-[#6b7280]">Tickers </span>
                           <span className="font-semibold text-white">{tickers.length}</span>
                         </div>
-                        <div className="px-2.5 py-1 rounded-full bg-emerald-500/8 border border-emerald-500/15">
-                          <span className="text-emerald-400/80">Prime </span>
-                          <span className="font-semibold text-emerald-400">{primeTickers.length}</span>
+                        <div className="px-2.5 py-1 rounded-full bg-[#00c853]/8 border border-[#00c853]/15">
+                          <span className="text-[#00e676]/80">Prime </span>
+                          <span className="font-semibold text-[#00e676]">{primeTickers.length}</span>
                         </div>
                         {tickers.length > 0 && (
                           <div className="px-2.5 py-1 rounded-full bg-white/5 border border-white/5">

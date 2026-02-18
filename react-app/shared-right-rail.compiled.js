@@ -1373,7 +1373,7 @@
         // Entry Quality score
         const eqScore = Number(ticker?.entry_quality?.score) || 0;
         if (eqScore > 0) {
-          const eqColor = eqScore >= 70 ? "bg-emerald-500/20 text-emerald-300 border-emerald-400/40" : eqScore >= 50 ? "bg-amber-500/20 text-amber-300 border-amber-400/40" : "bg-rose-500/20 text-rose-300 border-rose-400/40";
+          const eqColor = eqScore >= 70 ? "bg-[#00c853]/20 text-[#69f0ae] border-[#00e676]/40" : eqScore >= 50 ? "bg-amber-500/20 text-amber-300 border-amber-400/40" : "bg-rose-500/20 text-rose-300 border-rose-400/40";
           pills.push({
             label: `Q:${eqScore}`,
             cls: eqColor,
@@ -1423,7 +1423,7 @@
           STRONG_BEAR: "Strong Bear"
         }[regimeCombined] || null;
         if (regimeLabel) {
-          const rColor = regimeCombined?.includes("BULL") ? "bg-emerald-500/15 text-emerald-300 border-emerald-400/30" : regimeCombined?.includes("BEAR") ? "bg-rose-500/15 text-rose-300 border-rose-400/30" : "bg-slate-500/15 text-slate-300 border-slate-400/30";
+          const rColor = regimeCombined?.includes("BULL") ? "bg-[#00c853]/15 text-[#69f0ae] border-[#00e676]/30" : regimeCombined?.includes("BEAR") ? "bg-rose-500/15 text-rose-300 border-rose-400/30" : "bg-slate-500/15 text-slate-300 border-slate-400/30";
           pills.push({
             label: regimeLabel,
             cls: rColor,
@@ -1697,11 +1697,11 @@
         const ss = ms?.sector;
         const mk = ms?.market;
         if (!ts && !pm && !mk) return null;
-        const dirColor = d => d === "BULLISH" ? "text-emerald-400" : d === "BEARISH" ? "text-red-400" : "text-slate-400";
-        const dirBg = d => d === "BULLISH" ? "bg-emerald-500/10 border-emerald-500/30" : d === "BEARISH" ? "bg-red-500/10 border-red-500/30" : "bg-slate-500/10 border-slate-500/30";
+        const dirColor = d => d === "BULLISH" ? "text-[#00e676]" : d === "BEARISH" ? "text-red-400" : "text-slate-400";
+        const dirBg = d => d === "BULLISH" ? "bg-[#00c853]/10 border-[#00c853]/30" : d === "BEARISH" ? "bg-red-500/10 border-red-500/30" : "bg-slate-500/10 border-slate-500/30";
         const regimeBg = r => {
           if (!r) return "";
-          if (r.includes("BULL")) return "bg-emerald-500/15 border-emerald-500/40";
+          if (r.includes("BULL")) return "bg-[#00c853]/15 border-[#00c853]/40";
           if (r.includes("BEAR")) return "bg-red-500/15 border-red-500/40";
           return "bg-slate-500/10 border-slate-500/30";
         };
@@ -1752,13 +1752,13 @@
         }, /*#__PURE__*/React.createElement("span", {
           className: "text-slate-400"
         }, "Net: ", /*#__PURE__*/React.createElement("span", {
-          className: `font-semibold ${(ts?.netSignal || pm?.netSignal || 0) > 0 ? "text-emerald-400" : (ts?.netSignal || pm?.netSignal || 0) < 0 ? "text-red-400" : "text-slate-300"}`
+          className: `font-semibold ${(ts?.netSignal || pm?.netSignal || 0) > 0 ? "text-[#00e676]" : (ts?.netSignal || pm?.netSignal || 0) < 0 ? "text-red-400" : "text-slate-300"}`
         }, (ts?.netSignal || pm?.netSignal || 0) > 0 ? "+" : "", (ts?.netSignal || pm?.netSignal || 0).toFixed(2))), /*#__PURE__*/React.createElement("span", {
           className: "text-slate-400"
         }, "Patterns: ", /*#__PURE__*/React.createElement("span", {
           className: "text-white font-semibold"
         }, ts?.bullPatterns || pm?.bullCount || 0, "B / ", ts?.bearPatterns || pm?.bearCount || 0, "S"))), pm?.bestBull && /*#__PURE__*/React.createElement("div", {
-          className: "mt-1.5 text-[10px] text-emerald-300/80"
+          className: "mt-1.5 text-[10px] text-[#69f0ae]/80"
         }, "Top: ", pm.bestBull.name, " (", (pm.bestBull.conf * 100).toFixed(0), "% conf, EV: ", pm.bestBull.ev > 0 ? "+" : "", pm.bestBull.ev, ")"), /*#__PURE__*/React.createElement("div", {
           className: "mt-1.5 text-[10px] text-slate-400/90 italic leading-snug"
         }, describeTickerDir(ts?.direction || pm?.direction, ts?.netSignal || pm?.netSignal || 0))), /*#__PURE__*/React.createElement("div", {
@@ -1778,7 +1778,7 @@
         }, /*#__PURE__*/React.createElement("div", {
           className: "text-[9px] text-slate-400 uppercase font-semibold mb-0.5"
         }, "Market"), /*#__PURE__*/React.createElement("div", {
-          className: `text-[11px] font-bold ${mk.signal?.includes("BULL") ? "text-emerald-400" : mk.signal?.includes("BEAR") ? "text-red-400" : "text-slate-300"}`
+          className: `text-[11px] font-bold ${mk.signal?.includes("BULL") ? "text-[#00e676]" : mk.signal?.includes("BEAR") ? "text-red-400" : "text-slate-300"}`
         }, mk.signal?.replace(/_/g, " ")), /*#__PURE__*/React.createElement("div", {
           className: "text-[10px] text-slate-400"
         }, mk.breadthBullPct, "% breadth"), /*#__PURE__*/React.createElement("div", {
@@ -2094,7 +2094,7 @@
         }, "Regime"), /*#__PURE__*/React.createElement("div", {
           className: "flex items-center gap-1.5"
         }, /*#__PURE__*/React.createElement("span", {
-          className: `px-1.5 py-0.5 rounded font-semibold ${reg.combined.includes("BULL") ? "text-emerald-300 bg-emerald-500/15" : reg.combined.includes("BEAR") ? "text-rose-300 bg-rose-500/15" : "text-slate-300 bg-slate-500/15"}`
+          className: `px-1.5 py-0.5 rounded font-semibold ${reg.combined.includes("BULL") ? "text-[#69f0ae] bg-[#00c853]/15" : reg.combined.includes("BEAR") ? "text-rose-300 bg-rose-500/15" : "text-slate-300 bg-slate-500/15"}`
         }, {
           STRONG_BULL: "Strong Bull",
           EARLY_BULL: "Early Bull",
@@ -3770,13 +3770,13 @@
         }, /*#__PURE__*/React.createElement("span", {
           className: "text-xs text-[#6b7280]"
         }, "Direction"), /*#__PURE__*/React.createElement("span", {
-          className: `px-2 py-0.5 rounded text-xs font-bold ${pm.direction === "BULLISH" ? "bg-emerald-900/50 text-emerald-300 border border-emerald-700/50" : pm.direction === "BEARISH" ? "bg-red-900/50 text-red-300 border border-red-700/50" : "bg-slate-800 text-slate-400 border border-slate-700"}`
+          className: `px-2 py-0.5 rounded text-xs font-bold ${pm.direction === "BULLISH" ? "bg-[#00c853]/50 text-[#69f0ae] border border-[#00c853]/50" : pm.direction === "BEARISH" ? "bg-red-900/50 text-red-300 border border-red-700/50" : "bg-slate-800 text-slate-400 border border-slate-700"}`
         }, pm.direction)), /*#__PURE__*/React.createElement("div", {
           className: "flex items-center justify-between"
         }, /*#__PURE__*/React.createElement("span", {
           className: "text-xs text-[#6b7280]"
         }, "Net Signal"), /*#__PURE__*/React.createElement("span", {
-          className: `text-sm font-bold ${pm.netSignal > 0 ? "text-emerald-400" : pm.netSignal < 0 ? "text-red-400" : "text-slate-300"}`
+          className: `text-sm font-bold ${pm.netSignal > 0 ? "text-[#00e676]" : pm.netSignal < 0 ? "text-red-400" : "text-slate-300"}`
         }, pm.netSignal > 0 ? "+" : "", pm.netSignal.toFixed(3))), /*#__PURE__*/React.createElement("div", {
           className: "flex items-center justify-between"
         }, /*#__PURE__*/React.createElement("span", {
@@ -3784,7 +3784,7 @@
         }, "Patterns Matched"), /*#__PURE__*/React.createElement("span", {
           className: "text-xs text-white font-semibold"
         }, pm.bullCount, " bull / ", pm.bearCount, " bear")), patternBoost && /*#__PURE__*/React.createElement("div", {
-          className: "p-2 rounded bg-emerald-900/30 border border-emerald-700/50 text-xs text-emerald-300"
+          className: "p-2 rounded bg-[#00c853]/30 border border-[#00c853]/50 text-xs text-[#69f0ae]"
         }, "Entry confidence boosted to ", /*#__PURE__*/React.createElement("strong", null, patternBoost), " by pattern match"), patternCaution && /*#__PURE__*/React.createElement("div", {
           className: "p-2 rounded bg-amber-900/30 border border-amber-700/50 text-xs text-amber-300"
         }, "Caution: strong bear patterns detected (confidence: ", patternCaution, ")")) : /*#__PURE__*/React.createElement("div", {
@@ -3807,11 +3807,11 @@
         }, m.id)), /*#__PURE__*/React.createElement("div", {
           className: "flex items-center gap-2"
         }, /*#__PURE__*/React.createElement("span", {
-          className: `px-1.5 py-0.5 rounded text-[10px] font-bold ${m.dir === "UP" ? "bg-emerald-900/50 text-emerald-300" : "bg-red-900/50 text-red-300"}`
+          className: `px-1.5 py-0.5 rounded text-[10px] font-bold ${m.dir === "UP" ? "bg-[#00c853]/50 text-[#69f0ae]" : "bg-red-900/50 text-red-300"}`
         }, m.dir), /*#__PURE__*/React.createElement("span", {
           className: "text-xs text-[#6b7280]"
         }, (m.conf * 100).toFixed(0), "%"), /*#__PURE__*/React.createElement("span", {
-          className: `text-xs font-semibold ${m.ev > 0 ? "text-emerald-400" : m.ev < 0 ? "text-red-400" : "text-slate-400"}`
+          className: `text-xs font-semibold ${m.ev > 0 ? "text-[#00e676]" : m.ev < 0 ? "text-red-400" : "text-slate-400"}`
         }, "EV: ", m.ev > 0 ? "+" : "", m.ev)))))), pm && (pm.bestBull || pm.bestBear) && /*#__PURE__*/React.createElement("div", {
           className: "p-3 bg-white/[0.03] border border-white/[0.06] rounded-lg"
         }, /*#__PURE__*/React.createElement("div", {
@@ -3819,13 +3819,13 @@
         }, "Strongest Signals"), /*#__PURE__*/React.createElement("div", {
           className: "grid grid-cols-2 gap-3"
         }, pm.bestBull && /*#__PURE__*/React.createElement("div", {
-          className: "p-2 bg-emerald-900/20 border border-emerald-700/30 rounded-lg"
+          className: "p-2 bg-[#00c853]/20 border border-[#00c853]/30 rounded-lg"
         }, /*#__PURE__*/React.createElement("div", {
-          className: "text-[10px] text-emerald-400 uppercase font-bold mb-1"
+          className: "text-[10px] text-[#00e676] uppercase font-bold mb-1"
         }, "Top Bull"), /*#__PURE__*/React.createElement("div", {
           className: "text-xs text-white font-semibold"
         }, pm.bestBull.name), /*#__PURE__*/React.createElement("div", {
-          className: "text-[10px] text-emerald-300 mt-1"
+          className: "text-[10px] text-[#69f0ae] mt-1"
         }, (pm.bestBull.conf * 100).toFixed(0), "% confidence \xB7 EV: ", pm.bestBull.ev > 0 ? "+" : "", pm.bestBull.ev)), pm.bestBear && /*#__PURE__*/React.createElement("div", {
           className: "p-2 bg-red-900/20 border border-red-700/30 rounded-lg"
         }, /*#__PURE__*/React.createElement("div", {

@@ -4,6 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes" />
     <title>Timed Trading — Investor</title>
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' stop-color='%2300c853'/%3E%3Cstop offset='50%25' stop-color='%2300e676'/%3E%3Cstop offset='100%25' stop-color='%2369f0ae'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='24' height='24' rx='5.5' fill='url(%23g)'/%3E%3Cpolyline points='22 7 13.5 15.5 8.5 10.5 2 17' fill='none' stroke='white' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3Cpolyline points='16 7 22 7 22 13' fill='none' stroke='white' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
@@ -16,7 +17,11 @@
     <style>
       * { box-sizing: border-box; }
       body { margin: 0; background: #0a0a0f; color: #e5e7eb; font-family: 'Inter', system-ui, sans-serif; }
-      .loading-spinner { width: 16px; height: 16px; border: 2px solid rgba(255,255,255,0.1); border-top-color: #3b82f6; border-radius: 50%; animation: spin 0.6s linear infinite; }
+      .loading-spinner { width: 24px; height: 24px; position: relative; display: inline-block; }
+      .loading-spinner::before { content: ""; position: absolute; inset: 0; border-radius: 5px; background: linear-gradient(135deg, rgba(0,200,83,0.15), rgba(0,200,83,0.04)); animation: tt-loader-pulse 1.6s ease-in-out infinite; }
+      .loading-spinner::after { content: ""; position: absolute; left: 2px; right: 2px; top: 50%; height: 1.5px; background: linear-gradient(90deg, transparent, #00c853, #00e676, #69f0ae, transparent); background-size: 200% 100%; border-radius: 1px; animation: tt-loader-sweep 1.2s ease-in-out infinite; }
+      @keyframes tt-loader-pulse { 0%, 100% { opacity: 0.4; transform: scale(0.92); } 50% { opacity: 1; transform: scale(1); } }
+      @keyframes tt-loader-sweep { 0% { background-position: -100% 0; opacity: 0.5; } 50% { opacity: 1; } 100% { background-position: 200% 0; opacity: 0.5; } }
       @keyframes spin { to { transform: rotate(360deg); } }
       @keyframes pulse-badge {
         0%, 100% { opacity: 1; transform: scale(1); }
@@ -75,7 +80,7 @@
       }
 
       function RegimeBadge({ regime }) {
-        const colors = { RISK_ON: "text-emerald-400 bg-emerald-500/10 border-emerald-500/25", CAUTIOUS: "text-amber-400 bg-amber-500/10 border-amber-500/25", RISK_OFF: "text-red-400 bg-red-500/10 border-red-500/25" };
+        const colors = { RISK_ON: "text-[#00e676] bg-[#00c853]/10 border-[#00c853]/25", CAUTIOUS: "text-amber-400 bg-amber-500/10 border-amber-500/25", RISK_OFF: "text-red-400 bg-red-500/10 border-red-500/25" };
         return React.createElement("span", { className: `px-2 py-0.5 rounded-md text-[11px] font-semibold border ${colors[regime] || colors.CAUTIOUS}` }, regime);
       }
 
@@ -85,7 +90,7 @@
 
       function TrendArrow({ direction }) {
         if (direction === 1 || direction === "uptrend" || direction === "bullish") {
-          return React.createElement("span", { className: "text-emerald-400", title: "Bullish" }, "▲");
+          return React.createElement("span", { className: "text-[#00e676]", title: "Bullish" }, "▲");
         }
         if (direction === -1 || direction === "downtrend" || direction === "bearish") {
           return React.createElement("span", { className: "text-red-400", title: "Bearish" }, "▼");
@@ -170,8 +175,8 @@
               React.createElement("div", { className: "text-[10px] text-[#9ca3af] uppercase tracking-wide font-semibold mb-1.5" }, "Investor Score"),
               React.createElement("div", { className: "flex items-center gap-3 flex-wrap" },
                 React.createElement("span", { className: "flex items-center gap-1" },
-                  React.createElement("span", { className: "w-2 h-2 rounded-full bg-emerald-400 inline-block" }),
-                  React.createElement("span", { className: "text-emerald-400 font-semibold" }, "70-100"),
+                  React.createElement("span", { className: "w-2 h-2 rounded-full bg-[#00e676] inline-block" }),
+                  React.createElement("span", { className: "text-[#00e676] font-semibold" }, "70-100"),
                   React.createElement("span", { className: "text-[#6b7280]" }, "Strong — high conviction, trends intact"),
                 ),
                 React.createElement("span", { className: "flex items-center gap-1" },
@@ -213,7 +218,7 @@
               React.createElement("div", { className: "text-[10px] text-[#9ca3af] uppercase tracking-wide font-semibold mb-1.5" }, "Indicators"),
               React.createElement("div", { className: "flex items-center gap-3 flex-wrap" },
                 React.createElement("span", { className: "flex items-center gap-1" },
-                  React.createElement("span", { className: "text-[9px] text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded" }, "ZONE"),
+                  React.createElement("span", { className: "text-[9px] text-[#00e676] bg-[#00c853]/10 px-1.5 py-0.5 rounded" }, "ZONE"),
                   React.createElement("span", { className: "text-[#6b7280]" }, "In accumulation zone (oversold + monthly trend intact)"),
                 ),
                 React.createElement("span", { className: "flex items-center gap-1" },
@@ -268,13 +273,13 @@
                         React.createElement("span", { className: "text-xs font-semibold text-white" }, t.ticker),
                         React.createElement("span", { className: "flex items-center gap-1.5" },
                           t.price != null && Number.isFinite(t.price) && React.createElement("span", { className: "text-[10px] text-[#9ca3af] tabular-nums" }, `$${t.price.toFixed(2)}`),
-                          t.dailyChgPct != null && Number.isFinite(t.dailyChgPct) && React.createElement("span", { className: `text-[10px] font-medium tabular-nums ${t.dailyChgPct >= 0 ? "text-emerald-400" : "text-red-400"}` }, `${t.dailyChgPct >= 0 ? "+" : ""}${t.dailyChgPct.toFixed(1)}%`),
+                          t.dailyChgPct != null && Number.isFinite(t.dailyChgPct) && React.createElement("span", { className: `text-[10px] font-medium tabular-nums ${t.dailyChgPct >= 0 ? "text-[#00e676]" : "text-red-400"}` }, `${t.dailyChgPct >= 0 ? "+" : ""}${t.dailyChgPct.toFixed(1)}%`),
                         ),
                       ),
                       React.createElement("div", { className: "flex items-center justify-between mt-0.5" },
-                        React.createElement("span", { className: `text-[11px] font-semibold tabular-nums ${t.score >= 70 ? "text-emerald-400" : t.score >= 50 ? "text-amber-400" : "text-red-400"}` }, t.score),
+                        React.createElement("span", { className: `text-[11px] font-semibold tabular-nums ${t.score >= 70 ? "text-[#00e676]" : t.score >= 50 ? "text-amber-400" : "text-red-400"}` }, t.score),
                         React.createElement("span", { className: "flex items-center gap-1" },
-                          t.accumZone?.inZone && React.createElement("span", { className: "text-[9px] text-emerald-400 bg-emerald-500/10 px-1 rounded" }, "ZONE"),
+                          t.accumZone?.inZone && React.createElement("span", { className: "text-[9px] text-[#00e676] bg-[#00c853]/10 px-1 rounded" }, "ZONE"),
                           t.rs?.rsNewHigh3m && React.createElement("span", { className: "text-[9px] text-sky-400 bg-sky-500/10 px-1 rounded" }, "RS HIGH"),
                         ),
                       ),
@@ -303,7 +308,7 @@
                   React.createElement("span", { className: `stage-badge stage-${t.stage || "research"} !text-[8px] !py-0 !px-1` }, (t.stage || "research").replace("_", " ")),
                 ),
                 React.createElement("div", { className: "flex items-center gap-1.5 shrink-0" },
-                  React.createElement("span", { className: `text-[11px] font-semibold tabular-nums ${t.score >= 70 ? "text-emerald-400" : t.score >= 50 ? "text-amber-400" : "text-red-400"}` }, t.score),
+                  React.createElement("span", { className: `text-[11px] font-semibold tabular-nums ${t.score >= 70 ? "text-[#00e676]" : t.score >= 50 ? "text-amber-400" : "text-red-400"}` }, t.score),
                   React.createElement("button", {
                     onClick: (e) => { e.stopPropagation(); toggleSavedTicker(t.ticker); },
                     className: `text-[13px] hover:scale-110 transition-transform ${savedTickers.has(t.ticker) ? "text-amber-400" : "text-[#4b5563] hover:text-amber-300"}`,
@@ -319,9 +324,9 @@
                 ),
                 React.createElement("span", { className: "flex items-center gap-1" },
                   t.dailyChgPct != null && Number.isFinite(t.dailyChgPct) && React.createElement("span", {
-                    className: `text-[9px] tabular-nums font-medium ${t.dailyChgPct >= 0 ? "text-emerald-400" : "text-red-400"}`,
+                    className: `text-[9px] tabular-nums font-medium ${t.dailyChgPct >= 0 ? "text-[#00e676]" : "text-red-400"}`,
                   }, `${t.dailyChgPct >= 0 ? "+" : ""}${t.dailyChgPct.toFixed(1)}%`),
-                  t.accumZone?.inZone && React.createElement("span", { className: "text-[8px] text-emerald-400 bg-emerald-500/10 px-1 rounded" }, "ZONE"),
+                  t.accumZone?.inZone && React.createElement("span", { className: "text-[8px] text-[#00e676] bg-[#00c853]/10 px-1 rounded" }, "ZONE"),
                   t.rs?.rsNewHigh3m && React.createElement("span", { className: "text-[8px] text-sky-400 bg-sky-500/10 px-1 rounded" }, "RS HIGH"),
                 ),
               ),
@@ -350,12 +355,12 @@
           React.createElement("div", { className: "grid grid-cols-3 gap-4 mb-4" },
             React.createElement("div", { className: "card p-3 text-center" },
               React.createElement("div", { className: "text-[10px] text-[#6b7280] uppercase tracking-wide" }, "Diversification"),
-              React.createElement("div", { className: `text-xl font-bold ${diversificationScore >= 60 ? "text-emerald-400" : diversificationScore >= 40 ? "text-amber-400" : "text-red-400"}` }, diversificationScore),
+              React.createElement("div", { className: `text-xl font-bold ${diversificationScore >= 60 ? "text-[#00e676]" : diversificationScore >= 40 ? "text-amber-400" : "text-red-400"}` }, diversificationScore),
               React.createElement(ScoreBar, { score: diversificationScore, color: diversificationScore >= 60 ? "#10b981" : "#f59e0b" }),
             ),
             React.createElement("div", { className: "card p-3 text-center" },
               React.createElement("div", { className: "text-[10px] text-[#6b7280] uppercase tracking-wide" }, "Concentration"),
-              React.createElement("div", { className: `text-xl font-bold ${concentrationRisk.rating === "GOOD" ? "text-emerald-400" : concentrationRisk.rating === "MODERATE" ? "text-amber-400" : "text-red-400"}` }, `${concentrationRisk.top3Pct}%`),
+              React.createElement("div", { className: `text-xl font-bold ${concentrationRisk.rating === "GOOD" ? "text-[#00e676]" : concentrationRisk.rating === "MODERATE" ? "text-amber-400" : "text-red-400"}` }, `${concentrationRisk.top3Pct}%`),
               React.createElement("div", { className: "text-[10px] text-[#6b7280]" }, `Top 3 positions (${concentrationRisk.rating})`),
             ),
             React.createElement("div", { className: "card p-3 text-center" },
@@ -400,7 +405,7 @@
                   ...positionHealth.sort((a, b) => (b.investorScore || 0) - (a.investorScore || 0)).map(ph =>
                     React.createElement("tr", { key: ph.ticker, className: "border-b border-white/[0.03] hover:bg-white/[0.02]" },
                       React.createElement("td", { className: "py-1.5 font-semibold text-white" }, ph.ticker),
-                      React.createElement("td", { className: `py-1.5 text-right ${ph.pnlPct >= 0 ? "text-emerald-400" : "text-red-400"}` }, fmtPct(ph.pnlPct)),
+                      React.createElement("td", { className: `py-1.5 text-right ${ph.pnlPct >= 0 ? "text-[#00e676]" : "text-red-400"}` }, fmtPct(ph.pnlPct)),
                       React.createElement("td", { className: "py-1.5 text-right text-white" }, ph.investorScore || "—"),
                       React.createElement("td", { className: "py-1.5 text-right text-white" }, ph.rsRank || "—"),
                       React.createElement("td", { className: "py-1.5 text-right text-[#9ca3af]" }, `${ph.weight}%`),
@@ -445,7 +450,7 @@
               React.createElement("span", { className: "text-[10px] text-[#6b7280]" }, data.sector || "Unknown"),
             ),
             React.createElement("div", { className: "text-right" },
-              React.createElement("div", { className: `text-2xl font-bold ${data.score >= 70 ? "text-emerald-400" : data.score >= 50 ? "text-amber-400" : "text-red-400"}` }, data.score),
+              React.createElement("div", { className: `text-2xl font-bold ${data.score >= 70 ? "text-[#00e676]" : data.score >= 50 ? "text-amber-400" : "text-red-400"}` }, data.score),
               React.createElement("div", { className: "text-[10px] text-[#6b7280]" }, "Investor Score"),
             ),
           ),
@@ -457,7 +462,7 @@
             ),
             chg != null && Number.isFinite(chg) && React.createElement("div", { className: "text-right" },
               React.createElement("div", { className: "text-[10px] text-[#6b7280] uppercase tracking-wide" }, "Daily Chg"),
-              React.createElement("div", { className: `text-lg font-bold tabular-nums ${chg >= 0 ? "text-emerald-400" : "text-red-400"}` }, `${chg >= 0 ? "+" : ""}${chg.toFixed(2)}%`),
+              React.createElement("div", { className: `text-lg font-bold tabular-nums ${chg >= 0 ? "text-[#00e676]" : "text-red-400"}` }, `${chg >= 0 ? "+" : ""}${chg.toFixed(2)}%`),
             ),
             data.prevClose != null && Number.isFinite(data.prevClose) && React.createElement("div", { className: "text-right" },
               React.createElement("div", { className: "text-[10px] text-[#6b7280] uppercase tracking-wide" }, "Prev Close"),
@@ -472,7 +477,7 @@
               React.createElement("span", { className: "text-[11px] text-[#6b7280]" }, data.stageReason),
             ),
             data.stage === "accumulate" && React.createElement("span", {
-              className: "text-[9px] text-emerald-400/80 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20",
+              className: "text-[9px] text-[#00e676]/80 bg-[#00c853]/10 px-2 py-0.5 rounded border border-[#00c853]/20",
             }, "DCA alert at next rebalance"),
             data.stage === "watch" && React.createElement("span", {
               className: "text-[9px] text-amber-400/80 bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/20",
@@ -504,31 +509,31 @@
             React.createElement("div", { className: "grid grid-cols-3 gap-2" },
               React.createElement("div", { className: "card p-2 text-center" },
                 React.createElement("div", { className: "text-[10px] text-[#6b7280]" }, "1 Month"),
-                React.createElement("div", { className: `text-sm font-semibold ${data.rs.rs1m >= 0 ? "text-emerald-400" : "text-red-400"}` }, fmtPct(data.rs.rs1m)),
+                React.createElement("div", { className: `text-sm font-semibold ${data.rs.rs1m >= 0 ? "text-[#00e676]" : "text-red-400"}` }, fmtPct(data.rs.rs1m)),
               ),
               React.createElement("div", { className: "card p-2 text-center" },
                 React.createElement("div", { className: "text-[10px] text-[#6b7280]" }, "3 Month"),
-                React.createElement("div", { className: `text-sm font-semibold ${data.rs.rs3m >= 0 ? "text-emerald-400" : "text-red-400"}` }, fmtPct(data.rs.rs3m)),
+                React.createElement("div", { className: `text-sm font-semibold ${data.rs.rs3m >= 0 ? "text-[#00e676]" : "text-red-400"}` }, fmtPct(data.rs.rs3m)),
               ),
               React.createElement("div", { className: "card p-2 text-center" },
                 React.createElement("div", { className: "text-[10px] text-[#6b7280]" }, "6 Month"),
-                React.createElement("div", { className: `text-sm font-semibold ${data.rs.rs6m >= 0 ? "text-emerald-400" : "text-red-400"}` }, fmtPct(data.rs.rs6m)),
+                React.createElement("div", { className: `text-sm font-semibold ${data.rs.rs6m >= 0 ? "text-[#00e676]" : "text-red-400"}` }, fmtPct(data.rs.rs6m)),
               ),
             ),
             React.createElement("div", { className: "flex items-center gap-2 mt-2" },
               React.createElement("span", { className: "text-[11px] text-[#6b7280]" }, `RS Rank: ${data.rsRank}th percentile`),
               data.rs.rsNewHigh3m && React.createElement("span", { className: "text-[10px] text-sky-400 bg-sky-500/10 px-1.5 py-0.5 rounded" }, "3M NEW HIGH"),
-              data.rs.rsNewHigh6m && React.createElement("span", { className: "text-[10px] text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded" }, "6M NEW HIGH"),
+              data.rs.rsNewHigh6m && React.createElement("span", { className: "text-[10px] text-[#00e676] bg-[#00c853]/10 px-1.5 py-0.5 rounded" }, "6M NEW HIGH"),
             ),
           ),
           // Accumulation zone
           data.accumZone && React.createElement("div", null,
             React.createElement("h3", { className: "text-xs font-semibold text-[#9ca3af] mb-2 uppercase tracking-wide" }, "Accumulation Zone"),
             data.accumZone.inZone
-              ? React.createElement("div", { className: "card p-2 border-emerald-500/30" },
+              ? React.createElement("div", { className: "card p-2 border-[#00c853]/30" },
                   React.createElement("div", { className: "flex items-center gap-2 mb-1" },
-                    React.createElement("span", { className: "w-2 h-2 rounded-full bg-emerald-400 animate-pulse" }),
-                    React.createElement("span", { className: "text-xs text-emerald-400 font-semibold" }, "IN ACCUMULATION ZONE"),
+                    React.createElement("span", { className: "w-2 h-2 rounded-full bg-[#00e676] animate-pulse" }),
+                    React.createElement("span", { className: "text-xs text-[#00e676] font-semibold" }, "IN ACCUMULATION ZONE"),
                   ),
                   React.createElement("div", { className: "text-[11px] text-[#9ca3af]" }, `Confidence: ${data.accumZone.confidence}%`),
                   React.createElement("div", { className: "flex flex-wrap gap-1 mt-1" },
@@ -785,9 +790,9 @@
                   React.createElement("span", { className: "text-[#6b7280]" }, "Tickers "),
                   React.createElement("span", { className: "font-semibold text-white" }, allTickers.length),
                 ),
-                (stageCounts.accumulate || 0) > 0 && React.createElement("div", { className: "px-2.5 py-1 rounded-full bg-emerald-500/8 border border-emerald-500/15" },
-                  React.createElement("span", { className: "text-emerald-400/80" }, "Accumulate "),
-                  React.createElement("span", { className: "font-semibold text-emerald-400" }, stageCounts.accumulate),
+                (stageCounts.accumulate || 0) > 0 && React.createElement("div", { className: "px-2.5 py-1 rounded-full bg-[#00c853]/8 border border-[#00c853]/15" },
+                  React.createElement("span", { className: "text-[#00e676]/80" }, "Accumulate "),
+                  React.createElement("span", { className: "font-semibold text-[#00e676]" }, stageCounts.accumulate),
                 ),
                 (stageCounts.watch || 0) > 0 && React.createElement("div", { className: "px-2.5 py-1 rounded-full bg-amber-500/8 border border-amber-500/15" },
                   React.createElement("span", { className: "text-amber-400/80" }, "Watch "),
@@ -795,7 +800,7 @@
                 ),
                 health && React.createElement("div", { className: "px-2.5 py-1 rounded-full bg-white/5 border border-white/5" },
                   React.createElement("span", { className: "text-[#6b7280]" }, "Health "),
-                  React.createElement("span", { className: `font-semibold ${health.score >= 70 ? "text-emerald-400" : health.score >= 45 ? "text-amber-400" : "text-red-400"}` }, health.score),
+                  React.createElement("span", { className: `font-semibold ${health.score >= 70 ? "text-[#00e676]" : health.score >= 45 ? "text-amber-400" : "text-red-400"}` }, health.score),
                 ),
               ),
             ),
@@ -835,12 +840,12 @@
                   React.createElement("span", { className: "text-white font-bold tabular-nums" }, fmtUsd(acctSummary.markToMarket || 0)),
                 ),
                 React.createElement("span", { className: "text-[#6b7280]" }, "Unrealized ",
-                  React.createElement("span", { className: `font-bold tabular-nums ${(acctSummary.unrealized || 0) >= 0 ? "text-emerald-400" : "text-red-400"}` },
+                  React.createElement("span", { className: `font-bold tabular-nums ${(acctSummary.unrealized || 0) >= 0 ? "text-[#00e676]" : "text-red-400"}` },
                     (acctSummary.unrealized >= 0 ? "+" : "") + fmtUsd(acctSummary.unrealized || 0),
                   ),
                 ),
                 React.createElement("span", { className: "text-[#6b7280]" }, "Realized ",
-                  React.createElement("span", { className: `font-bold tabular-nums ${(acctSummary.totalRealized || 0) >= 0 ? "text-emerald-400" : "text-red-400"}` },
+                  React.createElement("span", { className: `font-bold tabular-nums ${(acctSummary.totalRealized || 0) >= 0 ? "text-[#00e676]" : "text-red-400"}` },
                     (acctSummary.totalRealized >= 0 ? "+" : "") + fmtUsd(acctSummary.totalRealized || 0),
                   ),
                 ),

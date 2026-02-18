@@ -172,8 +172,8 @@ function StatCard({ label, value, sub, color }) {
 function MarketRegimeCard({ market }) {
   if (!market) return null;
   const regimeColors = {
-    STRONG_BULL: "text-emerald-400",
-    MILD_BULL: "text-emerald-300",
+    STRONG_BULL: "text-[#00e676]",
+    MILD_BULL: "text-[#69f0ae]",
     NEUTRAL: "text-slate-300",
     MILD_BEAR: "text-red-300",
     STRONG_BEAR: "text-red-400",
@@ -187,7 +187,7 @@ function MarketRegimeCard({ market }) {
       <div className="mt-3 grid grid-cols-3 gap-3 text-sm">
         <div>
           <span className="text-slate-400">Breadth</span>
-          <div className="font-semibold text-emerald-400">{market.breadthBullPct}% Bull</div>
+          <div className="font-semibold text-[#00e676]">{market.breadthBullPct}% Bull</div>
         </div>
         <div>
           <span className="text-slate-400">Tickers</span>
@@ -229,7 +229,7 @@ function SectorTable({ sectors }) {
               <tr key={s.sector} className="border-t border-white/[0.06]/50">
                 <td className="py-1.5 pr-4 font-medium">{s.sector}</td>
                 <td className="text-right py-1.5 px-2 text-slate-400">{s.total}</td>
-                <td className="text-right py-1.5 px-2 text-emerald-400">{s.bullish}</td>
+                <td className="text-right py-1.5 px-2 text-[#00e676]">{s.bullish}</td>
                 <td className="text-right py-1.5 px-2 text-red-400">{s.bearish}</td>
                 <td className="text-right py-1.5 px-2">{s.breadthBullPct}%</td>
                 <td className="py-1.5 pl-3">
@@ -255,13 +255,13 @@ function TickerSignals({ tickers }) {
       <div className="text-xs text-slate-400 uppercase tracking-wide mb-3">Ticker Signals</div>
       <div className="grid grid-cols-2 gap-4">
         <div>
-          <div className="text-xs font-semibold text-emerald-400 mb-2">BULLISH ({bull.length})</div>
+          <div className="text-xs font-semibold text-[#00e676] mb-2">BULLISH ({bull.length})</div>
           <div className="space-y-1">
             {bull.map(t => (
-              <div key={t.ticker} className="flex items-center justify-between text-xs bg-emerald-900/20 rounded px-2 py-1">
+              <div key={t.ticker} className="flex items-center justify-between text-xs bg-[#00c853]/20 rounded px-2 py-1">
                 <span className="font-semibold">{t.ticker}</span>
                 <span className="text-slate-400">{t.state?.replace("HTF_","").replace("LTF_","")}</span>
-                <span className="text-emerald-400">+{t.netSignal.toFixed(2)}</span>
+                <span className="text-[#00e676]">+{t.netSignal.toFixed(2)}</span>
               </div>
             ))}
           </div>
@@ -314,7 +314,7 @@ function PatternLibrary({ patterns }) {
                 </td>
                 <td className="text-right py-1.5 px-2">{(p.hit_rate * 100).toFixed(0)}%</td>
                 <td className="text-right py-1.5 px-2 text-slate-400">{p.sample_count}</td>
-                <td className={`text-right py-1.5 px-2 ${p.expected_value > 0 ? "text-emerald-400" : p.expected_value < 0 ? "text-red-400" : ""}`}>
+                <td className={`text-right py-1.5 px-2 ${p.expected_value > 0 ? "text-[#00e676]" : p.expected_value < 0 ? "text-red-400" : ""}`}>
                   {p.expected_value > 0 ? "+" : ""}{p.expected_value}
                 </td>
                 <td className="text-right py-1.5 px-2">{(p.confidence * 100).toFixed(0)}%</td>
@@ -496,7 +496,7 @@ function App({ user }) {
                     label="Hit Rate"
                     value={health?.outcomes?.total > 0 ? `${health.outcomes.hitRate}%` : "—"}
                     sub={health?.outcomes?.total > 0 ? `${health.outcomes.hits}/${health.outcomes.total}` : "No outcomes yet"}
-                    color={health?.outcomes?.hitRate > 60 ? "text-emerald-400" : health?.outcomes?.hitRate > 40 ? "text-amber-400" : "text-red-400"}
+                    color={health?.outcomes?.hitRate > 60 ? "text-[#00e676]" : health?.outcomes?.hitRate > 40 ? "text-amber-400" : "text-red-400"}
                   />
                   <StatCard label="Active Patterns" value={health?.patterns?.active || 0} sub={health?.patterns?.degraded > 0 ? `${health.patterns.degraded} degraded` : "All healthy"} />
                   {isAdmin ? (

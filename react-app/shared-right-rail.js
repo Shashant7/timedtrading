@@ -1233,7 +1233,7 @@
                     // Entry Quality score
                     const eqScore = Number(ticker?.entry_quality?.score) || 0;
                     if (eqScore > 0) {
-                      const eqColor = eqScore >= 70 ? "bg-emerald-500/20 text-emerald-300 border-emerald-400/40" : eqScore >= 50 ? "bg-amber-500/20 text-amber-300 border-amber-400/40" : "bg-rose-500/20 text-rose-300 border-rose-400/40";
+                      const eqColor = eqScore >= 70 ? "bg-[#00c853]/20 text-[#69f0ae] border-[#00e676]/40" : eqScore >= 50 ? "bg-amber-500/20 text-amber-300 border-amber-400/40" : "bg-rose-500/20 text-rose-300 border-rose-400/40";
                       pills.push({ label: `Q:${eqScore}`, cls: eqColor, desc: "Entry Quality", tip: `Entry Quality: Structure=${ticker?.entry_quality?.structure || 0} Momentum=${ticker?.entry_quality?.momentum || 0} Confirm=${ticker?.entry_quality?.confirmation || 0}` });
                     }
 
@@ -1262,7 +1262,7 @@
                       EARLY_BEAR: "Early Bear", LATE_BEAR: "Late Bear", STRONG_BEAR: "Strong Bear",
                     }[regimeCombined] || null;
                     if (regimeLabel) {
-                      const rColor = regimeCombined?.includes("BULL") ? "bg-emerald-500/15 text-emerald-300 border-emerald-400/30" : regimeCombined?.includes("BEAR") ? "bg-rose-500/15 text-rose-300 border-rose-400/30" : "bg-slate-500/15 text-slate-300 border-slate-400/30";
+                      const rColor = regimeCombined?.includes("BULL") ? "bg-[#00c853]/15 text-[#69f0ae] border-[#00e676]/30" : regimeCombined?.includes("BEAR") ? "bg-rose-500/15 text-rose-300 border-rose-400/30" : "bg-slate-500/15 text-slate-300 border-slate-400/30";
                       pills.push({ label: regimeLabel, cls: rColor, desc: "Regime", tip: `Regime: Daily=${ticker?.regime?.daily || "?"}, Weekly=${ticker?.regime?.weekly || "?"}` });
                     }
 
@@ -1582,11 +1582,11 @@
                         const mk = ms?.market;
                         if (!ts && !pm && !mk) return null;
 
-                        const dirColor = (d) => d === "BULLISH" ? "text-emerald-400" : d === "BEARISH" ? "text-red-400" : "text-slate-400";
-                        const dirBg = (d) => d === "BULLISH" ? "bg-emerald-500/10 border-emerald-500/30" : d === "BEARISH" ? "bg-red-500/10 border-red-500/30" : "bg-slate-500/10 border-slate-500/30";
+                        const dirColor = (d) => d === "BULLISH" ? "text-[#00e676]" : d === "BEARISH" ? "text-red-400" : "text-slate-400";
+                        const dirBg = (d) => d === "BULLISH" ? "bg-[#00c853]/10 border-[#00c853]/30" : d === "BEARISH" ? "bg-red-500/10 border-red-500/30" : "bg-slate-500/10 border-slate-500/30";
                         const regimeBg = (r) => {
                           if (!r) return "";
-                          if (r.includes("BULL")) return "bg-emerald-500/15 border-emerald-500/40";
+                          if (r.includes("BULL")) return "bg-[#00c853]/15 border-[#00c853]/40";
                           if (r.includes("BEAR")) return "bg-red-500/15 border-red-500/40";
                           return "bg-slate-500/10 border-slate-500/30";
                         };
@@ -1628,13 +1628,13 @@
                                   </span>
                                 </div>
                                 <div className="flex items-center gap-3 text-[11px]">
-                                  <span className="text-slate-400">Net: <span className={`font-semibold ${(ts?.netSignal || pm?.netSignal || 0) > 0 ? "text-emerald-400" : (ts?.netSignal || pm?.netSignal || 0) < 0 ? "text-red-400" : "text-slate-300"}`}>
+                                  <span className="text-slate-400">Net: <span className={`font-semibold ${(ts?.netSignal || pm?.netSignal || 0) > 0 ? "text-[#00e676]" : (ts?.netSignal || pm?.netSignal || 0) < 0 ? "text-red-400" : "text-slate-300"}`}>
                                     {((ts?.netSignal || pm?.netSignal || 0) > 0 ? "+" : "")}{(ts?.netSignal || pm?.netSignal || 0).toFixed(2)}
                                   </span></span>
                                   <span className="text-slate-400">Patterns: <span className="text-white font-semibold">{ts?.bullPatterns || pm?.bullCount || 0}B / {ts?.bearPatterns || pm?.bearCount || 0}S</span></span>
                                 </div>
                                 {pm?.bestBull && (
-                                  <div className="mt-1.5 text-[10px] text-emerald-300/80">
+                                  <div className="mt-1.5 text-[10px] text-[#69f0ae]/80">
                                     Top: {pm.bestBull.name} ({(pm.bestBull.conf * 100).toFixed(0)}% conf, EV: {pm.bestBull.ev > 0 ? "+" : ""}{pm.bestBull.ev})
                                   </div>
                                 )}
@@ -1657,7 +1657,7 @@
                               {mk && (mk.totalTickers || 0) > 5 && (
                                 <div className={`rounded-lg p-2 border ${regimeBg(mk.signal)}`}>
                                   <div className="text-[9px] text-slate-400 uppercase font-semibold mb-0.5">Market</div>
-                                  <div className={`text-[11px] font-bold ${mk.signal?.includes("BULL") ? "text-emerald-400" : mk.signal?.includes("BEAR") ? "text-red-400" : "text-slate-300"}`}>
+                                  <div className={`text-[11px] font-bold ${mk.signal?.includes("BULL") ? "text-[#00e676]" : mk.signal?.includes("BEAR") ? "text-red-400" : "text-slate-300"}`}>
                                     {mk.signal?.replace(/_/g, " ")}
                                   </div>
                                   <div className="text-[10px] text-slate-400">{mk.breadthBullPct}% breadth</div>
@@ -1949,7 +1949,7 @@
                                     <span className="text-slate-400">Regime</span>
                                     <div className="flex items-center gap-1.5">
                                       <span className={`px-1.5 py-0.5 rounded font-semibold ${
-                                        reg.combined.includes("BULL") ? "text-emerald-300 bg-emerald-500/15"
+                                        reg.combined.includes("BULL") ? "text-[#69f0ae] bg-[#00c853]/15"
                                         : reg.combined.includes("BEAR") ? "text-rose-300 bg-rose-500/15"
                                         : "text-slate-300 bg-slate-500/15"
                                       }`}>{
@@ -4471,14 +4471,14 @@
                                   <div className="flex items-center justify-between">
                                     <span className="text-xs text-[#6b7280]">Direction</span>
                                     <span className={`px-2 py-0.5 rounded text-xs font-bold ${
-                                      pm.direction === "BULLISH" ? "bg-emerald-900/50 text-emerald-300 border border-emerald-700/50" :
+                                      pm.direction === "BULLISH" ? "bg-[#00c853]/50 text-[#69f0ae] border border-[#00c853]/50" :
                                       pm.direction === "BEARISH" ? "bg-red-900/50 text-red-300 border border-red-700/50" :
                                       "bg-slate-800 text-slate-400 border border-slate-700"
                                     }`}>{pm.direction}</span>
                                   </div>
                                   <div className="flex items-center justify-between">
                                     <span className="text-xs text-[#6b7280]">Net Signal</span>
-                                    <span className={`text-sm font-bold ${pm.netSignal > 0 ? "text-emerald-400" : pm.netSignal < 0 ? "text-red-400" : "text-slate-300"}`}>
+                                    <span className={`text-sm font-bold ${pm.netSignal > 0 ? "text-[#00e676]" : pm.netSignal < 0 ? "text-red-400" : "text-slate-300"}`}>
                                       {pm.netSignal > 0 ? "+" : ""}{pm.netSignal.toFixed(3)}
                                     </span>
                                   </div>
@@ -4487,7 +4487,7 @@
                                     <span className="text-xs text-white font-semibold">{pm.bullCount} bull / {pm.bearCount} bear</span>
                                   </div>
                                   {patternBoost && (
-                                    <div className="p-2 rounded bg-emerald-900/30 border border-emerald-700/50 text-xs text-emerald-300">
+                                    <div className="p-2 rounded bg-[#00c853]/30 border border-[#00c853]/50 text-xs text-[#69f0ae]">
                                       Entry confidence boosted to <strong>{patternBoost}</strong> by pattern match
                                     </div>
                                   )}
@@ -4515,10 +4515,10 @@
                                       </div>
                                       <div className="flex items-center gap-2">
                                         <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
-                                          m.dir === "UP" ? "bg-emerald-900/50 text-emerald-300" : "bg-red-900/50 text-red-300"
+                                          m.dir === "UP" ? "bg-[#00c853]/50 text-[#69f0ae]" : "bg-red-900/50 text-red-300"
                                         }`}>{m.dir}</span>
                                         <span className="text-xs text-[#6b7280]">{(m.conf * 100).toFixed(0)}%</span>
-                                        <span className={`text-xs font-semibold ${m.ev > 0 ? "text-emerald-400" : m.ev < 0 ? "text-red-400" : "text-slate-400"}`}>
+                                        <span className={`text-xs font-semibold ${m.ev > 0 ? "text-[#00e676]" : m.ev < 0 ? "text-red-400" : "text-slate-400"}`}>
                                           EV: {m.ev > 0 ? "+" : ""}{m.ev}
                                         </span>
                                       </div>
@@ -4534,10 +4534,10 @@
                                 <div className="text-sm font-bold text-[#6b7280] mb-3">Strongest Signals</div>
                                 <div className="grid grid-cols-2 gap-3">
                                   {pm.bestBull && (
-                                    <div className="p-2 bg-emerald-900/20 border border-emerald-700/30 rounded-lg">
-                                      <div className="text-[10px] text-emerald-400 uppercase font-bold mb-1">Top Bull</div>
+                                    <div className="p-2 bg-[#00c853]/20 border border-[#00c853]/30 rounded-lg">
+                                      <div className="text-[10px] text-[#00e676] uppercase font-bold mb-1">Top Bull</div>
                                       <div className="text-xs text-white font-semibold">{pm.bestBull.name}</div>
-                                      <div className="text-[10px] text-emerald-300 mt-1">
+                                      <div className="text-[10px] text-[#69f0ae] mt-1">
                                         {(pm.bestBull.conf * 100).toFixed(0)}% confidence · EV: {pm.bestBull.ev > 0 ? "+" : ""}{pm.bestBull.ev}
                                       </div>
                                     </div>

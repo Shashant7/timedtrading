@@ -36340,14 +36340,20 @@ Provide 3-5 actionable next steps:
           (t) => !ALPACA_SYMBOL_BLOCKLIST.has(t) && /^[A-Z]{1,5}$/.test(t)
         );
 
-        // ── Phase 6: Try AlpacaStream DO for prices first (no REST overhead) ──
+        // ── Phase 6: Try AlpacaStream DO for prices (with freshness gate) ──
         let snapshots = {};
         let usedStream = false;
         if (env.ALPACA_STREAM) {
           try {
             const streamPrices = await alpacaStreamGetPrices(env);
-            if (streamPrices && Object.keys(streamPrices).length > 50) {
-              // Convert stream prices to snapshot format expected by the rest of the pipeline
+            const streamKeys = streamPrices ? Object.keys(streamPrices) : [];
+            let newestTs = 0;
+            for (const d of Object.values(streamPrices || {})) {
+              if (d.t > newestTs) newestTs = d.t;
+            }
+            const ageMin = newestTs > 0 ? (Date.now() - newestTs) / 60000 : Infinity;
+
+            if (streamKeys.length > 50 && ageMin < 10) {
               for (const [sym, data] of Object.entries(streamPrices)) {
                 snapshots[sym] = {
                   price: data.p,
@@ -36357,20 +36363,32 @@ Provide 3-5 actionable next steps:
                   dailyLow: data.l || 0,
                   dailyClose: data.c || data.p,
                   dailyVolume: data.v || 0,
-                  prevDailyClose: 0, // will be filled by prev_close pipeline below
+                  prevDailyClose: 0,
                   minuteBar: { c: data.p, o: data.o || data.p, h: data.h || data.p, l: data.l || data.p, v: data.v || 0, t: data.t },
                   _source: "alpaca_stream",
                 };
               }
               usedStream = true;
-              console.log(`[PRICE FEED] Using AlpacaStream prices: ${Object.keys(streamPrices).length} tickers`);
+              console.log(`[PRICE FEED] Using AlpacaStream prices: ${streamKeys.length} tickers (age ${ageMin.toFixed(1)}min)`);
+            } else if (streamKeys.length > 0) {
+              console.warn(`[PRICE FEED] Stream skipped: ${streamKeys.length} tickers but age=${ageMin.toFixed(0)}min (>10min), using REST`);
             }
           } catch (streamErr) {
             console.warn("[PRICE FEED] AlpacaStream read failed, falling back to REST:", String(streamErr).slice(0, 150));
           }
         }
 
-        // Fall back to REST if AlpacaStream didn't provide enough data
+        // Gap-fill: if stream was fresh but missed some tickers, fetch those via REST
+        if (usedStream) {
+          const missing = allTickers.filter(t => !snapshots[t]);
+          if (missing.length > 0) {
+            const gap = await alpacaFetchSnapshots(env, missing);
+            Object.assign(snapshots, gap.snapshots || {});
+            console.log(`[PRICE FEED] Gap-filled ${missing.length} tickers via REST`);
+          }
+        }
+
+        // Full REST fallback if stream was stale or unavailable
         if (!usedStream) {
           const snapResult = await alpacaFetchSnapshots(env, allTickers);
           snapshots = snapResult.snapshots || {};
@@ -36379,12 +36397,11 @@ Provide 3-5 actionable next steps:
         // Build compact price payload for KV
         // ═══════════════════════════════════════════════════════════════════════
         // PREV_CLOSE PRIORITY:
-        //   1. ticker_candles tf='D' — yesterday's actual 4pm ET close (most reliable)
-        //   2. ticker_latest.prev_close — from scoring pipeline (can go stale)
-        //   3. Alpaca previousDailyBar.close — often returns CURRENT price (broken)
+        //   1. Alpaca prevDailyBar.c — yesterday's 4pm ET close (always correct from REST snapshot)
+        //   2. D1 ticker_candles tf='D' — fallback for non-Alpaca tickers (futures, etc.)
         // ═══════════════════════════════════════════════════════════════════════
 
-        // Source 1: Daily candles — the authoritative previous close.
+        // Source: Daily candles from D1 (fallback for non-Alpaca tickers).
         // OPTIMIZATION: Cache in KV keyed by trading day. Daily candle prev_close
         // only changes once per day (at market close), so querying D1 once per trading day
         // and serve from KV cache for the rest of the day. On weekends, use last weekday.
@@ -36524,39 +36541,30 @@ Provide 3-5 actionable next steps:
           }
         }
 
-        // Helper: pick best prev_close with priority: daily candle > D1 latest > Alpaca
+        // Helper: pick best prev_close
+        // Priority: Alpaca prevDailyBar.c (always correct) > D1 daily candle (fallback for non-Alpaca tickers)
         function pickPrevClose(sym, alpacaPc, currentPrice) {
-          const dailyCandle = dailyCandlePrevCloseMap[sym] || 0;
-          const d1 = d1PrevCloseMap[sym] || 0;
           const alp = Number(alpacaPc) || 0;
+          const dailyCandle = dailyCandlePrevCloseMap[sym] || 0;
           const px = Number(currentPrice) || 0;
 
-          // Priority 1: Daily candle close (yesterday's actual 4pm ET close)
+          if (alp > 0) {
+            if (px > 0 && Math.abs((px - alp) / alp * 100) > 25) {
+              console.warn(`[PRICE CRON] ${sym} Alpaca prev_close ${alp} diverges >25% from price ${px}, falling through`);
+            } else {
+              return alp;
+            }
+          }
+
           if (dailyCandle > 0) {
-            // Sanity check: daily candle shouldn't differ from current price by >25%
             if (px > 0 && Math.abs((px - dailyCandle) / dailyCandle * 100) > 25) {
-              console.warn(`[PRICE CRON] ${sym} daily candle prev_close ${dailyCandle} diverges >25% from price ${px}, falling through`);
+              console.warn(`[PRICE CRON] ${sym} daily candle ${dailyCandle} diverges >25% from price ${px}, skipping`);
             } else {
               return dailyCandle;
             }
           }
 
-          // Priority 2: D1 ticker_latest prev_close
-          if (d1 > 0) {
-            if (px > 0 && Math.abs((px - d1) / d1 * 100) > 15) {
-              // D1 value is stale (>15% off), try Alpaca
-              const alpDivPct = alp > 0 ? Math.abs(alp - px) / px * 100 : 0;
-              const alpUsable = alp > 0 && alpDivPct > 0.05;
-              if (alpUsable) return alp;
-            }
-            return d1;
-          }
-
-          // Priority 3: Alpaca previousDailyBar.close
-          // Use when no better source exists. Accept even when ≈ current price (0% daily change is valid).
-          if (alp > 0 && px > 0) return alp;
-
-          return 0; // No usable prev_close
+          return 0;
         }
 
         let prices = {};
