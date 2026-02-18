@@ -1226,10 +1226,16 @@
           const gs = groupsForTicker(ticker.ticker);
           if (!Array.isArray(gs) || gs.length === 0) return null;
           const ordered = Array.isArray(GROUP_ORDER) ? [...gs].sort((a, b) => GROUP_ORDER.indexOf(a) - GROUP_ORDER.indexOf(b)) : gs;
-          return ordered.map(g => /*#__PURE__*/React.createElement("span", {
-            key: `group-${g}`,
-            className: `px-1.5 py-0.5 rounded border ${g === "Social" ? "bg-purple-500/15 border-purple-500/40 text-purple-200" : "bg-white/[0.02] border-white/[0.06] text-[#f0f2f5]"}`
-          }, GROUP_LABELS[g] || g));
+          const seen = new Set();
+          return ordered.map(g => {
+            const label = GROUP_LABELS[g] || g;
+            if (seen.has(label)) return null;
+            seen.add(label);
+            return /*#__PURE__*/React.createElement("span", {
+              key: `group-${g}`,
+              className: "px-1.5 py-0.5 rounded border bg-white/[0.02] border-white/[0.06] text-[#f0f2f5]"
+            }, label);
+          }).filter(Boolean);
         } catch {
           return null;
         }
@@ -1630,18 +1636,15 @@
           className: "mt-1 text-xs text-[#6b7280] leading-snug"
         }, description) : null, /*#__PURE__*/React.createElement("div", {
           className: "mt-1 text-[11px] text-[#6b7280]"
-        }, [sector, industry, country].filter(Boolean).join(" • ") || "—", marketCap ? /*#__PURE__*/React.createElement("span", {
-          className: "ml-2 text-[10px] text-slate-400 font-medium"
-        }, "MCap: ", fmtMCap(marketCap)) : null), trStatus || trValue != null || lastEarnTs || events?.next_earnings_ts ? /*#__PURE__*/React.createElement("div", {
+        }, [sector, industry, country].filter(Boolean).join(" • ") || "—"), marketCap || lastEarnTs || events?.next_earnings_ts ? /*#__PURE__*/React.createElement("div", {
           className: "mt-2 grid grid-cols-2 gap-2 text-[10px]"
-        }, trStatus || trValue != null ? /*#__PURE__*/React.createElement("div", {
+        }, marketCap ? /*#__PURE__*/React.createElement("div", {
           className: "p-2 bg-white/[0.02] border border-white/[0.06] rounded"
         }, /*#__PURE__*/React.createElement("div", {
-          className: "text-[9px] text-[#6b7280] mb-1",
-          title: "Normalized score: 0=Strong Sell, 0.5=Neutral, 1=Strong Buy"
-        }, "Tech Rating ", trValue != null ? `(${trValue.toFixed(2)})` : ''), /*#__PURE__*/React.createElement("div", {
-          className: "text-xs font-semibold text-white no-ligatures"
-        }, trStatus || "—")) : null, events?.next_earnings_ts ? /*#__PURE__*/React.createElement("div", {
+          className: "text-[9px] text-[#6b7280] mb-1"
+        }, "Market Cap"), /*#__PURE__*/React.createElement("div", {
+          className: "text-xs font-semibold text-white"
+        }, fmtMCap(marketCap))) : null, events?.next_earnings_ts ? /*#__PURE__*/React.createElement("div", {
           className: "p-2 bg-blue-500/10 border border-blue-500/30 rounded"
         }, /*#__PURE__*/React.createElement("div", {
           className: "text-[9px] text-blue-400 mb-1"
