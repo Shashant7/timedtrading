@@ -2070,6 +2070,27 @@
         return null;
       }
 
+      function formatBlockReason(raw) {
+        return String(raw).split("+").map(r => {
+          const m = r.match(/^sector_full:(\d+)\/(\d+)\s*(.*)/);
+          if (m) return `Max ${m[3] || "sector"} positions reached (${m[1]}/${m[2]})`;
+          const d = r.match(/^direction_full:(\d+)\/(\d+)\s*(LONG|SHORT)/i);
+          if (d) return `Max ${d[3].toLowerCase()} positions reached (${d[1]}/${d[2]})`;
+          const c = r.match(/^correlated:(\d+)\s+in\s+(.*)/);
+          if (c) return `Too many correlated positions in ${c[2]} (${c[1]})`;
+          const dl = r.match(/^daily_limit:(\d+)\/(\d+)/);
+          if (dl) return `Daily entry limit reached (${dl[1]}/${dl[2]})`;
+          if (r === "cooldown") return "Entry cooldown active";
+          if (r === "smart_gate") return "Risk management gate";
+          if (r === "outside_RTH") return "Outside regular trading hours";
+          if (r === "weekend") return "Market closed (weekend)";
+          if (r === "same_cycle") return "Already attempted this cycle";
+          if (r === "existing_position") return "Position already open";
+          if (r === "recent_trade") return "Recent trade on this ticker";
+          return r.replace(/_/g, " ");
+        }).join(", ");
+      }
+
       // ── Shared price utilities (from shared-price-utils.js) ──
       // Single source of truth for daily change, staleness, and market-hours logic.
       const getIngestMs = window.TimedPriceUtils.getIngestMs;
@@ -10982,22 +11003,22 @@
               {/* Indicator pills moved to Right Rail */}
 
 
-              {/* ── Execution badge: last action taken ── */}
+              {/* ── Execution badge: last trade action (trim or exit only — entry shown above) ── */}
               {openTrade && (() => {
                 const trimPct = Number(openTrade.trimmed_pct ?? openTrade.trimmedPct ?? 0);
+                const trimPx = Number(openTrade.trim_price ?? openTrade.trimPrice) || 0;
                 const exitTs = openTrade.exit_ts ?? openTrade.exitTs ?? 0;
-                const ep = Number(openTrade.entryPrice ?? openTrade.entry_price) || 0;
                 const exitPx = Number(openTrade.exit_price ?? openTrade.exitPrice) || 0;
                 const pnlPct = Number(openTrade.pnl_pct ?? openTrade.pnlPct) || null;
                 const status = String(openTrade.status || "").toUpperCase();
                 let badge = null;
                 if (exitTs && (status === "WIN" || status === "LOSS")) {
-                  const pStr = pnlPct != null ? `${pnlPct >= 0 ? "+" : ""}${pnlPct.toFixed(1)}%` : (exitPx > 0 ? `$${exitPx.toFixed(2)}` : "");
-                  badge = { label: `Exited ${pStr}`, cls: pnlPct >= 0 ? "text-[#00e676]" : "text-rose-400" };
-                } else if (trimPct > 0 && trimPct < 0.9999) {
-                  badge = { label: `Trimmed ${(trimPct * 100).toFixed(0)}%`, cls: "text-yellow-400" };
-                } else if (ep > 0 && !exitTs) {
-                  badge = { label: `Entered $${ep.toFixed(2)}`, cls: "text-teal-400" };
+                  const pxStr = exitPx > 0 ? ` $${exitPx.toFixed(2)}` : "";
+                  const pctStr = pnlPct != null ? ` (${pnlPct >= 0 ? "+" : ""}${pnlPct.toFixed(1)}%)` : "";
+                  badge = { label: `Exited${pxStr}${pctStr}`, cls: pnlPct >= 0 ? "text-[#00e676]" : "text-rose-400" };
+                } else if (trimPct > 0) {
+                  const pxStr = trimPx > 0 ? ` @ $${trimPx.toFixed(2)}` : "";
+                  badge = { label: `Trimmed ${(trimPct * 100).toFixed(0)}%${pxStr}`, cls: "text-yellow-400" };
                 }
                 if (!badge) return null;
                 return (
@@ -11009,16 +11030,7 @@
 
               {/* ── Entry block reason (enter/setup lane due to execution gates) ── */}
               {(stage === "setup" || stage === "enter" || stage === "enter_now") && (t?.__execution_block_reason || t?.__entry_block_reason) && (() => {
-                const raw = String(t.__execution_block_reason || t.__entry_block_reason);
-                const formatted = raw.split("+").map(r => {
-                  if (r.startsWith("sector_full:")) return r.replace("sector_full:", "Sector full: ");
-                  if (r.startsWith("direction_full:")) return r.replace("direction_full:", "Direction full: ");
-                  if (r.startsWith("correlated:")) return r.replace("correlated:", "Correlated: ");
-                  if (r.startsWith("daily_limit:")) return r.replace("daily_limit:", "Daily limit: ");
-                  if (r === "cooldown") return "Cooldown active";
-                  if (r === "smart_gate") return "Smart gate";
-                  return r.replace(/_/g, " ");
-                }).join(", ");
+                const formatted = formatBlockReason(t.__execution_block_reason || t.__entry_block_reason);
                 return (
                   <div className="px-2 py-0.5 text-[9px] text-amber-300/80">
                     <span className="text-[#6b7280]">Blocked:</span>{" "}
@@ -11230,7 +11242,8 @@
             const entryTs = tr.entry_ts ?? tr.entryTime ?? tr.entryTs ?? 0;
             const exExit = existing.exit_ts ?? existing.exitTs ?? 0;
             const exEntry = existing.entry_ts ?? existing.entryTime ?? existing.entryTs ?? 0;
-            if (exitTs > exExit || (exitTs === 0 && exExit === 0 && entryTs > exEntry)) map.set(sym, tr);
+            const trOpen = !exitTs, exOpen = !exExit;
+            if ((trOpen && !exOpen) || (trOpen && exOpen && entryTs > exEntry) || (!trOpen && !exOpen && exitTs > exExit)) map.set(sym, tr);
           });
           return map;
         }, [trades]);
@@ -11530,7 +11543,8 @@
             if (!existing) { map.set(sym, tr); return; }
             const exExit = existing.exit_ts ?? existing.exitTs ?? 0;
             const exEntry = existing.entry_ts ?? existing.entryTime ?? existing.entryTs ?? 0;
-            if (exitTs > exExit || (exitTs === 0 && exExit === 0 && entryTs > exEntry)) map.set(sym, tr);
+            const trOpen = !exitTs, exOpen = !exExit;
+            if ((trOpen && !exOpen) || (trOpen && exOpen && entryTs > exEntry) || (!trOpen && !exOpen && exitTs > exExit)) map.set(sym, tr);
           });
           return map;
         }, [trades]);
@@ -12125,7 +12139,8 @@
             }
             const exExit = existing.exit_ts ?? existing.exitTs ?? 0;
             const exEntry = existing.entry_ts ?? existing.entryTime ?? existing.entryTs ?? 0;
-            if (exitTs > exExit || (exitTs === 0 && exExit === 0 && entryTs > exEntry)) {
+            const trOpen = !exitTs, exOpen = !exExit;
+            if ((trOpen && !exOpen) || (trOpen && exOpen && entryTs > exEntry) || (!trOpen && !exOpen && exitTs > exExit)) {
               map.set(sym, tr);
             }
           });
@@ -12435,7 +12450,8 @@
             }
             const exExit = existing.exit_ts ?? existing.exitTs ?? 0;
             const exEntry = existing.entry_ts ?? existing.entryTime ?? existing.entryTs ?? 0;
-            if (exitTs > exExit || (exitTs === 0 && exExit === 0 && entryTs > exEntry)) {
+            const trOpen = !exitTs, exOpen = !exExit;
+            if ((trOpen && !exOpen) || (trOpen && exOpen && entryTs > exEntry) || (!trOpen && !exOpen && exitTs > exExit)) {
               map.set(sym, tr);
             }
           });

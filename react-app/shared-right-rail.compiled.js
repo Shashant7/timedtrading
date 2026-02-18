@@ -1627,13 +1627,21 @@
         const raw = ticker?.__execution_block_reason || ticker?.__entry_block_reason;
         if (!raw) return null;
         const formatted = String(raw).split("+").map(r => {
-          if (r.startsWith("sector_full:")) return r.replace("sector_full:", "Sector full: ");
-          if (r.startsWith("direction_full:")) return r.replace("direction_full:", "Direction full: ");
-          if (r.startsWith("correlated:")) return r.replace("correlated:", "Correlated: ");
-          if (r.startsWith("daily_limit:")) return r.replace("daily_limit:", "Daily limit: ");
-          if (r === "cooldown") return "Cooldown active";
-          if (r === "smart_gate") return "Smart gate";
+          const sm = r.match(/^sector_full:(\d+)\/(\d+)\s*(.*)/);
+          if (sm) return `Max ${sm[3] || "sector"} positions reached (${sm[1]}/${sm[2]})`;
+          const dm = r.match(/^direction_full:(\d+)\/(\d+)\s*(LONG|SHORT)/i);
+          if (dm) return `Max ${dm[3].toLowerCase()} positions reached (${dm[1]}/${dm[2]})`;
+          const cm = r.match(/^correlated:(\d+)\s+in\s+(.*)/);
+          if (cm) return `Too many correlated positions in ${cm[2]} (${cm[1]})`;
+          const dl = r.match(/^daily_limit:(\d+)\/(\d+)/);
+          if (dl) return `Daily entry limit reached (${dl[1]}/${dl[2]})`;
+          if (r === "cooldown") return "Entry cooldown active";
+          if (r === "smart_gate") return "Risk management gate";
           if (r === "outside_RTH") return "Outside regular trading hours";
+          if (r === "weekend") return "Market closed (weekend)";
+          if (r === "same_cycle") return "Already attempted this cycle";
+          if (r === "existing_position") return "Position already open";
+          if (r === "recent_trade") return "Recent trade on this ticker";
           return r.replace(/_/g, " ");
         }).join(", ");
         return /*#__PURE__*/React.createElement("div", {

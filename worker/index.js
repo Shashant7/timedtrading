@@ -87,6 +87,8 @@ import {
 // Module-level calendar object — loaded once per cron/request via loadCalendar(env).
 // Enables existing zero-arg functions (isWithinOperatingHours, etc.) to use dynamic data.
 let _cronCalendar = null;
+// Cached set of removed tickers (populated on first read, refreshed per cron cycle)
+let _removedTickersCache = null;
 import {
   shouldLogPrediction,
   logPrediction,
@@ -12935,6 +12937,7 @@ async function d1UpsertTickerIndex(env, ticker, ts) {
   const db = env?.DB;
   if (!db) return { ok: false, skipped: true, reason: "no_db_binding" };
   const sym = String(ticker || "").toUpperCase();
+  if (_removedTickersCache && _removedTickersCache.has(sym)) return { ok: false, skipped: true, reason: "removed" };
   const nowTs = Number(ts) || Date.now();
 
   try {
@@ -15521,7 +15524,6 @@ const SECTOR_MAP = {
   AGYS: "Information Technology",
   AEHR: "Information Technology",
   // Crypto-Related
-  BTBT: "Crypto",
   BMNR: "Crypto",
   // ETFs
   AGQ: "ETF",
@@ -20090,6 +20092,8 @@ export default {
         }
         const kvTickers = (await kvGetJSON(KV, "timed:tickers")) || [];
         const removedSet = new Set((await kvGetJSON(KV, "timed:removed")) || []);
+        _removedTickersCache = removedSet;
+        tickers = tickers.filter((t) => !removedSet.has(t));
         const kvActive = Array.isArray(kvTickers)
           ? kvTickers.map((t) => String(t).toUpperCase()).filter((t) => t && !removedSet.has(t))
           : [];
@@ -23598,6 +23602,7 @@ export default {
         let snapshotCount = 0;
         try {
           const removedSet = new Set((await kvGetJSON(KV, "timed:removed")) || []);
+          _removedTickersCache = removedSet;
           const activeSyms = Object.keys(SECTOR_MAP).filter(t => !removedSet.has(t));
 
           // Start from current snapshot (if exists) to preserve existing data
