@@ -20326,13 +20326,10 @@ export default {
         try {
           const snapshot = await kvGetJSON(KV, "timed:all:snapshot");
           if (snapshot?.data && snapshot?.built_at && (Date.now() - snapshot.built_at) < 300000) {
-            // Snapshot is fresh — serve directly from KV (no D1 query)
-            // Build removed set, but NEVER exclude hardcoded SECTOR_MAP tickers.
-            // The removed list is for user-removed social/dynamic tickers only.
-            // Hardcoded tickers (defined in the SECTOR_MAP literal) must always pass.
             const _rawRemoved = (await kvGetJSON(KV, "timed:removed")) || [];
             const removedSet = new Set(Array.isArray(_rawRemoved) ? _rawRemoved : []);
-            const activeSet = new Set(Object.keys(SECTOR_MAP)); // All SECTOR_MAP keys are active
+            const userAdded = await d1GetActiveUserTickersCached(env);
+            const activeSet = new Set([...Object.keys(SECTOR_MAP), ...userAdded]);
             const data = {};
             for (const [sym, payload] of Object.entries(snapshot.data)) {
               if (activeSet.has(sym)) data[sym] = payload;
@@ -23844,7 +23841,8 @@ export default {
         try {
           const removedSet = new Set((await kvGetJSON(KV, "timed:removed")) || []);
           _removedTickersCache = removedSet;
-          const activeSyms = Object.keys(SECTOR_MAP).filter(t => !removedSet.has(t));
+          const _userAddedRebuild = await d1GetActiveUserTickersCached(env);
+          const activeSyms = [...new Set([...Object.keys(SECTOR_MAP), ..._userAddedRebuild])].filter(t => !removedSet.has(t));
 
           // Start from current snapshot (if exists) to preserve existing data
           const currentSnapshot = await kvGetJSON(KV, "timed:all:snapshot");
@@ -27690,7 +27688,8 @@ export default {
             return sendJSON({ ok: false, error: "already_in_universe", ticker: rawTicker, detail: `${rawTicker} is already tracked in the Timed Trading universe. Search for it by name.` }, 409, corsHeaders(env, req));
           }
 
-          // Validate ticker exists in Alpaca feed
+          // Validate ticker exists in Alpaca feed and capture snapshot for immediate seeding
+          let alpacaSnap = null;
           try {
             const alpacaKey = env.ALPACA_KEY_ID || env.ALPACA_API_KEY;
             const alpacaSecret = env.ALPACA_SECRET_KEY || env.ALPACA_API_SECRET;
@@ -27701,6 +27700,7 @@ export default {
               if (!snapRes.ok) {
                 return sendJSON({ ok: false, error: "ticker_not_found", ticker: rawTicker, detail: `${rawTicker} was not found in the market data feed. Please check the symbol.` }, 400, corsHeaders(env, req));
               }
+              alpacaSnap = await snapRes.json();
             }
           } catch (e) {
             console.warn(`[USER_TICKERS] Alpaca validation failed for ${rawTicker}:`, String(e?.message || e).slice(0, 100));
@@ -27771,12 +27771,51 @@ export default {
             }
           }
 
-          console.log(`[USER_TICKERS] ${user.email} added ${rawTicker} (core: ${isInCore}, backfill: ${backfillTriggered})`);
+          // Seed timed:latest:{ticker} immediately from Alpaca snapshot so ticker appears in UI now
+          let seeded = false;
+          if (alpacaSnap && !isInCore) {
+            try {
+              const lt = alpacaSnap.latestTrade;
+              const pdb = alpacaSnap.prevDailyBar;
+              const db2 = alpacaSnap.dailyBar;
+              const price = Number(lt?.p || db2?.c || 0);
+              const prevClose = Number(pdb?.c || 0);
+              if (price > 0) {
+                const seedPayload = {
+                  ticker: rawTicker,
+                  price,
+                  close: price,
+                  open: Number(db2?.o || price),
+                  high: Number(db2?.h || price),
+                  low: Number(db2?.l || price),
+                  prev_close: prevClose || undefined,
+                  day_change: prevClose > 0 ? price - prevClose : undefined,
+                  day_change_pct: prevClose > 0 ? ((price - prevClose) / prevClose) * 100 : undefined,
+                  ts: Date.now(),
+                  ingest_ts: Date.now(),
+                  ingest_kind: "user_ticker_seed",
+                  kanban_stage: null,
+                  state: "NEUTRAL",
+                  rank: 0,
+                  htf_score: 0,
+                  ltf_score: 0,
+                };
+                await kvPutJSON(KV, `timed:latest:${rawTicker}`, seedPayload);
+                seeded = true;
+                console.log(`[USER_TICKERS] Seeded timed:latest:${rawTicker} from Alpaca snapshot (price=$${price})`);
+              }
+            } catch (e) {
+              console.warn(`[USER_TICKERS] Seed failed for ${rawTicker}:`, String(e?.message || e).slice(0, 100));
+            }
+          }
+
+          console.log(`[USER_TICKERS] ${user.email} added ${rawTicker} (core: ${isInCore}, backfill: ${backfillTriggered}, seeded: ${seeded})`);
           return sendJSON({
             ok: true,
             ticker: rawTicker,
             is_core_ticker: isInCore,
             backfill_triggered: backfillTriggered,
+            seeded,
             slots_used: activeOrHeld.length + 1,
             slots_max: limit,
           }, 200, corsHeaders(env, req));

@@ -422,17 +422,9 @@
   </head>
   <body>
     <div id="root">
-      <div style="display:flex; flex-direction:column; align-items:center; justify-content:center; height:100vh; gap:20px; color:#f0f2f5; background:#0d1117">
-        <div style="position:relative; width:48px; height:48px">
-          <svg viewBox="0 0 24 24" width="48" height="48" style="position:absolute; inset:0">
-            <defs><linearGradient id="lg" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#00c853"/><stop offset="50%" stop-color="#00e676"/><stop offset="100%" stop-color="#69f0ae"/></linearGradient></defs>
-            <rect width="24" height="24" rx="5.5" fill="url(#lg)" opacity="0.15"/>
-            <polyline points="22 7 13.5 15.5 8.5 10.5 2 17" fill="none" stroke="url(#lg)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="50" style="animation: tt-line-draw 1.8s ease-in-out infinite"/>
-            <polyline points="16 7 22 7 22 13" fill="none" stroke="url(#lg)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="20" style="animation: tt-line-draw 1.8s ease-in-out 0.3s infinite"/>
-          </svg>
-        </div>
+      <div style="display:flex; flex-direction:column; align-items:center; justify-content:center; height:100vh; gap:16px; background:#0d1117">
+        <div class="loading-spinner loading-spinner-lg"></div>
         <p style="font-family:Inter,sans-serif; font-size:13px; color:#6b7280; letter-spacing:0.02em">Loading dashboard...</p>
-        <style>@keyframes tt-line-draw { 0% { stroke-dashoffset:50; opacity:0.3 } 50% { stroke-dashoffset:0; opacity:1 } 100% { stroke-dashoffset:-50; opacity:0.3 } }</style>
       </div>
     </div>
 
@@ -16417,18 +16409,28 @@
                           }}
                           className="w-full pl-9 pr-3 py-1.5 bg-white/[0.03] border border-white/[0.08] rounded-2xl text-white text-sm placeholder-[#6b7280] focus:border-white/[0.15] focus:outline-none transition-colors"
                         />
-                        {debouncedSearch && debouncedSearch.length >= 2 && tickers.length === 0 && !loading && (
-                          <div className="absolute top-full left-0 mt-1 z-50 w-full bg-[#1a1e2e] border border-white/[0.12] rounded-lg shadow-xl p-2.5">
-                            <div className="text-[11px] text-[#6b7280] mb-1.5">No tickers found for "{debouncedSearch}"</div>
-                            <button
-                              onClick={() => { setAddTickerInput(debouncedSearch.toUpperCase().trim()); setShowAddTicker(true); }}
-                              className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-cyan-600/10 border border-cyan-500/20 text-cyan-300 text-xs font-medium hover:bg-cyan-600/20 transition-colors"
-                            >
-                              <span className="text-sm">+</span>
-                              <span>Add <span className="font-bold">{debouncedSearch.toUpperCase().trim()}</span> as a custom ticker</span>
-                            </button>
-                          </div>
-                        )}
+                        {debouncedSearch && debouncedSearch.length >= 2 && tickers.length === 0 && !loading && (() => {
+                          const sym = debouncedSearch.toUpperCase().trim();
+                          const alreadyInSlots = userTickers.slots.some(s => s.ticker === sym && (s.active || s.held));
+                          return (
+                            <div className="absolute top-full left-0 mt-1 z-50 w-full bg-[#1a1e2e] border border-white/[0.12] rounded-lg shadow-xl p-2.5">
+                              <div className="text-[11px] text-[#6b7280] mb-1.5">No tickers found for "{debouncedSearch}"</div>
+                              {alreadyInSlots ? (
+                                <div className="text-[10px] text-amber-400/70 px-1">
+                                  {sym} is already in your custom tickers{userTickers.slots.find(s => s.ticker === sym)?.held ? " (held)" : " — it may still be processing"}.
+                                </div>
+                              ) : (
+                                <button
+                                  onClick={() => { setAddTickerInput(sym); setShowAddTicker(true); }}
+                                  className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-cyan-600/10 border border-cyan-500/20 text-cyan-300 text-xs font-medium hover:bg-cyan-600/20 transition-colors"
+                                >
+                                  <span className="text-sm">+</span>
+                                  <span>Add <span className="font-bold">{sym}</span> as a custom ticker</span>
+                                </button>
+                              )}
+                            </div>
+                          );
+                        })()}
                       </div>
                       {/* Filters Toggle — next to search */}
                       <button
