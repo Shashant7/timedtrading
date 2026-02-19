@@ -953,6 +953,18 @@
   // ── User Badge (for nav bars) ────────────────────────────────────────────
   function UserBadge({ user, compact }) {
     const [showMenu, setShowMenu] = useState(false);
+    const menuRef = React.useRef(null);
+
+    React.useEffect(() => {
+      if (!showMenu) return;
+      const handler = (e) => {
+        if (menuRef.current && !menuRef.current.contains(e.target)) {
+          setShowMenu(false);
+        }
+      };
+      document.addEventListener("mousedown", handler);
+      return () => document.removeEventListener("mousedown", handler);
+    }, [showMenu]);
 
     if (!user) return null;
 
@@ -969,7 +981,7 @@
     if (compact) {
       return React.createElement(
         "div",
-        { style: { position: "relative" } },
+        { ref: menuRef, style: { position: "relative" } },
         React.createElement(
           "button",
           {

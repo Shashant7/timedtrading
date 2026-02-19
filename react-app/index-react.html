@@ -1393,6 +1393,40 @@
         return { sectors, loading, error, refetch: fetchSectors };
       }
 
+      function useEarningsEvents() {
+        const [events, setEvents] = useState([]);
+        const [updatedAt, setUpdatedAt] = useState(0);
+
+        const fetchEvents = useCallback(async () => {
+          try {
+            const res = await fetch(`${API_BASE}/timed/earnings/upcoming`);
+            if (!res.ok) return;
+            const json = await res.json();
+            if (json.ok && Array.isArray(json.events)) {
+              const now = Date.now();
+              const fourHoursMs = 4 * 3600000;
+              const filtered = json.events.filter(e => {
+                const eventDate = new Date(e.date + "T00:00:00");
+                const eventEndMs = eventDate.getTime() + 86400000;
+                return eventEndMs + fourHoursMs > now;
+              });
+              setEvents(filtered);
+              setUpdatedAt(json.updated_at || 0);
+            }
+          } catch (err) {
+            console.warn("[EARNINGS] Fetch failed:", err);
+          }
+        }, []);
+
+        useEffect(() => {
+          fetchEvents();
+          const interval = setInterval(fetchEvents, 300000);
+          return () => clearInterval(interval);
+        }, [fetchEvents]);
+
+        return { events, updatedAt };
+      }
+
       // ─────────────────────────────────────────────────────────────
       // Sector Mapping (matching worker sector-mapping.js)
       // ─────────────────────────────────────────────────────────────
@@ -2408,6 +2442,39 @@
           dayEdgeClass,
           intensityPulse,
         };
+      }
+
+      function Sparkline({ data, width = 100, height = 24, color }) {
+        if (!Array.isArray(data) || data.length < 2) return null;
+        const min = Math.min(...data);
+        const max = Math.max(...data);
+        const range = max - min || 1;
+        const pad = 2;
+        const w = width - pad * 2;
+        const h = height - pad * 2;
+        const points = data.map((v, i) => {
+          const x = pad + (i / (data.length - 1)) * w;
+          const y = pad + h - ((v - min) / range) * h;
+          return `${x.toFixed(1)},${y.toFixed(1)}`;
+        }).join(" ");
+        const last = data[data.length - 1];
+        const first = data[0];
+        const lineColor = color || (last >= first ? "#4ade80" : "#f87171");
+        const cx = pad + w;
+        const cy = pad + h - ((last - min) / range) * h;
+        return (
+          <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} className="block mx-auto" style={{ overflow: "visible" }}>
+            <polyline points={points} fill="none" stroke={lineColor} strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" opacity="0.8" />
+            <circle cx={cx.toFixed(1)} cy={cy.toFixed(1)} r="2.5" fill={lineColor}>
+              <animate attributeName="r" values="2.5;4;2.5" dur="2s" repeatCount="indefinite" />
+              <animate attributeName="opacity" values="1;0.5;1" dur="2s" repeatCount="indefinite" />
+            </circle>
+            <circle cx={cx.toFixed(1)} cy={cy.toFixed(1)} r="6" fill="none" stroke={lineColor} strokeWidth="0.5" opacity="0.3">
+              <animate attributeName="r" values="4;8;4" dur="2s" repeatCount="indefinite" />
+              <animate attributeName="opacity" values="0.3;0;0.3" dur="2s" repeatCount="indefinite" />
+            </circle>
+          </svg>
+        );
       }
 
       function computeReturnPct(ticker) {
@@ -6912,6 +6979,13 @@
               </div>
             </div>
 
+            {/* Sparkline — daily price trend */}
+            {ticker._sparkline && ticker._sparkline.length >= 3 && (
+              <div className="mb-1 flex justify-center" style={{ paddingRight: 8 }}>
+                <Sparkline data={ticker._sparkline} width={120} height={22} />
+              </div>
+            )}
+
             {/* TP Levels - Compact */}
             {tpLevels.length > 1 && (
               <div className="mb-1">
@@ -11259,6 +11333,13 @@
                 );
               })()}
 
+              {/* Sparkline — daily price trend */}
+              {t._sparkline && t._sparkline.length >= 3 && (
+                <div className="px-2 py-0.5 flex justify-center" style={{ paddingRight: 12 }}>
+                  <Sparkline data={t._sparkline} width={100} height={16} />
+                </div>
+              )}
+
               {/* ── Section 4: Progress Bar — pushed to bottom ────────── */}
               <div className="mt-auto" />
               {(sl != null || tp != null || isActiveTrade) && (() => {
@@ -13193,31 +13274,36 @@
                   </div>
                 </div>
 
-                <div className="flex-shrink-0 text-right text-[11px]">
-                  <div className="text-white">
-                    {Number.isFinite(price) ? `$${price.toFixed(2)}` : "—"}
+                <div className="flex items-center gap-3 flex-shrink-0">
+                  {t._sparkline && t._sparkline.length >= 3 && (
+                    <Sparkline data={t._sparkline} width={80} height={20} />
+                  )}
+                  <div className="text-right text-[11px]">
+                    <div className="text-white">
+                      {Number.isFinite(price) ? `$${price.toFixed(2)}` : "—"}
+                    </div>
+                    <div className={`mt-0.5 ${chgColor}`}>
+                      {Number.isFinite(dayPct)
+                        ? `${dayPct >= 0 ? "+" : ""}${dayPct.toFixed(2)}%`
+                        : "—"}{" "}
+                      {Number.isFinite(dayChg)
+                        ? `(${dayChg >= 0 ? "+" : ""}${fmtUsdAbs(dayChg)})`
+                        : ""}
+                      {isStale && marketOpen && (
+                        <span className="text-yellow-200/80">
+                          {` (stale${stale?.ageLabel ? ` ${stale.ageLabel}` : ""})`}
+                        </span>
+                      )}
+                      {!marketOpen && (
+                        <span className="text-[#6b7280] text-[10px]">
+                          {stale?.ageLabel
+                            ? ` AH • as of ${stale.ageLabel}`
+                            : " AH"}
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-[#4b5563]">{ingestText}</div>
                   </div>
-                  <div className={`mt-0.5 ${chgColor}`}>
-                    {Number.isFinite(dayPct)
-                      ? `${dayPct >= 0 ? "+" : ""}${dayPct.toFixed(2)}%`
-                      : "—"}{" "}
-                    {Number.isFinite(dayChg)
-                      ? `(${dayChg >= 0 ? "+" : ""}${fmtUsdAbs(dayChg)})`
-                      : ""}
-                    {isStale && marketOpen && (
-                      <span className="text-yellow-200/80">
-                        {` (stale${stale?.ageLabel ? ` ${stale.ageLabel}` : ""})`}
-                      </span>
-                    )}
-                    {!marketOpen && (
-                      <span className="text-[#6b7280] text-[10px]">
-                        {stale?.ageLabel
-                          ? ` AH • as of ${stale.ageLabel}`
-                          : " AH"}
-                      </span>
-                    )}
-                  </div>
-                  <div className="text-[#4b5563]">{ingestText}</div>
                 </div>
               </div>
 
@@ -15673,6 +15759,7 @@
         const { pending: queuedPending } = useQueuedActions();
         const userTickers = useUserTickers();
         const { sectors } = useSectors();
+        const { events: earningsEvents } = useEarningsEvents();
         const [filters, setFilters] = useState(() => {
           // Safety check: reset to defaults if localStorage was cleared
           return {
@@ -16220,15 +16307,7 @@
                     <button onClick={() => { try { localStorage.removeItem("tt_coachmarks_completed_v1"); } catch {} window.__restartCoachmarks?.(); }} className="hidden md:inline-flex px-2 py-1 rounded-md text-[11px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all" title="Restart the UI tour">Tour</button>
                     <a href="/faq.html" className="hidden md:inline-flex px-2 py-1 rounded-md text-[11px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all" title="Frequently Asked Questions">FAQ</a>
                     <button onClick={() => setShowAiChat(true)} className="hidden md:inline-flex px-2 py-1 rounded-md text-[11px] text-[#60a5fa] hover:text-[#93bbfc] hover:bg-[#60a5fa]/[0.06] transition-all font-medium" title="Ask the AI assistant">Ask AI</button>
-                    <button
-                      onClick={refetch}
-                      className="px-2 md:px-3 py-1 rounded-md text-[11px] md:text-[12px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] border border-white/[0.06] transition-all"
-                    >
-                      Refresh
-                    </button>
-                    {lastUpdate && <span className="hidden sm:inline text-[11px] text-[#4b5563]">{lastUpdate.toLocaleTimeString()}</span>}
                     {loading && <div className="loading-spinner"></div>}
-                    {error && <span className="text-[11px] text-rose-400">{error}</span>}
                     {window.TimedNotificationCenter && <window.TimedNotificationCenter apiBase={API_BASE} />}
                     {window.TimedUserBadge && <window.TimedUserBadge user={window.TimedAuthHelpers?.getStoredSession()} compact />}
                     {/* Mobile hamburger */}
@@ -16270,6 +16349,59 @@
 
               <div className="mx-auto w-full px-2 sm:px-4 lg:px-5">
                 <header className="mb-4 pt-3">
+
+                  {/* ═══ 0. EVENTS BAR — earnings, dividends, notable dates ═══ */}
+                  {earningsEvents.length > 0 && (() => {
+                    const now = Date.now();
+                    const todayStr = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+                    const tomorrowStr = new Date(now + 86400000).toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+                    const formatHour = (h) => {
+                      if (!h) return "";
+                      const hl = String(h).toLowerCase();
+                      if (hl === "bmo" || hl === "before market open") return "BMO";
+                      if (hl === "amc" || hl === "after market close") return "AMC";
+                      if (hl === "dmh" || hl === "during market hours") return "DMH";
+                      return String(h).toUpperCase();
+                    };
+                    const formatDate = (d) => {
+                      if (d === todayStr) return "Today";
+                      if (d === tomorrowStr) return "Tomorrow";
+                      return new Date(d + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "America/New_York" });
+                    };
+                    const chipColor = (e) => {
+                      if (e.epsActual != null && e.epsEstimate != null) {
+                        return e.epsActual >= e.epsEstimate
+                          ? "border-green-500/30 bg-green-500/10 text-green-300"
+                          : "border-rose-500/30 bg-rose-500/10 text-rose-300";
+                      }
+                      if (e.date === todayStr) return "border-amber-500/30 bg-amber-500/10 text-amber-300";
+                      return "border-white/[0.08] bg-white/[0.03] text-gray-300";
+                    };
+                    return (
+                      <div className="mb-3">
+                        <div className="flex items-center gap-2 mb-1.5">
+                          <span className="text-[10px] text-[#6b7280] font-semibold tracking-wide uppercase">Upcoming Events</span>
+                          <span className="text-[9px] text-[#4b5563] tabular-nums">{earningsEvents.length} earnings</span>
+                        </div>
+                        <div className="flex items-center gap-2 overflow-x-auto pb-1" style={{ scrollbarWidth: "none" }}>
+                          {earningsEvents.slice(0, 20).map((e, i) => {
+                            const beatMiss = e.epsActual != null && e.epsEstimate != null
+                              ? (e.epsActual >= e.epsEstimate ? "Beat" : "Miss")
+                              : null;
+                            return (
+                              <button key={`ev-${i}`} onClick={() => handleTickerSelect(e.symbol)}
+                                className={`flex items-center gap-1.5 px-2 py-1 rounded-lg border ${chipColor(e)} flex-shrink-0 hover:brightness-125 transition-all`}>
+                                <span className="text-[10px] font-bold">{e.symbol}</span>
+                                <span className="text-[9px] opacity-70">{formatDate(e.date)}</span>
+                                {formatHour(e.hour) && <span className="text-[8px] opacity-60">{formatHour(e.hour)}</span>}
+                                {beatMiss && <span className={`text-[8px] font-semibold ${beatMiss === "Beat" ? "text-green-400" : "text-rose-400"}`}>{beatMiss}</span>}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })()}
 
                   {/* ═══ 1. MARKET PULSE — right below top header ═══ */}
                   {isAdmin && (() => {

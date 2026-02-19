@@ -121,6 +121,7 @@ import {
   handleGetArchive,
   handleGetArchiveBrief,
   handleMarkPrediction,
+  fetchFinnhubEarnings,
 } from "./daily-brief.js";
 import {
   syncAllETFHoldings,
@@ -306,6 +307,7 @@ const ROUTES = [
   ["GET", "/timed/tickers", "GET /timed/tickers"],
   ["GET", "/timed/all", "GET /timed/all"],
   ["GET", "/timed/prices", "GET /timed/prices"],
+  ["GET", "/timed/earnings/upcoming", "GET /timed/earnings/upcoming"],
   ["GET", "/timed/candles", "GET /timed/candles"],
   ["GET", "/timed/market-calendar", "GET /timed/market-calendar"],
   ["GET", "/timed/trail/performance", "GET /timed/trail/performance"],
@@ -20325,7 +20327,8 @@ export default {
         // Falls through to D1 if snapshot is missing or stale
         try {
           const snapshot = await kvGetJSON(KV, "timed:all:snapshot");
-          if (snapshot?.data && snapshot?.built_at && (Date.now() - snapshot.built_at) < 300000) {
+          const SNAPSHOT_MAX_AGE = isWithinOperatingHours() ? 300000 : 86400000;
+          if (snapshot?.data && snapshot?.built_at && (Date.now() - snapshot.built_at) < SNAPSHOT_MAX_AGE) {
             const _rawRemoved = (await kvGetJSON(KV, "timed:removed")) || [];
             const removedSet = new Set(Array.isArray(_rawRemoved) ? _rawRemoved : []);
             const userAdded = await d1GetActiveUserTickersCached(env);
@@ -20466,6 +20469,31 @@ export default {
                 }
               }
             } catch (_) { /* price overlay failed — serve snapshot as-is */ }
+
+            // ── Heartbeat fallback: catch futures/crypto still missing from data ──
+            try {
+              const stillMissing = [...activeSet].filter(s => !data[s]);
+              if (stillMissing.length > 0) {
+                const hbResults = await Promise.all(
+                  stillMissing.map(s => kvGetJSON(KV, `timed:heartbeat:${s}`))
+                );
+                for (let i = 0; i < stillMissing.length; i++) {
+                  const hb = hbResults[i];
+                  if (hb && typeof hb === "object" && Number(hb.price) > 0) {
+                    data[stillMissing[i]] = {
+                      ticker: stillMissing[i],
+                      price: Number(hb.price),
+                      close: Number(hb.price),
+                      prev_close: Number(hb.prev_close || 0) || undefined,
+                      day_change: hb.day_change ?? undefined,
+                      day_change_pct: hb.day_change_pct ?? undefined,
+                      ingest_ts: hb.ingest_ts || Date.now(),
+                      ingest_kind: "heartbeat_fallback",
+                    };
+                  }
+                }
+              }
+            } catch (_) {}
 
             // ── Read-time execution readiness (RTH + concentration gates) ──
             // The snapshot carries block reasons from the scoring cron, which may
@@ -21712,6 +21740,21 @@ export default {
           }, 200, corsHeaders(env, req));
         } catch (e) {
           console.error("[MARKET-CAL] GET failed:", String(e));
+          return sendJSON({ ok: false, error: "internal_error" }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // GET /timed/earnings/upcoming — cached upcoming earnings for universe tickers
+      if (routeKey === "GET /timed/earnings/upcoming") {
+        try {
+          const cached = await kvGetJSON(KV, "timed:earnings:upcoming");
+          return sendJSON(
+            { ok: true, events: cached?.events || [], updated_at: cached?.updated_at || 0 },
+            200,
+            { ...corsHeaders(env, req), "Cache-Control": "public, max-age=300" },
+          );
+        } catch (e) {
+          console.error("[EARNINGS] GET error:", String(e));
           return sendJSON({ ok: false, error: "internal_error" }, 500, corsHeaders(env, req));
         }
       }
@@ -36541,6 +36584,39 @@ Provide 3-5 actionable next steps:
       return;
     }
 
+    // ── Earnings calendar refresh (hourly) ──
+    if (_isHourly) {
+      ctx.waitUntil((async () => {
+        try {
+          const KV = env.KV_TIMED;
+          if (!KV) return;
+          const today = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+          const future = new Date(Date.now() + 5 * 86400000).toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+          const raw = await fetchFinnhubEarnings(env, today, future);
+          const universeSet = new Set(Object.keys(SECTOR_MAP));
+          const filtered = raw
+            .filter(e => universeSet.has(String(e.symbol).toUpperCase()))
+            .map(e => ({
+              symbol: String(e.symbol).toUpperCase(),
+              date: e.date,
+              hour: e.hour || "bmo",
+              epsEstimate: e.epsEstimate ?? null,
+              epsActual: e.epsActual ?? null,
+              revenueEstimate: e.revenueEstimate ?? null,
+              revenueActual: e.revenueActual ?? null,
+            }));
+          await kvPutJSON(KV, "timed:earnings:upcoming", {
+            events: filtered,
+            updated_at: Date.now(),
+            range: { from: today, to: future },
+          });
+          console.log(`[EARNINGS CRON] Cached ${filtered.length} earnings events (${today} → ${future})`);
+        } catch (e) {
+          console.warn("[EARNINGS CRON] Failed:", String(e?.message || e).slice(0, 200));
+        }
+      })());
+    }
+
     // ── End of hourly handler (briefs + lifecycle + investor) ──
     if (_isHourly) return;
 
@@ -36894,7 +36970,6 @@ Provide 3-5 actionable next steps:
         // for the most-hit endpoint.
         ctx.waitUntil((async () => {
           try {
-            // Use all SECTOR_MAP keys + user-added tickers
             const activeSyms = [...new Set([...Object.keys(SECTOR_MAP), ...userAddedTickers])];
             const snapshot = {};
             for (const sym of activeSyms) {
@@ -36903,6 +36978,31 @@ Provide 3-5 actionable next steps:
                 snapshot[sym] = payload;
               }
             }
+
+            // Enrich with sparkline data (last 20 daily closes per ticker)
+            try {
+              const sparkRows = await env.DB.prepare(
+                `SELECT ticker, ts, c FROM (
+                  SELECT ticker, ts, c, ROW_NUMBER() OVER (PARTITION BY ticker ORDER BY ts DESC) as rn
+                  FROM ticker_candles WHERE tf = 'D'
+                ) WHERE rn <= 20
+                ORDER BY ticker, ts ASC`
+              ).all();
+              const sparkMap = {};
+              for (const r of (sparkRows?.results || [])) {
+                const sym = String(r.ticker).toUpperCase();
+                if (!sparkMap[sym]) sparkMap[sym] = [];
+                sparkMap[sym].push(Number(r.c));
+              }
+              for (const [sym, closes] of Object.entries(sparkMap)) {
+                if (snapshot[sym]) {
+                  snapshot[sym]._sparkline = closes;
+                }
+              }
+            } catch (sparkErr) {
+              console.warn("[SCORING] Sparkline enrichment failed:", String(sparkErr?.message || sparkErr).slice(0, 150));
+            }
+
             await kvPutJSON(KV, "timed:all:snapshot", {
               data: snapshot,
               count: Object.keys(snapshot).length,
