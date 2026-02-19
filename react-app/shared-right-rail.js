@@ -4318,8 +4318,8 @@
                                     )}
                                   </div>
                                   
-                                  {/* Current Price + Daily Change for open trades */}
-                                  {!isClosed && (() => {
+                                  {/* Current Price + Daily Change for open trades (admin only) */}
+                                  {!isClosed && document.body.dataset.userRole === "admin" && (() => {
                                     const src = latestTicker || ticker;
                                     const cp = Number(src?.currentPrice ?? src?.cp ?? 0);
                                     const dayPct = Number(src?.dayPct ?? src?.dailyChangePct ?? 0);

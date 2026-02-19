@@ -5691,13 +5691,19 @@
         const totalPnl = totalRealized + unrealized;
         const pct = startCash ? (totalPnl / startCash) * 100 : 0;
 
-        // Compute stats from trades
-        const buys = (trades || []).filter(t => t.action === "BUY" || t.action === "DCA_BUY");
-        const sells = (trades || []).filter(t => t.action === "SELL");
-        const entries = buys.length;
-        const exits = sells.length;
-        const wins = sells.filter(t => (t.pnl || 0) > 0).length;
-        const losses = sells.filter(t => (t.pnl || 0) < 0).length;
+        // Compute stats from trades (positions don't have action field, use status)
+        const allOpen = (trades || []).filter(t => {
+          const s = String(t.status || "").toUpperCase();
+          return s === "OPEN" || s === "TP_HIT_TRIM";
+        });
+        const allClosed = (trades || []).filter(t => {
+          const s = String(t.status || "").toUpperCase();
+          return s === "WIN" || s === "LOSS" || s === "FLAT";
+        });
+        const entries = allOpen.length + allClosed.length;
+        const exits = allClosed.length;
+        const wins = allClosed.filter(t => (Number(t.pnl) || 0) > 0).length;
+        const losses = allClosed.filter(t => (Number(t.pnl) || 0) <= 0).length;
         const winRate = exits > 0 ? (wins / exits * 100) : 0;
 
         // Chart range state
@@ -5708,7 +5714,7 @@
         // Build cumulative P&L chart points from sell trades
         const chartPoints = useMemo(() => {
           const pts = [{ ts: 0, value: 0 }];
-          const sellsSorted = [...(trades || [])].filter(t => t.action === "SELL" && t.entry_ts).sort((a, b) => new Date(a.entry_ts) - new Date(b.entry_ts));
+          const sellsSorted = [...(trades || [])].filter(t => { const s = String(t.status||"").toUpperCase(); return (s==="WIN"||s==="LOSS"||s==="FLAT") && t.exit_ts; }).sort((a, b) => Number(a.exit_ts) - Number(b.exit_ts));
           let running = 0;
           for (const t of sellsSorted) {
             running += Number(t.pnl) || 0;
@@ -5742,8 +5748,10 @@
           const map = {};
           for (const t of trades || []) {
             if (!map[t.ticker]) map[t.ticker] = { ticker: t.ticker, buys: 0, sells: 0, totalPnl: 0, lots: [] };
-            if (t.action === "BUY" || t.action === "DCA_BUY") map[t.ticker].buys++;
-            if (t.action === "SELL") { map[t.ticker].sells++; map[t.ticker].totalPnl += (t.pnl || 0); }
+            const s = String(t.status || "").toUpperCase();
+            const isClosed = s === "WIN" || s === "LOSS" || s === "FLAT";
+            if (isClosed) { map[t.ticker].sells++; map[t.ticker].totalPnl += (Number(t.pnl) || 0); }
+            else map[t.ticker].buys++;
             map[t.ticker].lots.push(t);
           }
           return Object.values(map).sort((a, b) => b.totalPnl - a.totalPnl);
@@ -5753,24 +5761,61 @@
         const byDay = useMemo(() => {
           const map = {};
           for (const t of trades || []) {
-            const day = t.entry_ts ? new Date(t.entry_ts).toISOString().slice(0, 10) : "unknown";
+            const day = t.entry_ts ? new Date(Number(t.entry_ts)).toLocaleDateString("en-CA") : "unknown";
             if (!map[day]) map[day] = { day, entries: 0, exits: 0, pnl: 0, actions: [] };
-            if (t.action === "BUY" || t.action === "DCA_BUY") map[day].entries++;
-            if (t.action === "SELL") { map[day].exits++; map[day].pnl += (t.pnl || 0); }
+            const s = String(t.status || "").toUpperCase();
+            const isClosed = s === "WIN" || s === "LOSS" || s === "FLAT";
+            if (isClosed) { map[day].exits++; map[day].pnl += (Number(t.pnl) || 0); }
+            else map[day].entries++;
             map[day].actions.push(t);
           }
           return Object.values(map).sort((a, b) => b.day.localeCompare(a.day));
         }, [trades]);
 
-        // Today's activity
-        const todayKey = new Date().toISOString().slice(0, 10);
-        const todayTrades = useMemo(() => (trades || []).filter(t => {
-          const d = t.entry_ts ? new Date(t.entry_ts).toISOString().slice(0, 10) : "";
-          return d === todayKey;
-        }), [trades, todayKey]);
-        const todayBuys = todayTrades.filter(t => t.action === "BUY" || t.action === "DCA_BUY");
-        const todaySells = todayTrades.filter(t => t.action === "SELL");
-        const todayPnl = todaySells.reduce((s, t) => s + (Number(t.pnl) || 0), 0);
+        // Today's activity — use local date, flatten position histories into actions
+        const todayLocalKey = useMemo(() => {
+          const d = new Date();
+          return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+        }, []);
+        const todayStartMs2 = new Date(todayLocalKey + "T00:00:00").getTime();
+        const todayEndMs2 = todayStartMs2 + 86400000;
+        const todayActions2 = useMemo(() => {
+          const actions = [];
+          const seen = new Set();
+          for (const t of (trades || [])) {
+            const entryMs = tsToMs(t.entry_ts || t.created_at);
+            if (entryMs >= todayStartMs2 && entryMs < todayEndMs2) {
+              const k = `entry-${t.ticker}-${entryMs}`;
+              if (!seen.has(k)) { seen.add(k); actions.push({ ts: entryMs, type: "ENTRY", ticker: t.ticker, price: Number(t.entryPrice || t.entry_price) || 0, shares: Number(t.shares) || 0, pnl: null, trade: t }); }
+            }
+            if (Array.isArray(t.history)) {
+              for (const h of t.history) {
+                const hMs = tsToMs(h.ts);
+                if (hMs < todayStartMs2 || hMs >= todayEndMs2) continue;
+                if (h.type === "TRIM") {
+                  const k = `trim-${t.ticker}-${hMs}`;
+                  if (!seen.has(k)) { seen.add(k); actions.push({ ts: hMs, type: "TRIM", ticker: t.ticker, price: Number(h.price) || 0, shares: Number(h.shares) || 0, pnl: null, reason: h.reason, trade: t }); }
+                }
+                if (h.type === "EXIT") {
+                  const k = `exit-${t.ticker}-${hMs}`;
+                  if (!seen.has(k)) { seen.add(k); actions.push({ ts: hMs, type: "EXIT", ticker: t.ticker, price: Number(h.price) || 0, shares: Number(h.shares) || 0, pnl: Number(h.pnl_realized) || Number(t.pnl) || 0, reason: h.reason || t.exitReason, status: t.status, trade: t }); }
+                }
+              }
+            }
+            const exitMs = tsToMs(t.exit_ts);
+            const s = String(t.status || "").toUpperCase();
+            if (exitMs >= todayStartMs2 && exitMs < todayEndMs2 && (s === "WIN" || s === "LOSS") && !seen.has(`exit-${t.ticker}-${exitMs}`)) {
+              seen.add(`exit-${t.ticker}-${exitMs}`);
+              actions.push({ ts: exitMs, type: "EXIT", ticker: t.ticker, price: Number(t.exitPrice || t.exit_price) || 0, shares: Number(t.shares) || 0, pnl: Number(t.pnl) || 0, reason: t.exitReason, status: t.status, trade: t });
+            }
+          }
+          actions.sort((a, b) => b.ts - a.ts);
+          return actions;
+        }, [trades, todayStartMs2, todayEndMs2]);
+        const todayEntryActions = todayActions2.filter(a => a.type === "ENTRY");
+        const todayExitActions = todayActions2.filter(a => a.type === "EXIT");
+        const todayTrimActions = todayActions2.filter(a => a.type === "TRIM");
+        const todayPnl = todayExitActions.reduce((s, a) => s + (a.pnl || 0), 0);
 
         // Total cost basis and market value from positions
         const totalCost = sortedPositions.reduce((s, p) => s + (Number(p.cost_basis) || 0), 0);
@@ -5879,7 +5924,7 @@
                 <div className={`text-lg font-bold ${totalPnl >= 0 ? "text-[var(--tt-accent)]" : "text-[var(--tt-negative)]"}`}>{fmtUsd(totalPnl)}</div>
               </div>
               <div className="tt-card p-3">
-                <div className="text-[10px] text-[var(--tt-text-faint)] uppercase tracking-wide">Today</div>
+                <div className="text-[10px] text-[var(--tt-text-faint)] uppercase tracking-wide">Today Realized</div>
                 <div className={`text-lg font-bold ${todayPnl >= 0 ? "text-[var(--tt-accent)]" : "text-[var(--tt-negative)]"}`}>{fmtUsd(todayPnl)}</div>
               </div>
               <div className="tt-card p-3">
@@ -5907,19 +5952,19 @@
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-4">
                 <div className="bg-[var(--tt-bg-surface)] rounded-lg p-3 border border-[var(--tt-border)]">
                   <div className="text-[10px] text-[var(--tt-text-faint)] mb-1">Entries</div>
-                  <div className="text-lg font-bold text-cyan-400">{todayBuys.length}</div>
+                  <div className="text-lg font-bold text-cyan-400">{todayEntryActions.length}</div>
                 </div>
                 <div className="bg-[var(--tt-bg-surface)] rounded-lg p-3 border border-[var(--tt-border)]">
-                  <div className="text-[10px] text-[var(--tt-text-faint)] mb-1">Adds</div>
-                  <div className="text-lg font-bold text-yellow-400">{todayTrades.filter(t => t.action === "DCA_BUY").length}</div>
+                  <div className="text-[10px] text-[var(--tt-text-faint)] mb-1">Trims</div>
+                  <div className="text-lg font-bold text-yellow-400">{todayTrimActions.length}</div>
                 </div>
                 <div className="bg-[var(--tt-bg-surface)] rounded-lg p-3 border border-[var(--tt-border)]">
                   <div className="text-[10px] text-[var(--tt-text-faint)] mb-1">Exits</div>
                   <div className="flex items-baseline gap-1">
-                    <span className="text-lg font-bold text-orange-400">{todaySells.length}</span>
-                    {todaySells.length > 0 && (
+                    <span className="text-lg font-bold text-orange-400">{todayExitActions.length}</span>
+                    {todayExitActions.length > 0 && (
                       <span className="text-[10px] text-[var(--tt-text-muted)]">
-                        ({todaySells.filter(t => (t.pnl || 0) > 0).length}W / {todaySells.filter(t => (t.pnl || 0) < 0).length}L)
+                        ({todayExitActions.filter(a => (a.pnl || 0) > 0).length}W / {todayExitActions.filter(a => (a.pnl || 0) <= 0).length}L)
                       </span>
                     )}
                   </div>
@@ -6091,37 +6136,39 @@
                 <h3 className="text-xs font-medium text-[var(--tt-text-faint)] mb-2 uppercase tracking-wider">Today</h3>
                 <div className="max-h-[600px] overflow-y-auto overflow-x-auto">
                   {(() => {
-                    const todayKey = new Date().toISOString().slice(0, 10);
-                    const todayTrades = (trades || []).filter(t => {
-                      const d = t.entry_ts ? new Date(t.entry_ts).toISOString().slice(0, 10) : "";
-                      return d === todayKey;
-                    });
                     if (loading) return <div className="text-[13px] text-[var(--tt-text-faint)] py-2">Loading...</div>;
-                    if (todayTrades.length === 0) return <div className="text-[13px] text-[var(--tt-text-faint)] py-2">No activity today</div>;
+                    if (todayActions2.length === 0) return <div className="text-[13px] text-[var(--tt-text-faint)] py-2">No activity today</div>;
+                    const simplifyReason = (raw) => {
+                      if (!raw) return "—";
+                      const s = String(raw).replace(/_/g, " ");
+                      const parts = s.split(",").map(p => p.trim()).filter(Boolean);
+                      if (parts.length <= 2) return parts.join(", ");
+                      return parts[0];
+                    };
                     return (
                       <>
                         <div className="grid grid-cols-[50px_52px_48px_68px_50px_68px_1fr] gap-1.5 px-2 py-1 border-b border-white/[0.06] text-[9px] font-semibold uppercase tracking-wider text-[#6b7280]">
                           <span>Time</span><span>Ticker</span><span>Action</span><span className="text-right">Price</span><span className="text-right">Qty</span><span className="text-right">P&L</span><span className="truncate">Reason</span>
                         </div>
-                        {todayTrades.slice(0, 100).map((t, idx) => {
-                          const isBuy = t.action === "BUY" || t.action === "DCA_BUY";
-                          const isSell = t.action === "SELL";
-                          const ts = t.entry_ts ? new Date(t.entry_ts) : null;
-                          const actionLabel = t.action === "DCA_BUY" ? "ADD" : t.action;
-                          const actionColor = isBuy ? "text-cyan-400" : isSell ? "text-rose-400" : "text-yellow-400";
-                          const pnlStr = isSell && t.pnl != null ? fmtUsd(t.pnl) : "";
-                          const pnlColor = (t.pnl || 0) >= 0 ? "text-[var(--tt-accent)]" : "text-[var(--tt-negative)]";
-                          const qty = Number(t.shares || 0);
-                          const reason = String(t.reason || "").replace(/_/g, " ");
+                        {todayActions2.slice(0, 100).map((a, idx) => {
+                          const isEntry = a.type === "ENTRY";
+                          const isExit = a.type === "EXIT";
+                          const isTrim = a.type === "TRIM";
+                          const actionColor = isEntry ? "text-cyan-400" : isExit ? "text-rose-400" : "text-yellow-400";
+                          const pnlStr = isExit && a.pnl != null ? fmtUsd(a.pnl) : "";
+                          const pnlColor = (a.pnl || 0) >= 0 ? "text-[var(--tt-accent)]" : "text-[var(--tt-negative)]";
+                          const qty = Number(a.shares || a.trade?.shares || 0);
+                          const reason = simplifyReason(a.reason || a.trade?.exitReason);
+                          const ts = a.ts ? new Date(a.ts) : null;
                           return (
-                            <div key={t.trade_id || idx} className="grid grid-cols-[50px_52px_48px_68px_50px_68px_1fr] gap-1.5 px-2 py-1.5 text-[12px] border-b border-white/[0.02] hover:bg-white/[0.02]">
+                            <div key={`${a.type}-${a.ticker}-${idx}`} className="grid grid-cols-[50px_52px_48px_68px_50px_68px_1fr] gap-1.5 px-2 py-1.5 text-[12px] border-b border-white/[0.02] hover:bg-white/[0.02]">
                               <span className="text-[var(--tt-text-muted)]">{ts ? ts.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" }) : "—"}</span>
-                              <span className="font-medium text-[var(--tt-text)] truncate">{t.ticker}</span>
-                              <span className={`${actionColor} font-semibold`}>{actionLabel}</span>
-                              <span className="text-right text-[var(--tt-text)]">{t.entry_price != null ? `$${Number(t.entry_price).toFixed(2)}` : "—"}</span>
+                              <span className="font-medium text-[var(--tt-text)] truncate">{a.ticker}</span>
+                              <span className={`${actionColor} font-semibold`}>{a.type}</span>
+                              <span className="text-right text-[var(--tt-text)]">{a.price > 0 ? `$${a.price.toFixed(2)}` : "—"}</span>
                               <span className="text-right text-[var(--tt-text-muted)]">{qty > 0 ? qty.toFixed(2) : "—"}</span>
                               <span className={`text-right font-semibold ${pnlColor}`}>{pnlStr}</span>
-                              <span className="text-[var(--tt-text-faint)] truncate capitalize" title={reason}>{reason || "—"}</span>
+                              <span className="text-[var(--tt-text-faint)] truncate capitalize" title={String(a.reason || a.trade?.exitReason || "").replace(/_/g, " ")}>{isEntry ? "—" : reason}</span>
                             </div>
                           );
                         })}
@@ -6166,18 +6213,20 @@
                                 <div className="grid grid-cols-[70px_50px_60px_70px_70px] gap-1.5 px-1 text-[11px] text-[var(--tt-text-faint)] font-medium uppercase">
                                   <span>Ticker</span><span>Action</span><span>Time</span><span>Price</span><span className="text-right">P&L</span>
                                 </div>
-                                {d.actions.sort((a, b) => String(a.ticker || "").localeCompare(String(b.ticker || "")) || new Date(a.entry_ts || 0) - new Date(b.entry_ts || 0)).map((t, i) => {
-                                  const isBuy = t.action === "BUY" || t.action === "DCA_BUY";
-                                  const isSell = t.action === "SELL";
-                                  const ts = t.entry_ts ? new Date(t.entry_ts) : null;
-                                  const actionColor = isBuy ? "text-cyan-400" : isSell ? "text-rose-400" : "text-yellow-400";
+                                {d.actions.sort((a, b) => String(a.ticker || "").localeCompare(String(b.ticker || "")) || Number(a.entry_ts || 0) - Number(b.entry_ts || 0)).map((t, i) => {
+                                  const s = String(t.status || "").toUpperCase();
+                                  const isClosed = s === "WIN" || s === "LOSS" || s === "FLAT";
+                                  const actionLabel = isClosed ? "EXIT" : (Number(t.trimmedPct || t.trimmed_pct || 0) > 0 ? "TRIM" : "ENTRY");
+                                  const actionColor = actionLabel === "ENTRY" ? "text-cyan-400" : actionLabel === "EXIT" ? "text-rose-400" : "text-yellow-400";
+                                  const ts = t.entry_ts ? new Date(Number(t.entry_ts)) : null;
+                                  const displayPrice = isClosed ? (t.exitPrice || t.exit_price || t.entry_price) : t.entry_price;
                                   return (
                                     <div key={`${t.ticker}-${i}`} className="grid grid-cols-[70px_50px_60px_70px_70px] gap-1.5 py-1 px-1 rounded bg-[var(--tt-bg)] items-center">
                                       <span className="font-medium text-[var(--tt-text)] truncate">{t.ticker}</span>
-                                      <span className={`${actionColor} font-semibold`}>{t.action === "DCA_BUY" ? "ADD" : t.action}</span>
+                                      <span className={`${actionColor} font-semibold`}>{actionLabel}</span>
                                       <span className="text-[var(--tt-text-muted)]">{ts ? ts.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", hour12: true }) : "—"}</span>
-                                      <span className="text-[var(--tt-text)]">{t.entry_price != null ? `$${Number(t.entry_price).toFixed(2)}` : "—"}</span>
-                                      <span className={`text-right font-semibold ${(t.pnl || 0) >= 0 ? "text-[var(--tt-accent)]" : "text-[var(--tt-negative)]"}`}>{isSell && t.pnl != null ? fmtUsd(t.pnl) : ""}</span>
+                                      <span className="text-[var(--tt-text)]">{displayPrice != null ? `$${Number(displayPrice).toFixed(2)}` : "—"}</span>
+                                      <span className={`text-right font-semibold ${(t.pnl || 0) >= 0 ? "text-[var(--tt-accent)]" : "text-[var(--tt-negative)]"}`}>{isClosed && t.pnl != null ? fmtUsd(Number(t.pnl)) : ""}</span>
                                     </div>
                                   );
                                 })}
@@ -8005,7 +8054,9 @@
                                       const pnlColor = (action.pnl || 0) >= 0 ? "text-[var(--tt-accent)]" : "text-[var(--tt-negative)]";
                                       const t = action.trade || {};
                                       const qty = Number(t.shares || t.total_qty || 0);
-                                      const reason = String(t.exit_reason || t.__entry_reason || t.__trim_reason || "").replace(/_/g, " ");
+                                      const rawReason = String(t.exit_reason || t.__entry_reason || t.__trim_reason || "").replace(/_/g, " ");
+                                      const reasonParts = rawReason.split(",").map(p => p.trim()).filter(Boolean);
+                                      const reason = action.type === "ENTRY" ? "" : (reasonParts.length <= 2 ? reasonParts.join(", ") : reasonParts[0]);
                                       return (
                                         <div
                                           key={`${action.type}-${action.ticker}-${idx}`}
@@ -8015,7 +8066,7 @@
                                           <span className="text-[var(--tt-text-muted)]">{fmtTime(action.ts)}</span>
                                           <span className="font-medium text-[var(--tt-text)] truncate">{action.ticker}</span>
                                           <span className={`${actionColor} font-semibold`}>{action.type}</span>
-                                          <span className="text-right text-[var(--tt-text)]">{action.price != null ? `$${action.price.toFixed(2)}` : "—"}</span>
+                                          <span className="text-right text-[var(--tt-text)]">{action.price != null && action.price > 0 ? `$${action.price.toFixed(2)}` : "—"}</span>
                                           <span className="text-right text-[var(--tt-text-muted)]">{qty > 0 ? qty.toFixed(2) : "—"}</span>
                                           <span className={`text-right font-semibold ${pnlColor}`}>{pnlStr}</span>
                                           <span className="text-[var(--tt-text-faint)] truncate capitalize" title={reason}>{reason || "—"}</span>

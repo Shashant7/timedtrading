@@ -2388,33 +2388,22 @@
         let edgeAlpha = 0;
         let intensityPulse = "";
         if (dayAbs > 0.05) {
-          if (dayAbs <= 1)       { tintAlpha = 0.04 + (dayAbs / 1) * 0.06; edgePx = 1; edgeAlpha = 0.15; }
-          else if (dayAbs <= 3)  { tintAlpha = 0.10 + ((dayAbs - 1) / 2) * 0.12; edgePx = 1; edgeAlpha = 0.25; }
-          else if (dayAbs <= 5)  { tintAlpha = 0.22 + ((dayAbs - 3) / 2) * 0.10; edgePx = 1.5; edgeAlpha = 0.35; }
-          else if (dayAbs <= 10) { tintAlpha = 0.32 + ((dayAbs - 5) / 5) * 0.13; edgePx = 2; edgeAlpha = 0.50; }
-          else if (dayAbs <= 15) { tintAlpha = 0.45 + ((dayAbs - 10) / 5) * 0.10; edgePx = 2.5; edgeAlpha = 0.60; }
-          else                   { tintAlpha = 0.55; edgePx = 3; edgeAlpha = 0.70; intensityPulse = "intensity-pulse"; }
+          if (dayAbs <= 1)       { tintAlpha = 0.06 + (dayAbs / 1) * 0.09; edgePx = 1; edgeAlpha = 0.18; }
+          else if (dayAbs <= 3)  { tintAlpha = 0.15 + ((dayAbs - 1) / 2) * 0.15; edgePx = 1; edgeAlpha = 0.30; }
+          else if (dayAbs <= 5)  { tintAlpha = 0.30 + ((dayAbs - 3) / 2) * 0.12; edgePx = 1.5; edgeAlpha = 0.40; }
+          else if (dayAbs <= 10) { tintAlpha = 0.42 + ((dayAbs - 5) / 5) * 0.13; edgePx = 2; edgeAlpha = 0.55; }
+          else if (dayAbs <= 15) { tintAlpha = 0.55 + ((dayAbs - 10) / 5) * 0.10; edgePx = 2.5; edgeAlpha = 0.65; }
+          else                   { tintAlpha = 0.65; edgePx = 3; edgeAlpha = 0.75; intensityPulse = "intensity-pulse"; }
         }
         const isUp = Number.isFinite(dayPct) && dayPct > 0;
         const isDown = Number.isFinite(dayPct) && dayPct < 0;
-        const greenRgb = "0,200,83";
-        const redRgb = "225,29,72";
+        const greenRgb = "34,197,94";
+        const redRgb = "239,68,68";
         const rgb = isUp ? greenRgb : isDown ? redRgb : "0,0,0";
         const tint = (isUp || isDown) ? `rgba(${rgb},${tintAlpha.toFixed(3)})` : "rgba(0,0,0,0)";
 
-        // Phase Oscillator fill
-        const phaseP = Number(t?.phase_pct);
-        const phasePct = Number.isFinite(phaseP)
-          ? Math.round(Math.max(0, Math.min(1, Math.abs(phaseP))) * 100)
-          : null;
-        const phaseFillColor = (isUp || isDown)
-          ? isUp ? "rgba(0,200,83,0.22)" : "rgba(225,29,72,0.22)"
-          : "rgba(0,200,83,0.22)";
-        const phaseFill = phasePct != null
-          ? `linear-gradient(90deg, ${phaseFillColor} 0%, ${phaseFillColor} ${phasePct}%, rgba(0,0,0,0) ${phasePct}%, rgba(0,0,0,0) 100%)`
-          : null;
         const bgTint = `linear-gradient(0deg, ${tint}, ${tint})`;
-        const bgImage = phaseFill ? `${phaseFill}, ${bgTint}` : bgTint;
+        const bgImage = bgTint;
 
         const dayEdgeClass = (isUp || isDown)
           ? `shadow-[0_0_0_${edgePx}px_rgba(${rgb},${edgeAlpha.toFixed(2)})]`
@@ -11671,27 +11660,31 @@
         }
 
         // Daily activity summary (entries + exits today)
-        const todayKey = new Date().toISOString().slice(0, 10);
-        const tsToDate = (ts) => {
-          if (!Number.isFinite(ts)) return null;
-          const ms = ts < 1e12 ? ts * 1000 : ts;
-          return new Date(ms).toISOString().slice(0, 10);
+        const todayLocal = (() => {
+          const d = new Date();
+          return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+        })();
+        const todayStartMs = new Date(todayLocal + "T00:00:00").getTime();
+        const todayEndMs = todayStartMs + 86400000;
+        const tsToMs = (v) => {
+          if (!v) return 0;
+          const n = Number(v);
+          if (!Number.isFinite(n)) return 0;
+          return n < 1e12 ? n * 1000 : n;
         };
         // Entries today (opened today)
         const todayEntries = (trades || []).filter((tr) => {
-          const entryTs = Number(tr.entry_ts ?? tr.entryTime ?? tr.created_at) || 0;
-          return tsToDate(entryTs) === todayKey;
+          const ms = tsToMs(tr.entry_ts ?? tr.entryTime ?? tr.created_at);
+          return ms >= todayStartMs && ms < todayEndMs;
         });
-        // Exits today (closed today)
+        // Exits today (closed today) — only count proper WIN/LOSS exits
         const todayExits = (trades || []).filter((tr) => {
-          const exitTs = Number(tr.exit_ts ?? tr.exitTs ?? tr.exitTime) || 0;
-          return tsToDate(exitTs) === todayKey;
+          const ms = tsToMs(tr.exit_ts ?? tr.exitTs ?? tr.exitTime);
+          const s = String(tr?.status || "").toUpperCase();
+          return ms >= todayStartMs && ms < todayEndMs && (s === "WIN" || s === "LOSS");
         });
-        const todayWins = todayExits.filter((t) => String(t?.status || "").toUpperCase() === "WIN").length;
-        const todayLosses = todayExits.filter((t) => {
-          const s = String(t?.status || "").toUpperCase();
-          return s === "LOSS" || s === "FLAT";
-        }).length;
+        const todayWins = todayExits.filter((t) => (Number(t?.pnl ?? t?.realizedPnl) || 0) > 0).length;
+        const todayLosses = todayExits.filter((t) => (Number(t?.pnl ?? t?.realizedPnl) || 0) <= 0).length;
         const todayRealizedPnl = todayExits.reduce((sum, t) => sum + (Number(t?.pnl ?? t?.realizedPnl) || 0), 0);
         const todayActivityCount = todayEntries.length + todayExits.length;
 
@@ -16219,7 +16212,7 @@
                       <a href="investor-dashboard.html" className="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Investor</a>
                       <a href="simulation-dashboard.html" className="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Trades</a>
                       <a href="model-dashboard.html" className="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Model</a>
-                      <a href="screener.html" className="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Screener</a>
+                      <a href="screener.html" data-admin-only="true" className="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Screener</a>
                       <a href="ticker-management.html" data-admin-only="true" className="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Tickers</a>
                       {(window.TimedAuthHelpers?.getStoredSession()?.role === "admin" || window.TimedAuthHelpers?.getStoredSession()?.tier === "admin") && (
                         <a href="admin-clients.html" data-admin-only="true" className="px-3 py-1 rounded-md text-[13px] text-[#a78bfa]/80 hover:text-[#a78bfa] hover:bg-[#a78bfa]/[0.06] transition-all font-medium">Admin</a>
@@ -16263,7 +16256,7 @@
                     <a href="investor-dashboard.html" className="px-3 py-2 rounded-md text-[13px] text-[#9ca3af] hover:text-white hover:bg-white/[0.04] transition-all" onClick={() => setMobileMenuOpen(false)}>Investor</a>
                     <a href="simulation-dashboard.html" className="px-3 py-2 rounded-md text-[13px] text-[#9ca3af] hover:text-white hover:bg-white/[0.04] transition-all" onClick={() => setMobileMenuOpen(false)}>Trades</a>
                     <a href="model-dashboard.html" className="px-3 py-2 rounded-md text-[13px] text-[#9ca3af] hover:text-white hover:bg-white/[0.04] transition-all" onClick={() => setMobileMenuOpen(false)}>Model</a>
-                    <a href="screener.html" className="px-3 py-2 rounded-md text-[13px] text-[#9ca3af] hover:text-white hover:bg-white/[0.04] transition-all" onClick={() => setMobileMenuOpen(false)}>Screener</a>
+                    <a href="screener.html" data-admin-only="true" className="px-3 py-2 rounded-md text-[13px] text-[#9ca3af] hover:text-white hover:bg-white/[0.04] transition-all" onClick={() => setMobileMenuOpen(false)}>Screener</a>
                     <a href="ticker-management.html" data-admin-only="true" className="px-3 py-2 rounded-md text-[13px] text-[#9ca3af] hover:text-white hover:bg-white/[0.04] transition-all" onClick={() => setMobileMenuOpen(false)}>Tickers</a>
                     {(window.TimedAuthHelpers?.getStoredSession()?.role === "admin" || window.TimedAuthHelpers?.getStoredSession()?.tier === "admin") && (
                       <a href="admin-clients.html" data-admin-only="true" className="px-3 py-2 rounded-md text-[13px] text-[#a78bfa]/80 hover:text-[#a78bfa] hover:bg-[#a78bfa]/[0.06] transition-all font-medium" onClick={() => setMobileMenuOpen(false)}>Admin</a>

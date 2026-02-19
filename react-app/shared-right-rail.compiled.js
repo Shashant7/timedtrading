@@ -3625,7 +3625,7 @@
           className: "text-[9px] text-[#4b5563]"
         }, duration)), isClosed && /*#__PURE__*/React.createElement("span", {
           className: `text-xs font-bold ${isFlat ? "text-[#6b7280]" : computedPnlPct >= 0 ? "text-green-400" : "text-red-400"}`
-        }, computedPnlPct >= 0 ? "+" : "", computedPnlPct.toFixed(2), "%")), !isClosed && (() => {
+        }, computedPnlPct >= 0 ? "+" : "", computedPnlPct.toFixed(2), "%")), !isClosed && document.body.dataset.userRole === "admin" && (() => {
           const src = latestTicker || ticker;
           const cp = Number(src?.currentPrice ?? src?.cp ?? 0);
           const dayPct = Number(src?.dayPct ?? src?.dailyChangePct ?? 0);

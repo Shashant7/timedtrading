@@ -650,7 +650,7 @@
       // ── Mount ──────────────────────────────────────────────────────────────
       const AuthGate = window.TimedAuthGate;
       const screenerApp = AuthGate
-        ? <AuthGate apiBase={API_BASE} requiredTier="pro">{(user) => <App user={user} />}</AuthGate>
+        ? <AuthGate apiBase={API_BASE} requiredTier="admin">{(user) => <App user={user} />}</AuthGate>
         : <App />;
       ReactDOM.createRoot(document.getElementById("root")).render(screenerApp);
     </script>
