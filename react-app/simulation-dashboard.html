@@ -126,7 +126,7 @@
     <script src="auth-gate.js?v=20260217b"></script>
     <script src="shared-price-utils.js?v=20260211a"></script>
     <script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
-    <script src="shared-right-rail.compiled.js?v=20260213b" type="text/babel"></script>
+    <script src="shared-right-rail.compiled.js?v=20260218a" type="text/babel"></script>
     <script type="text/babel">
       const { useState, useEffect, useMemo, useCallback, memo, useRef } = React;
 
@@ -6057,33 +6057,26 @@
                 };
 
                 return (
-                  <div key={p.id || i} className="w-full text-left py-1.5 px-2 border-b border-white/[0.04] hover:bg-white/[0.02] transition-all">
-                    {/* Row 1: Ticker, P&L, Entry, Current Price, Day Chg, Qty, Stage */}
-                    <div className="flex items-center gap-2">
-                      <span className="text-[11px] font-bold text-white w-[44px] shrink-0">{p.ticker}</span>
-                      <span className={`text-[9px] font-bold w-[10px] shrink-0 ${isLong ? "text-[#00c853]" : "text-[#ff5252]"}`}>{isLong ? "L" : "S"}</span>
-                      <span className={`text-[11px] font-semibold tabular-nums w-[60px] text-right shrink-0 ${isPositive ? "text-[#00c853]" : "text-[#ff5252]"}`}>
+                  <div key={p.id || i} className="w-full text-left py-1.5 px-3 border-b border-white/[0.04] hover:bg-white/[0.02] transition-all">
+                    <div className="grid grid-cols-[56px_16px_72px_48px_72px_56px_80px_72px] gap-2 items-center">
+                      <span className="text-[11px] font-bold text-white truncate">{p.ticker}</span>
+                      <span className={`text-[9px] font-bold ${isLong ? "text-[#00c853]" : "text-[#ff5252]"}`}>{isLong ? "L" : "S"}</span>
+                      <span className={`text-[11px] font-semibold tabular-nums text-right ${isPositive ? "text-[#00c853]" : "text-[#ff5252]"}`}>
                         {fmtUsd(pnl)}
                       </span>
-                      <span className={`text-[9px] tabular-nums w-[38px] text-right shrink-0 ${isPositive ? "text-[#00c853]/70" : "text-[#ff5252]/70"}`}>
+                      <span className={`text-[9px] tabular-nums text-right ${isPositive ? "text-[#00c853]/70" : "text-[#ff5252]/70"}`}>
                         {pnlPct >= 0 ? "+" : ""}{pnlPct.toFixed(1)}%
                       </span>
-                      <span className="text-[10px] text-amber-300/90 tabular-nums w-[56px] shrink-0 text-right" title="Entry">
+                      <span className="text-[10px] text-amber-300/90 tabular-nums text-right" title="Entry">
                         {ep ? `$${ep.toFixed(2)}` : "—"}
                       </span>
-                      <span className="text-[10px] text-white tabular-nums w-[56px] shrink-0 text-right font-medium">
-                        {cp ? `$${cp.toFixed(2)}` : "—"}
-                      </span>
-                      <span className={`text-[10px] tabular-nums w-[70px] shrink-0 text-right ${dc >= 0 ? "text-[#00c853]" : "text-[#ff5252]"}`}>
-                        {hasDayChg ? `${dc >= 0 ? "+" : ""}${dc.toFixed(2)}%` : "—"}
-                      </span>
-                      <span className="text-[10px] text-[#9ca3af] tabular-nums w-[40px] shrink-0 text-right" title="Quantity">
+                      <span className="text-[10px] text-[#9ca3af] tabular-nums text-right" title="Quantity">
                         {qty != null ? qty.toFixed(2) : "—"}
                       </span>
-                      <span className="text-[9px] text-[#6b7280] w-[72px] shrink-0 truncate" title="Market Value">
+                      <span className="text-[10px] text-[#6b7280] tabular-nums text-right" title="Market Value">
                         {fmtUsd(p.marketValue || 0)}
                       </span>
-                      <span className={`text-[8px] px-1.5 py-px rounded ${si.bg} ${si.color} font-medium shrink-0 ml-auto`}>
+                      <span className={`text-[8px] px-1.5 py-px rounded ${si.bg} ${si.color} font-medium text-center`}>
                         {si.label}
                       </span>
                     </div>
@@ -6108,17 +6101,15 @@
                   ) : (
                     <div className="space-y-0">
                       {/* Column headers */}
-                      <div className="flex items-center gap-2 px-2 py-1 border-b border-white/[0.06] text-[8px] font-semibold uppercase tracking-wider text-[#6b7280]">
-                        <span className="w-[44px] shrink-0">Ticker</span>
-                        <span className="w-[10px] shrink-0"></span>
-                        <span className="w-[60px] shrink-0 text-right">P&L</span>
-                        <span className="w-[38px] shrink-0 text-right">%</span>
-                        <span className="w-[56px] shrink-0 text-right">Entry</span>
-                        <span className="w-[56px] shrink-0 text-right">Current Price</span>
-                        <span className="w-[70px] shrink-0 text-right">Day Chg</span>
-                        <span className="w-[40px] shrink-0 text-right">Qty</span>
-                        <span className="w-[72px] shrink-0">Mkt Value</span>
-                        <span className="shrink-0 text-center ml-auto" style={{ width: "60px" }}>Stage</span>
+                      <div className="grid grid-cols-[56px_16px_72px_48px_72px_56px_80px_72px] gap-2 px-3 py-1.5 border-b border-white/[0.06] text-[9px] font-semibold uppercase tracking-wider text-[#6b7280]">
+                        <span>Ticker</span>
+                        <span></span>
+                        <span className="text-right">P&L</span>
+                        <span className="text-right">%</span>
+                        <span className="text-right">Entry</span>
+                        <span className="text-right">Qty</span>
+                        <span className="text-right">Mkt Value</span>
+                        <span className="text-center">Stage</span>
                       </div>
                       {[...sortedPositions].sort((a, b) => String(a.ticker || "").localeCompare(String(b.ticker || ""))).map((p, i) => renderInvCard(p, i))}
                     </div>
@@ -7635,12 +7626,6 @@
                               return sum + (Number(m.pnlOpen) || 0);
                             }, 0);
                             const totalPnl = totalRealized + openPnl;
-                            const todayKey = new Date().toISOString().slice(0, 10);
-                            const todayPnl = ledgerClosedTrades.filter((t) => {
-                              const exitTs = tsToMs(t.exit_ts);
-                              if (!exitTs) return false;
-                              return new Date(exitTs).toISOString().slice(0, 10) === todayKey;
-                            }).reduce((s, t) => s + (Number(t.pnl) || 0), 0);
                             return (
                               <>
                                 <div className="tt-card p-3">
@@ -7650,10 +7635,6 @@
                                 <div className="tt-card p-3">
                                   <div className="text-[10px] text-[var(--tt-text-faint)] uppercase tracking-wide">Total P&L</div>
                                   <div className={`text-lg font-bold ${totalPnl >= 0 ? "text-[var(--tt-accent)]" : "text-[var(--tt-negative)]"}`}>{fmtUsd(totalPnl)}</div>
-                                </div>
-                                <div className="tt-card p-3">
-                                  <div className="text-[10px] text-[var(--tt-text-faint)] uppercase tracking-wide">Today</div>
-                                  <div className={`text-lg font-bold ${todayPnl >= 0 ? "text-[var(--tt-accent)]" : "text-[var(--tt-negative)]"}`}>{fmtUsd(todayPnl)}</div>
                                 </div>
                                 <div className="tt-card p-3">
                                   <div className="text-[10px] text-[var(--tt-text-faint)] uppercase tracking-wide">Open P&L</div>

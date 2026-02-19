@@ -4189,10 +4189,12 @@
                                 t.status === "LOSS" ||
                                 t.status === "FLAT" ||
                                 trimmedPct >= 0.9999;
-                              const pnl = Number(t.pnl || 0);
-                              const pnlPct = Number(t.pnl_pct || 0);
+                              const rawExitPrice = Number(t.exit_price || 0);
+                              const exitPriceMissing = isClosed && rawExitPrice <= 0;
+                              const pnl = exitPriceMissing ? 0 : Number(t.pnl || 0);
+                              const pnlPct = exitPriceMissing ? 0 : Number(t.pnl_pct || 0);
                               const entryPrice = Number(t.entry_price || 0);
-                              const exitPrice = Number(t.exit_price || 0);
+                              const exitPrice = rawExitPrice;
                               const trimPrice = Number(t.trim_price || 0);
                               const trimTs = t.trim_ts;
                               const hasTrimmed = trimmedPct > 0;
@@ -4233,8 +4235,10 @@
                               const isFlat = isClosed && Math.abs(computedPnlPct) < 0.01;
                               
                               // Status label — FLAT if backend says so OR computed P&L ~ 0
-                              const statusLabel = (t.status === "FLAT" || isFlat) ? "FLAT" : t.status === "WIN" ? "WIN" : t.status === "LOSS" ? "LOSS" : null;
-                              const statusCls = (t.status === "FLAT" || isFlat)
+                              const statusLabel = exitPriceMissing ? "ERROR" : (t.status === "FLAT" || isFlat) ? "FLAT" : t.status === "WIN" ? "WIN" : t.status === "LOSS" ? "LOSS" : null;
+                              const statusCls = exitPriceMissing
+                                ? "bg-amber-500/20 text-amber-400 border border-amber-500/30"
+                                : (t.status === "FLAT" || isFlat)
                                 ? "bg-[#6b7280]/20 text-[#9ca3af] border border-[#6b7280]/30"
                                 : t.status === "WIN"
                                   ? "bg-green-500/20 text-green-400 border border-green-500/30"

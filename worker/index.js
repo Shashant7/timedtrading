@@ -27682,7 +27682,28 @@ export default {
           // Check if already active
           const existing = slots.find(s => s.ticker === rawTicker && s.active);
           if (existing) {
-            return sendJSON({ ok: false, error: "already_added", ticker: rawTicker }, 409, corsHeaders(env, req));
+            return sendJSON({ ok: false, error: "already_added", ticker: rawTicker, detail: `${rawTicker} is already in your custom tickers.` }, 409, corsHeaders(env, req));
+          }
+
+          // Check if ticker is already in the seeded universe
+          if (SECTOR_MAP[rawTicker]) {
+            return sendJSON({ ok: false, error: "already_in_universe", ticker: rawTicker, detail: `${rawTicker} is already tracked in the Timed Trading universe. Search for it by name.` }, 409, corsHeaders(env, req));
+          }
+
+          // Validate ticker exists in Alpaca feed
+          try {
+            const alpacaKey = env.ALPACA_KEY_ID || env.ALPACA_API_KEY;
+            const alpacaSecret = env.ALPACA_SECRET_KEY || env.ALPACA_API_SECRET;
+            if (alpacaKey && alpacaSecret) {
+              const snapRes = await fetch(`https://data.alpaca.markets/v2/stocks/${rawTicker}/snapshot?feed=sip`, {
+                headers: { "APCA-API-KEY-ID": alpacaKey, "APCA-API-SECRET-KEY": alpacaSecret },
+              });
+              if (!snapRes.ok) {
+                return sendJSON({ ok: false, error: "ticker_not_found", ticker: rawTicker, detail: `${rawTicker} was not found in the market data feed. Please check the symbol.` }, 400, corsHeaders(env, req));
+              }
+            }
+          } catch (e) {
+            console.warn(`[USER_TICKERS] Alpaca validation failed for ${rawTicker}:`, String(e?.message || e).slice(0, 100));
           }
 
           // Check slot limit
