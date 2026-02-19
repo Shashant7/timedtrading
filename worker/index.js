@@ -27509,6 +27509,24 @@ export default {
             }
           }
 
+          // Demote stale admins: if DB says admin but email no longer matches ADMIN_EMAIL
+          if (adminEmail && user.role === "admin" && user.email?.toLowerCase() !== adminEmail) {
+            const preservedTier = user.tier === "admin" ? "free" : (user.tier || "free");
+            user.role = "member";
+            user.tier = preservedTier;
+            try {
+              const DB = env?.DB;
+              if (DB) {
+                await DB.prepare(
+                  `UPDATE users SET role = 'member', tier = ? WHERE email = ? AND role = 'admin'`
+                ).bind(preservedTier, user.email).run();
+                console.log(`[AUTH] Demoted stale admin ${user.email} → member (tier=${preservedTier})`);
+              }
+            } catch (e) {
+              console.warn("[AUTH] Admin demotion failed:", String(e?.message || e));
+            }
+          }
+
           // ── Cross-origin login redirect ──────────────────────────────────
           // If ?return=<url> is present, the user arrived here from a Pages-hosted
           // dashboard that redirected to the worker domain so CF Access could set
@@ -36330,301 +36348,22 @@ Provide 3-5 actionable next steps:
           console.log(`[PRICE FEED LIGHT] TV futures: ${tvUpdated}, crypto: ${cryptoUpdated}, total: ${Object.keys(existing).length}`);
           // Skip the rest of the heavy pipeline
         } else {
-        // ── Full pipeline (active hours) ──
-
-        // Alpaca universe: same filter as bar cron — stocks/ETFs only (exclude futures, crypto, indices)
-        const ALPACA_SYMBOL_BLOCKLIST = new Set([
-          "ES1!", "NQ1!", "YM1!", "RTY1!", "CL1!", "GC1!", "SI1!", "BTCUSD", "ETHUSD", "US500", "VX1!", "SPX", "BRK-B",
-        ]);
-        const alpacaUniverseTickers = allTickers.filter(
-          (t) => !ALPACA_SYMBOL_BLOCKLIST.has(t) && /^[A-Z]{1,5}$/.test(t)
-        );
-
-        // ── Phase 6: Try AlpacaStream DO for prices (with freshness gate) ──
-        let snapshots = {};
-        let usedStream = false;
-        if (env.ALPACA_STREAM) {
-          try {
-            const streamPrices = await alpacaStreamGetPrices(env);
-            const streamKeys = streamPrices ? Object.keys(streamPrices) : [];
-            let newestTs = 0;
-            for (const d of Object.values(streamPrices || {})) {
-              if (d.t > newestTs) newestTs = d.t;
-            }
-            const ageMin = newestTs > 0 ? (Date.now() - newestTs) / 60000 : Infinity;
-
-            if (streamKeys.length > 50 && ageMin < 10) {
-              for (const [sym, data] of Object.entries(streamPrices)) {
-                snapshots[sym] = {
-                  price: data.p,
-                  trade_ts: data.t,
-                  dailyOpen: data.o || 0,
-                  dailyHigh: data.h || 0,
-                  dailyLow: data.l || 0,
-                  dailyClose: data.c || data.p,
-                  dailyVolume: data.v || 0,
-                  prevDailyClose: 0,
-                  minuteBar: { c: data.p, o: data.o || data.p, h: data.h || data.p, l: data.l || data.p, v: data.v || 0, t: data.t },
-                  _source: "alpaca_stream",
-                };
-              }
-              usedStream = true;
-              console.log(`[PRICE FEED] Using AlpacaStream prices: ${streamKeys.length} tickers (age ${ageMin.toFixed(1)}min)`);
-            } else if (streamKeys.length > 0) {
-              console.warn(`[PRICE FEED] Stream skipped: ${streamKeys.length} tickers but age=${ageMin.toFixed(0)}min (>10min), using REST`);
-            }
-          } catch (streamErr) {
-            console.warn("[PRICE FEED] AlpacaStream read failed, falling back to REST:", String(streamErr).slice(0, 150));
-          }
-        }
-
-        // Gap-fill: if stream was fresh but missed some tickers, fetch those via REST
-        if (usedStream) {
-          const missing = allTickers.filter(t => !snapshots[t]);
-          if (missing.length > 0) {
-            const gap = await alpacaFetchSnapshots(env, missing);
-            Object.assign(snapshots, gap.snapshots || {});
-            console.log(`[PRICE FEED] Gap-filled ${missing.length} tickers via REST`);
-          }
-        }
-
-        // Full REST fallback if stream was stale or unavailable
-        if (!usedStream) {
-          const snapResult = await alpacaFetchSnapshots(env, allTickers);
-          snapshots = snapResult.snapshots || {};
-        }
-
-        // Build compact price payload for KV
-        // ═══════════════════════════════════════════════════════════════════════
-        // PREV_CLOSE PRIORITY:
-        //   1. Alpaca prevDailyBar.c — yesterday's 4pm ET close (always correct from REST snapshot)
-        //   2. D1 ticker_candles tf='D' — fallback for non-Alpaca tickers (futures, etc.)
-        // ═══════════════════════════════════════════════════════════════════════
-
-        // Source: Daily candles from D1 (fallback for non-Alpaca tickers).
-        // OPTIMIZATION: Cache in KV keyed by trading day. Daily candle prev_close
-        // only changes once per day (at market close), so querying D1 once per trading day
-        // and serve from KV cache for the rest of the day. On weekends, use last weekday.
-        const todayTradingDay = currentTradingDayKey();
-        const prevCloseCacheKey = "timed:cache:daily_prev_close";
-        let dailyCandlePrevCloseMap = {};
-        let d1PrevCloseMap = {};
-        let prevCloseCacheHit = false;
-        try {
-          const cached = await kvGetJSON(KV, prevCloseCacheKey);
-          const dcCount = cached?.dailyCandle ? Object.keys(cached.dailyCandle).length : 0;
-          if (cached && cached.day === todayTradingDay && dcCount >= 50 && cached.d1Latest) {
-            dailyCandlePrevCloseMap = cached.dailyCandle;
-            d1PrevCloseMap = cached.d1Latest;
-            prevCloseCacheHit = true;
-            console.log(`[PRICE CRON] prev_close cache HIT (day=${todayTradingDay}, ${dcCount} tickers)`);
-          } else if (cached) {
-            console.log(`[PRICE CRON] prev_close cache STALE (day=${cached.day}, dcCount=${dcCount}, today=${todayTradingDay}) — rebuilding`);
-          }
-        } catch (_) { /* cache miss, fall through to D1 */ }
-
-        if (!prevCloseCacheHit) {
-          // Cache miss or new trading day — query D1 and rebuild cache
-          try {
-            if (env?.DB) {
-              // Cutoff: midnight ET today (converted to UTC ms).
-              // Daily candle timestamps use midnight ET (= 5 AM UTC in EST, 4 AM UTC in EDT).
-              // We need the cutoff to be >= midnight ET today so yesterday's candle IS included
-              // while today's candle is excluded.
-              // Example: Thu Feb 12 → cutoff = midnight ET Feb 12 = 5 AM UTC Feb 12 (EST).
-              //   Wed candle (ts = midnight ET Feb 12 = 5 AM UTC) → 5 AM < 5 AM → EXCLUDED (tie).
-              //   But we actually want Wed's candle! The backfill uses midnight ET as ts, so
-              //   we use nyWallTimeToUtcMs which precisely converts NY wall time to UTC.
-              //   Wed candle ts = midnight ET Thu (Feb 12) → EXCLUDED.
-              //   Tue candle ts = midnight ET Wed (Feb 11) → INCLUDED.
-              //   Correction: Alpaca daily bars use the TRADING DAY date at midnight ET.
-              //   Wed Feb 11 bar → ts = midnight ET Feb 11 → INCLUDED ← wrong, we want Wed bar.
-              //
-              // Actually, the convention is: daily bar for Wed has ts = midnight ET *of Wed* (start-of-day).
-              // So Wed bar ts = 2026-02-11T05:00:00Z (midnight ET Wed = 5 AM UTC Wed).
-              // cutoff should be midnight ET Thu (today) = 2026-02-12T05:00:00Z.
-              // Wed bar 05:00 < 05:00 Thu → EXCLUDED with strict <. Need <=.
-              //
-              // Simplest correct approach: use midnight ET of today as cutoff.
-              // Yesterday's bar ts = midnight ET yesterday < midnight ET today → INCLUDED ✓
-              // Today's bar ts = midnight ET today = cutoff → EXCLUDED with strict < ✓
-              const cutoffMs = nyWallTimeToUtcMs(todayTradingDay, 0, 0, 0) || new Date(todayTradingDay + "T00:00:00Z").getTime();
-
-              // Use MAX(ts) + GROUP BY to get one row per ticker (SQLite "bare columns"
-              // guarantee: c comes from the row containing the MAX ts).
-              const dcRows = await env.DB.prepare(
-                `SELECT ticker, c, MAX(ts) as latest_ts FROM ticker_candles
-                 WHERE tf = 'D' AND ts < ?1
-                 GROUP BY ticker`
-              ).bind(cutoffMs).all();
-              for (const r of (dcRows?.results || [])) {
-                const sym = String(r.ticker).toUpperCase();
-                const close = Number(r.c);
-                if (Number.isFinite(close) && close > 0) {
-                  dailyCandlePrevCloseMap[sym] = close;
-                }
-              }
-              console.log(`[PRICE CRON] Daily candle prev_close loaded from D1 for ${Object.keys(dailyCandlePrevCloseMap).length} tickers`);
-            }
-          } catch (e) {
-            console.error("[PRICE CRON] Daily candle prevClose load failed:", String(e));
-          }
-
-          // Source 1b: Fallback — derive prev_close from 5-MINUTE candles for missing tickers.
-          // We find the last 5m candle AT or BEFORE previous trading day's 4 PM ET close.
-          try {
-            const prevDay = prevTradingDayKey(todayTradingDay);
-            const prevCloseMs = prevDay ? nyWallTimeToUtcMs(prevDay, 16, 0, 0) : null;
-            if (env?.DB && prevCloseMs && Number.isFinite(prevCloseMs)) {
-              const missingTickers = allTickers.filter(t => !dailyCandlePrevCloseMap[t]);
-              if (missingTickers.length > 0) {
-                const lookbackStart = prevCloseMs - 8 * 3600 * 1000;
-                for (let i = 0; i < missingTickers.length; i += 200) {
-                  const batch = missingTickers.slice(i, i + 200);
-                  const stmts = batch.map(sym =>
-                    env.DB.prepare(
-                      `SELECT c FROM ticker_candles WHERE ticker = ?1 AND tf = '5'
-                       AND ts >= ?2 AND ts <= ?3 ORDER BY ts DESC LIMIT 1`
-                    ).bind(sym.toUpperCase(), lookbackStart, prevCloseMs + 300000)
-                  );
-                  const results = await env.DB.batch(stmts);
-                  for (let j = 0; j < batch.length; j++) {
-                    const row = results[j]?.results?.[0];
-                    const close = Number(row?.c);
-                    if (Number.isFinite(close) && close > 0) {
-                      dailyCandlePrevCloseMap[batch[j]] = close;
-                    }
-                  }
-                }
-                console.log(`[PRICE CRON] 5m-candle prev_close fallback added ${missingTickers.length - allTickers.filter(t => !dailyCandlePrevCloseMap[t]).length} tickers (total: ${Object.keys(dailyCandlePrevCloseMap).length})`);
-              }
-            }
-          } catch (e) {
-            console.warn("[PRICE CRON] 1m-candle prev_close fallback failed:", String(e).slice(0, 200));
-          }
-
-          // Source 2: ticker_latest scoring data (fallback for tickers without daily candles)
-          try {
-            if (env?.DB) {
-              const rows = await env.DB.prepare(
-                `SELECT ticker, payload_json FROM ticker_latest`
-              ).all();
-              for (const r of (rows?.results || [])) {
-                try {
-                  const obj = JSON.parse(r.payload_json);
-                  const pc = Number(obj?.prev_close);
-                  if (Number.isFinite(pc) && pc > 0) {
-                    d1PrevCloseMap[String(r.ticker).toUpperCase()] = pc;
-                  }
-                } catch (_) {}
-              }
-            }
-          } catch (e) {
-            console.error("[PRICE CRON] D1 prevClose load failed:", String(e));
-          }
-
-          // Write cache to KV (TTL = 48 hours, covers full trading day + weekend gap)
-          // On Friday, the cache survives through Sunday so we keep showing
-          // Thursday's prev_close during the entire weekend.
-          try {
-            if (Object.keys(dailyCandlePrevCloseMap).length > 0) {
-              await kvPutJSON(KV, prevCloseCacheKey, {
-                day: todayTradingDay,
-                dailyCandle: dailyCandlePrevCloseMap,
-                d1Latest: d1PrevCloseMap,
-                built_at: Date.now(),
-              }, 48 * 3600);
-              console.log(`[PRICE CRON] prev_close cache WRITTEN (day=${todayTradingDay})`);
-            }
-          } catch (e) {
-            console.warn("[PRICE CRON] Failed to write prev_close cache:", String(e?.message || e));
-          }
-        }
-
-        // Helper: pick best prev_close
-        // Priority: Alpaca prevDailyBar.c (always correct) > D1 daily candle (fallback for non-Alpaca tickers)
-        function pickPrevClose(sym, alpacaPc, currentPrice) {
-          const alp = Number(alpacaPc) || 0;
-          const dailyCandle = dailyCandlePrevCloseMap[sym] || 0;
-          const px = Number(currentPrice) || 0;
-
-          if (alp > 0) {
-            if (px > 0 && Math.abs((px - alp) / alp * 100) > 25) {
-              console.warn(`[PRICE CRON] ${sym} Alpaca prev_close ${alp} diverges >25% from price ${px}, falling through`);
-            } else {
-              return alp;
-            }
-          }
-
-          if (dailyCandle > 0) {
-            if (px > 0 && Math.abs((px - dailyCandle) / dailyCandle * 100) > 25) {
-              console.warn(`[PRICE CRON] ${sym} daily candle ${dailyCandle} diverges >25% from price ${px}, skipping`);
-            } else {
-              return dailyCandle;
-            }
-          }
-
-          return 0;
-        }
+        // ── Full pipeline (active hours) — simplified ──
+        // AlpacaStream DO handles all Alpaca stock + crypto price computation
+        // and writes directly to timed:prices KV + PriceHub every ~1s.
+        // This cron only: (1) overlays TV futures, (2) checks SL/TP exits.
 
         let prices = {};
-        for (const [sym, snap] of Object.entries(snapshots)) {
-          const price = snap.price;
-          const prevClose = pickPrevClose(sym, snap.prevDailyClose, price);
-          const dailyChange = (price && prevClose && prevClose > 0)
-            ? Math.round((price - prevClose) * 100) / 100
-            : null; // null instead of 0 so mergeFreshnessIntoLatest preserves existing
-          const dailyChangePct = (price && prevClose && prevClose > 0)
-            ? Math.round(((price - prevClose) / prevClose) * 10000) / 100
-            : null;
-          prices[sym] = {
-            p: Math.round(price * 100) / 100,          // current price
-            pc: Math.round(prevClose * 100) / 100,      // previous close
-            dc: dailyChange,                              // daily change $ (null if unknown)
-            dp: dailyChangePct,                           // daily change % (null if unknown)
-            dh: Math.round((snap.dailyHigh || 0) * 100) / 100,  // daily high
-            dl: Math.round((snap.dailyLow || 0) * 100) / 100,   // daily low
-            dv: snap.dailyVolume || 0,                    // daily volume
-            t: Date.now(),                                // per-ticker timestamp
-          };
-        }
+        try {
+          const raw = await kvGetJSON(KV, "timed:prices");
+          prices = raw?.prices || {};
+        } catch (_) {}
 
-        // If a ticker is in the Alpaca universe but missing from the first response (e.g. single-letter "W"),
-        // retry with only those symbols so we always get live price from Alpaca when possible.
-        const missingAfterFirst = alpacaUniverseTickers.filter((s) => !prices[s] || !(Number(prices[s]?.p) > 0));
-        if (missingAfterFirst.length > 0) {
-          const retryResult = await alpacaFetchSnapshots(env, missingAfterFirst);
-          const retrySnap = retryResult.snapshots || {};
-          for (const [sym, snap] of Object.entries(retrySnap)) {
-            const price = snap.price;
-            const prevClose = pickPrevClose(sym, snap.prevDailyClose, price);
-            const dailyChange = (price && prevClose && prevClose > 0)
-              ? Math.round((price - prevClose) * 100) / 100
-              : null;
-            const dailyChangePct = (price && prevClose && prevClose > 0)
-              ? Math.round(((price - prevClose) / prevClose) * 10000) / 100
-              : null;
-            prices[sym] = {
-              p: Math.round(price * 100) / 100,
-              pc: Math.round(prevClose * 100) / 100,
-              dc: dailyChange,
-              dp: dailyChangePct,
-              dh: Math.round((snap.dailyHigh || 0) * 100) / 100,
-              dl: Math.round((snap.dailyLow || 0) * 100) / 100,
-              dv: snap.dailyVolume || 0,
-              t: Date.now(),
-            };
-          }
-        }
-
-        // Merge TV heartbeat prices for futures/macro tickers
-        // These come from TradingView Pine heartbeat alerts.
-        // Pine sends syminfo.ticker (e.g. "GC1!", "SI1!", "ES1!", "NQ1!")
-        // stored as timed:heartbeat:{ticker}. Also check timed:latest:{ticker} as fallback.
-        const TV_FUTURES = ["ES1!", "NQ1!", "GC1!", "SI1!", "VX1!", "US500"];
-        for (const tvSym of TV_FUTURES) {
+        // Overlay TV heartbeat prices for futures/macro tickers not handled by the DO
+        const TV_FUTURES_ACTIVE = ["ES1!", "NQ1!", "GC1!", "SI1!", "VX1!", "US500", "CL1!"];
+        let tvOverlayCount = 0;
+        for (const tvSym of TV_FUTURES_ACTIVE) {
           try {
-            // Try heartbeat first (fresher, 2d TTL), then latest as fallback
             const hbData = await kvGetJSON(KV, `timed:heartbeat:${tvSym}`);
             const latestData = await kvGetJSON(KV, `timed:latest:${tvSym}`);
             const tvData = (hbData && hbData.price > 0) ? hbData : latestData;
@@ -36633,202 +36372,33 @@ Provide 3-5 actionable next steps:
               const price = Number(tvData.price);
               const dc = prevClose > 0 ? Math.round((price - prevClose) * 100) / 100 : null;
               const dp = prevClose > 0 ? Math.round(((price - prevClose) / prevClose) * 10000) / 100 : null;
+              const prev = prices[tvSym] || {};
               prices[tvSym] = {
+                ...prev,
                 p: Math.round(price * 100) / 100,
-                pc: Math.round(prevClose * 100) / 100,
-                dc, dp,
-                dh: Math.round(Number(tvData.high || tvData.dailyHigh || 0) * 100) / 100,
-                dl: Math.round(Number(tvData.low || tvData.dailyLow || 0) * 100) / 100,
-                dv: Number(tvData.volume || 0),
-                t: Number(tvData.ts || tvData.timestamp || tvData.ingest_ts || 0) || Date.now(),
+                pc: prevClose > 0 ? Math.round(prevClose * 100) / 100 : (prev.pc || 0),
+                dc: dc ?? prev.dc, dp: dp ?? prev.dp,
+                dh: Math.round(Number(tvData.high || tvData.dailyHigh || 0) * 100) / 100 || prev.dh,
+                dl: Math.round(Number(tvData.low || tvData.dailyLow || 0) * 100) / 100 || prev.dl,
+                dv: Number(tvData.volume || 0) || prev.dv,
+                t: Number(tvData.ts || tvData.ingest_ts || 0) || Date.now(),
               };
+              tvOverlayCount++;
             }
-          } catch (_) { /* best-effort */ }
+          } catch (_) {}
         }
 
-        // Fallback for tickers still missing after initial + retry (e.g. Alpaca delayed/unavailable).
-        // Use latest 5m candle or timed:latest so the UI shows a valid price.
-        const missingFromSnap = allTickers.filter(s => !prices[s] || !(Number(prices[s]?.p) > 0));
-        if (missingFromSnap.length > 0 && env?.DB) {
-          for (const sym of missingFromSnap) {
-            try {
-              let price = 0;
-              let prevClose = 0;
-              const res = await d1GetCandles(env, sym, "5", 1);
-              if (res?.ok && res.candles?.length > 0 && Number.isFinite(res.candles[0].c))
-                price = Number(res.candles[0].c);
-              if (!(price > 0)) {
-                const latest = await kvGetJSON(KV, `timed:latest:${sym}`);
-                if (latest && Number(latest.price) > 0) {
-                  price = Number(latest.price);
-                  prevClose = Number(latest.prev_close || latest.previous_close || 0) || 0;
-                }
-              }
-              if (price > 0) {
-                // Use 0 (not price) when prevClose unavailable — never pretend prev_close = current price
-                const pc = prevClose > 0 ? prevClose : 0;
-                // Use null (not 0) when prevClose unavailable so
-                // mergeFreshnessIntoLatest preserves existing non-zero values
-                const dc = prevClose > 0 ? Math.round((price - prevClose) * 100) / 100 : null;
-                const dp = prevClose > 0 ? Math.round(((price - prevClose) / prevClose) * 10000) / 100 : null;
-                prices[sym] = {
-                  p: Math.round(price * 100) / 100,
-                  pc: Math.round(pc * 100) / 100,
-                  dc, dp,
-                  dh: price, dl: price, dv: 0,
-                  t: Date.now(),
-                };
-              }
-            } catch (_) { /* best-effort */ }
-          }
-        }
-
-        // ── Two-tier price sanity check ──
-        // RTH (9:30-4 PM ET):    Compare against D1 5m candles (>2% → use candle).
-        // Outside RTH (pre/post): Compare against D1 DAILY close (>25% → use daily close).
-        //   This catches bad SIP prints (e.g. AGYS $62 when real close was $81) without
-        //   the self-reinforcing loop that plagued the old pre-market candle check.
-        const _sanityET = getEasternParts(new Date());
-        const _sanityEtMins = _sanityET.hour * 60 + _sanityET.minute;
-        const _sanityDateStr = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
-        const _isRTH = _sanityEtMins >= _RTH_OPEN && _sanityEtMins <= _RTH_CLOSE
-          && !["Sat", "Sun"].includes(_sanityET.weekday)
-          && !(_cronCalendar ? _calIsEquityHoliday(_cronCalendar, _sanityDateStr) : false);
-        if (_isRTH) {
-          try {
-            const db = env?.DB;
-            if (db) {
-              const currentMinuteTs = Math.floor(Date.now() / 60000) * 60000;
-              const lookbackStart = currentMinuteTs - 15 * 60 * 1000;
-              const tickersToCheck = Object.keys(prices).filter(s => prices[s]?.p > 0);
-              for (let i = 0; i < tickersToCheck.length; i += 200) {
-                const batch = tickersToCheck.slice(i, i + 200);
-                const stmts = batch.map(sym =>
-                  db.prepare(
-                    `SELECT c, ts FROM ticker_candles WHERE ticker = ?1 AND tf = '5' AND ts >= ?2 AND ts < ?3 ORDER BY ts DESC LIMIT 1`
-                  ).bind(sym.toUpperCase(), lookbackStart, currentMinuteTs)
-                );
-                const results = await db.batch(stmts);
-                for (let j = 0; j < batch.length; j++) {
-                  const sym = batch[j];
-                  const row = results[j]?.results?.[0];
-                  if (!row || !Number.isFinite(Number(row.c)) || Number(row.c) <= 0) continue;
-                  const candlePrice = Number(row.c);
-                  const alpacaPrice = prices[sym].p;
-                  const divergePct = Math.abs(alpacaPrice - candlePrice) / candlePrice * 100;
-                  if (divergePct > 2) {
-                    const prevClose = prices[sym].pc;
-                    const dc = prevClose > 0 ? Math.round((candlePrice - prevClose) * 100) / 100 : null;
-                    const dp = prevClose > 0 ? Math.round(((candlePrice - prevClose) / prevClose) * 10000) / 100 : null;
-                    console.log(`[PRICE SANITY] ${sym}: Alpaca $${alpacaPrice} diverges ${divergePct.toFixed(1)}% from 5m candle $${candlePrice} — using candle`);
-                    prices[sym] = { ...prices[sym], p: Math.round(candlePrice * 100) / 100, dc, dp };
-                  }
-                }
-              }
-            }
-          } catch (e) {
-            console.warn("[PRICE SANITY] RTH error:", String(e).slice(0, 200));
-          }
-        } else {
-            // Outside RTH: compare against daily close to catch bad SIP prints.
-              // Uses a 15% threshold — legitimate pre-market gaps of 15%+ are very rare
-              // (even post-earnings), and the RTH candle check (2%) auto-corrects once markets open.
-              // The dailyCandlePrevCloseMap already has correct closes from D1 tf='D'.
-              try {
-                let _sanityCorrected = 0;
-                for (const [sym, snap] of Object.entries(prices)) {
-                  const price = snap.p;
-                  if (!Number.isFinite(price) || price <= 0) continue;
-                  const dailyClose = dailyCandlePrevCloseMap[sym.toUpperCase()] || dailyCandlePrevCloseMap[sym];
-                  if (!dailyClose || dailyClose <= 0) continue;
-                  const divergePct = Math.abs(price - dailyClose) / dailyClose * 100;
-                  if (divergePct > 15) {
-                console.log(`[PRICE SANITY] ${sym}: pre-market $${price} diverges ${divergePct.toFixed(1)}% from daily close $${dailyClose} — using daily close`);
-                // The daily close IS the correct prev_close for pre-market.
-                // Also fix pc if it's wrong (e.g. Alpaca returned bad prevDailyBar).
-                const correctedPc = Math.round(dailyClose * 100) / 100;
-                prices[sym] = { ...snap, p: correctedPc, pc: correctedPc, dc: 0, dp: 0 };
-                _sanityCorrected++;
-              }
-            }
-            if (_sanityCorrected > 0) {
-              console.log(`[PRICE SANITY] Pre-market: corrected ${_sanityCorrected} tickers using daily close`);
-            }
-          } catch (e) {
-            console.warn("[PRICE SANITY] pre-market error:", String(e).slice(0, 200));
-          }
-        }
-
-        // Store in KV with timestamp + debug
-        const d1PcCount = Object.keys(d1PrevCloseMap).length;
-        const dcMapCount = Object.keys(dailyCandlePrevCloseMap).length;
-        const pcEqP = Object.values(prices).filter(v => v.pc === v.p && v.p > 0).length;
-        const pcZero = Object.values(prices).filter(v => v.pc === 0).length;
-        const pcReal = Object.values(prices).filter(v => v.pc > 0 && v.pc !== v.p).length;
-        console.log(`[PRICE FEED] d1PcCount=${d1PcCount}, dcMapCount=${dcMapCount}, cacheHit=${prevCloseCacheHit}, usedStream=${usedStream}, pc==p: ${pcEqP}, pc==0: ${pcZero}, pc_real: ${pcReal}`);
-        // Detailed prev_close debug for sample tickers
-        const _dbgTickers = {};
-        for (const dbgSym of ["AAPL", "TSLA", "IBP", "HIMS"]) {
-          const snap = snapshots[dbgSym];
-          const p = prices[dbgSym];
-          const dcVal = dailyCandlePrevCloseMap[dbgSym];
-          const d1Val = d1PrevCloseMap[dbgSym];
-          _dbgTickers[dbgSym] = {
-            snapPrice: snap?.price, snapPrevDC: snap?.prevDailyClose,
-            dcMap: dcVal, d1Map: d1Val,
-            finalP: p?.p, finalPc: p?.pc, finalDc: p?.dc,
-          };
-          console.log(`[PRICE FEED DBG] ${dbgSym}: dcMap=${dcVal}, d1Map=${d1Val}, snapPDC=${snap?.prevDailyClose}, snapPrice=${snap?.price}, finalPc=${p?.pc}, finalDc=${p?.dc}`);
-        }
-        // Guard: if >50% of tickers have pc == p, the prev_close pipeline likely
-        // failed (transient KV/D1 error). Preserve the last known good KV data
-        // instead of overwriting with broken daily-change values.
-        const totalWithPrice = pcEqP + pcZero + pcReal;
-        const pcEqPRatio = totalWithPrice > 0 ? pcEqP / totalWithPrice : 0;
-        const priceUpdateTs = Date.now();
-        const pcDegraded = pcEqP > 20 && pcEqPRatio > 0.5;
-        if (pcDegraded) {
-          // prev_close pipeline degraded — preserve last good dc/dp but still update prices (p).
-          // Prices from Alpaca are always correct; only daily-change fields are suspect.
-          console.warn(`[PRICE FEED] pcEqP=${pcEqP}/${totalWithPrice} (${(pcEqPRatio * 100).toFixed(0)}%) — merging fresh prices into existing KV, preserving daily change.`);
-          try {
-            const existing = await kvGetJSON(KV, "timed:prices");
-            const oldPrices = existing?.prices || {};
-            const merged = {};
-            for (const [sym, cur] of Object.entries(prices)) {
-              const old = oldPrices[sym];
-              if (old && Number(old.pc) > 0 && old.pc !== old.p) {
-                // Preserve last good daily-change data, update price
-                merged[sym] = { ...cur, pc: old.pc, dc: old.dc, dp: old.dp };
-              } else {
-                merged[sym] = cur;
-              }
-            }
-            await kvPutJSON(KV, "timed:prices", {
-              prices: merged,
-              updated_at: priceUpdateTs,
-              ticker_count: Object.keys(merged).length,
-              _debug: { d1PcCount, dcMapCount, pcEqP, pcZero, pcReal, cacheHit: prevCloseCacheHit, usedStream, version: "v3-merge", pcDegraded: true, _dbgTickers },
-            });
-            prices = merged;
-          } catch (e) {
-            console.error(`[PRICE FEED] Merge fallback failed:`, String(e).slice(0, 200));
-          }
-        } else {
+        if (tvOverlayCount > 0) {
           await kvPutJSON(KV, "timed:prices", {
             prices,
-            updated_at: priceUpdateTs,
+            updated_at: Date.now(),
             ticker_count: Object.keys(prices).length,
-            _debug: { d1PcCount, dcMapCount, pcEqP, pcZero, pcReal, cacheHit: prevCloseCacheHit, usedStream, version: "v3-guard", _dbgTickers },
+            _source: "cron_tv_overlay",
           });
+          ctx.waitUntil(notifyPriceHub(env, { type: "prices", data: prices, updated_at: Date.now() }));
         }
 
-        // Always push prices to WS clients — prices are always correct even when daily change is degraded
-        ctx.waitUntil(notifyPriceHub(env, {
-          type: "prices",
-          data: prices,
-          updated_at: priceUpdateTs,
-        }));
+        console.log(`[PRICE FEED] Simplified: DO-managed prices + ${tvOverlayCount} TV futures overlaid, total=${Object.keys(prices).length}`);
 
         // ── SL/TP Exit Checking on price loop ──
         // Check open positions against current prices for fast SL/TP reaction

@@ -1041,8 +1041,8 @@
                           </span>
                         );
                       })()}
-                      {/* CP + daily change inline — prefer latestTicker for freshest data */}
-                      {(() => {
+                      {/* CP + daily change inline — admin only for legal compliance */}
+                      {document.body.dataset.userRole === "admin" && (() => {
                         const src = latestTicker || ticker;
                         const price = Number(src?._live_price || src?.price || src?.close || 0);
                         if (!price) return null;
@@ -1061,18 +1061,29 @@
                           </span>
                         );
                       })()}
-                      {(() => {
+                      {document.body.dataset.userRole === "admin" && (() => {
                         const src = latestTicker || ticker;
                         const { dayChg, dayPct, stale, marketOpen } = getDailyChange(src);
                         if (!Number.isFinite(dayChg) && !Number.isFinite(dayPct)) return null;
                         const sign = Number(dayChg || dayPct || 0) >= 0 ? "+" : "-";
                         const cls = Number(dayChg || dayPct || 0) >= 0 ? "text-green-400" : "text-red-400";
+                        const ahPct = Number(src?._ah_change_pct);
+                        const ahChg = Number(src?._ah_change);
+                        const hasAH = Number.isFinite(ahPct) && ahPct !== 0;
                         return (
-                          <span className={`text-xs font-semibold ${cls}`}>
-                            {Number.isFinite(dayChg) ? `${sign}${fmtUsdAbs(dayChg)}` : ""}{" "}
-                            {Number.isFinite(dayPct) ? `(${sign}${Math.abs(dayPct).toFixed(2)}%)` : ""}
-                            {!marketOpen && <span className="ml-1 text-[10px] text-[#6b7280]">AH</span>}
-                          </span>
+                          <>
+                            <span className={`text-xs font-semibold ${cls}`}>
+                              {Number.isFinite(dayChg) ? `${sign}${fmtUsdAbs(dayChg)}` : ""}{" "}
+                              {Number.isFinite(dayPct) ? `(${sign}${Math.abs(dayPct).toFixed(2)}%)` : ""}
+                            </span>
+                            {hasAH && (
+                              <span className={`text-[10px] font-medium ${ahPct >= 0 ? "text-green-400" : "text-red-400"}`}>
+                                {ahPct >= 0 ? "+" : ""}{ahPct.toFixed(2)}%
+                                {Number.isFinite(ahChg) ? ` ${ahChg >= 0 ? "+" : ""}$${Math.abs(ahChg).toFixed(2)}` : ""}
+                                <span className="ml-0.5 text-[9px] text-[#6b7280]">AH</span>
+                              </span>
+                            )}
+                          </>
                         );
                       })()}
                     </div>
