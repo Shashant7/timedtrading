@@ -887,6 +887,12 @@ async function ensureTickerIndex(KV, ticker) {
   }
 }
 
+const MARKET_PULSE_SYMS = [
+  "SPX","US500","ES1!","NQ1!","RTY1!","YM1!","VX1!",
+  "CL1!","GC1!","SI1!","HG1!","NG1!",
+  "BTCUSD","ETHUSD",
+];
+
 function marketType(ticker) {
   const t = String(ticker || "").toUpperCase();
   if (t.endsWith("USDT") || t.endsWith("USD")) return "CRYPTO_24_7";
@@ -20332,7 +20338,7 @@ export default {
             const _rawRemoved = (await kvGetJSON(KV, "timed:removed")) || [];
             const removedSet = new Set(Array.isArray(_rawRemoved) ? _rawRemoved : []);
             const userAdded = await d1GetActiveUserTickersCached(env);
-            const activeSet = new Set([...Object.keys(SECTOR_MAP), ...userAdded]);
+            const activeSet = new Set([...Object.keys(SECTOR_MAP), ...userAdded, ...MARKET_PULSE_SYMS]);
             const data = {};
             for (const [sym, payload] of Object.entries(snapshot.data)) {
               if (activeSet.has(sym)) data[sym] = payload;
@@ -20373,6 +20379,11 @@ export default {
                   }
                 } catch (_) { /* skip */ }
               }
+            }
+
+            // ── Market Pulse placeholders: ensure futures/indices/crypto exist in data ──
+            for (const sym of MARKET_PULSE_SYMS) {
+              if (!data[sym]) data[sym] = { ticker: sym };
             }
 
             // ── Overlay live prices + daily change from timed:prices ──
@@ -20554,6 +20565,47 @@ export default {
                 }
               }
             } catch (_) { /* non-critical — serve snapshot with original block reasons */ }
+
+            // ── Sparkline enrichment at serve time ──
+            // If the snapshot was built before sparklines were added, or if the
+            // scoring cron hasn't run since deploy, enrich inline from D1 daily candles.
+            try {
+              const totalTickers = Object.keys(data).length;
+              const withSparkline = Object.values(data).filter(d => Array.isArray(d?._sparkline) && d._sparkline.length >= 2).length;
+              if (totalTickers > 0 && withSparkline < totalTickers * 0.5 && env?.DB) {
+                const sparkRows = await env.DB.prepare(
+                  `SELECT ticker, ts, c FROM (
+                    SELECT ticker, ts, c, ROW_NUMBER() OVER (PARTITION BY ticker ORDER BY ts DESC) as rn
+                    FROM ticker_candles WHERE tf = 'D'
+                  ) WHERE rn <= 20
+                  ORDER BY ticker, ts ASC`
+                ).all();
+                const sparkMap = {};
+                for (const r of (sparkRows?.results || [])) {
+                  const sym = String(r.ticker).toUpperCase();
+                  if (!sparkMap[sym]) sparkMap[sym] = [];
+                  sparkMap[sym].push(Number(r.c));
+                }
+                for (const [sym, closes] of Object.entries(sparkMap)) {
+                  if (data[sym]) data[sym]._sparkline = closes;
+                }
+                // Async-update KV snapshot so subsequent requests skip the D1 query
+                ctx.waitUntil((async () => {
+                  try {
+                    const enrichedSnapshot = {};
+                    for (const [sym, payload] of Object.entries(snapshot.data)) {
+                      enrichedSnapshot[sym] = { ...payload };
+                      if (sparkMap[sym]) enrichedSnapshot[sym]._sparkline = sparkMap[sym];
+                    }
+                    await kvPutJSON(KV, "timed:all:snapshot", {
+                      data: enrichedSnapshot,
+                      count: Object.keys(enrichedSnapshot).length,
+                      built_at: snapshot.built_at,
+                    });
+                  } catch (_) {}
+                })());
+              }
+            } catch (_) { /* sparkline enrichment non-critical */ }
 
             return sendJSON(
               { ok: true, data, count: Object.keys(data).length, source: "kv_snapshot", built_at: snapshot.built_at },
@@ -20962,6 +21014,11 @@ export default {
             console.warn("[/timed/all] Position reconciliation failed:", String(reconcileErr?.message || reconcileErr));
           }
 
+          // ── Market Pulse placeholders (D1 fallback path) ──
+          for (const sym of MARKET_PULSE_SYMS) {
+            if (!data[sym]) data[sym] = { ticker: sym };
+          }
+
           // Overlay lightweight heartbeat (KV, 2d TTL) for fresh price/daily change
           try {
             const syms = Object.keys(data);
@@ -21202,6 +21259,29 @@ export default {
               ctx.waitUntil(alpacaEnrichMissingContext(env, KV, missingCtx));
             }
           } catch { /* non-critical */ }
+
+          // ── Sparkline enrichment (D1 fallback path) ──
+          try {
+            const withSpark = Object.values(data).filter(d => Array.isArray(d?._sparkline) && d._sparkline.length >= 2).length;
+            if (Object.keys(data).length > 0 && withSpark < Object.keys(data).length * 0.5 && env?.DB) {
+              const sparkRows = await env.DB.prepare(
+                `SELECT ticker, ts, c FROM (
+                  SELECT ticker, ts, c, ROW_NUMBER() OVER (PARTITION BY ticker ORDER BY ts DESC) as rn
+                  FROM ticker_candles WHERE tf = 'D'
+                ) WHERE rn <= 20
+                ORDER BY ticker, ts ASC`
+              ).all();
+              const sparkMap = {};
+              for (const r of (sparkRows?.results || [])) {
+                const sym = String(r.ticker).toUpperCase();
+                if (!sparkMap[sym]) sparkMap[sym] = [];
+                sparkMap[sym].push(Number(r.c));
+              }
+              for (const [sym, closes] of Object.entries(sparkMap)) {
+                if (data[sym]) data[sym]._sparkline = closes;
+              }
+            }
+          } catch (_) { /* sparkline enrichment non-critical */ }
 
           return sendJSON(
             {
@@ -21747,7 +21827,25 @@ export default {
       // GET /timed/earnings/upcoming — cached upcoming earnings for universe tickers
       if (routeKey === "GET /timed/earnings/upcoming") {
         try {
-          const cached = await kvGetJSON(KV, "timed:earnings:upcoming");
+          let cached = await kvGetJSON(KV, "timed:earnings:upcoming");
+          const staleMs = 6 * 3600 * 1000;
+          const isEmpty = !cached?.events || cached.events.length === 0;
+          const isStale = cached?.updated_at && (Date.now() - cached.updated_at) > staleMs;
+          if (isEmpty || isStale) {
+            try {
+              const today = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+              const future = new Date(Date.now() + 5 * 86400000).toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+              const raw = await fetchFinnhubEarnings(env, today, future);
+              const universeSet = new Set(Object.keys(SECTOR_MAP));
+              const filtered = raw
+                .filter(e => e.symbol && universeSet.has(e.symbol.toUpperCase()))
+                .map(e => ({ ...e, symbol: e.symbol.toUpperCase() }));
+              cached = { events: filtered, updated_at: Date.now() };
+              ctx.waitUntil(kvPutJSON(KV, "timed:earnings:upcoming", cached, 86400).catch(() => {}));
+            } catch (fetchErr) {
+              console.warn("[EARNINGS] On-demand fetch failed:", String(fetchErr?.message || fetchErr).slice(0, 150));
+            }
+          }
           return sendJSON(
             { ok: true, events: cached?.events || [], updated_at: cached?.updated_at || 0 },
             200,
@@ -23913,6 +24011,28 @@ export default {
           // Remove tickers not in activeSyms
           for (const sym of Object.keys(snapshot)) {
             if (!activeSyms.includes(sym)) delete snapshot[sym];
+          }
+
+          // Enrich with sparkline data (last 20 daily closes per ticker)
+          try {
+            const sparkRows = await env.DB.prepare(
+              `SELECT ticker, ts, c FROM (
+                SELECT ticker, ts, c, ROW_NUMBER() OVER (PARTITION BY ticker ORDER BY ts DESC) as rn
+                FROM ticker_candles WHERE tf = 'D'
+              ) WHERE rn <= 20
+              ORDER BY ticker, ts ASC`
+            ).all();
+            const sparkMap = {};
+            for (const r of (sparkRows?.results || [])) {
+              const sym = String(r.ticker).toUpperCase();
+              if (!sparkMap[sym]) sparkMap[sym] = [];
+              sparkMap[sym].push(Number(r.c));
+            }
+            for (const [sym, closes] of Object.entries(sparkMap)) {
+              if (snapshot[sym]) snapshot[sym]._sparkline = closes;
+            }
+          } catch (sparkErr) {
+            console.warn("[REBUILD-INDEX] Sparkline enrichment failed:", String(sparkErr?.message || sparkErr).slice(0, 150));
           }
 
           await kvPutJSON(KV, "timed:all:snapshot", {
