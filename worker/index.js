@@ -13849,6 +13849,26 @@ async function d1EnsureCalibrationSchema(env) {
   }
 }
 
+/** Runs full calibration pipeline (harvest + autopsy + analysis). Used by cron when timed:calibration:requested is set. */
+async function runCalibrationInCron(env) {
+  const KV = env?.KV_TIMED;
+  if (!KV) return;
+  const requested = await KV.get("timed:calibration:requested");
+  if (!requested) return;
+  try {
+    await d1EnsureCalibrationSchema(env);
+    await d1EnsureLearningSchema(env);
+    const moveCount = await harvestMovesServerSide(env);
+    const tradeCount = await autopsyTradesServerSide(env);
+    const report = await runCalibrationAnalysis(env);
+    console.log(`[CALIBRATION] Cron run complete: moves=${moveCount} trades=${tradeCount} report_id=${report?.report_id || "?"}`);
+  } catch (e) {
+    console.error("[CALIBRATION] Cron run error:", String(e?.message || e).slice(0, 300));
+    return; // keep key so next run retries
+  }
+  await KV.delete("timed:calibration:requested");
+}
+
 // Log direction accuracy entry on trade creation
 async function d1LogDirectionEntry(env, trade, tickerData) {
   const db = env?.DB;
@@ -30400,7 +30420,18 @@ export default {
       if (routeKey === "POST /timed/calibration/run") {
         try {
           const db = env?.DB;
+          const KV = env?.KV_TIMED;
           if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
+          // Calibration can exceed Worker request timeout (~30s). Queue for cron; cron has 15min CPU for hourly.
+          if (KV) {
+            await KV.put("timed:calibration:requested", String(Date.now()), { expirationTtl: 86400 }); // 24h TTL
+            return sendJSON(
+              { ok: true, queued: true, message: "Calibration queued. It runs on the next half-hour (within ~30 min). Refresh or we'll check for the report periodically." },
+              202,
+              corsHeaders(env, req)
+            );
+          }
+          // Fallback: run inline (may 503 if > 30s)
           await d1EnsureCalibrationSchema(env);
           await d1EnsureLearningSchema(env);
           const moveCount = await harvestMovesServerSide(env);
@@ -38220,6 +38251,13 @@ Provide 3-5 actionable next steps:
         ts: Date.now(),
         utc: _now.toISOString(),
       }), { expirationTtl: 300 }).catch(() => {}));
+    }
+
+    // Calibration: runs when user clicked "Run Calibration" (sets timed:calibration:requested). Half-hour cron has 15min CPU.
+    if (event.cron === "30 * * * *" && env?.DB && env?.KV_TIMED) {
+      ctx.waitUntil(
+        runCalibrationInCron(env).catch((e) => console.warn("[CALIBRATION] Cron waitUntil failed:", String(e?.message || e).slice(0, 200)))
+      );
     }
 
     // Weekly Retrospective: Fridays at 9:15 PM UTC (4:15 PM ET, after market close)

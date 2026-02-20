@@ -64,6 +64,7 @@ crons = [
   "*/1 * * * *",    # Every minute: price feed + Alpaca bar ingestion (time-gated in handler)
   "*/5 * * * *",    # Every 5 min: scoring + alerts + AI updates + investor tasks
   "0 * * * *",      # Top of hour: briefs + lifecycle + ML + ETF sync + investor hourly
+  "30 * * * *",     # Half-hour: calibration run when requested (queued from POST /timed/calibration/run)
 ]
 
 [env.production]
@@ -147,5 +148,6 @@ crons = [
   "*/1 * * * *",
   "*/5 * * * *",
   "0 * * * *",
+  "30 * * * *",
 ]
 

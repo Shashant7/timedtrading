@@ -416,10 +416,12 @@ function App() {
   const [reportId, setReportId] = useState(null);
   const [loading, setLoading] = useState(true);
   const [running, setRunning] = useState(false);
+  const [queued, setQueued] = useState(false);
   const [applying, setApplying] = useState(false);
   const [appliedMsg, setAppliedMsg] = useState(null);
   const [tab, setTab] = useState("health");
   const [error, setError] = useState(null);
+  const pollIntervalRef = React.useRef(null);
 
   // Set body role so admin-only elements (e.g. Run Calibration) are visible for admins (this page does not use AuthGate)
   useEffect(() => {
@@ -459,9 +461,44 @@ function App() {
 
   useEffect(() => { fetchReport(); }, [fetchReport]);
 
+  // Poll for report when calibration was queued (202)
+  useEffect(() => {
+    if (!queued) return;
+    const pollMs = 20000;
+    const maxPolls = 30; // 10 min
+    let count = 0;
+    const tick = async () => {
+      count++;
+      try {
+        const res = await fetch(`${API_BASE}/timed/calibration/report`, { credentials: "include" });
+        if (res.ok) {
+          const data = await res.json();
+          if (data.ok && data.report) {
+            setReport(data.report);
+            setRecs(data.recommendations);
+            setReportId(data.report_id);
+            setQueued(false);
+            if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+            pollIntervalRef.current = null;
+            return;
+          }
+        }
+      } catch (_) {}
+      if (count >= maxPolls) {
+        setQueued(false);
+        if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+        pollIntervalRef.current = null;
+      }
+    };
+    pollIntervalRef.current = setInterval(tick, pollMs);
+    tick();
+    return () => { if (pollIntervalRef.current) clearInterval(pollIntervalRef.current); };
+  }, [queued]);
+
   const handleRun = async () => {
     setRunning(true);
     setError(null);
+    setQueued(false);
     try {
       const res = await fetch(`${API_BASE}/timed/calibration/run`, {
         method: "POST",
@@ -479,9 +516,14 @@ function App() {
       }
       const data = await res.json();
       if (data.ok) {
-        setReport(data.report);
-        setRecs(data.report?.recommendations);
-        setReportId(data.report?.report_id);
+        if (data.queued && res.status === 202) {
+          setQueued(true);
+          setError(null);
+        } else if (data.report) {
+          setReport(data.report);
+          setRecs(data.report?.recommendations);
+          setReportId(data.report?.report_id);
+        }
       } else {
         setError(data.error || "Calibration run failed");
       }
@@ -548,6 +590,11 @@ function App() {
           </div>
         </div>
 
+        {queued && (
+          <div className="mb-4 p-3 rounded-lg bg-amber-500/10 border border-amber-500/20 text-sm text-amber-300">
+            Calibration queued. It runs on the next half-hour (within ~30 min). Checking for the report every 20s — you can refresh anytime.
+          </div>
+        )}
         {error && (
           <div className="mb-4 p-3 rounded-lg bg-rose-500/10 border border-rose-500/20 text-sm text-rose-300">{error}</div>
         )}
