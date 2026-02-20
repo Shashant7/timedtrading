@@ -31120,10 +31120,19 @@ export default {
             };
           } catch (_) {}
 
-          // What's working / what's not (entry paths)
+          // Adaptive Learning: profiles, adaptations, VIX buckets
+          let profiles = null, adaptiveParams = null, vixBuckets = null;
+          try {
+            const profRows = (await db.prepare(`SELECT * FROM calibration_profiles ORDER BY profile_type, entry_state`).all()).results;
+            if (profRows?.length) profiles = profRows;
+          } catch (_) {}
+
+          // What's working / what's not
+          // Primary: trade entry_paths from report. Fallback: winner_move profiles.
           const paths = currentReport?.entry_paths || {};
           const working = [], caution = [];
           for (const [path, data] of Object.entries(paths)) {
+            if (path === "unknown") continue;
             const obj = { path, n: data.n, win_rate: data.win_rate, expectancy: data.expectancy, sqn: data.sqn, action: data.action };
             if (data.action === "DISABLE" || data.action === "RESTRICT" || (data.expectancy != null && data.expectancy < 0)) {
               caution.push(obj);
@@ -31131,15 +31140,38 @@ export default {
               working.push(obj);
             }
           }
+          // If no meaningful trade paths, derive from winner move profiles
+          if (working.length === 0 && profiles?.length) {
+            const winnerMoves = profiles.filter(p => p.profile_type === "winner_move" && p.entry_state !== "ALL" && p.entry_state !== "unknown" && p.sample_count >= 10);
+            for (const p of winnerMoves) {
+              const label = (p.entry_state || "unknown").replace(/HTF_|LTF_/g, "").replace(/_/g, " ");
+              working.push({
+                path: label,
+                n: p.sample_count,
+                win_rate: null,
+                expectancy: Number(p.avg_move_atr) || 0,
+                avg_atr: Number(p.avg_move_atr) || 0,
+                source: "moves",
+              });
+            }
+            working.sort((a, b) => (b.n || 0) - (a.n || 0));
+          }
+          if (caution.length === 0 && profiles?.length) {
+            const loserTrades = profiles.filter(p => p.profile_type === "loser_trade" && p.entry_state !== "ALL" && p.entry_state !== "unknown" && p.sample_count >= 3);
+            for (const p of loserTrades) {
+              const label = (p.entry_state || "unknown").replace(/HTF_|LTF_/g, "").replace(/_/g, " ");
+              caution.push({
+                path: label,
+                n: p.sample_count,
+                win_rate: 0,
+                expectancy: -(Number(p.avg_move_atr) || 0),
+                avg_atr: Number(p.avg_move_atr) || 0,
+                source: "trades",
+              });
+            }
+          }
           working.sort((a, b) => (b.expectancy || 0) - (a.expectancy || 0));
           caution.sort((a, b) => (a.expectancy || 0) - (b.expectancy || 0));
-
-          // Adaptive Learning: profiles, adaptations, VIX buckets
-          let profiles = null, adaptiveParams = null, vixBuckets = null;
-          try {
-            const profRows = (await db.prepare(`SELECT * FROM calibration_profiles ORDER BY profile_type, entry_state`).all()).results;
-            if (profRows?.length) profiles = profRows;
-          } catch (_) {}
           adaptiveParams = currentReport?.adaptive_params || null;
           vixBuckets = currentReport?.vix_buckets || null;
 

@@ -493,7 +493,7 @@ if (!SKIP_AUTOPSY) {
       let completionAtEntry = null, phaseAtEntry = null, flagsAtEntry = null;
       const trailArr = trailByTicker[ticker];
       if (trailArr) {
-        const closest = findNearest(trailArr, "bucket_ts", entryTs, 2 * 86400000);
+        const closest = findNearest(trailArr, "bucket_ts", entryTs, 14 * 86400000);
         if (closest) {
           htfScoreAtEntry = Number(closest.htf_score_avg) || 0;
           ltfScoreAtEntry = Number(closest.ltf_score_avg) || 0;
