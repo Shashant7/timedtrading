@@ -862,6 +862,7 @@ function App() {
   const [running, setRunning] = useState(false);
   const [queued, setQueued] = useState(false);
   const [progress, setProgress] = useState(null);
+  const preCalibReportIdRef = React.useRef(null);
   const [applying, setApplying] = useState(false);
   const [appliedMsg, setAppliedMsg] = useState(null);
   const [resetting, setResetting] = useState(false);
@@ -907,7 +908,22 @@ function App() {
           const data = await res.json();
           if (data.ok) {
             setProgress({ message: data.message, step: data.step, total_steps: data.total_steps, steps: data.steps, status: data.status });
-            if (data.status === "error" && data.message) setError(data.message);
+            if (data.status === "error" && data.message) {
+              setError(data.message);
+              setQueued(false);
+            }
+            // When status reports "done", fetch the new report and finish
+            if (data.status === "done") {
+              try {
+                const rptRes = await fetch(`${API_BASE}/timed/calibration/report`, { credentials: "include" });
+                const rptData = await rptRes.json();
+                if (rptData.ok && rptData.report) {
+                  setReport(rptData.report); setRecs(rptData.recommendations); setReportId(rptData.report_id);
+                }
+              } catch (_) {}
+              setQueued(false);
+              fetchData();
+            }
           }
         }
       } catch (_) {}
@@ -924,7 +940,8 @@ function App() {
         const res = await fetch(`${API_BASE}/timed/calibration/report`, { credentials: "include" });
         if (res.ok) {
           const data = await res.json();
-          if (data.ok && data.report) {
+          // Only treat as "done" if this is a NEW report (different from the one before we clicked Run)
+          if (data.ok && data.report && data.report_id && data.report_id !== preCalibReportIdRef.current) {
             setReport(data.report); setRecs(data.recommendations); setReportId(data.report_id);
             setQueued(false); setProgress(null);
             if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
@@ -934,13 +951,13 @@ function App() {
         }
       } catch (_) {}
     };
-    pollIntervalRef.current = setInterval(tick, 20000);
-    tick();
+    pollIntervalRef.current = setInterval(tick, 15000);
     return () => { if (pollIntervalRef.current) clearInterval(pollIntervalRef.current); };
   }, [queued]);
 
   const handleRun = async () => {
     setRunning(true); setError(null); setQueued(false);
+    preCalibReportIdRef.current = reportId;
     try {
       const res = await fetch(`${API_BASE}/timed/calibration/run`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}", credentials: "include" });
       const data = await res.json();
