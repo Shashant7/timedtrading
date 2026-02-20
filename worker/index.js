@@ -34544,9 +34544,12 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             totalPositions: positionsCount,
             newPositions: opened.length,
             addedTo: added.length,
-            reduced: reduced.length,
+            reducedCount: reduced.length,
             skippedCount: skipped.length,
-            opened, added, reduced, skipped,
+            opened,
+            added,
+            reduced,
+            skipped,
           }, 200, corsHeaders(env, req));
         } catch (err) {
           console.error("[AUTO-REBALANCE] Error:", err);
@@ -38421,7 +38424,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           console.log("[INVESTOR CRON] Running auto-rebalance...");
           const rebalResp = await fetch(`${selfUrl}/timed/investor/auto-rebalance`, { method: "POST" });
           const rebalData = await rebalResp.json().catch(() => ({}));
-          console.log(`[INVESTOR CRON] Rebalance: ${rebalData.newPositions || 0} new, ${rebalData.addedTo || 0} added, ${rebalData.reduced || 0} trimmed`);
+          console.log(`[INVESTOR CRON] Rebalance: ${rebalData.newPositions || 0} new, ${rebalData.addedTo || 0} added, ${rebalData.reducedCount || 0} trimmed`);
 
           // 3. Execute due DCA buys
           console.log("[INVESTOR CRON] Checking DCA plans...");
