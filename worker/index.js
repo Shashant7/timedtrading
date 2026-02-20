@@ -29938,15 +29938,22 @@ export default {
             ORDER BY read_at IS NOT NULL ASC, created_at DESC
             LIMIT ?2 OFFSET ?3
           `).bind(email, limit, offset).all();
-          // Unread count
+          // Unread count (total)
           const countRow = await db.prepare(`
             SELECT COUNT(*) as cnt FROM user_notifications
             WHERE (email = ?1 OR email IS NULL) AND read_at IS NULL
+          `).bind(email).first();
+          // Unread trade-alert count only (for bell badge — trade_entry, trade_exit, trade_trim)
+          const tradeAlertRow = await db.prepare(`
+            SELECT COUNT(*) as cnt FROM user_notifications
+            WHERE (email = ?1 OR email IS NULL) AND read_at IS NULL
+            AND type IN ('trade_entry','trade_exit','trade_trim')
           `).bind(email).first();
           return sendJSON({
             ok: true,
             notifications: results || [],
             unread_count: countRow?.cnt || 0,
+            unread_trade_alert_count: tradeAlertRow?.cnt ?? 0,
           }, 200, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e?.message || e) }, 500, corsHeaders(env, req));

@@ -1269,7 +1269,8 @@
           const json = await res.json();
           if (json.ok) {
             setNotifications(json.notifications || []);
-            setUnreadCount(json.unread_count || 0);
+            // Bell badge = trade alerts only (not Daily Brief / system)
+            setUnreadCount(json.unread_trade_alert_count ?? json.unread_count ?? 0);
           }
         }
       } catch {}
@@ -1292,7 +1293,7 @@
       return () => document.removeEventListener("mousedown", handler);
     }, [selectedNotification]);
 
-    const markAllRead = async () => {
+    const markAllRead = React.useCallback(async () => {
       try {
         await fetch(`${apiBase}/timed/notifications/read`, {
           method: "POST", credentials: "include",
@@ -1301,7 +1302,7 @@
         setUnreadCount(0);
         setNotifications(prev => prev.map(n => ({ ...n, read_at: n.read_at || Date.now() })));
       } catch {}
-    };
+    }, [apiBase]);
 
     const clearAll = async () => {
       try {
@@ -1430,14 +1431,21 @@
     );
 
     return h("div", { ref: bellRef, style: { position: "relative", display: "inline-flex" } },
-      // Bell button
+      // Bell button — opening the dropdown marks all as read so badge clears
       h("button", {
-        onClick: () => { setOpen(!open); if (!open) fetchNotifications(); },
+        onClick: () => {
+          const next = !open;
+          setOpen(next);
+          if (next) {
+            fetchNotifications();
+            markAllRead(); // Mark all read when user opens modal so badge doesn't linger
+          }
+        },
         style: {
           position: "relative", background: "none", border: "none", cursor: "pointer",
           padding: "4px 6px", borderRadius: "6px", display: "flex", alignItems: "center",
         },
-        title: "Notifications",
+        title: "Trade Alerts",
       },
         h("svg", {
           width: "18", height: "18", viewBox: "0 0 24 24", fill: "none",
@@ -1447,7 +1455,7 @@
           h("path", { d: "M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" }),
           h("path", { d: "M13.73 21a2 2 0 0 1-3.46 0" }),
         ),
-        // Badge
+        // Badge (trade-alert unread count only)
         unreadCount > 0 && h("span", {
           style: {
             position: "absolute", top: "0", right: "2px", minWidth: "16px", height: "16px",
