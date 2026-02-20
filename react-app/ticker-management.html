@@ -87,17 +87,13 @@
       // ── Groups (GRNY/GRNI/GRNJ loaded dynamically from ETF sync) ──
       const GROUPS = {
         UPTICKS: new Set([
-          "TSLA","STX","AU","CLS","CRS","VST","FSLR","JCI","ORCL","AMZN",
-          "BRK-B","BABA","WMT","PH","GEV","HII","CSX","PWR","SPGI","APP",
-          "PANW","RDDT","TT","GLXY","ETHA","KO","GILD","MTB","AMGN",
+          "RDDT","AMZN","BABA","TSLA","KO","WMT","ETHA","BRK-B","GLXY","MTB",
+          "SPGI","AMGN","GILD","CSX","GEV","HII","JCI","PH","PWR","TT",
+          "APP","CLS","FSLR","PANW","CRS","VST",
         ]),
-        SuperGranny: new Set(["META","NVDA","AMD","ANET","GS"]),
         GRNI: new Set(),
         GRNJ: new Set(),
         GRNY: new Set(),
-        Social: new Set([
-          "CSCO","BA","NKE","AAPL","PI","APLD","MU","HOOD","CCJ","ULTA","STX",
-        ]),
         SP_Sectors: new Set([
           "XLK","XLF","XLY","XLP","XLC","XLI","XLB","XLE","XLRE","XLU","XLV",
         ]),
@@ -105,7 +101,7 @@
       };
       // ETF weight map: { "AAPL": { GRNY: 2.50, GRNI: 2.55 }, ... }
       let _etfWeightMap = {};
-      const GROUP_ORDER = ["SP_Sectors","Futures","UPTICKS","SuperGranny","GRNI","GRNJ","GRNY","Social"];
+      const GROUP_ORDER = ["SP_Sectors","Futures","UPTICKS","GRNI","GRNJ","GRNY"];
 
       // Load ETF groups dynamically from backend
       async function loadETFGroups() {
@@ -185,6 +181,228 @@
       function formatDate(ts) {
         if (!ts) return "—";
         return new Date(ts).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "2-digit" });
+      }
+
+      // ── UPTICKS Manager ──
+      function UptickManager() {
+        const [tickers, setTickers] = useState([...GROUPS.UPTICKS]);
+        const [input, setInput] = useState("");
+        const [saving, setSaving] = useState(false);
+        const [msg, setMsg] = useState(null);
+        const [open, setOpen] = useState(false);
+
+        useEffect(() => {
+          fetch(`${API_BASE}/timed/admin/upticks`, { credentials: "include" })
+            .then(r => r.json())
+            .then(d => { if (d.ok && d.tickers?.length) setTickers(d.tickers); })
+            .catch(() => {});
+        }, []);
+
+        const addTickers = () => {
+          const raw = input.toUpperCase().split(/[,\s]+/).filter(Boolean);
+          if (!raw.length) return;
+          setTickers(prev => [...new Set([...prev, ...raw])]);
+          setInput("");
+        };
+        const removeTicker = (t) => setTickers(prev => prev.filter(x => x !== t));
+        const save = async () => {
+          setSaving(true);
+          setMsg(null);
+          try {
+            const r = await fetch(`${API_BASE}/timed/admin/upticks`, {
+              method: "PUT",
+              headers: { "Content-Type": "application/json" },
+              credentials: "include",
+              body: JSON.stringify({ tickers }),
+            });
+            const d = await r.json();
+            if (d.ok) {
+              setMsg({ type: "success", text: `Saved ${d.count} tickers` });
+              GROUPS.UPTICKS = new Set(tickers);
+            } else {
+              setMsg({ type: "error", text: d.error || "Save failed" });
+            }
+          } catch (e) {
+            setMsg({ type: "error", text: e.message });
+          } finally { setSaving(false); }
+        };
+
+        return (
+          <div className="mt-6 pt-4 border-t border-white/[0.06]">
+            <button onClick={() => setOpen(v => !v)} className="flex items-center gap-2 text-left w-full group">
+              <span className="text-[11px] text-emerald-400 uppercase tracking-wide font-semibold">✦ TT Selected — UPTICKS</span>
+              <span className="text-[10px] text-gray-500 bg-white/[0.04] px-1.5 py-0.5 rounded">{tickers.length}</span>
+              <span className="text-gray-600 text-xs group-hover:text-white ml-auto">{open ? "▲" : "▼"}</span>
+            </button>
+            {open && (
+              <div className="mt-3 space-y-3">
+                <div className="flex flex-wrap gap-1.5">
+                  {tickers.sort().map(t => (
+                    <span key={t} className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-emerald-500/10 border border-emerald-500/20 text-[11px] text-emerald-300 font-medium">
+                      {t}
+                      <button onClick={() => removeTicker(t)} className="text-emerald-500/60 hover:text-red-400 ml-0.5 text-[10px]">✕</button>
+                    </span>
+                  ))}
+                </div>
+                <div className="flex items-center gap-2">
+                  <input
+                    value={input}
+                    onChange={e => setInput(e.target.value)}
+                    onKeyDown={e => e.key === "Enter" && addTickers()}
+                    placeholder="Add tickers: AAPL, MSFT..."
+                    className="bg-white/5 border border-white/10 rounded px-3 py-1.5 text-sm text-white placeholder-gray-600 w-64 focus:outline-none focus:border-emerald-500/50"
+                  />
+                  <button onClick={addTickers} disabled={!input.trim()} className="px-3 py-1.5 bg-emerald-600/60 hover:bg-emerald-600 rounded text-xs font-medium text-white disabled:opacity-40">Add</button>
+                  <button onClick={save} disabled={saving} className="px-3 py-1.5 bg-blue-600/60 hover:bg-blue-600 rounded text-xs font-medium text-white disabled:opacity-40 ml-auto">
+                    {saving ? "Saving..." : "Save Changes"}
+                  </button>
+                </div>
+                {msg && (
+                  <div className={`text-xs px-2 py-1 rounded ${msg.type === "success" ? "text-green-400 bg-green-900/20" : "text-red-400 bg-red-900/20"}`}>
+                    {msg.text}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        );
+      }
+
+      // ── Sector Ratings Manager ──
+      const RATING_OPTIONS = ["overweight", "neutral", "underweight"];
+      const RATING_COLORS = { overweight: "text-green-400", neutral: "text-gray-400", underweight: "text-red-400" };
+      const RATING_BG = { overweight: "bg-green-900/20 border-green-800/30", neutral: "bg-white/[0.03] border-white/[0.06]", underweight: "bg-red-900/20 border-red-800/30" };
+
+      function SectorRatingsManager() {
+        const [ratings, setRatings] = useState({});
+        const [saving, setSaving] = useState(false);
+        const [msg, setMsg] = useState(null);
+        const [open, setOpen] = useState(false);
+
+        useEffect(() => {
+          fetch(`${API_BASE}/timed/admin/sector-ratings`, { credentials: "include" })
+            .then(r => r.json())
+            .then(d => { if (d.ok && d.ratings) setRatings(d.ratings); })
+            .catch(() => {});
+        }, []);
+
+        const updateField = (sector, field, value) => {
+          setRatings(prev => ({
+            ...prev,
+            [sector]: { ...prev[sector], [field]: field === "rating" ? value : Number(value) || 0 },
+          }));
+        };
+
+        const save = async () => {
+          setSaving(true);
+          setMsg(null);
+          try {
+            const r = await fetch(`${API_BASE}/timed/admin/sector-ratings`, {
+              method: "PUT",
+              headers: { "Content-Type": "application/json" },
+              credentials: "include",
+              body: JSON.stringify({ ratings }),
+            });
+            const d = await r.json();
+            if (d.ok) setMsg({ type: "success", text: `Updated ${d.updated} sectors` });
+            else setMsg({ type: "error", text: d.error || "Save failed" });
+          } catch (e) {
+            setMsg({ type: "error", text: e.message });
+          } finally { setSaving(false); }
+        };
+
+        const sectors = Object.keys(ratings).filter(s => !["ETF", "Crypto", "Precious Metals"].includes(s));
+
+        return (
+          <div className="mt-6 pt-4 border-t border-white/[0.06]">
+            <button onClick={() => setOpen(v => !v)} className="flex items-center gap-2 text-left w-full group">
+              <span className="text-[11px] text-blue-400 uppercase tracking-wide font-semibold">S&P Sector Ratings</span>
+              <span className="text-[10px] text-gray-500 bg-white/[0.04] px-1.5 py-0.5 rounded">{sectors.length} sectors</span>
+              <span className="text-gray-600 text-xs group-hover:text-white ml-auto">{open ? "▲" : "▼"}</span>
+            </button>
+            {open && (
+              <div className="mt-3 space-y-2">
+                <div className="overflow-x-auto">
+                  <table className="text-sm w-full" style={{ maxWidth: 900 }}>
+                    <thead>
+                      <tr className="text-[10px] text-gray-500 uppercase border-b border-white/[0.06]">
+                        <th className="text-left py-1.5 px-2 w-[180px]">Sector</th>
+                        <th className="text-center py-1.5 px-2 w-[130px]">Rating</th>
+                        <th className="text-center py-1.5 px-2 w-[80px]">Boost</th>
+                        <th className="text-center py-1.5 px-2 w-[90px]">S&P Wt%</th>
+                        <th className="text-center py-1.5 px-2 w-[90px]">FSI Wt%</th>
+                        <th className="text-center py-1.5 px-2 w-[80px]">Delta</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {sectors.sort((a, b) => (ratings[b]?.delta || 0) - (ratings[a]?.delta || 0)).map(sector => {
+                        const r = ratings[sector] || {};
+                        const ratingCls = RATING_BG[r.rating] || RATING_BG.neutral;
+                        return (
+                          <tr key={sector} className={`border-b border-white/[0.03] ${ratingCls}`}>
+                            <td className="py-1.5 px-2 text-[12px] text-white font-medium">{sector}</td>
+                            <td className="py-1 px-2 text-center">
+                              <select
+                                value={r.rating || "neutral"}
+                                onChange={e => updateField(sector, "rating", e.target.value)}
+                                className={`bg-transparent border border-white/10 rounded px-2 py-0.5 text-[11px] font-semibold focus:outline-none ${RATING_COLORS[r.rating] || "text-gray-400"}`}
+                                style={{ background: "rgba(10,10,15,0.8)" }}
+                              >
+                                {RATING_OPTIONS.map(o => <option key={o} value={o} style={{ background: "#1a1a24" }}>{o.charAt(0).toUpperCase() + o.slice(1)}</option>)}
+                              </select>
+                            </td>
+                            <td className="py-1 px-2 text-center">
+                              <input
+                                type="number"
+                                value={r.boost ?? 0}
+                                onChange={e => updateField(sector, "boost", e.target.value)}
+                                className="bg-white/5 border border-white/10 rounded px-2 py-0.5 text-[11px] text-white w-16 text-center focus:outline-none focus:border-blue-500/50"
+                                step={1}
+                              />
+                            </td>
+                            <td className="py-1 px-2 text-center">
+                              <input
+                                type="number"
+                                value={r.spWeight ?? 0}
+                                onChange={e => updateField(sector, "spWeight", e.target.value)}
+                                className="bg-white/5 border border-white/10 rounded px-2 py-0.5 text-[11px] text-white w-16 text-center focus:outline-none"
+                                step={0.1}
+                              />
+                            </td>
+                            <td className="py-1 px-2 text-center">
+                              <input
+                                type="number"
+                                value={r.fsiWeight ?? 0}
+                                onChange={e => updateField(sector, "fsiWeight", e.target.value)}
+                                className="bg-white/5 border border-white/10 rounded px-2 py-0.5 text-[11px] text-white w-16 text-center focus:outline-none"
+                                step={0.1}
+                              />
+                            </td>
+                            <td className="py-1 px-2 text-center">
+                              <span className={`text-[11px] font-semibold tabular-nums ${(r.delta || 0) > 0 ? "text-green-400" : (r.delta || 0) < 0 ? "text-red-400" : "text-gray-500"}`}>
+                                {Number.isFinite(r.delta) ? (r.delta > 0 ? "+" : "") + r.delta.toFixed(1) + "%" : "—"}
+                              </span>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button onClick={save} disabled={saving} className="px-3 py-1.5 bg-blue-600/60 hover:bg-blue-600 rounded text-xs font-medium text-white disabled:opacity-40">
+                    {saving ? "Saving..." : "Save Ratings"}
+                  </button>
+                  {msg && (
+                    <span className={`text-xs ${msg.type === "success" ? "text-green-400" : "text-red-400"}`}>
+                      {msg.text}
+                    </span>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        );
       }
 
       // ── Main App ──
@@ -1083,6 +1301,12 @@
                   </div>
                 </div>
               )}
+
+              {/* ── TT Selected / UPTICKS Management ── */}
+              <UptickManager />
+
+              {/* ── S&P Sector Ratings ── */}
+              <SectorRatingsManager />
 
               {/* Admin Tools — access Brand Kit and Debug from here */}
               <div className="mt-6 pt-4 border-t border-white/[0.06]">

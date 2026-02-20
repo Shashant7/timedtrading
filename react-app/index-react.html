@@ -279,6 +279,36 @@
         50% { opacity: 0.92; filter: brightness(1.15); }
       }
 
+      /* Sparkline live dot — pulses when market is open */
+      .sparkline-pulse-dot {
+        animation: sparkline-dot 1.8s ease-in-out infinite;
+      }
+      @keyframes sparkline-dot {
+        0%, 100% { transform: scale(1); opacity: 1; }
+        50% { transform: scale(1.4); opacity: 0.7; }
+      }
+      .sparkline-pulse-ring {
+        animation: sparkline-ring 1.8s ease-in-out infinite;
+      }
+      @keyframes sparkline-ring {
+        0% { transform: translate(-50%, -50%) scale(0.6); opacity: 0.3; }
+        50% { transform: translate(-50%, -50%) scale(1.3); opacity: 0; }
+        100% { transform: translate(-50%, -50%) scale(0.6); opacity: 0.3; }
+      }
+
+      /* Skeleton shimmer for card placeholders */
+      @keyframes skeleton-shimmer {
+        0% { background-position: -200% 0; }
+        100% { background-position: 200% 0; }
+      }
+      .skeleton-card {
+        background: linear-gradient(90deg, rgba(255,255,255,0.03) 25%, rgba(255,255,255,0.06) 50%, rgba(255,255,255,0.03) 75%);
+        background-size: 200% 100%;
+        animation: skeleton-shimmer 1.5s ease-in-out infinite;
+        border-radius: 0.5rem;
+        border: 1px solid rgba(255,255,255,0.04);
+      }
+
       /* Prime + Entry Zone: amber glow card highlight */
       .prime-entry-card {
         animation: prime-entry-glow 2.5s ease-in-out infinite;
@@ -1242,12 +1272,14 @@
       // Queued Actions hook (pending + recently resolved)
       function useQueuedActions() {
         const [actions, setActions] = useState([]);
+        const [pendingCount, setPendingCount] = useState(0);
         const fetchActions = useCallback(async () => {
           try {
             const res = await fetch(`${API_BASE}/timed/queued-actions?_t=${Date.now()}`, { cache: "no-store" });
             if (!res.ok) return;
             const json = await res.json();
             if (json.ok && Array.isArray(json.actions)) setActions(json.actions);
+            if (json.ok && Number.isFinite(json.pendingCount)) setPendingCount(json.pendingCount);
           } catch { /* best-effort */ }
         }, []);
         useEffect(() => {
@@ -1256,7 +1288,7 @@
           return () => clearInterval(iv);
         }, [fetchActions]);
         const pending = actions.filter(a => a.status === "PENDING");
-        return { actions, pending, refetch: fetchActions };
+        return { actions, pending, pendingCount, refetch: fetchActions };
       }
 
       // User-Added Tickers hook (Phase 5)
@@ -1404,13 +1436,23 @@
             const json = await res.json();
             if (json.ok && Array.isArray(json.events)) {
               const now = Date.now();
-              const fourHoursMs = 4 * 3600000;
+              const sixteenHoursMs = 16 * 3600000;
               const filtered = json.events.filter(e => {
                 const eventDate = new Date(e.date + "T00:00:00");
                 const eventEndMs = eventDate.getTime() + 86400000;
-                return eventEndMs + fourHoursMs > now;
+                return eventEndMs + sixteenHoursMs > now;
               });
-              setEvents(filtered);
+              // Sort: past events (last 16h) first, most recent left; then upcoming, soonest left
+              const hourOffset = (h) => {
+                const hl = String(h || "").toLowerCase();
+                if (hl === "bmo" || hl === "before market open") return 9.5 * 3600000;
+                if (hl === "amc" || hl === "after market close") return 16 * 3600000;
+                return 12 * 3600000;
+              };
+              const eventTs = (e) => new Date(e.date + "T00:00:00").getTime() + hourOffset(e.hour);
+              const past = filtered.filter(e => eventTs(e) < now).sort((a, b) => eventTs(b) - eventTs(a));
+              const future = filtered.filter(e => eventTs(e) >= now).sort((a, b) => eventTs(a) - eventTs(b));
+              setEvents([...past, ...future]);
               setUpdatedAt(json.updated_at || 0);
             }
           } catch (err) {
@@ -1690,18 +1732,13 @@
       // ─────────────────────────────────────────────────────────────
       const GROUPS = {
         UPTICKS: new Set([
-          "TSLA", "STX", "AU", "CLS", "CRS", "VST", "FSLR", "JCI", "ORCL", "AMZN",
-          "BRK-B", "BABA", "WMT", "PH", "GEV", "HII", "CSX", "PWR", "SPGI", "APP",
-          "PANW", "RDDT", "TT", "GLXY", "ETHA", "KO", "GILD", "MTB", "AMGN",
+          "RDDT", "AMZN", "BABA", "TSLA", "KO", "WMT", "ETHA", "BRK-B", "GLXY", "MTB",
+          "SPGI", "AMGN", "GILD", "CSX", "GEV", "HII", "JCI", "PH", "PWR", "TT",
+          "APP", "CLS", "FSLR", "PANW", "CRS", "VST",
         ]),
-        SuperGranny: new Set(["META", "NVDA", "AMD", "ANET", "GS"]),
         GRNI: new Set(),
         GRNJ: new Set(),
         GRNY: new Set(),
-        Social: new Set([
-          "CSCO", "BA", "NKE", "AAPL", "PI", "APLD", "MU",
-          "HOOD", "CCJ", "ULTA", "STX",
-        ]),
         SP_Sectors: new Set([
           "XLK", "XLF", "XLY", "XLP", "XLC", "XLI", "XLB",
           "XLE", "XLRE", "XLU", "XLV",
@@ -1735,23 +1772,19 @@
         SP_Sectors: "S&P Sectors",
         Futures: "Futures",
         Other: "Other",
-        UPTICKS: "TT Universe",
-        SuperGranny: "TT Universe",
-        GRNI: "TT Universe",
-        GRNJ: "TT Universe",
-        GRNY: "TT Universe",
-        Social: "TT Universe",
+        UPTICKS: "TT Selected",
+        GRNI: "TT Selected",
+        GRNJ: "TT Selected",
+        GRNY: "TT Selected",
       };
 
       const GROUP_ORDER = [
         "SP_Sectors",
         "Futures",
         "UPTICKS",
-        "SuperGranny",
         "GRNI",
         "GRNJ",
         "GRNY",
-        "Social",
         "Other",
       ];
 
@@ -1766,19 +1799,19 @@
         return s;
       }
 
-      function groupsForTicker(t, socialAdditions = []) {
+      function groupsForTicker(t) {
         const T = normTicker(t);
         const out = [];
-        const socialSet = Array.isArray(socialAdditions) ? new Set(socialAdditions.map((s) => String(s || "").toUpperCase())) : new Set();
         for (const [g, set] of Object.entries(GROUPS)) {
-          if (g === "Social" && socialSet.has(T)) {
-            out.push(g);
-          } else if (set.has(T)) {
-            out.push(g);
-          }
+          if (set.has(T)) out.push(g);
         }
         if (out.length === 0) out.push("Other");
         return out;
+      }
+
+      function isTickerTTSelected(t) {
+        const T = normTicker(t);
+        return (GROUPS.UPTICKS?.has(T) || GROUPS.GRNI?.has(T) || GROUPS.GRNJ?.has(T) || GROUPS.GRNY?.has(T));
       }
 
       function isTickerInGroups(t) {
@@ -2444,36 +2477,77 @@
         };
       }
 
-      function Sparkline({ data, width = 100, height = 24, color }) {
-        if (!Array.isArray(data) || data.length < 2) return null;
+      let _sparkIdCounter = 0;
+      function Sparkline({ data: rawData, width = 200, height = 48, color, bgMode = false }) {
+        const gradIdRef = React.useRef(`spg${++_sparkIdCounter}`);
+        if (!Array.isArray(rawData) || rawData.length < 2) return null;
+        // Filter outliers: if any value is >5x or <0.2x the median, drop it
+        const sorted = [...rawData].filter(v => Number.isFinite(v) && v > 0).sort((a, b) => a - b);
+        const median = sorted.length > 0 ? sorted[Math.floor(sorted.length / 2)] : 0;
+        const data = median > 0 ? rawData.filter(v => Number.isFinite(v) && v > 0 && v < median * 5 && v > median * 0.2) : rawData;
+        if (data.length < 2) return null;
         const min = Math.min(...data);
         const max = Math.max(...data);
         const range = max - min || 1;
-        const pad = 2;
-        const w = width - pad * 2;
-        const h = height - pad * 2;
+        const padL = 0;
+        const padR = bgMode ? 14 : 8;
+        const padTop = bgMode ? 10 : 1;
+        const padBot = bgMode ? 6 : 4;
+        const w = width - padL - padR;
+        const h = height - padTop - padBot;
         const points = data.map((v, i) => {
-          const x = pad + (i / (data.length - 1)) * w;
-          const y = pad + h - ((v - min) / range) * h;
+          const x = padL + (i / (data.length - 1)) * w;
+          const y = padTop + h - ((v - min) / range) * h;
           return `${x.toFixed(1)},${y.toFixed(1)}`;
         }).join(" ");
         const last = data[data.length - 1];
         const first = data[0];
         const lineColor = color || (last >= first ? "#4ade80" : "#f87171");
-        const cx = pad + w;
-        const cy = pad + h - ((last - min) / range) * h;
+        const dotXPct = (padL + w) / width * 100;
+        const dotYPct = (padTop + h - ((last - min) / range) * h) / height * 100;
+        const gradId = gradIdRef.current;
+        const lineOpacity = bgMode ? 0.5 : 0.9;
+        const fillTopOpacity = bgMode ? 0.14 : 0.15;
+        const sw = bgMode ? "2" : "1.8";
+        const mktOpen = isNyRegularMarketOpen();
         return (
-          <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} className="block mx-auto" style={{ overflow: "visible" }}>
-            <polyline points={points} fill="none" stroke={lineColor} strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" opacity="0.8" />
-            <circle cx={cx.toFixed(1)} cy={cy.toFixed(1)} r="2.5" fill={lineColor}>
-              <animate attributeName="r" values="2.5;4;2.5" dur="2s" repeatCount="indefinite" />
-              <animate attributeName="opacity" values="1;0.5;1" dur="2s" repeatCount="indefinite" />
-            </circle>
-            <circle cx={cx.toFixed(1)} cy={cy.toFixed(1)} r="6" fill="none" stroke={lineColor} strokeWidth="0.5" opacity="0.3">
-              <animate attributeName="r" values="4;8;4" dur="2s" repeatCount="indefinite" />
-              <animate attributeName="opacity" values="0.3;0;0.3" dur="2s" repeatCount="indefinite" />
-            </circle>
-          </svg>
+          <div className="relative w-full h-full">
+            <svg width="100%" height="100%" viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none" className="block" style={{ overflow: "visible" }}>
+              <defs>
+                <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor={lineColor} stopOpacity={fillTopOpacity} />
+                  <stop offset="100%" stopColor={lineColor} stopOpacity="0" />
+                </linearGradient>
+              </defs>
+              <polygon
+                points={`${points} ${(padL + w).toFixed(1)},${height} ${padL},${height}`}
+                fill={`url(#${gradId})`}
+              />
+              <polyline points={points} fill="none" stroke={lineColor} strokeWidth={sw} strokeLinecap="round" strokeLinejoin="round" opacity={lineOpacity} vectorEffect="non-scaling-stroke" />
+            </svg>
+            {/* Dot rendered as HTML so it stays circular despite SVG stretching */}
+            <div className="absolute pointer-events-none" style={{
+              left: `${dotXPct.toFixed(2)}%`,
+              top: `${dotYPct.toFixed(2)}%`,
+              transform: "translate(-50%, -50%)",
+            }}>
+              {mktOpen && (
+                <div className="absolute rounded-full sparkline-pulse-ring" style={{
+                  width: 20, height: 20,
+                  left: "50%", top: "50%",
+                  transform: "translate(-50%, -50%)",
+                  border: `1.5px solid ${lineColor}`,
+                  opacity: 0.25,
+                }} />
+              )}
+              <div className={`rounded-full ${mktOpen ? "sparkline-pulse-dot" : ""}`} style={{
+                width: 7, height: 7,
+                background: lineColor,
+                boxShadow: `0 0 6px ${lineColor}, 0 0 12px ${lineColor}40`,
+                opacity: mktOpen ? 1 : 0.7,
+              }} />
+            </div>
+          </div>
         );
       }
 
@@ -3283,14 +3357,12 @@
           if (effectiveFilters.group && effectiveFilters.group !== "ALL") {
             if (effectiveFilters.group === "SAVED") {
               if (!savedTickerSet || !savedTickerSet.has(normTicker(ticker))) continue;
-            } else if (effectiveFilters.group === "TT_UNIVERSE") {
+            } else if (effectiveFilters.group === "TT_SELECTED") {
               const T = normTicker(ticker);
-              const gs = groupsForTicker(T, socialAdditions);
-              const ttGroups = ["UPTICKS", "SuperGranny", "GRNI", "GRNJ", "GRNY", "Social"];
-              if (!gs.some(g => ttGroups.includes(g))) continue;
+              if (!isTickerTTSelected(T)) continue;
             } else {
               const T = normTicker(ticker);
-              const gs = groupsForTicker(T, socialAdditions);
+              const gs = groupsForTicker(T);
               if (effectiveFilters.group === "ANY") {
                 if (gs.length === 0) continue;
               } else if (effectiveFilters.group === "UNGROUPED") {
@@ -6981,8 +7053,8 @@
 
             {/* Sparkline — daily price trend */}
             {ticker._sparkline && ticker._sparkline.length >= 3 && (
-              <div className="mb-1 flex justify-center" style={{ paddingRight: 8 }}>
-                <Sparkline data={ticker._sparkline} width={120} height={22} />
+              <div className="mb-1 w-full">
+                <Sparkline data={ticker._sparkline} width={200} height={36} />
               </div>
             )}
 
@@ -9694,8 +9766,8 @@
         // Groups (seed list) - one row
         const groupPresets = [
           {
-            label: "TT Universe",
-            filter: { group: "TT_UNIVERSE" },
+            label: "TT Selected",
+            filter: { group: "TT_SELECTED" },
             icon: "🌐",
           },
           {
@@ -10319,7 +10391,7 @@
 
           // Groups
           const groupAll = countWith({ ...base, group: "ALL" });
-          const groupTTUniverse = countWith({ ...base, group: "TT_UNIVERSE" });
+          const groupTTSelected = countWith({ ...base, group: "TT_SELECTED" });
           const groupFutures = countWith({ ...base, group: "Futures" });
 
           // S&P Sectors (group + sector filters)
@@ -10397,7 +10469,7 @@
             },
             groups: {
               ALL: groupAll,
-              TT_UNIVERSE: groupTTUniverse,
+              TT_SELECTED: groupTTSelected,
               Futures: groupFutures,
             },
             sectors: {
@@ -10423,31 +10495,39 @@
           return `${baseLabel} (${count})`;
         };
 
-        const pill = (label, active, onClick) => {
+        const pill = (label, active, onClick, variant) => {
           const labelStr = String(label);
           const m = labelStr.match(/^(.*?)(?:\s*\((\d+)\))\s*$/);
           const baseLabel = (m ? m[1] : labelStr).trim();
           const count = m ? Number(m[2]) : null;
           const tip = PILL_TOOLTIPS[baseLabel] || null;
+          const isTTSelected = variant === "tt-selected-pill";
+          const btnClass = isTTSelected
+            ? active
+              ? "border-emerald-400 bg-emerald-500/25 text-emerald-200 ring-1 ring-emerald-400/30"
+              : "border-emerald-500/30 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20 hover:text-emerald-100"
+            : active
+              ? "border-blue-400 bg-blue-500/20 text-blue-200"
+              : "border-white/[0.06] bg-white/[0.03] text-[#6b7280] hover:text-white";
+          const countClass = isTTSelected
+            ? active
+              ? "border-emerald-400/40 bg-emerald-400/10 text-emerald-100"
+              : "border-emerald-500/30 bg-emerald-500/10 text-emerald-200"
+            : active
+              ? "border-blue-400/40 bg-blue-400/10 text-blue-100"
+              : "border-white/[0.06] bg-white/[0.02] text-[#c8d2ff]";
           return (
             <div className="relative group">
               <button
                 onClick={onClick}
-                className={`px-3 py-1.5 rounded-lg border text-xs font-semibold transition-all ${
-                  active
-                    ? "border-blue-400 bg-blue-500/20 text-blue-200"
-                    : "border-white/[0.06] bg-white/[0.03] text-[#6b7280] hover:text-white"
-                }`}
+                className={`px-3 py-1.5 rounded-lg border text-xs font-semibold transition-all ${btnClass}`}
               >
                 <span className="inline-flex items-center gap-2">
+                  {isTTSelected ? <span style={{fontSize:"11px"}}>✦</span> : null}
                   <span>{baseLabel}</span>
                   {Number.isFinite(count) ? (
                     <span
-                      className={`px-1.5 py-0.5 rounded-md text-[10px] font-bold border ${
-                        active
-                          ? "border-blue-400/40 bg-blue-400/10 text-blue-100"
-                          : "border-white/[0.06] bg-white/[0.02] text-[#c8d2ff]"
-                      }`}
+                      className={`px-1.5 py-0.5 rounded-md text-[10px] font-bold border ${countClass}`}
                       title={`${count} tickers`}
                     >
                       {count}
@@ -10576,9 +10656,10 @@
                     () => onChange({ group: "SAVED" }),
                   )}
                   {pill(
-                    pillLabelWithCount("🌐 TT Universe", pillCounts?.groups?.TT_UNIVERSE),
-                    group === "TT_UNIVERSE",
-                    () => onChange({ group: "TT_UNIVERSE" }),
+                    pillLabelWithCount("TT Selected", pillCounts?.groups?.TT_SELECTED),
+                    group === "TT_SELECTED",
+                    () => onChange({ group: "TT_SELECTED" }),
+                    "tt-selected-pill",
                   )}
                   {pill(
                     pillLabelWithCount("📈 SP Sectors", pillCounts?.sectors?.SP_Sectors),
@@ -11005,10 +11086,17 @@
         );
       }
 
+      // Admin role check — reads from DOM at call time so it works
+      // both before and after auth-gate sets the attribute.
+      Object.defineProperty(window, '_ttIsAdmin', {
+        get() { return document.body.dataset.userRole === "admin"; },
+        configurable: true,
+      });
+
       // ─────────────────────────────────────────────────────────────
       // Shared compact card renderer (used by both Kanban + Viewport)
       // ─────────────────────────────────────────────────────────────
-      function renderCompactCardFn(t, { onSelectTicker, savedTickers, toggleSavedTicker, tradeByTicker } = {}) {
+      const CompactCard = React.memo(function CompactCard({ t, onSelectTicker, savedTickers, toggleSavedTicker, tradeByTicker }) {
           const state = String(t?.state || "");
           const htfBull = state.startsWith("HTF_BULL");
           const htfBear = state.startsWith("HTF_BEAR");
@@ -11160,20 +11248,62 @@
           const isActionLane = ["enter_now", "trim", "exit"].includes(stage);
           const pulseCls = isActionLane ? (dir === "LONG" ? "card-pulse" : "card-pulse-short") : "";
 
-          // ── Card background: skin's daily-change tint + phase fill layered on dark base ──
-          const baseBg = "rgba(13,17,23,0.92)";
-          const cardBgImage = skin?.bgImage
-            ? `${skin.bgImage}, linear-gradient(0deg, ${baseBg}, ${baseBg})`
-            : `linear-gradient(0deg, ${baseBg}, ${baseBg})`;
+          // ── Card background: deep glass (fish-tank) with daily-change tint ──
+          const glassBg = "rgba(10,16,28,0.45)";
+          const cardBgImage = [
+            skin?.bgImage || null,
+            "linear-gradient(170deg, rgba(255,255,255,0.07) 0%, rgba(255,255,255,0.02) 25%, transparent 55%)",
+            "linear-gradient(to bottom, rgba(120,160,255,0.04) 0%, transparent 40%, rgba(0,0,0,0.15) 100%)",
+            `linear-gradient(0deg, ${glassBg}, ${glassBg})`,
+          ].filter(Boolean).join(", ");
 
           // ── Prime + Entry Zone highlight ──
           const primeEntryCls = _isPrimeEntry ? "prime-entry-card " : "";
           const primeEntryBorder = _isPrimeEntry
             ? "border-amber-400/60 "
-            : (dir === "LONG" ? "border-cyan-400/25 " : "border-rose-400/25 ");
+            : (dir === "LONG" ? "border-cyan-400/20 " : "border-rose-400/20 ");
           const primeEntryShadow = _isPrimeEntry
-            ? "0 0 12px rgba(251,191,36,0.25), 0 2px 6px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.04)"
-            : "0 2px 6px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.04)";
+            ? "0 0 12px rgba(251,191,36,0.25), 0 4px 12px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.12), inset 0 -1px 2px rgba(0,0,0,0.3)"
+            : "0 4px 12px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.12), inset 0 -1px 2px rgba(0,0,0,0.3)";
+
+          // Extended hours change (AH/Pre-market) — skip for crypto (trades 24/7)
+          const _isCrypto = sym === "BTCUSD" || sym === "ETHUSD";
+          const ahPct = _isCrypto ? null : Number(t?._ah_change_pct);
+          const ahChg = _isCrypto ? null : Number(t?._ah_change);
+          const hasAH = Number.isFinite(ahPct) && ahPct !== 0;
+
+          // Lane reason text
+          const laneReason = (() => {
+            if (openTrade) {
+              const trimPct = Number(openTrade.trimmed_pct ?? openTrade.trimmedPct ?? 0);
+              const trimPx = Number(openTrade.trim_price ?? openTrade.trimPrice) || 0;
+              const exitPx = Number(openTrade.exit_price ?? openTrade.exitPrice) || 0;
+              const pnlPct = Number(openTrade.pnl_pct ?? openTrade.pnlPct) || 0;
+              const tradeStatus = String(openTrade.status || "").toUpperCase();
+              const tradeClosed = tradeStatus === "WIN" || tradeStatus === "LOSS" || !!(openTrade.exit_ts ?? openTrade.exitTs);
+              if (tradeClosed) {
+                const exitTs = Number(openTrade.exit_ts ?? openTrade.exitTs ?? 0);
+                const hoursSinceExit = exitTs > 0 ? (Date.now() - exitTs) / 3600000 : Infinity;
+                if (hoursSinceExit <= 48) {
+                  const pxStr = exitPx > 0 ? ` @ $${exitPx.toFixed(2)}` : "";
+                  const pnlStr = Number.isFinite(pnlPct) && pnlPct !== 0 ? ` (${pnlPct >= 0 ? "+" : ""}${pnlPct.toFixed(1)}%)` : "";
+                  return { text: `Exited${pxStr}${pnlStr}`, cls: tradeStatus === "WIN" ? "text-[#00e676]" : "text-rose-400" };
+                }
+              } else if (hasOpenTrade && trimPct > 0) {
+                const pxStr = trimPx > 0 ? ` @ $${trimPx.toFixed(2)}` : "";
+                return { text: `Trimmed ${(trimPct * 100).toFixed(0)}%${pxStr}`, cls: "text-yellow-400" };
+              }
+              if (isActiveTrade && Number.isFinite(entryPrice)) {
+                const epStr = `Entry $${entryPrice.toFixed(2)}`;
+                const chgStr = Number.isFinite(entryChangePct) ? ` (${entryChangePct >= 0 ? "+" : ""}${entryChangePct.toFixed(2)}%)` : "";
+                return { text: `${epStr}${chgStr}`, cls: Number.isFinite(entryChangePct) && entryChangePct >= 0 ? "text-[#00e676]" : "text-rose-400" };
+              }
+            }
+            if ((stage === "enter" || stage === "enter_now") && (t?.__execution_block_reason || t?.__entry_block_reason)) {
+              return { text: formatBlockReason(t.__execution_block_reason || t.__entry_block_reason), cls: "text-amber-300/80" };
+            }
+            return null;
+          })();
 
           return (
             <div
@@ -11198,13 +11328,33 @@
               style={{
                 backgroundImage: cardBgImage,
                 boxShadow: primeEntryShadow,
-                height: "116px",
+                height: "142px",
+                backdropFilter: "blur(16px) saturate(150%)",
+                WebkitBackdropFilter: "blur(16px) saturate(150%)",
               }}
             >
-              <div className="relative flex flex-col flex-1 min-h-0">
+              {/* ── Direction accent strip ── */}
+              <div className="absolute left-0 top-0 bottom-0 w-[3px] rounded-l-lg" style={{
+                background: dir === "LONG"
+                  ? "linear-gradient(to bottom, #22d3ee, #06b6d4)"
+                  : "linear-gradient(to bottom, #fb7185, #e11d48)",
+                boxShadow: dir === "LONG"
+                  ? "0 0 6px rgba(34,211,238,0.4)"
+                  : "0 0 6px rgba(225,29,72,0.4)",
+              }} />
+              {/* ── Sparkline background ── */}
+              {t._sparkline && t._sparkline.length >= 3 && (
+                <div className="absolute inset-0 pointer-events-none" style={{ zIndex: 0 }}>
+                  <Sparkline data={t._sparkline} width={200} height={142} bgMode />
+                </div>
+              )}
+              <div className="relative flex flex-col flex-1 min-h-0" style={{ zIndex: 1 }}>
+              <div className="absolute inset-0 pointer-events-none rounded-lg" style={{
+                background: "linear-gradient(to bottom, rgba(0,0,0,0.30) 0%, rgba(0,0,0,0.05) 45%, rgba(0,0,0,0.40) 100%)",
+              }} />
 
-              {/* ── Section 1: Header — Ticker + Direction + Price ──────── */}
-              <div className="flex items-center justify-between px-2 pt-1.5 pb-0.5">
+              {/* ── Row 1: Star, Ticker, TT badge, Price (admin) ── */}
+              <div className="relative flex items-center justify-between px-2 pt-1.5 pb-0" style={{ zIndex: 1 }}>
                 <div className="flex items-center gap-1.5 min-w-0">
                   {toggleSavedTicker && (
                     <button
@@ -11229,114 +11379,59 @@
                     const tip = tipParts.length > 0 ? tipParts.join("\n") : sym;
                     return <span className={`text-[13px] font-bold shrink-0 ${_isPrimeEntry ? "text-amber-300" : "text-white"}`} title={tip}>{sym}</span>;
                   })()}
-                  <span className={`inline-flex items-center justify-center w-4 h-4 rounded text-[9px] font-black shrink-0 text-white ${dir === "LONG" ? "bg-cyan-500 ring-1 ring-cyan-400" : "bg-rose-600 ring-1 ring-rose-400"}`} title={dir === "LONG" ? "Long" : "Short"}>{dir === "LONG" ? "L" : "S"}</span>
+                  {isTickerTTSelected(sym) && (
+                    <span className="inline-flex items-center justify-center px-1 py-px rounded text-[8px] font-bold shrink-0 tracking-wide bg-emerald-500/25 text-emerald-300 border border-emerald-400/40" title="TT Selected">TT</span>
+                  )}
+                </div>
+                {window._ttIsAdmin && (
+                  <span className="text-white font-bold text-[13px] tabular-nums leading-tight shrink-0 ml-1" style={{ textShadow: "0 1px 3px rgba(0,0,0,0.8)" }}>
+                    {Number.isFinite(price) ? `$${price.toFixed(2)}` : "—"}
+                  </span>
+                )}
+              </div>
+
+              {/* ── Row 2: LONG/SHORT, badges, bias pill | EXT Chg% ── */}
+              <div className="relative flex items-center justify-between px-2 py-0.5" style={{ zIndex: 1 }}>
+                <div className="flex items-center gap-1 min-w-0">
+                  <span className={`inline-flex items-center justify-center px-1.5 py-px rounded text-[9px] font-black shrink-0 tracking-wide ${dir === "LONG" ? "bg-cyan-500/80 text-white ring-1 ring-cyan-300/60" : "bg-rose-600/80 text-white ring-1 ring-rose-400/60"}`}>{dir}</span>
                   {badgesText && <span className="text-[10px] shrink-0">{badgesText}</span>}
                   <span className={`px-1 py-px rounded border text-[9px] font-extrabold tracking-wide shrink-0 ${dirPillCls}`} title={state}>
                     {biasLabelDisplay}
                   </span>
                 </div>
-                {isAdmin && (
-                <div className="flex flex-col items-end shrink-0 ml-1">
-                  <span className="text-white font-bold text-[13px] tabular-nums leading-tight">
-                    {Number.isFinite(price) ? `$${price.toFixed(2)}` : "—"}
-                  </span>
-                  {(() => {
-                    const up = Number(dayPct ?? 0) >= 0;
-                    const ahPct = Number(t?._ah_change_pct);
-                    const ahChg = Number(t?._ah_change);
-                    const hasAH = Number.isFinite(ahPct) && ahPct !== 0;
-                    return (
-                      <>
-                        <span className={`text-[10px] font-semibold tabular-nums leading-tight ${up ? "text-[#00e676]" : "text-rose-400"}`}>
-                          {Number.isFinite(dayPct) ? `${up ? "+" : ""}${dayPct.toFixed(2)}%` : ""}
-                          {Number.isFinite(dayChg) && <span className="opacity-70 ml-0.5">{dayChg >= 0 ? "+" : ""}{dayChg.toFixed(2)}</span>}
-                        </span>
-                        {hasAH && (
-                          <span className={`text-[9px] font-medium tabular-nums leading-tight ${ahPct >= 0 ? "text-[#00e676]" : "text-rose-400"}`}>
-                            {ahPct >= 0 ? "+" : ""}{ahPct.toFixed(2)}%
-                            {Number.isFinite(ahChg) && <span className="opacity-60 ml-0.5">{ahChg >= 0 ? "+" : ""}{ahChg.toFixed(2)}</span>}
-                            <span className="text-[8px] text-gray-500 ml-0.5">AH</span>
-                          </span>
-                        )}
-                      </>
-                    );
-                  })()}
-                </div>
+                {window._ttIsAdmin && (
+                  <div className="flex flex-col items-end shrink-0 ml-1">
+                    {Number.isFinite(dayPct) && dayPct !== 0 && (
+                      <span className={`text-[10px] font-semibold tabular-nums leading-tight ${dayPct >= 0 ? "text-[#00e676]" : "text-rose-400"}`}>
+                        {dayPct >= 0 ? "+" : ""}{dayPct.toFixed(2)}%
+                      </span>
+                    )}
+                    {hasAH && (
+                      <span className={`text-[9px] font-medium tabular-nums leading-tight ${ahPct >= 0 ? "text-[#00e676]" : "text-rose-400"}`}>
+                        <span className="text-[8px] text-gray-400 mr-0.5">EXT</span>
+                        {ahPct >= 0 ? "+" : ""}{ahPct.toFixed(2)}%
+                      </span>
+                    )}
+                  </div>
                 )}
               </div>
 
-              {/* ── Section 2: Stats — Score, R:R left | SL, TP right ──── */}
-              <div className="flex items-center justify-between px-2 py-0.5 text-[10px] font-medium">
-                <div className="flex items-center gap-2.5 text-[#8b95a5]">
+              {/* ── Row 3: Score, R:R | SL, TP ── */}
+              <div className="relative flex items-center justify-between px-2 py-0.5 text-[10px] font-medium" style={{ zIndex: 1 }}>
+                <div className="flex items-center gap-2 text-[#8b95a5]">
                   <span>Score <span className="text-white font-bold tabular-nums">{Number.isFinite(score) ? score.toFixed(0) : "—"}</span></span>
                   <span>R:R <span className="text-white font-bold tabular-nums">{Number.isFinite(rrNow) ? rrNow.toFixed(2) : "—"}</span></span>
                 </div>
-                <div className="flex items-center gap-2.5">
+                <div className="flex items-center gap-2">
                   <span className="text-rose-400">SL <span className="font-bold tabular-nums">{sl != null ? `$${sl.toFixed(2)}` : "—"}</span></span>
                   <span className="text-teal-400">TP <span className="font-bold tabular-nums">{tp != null ? `$${tp.toFixed(2)}` : "—"}</span></span>
                 </div>
               </div>
 
-              {/* ── Section 2b: Entry stats (only for active trades) ────── */}
-              {isActiveTrade && Number.isFinite(entryPrice) && (
-                <div className="flex items-center justify-between px-2 py-0.5 text-[10px] font-medium">
-                  <span className="text-[#8b95a5]">
-                    Entry <span className="text-yellow-300 font-bold tabular-nums">${entryPrice.toFixed(2)}</span>
-                  </span>
-                  {Number.isFinite(entryChangePct) && (
-                    <span className={`font-bold tabular-nums ${entryChangePct >= 0 ? "text-[#00e676]" : "text-rose-400"}`}>
-                      {entryChangePct >= 0 ? "+" : ""}{entryChangePct.toFixed(2)}%
-                    </span>
-                  )}
-                </div>
-              )}
-
-              {/* Indicator pills moved to Right Rail */}
-
-
-              {/* ── Execution badge: trim (open trades) or exited (recently closed, <48h) ── */}
-              {openTrade && (() => {
-                const trimPct = Number(openTrade.trimmed_pct ?? openTrade.trimmedPct ?? 0);
-                const trimPx = Number(openTrade.trim_price ?? openTrade.trimPrice) || 0;
-                const exitPx = Number(openTrade.exit_price ?? openTrade.exitPrice) || 0;
-                const pnlPct = Number(openTrade.pnl_pct ?? openTrade.pnlPct) || 0;
-                const tradeStatus = String(openTrade.status || "").toUpperCase();
-                const tradeClosed = tradeStatus === "WIN" || tradeStatus === "LOSS" || !!(openTrade.exit_ts ?? openTrade.exitTs);
-                let badge = null;
-                if (tradeClosed) {
-                  const exitTs = Number(openTrade.exit_ts ?? openTrade.exitTs ?? 0);
-                  const hoursSinceExit = exitTs > 0 ? (Date.now() - exitTs) / 3600000 : Infinity;
-                  if (hoursSinceExit > 48) return null;
-                  const pxStr = exitPx > 0 ? ` @ $${exitPx.toFixed(2)}` : "";
-                  const pnlStr = Number.isFinite(pnlPct) && pnlPct !== 0 ? ` (${pnlPct >= 0 ? "+" : ""}${pnlPct.toFixed(1)}%)` : "";
-                  badge = { label: `Exited${pxStr}${pnlStr}`, cls: tradeStatus === "WIN" ? "text-[#00e676]" : "text-rose-400" };
-                } else if (hasOpenTrade && trimPct > 0) {
-                  const pxStr = trimPx > 0 ? ` @ $${trimPx.toFixed(2)}` : "";
-                  badge = { label: `Trimmed ${(trimPct * 100).toFixed(0)}%${pxStr}`, cls: "text-yellow-400" };
-                }
-                if (!badge) return null;
-                return (
-                  <div className="px-2 py-0.5 text-[9px] font-semibold">
-                    <span className={badge.cls}>{badge.label}</span>
-                  </div>
-                );
-              })()}
-
-              {/* ── Entry block reason (enter lane only — setup cards don't need execution gate info) ── */}
-              {(stage === "enter" || stage === "enter_now") && (t?.__execution_block_reason || t?.__entry_block_reason) && (() => {
-                const formatted = formatBlockReason(t.__execution_block_reason || t.__entry_block_reason);
-                return (
-                  <div className="px-2 py-0.5 text-[9px] text-amber-300/80">
-                    <span className="text-[#6b7280]">Blocked:</span>{" "}
-                    <span className="font-semibold">{formatted}</span>
-                  </div>
-                );
-              })()}
-
-              {/* Sparkline — daily price trend */}
-              {t._sparkline && t._sparkline.length >= 3 && (
-                <div className="px-2 py-0.5 flex justify-center" style={{ paddingRight: 12 }}>
-                  <Sparkline data={t._sparkline} width={100} height={16} />
+              {/* ── Row 4: Lane reason (trade info, block reason, etc) ── */}
+              {laneReason && (
+                <div className="relative px-2 py-0.5 text-[9px] font-semibold truncate" style={{ zIndex: 1 }}>
+                  <span className={laneReason.cls}>{laneReason.text}</span>
                 </div>
               )}
 
@@ -11428,27 +11523,35 @@
                       <div className={`absolute left-1/2 -translate-x-1/2 ${bold ? "w-1" : "w-0.5"} ${color}`}
                         style={{ top: "14px", bottom: "14px", ...(dashed ? { opacity: 0.5 } : {}) }} />
                       <span className={`absolute left-1/2 ${bottom ? "bottom-0" : "top-0"} -translate-x-1/2 text-[7px] font-extrabold ${textColor} whitespace-nowrap`}
-                        style={dashed ? { opacity: 0.6 } : {}}>{label}</span>
+                        style={{ textShadow: "0 1px 3px rgba(0,0,0,0.9)", ...(dashed ? { opacity: 0.6 } : {}) }}>{label}</span>
                     </div>
                   );
                 };
 
-                // Fill: always left-to-right toward TP (since markers are mirrored for SHORT)
-                const fillColor = fillPct >= 50
-                  ? (fillPct >= 80 ? "bg-[#00c853]/70" : "bg-[#00c853]/50")
-                  : (fillPct <= 20 ? "bg-rose-500/55" : "bg-white/[0.30]");
+                // Fill color + glow based on progress
+                const fillColorStyle = fillPct >= 50
+                  ? (fillPct >= 80
+                    ? { background: "rgba(0,200,83,0.75)", boxShadow: "0 0 6px rgba(0,200,83,0.5)" }
+                    : { background: "rgba(0,200,83,0.55)", boxShadow: "0 0 4px rgba(0,200,83,0.3)" })
+                  : (fillPct <= 20
+                    ? { background: "rgba(239,68,68,0.6)", boxShadow: "0 0 4px rgba(239,68,68,0.35)" }
+                    : { background: "rgba(255,255,255,0.25)" });
 
                 return (
-                  <div className="px-2.5 pb-1.5">
-                    <div className="relative h-2.5 rounded bg-white/[0.06] border border-white/[0.08] overflow-visible mt-2.5 mb-2.5">
+                  <div className="relative px-2.5 pb-2" style={{ zIndex: 1 }}>
+                    <div className="relative h-3 rounded-sm overflow-visible mt-3 mb-2.5" style={{
+                      background: "rgba(0,0,0,0.45)",
+                      border: "1px solid rgba(255,255,255,0.10)",
+                      boxShadow: "inset 0 1px 3px rgba(0,0,0,0.4), 0 0 4px rgba(0,0,0,0.3)",
+                    }}>
                       {cp && (
                         <div
-                          className={`absolute top-0 bottom-0 rounded left-0 ${fillColor} overflow-visible`}
-                          style={{ width: `${fillPct}%` }}
+                          className="absolute top-0 bottom-0 rounded-sm left-0 overflow-visible"
+                          style={{ width: `${fillPct}%`, ...fillColorStyle }}
                           title={`CP: $${cp.toFixed(2)}`}
                         >
                           <span className="absolute -translate-x-1/2 text-[7px] font-extrabold text-white whitespace-nowrap"
-                            style={{ left: "100%", bottom: "-14px", transform: "translateX(-50%)" }}>CP</span>
+                            style={{ left: "100%", bottom: "-14px", transform: "translateX(-50%)", textShadow: "0 1px 3px rgba(0,0,0,0.8)" }}>CP</span>
                         </div>
                       )}
                       {/* Original SL marker (dimmed) — shown when TSL is active for context */}
@@ -11466,6 +11569,45 @@
               </div>{/* end content wrapper */}
             </div>
           );
+      }, (prev, next) => {
+        const pt = prev.t, nt = next.t;
+        if (!pt || !nt) return false;
+        const sym = pt.ticker;
+        if (sym !== nt.ticker) return false;
+        // Compare trade object for this ticker (tradeByTicker Map changes identity every render)
+        const prevTrade = prev.tradeByTicker?.get?.(String(sym).toUpperCase());
+        const nextTrade = next.tradeByTicker?.get?.(String(sym).toUpperCase());
+        const tradeEqual = prevTrade === nextTrade || (
+          prevTrade?.status === nextTrade?.status
+          && prevTrade?.entry_price === nextTrade?.entry_price
+          && prevTrade?.exit_ts === nextTrade?.exit_ts
+          && prevTrade?.trimmed_pct === nextTrade?.trimmed_pct
+          && prevTrade?.sl_original === nextTrade?.sl_original
+        );
+        return tradeEqual
+          && pt.price === nt.price
+          && pt.state === nt.state
+          && pt.kanban_stage === nt.kanban_stage
+          && pt.score === nt.score
+          && pt.sl === nt.sl
+          && pt.tp_trim === nt.tp_trim
+          && pt.tp_exit === nt.tp_exit
+          && pt.tp_runner === nt.tp_runner
+          && pt.day_change_pct === nt.day_change_pct
+          && pt._live_daily_change_pct === nt._live_daily_change_pct
+          && pt._ah_change_pct === nt._ah_change_pct
+          && pt.has_open_position === nt.has_open_position
+          && pt.position_sl === nt.position_sl
+          && pt.position_tp === nt.position_tp
+          && pt.entry_price === nt.entry_price
+          && pt.__execution_block_reason === nt.__execution_block_reason
+          && pt._sparkline === nt._sparkline
+          && prev.savedTickers === next.savedTickers
+          && prev.onSelectTicker === next.onSelectTicker;
+      });
+
+      function renderCompactCardFn(t, { onSelectTicker, savedTickers, toggleSavedTicker, tradeByTicker } = {}) {
+        return <CompactCard t={t} onSelectTicker={onSelectTicker} savedTickers={savedTickers} toggleSavedTicker={toggleSavedTicker} tradeByTicker={tradeByTicker} />;
       }
 
       // ─────────────────────────────────────────────────────────────
@@ -11482,6 +11624,7 @@
         trades = [],
         accountSummary = null,
         queuedPending = [],
+        queuedPendingCount = 0,
         savedTickers = new Set(),
         toggleSavedTicker = null,
       }) {
@@ -11775,16 +11918,16 @@
             <div className="px-3 py-2 rounded-lg bg-white/[0.03] border border-white/[0.06] flex items-center justify-between flex-wrap gap-2">
               {/* Left: Today Summary — matches right-side font style */}
               <div className="flex items-center gap-5 text-[11px]">
-                {todayActivityCount > 0 || queuedPending.length > 0 ? (
+                {todayActivityCount > 0 || queuedPendingCount > 0 || queuedPending.length > 0 ? (
                   <>
                     <span className="text-[#6b7280]">Entries <span className="text-white font-bold tabular-nums">{todayEntries.length}</span></span>
                     <span className="text-[#6b7280]">Exits <span className="text-white font-bold tabular-nums">{todayExits.length}</span></span>
                     {todayExits.length > 0 && (
                       <span className="text-[#6b7280]">W/L <span className="text-teal-400 font-bold tabular-nums">{todayWins}</span><span className="text-[#4b5563]">/</span><span className="text-rose-400 font-bold tabular-nums">{todayLosses}</span></span>
                     )}
-                    {queuedPending.length > 0 && (
+                    {(queuedPendingCount > 0 || queuedPending.length > 0) && (
                       <span className="text-amber-400/80" title={queuedPending.map(a => `${a.ticker}: ${a.action} (${a.reason})`).join("\n")}>
-                        Queued <span className="text-amber-300 font-bold tabular-nums">{queuedPending.length}</span>
+                        Queued <span className="text-amber-300 font-bold tabular-nums">{queuedPendingCount || queuedPending.length}</span>
                       </span>
                     )}
                     {todayExits.length > 0 && (
@@ -12129,13 +12272,13 @@
                     </th>
                     <th className="px-2 py-2 text-left text-[11px] font-medium text-gray-400">Name</th>
                     <th className="px-2 py-2 text-center text-[11px] font-medium text-gray-400">Bias</th>
-                    {isAdmin && <th className="px-1 py-2 text-right text-[11px] font-medium text-gray-400 cursor-pointer hover:text-white select-none" onClick={() => handleSort("price")}>
+                    {window._ttIsAdmin && <th className="px-1 py-2 text-right text-[11px] font-medium text-gray-400 cursor-pointer hover:text-white select-none" onClick={() => handleSort("price")}>
                       Price{sortArrow("price")}
                     </th>}
-                    {isAdmin && <th className="px-1 py-2 text-right text-[11px] font-medium text-gray-400 cursor-pointer hover:text-white select-none" onClick={() => handleSort("change")}>
+                    {window._ttIsAdmin && <th className="px-1 py-2 text-right text-[11px] font-medium text-gray-400 cursor-pointer hover:text-white select-none" onClick={() => handleSort("change")}>
                       Day %{sortArrow("change")}
                     </th>}
-                    {isAdmin && <th className="px-1 py-2 text-right text-[11px] font-medium text-gray-400">Day $</th>}
+                    {window._ttIsAdmin && <th className="px-1 py-2 text-right text-[11px] font-medium text-gray-400">Day $</th>}
                     <th className="px-2 py-2 text-center text-[11px] font-medium text-gray-400" title="SL/EP/TP Progress">Trade</th>
                     <th className="px-1 py-2 text-center text-[11px] font-medium text-gray-400 cursor-pointer hover:text-white select-none" onClick={() => handleSort("score")}>
                       Score{sortArrow("score")}
@@ -12228,17 +12371,17 @@
                         <td className="px-2 py-1.5 text-center">
                           <span className={`text-[11px] font-bold ${dirColor}`}>{dir === "L" ? "LONG" : "SHORT"}</span>
                         </td>
-                        {isAdmin && <td className="px-1 py-1 text-right text-[11px] text-white font-medium tabular-nums">
+                        {window._ttIsAdmin && <td className="px-1 py-1 text-right text-[11px] text-white font-medium tabular-nums">
                           {price > 0 ? `$${price.toFixed(2)}` : <span className="text-gray-600">—</span>}
                         </td>}
-                        {isAdmin && <td className="px-1 py-1 text-right text-[11px] tabular-nums">
+                        {window._ttIsAdmin && <td className="px-1 py-1 text-right text-[11px] tabular-nums">
                           {dayPct !== null ? (
                             <span style={{ color: dayPct > 0 ? "#00e676" : dayPct < 0 ? "#ef4444" : "#9ca3af" }}>
                               {dayPct > 0 ? "+" : ""}{dayPct.toFixed(2)}%
                             </span>
                           ) : <span className="text-gray-600">—</span>}
                         </td>}
-                        {isAdmin && <td className="px-1 py-1 text-right text-[11px] tabular-nums">
+                        {window._ttIsAdmin && <td className="px-1 py-1 text-right text-[11px] tabular-nums">
                           {dayChg !== null ? (
                             <span style={{ color: dayChg > 0 ? "#00e676" : dayChg < 0 ? "#ef4444" : "#9ca3af" }}>
                               {dayChg > 0 ? "+" : ""}{dayChg.toFixed(2)}
@@ -12396,7 +12539,7 @@
                   {items
                     .slice(0, 80)
                     .map((t) => (
-                      <div key={t.ticker || t.symbol || Math.random()} className="w-[280px] shrink-0">
+                      <div key={t.ticker || t.symbol} className="w-[280px] shrink-0">
                         {renderCompactCard(t)}
                       </div>
                     ))}
@@ -12598,6 +12741,23 @@
           trim.length === 0 &&
           exit.length === 0
         ) {
+          // Show skeleton cards while data is loading
+          if (tickers.length === 0) {
+            return (
+              <div className="flex flex-col gap-1 mt-2">
+                {[0,1,2].map(i => (
+                  <div key={`skel-row-${i}`} className="flex items-stretch gap-0 mb-1">
+                    <div className="w-[52px] shrink-0 rounded-l-xl border-l-2 border-t border-b border-white/[0.04] skeleton-card" style={{ minHeight: 134 }} />
+                    <div className="flex-1 rounded-r-xl border-t border-r border-b border-white/[0.04] p-1.5 flex gap-1.5" style={{ background: "rgba(255,255,255,0.01)" }}>
+                      {[0,1,2,3].map(j => (
+                        <div key={`skel-${i}-${j}`} className="w-[280px] h-[134px] shrink-0 skeleton-card" />
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            );
+          }
           return null;
         }
 
@@ -13276,7 +13436,9 @@
 
                 <div className="flex items-center gap-3 flex-shrink-0">
                   {t._sparkline && t._sparkline.length >= 3 && (
-                    <Sparkline data={t._sparkline} width={80} height={20} />
+                    <div style={{ width: 120 }}>
+                      <Sparkline data={t._sparkline} width={120} height={24} />
+                    </div>
                   )}
                   <div className="text-right text-[11px]">
                     <div className="text-white">
@@ -15737,7 +15899,7 @@
       // Main App
       // ─────────────────────────────────────────────────────────────
       function App() {
-        const isAdmin = document.body.dataset.userRole === "admin";
+        const isAdmin = window._ttIsAdmin;
 
         const {
           data,
@@ -15756,7 +15918,7 @@
         const { priceLastUpdated } = usePriceFeed(data, setTickerData);
         const { trades } = useTrades();
         const { summary: accountSummary } = useAccountSummary("trader");
-        const { pending: queuedPending } = useQueuedActions();
+        const { pending: queuedPending, pendingCount: queuedPendingCount } = useQueuedActions();
         const userTickers = useUserTickers();
         const { sectors } = useSectors();
         const { events: earningsEvents } = useEarningsEvents();
@@ -16426,13 +16588,11 @@
                         </button>
                       );
                     };
-                    const row1 = ["VX1!", "SPX", "SPY", "QQQ", "IWM", "BTCUSD", "ETHUSD"];
-                    const row2 = ["US500", "ES1!", "NQ1!", "RTY1!", "YM1!", "GC1!", "SI1!", "CL1!"];
-                    const sectorETFs = ["XLK", "XLF", "XLY", "XLP", "XLC", "XLI", "XLB", "XLE", "XLRE", "XLU", "XLV"];
+                    const row1 = ["US500", "ES1!", "NQ1!", "RTY1!", "YM1!", "VX1!", "CL1!", "GC1!", "SI1!", "BTCUSD", "ETHUSD"];
+                    const row2 = ["SPX", "SPY", "QQQ", "IWM", "XLK", "XLF", "XLY", "XLP", "XLC", "XLI", "XLB", "XLE", "XLRE", "XLU", "XLV"];
                     const row1Chips = row1.map(s => renderPulseChip(s)).filter(Boolean);
                     const row2Chips = row2.map(s => renderPulseChip(s)).filter(Boolean);
-                    const sectorChips = sectorETFs.map(s => renderPulseChip(s)).filter(Boolean);
-                    if (row1Chips.length === 0 && row2Chips.length === 0 && sectorChips.length === 0) return null;
+                    if (row1Chips.length === 0 && row2Chips.length === 0) return null;
                     const freshness = (() => {
                       if (!priceLastUpdated || priceLastUpdated <= 0) return null;
                       const ago = Math.round((Date.now() - priceLastUpdated) / 1000);
@@ -16451,9 +16611,6 @@
                         )}
                         {row2Chips.length > 0 && (
                           <div className="flex items-center gap-2 overflow-x-auto pt-1 pb-1" style={{ scrollbarWidth: "none" }}>{row2Chips}</div>
-                        )}
-                        {sectorChips.length > 0 && (
-                          <div className="flex items-center gap-2 overflow-x-auto pt-1.5 pb-1" style={{ scrollbarWidth: "none" }}>{sectorChips}</div>
                         )}
                       </div>
                     );
@@ -16510,6 +16667,7 @@
                       trades={trades}
                       accountSummary={accountSummary}
                       queuedPending={queuedPending}
+                      queuedPendingCount={queuedPendingCount}
                       allTickersWithRanks={allTickersWithRanks}
                       rankPositions={rankedTickerPositions}
                       onSelectTicker={handleTickerSelect}
@@ -16940,7 +17098,7 @@
                           onMouseDown={() => handleTickerSelect(null)}
                         />
                         <div
-                          className="fixed right-0 top-[49px] w-full sm:w-[450px] bottom-0 bg-[#0b0e11] border-l border-white/[0.04] z-40 slide-in-right shadow-xl overflow-y-auto"
+                          className="fixed right-0 top-[60px] sm:top-[52px] w-full sm:w-[450px] bottom-[64px] sm:bottom-[56px] bg-[#0b0e11] border-l border-white/[0.04] z-40 slide-in-right shadow-xl overflow-y-auto"
                           onMouseDown={(e) => e.stopPropagation()}
                         >
                           <OverlayPortal

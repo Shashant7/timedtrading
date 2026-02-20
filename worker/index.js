@@ -438,6 +438,8 @@ const ROUTES = [
   ["GET", "/timed/model/patterns", "GET /timed/model/patterns"],
   ["GET", "/timed/model/changelog", "GET /timed/model/changelog"],
   ["GET", "/timed/model/signals", "GET /timed/model/signals"],
+  ["GET", "/timed/model/direction-accuracy", "GET /timed/model/direction-accuracy"],
+  ["GET", "/timed/model/retrospective", "GET /timed/model/retrospective"],
   // Screener / Discovery / Enrichment
   ["GET", "/timed/screener/candidates", "GET /timed/screener/candidates"],
   ["POST", "/timed/screener/candidates", "POST /timed/screener/candidates"],
@@ -455,6 +457,11 @@ const ROUTES = [
   ["GET", "/timed/user-tickers/system-stats", "GET /timed/user-tickers/system-stats"],
   ["GET", "/timed/admin/users", "GET /timed/admin/users"],
   ["POST", (p) => /^\/timed\/admin\/users\/[^/]+\/tier$/.test(p), "POST /timed/admin/users/:email/tier"],
+  // ── Admin: UPTICKS & Sector Ratings ──
+  ["GET", "/timed/admin/upticks", "GET /timed/admin/upticks"],
+  ["PUT", "/timed/admin/upticks", "PUT /timed/admin/upticks"],
+  ["GET", "/timed/admin/sector-ratings", "GET /timed/admin/sector-ratings"],
+  ["PUT", "/timed/admin/sector-ratings", "PUT /timed/admin/sector-ratings"],
   // ── ETF Holdings Sync ──
   ["GET", "/timed/etf/groups", "GET /timed/etf/groups"],
   ["GET", (p) => /^\/timed\/etf\/holdings\/[A-Z]+$/i.test(p), "GET /timed/etf/holdings/:symbol"],
@@ -885,6 +892,79 @@ async function ensureTickerIndex(KV, ticker) {
     });
     // Don't throw - we don't want index failures to break ingestion
   }
+}
+
+// ── ETF Rebalance: auto-add net-new tickers to system ──
+// Called by syncAllETFHoldings when new tickers appear in GRNY/GRNI/GRNJ.
+// Adds to ticker index + SECTOR_MAP, triggers deep backfill + immediate scoring.
+async function etfAutoAddTickers(env, tickers, weightMap, ctx) {
+  const KV = env?.KV_TIMED;
+  if (!KV || !Array.isArray(tickers) || tickers.length === 0) return [];
+
+  const added = [];
+  for (const rawTicker of tickers) {
+    const ticker = String(rawTicker).toUpperCase().trim();
+    if (!ticker || !/^[A-Z]{1,5}(-[A-Z]{1,2})?$/.test(ticker)) continue;
+    if (SECTOR_MAP[ticker]) { added.push(ticker); continue; } // already in core
+
+    try {
+      // Derive sector from ETF holdings data if available
+      const weights = weightMap?.[ticker];
+      let sector = "Unknown";
+      // The holdings HTML includes sector info — stored in the full holdings KV
+      // For now, default to Unknown; the scoring pipeline enriches via Finnhub context later.
+      SECTOR_MAP[ticker] = sector;
+      await KV.put(`timed:sector_map:${ticker}`, sector);
+      await ensureTickerIndex(KV, ticker);
+      added.push(ticker);
+      console.log(`[ETF AUTO-ADD] Added ${ticker} to system (sector: ${sector})`);
+    } catch (e) {
+      console.warn(`[ETF AUTO-ADD] Failed to add ${ticker}:`, String(e?.message || e).slice(0, 150));
+    }
+  }
+
+  // Deep backfill + score in background (don't block the sync response)
+  if (added.length > 0 && ctx?.waitUntil) {
+    ctx.waitUntil((async () => {
+      // Backfill in batches of 5 to stay under subrequest limits
+      for (let i = 0; i < added.length; i += 5) {
+        const batch = added.slice(i, i + 5);
+        try {
+          await alpacaBackfill(env, batch, d1UpsertCandle, "all", null);
+          console.log(`[ETF AUTO-ADD] Backfilled ${batch.join(",")}`);
+        } catch (e) {
+          console.warn(`[ETF AUTO-ADD] Backfill failed for ${batch.join(",")}:`, String(e?.message || e).slice(0, 200));
+        }
+      }
+      // Score each ticker after backfill
+      for (const ticker of added) {
+        try {
+          const existing = await kvGetJSON(KV, `timed:latest:${ticker}`);
+          const result = await computeServerSideScores(ticker, d1GetCandles, env, existing);
+          if (result) {
+            const now = Date.now();
+            result.data_source = "alpaca";
+            result.data_source_ts = now;
+            result.ingest_ts = now;
+            result.ingest_time = new Date(now).toISOString();
+            result.trigger_ts = now;
+            result.rank = computeRank(result);
+            result.score = result.rank;
+            if (existing?.price) result.price = existing.price;
+            if (existing?.prev_close) result.prev_close = existing.prev_close;
+            if (existing?.day_change) result.day_change = existing.day_change;
+            if (existing?.day_change_pct) result.day_change_pct = existing.day_change_pct;
+            await kvPutJSON(KV, `timed:latest:${ticker}`, result);
+            console.log(`[ETF AUTO-ADD] Scored ${ticker}: score=${result.score}, state=${result.state}`);
+          }
+        } catch (e) {
+          console.warn(`[ETF AUTO-ADD] Score failed for ${ticker}:`, String(e?.message || e).slice(0, 150));
+        }
+      }
+    })());
+  }
+
+  return added;
 }
 
 const MARKET_PULSE_SYMS = [
@@ -2164,6 +2244,14 @@ function qualifiesForEnter(d, asOfTs = null) {
   // Golden Gate active → confidence upgrade. Multi-horizon gate → highest conviction.
   const enrichResult = (result) => {
     if (!result.qualifies) return result;
+
+    // Learning loop: check if this entry path is auto-disabled due to poor performance
+    if (result.path && _pathPerfCache.size > 0) {
+      const perf = _pathPerfCache.get(result.path);
+      if (perf && perf.enabled === 0) {
+        return { qualifies: false, reason: "path_auto_disabled", path: result.path, disableReason: perf.disable_reason };
+      }
+    }
 
     // Phase 1a: Entry quality gate — reject low-quality setups
     // Momentum paths: minimum volEntryMin (55-70 depending on vol tier)
@@ -3918,7 +4006,6 @@ function computeHistoricalWinRate(allTrades, sector, state, entryPath) {
     return _winRateCache.get(cacheKey);
   }
 
-  // Rebuild cache from closed trades
   if (Date.now() - _winRateCacheTs >= WIN_RATE_CACHE_TTL) {
     _winRateCache = new Map();
     _winRateCacheTs = Date.now();
@@ -3926,24 +4013,451 @@ function computeHistoricalWinRate(allTrades, sector, state, entryPath) {
 
   const closed = (Array.isArray(allTrades) ? allTrades : [])
     .filter(t => t.status === "WIN" || t.status === "LOSS");
-  // Match by sector (required), state and entryPath (soft match)
   const matching = closed.filter(t => {
     const tSector = getSector(String(t.ticker || "").toUpperCase()) || "UNKNOWN";
     if (sector && sector !== "UNKNOWN" && tSector !== sector) return false;
-    // Soft match: state and entryPath improve match quality but aren't required
     const stateMatch = !state || (t.state || "") === state;
     const pathMatch = !entryPath || (t.entryPath || "") === entryPath;
-    return stateMatch || pathMatch; // At least one soft match
-  }).slice(-50); // Last 50 matching trades
+    return stateMatch || pathMatch;
+  }).slice(-50);
 
-  let winRate = 0.5; // Default neutral
+  let winRate = 0.5;
   if (matching.length >= 5) {
     const wins = matching.filter(t => t.status === "WIN").length;
     winRate = wins / matching.length;
   }
 
+  // Blend with D1 path_performance when available (60% D1 / 40% in-memory)
+  if (entryPath && _pathPerfCache.size > 0) {
+    const d1Row = _pathPerfCache.get(entryPath);
+    if (d1Row && d1Row.total_trades >= 10) {
+      const d1WR = d1Row.recent_win_rate != null ? d1Row.recent_win_rate : d1Row.win_rate;
+      if (d1WR != null) {
+        winRate = matching.length >= 10 ? (winRate * 0.4 + d1WR * 0.6) : d1WR;
+      }
+    }
+  }
+
   _winRateCache.set(cacheKey, winRate);
   return winRate;
+}
+
+// Per-path performance cache (populated from D1 path_performance table)
+let _pathPerfCache = new Map();
+let _pathPerfCacheTs = 0;
+const PATH_PERF_CACHE_TTL = 10 * 60 * 1000; // 10 min
+
+async function getPathPerformance(env, entryPath) {
+  if (!entryPath) return null;
+  if (Date.now() - _pathPerfCacheTs < PATH_PERF_CACHE_TTL && _pathPerfCache.has(entryPath)) {
+    return _pathPerfCache.get(entryPath);
+  }
+  const db = env?.DB;
+  if (!db) return null;
+  try {
+    await d1EnsureLearningSchema(env);
+    if (Date.now() - _pathPerfCacheTs >= PATH_PERF_CACHE_TTL) {
+      _pathPerfCache = new Map();
+      _pathPerfCacheTs = Date.now();
+      const { results } = await db.prepare(`SELECT * FROM path_performance`).all();
+      for (const row of (results || [])) {
+        _pathPerfCache.set(row.entry_path, row);
+      }
+    }
+    return _pathPerfCache.get(entryPath) || null;
+  } catch {
+    return null;
+  }
+}
+
+function isPathDisabled(pathPerf) {
+  if (!pathPerf) return false;
+  return pathPerf.enabled === 0;
+}
+
+// Refresh path_performance from direction_accuracy aggregates
+async function refreshPathPerformance(env) {
+  const db = env?.DB;
+  if (!db) return { ok: false, reason: "no_db" };
+  try {
+    await d1EnsureLearningSchema(env);
+    const { results } = await db.prepare(
+      `SELECT entry_path,
+       COUNT(*) as total,
+       SUM(CASE WHEN status='WIN' THEN 1 ELSE 0 END) as wins,
+       SUM(CASE WHEN status='LOSS' THEN 1 ELSE 0 END) as losses,
+       SUM(CASE WHEN status='FLAT' THEN 1 ELSE 0 END) as flats,
+       ROUND(AVG(pnl_pct),4) as avg_pnl_pct,
+       ROUND(AVG(pnl),2) as avg_pnl,
+       ROUND(AVG(max_favorable_excursion),4) as avg_mfe,
+       ROUND(AVG(max_adverse_excursion),4) as avg_mae
+       FROM direction_accuracy WHERE status != 'OPEN' AND entry_path IS NOT NULL
+       GROUP BY entry_path`
+    ).all();
+
+    const now = Date.now();
+    const thirtyDaysAgo = now - 30 * 86400000;
+    const recentRows = (await db.prepare(
+      `SELECT entry_path,
+       COUNT(*) as recent_trades,
+       ROUND(CAST(SUM(CASE WHEN status='WIN' THEN 1 ELSE 0 END) AS REAL) / NULLIF(COUNT(*),0),4) as recent_win_rate
+       FROM direction_accuracy WHERE status != 'OPEN' AND entry_path IS NOT NULL AND ts > ?
+       GROUP BY entry_path`
+    ).bind(thirtyDaysAgo).all()).results || [];
+    const recentMap = {};
+    for (const r of recentRows) recentMap[r.entry_path] = r;
+
+    let updated = 0;
+    for (const row of (results || [])) {
+      const path = row.entry_path;
+      if (!path) continue;
+      const w = row.wins || 0;
+      const l = row.losses || 0;
+      const winRate = (w + l) > 0 ? w / (w + l) : null;
+      const recent = recentMap[path] || {};
+      const recentWR = recent.recent_win_rate ?? null;
+      const recentTrades = recent.recent_trades || 0;
+
+      const AUTO_DISABLE_MIN_TRADES = 15;
+      const AUTO_DISABLE_WIN_RATE = 0.25;
+      let enabled = 1;
+      let disableReason = null;
+      if (row.total >= AUTO_DISABLE_MIN_TRADES && winRate !== null && winRate < AUTO_DISABLE_WIN_RATE) {
+        enabled = 0;
+        disableReason = `win_rate_${(winRate * 100).toFixed(1)}pct_below_25pct_threshold_(n=${row.total})`;
+      }
+      if (recentTrades >= 10 && recentWR !== null && recentWR < 0.20) {
+        enabled = 0;
+        disableReason = `recent_30d_wr_${(recentWR * 100).toFixed(1)}pct_below_20pct_(n=${recentTrades})`;
+      }
+
+      await db.prepare(
+        `INSERT INTO path_performance (entry_path, total_trades, wins, losses, flats, win_rate,
+         avg_pnl, avg_pnl_pct, avg_mfe, avg_mae, recent_win_rate, recent_trades,
+         enabled, disable_reason, last_updated)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+         ON CONFLICT(entry_path) DO UPDATE SET
+         total_trades=excluded.total_trades, wins=excluded.wins, losses=excluded.losses,
+         flats=excluded.flats, win_rate=excluded.win_rate, avg_pnl=excluded.avg_pnl,
+         avg_pnl_pct=excluded.avg_pnl_pct, avg_mfe=excluded.avg_mfe, avg_mae=excluded.avg_mae,
+         recent_win_rate=excluded.recent_win_rate, recent_trades=excluded.recent_trades,
+         enabled=excluded.enabled, disable_reason=excluded.disable_reason, last_updated=excluded.last_updated`
+      ).bind(path, row.total, w, l, row.flats || 0, winRate,
+        row.avg_pnl, row.avg_pnl_pct, row.avg_mfe, row.avg_mae,
+        recentWR, recentTrades, enabled, disableReason, now
+      ).run();
+      updated++;
+    }
+    _pathPerfCache = new Map();
+    _pathPerfCacheTs = 0;
+    return { ok: true, updated };
+  } catch (e) {
+    return { ok: false, error: String(e?.message || e).slice(0, 200) };
+  }
+}
+
+// ── Learned Consensus Weights Cache ───────────────────────────────────
+// Stores per-TF weights for computeSwingConsensus, loaded from model_config.
+let _consensusWeights = null;
+let _consensusWeightsCacheTs = 0;
+const CONSENSUS_WEIGHTS_TTL = 15 * 60 * 1000;
+
+async function getLearnedConsensusWeights(env) {
+  if (_consensusWeights && Date.now() - _consensusWeightsCacheTs < CONSENSUS_WEIGHTS_TTL) {
+    return _consensusWeights;
+  }
+  const db = env?.DB;
+  if (!db) return null;
+  try {
+    await d1EnsureLearningSchema(env);
+    const row = await db.prepare(
+      `SELECT config_value FROM model_config WHERE config_key = 'consensus_tf_weights'`
+    ).first();
+    if (row?.config_value) {
+      _consensusWeights = JSON.parse(row.config_value);
+      _consensusWeightsCacheTs = Date.now();
+      return _consensusWeights;
+    }
+  } catch { /* fallback to null = equal weights */ }
+  return null;
+}
+
+// Update consensus weights from trade outcome analysis
+async function updateConsensusWeights(env) {
+  const db = env?.DB;
+  if (!db) return { ok: false, reason: "no_db" };
+  try {
+    await d1EnsureLearningSchema(env);
+
+    // Analyze which TFs were correct at entry for winning vs losing trades
+    const { results: rows } = await db.prepare(
+      `SELECT tf_stack_json, direction_correct, traded_direction, status
+       FROM direction_accuracy
+       WHERE status IN ('WIN','LOSS') AND tf_stack_json IS NOT NULL
+       ORDER BY ts DESC LIMIT 500`
+    ).all();
+
+    if (!rows || rows.length < 20) return { ok: true, skipped: true, reason: "insufficient_data" };
+
+    const tfKeys = ["10m", "30m", "1H", "4H", "D"];
+    const tfKeyToConfigKey = { "10m": "10", "30m": "30", "1H": "60", "4H": "240", "D": "D" };
+    const tfCorrect = {};
+    const tfTotal = {};
+    for (const k of tfKeys) { tfCorrect[k] = 0; tfTotal[k] = 0; }
+
+    for (const row of rows) {
+      let stack;
+      try { stack = JSON.parse(row.tf_stack_json); } catch { continue; }
+      if (!Array.isArray(stack)) continue;
+
+      const isWin = row.status === "WIN";
+      const isLong = row.traded_direction === "LONG";
+
+      for (const entry of stack) {
+        const tf = entry.tf;
+        if (!tfKeys.includes(tf)) continue;
+        if (entry.bias === "unknown") continue;
+
+        tfTotal[tf]++;
+        const tfAligned = isLong ? entry.bias === "bullish" : entry.bias === "bearish";
+        // TF was "correct" if it aligned with direction AND trade won,
+        // or if it opposed direction AND trade lost
+        if ((tfAligned && isWin) || (!tfAligned && !isWin)) {
+          tfCorrect[tf]++;
+        }
+      }
+    }
+
+    // Convert accuracy to weights: accuracy 50% → weight 1.0, 70% → 1.4, 30% → 0.6
+    const weights = {};
+    for (const tf of tfKeys) {
+      const configKey = tfKeyToConfigKey[tf];
+      if (tfTotal[tf] < 10) {
+        weights[configKey] = 1.0; // insufficient data, keep equal
+      } else {
+        const accuracy = tfCorrect[tf] / tfTotal[tf];
+        weights[configKey] = Math.round(Math.max(0.3, Math.min(2.0, accuracy * 2)) * 100) / 100;
+      }
+    }
+
+    const now = Date.now();
+    await db.prepare(
+      `INSERT INTO model_config (config_key, config_value, description, updated_at, updated_by)
+       VALUES ('consensus_tf_weights', ?, 'Learned per-TF weights for swing consensus voting', ?, 'system')
+       ON CONFLICT(config_key) DO UPDATE SET config_value=excluded.config_value, updated_at=excluded.updated_at`
+    ).bind(JSON.stringify(weights), now).run();
+
+    _consensusWeights = weights;
+    _consensusWeightsCacheTs = now;
+
+    return { ok: true, weights, sample_size: rows.length };
+  } catch (e) {
+    return { ok: false, error: String(e?.message || e).slice(0, 200) };
+  }
+}
+
+// ── Learned Scoring Weight Adjustments Cache ─────────────────────────
+// EMA-based multipliers for HTF/LTF per-TF weights, stored in model_config.
+let _scoringWeightAdj = null;
+let _scoringWeightAdjTs = 0;
+
+async function getLearnedScoringWeights(env) {
+  if (_scoringWeightAdj && Date.now() - _scoringWeightAdjTs < CONSENSUS_WEIGHTS_TTL) {
+    return _scoringWeightAdj;
+  }
+  const db = env?.DB;
+  if (!db) return null;
+  try {
+    await d1EnsureLearningSchema(env);
+    const row = await db.prepare(
+      `SELECT config_value FROM model_config WHERE config_key = 'scoring_weight_adj'`
+    ).first();
+    if (row?.config_value) {
+      _scoringWeightAdj = JSON.parse(row.config_value);
+      _scoringWeightAdjTs = Date.now();
+      return _scoringWeightAdj;
+    }
+  } catch { /* fallback to null = default weights */ }
+  return null;
+}
+
+// EMA update: after each batch of closed trades, nudge per-TF scoring weights
+// toward configurations that produced winning trades.
+// EMA alpha = 0.1 (slow adaptation, ~10 trade half-life)
+async function updateScoringWeightAdjustments(env) {
+  const db = env?.DB;
+  if (!db) return { ok: false, reason: "no_db" };
+  try {
+    await d1EnsureLearningSchema(env);
+    const EMA_ALPHA = 0.1;
+    const TF_KEYS = ["W", "D", "240", "60", "30", "10", "5"];
+
+    // Get current adjustments (or initialize at 1.0)
+    let current = {};
+    try {
+      const row = await db.prepare(
+        `SELECT config_value FROM model_config WHERE config_key = 'scoring_weight_adj'`
+      ).first();
+      if (row?.config_value) current = JSON.parse(row.config_value);
+    } catch { /* start fresh */ }
+    for (const k of TF_KEYS) { if (!current[k]) current[k] = 1.0; }
+
+    // Analyze recent closed trades from direction_accuracy
+    const { results: trades } = await db.prepare(
+      `SELECT htf_score, ltf_score, direction_correct, traded_direction, tf_stack_json
+       FROM direction_accuracy WHERE status IN ('WIN','LOSS') AND tf_stack_json IS NOT NULL
+       ORDER BY ts DESC LIMIT 200`
+    ).all();
+
+    if (!trades || trades.length < 20) return { ok: true, skipped: true, reason: "insufficient_data" };
+
+    // For each TF, compute a "hit rate" — how often that TF's alignment
+    // correlated with the trade being correct
+    const tfHits = {};
+    const tfTotal = {};
+    for (const k of TF_KEYS) { tfHits[k] = 0; tfTotal[k] = 0; }
+
+    const labelToKey = { "10m": "10", "30m": "30", "1H": "60", "4H": "240", "D": "D", "W": "W" };
+
+    for (const t of trades) {
+      let stack;
+      try { stack = JSON.parse(t.tf_stack_json); } catch { continue; }
+      if (!Array.isArray(stack)) continue;
+      const isCorrect = t.direction_correct === 1;
+      const isLong = t.traded_direction === "LONG";
+
+      for (const entry of stack) {
+        const k = labelToKey[entry.tf];
+        if (!k || entry.bias === "unknown") continue;
+        tfTotal[k]++;
+        const aligned = isLong ? entry.bias === "bullish" : entry.bias === "bearish";
+        if ((aligned && isCorrect) || (!aligned && !isCorrect)) tfHits[k]++;
+      }
+    }
+
+    // EMA update: nudge each weight toward the accuracy signal
+    const updated = {};
+    for (const k of TF_KEYS) {
+      const prev = current[k] || 1.0;
+      if (tfTotal[k] < 10) { updated[k] = prev; continue; }
+      const accuracy = tfHits[k] / tfTotal[k];
+      // Target multiplier: accuracy 50% → 1.0, 70% → 1.4, 30% → 0.6
+      const target = Math.max(0.3, Math.min(2.0, accuracy * 2));
+      updated[k] = Math.round((prev * (1 - EMA_ALPHA) + target * EMA_ALPHA) * 1000) / 1000;
+    }
+
+    const now = Date.now();
+    await db.prepare(
+      `INSERT INTO model_config (config_key, config_value, description, updated_at, updated_by)
+       VALUES ('scoring_weight_adj', ?, 'EMA-adjusted per-TF scoring weight multipliers', ?, 'system')
+       ON CONFLICT(config_key) DO UPDATE SET config_value=excluded.config_value, updated_at=excluded.updated_at`
+    ).bind(JSON.stringify(updated), now).run();
+
+    _scoringWeightAdj = updated;
+    _scoringWeightAdjTs = now;
+    return { ok: true, weights: updated, sample_size: trades.length };
+  } catch (e) {
+    return { ok: false, error: String(e?.message || e).slice(0, 200) };
+  }
+}
+
+// ── Learned Scoring Weight Adjustments Cache ─────────────────────────
+// Per-TF multipliers for HTF/LTF scoring weights, loaded from model_config.
+let _scoringWeightAdj = null;
+let _scoringWeightAdjTs = 0;
+
+async function getLearnedScoringWeights(env) {
+  if (_scoringWeightAdj && Date.now() - _scoringWeightAdjTs < CONSENSUS_WEIGHTS_TTL) {
+    return _scoringWeightAdj;
+  }
+  const db = env?.DB;
+  if (!db) return null;
+  try {
+    await d1EnsureLearningSchema(env);
+    const row = await db.prepare(
+      `SELECT config_value FROM model_config WHERE config_key = 'scoring_weight_adj'`
+    ).first();
+    if (row?.config_value) {
+      _scoringWeightAdj = JSON.parse(row.config_value);
+      _scoringWeightAdjTs = Date.now();
+      return _scoringWeightAdj;
+    }
+  } catch { /* fallback to null = default weights */ }
+  return null;
+}
+
+// EMA update: adjust scoring weights based on which TF scores best predicted outcomes
+async function updateScoringWeights(env) {
+  const db = env?.DB;
+  if (!db) return { ok: false, reason: "no_db" };
+  try {
+    await d1EnsureLearningSchema(env);
+    const EMA_ALPHA = 0.15;
+
+    const { results: rows } = await db.prepare(
+      `SELECT da.traded_direction, da.htf_score, da.ltf_score, da.tf_stack_json,
+       da.direction_correct, da.pnl_pct, da.status
+       FROM direction_accuracy da
+       WHERE da.status IN ('WIN','LOSS') AND da.htf_score IS NOT NULL
+       ORDER BY da.ts DESC LIMIT 300`
+    ).all();
+
+    if (!rows || rows.length < 20) return { ok: true, skipped: true, reason: "insufficient_data" };
+
+    // Load existing adjustments or start from neutral
+    const existing = await db.prepare(
+      `SELECT config_value FROM model_config WHERE config_key = 'scoring_weight_adj'`
+    ).first();
+    const current = existing?.config_value ? JSON.parse(existing.config_value) : {};
+    const adj = {
+      W: current.W || 1.0, D: current.D || 1.0, "240": current["240"] || 1.0,
+      "60": current["60"] || 1.0, "30": current["30"] || 1.0,
+      "10": current["10"] || 1.0, "5": current["5"] || 1.0,
+    };
+
+    // For each trade, check if HTF-heavy or LTF-heavy weighting was more predictive
+    let htfWins = 0, htfLosses = 0, ltfWins = 0, ltfLosses = 0;
+    for (const r of rows) {
+      const isWin = r.status === "WIN";
+      const htfMag = Math.abs(r.htf_score || 0);
+      const ltfMag = Math.abs(r.ltf_score || 0);
+      // Strong HTF signal = HTF magnitude > 15
+      if (htfMag > 15) { if (isWin) htfWins++; else htfLosses++; }
+      // Strong LTF signal = LTF magnitude > 10
+      if (ltfMag > 10) { if (isWin) ltfWins++; else ltfLosses++; }
+    }
+
+    // Compute accuracy for HTF vs LTF signal strength
+    const htfAcc = (htfWins + htfLosses) > 10 ? htfWins / (htfWins + htfLosses) : 0.5;
+    const ltfAcc = (ltfWins + ltfLosses) > 10 ? ltfWins / (ltfWins + ltfLosses) : 0.5;
+
+    // EMA update: nudge HTF TF weights up if HTF-heavy signals are more accurate, and vice versa
+    const htfMultiplier = 0.8 + htfAcc * 0.4; // range: 0.8-1.2
+    const ltfMultiplier = 0.8 + ltfAcc * 0.4;
+
+    for (const k of ["W", "D", "240", "60"]) {
+      adj[k] = adj[k] * (1 - EMA_ALPHA) + htfMultiplier * EMA_ALPHA;
+      adj[k] = Math.round(Math.max(0.5, Math.min(1.5, adj[k])) * 1000) / 1000;
+    }
+    for (const k of ["30", "10", "5"]) {
+      adj[k] = adj[k] * (1 - EMA_ALPHA) + ltfMultiplier * EMA_ALPHA;
+      adj[k] = Math.round(Math.max(0.5, Math.min(1.5, adj[k])) * 1000) / 1000;
+    }
+
+    const now = Date.now();
+    await db.prepare(
+      `INSERT INTO model_config (config_key, config_value, description, updated_at, updated_by)
+       VALUES ('scoring_weight_adj', ?, 'EMA-learned HTF/LTF weight adjustments', ?, 'system')
+       ON CONFLICT(config_key) DO UPDATE SET config_value=excluded.config_value, updated_at=excluded.updated_at`
+    ).bind(JSON.stringify(adj), now).run();
+
+    _scoringWeightAdj = adj;
+    _scoringWeightAdjTs = now;
+
+    return { ok: true, adj, htfAcc: Math.round(htfAcc * 100), ltfAcc: Math.round(ltfAcc * 100), sample: rows.length };
+  } catch (e) {
+    return { ok: false, error: String(e?.message || e).slice(0, 200) };
+  }
 }
 
 // ── ML Model Prediction Lookup ────────────────────────────────────────
@@ -6865,6 +7379,7 @@ async function processTradeSimulation(
           balance: portfolio.cash,
           note: `Exit ${sym} ${remainingShares}sh @$${p.toFixed(2)} (${closeReason}) PnL=$${pnlRemaining.toFixed(2)}`,
         }).catch(e => console.error("[LEDGER] EXIT insert failed:", e));
+        d1UpdateDirectionOutcome(env, trade).catch(() => {});
       }
 
       // Persist via execution adapter (D1 source of truth), then Discord
@@ -8084,6 +8599,7 @@ async function processTradeSimulation(
 
             allTrades.push(trade);
             console.log(`[ENTRY_CREATED] ${sym} dir=${direction} entry=${entryPx} sl=${finalSL} tp=${validTP} shares=${shares.toFixed(2)} notional=$${notional.toFixed(0)} conf=${confidence.toFixed(2)} method=${sizingMeta.method} risk=${((sizingMeta.riskPct || 0) * 100).toFixed(1)}% isReplay=${isReplay}`);
+            d1LogDirectionAccuracy(env, trade, tickerData, entryPath).catch(() => {});
             const entryExecUpdate = {
               ...execState,
               lastEnterMs: now,
@@ -9215,6 +9731,9 @@ async function processTradeSimulation(
                 });
               }
             }
+            if (newStatus === "WIN" || newStatus === "LOSS" || newStatus === "FLAT") {
+              d1UpdateDirectionOutcome(env, updatedTrade).catch(() => {});
+            }
           }
           await kvPutJSON(KV, tradesKey, allTrades);
           console.log(
@@ -10013,6 +10532,7 @@ async function processTradeSimulation(
                   e,
                 );
               });
+              d1LogDirectionEntry(env, trade, tickerData).catch(() => {});
               const entryEvent =
                 Array.isArray(trade.history) && trade.history.length > 0
                   ? trade.history[0]
@@ -12607,6 +13127,284 @@ async function d1EnsureUserTickersSchema(env) {
   }
 }
 
+// ═══════════════════════════════════════════════════════════════════════
+// Learning Loop Schema — direction accuracy, path performance, model config
+// ═══════════════════════════════════════════════════════════════════════
+
+let _learningSchemaReady = false;
+async function d1EnsureLearningSchema(env) {
+  if (_learningSchemaReady) return;
+  const db = env?.DB;
+  if (!db) return;
+  try {
+    await db.batch([
+      db.prepare(`CREATE TABLE IF NOT EXISTS direction_accuracy (
+        trade_id TEXT PRIMARY KEY, ticker TEXT NOT NULL, ts INTEGER NOT NULL,
+        traded_direction TEXT NOT NULL, consensus_direction TEXT, htf_score_direction TEXT,
+        state_direction TEXT, direction_source TEXT,
+        htf_score REAL, ltf_score REAL, regime_daily TEXT, regime_weekly TEXT, regime_combined TEXT,
+        bullish_count INTEGER, bearish_count INTEGER, tf_stack_json TEXT,
+        entry_path TEXT, rank INTEGER, rr REAL, entry_price REAL,
+        exit_ts INTEGER, exit_price REAL, pnl REAL, pnl_pct REAL,
+        direction_correct INTEGER, max_favorable_excursion REAL, max_adverse_excursion REAL,
+        status TEXT
+      )`),
+      db.prepare(`CREATE TABLE IF NOT EXISTS path_performance (
+        entry_path TEXT PRIMARY KEY, total_trades INTEGER NOT NULL DEFAULT 0,
+        wins INTEGER NOT NULL DEFAULT 0, losses INTEGER NOT NULL DEFAULT 0, flats INTEGER NOT NULL DEFAULT 0,
+        win_rate REAL, avg_pnl REAL, avg_pnl_pct REAL, avg_hold_minutes REAL,
+        avg_mfe REAL, avg_mae REAL, recent_win_rate REAL, recent_trades INTEGER DEFAULT 0,
+        enabled INTEGER NOT NULL DEFAULT 1, disable_reason TEXT,
+        quality_gate_adj REAL DEFAULT 0, last_updated INTEGER NOT NULL
+      )`),
+      db.prepare(`CREATE TABLE IF NOT EXISTS model_config (
+        config_key TEXT PRIMARY KEY, config_value TEXT NOT NULL, description TEXT,
+        updated_at INTEGER NOT NULL, updated_by TEXT DEFAULT 'system'
+      )`),
+    ]);
+    try {
+      await db.batch([
+        db.prepare(`CREATE INDEX IF NOT EXISTS idx_da_ticker_ts ON direction_accuracy (ticker, ts)`),
+        db.prepare(`CREATE INDEX IF NOT EXISTS idx_da_direction_source ON direction_accuracy (direction_source)`),
+        db.prepare(`CREATE INDEX IF NOT EXISTS idx_da_entry_path ON direction_accuracy (entry_path)`),
+        db.prepare(`CREATE INDEX IF NOT EXISTS idx_da_status ON direction_accuracy (status)`),
+        db.prepare(`CREATE INDEX IF NOT EXISTS idx_pp_enabled ON path_performance (enabled)`),
+      ]);
+    } catch { /* indexes may already exist */ }
+    _learningSchemaReady = true;
+  } catch (e) {
+    console.error("[LEARNING] Schema migration failed:", String(e).slice(0, 200));
+  }
+}
+
+// Log direction accuracy entry on trade creation
+async function d1LogDirectionEntry(env, trade, tickerData) {
+  const db = env?.DB;
+  if (!db) return;
+  try {
+    await d1EnsureLearningSchema(env);
+    const sc = tickerData?.swing_consensus || {};
+    const regime = tickerData?.regime || {};
+    const htfScore = Number(tickerData?.htf_score) || 0;
+    const stateStr = String(tickerData?.state || "");
+    await db.prepare(
+      `INSERT OR IGNORE INTO direction_accuracy
+       (trade_id, ticker, ts, traded_direction, consensus_direction, htf_score_direction,
+        state_direction, direction_source, htf_score, ltf_score, regime_daily, regime_weekly,
+        regime_combined, bullish_count, bearish_count, tf_stack_json, entry_path,
+        rank, rr, entry_price, status)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+    ).bind(
+      trade.id, trade.ticker, trade.entry_ts || Date.now(),
+      trade.direction,
+      sc.direction || null,
+      htfScore >= 0 ? "LONG" : "SHORT",
+      stateStr.includes("BULL") ? "LONG" : stateStr.includes("BEAR") ? "SHORT" : null,
+      tickerData?.direction_source || null,
+      htfScore, Number(tickerData?.ltf_score) || 0,
+      regime.daily || null, regime.weekly || null, regime.combined || null,
+      sc.bullish_count ?? null, sc.bearish_count ?? null,
+      sc.tf_stack ? JSON.stringify(sc.tf_stack) : null,
+      trade.entryPath || null,
+      Number(trade.rank) || 0, Number(trade.rr) || 0, Number(trade.entryPrice) || 0,
+      "OPEN"
+    ).run();
+  } catch (e) {
+    console.warn("[LEARNING] Failed to log direction entry:", String(e).slice(0, 150));
+  }
+}
+
+// Update direction accuracy on trade close
+async function d1UpdateDirectionOutcome(env, trade) {
+  const db = env?.DB;
+  if (!db || !trade?.id) return;
+  try {
+    await d1EnsureLearningSchema(env);
+    const isLong = trade.direction === "LONG";
+    const entryPx = Number(trade.entryPrice) || 0;
+    const exitPx = Number(trade.exitPrice) || 0;
+    const pnl = Number(trade.pnl) || Number(trade.realizedPnl) || 0;
+    const pnlPct = Number(trade.pnlPct) || 0;
+    const dirCorrect = pnl > 0 ? 1 : pnl < 0 ? 0 : null;
+    const mfe = Number(trade.maxFavorableExcursion) || null;
+    const mae = Number(trade.maxAdverseExcursion) || null;
+    const status = String(trade.status || "");
+    await db.prepare(
+      `UPDATE direction_accuracy SET exit_ts=?, exit_price=?, pnl=?, pnl_pct=?,
+       direction_correct=?, max_favorable_excursion=?, max_adverse_excursion=?, status=?
+       WHERE trade_id=?`
+    ).bind(
+      trade.exit_ts || Date.now(), exitPx, pnl, pnlPct,
+      dirCorrect, mfe, mae, status, trade.id
+    ).run();
+  } catch (e) {
+    console.warn("[LEARNING] Failed to update direction outcome:", String(e).slice(0, 150));
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// Learning Loop — Direction Accuracy, Path Performance, Model Config
+// ═══════════════════════════════════════════════════════════════════════
+
+let _learningSchemaReady = false;
+async function d1EnsureLearningSchema(env) {
+  if (_learningSchemaReady) return;
+  const db = env?.DB;
+  if (!db) return;
+  try {
+    await db.batch([
+      db.prepare(`CREATE TABLE IF NOT EXISTS direction_accuracy (
+        trade_id TEXT PRIMARY KEY,
+        ticker TEXT NOT NULL,
+        ts INTEGER NOT NULL,
+        traded_direction TEXT NOT NULL,
+        consensus_direction TEXT,
+        htf_score_direction TEXT,
+        state_direction TEXT,
+        direction_source TEXT,
+        htf_score REAL,
+        ltf_score REAL,
+        regime_daily TEXT,
+        regime_weekly TEXT,
+        regime_combined TEXT,
+        bullish_count INTEGER,
+        bearish_count INTEGER,
+        tf_stack_json TEXT,
+        entry_path TEXT,
+        rank INTEGER,
+        rr REAL,
+        entry_price REAL,
+        exit_ts INTEGER,
+        exit_price REAL,
+        pnl REAL,
+        pnl_pct REAL,
+        direction_correct INTEGER,
+        max_favorable_excursion REAL,
+        max_adverse_excursion REAL,
+        status TEXT
+      )`),
+      db.prepare(`CREATE TABLE IF NOT EXISTS path_performance (
+        entry_path TEXT PRIMARY KEY,
+        total_trades INTEGER NOT NULL DEFAULT 0,
+        wins INTEGER NOT NULL DEFAULT 0,
+        losses INTEGER NOT NULL DEFAULT 0,
+        flats INTEGER NOT NULL DEFAULT 0,
+        win_rate REAL,
+        avg_pnl REAL,
+        avg_pnl_pct REAL,
+        avg_hold_minutes REAL,
+        avg_mfe REAL,
+        avg_mae REAL,
+        recent_win_rate REAL,
+        recent_trades INTEGER DEFAULT 0,
+        enabled INTEGER NOT NULL DEFAULT 1,
+        disable_reason TEXT,
+        quality_gate_adj REAL DEFAULT 0,
+        last_updated INTEGER NOT NULL
+      )`),
+      db.prepare(`CREATE TABLE IF NOT EXISTS model_config (
+        config_key TEXT PRIMARY KEY,
+        config_value TEXT NOT NULL,
+        description TEXT,
+        updated_at INTEGER NOT NULL,
+        updated_by TEXT DEFAULT 'system'
+      )`),
+    ]);
+    try {
+      await db.batch([
+        db.prepare(`CREATE INDEX IF NOT EXISTS idx_da_ticker_ts ON direction_accuracy (ticker, ts)`),
+        db.prepare(`CREATE INDEX IF NOT EXISTS idx_da_direction_source ON direction_accuracy (direction_source)`),
+        db.prepare(`CREATE INDEX IF NOT EXISTS idx_da_entry_path ON direction_accuracy (entry_path)`),
+        db.prepare(`CREATE INDEX IF NOT EXISTS idx_da_status ON direction_accuracy (status)`),
+        db.prepare(`CREATE INDEX IF NOT EXISTS idx_pp_enabled ON path_performance (enabled)`),
+      ]);
+    } catch { /* indexes may already exist */ }
+    _learningSchemaReady = true;
+  } catch (e) {
+    console.error("[LEARNING] Schema migration failed:", String(e).slice(0, 200));
+  }
+}
+
+async function d1LogDirectionAccuracy(env, trade, tickerData, entryPath) {
+  const db = env?.DB;
+  if (!db) return;
+  try {
+    await d1EnsureLearningSchema(env);
+    const sc = tickerData?.swing_consensus || {};
+    const regime = tickerData?.regime || {};
+    const htfScore = Number(tickerData?.htf_score) || 0;
+    const state = String(tickerData?.state || "");
+
+    await db.prepare(
+      `INSERT OR IGNORE INTO direction_accuracy
+       (trade_id, ticker, ts, traded_direction, consensus_direction, htf_score_direction,
+        state_direction, direction_source, htf_score, ltf_score,
+        regime_daily, regime_weekly, regime_combined,
+        bullish_count, bearish_count, tf_stack_json, entry_path,
+        rank, rr, entry_price, status)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, 'OPEN')`
+    ).bind(
+      trade.id,
+      trade.ticker,
+      trade.entry_ts || Date.now(),
+      trade.direction,
+      sc.direction || null,
+      htfScore >= 0 ? "LONG" : "SHORT",
+      state.includes("BULL") ? "LONG" : state.includes("BEAR") ? "SHORT" : null,
+      tickerData?.direction_source || null,
+      htfScore,
+      Number(tickerData?.ltf_score) || 0,
+      regime.daily || null,
+      regime.weekly || null,
+      regime.combined || null,
+      sc.bullish_count ?? null,
+      sc.bearish_count ?? null,
+      sc.tf_stack ? JSON.stringify(sc.tf_stack) : null,
+      entryPath || null,
+      Number(trade.rank) || 0,
+      Number(trade.rr) || 0,
+      Number(trade.entryPrice) || 0,
+    ).run();
+  } catch (e) {
+    console.warn("[LEARNING] d1LogDirectionAccuracy failed:", String(e).slice(0, 150));
+  }
+}
+
+async function d1UpdateDirectionAccuracyOnExit(env, trade) {
+  const db = env?.DB;
+  if (!db) return;
+  try {
+    await d1EnsureLearningSchema(env);
+    const isLong = trade.direction === "LONG";
+    const entryPx = Number(trade.entryPrice);
+    const exitPx = Number(trade.exitPrice);
+    if (!Number.isFinite(entryPx) || !Number.isFinite(exitPx)) return;
+
+    const priceMoved = isLong ? exitPx - entryPx : entryPx - exitPx;
+    const directionCorrect = priceMoved > 0 ? 1 : 0;
+
+    const pnl = Number(trade.pnl) || Number(trade.realizedPnl) || 0;
+    const pnlPct = Number(trade.pnlPct) || (entryPx > 0 ? (pnl / (entryPx * (trade.shares || 1))) * 100 : 0);
+
+    await db.prepare(
+      `UPDATE direction_accuracy SET
+         exit_ts = ?1, exit_price = ?2, pnl = ?3, pnl_pct = ?4,
+         direction_correct = ?5, status = ?6
+       WHERE trade_id = ?7`
+    ).bind(
+      trade.exit_ts || Date.now(),
+      exitPx,
+      pnl,
+      pnlPct,
+      directionCorrect,
+      trade.status || (pnl > 0 ? "WIN" : pnl < 0 ? "LOSS" : "FLAT"),
+      trade.id,
+    ).run();
+  } catch (e) {
+    console.warn("[LEARNING] d1UpdateDirectionAccuracyOnExit failed:", String(e).slice(0, 150));
+  }
+}
+
 const USER_TICKER_SLOT_LIMITS = { free: 3, member: 3, pro: 10, vip: 10, admin: 50 };
 const USER_TICKER_SYSTEM_CAP = 200;
 const USER_TICKER_HOLD_DAYS = 7;
@@ -14629,9 +15427,12 @@ async function d1LoadTradesForSimulation(env) {
       console.warn("[D1 LEDGER] trade reconciliation:", String(reconcileErr).slice(0, 100));
     }
 
-    // Enrich open trades: resolve entry price from candle history at entry_ts (fixes stale/wrong EP e.g. ULTA)
+    // Enrich open trades: fill in entry price from candle history at entry_ts
+    // ONLY if the trade doesn't already have a valid entry price from the DB.
     const openTrades = out.filter((t) => (t.status === "OPEN" || !t.exit_ts) && t.entry_ts);
     for (const t of openTrades) {
+      const existingEp = Number(t.entryPrice ?? t.entry_price);
+      if (Number.isFinite(existingEp) && existingEp > 0) continue;
       const fromTrail = await getPriceFromTrailAtTimestamp(db, t.ticker, t.entry_ts);
       if (fromTrail != null) {
         t.entryPrice = fromTrail;
@@ -15730,18 +16531,19 @@ const SECTOR_MAP = {
   "CL1!": "Energy",
 };
 
+// Sector Ratings — as of Feb 13, 2026 (S&P Index Weight vs FSI Weight)
 const SECTOR_RATINGS = {
-  "Consumer Discretionary": { rating: "neutral", boost: 0 },
-  Industrials: { rating: "overweight", boost: 5 },
-  "Information Technology": { rating: "neutral", boost: 0 },
-  "Communication Services": { rating: "neutral", boost: 0 },
-  "Basic Materials": { rating: "neutral", boost: 0 },
-  Energy: { rating: "overweight", boost: 5 },
-  Financials: { rating: "overweight", boost: 5 },
-  "Real Estate": { rating: "underweight", boost: -3 },
-  "Consumer Staples": { rating: "underweight", boost: -3 },
-  Healthcare: { rating: "overweight", boost: 5 }, // Fixed: "Health Care" -> "Healthcare" to match SECTOR_MAP
-  Utilities: { rating: "overweight", boost: 5 },
+  Healthcare:                { rating: "overweight",  boost: 5,  spWeight: 8.2,  fsiWeight: 10.1, delta: 1.9  },
+  "Information Technology":  { rating: "overweight",  boost: 3,  spWeight: 26.7, fsiWeight: 27.1, delta: 0.4  },
+  Energy:                    { rating: "overweight",  boost: 5,  spWeight: 2.8,  fsiWeight: 5.1,  delta: 2.3  },
+  Financials:                { rating: "overweight",  boost: 3,  spWeight: 10.8, fsiWeight: 11.4, delta: 0.6  },
+  Industrials:               { rating: "overweight",  boost: 5,  spWeight: 7.5,  fsiWeight: 9.8,  delta: 2.3  },
+  Utilities:                 { rating: "neutral",     boost: 0,  spWeight: 1.9,  fsiWeight: 1.9,  delta: 0.0  },
+  "Communication Services":  { rating: "neutral",     boost: 0,  spWeight: 8.4,  fsiWeight: 8.4,  delta: 0.0  },
+  "Basic Materials":         { rating: "neutral",     boost: 0,  spWeight: 1.7,  fsiWeight: 1.7,  delta: 0.0  },
+  "Consumer Discretionary":  { rating: "underweight", boost: -3, spWeight: 9.3,  fsiWeight: 7.3,  delta: -2.0 },
+  "Consumer Staples":        { rating: "underweight", boost: -5, spWeight: 5.1,  fsiWeight: 3.0,  delta: -2.1 },
+  "Real Estate":             { rating: "underweight", boost: -3, spWeight: 1.6,  fsiWeight: 0.0,  delta: -1.6 },
 };
 
 function getSector(ticker) {
@@ -20172,8 +20974,8 @@ export default {
                   const openPositions = openPosResult?.results || [];
                   const tkSym = String(ticker).toUpperCase();
                   const tkSector = getSector(tkSym) || "UNKNOWN";
-                  const entryPathCheck = String(data?.__entry_path || data?.entry_path || data?.state || "").toLowerCase();
-                  const tkDir = entryPathCheck.includes("short") ? "SHORT" : "LONG";
+                  const entryPathCheck = String(data?.__entry_path || data?.entry_path || data?.state || "").toUpperCase();
+                  const tkDir = (entryPathCheck.includes("SHORT") || entryPathCheck.startsWith("HTF_BEAR")) ? "SHORT" : "LONG";
                   // Sector concentration
                   let sectorCnt = 0;
                   for (const p of openPositions) {
@@ -20434,6 +21236,15 @@ export default {
                   obj._live_daily_high = pf.dh;
                   obj._live_daily_low = pf.dl;
                   obj._live_daily_volume = pf.dv;
+                  // Extended hours (AH/pre-market) change from price feed
+                  const pfAhDp2 = Number(pf.ahdp);
+                  const pfAhDc2 = Number(pf.ahdc);
+                  const pfAhP2 = Number(pf.ahp);
+                  if (Number.isFinite(pfAhDp2) && pfAhDp2 !== 0) {
+                    obj._ah_change_pct = pfAhDp2;
+                    obj._ah_change = Number.isFinite(pfAhDc2) ? pfAhDc2 : 0;
+                    if (Number.isFinite(pfAhP2) && pfAhP2 > 0) obj._ah_price = pfAhP2;
+                  }
 
                   // Pick best prev_close: daily candle > pf.pc (if divergent) > stored
                   const dailyCandlePc = pcCache[sym] || 0;
@@ -20537,8 +21348,8 @@ export default {
                 // Per-ticker concentration checks (only during RTH)
                 if (!snapRthBlock && snapOpenPositions.length > 0) {
                   const tkSector = getSector(sym) || "UNKNOWN";
-                  const entryPathCheck = String(obj?.__entry_path || obj?.entry_path || obj?.state || "").toLowerCase();
-                  const tkDir = entryPathCheck.includes("short") ? "SHORT" : "LONG";
+                  const entryPathCheck = String(obj?.__entry_path || obj?.entry_path || obj?.state || "").toUpperCase();
+                  const tkDir = (entryPathCheck.includes("SHORT") || entryPathCheck.startsWith("HTF_BEAR")) ? "SHORT" : "LONG";
                   let sectorCnt = 0;
                   for (const p of snapOpenPositions) {
                     const pSector = getSector(String(p.ticker).toUpperCase()) || "UNKNOWN";
@@ -20566,18 +21377,84 @@ export default {
               }
             } catch (_) { /* non-critical — serve snapshot with original block reasons */ }
 
+            // ── Daily-candle close overlay ──
+            // Use the last two daily candles per ticker to set an authoritative
+            // close price (most recent candle) and prev_close (prior candle).
+            // This ensures correct daily change values regardless of live-feed
+            // staleness, both during RTH and after hours.
+            try {
+              if (env?.DB) {
+                const rthOpen = isNyRegularMarketOpen();
+                const candleRows = await env.DB.prepare(
+                  `WITH deduped AS (
+                    SELECT ticker, ts, c,
+                      ROW_NUMBER() OVER (PARTITION BY ticker, CAST(ts / 86400000 AS INTEGER) ORDER BY ts DESC) as day_rn
+                    FROM ticker_candles WHERE tf = 'D'
+                  )
+                  SELECT ticker, ts, c FROM (
+                    SELECT ticker, ts, c, ROW_NUMBER() OVER (PARTITION BY ticker ORDER BY ts DESC) as rn
+                    FROM deduped WHERE day_rn = 1
+                  ) WHERE rn <= 2
+                  ORDER BY ticker, ts DESC`
+                ).all();
+                const candleMap = {};
+                for (const r of (candleRows?.results || [])) {
+                  const sym = String(r.ticker).toUpperCase();
+                  if (!candleMap[sym]) candleMap[sym] = [];
+                  candleMap[sym].push({ ts: Number(r.ts), c: Number(r.c) });
+                }
+                for (const [sym, candles] of Object.entries(candleMap)) {
+                  if (!data[sym]) continue;
+                  const obj = data[sym];
+                  const todayCandle = candles[0];
+                  const prevCandle = candles[1];
+                  if (!todayCandle || !Number.isFinite(todayCandle.c) || todayCandle.c <= 0) continue;
+
+                  // When market is closed, use daily candle close as the authoritative price
+                  // unless a live price was updated within the last 30 min (AH feed).
+                  const liveFreshMs = obj._price_updated_at
+                    ? Date.now() - obj._price_updated_at
+                    : Infinity;
+                  const liveFresh = liveFreshMs < 30 * 60 * 1000;
+                  if (!rthOpen && !liveFresh) {
+                    obj.price = todayCandle.c;
+                    obj.close = todayCandle.c;
+                  }
+
+                  // Use prior daily candle for prev_close when available
+                  if (prevCandle && Number.isFinite(prevCandle.c) && prevCandle.c > 0) {
+                    const effectivePrice = Number(obj.price) || todayCandle.c;
+                    const pc = prevCandle.c;
+                    if (effectivePrice > 0 && Math.abs((effectivePrice - pc) / pc * 100) < 30) {
+                      obj.prev_close = pc;
+                      obj._live_prev_close = pc;
+                      obj.day_change = Math.round((effectivePrice - pc) * 100) / 100;
+                      obj.day_change_pct = Math.round(((effectivePrice - pc) / pc) * 10000) / 100;
+                      obj.change = obj.day_change;
+                      obj.change_pct = obj.day_change_pct;
+                    }
+                  }
+                }
+              }
+            } catch (_) { /* daily candle overlay non-critical */ }
+
             // ── Sparkline enrichment at serve time ──
             // If the snapshot was built before sparklines were added, or if the
             // scoring cron hasn't run since deploy, enrich inline from D1 daily candles.
             try {
               const totalTickers = Object.keys(data).length;
-              const withSparkline = Object.values(data).filter(d => Array.isArray(d?._sparkline) && d._sparkline.length >= 2).length;
+              const withSparkline = Object.values(data).filter(d => Array.isArray(d?._sparkline) && d._sparkline.length >= 30).length;
               if (totalTickers > 0 && withSparkline < totalTickers * 0.5 && env?.DB) {
                 const sparkRows = await env.DB.prepare(
-                  `SELECT ticker, ts, c FROM (
-                    SELECT ticker, ts, c, ROW_NUMBER() OVER (PARTITION BY ticker ORDER BY ts DESC) as rn
+                  `WITH deduped AS (
+                    SELECT ticker, ts, c,
+                      ROW_NUMBER() OVER (PARTITION BY ticker, CAST(ts / 86400000 AS INTEGER) ORDER BY ts DESC) as day_rn
                     FROM ticker_candles WHERE tf = 'D'
-                  ) WHERE rn <= 20
+                  )
+                  SELECT ticker, ts, c FROM (
+                    SELECT ticker, ts, c, ROW_NUMBER() OVER (PARTITION BY ticker ORDER BY ts DESC) as rn
+                    FROM deduped WHERE day_rn = 1
+                  ) WHERE rn <= 60
                   ORDER BY ticker, ts ASC`
                 ).all();
                 const sparkMap = {};
@@ -20828,8 +21705,8 @@ export default {
                   // Per-ticker concentration checks
                   if (!execRthBlock && execOpenPositions.length > 0) {
                     const tkSector = getSector(sym) || "UNKNOWN";
-                    const entryPathCheck = String(obj?.__entry_path || obj?.entry_path || obj?.state || "").toLowerCase();
-                    const tkDir = entryPathCheck.includes("short") ? "SHORT" : "LONG";
+                    const entryPathCheck = String(obj?.__entry_path || obj?.entry_path || obj?.state || "").toUpperCase();
+                    const tkDir = (entryPathCheck.includes("SHORT") || entryPathCheck.startsWith("HTF_BEAR")) ? "SHORT" : "LONG";
                     // Sector concentration
                     let sectorCnt = 0;
                     for (const p of execOpenPositions) {
@@ -21188,10 +22065,15 @@ export default {
                 obj._live_daily_low = pf.dl;
                 obj._live_daily_volume = pf.dv;
                 obj._price_updated_at = pricesUpdatedAt;
-                // Keep ingest_ts fresh: price feed runs every minute, so if the feed
-                // has a newer timestamp than the stored payload, use the feed's time.
-                // This prevents the tooltip from showing stale dates (e.g. "Feb 10 4:00 PM")
-                // when D1 payload_json hasn't been synced from KV yet.
+                // Extended hours (AH/pre-market) change from price feed
+                const pfAhDp = Number(pf.ahdp);
+                const pfAhDc = Number(pf.ahdc);
+                const pfAhP = Number(pf.ahp);
+                if (Number.isFinite(pfAhDp) && pfAhDp !== 0) {
+                  obj._ah_change_pct = pfAhDp;
+                  obj._ah_change = Number.isFinite(pfAhDc) ? pfAhDc : 0;
+                  if (Number.isFinite(pfAhP) && pfAhP > 0) obj._ah_price = pfAhP;
+                }
                 if (Number.isFinite(pricesUpdatedAt) && pricesUpdatedAt > 0) {
                   const existingTs = Number(obj.ingest_ts) || Number(obj.ts) || 0;
                   const existingNorm = existingTs > 0 && existingTs < 1e12 ? existingTs * 1000 : existingTs;
@@ -21260,15 +22142,70 @@ export default {
             }
           } catch { /* non-critical */ }
 
+          // ── Daily-candle close overlay (D1 fallback path) ──
+          try {
+            if (env?.DB) {
+              const rthOpen = isNyRegularMarketOpen();
+              const candleRows = await env.DB.prepare(
+                `WITH deduped AS (
+                  SELECT ticker, ts, c,
+                    ROW_NUMBER() OVER (PARTITION BY ticker, CAST(ts / 86400000 AS INTEGER) ORDER BY ts DESC) as day_rn
+                  FROM ticker_candles WHERE tf = 'D'
+                )
+                SELECT ticker, ts, c FROM (
+                  SELECT ticker, ts, c, ROW_NUMBER() OVER (PARTITION BY ticker ORDER BY ts DESC) as rn
+                  FROM deduped WHERE day_rn = 1
+                ) WHERE rn <= 2
+                ORDER BY ticker, ts DESC`
+              ).all();
+              const candleMap = {};
+              for (const r of (candleRows?.results || [])) {
+                const sym = String(r.ticker).toUpperCase();
+                if (!candleMap[sym]) candleMap[sym] = [];
+                candleMap[sym].push({ ts: Number(r.ts), c: Number(r.c) });
+              }
+              for (const [sym, candles] of Object.entries(candleMap)) {
+                if (!data[sym]) continue;
+                const obj = data[sym];
+                const todayCandle = candles[0];
+                const prevCandle = candles[1];
+                if (!todayCandle || !Number.isFinite(todayCandle.c) || todayCandle.c <= 0) continue;
+                const liveFreshMs = obj._price_updated_at ? Date.now() - obj._price_updated_at : Infinity;
+                const liveFresh = liveFreshMs < 30 * 60 * 1000;
+                if (!rthOpen && !liveFresh) {
+                  obj.price = todayCandle.c;
+                  obj.close = todayCandle.c;
+                }
+                if (prevCandle && Number.isFinite(prevCandle.c) && prevCandle.c > 0) {
+                  const effectivePrice = Number(obj.price) || todayCandle.c;
+                  const pc = prevCandle.c;
+                  if (effectivePrice > 0 && Math.abs((effectivePrice - pc) / pc * 100) < 30) {
+                    obj.prev_close = pc;
+                    obj._live_prev_close = pc;
+                    obj.day_change = Math.round((effectivePrice - pc) * 100) / 100;
+                    obj.day_change_pct = Math.round(((effectivePrice - pc) / pc) * 10000) / 100;
+                    obj.change = obj.day_change;
+                    obj.change_pct = obj.day_change_pct;
+                  }
+                }
+              }
+            }
+          } catch (_) { /* daily candle overlay non-critical */ }
+
           // ── Sparkline enrichment (D1 fallback path) ──
           try {
-            const withSpark = Object.values(data).filter(d => Array.isArray(d?._sparkline) && d._sparkline.length >= 2).length;
+            const withSpark = Object.values(data).filter(d => Array.isArray(d?._sparkline) && d._sparkline.length >= 30).length;
             if (Object.keys(data).length > 0 && withSpark < Object.keys(data).length * 0.5 && env?.DB) {
               const sparkRows = await env.DB.prepare(
-                `SELECT ticker, ts, c FROM (
-                  SELECT ticker, ts, c, ROW_NUMBER() OVER (PARTITION BY ticker ORDER BY ts DESC) as rn
+                `WITH deduped AS (
+                  SELECT ticker, ts, c,
+                    ROW_NUMBER() OVER (PARTITION BY ticker, CAST(ts / 86400000 AS INTEGER) ORDER BY ts DESC) as day_rn
                   FROM ticker_candles WHERE tf = 'D'
-                ) WHERE rn <= 20
+                )
+                SELECT ticker, ts, c FROM (
+                  SELECT ticker, ts, c, ROW_NUMBER() OVER (PARTITION BY ticker ORDER BY ts DESC) as rn
+                  FROM deduped WHERE day_rn = 1
+                ) WHERE rn <= 60
                 ORDER BY ticker, ts ASC`
               ).all();
               const sparkMap = {};
@@ -23025,17 +23962,19 @@ export default {
           await d1EnsureQueueSchema(env);
           const db = env?.DB;
           if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
-          const pending = await db.prepare(
-            `SELECT id, ticker, action, direction, session, reason, status, resolution, queued_at, resolved_at
-             FROM queued_actions WHERE status = 'PENDING' OR resolved_at > ?1
-             ORDER BY queued_at DESC LIMIT 50`
-          ).bind(Date.now() - 24 * 60 * 60 * 1000).all();
+          const cutoff = Date.now() - 24 * 60 * 60 * 1000;
+          const [rows, countRow] = await Promise.all([
+            db.prepare(
+              `SELECT id, ticker, action, direction, session, reason, status, resolution, queued_at, resolved_at
+               FROM queued_actions WHERE status = 'PENDING' OR resolved_at > ?1
+               ORDER BY queued_at DESC LIMIT 200`
+            ).bind(cutoff).all(),
+            db.prepare(`SELECT COUNT(*) as cnt FROM queued_actions WHERE status = 'PENDING'`).first(),
+          ]);
           return sendJSON({
             ok: true,
-            actions: (pending?.results || []).map(r => ({
-              ...r,
-              snapshot: undefined,
-            })),
+            actions: (rows?.results || []).map(r => ({ ...r, snapshot: undefined })),
+            pendingCount: Number(countRow?.cnt) || 0,
           }, 200, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e).slice(0, 200) }, 500, corsHeaders(env, req));
@@ -24013,13 +24952,18 @@ export default {
             if (!activeSyms.includes(sym)) delete snapshot[sym];
           }
 
-          // Enrich with sparkline data (last 20 daily closes per ticker)
+          // Enrich with sparkline data (last 60 daily closes per ticker)
           try {
             const sparkRows = await env.DB.prepare(
-              `SELECT ticker, ts, c FROM (
-                SELECT ticker, ts, c, ROW_NUMBER() OVER (PARTITION BY ticker ORDER BY ts DESC) as rn
+              `WITH deduped AS (
+                SELECT ticker, ts, c,
+                  ROW_NUMBER() OVER (PARTITION BY ticker, CAST(ts / 86400000 AS INTEGER) ORDER BY ts DESC) as day_rn
                 FROM ticker_candles WHERE tf = 'D'
-              ) WHERE rn <= 20
+              )
+              SELECT ticker, ts, c FROM (
+                SELECT ticker, ts, c, ROW_NUMBER() OVER (PARTITION BY ticker ORDER BY ts DESC) as rn
+                FROM deduped WHERE day_rn = 1
+              ) WHERE rn <= 60
               ORDER BY ticker, ts ASC`
             ).all();
             const sparkMap = {};
@@ -27405,6 +28349,90 @@ export default {
         }
       }
 
+      // GET /timed/model/direction-accuracy — query direction accuracy records
+      if (routeKey === "GET /timed/model/direction-accuracy") {
+        try {
+          const DB = env?.DB;
+          if (!DB) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
+          await d1EnsureLearningSchema(env);
+          const ticker = url.searchParams.get("ticker");
+          const status = url.searchParams.get("status");
+          const source = url.searchParams.get("source");
+          const limit = Math.min(Number(url.searchParams.get("limit")) || 200, 1000);
+          let sql = `SELECT * FROM direction_accuracy WHERE 1=1`;
+          const binds = [];
+          if (ticker) { sql += ` AND ticker = ?`; binds.push(ticker.toUpperCase()); }
+          if (status) { sql += ` AND status = ?`; binds.push(status.toUpperCase()); }
+          if (source) { sql += ` AND direction_source = ?`; binds.push(source); }
+          sql += ` ORDER BY ts DESC LIMIT ?`;
+          binds.push(limit);
+          const stmt = DB.prepare(sql);
+          const { results } = await (binds.length ? stmt.bind(...binds) : stmt).all();
+
+          const total = results?.length || 0;
+          const correct = (results || []).filter(r => r.direction_correct === 1).length;
+          const incorrect = (results || []).filter(r => r.direction_correct === 0).length;
+          const open = (results || []).filter(r => r.status === "OPEN").length;
+          return sendJSON({
+            ok: true,
+            summary: { total, correct, incorrect, open, accuracy: total > open ? (correct / (total - open) * 100).toFixed(1) + "%" : "N/A" },
+            records: results || [],
+          }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // GET /timed/model/retrospective — aggregate accuracy by source, path, time
+      if (routeKey === "GET /timed/model/retrospective") {
+        try {
+          const DB = env?.DB;
+          if (!DB) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
+          await d1EnsureLearningSchema(env);
+
+          const bySource = (await DB.prepare(
+            `SELECT direction_source, COUNT(*) as total,
+             SUM(CASE WHEN direction_correct=1 THEN 1 ELSE 0 END) as correct,
+             SUM(CASE WHEN direction_correct=0 THEN 1 ELSE 0 END) as incorrect,
+             ROUND(AVG(pnl_pct),2) as avg_pnl_pct
+             FROM direction_accuracy WHERE status != 'OPEN'
+             GROUP BY direction_source ORDER BY total DESC`
+          ).all()).results || [];
+
+          const byPath = (await DB.prepare(
+            `SELECT entry_path, COUNT(*) as total,
+             SUM(CASE WHEN direction_correct=1 THEN 1 ELSE 0 END) as correct,
+             SUM(CASE WHEN direction_correct=0 THEN 1 ELSE 0 END) as incorrect,
+             ROUND(AVG(pnl_pct),2) as avg_pnl_pct,
+             SUM(CASE WHEN status='WIN' THEN 1 ELSE 0 END) as wins,
+             SUM(CASE WHEN status='LOSS' THEN 1 ELSE 0 END) as losses
+             FROM direction_accuracy WHERE status != 'OPEN'
+             GROUP BY entry_path ORDER BY total DESC`
+          ).all()).results || [];
+
+          const overall = (await DB.prepare(
+            `SELECT COUNT(*) as total,
+             SUM(CASE WHEN direction_correct=1 THEN 1 ELSE 0 END) as correct,
+             SUM(CASE WHEN status='WIN' THEN 1 ELSE 0 END) as wins,
+             SUM(CASE WHEN status='LOSS' THEN 1 ELSE 0 END) as losses,
+             ROUND(AVG(pnl_pct),2) as avg_pnl_pct,
+             ROUND(AVG(CASE WHEN status='WIN' THEN pnl_pct END),2) as avg_win_pct,
+             ROUND(AVG(CASE WHEN status='LOSS' THEN pnl_pct END),2) as avg_loss_pct
+             FROM direction_accuracy WHERE status != 'OPEN'`
+          ).all()).results?.[0] || {};
+
+          const pathPerf = (await DB.prepare(
+            `SELECT * FROM path_performance ORDER BY total_trades DESC`
+          ).all()).results || [];
+
+          return sendJSON({
+            ok: true, overall, by_source: bySource, by_path: byPath, path_performance: pathPerf,
+          }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e) }, 500, corsHeaders(env, req));
+        }
+      }
+
       // ═══════════════════════════════════════════════════════════════════════
       // SCREENER / DISCOVERY ENDPOINTS
       // ═══════════════════════════════════════════════════════════════════════
@@ -27922,18 +28950,6 @@ export default {
           // Invalidate the scoring cache
           _userTickersCache = null;
 
-          // Trigger backfill if ticker has no candle data yet
-          let backfillTriggered = false;
-          if (!isInCore && !(await d1TickerHasCandles(env, rawTicker))) {
-            try {
-              await alpacaBackfill(env, [rawTicker], d1UpsertCandle, "all", 30);
-              backfillTriggered = true;
-              console.log(`[USER_TICKERS] Backfilled candles for new ticker ${rawTicker}`);
-            } catch (e) {
-              console.warn(`[USER_TICKERS] Backfill failed for ${rawTicker}:`, String(e?.message || e).slice(0, 200));
-            }
-          }
-
           // Seed timed:latest:{ticker} immediately from Alpaca snapshot so ticker appears in UI now
           let seeded = false;
           if (alpacaSnap && !isInCore) {
@@ -27970,6 +28986,48 @@ export default {
             } catch (e) {
               console.warn(`[USER_TICKERS] Seed failed for ${rawTicker}:`, String(e?.message || e).slice(0, 100));
             }
+          }
+
+          // Deep backfill + immediate score — run via waitUntil so the response returns fast
+          let backfillTriggered = false;
+          if (!isInCore && !(await d1TickerHasCandles(env, rawTicker))) {
+            backfillTriggered = true;
+            ctx.waitUntil((async () => {
+              try {
+                // null sinceDays → deep-history lookup: W gets ~2100 days, D gets 450, etc.
+                // This ensures 50+ candles per TF so scoring succeeds
+                await alpacaBackfill(env, [rawTicker], d1UpsertCandle, "all", null);
+                console.log(`[USER_TICKERS] Deep backfilled candles for ${rawTicker}`);
+
+                // Immediately score so the ticker gets SL/TP/state/stage
+                try {
+                  const existing = await kvGetJSON(KV, `timed:latest:${rawTicker}`);
+                  const result = await computeServerSideScores(rawTicker, d1GetCandles, env, existing);
+                  if (result) {
+                    const now = Date.now();
+                    result.data_source = "alpaca";
+                    result.data_source_ts = now;
+                    result.ingest_ts = now;
+                    result.ingest_time = new Date(now).toISOString();
+                    result.trigger_ts = now;
+                    result.rank = computeRank(result);
+                    result.score = result.rank;
+                    if (existing?.price) result.price = existing.price;
+                    if (existing?.prev_close) result.prev_close = existing.prev_close;
+                    if (existing?.day_change) result.day_change = existing.day_change;
+                    if (existing?.day_change_pct) result.day_change_pct = existing.day_change_pct;
+                    await kvPutJSON(KV, `timed:latest:${rawTicker}`, result);
+                    console.log(`[USER_TICKERS] Scored ${rawTicker}: score=${result.score}, stage=${result.kanban_stage}, state=${result.state}`);
+                  } else {
+                    console.warn(`[USER_TICKERS] Scoring returned null for ${rawTicker} — insufficient candle data even after backfill`);
+                  }
+                } catch (scoreErr) {
+                  console.warn(`[USER_TICKERS] Post-backfill scoring failed for ${rawTicker}:`, String(scoreErr?.message || scoreErr).slice(0, 200));
+                }
+              } catch (e) {
+                console.warn(`[USER_TICKERS] Deep backfill failed for ${rawTicker}:`, String(e?.message || e).slice(0, 200));
+              }
+            })());
           }
 
           console.log(`[USER_TICKERS] ${user.email} added ${rawTicker} (core: ${isInCore}, backfill: ${backfillTriggered}, seeded: ${seeded})`);
@@ -31417,6 +32475,60 @@ Provide 3-5 actionable next steps:
         }
       }
 
+      // ── Admin: UPTICKS list (KV-persisted) ──
+      if (routeKey === "GET /timed/admin/upticks") {
+        try {
+          const stored = await kvGetJSON(KV, "timed:admin:upticks");
+          const list = Array.isArray(stored) ? stored : [];
+          return sendJSON({ ok: true, tickers: list }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 200) }, 500, corsHeaders(env, req));
+        }
+      }
+      if (routeKey === "PUT /timed/admin/upticks") {
+        try {
+          const body = await req.json();
+          const tickers = Array.isArray(body?.tickers) ? body.tickers.map(t => String(t).toUpperCase().trim()).filter(Boolean) : [];
+          const unique = [...new Set(tickers)];
+          await kvPutJSON(KV, "timed:admin:upticks", unique);
+          return sendJSON({ ok: true, count: unique.length, tickers: unique }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 200) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // ── Admin: Sector Ratings (KV-persisted) ──
+      if (routeKey === "GET /timed/admin/sector-ratings") {
+        try {
+          const stored = await kvGetJSON(KV, "timed:admin:sector_ratings");
+          const ratings = (stored && typeof stored === "object") ? stored : {};
+          const merged = { ...SECTOR_RATINGS };
+          for (const [sector, val] of Object.entries(ratings)) {
+            if (merged[sector]) Object.assign(merged[sector], val);
+            else merged[sector] = val;
+          }
+          return sendJSON({ ok: true, ratings: merged }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 200) }, 500, corsHeaders(env, req));
+        }
+      }
+      if (routeKey === "PUT /timed/admin/sector-ratings") {
+        try {
+          const body = await req.json();
+          const ratings = (body?.ratings && typeof body.ratings === "object") ? body.ratings : {};
+          await kvPutJSON(KV, "timed:admin:sector_ratings", ratings);
+          // Also update in-memory SECTOR_RATINGS so scoring picks up changes immediately
+          for (const [sector, val] of Object.entries(ratings)) {
+            if (SECTOR_RATINGS[sector] && typeof val === "object") {
+              Object.assign(SECTOR_RATINGS[sector], val);
+            }
+          }
+          return sendJSON({ ok: true, updated: Object.keys(ratings).length }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 200) }, 500, corsHeaders(env, req));
+        }
+      }
+
       // ── ETF Holdings Sync ──
       if (routeKey === "GET /timed/etf/groups") {
         try {
@@ -31439,7 +32551,10 @@ Provide 3-5 actionable next steps:
 
       if (routeKey === "POST /timed/etf/sync") {
         try {
-          const result = await syncAllETFHoldings(env, { notifyDiscord });
+          const result = await syncAllETFHoldings(env, {
+            notifyDiscord,
+            addToUniverse: (env2, tickers, wMap) => etfAutoAddTickers(env2, tickers, wMap, ctx),
+          });
           return sendJSON(result, 200, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e).slice(0, 200) }, 500, corsHeaders(env, req));
@@ -36214,8 +37329,22 @@ Provide 3-5 actionable next steps:
             .then((r) => console.log(`[MODEL RETRO] Weekly retrospective: ${r.resolved} resolved, ${r.proposals.length} proposals, ${r.regimeShifts.length} regime shifts`))
             .catch((e) => console.warn(`[MODEL RETRO] Failed:`, String(e?.message || e).slice(0, 300)))
         );
+        ctx.waitUntil(
+          refreshPathPerformance(env)
+            .then((r) => console.log(`[LEARNING] Path performance refresh: ${r.updated || 0} paths updated`))
+            .catch((e) => console.warn(`[LEARNING] Path perf refresh failed:`, String(e?.message || e).slice(0, 200)))
+        );
+        ctx.waitUntil(
+          updateConsensusWeights(env)
+            .then((r) => console.log(`[LEARNING] Consensus weights update: ${r.ok ? JSON.stringify(r.weights || {}) : r.reason || r.error}`))
+            .catch((e) => console.warn(`[LEARNING] Consensus weights failed:`, String(e?.message || e).slice(0, 200)))
+        );
+        ctx.waitUntil(
+          updateScoringWeights(env)
+            .then((r) => console.log(`[LEARNING] Scoring weights update: ${r.ok ? JSON.stringify(r.adj || {}) : r.reason || r.error}`))
+            .catch((e) => console.warn(`[LEARNING] Scoring weights failed:`, String(e?.message || e).slice(0, 200)))
+        );
       }
-      // Don't return — allow other */5 tasks to run
     }
 
     // ── Investor Intelligence: hourly scoring refresh (top of hour, 9AM-4PM ET = 14-21 UTC, Mon-Fri) ──
@@ -36345,8 +37474,11 @@ Provide 3-5 actionable next steps:
         ctx.waitUntil((async () => {
           try {
             console.log("[ETF SYNC CRON] Syncing ETF holdings from grannyshots.com...");
-            const result = await syncAllETFHoldings(env, { notifyDiscord });
-            console.log(`[ETF SYNC CRON] ${result.ok ? "OK" : result.error} (${result.elapsed || 0}ms)`);
+            const result = await syncAllETFHoldings(env, {
+              notifyDiscord,
+              addToUniverse: (env2, tickers, wMap) => etfAutoAddTickers(env2, tickers, wMap, ctx),
+            });
+            console.log(`[ETF SYNC CRON] ${result.ok ? "OK" : result.error} (${result.elapsed || 0}ms)${result.autoAdded?.length ? `, auto-added: ${result.autoAdded.join(",")}` : ""}`);
           } catch (e) {
             console.error("[ETF SYNC CRON] Failed:", String(e).slice(0, 300));
           }
@@ -36479,13 +37611,117 @@ Provide 3-5 actionable next steps:
 
         // ── Lightweight mode: overlay TV futures + crypto onto existing prices ──
         // Runs during 2-8 AM UTC when stocks aren't actively trading.
-        // Avoids expensive Alpaca REST, D1 prev_close rebuild, and sanity checks.
+        // If stock prices are stale (all zero changes), does a one-time Alpaca
+        // REST snapshot fetch to seed today's close and prev_close.
         if (isLightweightPriceFeed) {
           let existing = {};
           try {
             const raw = await kvGetJSON(KV, "timed:prices");
             existing = raw?.prices || {};
           } catch (_) {}
+
+          // Refresh stock prices from Alpaca REST every 30 min during lightweight window,
+          // or immediately when prices are stale (<10 non-zero changes).
+          // This provides both proper day-change values and EXT (after-hours) data.
+          const nonZeroCount = Object.values(existing).filter(p => Number(p?.dc) !== 0 || Number(p?.dp) !== 0).length;
+          const hasAhData = Object.values(existing).some(p => Number.isFinite(Number(p?.ahdp)) && Number(p.ahdp) !== 0);
+          const needsRefresh = nonZeroCount < 10 || !hasAhData || (_utcM % 30 === 0);
+          if (needsRefresh) {
+            try {
+              const snapResult = await alpacaFetchSnapshots(env, allTickers);
+              const snapshots = snapResult.snapshots || {};
+              let restCount = 0;
+              const CRYPTO_24H = new Set(["BTCUSD", "ETHUSD"]);
+              for (const [sym, snap] of Object.entries(snapshots)) {
+                const ahPrice = snap.price;
+                const rthClose = snap.dailyClose;
+                const pc = snap.prevDailyClose;
+                const isCryptoSym = CRYPTO_24H.has(sym);
+                // Crypto trades 24/7: use latest trade as price, no RTH/AH distinction
+                const displayPrice = isCryptoSym ? (ahPrice > 0 ? ahPrice : rthClose) : (rthClose > 0 ? rthClose : ahPrice);
+                if (!displayPrice || displayPrice <= 0) continue;
+                const dc = (displayPrice > 0 && pc > 0) ? Math.round((displayPrice - pc) * 100) / 100 : 0;
+                const dp = (displayPrice > 0 && pc > 0) ? Math.round(((displayPrice - pc) / pc) * 10000) / 100 : 0;
+                let extDc = 0, extDp = 0;
+                if (!isCryptoSym && ahPrice > 0 && rthClose > 0 && Math.abs(ahPrice - rthClose) > 0.001) {
+                  extDc = Math.round((ahPrice - rthClose) * 100) / 100;
+                  extDp = Math.round(((ahPrice - rthClose) / rthClose) * 10000) / 100;
+                }
+                const prev = existing[sym] || {};
+                existing[sym] = {
+                  ...prev,
+                  p: Math.round(displayPrice * 100) / 100,
+                  pc: pc > 0 ? Math.round(pc * 100) / 100 : (prev.pc || 0),
+                  dc, dp,
+                  dh: snap.dailyHigh > 0 ? Math.round(snap.dailyHigh * 100) / 100 : (prev.dh || 0),
+                  dl: snap.dailyLow > 0 ? Math.round(snap.dailyLow * 100) / 100 : (prev.dl || 0),
+                  dv: snap.dailyVolume || prev.dv || 0,
+                  t: snap.trade_ts || Date.now(),
+                  ahp: extDc !== 0 ? Math.round(ahPrice * 100) / 100 : undefined,
+                  ahdc: extDc !== 0 ? extDc : undefined,
+                  ahdp: extDp !== 0 ? extDp : undefined,
+                };
+                restCount++;
+              }
+              console.log(`[PRICE FEED LIGHT] REST fallback updated ${restCount} tickers (nonZero was ${nonZeroCount})`);
+            } catch (e) {
+              console.warn("[PRICE FEED LIGHT] REST fallback error:", String(e?.message || e).slice(0, 200));
+            }
+          }
+
+          // D1 daily candle fallback for tickers still stale after REST snapshot
+          // (covers tickers Alpaca didn't return — small caps, recent adds, etc.)
+          try {
+            if (env?.DB) {
+              const staleSyms = allTickers.filter(sym => {
+                const e = existing[sym];
+                return !e || Number(e.dp) === 0 || !Number.isFinite(Number(e.dp));
+              });
+              if (staleSyms.length > 0) {
+                const candleRows = await env.DB.prepare(
+                  `WITH deduped AS (
+                    SELECT ticker, ts, c,
+                      ROW_NUMBER() OVER (PARTITION BY ticker, CAST(ts / 86400000 AS INTEGER) ORDER BY ts DESC) as day_rn
+                    FROM ticker_candles WHERE tf = 'D'
+                  )
+                  SELECT ticker, ts, c FROM (
+                    SELECT ticker, ts, c, ROW_NUMBER() OVER (PARTITION BY ticker ORDER BY ts DESC) as rn
+                    FROM deduped WHERE day_rn = 1
+                  ) WHERE rn <= 2
+                  ORDER BY ticker, ts DESC`
+                ).all();
+                const cMap = {};
+                for (const r of (candleRows?.results || [])) {
+                  const s = String(r.ticker).toUpperCase();
+                  if (!cMap[s]) cMap[s] = [];
+                  cMap[s].push({ ts: Number(r.ts), c: Number(r.c) });
+                }
+                let d1Count = 0;
+                for (const sym of staleSyms) {
+                  const candles = cMap[sym];
+                  if (!candles || candles.length < 2) continue;
+                  const todayC = candles[0]?.c;
+                  const prevC = candles[1]?.c;
+                  if (!todayC || todayC <= 0 || !prevC || prevC <= 0) continue;
+                  const dc = Math.round((todayC - prevC) * 100) / 100;
+                  const dp = Math.round(((todayC - prevC) / prevC) * 10000) / 100;
+                  if (dp === 0) continue;
+                  const prev = existing[sym] || {};
+                  existing[sym] = {
+                    ...prev,
+                    p: Math.round(todayC * 100) / 100,
+                    pc: Math.round(prevC * 100) / 100,
+                    dc, dp,
+                    t: candles[0].ts || Date.now(),
+                  };
+                  d1Count++;
+                }
+                if (d1Count > 0) console.log(`[PRICE FEED LIGHT] D1 candle fallback updated ${d1Count} tickers (stale: ${staleSyms.length})`);
+              }
+            }
+          } catch (e) {
+            console.warn("[PRICE FEED LIGHT] D1 fallback error:", String(e?.message || e).slice(0, 200));
+          }
 
           // 1. Overlay TV futures heartbeats
           const TV_FUTURES_LIGHT = ["ES1!", "NQ1!", "GC1!", "SI1!", "VX1!", "US500", "CL1!"];
@@ -36571,16 +37807,118 @@ Provide 3-5 actionable next steps:
           console.log(`[PRICE FEED LIGHT] TV futures: ${tvUpdated}, crypto: ${cryptoUpdated}, total: ${Object.keys(existing).length}`);
           // Skip the rest of the heavy pipeline
         } else {
-        // ── Full pipeline (active hours) — simplified ──
-        // AlpacaStream DO handles all Alpaca stock + crypto price computation
-        // and writes directly to timed:prices KV + PriceHub every ~1s.
-        // This cron only: (1) overlays TV futures, (2) checks SL/TP exits.
+        // ── Full pipeline (active hours) ──
+        // Primary: AlpacaStream DO handles all Alpaca stock + crypto price computation.
+        // Fallback: If DO prices are stale (>3 min old or all-zero changes), fetch
+        //           snapshots from Alpaca REST API so prices stay accurate even when
+        //           the stream isn't running.
 
         let prices = {};
+        let pricesSource = "kv";
+        let pricesUpdatedAt = 0;
         try {
           const raw = await kvGetJSON(KV, "timed:prices");
           prices = raw?.prices || {};
+          pricesUpdatedAt = Number(raw?.updated_at) || 0;
         } catch (_) {}
+
+        // Detect stale DO-managed prices: either >3 min old or all tickers show zero change
+        const priceAgeMs = Date.now() - pricesUpdatedAt;
+        const priceAgeMin = priceAgeMs / 60000;
+        const nonZeroChanges = Object.values(prices).filter(p => Number(p?.dc) !== 0 || Number(p?.dp) !== 0).length;
+        const doFresh = priceAgeMin < 3 && nonZeroChanges > 5;
+
+        // ── REST snapshot fallback when DO isn't providing fresh data ──
+        let restFallbackCount = 0;
+        if (!doFresh) {
+          try {
+            const userAddedForPF = await d1GetActiveUserTickersCached(env);
+            const allTickersForSnap = [...new Set([...Object.keys(SECTOR_MAP), ...userAddedForPF])];
+            const snapResult = await alpacaFetchSnapshots(env, allTickersForSnap);
+            const snapshots = snapResult.snapshots || {};
+            const CRYPTO_24H_FULL = new Set(["BTCUSD", "ETHUSD"]);
+            for (const [sym, snap] of Object.entries(snapshots)) {
+              const ahPrice = snap.price;
+              const rthClose = snap.dailyClose;
+              const pc = snap.prevDailyClose;
+              const isCryptoSym = CRYPTO_24H_FULL.has(sym);
+              const displayPrice = isCryptoSym ? (ahPrice > 0 ? ahPrice : rthClose) : (rthClose > 0 ? rthClose : ahPrice);
+              if (!displayPrice || displayPrice <= 0) continue;
+              const dc = (displayPrice > 0 && pc > 0) ? Math.round((displayPrice - pc) * 100) / 100 : 0;
+              const dp = (displayPrice > 0 && pc > 0) ? Math.round(((displayPrice - pc) / pc) * 10000) / 100 : 0;
+              let extDc = 0, extDp = 0;
+              if (!isCryptoSym && ahPrice > 0 && rthClose > 0 && Math.abs(ahPrice - rthClose) > 0.001) {
+                extDc = Math.round((ahPrice - rthClose) * 100) / 100;
+                extDp = Math.round(((ahPrice - rthClose) / rthClose) * 10000) / 100;
+              }
+              const prev = prices[sym] || {};
+              prices[sym] = {
+                ...prev,
+                p: Math.round(displayPrice * 100) / 100,
+                pc: pc > 0 ? Math.round(pc * 100) / 100 : (prev.pc || 0),
+                dc, dp,
+                dh: snap.dailyHigh > 0 ? Math.round(snap.dailyHigh * 100) / 100 : (prev.dh || 0),
+                dl: snap.dailyLow > 0 ? Math.round(snap.dailyLow * 100) / 100 : (prev.dl || 0),
+                dv: snap.dailyVolume || prev.dv || 0,
+                t: snap.trade_ts || Date.now(),
+                ahp: extDc !== 0 ? Math.round(ahPrice * 100) / 100 : undefined,
+                ahdc: extDc !== 0 ? extDc : undefined,
+                ahdp: extDp !== 0 ? extDp : undefined,
+              };
+              restFallbackCount++;
+            }
+            pricesSource = "alpaca_rest_fallback";
+          } catch (e) {
+            console.warn("[PRICE FEED] REST fallback error:", String(e?.message || e).slice(0, 200));
+          }
+        }
+
+        // D1 daily candle fallback for tickers still stale after REST snapshot
+        try {
+          if (env?.DB) {
+            const staleFullSyms = allTickers.filter(sym => {
+              const e = prices[sym];
+              return !e || Number(e.dp) === 0 || !Number.isFinite(Number(e.dp));
+            });
+            if (staleFullSyms.length > 0) {
+              const d1Rows = await env.DB.prepare(
+                `WITH deduped AS (
+                  SELECT ticker, ts, c,
+                    ROW_NUMBER() OVER (PARTITION BY ticker, CAST(ts / 86400000 AS INTEGER) ORDER BY ts DESC) as day_rn
+                  FROM ticker_candles WHERE tf = 'D'
+                )
+                SELECT ticker, ts, c FROM (
+                  SELECT ticker, ts, c, ROW_NUMBER() OVER (PARTITION BY ticker ORDER BY ts DESC) as rn
+                  FROM deduped WHERE day_rn = 1
+                ) WHERE rn <= 2
+                ORDER BY ticker, ts DESC`
+              ).all();
+              const d1Map = {};
+              for (const r of (d1Rows?.results || [])) {
+                const s = String(r.ticker).toUpperCase();
+                if (!d1Map[s]) d1Map[s] = [];
+                d1Map[s].push({ ts: Number(r.ts), c: Number(r.c) });
+              }
+              let d1FullCount = 0;
+              for (const sym of staleFullSyms) {
+                const candles = d1Map[sym];
+                if (!candles || candles.length < 2) continue;
+                const todayC = candles[0]?.c;
+                const prevC = candles[1]?.c;
+                if (!todayC || todayC <= 0 || !prevC || prevC <= 0) continue;
+                const dc = Math.round((todayC - prevC) * 100) / 100;
+                const dp = Math.round(((todayC - prevC) / prevC) * 10000) / 100;
+                if (dp === 0) continue;
+                const prev = prices[sym] || {};
+                prices[sym] = { ...prev, p: Math.round(todayC * 100) / 100, pc: Math.round(prevC * 100) / 100, dc, dp, t: candles[0].ts || Date.now() };
+                d1FullCount++;
+              }
+              if (d1FullCount > 0) console.log(`[PRICE FEED] D1 candle fallback updated ${d1FullCount} stale tickers`);
+            }
+          }
+        } catch (e) {
+          console.warn("[PRICE FEED] D1 fallback error:", String(e?.message || e).slice(0, 200));
+        }
 
         // Overlay TV heartbeat prices for futures/macro tickers not handled by the DO
         const TV_FUTURES_ACTIVE = ["ES1!", "NQ1!", "GC1!", "SI1!", "VX1!", "US500", "CL1!"];
@@ -36611,17 +37949,16 @@ Provide 3-5 actionable next steps:
           } catch (_) {}
         }
 
-        if (tvOverlayCount > 0) {
-          await kvPutJSON(KV, "timed:prices", {
-            prices,
-            updated_at: Date.now(),
-            ticker_count: Object.keys(prices).length,
-            _source: "cron_tv_overlay",
-          });
-          ctx.waitUntil(notifyPriceHub(env, { type: "prices", data: prices, updated_at: Date.now() }));
-        }
+        const priceUpdateTs = Date.now();
+        await kvPutJSON(KV, "timed:prices", {
+          prices,
+          updated_at: priceUpdateTs,
+          ticker_count: Object.keys(prices).length,
+          _source: pricesSource,
+        });
+        ctx.waitUntil(notifyPriceHub(env, { type: "prices", data: prices, updated_at: priceUpdateTs }));
 
-        console.log(`[PRICE FEED] Simplified: DO-managed prices + ${tvOverlayCount} TV futures overlaid, total=${Object.keys(prices).length}`);
+        console.log(`[PRICE FEED] source=${pricesSource}, doFresh=${doFresh}, restFallback=${restFallbackCount}, tvOverlay=${tvOverlayCount}, total=${Object.keys(prices).length}`);
 
         // ── SL/TP Exit Checking on price loop ──
         // Check open positions against current prices for fast SL/TP reaction
@@ -36797,6 +38134,26 @@ Provide 3-5 actionable next steps:
         }
 
         const scoringStart = Date.now();
+
+        // Pre-warm learning loop caches before scoring begins
+        let _learnedTfWeights = null;
+        let _learnedScoreAdj = null;
+        if (env?.DB) {
+          try {
+            await d1EnsureLearningSchema(env);
+            if (Date.now() - _pathPerfCacheTs >= PATH_PERF_CACHE_TTL) {
+              const { results } = await env.DB.prepare(`SELECT * FROM path_performance`).all();
+              _pathPerfCache = new Map();
+              for (const row of (results || [])) _pathPerfCache.set(row.entry_path, row);
+              _pathPerfCacheTs = Date.now();
+            }
+            [_learnedTfWeights, _learnedScoreAdj] = await Promise.all([
+              getLearnedConsensusWeights(env),
+              getLearnedScoringWeights(env),
+            ]);
+          } catch { /* non-critical */ }
+        }
+
         const coreTickers = Object.keys(SECTOR_MAP);
         const userAddedTickers = await d1GetActiveUserTickersCached(env);
         const allTickers = [...new Set([...coreTickers, ...userAddedTickers])];
@@ -36856,7 +38213,12 @@ Provide 3-5 actionable next steps:
               return candleCache[tfKey] || { ok: false, candles: [] };
             };
 
-            const result = await computeServerSideScores(ticker, getCandlesCached, env, existing);
+            // Inject learned weights so assembleTickerData uses them
+            const hasLearnedWeights = _learnedTfWeights || _learnedScoreAdj;
+            const existWithWeights = hasLearnedWeights
+              ? { ...(existing || {}), ...(_learnedTfWeights ? { _tfWeights: _learnedTfWeights } : {}), ...(_learnedScoreAdj ? { _scoreWeights: _learnedScoreAdj } : {}) }
+              : existing;
+            const result = await computeServerSideScores(ticker, getCandlesCached, env, existWithWeights);
             if (!result) {
               if (existing && typeof existing === "object") {
                 const now = Date.now();
@@ -37099,13 +38461,18 @@ Provide 3-5 actionable next steps:
               }
             }
 
-            // Enrich with sparkline data (last 20 daily closes per ticker)
+            // Enrich with sparkline data (last 60 daily closes per ticker)
             try {
               const sparkRows = await env.DB.prepare(
-                `SELECT ticker, ts, c FROM (
-                  SELECT ticker, ts, c, ROW_NUMBER() OVER (PARTITION BY ticker ORDER BY ts DESC) as rn
+                `WITH deduped AS (
+                  SELECT ticker, ts, c,
+                    ROW_NUMBER() OVER (PARTITION BY ticker, CAST(ts / 86400000 AS INTEGER) ORDER BY ts DESC) as day_rn
                   FROM ticker_candles WHERE tf = 'D'
-                ) WHERE rn <= 20
+                )
+                SELECT ticker, ts, c FROM (
+                  SELECT ticker, ts, c, ROW_NUMBER() OVER (PARTITION BY ticker ORDER BY ts DESC) as rn
+                  FROM deduped WHERE day_rn = 1
+                ) WHERE rn <= 60
                 ORDER BY ticker, ts ASC`
               ).all();
               const sparkMap = {};

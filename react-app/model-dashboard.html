@@ -65,24 +65,30 @@ function useModelData() {
   const [patterns, setPatterns] = useState([]);
   const [proposals, setProposals] = useState([]);
   const [predictions, setPredictions] = useState([]);
+  const [retro, setRetro] = useState(null);
+  const [dirAccuracy, setDirAccuracy] = useState(null);
   const [loading, setLoading] = useState(true);
   const [lastRefresh, setLastRefresh] = useState(null);
 
   const fetchAll = useCallback(async () => {
     setLoading(true);
     try {
-      const [hRes, sRes, pRes, chRes, predRes] = await Promise.all([
+      const [hRes, sRes, pRes, chRes, predRes, retroRes, daRes] = await Promise.all([
         fetch(`${API_BASE}/timed/model/health`).then(r => r.json()),
         fetch(`${API_BASE}/timed/model/signals`).then(r => r.json()),
         fetch(`${API_BASE}/timed/model/patterns?status=active`).then(r => r.json()),
         fetch(`${API_BASE}/timed/model/changelog?status=proposed&limit=30`).then(r => r.json()),
         fetch(`${API_BASE}/timed/model/predictions?limit=20`).then(r => r.json()),
+        fetch(`${API_BASE}/timed/model/retrospective`).then(r => r.json()).catch(() => null),
+        fetch(`${API_BASE}/timed/model/direction-accuracy?limit=100`).then(r => r.json()).catch(() => null),
       ]);
       if (hRes.ok) setHealth(hRes);
       if (sRes.ok) setSignals(sRes);
       if (pRes.ok) setPatterns(pRes.patterns || []);
       if (chRes.ok) setProposals(chRes.changes || []);
       if (predRes.ok) setPredictions(predRes.predictions || []);
+      if (retroRes?.ok) setRetro(retroRes);
+      if (daRes?.ok) setDirAccuracy(daRes);
       setLastRefresh(new Date());
     } catch (e) {
       console.error("Failed to fetch model data:", e);
@@ -92,7 +98,7 @@ function useModelData() {
 
   useEffect(() => { fetchAll(); }, [fetchAll]);
 
-  return { health, signals, patterns, proposals, predictions, loading, lastRefresh, refresh: fetchAll };
+  return { health, signals, patterns, proposals, predictions, retro, dirAccuracy, loading, lastRefresh, refresh: fetchAll };
 }
 
 // ─── Components ──────────────────────────────────────────────────────────────
@@ -439,10 +445,173 @@ function RecentPredictions({ predictions }) {
   );
 }
 
+// ─── Learning Loop Panel ──────────────────────────────────────────────────────
+
+function LearningLoopPanel({ retro, dirAccuracy }) {
+  const overall = retro?.overall || {};
+  const bySource = retro?.by_source || [];
+  const byPath = retro?.by_path || [];
+  const pathPerf = retro?.path_performance || [];
+  const summary = dirAccuracy?.summary || {};
+  const recentTrades = (dirAccuracy?.records || []).slice(0, 30);
+
+  return (
+    <div className="space-y-6">
+      {/* Overall Accuracy */}
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+        <StatCard label="Total Closed" value={overall.total || 0} sub={`${overall.wins || 0}W / ${overall.losses || 0}L`} />
+        <StatCard
+          label="Direction Accuracy"
+          value={summary.accuracy || "N/A"}
+          sub={`${summary.correct || 0} correct / ${summary.incorrect || 0} wrong`}
+          color={parseFloat(summary.accuracy) > 55 ? "text-[#00e676]" : parseFloat(summary.accuracy) > 40 ? "text-amber-400" : "text-red-400"}
+        />
+        <StatCard label="Avg Win" value={overall.avg_win_pct != null ? `${overall.avg_win_pct}%` : "—"} color="text-[#00e676]" />
+        <StatCard label="Avg Loss" value={overall.avg_loss_pct != null ? `${overall.avg_loss_pct}%` : "—"} color="text-red-400" />
+        <StatCard label="Avg PnL" value={overall.avg_pnl_pct != null ? `${overall.avg_pnl_pct}%` : "—"}
+          color={overall.avg_pnl_pct > 0 ? "text-[#00e676]" : overall.avg_pnl_pct < 0 ? "text-red-400" : "text-white"} />
+      </div>
+
+      {/* Direction Source Accuracy */}
+      {bySource.length > 0 && (
+        <div className="card p-4">
+          <div className="text-xs text-slate-400 uppercase tracking-wide mb-3">Accuracy by Direction Source</div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead><tr className="text-slate-500 text-xs">
+                <th className="text-left py-1 pr-3">Source</th>
+                <th className="text-right py-1 px-2">Trades</th>
+                <th className="text-right py-1 px-2">Correct</th>
+                <th className="text-right py-1 px-2">Wrong</th>
+                <th className="text-right py-1 px-2">Accuracy</th>
+                <th className="text-right py-1 px-2">Avg PnL%</th>
+              </tr></thead>
+              <tbody>
+                {bySource.map(s => {
+                  const acc = s.total > 0 ? ((s.correct / s.total) * 100).toFixed(1) : "—";
+                  return (
+                    <tr key={s.direction_source} className="border-t border-white/[0.04]">
+                      <td className="py-1.5 pr-3 font-medium text-xs">{s.direction_source || "unknown"}</td>
+                      <td className="text-right py-1.5 px-2 text-slate-400">{s.total}</td>
+                      <td className="text-right py-1.5 px-2 text-[#00e676]">{s.correct}</td>
+                      <td className="text-right py-1.5 px-2 text-red-400">{s.incorrect}</td>
+                      <td className={`text-right py-1.5 px-2 font-semibold ${parseFloat(acc) > 55 ? "text-[#00e676]" : parseFloat(acc) > 40 ? "text-amber-400" : "text-red-400"}`}>{acc}%</td>
+                      <td className={`text-right py-1.5 px-2 ${s.avg_pnl_pct > 0 ? "text-[#00e676]" : "text-red-400"}`}>{s.avg_pnl_pct ?? "—"}%</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Entry Path Performance */}
+      {(pathPerf.length > 0 || byPath.length > 0) && (
+        <div className="card p-4">
+          <div className="text-xs text-slate-400 uppercase tracking-wide mb-3">Entry Path Performance</div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead><tr className="text-slate-500 text-xs">
+                <th className="text-left py-1 pr-3">Path</th>
+                <th className="text-right py-1 px-2">Trades</th>
+                <th className="text-right py-1 px-2">Win Rate</th>
+                <th className="text-right py-1 px-2">Recent WR</th>
+                <th className="text-right py-1 px-2">Avg PnL%</th>
+                <th className="text-right py-1 px-2">Avg MFE%</th>
+                <th className="text-right py-1 px-2">Avg MAE%</th>
+                <th className="text-left py-1 pl-2">Status</th>
+              </tr></thead>
+              <tbody>
+                {(pathPerf.length > 0 ? pathPerf : byPath).map(p => {
+                  const wr = p.win_rate != null ? (p.win_rate * 100).toFixed(1) : (p.total > 0 ? ((p.wins || p.correct || 0) / p.total * 100).toFixed(1) : "—");
+                  const rwr = p.recent_win_rate != null ? (p.recent_win_rate * 100).toFixed(1) : "—";
+                  const enabled = p.enabled !== 0;
+                  return (
+                    <tr key={p.entry_path} className={`border-t border-white/[0.04] ${!enabled ? "opacity-50" : ""}`}>
+                      <td className="py-1.5 pr-3 font-medium text-xs">{p.entry_path}</td>
+                      <td className="text-right py-1.5 px-2 text-slate-400">{p.total_trades || p.total || 0}</td>
+                      <td className={`text-right py-1.5 px-2 font-semibold ${parseFloat(wr) > 50 ? "text-[#00e676]" : parseFloat(wr) > 35 ? "text-amber-400" : "text-red-400"}`}>{wr}%</td>
+                      <td className={`text-right py-1.5 px-2 ${parseFloat(rwr) > 50 ? "text-[#00e676]" : parseFloat(rwr) > 35 ? "text-amber-400" : "text-red-400"}`}>{rwr}%</td>
+                      <td className={`text-right py-1.5 px-2 ${(p.avg_pnl_pct || 0) > 0 ? "text-[#00e676]" : "text-red-400"}`}>{p.avg_pnl_pct ?? "—"}%</td>
+                      <td className="text-right py-1.5 px-2 text-slate-400">{p.avg_mfe ?? "—"}%</td>
+                      <td className="text-right py-1.5 px-2 text-slate-400">{p.avg_mae ?? "—"}%</td>
+                      <td className="py-1.5 pl-2">
+                        <span className={`px-1.5 py-0.5 rounded text-xs font-semibold ${enabled ? "badge-active" : "badge-bear"}`}>
+                          {enabled ? "Active" : "Disabled"}
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Recent Direction Accuracy Records */}
+      {recentTrades.length > 0 && (
+        <div className="card p-4">
+          <div className="text-xs text-slate-400 uppercase tracking-wide mb-3">Recent Trades — Direction Tracking ({recentTrades.length})</div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead><tr className="text-slate-500 text-xs">
+                <th className="text-left py-1 pr-2">Ticker</th>
+                <th className="text-left py-1 px-2">Dir</th>
+                <th className="text-left py-1 px-2">Source</th>
+                <th className="text-left py-1 px-2">Path</th>
+                <th className="text-right py-1 px-2">HTF</th>
+                <th className="text-right py-1 px-2">LTF</th>
+                <th className="text-right py-1 px-2">PnL%</th>
+                <th className="text-left py-1 px-2">Status</th>
+                <th className="text-left py-1 pl-2">Correct?</th>
+              </tr></thead>
+              <tbody>
+                {recentTrades.map((r, i) => (
+                  <tr key={r.trade_id || i} className="border-t border-white/[0.04]">
+                    <td className="py-1.5 pr-2 font-semibold text-xs">{r.ticker}</td>
+                    <td className="py-1.5 px-2">
+                      <span className={`px-1.5 py-0.5 rounded text-xs font-semibold ${r.traded_direction === "LONG" ? "badge-bull" : "badge-bear"}`}>{r.traded_direction}</span>
+                    </td>
+                    <td className="py-1.5 px-2 text-xs text-slate-400">{r.direction_source || "—"}</td>
+                    <td className="py-1.5 px-2 text-xs text-slate-400">{r.entry_path || "—"}</td>
+                    <td className={`text-right py-1.5 px-2 text-xs ${(r.htf_score || 0) >= 0 ? "text-[#00e676]" : "text-red-400"}`}>{r.htf_score?.toFixed(1) || "—"}</td>
+                    <td className={`text-right py-1.5 px-2 text-xs ${(r.ltf_score || 0) >= 0 ? "text-[#00e676]" : "text-red-400"}`}>{r.ltf_score?.toFixed(1) || "—"}</td>
+                    <td className={`text-right py-1.5 px-2 text-xs font-semibold ${(r.pnl_pct || 0) > 0 ? "text-[#00e676]" : (r.pnl_pct || 0) < 0 ? "text-red-400" : "text-slate-400"}`}>
+                      {r.pnl_pct != null ? `${r.pnl_pct > 0 ? "+" : ""}${r.pnl_pct.toFixed(2)}%` : "—"}
+                    </td>
+                    <td className="py-1.5 px-2">
+                      <span className={`px-1.5 py-0.5 rounded text-xs font-semibold ${
+                        r.status === "WIN" ? "badge-bull" : r.status === "LOSS" ? "badge-bear" : r.status === "OPEN" ? "badge-active" : "badge-neutral"
+                      }`}>{r.status}</span>
+                    </td>
+                    <td className="py-1.5 pl-2 text-xs">
+                      {r.direction_correct === 1 ? <span className="text-[#00e676] font-bold">Yes</span> :
+                       r.direction_correct === 0 ? <span className="text-red-400 font-bold">No</span> :
+                       <span className="text-slate-500">—</span>}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {!retro && !dirAccuracy && (
+        <div className="card p-8 text-center text-slate-500">
+          <div className="text-sm">No learning loop data yet. Data will populate after trades are entered and closed.</div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Main App ────────────────────────────────────────────────────────────────
 
 function App({ user }) {
-  const { health, signals, patterns, proposals, predictions, loading, lastRefresh, refresh } = useModelData();
+  const { health, signals, patterns, proposals, predictions, retro, dirAccuracy, loading, lastRefresh, refresh } = useModelData();
   const [tab, setTab] = useState("overview");
   const isAdmin = user?.role === "admin" || user?.tier === "admin";
 
@@ -453,7 +622,7 @@ function App({ user }) {
       {/* Sub-navigation */}
       <div className="border-b border-white/[0.06] px-6 flex items-center justify-between">
         <div className="flex gap-6">
-          {["overview", "patterns", "proposals", "predictions"].map(t => {
+          {["overview", "learning", "patterns", "proposals", "predictions"].map(t => {
             const isProposalLocked = t === "proposals" && !isAdmin;
             return (
               <button
@@ -522,6 +691,10 @@ function App({ user }) {
                 {/* Ticker Signals */}
                 <TickerSignals tickers={signals?.ticker} />
               </div>
+            )}
+
+            {tab === "learning" && (
+              <LearningLoopPanel retro={retro} dirAccuracy={dirAccuracy} />
             )}
 
             {tab === "patterns" && (

@@ -309,11 +309,34 @@ export async function syncAllETFHoldings(env, opts = {}) {
   await kvPutJSON(KV, KV_GROUPS, allGroups);
   await kvPutJSON(KV, KV_WEIGHT_MAP, weightMap);
 
+  // ── Auto-add net-new tickers to the system on rebalance ──
+  // Collect the full union of all ETF tickers after this sync
+  const allETFTickers = new Set();
+  for (const tickers of Object.values(allGroups)) {
+    for (const t of tickers) allETFTickers.add(t);
+  }
+
+  let autoAdded = [];
+  if (typeof opts.addToUniverse === "function" && allETFTickers.size > 0) {
+    try {
+      const currentTickers = (await kvGetJSON(KV, "timed:tickers")) || [];
+      const currentSet = new Set(currentTickers.map(t => String(t).toUpperCase()));
+      const netNew = [...allETFTickers].filter(t => !currentSet.has(t));
+      if (netNew.length > 0) {
+        console.log(`[ETF SYNC] Auto-adding ${netNew.length} net-new tickers: ${netNew.join(", ")}`);
+        autoAdded = await opts.addToUniverse(env, netNew, weightMap);
+      }
+    } catch (e) {
+      console.error("[ETF SYNC] Auto-add failed:", String(e?.message || e).slice(0, 300));
+    }
+  }
+
   // Store sync metadata
   await kvPutJSON(KV, KV_SYNC_META, {
     lastSync: Date.now(),
     elapsed: Date.now() - start,
     results,
+    autoAdded,
   });
 
   // Send Discord notifications for rebalances
@@ -328,7 +351,7 @@ export async function syncAllETFHoldings(env, opts = {}) {
   const elapsed = Date.now() - start;
   console.log(`[ETF SYNC] Complete in ${elapsed}ms:`, JSON.stringify(results));
 
-  return { ok: true, elapsed, results };
+  return { ok: true, elapsed, results, autoAdded };
 }
 
 // ═══════════════════════════════════════════════════════════════════════

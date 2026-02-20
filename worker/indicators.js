@@ -700,8 +700,15 @@ export function computeLTFBundleScore(b, anchors = null) {
 /**
  * Volatility-adjusted HTF weights (mirrors Pine f_volatility_adjusted_weights).
  */
-function volatilityAdjustedHTFWeights(atrRW, atrRD, atrR4, atrR1) {
-  const wW_base = 0.50, wD_base = 0.35, w4H_base = 0.10, w1H_base = 0.05;
+function volatilityAdjustedHTFWeights(atrRW, atrRD, atrR4, atrR1, learnedAdj = null) {
+  let wW_base = 0.50, wD_base = 0.35, w4H_base = 0.10, w1H_base = 0.05;
+  // Apply learned EMA adjustments (stored as multipliers around 1.0)
+  if (learnedAdj) {
+    wW_base *= (learnedAdj.W || 1.0);
+    wD_base *= (learnedAdj.D || 1.0);
+    w4H_base *= (learnedAdj["240"] || 1.0);
+    w1H_base *= (learnedAdj["60"] || 1.0);
+  }
   let wW = (atrRW > 1.5) ? wW_base * 0.7 : wW_base * 1.2;
   let wD = (atrRD > 1.3) ? wD_base * 1.2 : wD_base * 0.9;
   let w4H = (atrR4 > 1.2) ? w4H_base * 1.3 : w4H_base * 0.8;
@@ -715,8 +722,13 @@ function volatilityAdjustedHTFWeights(atrRW, atrRD, atrR4, atrR1) {
  * Updated: 3m dropped, replaced with 5m. Weights: 30m(55%), 10m(30%), 5m(15%).
  * @param {boolean} isRTH - whether we're in Regular Trading Hours
  */
-function sessionAdjustedLTFWeights(isRTH) {
-  const w30_base = 0.55, w10_base = 0.30, w5_base = 0.15;
+function sessionAdjustedLTFWeights(isRTH, learnedAdj = null) {
+  let w30_base = 0.55, w10_base = 0.30, w5_base = 0.15;
+  if (learnedAdj) {
+    w30_base *= (learnedAdj["30"] || 1.0);
+    w10_base *= (learnedAdj["10"] || 1.0);
+    w5_base *= (learnedAdj["5"] || 1.0);
+  }
   if (!isRTH) return { w30: w30_base, w10: w10_base, w5: w5_base };
   let w30 = w30_base * 1.15;
   let w10 = w10_base * 1.0;
@@ -733,7 +745,7 @@ function sessionAdjustedLTFWeights(isRTH) {
  * @param {object} h1Bundle - 1H bundle
  * @returns {number} weighted HTF score in [-50, 50]
  */
-export function computeWeightedHTFScore(wBundle, dBundle, h4Bundle, h1Bundle) {
+export function computeWeightedHTFScore(wBundle, dBundle, h4Bundle, h1Bundle, learnedAdj = null) {
   const htfW = computeHTFBundleScore(wBundle);
   const htfD = computeHTFBundleScore(dBundle);
   const htf4H = computeHTFBundleScore(h4Bundle);
@@ -744,7 +756,7 @@ export function computeWeightedHTFScore(wBundle, dBundle, h4Bundle, h1Bundle) {
   const atrR4 = h4Bundle?.atrRatio || 1.0;
   const atrR1 = h1Bundle?.atrRatio || 1.0;
 
-  const { wW, wD, w4H, w1H } = volatilityAdjustedHTFWeights(atrRW, atrRD, atrR4, atrR1);
+  const { wW, wD, w4H, w1H } = volatilityAdjustedHTFWeights(atrRW, atrRD, atrR4, atrR1, learnedAdj);
 
   return clamp(htfW * wW + htfD * wD + htf4H * w4H + htf1H * w1H, -50, 50);
 }
@@ -759,12 +771,12 @@ export function computeWeightedHTFScore(wBundle, dBundle, h4Bundle, h1Bundle) {
  * @param {boolean} isRTH - Regular Trading Hours flag
  * @returns {number} weighted LTF score in [-50, 50]
  */
-export function computeWeightedLTFScore(m30Bundle, m10Bundle, m5Bundle, anchors = null, isRTH = true) {
+export function computeWeightedLTFScore(m30Bundle, m10Bundle, m5Bundle, anchors = null, isRTH = true, learnedAdj = null) {
   const ltf30 = computeLTFBundleScore(m30Bundle, anchors);
   const ltf10 = computeLTFBundleScore(m10Bundle, anchors);
   const ltf5 = computeLTFBundleScore(m5Bundle, anchors);
 
-  const { w30, w10, w5 } = sessionAdjustedLTFWeights(isRTH);
+  const { w30, w10, w5 } = sessionAdjustedLTFWeights(isRTH, learnedAdj);
 
   return clamp(ltf30 * w30 + ltf10 * w10 + ltf5 * w5, -50, 50);
 }
@@ -1073,7 +1085,10 @@ export function computeSwingRegime(dailyBars, weeklyBars) {
  * @returns {{ direction: "LONG"|"SHORT"|null, bullishCount: number, bearishCount: number,
  *             tfStack: object[], freshestCrossTf: string|null, freshestCrossAge: number }}
  */
-export function computeSwingConsensus(bundles, regime = null) {
+export function computeSwingConsensus(bundles, regime = null, tfWeights = null) {
+  const DEFAULT_WEIGHTS = { "10": 1, "30": 1, "60": 1, "240": 1, "D": 1 };
+  const w = tfWeights && typeof tfWeights === "object" ? { ...DEFAULT_WEIGHTS, ...tfWeights } : DEFAULT_WEIGHTS;
+
   const TFS = [
     { key: "10",  label: "10m", b: bundles?.["10"] },
     { key: "30",  label: "30m", b: bundles?.["30"] },
@@ -1084,26 +1099,29 @@ export function computeSwingConsensus(bundles, regime = null) {
 
   let bullishCount = 0;
   let bearishCount = 0;
+  let bullishWeighted = 0;
+  let bearishWeighted = 0;
+  let totalWeight = 0;
   const tfStack = [];
   let freshestCrossTf = null;
   let freshestCrossAge = Infinity;
 
   for (const { key, label, b } of TFS) {
+    const tfW = Number(w[key]) || 1;
     if (!b || !Number.isFinite(b.e13) || !Number.isFinite(b.e48)) {
-      tfStack.push({ tf: label, bias: "unknown", crossAge: null, crossDir: null });
+      tfStack.push({ tf: label, bias: "unknown", weight: tfW, crossAge: null, crossDir: null });
       continue;
     }
 
+    totalWeight += tfW;
     const bullish = b.e13 > b.e48;
-    if (bullish) bullishCount++;
-    else bearishCount++;
+    if (bullish) { bullishCount++; bullishWeighted += tfW; }
+    else { bearishCount++; bearishWeighted += tfW; }
 
-    // EMA cross tracking (Phase 2c)
     const crossUp = b.emaCross13_48_up || false;
     const crossDn = b.emaCross13_48_dn || false;
     const crossDir = crossUp ? "up" : crossDn ? "down" : null;
 
-    // Cross age: estimate from timestamps if available
     const crossTs = crossUp ? b.emaCross13_48_up_ts : crossDn ? b.emaCross13_48_dn_ts : 0;
     const crossAge = (crossTs > 0 && b.lastTs > 0) ? Math.max(0, b.lastTs - crossTs) : null;
 
@@ -1115,32 +1133,50 @@ export function computeSwingConsensus(bundles, regime = null) {
     tfStack.push({
       tf: label,
       bias: bullish ? "bullish" : "bearish",
+      weight: tfW,
       crossDir,
-      crossAge: crossAge !== null ? Math.round(crossAge / 60000) : null, // in minutes
+      crossAge: crossAge !== null ? Math.round(crossAge / 60000) : null,
     });
   }
 
-  // Direction determination
   let direction = null;
   const regimeDaily = regime?.daily || "transition";
 
-  // Primary: >= 4 of 5 TFs agree AND regime not opposing
-  if (bullishCount >= 4 && regimeDaily !== "downtrend") {
-    direction = "LONG";
-  } else if (bearishCount >= 4 && regimeDaily !== "uptrend") {
-    direction = "SHORT";
-  }
-  // Secondary: 3/5 agree with regime confirmation
-  else if (bullishCount >= 3 && (regimeDaily === "uptrend" || regimeDaily === "transition")) {
-    direction = "LONG";
-  } else if (bearishCount >= 3 && (regimeDaily === "downtrend" || regimeDaily === "transition")) {
-    direction = "SHORT";
+  // Weighted consensus: use weighted sum when custom weights are provided
+  const useWeighted = tfWeights != null && totalWeight > 0;
+  const bullishPct = useWeighted ? bullishWeighted / totalWeight : 0;
+  const bearishPct = useWeighted ? bearishWeighted / totalWeight : 0;
+
+  if (useWeighted) {
+    // Weighted threshold: 70% weighted agreement = strong consensus
+    if (bullishPct >= 0.70 && regimeDaily !== "downtrend") {
+      direction = "LONG";
+    } else if (bearishPct >= 0.70 && regimeDaily !== "uptrend") {
+      direction = "SHORT";
+    } else if (bullishPct >= 0.55 && (regimeDaily === "uptrend" || regimeDaily === "transition")) {
+      direction = "LONG";
+    } else if (bearishPct >= 0.55 && (regimeDaily === "downtrend" || regimeDaily === "transition")) {
+      direction = "SHORT";
+    }
+  } else {
+    // Legacy equal-weight count-based logic
+    if (bullishCount >= 4 && regimeDaily !== "downtrend") {
+      direction = "LONG";
+    } else if (bearishCount >= 4 && regimeDaily !== "uptrend") {
+      direction = "SHORT";
+    } else if (bullishCount >= 3 && (regimeDaily === "uptrend" || regimeDaily === "transition")) {
+      direction = "LONG";
+    } else if (bearishCount >= 3 && (regimeDaily === "downtrend" || regimeDaily === "transition")) {
+      direction = "SHORT";
+    }
   }
 
   return {
     direction,
     bullishCount,
     bearishCount,
+    bullishPct: useWeighted ? Math.round(bullishPct * 100) : null,
+    bearishPct: useWeighted ? Math.round(bearishPct * 100) : null,
     tfStack,
     freshestCrossTf,
     freshestCrossAge: freshestCrossAge === Infinity ? null : Math.round(freshestCrossAge / 60000),
@@ -1504,13 +1540,28 @@ export function assembleTickerData(ticker, bundles, existingData = null, opts = 
     anchors = { PCd, ATRd, GGup, GGdn };
   }
 
-  // Compute scores
-  const htfScore = computeWeightedHTFScore(bW, bD, b4H, b1H);
-  const ltfScore = computeWeightedLTFScore(b30, b10, b5, anchors, isRTHNow());
+  // Compute scores (pass learned weight adjustments if available)
+  const _learnedScoreAdj = opts?.scoreWeights || null;
+  const htfScore = computeWeightedHTFScore(bW, bD, b4H, b1H, _learnedScoreAdj);
+  const ltfScore = computeWeightedLTFScore(b30, b10, b5, anchors, isRTHNow(), _learnedScoreAdj);
   const state = classifyState(htfScore, ltfScore);
 
   // Detect flags
   const flags = detectFlags(bundles);
+
+  // ── Early: Regime + Swing Consensus (for TP/SL direction alignment) ──
+  // Must match worker sideFromStateOrScores: consensus overrides htfScore.
+  // TP/SL must use the same direction we'll trade, else SHORT alerts show LONG-style TP.
+  const rawBarsEarly = opts?.rawBars || null;
+  let regimeEarly = opts?.regime || null;
+  if (!regimeEarly && rawBarsEarly) {
+    const dailyBars = rawBarsEarly.D || rawBarsEarly.daily || [];
+    const weeklyBars = rawBarsEarly.W || rawBarsEarly.weekly || [];
+    if (dailyBars.length >= 35 && weeklyBars.length >= 25) {
+      regimeEarly = computeSwingRegime(dailyBars, weeklyBars);
+    }
+  }
+  const swingConsensusEarly = computeSwingConsensus(bundles, regimeEarly, opts?.tfWeights || null);
 
   // Phase from daily
   const phaseOsc = bD?.phaseOsc || 0;
@@ -1580,7 +1631,10 @@ export function assembleTickerData(ticker, bundles, existingData = null, opts = 
   const ATRd = bD?.atr14 || 0;
   const ATR1H = b1H?.atr14 || 0;
   const ATR30 = b30?.atr14 || 0;
-  const dir = htfScore >= 0 ? 1 : -1;
+  // Use swing consensus direction for TP/SL so they match trade direction (fixes CRS/FIX SHORT with LONG-style TP)
+  const dir = swingConsensusEarly.direction === "SHORT" ? -1
+    : swingConsensusEarly.direction === "LONG" ? 1
+    : (htfScore >= 0 ? 1 : -1);
 
   let tp, sl, tp_trim, tp_exit, tp_runner;
 
@@ -1692,21 +1746,9 @@ export function assembleTickerData(ticker, bundles, existingData = null, opts = 
   // Merge: keep existing fields that we don't compute (e.g., Ichimoku, daily EMA cloud)
   const base = existingData || {};
 
-  // ── Phase 2a: Swing Regime Detection ──
-  // If caller passed raw bars (from computeServerSideScores), compute regime.
-  // Otherwise falls back to null (consensus uses TF-based heuristic only).
-  const rawBars = opts?.rawBars || null;
-  let regime = opts?.regime || null;
-  if (!regime && rawBars) {
-    const dailyBars = rawBars.D || rawBars.daily || [];
-    const weeklyBars = rawBars.W || rawBars.weekly || [];
-    if (dailyBars.length >= 35 && weeklyBars.length >= 25) {
-      regime = computeSwingRegime(dailyBars, weeklyBars);
-    }
-  }
-
-  // ── Phase 2b: Swing-TF Direction Consensus ──
-  const swingConsensus = computeSwingConsensus(bundles, regime);
+  // ── Phase 2a/2b: Reuse regime + swing consensus (computed early for TP/SL direction) ──
+  const regime = regimeEarly;
+  const swingConsensus = swingConsensusEarly;
 
   // ── Phase 3a: Volatility Tier (already computed above for SL clamp) ──
   // volTier = classifyVolatilityTier(ATRd, price); -- computed at SL section
@@ -1771,6 +1813,9 @@ export function assembleTickerData(ticker, bundles, existingData = null, opts = 
       freshest_cross_tf: swingConsensus.freshestCrossTf,
       freshest_cross_age: swingConsensus.freshestCrossAge,
     },
+    direction_source: swingConsensus.direction
+      ? "consensus"
+      : (state.includes("BULL") ? "state_bull" : state.includes("BEAR") ? "state_bear" : "htf_score"),
     // Phase 2a: Swing regime from Daily/Weekly pivot detection
     regime: regime ? {
       daily: regime.daily,
@@ -2658,6 +2703,23 @@ export async function alpacaFetchSnapshots(env, symbols) {
     await fetchStockBatch(missingSip, "iex");
   }
 
+  // Retry: single-symbol fetch for symbols still missing (e.g. AEHR, small caps)
+  const stillMissing = stockSymbols.filter(s => !snapshots[reverseSymMap[s] || s]?.price);
+  if (stillMissing.length > 0 && stillMissing.length <= 25) {
+    for (const sym of stillMissing.slice(0, 25)) {
+      try {
+        const url = `${ALPACA_BASE}/stocks/${sym}/snapshot?feed=sip`;
+        const resp = await fetch(url, { headers });
+        if (resp.ok) {
+          const snap = await resp.json();
+          if (snap?.latestTrade || snap?.dailyBar) {
+            parseStockSnap(sym, snap);
+          }
+        }
+      } catch (_) { /* skip */ }
+    }
+  }
+
   // ── Fetch crypto snapshots (separate endpoint) ──
   if (cryptoSymbols.length > 0) {
     try {
@@ -3096,8 +3158,11 @@ export async function computeServerSideScores(ticker, getCandles, env, existingD
     "5": bundles["5"] || null,
   };
 
-  // Pass raw bars so assembleTickerData can compute swing regime (Phase 2a)
-  const tickerData = assembleTickerData(ticker, bundleMap, existingData, { rawBars });
+  // Pass raw bars + optional learned weights so assembleTickerData uses them
+  const assembleOpts = { rawBars };
+  if (existingData?._tfWeights) assembleOpts.tfWeights = existingData._tfWeights;
+  if (existingData?._scoreWeights) assembleOpts.scoreWeights = existingData._scoreWeights;
+  const tickerData = assembleTickerData(ticker, bundleMap, existingData, assembleOpts);
   if (!tickerData) return null;
 
   // ── Compute TD Sequential (D/W/M) and attach ──

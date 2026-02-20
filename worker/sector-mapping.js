@@ -309,22 +309,22 @@ const SECTOR_MAP = {
   'XYZ': 'Consumer Discretionary',
 };
 
-// Sector Ratings (from VIP analysts)
+// Sector Ratings — as of Feb 13, 2026 (S&P Index Weight vs FSI Weight)
 const SECTOR_RATINGS = {
-  'Consumer Discretionary': { rating: 'neutral', boost: 0 },
-  'Industrials': { rating: 'overweight', boost: 5 },
-  'Information Technology': { rating: 'neutral', boost: 0 },
-  'Communication Services': { rating: 'neutral', boost: 0 },
-  'Basic Materials': { rating: 'neutral', boost: 0 },
-  'Energy': { rating: 'overweight', boost: 5 },
-  'Financials': { rating: 'neutral', boost: 0 },
-  'Real Estate': { rating: 'underweight', boost: -3 },
-  'Healthcare': { rating: 'overweight', boost: 5 },
-  'Utilities': { rating: 'overweight', boost: 5 },
-  'Consumer Staples': { rating: 'neutral', boost: 0 },
-  'ETF': { rating: 'neutral', boost: 0 },
-  'Crypto': { rating: 'neutral', boost: 0 },
-  'Precious Metals': { rating: 'neutral', boost: 0 },
+  'Healthcare':               { rating: 'overweight',  boost: 5,  spWeight: 8.2,  fsiWeight: 10.1, delta: 1.9  },
+  'Information Technology':   { rating: 'overweight',  boost: 3,  spWeight: 26.7, fsiWeight: 27.1, delta: 0.4  },
+  'Energy':                   { rating: 'overweight',  boost: 5,  spWeight: 2.8,  fsiWeight: 5.1,  delta: 2.3  },
+  'Financials':               { rating: 'overweight',  boost: 3,  spWeight: 10.8, fsiWeight: 11.4, delta: 0.6  },
+  'Industrials':              { rating: 'overweight',  boost: 5,  spWeight: 7.5,  fsiWeight: 9.8,  delta: 2.3  },
+  'Utilities':                { rating: 'neutral',     boost: 0,  spWeight: 1.9,  fsiWeight: 1.9,  delta: 0.0  },
+  'Communication Services':   { rating: 'neutral',     boost: 0,  spWeight: 8.4,  fsiWeight: 8.4,  delta: 0.0  },
+  'Basic Materials':          { rating: 'neutral',     boost: 0,  spWeight: 1.7,  fsiWeight: 1.7,  delta: 0.0  },
+  'Consumer Discretionary':   { rating: 'underweight', boost: -3, spWeight: 9.3,  fsiWeight: 7.3,  delta: -2.0 },
+  'Consumer Staples':         { rating: 'underweight', boost: -5, spWeight: 5.1,  fsiWeight: 3.0,  delta: -2.1 },
+  'Real Estate':              { rating: 'underweight', boost: -3, spWeight: 1.6,  fsiWeight: 0.0,  delta: -1.6 },
+  'ETF':                      { rating: 'neutral',     boost: 0  },
+  'Crypto':                   { rating: 'neutral',     boost: 0  },
+  'Precious Metals':          { rating: 'neutral',     boost: 0  },
 };
 
 // Get sector for a ticker
