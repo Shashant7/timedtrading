@@ -1,0 +1,548 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Timed Trading — Calibration</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="auth-gate.js?v=20260219a"></script>
+    <script>
+      tailwind.config = {
+        theme: { extend: { fontFamily: { sans: ["Inter", "system-ui", "sans-serif"] } } },
+      };
+    </script>
+    <style>
+      body { font-family: "Inter", system-ui, sans-serif; background: #0b0e11; color: #e5e7eb; -webkit-font-smoothing: antialiased; letter-spacing: -0.01em; }
+      @keyframes spin { to { transform: rotate(360deg); } }
+      .card { background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.04); border-radius: 12px; }
+      .badge-good { background: rgba(16,185,129,0.15); color: #6ee7b7; }
+      .badge-warn { background: rgba(251,191,36,0.15); color: #fcd34d; }
+      .badge-bad { background: rgba(244,63,94,0.15); color: #fca5a5; }
+      .badge-info { background: rgba(56,189,248,0.12); color: #93c5fd; }
+      .btn { padding: 8px 16px; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; transition: all 0.15s; border: none; }
+      .btn-primary { background: linear-gradient(135deg, #059669, #10b981); color: white; }
+      .btn-primary:hover { background: linear-gradient(135deg, #047857, #059669); }
+      .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+      .btn-apply { background: #1d4ed8; color: white; }
+      .btn-apply:hover { background: #2563eb; }
+      .btn-secondary { background: #334155; color: #94a3b8; border: 1px solid #475569; }
+      .btn-secondary:hover { background: #475569; }
+      .tab-active { border-bottom: 2px solid #10b981; color: #e8eaf0; }
+      .tab-inactive { border-bottom: 2px solid transparent; color: #626b7d; cursor: pointer; }
+      .tab-inactive:hover { color: #9098a8; }
+      .meter-bar { height: 6px; border-radius: 3px; background: rgba(255,255,255,0.06); overflow: hidden; }
+      .meter-fill { height: 100%; border-radius: 3px; transition: width 0.5s ease; }
+      body:not([data-user-role="admin"]) [data-admin-only] { display: none !important; }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="text/babel">
+const { useState, useEffect, useCallback } = React;
+const API_BASE = "";
+
+function NavHeader() {
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const UserBadge = window.TimedUserBadge;
+  const storedUser = window.TimedAuthHelpers?.getStoredSession();
+  return (
+    <nav className="sticky top-0 z-50 border-b border-white/[0.06]" style={{background:"rgba(10,10,15,0.95)",backdropFilter:"blur(12px)"}}>
+      <div className="flex items-center justify-between px-4 py-2.5">
+        <div className="flex items-center gap-3 md:gap-5 min-w-0">
+          <a href="index-react.html" className="flex items-center gap-2 no-underline shrink-0">
+            <div className="w-[28px] h-[28px] md:w-[32px] md:h-[32px] rounded-[8px] flex items-center justify-center" style={{background:"linear-gradient(135deg, #00c853, #00e676, #69f0ae)"}}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="22 7 13.5 15.5 8.5 10.5 2 17" />
+                <polyline points="16 7 22 7 22 13" />
+              </svg>
+            </div>
+            <span className="text-[14px] md:text-[15px] font-bold text-white hidden sm:inline" style={{letterSpacing:"-0.03em"}}>Timed Trading</span>
+          </a>
+          <div className="hidden lg:flex items-center gap-0.5">
+            <a href="index-react.html" className="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Active Trader</a>
+            <a href="investor-dashboard.html" className="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Investor</a>
+            <a href="simulation-dashboard.html" className="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Trades</a>
+            <a href="model-dashboard.html" className="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Model</a>
+            <a href="calibration.html" className="px-3 py-1 rounded-md text-[13px] text-white bg-white/[0.07] font-medium">Calibration</a>
+            <a href="screener.html" className="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Screener</a>
+          </div>
+        </div>
+        <div className="flex items-center gap-2 md:gap-3 shrink-0">
+          {window.TimedNotificationCenter && <window.TimedNotificationCenter apiBase="" />}
+          {UserBadge && <UserBadge user={storedUser} compact />}
+          <button onClick={() => setMobileMenuOpen(v => !v)} className="lg:hidden p-1.5 rounded-md text-[#6b7280] hover:text-white hover:bg-white/[0.06] transition-all" aria-label="Toggle menu">
+            {mobileMenuOpen ? (
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            ) : (
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+            )}
+          </button>
+        </div>
+      </div>
+      {mobileMenuOpen && (
+        <div className="lg:hidden border-t border-white/[0.06] px-4 py-2 flex flex-col gap-0.5" style={{background:"rgba(10,10,15,0.98)"}}>
+          <a href="index-react.html" className="px-3 py-2 rounded-md text-[13px] text-[#9ca3af] hover:text-white hover:bg-white/[0.04] transition-all">Active Trader</a>
+          <a href="model-dashboard.html" className="px-3 py-2 rounded-md text-[13px] text-[#9ca3af] hover:text-white hover:bg-white/[0.04] transition-all">Model</a>
+          <a href="calibration.html" className="px-3 py-2 rounded-md text-[13px] text-white bg-white/[0.07] font-medium">Calibration</a>
+          <a href="screener.html" className="px-3 py-2 rounded-md text-[13px] text-[#9ca3af] hover:text-white hover:bg-white/[0.04] transition-all">Screener</a>
+        </div>
+      )}
+    </nav>
+  );
+}
+
+function SQNBadge({ sqn }) {
+  if (sqn == null) return null;
+  const cls = sqn >= 3 ? "badge-good" : sqn >= 2 ? "badge-info" : sqn >= 1 ? "badge-warn" : "badge-bad";
+  const label = sqn >= 3 ? "Excellent" : sqn >= 2 ? "Good" : sqn >= 1 ? "Needs Work" : "Broken";
+  return <span className={`inline-block px-2 py-0.5 rounded-full text-[11px] font-semibold ${cls}`}>{sqn.toFixed(2)} — {label}</span>;
+}
+
+function MetricRow({ label, value, sub, color }) {
+  return (
+    <div className="flex items-center justify-between py-1.5 border-b border-white/[0.03]">
+      <span className="text-xs text-slate-400">{label}</span>
+      <div className="text-right">
+        <span className={`text-sm font-semibold ${color || "text-white"}`}>{value}</span>
+        {sub && <span className="text-[10px] text-slate-500 ml-1.5">{sub}</span>}
+      </div>
+    </div>
+  );
+}
+
+function BarChart({ data, maxVal, colorFn }) {
+  if (!data || !data.length) return null;
+  const max = maxVal || Math.max(...data.map(d => Math.abs(d.value)), 1);
+  return (
+    <div className="space-y-1">
+      {data.map((d, i) => (
+        <div key={i} className="flex items-center gap-2">
+          <span className="text-[10px] text-slate-400 w-16 shrink-0 text-right">{d.label}</span>
+          <div className="flex-1 meter-bar">
+            <div className="meter-fill" style={{width:`${Math.min(100, Math.abs(d.value)/max*100)}%`, background: colorFn ? colorFn(d.value) : (d.value >= 0 ? "#10b981" : "#f43f5e")}} />
+          </div>
+          <span className="text-[10px] text-slate-300 w-10 text-right">{d.value}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function SystemHealthCard({ health }) {
+  if (!health) return null;
+  const o = health.overall;
+  return (
+    <div className="card p-5">
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="text-sm font-semibold text-white">System Health (SQN)</h3>
+        <SQNBadge sqn={o.sqn} />
+      </div>
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-4">
+        <div><div className="text-[10px] text-slate-500 uppercase">Trades</div><div className="text-lg font-bold">{o.n}</div></div>
+        <div><div className="text-[10px] text-slate-500 uppercase">Win Rate</div><div className="text-lg font-bold">{o.win_rate}%</div></div>
+        <div><div className="text-[10px] text-slate-500 uppercase">Expectancy</div><div className={`text-lg font-bold ${o.expectancy >= 0 ? "text-emerald-400" : "text-rose-400"}`}>{o.expectancy}</div></div>
+        <div><div className="text-[10px] text-slate-500 uppercase">Avg R</div><div className={`text-lg font-bold ${o.avg_r >= 0 ? "text-emerald-400" : "text-rose-400"}`}>{o.avg_r}</div></div>
+        <div><div className="text-[10px] text-slate-500 uppercase">Profit Factor</div><div className="text-lg font-bold">{o.profit_factor}</div></div>
+        <div><div className="text-[10px] text-slate-500 uppercase">SQN</div><div className="text-lg font-bold">{o.sqn}</div></div>
+      </div>
+      {health.by_regime && Object.keys(health.by_regime).length > 0 && (
+        <div>
+          <div className="text-xs text-slate-400 mb-2 font-medium">By Regime</div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead><tr className="text-slate-500 border-b border-white/[0.05]">
+                <th className="text-left py-1">Regime</th><th className="text-right">N</th><th className="text-right">Win%</th><th className="text-right">Exp</th><th className="text-right">SQN</th>
+              </tr></thead>
+              <tbody>
+                {Object.entries(health.by_regime).map(([reg, m]) => (
+                  <tr key={reg} className="border-b border-white/[0.02]">
+                    <td className="py-1 text-slate-300">{reg}</td>
+                    <td className="text-right">{m.n}</td>
+                    <td className="text-right">{m.win_rate}%</td>
+                    <td className={`text-right ${m.expectancy >= 0 ? "text-emerald-400" : "text-rose-400"}`}>{m.expectancy}</td>
+                    <td className="text-right">{m.sqn}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function EntryPathsCard({ paths }) {
+  if (!paths || !Object.keys(paths).length) return null;
+  const entries = Object.entries(paths).sort((a, b) => b[1].n - a[1].n);
+  return (
+    <div className="card p-5">
+      <h3 className="text-sm font-semibold text-white mb-3">Entry Path Report Card</h3>
+      <div className="overflow-x-auto">
+        <table className="w-full text-xs">
+          <thead><tr className="text-slate-500 border-b border-white/[0.05]">
+            <th className="text-left py-1">Path</th><th className="text-right">N</th><th className="text-right">Win%</th>
+            <th className="text-right">Exp</th><th className="text-right">SQN</th><th className="text-right">MFE</th>
+            <th className="text-right">Kelly%</th><th className="text-center">Action</th>
+          </tr></thead>
+          <tbody>
+            {entries.map(([path, m]) => {
+              const actionColor = m.action === "DISABLE" ? "badge-bad" : m.action === "RESTRICT" ? "badge-warn" : m.action === "BOOST" ? "badge-good" : "badge-info";
+              return (
+                <tr key={path} className="border-b border-white/[0.02]">
+                  <td className="py-1.5 text-slate-300 font-mono text-[11px]">{path}</td>
+                  <td className="text-right">{m.n}</td>
+                  <td className="text-right">{m.win_rate}%</td>
+                  <td className={`text-right ${m.expectancy >= 0 ? "text-emerald-400" : "text-rose-400"}`}>{m.expectancy}</td>
+                  <td className="text-right">{m.sqn}</td>
+                  <td className="text-right">{m.avg_mfe_atr} ATR</td>
+                  <td className="text-right">{m.half_kelly_pct}%</td>
+                  <td className="text-center"><span className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-semibold ${actionColor}`}>{m.action}</span></td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function SignalICCard({ ic }) {
+  if (!ic || !Object.keys(ic).length) return null;
+  const sorted = Object.entries(ic).sort((a, b) => Math.abs(b[1].ic) - Math.abs(a[1].ic));
+  return (
+    <div className="card p-5">
+      <h3 className="text-sm font-semibold text-white mb-3">Signal Information Coefficients</h3>
+      <BarChart
+        data={sorted.map(([sig, v]) => ({ label: sig, value: v.ic }))}
+        maxVal={0.3}
+        colorFn={v => Math.abs(v) > 0.1 ? "#10b981" : Math.abs(v) > 0.05 ? "#f59e0b" : "#6b7280"}
+      />
+      <div className="mt-3 text-[10px] text-slate-500">
+        |IC| > 0.10 = strong, > 0.05 = useful, near 0 = noise
+      </div>
+    </div>
+  );
+}
+
+function SLTPCard({ sltp }) {
+  if (!sltp) return null;
+  return (
+    <div className="card p-5">
+      <h3 className="text-sm font-semibold text-white mb-3">SL/TP Calibration (ATR Multiples)</h3>
+      <div className="grid grid-cols-2 gap-4">
+        <div>
+          <div className="text-[10px] text-slate-500 uppercase mb-2">Stop Loss (MAE of Winners)</div>
+          <MetricRow label="P50" value={sltp.winner_mae?.p50?.toFixed(2)} />
+          <MetricRow label="P75 (Recommended SL)" value={sltp.recommended_sl_atr?.toFixed(2)} color="text-rose-400" />
+          <MetricRow label="P90" value={sltp.winner_mae?.p90?.toFixed(2)} />
+        </div>
+        <div>
+          <div className="text-[10px] text-slate-500 uppercase mb-2">Take Profit (MFE)</div>
+          <MetricRow label="Trim (P50)" value={sltp.recommended_tp_trim_atr?.toFixed(2)} color="text-emerald-400" />
+          <MetricRow label="Exit (P75)" value={sltp.recommended_tp_exit_atr?.toFixed(2)} color="text-emerald-400" />
+          <MetricRow label="Runner (P90)" value={sltp.recommended_tp_runner_atr?.toFixed(2)} color="text-emerald-400" />
+        </div>
+      </div>
+      {sltp.move_mfe && (
+        <div className="mt-3 pt-3 border-t border-white/[0.04]">
+          <div className="text-[10px] text-slate-500 uppercase mb-1">Move Atlas MFE (for reference)</div>
+          <div className="flex gap-4 text-xs text-slate-300">
+            <span>P50: {sltp.move_mfe.p50?.toFixed(2)}</span>
+            <span>P75: {sltp.move_mfe.p75?.toFixed(2)}</span>
+            <span>P90: {sltp.move_mfe.p90?.toFixed(2)}</span>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function RankCard({ rank }) {
+  if (!rank) return null;
+  const deciles = rank.deciles || {};
+  const data = Object.entries(deciles)
+    .sort((a, b) => parseInt(a[0]) - parseInt(b[0]))
+    .map(([label, m]) => ({ label, value: m.sqn, n: m.n }));
+  return (
+    <div className="card p-5">
+      <h3 className="text-sm font-semibold text-white mb-1">Rank Threshold Optimization</h3>
+      <div className="text-xs text-slate-400 mb-3">Best cutoff: >= {rank.best_cutoff} (SQN: {rank.best_sqn?.toFixed(2)})</div>
+      <BarChart data={data} colorFn={v => v >= 2 ? "#10b981" : v >= 1 ? "#f59e0b" : "#6b7280"} />
+    </div>
+  );
+}
+
+function WFOCard({ wfo }) {
+  if (!wfo) return null;
+  return (
+    <div className="card p-5">
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="text-sm font-semibold text-white">Walk-Forward Validation</h3>
+        <span className={`inline-block px-2 py-0.5 rounded-full text-[11px] font-semibold ${wfo.verdict === "PASS" ? "badge-good" : "badge-warn"}`}>{wfo.verdict}</span>
+      </div>
+      <div className="grid grid-cols-3 gap-3">
+        <div><div className="text-[10px] text-slate-500 uppercase">In-Sample SQN</div><div className="text-lg font-bold">{wfo.in_sample_sqn}</div></div>
+        <div><div className="text-[10px] text-slate-500 uppercase">Out-Sample SQN</div><div className="text-lg font-bold">{wfo.out_sample_sqn}</div></div>
+        <div><div className="text-[10px] text-slate-500 uppercase">Degradation</div><div className={`text-lg font-bold ${wfo.degradation_pct > 30 ? "text-rose-400" : "text-emerald-400"}`}>{wfo.degradation_pct}%</div></div>
+      </div>
+    </div>
+  );
+}
+
+function MissedOpCard({ missed }) {
+  if (!missed) return null;
+  return (
+    <div className="card p-5">
+      <h3 className="text-sm font-semibold text-white mb-2">Missed Opportunities</h3>
+      <div className="flex items-baseline gap-2 mb-2">
+        <span className="text-2xl font-bold text-amber-400">{missed.count}</span>
+        <span className="text-xs text-slate-400">of {missed.total_moves} moves not traded</span>
+      </div>
+      {missed.common_signals && Object.keys(missed.common_signals).length > 0 && (
+        <div>
+          <div className="text-[10px] text-slate-500 uppercase mb-1">Common signals at missed moves</div>
+          <div className="flex flex-wrap gap-1">
+            {Object.entries(missed.common_signals).sort((a,b) => b[1]-a[1]).slice(0, 8).map(([sig, n]) => (
+              <span key={sig} className="inline-block px-1.5 py-0.5 rounded text-[10px] bg-white/[0.04] text-slate-300">{sig}: {n}</span>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PositionSizingCard({ sizing }) {
+  if (!sizing) return null;
+  return (
+    <div className="card p-5">
+      <h3 className="text-sm font-semibold text-white mb-3">Position Sizing (Kelly)</h3>
+      <MetricRow label="Full Kelly" value={`${sizing.kelly_full_pct}%`} />
+      <MetricRow label="Half Kelly (Recommended)" value={`${sizing.half_kelly_pct}%`} color="text-blue-400" />
+      <MetricRow label="Current Sizing" value={sizing.current_sizing_pct} />
+    </div>
+  );
+}
+
+function RecommendationsCard({ recs, reportId, onApply, applying }) {
+  if (!recs) return null;
+  return (
+    <div className="card p-5 border-blue-500/20">
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="text-sm font-semibold text-blue-400">Recommendations</h3>
+        <button className="btn btn-apply" onClick={() => onApply(reportId)} disabled={applying}>
+          {applying ? "Applying..." : "Apply All"}
+        </button>
+      </div>
+      {recs.wfo_verdict === "WARNING" && (
+        <div className="mb-3 p-2 rounded-lg bg-amber-500/10 border border-amber-500/20 text-xs text-amber-300">
+          Walk-forward validation shows degradation. Review recommendations carefully before applying.
+        </div>
+      )}
+      <div className="space-y-2 text-xs">
+        {recs.signal_weights && (
+          <div className="p-2 rounded bg-white/[0.02]">
+            <div className="text-slate-400 mb-1">Signal Weights</div>
+            <div className="flex flex-wrap gap-2">
+              {Object.entries(recs.signal_weights).map(([sig, w]) => (
+                <span key={sig} className="text-slate-300">{sig}: <span className="font-mono text-white">{w}</span></span>
+              ))}
+            </div>
+          </div>
+        )}
+        {recs.sl_atr != null && (
+          <div className="p-2 rounded bg-white/[0.02]">
+            <span className="text-slate-400">SL: </span><span className="font-mono text-white">{recs.sl_atr} ATR</span>
+          </div>
+        )}
+        {recs.tp_tiers && (
+          <div className="p-2 rounded bg-white/[0.02]">
+            <span className="text-slate-400">TP Tiers: </span>
+            <span className="font-mono text-white">Trim {recs.tp_tiers.trim} | Exit {recs.tp_tiers.exit} | Runner {recs.tp_tiers.runner} ATR</span>
+          </div>
+        )}
+        {recs.rank_threshold != null && (
+          <div className="p-2 rounded bg-white/[0.02]">
+            <span className="text-slate-400">Min Rank: </span><span className="font-mono text-white">>= {recs.rank_threshold}</span>
+          </div>
+        )}
+        {recs.path_adjustments && Object.keys(recs.path_adjustments).length > 0 && (
+          <div className="p-2 rounded bg-white/[0.02]">
+            <div className="text-slate-400 mb-1">Path Adjustments</div>
+            {Object.entries(recs.path_adjustments).map(([path, adj]) => (
+              <div key={path} className="flex items-center gap-2">
+                <span className="font-mono text-slate-300">{path}</span>
+                <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${adj.action === "DISABLE" ? "badge-bad" : "badge-warn"}`}>{adj.action}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function App() {
+  const [report, setReport] = useState(null);
+  const [recs, setRecs] = useState(null);
+  const [reportId, setReportId] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [running, setRunning] = useState(false);
+  const [applying, setApplying] = useState(false);
+  const [appliedMsg, setAppliedMsg] = useState(null);
+  const [tab, setTab] = useState("health");
+  const [error, setError] = useState(null);
+
+  const fetchReport = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch(`${API_BASE}/timed/calibration/report`);
+      const data = await res.json();
+      if (data.ok) {
+        setReport(data.report);
+        setRecs(data.recommendations);
+        setReportId(data.report_id);
+      } else if (data.error === "no_report") {
+        setReport(null);
+      } else {
+        setError(data.error);
+      }
+    } catch (e) {
+      setError(String(e));
+    }
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { fetchReport(); }, [fetchReport]);
+
+  const handleRun = async () => {
+    setRunning(true);
+    setError(null);
+    try {
+      const res = await fetch(`${API_BASE}/timed/calibration/run`, { method: "POST", headers: {"Content-Type":"application/json"}, body: "{}" });
+      const data = await res.json();
+      if (data.ok) {
+        setReport(data.report);
+        setRecs(data.report?.recommendations);
+        setReportId(data.report?.report_id);
+      } else {
+        setError(data.error);
+      }
+    } catch (e) { setError(String(e)); }
+    setRunning(false);
+  };
+
+  const handleApply = async (id) => {
+    setApplying(true);
+    setAppliedMsg(null);
+    try {
+      const res = await fetch(`${API_BASE}/timed/calibration/apply`, {
+        method: "POST", headers: {"Content-Type":"application/json"},
+        body: JSON.stringify({ report_id: id }),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        setAppliedMsg(`Applied: ${data.applied?.join(", ")}`);
+      } else {
+        setError(data.error);
+      }
+    } catch (e) { setError(String(e)); }
+    setApplying(false);
+  };
+
+  const tabs = [
+    { id: "health", label: "System Health" },
+    { id: "paths", label: "Entry Paths" },
+    { id: "signals", label: "Signal IC" },
+    { id: "sltp", label: "SL/TP" },
+    { id: "rank", label: "Rank" },
+    { id: "wfo", label: "Walk-Forward" },
+    { id: "missed", label: "Missed" },
+    { id: "sizing", label: "Sizing" },
+    { id: "apply", label: "Apply" },
+  ];
+
+  return (
+    <div className="min-h-screen">
+      <NavHeader />
+      <div className="max-w-6xl mx-auto px-4 py-6">
+        <div className="flex items-center justify-between mb-6">
+          <div>
+            <h1 className="text-xl font-bold text-white">Model Calibration</h1>
+            <p className="text-xs text-slate-400 mt-1">Empirical calibration using established quantitative frameworks</p>
+          </div>
+          <div className="flex items-center gap-3">
+            <div className="text-right">
+              <div className="text-[10px] text-slate-500">Step 1: Run local script</div>
+              <code className="text-[11px] text-slate-400 font-mono">node scripts/calibrate.js</code>
+            </div>
+            <button className="btn btn-primary" onClick={handleRun} disabled={running} data-admin-only="true">
+              {running ? (
+                <span className="flex items-center gap-2">
+                  <span className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full" style={{animation:"spin 0.7s linear infinite"}} />
+                  Analyzing...
+                </span>
+              ) : "Run Analysis"}
+            </button>
+          </div>
+        </div>
+
+        {error && (
+          <div className="mb-4 p-3 rounded-lg bg-rose-500/10 border border-rose-500/20 text-sm text-rose-300">{error}</div>
+        )}
+        {appliedMsg && (
+          <div className="mb-4 p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-sm text-emerald-300">{appliedMsg}</div>
+        )}
+
+        {loading ? (
+          <div className="flex items-center justify-center py-20">
+            <div className="w-6 h-6 border-2 border-white/20 border-t-emerald-500 rounded-full" style={{animation:"spin 0.7s linear infinite"}} />
+          </div>
+        ) : !report ? (
+          <div className="card p-12 text-center">
+            <div className="text-slate-400 text-sm mb-3">No calibration report found</div>
+            <div className="text-xs text-slate-500 max-w-md mx-auto">
+              Run <code className="text-slate-300">node scripts/calibrate.js</code> to harvest moves and autopsy trades,
+              then click "Run Analysis" to generate the calibration report.
+            </div>
+          </div>
+        ) : (
+          <div>
+            <div className="flex gap-1 border-b border-white/[0.06] mb-5 overflow-x-auto">
+              {tabs.map(t => (
+                <button key={t.id} onClick={() => setTab(t.id)}
+                  className={`px-3 py-2 text-xs font-medium whitespace-nowrap ${tab === t.id ? "tab-active" : "tab-inactive"}`}>
+                  {t.label}
+                </button>
+              ))}
+            </div>
+
+            {tab === "health" && <SystemHealthCard health={report.system_health} />}
+            {tab === "paths" && <EntryPathsCard paths={report.entry_paths} />}
+            {tab === "signals" && <SignalICCard ic={report.signal_ic} />}
+            {tab === "sltp" && <SLTPCard sltp={report.sl_tp_calibration} />}
+            {tab === "rank" && <RankCard rank={report.rank_optimization} />}
+            {tab === "wfo" && <WFOCard wfo={report.wfo_summary} />}
+            {tab === "missed" && <MissedOpCard missed={report.missed_opportunities} />}
+            {tab === "sizing" && <PositionSizingCard sizing={report.position_sizing} />}
+            {tab === "apply" && <RecommendationsCard recs={recs} reportId={reportId} onApply={handleApply} applying={applying} />}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+    </script>
+  </body>
+</html>

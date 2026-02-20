@@ -476,6 +476,12 @@ const ROUTES = [
   ["POST", "/timed/stripe/webhook", "POST /timed/stripe/webhook"],
   ["POST", "/timed/stripe/portal", "POST /timed/stripe/portal"],
   ["GET", "/timed/subscription", "GET /timed/subscription"],
+  // ── Calibration Pipeline ──
+  ["POST", "/timed/calibration/upload-moves", "POST /timed/calibration/upload-moves"],
+  ["POST", "/timed/calibration/upload-autopsy", "POST /timed/calibration/upload-autopsy"],
+  ["POST", "/timed/calibration/run", "POST /timed/calibration/run"],
+  ["GET", "/timed/calibration/report", "GET /timed/calibration/report"],
+  ["POST", "/timed/calibration/apply", "POST /timed/calibration/apply"],
 ];
 
 function getRouteKey(method, pathname) {
@@ -13258,6 +13264,358 @@ async function d1EnsureLearningSchema(env) {
     _learningSchemaReady = true;
   } catch (e) {
     console.error("[LEARNING] Schema migration failed:", String(e).slice(0, 200));
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// Calibration Pipeline — Analysis Engine
+// ═══════════════════════════════════════════════════════════════════════
+
+function percentile(arr, p) {
+  if (!arr.length) return 0;
+  const sorted = [...arr].sort((a, b) => a - b);
+  const idx = (p / 100) * (sorted.length - 1);
+  const lo = Math.floor(idx), hi = Math.ceil(idx);
+  return lo === hi ? sorted[lo] : sorted[lo] + (sorted[hi] - sorted[lo]) * (idx - lo);
+}
+
+function spearmanCorrelation(x, y) {
+  const n = x.length;
+  if (n < 5) return 0;
+  const rank = arr => {
+    const sorted = arr.map((v, i) => ({ v, i })).sort((a, b) => a.v - b.v);
+    const ranks = new Array(n);
+    for (let i = 0; i < n; i++) ranks[sorted[i].i] = i + 1;
+    return ranks;
+  };
+  const rx = rank(x), ry = rank(y);
+  let d2 = 0;
+  for (let i = 0; i < n; i++) d2 += (rx[i] - ry[i]) ** 2;
+  return 1 - (6 * d2) / (n * (n * n - 1));
+}
+
+async function runCalibrationAnalysis(env) {
+  const db = env?.DB;
+  if (!db) throw new Error("no_db");
+
+  const { results: moves } = await db.prepare(`SELECT * FROM calibration_moves`).all();
+  const { results: trades } = await db.prepare(`SELECT * FROM calibration_trade_autopsy`).all();
+  if (!trades.length) throw new Error("no_trade_data");
+
+  const splitIdx = Math.floor(trades.length * 0.75);
+  const tradeSorted = [...trades].sort((a, b) => (a.entry_ts || 0) - (b.entry_ts || 0));
+  const inSample = tradeSorted.slice(0, splitIdx);
+  const outSample = tradeSorted.slice(splitIdx);
+
+  function computeMetrics(subset) {
+    if (!subset.length) return { n: 0, win_rate: 0, expectancy: 0, sqn: 0, avg_r: 0, profit_factor: 0 };
+    let wins = 0, totalWinPnl = 0, totalLossPnl = 0;
+    const rMultiples = [];
+    for (const t of subset) {
+      const r = t.r_multiple ?? (t.pnl_pct || 0);
+      rMultiples.push(r);
+      if ((t.pnl_pct || 0) > 0) { wins++; totalWinPnl += Math.abs(t.pnl_pct || 0); }
+      else { totalLossPnl += Math.abs(t.pnl_pct || 0); }
+    }
+    const n = subset.length;
+    const winRate = wins / n;
+    const avgWin = wins > 0 ? totalWinPnl / wins : 0;
+    const losses = n - wins;
+    const avgLoss = losses > 0 ? totalLossPnl / losses : 0;
+    const expectancy = (winRate * avgWin) - ((1 - winRate) * avgLoss);
+    const profitFactor = totalLossPnl > 0 ? totalWinPnl / totalLossPnl : totalWinPnl > 0 ? Infinity : 0;
+    const meanR = rMultiples.reduce((a, b) => a + b, 0) / n;
+    const stdR = Math.sqrt(rMultiples.reduce((a, b) => a + (b - meanR) ** 2, 0) / n) || 1;
+    const sqn = (meanR / stdR) * Math.sqrt(n);
+    return {
+      n, win_rate: Math.round(winRate * 1000) / 10, expectancy: Math.round(expectancy * 100) / 100,
+      sqn: Math.round(sqn * 100) / 100, avg_r: Math.round(meanR * 100) / 100,
+      profit_factor: profitFactor === Infinity ? 999 : Math.round(profitFactor * 100) / 100,
+    };
+  }
+
+  // A. System Health
+  const systemHealth = {
+    overall: computeMetrics(trades),
+    in_sample: computeMetrics(inSample),
+    out_sample: computeMetrics(outSample),
+  };
+  const byRegime = {};
+  for (const t of trades) {
+    const reg = t.regime_at_entry || "unknown";
+    (byRegime[reg] = byRegime[reg] || []).push(t);
+  }
+  systemHealth.by_regime = {};
+  for (const [reg, arr] of Object.entries(byRegime)) {
+    systemHealth.by_regime[reg] = computeMetrics(arr);
+  }
+
+  // B. Entry Path Report Card
+  const byPath = {};
+  for (const t of trades) {
+    const p = t.entry_path || "unknown";
+    (byPath[p] = byPath[p] || []).push(t);
+  }
+  const pathReport = {};
+  const pathAdjustments = {};
+  for (const [path, arr] of Object.entries(byPath)) {
+    const m = computeMetrics(arr);
+    const isArr = arr.filter(t => inSample.includes(t));
+    const osArr = arr.filter(t => outSample.includes(t));
+    const mfeAvg = arr.reduce((s, t) => s + (t.mfe_atr || 0), 0) / arr.length;
+    const winRate = m.win_rate / 100;
+    const avgWinR = arr.filter(t => (t.pnl_pct||0) > 0).reduce((s,t) => s + (t.r_multiple||0), 0) / (arr.filter(t => (t.pnl_pct||0) > 0).length || 1);
+    const avgLossR = Math.abs(arr.filter(t => (t.pnl_pct||0) <= 0).reduce((s,t) => s + (t.r_multiple||0), 0) / (arr.filter(t => (t.pnl_pct||0) <= 0).length || 1)) || 1;
+    const kellyPct = avgLossR > 0 ? (winRate * avgWinR / avgLossR - (1 - winRate)) / (avgWinR / avgLossR) : 0;
+    const halfKelly = Math.max(0, Math.round(kellyPct * 50 * 100) / 100);
+    let action = "KEEP";
+    if (m.expectancy < 0 && arr.length >= 5) action = "DISABLE";
+    else if (m.expectancy < 0.2 && arr.length >= 5) action = "RESTRICT";
+    else if (m.expectancy > 0.5) action = "BOOST";
+    pathReport[path] = {
+      ...m, avg_mfe_atr: Math.round(mfeAvg * 100) / 100,
+      half_kelly_pct: halfKelly, action,
+      in_sample: computeMetrics(isArr), out_sample: computeMetrics(osArr),
+    };
+    if (action === "DISABLE") {
+      pathAdjustments[path] = { action: "DISABLE" };
+    } else if (action === "RESTRICT") {
+      pathAdjustments[path] = { action: "RESTRICT", quality_gate_adj: 0.5 };
+    }
+  }
+
+  // C. Signal Information Coefficients
+  const signalNames = ["ema_cross", "supertrend", "ema_structure", "ema_depth", "rsi"];
+  const signalIC = {};
+  const newSignalWeights = {};
+  for (const sig of signalNames) {
+    const xs = [], ys = [];
+    for (const t of trades) {
+      if (!t.entry_signals_json) continue;
+      try {
+        const snap = JSON.parse(t.entry_signals_json);
+        const tfs = snap.tf || snap;
+        let sigVal = null;
+        for (const tfData of Object.values(tfs)) {
+          const signals = tfData.signals || tfData;
+          if (signals[sig] != null) { sigVal = Number(signals[sig]); break; }
+        }
+        if (sigVal != null && isFinite(sigVal) && t.pnl_pct != null) {
+          xs.push(sigVal);
+          ys.push(t.pnl_pct);
+        }
+      } catch { /* skip bad json */ }
+    }
+    const ic = spearmanCorrelation(xs, ys);
+    signalIC[sig] = { ic: Math.round(ic * 1000) / 1000, n: xs.length };
+  }
+  const totalAbsIC = Object.values(signalIC).reduce((s, v) => s + Math.abs(v.ic), 0) || 1;
+  for (const sig of signalNames) {
+    newSignalWeights[sig] = Math.round((Math.abs(signalIC[sig].ic) / totalAbsIC) * 100) / 100;
+  }
+
+  // D. SL/TP Calibration (Sweeney MFE/MAE)
+  const winnerMAEs = trades.filter(t => (t.pnl_pct || 0) > 0).map(t => t.mae_atr || 0);
+  const allMFEs = trades.map(t => t.mfe_atr || 0);
+  const moveMFEs = moves.map(m => m.move_atr || 0);
+  const slTP = {
+    winner_mae: { p50: percentile(winnerMAEs, 50), p75: percentile(winnerMAEs, 75), p90: percentile(winnerMAEs, 90) },
+    trade_mfe: { p50: percentile(allMFEs, 50), p75: percentile(allMFEs, 75), p90: percentile(allMFEs, 90) },
+    move_mfe: moves.length ? { p50: percentile(moveMFEs, 50), p75: percentile(moveMFEs, 75), p90: percentile(moveMFEs, 90) } : null,
+    recommended_sl_atr: Math.round(percentile(winnerMAEs, 75) * 100) / 100,
+    recommended_tp_trim_atr: Math.round(percentile(allMFEs, 50) * 100) / 100,
+    recommended_tp_exit_atr: Math.round(percentile(allMFEs, 75) * 100) / 100,
+    recommended_tp_runner_atr: Math.round(percentile(allMFEs, 90) * 100) / 100,
+  };
+
+  // E. Regime-Conditional Filters
+  const regimeFilters = {};
+  for (const [reg, arr] of Object.entries(byRegime)) {
+    const m = computeMetrics(arr);
+    regimeFilters[reg] = {
+      ...m,
+      block_entries: m.expectancy < 0 && arr.length >= 5,
+      min_rank_adj: m.expectancy < 0.2 ? 10 : 0,
+    };
+  }
+
+  // F. Rank Threshold Optimization
+  const rankDeciles = {};
+  for (let d = 0; d < 100; d += 10) {
+    const label = `${d}-${d + 10}`;
+    const subset = trades.filter(t => {
+      const r = t.rank_at_entry ?? 0;
+      return r >= d && r < d + 10;
+    });
+    rankDeciles[label] = computeMetrics(subset);
+  }
+  let bestRankSQN = -Infinity, bestRankCutoff = 0;
+  for (let cut = 10; cut <= 90; cut += 10) {
+    const above = trades.filter(t => (t.rank_at_entry ?? 0) >= cut);
+    if (above.length < 5) continue;
+    const m = computeMetrics(above);
+    if (m.sqn > bestRankSQN) { bestRankSQN = m.sqn; bestRankCutoff = cut; }
+  }
+
+  // G. Position Sizing (overall Kelly)
+  const overallWR = systemHealth.overall.win_rate / 100;
+  const overallAvgWinR = trades.filter(t => (t.pnl_pct||0) > 0).reduce((s,t) => s + (t.r_multiple||0), 0) / (trades.filter(t => (t.pnl_pct||0) > 0).length || 1);
+  const overallAvgLossR = Math.abs(trades.filter(t => (t.pnl_pct||0) <= 0).reduce((s,t) => s + (t.r_multiple||0), 0) / (trades.filter(t => (t.pnl_pct||0) <= 0).length || 1)) || 1;
+  const kellyFull = overallAvgLossR > 0 ? (overallWR * overallAvgWinR / overallAvgLossR - (1 - overallWR)) / (overallAvgWinR / overallAvgLossR) : 0;
+  const positionSizing = {
+    kelly_full_pct: Math.round(kellyFull * 10000) / 100,
+    half_kelly_pct: Math.round(Math.max(0, kellyFull / 2) * 10000) / 100,
+    current_sizing_pct: "5-7% fixed",
+  };
+
+  // H. Missed Opportunity Analysis
+  let missedMoves = 0, missedSignals = {};
+  if (moves.length) {
+    const tradeTickers = new Set(trades.map(t => `${t.ticker}:${t.direction}`));
+    for (const m of moves) {
+      const key = `${m.ticker}:${m.direction}`;
+      const tradeNearby = trades.some(t => t.ticker === m.ticker && t.direction === m.direction &&
+        Math.abs((t.entry_ts || 0) - m.start_ts) < 5 * 86400000);
+      if (!tradeNearby) {
+        missedMoves++;
+        if (m.signals_json) {
+          try {
+            const sigs = JSON.parse(m.signals_json);
+            for (const [k, v] of Object.entries(sigs)) {
+              missedSignals[k] = (missedSignals[k] || 0) + 1;
+            }
+          } catch {}
+        }
+      }
+    }
+  }
+
+  // I. Walk-Forward Validation
+  const wfoSummary = {
+    in_sample_sqn: systemHealth.in_sample.sqn,
+    out_sample_sqn: systemHealth.out_sample.sqn,
+    degradation_pct: systemHealth.in_sample.sqn > 0
+      ? Math.round((1 - systemHealth.out_sample.sqn / systemHealth.in_sample.sqn) * 100)
+      : 0,
+    verdict: systemHealth.out_sample.sqn >= systemHealth.in_sample.sqn * 0.7 ? "PASS" : "WARNING",
+  };
+
+  // Build recommendations
+  const recommendations = {
+    signal_weights: newSignalWeights,
+    sl_atr: slTP.recommended_sl_atr,
+    tp_tiers: {
+      trim: slTP.recommended_tp_trim_atr,
+      exit: slTP.recommended_tp_exit_atr,
+      runner: slTP.recommended_tp_runner_atr,
+    },
+    rank_threshold: bestRankCutoff,
+    path_adjustments: pathAdjustments,
+    wfo_verdict: wfoSummary.verdict,
+  };
+
+  const reportJson = {
+    system_health: systemHealth,
+    entry_paths: pathReport,
+    signal_ic: signalIC,
+    sl_tp_calibration: slTP,
+    regime_filters: regimeFilters,
+    rank_optimization: { deciles: rankDeciles, best_cutoff: bestRankCutoff, best_sqn: bestRankSQN },
+    position_sizing: positionSizing,
+    missed_opportunities: { count: missedMoves, total_moves: moves.length, common_signals: missedSignals },
+    wfo_summary: wfoSummary,
+  };
+
+  const reportId = `cal_${Date.now()}`;
+  await db.prepare(
+    `INSERT INTO calibration_report (report_id, run_ts, lookback_days, trade_count, move_count, report_json, recommendations_json)
+     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)`
+  ).bind(
+    reportId, Date.now(), 400, trades.length, moves.length,
+    JSON.stringify(reportJson), JSON.stringify(recommendations)
+  ).run();
+
+  return { report_id: reportId, ...reportJson, recommendations };
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// Calibration Pipeline Schema — moves, trade autopsy, reports
+// ═══════════════════════════════════════════════════════════════════════
+
+let _calibSchemaReady = false;
+async function d1EnsureCalibrationSchema(env) {
+  if (_calibSchemaReady) return;
+  const db = env?.DB;
+  if (!db) return;
+  try {
+    await db.batch([
+      db.prepare(`CREATE TABLE IF NOT EXISTS calibration_moves (
+        move_id TEXT PRIMARY KEY,
+        ticker TEXT NOT NULL,
+        direction TEXT NOT NULL,
+        start_ts INTEGER NOT NULL,
+        end_ts INTEGER NOT NULL,
+        duration_days INTEGER,
+        move_pct REAL,
+        move_atr REAL,
+        max_ext_atr REAL,
+        pullback_atr REAL,
+        sl_optimal_atr REAL,
+        tp_p50_atr REAL,
+        tp_p75_atr REAL,
+        tp_p90_atr REAL,
+        signals_json TEXT,
+        regime_json TEXT,
+        created_at INTEGER NOT NULL DEFAULT (unixepoch())
+      )`),
+      db.prepare(`CREATE TABLE IF NOT EXISTS calibration_trade_autopsy (
+        trade_id TEXT PRIMARY KEY,
+        ticker TEXT NOT NULL,
+        direction TEXT NOT NULL,
+        entry_ts INTEGER,
+        exit_ts INTEGER,
+        entry_price REAL,
+        exit_price REAL,
+        sl_price REAL,
+        pnl_pct REAL,
+        r_multiple REAL,
+        mfe_pct REAL,
+        mfe_atr REAL,
+        mae_pct REAL,
+        mae_atr REAL,
+        exit_efficiency REAL,
+        sl_hit_before_mfe INTEGER,
+        time_to_mfe_min REAL,
+        optimal_hold_min REAL,
+        classification TEXT,
+        entry_signals_json TEXT,
+        entry_path TEXT,
+        rank_at_entry INTEGER,
+        regime_at_entry TEXT,
+        created_at INTEGER NOT NULL DEFAULT (unixepoch())
+      )`),
+      db.prepare(`CREATE TABLE IF NOT EXISTS calibration_report (
+        report_id TEXT PRIMARY KEY,
+        run_ts INTEGER NOT NULL,
+        lookback_days INTEGER,
+        trade_count INTEGER,
+        move_count INTEGER,
+        report_json TEXT,
+        recommendations_json TEXT,
+        applied_at INTEGER,
+        applied_by TEXT
+      )`),
+    ]);
+    await db.batch([
+      db.prepare(`CREATE INDEX IF NOT EXISTS idx_cm_ticker ON calibration_moves (ticker)`),
+      db.prepare(`CREATE INDEX IF NOT EXISTS idx_cm_dir ON calibration_moves (direction)`),
+      db.prepare(`CREATE INDEX IF NOT EXISTS idx_cta_ticker ON calibration_trade_autopsy (ticker)`),
+      db.prepare(`CREATE INDEX IF NOT EXISTS idx_cta_class ON calibration_trade_autopsy (classification)`),
+      db.prepare(`CREATE INDEX IF NOT EXISTS idx_cr_run ON calibration_report (run_ts)`),
+    ]);
+    _calibSchemaReady = true;
+  } catch (e) {
+    console.error("[CALIBRATION] Schema migration failed:", String(e).slice(0, 200));
   }
 }
 
@@ -29706,6 +30064,198 @@ export default {
           }, 200, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e?.message || e) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // ═══════════════════════════════════════════════════════════════════
+      // Calibration Pipeline Endpoints
+      // ═══════════════════════════════════════════════════════════════════
+
+      if (routeKey === "POST /timed/calibration/upload-moves") {
+        try {
+          const db = env?.DB;
+          if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
+          await d1EnsureCalibrationSchema(env);
+          const body = await req.json();
+          const moves = body.moves;
+          if (!Array.isArray(moves) || moves.length === 0) {
+            return sendJSON({ ok: false, error: "moves array required" }, 400, corsHeaders(env, req));
+          }
+          if (body.clear) await db.prepare(`DELETE FROM calibration_moves`).run();
+          const batchSize = 50;
+          let inserted = 0;
+          for (let i = 0; i < moves.length; i += batchSize) {
+            const chunk = moves.slice(i, i + batchSize);
+            const stmts = chunk.map(m => db.prepare(
+              `INSERT OR REPLACE INTO calibration_moves
+               (move_id,ticker,direction,start_ts,end_ts,duration_days,move_pct,move_atr,
+                max_ext_atr,pullback_atr,sl_optimal_atr,tp_p50_atr,tp_p75_atr,tp_p90_atr,
+                signals_json,regime_json,created_at)
+               VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17)`
+            ).bind(
+              m.move_id, m.ticker, m.direction, m.start_ts, m.end_ts,
+              m.duration_days, m.move_pct, m.move_atr, m.max_ext_atr, m.pullback_atr,
+              m.sl_optimal_atr, m.tp_p50_atr, m.tp_p75_atr, m.tp_p90_atr,
+              m.signals_json || null, m.regime_json || null, Date.now()
+            ));
+            await db.batch(stmts);
+            inserted += chunk.length;
+          }
+          return sendJSON({ ok: true, inserted }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      if (routeKey === "POST /timed/calibration/upload-autopsy") {
+        try {
+          const db = env?.DB;
+          if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
+          await d1EnsureCalibrationSchema(env);
+          const body = await req.json();
+          const trades = body.trades;
+          if (!Array.isArray(trades) || trades.length === 0) {
+            return sendJSON({ ok: false, error: "trades array required" }, 400, corsHeaders(env, req));
+          }
+          if (body.clear) await db.prepare(`DELETE FROM calibration_trade_autopsy`).run();
+          const batchSize = 50;
+          let inserted = 0;
+          for (let i = 0; i < trades.length; i += batchSize) {
+            const chunk = trades.slice(i, i + batchSize);
+            const stmts = chunk.map(t => db.prepare(
+              `INSERT OR REPLACE INTO calibration_trade_autopsy
+               (trade_id,ticker,direction,entry_ts,exit_ts,entry_price,exit_price,sl_price,
+                pnl_pct,r_multiple,mfe_pct,mfe_atr,mae_pct,mae_atr,exit_efficiency,
+                sl_hit_before_mfe,time_to_mfe_min,optimal_hold_min,classification,
+                entry_signals_json,entry_path,rank_at_entry,regime_at_entry,created_at)
+               VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24)`
+            ).bind(
+              t.trade_id, t.ticker, t.direction, t.entry_ts, t.exit_ts,
+              t.entry_price, t.exit_price, t.sl_price, t.pnl_pct, t.r_multiple,
+              t.mfe_pct, t.mfe_atr, t.mae_pct, t.mae_atr, t.exit_efficiency,
+              t.sl_hit_before_mfe ? 1 : 0, t.time_to_mfe_min, t.optimal_hold_min,
+              t.classification, t.entry_signals_json || null,
+              t.entry_path, t.rank_at_entry, t.regime_at_entry, Date.now()
+            ));
+            await db.batch(stmts);
+            inserted += chunk.length;
+          }
+          return sendJSON({ ok: true, inserted }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      if (routeKey === "POST /timed/calibration/run") {
+        try {
+          const db = env?.DB;
+          if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
+          await d1EnsureCalibrationSchema(env);
+          const report = await runCalibrationAnalysis(env);
+          return sendJSON({ ok: true, report }, 200, corsHeaders(env, req));
+        } catch (e) {
+          console.error("[CALIBRATION] run error:", e);
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      if (routeKey === "GET /timed/calibration/report") {
+        try {
+          const db = env?.DB;
+          if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
+          await d1EnsureCalibrationSchema(env);
+          const row = await db.prepare(
+            `SELECT * FROM calibration_report ORDER BY run_ts DESC LIMIT 1`
+          ).first();
+          if (!row) return sendJSON({ ok: false, error: "no_report" }, 404, corsHeaders(env, req));
+          const report = row.report_json ? JSON.parse(row.report_json) : {};
+          const recommendations = row.recommendations_json ? JSON.parse(row.recommendations_json) : {};
+          return sendJSON({
+            ok: true,
+            report_id: row.report_id,
+            run_ts: row.run_ts,
+            lookback_days: row.lookback_days,
+            trade_count: row.trade_count,
+            move_count: row.move_count,
+            applied_at: row.applied_at,
+            report,
+            recommendations,
+          }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      if (routeKey === "POST /timed/calibration/apply") {
+        try {
+          const db = env?.DB;
+          if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
+          await d1EnsureCalibrationSchema(env);
+          await d1EnsureLearningSchema(env);
+          const body = await req.json();
+          const reportId = body.report_id;
+          if (!reportId) return sendJSON({ ok: false, error: "report_id required" }, 400, corsHeaders(env, req));
+          const row = await db.prepare(`SELECT recommendations_json FROM calibration_report WHERE report_id = ?1`).bind(reportId).first();
+          if (!row) return sendJSON({ ok: false, error: "report_not_found" }, 404, corsHeaders(env, req));
+          const recs = JSON.parse(row.recommendations_json || "{}");
+          const applied = [];
+          const now = Date.now();
+          if (recs.signal_weights) {
+            await db.prepare(
+              `INSERT OR REPLACE INTO model_config (config_key, config_value, description, updated_at, updated_by)
+               VALUES ('consensus_signal_weights', ?1, 'Calibration-derived signal weights', ?2, 'calibration')`
+            ).bind(JSON.stringify(recs.signal_weights), now).run();
+            applied.push("consensus_signal_weights");
+          }
+          if (recs.tf_weights) {
+            await db.prepare(
+              `INSERT OR REPLACE INTO model_config (config_key, config_value, description, updated_at, updated_by)
+               VALUES ('consensus_tf_weights', ?1, 'Calibration-derived TF weights', ?2, 'calibration')`
+            ).bind(JSON.stringify(recs.tf_weights), now).run();
+            applied.push("consensus_tf_weights");
+          }
+          if (recs.sl_atr != null) {
+            await db.prepare(
+              `INSERT OR REPLACE INTO model_config (config_key, config_value, description, updated_at, updated_by)
+               VALUES ('calibrated_sl_atr', ?1, 'Calibration SL in ATR multiples', ?2, 'calibration')`
+            ).bind(String(recs.sl_atr), now).run();
+            applied.push("calibrated_sl_atr");
+          }
+          if (recs.tp_tiers) {
+            await db.prepare(
+              `INSERT OR REPLACE INTO model_config (config_key, config_value, description, updated_at, updated_by)
+               VALUES ('calibrated_tp_tiers', ?1, 'Calibration TP tiers in ATR multiples', ?2, 'calibration')`
+            ).bind(JSON.stringify(recs.tp_tiers), now).run();
+            applied.push("calibrated_tp_tiers");
+          }
+          if (recs.rank_threshold != null) {
+            await db.prepare(
+              `INSERT OR REPLACE INTO model_config (config_key, config_value, description, updated_at, updated_by)
+               VALUES ('calibrated_rank_min', ?1, 'Minimum rank for entry from calibration', ?2, 'calibration')`
+            ).bind(String(recs.rank_threshold), now).run();
+            applied.push("calibrated_rank_min");
+          }
+          if (recs.path_adjustments) {
+            for (const [path, adj] of Object.entries(recs.path_adjustments)) {
+              if (adj.action === "DISABLE") {
+                await db.prepare(
+                  `UPDATE path_performance SET enabled = 0, disable_reason = ?1 WHERE entry_path = ?2`
+                ).bind("calibration: negative expectancy", path).run();
+                applied.push(`path_disable:${path}`);
+              } else if (adj.quality_gate_adj != null) {
+                await db.prepare(
+                  `UPDATE path_performance SET quality_gate_adj = ?1 WHERE entry_path = ?2`
+                ).bind(adj.quality_gate_adj, path).run();
+                applied.push(`path_qg:${path}`);
+              }
+            }
+          }
+          await db.prepare(
+            `UPDATE calibration_report SET applied_at = ?1, applied_by = 'admin' WHERE report_id = ?2`
+          ).bind(now, reportId).run();
+          return sendJSON({ ok: true, applied }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
         }
       }
 
