@@ -39433,6 +39433,13 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
         // Filter out removed tickers
         const removedForScoring = new Set((await kvGetJSON(KV, "timed:removed")) || []);
         
+        // Load live prices once for freshness checks during scoring
+        let _livePricesCache = null;
+        try {
+          const lpRaw = await kvGetJSON(KV, "timed:prices");
+          _livePricesCache = lpRaw?.prices || null;
+        } catch (_) {}
+
         // Priority: open positions first, then everything else
         const tickersToScore = [];
         for (const t of openTickerSet) {
@@ -39587,6 +39594,47 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             // properly (5-min time gate removed). This skips KV writes for tickers with
             // no meaningful change, saving ~50-70% of KV writes during RTH.
             //
+            // ── Preserve freshest price: scoring derives price from D1 candles ──
+            // which can be a day+ old. If timed:prices or the existing payload
+            // has a more recent price, keep it so the UI never shows stale data.
+            try {
+              const scoredPx = Number(result?.price);
+              const existPx = Number(existing?.price);
+              const existPriceTs = Number(existing?._price_updated_at || existing?.ingest_ts) || 0;
+              const candleTs = Number(result?.ts) || 0;
+              // If existing payload has a newer price than what scoring produced, keep it
+              if (existPx > 0 && existPriceTs > candleTs && Math.abs(existPx - scoredPx) / scoredPx > 0.001) {
+                result.price = existPx;
+                result.close = existPx;
+                result._price_updated_at = existPriceTs;
+                // Preserve day_change from existing if available
+                if (Number.isFinite(existing?.day_change_pct) && existing.day_change_pct !== 0) {
+                  result.day_change = existing.day_change;
+                  result.day_change_pct = existing.day_change_pct;
+                  result.prev_close = existing.prev_close;
+                }
+              }
+              // Also check timed:prices for an even fresher price
+              const livePricesRaw = _livePricesCache;
+              if (livePricesRaw) {
+                const lp = livePricesRaw[ticker];
+                if (lp && Number(lp.p) > 0) {
+                  const lpTs = Number(lp.t) || Date.now();
+                  const resultPxTs = Number(result._price_updated_at) || candleTs;
+                  if (lpTs >= resultPxTs || Math.abs(Number(lp.p) - Number(result.price)) / Number(result.price) > 0.005) {
+                    result.price = lp.p;
+                    result.close = lp.p;
+                    result._price_updated_at = lpTs;
+                    if (Number.isFinite(lp.dc) && lp.dc !== 0) {
+                      result.day_change = lp.dc;
+                      result.day_change_pct = lp.dp;
+                    }
+                    if (Number(lp.pc) > 0) result.prev_close = lp.pc;
+                  }
+                }
+              }
+            } catch (_) { /* price freshness non-critical */ }
+
             // ── Delta instrumentation (Phase 7) ──
             const _htfDelta = Math.abs((Number(result?.htf_score) || 0) - (Number(existing?.htf_score) || 0));
             const _ltfDelta = Math.abs((Number(result?.ltf_score) || 0) - (Number(existing?.ltf_score) || 0));
@@ -39802,6 +39850,32 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
               }
             } catch (alignErr) {
               console.warn("[SCORING] Alignment enrichment failed:", String(alignErr?.message || alignErr).slice(0, 150));
+            }
+
+            // Overlay live prices from timed:prices so the snapshot always has the freshest data
+            try {
+              const lpRaw = await kvGetJSON(KV, "timed:prices");
+              const liveP = lpRaw?.prices || {};
+              let overlaidCount = 0;
+              for (const sym of Object.keys(snapshot)) {
+                const lp = liveP[sym];
+                if (!lp || !(Number(lp.p) > 0)) continue;
+                const obj = snapshot[sym];
+                const existingPx = Number(obj.price) || 0;
+                if (existingPx > 0 && Math.abs(Number(lp.p) - existingPx) / existingPx < 0.001) continue;
+                obj.price = lp.p;
+                obj.close = lp.p;
+                obj._price_updated_at = lp.t || Date.now();
+                if (Number(lp.pc) > 0) obj.prev_close = lp.pc;
+                if (Number.isFinite(lp.dc) && lp.dc !== 0) {
+                  obj.day_change = lp.dc;
+                  obj.day_change_pct = lp.dp;
+                }
+                overlaidCount++;
+              }
+              if (overlaidCount > 0) console.log(`[SCORING] Snapshot price overlay: ${overlaidCount} tickers updated from timed:prices`);
+            } catch (overlayErr) {
+              console.warn("[SCORING] Snapshot price overlay failed:", String(overlayErr?.message || overlayErr).slice(0, 150));
             }
 
             await kvPutJSON(KV, "timed:all:snapshot", {
