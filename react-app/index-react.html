@@ -2400,7 +2400,6 @@
         let dayPct = Number(baseDaily?.dayPct);
         let dayChg = Number(baseDaily?.dayChg);
 
-        // Fallback: if staleness gating hides daily change, use raw fields (including heartbeat aliases).
         if (!Number.isFinite(dayPct)) {
           dayPct = pickNum(t, [
             "day_change_pct",
@@ -2434,28 +2433,25 @@
           if (!Number.isFinite(dayPct)) dayPct = pct;
         }
 
-        // Intensity-based card tinting — defined severity ranges:
-        //   0-1%    → subtle (no big deal)
-        //   >1-3%   → moderate (monitor)
-        //   >3-5%   → strong (pay attention)
-        //   >5-10%  → vivid (serious)
-        //   >10-15% → extreme (beginning of extreme)
-        //   >15%    → pulse animation
-        const dayAbs = Number.isFinite(dayPct) ? Math.abs(dayPct) : 0;
+        // Card background intensity driven by weekly change (swing-aligned)
+        // with fallback to daily change when weekly is unavailable.
+        const weeklyPct = pickNum(t, ["weekly_change_pct"]);
+        const intensityPct = Number.isFinite(weeklyPct) ? weeklyPct : dayPct;
+        const intensityAbs = Number.isFinite(intensityPct) ? Math.abs(intensityPct) : 0;
+
         let tintAlpha = 0;
         let edgePx = 0;
         let edgeAlpha = 0;
         let intensityPulse = "";
-        if (dayAbs > 0.05) {
-          if (dayAbs <= 1)       { tintAlpha = 0.10 + (dayAbs / 1) * 0.10; edgePx = 1; edgeAlpha = 0.25; }
-          else if (dayAbs <= 3)  { tintAlpha = 0.20 + ((dayAbs - 1) / 2) * 0.15; edgePx = 1.5; edgeAlpha = 0.40; }
-          else if (dayAbs <= 5)  { tintAlpha = 0.35 + ((dayAbs - 3) / 2) * 0.15; edgePx = 2; edgeAlpha = 0.50; }
-          else if (dayAbs <= 10) { tintAlpha = 0.50 + ((dayAbs - 5) / 5) * 0.15; edgePx = 2.5; edgeAlpha = 0.60; }
-          else if (dayAbs <= 15) { tintAlpha = 0.65 + ((dayAbs - 10) / 5) * 0.10; edgePx = 3; edgeAlpha = 0.70; }
-          else                   { tintAlpha = 0.75; edgePx = 3.5; edgeAlpha = 0.80; intensityPulse = "intensity-pulse"; }
+        if (intensityAbs > 0.1) {
+          if (intensityAbs <= 2)       { tintAlpha = 0.08 + (intensityAbs / 2) * 0.12; edgePx = 1; edgeAlpha = 0.20; }
+          else if (intensityAbs <= 5)  { tintAlpha = 0.20 + ((intensityAbs - 2) / 3) * 0.15; edgePx = 1.5; edgeAlpha = 0.35; }
+          else if (intensityAbs <= 8)  { tintAlpha = 0.35 + ((intensityAbs - 5) / 3) * 0.15; edgePx = 2; edgeAlpha = 0.50; }
+          else if (intensityAbs <= 15) { tintAlpha = 0.50 + ((intensityAbs - 8) / 7) * 0.15; edgePx = 2.5; edgeAlpha = 0.60; }
+          else                         { tintAlpha = 0.65; edgePx = 3; edgeAlpha = 0.75; intensityPulse = "intensity-pulse"; }
         }
-        const isUp = Number.isFinite(dayPct) && dayPct > 0;
-        const isDown = Number.isFinite(dayPct) && dayPct < 0;
+        const isUp = Number.isFinite(intensityPct) && intensityPct > 0;
+        const isDown = Number.isFinite(intensityPct) && intensityPct < 0;
         const greenRgb = "34,197,94";
         const redRgb = "239,68,68";
         const rgb = isUp ? greenRgb : isDown ? redRgb : "0,0,0";
@@ -2471,6 +2467,7 @@
         return {
           dayChg: Number.isFinite(dayChg) ? dayChg : null,
           dayPct: Number.isFinite(dayPct) ? dayPct : null,
+          weeklyPct: Number.isFinite(weeklyPct) ? weeklyPct : null,
           bgImage,
           dayEdgeClass,
           intensityPulse,

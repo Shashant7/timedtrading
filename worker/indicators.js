@@ -1085,7 +1085,51 @@ export function computeSwingRegime(dailyBars, weeklyBars) {
  * @returns {{ direction: "LONG"|"SHORT"|null, bullishCount: number, bearishCount: number,
  *             tfStack: object[], freshestCrossTf: string|null, freshestCrossAge: number }}
  */
-export function computeSwingConsensus(bundles, regime = null, tfWeights = null) {
+/**
+ * Per-TF bias: continuous score from -1.0 (bearish) to +1.0 (bullish).
+ * Uses all available bundle signals instead of a single EMA cross.
+ */
+function computeTfBias(b, signalW = null) {
+  const sw = signalW || {};
+  const wEmaCross    = Number(sw.ema_cross)     || 0.15;
+  const wSuperTrend  = Number(sw.supertrend)    || 0.25;
+  const wEmaStruct   = Number(sw.ema_structure) || 0.25;
+  const wEmaDepth    = Number(sw.ema_depth)     || 0.20;
+  const wRsi         = Number(sw.rsi)           || 0.15;
+
+  let score = 0, weight = 0;
+  const signals = {};
+
+  if (isFinite(b.e13) && isFinite(b.e48)) {
+    const s = b.e13 > b.e48 ? 1 : -1;
+    score += s * wEmaCross; weight += wEmaCross;
+    signals.ema_cross = s;
+  }
+  if (b.stDir === -1 || b.stDir === 1) {
+    const s = b.stDir === -1 ? 1 : -1;
+    score += s * wSuperTrend; weight += wSuperTrend;
+    signals.supertrend = s;
+  }
+  if (isFinite(b.emaStructure)) {
+    score += b.emaStructure * wEmaStruct; weight += wEmaStruct;
+    signals.ema_structure = Math.round(b.emaStructure * 1000) / 1000;
+  }
+  if (isFinite(b.emaDepth)) {
+    const s = (b.emaDepth - 5) / 5;
+    score += s * wEmaDepth; weight += wEmaDepth;
+    signals.ema_depth = b.emaDepth;
+  }
+  if (isFinite(b.rsi)) {
+    const s = clamp((b.rsi - 50) / 30, -1, 1);
+    score += s * wRsi; weight += wRsi;
+    signals.rsi = Math.round(b.rsi * 10) / 10;
+  }
+
+  const bias = weight > 0 ? clamp(score / weight, -1, 1) : 0;
+  return { bias: Math.round(bias * 1000) / 1000, signals };
+}
+
+export function computeSwingConsensus(bundles, regime = null, tfWeights = null, signalWeights = null) {
   const DEFAULT_WEIGHTS = { "10": 1, "30": 1, "60": 1, "240": 1, "D": 1 };
   const w = tfWeights && typeof tfWeights === "object" ? { ...DEFAULT_WEIGHTS, ...tfWeights } : DEFAULT_WEIGHTS;
 
@@ -1099,8 +1143,7 @@ export function computeSwingConsensus(bundles, regime = null, tfWeights = null) 
 
   let bullishCount = 0;
   let bearishCount = 0;
-  let bullishWeighted = 0;
-  let bearishWeighted = 0;
+  let totalBiasWeighted = 0;
   let totalWeight = 0;
   const tfStack = [];
   let freshestCrossTf = null;
@@ -1109,14 +1152,18 @@ export function computeSwingConsensus(bundles, regime = null, tfWeights = null) 
   for (const { key, label, b } of TFS) {
     const tfW = Number(w[key]) || 1;
     if (!b || !Number.isFinite(b.e13) || !Number.isFinite(b.e48)) {
-      tfStack.push({ tf: label, bias: "unknown", weight: tfW, crossAge: null, crossDir: null });
+      tfStack.push({ tf: label, bias: "unknown", biasScore: 0, weight: tfW, signals: {}, crossAge: null, crossDir: null });
       continue;
     }
 
+    const { bias: biasScore, signals } = computeTfBias(b, signalWeights);
+
     totalWeight += tfW;
-    const bullish = b.e13 > b.e48;
-    if (bullish) { bullishCount++; bullishWeighted += tfW; }
-    else { bearishCount++; bearishWeighted += tfW; }
+    totalBiasWeighted += biasScore * tfW;
+
+    const bullish = biasScore > 0;
+    if (bullish) bullishCount++;
+    else bearishCount++;
 
     const crossUp = b.emaCross13_48_up || false;
     const crossDn = b.emaCross13_48_dn || false;
@@ -1133,50 +1180,38 @@ export function computeSwingConsensus(bundles, regime = null, tfWeights = null) 
     tfStack.push({
       tf: label,
       bias: bullish ? "bullish" : "bearish",
+      biasScore,
       weight: tfW,
+      signals,
       crossDir,
       crossAge: crossAge !== null ? Math.round(crossAge / 60000) : null,
     });
   }
 
-  let direction = null;
+  const avgBias = totalWeight > 0 ? totalBiasWeighted / totalWeight : 0;
   const regimeDaily = regime?.daily || "transition";
 
-  // Weighted consensus: use weighted sum when custom weights are provided
-  const useWeighted = tfWeights != null && totalWeight > 0;
-  const bullishPct = useWeighted ? bullishWeighted / totalWeight : 0;
-  const bearishPct = useWeighted ? bearishWeighted / totalWeight : 0;
-
-  if (useWeighted) {
-    // Weighted threshold: 70% weighted agreement = strong consensus
-    if (bullishPct >= 0.70 && regimeDaily !== "downtrend") {
-      direction = "LONG";
-    } else if (bearishPct >= 0.70 && regimeDaily !== "uptrend") {
-      direction = "SHORT";
-    } else if (bullishPct >= 0.55 && (regimeDaily === "uptrend" || regimeDaily === "transition")) {
-      direction = "LONG";
-    } else if (bearishPct >= 0.55 && (regimeDaily === "downtrend" || regimeDaily === "transition")) {
-      direction = "SHORT";
-    }
-  } else {
-    // Legacy equal-weight count-based logic
-    if (bullishCount >= 4 && regimeDaily !== "downtrend") {
-      direction = "LONG";
-    } else if (bearishCount >= 4 && regimeDaily !== "uptrend") {
-      direction = "SHORT";
-    } else if (bullishCount >= 3 && (regimeDaily === "uptrend" || regimeDaily === "transition")) {
-      direction = "LONG";
-    } else if (bearishCount >= 3 && (regimeDaily === "downtrend" || regimeDaily === "transition")) {
-      direction = "SHORT";
-    }
+  let direction = null;
+  if (avgBias > 0.3 && regimeDaily !== "downtrend") {
+    direction = "LONG";
+  } else if (avgBias < -0.3 && regimeDaily !== "uptrend") {
+    direction = "SHORT";
+  } else if (avgBias > 0.15 && (regimeDaily === "uptrend" || regimeDaily === "transition")) {
+    direction = "LONG";
+  } else if (avgBias < -0.15 && (regimeDaily === "downtrend" || regimeDaily === "transition")) {
+    direction = "SHORT";
   }
+
+  const bullishPct = totalWeight > 0 ? Math.round(((avgBias + 1) / 2) * 100) : null;
+  const bearishPct = bullishPct != null ? 100 - bullishPct : null;
 
   return {
     direction,
     bullishCount,
     bearishCount,
-    bullishPct: useWeighted ? Math.round(bullishPct * 100) : null,
-    bearishPct: useWeighted ? Math.round(bearishPct * 100) : null,
+    bullishPct,
+    bearishPct,
+    avgBias: Math.round(avgBias * 1000) / 1000,
     tfStack,
     freshestCrossTf,
     freshestCrossAge: freshestCrossAge === Infinity ? null : Math.round(freshestCrossAge / 60000),
@@ -1561,7 +1596,7 @@ export function assembleTickerData(ticker, bundles, existingData = null, opts = 
       regimeEarly = computeSwingRegime(dailyBars, weeklyBars);
     }
   }
-  const swingConsensusEarly = computeSwingConsensus(bundles, regimeEarly, opts?.tfWeights || null);
+  const swingConsensusEarly = computeSwingConsensus(bundles, regimeEarly, opts?.tfWeights || null, opts?.signalWeights || null);
 
   // Phase from daily
   const phaseOsc = bD?.phaseOsc || 0;
@@ -1809,6 +1844,7 @@ export function assembleTickerData(ticker, bundles, existingData = null, opts = 
       direction: swingConsensus.direction,
       bullish_count: swingConsensus.bullishCount,
       bearish_count: swingConsensus.bearishCount,
+      avg_bias: swingConsensus.avgBias,
       tf_stack: swingConsensus.tfStack,
       freshest_cross_tf: swingConsensus.freshestCrossTf,
       freshest_cross_age: swingConsensus.freshestCrossAge,
@@ -3161,6 +3197,7 @@ export async function computeServerSideScores(ticker, getCandles, env, existingD
   // Pass raw bars + optional learned weights so assembleTickerData uses them
   const assembleOpts = { rawBars };
   if (existingData?._tfWeights) assembleOpts.tfWeights = existingData._tfWeights;
+  if (existingData?._signalWeights) assembleOpts.signalWeights = existingData._signalWeights;
   if (existingData?._scoreWeights) assembleOpts.scoreWeights = existingData._scoreWeights;
   const tickerData = assembleTickerData(ticker, bundleMap, existingData, assembleOpts);
   if (!tickerData) return null;

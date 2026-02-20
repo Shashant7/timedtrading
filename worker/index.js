@@ -4182,6 +4182,31 @@ async function getLearnedConsensusWeights(env) {
   return null;
 }
 
+// ── Learned Signal Weights Cache ──────────────────────────────────────
+let _signalWeights = null;
+let _signalWeightsCacheTs = 0;
+const SIGNAL_WEIGHTS_TTL = 15 * 60 * 1000;
+
+async function getLearnedSignalWeights(env) {
+  if (_signalWeights && Date.now() - _signalWeightsCacheTs < SIGNAL_WEIGHTS_TTL) {
+    return _signalWeights;
+  }
+  const db = env?.DB;
+  if (!db) return null;
+  try {
+    await d1EnsureLearningSchema(env);
+    const row = await db.prepare(
+      `SELECT config_value FROM model_config WHERE config_key = 'consensus_signal_weights'`
+    ).first();
+    if (row?.config_value) {
+      _signalWeights = JSON.parse(row.config_value);
+      _signalWeightsCacheTs = Date.now();
+      return _signalWeights;
+    }
+  } catch { /* fallback to null = default weights */ }
+  return null;
+}
+
 // Update consensus weights from trade outcome analysis
 async function updateConsensusWeights(env) {
   const db = env?.DB;
@@ -4249,6 +4274,87 @@ async function updateConsensusWeights(env) {
 
     _consensusWeights = weights;
     _consensusWeightsCacheTs = now;
+
+    return { ok: true, weights, sample_size: rows.length };
+  } catch (e) {
+    return { ok: false, error: String(e?.message || e).slice(0, 200) };
+  }
+}
+
+// Update per-signal weights from trade outcome analysis.
+// Reads signal_snapshot_json from closed trades, computes which signals
+// (ema_cross, supertrend, ema_structure, ema_depth, rsi) predicted correctly.
+async function updateSignalWeights(env) {
+  const db = env?.DB;
+  if (!db) return { ok: false, reason: "no_db" };
+  try {
+    await d1EnsureLearningSchema(env);
+    const { results: rows } = await db.prepare(
+      `SELECT signal_snapshot_json, traded_direction, status
+       FROM direction_accuracy
+       WHERE status IN ('WIN','LOSS') AND signal_snapshot_json IS NOT NULL
+       ORDER BY ts DESC LIMIT 500`
+    ).all();
+
+    if (!rows || rows.length < 20) return { ok: true, skipped: true, reason: "insufficient_data" };
+
+    const signalKeys = ["ema_cross", "supertrend", "ema_structure", "ema_depth", "rsi"];
+    const correct = {};
+    const total = {};
+    for (const k of signalKeys) { correct[k] = 0; total[k] = 0; }
+
+    for (const row of rows) {
+      let snap;
+      try { snap = JSON.parse(row.signal_snapshot_json); } catch { continue; }
+      if (!snap?.tf || typeof snap.tf !== "object") continue;
+
+      const isWin = row.status === "WIN";
+      const isLong = row.traded_direction === "LONG";
+
+      for (const tfData of Object.values(snap.tf)) {
+        const sigs = tfData.signals;
+        if (!sigs || typeof sigs !== "object") continue;
+
+        for (const sk of signalKeys) {
+          const val = sigs[sk];
+          if (val == null || !Number.isFinite(val)) continue;
+
+          total[sk]++;
+          const sigBullish = sk === "ema_depth" ? val > 5 : val > 0;
+          const aligned = isLong ? sigBullish : !sigBullish;
+          if ((aligned && isWin) || (!aligned && !isWin)) {
+            correct[sk]++;
+          }
+        }
+      }
+    }
+
+    const DEFAULT_W = { ema_cross: 0.15, supertrend: 0.25, ema_structure: 0.25, ema_depth: 0.20, rsi: 0.15 };
+    const weights = {};
+    for (const sk of signalKeys) {
+      if (total[sk] < 15) {
+        weights[sk] = DEFAULT_W[sk];
+      } else {
+        const accuracy = correct[sk] / total[sk];
+        weights[sk] = Math.round(Math.max(0.05, Math.min(0.50, accuracy * DEFAULT_W[sk] * 2)) * 100) / 100;
+      }
+    }
+
+    // Normalize so weights sum to 1.0
+    const sum = Object.values(weights).reduce((a, b) => a + b, 0);
+    if (sum > 0) {
+      for (const sk of signalKeys) weights[sk] = Math.round((weights[sk] / sum) * 100) / 100;
+    }
+
+    const now = Date.now();
+    await db.prepare(
+      `INSERT INTO model_config (config_key, config_value, description, updated_at, updated_by)
+       VALUES ('consensus_signal_weights', ?, 'Learned per-signal weights for TF bias scoring', ?, 'system')
+       ON CONFLICT(config_key) DO UPDATE SET config_value=excluded.config_value, updated_at=excluded.updated_at`
+    ).bind(JSON.stringify(weights), now).run();
+
+    _signalWeights = weights;
+    _signalWeightsCacheTs = now;
 
     return { ok: true, weights, sample_size: rows.length };
   } catch (e) {
@@ -13122,7 +13228,7 @@ async function d1EnsureLearningSchema(env) {
         entry_path TEXT, rank INTEGER, rr REAL, entry_price REAL,
         exit_ts INTEGER, exit_price REAL, pnl REAL, pnl_pct REAL,
         direction_correct INTEGER, max_favorable_excursion REAL, max_adverse_excursion REAL,
-        status TEXT
+        status TEXT, signal_snapshot_json TEXT
       )`),
       db.prepare(`CREATE TABLE IF NOT EXISTS path_performance (
         entry_path TEXT PRIMARY KEY, total_trades INTEGER NOT NULL DEFAULT 0,
@@ -13146,6 +13252,9 @@ async function d1EnsureLearningSchema(env) {
         db.prepare(`CREATE INDEX IF NOT EXISTS idx_pp_enabled ON path_performance (enabled)`),
       ]);
     } catch { /* indexes may already exist */ }
+    try {
+      await db.prepare(`ALTER TABLE direction_accuracy ADD COLUMN signal_snapshot_json TEXT`).run();
+    } catch { /* column may already exist */ }
     _learningSchemaReady = true;
   } catch (e) {
     console.error("[LEARNING] Schema migration failed:", String(e).slice(0, 200));
@@ -13162,13 +13271,27 @@ async function d1LogDirectionEntry(env, trade, tickerData) {
     const regime = tickerData?.regime || {};
     const htfScore = Number(tickerData?.htf_score) || 0;
     const stateStr = String(tickerData?.state || "");
+
+    let signalSnapshot = null;
+    if (Array.isArray(sc.tf_stack)) {
+      const snap = { avg_bias: sc.avg_bias ?? null, tf: {} };
+      for (const entry of sc.tf_stack) {
+        if (entry.bias === "unknown") continue;
+        snap.tf[entry.tf] = {
+          bias: entry.biasScore ?? null,
+          signals: entry.signals || {},
+        };
+      }
+      signalSnapshot = JSON.stringify(snap);
+    }
+
     await db.prepare(
       `INSERT OR IGNORE INTO direction_accuracy
        (trade_id, ticker, ts, traded_direction, consensus_direction, htf_score_direction,
         state_direction, direction_source, htf_score, ltf_score, regime_daily, regime_weekly,
         regime_combined, bullish_count, bearish_count, tf_stack_json, entry_path,
-        rank, rr, entry_price, status)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+        rank, rr, entry_price, signal_snapshot_json, status)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
     ).bind(
       trade.id, trade.ticker, trade.entry_ts || Date.now(),
       trade.direction,
@@ -13182,6 +13305,7 @@ async function d1LogDirectionEntry(env, trade, tickerData) {
       sc.tf_stack ? JSON.stringify(sc.tf_stack) : null,
       trade.entryPath || null,
       Number(trade.rank) || 0, Number(trade.rr) || 0, Number(trade.entryPrice) || 0,
+      signalSnapshot,
       "OPEN"
     ).run();
   } catch (e) {
@@ -13227,14 +13351,28 @@ async function d1LogDirectionAccuracy(env, trade, tickerData, entryPath) {
     const htfScore = Number(tickerData?.htf_score) || 0;
     const state = String(tickerData?.state || "");
 
+    // Build per-signal snapshot from the enriched tf_stack
+    let signalSnapshot = null;
+    if (Array.isArray(sc.tf_stack)) {
+      const snap = { avg_bias: sc.avg_bias ?? null, tf: {} };
+      for (const entry of sc.tf_stack) {
+        if (entry.bias === "unknown") continue;
+        snap.tf[entry.tf] = {
+          bias: entry.biasScore ?? null,
+          signals: entry.signals || {},
+        };
+      }
+      signalSnapshot = JSON.stringify(snap);
+    }
+
     await db.prepare(
       `INSERT OR IGNORE INTO direction_accuracy
        (trade_id, ticker, ts, traded_direction, consensus_direction, htf_score_direction,
         state_direction, direction_source, htf_score, ltf_score,
         regime_daily, regime_weekly, regime_combined,
         bullish_count, bearish_count, tf_stack_json, entry_path,
-        rank, rr, entry_price, status)
-       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, 'OPEN')`
+        rank, rr, entry_price, signal_snapshot_json, status)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, 'OPEN')`
     ).bind(
       trade.id,
       trade.ticker,
@@ -13256,6 +13394,7 @@ async function d1LogDirectionAccuracy(env, trade, tickerData, entryPath) {
       Number(trade.rank) || 0,
       Number(trade.rr) || 0,
       Number(trade.entryPrice) || 0,
+      signalSnapshot,
     ).run();
   } catch (e) {
     console.warn("[LEARNING] d1LogDirectionAccuracy failed:", String(e).slice(0, 150));
@@ -21330,6 +21469,39 @@ export default {
               }
             } catch (_) { /* daily candle overlay non-critical */ }
 
+            // ── Weekly change enrichment: compare current price to ~5 trading days ago ──
+            try {
+              if (env?.DB) {
+                const weeklyRows = await env.DB.prepare(
+                  `WITH deduped AS (
+                    SELECT ticker, ts, c,
+                      ROW_NUMBER() OVER (PARTITION BY ticker, CAST(ts / 86400000 AS INTEGER) ORDER BY ts DESC) as day_rn
+                    FROM ticker_candles WHERE tf = 'D'
+                  )
+                  SELECT ticker, ts, c FROM (
+                    SELECT ticker, ts, c, ROW_NUMBER() OVER (PARTITION BY ticker ORDER BY ts DESC) as rn
+                    FROM deduped WHERE day_rn = 1
+                  ) WHERE rn <= 7
+                  ORDER BY ticker, ts DESC`
+                ).all();
+                const weekMap = {};
+                for (const r of (weeklyRows?.results || [])) {
+                  const sym = String(r.ticker).toUpperCase();
+                  if (!weekMap[sym]) weekMap[sym] = [];
+                  weekMap[sym].push({ ts: Number(r.ts), c: Number(r.c) });
+                }
+                for (const [sym, candles] of Object.entries(weekMap)) {
+                  if (!data[sym] || candles.length < 5) continue;
+                  const currentPx = Number(data[sym].price) || candles[0]?.c || 0;
+                  const weekAgoClose = candles[4]?.c || candles[candles.length - 1]?.c || 0;
+                  if (currentPx > 0 && weekAgoClose > 0) {
+                    data[sym].weekly_change_pct = Math.round(((currentPx - weekAgoClose) / weekAgoClose) * 10000) / 100;
+                    data[sym].weekly_change = Math.round((currentPx - weekAgoClose) * 100) / 100;
+                  }
+                }
+              }
+            } catch (_) { /* weekly change enrichment non-critical */ }
+
             // ── Sparkline enrichment at serve time ──
             // If the snapshot was built before sparklines were added, or if the
             // scoring cron hasn't run since deploy, enrich inline from D1 daily candles.
@@ -22083,6 +22255,39 @@ export default {
               }
             }
           } catch (_) { /* daily candle overlay non-critical */ }
+
+          // ── Weekly change enrichment (D1 fallback path) ──
+          try {
+            if (env?.DB) {
+              const weeklyRows = await env.DB.prepare(
+                `WITH deduped AS (
+                  SELECT ticker, ts, c,
+                    ROW_NUMBER() OVER (PARTITION BY ticker, CAST(ts / 86400000 AS INTEGER) ORDER BY ts DESC) as day_rn
+                  FROM ticker_candles WHERE tf = 'D'
+                )
+                SELECT ticker, ts, c FROM (
+                  SELECT ticker, ts, c, ROW_NUMBER() OVER (PARTITION BY ticker ORDER BY ts DESC) as rn
+                  FROM deduped WHERE day_rn = 1
+                ) WHERE rn <= 7
+                ORDER BY ticker, ts DESC`
+              ).all();
+              const weekMap = {};
+              for (const r of (weeklyRows?.results || [])) {
+                const sym = String(r.ticker).toUpperCase();
+                if (!weekMap[sym]) weekMap[sym] = [];
+                weekMap[sym].push({ ts: Number(r.ts), c: Number(r.c) });
+              }
+              for (const [sym, candles] of Object.entries(weekMap)) {
+                if (!data[sym] || candles.length < 5) continue;
+                const currentPx = Number(data[sym].price) || candles[0]?.c || 0;
+                const weekAgoClose = candles[4]?.c || candles[candles.length - 1]?.c || 0;
+                if (currentPx > 0 && weekAgoClose > 0) {
+                  data[sym].weekly_change_pct = Math.round(((currentPx - weekAgoClose) / weekAgoClose) * 10000) / 100;
+                  data[sym].weekly_change = Math.round((currentPx - weekAgoClose) * 100) / 100;
+                }
+              }
+            }
+          } catch (_) { /* weekly change enrichment non-critical */ }
 
           // ── Sparkline enrichment (D1 fallback path) ──
           try {
@@ -37236,6 +37441,11 @@ Provide 3-5 actionable next steps:
             .then((r) => console.log(`[LEARNING] Scoring weights update: ${r.ok ? JSON.stringify(r.adj || {}) : r.reason || r.error}`))
             .catch((e) => console.warn(`[LEARNING] Scoring weights failed:`, String(e?.message || e).slice(0, 200)))
         );
+        ctx.waitUntil(
+          updateSignalWeights(env)
+            .then((r) => console.log(`[LEARNING] Signal weights update: ${r.ok ? JSON.stringify(r.weights || {}) : r.reason || r.error}`))
+            .catch((e) => console.warn(`[LEARNING] Signal weights failed:`, String(e?.message || e).slice(0, 200)))
+        );
       }
     }
 
@@ -38030,6 +38240,7 @@ Provide 3-5 actionable next steps:
         // Pre-warm learning loop caches before scoring begins
         let _learnedTfWeights = null;
         let _learnedScoreAdj = null;
+        let _learnedSignalWeights = null;
         if (env?.DB) {
           try {
             await d1EnsureLearningSchema(env);
@@ -38039,9 +38250,10 @@ Provide 3-5 actionable next steps:
               for (const row of (results || [])) _pathPerfCache.set(row.entry_path, row);
               _pathPerfCacheTs = Date.now();
             }
-            [_learnedTfWeights, _learnedScoreAdj] = await Promise.all([
+            [_learnedTfWeights, _learnedScoreAdj, _learnedSignalWeights] = await Promise.all([
               getLearnedConsensusWeights(env),
               getLearnedScoringWeights(env),
+              getLearnedSignalWeights(env),
             ]);
           } catch { /* non-critical */ }
         }
@@ -38106,9 +38318,9 @@ Provide 3-5 actionable next steps:
             };
 
             // Inject learned weights so assembleTickerData uses them
-            const hasLearnedWeights = _learnedTfWeights || _learnedScoreAdj;
+            const hasLearnedWeights = _learnedTfWeights || _learnedScoreAdj || _learnedSignalWeights;
             const existWithWeights = hasLearnedWeights
-              ? { ...(existing || {}), ...(_learnedTfWeights ? { _tfWeights: _learnedTfWeights } : {}), ...(_learnedScoreAdj ? { _scoreWeights: _learnedScoreAdj } : {}) }
+              ? { ...(existing || {}), ...(_learnedTfWeights ? { _tfWeights: _learnedTfWeights } : {}), ...(_learnedSignalWeights ? { _signalWeights: _learnedSignalWeights } : {}), ...(_learnedScoreAdj ? { _scoreWeights: _learnedScoreAdj } : {}) }
               : existing;
             const result = await computeServerSideScores(ticker, getCandlesCached, env, existWithWeights);
             if (!result) {
