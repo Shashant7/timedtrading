@@ -14220,9 +14220,10 @@ const CALIBRATION_STATUS_TTL = 3600; // 1h
 
 const CALIBRATION_MILESTONES = [
   "Ensure schema",
-  "Harvest moves from candles & trail",
-  "Autopsy trades",
-  "Run analysis & save report",
+  "Harvest moves + scoring context from candles & trail",
+  "Autopsy trades + capture scoring snapshots & VIX",
+  "Analyze: build winner/loser profiles & adaptive parameters",
+  "Save report & persist profiles",
 ];
 
 function writeCalibrationStatus(KV, phase, message, extra = {}) {
@@ -14254,19 +14255,21 @@ async function runCalibrationInCron(env) {
     await d1EnsureCalibrationSchema(env);
     await d1EnsureLearningSchema(env);
 
-    writeCalibrationStatus(KV, "harvesting_moves", "Harvesting moves from daily candles and trail…", { started_at: startedAt, step: 2 });
+    writeCalibrationStatus(KV, "harvesting_moves", "Harvesting moves + scoring context from candles & trail…", { started_at: startedAt, step: 2 });
     const moveCount = await harvestMovesServerSide(env);
-    writeCalibrationStatus(KV, "harvest_done", `Harvested ${moveCount} moves.`, { started_at: startedAt, step: 2, move_count: moveCount });
+    writeCalibrationStatus(KV, "harvest_done", `Harvested ${moveCount} moves with scoring snapshots.`, { started_at: startedAt, step: 2, move_count: moveCount });
 
-    writeCalibrationStatus(KV, "autopsying_trades", "Autopsying closed trades…", { started_at: startedAt, step: 3, move_count: moveCount });
+    writeCalibrationStatus(KV, "autopsying_trades", "Autopsying closed trades + capturing VIX & scoring state…", { started_at: startedAt, step: 3, move_count: moveCount });
     const tradeCount = await autopsyTradesServerSide(env);
-    writeCalibrationStatus(KV, "autopsy_done", `Autopsied ${tradeCount} trades.`, { started_at: startedAt, step: 3, move_count: moveCount, trade_count: tradeCount });
+    writeCalibrationStatus(KV, "autopsy_done", `Autopsied ${tradeCount} trades with full scoring snapshots.`, { started_at: startedAt, step: 3, move_count: moveCount, trade_count: tradeCount });
 
-    writeCalibrationStatus(KV, "running_analysis", "Running calibration analysis & saving report…", { started_at: startedAt, step: 4, move_count: moveCount, trade_count: tradeCount });
+    writeCalibrationStatus(KV, "running_analysis", "Building winner/loser profiles & generating adaptive parameters…", { started_at: startedAt, step: 4, move_count: moveCount, trade_count: tradeCount });
     const report = await runCalibrationAnalysis(env);
-    writeCalibrationStatus(KV, "done", `Report saved: ${report?.report_id || "?"} (${moveCount} moves, ${tradeCount} trades).`, {
+
+    const profileCount = (report?.profiles?.winner_move?.length || 0) + (report?.profiles?.winner_trade?.length || 0) + (report?.profiles?.loser_trade?.length || 0);
+    writeCalibrationStatus(KV, "done", `Done! Report ${report?.report_id || "?"}: ${moveCount} moves, ${tradeCount} trades, ${profileCount} profiles built.`, {
       started_at: startedAt,
-      step: 4,
+      step: 5,
       move_count: moveCount,
       trade_count: tradeCount,
       report_id: report?.report_id || null,
@@ -30834,11 +30837,13 @@ export default {
           const db = env?.DB;
           const KV = env?.KV_TIMED;
           if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
-          // Calibration can exceed Worker request timeout (~30s). Queue for cron; cron has 15min CPU for hourly.
+          // Calibration can exceed Worker request timeout (~30s). Queue for cron; cron has 15min CPU.
           if (KV) {
-            await KV.put("timed:calibration:requested", String(Date.now()), { expirationTtl: 86400 }); // 24h TTL
+            await KV.put("timed:calibration:requested", String(Date.now()), { expirationTtl: 86400 });
+            // Write initial status so progress UI shows immediately
+            writeCalibrationStatus(KV, "queued", "Calibration queued — starting within 5 minutes…", { started_at: Date.now(), step: 0 });
             return sendJSON(
-              { ok: true, queued: true, message: "Calibration queued. It runs on the next half-hour (within ~30 min). Refresh or we'll check for the report periodically." },
+              { ok: true, queued: true, message: "Calibration queued. It will start within ~5 minutes on the next cron cycle." },
               202,
               corsHeaders(env, req)
             );
@@ -38975,8 +38980,9 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
       }), { expirationTtl: 300 }).catch(() => {}));
     }
 
-    // Calibration: runs when user clicked "Run Calibration" (sets timed:calibration:requested). Half-hour cron has 15min CPU.
-    if (event.cron === "30 * * * *" && env?.DB && env?.KV_TIMED) {
+    // Calibration: runs when user clicked "Run Calibration" (sets timed:calibration:requested).
+    // Check on every 5-min cron so max wait is ~5 minutes instead of 60.
+    if ((event.cron === "30 * * * *" || event.cron === "*/5 * * * *") && env?.DB && env?.KV_TIMED) {
       ctx.waitUntil(
         runCalibrationInCron(env).catch((e) => console.warn("[CALIBRATION] Cron waitUntil failed:", String(e?.message || e).slice(0, 200)))
       );
