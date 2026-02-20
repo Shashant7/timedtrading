@@ -13420,7 +13420,7 @@ async function autopsyTradesServerSide(env) {
 
   const { results: rawTrades } = await db.prepare(
     `SELECT t.trade_id, t.ticker, t.direction, t.entry_ts, t.exit_ts, t.entry_price, t.exit_price,
-            t.pnl_pct, t.rank, t.rr, t.status, t.entry_path,
+            t.pnl_pct, t.rank, t.rr, t.status,
             da.signal_snapshot_json, da.regime_daily, da.regime_weekly, da.regime_combined,
             da.entry_path AS da_entry_path
      FROM trades t LEFT JOIN direction_accuracy da ON da.trade_id = t.trade_id
@@ -13508,7 +13508,7 @@ async function autopsyTradesServerSide(env) {
       exit_efficiency: exitEfficiency, sl_hit_before_mfe: slHitBeforeMfe ? 1 : 0,
       time_to_mfe_min: timeToMfeMin, optimal_hold_min: timeToMfeMin,
       classification, entry_signals_json: trade.signal_snapshot_json || null,
-      entry_path: trade.da_entry_path || trade.entry_path || "unknown",
+      entry_path: trade.da_entry_path || "unknown",
       rank_at_entry: Number(trade.rank) || 0,
       regime_at_entry: trade.regime_combined || trade.regime_daily || "unknown",
     });
