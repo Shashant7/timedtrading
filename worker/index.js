@@ -31689,14 +31689,22 @@ export default {
               );
             }
 
-            // Fetch full ticker data for context
-            const tickerSymbols = body.tickerData || [];
+            // Extract ticker symbols mentioned in the user message so we always fetch their data
+            const EXCLUDED_WORDS = new Set(["I", "AI", "HTF", "LTF", "RR", "ETF", "USA", "PM", "AM", "ET", "IT", "DO", "SO", "OR", "AD", "RS", "UP", "CEO", "IPO", "API", "URL", "OF", "TO", "BE", "AS", "IS", "ME", "MY", "WE", "US", "NO", "ON", "GO", "BY"]);
+            const msg = String(body.message || "");
+            const mentionedTickers = [...(msg.match(/\b[A-Za-z]{2,5}\b/g) || [])]
+              .map((s) => String(s).toUpperCase())
+              .filter((s) => !EXCLUDED_WORDS.has(s));
+            const uniqueMentioned = [...new Set(mentionedTickers)];
+
+            // Combine mentioned tickers first, then rest from client (so AI has data for "look at CRS")
+            const tickerSymbols = [...new Set([...uniqueMentioned, ...(body.tickerData || [])])];
             const tickerContext = [];
 
             // Handle ticker data fetching with error handling
             try {
               const tickerDataPromises = tickerSymbols
-                .slice(0, 20)
+                .slice(0, 25)
                 .map(async (ticker) => {
                   try {
                     const latestData = await kvGetJSON(
@@ -31713,6 +31721,9 @@ export default {
                         phase_pct: latestData.phase_pct || 0,
                         completion: latestData.completion || 0,
                         flags: latestData.flags || {},
+                        setup_reason: latestData.setup_reason || latestData.__setup_reason || null,
+                        block_reason: latestData.__entry_block_reason || latestData.entry_block_reason || null,
+                        kanban_stage: latestData.kanban_stage || null,
                       };
                     }
                     return null;
@@ -31786,10 +31797,15 @@ Your role is to continuously observe market conditions, identify opportunities, 
 ## AVAILABLE DATA
 - **${
               tickerContext.length
-            } tickers** with real-time data (rank, RR, price, phase, completion, state)
+            } tickers** with real-time data (rank, RR, price, phase, completion, state, setup/block reasons, kanban stage)
 - **${
               activityContext.length
             } recent activity events** (corridor entries, squeeze releases, alignments)
+${
+              uniqueMentioned.length > 0
+                ? `\n**The user specifically asked about: ${uniqueMentioned.join(", ")}.** Use the ticker data below for these when answering. If data is missing for an asked ticker, say so clearly.\n`
+                : ""
+            }
 
 ### Sample Ticker Data (Top 10):
 ${
@@ -31802,13 +31818,16 @@ ${
             const price = Number(t.price) || 0;
             const phasePct = Number(t.phase_pct) || 0;
             const completion = Number(t.completion) || 0;
+            const stage = t.kanban_stage ? ` Stage: ${String(t.kanban_stage)}.` : "";
+            const setup = t.setup_reason ? ` Setup: ${String(t.setup_reason).slice(0, 80)}.` : "";
+            const block = t.block_reason ? ` Block: ${String(t.block_reason).slice(0, 80)}.` : "";
             return `- **${String(t.ticker || "UNKNOWN")}**: Rank ${
               Number(t.rank) || 0
             }, RR ${rr.toFixed(2)}:1, Price $${price.toFixed(
               2,
             )}, State: ${String(t.state || "UNKNOWN")}, Phase: ${(
               phasePct * 100
-            ).toFixed(0)}%, Completion: ${(completion * 100).toFixed(0)}%`;
+            ).toFixed(0)}%, Completion: ${(completion * 100).toFixed(0)}%${stage}${setup}${block}`;
           } catch (e) {
             console.error("[AI CHAT] Error formatting ticker:", t, e);
             return `- **${String(t.ticker || "UNKNOWN")}**: Data unavailable`;
