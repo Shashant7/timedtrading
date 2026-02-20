@@ -1696,6 +1696,68 @@
           className: "text-cyan-400"
         }, "\u2022"), /*#__PURE__*/React.createElement("span", null, translateReason(reason))))));
       })()), (() => {
+        const al = (latestTicker || ticker)?._alignment;
+        if (!al || al.path_win_rate == null && al.rank_bucket_wr == null) return null;
+        const wr = al.path_win_rate != null ? Number(al.path_win_rate) : null;
+        const wrCls = wr != null ? wr >= 60 ? "text-emerald-400" : wr >= 45 ? "text-amber-400" : "text-rose-400" : "text-slate-400";
+        const pathLabel = al.entry_path ? al.entry_path.replace(/_/g, " ") : null;
+        const rBucketWr = al.rank_bucket_wr != null ? Number(al.rank_bucket_wr) : null;
+        const pathAction = al.path_action;
+        const pathEnabled = al.path_enabled !== false;
+        return /*#__PURE__*/React.createElement("div", {
+          className: "mb-4 p-3 rounded-2xl border border-white/[0.08]",
+          style: {
+            background: "rgba(255,255,255,0.03)",
+            backdropFilter: "blur(12px) saturate(1.2)",
+            WebkitBackdropFilter: "blur(12px) saturate(1.2)",
+            boxShadow: "0 2px 12px rgba(0,0,0,0.25), inset 0 0.5px 0 rgba(255,255,255,0.06)"
+          }
+        }, /*#__PURE__*/React.createElement("div", {
+          className: "flex items-center gap-2 mb-3"
+        }, /*#__PURE__*/React.createElement("div", {
+          className: "w-5 h-5 rounded-md bg-purple-500/20 flex items-center justify-center text-[10px]"
+        }, "\uD83D\uDCCA"), /*#__PURE__*/React.createElement("span", {
+          className: "text-xs font-bold text-slate-300 uppercase tracking-wider"
+        }, "System Alignment")), /*#__PURE__*/React.createElement("div", {
+          className: "space-y-2 text-xs"
+        }, pathLabel && /*#__PURE__*/React.createElement("div", {
+          className: "flex items-center justify-between"
+        }, /*#__PURE__*/React.createElement("span", {
+          className: "text-slate-400"
+        }, "Entry path"), /*#__PURE__*/React.createElement("div", {
+          className: "flex items-center gap-2"
+        }, /*#__PURE__*/React.createElement("span", {
+          className: "text-white font-medium capitalize"
+        }, pathLabel), pathAction && /*#__PURE__*/React.createElement("span", {
+          className: `px-1.5 py-0.5 rounded text-[9px] font-bold ${pathAction === "BOOST" ? "bg-emerald-500/20 text-emerald-400" : pathAction === "DISABLE" ? "bg-rose-500/20 text-rose-400" : pathAction === "RESTRICT" ? "bg-amber-500/20 text-amber-400" : "bg-slate-500/20 text-slate-400"}`
+        }, pathAction))), wr != null && /*#__PURE__*/React.createElement("div", {
+          className: "flex items-center justify-between"
+        }, /*#__PURE__*/React.createElement("span", {
+          className: "text-slate-400"
+        }, "Path win rate"), /*#__PURE__*/React.createElement("span", {
+          className: `font-bold ${wrCls}`
+        }, wr.toFixed(0), "%")), al.path_expectancy != null && /*#__PURE__*/React.createElement("div", {
+          className: "flex items-center justify-between"
+        }, /*#__PURE__*/React.createElement("span", {
+          className: "text-slate-400"
+        }, "Path expectancy"), /*#__PURE__*/React.createElement("span", {
+          className: `font-medium ${Number(al.path_expectancy) >= 0 ? "text-emerald-400" : "text-rose-400"}`
+        }, al.path_expectancy)), al.path_sqn != null && /*#__PURE__*/React.createElement("div", {
+          className: "flex items-center justify-between"
+        }, /*#__PURE__*/React.createElement("span", {
+          className: "text-slate-400"
+        }, "Path SQN"), /*#__PURE__*/React.createElement("span", {
+          className: "text-white font-medium"
+        }, Number(al.path_sqn).toFixed(2))), rBucketWr != null && /*#__PURE__*/React.createElement("div", {
+          className: "flex items-center justify-between"
+        }, /*#__PURE__*/React.createElement("span", {
+          className: "text-slate-400"
+        }, "Rank bucket win rate"), /*#__PURE__*/React.createElement("span", {
+          className: `font-bold ${rBucketWr >= 60 ? "text-emerald-400" : rBucketWr >= 45 ? "text-amber-400" : "text-rose-400"}`
+        }, rBucketWr.toFixed(0), "%")), !pathEnabled && /*#__PURE__*/React.createElement("div", {
+          className: "mt-2 px-2 py-1.5 rounded bg-rose-500/10 border border-rose-500/30 text-[10px] text-rose-300 font-semibold"
+        }, "This entry path is disabled by calibration \u2014 proceed with caution.")));
+      })(), (() => {
         const ms = modelSignal;
         const pm = (latestTicker || ticker)?.pattern_match;
         const ts = ms?.ticker;

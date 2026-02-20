@@ -11435,11 +11435,19 @@
                 )}
               </div>
 
-              {/* ── Row 3: Score, R:R | SL, TP ── */}
+              {/* ── Row 3: Score, R:R, Alignment | SL, TP ── */}
               <div className="relative flex items-center justify-between px-2 py-0.5 text-[10px] font-medium" style={{ zIndex: 1 }}>
                 <div className="flex items-center gap-2 text-[#8b95a5]">
                   <span>Score <span className="text-white font-bold tabular-nums">{Number.isFinite(score) ? score.toFixed(0) : "—"}</span></span>
                   <span>R:R <span className="text-white font-bold tabular-nums">{Number.isFinite(rrNow) ? rrNow.toFixed(2) : "—"}</span></span>
+                  {(() => {
+                    const wr = t?._alignment?.path_win_rate;
+                    if (wr == null) return null;
+                    const wrNum = Number(wr);
+                    if (!Number.isFinite(wrNum)) return null;
+                    const cls = wrNum >= 60 ? "text-emerald-400" : wrNum >= 45 ? "text-amber-400" : "text-rose-400";
+                    return <span className={`${cls} font-bold tabular-nums`} title={`Entry path historical win rate: ${wrNum.toFixed(0)}%`}>{wrNum.toFixed(0)}%</span>;
+                  })()}
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="text-rose-400">SL <span className="font-bold tabular-nums">{sl != null ? `$${sl.toFixed(2)}` : "—"}</span></span>
@@ -16379,8 +16387,7 @@
                       <a href="index-react.html" className="px-3 py-1 rounded-md text-[13px] text-white bg-white/[0.07] font-medium">Active Trader</a>
                       <a href="investor-dashboard.html" className="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Investor</a>
                       <a href="simulation-dashboard.html" className="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Trades</a>
-                      <a href="model-dashboard.html" className="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Model</a>
-                      <a href="calibration.html" data-admin-only="true" className="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Calibration</a>
+                      <a href="system-intelligence.html" className="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">System Intelligence</a>
                       <a href="screener.html" data-admin-only="true" className="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Screener</a>
                       <a href="ticker-management.html" data-admin-only="true" className="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Tickers</a>
                       {(window.TimedAuthHelpers?.getStoredSession()?.role === "admin" || window.TimedAuthHelpers?.getStoredSession()?.tier === "admin") && (
@@ -16416,8 +16423,7 @@
                     <a href="index-react.html" className="px-3 py-2 rounded-md text-[13px] text-white bg-white/[0.07] font-medium" onClick={() => setMobileMenuOpen(false)}>Active Trader</a>
                     <a href="investor-dashboard.html" className="px-3 py-2 rounded-md text-[13px] text-[#9ca3af] hover:text-white hover:bg-white/[0.04] transition-all" onClick={() => setMobileMenuOpen(false)}>Investor</a>
                     <a href="simulation-dashboard.html" className="px-3 py-2 rounded-md text-[13px] text-[#9ca3af] hover:text-white hover:bg-white/[0.04] transition-all" onClick={() => setMobileMenuOpen(false)}>Trades</a>
-                    <a href="model-dashboard.html" className="px-3 py-2 rounded-md text-[13px] text-[#9ca3af] hover:text-white hover:bg-white/[0.04] transition-all" onClick={() => setMobileMenuOpen(false)}>Model</a>
-                    <a href="calibration.html" data-admin-only="true" className="px-3 py-2 rounded-md text-[13px] text-[#9ca3af] hover:text-white hover:bg-white/[0.04] transition-all" onClick={() => setMobileMenuOpen(false)}>Calibration</a>
+                    <a href="system-intelligence.html" className="px-3 py-2 rounded-md text-[13px] text-[#9ca3af] hover:text-white hover:bg-white/[0.04] transition-all" onClick={() => setMobileMenuOpen(false)}>System Intelligence</a>
                     <a href="screener.html" data-admin-only="true" className="px-3 py-2 rounded-md text-[13px] text-[#9ca3af] hover:text-white hover:bg-white/[0.04] transition-all" onClick={() => setMobileMenuOpen(false)}>Screener</a>
                     <a href="ticker-management.html" data-admin-only="true" className="px-3 py-2 rounded-md text-[13px] text-[#9ca3af] hover:text-white hover:bg-white/[0.04] transition-all" onClick={() => setMobileMenuOpen(false)}>Tickers</a>
                     {(window.TimedAuthHelpers?.getStoredSession()?.role === "admin" || window.TimedAuthHelpers?.getStoredSession()?.tier === "admin") && (

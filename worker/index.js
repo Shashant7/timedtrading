@@ -484,6 +484,9 @@ const ROUTES = [
   ["GET", "/timed/calibration/status", "GET /timed/calibration/status"],
   ["POST", "/timed/calibration/apply", "POST /timed/calibration/apply"],
   ["POST", "/timed/trades/reset", "POST /timed/trades/reset"],
+  // ── System Intelligence (unified Calibration + Model) ──
+  ["GET", "/timed/system/dashboard", "GET /timed/system/dashboard"],
+  ["GET", "/timed/system/history", "GET /timed/system/history"],
 ];
 
 function getRouteKey(method, pathname) {
@@ -13759,11 +13762,13 @@ async function runCalibrationAnalysis(env) {
   };
 
   const reportId = `cal_${Date.now()}`;
+  const prevGen = await db.prepare(`SELECT MAX(generation) as g FROM calibration_report`).first();
+  const generation = (Number(prevGen?.g) || 0) + 1;
   await db.prepare(
-    `INSERT INTO calibration_report (report_id, run_ts, lookback_days, trade_count, move_count, report_json, recommendations_json)
-     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)`
+    `INSERT INTO calibration_report (report_id, generation, run_ts, lookback_days, trade_count, move_count, report_json, recommendations_json)
+     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)`
   ).bind(
-    reportId, Date.now(), 400, trades.length, moves.length,
+    reportId, generation, Date.now(), 400, trades.length, moves.length,
     JSON.stringify(reportJson), JSON.stringify(recommendations)
   ).run();
 
@@ -13828,6 +13833,7 @@ async function d1EnsureCalibrationSchema(env) {
       )`),
       db.prepare(`CREATE TABLE IF NOT EXISTS calibration_report (
         report_id TEXT PRIMARY KEY,
+        generation INTEGER,
         run_ts INTEGER NOT NULL,
         lookback_days INTEGER,
         trade_count INTEGER,
@@ -13845,6 +13851,8 @@ async function d1EnsureCalibrationSchema(env) {
       db.prepare(`CREATE INDEX IF NOT EXISTS idx_cta_class ON calibration_trade_autopsy (classification)`),
       db.prepare(`CREATE INDEX IF NOT EXISTS idx_cr_run ON calibration_report (run_ts)`),
     ]);
+    // Migration: add generation column for existing DBs
+    try { await db.prepare(`ALTER TABLE calibration_report ADD COLUMN generation INTEGER`).run(); } catch (_) {}
     _calibSchemaReady = true;
   } catch (e) {
     console.error("[CALIBRATION] Schema migration failed:", String(e).slice(0, 200));
@@ -30497,15 +30505,17 @@ export default {
           const db = env?.DB;
           if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
           await d1EnsureCalibrationSchema(env);
-          const row = await db.prepare(
-            `SELECT * FROM calibration_report ORDER BY run_ts DESC LIMIT 1`
-          ).first();
+          const requestedId = url.searchParams.get("report_id");
+          const row = requestedId
+            ? await db.prepare(`SELECT * FROM calibration_report WHERE report_id = ?1`).bind(requestedId).first()
+            : await db.prepare(`SELECT * FROM calibration_report ORDER BY run_ts DESC LIMIT 1`).first();
           if (!row) return sendJSON({ ok: false, error: "no_report" }, 404, corsHeaders(env, req));
           const report = row.report_json ? JSON.parse(row.report_json) : {};
           const recommendations = row.recommendations_json ? JSON.parse(row.recommendations_json) : {};
           return sendJSON({
             ok: true,
             report_id: row.report_id,
+            generation: row.generation || null,
             run_ts: row.run_ts,
             lookback_days: row.lookback_days,
             trade_count: row.trade_count,
@@ -30620,6 +30630,163 @@ export default {
             `UPDATE calibration_report SET applied_at = ?1, applied_by = 'admin' WHERE report_id = ?2`
           ).bind(now, reportId).run();
           return sendJSON({ ok: true, applied }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // ═══════════════════════════════════════════════════════════════════════
+      // SYSTEM INTELLIGENCE (unified Calibration + Model)
+      // ═══════════════════════════════════════════════════════════════════════
+
+      if (routeKey === "GET /timed/system/dashboard") {
+        try {
+          const db = env?.DB;
+          if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
+          await d1EnsureCalibrationSchema(env);
+          await d1EnsureLearningSchema(env);
+
+          // Latest two calibration reports for delta
+          const rows = (await db.prepare(
+            `SELECT report_id, generation, run_ts, trade_count, move_count, report_json, recommendations_json, applied_at
+             FROM calibration_report ORDER BY run_ts DESC LIMIT 2`
+          ).all()).results || [];
+
+          const current = rows[0] || null;
+          const previous = rows[1] || null;
+
+          let currentReport = null, previousReport = null;
+          if (current?.report_json) {
+            try { currentReport = JSON.parse(current.report_json); } catch (_) {}
+          }
+          if (previous?.report_json) {
+            try { previousReport = JSON.parse(previous.report_json); } catch (_) {}
+          }
+
+          // Extract summary from current
+          const co = currentReport?.system_health?.overall || {};
+          const po = previousReport?.system_health?.overall || {};
+          const summary = {
+            generation: current?.generation || null,
+            run_ts: current?.run_ts || null,
+            applied: !!current?.applied_at,
+            trade_count: current?.trade_count || 0,
+            move_count: current?.move_count || 0,
+            sqn: co.sqn ?? null,
+            win_rate: co.win_rate ?? null,
+            expectancy: co.expectancy ?? null,
+            avg_r: co.avg_r ?? null,
+            profit_factor: co.profit_factor ?? null,
+            n: co.n ?? 0,
+          };
+
+          // Delta vs previous
+          const delta = previous ? {
+            generation: previous.generation || null,
+            sqn: co.sqn != null && po.sqn != null ? Math.round((co.sqn - po.sqn) * 100) / 100 : null,
+            win_rate: co.win_rate != null && po.win_rate != null ? Math.round((co.win_rate - po.win_rate) * 100) / 100 : null,
+            expectancy: co.expectancy != null && po.expectancy != null ? Math.round((co.expectancy - po.expectancy) * 100) / 100 : null,
+            avg_r: co.avg_r != null && po.avg_r != null ? Math.round((co.avg_r - po.avg_r) * 100) / 100 : null,
+            trade_count: (current?.trade_count || 0) - (previous?.trade_count || 0),
+          } : null;
+
+          // Model health
+          let modelHealth = null;
+          try { modelHealth = await getModelHealth(db); } catch (_) {}
+
+          // Direction accuracy summary
+          let directionAccuracy = null;
+          try {
+            const da = await db.prepare(
+              `SELECT COUNT(*) as total,
+               SUM(CASE WHEN direction_correct=1 THEN 1 ELSE 0 END) as correct,
+               SUM(CASE WHEN status='WIN' THEN 1 ELSE 0 END) as wins,
+               SUM(CASE WHEN status='LOSS' THEN 1 ELSE 0 END) as losses
+               FROM direction_accuracy WHERE status != 'OPEN'`
+            ).first();
+            if (da) directionAccuracy = {
+              total: da.total || 0,
+              correct: da.correct || 0,
+              accuracy: da.total > 0 ? Math.round((da.correct / da.total) * 1000) / 10 : null,
+              wins: da.wins || 0,
+              losses: da.losses || 0,
+            };
+          } catch (_) {}
+
+          // What's working / what's not (entry paths)
+          const paths = currentReport?.entry_paths || {};
+          const working = [], caution = [];
+          for (const [path, data] of Object.entries(paths)) {
+            const obj = { path, n: data.n, win_rate: data.win_rate, expectancy: data.expectancy, sqn: data.sqn, action: data.action };
+            if (data.action === "DISABLE" || data.action === "RESTRICT" || (data.expectancy != null && data.expectancy < 0)) {
+              caution.push(obj);
+            } else if (data.n >= 3) {
+              working.push(obj);
+            }
+          }
+          working.sort((a, b) => (b.expectancy || 0) - (a.expectancy || 0));
+          caution.sort((a, b) => (a.expectancy || 0) - (b.expectancy || 0));
+
+          return sendJSON({
+            ok: true,
+            summary,
+            delta,
+            model_health: modelHealth,
+            direction_accuracy: directionAccuracy,
+            whats_working: working.slice(0, 5),
+            proceed_with_caution: caution.slice(0, 5),
+          }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      if (routeKey === "GET /timed/system/history") {
+        try {
+          const db = env?.DB;
+          if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
+          await d1EnsureCalibrationSchema(env);
+          const limit = Math.min(Number(url.searchParams.get("limit")) || 50, 200);
+          const rows = (await db.prepare(
+            `SELECT report_id, generation, run_ts, lookback_days, trade_count, move_count, applied_at, applied_by, report_json
+             FROM calibration_report ORDER BY run_ts DESC LIMIT ?1`
+          ).bind(limit).all()).results || [];
+
+          const history = rows.map((row, idx) => {
+            let health = null;
+            try {
+              const rj = JSON.parse(row.report_json || "{}");
+              health = rj.system_health?.overall || null;
+            } catch (_) {}
+            const prev = rows[idx + 1] || null;
+            let prevHealth = null;
+            if (prev) {
+              try {
+                const pj = JSON.parse(prev.report_json || "{}");
+                prevHealth = pj.system_health?.overall || null;
+              } catch (_) {}
+            }
+            return {
+              report_id: row.report_id,
+              generation: row.generation,
+              run_ts: row.run_ts,
+              trade_count: row.trade_count,
+              move_count: row.move_count,
+              applied: !!row.applied_at,
+              applied_at: row.applied_at,
+              sqn: health?.sqn ?? null,
+              win_rate: health?.win_rate ?? null,
+              expectancy: health?.expectancy ?? null,
+              avg_r: health?.avg_r ?? null,
+              profit_factor: health?.profit_factor ?? null,
+              n: health?.n ?? 0,
+              delta_sqn: health?.sqn != null && prevHealth?.sqn != null ? Math.round((health.sqn - prevHealth.sqn) * 100) / 100 : null,
+              delta_win_rate: health?.win_rate != null && prevHealth?.win_rate != null ? Math.round((health.win_rate - prevHealth.win_rate) * 100) / 100 : null,
+              delta_expectancy: health?.expectancy != null && prevHealth?.expectancy != null ? Math.round((health.expectancy - prevHealth.expectancy) * 100) / 100 : null,
+            };
+          });
+
+          return sendJSON({ ok: true, history }, 200, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
         }
@@ -39578,6 +39745,63 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
               }
             } catch (sparkErr) {
               console.warn("[SCORING] Sparkline enrichment failed:", String(sparkErr?.message || sparkErr).slice(0, 150));
+            }
+
+            // Enrich with alignment data from calibration (path_performance + rank buckets)
+            try {
+              await d1EnsureLearningSchema(env);
+              await d1EnsureCalibrationSchema(env);
+              const [ppRows, crRow] = await Promise.all([
+                env.DB.prepare(`SELECT entry_path, total_trades, win_rate, avg_pnl_pct, enabled FROM path_performance WHERE total_trades >= 3 ORDER BY total_trades DESC`).all(),
+                env.DB.prepare(`SELECT report_json FROM calibration_report ORDER BY run_ts DESC LIMIT 1`).first(),
+              ]);
+              const pathMap = {};
+              for (const r of (ppRows?.results || [])) {
+                pathMap[r.entry_path] = { n: r.total_trades, wr: r.win_rate, pnl: r.avg_pnl_pct, enabled: r.enabled !== 0 };
+              }
+              let rankBuckets = null, entryPaths = null;
+              if (crRow?.report_json) {
+                try {
+                  const rj = JSON.parse(crRow.report_json);
+                  rankBuckets = rj.rank_optimization?.deciles || null;
+                  entryPaths = rj.entry_paths || null;
+                } catch (_) {}
+              }
+              // Cache alignment data in KV for serve-time enrichment
+              await kvPutJSON(KV, "timed:cache:alignment", {
+                path_performance: pathMap,
+                entry_paths: entryPaths,
+                rank_buckets: rankBuckets,
+                built_at: Date.now(),
+              });
+
+              // Attach per-ticker alignment
+              for (const sym of Object.keys(snapshot)) {
+                const td = snapshot[sym];
+                if (!td) continue;
+                const state = td.state || "";
+                const rank = Number(td.rank) || 0;
+                const entryPath = state.includes("BULL") ? (state.includes("PULLBACK") ? "bull_setup" : "bull_momentum")
+                  : state.includes("BEAR") ? (state.includes("PULLBACK") ? "bear_setup" : "bear_momentum") : null;
+                const pathData = entryPath && (entryPaths?.[entryPath] || pathMap[entryPath]) ? (entryPaths?.[entryPath] || pathMap[entryPath]) : null;
+                const rankBucket = rankBuckets ? (() => {
+                  const decile = Math.min(9, Math.floor(rank / 10)) * 10;
+                  const key = `${decile}-${decile + 10}`;
+                  return rankBuckets[key] || null;
+                })() : null;
+                td._alignment = {
+                  entry_path: entryPath,
+                  path_win_rate: pathData?.win_rate ?? pathData?.wr ?? null,
+                  path_expectancy: pathData?.expectancy ?? null,
+                  path_sqn: pathData?.sqn ?? null,
+                  path_action: pathData?.action ?? null,
+                  path_enabled: pathData?.enabled !== false && pathData?.enabled !== 0,
+                  rank_bucket_wr: rankBucket?.win_rate ?? null,
+                  rank_bucket_sqn: rankBucket?.sqn ?? null,
+                };
+              }
+            } catch (alignErr) {
+              console.warn("[SCORING] Alignment enrichment failed:", String(alignErr?.message || alignErr).slice(0, 150));
             }
 
             await kvPutJSON(KV, "timed:all:snapshot", {

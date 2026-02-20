@@ -1583,6 +1583,70 @@
                       </div>
 
                       {/* ═══════════════════════════════════════════════════════════ */}
+                      {/* 3b. SYSTEM ALIGNMENT (calibration-derived)                  */}
+                      {/* ═══════════════════════════════════════════════════════════ */}
+                      {(() => {
+                        const al = (latestTicker || ticker)?._alignment;
+                        if (!al || (al.path_win_rate == null && al.rank_bucket_wr == null)) return null;
+                        const wr = al.path_win_rate != null ? Number(al.path_win_rate) : null;
+                        const wrCls = wr != null ? (wr >= 60 ? "text-emerald-400" : wr >= 45 ? "text-amber-400" : "text-rose-400") : "text-slate-400";
+                        const pathLabel = al.entry_path ? al.entry_path.replace(/_/g, " ") : null;
+                        const rBucketWr = al.rank_bucket_wr != null ? Number(al.rank_bucket_wr) : null;
+                        const pathAction = al.path_action;
+                        const pathEnabled = al.path_enabled !== false;
+                        return (
+                          <div className="mb-4 p-3 rounded-2xl border border-white/[0.08]" style={{background:"rgba(255,255,255,0.03)",backdropFilter:"blur(12px) saturate(1.2)",WebkitBackdropFilter:"blur(12px) saturate(1.2)",boxShadow:"0 2px 12px rgba(0,0,0,0.25), inset 0 0.5px 0 rgba(255,255,255,0.06)"}}>
+                            <div className="flex items-center gap-2 mb-3">
+                              <div className="w-5 h-5 rounded-md bg-purple-500/20 flex items-center justify-center text-[10px]">📊</div>
+                              <span className="text-xs font-bold text-slate-300 uppercase tracking-wider">System Alignment</span>
+                            </div>
+                            <div className="space-y-2 text-xs">
+                              {pathLabel && (
+                                <div className="flex items-center justify-between">
+                                  <span className="text-slate-400">Entry path</span>
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-white font-medium capitalize">{pathLabel}</span>
+                                    {pathAction && (
+                                      <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${pathAction === "BOOST" ? "bg-emerald-500/20 text-emerald-400" : pathAction === "DISABLE" ? "bg-rose-500/20 text-rose-400" : pathAction === "RESTRICT" ? "bg-amber-500/20 text-amber-400" : "bg-slate-500/20 text-slate-400"}`}>{pathAction}</span>
+                                    )}
+                                  </div>
+                                </div>
+                              )}
+                              {wr != null && (
+                                <div className="flex items-center justify-between">
+                                  <span className="text-slate-400">Path win rate</span>
+                                  <span className={`font-bold ${wrCls}`}>{wr.toFixed(0)}%</span>
+                                </div>
+                              )}
+                              {al.path_expectancy != null && (
+                                <div className="flex items-center justify-between">
+                                  <span className="text-slate-400">Path expectancy</span>
+                                  <span className={`font-medium ${Number(al.path_expectancy) >= 0 ? "text-emerald-400" : "text-rose-400"}`}>{al.path_expectancy}</span>
+                                </div>
+                              )}
+                              {al.path_sqn != null && (
+                                <div className="flex items-center justify-between">
+                                  <span className="text-slate-400">Path SQN</span>
+                                  <span className="text-white font-medium">{Number(al.path_sqn).toFixed(2)}</span>
+                                </div>
+                              )}
+                              {rBucketWr != null && (
+                                <div className="flex items-center justify-between">
+                                  <span className="text-slate-400">Rank bucket win rate</span>
+                                  <span className={`font-bold ${rBucketWr >= 60 ? "text-emerald-400" : rBucketWr >= 45 ? "text-amber-400" : "text-rose-400"}`}>{rBucketWr.toFixed(0)}%</span>
+                                </div>
+                              )}
+                              {!pathEnabled && (
+                                <div className="mt-2 px-2 py-1.5 rounded bg-rose-500/10 border border-rose-500/30 text-[10px] text-rose-300 font-semibold">
+                                  This entry path is disabled by calibration — proceed with caution.
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })()}
+
+                      {/* ═══════════════════════════════════════════════════════════ */}
                       {/* 4. MODEL INTELLIGENCE                                      */}
                       {/* ═══════════════════════════════════════════════════════════ */}
                       {(() => {
