@@ -40089,47 +40089,42 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
               }
             } catch { /* non-critical */ }
 
-            // COST OPTIMIZATION: Always use delta checking. The operating hours gate
-            // (Phase 1) prevents off-hours runs entirely, and the delta check now works
-            // properly (5-min time gate removed). This skips KV writes for tickers with
-            // no meaningful change, saving ~50-70% of KV writes during RTH.
-            //
             // ── Preserve freshest price: scoring derives price from D1 candles ──
-            // which can be a day+ old. If timed:prices or the existing payload
-            // has a more recent price, keep it so the UI never shows stale data.
+            // which can be a day+ old. timed:prices (Alpaca REST) is the authoritative
+            // price source — always prefer it when available and divergent.
             try {
-              const scoredPx = Number(result?.price);
-              const existPx = Number(existing?.price);
-              const existPriceTs = Number(existing?._price_updated_at || existing?.ingest_ts) || 0;
-              const candleTs = Number(result?.ts) || 0;
-              // If existing payload has a newer price than what scoring produced, keep it
-              if (existPx > 0 && existPriceTs > candleTs && Math.abs(existPx - scoredPx) / scoredPx > 0.001) {
-                result.price = existPx;
-                result.close = existPx;
-                result._price_updated_at = existPriceTs;
-                // Preserve day_change from existing if available
-                if (Number.isFinite(existing?.day_change_pct) && existing.day_change_pct !== 0) {
-                  result.day_change = existing.day_change;
-                  result.day_change_pct = existing.day_change_pct;
-                  result.prev_close = existing.prev_close;
-                }
-              }
-              // Also check timed:prices for an even fresher price
+              const scoredPx = Number(result?.price) || 0;
+              // 1. Check timed:prices (most authoritative live source)
               const livePricesRaw = _livePricesCache;
               if (livePricesRaw) {
                 const lp = livePricesRaw[ticker];
                 if (lp && Number(lp.p) > 0) {
-                  const lpTs = Number(lp.t) || Date.now();
-                  const resultPxTs = Number(result._price_updated_at) || candleTs;
-                  if (lpTs >= resultPxTs || Math.abs(Number(lp.p) - Number(result.price)) / Number(result.price) > 0.005) {
-                    result.price = lp.p;
-                    result.close = lp.p;
-                    result._price_updated_at = lpTs;
+                  const lpPx = Number(lp.p);
+                  const divergence = scoredPx > 0 ? Math.abs(lpPx - scoredPx) / scoredPx : 1;
+                  if (divergence > 0.002) {
+                    result.price = lpPx;
+                    result.close = lpPx;
+                    result._price_updated_at = Number(lp.t) || Date.now();
                     if (Number.isFinite(lp.dc) && lp.dc !== 0) {
                       result.day_change = lp.dc;
                       result.day_change_pct = lp.dp;
                     }
                     if (Number(lp.pc) > 0) result.prev_close = lp.pc;
+                  }
+                }
+              }
+              // 2. Fallback: existing KV has a more recent price from mergeFreshnessIntoLatest
+              if (Number(result.price) === scoredPx && scoredPx > 0) {
+                const existPx = Number(existing?.price);
+                const existPriceTs = Number(existing?._price_updated_at) || 0;
+                if (existPx > 0 && existPriceTs > 0 && Math.abs(existPx - scoredPx) / scoredPx > 0.002) {
+                  result.price = existPx;
+                  result.close = existPx;
+                  result._price_updated_at = existPriceTs;
+                  if (Number.isFinite(existing?.day_change_pct) && existing.day_change_pct !== 0) {
+                    result.day_change = existing.day_change;
+                    result.day_change_pct = existing.day_change_pct;
+                    result.prev_close = existing.prev_close;
                   }
                 }
               }

@@ -761,25 +761,30 @@
 
               // Preserve live price fields from current data so the 3-min
               // full refresh doesn't cause a price flicker back to candle close.
-              // Uses timestamp comparison: if the user already has a NEWER price
-              // from WS or price poll, never overwrite it with the /timed/all response.
+              // Key rule: if prev has a _live_price that's significantly different
+              // from the incoming price, keep prev's price (the incoming snapshot
+              // may contain a stale candle close due to KV eventual consistency).
               setData(prev => {
                 if (!prev || typeof prev !== "object" || Object.keys(prev).length === 0) return mergedData;
                 const LIVE_KEYS = ["_live_price", "_live_prev_close", "_live_daily_high", "_live_daily_low", "_live_daily_volume", "_price_updated_at", "day_change_pct", "change_pct", "day_change", "change"];
                 const result = { ...mergedData };
                 for (const sym of Object.keys(result)) {
                   const old = prev[sym];
-                  if (!old) continue;
+                  if (!old || !(old._live_price > 0)) continue;
+                  const newPx = Number(result[sym]?.price) || 0;
+                  const oldLivePx = old._live_price;
+                  const divergence = newPx > 0 ? Math.abs(newPx - oldLivePx) / oldLivePx : 0;
+                  // If the incoming price diverges >2% from our live price,
+                  // it's likely a stale candle close — keep the live price.
+                  // Also preserve if old is simply more recent.
                   const oldTs = old._price_updated_at || 0;
                   const newTs = result[sym]?._price_updated_at || 0;
-                  // Keep prev price if: (a) prev has a live price AND (b) prev is
-                  // at least as recent as the incoming data (or incoming has no ts).
-                  if (old._live_price > 0 && (oldTs >= newTs || !newTs)) {
+                  if (divergence > 0.02 || oldTs >= newTs || !newTs) {
                     const merged = { ...result[sym] };
                     for (const k of LIVE_KEYS) {
                       if (old[k] != null) merged[k] = old[k];
                     }
-                    merged.price = old._live_price;
+                    merged.price = oldLivePx;
                     result[sym] = merged;
                   }
                 }
