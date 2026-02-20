@@ -483,6 +483,7 @@ const ROUTES = [
   ["GET", "/timed/calibration/report", "GET /timed/calibration/report"],
   ["GET", "/timed/calibration/status", "GET /timed/calibration/status"],
   ["POST", "/timed/calibration/apply", "POST /timed/calibration/apply"],
+  ["POST", "/timed/trades/reset", "POST /timed/trades/reset"],
 ];
 
 function getRouteKey(method, pathname) {
@@ -13425,7 +13426,7 @@ async function autopsyTradesServerSide(env) {
             da.signal_snapshot_json, da.regime_daily, da.regime_weekly, da.regime_combined,
             da.entry_path AS da_entry_path
      FROM trades t LEFT JOIN direction_accuracy da ON da.trade_id = t.trade_id
-     WHERE t.status IN ('CLOSED','TP_HIT','SL_HIT','MANUAL_EXIT','TP_HIT_TRIM')
+     WHERE t.status IN ('WIN','LOSS','FLAT')
      ORDER BY t.entry_ts`
   ).all();
   if (!rawTrades.length) return 0;
@@ -31689,6 +31690,48 @@ export default {
         );
       }
 
+      // POST /timed/trades/reset — Clear all trades and reset to $100K baseline
+      if (routeKey === "POST /timed/trades/reset") {
+        const authFail = requireKeyOr401(req, env);
+        if (authFail) return authFail;
+        const db = env?.DB;
+        try {
+          // 1. Clear KV trade data
+          await kvPutJSON(KV, "timed:trades:all", []);
+          // 2. Clear per-ticker exec states (anti-flap guards)
+          const allSyms = Object.keys(SECTOR_MAP);
+          const userAdded = await d1GetActiveUserTickersCached(env);
+          const allTickers = [...new Set([...allSyms, ...userAdded])];
+          await Promise.allSettled(allTickers.map(sym => KV.delete(`timed:exec:last:${sym}`)));
+          // 3. Clear D1 trade tables
+          if (db) {
+            await db.batch([
+              db.prepare(`DELETE FROM trades`),
+              db.prepare(`DELETE FROM trade_events`),
+              db.prepare(`DELETE FROM direction_accuracy`),
+              db.prepare(`DELETE FROM calibration_trade_autopsy`),
+            ]);
+            // Clear positions/lots/execution_actions if they exist
+            try {
+              await db.batch([
+                db.prepare(`DELETE FROM positions`),
+                db.prepare(`DELETE FROM execution_actions`),
+              ]);
+            } catch (_) {}
+          }
+          // 4. Clear trade-related KV caches
+          await Promise.allSettled([
+            KV.delete("timed:corr:open_trades"),
+            KV.delete("timed:trades:daily_count"),
+          ]);
+          console.log(`[RESET] All trades cleared, account reset to $100K baseline`);
+          return sendJSON({ ok: true, message: "All trades cleared. Account reset to $100,000 baseline." }, 200, corsHeaders(env, req));
+        } catch (e) {
+          console.error("[RESET] Error:", e);
+          return sendJSON({ ok: false, error: e.message }, 500, corsHeaders(env, req));
+        }
+      }
+
       // OPTIONS /timed/ai/chat (CORS preflight)
       if (routeKey === "OPTIONS /timed/ai/chat") {
         const origin = req?.headers?.get("Origin") || "";
@@ -38848,6 +38891,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             updated_at: lightUpdateTs,
           }));
           console.log(`[PRICE FEED LIGHT] TV futures: ${tvUpdated}, crypto: ${cryptoUpdated}, total: ${Object.keys(existing).length}`);
+          ctx.waitUntil(mergeFreshnessIntoLatest(KV, existing).catch(e => console.warn("[FRESHNESS LIGHT]", e?.message)));
           // Skip the rest of the heavy pipeline
         } else {
         // ── Full pipeline (active hours) ──
@@ -39055,6 +39099,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
         }
 
         console.log(`[PRICE FEED] Updated ${Object.keys(prices).length} tickers`);
+        ctx.waitUntil(mergeFreshnessIntoLatest(KV, prices).catch(e => console.warn("[FRESHNESS]", e?.message)));
 
         // NOTE: Scoring chain removed from price feed to prevent dual-scoring race.
         // The */5 cron handler is the SOLE scoring loop. Running scoring here AND
