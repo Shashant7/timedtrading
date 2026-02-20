@@ -32089,14 +32089,14 @@ Remember: You're a helpful assistant. Be professional, accurate, and prioritize 
               aiData.choices?.[0]?.message?.content ||
               "Sorry, I couldn't process that request.";
 
-            // Extract sources if any tickers were mentioned
-            const mentionedTickers = [];
+            // Extract sources: tickers from user message that we had data for
+            const citedTickers = [];
             const tickerRegex = /\b([A-Z]{1,5})\b/g;
             const matches = body.message.toUpperCase().match(tickerRegex);
             if (matches) {
               matches.forEach((ticker) => {
                 if (tickerContext.some((t) => t.ticker === ticker)) {
-                  mentionedTickers.push(ticker);
+                  citedTickers.push(ticker);
                 }
               });
             }
@@ -32106,8 +32106,8 @@ Remember: You're a helpful assistant. Be professional, accurate, and prioritize 
                 ok: true,
                 response: aiMessage,
                 sources:
-                  mentionedTickers.length > 0
-                    ? [`Data from: ${mentionedTickers.join(", ")}`]
+                  citedTickers.length > 0
+                    ? [`Data from: ${citedTickers.join(", ")}`]
                     : [],
                 timestamp: Date.now(),
               },
