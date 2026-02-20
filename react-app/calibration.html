@@ -434,7 +434,13 @@ function App() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`${API_BASE}/timed/calibration/report`);
+      const res = await fetch(`${API_BASE}/timed/calibration/report`, { credentials: "include" });
+      const contentType = res.headers.get("content-type") || "";
+      if (!contentType.includes("application/json")) {
+        setError(`Server returned ${res.status} (expected JSON). Ensure the API is deployed and /timed/ routes to the Worker.`);
+        setLoading(false);
+        return;
+      }
       const data = await res.json();
       if (data.ok) {
         setReport(data.report);
@@ -457,14 +463,27 @@ function App() {
     setRunning(true);
     setError(null);
     try {
-      const res = await fetch(`${API_BASE}/timed/calibration/run`, { method: "POST", headers: {"Content-Type":"application/json"}, body: "{}" });
+      const res = await fetch(`${API_BASE}/timed/calibration/run`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: "{}",
+        credentials: "include",
+      });
+      const contentType = res.headers.get("content-type") || "";
+      if (!contentType.includes("application/json")) {
+        setError(res.status === 503
+          ? "Calibration service busy or timed out. The run can take a few minutes — try again shortly."
+          : `Server returned ${res.status} (expected JSON). Ensure /timed/ routes to the Worker API.`);
+        setRunning(false);
+        return;
+      }
       const data = await res.json();
       if (data.ok) {
         setReport(data.report);
         setRecs(data.report?.recommendations);
         setReportId(data.report?.report_id);
       } else {
-        setError(data.error);
+        setError(data.error || "Calibration run failed");
       }
     } catch (e) { setError(String(e)); }
     setRunning(false);
@@ -475,9 +494,17 @@ function App() {
     setAppliedMsg(null);
     try {
       const res = await fetch(`${API_BASE}/timed/calibration/apply`, {
-        method: "POST", headers: {"Content-Type":"application/json"},
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ report_id: id }),
+        credentials: "include",
       });
+      const contentType = res.headers.get("content-type") || "";
+      if (!contentType.includes("application/json")) {
+        setError(`Server returned ${res.status}. Ensure the API is deployed.`);
+        setApplying(false);
+        return;
+      }
       const data = await res.json();
       if (data.ok) {
         setAppliedMsg(`Applied: ${data.applied?.join(", ")}`);
