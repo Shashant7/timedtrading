@@ -13333,10 +13333,13 @@ function computeATR14(candles) {
 async function harvestMovesServerSide(env) {
   const db = env?.DB;
   const MIN_ATR = 1.5, MIN_DUR = 3;
+  const LOOKBACK_MS = 120 * 86400000;
+  const cutoffTs = Date.now() - LOOKBACK_MS;
 
+  // Phase 1: Load only daily candles + VIX (lightweight)
   const { results: rawCandles } = await db.prepare(
-    `SELECT ticker, ts, o, h, l, c FROM ticker_candles WHERE tf='D' ORDER BY ticker, ts`
-  ).all();
+    `SELECT ticker, ts, o, h, l, c FROM ticker_candles WHERE tf='D' AND ts > ?1 ORDER BY ticker, ts`
+  ).bind(cutoffTs).all();
   if (!rawCandles.length) return 0;
 
   const byTicker = {};
@@ -13346,10 +13349,9 @@ async function harvestMovesServerSide(env) {
   }
   for (const arr of Object.values(byTicker)) arr.sort((a, b) => a.ts - b.ts);
 
-  // VIX daily candles for regime context
   let vixCandles = [];
   try {
-    const vixRes = await db.prepare(`SELECT ts, c FROM ticker_candles WHERE tf='D' AND ticker IN ('VIX','$VIX','VIX.X') ORDER BY ts`).all();
+    const vixRes = await db.prepare(`SELECT ts, c FROM ticker_candles WHERE tf='D' AND ticker IN ('VIX','$VIX','VIX.X') AND ts > ?1 ORDER BY ts`).bind(cutoffTs).all();
     vixCandles = (vixRes.results || []).map(r => ({ ts: Number(r.ts), c: Number(r.c) }));
   } catch (_) {}
   function getVixAtTs(ts) {
@@ -13359,31 +13361,15 @@ async function harvestMovesServerSide(env) {
     return (closest && minDist < 5 * 86400000) ? Math.round(closest.c * 100) / 100 : null;
   }
 
-  const { results: trailRows } = await db.prepare(
-    `SELECT ticker, bucket_ts, htf_score_avg, ltf_score_avg, state, rank,
-            completion, phase_pct,
-            had_squeeze_release, had_ema_cross, had_st_flip, had_momentum_elite
-     FROM trail_5m_facts ORDER BY ticker, bucket_ts`
-  ).all();
-  const trailByTicker = {};
-  for (const r of trailRows) { const t = String(r.ticker).toUpperCase(); (trailByTicker[t] = trailByTicker[t] || []).push(r); }
-
-  const { results: daRows } = await db.prepare(
-    `SELECT ticker, ts, signal_snapshot_json, regime_daily, regime_weekly, regime_combined
-     FROM direction_accuracy WHERE signal_snapshot_json IS NOT NULL ORDER BY ticker, ts`
-  ).all();
-  const daByTicker = {};
-  for (const r of daRows) { const t = String(r.ticker).toUpperCase(); (daByTicker[t] = daByTicker[t] || []).push(r); }
-
+  // Phase 2: Detect moves using only daily candles (no trail/DA queries yet)
   let allMoves = [];
   for (const [ticker, candles] of Object.entries(byTicker)) {
     if (candles.length < 30) continue;
     const atrs = computeATR14(candles);
-
     for (let i = MIN_DUR; i < candles.length; i++) {
       const atr = atrs[i] || atrs[i - 1];
       if (!atr || atr <= 0) continue;
-      for (let lb = MIN_DUR; lb <= Math.min(40, i); lb++) {
+      for (let lb = MIN_DUR; lb <= Math.min(25, i); lb++) {
         const si = i - lb;
         const startAtr = atrs[si] || atr;
         if (startAtr <= 0) continue;
@@ -13400,40 +13386,6 @@ async function harvestMovesServerSide(env) {
           maxExt = Math.max(maxExt, fav); maxPull = Math.max(maxPull, adv);
           mfes.push(fav); maes.push(adv > 0 ? adv : 0);
         }
-        let signalsJson = null, regimeJson = null, entryScoringJson = null, vixAtStart = null;
-        const trail = trailByTicker[ticker];
-        if (trail) {
-          const startTs = candles[si].ts;
-          let closest = null, minDist = Infinity;
-          for (const r of trail) { const d = Math.abs(Number(r.bucket_ts) - startTs); if (d < minDist) { minDist = d; closest = r; } }
-          if (closest && minDist < 2 * 86400000) {
-            const scoringData = {
-              htf_score: Number(closest.htf_score_avg) || 0,
-              ltf_score: Number(closest.ltf_score_avg) || 0,
-              state: closest.state || "unknown",
-              rank: Number(closest.rank) || 0,
-              completion: Number(closest.completion) || 0,
-              phase_pct: Number(closest.phase_pct) || 0,
-              squeeze_release: closest.had_squeeze_release ? 1 : 0,
-              ema_cross: closest.had_ema_cross ? 1 : 0,
-              st_flip: closest.had_st_flip ? 1 : 0,
-              momentum_elite: closest.had_momentum_elite ? 1 : 0,
-            };
-            signalsJson = JSON.stringify(scoringData);
-            entryScoringJson = JSON.stringify(scoringData);
-          }
-        }
-        vixAtStart = getVixAtTs(candles[si].ts);
-        const da = daByTicker[ticker];
-        if (da) {
-          const startTs = candles[si].ts;
-          let closest = null, minDist = Infinity;
-          for (const r of da) { const d = Math.abs(Number(r.ts) - startTs); if (d < minDist) { minDist = d; closest = r; } }
-          if (closest && minDist < 3 * 86400000) {
-            signalsJson = closest.signal_snapshot_json || signalsJson;
-            regimeJson = JSON.stringify({ daily: closest.regime_daily, weekly: closest.regime_weekly, combined: closest.regime_combined });
-          }
-        }
         allMoves.push({
           move_id: `${ticker}_${dir}_${candles[si].ts}`, ticker, direction: dir,
           start_ts: candles[si].ts, end_ts: candles[i].ts, duration_days: lb,
@@ -13443,14 +13395,15 @@ async function harvestMovesServerSide(env) {
           tp_p50_atr: Math.round(percentile(mfes, 50) * 100) / 100,
           tp_p75_atr: Math.round(percentile(mfes, 75) * 100) / 100,
           tp_p90_atr: Math.round(percentile(mfes, 90) * 100) / 100,
-          signals_json: signalsJson, regime_json: regimeJson,
-          entry_scoring_json: entryScoringJson, vix_at_start: vixAtStart,
+          signals_json: null, regime_json: null, entry_scoring_json: null,
+          vix_at_start: getVixAtTs(candles[si].ts),
         });
         break;
       }
     }
   }
 
+  // Phase 3: Dedup and cap
   allMoves.sort((a, b) => b.move_atr - a.move_atr);
   const seen = new Set(), deduped = [];
   for (const m of allMoves) {
@@ -13459,6 +13412,65 @@ async function harvestMovesServerSide(env) {
     if (seen.has(key)) continue;
     seen.add(key); seen.add(`${m.ticker}:${m.direction}:${bucket - 1}`); seen.add(`${m.ticker}:${m.direction}:${bucket + 1}`);
     deduped.push(m);
+    if (deduped.length >= 500) break;
+  }
+
+  // Phase 4: Enrich only the final deduped moves with trail + DA data
+  const dedupedTickers = [...new Set(deduped.map(m => m.ticker))];
+  const trailByTicker = {};
+  for (let i = 0; i < dedupedTickers.length; i += 20) {
+    const batch = dedupedTickers.slice(i, i + 20);
+    const placeholders = batch.map((_, j) => `?${j + 2}`).join(",");
+    try {
+      const { results: trailRows } = await db.prepare(
+        `SELECT ticker, bucket_ts, htf_score_avg, ltf_score_avg, state, rank,
+                completion, phase_pct,
+                had_squeeze_release, had_ema_cross, had_st_flip, had_momentum_elite
+         FROM trail_5m_facts WHERE bucket_ts > ?1 AND ticker IN (${placeholders}) ORDER BY ticker, bucket_ts`
+      ).bind(cutoffTs, ...batch).all();
+      for (const r of trailRows) { const t = String(r.ticker).toUpperCase(); (trailByTicker[t] = trailByTicker[t] || []).push(r); }
+    } catch (_) {}
+  }
+
+  const daByTicker = {};
+  for (let i = 0; i < dedupedTickers.length; i += 20) {
+    const batch = dedupedTickers.slice(i, i + 20);
+    const placeholders = batch.map((_, j) => `?${j + 2}`).join(",");
+    try {
+      const { results: daRows } = await db.prepare(
+        `SELECT ticker, ts, signal_snapshot_json, regime_daily, regime_weekly, regime_combined
+         FROM direction_accuracy WHERE signal_snapshot_json IS NOT NULL AND ts > ?1 AND ticker IN (${placeholders}) ORDER BY ticker, ts`
+      ).bind(cutoffTs, ...batch).all();
+      for (const r of daRows) { const t = String(r.ticker).toUpperCase(); (daByTicker[t] = daByTicker[t] || []).push(r); }
+    } catch (_) {}
+  }
+
+  for (const m of deduped) {
+    const trail = trailByTicker[m.ticker];
+    if (trail) {
+      let closest = null, minDist = Infinity;
+      for (const r of trail) { const d = Math.abs(Number(r.bucket_ts) - m.start_ts); if (d < minDist) { minDist = d; closest = r; } }
+      if (closest && minDist < 2 * 86400000) {
+        const scoringData = {
+          htf_score: Number(closest.htf_score_avg) || 0, ltf_score: Number(closest.ltf_score_avg) || 0,
+          state: closest.state || "unknown", rank: Number(closest.rank) || 0,
+          completion: Number(closest.completion) || 0, phase_pct: Number(closest.phase_pct) || 0,
+          squeeze_release: closest.had_squeeze_release ? 1 : 0, ema_cross: closest.had_ema_cross ? 1 : 0,
+          st_flip: closest.had_st_flip ? 1 : 0, momentum_elite: closest.had_momentum_elite ? 1 : 0,
+        };
+        m.signals_json = JSON.stringify(scoringData);
+        m.entry_scoring_json = JSON.stringify(scoringData);
+      }
+    }
+    const da = daByTicker[m.ticker];
+    if (da) {
+      let closest = null, minDist = Infinity;
+      for (const r of da) { const d = Math.abs(Number(r.ts) - m.start_ts); if (d < minDist) { minDist = d; closest = r; } }
+      if (closest && minDist < 3 * 86400000) {
+        m.signals_json = closest.signal_snapshot_json || m.signals_json;
+        m.regime_json = JSON.stringify({ daily: closest.regime_daily, weekly: closest.regime_weekly, combined: closest.regime_combined });
+      }
+    }
   }
 
   await db.prepare(`DELETE FROM calibration_moves`).run();
@@ -13487,7 +13499,6 @@ async function autopsyTradesServerSide(env) {
 
   const tickersNeeded = [...new Set(rawTrades.map(t => String(t.ticker).toUpperCase()))];
 
-  // VIX daily candles for regime context
   let vixCandles = [];
   try {
     const vixRes = await db.prepare(`SELECT ts, c FROM ticker_candles WHERE tf='D' AND ticker IN ('VIX','$VIX','VIX.X') ORDER BY ts`).all();
@@ -13500,27 +13511,41 @@ async function autopsyTradesServerSide(env) {
     return (closest && minDist < 5 * 86400000) ? Math.round(closest.c * 100) / 100 : null;
   }
 
-  // Trail data for scoring snapshot at entry
-  const { results: trailRows } = await db.prepare(
-    `SELECT ticker, bucket_ts, htf_score_avg, ltf_score_avg, state, rank,
-            completion, phase_pct,
-            had_squeeze_release, had_ema_cross, had_st_flip, had_momentum_elite
-     FROM trail_5m_facts ORDER BY ticker, bucket_ts`
-  ).all();
+  const trailCutoff = Date.now() - 120 * 86400000;
   const trailByTicker = {};
-  for (const r of trailRows) { const t = String(r.ticker).toUpperCase(); (trailByTicker[t] = trailByTicker[t] || []).push(r); }
+  for (let i = 0; i < tickersNeeded.length; i += 20) {
+    const batch = tickersNeeded.slice(i, i + 20);
+    const placeholders = batch.map((_, j) => `?${j + 2}`).join(",");
+    try {
+      const { results: trailRows } = await db.prepare(
+        `SELECT ticker, bucket_ts, htf_score_avg, ltf_score_avg, state, rank,
+                completion, phase_pct,
+                had_squeeze_release, had_ema_cross, had_st_flip, had_momentum_elite
+         FROM trail_5m_facts WHERE bucket_ts > ?1 AND ticker IN (${placeholders}) ORDER BY ticker, bucket_ts`
+      ).bind(trailCutoff, ...batch).all();
+      for (const r of trailRows) { const t = String(r.ticker).toUpperCase(); (trailByTicker[t] = trailByTicker[t] || []).push(r); }
+    } catch (_) {}
+  }
 
-  const fiveMinByTicker = {};
   const dailyByTicker = {};
-  for (const ticker of tickersNeeded) {
-    const [fiveRes, dayRes] = await db.batch([
-      db.prepare(`SELECT ts, h, l, c FROM ticker_candles WHERE tf='5' AND ticker=?1 ORDER BY ts`).bind(ticker),
+  const hourlyByTicker = {};
+  const hourlyCutoff = Date.now() - 120 * 86400000;
+  for (let i = 0; i < tickersNeeded.length; i += 5) {
+    const batch = tickersNeeded.slice(i, i + 5);
+    const batchResults = await db.batch(batch.flatMap(ticker => [
       db.prepare(`SELECT ts, o, h, l, c FROM ticker_candles WHERE tf='D' AND ticker=?1 ORDER BY ts`).bind(ticker),
-    ]);
-    if (fiveRes.results?.length) fiveMinByTicker[ticker] = fiveRes.results;
-    if (dayRes.results?.length) {
-      const candles = dayRes.results.map(r => ({ ts: Number(r.ts), o: Number(r.o), h: Number(r.h), l: Number(r.l), c: Number(r.c) }));
-      dailyByTicker[ticker] = { candles, atrs: computeATR14(candles) };
+      db.prepare(`SELECT ts, h, l, c FROM ticker_candles WHERE tf='60' AND ticker=?1 AND ts > ?2 ORDER BY ts`).bind(ticker, hourlyCutoff),
+    ]));
+    for (let j = 0; j < batch.length; j++) {
+      const dayRes = batchResults[j * 2];
+      const hourRes = batchResults[j * 2 + 1];
+      if (dayRes.results?.length) {
+        const candles = dayRes.results.map(r => ({ ts: Number(r.ts), o: Number(r.o), h: Number(r.h), l: Number(r.l), c: Number(r.c) }));
+        dailyByTicker[batch[j]] = { candles, atrs: computeATR14(candles) };
+      }
+      if (hourRes.results?.length) {
+        hourlyByTicker[batch[j]] = hourRes.results.map(r => ({ ts: Number(r.ts), h: Number(r.h), l: Number(r.l), c: Number(r.c) }));
+      }
     }
   }
 
@@ -13550,15 +13575,19 @@ async function autopsyTradesServerSide(env) {
     const pnlPct = Number(trade.pnl_pct) || 0;
 
     let mfePct = 0, maePct = 0, mfeAtr = 0, maeAtr = 0, timeToMfeMin = 0, slHitBeforeMfe = false;
-    const candles5m = fiveMinByTicker[ticker];
-    if (candles5m) {
-      const during = candles5m.filter(c => { const ts = Number(c.ts); return ts >= entryTs && ts <= exitTs; });
+    const hourly = hourlyByTicker[ticker];
+    const mfeSource = hourly ? hourly.filter(c => c.ts >= entryTs && c.ts <= exitTs) : null;
+    const useDailyFallback = !mfeSource || mfeSource.length === 0;
+    const duringCandles = useDailyFallback && daily
+      ? daily.candles.filter(c => c.ts >= entryTs && c.ts <= exitTs)
+      : mfeSource || [];
+    if (duringCandles.length > 0) {
       let maxFav = 0, maxAdv = 0, mfeTs = entryTs;
-      for (const c of during) {
+      for (const c of duringCandles) {
         const high = Number(c.h), low = Number(c.l);
         const fav = isLong ? (high - entryPrice) / entryPrice * 100 : (entryPrice - low) / entryPrice * 100;
         const adv = isLong ? (entryPrice - low) / entryPrice * 100 : (high - entryPrice) / entryPrice * 100;
-        if (fav > maxFav) { maxFav = fav; mfeTs = Number(c.ts); }
+        if (fav > maxFav) { maxFav = fav; mfeTs = c.ts; }
         maxAdv = Math.max(maxAdv, adv);
       }
       mfePct = Math.round(maxFav * 100) / 100;
@@ -14244,27 +14273,51 @@ function writeCalibrationStatus(KV, phase, message, extra = {}) {
 }
 
 /** Runs full calibration pipeline (harvest + autopsy + analysis). Used by cron when timed:calibration:requested is set. */
+const CALIBRATION_WALL_TIMEOUT_MS = 25000; // 25s wall-clock safety limit
+
 async function runCalibrationInCron(env) {
   const KV = env?.KV_TIMED;
   if (!KV) return;
+
+  // Auto-recover stuck "running" status from a previous timed-out run
+  try {
+    const prev = await KV.get("timed:calibration:status", "json");
+    if (prev && typeof prev === "object" && prev.phase !== "done" && prev.phase !== "error") {
+      const elapsed = Date.now() - (prev.started_at || 0);
+      if (elapsed > 120000) { // stuck > 2 min
+        console.log("[CALIBRATION] Clearing stuck status from previous run");
+        await KV.delete("timed:calibration:status");
+      }
+    }
+  } catch (_) {}
+
   const requested = await KV.get("timed:calibration:requested");
   if (!requested) return;
   const startedAt = Date.now();
+  const checkTimeout = () => {
+    if (Date.now() - startedAt > CALIBRATION_WALL_TIMEOUT_MS) {
+      throw new Error("wall_clock_timeout: calibration exceeded 25s safety limit");
+    }
+  };
   try {
     writeCalibrationStatus(KV, "schema", "Ensuring calibration and learning schema…", { started_at: startedAt, step: 1 });
     await d1EnsureCalibrationSchema(env);
     await d1EnsureLearningSchema(env);
+    checkTimeout();
 
     writeCalibrationStatus(KV, "harvesting_moves", "Harvesting moves + scoring context from candles & trail…", { started_at: startedAt, step: 2 });
     const moveCount = await harvestMovesServerSide(env);
+    checkTimeout();
     writeCalibrationStatus(KV, "harvest_done", `Harvested ${moveCount} moves with scoring snapshots.`, { started_at: startedAt, step: 2, move_count: moveCount });
 
     writeCalibrationStatus(KV, "autopsying_trades", "Autopsying closed trades + capturing VIX & scoring state…", { started_at: startedAt, step: 3, move_count: moveCount });
     const tradeCount = await autopsyTradesServerSide(env);
+    checkTimeout();
     writeCalibrationStatus(KV, "autopsy_done", `Autopsied ${tradeCount} trades with full scoring snapshots.`, { started_at: startedAt, step: 3, move_count: moveCount, trade_count: tradeCount });
 
     writeCalibrationStatus(KV, "running_analysis", "Building winner/loser profiles & generating adaptive parameters…", { started_at: startedAt, step: 4, move_count: moveCount, trade_count: tradeCount });
     const report = await runCalibrationAnalysis(env);
+    checkTimeout();
 
     const profileCount = (report?.profiles?.winner_move?.length || 0) + (report?.profiles?.winner_trade?.length || 0) + (report?.profiles?.loser_trade?.length || 0);
     writeCalibrationStatus(KV, "done", `Done! Report ${report?.report_id || "?"}: ${moveCount} moves, ${tradeCount} trades, ${profileCount} profiles built.`, {
@@ -14279,7 +14332,7 @@ async function runCalibrationInCron(env) {
     const errMsg = String(e?.message || e).slice(0, 200);
     console.error("[CALIBRATION] Cron run error:", errMsg);
     writeCalibrationStatus(KV, "error", `Error: ${errMsg}`, { started_at: startedAt, error: errMsg });
-    return; // keep key so next run retries
+    return;
   }
   await KV.delete("timed:calibration:requested");
 }
@@ -22201,47 +22254,43 @@ export default {
             }
 
             // ── Fill gaps: tickers in SECTOR_MAP but missing from snapshot ──
-            // Catches tickers like SPX that have D1 data but may lack a
-            // timed:latest entry due to KV eventual consistency.
             if (env?.DB) {
               const missingSyms = [...activeSet].filter(s => !data[s]);
-              for (const sym of missingSyms) {
+              const kvResults = await Promise.all(missingSyms.slice(0, 30).map(s => kvGetJSON(KV, `timed:latest:${s}`).catch(() => null)));
+              const stillMissingFromKv = [];
+              for (let i = 0; i < kvResults.length; i++) {
+                const kvPayload = kvResults[i];
+                if (kvPayload && typeof kvPayload === "object" && Number(kvPayload.price) > 0) {
+                  data[missingSyms[i]] = kvPayload;
+                } else {
+                  stillMissingFromKv.push(missingSyms[i]);
+                }
+              }
+              if (stillMissingFromKv.length > 0 && stillMissingFromKv.length <= 20) {
                 try {
-                  const kvPayload = await kvGetJSON(KV, `timed:latest:${sym}`);
-                  if (kvPayload && typeof kvPayload === "object" && Number(kvPayload.price) > 0) {
-                    data[sym] = kvPayload;
-                    continue;
-                  }
-                  const todayNY = currentTradingDayKey();
-                  const cutoffMs = todayNY
-                    ? (nyWallTimeToUtcMs(todayNY, 0, 0, 0) || new Date(todayNY + "T00:00:00Z").getTime())
-                    : 0;
-                  const latestRow = await env.DB.prepare(
-                    `SELECT ts, o, h, l, c FROM ticker_candles WHERE ticker = ?1 AND tf = 'D' ORDER BY ts DESC LIMIT 1`
-                  ).bind(sym).all();
-                  let prevClose = 0;
-                  if (cutoffMs > 0) {
-                    const prevRow = await env.DB.prepare(
-                      `SELECT c FROM ticker_candles WHERE ticker = ?1 AND tf = 'D' AND ts < ?2 ORDER BY ts DESC LIMIT 1`
-                    ).bind(sym, cutoffMs).all();
-                    if (prevRow?.results?.[0]) prevClose = Number(prevRow.results[0].c) || 0;
-                  }
-                  if (latestRow?.results?.length >= 1) {
-                    const latest = latestRow.results[0];
-                    const price = Number(latest.c);
-                    if (price > 0) {
-                      data[sym] = {
-                        ticker: sym, ts: Number(latest.ts), price, close: price,
-                        open: Number(latest.o) || price, high: Number(latest.h) || price,
-                        low: Number(latest.l) || price,
-                        prev_close: prevClose > 0 ? prevClose : undefined,
-                        day_change: prevClose > 0 ? price - prevClose : undefined,
-                        day_change_pct: prevClose > 0 ? ((price - prevClose) / prevClose) * 100 : undefined,
-                        ingest_kind: "d1_gap_fill",
-                      };
+                  const batchResults = await env.DB.batch(stillMissingFromKv.map(sym =>
+                    env.DB.prepare(`SELECT ts, o, h, l, c FROM ticker_candles WHERE ticker=?1 AND tf='D' ORDER BY ts DESC LIMIT 2`).bind(sym)
+                  ));
+                  for (let i = 0; i < stillMissingFromKv.length; i++) {
+                    const rows = batchResults[i]?.results || [];
+                    if (rows.length >= 1) {
+                      const latest = rows[0];
+                      const price = Number(latest.c);
+                      const prevClose = rows.length >= 2 ? Number(rows[1].c) : 0;
+                      if (price > 0) {
+                        data[stillMissingFromKv[i]] = {
+                          ticker: stillMissingFromKv[i], ts: Number(latest.ts), price, close: price,
+                          open: Number(latest.o) || price, high: Number(latest.h) || price,
+                          low: Number(latest.l) || price,
+                          prev_close: prevClose > 0 ? prevClose : undefined,
+                          day_change: prevClose > 0 ? price - prevClose : undefined,
+                          day_change_pct: prevClose > 0 ? ((price - prevClose) / prevClose) * 100 : undefined,
+                          ingest_kind: "d1_gap_fill",
+                        };
+                      }
                     }
                   }
-                } catch (_) { /* skip */ }
+                } catch (_) { /* D1 gap-fill batch failed — proceed */ }
               }
             }
 
@@ -22274,12 +22323,10 @@ export default {
                     const cutoffMs = todayNY
                       ? (nyWallTimeToUtcMs(todayNY, 0, 0, 0) || new Date(todayNY + "T00:00:00Z").getTime())
                       : Date.now();
+                    const lowerBound = cutoffMs - 30 * 86400000;
                     const dcRows = await env.DB.prepare(
-                      `WITH ranked AS (
-                        SELECT ticker, c, ROW_NUMBER() OVER (PARTITION BY ticker ORDER BY ts DESC) as rn
-                        FROM ticker_candles WHERE tf = 'D' AND ts < ?1
-                      ) SELECT ticker, c FROM ranked WHERE rn = 1`
-                    ).bind(cutoffMs).all();
+                      `SELECT ticker, max(ts), c FROM ticker_candles WHERE tf='D' AND ts < ?1 AND ts > ?2 GROUP BY ticker`
+                    ).bind(cutoffMs, lowerBound).all();
                     for (const r of (dcRows?.results || [])) {
                       const sym = String(r.ticker).toUpperCase();
                       const close = Number(r.c);
@@ -22453,26 +22500,21 @@ export default {
                   ? (nyWallTimeToUtcMs(todayNY, 0, 0, 0) || new Date(todayNY + "T00:00:00Z").getTime())
                   : 0;
                 const prevCloseByTicker = {};
+                const recentLower = cutoffMs - 30 * 86400000;
                 if (cutoffMs > 0) {
                   const prevRows = await env.DB.prepare(
-                    `WITH ranked AS (
-                      SELECT ticker, c, ROW_NUMBER() OVER (PARTITION BY ticker ORDER BY ts DESC) as rn
-                      FROM ticker_candles WHERE tf = 'D' AND ts < ?1
-                    ) SELECT ticker, c FROM ranked WHERE rn = 1`
-                  ).bind(cutoffMs).all();
+                    `SELECT ticker, max(ts), c FROM ticker_candles WHERE tf='D' AND ts < ?1 AND ts > ?2 GROUP BY ticker`
+                  ).bind(cutoffMs, recentLower).all();
                   for (const r of (prevRows?.results || [])) {
                     const sym = String(r.ticker).toUpperCase();
                     const c = Number(r.c);
                     if (Number.isFinite(c) && c > 0) prevCloseByTicker[sym] = c;
                   }
                 }
-                // Latest candle per ticker (for "today" close when market closed)
+                const latestLower = Date.now() - 30 * 86400000;
                 const latestRows = await env.DB.prepare(
-                  `WITH ranked AS (
-                    SELECT ticker, c, ts, ROW_NUMBER() OVER (PARTITION BY ticker ORDER BY ts DESC) as rn
-                    FROM ticker_candles WHERE tf = 'D'
-                  ) SELECT ticker, c FROM ranked WHERE rn = 1`
-                ).all();
+                  `SELECT ticker, max(ts), c FROM ticker_candles WHERE tf='D' AND ts > ?1 GROUP BY ticker`
+                ).bind(latestLower).all();
                 const latestByTicker = {};
                 for (const r of (latestRows?.results || [])) {
                   const sym = String(r.ticker).toUpperCase();
@@ -22509,23 +22551,15 @@ export default {
             // ── Weekly change enrichment: compare current price to ~5 trading days ago ──
             try {
               if (env?.DB) {
+                const wkLower = Date.now() - 15 * 86400000;
                 const weeklyRows = await env.DB.prepare(
-                  `WITH deduped AS (
-                    SELECT ticker, ts, c,
-                      ROW_NUMBER() OVER (PARTITION BY ticker, CAST(ts / 86400000 AS INTEGER) ORDER BY ts DESC) as day_rn
-                    FROM ticker_candles WHERE tf = 'D'
-                  )
-                  SELECT ticker, ts, c FROM (
-                    SELECT ticker, ts, c, ROW_NUMBER() OVER (PARTITION BY ticker ORDER BY ts DESC) as rn
-                    FROM deduped WHERE day_rn = 1
-                  ) WHERE rn <= 7
-                  ORDER BY ticker, ts DESC`
-                ).all();
+                  `SELECT ticker, ts, c FROM ticker_candles WHERE tf='D' AND ts > ?1 ORDER BY ticker, ts DESC`
+                ).bind(wkLower).all();
                 const weekMap = {};
                 for (const r of (weeklyRows?.results || [])) {
                   const sym = String(r.ticker).toUpperCase();
                   if (!weekMap[sym]) weekMap[sym] = [];
-                  weekMap[sym].push({ ts: Number(r.ts), c: Number(r.c) });
+                  if (weekMap[sym].length < 7) weekMap[sym].push({ ts: Number(r.ts), c: Number(r.c) });
                 }
                 for (const [sym, candles] of Object.entries(weekMap)) {
                   if (!data[sym] || candles.length < 5) continue;
@@ -22546,18 +22580,10 @@ export default {
               const totalTickers = Object.keys(data).length;
               const withSparkline = Object.values(data).filter(d => Array.isArray(d?._sparkline) && d._sparkline.length >= 30).length;
               if (totalTickers > 0 && withSparkline < totalTickers * 0.5 && env?.DB) {
+                const spkLower = Date.now() - 90 * 86400000;
                 const sparkRows = await env.DB.prepare(
-                  `WITH deduped AS (
-                    SELECT ticker, ts, c,
-                      ROW_NUMBER() OVER (PARTITION BY ticker, CAST(ts / 86400000 AS INTEGER) ORDER BY ts DESC) as day_rn
-                    FROM ticker_candles WHERE tf = 'D'
-                  )
-                  SELECT ticker, ts, c FROM (
-                    SELECT ticker, ts, c, ROW_NUMBER() OVER (PARTITION BY ticker ORDER BY ts DESC) as rn
-                    FROM deduped WHERE day_rn = 1
-                  ) WHERE rn <= 60
-                  ORDER BY ticker, ts ASC`
-                ).all();
+                  `SELECT ticker, ts, c FROM ticker_candles WHERE tf='D' AND ts > ?1 ORDER BY ticker, ts ASC`
+                ).bind(spkLower).all();
                 const sparkMap = {};
                 for (const r of (sparkRows?.results || [])) {
                   const sym = String(r.ticker).toUpperCase();
@@ -30900,21 +30926,32 @@ export default {
             return sendJSON({ ok: true, status: "queued", message: "Calibration queued. Waiting for next half-hour cron (within ~30 min)." }, 200, corsHeaders(env, req));
           }
           if (statusRaw && typeof statusRaw === "object") {
-            const status = statusRaw.phase === "error" ? "error" : statusRaw.phase === "done" ? "done" : "running";
+            let status = statusRaw.phase === "error" ? "error" : statusRaw.phase === "done" ? "done" : "running";
+            let message = statusRaw.message || null;
+            // Detect stuck/timed-out calibration (running but no update in > 2 min)
+            if (status === "running" && statusRaw.updated_at) {
+              const staleMs = Date.now() - statusRaw.updated_at;
+              if (staleMs > 120000) {
+                status = "error";
+                message = "Calibration timed out (worker exceeded execution limit). Will retry on next request.";
+                // Clean up stuck state so next run can proceed
+                KV.delete("timed:calibration:status").catch(() => {});
+              }
+            }
             return sendJSON({
               ok: true,
               status,
               phase: statusRaw.phase,
-              message: statusRaw.message || null,
+              message,
               step: statusRaw.step ?? null,
-              total_steps: statusRaw.total_steps ?? 4,
-              steps: Array.isArray(statusRaw.steps) ? statusRaw.steps : ["Ensure schema", "Harvest moves", "Autopsy trades", "Analysis & report"],
+              total_steps: statusRaw.total_steps ?? 5,
+              steps: Array.isArray(statusRaw.steps) ? statusRaw.steps : CALIBRATION_MILESTONES,
               started_at: statusRaw.started_at || null,
               updated_at: statusRaw.updated_at || null,
               move_count: statusRaw.move_count,
               trade_count: statusRaw.trade_count,
               report_id: statusRaw.report_id,
-              error: statusRaw.error || null,
+              error: status === "error" ? (statusRaw.error || message) : null,
             }, 200, corsHeaders(env, req));
           }
           return sendJSON({ ok: true, status: "idle", message: null }, 200, corsHeaders(env, req));

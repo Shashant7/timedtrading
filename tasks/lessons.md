@@ -21,6 +21,11 @@
 - **D1 schema migrations need fallback handling**: ALTER TABLE can be throttled. SELECT/INSERT must not reference new columns until confirmed. Use fallback INSERT without the column. [2026-02-07]
 - **D1 schema throttle (24h KV cache) can prevent table creation**: Probe with `SELECT 1 FROM table LIMIT 1` before relying on throttle. If fails, force creation. [2026-02-12]
 - **ALTER TABLE for new columns alongside CREATE TABLE**: New column in CREATE TABLE only helps fresh DBs. Existing DBs need ALTER TABLE fallback (wrapped in try/catch for "column already exists"). [2026-02-19]
+- **Never use unbounded `ROW_NUMBER() OVER (PARTITION BY ticker ...)` on large tables**: Window functions scan the entire table. On `ticker_candles` with 200+ tickers and months of data, this takes 10-30s and overloads D1. Use `GROUP BY ticker` with `max(ts)` and date-bounded `WHERE ts > cutoff` instead. [2026-02-20]
+- **Heavy calibration/batch jobs must not run on same schedule as scoring cron**: Running calibration (many D1 queries) on `*/5 * * * *` alongside scoring causes D1 overload. Separate to `0 * * * *` / `30 * * * *`. [2026-02-20]
+- **Calibration must load trail_5m_facts AFTER move detection, not before**: trail_5m_facts has millions of 5-min rows. Loading all upfront for ~200 tickers times out. Detect moves from daily candles first, dedup/cap at 500, then enrich only the final set with trail data for their specific tickers. [2026-02-20]
+- **Use hourly candles (tf='60') for MFE/MAE in trade autopsy**: 5-min candles (~2M rows) are too heavy. Daily candles are too coarse. Hourly (`tf='60'`) gives good intraday precision at ~1/13th the data volume of 5-min. Fetch with date bound and per-ticker batch alongside daily candles. [2026-02-20]
+- **Worker cron jobs can time out silently**: If a cron worker exceeds its wall-clock limit, it dies without running catch blocks. KV status gets stuck at "running". Add: (1) wall-clock timeout checks between steps, (2) stale-status detection in API (if updated_at > 2 min ago, report as timed_out), (3) auto-cleanup of stuck status at cron start. [2026-02-20]
 
 ## Alpaca API
 
