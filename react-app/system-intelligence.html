@@ -1029,7 +1029,7 @@ function App() {
           return (
             <div className="mb-4 p-4 rounded-lg border text-sm" style={{background: isDone ? "rgba(16,185,129,0.08)" : "rgba(251,191,36,0.08)", borderColor: isDone ? "rgba(16,185,129,0.2)" : "rgba(251,191,36,0.2)"}}>
               <div className={`font-medium mb-2 ${isDone ? "text-emerald-400" : "text-amber-300"}`}>
-                {isDone ? "Calibration Complete" : currentStep > 0 ? "Calibration Running…" : "Calibration Queued — starting within 5 minutes"}
+                {isDone ? "Calibration Complete" : currentStep > 0 ? "Calibration Running…" : "Calibration Queued — starts at next :00 or :30"}
               </div>
               <ul className="space-y-1.5 mb-3">
                 {steps.map((label, idx) => {

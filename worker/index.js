@@ -30840,10 +30840,9 @@ export default {
           // Calibration can exceed Worker request timeout (~30s). Queue for cron; cron has 15min CPU.
           if (KV) {
             await KV.put("timed:calibration:requested", String(Date.now()), { expirationTtl: 86400 });
-            // Write initial status so progress UI shows immediately
-            writeCalibrationStatus(KV, "queued", "Calibration queued — starting within 5 minutes…", { started_at: Date.now(), step: 0 });
+            writeCalibrationStatus(KV, "queued", "Calibration queued — starts at the next :00 or :30 mark…", { started_at: Date.now(), step: 0 });
             return sendJSON(
-              { ok: true, queued: true, message: "Calibration queued. It will start within ~5 minutes on the next cron cycle." },
+              { ok: true, queued: true, message: "Calibration queued. It will start at the next :00 or :30 mark (up to 30 min)." },
               202,
               corsHeaders(env, req)
             );
@@ -38981,8 +38980,8 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
     }
 
     // Calibration: runs when user clicked "Run Calibration" (sets timed:calibration:requested).
-    // Check on every 5-min cron so max wait is ~5 minutes instead of 60.
-    if ((event.cron === "30 * * * *" || event.cron === "*/5 * * * *") && env?.DB && env?.KV_TIMED) {
+    // Run on :00 and :30 crons (max 30 min wait). NOT on */5 to avoid D1 overload with scoring.
+    if ((event.cron === "30 * * * *" || event.cron === "0 * * * *") && env?.DB && env?.KV_TIMED) {
       ctx.waitUntil(
         runCalibrationInCron(env).catch((e) => console.warn("[CALIBRATION] Cron waitUntil failed:", String(e?.message || e).slice(0, 200)))
       );
