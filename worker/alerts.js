@@ -366,7 +366,7 @@ export function createWeeklyDigestEmbed({
     description: `Your weekly summary for the week ending ${new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}.`,
     color,
     fields,
-    footer: { text: "Timed Trading — Investor Intelligence" },
+    footer: { text: "Timed Trading — Investor Intelligence • Not financial advice" },
     timestamp: new Date().toISOString(),
   };
 }
@@ -431,7 +431,7 @@ export function createInvestorAlertEmbed(type, data) {
     description: config.description(data),
     color: config.color,
     fields: config.fields(data),
-    footer: { text: "Timed Trading — Investor Intelligence" },
+    footer: { text: "Timed Trading — Investor Intelligence • Not financial advice" },
     timestamp: new Date().toISOString(),
   };
 }
