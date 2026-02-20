@@ -4361,31 +4361,6 @@ async function updateScoringWeightAdjustments(env) {
   }
 }
 
-// ── Learned Scoring Weight Adjustments Cache ─────────────────────────
-// Per-TF multipliers for HTF/LTF scoring weights, loaded from model_config.
-let _scoringWeightAdj = null;
-let _scoringWeightAdjTs = 0;
-
-async function getLearnedScoringWeights(env) {
-  if (_scoringWeightAdj && Date.now() - _scoringWeightAdjTs < CONSENSUS_WEIGHTS_TTL) {
-    return _scoringWeightAdj;
-  }
-  const db = env?.DB;
-  if (!db) return null;
-  try {
-    await d1EnsureLearningSchema(env);
-    const row = await db.prepare(
-      `SELECT config_value FROM model_config WHERE config_key = 'scoring_weight_adj'`
-    ).first();
-    if (row?.config_value) {
-      _scoringWeightAdj = JSON.parse(row.config_value);
-      _scoringWeightAdjTs = Date.now();
-      return _scoringWeightAdj;
-    }
-  } catch { /* fallback to null = default weights */ }
-  return null;
-}
-
 // EMA update: adjust scoring weights based on which TF scores best predicted outcomes
 async function updateScoringWeights(env) {
   const db = env?.DB;
@@ -13239,89 +13214,6 @@ async function d1UpdateDirectionOutcome(env, trade) {
     ).run();
   } catch (e) {
     console.warn("[LEARNING] Failed to update direction outcome:", String(e).slice(0, 150));
-  }
-}
-
-// ═══════════════════════════════════════════════════════════════════════
-// Learning Loop — Direction Accuracy, Path Performance, Model Config
-// ═══════════════════════════════════════════════════════════════════════
-
-let _learningSchemaReady = false;
-async function d1EnsureLearningSchema(env) {
-  if (_learningSchemaReady) return;
-  const db = env?.DB;
-  if (!db) return;
-  try {
-    await db.batch([
-      db.prepare(`CREATE TABLE IF NOT EXISTS direction_accuracy (
-        trade_id TEXT PRIMARY KEY,
-        ticker TEXT NOT NULL,
-        ts INTEGER NOT NULL,
-        traded_direction TEXT NOT NULL,
-        consensus_direction TEXT,
-        htf_score_direction TEXT,
-        state_direction TEXT,
-        direction_source TEXT,
-        htf_score REAL,
-        ltf_score REAL,
-        regime_daily TEXT,
-        regime_weekly TEXT,
-        regime_combined TEXT,
-        bullish_count INTEGER,
-        bearish_count INTEGER,
-        tf_stack_json TEXT,
-        entry_path TEXT,
-        rank INTEGER,
-        rr REAL,
-        entry_price REAL,
-        exit_ts INTEGER,
-        exit_price REAL,
-        pnl REAL,
-        pnl_pct REAL,
-        direction_correct INTEGER,
-        max_favorable_excursion REAL,
-        max_adverse_excursion REAL,
-        status TEXT
-      )`),
-      db.prepare(`CREATE TABLE IF NOT EXISTS path_performance (
-        entry_path TEXT PRIMARY KEY,
-        total_trades INTEGER NOT NULL DEFAULT 0,
-        wins INTEGER NOT NULL DEFAULT 0,
-        losses INTEGER NOT NULL DEFAULT 0,
-        flats INTEGER NOT NULL DEFAULT 0,
-        win_rate REAL,
-        avg_pnl REAL,
-        avg_pnl_pct REAL,
-        avg_hold_minutes REAL,
-        avg_mfe REAL,
-        avg_mae REAL,
-        recent_win_rate REAL,
-        recent_trades INTEGER DEFAULT 0,
-        enabled INTEGER NOT NULL DEFAULT 1,
-        disable_reason TEXT,
-        quality_gate_adj REAL DEFAULT 0,
-        last_updated INTEGER NOT NULL
-      )`),
-      db.prepare(`CREATE TABLE IF NOT EXISTS model_config (
-        config_key TEXT PRIMARY KEY,
-        config_value TEXT NOT NULL,
-        description TEXT,
-        updated_at INTEGER NOT NULL,
-        updated_by TEXT DEFAULT 'system'
-      )`),
-    ]);
-    try {
-      await db.batch([
-        db.prepare(`CREATE INDEX IF NOT EXISTS idx_da_ticker_ts ON direction_accuracy (ticker, ts)`),
-        db.prepare(`CREATE INDEX IF NOT EXISTS idx_da_direction_source ON direction_accuracy (direction_source)`),
-        db.prepare(`CREATE INDEX IF NOT EXISTS idx_da_entry_path ON direction_accuracy (entry_path)`),
-        db.prepare(`CREATE INDEX IF NOT EXISTS idx_da_status ON direction_accuracy (status)`),
-        db.prepare(`CREATE INDEX IF NOT EXISTS idx_pp_enabled ON path_performance (enabled)`),
-      ]);
-    } catch { /* indexes may already exist */ }
-    _learningSchemaReady = true;
-  } catch (e) {
-    console.error("[LEARNING] Schema migration failed:", String(e).slice(0, 200));
   }
 }
 
