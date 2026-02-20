@@ -225,6 +225,140 @@ function DashboardTab({ dashboard }) {
           )}
         </div>
       </div>
+
+      {/* What the Data Shows — winner profiles */}
+      {dashboard.profiles && dashboard.profiles.length > 0 && (() => {
+        const winners = dashboard.profiles.filter(p => p.profile_type === "winner_move" && p.entry_state !== "ALL").sort((a, b) => (b.sample_count || 0) - (a.sample_count || 0)).slice(0, 5);
+        if (!winners.length) return null;
+        return (
+          <div className="card p-4">
+            <h3 className="text-sm font-semibold text-blue-400 mb-1">What the Data Shows</h3>
+            <p className="text-[10px] text-slate-500 mb-3">Top winning profiles from historical moves — the conditions present when big moves started</p>
+            <div className="space-y-3">
+              {winners.map((w, i) => {
+                const stateLabel = (w.entry_state || "").replace(/HTF_/g, "").replace(/LTF_/g, "").replace(/_/g, " ");
+                return (
+                  <div key={i} className="p-3 rounded-lg bg-white/[0.02] border border-white/[0.04]">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-xs font-semibold text-white">{stateLabel}</span>
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] text-slate-400">{w.sample_count} moves</span>
+                        <span className="text-[10px] font-semibold text-emerald-400">{w.avg_move_atr}x ATR avg</span>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[10px]">
+                      {w.rank_p50 > 0 && <div><span className="text-slate-500">Rank </span><span className="text-white font-medium">{Math.round(w.rank_p25)}–{Math.round(w.rank_p75)}</span></div>}
+                      {w.htf_score_p50 !== 0 && <div><span className="text-slate-500">HTF </span><span className="text-white font-medium">{Math.round(w.htf_score_p25)} to {Math.round(w.htf_score_p75)}</span></div>}
+                      {w.completion_p75 > 0 && <div><span className="text-slate-500">Completion </span><span className="text-white font-medium">≤{Math.round(w.completion_p75 * 100)}%</span></div>}
+                      {w.vix_p50 > 0 && <div><span className="text-slate-500">VIX </span><span className="text-white font-medium">{w.vix_p25?.toFixed(0)}–{w.vix_p75?.toFixed(0)}</span></div>}
+                    </div>
+                    {w.top_signals_json && (() => {
+                      try {
+                        const sigs = typeof w.top_signals_json === "string" ? JSON.parse(w.top_signals_json) : w.top_signals_json;
+                        const sigEntries = Object.entries(sigs).filter(([_, v]) => v > 0).sort((a, b) => b[1] - a[1]);
+                        if (!sigEntries.length) return null;
+                        return <div className="mt-1.5 flex gap-1.5 flex-wrap">{sigEntries.map(([sig, count]) => <span key={sig} className="px-1.5 py-0.5 rounded text-[9px] bg-blue-500/10 text-blue-300">{sig.replace(/_/g, " ")} ({count})</span>)}</div>;
+                      } catch { return null; }
+                    })()}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Applied Adaptations */}
+      {dashboard.applied_adaptations && (
+        <div className="card p-4">
+          <h3 className="text-sm font-semibold text-purple-400 mb-1">Applied Adaptations</h3>
+          <p className="text-[10px] text-slate-500 mb-3">Active learned parameters influencing the scoring and entry engine</p>
+          <div className="space-y-3">
+            {dashboard.applied_adaptations.adaptive_entry_gates && (() => {
+              const gates = dashboard.applied_adaptations.adaptive_entry_gates.value;
+              const entries = Object.entries(gates).filter(([k]) => k !== "_default").slice(0, 6);
+              if (!entries.length) return null;
+              return (
+                <div>
+                  <div className="text-[11px] font-medium text-slate-300 mb-1.5">Per-State Entry Gates</div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    {entries.map(([state, g]) => (
+                      <div key={state} className="text-[10px] p-2 rounded bg-white/[0.02] border border-white/[0.04]">
+                        <span className="text-slate-400">{state.replace(/HTF_/g, "").replace(/LTF_/g, "").replace(/_/g, " ")}</span>
+                        <div className="flex gap-3 mt-1 text-white">
+                          <span>Rank ≥{Math.round(g.min_rank)}</span>
+                          <span>Comp ≤{Math.round(g.max_completion * 100)}%</span>
+                          {g.min_htf_score > 0 && <span>HTF ≥{g.min_htf_score}</span>}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })()}
+            {dashboard.applied_adaptations.adaptive_regime_gates && (() => {
+              const rg = dashboard.applied_adaptations.adaptive_regime_gates.value;
+              const entries = Object.entries(rg);
+              if (!entries.length) return null;
+              return (
+                <div>
+                  <div className="text-[11px] font-medium text-slate-300 mb-1.5">VIX Regime Gates</div>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                    {entries.map(([bucket, g]) => (
+                      <div key={bucket} className="text-[10px] p-2 rounded bg-white/[0.02] border border-white/[0.04]">
+                        <div className="text-slate-400 capitalize mb-1">VIX {bucket} ({g.vix_range?.[0]}–{g.vix_range?.[1]})</div>
+                        <div className="text-white">{g.sample_count}t · {g.win_rate}% WR</div>
+                        {g.block_long && <div className="text-rose-400 font-medium mt-0.5">LONG blocked</div>}
+                        {g.restrict_to_short_only && <div className="text-rose-400 font-medium mt-0.5">SHORT only</div>}
+                        {g.require_rank_boost > 0 && <div className="text-amber-400 mt-0.5">Rank +{g.require_rank_boost}</div>}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })()}
+            {dashboard.applied_adaptations.adaptive_sl_tp && (() => {
+              const sltp = dashboard.applied_adaptations.adaptive_sl_tp.value;
+              const entries = Object.entries(sltp).filter(([k]) => k !== "_default").slice(0, 4);
+              if (!entries.length) return null;
+              return (
+                <div>
+                  <div className="text-[11px] font-medium text-slate-300 mb-1.5">SL/TP per State (ATR)</div>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                    {entries.map(([state, v]) => (
+                      <div key={state} className="text-[10px] p-2 rounded bg-white/[0.02] border border-white/[0.04]">
+                        <div className="text-slate-400 mb-1">{state.replace(/HTF_/g, "").replace(/LTF_/g, "").replace(/_/g, " ")}</div>
+                        <div className="text-white">SL {v.sl_atr} · TP {v.tp_trim_atr}/{v.tp_exit_atr}/{v.tp_runner_atr}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })()}
+            {!dashboard.applied_adaptations.adaptive_entry_gates && !dashboard.applied_adaptations.adaptive_regime_gates && (
+              <p className="text-xs text-slate-500">No adaptive parameters applied yet. Run calibration and click Apply.</p>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* VIX Regime Performance */}
+      {dashboard.vix_buckets && Object.keys(dashboard.vix_buckets).length > 0 && (
+        <div className="card p-4">
+          <h3 className="text-sm font-semibold text-slate-300 mb-3">Performance by VIX Regime</h3>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            {Object.entries(dashboard.vix_buckets).map(([bucket, m]) => (
+              <div key={bucket} className="p-3 rounded-lg bg-white/[0.02] border border-white/[0.04] text-center">
+                <div className="text-[10px] text-slate-500 uppercase mb-1">{bucket}</div>
+                <div className="text-lg font-bold">{m.n || 0}</div>
+                <div className="text-[10px] text-slate-400">trades</div>
+                <div className={`text-xs font-semibold mt-1 ${(m.win_rate || 0) >= 50 ? "text-emerald-400" : "text-rose-400"}`}>{m.win_rate || 0}% WR</div>
+                <div className={`text-[10px] ${(m.expectancy || 0) >= 0 ? "text-emerald-400/70" : "text-rose-400/70"}`}>{m.expectancy || 0} exp</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -395,11 +529,89 @@ function PositionSizingCard({ sizing }) {
   );
 }
 
+function ProfilesCard({ profiles }) {
+  if (!profiles) return <div className="card p-5 text-center text-slate-500 text-xs">No profile data. Run calibration to generate winner/loser profiles.</div>;
+  const types = ["winner_move", "winner_trade", "loser_trade"];
+  const typeLabels = { winner_move: "Winner Moves (Historical)", winner_trade: "Winner Trades", loser_trade: "Loser Trades" };
+  const typeColors = { winner_move: "text-blue-400", winner_trade: "text-emerald-400", loser_trade: "text-rose-400" };
+  return (
+    <div className="space-y-5">
+      {types.map(type => {
+        const items = (profiles.winner_move && Array.isArray(profiles[type === "winner_move" ? "winner_move" : type === "winner_trade" ? "winner_trade" : "loser_trade"])) 
+          ? profiles[type === "winner_move" ? "winner_move" : type === "winner_trade" ? "winner_trade" : "loser_trade"]
+          : (Array.isArray(profiles) ? profiles : []).filter(p => p.profile_type === type);
+        const filtered = items.filter(p => p.entry_state !== "ALL");
+        if (!filtered.length) return null;
+        return (
+          <div key={type} className="card p-5">
+            <h3 className={`text-sm font-semibold mb-3 ${typeColors[type]}`}>{typeLabels[type]}</h3>
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs"><thead><tr className="text-slate-500 border-b border-white/[0.05]">
+                <th className="text-left py-1.5 font-medium">State</th><th className="text-right px-2 font-medium">N</th>
+                <th className="text-right px-2 font-medium">Win%</th><th className="text-right px-2 font-medium">Exp</th>
+                <th className="text-right px-2 font-medium">Avg R</th><th className="text-right px-2 font-medium">Rank(p50)</th>
+                <th className="text-right px-2 font-medium">HTF(p50)</th><th className="text-right px-2 font-medium">Comp(p75)</th>
+                <th className="text-right px-2 font-medium">VIX(p50)</th><th className="text-right px-2 font-medium">ATR</th>
+                <th className="text-right pl-2 font-medium">Days</th>
+              </tr></thead><tbody>
+                {filtered.map((p, i) => (
+                  <tr key={i} className="border-b border-white/[0.03]">
+                    <td className="py-1.5 font-mono text-slate-300 text-[10px]">{(p.entry_state || "").replace(/HTF_/g, "").replace(/LTF_/g, "")}</td>
+                    <td className="text-right px-2">{p.sample_count}</td>
+                    <td className={`text-right px-2 ${p.win_rate >= 50 ? "text-emerald-400" : "text-rose-400"}`}>{p.win_rate}%</td>
+                    <td className={`text-right px-2 ${(p.expectancy || 0) >= 0 ? "text-emerald-400" : "text-rose-400"}`}>{p.expectancy}</td>
+                    <td className="text-right px-2">{p.avg_r}</td>
+                    <td className="text-right px-2">{p.rank_p50 > 0 ? Math.round(p.rank_p50) : "—"}</td>
+                    <td className="text-right px-2">{p.htf_score_p50 ? Math.round(p.htf_score_p50) : "—"}</td>
+                    <td className="text-right px-2">{p.completion_p75 > 0 ? Math.round(p.completion_p75 * 100) + "%" : "—"}</td>
+                    <td className="text-right px-2">{p.vix_p50 > 0 ? p.vix_p50.toFixed(0) : "—"}</td>
+                    <td className="text-right px-2">{p.avg_move_atr || "—"}</td>
+                    <td className="text-right pl-2">{p.avg_duration_days || "—"}</td>
+                  </tr>
+                ))}
+              </tbody></table>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+function VIXRegimeCard({ vixBuckets }) {
+  if (!vixBuckets || !Object.keys(vixBuckets).length) return <div className="card p-5 text-center text-slate-500 text-xs">No VIX regime data. Run calibration with VIX candle data available.</div>;
+  const order = ["low", "medium", "high", "extreme"];
+  const labels = { low: "Low (<15)", medium: "Medium (15–22)", high: "High (22–30)", extreme: "Extreme (30+)" };
+  const colors = { low: "border-emerald-500/30", medium: "border-blue-500/30", high: "border-amber-500/30", extreme: "border-rose-500/30" };
+  return (
+    <div className="card p-5">
+      <h3 className="text-sm font-semibold text-white mb-3">Performance by VIX Regime</h3>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+        {order.filter(b => vixBuckets[b]).map(bucket => {
+          const m = vixBuckets[bucket];
+          return (
+            <div key={bucket} className={`p-4 rounded-lg bg-white/[0.02] border ${colors[bucket]}`}>
+              <div className="text-xs font-semibold text-white mb-2">{labels[bucket]}</div>
+              <div className="space-y-1 text-xs">
+                <div className="flex justify-between"><span className="text-slate-400">Trades</span><span className="text-white font-medium">{m.n || 0}</span></div>
+                <div className="flex justify-between"><span className="text-slate-400">Win Rate</span><span className={`font-medium ${(m.win_rate || 0) >= 50 ? "text-emerald-400" : "text-rose-400"}`}>{m.win_rate || 0}%</span></div>
+                <div className="flex justify-between"><span className="text-slate-400">Expectancy</span><span className={`font-medium ${(m.expectancy || 0) >= 0 ? "text-emerald-400" : "text-rose-400"}`}>{m.expectancy || 0}</span></div>
+                <div className="flex justify-between"><span className="text-slate-400">SQN</span><span className="text-white font-medium">{m.sqn?.toFixed(2) || "—"}</span></div>
+                <div className="flex justify-between"><span className="text-slate-400">Avg R</span><span className={`font-medium ${(m.avg_r || 0) >= 0 ? "text-emerald-400" : "text-rose-400"}`}>{m.avg_r || "—"}</span></div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function CalibrationTab({ report, recs, reportId, onApply, applying, appliedMsg }) {
   const [sub, setSub] = useState("health");
   if (!report) return <div className="card p-12 text-center text-slate-400 text-sm">No calibration report. Run a calibration first.</div>;
   const subs = [
-    { id: "health", label: "Health" }, { id: "paths", label: "Entry Paths" }, { id: "signals", label: "Signals" },
+    { id: "health", label: "Health" }, { id: "paths", label: "Entry Paths" }, { id: "profiles", label: "Profiles" },
+    { id: "vix", label: "VIX Regime" }, { id: "signals", label: "Signals" },
     { id: "sltp", label: "SL/TP" }, { id: "rank", label: "Rank" }, { id: "wfo", label: "Walk-Forward" },
     { id: "missed", label: "Missed" }, { id: "sizing", label: "Sizing" }, { id: "apply", label: "Apply" },
   ];
@@ -412,6 +624,8 @@ function CalibrationTab({ report, recs, reportId, onApply, applying, appliedMsg 
       </div>
       {sub === "health" && <SystemHealthCard health={report.system_health} />}
       {sub === "paths" && <EntryPathsCard paths={report.entry_paths} />}
+      {sub === "profiles" && <ProfilesCard profiles={report.profiles || []} />}
+      {sub === "vix" && <VIXRegimeCard vixBuckets={report.vix_buckets} />}
       {sub === "signals" && <SignalICCard ic={report.signal_ic} />}
       {sub === "sltp" && <SLTPCard sltp={report.sl_tp_calibration} />}
       {sub === "rank" && <RankCard rank={report.rank_optimization} />}
@@ -431,6 +645,18 @@ function CalibrationTab({ report, recs, reportId, onApply, applying, appliedMsg 
             {recs.tp_tiers && <div className="flex justify-between"><span className="text-slate-400">TP Tiers</span><span className="text-white font-medium">Trim {recs.tp_tiers.trim}, Exit {recs.tp_tiers.exit}, Runner {recs.tp_tiers.runner}</span></div>}
             {recs.rank_threshold != null && <div className="flex justify-between"><span className="text-slate-400">Rank Min</span><span className="text-white font-medium">{recs.rank_threshold}</span></div>}
           </div>
+          {(recs.adaptive_entry_gates || recs.adaptive_regime_gates || recs.adaptive_sl_tp) && (
+            <div className="mt-4 pt-3 border-t border-white/[0.06]">
+              <div className="text-[11px] font-semibold text-purple-400 mb-2">Adaptive Learning Parameters</div>
+              <div className="space-y-1.5 text-[10px]">
+                {recs.adaptive_entry_gates && <div className="flex justify-between"><span className="text-slate-400">Entry Gates</span><span className="text-white">{Object.keys(recs.adaptive_entry_gates).filter(k => k !== "_default").length} state-specific gates</span></div>}
+                {recs.adaptive_regime_gates && <div className="flex justify-between"><span className="text-slate-400">VIX Regime Gates</span><span className="text-white">{Object.keys(recs.adaptive_regime_gates).length} regime rules</span></div>}
+                {recs.adaptive_rank_weights && <div className="flex justify-between"><span className="text-slate-400">Rank Weights</span><span className="text-white">Dynamic scoring adjustments</span></div>}
+                {recs.adaptive_sl_tp && <div className="flex justify-between"><span className="text-slate-400">SL/TP per State</span><span className="text-white">{Object.keys(recs.adaptive_sl_tp).filter(k => k !== "_default").length} state profiles</span></div>}
+              </div>
+              <p className="text-[9px] text-slate-500 mt-2">Click "Apply All" to write these adaptive parameters into the live scoring engine.</p>
+            </div>
+          )}
         </div>
       )}
     </div>

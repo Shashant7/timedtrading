@@ -2094,10 +2094,43 @@ function qualifiesForEnter(d, asOfTs = null) {
     return { qualifies: false, reason: "rsi_1h_oversold", rsi1H };
   }
 
-  // Completion gate: must have room to run
-  // Phase 1c: tightened from 50%/70% to 40%/60%
+  // ── ADAPTIVE GATES (loaded from calibration Apply) ──
+  const _aeg = d?._env?._adaptiveEntryGates || null;
+  const _arg = d?._env?._adaptiveRegimeGates || null;
+  const stateGate = _aeg?.[state] || _aeg?.["_default"] || null;
+
+  // Adaptive VIX regime gate
+  if (_arg && d?._vix != null) {
+    const vx = Number(d._vix);
+    let bucket = null;
+    if (vx < 15) bucket = "low";
+    else if (vx < 22) bucket = "medium";
+    else if (vx < 30) bucket = "high";
+    else bucket = "extreme";
+    const rg = _arg[bucket];
+    if (rg) {
+      const inferDir = sideFromStateOrScores(d);
+      if (rg.restrict_to_short_only && inferDir === "LONG") {
+        return { qualifies: false, reason: "vix_regime_short_only", vix: vx, bucket };
+      }
+      if (rg.block_long && inferDir === "LONG") {
+        return { qualifies: false, reason: "vix_regime_block_long", vix: vx, bucket };
+      }
+      if (rg.require_rank_boost > 0 && score < (rg.require_rank_boost + (stateGate?.min_rank || 60))) {
+        return { qualifies: false, reason: "vix_regime_rank_too_low", vix: vx, rank: score };
+      }
+    }
+  }
+
+  // Adaptive per-state rank minimum
+  if (stateGate?.min_rank > 0 && score < stateGate.min_rank) {
+    return { qualifies: false, reason: "adaptive_rank_below_min", rank: score, required: stateGate.min_rank, state };
+  }
+
+  // Completion gate: room to run — uses adaptive max_completion when available
   const isPullback = state === "HTF_BULL_LTF_PULLBACK" || state === "HTF_BEAR_LTF_PULLBACK";
-  const maxCompletion = isPullback ? 0.60 : 0.40;
+  const defaultMaxCompletion = isPullback ? 0.60 : 0.40;
+  const maxCompletion = stateGate?.max_completion ?? defaultMaxCompletion;
   if (completion > maxCompletion) {
     return { qualifies: false, reason: "move_too_advanced" };
   }
@@ -11165,7 +11198,10 @@ async function computeMomentumElite(KV, ticker, payload) {
   return result;
 }
 
+let _activeAdaptiveRankWeights = null;
+
 function computeRank(d) {
+  const aw = _activeAdaptiveRankWeights;
   const htf = Number(d.htf_score);
   const ltf = Number(d.ltf_score);
   const comp = completionForSize(d);
@@ -11186,8 +11222,7 @@ function computeRank(d) {
   const setup =
     state === "HTF_BULL_LTF_PULLBACK" || state === "HTF_BEAR_LTF_PULLBACK";
 
-  // ADJUSTED SCORING: More discriminating, lower base
-  let score = 30; // Reduced from 50 to make scoring more selective
+  let score = 30;
 
   // Data completeness: slightly down-rank incomplete payloads so “Today/Prime” stays sane.
   const completeness = d?.data_completeness || computeDataCompleteness(d);
@@ -11224,41 +11259,38 @@ function computeRank(d) {
   if (aligned) score += 12; // Reduced from 15
   if (setup) score += 4; // Reduced from 5
 
-  // HTF/LTF contributions (more selective - require stronger signals)
+  // HTF/LTF contributions — thresholds adaptive
+  const htfStrong = aw?.htf_strong_threshold ?? 25;
   if (Number.isFinite(htf)) {
     const htfAbs = Math.abs(htf);
-    // Only give full credit for strong HTF signals (>= 25)
-    if (htfAbs >= 25) score += Math.min(10, htfAbs * 0.4);
-    else if (htfAbs >= 15)
-      score += Math.min(7, htfAbs * 0.35); // Reduced for moderate signals
-    else score += Math.min(4, htfAbs * 0.25); // Minimal for weak signals
+    if (htfAbs >= htfStrong) score += Math.min(10, htfAbs * 0.4);
+    else if (htfAbs >= 15) score += Math.min(7, htfAbs * 0.35);
+    else score += Math.min(4, htfAbs * 0.25);
   }
 
+  const ltfStrong = aw?.ltf_strong_threshold ?? 20;
   if (Number.isFinite(ltf)) {
     const ltfAbs = Math.abs(ltf);
-    // Only give full credit for strong LTF signals (>= 20)
-    if (ltfAbs >= 20) score += Math.min(10, ltfAbs * 0.3);
-    else if (ltfAbs >= 12)
-      score += Math.min(6, ltfAbs * 0.25); // Reduced for moderate signals
-    else score += Math.min(3, ltfAbs * 0.2); // Minimal for weak signals
+    if (ltfAbs >= ltfStrong) score += Math.min(10, ltfAbs * 0.3);
+    else if (ltfAbs >= 12) score += Math.min(6, ltfAbs * 0.25);
+    else score += Math.min(3, ltfAbs * 0.2);
   }
 
-  // Completion bonus (reduced and more selective)
+  // Completion bonus — adaptive when available
   if (Number.isFinite(comp)) {
-    // Early completion gets more points, but cap reduced
-    if (comp <= 0.2)
-      score += 15; // Excellent (0-20% completion)
-    else if (comp <= 0.4)
-      score += 10; // Good (20-40% completion)
-    else if (comp <= 0.6) score += 5; // Moderate (40-60% completion)
-    // No bonus for completion > 60%
+    const earlyBonus = aw?.completion_early_bonus ?? 15;
+    const midBonus = aw?.completion_mid_bonus ?? 10;
+    if (comp <= 0.2) score += earlyBonus;
+    else if (comp <= 0.4) score += midBonus;
+    else if (comp <= 0.6) score += 5;
   }
 
-  // Phase penalty (starts earlier, more aggressive)
+  // Phase penalty — adaptive threshold
   if (Number.isFinite(phase)) {
-    if (phase > 0.5) score -= Math.max(0, (phase - 0.5) * 30); // Penalty starts at 50% instead of 60%
-    // Early phase (< 50%) gets small bonus
-    if (phase <= 0.3) score += 3; // Early phase bonus
+    const penaltyStart = aw?.phase_penalty_start ?? 0.5;
+    const penaltyMult = aw?.phase_penalty_mult ?? 30;
+    if (phase > penaltyStart) score -= Math.max(0, (phase - penaltyStart) * penaltyMult);
+    if (phase <= 0.3) score += 3;
   }
 
   // Squeeze bonuses — DATA-DRIVEN adjustment (Phase 1 analysis: squeeze_releases
@@ -11267,35 +11299,25 @@ function computeRank(d) {
   // Squeeze Release (Bear context): 65.5% DOWN, EV -14.4
   // In-squeeze (sq30_on) is more predictive of a pending move than release.
   if (sqRel) {
-    // State-conditional: release in pullback can be a reversal catalyst,
-    // but in aligned states it often precedes reversals (mean reversion).
-    if (setup) score += 6;       // Pullback + squeeze release = potential reversal catalyst
-    else if (aligned) score += 2; // Aligned + release = often precedes mean reversion
-    else score -= 2;              // Bear/neutral + release = bearish expansion
+    if (setup) score += (aw?.squeeze_release_setup_bonus ?? 6);
+    else if (aligned) score += (aw?.squeeze_release_aligned_bonus ?? 2);
+    else score -= 2;
   } else if (sqOn) {
-    score += 5; // Squeeze building is more predictive than release (per entry quality analysis)
+    score += (aw?.squeeze_setup_bonus ?? 5);
   }
 
-  // Phase zone change bonus (reduced)
-  if (phaseZoneChange) score += 2; // Reduced from 3
+  if (phaseZoneChange) score += 2;
 
-  // RR contribution (more selective - requires better RR)
   if (Number.isFinite(rr)) {
-    if (rr >= 2.0)
-      score += 10; // Excellent RR (2.0+)
-    else if (rr >= 1.5)
-      score += 7; // Good RR (1.5-2.0)
-    else if (rr >= 1.2) score += 4; // Acceptable RR (1.2-1.5)
-    // No bonus for RR < 1.2
+    if (rr >= 2.0) score += 10;
+    else if (rr >= 1.5) score += 7;
+    else if (rr >= 1.2) score += 4;
   }
 
-  // Momentum Elite boost (reduced but still significant)
-  if (momentumElite) score += 15; // Reduced from 20
+  if (momentumElite) score += (aw?.momentum_elite_bonus ?? 15);
 
-  // 1H 13/48 cross + buyable-dip nuance
-  // - Cross is a strong pivot/confirmation marker
-  // - Dip-after-cross is a premium pullback entry opportunity
-  if (emaCross1H1348) score += 5;
+  const emaCrossBonus = aw?.ema_cross_bonus ?? 5;
+  if (emaCross1H1348) score += emaCrossBonus;
   if (buyableDip1H1348) score += 7;
 
   // HTF/LTF divergence penalty — DATA-DRIVEN (Phase 1 analysis: htf_ltf_diverging
@@ -13324,8 +13346,22 @@ async function harvestMovesServerSide(env) {
   }
   for (const arr of Object.values(byTicker)) arr.sort((a, b) => a.ts - b.ts);
 
+  // VIX daily candles for regime context
+  let vixCandles = [];
+  try {
+    const vixRes = await db.prepare(`SELECT ts, c FROM ticker_candles WHERE tf='D' AND ticker IN ('VIX','$VIX','VIX.X') ORDER BY ts`).all();
+    vixCandles = (vixRes.results || []).map(r => ({ ts: Number(r.ts), c: Number(r.c) }));
+  } catch (_) {}
+  function getVixAtTs(ts) {
+    if (!vixCandles.length) return null;
+    let closest = null, minDist = Infinity;
+    for (const v of vixCandles) { const d = Math.abs(v.ts - ts); if (d < minDist) { minDist = d; closest = v; } }
+    return (closest && minDist < 5 * 86400000) ? Math.round(closest.c * 100) / 100 : null;
+  }
+
   const { results: trailRows } = await db.prepare(
     `SELECT ticker, bucket_ts, htf_score_avg, ltf_score_avg, state, rank,
+            completion, phase_pct,
             had_squeeze_release, had_ema_cross, had_st_flip, had_momentum_elite
      FROM trail_5m_facts ORDER BY ticker, bucket_ts`
   ).all();
@@ -13364,16 +13400,30 @@ async function harvestMovesServerSide(env) {
           maxExt = Math.max(maxExt, fav); maxPull = Math.max(maxPull, adv);
           mfes.push(fav); maes.push(adv > 0 ? adv : 0);
         }
-        let signalsJson = null, regimeJson = null;
+        let signalsJson = null, regimeJson = null, entryScoringJson = null, vixAtStart = null;
         const trail = trailByTicker[ticker];
         if (trail) {
           const startTs = candles[si].ts;
           let closest = null, minDist = Infinity;
           for (const r of trail) { const d = Math.abs(Number(r.bucket_ts) - startTs); if (d < minDist) { minDist = d; closest = r; } }
           if (closest && minDist < 2 * 86400000) {
-            signalsJson = JSON.stringify({ htf_score: Number(closest.htf_score_avg) || 0, ltf_score: Number(closest.ltf_score_avg) || 0, state: closest.state, rank: Number(closest.rank) || 0, squeeze_release: closest.had_squeeze_release ? 1 : 0, ema_cross: closest.had_ema_cross ? 1 : 0, st_flip: closest.had_st_flip ? 1 : 0, momentum_elite: closest.had_momentum_elite ? 1 : 0 });
+            const scoringData = {
+              htf_score: Number(closest.htf_score_avg) || 0,
+              ltf_score: Number(closest.ltf_score_avg) || 0,
+              state: closest.state || "unknown",
+              rank: Number(closest.rank) || 0,
+              completion: Number(closest.completion) || 0,
+              phase_pct: Number(closest.phase_pct) || 0,
+              squeeze_release: closest.had_squeeze_release ? 1 : 0,
+              ema_cross: closest.had_ema_cross ? 1 : 0,
+              st_flip: closest.had_st_flip ? 1 : 0,
+              momentum_elite: closest.had_momentum_elite ? 1 : 0,
+            };
+            signalsJson = JSON.stringify(scoringData);
+            entryScoringJson = JSON.stringify(scoringData);
           }
         }
+        vixAtStart = getVixAtTs(candles[si].ts);
         const da = daByTicker[ticker];
         if (da) {
           const startTs = candles[si].ts;
@@ -13394,6 +13444,7 @@ async function harvestMovesServerSide(env) {
           tp_p75_atr: Math.round(percentile(mfes, 75) * 100) / 100,
           tp_p90_atr: Math.round(percentile(mfes, 90) * 100) / 100,
           signals_json: signalsJson, regime_json: regimeJson,
+          entry_scoring_json: entryScoringJson, vix_at_start: vixAtStart,
         });
         break;
       }
@@ -13414,8 +13465,8 @@ async function harvestMovesServerSide(env) {
   for (let i = 0; i < deduped.length; i += 50) {
     const chunk = deduped.slice(i, i + 50);
     await db.batch(chunk.map(m => db.prepare(
-      `INSERT OR REPLACE INTO calibration_moves (move_id,ticker,direction,start_ts,end_ts,duration_days,move_pct,move_atr,max_ext_atr,pullback_atr,sl_optimal_atr,tp_p50_atr,tp_p75_atr,tp_p90_atr,signals_json,regime_json,created_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17)`
-    ).bind(m.move_id, m.ticker, m.direction, m.start_ts, m.end_ts, m.duration_days, m.move_pct, m.move_atr, m.max_ext_atr, m.pullback_atr, m.sl_optimal_atr, m.tp_p50_atr, m.tp_p75_atr, m.tp_p90_atr, m.signals_json, m.regime_json, Date.now())));
+      `INSERT OR REPLACE INTO calibration_moves (move_id,ticker,direction,start_ts,end_ts,duration_days,move_pct,move_atr,max_ext_atr,pullback_atr,sl_optimal_atr,tp_p50_atr,tp_p75_atr,tp_p90_atr,signals_json,regime_json,entry_scoring_json,vix_at_start,created_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19)`
+    ).bind(m.move_id, m.ticker, m.direction, m.start_ts, m.end_ts, m.duration_days, m.move_pct, m.move_atr, m.max_ext_atr, m.pullback_atr, m.sl_optimal_atr, m.tp_p50_atr, m.tp_p75_atr, m.tp_p90_atr, m.signals_json, m.regime_json, m.entry_scoring_json, m.vix_at_start, Date.now())));
   }
   return deduped.length;
 }
@@ -13435,6 +13486,29 @@ async function autopsyTradesServerSide(env) {
   if (!rawTrades.length) return 0;
 
   const tickersNeeded = [...new Set(rawTrades.map(t => String(t.ticker).toUpperCase()))];
+
+  // VIX daily candles for regime context
+  let vixCandles = [];
+  try {
+    const vixRes = await db.prepare(`SELECT ts, c FROM ticker_candles WHERE tf='D' AND ticker IN ('VIX','$VIX','VIX.X') ORDER BY ts`).all();
+    vixCandles = (vixRes.results || []).map(r => ({ ts: Number(r.ts), c: Number(r.c) }));
+  } catch (_) {}
+  function getVixAtTs(ts) {
+    if (!vixCandles.length) return null;
+    let closest = null, minDist = Infinity;
+    for (const v of vixCandles) { const d = Math.abs(v.ts - ts); if (d < minDist) { minDist = d; closest = v; } }
+    return (closest && minDist < 5 * 86400000) ? Math.round(closest.c * 100) / 100 : null;
+  }
+
+  // Trail data for scoring snapshot at entry
+  const { results: trailRows } = await db.prepare(
+    `SELECT ticker, bucket_ts, htf_score_avg, ltf_score_avg, state, rank,
+            completion, phase_pct,
+            had_squeeze_release, had_ema_cross, had_st_flip, had_momentum_elite
+     FROM trail_5m_facts ORDER BY ticker, bucket_ts`
+  ).all();
+  const trailByTicker = {};
+  for (const r of trailRows) { const t = String(r.ticker).toUpperCase(); (trailByTicker[t] = trailByTicker[t] || []).push(r); }
 
   const fiveMinByTicker = {};
   const dailyByTicker = {};
@@ -13505,6 +13579,36 @@ async function autopsyTradesServerSide(env) {
     else if (pnlPct <= 0) classification = "bad_entry";
     else classification = "left_money";
 
+    // Scoring snapshot from trail_5m_facts at entry time
+    let htfScoreAtEntry = null, ltfScoreAtEntry = null, stateAtEntry = null;
+    let completionAtEntry = null, phaseAtEntry = null, flagsAtEntry = null;
+    const trailArr = trailByTicker[ticker];
+    if (trailArr) {
+      let closest = null, minDist = Infinity;
+      for (const r of trailArr) { const d = Math.abs(Number(r.bucket_ts) - entryTs); if (d < minDist) { minDist = d; closest = r; } }
+      if (closest && minDist < 2 * 86400000) {
+        htfScoreAtEntry = Number(closest.htf_score_avg) || 0;
+        ltfScoreAtEntry = Number(closest.ltf_score_avg) || 0;
+        stateAtEntry = closest.state || null;
+        completionAtEntry = Number(closest.completion) || 0;
+        phaseAtEntry = Number(closest.phase_pct) || 0;
+        flagsAtEntry = JSON.stringify({
+          squeeze_release: closest.had_squeeze_release ? 1 : 0,
+          ema_cross: closest.had_ema_cross ? 1 : 0,
+          st_flip: closest.had_st_flip ? 1 : 0,
+          momentum_elite: closest.had_momentum_elite ? 1 : 0,
+        });
+      }
+    }
+
+    // Derive entry_path from trail state (more reliable than DA record)
+    let entryPath = trade.da_entry_path || "unknown";
+    if ((!entryPath || entryPath === "unknown") && stateAtEntry) {
+      entryPath = stateAtEntry;
+    }
+
+    const vixAtEntry = getVixAtTs(entryTs);
+
     results.push({
       trade_id: trade.trade_id, ticker, direction, entry_ts: entryTs, exit_ts: exitTs,
       entry_price: entryPrice, exit_price: exitPrice, sl_price: Math.round(slPrice * 100) / 100,
@@ -13513,9 +13617,16 @@ async function autopsyTradesServerSide(env) {
       exit_efficiency: exitEfficiency, sl_hit_before_mfe: slHitBeforeMfe ? 1 : 0,
       time_to_mfe_min: timeToMfeMin, optimal_hold_min: timeToMfeMin,
       classification, entry_signals_json: trade.signal_snapshot_json || null,
-      entry_path: trade.da_entry_path || "unknown",
+      entry_path: entryPath,
       rank_at_entry: Number(trade.rank) || 0,
       regime_at_entry: trade.regime_combined || trade.regime_daily || "unknown",
+      vix_at_entry: vixAtEntry,
+      htf_score_at_entry: htfScoreAtEntry,
+      ltf_score_at_entry: ltfScoreAtEntry,
+      state_at_entry: stateAtEntry,
+      completion_at_entry: completionAtEntry,
+      phase_at_entry: phaseAtEntry,
+      flags_at_entry: flagsAtEntry,
     });
   }
 
@@ -13523,8 +13634,8 @@ async function autopsyTradesServerSide(env) {
   for (let i = 0; i < results.length; i += 50) {
     const chunk = results.slice(i, i + 50);
     await db.batch(chunk.map(t => db.prepare(
-      `INSERT OR REPLACE INTO calibration_trade_autopsy (trade_id,ticker,direction,entry_ts,exit_ts,entry_price,exit_price,sl_price,pnl_pct,r_multiple,mfe_pct,mfe_atr,mae_pct,mae_atr,exit_efficiency,sl_hit_before_mfe,time_to_mfe_min,optimal_hold_min,classification,entry_signals_json,entry_path,rank_at_entry,regime_at_entry,created_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24)`
-    ).bind(t.trade_id, t.ticker, t.direction, t.entry_ts, t.exit_ts, t.entry_price, t.exit_price, t.sl_price, t.pnl_pct, t.r_multiple, t.mfe_pct, t.mfe_atr, t.mae_pct, t.mae_atr, t.exit_efficiency, t.sl_hit_before_mfe, t.time_to_mfe_min, t.optimal_hold_min, t.classification, t.entry_signals_json, t.entry_path, t.rank_at_entry, t.regime_at_entry, Date.now())));
+      `INSERT OR REPLACE INTO calibration_trade_autopsy (trade_id,ticker,direction,entry_ts,exit_ts,entry_price,exit_price,sl_price,pnl_pct,r_multiple,mfe_pct,mfe_atr,mae_pct,mae_atr,exit_efficiency,sl_hit_before_mfe,time_to_mfe_min,optimal_hold_min,classification,entry_signals_json,entry_path,rank_at_entry,regime_at_entry,vix_at_entry,htf_score_at_entry,ltf_score_at_entry,state_at_entry,completion_at_entry,phase_at_entry,flags_at_entry,created_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,?25,?26,?27,?28,?29,?30,?31)`
+    ).bind(t.trade_id, t.ticker, t.direction, t.entry_ts, t.exit_ts, t.entry_price, t.exit_price, t.sl_price, t.pnl_pct, t.r_multiple, t.mfe_pct, t.mfe_atr, t.mae_pct, t.mae_atr, t.exit_efficiency, t.sl_hit_before_mfe, t.time_to_mfe_min, t.optimal_hold_min, t.classification, t.entry_signals_json, t.entry_path, t.rank_at_entry, t.regime_at_entry, t.vix_at_entry, t.htf_score_at_entry, t.ltf_score_at_entry, t.state_at_entry, t.completion_at_entry, t.phase_at_entry, t.flags_at_entry, Date.now())));
   }
   return results.length;
 }
@@ -13735,6 +13846,199 @@ async function runCalibrationAnalysis(env) {
     verdict: systemHealth.out_sample.sqn >= systemHealth.in_sample.sqn * 0.7 ? "PASS" : "WARNING",
   };
 
+  // ═══════════════════════════════════════════════════════════════════════
+  // J. ADAPTIVE LEARNING: Winner/Loser Profile Analysis + Adaptive Params
+  // ═══════════════════════════════════════════════════════════════════════
+
+  function extractScoring(item) {
+    let scoring = null;
+    const raw = item.entry_scoring_json || item.signals_json;
+    if (raw) { try { scoring = typeof raw === "string" ? JSON.parse(raw) : raw; } catch (_) {} }
+    return {
+      state: item.state_at_entry || scoring?.state || item.entry_path || "unknown",
+      rank: item.rank_at_entry ?? scoring?.rank ?? 0,
+      htf_score: item.htf_score_at_entry ?? scoring?.htf_score ?? 0,
+      ltf_score: item.ltf_score_at_entry ?? scoring?.ltf_score ?? 0,
+      completion: item.completion_at_entry ?? scoring?.completion ?? 0,
+      phase_pct: item.phase_at_entry ?? scoring?.phase_pct ?? 0,
+      vix: item.vix_at_entry ?? item.vix_at_start ?? null,
+      squeeze_release: scoring?.squeeze_release ?? 0,
+      ema_cross: scoring?.ema_cross ?? 0,
+      st_flip: scoring?.st_flip ?? 0,
+      momentum_elite: scoring?.momentum_elite ?? 0,
+    };
+  }
+
+  // Build unified items from both moves and trades
+  const winnerMoveItems = moves.filter(m => m.move_atr >= 2.0 && m.duration_days >= 3).map(m => ({
+    ...m, _type: "winner_move", _win: true, _scoring: extractScoring(m),
+  }));
+  const winnerTradeItems = trades.filter(t => (t.pnl_pct || 0) > 0).map(t => ({
+    ...t, _type: "winner_trade", _win: true, _scoring: extractScoring(t),
+  }));
+  const loserTradeItems = trades.filter(t => (t.pnl_pct || 0) <= 0).map(t => ({
+    ...t, _type: "loser_trade", _win: false, _scoring: extractScoring(t),
+  }));
+
+  function buildProfiles(items, profileType) {
+    const byState = {};
+    for (const item of items) {
+      const st = item._scoring.state || "unknown";
+      (byState[st] = byState[st] || []).push(item);
+    }
+    // Also build an "ALL" aggregate
+    byState["ALL"] = items;
+
+    const profiles = [];
+    for (const [state, arr] of Object.entries(byState)) {
+      if (arr.length < 2) continue;
+      const ranks = arr.map(a => a._scoring.rank).filter(v => v > 0).sort((a,b) => a-b);
+      const htfs = arr.map(a => a._scoring.htf_score).filter(v => v !== 0).sort((a,b) => a-b);
+      const ltfs = arr.map(a => a._scoring.ltf_score).filter(v => v !== 0).sort((a,b) => a-b);
+      const comps = arr.map(a => a._scoring.completion).filter(v => v >= 0).sort((a,b) => a-b);
+      const phases = arr.map(a => a._scoring.phase_pct).filter(v => v >= 0).sort((a,b) => a-b);
+      const vixes = arr.map(a => a._scoring.vix).filter(v => v != null && v > 0).sort((a,b) => a-b);
+
+      const signalCounts = {};
+      for (const a of arr) {
+        if (a._scoring.squeeze_release) signalCounts.squeeze_release = (signalCounts.squeeze_release || 0) + 1;
+        if (a._scoring.ema_cross) signalCounts.ema_cross = (signalCounts.ema_cross || 0) + 1;
+        if (a._scoring.st_flip) signalCounts.st_flip = (signalCounts.st_flip || 0) + 1;
+        if (a._scoring.momentum_elite) signalCounts.momentum_elite = (signalCounts.momentum_elite || 0) + 1;
+      }
+
+      let winRate = 0, expectancy = 0, sqn = 0, avgR = 0;
+      if (profileType === "winner_move") {
+        winRate = 100;
+        avgR = arr.reduce((s, a) => s + (a.move_atr || 0), 0) / arr.length;
+      } else {
+        const m = computeMetrics(arr);
+        winRate = m.win_rate; expectancy = m.expectancy; sqn = m.sqn; avgR = m.avg_r;
+      }
+
+      // SL/TP per state from move data
+      const moveMAEs = arr.filter(a => a.mae_atr != null).map(a => a.mae_atr || a.pullback_atr || 0);
+      const moveMFEsLocal = arr.map(a => a.mfe_atr || a.max_ext_atr || a.move_atr || 0);
+
+      profiles.push({
+        profile_id: `${profileType}_${state}_${Date.now()}`,
+        profile_type: profileType,
+        entry_state: state,
+        sample_count: arr.length,
+        win_rate: Math.round(winRate * 10) / 10,
+        expectancy: Math.round(expectancy * 100) / 100,
+        sqn: Math.round(sqn * 100) / 100,
+        avg_r: Math.round(avgR * 100) / 100,
+        rank_p25: percentile(ranks, 25), rank_p50: percentile(ranks, 50), rank_p75: percentile(ranks, 75),
+        htf_score_p25: percentile(htfs, 25), htf_score_p50: percentile(htfs, 50), htf_score_p75: percentile(htfs, 75),
+        ltf_score_p25: percentile(ltfs, 25), ltf_score_p50: percentile(ltfs, 50), ltf_score_p75: percentile(ltfs, 75),
+        completion_p50: percentile(comps, 50), completion_p75: percentile(comps, 75),
+        phase_p50: percentile(phases, 50), phase_p75: percentile(phases, 75),
+        vix_p25: percentile(vixes, 25), vix_p50: percentile(vixes, 50), vix_p75: percentile(vixes, 75),
+        avg_move_atr: Math.round((arr.reduce((s, a) => s + (a.move_atr || a.mfe_atr || 0), 0) / arr.length) * 100) / 100,
+        avg_duration_days: Math.round((arr.reduce((s, a) => s + (a.duration_days || ((a.exit_ts - a.entry_ts) / 86400000) || 0), 0) / arr.length) * 10) / 10,
+        top_signals_json: JSON.stringify(signalCounts),
+        sl_atr: moveMAEs.length >= 3 ? Math.round(percentile(moveMAEs, 75) * 100) / 100 : null,
+        tp_trim_atr: moveMFEsLocal.length >= 3 ? Math.round(percentile(moveMFEsLocal, 50) * 100) / 100 : null,
+        tp_exit_atr: moveMFEsLocal.length >= 3 ? Math.round(percentile(moveMFEsLocal, 75) * 100) / 100 : null,
+        tp_runner_atr: moveMFEsLocal.length >= 3 ? Math.round(percentile(moveMFEsLocal, 90) * 100) / 100 : null,
+      });
+    }
+    return profiles;
+  }
+
+  const winnerMoveProfiles = buildProfiles(winnerMoveItems, "winner_move");
+  const winnerTradeProfiles = buildProfiles(winnerTradeItems, "winner_trade");
+  const loserTradeProfiles = buildProfiles(loserTradeItems, "loser_trade");
+  const allProfiles = [...winnerMoveProfiles, ...winnerTradeProfiles, ...loserTradeProfiles];
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // K. ADAPTIVE PARAMETER GENERATION
+  // ═══════════════════════════════════════════════════════════════════════
+
+  // Per-state entry gates derived from winner profiles
+  const adaptiveEntryGates = {};
+  const adaptiveSLTP = {};
+  for (const wp of winnerMoveProfiles) {
+    if (wp.entry_state === "ALL") continue;
+    const lp = loserTradeProfiles.find(p => p.entry_state === wp.entry_state);
+    const winRankFloor = wp.rank_p25 || 50;
+    const loseRankCeil = lp?.rank_p75 || 100;
+    adaptiveEntryGates[wp.entry_state] = {
+      min_rank: Math.round(Math.max(winRankFloor, bestRankCutoff) * 10) / 10,
+      min_htf_score: Math.round(Math.max(wp.htf_score_p25 || 0, 5)),
+      max_completion: Math.round(Math.min(wp.completion_p75 || 0.6, 0.6) * 100) / 100,
+      max_phase: Math.round(Math.min(wp.phase_p75 || 0.7, 0.7) * 100) / 100,
+      sample_count: wp.sample_count,
+      win_rate: wp.win_rate,
+    };
+    if (wp.sl_atr != null) {
+      adaptiveSLTP[wp.entry_state] = {
+        sl_atr: wp.sl_atr,
+        tp_trim_atr: wp.tp_trim_atr,
+        tp_exit_atr: wp.tp_exit_atr,
+        tp_runner_atr: wp.tp_runner_atr,
+      };
+    }
+  }
+  // Fallback ALL state
+  const allWinnerProfile = winnerMoveProfiles.find(p => p.entry_state === "ALL");
+  if (allWinnerProfile) {
+    adaptiveEntryGates["_default"] = {
+      min_rank: Math.round(Math.max(allWinnerProfile.rank_p25 || 50, bestRankCutoff)),
+      min_htf_score: Math.round(Math.max(allWinnerProfile.htf_score_p25 || 0, 5)),
+      max_completion: Math.round(Math.min(allWinnerProfile.completion_p75 || 0.6, 0.6) * 100) / 100,
+      max_phase: Math.round(Math.min(allWinnerProfile.phase_p75 || 0.7, 0.7) * 100) / 100,
+      sample_count: allWinnerProfile.sample_count,
+    };
+    adaptiveSLTP["_default"] = {
+      sl_atr: allWinnerProfile.sl_atr || slTP.recommended_sl_atr,
+      tp_trim_atr: allWinnerProfile.tp_trim_atr || slTP.recommended_tp_trim_atr,
+      tp_exit_atr: allWinnerProfile.tp_exit_atr || slTP.recommended_tp_exit_atr,
+      tp_runner_atr: allWinnerProfile.tp_runner_atr || slTP.recommended_tp_runner_atr,
+    };
+  }
+
+  // VIX regime gates from combined trade performance
+  const vixBuckets = { low: [], medium: [], high: [], extreme: [] };
+  for (const t of trades) {
+    const s = extractScoring(t);
+    if (s.vix == null) continue;
+    if (s.vix < 15) vixBuckets.low.push(t);
+    else if (s.vix < 22) vixBuckets.medium.push(t);
+    else if (s.vix < 30) vixBuckets.high.push(t);
+    else vixBuckets.extreme.push(t);
+  }
+  const adaptiveRegimeGates = {};
+  for (const [bucket, arr] of Object.entries(vixBuckets)) {
+    if (arr.length < 3) continue;
+    const m = computeMetrics(arr);
+    adaptiveRegimeGates[bucket] = {
+      vix_range: bucket === "low" ? [0, 15] : bucket === "medium" ? [15, 22] : bucket === "high" ? [22, 30] : [30, 100],
+      sample_count: m.n, win_rate: m.win_rate, expectancy: m.expectancy, sqn: m.sqn,
+      block_long: m.expectancy < -0.3 && bucket !== "low",
+      require_rank_boost: m.expectancy < 0 ? 10 : 0,
+      restrict_to_short_only: bucket === "extreme" && m.expectancy < 0,
+    };
+  }
+
+  // Adaptive rank weight adjustments from signal IC and profile data
+  const adaptiveRankWeights = {
+    completion_early_bonus: allWinnerProfile ? Math.min(18, Math.round(15 * (allWinnerProfile.completion_p50 < 0.25 ? 1.2 : 1.0))) : 15,
+    completion_mid_bonus: allWinnerProfile ? Math.min(12, Math.round(10 * (allWinnerProfile.completion_p50 < 0.35 ? 1.1 : 0.9))) : 10,
+    phase_penalty_start: allWinnerProfile ? Math.min(0.6, Math.max(0.4, allWinnerProfile.phase_p75 || 0.5)) : 0.5,
+    phase_penalty_mult: 30,
+    squeeze_setup_bonus: signalIC.ema_cross?.ic > 0.05 ? 7 : 5,
+    squeeze_release_aligned_bonus: 3,
+    squeeze_release_setup_bonus: 6,
+    momentum_elite_bonus: 15,
+    ema_cross_bonus: signalIC.ema_cross?.ic > 0.1 ? 7 : 5,
+    htf_strong_threshold: 25,
+    ltf_strong_threshold: 20,
+    sector_biases: {},
+    signal_weights: newSignalWeights,
+  };
+
   // Build recommendations
   const recommendations = {
     signal_weights: newSignalWeights,
@@ -13747,6 +14051,15 @@ async function runCalibrationAnalysis(env) {
     rank_threshold: bestRankCutoff,
     path_adjustments: pathAdjustments,
     wfo_verdict: wfoSummary.verdict,
+    adaptive_rank_weights: adaptiveRankWeights,
+    adaptive_entry_gates: adaptiveEntryGates,
+    adaptive_regime_gates: adaptiveRegimeGates,
+    adaptive_sl_tp: adaptiveSLTP,
+    profiles_summary: {
+      winner_moves: winnerMoveProfiles.length,
+      winner_trades: winnerTradeProfiles.length,
+      loser_trades: loserTradeProfiles.length,
+    },
   };
 
   const reportJson = {
@@ -13759,6 +14072,9 @@ async function runCalibrationAnalysis(env) {
     position_sizing: positionSizing,
     missed_opportunities: { count: missedMoves, total_moves: moves.length, common_signals: missedSignals },
     wfo_summary: wfoSummary,
+    profiles: { winner_move: winnerMoveProfiles, winner_trade: winnerTradeProfiles, loser_trade: loserTradeProfiles },
+    adaptive_params: { entry_gates: adaptiveEntryGates, regime_gates: adaptiveRegimeGates, rank_weights: adaptiveRankWeights, sl_tp: adaptiveSLTP },
+    vix_buckets: Object.fromEntries(Object.entries(vixBuckets).map(([k, arr]) => [k, computeMetrics(arr)])),
   };
 
   const reportId = `cal_${Date.now()}`;
@@ -13771,6 +14087,17 @@ async function runCalibrationAnalysis(env) {
     reportId, generation, Date.now(), 400, trades.length, moves.length,
     JSON.stringify(reportJson), JSON.stringify(recommendations)
   ).run();
+
+  // Persist profiles to calibration_profiles
+  if (allProfiles.length) {
+    await db.prepare(`DELETE FROM calibration_profiles WHERE generation < ?1`).bind(generation).run();
+    for (let i = 0; i < allProfiles.length; i += 25) {
+      const chunk = allProfiles.slice(i, i + 25);
+      await db.batch(chunk.map(p => db.prepare(
+        `INSERT OR REPLACE INTO calibration_profiles (profile_id,generation,profile_type,entry_state,sample_count,win_rate,expectancy,sqn,avg_r,rank_p25,rank_p50,rank_p75,htf_score_p25,htf_score_p50,htf_score_p75,ltf_score_p25,ltf_score_p50,ltf_score_p75,completion_p50,completion_p75,phase_p50,phase_p75,vix_p25,vix_p50,vix_p75,avg_move_atr,avg_duration_days,top_signals_json,sl_atr,tp_trim_atr,tp_exit_atr,tp_runner_atr) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,?25,?26,?27,?28,?29,?30,?31,?32)`
+      ).bind(p.profile_id, generation, p.profile_type, p.entry_state, p.sample_count, p.win_rate, p.expectancy, p.sqn, p.avg_r, p.rank_p25, p.rank_p50, p.rank_p75, p.htf_score_p25, p.htf_score_p50, p.htf_score_p75, p.ltf_score_p25, p.ltf_score_p50, p.ltf_score_p75, p.completion_p50, p.completion_p75, p.phase_p50, p.phase_p75, p.vix_p25, p.vix_p50, p.vix_p75, p.avg_move_atr, p.avg_duration_days, p.top_signals_json, p.sl_atr, p.tp_trim_atr, p.tp_exit_atr, p.tp_runner_atr)));
+    }
+  }
 
   return { report_id: reportId, ...reportJson, recommendations };
 }
@@ -13851,8 +14178,38 @@ async function d1EnsureCalibrationSchema(env) {
       db.prepare(`CREATE INDEX IF NOT EXISTS idx_cta_class ON calibration_trade_autopsy (classification)`),
       db.prepare(`CREATE INDEX IF NOT EXISTS idx_cr_run ON calibration_report (run_ts)`),
     ]);
-    // Migration: add generation column for existing DBs
+    // Migrations for existing DBs
     try { await db.prepare(`ALTER TABLE calibration_report ADD COLUMN generation INTEGER`).run(); } catch (_) {}
+    try { await db.prepare(`ALTER TABLE calibration_moves ADD COLUMN entry_scoring_json TEXT`).run(); } catch (_) {}
+    try { await db.prepare(`ALTER TABLE calibration_moves ADD COLUMN vix_at_start REAL`).run(); } catch (_) {}
+    try { await db.prepare(`ALTER TABLE calibration_trade_autopsy ADD COLUMN vix_at_entry REAL`).run(); } catch (_) {}
+    try { await db.prepare(`ALTER TABLE calibration_trade_autopsy ADD COLUMN htf_score_at_entry REAL`).run(); } catch (_) {}
+    try { await db.prepare(`ALTER TABLE calibration_trade_autopsy ADD COLUMN ltf_score_at_entry REAL`).run(); } catch (_) {}
+    try { await db.prepare(`ALTER TABLE calibration_trade_autopsy ADD COLUMN state_at_entry TEXT`).run(); } catch (_) {}
+    try { await db.prepare(`ALTER TABLE calibration_trade_autopsy ADD COLUMN completion_at_entry REAL`).run(); } catch (_) {}
+    try { await db.prepare(`ALTER TABLE calibration_trade_autopsy ADD COLUMN phase_at_entry REAL`).run(); } catch (_) {}
+    try { await db.prepare(`ALTER TABLE calibration_trade_autopsy ADD COLUMN flags_at_entry TEXT`).run(); } catch (_) {}
+    // Calibration profiles table
+    try {
+      await db.prepare(`CREATE TABLE IF NOT EXISTS calibration_profiles (
+        profile_id TEXT PRIMARY KEY,
+        generation INTEGER,
+        profile_type TEXT NOT NULL,
+        entry_state TEXT,
+        sample_count INTEGER,
+        win_rate REAL, expectancy REAL, sqn REAL, avg_r REAL,
+        rank_p25 REAL, rank_p50 REAL, rank_p75 REAL,
+        htf_score_p25 REAL, htf_score_p50 REAL, htf_score_p75 REAL,
+        ltf_score_p25 REAL, ltf_score_p50 REAL, ltf_score_p75 REAL,
+        completion_p50 REAL, completion_p75 REAL,
+        phase_p50 REAL, phase_p75 REAL,
+        vix_p25 REAL, vix_p50 REAL, vix_p75 REAL,
+        avg_move_atr REAL, avg_duration_days REAL,
+        top_signals_json TEXT,
+        sl_atr REAL, tp_trim_atr REAL, tp_exit_atr REAL, tp_runner_atr REAL,
+        created_at INTEGER NOT NULL DEFAULT (unixepoch())
+      )`).run();
+    } catch (_) {}
     _calibSchemaReady = true;
   } catch (e) {
     console.error("[CALIBRATION] Schema migration failed:", String(e).slice(0, 200));
@@ -30626,6 +30983,35 @@ export default {
               }
             }
           }
+          // Adaptive Learning Engine: write full adaptive config
+          if (recs.adaptive_rank_weights) {
+            await db.prepare(
+              `INSERT OR REPLACE INTO model_config (config_key, config_value, description, updated_at, updated_by)
+               VALUES ('adaptive_rank_weights', ?1, 'Learned rank weights from calibration profiles', ?2, 'calibration')`
+            ).bind(JSON.stringify(recs.adaptive_rank_weights), now).run();
+            applied.push("adaptive_rank_weights");
+          }
+          if (recs.adaptive_entry_gates) {
+            await db.prepare(
+              `INSERT OR REPLACE INTO model_config (config_key, config_value, description, updated_at, updated_by)
+               VALUES ('adaptive_entry_gates', ?1, 'Per-state entry gates from winner profiles', ?2, 'calibration')`
+            ).bind(JSON.stringify(recs.adaptive_entry_gates), now).run();
+            applied.push("adaptive_entry_gates");
+          }
+          if (recs.adaptive_regime_gates) {
+            await db.prepare(
+              `INSERT OR REPLACE INTO model_config (config_key, config_value, description, updated_at, updated_by)
+               VALUES ('adaptive_regime_gates', ?1, 'VIX regime conditional gates from trade performance', ?2, 'calibration')`
+            ).bind(JSON.stringify(recs.adaptive_regime_gates), now).run();
+            applied.push("adaptive_regime_gates");
+          }
+          if (recs.adaptive_sl_tp) {
+            await db.prepare(
+              `INSERT OR REPLACE INTO model_config (config_key, config_value, description, updated_at, updated_by)
+               VALUES ('adaptive_sl_tp', ?1, 'Per-state SL/TP in ATR multiples from move profiles', ?2, 'calibration')`
+            ).bind(JSON.stringify(recs.adaptive_sl_tp), now).run();
+            applied.push("adaptive_sl_tp");
+          }
           await db.prepare(
             `UPDATE calibration_report SET applied_at = ?1, applied_by = 'admin' WHERE report_id = ?2`
           ).bind(now, reportId).run();
@@ -30727,6 +31113,30 @@ export default {
           working.sort((a, b) => (b.expectancy || 0) - (a.expectancy || 0));
           caution.sort((a, b) => (a.expectancy || 0) - (b.expectancy || 0));
 
+          // Adaptive Learning: profiles, adaptations, VIX buckets
+          let profiles = null, adaptiveParams = null, vixBuckets = null;
+          try {
+            const profRows = (await db.prepare(`SELECT * FROM calibration_profiles ORDER BY profile_type, entry_state`).all()).results;
+            if (profRows?.length) profiles = profRows;
+          } catch (_) {}
+          adaptiveParams = currentReport?.adaptive_params || null;
+          vixBuckets = currentReport?.vix_buckets || null;
+
+          // Load applied adaptive config from model_config
+          let appliedAdaptations = null;
+          try {
+            const keys = ["adaptive_rank_weights", "adaptive_entry_gates", "adaptive_regime_gates", "adaptive_sl_tp"];
+            const cfgResults = await db.batch(keys.map(k => db.prepare(`SELECT config_key, config_value, updated_at FROM model_config WHERE config_key=?1`).bind(k)));
+            const applied = {};
+            for (let i = 0; i < keys.length; i++) {
+              const row = cfgResults[i]?.results?.[0];
+              if (row?.config_value) {
+                try { applied[keys[i]] = { value: JSON.parse(row.config_value), updated_at: row.updated_at }; } catch (_) {}
+              }
+            }
+            if (Object.keys(applied).length) appliedAdaptations = applied;
+          } catch (_) {}
+
           return sendJSON({
             ok: true,
             summary,
@@ -30735,6 +31145,10 @@ export default {
             direction_accuracy: directionAccuracy,
             whats_working: working.slice(0, 5),
             proceed_with_caution: caution.slice(0, 5),
+            profiles,
+            adaptive_params: adaptiveParams,
+            vix_buckets: vixBuckets,
+            applied_adaptations: appliedAdaptations,
           }, 200, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
@@ -39440,6 +39854,37 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           _livePricesCache = lpRaw?.prices || null;
         } catch (_) {}
 
+        // Load adaptive config from model_config (written by calibration Apply)
+        let _adaptiveRankWeights = null, _adaptiveEntryGates = null, _adaptiveRegimeGates = null, _adaptiveSLTP = null;
+        try {
+          const db = env?.DB;
+          if (db) {
+            const cfgRows = await db.batch([
+              db.prepare(`SELECT config_value FROM model_config WHERE config_key='adaptive_rank_weights'`),
+              db.prepare(`SELECT config_value FROM model_config WHERE config_key='adaptive_entry_gates'`),
+              db.prepare(`SELECT config_value FROM model_config WHERE config_key='adaptive_regime_gates'`),
+              db.prepare(`SELECT config_value FROM model_config WHERE config_key='adaptive_sl_tp'`),
+            ]);
+            if (cfgRows[0]?.results?.[0]?.config_value) _adaptiveRankWeights = JSON.parse(cfgRows[0].results[0].config_value);
+            if (cfgRows[1]?.results?.[0]?.config_value) _adaptiveEntryGates = JSON.parse(cfgRows[1].results[0].config_value);
+            if (cfgRows[2]?.results?.[0]?.config_value) _adaptiveRegimeGates = JSON.parse(cfgRows[2].results[0].config_value);
+            if (cfgRows[3]?.results?.[0]?.config_value) _adaptiveSLTP = JSON.parse(cfgRows[3].results[0].config_value);
+          }
+        } catch (_) {}
+        // Store on env for access in qualifiesForEnter, and module-level for computeRank
+        _activeAdaptiveRankWeights = _adaptiveRankWeights;
+        env._adaptiveEntryGates = _adaptiveEntryGates;
+        env._adaptiveRegimeGates = _adaptiveRegimeGates;
+        env._adaptiveSLTP = _adaptiveSLTP;
+
+        // Load current VIX once for regime gates
+        let _currentVix = null;
+        try {
+          const vixData = await kvGetJSON(KV, "timed:latest:VIX");
+          if (vixData?.price) _currentVix = Number(vixData.price);
+        } catch (_) {}
+        env._currentVix = _currentVix;
+
         // Priority: open positions first, then everything else
         const tickersToScore = [];
         for (const t of openTickerSet) {
@@ -39506,10 +39951,14 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             // Without this, qualifiesForEnter blocks entries after 7 days (trigger_stale).
             result.trigger_ts = now;
 
-            // Compute rank/score — computeServerSideScores builds technical data
-            // but doesn't score; computeRank produces the 0-100 composite score.
             result.rank = computeRank(result);
             result.score = result.rank;
+
+            // Inject adaptive config + VIX for qualifiesForEnter downstream
+            if (env._adaptiveEntryGates || env._adaptiveRegimeGates) {
+              result._env = { _adaptiveEntryGates: env._adaptiveEntryGates, _adaptiveRegimeGates: env._adaptiveRegimeGates };
+            }
+            if (env._currentVix != null) result._vix = env._currentVix;
 
             // Overnight signal injection (throttled to once/day)
             try {
