@@ -2347,6 +2347,125 @@
         }, "Total Score"), /*#__PURE__*/React.createElement("span", {
           className: "text-blue-400 font-bold text-base"
         }, Number.isFinite(breakdown.total) ? breakdown.total.toFixed(1) : "—")))) : null;
+      })(), (() => {
+        const htf = Number(ticker?.htf_score) || 0;
+        const ltf = Number(ticker?.ltf_score) || 0;
+        const domainMax = 50;
+        const size = 140;
+        const margin = 10;
+        const plot = size - 2 * margin;
+        const scale = plot / (2 * domainMax);
+        const ox = margin;
+        const oy = margin;
+        const toX = l => ox + (l + domainMax) * scale;
+        const toY = h => oy + (domainMax - h) * scale;
+        const trail = Array.isArray(bubbleJourney) ? bubbleJourney : [];
+        const trailPts = trail.slice(-40).map(p => ({
+          x: toX(Number(p?.ltf_score) || 0),
+          y: toY(Number(p?.htf_score) || 0)
+        })).filter(pt => Number.isFinite(pt.x) && Number.isFinite(pt.y));
+        const cx = toX(ltf);
+        const cy = toY(htf);
+        const bubbleColor = htf > 0 ? "#22c55e" : "#ef4444";
+        const pathD = trailPts.length > 1 ? trailPts.reduce((acc, pt, i) => acc + (i === 0 ? `M ${pt.x} ${pt.y}` : ` L ${pt.x} ${pt.y}`), "") : null;
+        return /*#__PURE__*/React.createElement("div", {
+          className: "border-t border-white/[0.06] my-3 pt-3"
+        }, /*#__PURE__*/React.createElement("div", {
+          className: "text-[10px] text-[#6b7280] font-semibold mb-2"
+        }, "Bubble Chart"), /*#__PURE__*/React.createElement("div", {
+          className: "rounded-lg border border-white/[0.08] bg-white/[0.02] overflow-hidden",
+          style: {
+            width: size,
+            height: size
+          }
+        }, /*#__PURE__*/React.createElement("svg", {
+          width: size,
+          height: size,
+          viewBox: `0 0 ${size} ${size}`,
+          className: "block"
+        }, /*#__PURE__*/React.createElement("defs", null, /*#__PURE__*/React.createElement("pattern", {
+          id: "rr-grid-mini",
+          width: "20",
+          height: "20",
+          patternUnits: "userSpaceOnUse"
+        }, /*#__PURE__*/React.createElement("path", {
+          d: "M 20 0 L 0 0 0 20",
+          fill: "none",
+          stroke: "#252b36",
+          strokeWidth: "0.5",
+          opacity: "0.5"
+        }))), /*#__PURE__*/React.createElement("rect", {
+          width: "100%",
+          height: "100%",
+          fill: "url(#rr-grid-mini)"
+        }), /*#__PURE__*/React.createElement("rect", {
+          x: ox,
+          y: oy,
+          width: plot / 2,
+          height: plot / 2,
+          fill: "rgba(34,197,94,0.08)",
+          stroke: "none"
+        }), /*#__PURE__*/React.createElement("rect", {
+          x: ox + plot / 2,
+          y: oy,
+          width: plot / 2,
+          height: plot / 2,
+          fill: "rgba(34,197,94,0.08)",
+          stroke: "none"
+        }), /*#__PURE__*/React.createElement("rect", {
+          x: ox,
+          y: oy + plot / 2,
+          width: plot / 2,
+          height: plot / 2,
+          fill: "rgba(239,68,68,0.08)",
+          stroke: "none"
+        }), /*#__PURE__*/React.createElement("rect", {
+          x: ox + plot / 2,
+          y: oy + plot / 2,
+          width: plot / 2,
+          height: plot / 2,
+          fill: "rgba(239,68,68,0.08)",
+          stroke: "none"
+        }), /*#__PURE__*/React.createElement("line", {
+          x1: ox + plot / 2,
+          y1: oy,
+          x2: ox + plot / 2,
+          y2: oy + plot,
+          stroke: "#8b92a0",
+          strokeWidth: "1",
+          opacity: "0.6"
+        }), /*#__PURE__*/React.createElement("line", {
+          x1: ox,
+          y1: oy + plot / 2,
+          x2: ox + plot,
+          y2: oy + plot / 2,
+          stroke: "#8b92a0",
+          strokeWidth: "1",
+          opacity: "0.6"
+        }), pathD && /*#__PURE__*/React.createElement("path", {
+          d: pathD,
+          fill: "none",
+          stroke: "#eab308",
+          strokeWidth: "1.5",
+          strokeDasharray: "2 2",
+          opacity: "0.7"
+        }), trailPts.slice(0, -1).map((pt, idx) => /*#__PURE__*/React.createElement("circle", {
+          key: `j-${idx}`,
+          cx: pt.x,
+          cy: pt.y,
+          r: "2",
+          fill: "#eab308",
+          fillOpacity: 0.3 + idx / trailPts.length * 0.4,
+          stroke: "none"
+        })), /*#__PURE__*/React.createElement("circle", {
+          cx: cx,
+          cy: cy,
+          r: "6",
+          fill: bubbleColor,
+          fillOpacity: "0.9",
+          stroke: "#fff",
+          strokeWidth: "1.2"
+        }))));
       })())) : null, railTab === "TECHNICALS" ? /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
         className: "mt-6 pt-6 border-t-2 border-white/[0.06]"
       }, /*#__PURE__*/React.createElement("div", {

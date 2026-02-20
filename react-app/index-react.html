@@ -7637,7 +7637,23 @@
           };
         }
 
-        // Default: wait
+        // Default: wait (avoid "Setup Not Optimal" when Prime — use entry-timing wording instead)
+        if (isPrime) {
+          return {
+            action: "Wait for Entry - Prime Setup",
+            description: `This is a Prime (high-quality) setup, but entry conditions are not yet aligned. ${
+              momentumElite ? "Momentum Elite status is positive. " : ""
+            }${
+              !inCorridor ? "Price needs to enter entry corridor. " : ""
+            }${!isAligned ? "Timeframes need better alignment. " : ""}${
+              comp > 0.5
+                ? `Completion is high (${(comp * 100).toFixed(0)}%), reducing upside potential. `
+                : ""
+            }Wait for corridor alignment, confirmation patterns, or better timing before entering.`,
+            color: "text-[#6b7280]",
+            bg: "bg-white/[0.04]",
+          };
+        }
         return {
           action: "Wait - Setup Not Optimal",
           description: `Setup not yet optimal for entry. ${

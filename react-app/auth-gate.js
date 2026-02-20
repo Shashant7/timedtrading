@@ -377,10 +377,6 @@
       },
     },
       h("div", { style: { width: "100%", maxWidth: "480px", padding: "40px", textAlign: "center" } },
-        // Logo
-        h("div", { style: { marginBottom: "24px" } },
-          h("img", { src: "/logo.svg", alt: "Timed Trading", style: { height: "40px", opacity: 0.9 } }),
-        ),
         // Badge
         h("span", {
           style: {
@@ -1239,7 +1235,14 @@
     const [unreadCount, setUnreadCount] = React.useState(0);
     const [loading, setLoading] = React.useState(false);
     const [selectedNotification, setSelectedNotification] = React.useState(null); // modal
+    const [filter, setFilter] = React.useState("all"); // "all" | "trade_alerts"
     const bellRef = React.useRef(null);
+
+    const TRADE_ALERT_TYPES = ["trade_entry", "trade_exit", "trade_trim"];
+    const filteredNotifications = filter === "trade_alerts"
+      ? notifications.filter(n => TRADE_ALERT_TYPES.includes(n.type))
+      : notifications;
+    const tradeAlertsCount = notifications.filter(n => TRADE_ALERT_TYPES.includes(n.type)).length;
 
     // Type-to-icon color mapping
     const typeColors = {
@@ -1482,13 +1485,40 @@
             }, "Clear All"),
           ),
         ),
+        // Trade Alerts filter tabs
+        h("div", {
+          style: {
+            display: "flex", gap: "4px", padding: "8px 16px",
+            borderBottom: "1px solid rgba(255,255,255,0.04)",
+          },
+        },
+          h("button", {
+            onClick: () => setFilter("all"),
+            style: {
+              padding: "4px 10px", borderRadius: "6px", fontSize: "11px", fontWeight: "500",
+              background: filter === "all" ? "rgba(255,255,255,0.08)" : "transparent",
+              color: filter === "all" ? "#e5e7eb" : "#6b7280",
+              border: "none", cursor: "pointer",
+            },
+          }, "All"),
+          h("button", {
+            onClick: () => setFilter("trade_alerts"),
+            style: {
+              padding: "4px 10px", borderRadius: "6px", fontSize: "11px", fontWeight: "500",
+              background: filter === "trade_alerts" ? "rgba(0,200,83,0.12)" : "transparent",
+              color: filter === "trade_alerts" ? "#00c853" : "#6b7280",
+              border: "none", cursor: "pointer",
+            },
+          }, "Trade Alerts" + (tradeAlertsCount > 0 ? " (" + tradeAlertsCount + ")" : "")),
+        ),
         // List
         h("div", { style: { overflowY: "auto", maxHeight: "360px" } },
-          notifications.length === 0
+          filteredNotifications.length === 0
             ? h("div", { style: { padding: "32px 16px", textAlign: "center" } },
-                h("p", { style: { fontSize: "13px", color: "#4b5563" } }, "No notifications yet"),
+                h("p", { style: { fontSize: "13px", color: "#4b5563" } },
+                  filter === "trade_alerts" ? "No trade alerts" : "No notifications yet"),
               )
-            : notifications.map(n =>
+            : filteredNotifications.map(n =>
                 h("div", {
                   key: n.id,
                   onClick: () => handleClick(n),

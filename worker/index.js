@@ -21768,7 +21768,6 @@ export default {
             // ── Fill gaps: tickers in SECTOR_MAP but missing from snapshot ──
             // Catches tickers like SPX that have D1 data but may lack a
             // timed:latest entry due to KV eventual consistency.
-            // ── Fill gaps: tickers in SECTOR_MAP but missing from snapshot ──
             if (env?.DB) {
               const missingSyms = [...activeSet].filter(s => !data[s]);
               for (const sym of missingSyms) {
@@ -21778,20 +21777,29 @@ export default {
                     data[sym] = kvPayload;
                     continue;
                   }
-                  const row = await env.DB.prepare(
-                    `SELECT ts, o, h, l, c FROM ticker_candles WHERE ticker = ?1 AND tf = 'D' ORDER BY ts DESC LIMIT 2`
+                  const todayNY = currentTradingDayKey();
+                  const cutoffMs = todayNY
+                    ? (nyWallTimeToUtcMs(todayNY, 0, 0, 0) || new Date(todayNY + "T00:00:00Z").getTime())
+                    : 0;
+                  const latestRow = await env.DB.prepare(
+                    `SELECT ts, o, h, l, c FROM ticker_candles WHERE ticker = ?1 AND tf = 'D' ORDER BY ts DESC LIMIT 1`
                   ).bind(sym).all();
-                  if (row?.results?.length >= 1) {
-                    const latest = row.results[0];
-                    const prev = row.results.length >= 2 ? row.results[1] : null;
+                  let prevClose = 0;
+                  if (cutoffMs > 0) {
+                    const prevRow = await env.DB.prepare(
+                      `SELECT c FROM ticker_candles WHERE ticker = ?1 AND tf = 'D' AND ts < ?2 ORDER BY ts DESC LIMIT 1`
+                    ).bind(sym, cutoffMs).all();
+                    if (prevRow?.results?.[0]) prevClose = Number(prevRow.results[0].c) || 0;
+                  }
+                  if (latestRow?.results?.length >= 1) {
+                    const latest = latestRow.results[0];
                     const price = Number(latest.c);
                     if (price > 0) {
-                      const prevClose = prev ? Number(prev.c) : 0;
                       data[sym] = {
                         ticker: sym, ts: Number(latest.ts), price, close: price,
                         open: Number(latest.o) || price, high: Number(latest.h) || price,
                         low: Number(latest.l) || price,
-                        prev_close: prevClose || undefined,
+                        prev_close: prevClose > 0 ? prevClose : undefined,
                         day_change: prevClose > 0 ? price - prevClose : undefined,
                         day_change_pct: prevClose > 0 ? ((price - prevClose) / prevClose) * 100 : undefined,
                         ingest_kind: "d1_gap_fill",
@@ -21832,8 +21840,10 @@ export default {
                       ? (nyWallTimeToUtcMs(todayNY, 0, 0, 0) || new Date(todayNY + "T00:00:00Z").getTime())
                       : Date.now();
                     const dcRows = await env.DB.prepare(
-                      `SELECT ticker, c, MAX(ts) as latest_ts FROM ticker_candles
-                       WHERE tf = 'D' AND ts < ?1 GROUP BY ticker`
+                      `WITH ranked AS (
+                        SELECT ticker, c, ROW_NUMBER() OVER (PARTITION BY ticker ORDER BY ts DESC) as rn
+                        FROM ticker_candles WHERE tf = 'D' AND ts < ?1
+                      ) SELECT ticker, c FROM ranked WHERE rn = 1`
                     ).bind(cutoffMs).all();
                     for (const r of (dcRows?.results || [])) {
                       const sym = String(r.ticker).toUpperCase();
@@ -21997,53 +22007,57 @@ export default {
             } catch (_) { /* non-critical — serve snapshot with original block reasons */ }
 
             // ── Daily-candle close overlay ──
-            // Use the last two daily candles per ticker to set an authoritative
-            // close price (most recent candle) and prev_close (prior candle).
-            // This ensures correct daily change values regardless of live-feed
-            // staleness, both during RTH and after hours.
+            // prev_close = previous *trading day* close. Use ts < today-midnight-ET so we get the
+            // last closed day's candle (fixes AEHR and others when "second row" was wrong).
+            // Use row-with-max-ts per ticker so c is the close from that candle, not arbitrary.
             try {
               if (env?.DB) {
                 const rthOpen = isNyRegularMarketOpen();
-                const candleRows = await env.DB.prepare(
-                  `WITH deduped AS (
-                    SELECT ticker, ts, c,
-                      ROW_NUMBER() OVER (PARTITION BY ticker, CAST(ts / 86400000 AS INTEGER) ORDER BY ts DESC) as day_rn
-                    FROM ticker_candles WHERE tf = 'D'
-                  )
-                  SELECT ticker, ts, c FROM (
-                    SELECT ticker, ts, c, ROW_NUMBER() OVER (PARTITION BY ticker ORDER BY ts DESC) as rn
-                    FROM deduped WHERE day_rn = 1
-                  ) WHERE rn <= 2
-                  ORDER BY ticker, ts DESC`
-                ).all();
-                const candleMap = {};
-                for (const r of (candleRows?.results || [])) {
-                  const sym = String(r.ticker).toUpperCase();
-                  if (!candleMap[sym]) candleMap[sym] = [];
-                  candleMap[sym].push({ ts: Number(r.ts), c: Number(r.c) });
-                }
-                for (const [sym, candles] of Object.entries(candleMap)) {
-                  if (!data[sym]) continue;
-                  const obj = data[sym];
-                  const todayCandle = candles[0];
-                  const prevCandle = candles[1];
-                  if (!todayCandle || !Number.isFinite(todayCandle.c) || todayCandle.c <= 0) continue;
-
-                  // When market is closed, use daily candle close as the authoritative price
-                  // unless a live price was updated within the last 30 min (AH feed).
-                  const liveFreshMs = obj._price_updated_at
-                    ? Date.now() - obj._price_updated_at
-                    : Infinity;
-                  const liveFresh = liveFreshMs < 30 * 60 * 1000;
-                  if (!rthOpen && !liveFresh) {
-                    obj.price = todayCandle.c;
-                    obj.close = todayCandle.c;
+                const todayNY = currentTradingDayKey();
+                const cutoffMs = todayNY
+                  ? (nyWallTimeToUtcMs(todayNY, 0, 0, 0) || new Date(todayNY + "T00:00:00Z").getTime())
+                  : 0;
+                const prevCloseByTicker = {};
+                if (cutoffMs > 0) {
+                  const prevRows = await env.DB.prepare(
+                    `WITH ranked AS (
+                      SELECT ticker, c, ROW_NUMBER() OVER (PARTITION BY ticker ORDER BY ts DESC) as rn
+                      FROM ticker_candles WHERE tf = 'D' AND ts < ?1
+                    ) SELECT ticker, c FROM ranked WHERE rn = 1`
+                  ).bind(cutoffMs).all();
+                  for (const r of (prevRows?.results || [])) {
+                    const sym = String(r.ticker).toUpperCase();
+                    const c = Number(r.c);
+                    if (Number.isFinite(c) && c > 0) prevCloseByTicker[sym] = c;
                   }
-
-                  // Use prior daily candle for prev_close when available
-                  if (prevCandle && Number.isFinite(prevCandle.c) && prevCandle.c > 0) {
-                    const effectivePrice = Number(obj.price) || todayCandle.c;
-                    const pc = prevCandle.c;
+                }
+                // Latest candle per ticker (for "today" close when market closed)
+                const latestRows = await env.DB.prepare(
+                  `WITH ranked AS (
+                    SELECT ticker, c, ts, ROW_NUMBER() OVER (PARTITION BY ticker ORDER BY ts DESC) as rn
+                    FROM ticker_candles WHERE tf = 'D'
+                  ) SELECT ticker, c FROM ranked WHERE rn = 1`
+                ).all();
+                const latestByTicker = {};
+                for (const r of (latestRows?.results || [])) {
+                  const sym = String(r.ticker).toUpperCase();
+                  const c = Number(r.c);
+                  if (Number.isFinite(c) && c > 0) latestByTicker[sym] = c;
+                }
+                for (const sym of Object.keys(data)) {
+                  const obj = data[sym];
+                  const todayClose = latestByTicker[sym];
+                  const pc = prevCloseByTicker[sym];
+                  if (todayClose > 0) {
+                    const liveFreshMs = obj._price_updated_at ? Date.now() - obj._price_updated_at : Infinity;
+                    const liveFresh = liveFreshMs < 30 * 60 * 1000;
+                    if (!rthOpen && !liveFresh) {
+                      obj.price = todayClose;
+                      obj.close = todayClose;
+                    }
+                  }
+                  if (pc > 0) {
+                    const effectivePrice = Number(obj.price) || obj.close || 0;
                     if (effectivePrice > 0 && Math.abs((effectivePrice - pc) / pc * 100) < 30) {
                       obj.prev_close = pc;
                       obj._live_prev_close = pc;
