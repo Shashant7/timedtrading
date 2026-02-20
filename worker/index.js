@@ -481,6 +481,7 @@ const ROUTES = [
   ["POST", "/timed/calibration/upload-autopsy", "POST /timed/calibration/upload-autopsy"],
   ["POST", "/timed/calibration/run", "POST /timed/calibration/run"],
   ["GET", "/timed/calibration/report", "GET /timed/calibration/report"],
+  ["GET", "/timed/calibration/status", "GET /timed/calibration/status"],
   ["POST", "/timed/calibration/apply", "POST /timed/calibration/apply"],
 ];
 
@@ -13849,21 +13850,66 @@ async function d1EnsureCalibrationSchema(env) {
   }
 }
 
+const CALIBRATION_STATUS_TTL = 3600; // 1h
+
+const CALIBRATION_MILESTONES = [
+  "Ensure schema",
+  "Harvest moves from candles & trail",
+  "Autopsy trades",
+  "Run analysis & save report",
+];
+
+function writeCalibrationStatus(KV, phase, message, extra = {}) {
+  if (!KV) return;
+  const payload = {
+    phase,
+    message,
+    updated_at: Date.now(),
+    total_steps: CALIBRATION_MILESTONES.length,
+    steps: CALIBRATION_MILESTONES,
+    ...extra,
+  };
+  KV.put(
+    "timed:calibration:status",
+    JSON.stringify(payload),
+    { expirationTtl: CALIBRATION_STATUS_TTL }
+  ).catch(() => {});
+}
+
 /** Runs full calibration pipeline (harvest + autopsy + analysis). Used by cron when timed:calibration:requested is set. */
 async function runCalibrationInCron(env) {
   const KV = env?.KV_TIMED;
   if (!KV) return;
   const requested = await KV.get("timed:calibration:requested");
   if (!requested) return;
+  const startedAt = Date.now();
   try {
+    writeCalibrationStatus(KV, "schema", "Ensuring calibration and learning schema…", { started_at: startedAt, step: 1 });
     await d1EnsureCalibrationSchema(env);
     await d1EnsureLearningSchema(env);
+
+    writeCalibrationStatus(KV, "harvesting_moves", "Harvesting moves from daily candles and trail…", { started_at: startedAt, step: 2 });
     const moveCount = await harvestMovesServerSide(env);
+    writeCalibrationStatus(KV, "harvest_done", `Harvested ${moveCount} moves.`, { started_at: startedAt, step: 2, move_count: moveCount });
+
+    writeCalibrationStatus(KV, "autopsying_trades", "Autopsying closed trades…", { started_at: startedAt, step: 3, move_count: moveCount });
     const tradeCount = await autopsyTradesServerSide(env);
+    writeCalibrationStatus(KV, "autopsy_done", `Autopsied ${tradeCount} trades.`, { started_at: startedAt, step: 3, move_count: moveCount, trade_count: tradeCount });
+
+    writeCalibrationStatus(KV, "running_analysis", "Running calibration analysis & saving report…", { started_at: startedAt, step: 4, move_count: moveCount, trade_count: tradeCount });
     const report = await runCalibrationAnalysis(env);
+    writeCalibrationStatus(KV, "done", `Report saved: ${report?.report_id || "?"} (${moveCount} moves, ${tradeCount} trades).`, {
+      started_at: startedAt,
+      step: 4,
+      move_count: moveCount,
+      trade_count: tradeCount,
+      report_id: report?.report_id || null,
+    });
     console.log(`[CALIBRATION] Cron run complete: moves=${moveCount} trades=${tradeCount} report_id=${report?.report_id || "?"}`);
   } catch (e) {
-    console.error("[CALIBRATION] Cron run error:", String(e?.message || e).slice(0, 300));
+    const errMsg = String(e?.message || e).slice(0, 200);
+    console.error("[CALIBRATION] Cron run error:", errMsg);
+    writeCalibrationStatus(KV, "error", `Error: ${errMsg}`, { started_at: startedAt, error: errMsg });
     return; // keep key so next run retries
   }
   await KV.delete("timed:calibration:requested");
@@ -30467,6 +30513,39 @@ export default {
             report,
             recommendations,
           }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      if (routeKey === "GET /timed/calibration/status") {
+        try {
+          const KV = env?.KV_TIMED;
+          if (!KV) return sendJSON({ ok: true, status: "idle", message: null }, 200, corsHeaders(env, req));
+          const requested = await KV.get("timed:calibration:requested");
+          const statusRaw = await KV.get("timed:calibration:status", "json");
+          if (requested && !statusRaw) {
+            return sendJSON({ ok: true, status: "queued", message: "Calibration queued. Waiting for next half-hour cron (within ~30 min)." }, 200, corsHeaders(env, req));
+          }
+          if (statusRaw && typeof statusRaw === "object") {
+            const status = statusRaw.phase === "error" ? "error" : statusRaw.phase === "done" ? "done" : "running";
+            return sendJSON({
+              ok: true,
+              status,
+              phase: statusRaw.phase,
+              message: statusRaw.message || null,
+              step: statusRaw.step ?? null,
+              total_steps: statusRaw.total_steps ?? 4,
+              steps: Array.isArray(statusRaw.steps) ? statusRaw.steps : ["Ensure schema", "Harvest moves", "Autopsy trades", "Analysis & report"],
+              started_at: statusRaw.started_at || null,
+              updated_at: statusRaw.updated_at || null,
+              move_count: statusRaw.move_count,
+              trade_count: statusRaw.trade_count,
+              report_id: statusRaw.report_id,
+              error: statusRaw.error || null,
+            }, 200, corsHeaders(env, req));
+          }
+          return sendJSON({ ok: true, status: "idle", message: null }, 200, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
         }
