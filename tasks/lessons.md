@@ -146,3 +146,7 @@
 - **Pattern matching in hot path needs in-memory cache**: 5-min TTL. D1 query per ingest = too expensive. [2026-02-08]
 - **Auto-rebalance position sizing by stage**: Accumulate 5-7%, Watch 2%, Max 8%/ticker, Max 20 positions. Reduce 25%/cycle. [2026-02-12]
 - **Durable Object WebSocket Hibernation API**: `state.acceptWebSocket(ws, tags)` for $0 duration charges. Tags persist, in-memory props don't. [2026-02-11]
+- **Local calibration pipeline over serverless**: Heavy D1 reads (trail_5m_facts, candles) and CPU work (move detection, MFE/MAE) must run locally via `node scripts/calibrate.js`. Worker-side cron calibration exceeded 25s wall-clock and overloaded D1. Local script has no time limit, uploads results, server runs only lightweight analysis. [2026-02-20]
+- **Bulk D1 writes cause transient overload**: Uploading 18K+ moves in rapid-fire batches saturates D1, causing other endpoints to 503. Add 500ms throttle every 10 batches. [2026-02-20]
+- **Per-ticker D1 queries need batching with IN clauses**: Fetching trail_5m_facts per-ticker for 300+ tickers = 300+ wrangler processes. Batch 15 tickers per query with `WHERE ticker IN (...)` reduces calls 20x and avoids transient fetch failures. [2026-02-20]
+- **Retry logic for wrangler d1 execute**: Remote D1 queries via wrangler can fail transiently ("fetch failed"). Always retry 2-3 times with a small delay. Return empty array on final failure instead of crashing. [2026-02-20]

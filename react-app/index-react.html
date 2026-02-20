@@ -2439,10 +2439,12 @@
           if (!Number.isFinite(dayPct)) dayPct = pct;
         }
 
-        // Card background intensity driven by weekly change (swing-aligned)
-        // with fallback to daily change when weekly is unavailable.
+        // Card background intensity: use daily change during market hours
+        // (intraday moves matter most) with weekly as fallback off-hours.
         const weeklyPct = pickNum(t, ["weekly_change_pct"]);
-        const intensityPct = Number.isFinite(weeklyPct) ? weeklyPct : dayPct;
+        const intensityPct = Number.isFinite(dayPct) && Math.abs(dayPct) > 0.1
+          ? dayPct
+          : Number.isFinite(weeklyPct) ? weeklyPct : dayPct;
         const intensityAbs = Number.isFinite(intensityPct) ? Math.abs(intensityPct) : 0;
 
         let tintAlpha = 0;
@@ -2450,11 +2452,11 @@
         let edgeAlpha = 0;
         let intensityPulse = "";
         if (intensityAbs > 0.1) {
-          if (intensityAbs <= 2)       { tintAlpha = 0.08 + (intensityAbs / 2) * 0.12; edgePx = 1; edgeAlpha = 0.20; }
-          else if (intensityAbs <= 5)  { tintAlpha = 0.20 + ((intensityAbs - 2) / 3) * 0.15; edgePx = 1.5; edgeAlpha = 0.35; }
-          else if (intensityAbs <= 8)  { tintAlpha = 0.35 + ((intensityAbs - 5) / 3) * 0.15; edgePx = 2; edgeAlpha = 0.50; }
-          else if (intensityAbs <= 15) { tintAlpha = 0.50 + ((intensityAbs - 8) / 7) * 0.15; edgePx = 2.5; edgeAlpha = 0.60; }
-          else                         { tintAlpha = 0.65; edgePx = 3; edgeAlpha = 0.75; intensityPulse = "intensity-pulse"; }
+          if (intensityAbs <= 1)       { tintAlpha = 0.10 + (intensityAbs) * 0.10; edgePx = 1; edgeAlpha = 0.25; }
+          else if (intensityAbs <= 3)  { tintAlpha = 0.20 + ((intensityAbs - 1) / 2) * 0.20; edgePx = 1.5; edgeAlpha = 0.40; }
+          else if (intensityAbs <= 6)  { tintAlpha = 0.40 + ((intensityAbs - 3) / 3) * 0.20; edgePx = 2; edgeAlpha = 0.55; }
+          else if (intensityAbs <= 12) { tintAlpha = 0.60 + ((intensityAbs - 6) / 6) * 0.15; edgePx = 2.5; edgeAlpha = 0.70; }
+          else                         { tintAlpha = 0.75; edgePx = 3; edgeAlpha = 0.85; intensityPulse = "intensity-pulse"; }
         }
         const isUp = Number.isFinite(intensityPct) && intensityPct > 0;
         const isDown = Number.isFinite(intensityPct) && intensityPct < 0;
@@ -11421,7 +11423,10 @@
                 {window._ttIsAdmin && (
                   <div className="flex flex-col items-end shrink-0 ml-1">
                     {Number.isFinite(dayPct) && dayPct !== 0 && (
-                      <span className={`text-[10px] font-semibold tabular-nums leading-tight ${dayPct >= 0 ? "text-[#00e676]" : "text-rose-400"}`}>
+                      <span className={`tabular-nums leading-tight ${Math.abs(dayPct) >= 3 ? "text-[11px] font-bold" : "text-[10px] font-semibold"}`}
+                        style={{ color: dayPct >= 0
+                          ? (Math.abs(dayPct) >= 3 ? "#4ade80" : "#00e676")
+                          : (Math.abs(dayPct) >= 3 ? "#fb7185" : "#f87171") }}>
                         {dayPct >= 0 ? "+" : ""}{dayPct.toFixed(2)}%
                       </span>
                     )}

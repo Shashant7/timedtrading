@@ -13333,7 +13333,7 @@ function computeATR14(candles) {
 async function harvestMovesServerSide(env) {
   const db = env?.DB;
   const MIN_ATR = 1.5, MIN_DUR = 3;
-  const LOOKBACK_MS = 120 * 86400000;
+  const LOOKBACK_MS = 60 * 86400000;
   const cutoffTs = Date.now() - LOOKBACK_MS;
 
   // Phase 1: Load only daily candles + VIX (lightweight)
@@ -13369,7 +13369,7 @@ async function harvestMovesServerSide(env) {
     for (let i = MIN_DUR; i < candles.length; i++) {
       const atr = atrs[i] || atrs[i - 1];
       if (!atr || atr <= 0) continue;
-      for (let lb = MIN_DUR; lb <= Math.min(25, i); lb++) {
+      for (let lb = MIN_DUR; lb <= Math.min(15, i); lb++) {
         const si = i - lb;
         const startAtr = atrs[si] || atr;
         if (startAtr <= 0) continue;
@@ -13415,63 +13415,45 @@ async function harvestMovesServerSide(env) {
     if (deduped.length >= 500) break;
   }
 
-  // Phase 4: Enrich only the final deduped moves with trail + DA data
+  // Phase 4: Lightweight trail enrichment — only fetch nearest single row per move
+  // Uses targeted per-ticker queries with tight timestamp bounds to avoid loading millions of trail rows
   const dedupedTickers = [...new Set(deduped.map(m => m.ticker))];
-  const trailByTicker = {};
-  for (let i = 0; i < dedupedTickers.length; i += 20) {
-    const batch = dedupedTickers.slice(i, i + 20);
-    const placeholders = batch.map((_, j) => `?${j + 2}`).join(",");
-    try {
-      const { results: trailRows } = await db.prepare(
-        `SELECT ticker, bucket_ts, htf_score_avg, ltf_score_avg, state, rank,
-                completion, phase_pct,
-                had_squeeze_release, had_ema_cross, had_st_flip, had_momentum_elite
-         FROM trail_5m_facts WHERE bucket_ts > ?1 AND ticker IN (${placeholders}) ORDER BY ticker, bucket_ts`
-      ).bind(cutoffTs, ...batch).all();
-      for (const r of trailRows) { const t = String(r.ticker).toUpperCase(); (trailByTicker[t] = trailByTicker[t] || []).push(r); }
-    } catch (_) {}
-  }
-
-  const daByTicker = {};
-  for (let i = 0; i < dedupedTickers.length; i += 20) {
-    const batch = dedupedTickers.slice(i, i + 20);
-    const placeholders = batch.map((_, j) => `?${j + 2}`).join(",");
-    try {
-      const { results: daRows } = await db.prepare(
-        `SELECT ticker, ts, signal_snapshot_json, regime_daily, regime_weekly, regime_combined
-         FROM direction_accuracy WHERE signal_snapshot_json IS NOT NULL AND ts > ?1 AND ticker IN (${placeholders}) ORDER BY ticker, ts`
-      ).bind(cutoffTs, ...batch).all();
-      for (const r of daRows) { const t = String(r.ticker).toUpperCase(); (daByTicker[t] = daByTicker[t] || []).push(r); }
-    } catch (_) {}
-  }
-
-  for (const m of deduped) {
-    const trail = trailByTicker[m.ticker];
-    if (trail) {
-      let closest = null, minDist = Infinity;
-      for (const r of trail) { const d = Math.abs(Number(r.bucket_ts) - m.start_ts); if (d < minDist) { minDist = d; closest = r; } }
-      if (closest && minDist < 2 * 86400000) {
-        const scoringData = {
-          htf_score: Number(closest.htf_score_avg) || 0, ltf_score: Number(closest.ltf_score_avg) || 0,
-          state: closest.state || "unknown", rank: Number(closest.rank) || 0,
-          completion: Number(closest.completion) || 0, phase_pct: Number(closest.phase_pct) || 0,
-          squeeze_release: closest.had_squeeze_release ? 1 : 0, ema_cross: closest.had_ema_cross ? 1 : 0,
-          st_flip: closest.had_st_flip ? 1 : 0, momentum_elite: closest.had_momentum_elite ? 1 : 0,
-        };
-        m.signals_json = JSON.stringify(scoringData);
-        m.entry_scoring_json = JSON.stringify(scoringData);
+  const movesByTicker = {};
+  for (const m of deduped) { (movesByTicker[m.ticker] = movesByTicker[m.ticker] || []).push(m); }
+  try {
+    for (let i = 0; i < dedupedTickers.length; i += 10) {
+      const batch = dedupedTickers.slice(i, i + 10);
+      const batchResults = await db.batch(batch.map(ticker => {
+        const moves = movesByTicker[ticker] || [];
+        const minTs = Math.min(...moves.map(m => m.start_ts)) - 2 * 86400000;
+        const maxTs = Math.max(...moves.map(m => m.start_ts)) + 2 * 86400000;
+        return db.prepare(
+          `SELECT bucket_ts, htf_score_avg, ltf_score_avg, state, rank,
+                  completion, phase_pct,
+                  had_squeeze_release, had_ema_cross, had_st_flip, had_momentum_elite
+           FROM trail_5m_facts WHERE ticker=?1 AND bucket_ts BETWEEN ?2 AND ?3 ORDER BY bucket_ts`
+        ).bind(ticker, minTs, maxTs);
+      }));
+      for (let j = 0; j < batch.length; j++) {
+        const trail = batchResults[j]?.results || [];
+        if (!trail.length) continue;
+        for (const m of (movesByTicker[batch[j]] || [])) {
+          let closest = null, minDist = Infinity;
+          for (const r of trail) { const d = Math.abs(Number(r.bucket_ts) - m.start_ts); if (d < minDist) { minDist = d; closest = r; } }
+          if (closest && minDist < 2 * 86400000) {
+            m.entry_scoring_json = JSON.stringify({
+              htf_score: Number(closest.htf_score_avg) || 0, ltf_score: Number(closest.ltf_score_avg) || 0,
+              state: closest.state || "unknown", rank: Number(closest.rank) || 0,
+              completion: Number(closest.completion) || 0, phase_pct: Number(closest.phase_pct) || 0,
+              squeeze_release: closest.had_squeeze_release ? 1 : 0, ema_cross: closest.had_ema_cross ? 1 : 0,
+              st_flip: closest.had_st_flip ? 1 : 0, momentum_elite: closest.had_momentum_elite ? 1 : 0,
+            });
+            m.signals_json = m.entry_scoring_json;
+          }
+        }
       }
     }
-    const da = daByTicker[m.ticker];
-    if (da) {
-      let closest = null, minDist = Infinity;
-      for (const r of da) { const d = Math.abs(Number(r.ts) - m.start_ts); if (d < minDist) { minDist = d; closest = r; } }
-      if (closest && minDist < 3 * 86400000) {
-        m.signals_json = closest.signal_snapshot_json || m.signals_json;
-        m.regime_json = JSON.stringify({ daily: closest.regime_daily, weekly: closest.regime_weekly, combined: closest.regime_combined });
-      }
-    }
-  }
+  } catch (_) { console.warn("[CALIBRATION] Trail enrichment failed, proceeding without"); }
 
   await db.prepare(`DELETE FROM calibration_moves`).run();
   for (let i = 0; i < deduped.length; i += 50) {
@@ -13511,7 +13493,7 @@ async function autopsyTradesServerSide(env) {
     return (closest && minDist < 5 * 86400000) ? Math.round(closest.c * 100) / 100 : null;
   }
 
-  const trailCutoff = Date.now() - 120 * 86400000;
+  const trailCutoff = Date.now() - 60 * 86400000;
   const trailByTicker = {};
   for (let i = 0; i < tickersNeeded.length; i += 20) {
     const batch = tickersNeeded.slice(i, i + 20);
@@ -14273,7 +14255,7 @@ function writeCalibrationStatus(KV, phase, message, extra = {}) {
 }
 
 /** Runs full calibration pipeline (harvest + autopsy + analysis). Used by cron when timed:calibration:requested is set. */
-const CALIBRATION_WALL_TIMEOUT_MS = 25000; // 25s wall-clock safety limit
+const CALIBRATION_WALL_TIMEOUT_MS = 28000; // 28s wall-clock safety limit
 
 async function runCalibrationInCron(env) {
   const KV = env?.KV_TIMED;
@@ -30863,26 +30845,24 @@ export default {
           const db = env?.DB;
           const KV = env?.KV_TIMED;
           if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
-          // Calibration can exceed Worker request timeout (~30s). Queue for cron; cron has 15min CPU.
-          if (KV) {
-            await KV.put("timed:calibration:requested", String(Date.now()), { expirationTtl: 86400 });
-            writeCalibrationStatus(KV, "queued", "Calibration queued — starts at the next :00 or :30 mark…", { started_at: Date.now(), step: 0 });
-            return sendJSON(
-              { ok: true, queued: true, message: "Calibration queued. It will start at the next :00 or :30 mark (up to 30 min)." },
-              202,
-              corsHeaders(env, req)
-            );
-          }
-          // Fallback: run inline (may 503 if > 30s)
+          // Analysis-only: data should already be uploaded via local script.
+          // Just runs runCalibrationAnalysis on the small calibration tables.
           await d1EnsureCalibrationSchema(env);
           await d1EnsureLearningSchema(env);
-          const moveCount = await harvestMovesServerSide(env);
-          const tradeCount = await autopsyTradesServerSide(env);
+          if (KV) writeCalibrationStatus(KV, "running_analysis", "Running analysis on uploaded data…", { started_at: Date.now(), step: 4 });
           const report = await runCalibrationAnalysis(env);
-          report._harvest = { moves: moveCount, trades: tradeCount };
+          if (KV) {
+            writeCalibrationStatus(KV, "done", `Done! Report ${report?.report_id || "?"}.`, {
+              started_at: Date.now(), step: 5,
+              report_id: report?.report_id || null,
+            });
+            await KV.delete("timed:calibration:requested").catch(() => {});
+          }
           return sendJSON({ ok: true, report }, 200, corsHeaders(env, req));
         } catch (e) {
           console.error("[CALIBRATION] run error:", e);
+          const KV = env?.KV_TIMED;
+          if (KV) writeCalibrationStatus(KV, "error", `Error: ${String(e?.message || e).slice(0, 200)}`, { started_at: Date.now() });
           return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
         }
       }
@@ -39017,12 +38997,9 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
     }
 
     // Calibration: runs when user clicked "Run Calibration" (sets timed:calibration:requested).
-    // Run on :00 and :30 crons (max 30 min wait). NOT on */5 to avoid D1 overload with scoring.
-    if ((event.cron === "30 * * * *" || event.cron === "0 * * * *") && env?.DB && env?.KV_TIMED) {
-      ctx.waitUntil(
-        runCalibrationInCron(env).catch((e) => console.warn("[CALIBRATION] Cron waitUntil failed:", String(e?.message || e).slice(0, 200)))
-      );
-    }
+    // Calibration now runs locally via `node scripts/calibrate.js`.
+    // The cron-based pipeline was removed because it exceeded Worker timeout limits
+    // and overloaded D1. See tasks/lessons.md for details.
 
     // Weekly Retrospective: Fridays at 9:15 PM UTC (4:15 PM ET, after market close)
     // Evaluates pattern performance, detects regime shifts, writes proposals.
