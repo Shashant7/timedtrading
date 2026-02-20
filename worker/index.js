@@ -13294,6 +13294,236 @@ function spearmanCorrelation(x, y) {
   return 1 - (6 * d2) / (n * (n * n - 1));
 }
 
+function computeATR14(candles) {
+  const atrs = new Array(candles.length).fill(0);
+  for (let i = 1; i < candles.length; i++) {
+    const tr = Math.max(candles[i].h - candles[i].l, Math.abs(candles[i].h - candles[i - 1].c), Math.abs(candles[i].l - candles[i - 1].c));
+    atrs[i] = i < 14 ? atrs[i - 1] + (tr - atrs[i - 1]) / i : atrs[i - 1] + (tr - atrs[i - 1]) / 14;
+  }
+  return atrs;
+}
+
+async function harvestMovesServerSide(env) {
+  const db = env?.DB;
+  const MIN_ATR = 1.5, MIN_DUR = 3;
+
+  const { results: rawCandles } = await db.prepare(
+    `SELECT ticker, ts, o, h, l, c FROM ticker_candles WHERE tf='D' ORDER BY ticker, ts`
+  ).all();
+  if (!rawCandles.length) return 0;
+
+  const byTicker = {};
+  for (const c of rawCandles) {
+    const t = String(c.ticker).toUpperCase();
+    (byTicker[t] = byTicker[t] || []).push({ ts: Number(c.ts), o: Number(c.o), h: Number(c.h), l: Number(c.l), c: Number(c.c) });
+  }
+  for (const arr of Object.values(byTicker)) arr.sort((a, b) => a.ts - b.ts);
+
+  const { results: trailRows } = await db.prepare(
+    `SELECT ticker, bucket_ts, htf_score_avg, ltf_score_avg, state, rank,
+            had_squeeze_release, had_ema_cross, had_st_flip, had_momentum_elite
+     FROM trail_5m_facts ORDER BY ticker, bucket_ts`
+  ).all();
+  const trailByTicker = {};
+  for (const r of trailRows) { const t = String(r.ticker).toUpperCase(); (trailByTicker[t] = trailByTicker[t] || []).push(r); }
+
+  const { results: daRows } = await db.prepare(
+    `SELECT ticker, ts, signal_snapshot_json, regime_daily, regime_weekly, regime_combined
+     FROM direction_accuracy WHERE signal_snapshot_json IS NOT NULL ORDER BY ticker, ts`
+  ).all();
+  const daByTicker = {};
+  for (const r of daRows) { const t = String(r.ticker).toUpperCase(); (daByTicker[t] = daByTicker[t] || []).push(r); }
+
+  let allMoves = [];
+  for (const [ticker, candles] of Object.entries(byTicker)) {
+    if (candles.length < 30) continue;
+    const atrs = computeATR14(candles);
+
+    for (let i = MIN_DUR; i < candles.length; i++) {
+      const atr = atrs[i] || atrs[i - 1];
+      if (!atr || atr <= 0) continue;
+      for (let lb = MIN_DUR; lb <= Math.min(40, i); lb++) {
+        const si = i - lb;
+        const startAtr = atrs[si] || atr;
+        if (startAtr <= 0) continue;
+        const sp = candles[si].c, ep = candles[i].c;
+        const movePct = ((ep - sp) / sp) * 100;
+        const moveAtr = Math.abs(ep - sp) / startAtr;
+        if (moveAtr < MIN_ATR || lb < MIN_DUR) continue;
+        const dir = movePct > 0 ? "UP" : "DOWN";
+        let maxExt = 0, maxPull = 0;
+        const mfes = [], maes = [];
+        for (let j = si + 1; j <= i; j++) {
+          const fav = dir === "UP" ? (candles[j].h - sp) / startAtr : (sp - candles[j].l) / startAtr;
+          const adv = dir === "UP" ? (sp - candles[j].l) / startAtr : (candles[j].h - sp) / startAtr;
+          maxExt = Math.max(maxExt, fav); maxPull = Math.max(maxPull, adv);
+          mfes.push(fav); maes.push(adv > 0 ? adv : 0);
+        }
+        let signalsJson = null, regimeJson = null;
+        const trail = trailByTicker[ticker];
+        if (trail) {
+          const startTs = candles[si].ts;
+          let closest = null, minDist = Infinity;
+          for (const r of trail) { const d = Math.abs(Number(r.bucket_ts) - startTs); if (d < minDist) { minDist = d; closest = r; } }
+          if (closest && minDist < 2 * 86400000) {
+            signalsJson = JSON.stringify({ htf_score: Number(closest.htf_score_avg) || 0, ltf_score: Number(closest.ltf_score_avg) || 0, state: closest.state, rank: Number(closest.rank) || 0, squeeze_release: closest.had_squeeze_release ? 1 : 0, ema_cross: closest.had_ema_cross ? 1 : 0, st_flip: closest.had_st_flip ? 1 : 0, momentum_elite: closest.had_momentum_elite ? 1 : 0 });
+          }
+        }
+        const da = daByTicker[ticker];
+        if (da) {
+          const startTs = candles[si].ts;
+          let closest = null, minDist = Infinity;
+          for (const r of da) { const d = Math.abs(Number(r.ts) - startTs); if (d < minDist) { minDist = d; closest = r; } }
+          if (closest && minDist < 3 * 86400000) {
+            signalsJson = closest.signal_snapshot_json || signalsJson;
+            regimeJson = JSON.stringify({ daily: closest.regime_daily, weekly: closest.regime_weekly, combined: closest.regime_combined });
+          }
+        }
+        allMoves.push({
+          move_id: `${ticker}_${dir}_${candles[si].ts}`, ticker, direction: dir,
+          start_ts: candles[si].ts, end_ts: candles[i].ts, duration_days: lb,
+          move_pct: Math.round(movePct * 100) / 100, move_atr: Math.round(moveAtr * 100) / 100,
+          max_ext_atr: Math.round(maxExt * 100) / 100, pullback_atr: Math.round(maxPull * 100) / 100,
+          sl_optimal_atr: Math.round(percentile(maes.filter(v => v > 0), 75) * 100) / 100,
+          tp_p50_atr: Math.round(percentile(mfes, 50) * 100) / 100,
+          tp_p75_atr: Math.round(percentile(mfes, 75) * 100) / 100,
+          tp_p90_atr: Math.round(percentile(mfes, 90) * 100) / 100,
+          signals_json: signalsJson, regime_json: regimeJson,
+        });
+        break;
+      }
+    }
+  }
+
+  allMoves.sort((a, b) => b.move_atr - a.move_atr);
+  const seen = new Set(), deduped = [];
+  for (const m of allMoves) {
+    const bucket = Math.floor(m.start_ts / (3 * 86400000));
+    const key = `${m.ticker}:${m.direction}:${bucket}`;
+    if (seen.has(key)) continue;
+    seen.add(key); seen.add(`${m.ticker}:${m.direction}:${bucket - 1}`); seen.add(`${m.ticker}:${m.direction}:${bucket + 1}`);
+    deduped.push(m);
+  }
+
+  await db.prepare(`DELETE FROM calibration_moves`).run();
+  for (let i = 0; i < deduped.length; i += 50) {
+    const chunk = deduped.slice(i, i + 50);
+    await db.batch(chunk.map(m => db.prepare(
+      `INSERT OR REPLACE INTO calibration_moves (move_id,ticker,direction,start_ts,end_ts,duration_days,move_pct,move_atr,max_ext_atr,pullback_atr,sl_optimal_atr,tp_p50_atr,tp_p75_atr,tp_p90_atr,signals_json,regime_json,created_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17)`
+    ).bind(m.move_id, m.ticker, m.direction, m.start_ts, m.end_ts, m.duration_days, m.move_pct, m.move_atr, m.max_ext_atr, m.pullback_atr, m.sl_optimal_atr, m.tp_p50_atr, m.tp_p75_atr, m.tp_p90_atr, m.signals_json, m.regime_json, Date.now())));
+  }
+  return deduped.length;
+}
+
+async function autopsyTradesServerSide(env) {
+  const db = env?.DB;
+
+  const { results: rawTrades } = await db.prepare(
+    `SELECT t.trade_id, t.ticker, t.direction, t.entry_ts, t.exit_ts, t.entry_price, t.exit_price,
+            t.pnl_pct, t.rank, t.rr, t.status, t.entry_path,
+            da.signal_snapshot_json, da.regime_daily, da.regime_weekly, da.regime_combined,
+            da.entry_path AS da_entry_path
+     FROM trades t LEFT JOIN direction_accuracy da ON da.trade_id = t.trade_id
+     WHERE t.status IN ('CLOSED','TP_HIT','SL_HIT','MANUAL_EXIT','TP_HIT_TRIM')
+     ORDER BY t.entry_ts`
+  ).all();
+  if (!rawTrades.length) return 0;
+
+  const tickersNeeded = [...new Set(rawTrades.map(t => String(t.ticker).toUpperCase()))];
+
+  const fiveMinByTicker = {};
+  const dailyByTicker = {};
+  for (const ticker of tickersNeeded) {
+    const [fiveRes, dayRes] = await db.batch([
+      db.prepare(`SELECT ts, h, l, c FROM ticker_candles WHERE tf='5' AND ticker=?1 ORDER BY ts`).bind(ticker),
+      db.prepare(`SELECT ts, o, h, l, c FROM ticker_candles WHERE tf='D' AND ticker=?1 ORDER BY ts`).bind(ticker),
+    ]);
+    if (fiveRes.results?.length) fiveMinByTicker[ticker] = fiveRes.results;
+    if (dayRes.results?.length) {
+      const candles = dayRes.results.map(r => ({ ts: Number(r.ts), o: Number(r.o), h: Number(r.h), l: Number(r.l), c: Number(r.c) }));
+      dailyByTicker[ticker] = { candles, atrs: computeATR14(candles) };
+    }
+  }
+
+  const results = [];
+  for (const trade of rawTrades) {
+    const ticker = String(trade.ticker).toUpperCase();
+    const entryTs = Number(trade.entry_ts), exitTs = Number(trade.exit_ts);
+    const entryPrice = Number(trade.entry_price), exitPrice = Number(trade.exit_price);
+    const direction = String(trade.direction).toUpperCase();
+    const isLong = direction === "LONG";
+    if (!entryTs || !exitTs || !entryPrice || !exitPrice) continue;
+
+    let atrAtEntry = 0;
+    const daily = dailyByTicker[ticker];
+    if (daily) {
+      let ci = 0, md = Infinity;
+      for (let i = 0; i < daily.candles.length; i++) { const d = Math.abs(daily.candles[i].ts - entryTs); if (d < md) { md = d; ci = i; } }
+      atrAtEntry = daily.atrs[ci] || 0;
+    }
+    if (atrAtEntry <= 0) atrAtEntry = entryPrice * 0.02;
+
+    const estRisk = atrAtEntry * 1.5;
+    const slPrice = isLong ? entryPrice - estRisk : entryPrice + estRisk;
+    const initialRisk = Math.abs(entryPrice - slPrice) || atrAtEntry;
+    const actualPnl = isLong ? exitPrice - entryPrice : entryPrice - exitPrice;
+    const rMultiple = actualPnl / initialRisk;
+    const pnlPct = Number(trade.pnl_pct) || 0;
+
+    let mfePct = 0, maePct = 0, mfeAtr = 0, maeAtr = 0, timeToMfeMin = 0, slHitBeforeMfe = false;
+    const candles5m = fiveMinByTicker[ticker];
+    if (candles5m) {
+      const during = candles5m.filter(c => { const ts = Number(c.ts); return ts >= entryTs && ts <= exitTs; });
+      let maxFav = 0, maxAdv = 0, mfeTs = entryTs;
+      for (const c of during) {
+        const high = Number(c.h), low = Number(c.l);
+        const fav = isLong ? (high - entryPrice) / entryPrice * 100 : (entryPrice - low) / entryPrice * 100;
+        const adv = isLong ? (entryPrice - low) / entryPrice * 100 : (high - entryPrice) / entryPrice * 100;
+        if (fav > maxFav) { maxFav = fav; mfeTs = Number(c.ts); }
+        maxAdv = Math.max(maxAdv, adv);
+      }
+      mfePct = Math.round(maxFav * 100) / 100;
+      maePct = Math.round(maxAdv * 100) / 100;
+      mfeAtr = atrAtEntry > 0 ? Math.round((maxFav / 100 * entryPrice / atrAtEntry) * 100) / 100 : 0;
+      maeAtr = atrAtEntry > 0 ? Math.round((maxAdv / 100 * entryPrice / atrAtEntry) * 100) / 100 : 0;
+      timeToMfeMin = Math.round((mfeTs - entryTs) / 60000);
+      slHitBeforeMfe = maxAdv > (estRisk / entryPrice * 100) && mfeTs > entryTs;
+    }
+
+    const exitEfficiency = mfePct > 0 ? Math.round((Math.max(0, pnlPct) / mfePct) * 100) / 100 : 0;
+    let classification = "noise_trade";
+    if (mfeAtr < 0.5 && maeAtr < 0.5) classification = "noise_trade";
+    else if (maePct > mfePct && pnlPct <= 0) classification = "bad_entry";
+    else if (pnlPct > 0 && exitEfficiency >= 0.7) classification = "optimal";
+    else if (pnlPct > 0 && exitEfficiency < 0.5) classification = "left_money";
+    else if (mfePct > 1 && pnlPct <= 0) classification = "gave_back";
+    else if (pnlPct <= 0) classification = "bad_entry";
+    else classification = "left_money";
+
+    results.push({
+      trade_id: trade.trade_id, ticker, direction, entry_ts: entryTs, exit_ts: exitTs,
+      entry_price: entryPrice, exit_price: exitPrice, sl_price: Math.round(slPrice * 100) / 100,
+      pnl_pct: pnlPct, r_multiple: Math.round(rMultiple * 100) / 100,
+      mfe_pct: mfePct, mfe_atr: mfeAtr, mae_pct: maePct, mae_atr: maeAtr,
+      exit_efficiency: exitEfficiency, sl_hit_before_mfe: slHitBeforeMfe ? 1 : 0,
+      time_to_mfe_min: timeToMfeMin, optimal_hold_min: timeToMfeMin,
+      classification, entry_signals_json: trade.signal_snapshot_json || null,
+      entry_path: trade.da_entry_path || trade.entry_path || "unknown",
+      rank_at_entry: Number(trade.rank) || 0,
+      regime_at_entry: trade.regime_combined || trade.regime_daily || "unknown",
+    });
+  }
+
+  await db.prepare(`DELETE FROM calibration_trade_autopsy`).run();
+  for (let i = 0; i < results.length; i += 50) {
+    const chunk = results.slice(i, i + 50);
+    await db.batch(chunk.map(t => db.prepare(
+      `INSERT OR REPLACE INTO calibration_trade_autopsy (trade_id,ticker,direction,entry_ts,exit_ts,entry_price,exit_price,sl_price,pnl_pct,r_multiple,mfe_pct,mfe_atr,mae_pct,mae_atr,exit_efficiency,sl_hit_before_mfe,time_to_mfe_min,optimal_hold_min,classification,entry_signals_json,entry_path,rank_at_entry,regime_at_entry,created_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24)`
+    ).bind(t.trade_id, t.ticker, t.direction, t.entry_ts, t.exit_ts, t.entry_price, t.exit_price, t.sl_price, t.pnl_pct, t.r_multiple, t.mfe_pct, t.mfe_atr, t.mae_pct, t.mae_atr, t.exit_efficiency, t.sl_hit_before_mfe, t.time_to_mfe_min, t.optimal_hold_min, t.classification, t.entry_signals_json, t.entry_path, t.rank_at_entry, t.regime_at_entry, Date.now())));
+  }
+  return results.length;
+}
+
 async function runCalibrationAnalysis(env) {
   const db = env?.DB;
   if (!db) throw new Error("no_db");
@@ -30151,7 +30381,11 @@ export default {
           const db = env?.DB;
           if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
           await d1EnsureCalibrationSchema(env);
+          await d1EnsureLearningSchema(env);
+          const moveCount = await harvestMovesServerSide(env);
+          const tradeCount = await autopsyTradesServerSide(env);
           const report = await runCalibrationAnalysis(env);
+          report._harvest = { moves: moveCount, trades: tradeCount };
           return sendJSON({ ok: true, report }, 200, corsHeaders(env, req));
         } catch (e) {
           console.error("[CALIBRATION] run error:", e);
