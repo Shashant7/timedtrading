@@ -7,7 +7,7 @@
 //   Startup: REST snapshot seed (prevDailyBar.c + dailyBar.c)
 //   Alpaca WS: trade events → update last_trade_price in memory
 //   Session Machine: isRTH / isAH / isClosed (ET-based)
-//   Alarm (1s): batch flush dirty prices → PriceHub DO + KV
+//   Alarm (5s RTH/AH/PRE, 10s closed): batch flush dirty prices → PriceHub DO + KV
 //   Periodic: snapshot refresh at 09:25 ET, 16:05 ET, and every 60s
 //
 // Lifecycle:
@@ -512,9 +512,9 @@ export class AlpacaStream {
       }
     }
 
-    // 4. Schedule next alarm
+    // 4. Schedule next alarm (5s during market hours to reduce price flicker; 10s when closed)
     const session = this._getSession();
-    const interval = (session === "RTH" || session === "AH" || session === "PRE") ? 1000 : 10_000;
+    const interval = (session === "RTH" || session === "AH" || session === "PRE") ? 5000 : 10_000;
     await this.state.storage.setAlarm(Date.now() + interval);
   }
 

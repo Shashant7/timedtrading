@@ -1066,6 +1066,7 @@
                   const setter = setTickerDataRef.current;
                   if (!setter) return;
                   const wsTs = msg.updated_at || Date.now();
+                  const MIN_PRICE_CHANGE_PCT = 0.05;
 
                   setter(prev => {
                     if (!prev || typeof prev !== "object" || Object.keys(prev).length === 0) return prev;
@@ -1076,6 +1077,8 @@
                       const existing = updatedData[normalizedSym];
                       if (!existing || !(priceInfo.p > 0)) continue;
                       if (existing._live_price === priceInfo.p) continue;
+                      const curPrice = Number(existing._live_price || existing.price || 0);
+                      if (curPrice > 0 && Math.abs(priceInfo.p - curPrice) / curPrice * 100 < MIN_PRICE_CHANGE_PCT) continue;
                       const feedPc = Number(priceInfo.pc);
                       const feedP = Number(priceInfo.p);
                       const feedPcUsable = Number.isFinite(feedPc) && feedPc > 0 && feedP > 0
@@ -1107,6 +1110,7 @@
                   const setter = setTickerDataRef.current;
                   if (!setter) return;
                   const batchTs = msg.ts || Date.now();
+                  const MIN_PRICE_CHANGE_PCT = 0.05;
 
                   setter(prev => {
                     if (!prev || typeof prev !== "object" || Object.keys(prev).length === 0) return prev;
@@ -1117,6 +1121,8 @@
                       const existing = updatedData[normalizedSym];
                       if (!existing || !(u.last > 0)) continue;
                       if (existing._live_price === u.last) continue;
+                      const curPrice = Number(existing._live_price || existing.price || 0);
+                      if (curPrice > 0 && Math.abs(u.last - curPrice) / curPrice * 100 < MIN_PRICE_CHANGE_PCT) continue;
                       updatedData[normalizedSym] = {
                         ...existing,
                         price: u.last,
