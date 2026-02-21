@@ -7,6 +7,7 @@
   "devDependencies": {
     "@babel/core": "^7.23.0",
     "@babel/preset-react": "^7.23.0",
+    "better-sqlite3": "^11.6.0",
     "wrangler": "^4.61.0"
   }
 }

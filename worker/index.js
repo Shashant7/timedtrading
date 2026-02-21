@@ -30845,12 +30845,18 @@ export default {
           const db = env?.DB;
           const KV = env?.KV_TIMED;
           if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
-          // Analysis-only: data should already be uploaded via local script.
-          // Just runs runCalibrationAnalysis on the small calibration tables.
+          const body = await req.json().catch(() => ({}));
           await d1EnsureCalibrationSchema(env);
           await d1EnsureLearningSchema(env);
           if (KV) writeCalibrationStatus(KV, "running_analysis", "Running analysis on uploaded data…", { started_at: Date.now(), step: 4 });
           const report = await runCalibrationAnalysis(env);
+          if (report && body.hindsight_oracle) {
+            const row = await db.prepare(`SELECT report_json FROM calibration_report WHERE report_id = ?1`).bind(report.report_id).first();
+            const reportJson = row?.report_json ? JSON.parse(row.report_json) : {};
+            reportJson.hindsight_oracle = body.hindsight_oracle;
+            await db.prepare(`UPDATE calibration_report SET report_json = ?1 WHERE report_id = ?2`).bind(JSON.stringify(reportJson), report.report_id).run();
+            report.hindsight_oracle = body.hindsight_oracle;
+          }
           if (KV) {
             writeCalibrationStatus(KV, "done", `Done! Report ${report?.report_id || "?"}.`, {
               started_at: Date.now(), step: 5,
@@ -31202,6 +31208,7 @@ export default {
             adaptive_params: adaptiveParams,
             vix_buckets: vixBuckets,
             applied_adaptations: appliedAdaptations,
+            hindsight_oracle: currentReport?.hindsight_oracle || null,
           }, 200, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));

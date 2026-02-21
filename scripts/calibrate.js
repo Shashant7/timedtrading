@@ -8,7 +8,8 @@
  *   3. Upload & trigger server-side analysis — uploads data, server runs lightweight runCalibrationAnalysis
  *
  * Usage:
- *   node scripts/calibrate.js [--lookback 400] [--ticker AAPL] [--dry-run] [--skip-moves] [--skip-autopsy]
+ *   node scripts/calibrate.js [--lookback 400] [--ticker AAPL] [--dry-run] [--skip-moves] [--skip-autopsy] [--no-sync]
+ *   Use --no-sync to skip delta sync before run. Use USE_D1=1 to read from D1 instead of local SQLite.
  */
 
 const { execSync } = require("child_process");
@@ -26,11 +27,53 @@ const TICKER_FILTER = getArg("ticker", null);
 const DRY_RUN = hasFlag("dry-run");
 const SKIP_MOVES = hasFlag("skip-moves");
 const SKIP_AUTOPSY = hasFlag("skip-autopsy");
+const NO_SYNC = hasFlag("no-sync");
 
 const API_BASE = process.env.API_BASE || "https://timed-trading-ingest.shashant.workers.dev";
 const API_KEY = process.env.TIMED_API_KEY || "AwesomeSauce";
 
 const WORKER_DIR = path.join(__dirname, "../worker");
+const LOCAL_DB_PATH = path.join(__dirname, "../data/timed-local.db");
+const USE_D1 = process.env.USE_D1 === "1" || process.env.USE_D1 === "true";
+
+let db = null;
+if (!USE_D1) {
+  try {
+    const Database = require("better-sqlite3");
+    db = new Database(LOCAL_DB_PATH, { readonly: true });
+    const tables = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name IN ('ticker_candles','trades','trail_5m_facts','direction_accuracy')").all().map(r => r.name);
+    if (tables.length < 4) {
+      db.close();
+      db = null;
+      console.error("Local DB missing required tables. Run: ./scripts/export-d1.sh");
+      process.exit(1);
+    }
+  } catch (e) {
+    if (e.code === "SQLITE_CANTOPEN" || e.message.includes("no such file")) {
+      console.error("Local DB not found at", LOCAL_DB_PATH);
+      console.error("Run: ./scripts/export-d1.sh   then optionally ./scripts/sync-d1.sh for delta sync.");
+      process.exit(1);
+    }
+    throw e;
+  }
+}
+
+function query(sql) {
+  if (db) return db.prepare(sql).all();
+  return queryD1(sql);
+}
+
+function queryChunked(baseSql, chunkSize = 15000) {
+  let all = [];
+  let offset = 0;
+  while (true) {
+    const rows = query(`${baseSql} LIMIT ${chunkSize} OFFSET ${offset}`);
+    all = all.concat(rows);
+    if (rows.length < chunkSize) break;
+    offset += chunkSize;
+  }
+  return all;
+}
 
 function queryD1(sql, retries = 3) {
   const escaped = sql.replace(/"/g, '\\"');
@@ -56,18 +99,6 @@ function queryD1(sql, retries = 3) {
     }
   }
   return [];
-}
-
-function queryD1Chunked(baseSql, chunkSize = 15000) {
-  let all = [];
-  let offset = 0;
-  while (true) {
-    const rows = queryD1(`${baseSql} LIMIT ${chunkSize} OFFSET ${offset}`);
-    all = all.concat(rows);
-    if (rows.length < chunkSize) break;
-    offset += chunkSize;
-  }
-  return all;
 }
 
 async function apiPost(endpoint, body) {
@@ -113,8 +144,44 @@ function findNearest(rows, tsField, targetTs, maxDistMs) {
   return closest && minDist < maxDistMs ? closest : null;
 }
 
+function ema(arr, period) {
+  const k = 2 / (period + 1);
+  const out = [arr[0]];
+  for (let i = 1; i < arr.length; i++) out.push(arr[i] * k + out[i - 1] * (1 - k));
+  return out;
+}
+
+function classifyStateFromCandles(candles, idx) {
+  if (idx < 50) return "unknown";
+  const closes = candles.slice(0, idx + 1).map(c => c.c);
+  const ema8  = ema(closes, 8);
+  const ema21 = ema(closes, 21);
+  const ema50 = ema(closes, 50);
+  const e8  = ema8[ema8.length - 1];
+  const e21 = ema21[ema21.length - 1];
+  const e50 = ema50[ema50.length - 1];
+  const htf = e21 > e50 ? "BULL" : "BEAR";
+  const ltf = e8 > e21 ? "BULL" : "BEAR";
+  return `HTF_${htf}_LTF_${ltf}`;
+}
+
 const t0 = Date.now();
 function elapsed() { return `${((Date.now() - t0) / 1000).toFixed(1)}s`; }
+
+// Optional: run delta sync before analysis (when using local SQLite)
+if (!USE_D1 && !NO_SYNC && db) {
+  const syncScript = path.join(__dirname, "sync-d1.sh");
+  const { existsSync } = require("fs");
+  if (existsSync(syncScript)) {
+    console.log("  Running delta sync (sync-d1.sh)...");
+    try {
+      execSync(`"${syncScript}" "${LOCAL_DB_PATH}"`, { stdio: "inherit", cwd: path.join(__dirname, "..") });
+    } catch (e) {
+      console.warn("  Sync failed (continuing with existing local data):", (e && e.message) || e);
+    }
+    console.log();
+  }
+}
 
 console.log(`\n╔══════════════════════════════════════════════════════╗`);
 console.log(`║   Model Calibration Pipeline (local)                 ║`);
@@ -135,7 +202,7 @@ if (!SKIP_MOVES) {
 
   const tickerWhere = TICKER_FILTER ? `AND ticker='${TICKER_FILTER}'` : "";
   console.log(`  [${elapsed()}] Fetching daily candles...`);
-  const rawCandles = queryD1Chunked(
+  const rawCandles = queryChunked(
     `SELECT ticker, ts, o, h, l, c FROM ticker_candles WHERE tf='D' ${tickerWhere} ORDER BY ticker, ts`
   );
   console.log(`  [${elapsed()}] Total: ${rawCandles.length} daily candles`);
@@ -155,7 +222,7 @@ if (!SKIP_MOVES) {
 
   // VIX daily candles for regime context
   console.log(`  [${elapsed()}] Fetching VIX candles...`);
-  const vixRows = queryD1(
+  const vixRows = query(
     `SELECT ts, c FROM ticker_candles WHERE tf='D' AND ticker IN ('VIX','$VIX','VIX.X') ORDER BY ts`
   );
   const vixCandles = vixRows.map(r => ({ ts: Number(r.ts), c: Number(r.c) }));
@@ -174,7 +241,7 @@ if (!SKIP_MOVES) {
   for (let b = 0; b < tickers.length; b += BATCH_SZ) {
     const batch = tickers.slice(b, b + BATCH_SZ);
     const inClause = batch.map(t => `'${t}'`).join(",");
-    const rows = queryD1Chunked(
+    const rows = queryChunked(
       `SELECT ticker, bucket_ts, htf_score_avg, ltf_score_avg, state, rank,
               completion, phase_pct,
               had_squeeze_release, had_ema_cross, had_st_flip, had_momentum_elite
@@ -194,7 +261,7 @@ if (!SKIP_MOVES) {
   for (let b = 0; b < tickers.length; b += BATCH_SZ) {
     const batch = tickers.slice(b, b + BATCH_SZ);
     const inClause = batch.map(t => `'${t}'`).join(",");
-    const rows = queryD1Chunked(
+    const rows = queryChunked(
       `SELECT ticker, ts, signal_snapshot_json, regime_daily, regime_weekly, regime_combined
        FROM direction_accuracy WHERE ticker IN (${inClause}) AND signal_snapshot_json IS NOT NULL ORDER BY ticker, ts`
     );
@@ -251,7 +318,7 @@ if (!SKIP_MOVES) {
         let signalsJson = null, entryScoringJson = null, regimeJson = null;
         const trail = trailByTicker[ticker];
         if (trail) {
-          const closest = findNearest(trail, "bucket_ts", candles[startIdx].ts, 2 * 86400000);
+          const closest = findNearest(trail, "bucket_ts", candles[startIdx].ts, 14 * 86400000);
           if (closest) {
             const scoringData = {
               htf_score: Number(closest.htf_score_avg) || 0,
@@ -267,6 +334,22 @@ if (!SKIP_MOVES) {
             };
             signalsJson = JSON.stringify(scoringData);
             entryScoringJson = JSON.stringify(scoringData);
+          }
+        }
+
+        // Candle-based state fallback when trail data unavailable
+        if (!entryScoringJson) {
+          const candleState = classifyStateFromCandles(candles, startIdx);
+          if (candleState !== "unknown") {
+            const fallbackData = {
+              htf_score: 0, ltf_score: 0,
+              state: candleState,
+              rank: 0, completion: 0, phase_pct: 0,
+              squeeze_release: 0, ema_cross: 0, st_flip: 0, momentum_elite: 0,
+              source: "candle_ema",
+            };
+            entryScoringJson = JSON.stringify(fallbackData);
+            signalsJson = signalsJson || JSON.stringify(fallbackData);
           }
         }
 
@@ -332,8 +415,12 @@ if (!SKIP_MOVES) {
     const avgAtr = harvestedMoves.reduce((s, m) => s + m.move_atr, 0) / harvestedMoves.length;
     const withVix = harvestedMoves.filter(m => m.vix_at_start != null).length;
     const withScoring = harvestedMoves.filter(m => m.entry_scoring_json != null).length;
+    const candleFallback = harvestedMoves.filter(m => {
+      if (!m.entry_scoring_json) return false;
+      try { return JSON.parse(m.entry_scoring_json).source === "candle_ema"; } catch (_) { return false; }
+    }).length;
     console.log(`    Avg move: ${avgAtr.toFixed(2)} ATR`);
-    console.log(`    With VIX context: ${withVix}  |  With scoring context: ${withScoring}`);
+    console.log(`    With VIX context: ${withVix}  |  With scoring context: ${withScoring} (${candleFallback} candle-EMA fallback)`);
   }
   console.log();
 } else {
@@ -351,7 +438,7 @@ if (!SKIP_AUTOPSY) {
 
   const tickerWhere = TICKER_FILTER ? `AND t.ticker='${TICKER_FILTER}'` : "";
   console.log(`  [${elapsed()}] Fetching closed trades...`);
-  const trades = queryD1Chunked(
+  const trades = queryChunked(
     `SELECT t.trade_id, t.ticker, t.direction, t.entry_ts, t.exit_ts,
             t.entry_price, t.exit_price, t.pnl_pct, t.rank, t.rr, t.status,
             da.signal_snapshot_json, da.regime_daily, da.regime_weekly, da.regime_combined,
@@ -370,7 +457,7 @@ if (!SKIP_AUTOPSY) {
 
     // VIX candles for regime context at entry
     console.log(`  [${elapsed()}] Fetching VIX candles...`);
-    const vixRows = queryD1(
+    const vixRows = query(
       `SELECT ts, c FROM ticker_candles WHERE tf='D' AND ticker IN ('VIX','$VIX','VIX.X') ORDER BY ts`
     );
     const vixCandles = vixRows.map(r => ({ ts: Number(r.ts), c: Number(r.c) }));
@@ -384,7 +471,7 @@ if (!SKIP_AUTOPSY) {
     console.log(`  [${elapsed()}] Fetching trail_5m_facts for trade tickers...`);
     const trailByTicker = {};
     for (const ticker of tickersNeeded) {
-      const rows = queryD1Chunked(
+      const rows = queryChunked(
         `SELECT bucket_ts, htf_score_avg, ltf_score_avg, state, rank,
                 completion, phase_pct,
                 had_squeeze_release, had_ema_cross, had_st_flip, had_momentum_elite
@@ -398,7 +485,7 @@ if (!SKIP_AUTOPSY) {
     console.log(`  [${elapsed()}] Fetching hourly candles for MFE/MAE...`);
     const hourlyByTicker = {};
     for (const ticker of tickersNeeded) {
-      const rows = queryD1Chunked(
+      const rows = queryChunked(
         `SELECT ts, h, l, c FROM ticker_candles WHERE tf='60' AND ticker='${ticker}' ORDER BY ts`
       );
       if (rows.length) hourlyByTicker[ticker] = rows;
@@ -409,7 +496,7 @@ if (!SKIP_AUTOPSY) {
     console.log(`  [${elapsed()}] Fetching daily candles for ATR...`);
     const dailyByTicker = {};
     for (const ticker of tickersNeeded) {
-      const rows = queryD1Chunked(
+      const rows = queryChunked(
         `SELECT ts, o, h, l, c FROM ticker_candles WHERE tf='D' AND ticker='${ticker}' ORDER BY ts`
       );
       if (rows.length) {
@@ -509,6 +596,17 @@ if (!SKIP_AUTOPSY) {
         }
       }
 
+      // Candle-based state fallback for trades
+      if (!stateAtEntry && daily) {
+        let closestIdx = 0, minDist = Infinity;
+        for (let i = 0; i < daily.candles.length; i++) {
+          const d = Math.abs(daily.candles[i].ts - entryTs);
+          if (d < minDist) { minDist = d; closestIdx = i; }
+        }
+        const candleState = classifyStateFromCandles(daily.candles, closestIdx);
+        if (candleState !== "unknown") stateAtEntry = candleState;
+      }
+
       let entryPath = trade.da_entry_path || "unknown";
       if ((!entryPath || entryPath === "unknown") && stateAtEntry) entryPath = stateAtEntry;
 
@@ -554,14 +652,181 @@ if (!SKIP_AUTOPSY) {
       const avgEff = autopsiedTrades.reduce((s, t) => s + t.exit_efficiency, 0) / autopsiedTrades.length;
       const withVix = autopsiedTrades.filter(t => t.vix_at_entry != null).length;
       const withState = autopsiedTrades.filter(t => t.state_at_entry != null).length;
+      const unknownState = autopsiedTrades.filter(t => !t.state_at_entry || t.state_at_entry === "unknown").length;
       console.log(`    Avg R-multiple: ${avgR.toFixed(2)}`);
       console.log(`    Avg exit efficiency: ${(avgEff * 100).toFixed(1)}%`);
-      console.log(`    With VIX: ${withVix}  |  With scoring state: ${withState}`);
+      console.log(`    With VIX: ${withVix}  |  With scoring state: ${withState}  |  Unknown state: ${unknownState}`);
     }
     console.log();
   }
 } else {
   console.log("  Skipping trade autopsy (--skip-autopsy)\n");
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// HINDSIGHT ORACLE: Perfect entry/exit signals from 5m data
+// ═══════════════════════════════════════════════════════════════════════════
+let hindsightOracle = null;
+
+function runHindsightOracle() {
+  const qualifying = harvestedMoves.filter(m => (m.move_atr >= 2.0 && m.duration_days >= 3));
+  if (qualifying.length === 0) return null;
+  if (!db) return null;
+
+  const WINDOW_MS_4H = 4 * 60 * 60 * 1000;
+  const WINDOW_MS_2H = 2 * 60 * 60 * 1000;
+  const tickers = [...new Set(qualifying.map(m => m.ticker))];
+
+  const candles5mByTicker = {};
+  const trailByTicker = {};
+  for (const ticker of tickers) {
+    const movesForTicker = qualifying.filter(m => m.ticker === ticker);
+    const minTs = Math.min(...movesForTicker.map(m => m.start_ts)) - WINDOW_MS_4H;
+    const maxTs = Math.max(...movesForTicker.map(m => m.end_ts)) + 86400000;
+    const rows = query(`SELECT ts, o, h, l, c FROM ticker_candles WHERE tf='5' AND ticker='${ticker}' AND ts >= ${minTs} AND ts <= ${maxTs} ORDER BY ts`);
+    if (rows.length) candles5mByTicker[ticker] = rows.map(r => ({ ts: Number(r.ts), o: Number(r.o), h: Number(r.h), l: Number(r.l), c: Number(r.c) }));
+    const trailRows = query(`SELECT bucket_ts, htf_score_avg, ltf_score_avg, state, completion, phase_pct, had_squeeze_release, had_ema_cross, had_st_flip, had_momentum_elite FROM trail_5m_facts WHERE ticker='${ticker}' AND bucket_ts >= ${minTs} AND bucket_ts <= ${maxTs} ORDER BY bucket_ts`);
+    if (trailRows.length) trailByTicker[ticker] = trailRows;
+  }
+
+  const fingerprints = [];
+  for (const m of qualifying) {
+    const candles5 = candles5mByTicker[m.ticker];
+    const trail = trailByTicker[m.ticker];
+    if (!candles5 || candles5.length < 12) continue;
+
+    const startTs = m.start_ts;
+    const endTs = m.end_ts;
+    const direction = m.direction;
+    const isUp = direction === "UP";
+
+    const inRange = candles5.filter(c => c.ts >= startTs && c.ts <= endTs);
+    if (inRange.length < 6) continue;
+
+    let entryBarTs = startTs;
+    let entryPrice = inRange[0].c;
+    if (isUp) {
+      const lowBar = inRange.reduce((a, c) => (c.l < (a?.l ?? 1e9) ? c : a), null);
+      if (lowBar) { entryBarTs = lowBar.ts; entryPrice = lowBar.l; }
+    } else {
+      const highBar = inRange.reduce((a, c) => (c.h > (a?.h ?? 0) ? c : a), null);
+      if (highBar) { entryBarTs = highBar.ts; entryPrice = highBar.h; }
+    }
+
+    let mfeBarTs = entryBarTs;
+    let mfePrice = entryPrice;
+    let maxFav = 0;
+    for (const c of inRange) {
+      if (c.ts < entryBarTs) continue;
+      const fav = isUp ? (c.h - entryPrice) / entryPrice : (entryPrice - c.l) / entryPrice;
+      if (fav > maxFav) { maxFav = fav; mfeBarTs = c.ts; mfePrice = isUp ? c.h : c.l; }
+    }
+
+    const pullbackPct = (m.pullback_atr / (m.move_atr || 1)) * 100;
+    if (pullbackPct > 50 || m.duration_days < 2) continue;
+
+    const trailAtEntry = trail ? findNearest(trail, "bucket_ts", entryBarTs, WINDOW_MS_4H) : null;
+    const trailAtExit = trail ? findNearest(trail, "bucket_ts", mfeBarTs, 30 * 60 * 1000) : null;
+    const entryWindow = trail ? trail.filter(r => r.bucket_ts >= entryBarTs - WINDOW_MS_4H && r.bucket_ts <= entryBarTs + WINDOW_MS_2H) : [];
+    const stateAtEntry = trailAtEntry?.state || "unknown";
+    const htfAtEntry = Number(trailAtEntry?.htf_score_avg) || 0;
+    const ltfAtEntry = Number(trailAtEntry?.ltf_score_avg) || 0;
+    const squeeze = entryWindow.some(r => r.had_squeeze_release);
+    const emaCross = entryWindow.some(r => r.had_ema_cross);
+    const stFlip = entryWindow.some(r => r.had_st_flip);
+    const momentum = entryWindow.some(r => r.had_momentum_elite);
+
+    fingerprints.push({
+      move_id: m.move_id,
+      ticker: m.ticker,
+      direction: m.direction,
+      state: stateAtEntry,
+      htf_score: htfAtEntry,
+      ltf_score: ltfAtEntry,
+      completion: Number(trailAtEntry?.completion) || 0,
+      phase_pct: Number(trailAtEntry?.phase_pct) || 0,
+      squeeze_release: squeeze ? 1 : 0,
+      ema_cross: emaCross ? 1 : 0,
+      st_flip: stFlip ? 1 : 0,
+      momentum_elite: momentum ? 1 : 0,
+      move_atr: m.move_atr,
+      duration_days: m.duration_days,
+      vix_at_start: m.vix_at_start,
+      exit_phase: trailAtExit ? Number(trailAtExit.phase_pct) : null,
+    });
+  }
+
+  const byState = {};
+  for (const fp of fingerprints) {
+    const st = fp.state || "unknown";
+    if (st === "unknown") continue;
+    (byState[st] = byState[st] || []).push(fp);
+  }
+
+  const goldenProfiles = {};
+  for (const [state, arr] of Object.entries(byState)) {
+    if (arr.length < 5) continue;
+    const n = arr.length;
+    const pct = (v) => Math.round((arr.filter(x => x[v]).length / n) * 100);
+    const med = (key) => percentile(arr.map(a => a[key]).filter(x => x != null), 50);
+    goldenProfiles[state] = {
+      sample_count: n,
+      squeeze_release_pct: pct("squeeze_release"),
+      ema_cross_pct: pct("ema_cross"),
+      st_flip_pct: pct("st_flip"),
+      momentum_elite_pct: pct("momentum_elite"),
+      htf_score_median: Math.round(med("htf_score") * 10) / 10,
+      ltf_score_median: Math.round(med("ltf_score") * 10) / 10,
+      completion_median: Math.round(med("completion") * 100) / 100,
+      phase_median: Math.round(med("phase_pct") * 100) / 100,
+      avg_move_atr: Math.round((arr.reduce((s, a) => s + a.move_atr, 0) / n) * 100) / 100,
+    };
+  }
+
+  const tradeAlignments = [];
+  for (const t of autopsiedTrades) {
+    const state = t.entry_path || t.state_at_entry || "unknown";
+    const golden = goldenProfiles[state];
+    if (!golden) { tradeAlignments.push({ trade_id: t.trade_id, state, alignment_pct: null }); continue; }
+    let score = 0;
+    let sigs = 0;
+    try {
+      const flags = t.flags_at_entry ? (typeof t.flags_at_entry === "string" ? JSON.parse(t.flags_at_entry) : t.flags_at_entry) : {};
+      if (golden.squeeze_release_pct >= 50 && flags.squeeze_release) { score++; sigs++; }
+      if (golden.ema_cross_pct >= 50 && flags.ema_cross) { score++; sigs++; }
+      if (golden.st_flip_pct >= 50 && flags.st_flip) { score++; sigs++; }
+      if (golden.momentum_elite_pct >= 50 && flags.momentum_elite) { score++; sigs++; }
+    } catch (_) {}
+    const alignment = sigs > 0 ? Math.round((score / sigs) * 100) : null;
+    tradeAlignments.push({ trade_id: t.trade_id, state, alignment_pct: alignment });
+  }
+
+  const recommendations = [];
+  for (const [state, g] of Object.entries(goldenProfiles)) {
+    if (g.sample_count < 20) continue;
+    if (g.squeeze_release_pct >= 60) recommendations.push({ type: "signal", state, signal: "squeeze_release", message: `Require squeeze_release for ${state} (present in ${g.squeeze_release_pct}% of ideal entries)` });
+    if (g.ema_cross_pct >= 60) recommendations.push({ type: "signal", state, signal: "ema_cross", message: `Consider ema_cross confirmation for ${state} (${g.ema_cross_pct}% of ideal entries)` });
+    if (g.htf_score_median >= 20) recommendations.push({ type: "threshold", state, metric: "min_htf_score", suggested: g.htf_score_median, message: `Raise min HTF score for ${state} toward ${g.htf_score_median} (golden median)` });
+  }
+
+  return {
+    qualifying_moves: qualifying.length,
+    fingerprints_count: fingerprints.length,
+    golden_profiles: goldenProfiles,
+    trade_alignments: tradeAlignments,
+    recommendations: recommendations.slice(0, 10),
+  };
+}
+
+if (db && harvestedMoves.length > 0) {
+  console.log("═══ Hindsight Oracle (5m perfect entry/exit) ═══\n");
+  hindsightOracle = runHindsightOracle();
+  if (hindsightOracle) {
+    console.log(`  [${elapsed()}] Qualifying moves: ${hindsightOracle.qualifying_moves} → fingerprints: ${hindsightOracle.fingerprints_count}`);
+    console.log(`  Golden profiles: ${Object.keys(hindsightOracle.golden_profiles || {}).length} states`);
+    console.log(`  Recommendations: ${(hindsightOracle.recommendations || []).length}`);
+    console.log();
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -607,7 +872,9 @@ async function uploadAndAnalyze() {
   }
 
   console.log(`\n  [${elapsed()}] Running server-side analysis...`);
-  const runResp = await apiPost("/timed/calibration/run", { analysis_only: true });
+  const runBody = { analysis_only: true };
+  if (hindsightOracle) runBody.hindsight_oracle = hindsightOracle;
+  const runResp = await apiPost("/timed/calibration/run", runBody);
   if (runResp.ok) {
     const r = runResp.report;
     if (!r) {
@@ -650,8 +917,10 @@ async function uploadAndAnalyze() {
 }
 
 uploadAndAnalyze().then(() => {
+  if (db) try { db.close(); } catch (_) {}
   console.log(`  [${elapsed()}] Done.\n`);
 }).catch(err => {
+  if (db) try { db.close(); } catch (_) {}
   console.error("Fatal error:", err);
   process.exit(1);
 });
