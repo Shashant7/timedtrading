@@ -2,6 +2,7 @@
 // Publishes to KV (current brief) and D1 (archive), with Finnhub data enrichment.
 
 import { kvGetJSON, kvPutJSON } from "./storage.js";
+import { loadCalendar, isEquityHoliday, isEquityEarlyClose } from "./market-calendar.js";
 
 // ═══════════════════════════════════════════════════════════════════════
 // D1 Schema
@@ -364,6 +365,12 @@ function getETDayOfWeek(nowMs = Date.now()) {
   return 0;
 }
 
+/** Get ET weekday label (e.g. "Friday") */
+function getETWeekdayLabel(nowMs = Date.now()) {
+  const d = new Date(nowMs);
+  return new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", weekday: "long" }).format(d);
+}
+
 /** Format date as YYYY-MM-DD */
 function fmtDate(d) {
   return d.toISOString().slice(0, 10);
@@ -401,6 +408,14 @@ export async function gatherDailyBriefData(env, type, opts = {}) {
   const today = getETDate();
   const { from: weekStart, to: weekEnd } = getWeekRange(today);
   const yesterday = new Date(new Date(today + "T12:00:00Z").getTime() - 86400000).toISOString().slice(0, 10);
+
+  // Calendar context for Friday / holiday awareness
+  const cal = env ? await loadCalendar(env).catch(() => null) : null;
+  const dayOfWeek = getETDayOfWeek();
+  const isFriday = dayOfWeek === 5;
+  const isHoliday = cal ? isEquityHoliday(cal, today) : false;
+  const isEarlyClose = cal ? isEquityEarlyClose(cal, today) : false;
+  const dayOfWeekLabel = getETWeekdayLabel();
 
   // Parallel data fetching
   const [
@@ -639,6 +654,12 @@ export async function gatherDailyBriefData(env, type, opts = {}) {
     today,
     type,
     weekRange: { from: weekStart, to: weekEnd },
+    calendar: {
+      dayOfWeekLabel,
+      isFriday,
+      isHoliday,
+      isEarlyClose,
+    },
     market: {
       ES: extract(esData),
       NQ: extract(nqData),
@@ -982,7 +1003,16 @@ function fmtEconEvent(e) {
 }
 
 function buildMorningPrompt(data) {
-  return `Generate the MORNING BRIEF for ${data.today} (published by 9:00 AM ET).
+  const cal = data.calendar || {};
+  const calNote = cal.isHoliday
+    ? "US equity markets are CLOSED today (holiday). Acknowledge this in your opening and focus on futures/overnight context and next trading day."
+    : cal.isEarlyClose
+      ? "US equity markets have an EARLY CLOSE today (1:00 PM ET). Mention this and any positioning implications."
+      : cal.isFriday
+        ? "Today is Friday. Acknowledge weekend positioning, typical Friday flows, and reduced liquidity into the close where relevant."
+        : "";
+  return `Generate the MORNING BRIEF for ${data.today} (${cal.dayOfWeekLabel || "weekday"}) (published by 9:00 AM ET).
+${calNote ? `\n## Calendar context (MUST acknowledge where relevant):\n${calNote}\n` : ""}
 
 ## Market Data (as of pre-market):
 ${JSON.stringify(data.market, null, 1)}
@@ -1106,7 +1136,16 @@ End with TWO clear sections:
 }
 
 function buildEveningPrompt(data) {
-  return `Generate the EVENING BRIEF for ${data.today} (published by 5:00 PM ET).
+  const cal = data.calendar || {};
+  const calNote = cal.isHoliday
+    ? "US equity markets were CLOSED today (holiday). Focus on futures/overnight and next trading day."
+    : cal.isEarlyClose
+      ? "US equity markets had an EARLY CLOSE today (1:00 PM ET). Mention this when summarizing the session."
+      : cal.isFriday
+        ? "Today was Friday. Acknowledge week-in-review, weekend positioning, and any Monday outlook where relevant."
+        : "";
+  return `Generate the EVENING BRIEF for ${data.today} (${cal.dayOfWeekLabel || "weekday"}) (published by 5:00 PM ET).
+${calNote ? `\n## Calendar context (MUST acknowledge where relevant):\n${calNote}\n` : ""}
 
 ## Market Close Data:
 ${JSON.stringify(data.market, null, 1)}

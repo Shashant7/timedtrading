@@ -933,6 +933,7 @@
         useEffect(() => {
           fetchBrief();
           fetchArchive();
+          fetch(`${API_BASE}/timed/usage`, { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ feature: "daily_brief_view" }) }).catch(() => {});
           // Mark brief as seen for badge
           localStorage.setItem("tt_brief_seen", String(Date.now()));
         }, [fetchBrief, fetchArchive]);

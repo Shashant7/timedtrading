@@ -457,6 +457,8 @@ const ROUTES = [
   ["GET", "/timed/user-tickers/system-stats", "GET /timed/user-tickers/system-stats"],
   ["GET", "/timed/admin/users", "GET /timed/admin/users"],
   ["POST", (p) => /^\/timed\/admin\/users\/[^/]+\/tier$/.test(p), "POST /timed/admin/users/:email/tier"],
+  ["GET", "/timed/admin/usage-report", "GET /timed/admin/usage-report"],
+  ["POST", "/timed/usage", "POST /timed/usage"],
   // ── Admin: UPTICKS & Sector Ratings ──
   ["GET", "/timed/admin/upticks", "GET /timed/admin/upticks"],
   ["PUT", "/timed/admin/upticks", "PUT /timed/admin/upticks"],
@@ -13212,6 +13214,60 @@ async function d1EnsureAdminSchema(env) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════
+// Feature Usage (for Usage by Feature by User report)
+// ═══════════════════════════════════════════════════════════════════════
+
+const FEATURE_USAGE_THROTTLE_MS = 60 * 60 * 1000; // 1 hour per user per feature
+const ALLOWED_FEATURES = new Set([
+  "daily_brief_view", "active_trader_view", "investor_view", "simulation_view",
+  "ai_ask", "screener_view", "ticker_management_view", "calibration_view",
+  "system_intelligence_view", "model_dashboard_view", "admin_clients_view",
+]);
+
+let _featureUsageSchemaReady = false;
+async function d1EnsureFeatureUsageSchema(env) {
+  if (_featureUsageSchemaReady) return;
+  const db = env?.DB;
+  if (!db) return;
+  try {
+    await db.prepare(
+      `CREATE TABLE IF NOT EXISTS feature_usage (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_email TEXT NOT NULL,
+        feature TEXT NOT NULL,
+        ts INTEGER NOT NULL
+      )`
+    ).run();
+    await db.prepare(`CREATE INDEX IF NOT EXISTS idx_feature_usage_user_feature_ts ON feature_usage (user_email, feature, ts DESC)`).run();
+    _featureUsageSchemaReady = true;
+  } catch (e) {
+    console.error("[FEATURE_USAGE] Schema init failed:", String(e).slice(0, 200));
+  }
+}
+
+async function d1RecordFeatureUsage(env, userEmail, feature) {
+  if (!userEmail || !ALLOWED_FEATURES.has(feature)) return;
+  const KV = env?.KV_TIMED;
+  const db = env?.DB;
+  if (!db) return;
+  const throttleKey = `timed:usage:last:${userEmail}:${feature}`;
+  if (KV) {
+    const last = await KV.get(throttleKey);
+    if (last && Date.now() - Number(last) < FEATURE_USAGE_THROTTLE_MS) return;
+  }
+  try {
+    await d1EnsureFeatureUsageSchema(env);
+    const ts = Date.now();
+    await db.prepare(
+      `INSERT INTO feature_usage (user_email, feature, ts) VALUES (?, ?, ?)`
+    ).bind(userEmail.toLowerCase(), feature, ts).run();
+    if (KV) await KV.put(throttleKey, String(ts), { expirationTtl: Math.ceil(FEATURE_USAGE_THROTTLE_MS / 1000) + 60 });
+  } catch (e) {
+    console.warn("[FEATURE_USAGE] Record failed:", String(e?.message || e).slice(0, 150));
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
 // Phase 5 — User-Added Tickers
 // ═══════════════════════════════════════════════════════════════════════
 
@@ -25744,6 +25800,16 @@ export default {
         const captureTickers =
           (await kvGetJSON(KV, "timed:capture:tickers")) || [];
         const storedVersion = await getStoredVersion(KV);
+        let activeUsers30d = null;
+        try {
+          if (env?.DB) {
+            const cutoff = Date.now() - 30 * 86400000;
+            const row = await env.DB.prepare(
+              `SELECT COUNT(*) as n FROM users WHERE last_login_at >= ?`
+            ).bind(cutoff).first();
+            activeUsers30d = row?.n ?? null;
+          }
+        } catch (_) { /* ignore */ }
         return sendJSON(
           {
             ok: true,
@@ -25758,7 +25824,8 @@ export default {
             minutesSinceScoring: scoringTs ? (Date.now() - scoringTs) / 60000 : null,
             scoringElapsedMs: scoringLast?.elapsedMs || null,
             scoringCore: scoringLast?.core || null,
-            scoringUserAdded: scoringLast?.userAdded || null,
+            scoringUserAddedTickers: scoringLast?.userAdded ?? null,
+            activeUsers30d,
             tickers: tickers.length,
             captureTickers: Array.isArray(captureTickers)
               ? captureTickers.length
@@ -30295,6 +30362,62 @@ export default {
              FROM users ORDER BY last_login_at DESC`
           ).all();
           return sendJSON({ ok: true, users: results || [] }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // GET /timed/admin/usage-report - Usage by feature by user (admin only)
+      if (routeKey === "GET /timed/admin/usage-report") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        try {
+          const DB = env?.DB;
+          if (!DB) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
+          const days = Math.min(90, Math.max(1, parseInt(new URL(req.url).searchParams.get("days") || "30", 10)));
+          const since = Date.now() - days * 86400000;
+          await d1EnsureFeatureUsageSchema(env);
+          const { results: rows } = await DB.prepare(
+            `SELECT user_email, feature, COUNT(*) as count, MAX(ts) as last_ts
+             FROM feature_usage WHERE ts >= ? GROUP BY user_email, feature`
+          ).bind(since).all();
+          const byUser = {};
+          const byFeature = {};
+          for (const r of (rows || [])) {
+            const email = r.user_email || "";
+            const feat = r.feature || "";
+            if (!byUser[email]) byUser[email] = { email, features: {}, totalEvents: 0 };
+            byUser[email].features[feat] = { count: r.count, lastTs: r.last_ts };
+            byUser[email].totalEvents += r.count;
+            if (!byFeature[feat]) byFeature[feat] = { count: 0, uniqueUsers: 0 };
+            byFeature[feat].count += r.count;
+            byFeature[feat].uniqueUsers += 1;
+          }
+          const byUserList = Object.values(byUser).sort((a, b) => b.totalEvents - a.totalEvents);
+          return sendJSON({
+            ok: true,
+            days,
+            since,
+            byUser: byUserList,
+            byFeature: Object.entries(byFeature).sort((a, b) => b[1].count - a[1].count).reduce((acc, [k, v]) => { acc[k] = v; return acc; }, {}),
+          }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // POST /timed/usage - Record feature usage (authenticated)
+      if (routeKey === "POST /timed/usage") {
+        const [user, authErr] = await requireUser(req, env);
+        if (authErr) return authErr;
+        try {
+          const body = await readBodyAsJSON(req);
+          const feature = (body?.obj?.feature || "").trim();
+          if (!ALLOWED_FEATURES.has(feature)) {
+            return sendJSON({ ok: false, error: "invalid feature" }, 400, corsHeaders(env, req));
+          }
+          await d1RecordFeatureUsage(env, user.email, feature);
+          return sendJSON({ ok: true }, 200, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e?.message || e) }, 500, corsHeaders(env, req));
         }

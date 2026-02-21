@@ -9,13 +9,14 @@ _No active tasks._
 - [ ] **Welcome Email** — Trigger on signup/subscription.
 - [ ] **Reminder Emails** — Re-engagement (e.g., unused features, inactive users).
 - [ ] **Transactional / Alert Notifications** — Email delivery for trade alerts, system notifications, etc.
+- **Plan:** See `tasks/EMAIL_PLAN.md` for sending (Resend/SendGrid/etc.) and receiving (support/legal + optional inbound parsing).
 
 ### Reports & Metrics
-- [ ] **Usage by Feature by User Report** — Track feature usage (Daily Brief views, Active Trader sessions, AI Ask, etc.) per user for product/engagement insights.
-- [ ] **Active User metrics fix** — Investigate and correct. Note: `d1GetActiveUserTickers` returns user-added tickers (watchlist), not logged-in users; naming/implementation may be misaligned with intended “active users” metric.
+- [x] **Usage by Feature by User Report** [2026-02-20] — D1 `feature_usage` table; POST /timed/usage (auth); GET /timed/admin/usage-report (admin). Admin Clients page has “Usage by Feature” tab. Frontend records usage on load (daily-brief, admin-clients; others can add).
+- [x] **Active User metrics fix** [2026-02-20] — Status payload now includes `activeUsers30d` (distinct users with last_login_at in last 30 days) and `scoringUserAddedTickers` (renamed from scoringUserAdded) so “active users” vs “user-added tickers” are unambiguous.
 
 ### Daily Brief
-- [ ] **Friday / Holiday awareness** — Pass `isFriday` and `isHoliday` (e.g. via `loadCalendar` / `isEquityHoliday`) into `gatherDailyBriefData` → `buildMorningPrompt` / `buildEveningPrompt` so the brief can acknowledge weekend/positioning day or market closure.
+- [x] **Friday / Holiday awareness** [2026-02-20] — `gatherDailyBriefData` now loads calendar, sets `calendar: { dayOfWeekLabel, isFriday, isHoliday, isEarlyClose }`; morning/evening prompts include calendar context so the brief acknowledges Friday, early close, or market holiday.
 - [ ] **News feed** — Extend beyond `fetchAlpacaEconNews` (economic/macro); add general market news section or broader news source for brief enrichment.
 
 ---
