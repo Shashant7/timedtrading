@@ -124,6 +124,18 @@ import {
   fetchFinnhubEarnings,
 } from "./daily-brief.js";
 import {
+  sendEmail,
+  sendWelcomeEmail,
+  sendSubscriptionEmail,
+  sendDailyBriefEmail,
+  sendTradeAlertEmail,
+  sendReEngagementEmail,
+  getUserEmailPrefs,
+  getEmailOptedInUsers,
+  hmacVerify,
+  unsubscribeConfirmationHtml,
+} from "./email.js";
+import {
   syncAllETFHoldings,
   handleGetETFGroups,
   handleGetETFHoldings,
@@ -468,6 +480,11 @@ const ROUTES = [
   ["GET", "/timed/etf/groups", "GET /timed/etf/groups"],
   ["GET", (p) => /^\/timed\/etf\/holdings\/[A-Z]+$/i.test(p), "GET /timed/etf/holdings/:symbol"],
   ["POST", "/timed/etf/sync", "POST /timed/etf/sync"],
+  // ── Email ──
+  ["GET", "/timed/email/unsubscribe", "GET /timed/email/unsubscribe"],
+  ["GET", "/timed/email/preferences", "GET /timed/email/preferences"],
+  ["POST", "/timed/email/preferences", "POST /timed/email/preferences"],
+  ["POST", "/timed/admin/send-sample-emails", "POST /timed/admin/send-sample-emails"],
   // ── Notifications ──
   ["POST", "/timed/push/subscribe", "POST /timed/push/subscribe"],
   ["GET", "/timed/notifications", "GET /timed/notifications"],
@@ -7278,11 +7295,14 @@ async function processTradeSimulation(
     // ─────────────────────────────────────────────────────────────────────────
     // RE-COMPUTE KANBAN STAGE WITH POSITION CONTEXT
     // This ensures exit/trim detection uses the position's trailing SL
+    // Pass asOfMs during replay so trigger freshness uses simulated time, not wall clock
     // ─────────────────────────────────────────────────────────────────────────
     const storedStage = String(tickerData?.kanban_stage || "").trim().toLowerCase();
-    // Always re-classify: position-aware when we have context, fresh discovery otherwise.
-    // Never rely solely on stored stage — it may be stale from a prior scoring cycle.
-    const recomputedStage = classifyKanbanStage(tickerData, openPositionContext || null);
+    const recomputedStage = classifyKanbanStage(
+      tickerData,
+      openPositionContext || null,
+      isReplay && Number.isFinite(asOfMs) ? asOfMs : null,
+    );
     const stage = String(recomputedStage || storedStage || "").trim().toLowerCase();
     
     const prevStage = String(prevData?.kanban_stage || "")
@@ -7597,6 +7617,12 @@ async function processTradeSimulation(
               body: `Closed ${sym} @ $${Number(trade.exitPrice).toFixed(2)} (P&L: ${Number(trade.pnlPct || 0) >= 0 ? "+" : ""}${Number(trade.pnlPct || 0).toFixed(1)}%, ${String(trade.status || "").toUpperCase()})`,
               link: `/simulation-dashboard.html`,
             }));
+            // Email trade alert
+            ctx.waitUntil(dispatchTradeAlertEmails(env, {
+              type: "TRADE_EXIT", ticker: sym, direction: trade.direction,
+              price: trade.exitPrice, pnlPct: trade.pnlPct || 0,
+              exitReason: closeReason || trade.status,
+            }, ctx));
             await upsertAlertSafe({
               alert_id: buildAlertId(sym, tsMs, "TRADE_EXIT"),
               ticker: sym,
@@ -7894,6 +7920,11 @@ async function processTradeSimulation(
               body: `Trimmed ${sym} ${dir} to ${tgt}% (P&L: ${Number(pnlPctAtTrim || 0) >= 0 ? "+" : ""}${Number(pnlPctAtTrim || 0).toFixed(1)}%)`,
               link: `/index-react.html?ticker=${sym}`,
             }));
+            // Email trade alert
+            ctx.waitUntil(dispatchTradeAlertEmails(env, {
+              type: "TRADE_TRIM", ticker: sym, direction: dir,
+              price: trade.currentPrice || p, trimmedPct: tgt,
+            }, ctx));
             await upsertAlertSafe({
               alert_id: buildAlertId(sym, tsMs, "TRADE_TRIM"),
               ticker: sym,
@@ -8819,6 +8850,11 @@ async function processTradeSimulation(
                     body: `Entered ${sym} ${direction} @ $${Number(entryPx).toFixed(2)} (Rank: ${Number(trade.rank || 0)}, R:R: ${Number(trade.rr || 0).toFixed(1)})`,
                     link: `/index-react.html?ticker=${sym}`,
                   }));
+                  // Email trade alert
+                  ctx.waitUntil(dispatchTradeAlertEmails(env, {
+                    type: "TRADE_ENTRY", ticker: sym, direction,
+                    price: entryPx, rank: trade.rank, rr: trade.rr,
+                  }, ctx));
                   await upsertAlertSafe({
                     alert_id: buildAlertId(sym, tsMs, "TRADE_ENTRY"),
                     ticker: sym,
@@ -13199,6 +13235,8 @@ async function d1EnsureAdminSchema(env) {
       ["login_count", "INTEGER DEFAULT 0"],
       ["login_days", "INTEGER DEFAULT 0"],
       ["last_login_day", "TEXT"],
+      ["email_preferences", "TEXT"],
+      ["welcome_email_sent", "INTEGER DEFAULT 0"],
     ];
     for (const [col, type] of cols) {
       try {
@@ -13264,6 +13302,38 @@ async function d1RecordFeatureUsage(env, userEmail, feature) {
     if (KV) await KV.put(throttleKey, String(ts), { expirationTtl: Math.ceil(FEATURE_USAGE_THROTTLE_MS / 1000) + 60 });
   } catch (e) {
     console.warn("[FEATURE_USAGE] Record failed:", String(e?.message || e).slice(0, 150));
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// Trade Alert Email Dispatch (per-ticker throttle)
+// ═══════════════════════════════════════════════════════════════════════
+
+const TRADE_EMAIL_THROTTLE_MS = 60 * 60 * 1000; // 1 hour per ticker per user
+
+async function dispatchTradeAlertEmails(env, alertData, ctx) {
+  if (!env?.SENDGRID_API_KEY || env?.EMAIL_ENABLED !== "true") return;
+  const KV = env?.KV_TIMED;
+  try {
+    const users = await getEmailOptedInUsers(env, "trade_alerts");
+    if (!users.length) return;
+    for (const u of users) {
+      // Per-ticker per-user throttle
+      const throttleKey = `timed:email:trade:${u.email}:${alertData.ticker}`;
+      if (KV) {
+        const last = await KV.get(throttleKey);
+        if (last && Date.now() - Number(last) < TRADE_EMAIL_THROTTLE_MS) continue;
+      }
+      const p = sendTradeAlertEmail(env, u.email, alertData)
+        .then(r => {
+          if (r.ok && KV) KV.put(throttleKey, String(Date.now()), { expirationTtl: 3600 + 60 }).catch(() => {});
+        })
+        .catch(() => {});
+      if (ctx?.waitUntil) ctx.waitUntil(p);
+    }
+    console.log(`[EMAIL] Queued trade alert emails for ${alertData.type} ${alertData.ticker} to ${users.length} users`);
+  } catch (e) {
+    console.warn("[EMAIL] Trade alert dispatch failed:", String(e?.message || e).slice(0, 150));
   }
 }
 
@@ -29004,7 +29074,7 @@ export default {
               console.warn("[REPLAY cleanSlate] D1 trades purge error:", String(d1Err?.message || d1Err).slice(0, 200));
             }
             // Optional tables — may not exist; purge individually
-            for (const tbl of ["positions", "execution_actions", "lots", "alerts"]) {
+            for (const tbl of ["positions", "execution_actions", "lots", "alerts", "ticker_latest"]) {
               try {
                 await db.prepare(`DELETE FROM ${tbl}`).run();
               } catch { /* table may not exist */ }
@@ -29033,14 +29103,42 @@ export default {
           })
         );
 
-        // Load existing trades for trade simulation
+        // Load existing trades for trade simulation (KV first, D1 fallback)
         let allTrades = (await kvGetJSON(KV, "timed:trades:all")) || [];
+        if (allTrades.length === 0 && db) {
+          try {
+            const d1Trades = await db.prepare(
+              `SELECT * FROM trades WHERE status NOT IN ('ARCHIVED') ORDER BY created_at ASC`
+            ).all();
+            if (d1Trades?.results?.length > 0) {
+              allTrades = d1Trades.results.map(r => {
+                try { return typeof r.payload_json === "string" ? JSON.parse(r.payload_json) : r; } catch { return r; }
+              });
+              console.log(`[REPLAY] Loaded ${allTrades.length} trades from D1 (KV was empty)`);
+            }
+          } catch (d1TradeErr) {
+            console.warn(`[REPLAY] D1 trade load failed:`, String(d1TradeErr?.message || d1TradeErr).slice(0, 150));
+          }
+        }
         const replayCtx = { allTrades, execStates: new Map() };
 
         // State map: track evolving ticker state across intervals
+        // Primary: KV, Fallback: D1 ticker_latest (KV writes can silently fail)
         const stateMap = {};
         for (const ticker of batchTickers) {
-          stateMap[ticker] = (await kvGetJSON(KV, `timed:latest:${ticker}`)) || {};
+          let existing = await kvGetJSON(KV, `timed:latest:${ticker}`);
+          if (!existing || Object.keys(existing).length === 0) {
+            try {
+              const row = await db.prepare(
+                `SELECT payload_json FROM ticker_latest WHERE ticker = ?`
+              ).bind(ticker.toUpperCase()).first();
+              if (row?.payload_json) {
+                existing = JSON.parse(row.payload_json);
+                console.log(`[REPLAY] Loaded state for ${ticker} from D1 (KV was empty)`);
+              }
+            } catch { /* D1 fallback non-critical */ }
+          }
+          stateMap[ticker] = existing || {};
         }
 
         let processed = 0;
@@ -29191,8 +29289,8 @@ export default {
               pendingTrail.push({ ticker, result: { ...result } });
 
               if (!trailOnly) {
-                // Run trade simulation (with Discord disabled and no D1 writes)
-                const replayEnv = { ...env, DISCORD_ENABLE: "false", DISCORD_WEBHOOK_URL: null };
+                // Run trade simulation (with Discord + email disabled, no D1 writes)
+                const replayEnv = { ...env, DISCORD_ENABLE: "false", DISCORD_WEBHOOK_URL: null, EMAIL_ENABLED: "false", SENDGRID_API_KEY: null };
                 const countBefore = replayCtx.allTrades.filter(x => String(x?.ticker).toUpperCase() === ticker).length;
                 await processTradeSimulation(KV, ticker, result, existing, replayEnv, {
                   forceUseIngestTs: true,
@@ -29212,7 +29310,7 @@ export default {
           }
         }
 
-        // Batch-write all trail points to D1 (reduces 1000+ individual calls to a few batches)
+        // Batch-write all trail points to D1 (D1 allows max 100 stmts per batch)
         let trailWritten = 0;
         if (pendingTrail.length > 0 && db) {
           try {
@@ -29236,22 +29334,34 @@ export default {
                 )
               );
             }
-            for (let i = 0; i < trailStmts.length; i += 500) {
-              await db.batch(trailStmts.slice(i, i + 500));
-              trailWritten += Math.min(500, trailStmts.length - i);
+            const D1_BATCH_MAX = 100;
+            for (let i = 0; i < trailStmts.length; i += D1_BATCH_MAX) {
+              await db.batch(trailStmts.slice(i, i + D1_BATCH_MAX));
+              trailWritten += Math.min(D1_BATCH_MAX, trailStmts.length - i);
             }
           } catch (trailErr) {
             errors.push({ ticker: "TRAIL_BATCH", error: String(trailErr?.message || trailErr).slice(0, 150) });
           }
         }
 
-        // Write final state for each ticker to KV (skip when trailOnly to preserve current state)
+        // Write final state to D1 ticker_latest (reliable) + KV (best-effort cache)
+        let d1StateWritten = 0;
         if (!trailOnly) {
           for (const ticker of batchTickers) {
             if (stateMap[ticker] && Object.keys(stateMap[ticker]).length > 0) {
+              // D1: primary state store for replay persistence
+              try {
+                await d1UpsertTickerLatest(env, ticker, stateMap[ticker]);
+                d1StateWritten++;
+              } catch (d1Err) {
+                errors.push({ ticker, error: `D1_STATE: ${String(d1Err?.message || d1Err).slice(0, 100)}` });
+              }
+              // KV: best-effort cache (may silently fail)
               try {
                 await kvPutJSON(KV, `timed:latest:${ticker}`, stateMap[ticker]);
-              } catch { /* non-critical */ }
+              } catch (kvErr) {
+                console.warn(`[REPLAY] KV write failed for ${ticker}:`, String(kvErr?.message || kvErr).slice(0, 100));
+              }
             }
           }
 
@@ -29259,7 +29369,7 @@ export default {
           try {
             await kvPutJSON(KV, "timed:trades:all", replayCtx.allTrades);
           } catch (e) {
-            errors.push({ ticker: "TRADES_SAVE", error: String(e?.message || e) });
+            errors.push({ ticker: "TRADES_KV_SAVE", error: String(e?.message || e) });
           }
 
           // Also persist trades to D1 (source of truth) so they survive cron overwrites
@@ -29343,6 +29453,8 @@ export default {
           errorsCount: errors.length,
           errors: errors.slice(0, 10),
           stageCounts,
+          d1StateWritten,
+          trailWritten,
         }, 200, corsHeaders(env, req));
       }
 
@@ -30423,6 +30535,121 @@ export default {
         }
       }
 
+      // ═══════════════════════════════════════════════════════════════
+      // Email Unsubscribe + Preferences
+      // ═══════════════════════════════════════════════════════════════
+
+      if (routeKey === "GET /timed/email/unsubscribe") {
+        try {
+          const email = url.searchParams.get("email");
+          const pref = url.searchParams.get("pref");
+          const token = url.searchParams.get("token");
+          const secret = env?.EMAIL_HMAC_SECRET;
+          if (!email || !pref || !token || !secret) {
+            return new Response("Invalid unsubscribe link.", { status: 400, headers: { "Content-Type": "text/html" } });
+          }
+          const valid = await hmacVerify(secret, `${email}:${pref}`, token);
+          if (!valid) {
+            return new Response("Invalid or expired unsubscribe link.", { status: 403, headers: { "Content-Type": "text/html" } });
+          }
+          const db = env?.DB;
+          if (db) {
+            const row = await db.prepare(`SELECT email_preferences FROM users WHERE email = ?`).bind(email).first();
+            let prefs = {};
+            try { prefs = row?.email_preferences ? JSON.parse(row.email_preferences) : {}; } catch { /* default */ }
+            if (pref === "all") {
+              for (const k of Object.keys(prefs)) prefs[k] = false;
+              prefs.daily_brief_morning = false;
+              prefs.daily_brief_evening = false;
+              prefs.trade_alerts = false;
+              prefs.weekly_digest = false;
+              prefs.re_engagement = false;
+            } else {
+              prefs[pref] = false;
+            }
+            await db.prepare(`UPDATE users SET email_preferences = ?, updated_at = ? WHERE email = ?`)
+              .bind(JSON.stringify(prefs), Date.now(), email).run();
+          }
+          return new Response(unsubscribeConfirmationHtml(email, pref), {
+            status: 200, headers: { "Content-Type": "text/html; charset=utf-8" },
+          });
+        } catch (e) {
+          console.error("[EMAIL] Unsubscribe error:", String(e).slice(0, 200));
+          return new Response("Something went wrong. Please try again.", { status: 500, headers: { "Content-Type": "text/html" } });
+        }
+      }
+
+      if (routeKey === "GET /timed/email/preferences") {
+        const [user, authErr] = await requireUser(req, env);
+        if (authErr) return authErr;
+        try {
+          const prefs = getUserEmailPrefs(user);
+          return sendJSON({ ok: true, preferences: prefs }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      if (routeKey === "POST /timed/email/preferences") {
+        const [user, authErr] = await requireUser(req, env);
+        if (authErr) return authErr;
+        try {
+          const body = await readBodyAsJSON(req);
+          const updates = body?.obj;
+          if (!updates || typeof updates !== "object") {
+            return sendJSON({ ok: false, error: "body must be an object of preference keys" }, 400, corsHeaders(env, req));
+          }
+          const allowedKeys = new Set(["daily_brief_morning", "daily_brief_evening", "trade_alerts", "weekly_digest", "re_engagement"]);
+          const current = getUserEmailPrefs(user);
+          for (const [k, v] of Object.entries(updates)) {
+            if (allowedKeys.has(k) && typeof v === "boolean") current[k] = v;
+          }
+          const db = env?.DB;
+          if (db) {
+            await db.prepare(`UPDATE users SET email_preferences = ?, updated_at = ? WHERE email = ?`)
+              .bind(JSON.stringify(current), Date.now(), user.email).run();
+          }
+          return sendJSON({ ok: true, preferences: current }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // POST /timed/admin/send-sample-emails - Send one of each email type to a given address (admin/API key)
+      if (routeKey === "POST /timed/admin/send-sample-emails") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        try {
+          const body = await readBodyAsJSON(req);
+          const to = (body?.obj?.email || "shashantv2@gmail.com").trim().toLowerCase();
+          if (!to) return sendJSON({ ok: false, error: "email required" }, 400, corsHeaders(env, req));
+          const mockUser = { email: to, display_name: "Sample User" };
+          const today = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+          const tasks = [
+            ["welcome", () => sendWelcomeEmail(env, mockUser)],
+            ["subscription_trial", () => sendSubscriptionEmail(env, to, true)],
+            ["subscription_paid", () => sendSubscriptionEmail(env, to, false)],
+            ["daily_brief_morning", () => sendDailyBriefEmail(env, to, { type: "morning", date: today, content: "## Sample Morning Brief\n\nThis is **sample content** for the morning brief. In production you get the full AI-generated analysis, ES prediction, and market recap.\n\n- Bullet one\n- Bullet two", esPrediction: "Sample ES prediction for verification." })],
+            ["daily_brief_evening", () => sendDailyBriefEmail(env, to, { type: "evening", date: today, content: "## Sample Evening Brief\n\nThis is **sample content** for the evening brief.\n\n- Recap item\n- Another point", esPrediction: null })],
+            ["trade_entry", () => sendTradeAlertEmail(env, to, { type: "TRADE_ENTRY", ticker: "AAPL", direction: "long", price: 175.50, rank: 78, rr: 2.1 })],
+            ["trade_trim", () => sendTradeAlertEmail(env, to, { type: "TRADE_TRIM", ticker: "AAPL", direction: "long", price: 178.20, trimmedPct: 50 })],
+            ["trade_exit", () => sendTradeAlertEmail(env, to, { type: "TRADE_EXIT", ticker: "AAPL", direction: "long", price: 180.10, pnlPct: 2.6, exitReason: "TP hit" })],
+            ["re_engagement", () => sendReEngagementEmail(env, to, { daysSince: 18, signalCount: 12, tradeCount: 4, briefCount: 10 })],
+          ];
+          const results = await Promise.all(tasks.map(async ([name, fn]) => {
+            try {
+              const r = await fn();
+              return { type: name, ok: r?.ok, error: r?.error };
+            } catch (e) {
+              return { type: name, ok: false, error: String(e?.message || e).slice(0, 100) };
+            }
+          }));
+          return sendJSON({ ok: true, to, results }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e) }, 500, corsHeaders(env, req));
+        }
+      }
+
       // POST /timed/admin/users/:email/tier - Update user tier (admin only, supports JWT + API key)
       if (routeKey === "POST /timed/admin/users/:email/tier") {
         const authFail = await requireKeyOrAdmin(req, env);
@@ -30737,6 +30964,12 @@ export default {
                   : "Welcome to Timed Trading Pro! Your subscription is now active.",
                 link: "/index-react.html",
               });
+              // Subscription confirmation email
+              ctx.waitUntil(
+                sendSubscriptionEmail(env, email, subStatus === "trialing").catch(e =>
+                  console.warn("[STRIPE] Subscription email failed:", String(e?.message || e).slice(0, 150))
+                )
+              );
             }
           } else if (eventType === "customer.subscription.updated") {
             const sub = event.data.object;
@@ -30944,15 +31177,20 @@ export default {
                (trade_id,ticker,direction,entry_ts,exit_ts,entry_price,exit_price,sl_price,
                 pnl_pct,r_multiple,mfe_pct,mfe_atr,mae_pct,mae_atr,exit_efficiency,
                 sl_hit_before_mfe,time_to_mfe_min,optimal_hold_min,classification,
-                entry_signals_json,entry_path,rank_at_entry,regime_at_entry,created_at)
-               VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24)`
+                entry_signals_json,entry_path,rank_at_entry,regime_at_entry,
+                vix_at_entry,htf_score_at_entry,ltf_score_at_entry,state_at_entry,
+                completion_at_entry,phase_at_entry,flags_at_entry,created_at)
+               VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,?25,?26,?27,?28,?29,?30,?31)`
             ).bind(
               t.trade_id, t.ticker, t.direction, t.entry_ts, t.exit_ts,
               t.entry_price, t.exit_price, t.sl_price, t.pnl_pct, t.r_multiple,
               t.mfe_pct, t.mfe_atr, t.mae_pct, t.mae_atr, t.exit_efficiency,
               t.sl_hit_before_mfe ? 1 : 0, t.time_to_mfe_min, t.optimal_hold_min,
               t.classification, t.entry_signals_json || null,
-              t.entry_path, t.rank_at_entry, t.regime_at_entry, Date.now()
+              t.entry_path, t.rank_at_entry, t.regime_at_entry,
+              t.vix_at_entry ?? null, t.htf_score_at_entry ?? null, t.ltf_score_at_entry ?? null,
+              t.state_at_entry ?? null, t.completion_at_entry ?? null, t.phase_at_entry ?? null,
+              t.flags_at_entry ?? null, Date.now()
             ));
             await db.batch(stmts);
             inserted += chunk.length;
@@ -32454,9 +32692,9 @@ export default {
         );
       }
 
-      // POST /timed/trades/reset — Clear all trades and reset to $100K baseline
+      // POST /timed/trades/reset — Clear all trades and reset to $100K baseline (API key or admin session)
       if (routeKey === "POST /timed/trades/reset") {
-        const authFail = requireKeyOr401(req, env);
+        const authFail = await requireKeyOrAdmin(req, env);
         if (authFail) return authFail;
         const db = env?.DB;
         try {
@@ -32482,11 +32720,16 @@ export default {
                 db.prepare(`DELETE FROM execution_actions`),
               ]);
             } catch (_) {}
+            // Clear account_ledger so account-summary reads $100K baseline
+            try {
+              await db.prepare(`DELETE FROM account_ledger WHERE mode = 'trader'`).run();
+            } catch (_) {}
           }
-          // 4. Clear trade-related KV caches
+          // 4. Clear trade-related KV caches + portfolio
           await Promise.allSettled([
             KV.delete("timed:corr:open_trades"),
             KV.delete("timed:trades:daily_count"),
+            kvPutJSON(KV, PORTFOLIO_KEY, null),
           ]);
           console.log(`[RESET] All trades cleared, account reset to $100K baseline`);
           return sendJSON({ ok: true, message: "All trades cleared. Account reset to $100,000 baseline." }, 200, corsHeaders(env, req));
@@ -36972,9 +37215,10 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             await kvPutJSON(KV, `timed:latest:${ticker}`, payload);
             updated += 1;
 
+            const replayEnvTicker = { ...env, DISCORD_ENABLE: "false", DISCORD_WEBHOOK_URL: null, EMAIL_ENABLED: "false", SENDGRID_API_KEY: null };
             const tradesBefore = (await kvGetJSON(KV, "timed:trades:all")) || [];
             const countBefore = tradesBefore.filter((x) => String(x?.ticker).toUpperCase() === ticker).length;
-            await processTradeSimulation(KV, ticker, payload, existing, env, { forceUseIngestTs: true });
+            await processTradeSimulation(KV, ticker, payload, existing, replayEnvTicker, { forceUseIngestTs: true });
             const tradesAfter = (await kvGetJSON(KV, "timed:trades:all")) || [];
             const countAfter = tradesAfter.filter((x) => String(x?.ticker).toUpperCase() === ticker).length;
             if (countAfter > countBefore) tradesCreated += countAfter - countBefore;
@@ -37234,7 +37478,8 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                 openTradeStatus: openTradeCheck?.status || null,
               });
             }
-            await processTradeSimulation(KV, ticker, payload, existingState, env, { forceUseIngestTs: true, replayBatchContext: replayCtx, asOfTs: rowTs });
+            const replayEnvD1 = { ...env, DISCORD_ENABLE: "false", DISCORD_WEBHOOK_URL: null, EMAIL_ENABLED: "false", SENDGRID_API_KEY: null };
+            await processTradeSimulation(KV, ticker, payload, existingState, replayEnvD1, { forceUseIngestTs: true, replayBatchContext: replayCtx, asOfTs: rowTs });
             const countAfter = replayCtx.allTrades.filter((x) => String(x?.ticker).toUpperCase() === ticker).length;
             if (countAfter > countBefore) tradesCreated += countAfter - countBefore;
             if ((finalStage === "enter" || finalStage === "enter_now") && replayCtx.debugEntries.length > 0 && replayCtx.debugEntries[replayCtx.debugEntries.length - 1].ts === rowTs) {
@@ -37495,7 +37740,8 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             }
 
             const countBefore = replayCtx.allTrades.filter((x) => String(x?.ticker).toUpperCase() === ticker).length;
-            await processTradeSimulation(KV, ticker, payload, existingState, env, { forceUseIngestTs: true, replayBatchContext: replayCtx, asOfTs: rowTs });
+            const replayEnvD1b = { ...env, DISCORD_ENABLE: "false", DISCORD_WEBHOOK_URL: null, EMAIL_ENABLED: "false", SENDGRID_API_KEY: null };
+            await processTradeSimulation(KV, ticker, payload, existingState, replayEnvD1b, { forceUseIngestTs: true, replayBatchContext: replayCtx, asOfTs: rowTs });
             const countAfter = replayCtx.allTrades.filter((x) => String(x?.ticker).toUpperCase() === ticker).length;
             if (countAfter > countBefore) tradesCreated += countAfter - countBefore;
             processed += 1;
@@ -38072,7 +38318,8 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                   }
                 }
               }
-              await processTradeSimulation(KV, ticker, payload, existingState, env, { forceUseIngestTs: true, replayBatchContext: replayCtx, asOfTs: rowTs });
+              const replayEnvIng = { ...env, DISCORD_ENABLE: "false", DISCORD_WEBHOOK_URL: null, EMAIL_ENABLED: "false", SENDGRID_API_KEY: null };
+              await processTradeSimulation(KV, ticker, payload, existingState, replayEnvIng, { forceUseIngestTs: true, replayBatchContext: replayCtx, asOfTs: rowTs });
               const countAfter = replayCtx.allTrades.filter((x) => String(x?.ticker).toUpperCase() === ticker).length;
               if (countAfter > countBefore) tradesCreated += countAfter - countBefore;
             } catch (e) {
@@ -38580,7 +38827,8 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             const countBefore = replayCtx.allTrades.filter(
               (x) => String(x?.ticker).toUpperCase() === ticker,
             ).length;
-            await processTradeSimulation(KV, ticker, payload, existing, env, {
+            const replayEnvDay = { ...env, DISCORD_ENABLE: "false", DISCORD_WEBHOOK_URL: null, EMAIL_ENABLED: "false", SENDGRID_API_KEY: null };
+            await processTradeSimulation(KV, ticker, payload, existing, replayEnvDay, {
               forceUseIngestTs: true,
               replayBatchContext: replayCtx,
               asOfTs: rowTs,
@@ -39134,6 +39382,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
       if (_isWeekday && _utcH === 8)                                vc.add("0 8 * * 1-5");
       if (_isWeekday && _utcH === 12)                               vc.add("0 12 * * 1-5");
       if (_utcH === 4)                                              vc.add("0 4 * * *");
+      if (_utcDay === 1 && _utcH === 15)                            vc.add("0 15 * * 1");
     }
 
     console.log(`[CRON] ${event.cron} → [${[...vc].join(", ")}] at ${_utcH}:${String(_utcM).padStart(2,"0")} day=${_utcDay}`);
@@ -39257,6 +39506,60 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
         }
       })());
       // Don't return — allow other handlers
+    }
+
+    // ── Re-engagement Emails: Monday 10 AM ET (15:00 UTC) ──
+    if (vc.has("0 15 * * 1")) {
+      ctx.waitUntil((async () => {
+        try {
+          if (!env?.DB || !env?.SENDGRID_API_KEY || env?.EMAIL_ENABLED !== "true") return;
+          const KV = env?.KV_TIMED;
+          const fourteenDaysAgo = Date.now() - 14 * 24 * 60 * 60 * 1000;
+          const users = await getEmailOptedInUsers(env, "re_engagement");
+          const inactive = users.filter(u => {
+            const lastLogin = Number(u.last_login_at || 0);
+            return lastLogin > 0 && lastLogin < fourteenDaysAgo;
+          });
+          if (!inactive.length) {
+            console.log("[RE-ENGAGEMENT] No inactive users to email");
+            return;
+          }
+          // Gather stats for the "here is what you missed" content
+          let signalCount = 0, tradeCount = 0, briefCount = 0;
+          try {
+            const alertsRes = await env.DB.prepare(
+              `SELECT COUNT(*) as cnt FROM alerts WHERE ts > ?`
+            ).bind(fourteenDaysAgo).first();
+            signalCount = alertsRes?.cnt || 0;
+          } catch { /* alerts table may not exist */ }
+          try {
+            const briefsRes = await env.DB.prepare(
+              `SELECT COUNT(*) as cnt FROM daily_briefs WHERE published_at > ?`
+            ).bind(fourteenDaysAgo).first();
+            briefCount = briefsRes?.cnt || 0;
+          } catch { /* briefs table may not exist */ }
+          tradeCount = signalCount > 0 ? Math.ceil(signalCount * 0.3) : 0;
+
+          let sent = 0;
+          for (const u of inactive) {
+            const throttleKey = `timed:email:reeng:${u.email}`;
+            if (KV) {
+              const last = await KV.get(throttleKey);
+              if (last && Date.now() - Number(last) < 14 * 24 * 60 * 60 * 1000) continue;
+            }
+            const lastLogin = Number(u.last_login_at || 0);
+            const daysSince = lastLogin > 0 ? Math.floor((Date.now() - lastLogin) / (24 * 60 * 60 * 1000)) : null;
+            const res = await sendReEngagementEmail(env, u.email, { daysSince, signalCount, tradeCount, briefCount });
+            if (res.ok) {
+              sent++;
+              if (KV) await KV.put(throttleKey, String(Date.now()), { expirationTtl: 14 * 24 * 60 * 60 + 3600 }).catch(() => {});
+            }
+          }
+          console.log(`[RE-ENGAGEMENT] Sent ${sent}/${inactive.length} re-engagement emails`);
+        } catch (e) {
+          console.warn("[RE-ENGAGEMENT] Failed:", String(e?.message || e).slice(0, 300));
+        }
+      })());
     }
 
     // ── Daily Brief: Morning (9 AM ET = 14:00 UTC) ──

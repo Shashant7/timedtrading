@@ -20,7 +20,7 @@ echo ""
 
 # Step 1: Reset trades (cleanSlate on first batch of first day)
 echo "Step 1: Resetting trades..."
-RESET_RESULT=$(curl -s -m 60 -X POST "$API_BASE/timed/admin/reset?resetTrades=1&key=$API_KEY")
+RESET_RESULT=$(curl -s -m 300 -X POST "$API_BASE/timed/admin/reset?resetTrades=1&key=$API_KEY")
 echo "Reset: $(echo "$RESET_RESULT" | jq -c '{ok, kvCleared}' 2>/dev/null || echo "$RESET_RESULT")"
 echo ""
 
@@ -69,11 +69,13 @@ while [[ "$CURRENT_DATE" < "$END_DATE" ]] || [[ "$CURRENT_DATE" == "$END_DATE" ]
     NEXT_OFFSET=$(echo "$RESULT" | jq -r '.nextTickerOffset // "null"' 2>/dev/null || echo "null")
     ERRS=$(echo "$RESULT" | jq -r '.errorsCount // 0' 2>/dev/null || echo "0")
     TOTAL_TR=$(echo "$RESULT" | jq -r '.totalTrades // 0' 2>/dev/null || echo "0")
+    D1_STATE=$(echo "$RESULT" | jq -r '.d1StateWritten // 0' 2>/dev/null || echo "0")
+    STAGES=$(echo "$RESULT" | jq -c '.stageCounts // {}' 2>/dev/null || echo "{}")
     
     DAY_SCORED=$((DAY_SCORED + SCORED))
     DAY_TRADES=$((DAY_TRADES + TRADES))
     
-    echo "  offset=$TICKER_OFFSET: scored=$SCORED trades=$TRADES errors=$ERRS (total=$TOTAL_TR)"
+    echo "  offset=$TICKER_OFFSET: scored=$SCORED trades=$TRADES d1=$D1_STATE errors=$ERRS (total=$TOTAL_TR) $STAGES"
     
     if [[ "$MORE" == "true" ]] && [[ "$NEXT_OFFSET" != "null" ]]; then
       TICKER_OFFSET=$NEXT_OFFSET
