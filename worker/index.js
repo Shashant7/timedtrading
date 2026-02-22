@@ -7204,17 +7204,31 @@ async function processTradeSimulation(
     }
 
     // Phase 3: Open position from D1 (single source of truth).
-    // KV fallback ONLY when D1 is unavailable (local dev / replay).
-    // Using KV as fallback when D1 exists caused phantom positions:
-    // stale KV trades get "found", processed, and written back — never closing.
+    // Replay uses in-memory replayCtx.allTrades instead of D1/KV.
     let openTrade = null;
     let openPositionContext = null;  // D1 position with SL for stage classification
-    if (env?.DB && !isReplay) {
+    if (isReplay) {
+      // Replay: find open trade from in-memory trade array
+      openTrade = allTrades.find(
+        (t) =>
+          String(t?.ticker || "").toUpperCase() === sym &&
+          isOpenTradeStatus(t?.status),
+      ) || null;
+      if (openTrade) {
+        openPositionContext = {
+          status: "OPEN",
+          direction: openTrade.direction,
+          sl: Number.isFinite(Number(openTrade.sl)) ? Number(openTrade.sl) : null,
+          entryPrice: Number(openTrade.entryPrice),
+          avgEntry: Number(openTrade.entryPrice),
+          entry_ts: Number(openTrade.entry_ts) || Number(openTrade.created_at) || 0,
+        };
+      }
+    } else if (env?.DB) {
       openPositionContext = await getPositionContext(env, sym);
       openTrade = await getOpenPositionAsTrade(env, sym, direction) ||
         await getOpenPositionAsTrade(env, sym, direction === "LONG" ? "SHORT" : "LONG");
-    }
-    if (openTrade == null && !(env?.DB)) {
+    } else {
       // KV fallback: only when D1 is not available (local dev, testing)
       openTrade = allTrades.find(
         (t) =>
