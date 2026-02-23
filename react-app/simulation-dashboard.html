@@ -6347,6 +6347,17 @@
         // Single view: no Proof/Trades/Alerts tabs
         const [accountChartRange, setAccountChartRange] = useState("1D"); // 1D | 5D | 10D | 30D | 1Y
         const [chartHover, setChartHover] = useState(null); // { idx, x, y, val, ts, pnl }
+        const setRangePreset = useCallback((preset) => {
+          const day = 24 * 60 * 60 * 1000;
+          const days = { "1D": 1, "5D": 5, "10D": 10, "30D": 30, "1Y": 365 }[preset] || 1;
+          const end = new Date();
+          end.setHours(23, 59, 59, 999);
+          const start = new Date(end.getTime() - days * day);
+          start.setHours(0, 0, 0, 0);
+          setLedgerDateRange({ start, end });
+          setAccountChartRange(preset);
+          setHorizonFilter("ALL");
+        }, []);
         const [expandedPositionTicker, setExpandedPositionTicker] = useState(null); // ticker for expanded card
         const initialLedgerTicker = (() => {
           try {
@@ -7464,11 +7475,14 @@
                     </h1>
                   </div>
                   <div className="flex items-center gap-4 flex-wrap">
-                    <DateRangeSlider
-                      range={ledgerDateRange}
-                      onRangeChange={setLedgerDateRange}
-                      sliderDays={SLIDER_RANGE_DAYS}
-                    />
+                    <div className="flex flex-col gap-1">
+                      <span className="text-[10px] text-[var(--tt-text-faint)] uppercase tracking-wide">Start – End (controls trades &amp; metrics below)</span>
+                      <DateRangeSlider
+                        range={ledgerDateRange}
+                        onRangeChange={(r) => { setLedgerDateRange(r); setHorizonFilter("ALL"); }}
+                        sliderDays={SLIDER_RANGE_DAYS}
+                      />
+                    </div>
                     {(loading || tradesLoading) && (
                       <div className="loading-spinner" />
                     )}
@@ -7542,7 +7556,8 @@
                                 <button
                                   key={r}
                                   type="button"
-                                  onClick={() => setAccountChartRange(r)}
+                                  onClick={() => setRangePreset(r)}
+                                  title={`Show trades and metrics for last ${r === "1Y" ? "year" : r.replace("D", " days")}`}
                                   className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
                                     accountChartRange === r
                                       ? "bg-[var(--tt-accent)]/20 text-[var(--tt-accent)] border border-[var(--tt-accent)]/40"
@@ -7634,39 +7649,45 @@
                           <p className="text-[10px] text-[var(--tt-text-faint)] mt-2">Baseline {fmtUsd(BASELINE_ACCOUNT)}</p>
                         </div>
 
-                        {/* Account summary stats — uses server-side account_ledger for consistency */}
+                        {/* Account summary: Account/Total/Open = current (all-time). Closed & Realized = selected range only. */}
                         <div className="grid grid-cols-2 sm:grid-cols-6 gap-3">
                           {(() => {
                             const acctVal = acctSummary?.accountValue ?? BASELINE_ACCOUNT;
-                            const totalRealized = acctSummary?.totalRealized ?? ledgerClosedTrades.reduce((s, t) => s + (Number(t.pnl) || 0), 0);
                             const openPnl = acctSummary?.unrealized ?? ledgerOpenTrades.reduce((sum, t) => {
                               const m = getPositionMetrics(t, data && (data[t.ticker] || data[String(t.ticker).toUpperCase()]));
                               return sum + (Number(m.pnlOpen) || 0);
                             }, 0);
-                            const totalPnl = totalRealized + openPnl;
+                            const realizedInRange = ledgerClosedTrades.reduce((s, t) => s + (Number(t.pnl) || 0), 0);
+                            const totalPnl = acctVal - BASELINE_ACCOUNT;
+                            const rangeLabel = "In selected range";
                             return (
                               <>
                                 <div className="tt-card p-3">
                                   <div className="text-[10px] text-[var(--tt-text-faint)] uppercase tracking-wide">Account</div>
                                   <div className="text-lg font-bold text-[var(--tt-text)]">{fmtUsd(acctVal)}</div>
+                                  <div className="text-[10px] text-[var(--tt-text-faint)] mt-0.5">Current value</div>
                                 </div>
                                 <div className="tt-card p-3">
                                   <div className="text-[10px] text-[var(--tt-text-faint)] uppercase tracking-wide">Total P&L</div>
                                   <div className={`text-lg font-bold ${totalPnl >= 0 ? "text-[var(--tt-accent)]" : "text-[var(--tt-negative)]"}`}>{fmtUsd(totalPnl)}</div>
+                                  <div className="text-[10px] text-[var(--tt-text-faint)] mt-0.5">All-time</div>
                                 </div>
                                 <div className="tt-card p-3">
                                   <div className="text-[10px] text-[var(--tt-text-faint)] uppercase tracking-wide">Open P&L</div>
                                   <div className={`text-lg font-bold ${openPnl >= 0 ? "text-[var(--tt-accent)]" : "text-[var(--tt-negative)]"}`}>{fmtUsd(openPnl)}</div>
+                                  <div className="text-[10px] text-[var(--tt-text-faint)] mt-0.5">Current</div>
                                 </div>
                                 <div className="tt-card p-3">
                                   <div className="text-[10px] text-[var(--tt-text-faint)] uppercase tracking-wide">Closed</div>
                                   <div className="text-lg font-bold text-[var(--tt-text)]">{ledgerClosedTrades.length}</div>
+                                  <div className="text-[10px] text-[var(--tt-text-faint)] mt-0.5">{rangeLabel}</div>
                                 </div>
                                 <div className="tt-card p-3">
                                   <div className="text-[10px] text-[var(--tt-text-faint)] uppercase tracking-wide">Realized P&L</div>
-                                  <div className={`text-lg font-bold ${totalRealized >= 0 ? "text-[var(--tt-accent)]" : "text-[var(--tt-negative)]"}`}>
-                                    {fmtUsd(totalRealized)}
+                                  <div className={`text-lg font-bold ${realizedInRange >= 0 ? "text-[var(--tt-accent)]" : "text-[var(--tt-negative)]"}`}>
+                                    {fmtUsd(realizedInRange)}
                                   </div>
+                                  <div className="text-[10px] text-[var(--tt-text-faint)] mt-0.5">{rangeLabel}</div>
                                 </div>
                               </>
                             );
@@ -8035,7 +8056,10 @@
 
                         {/* Trade History — Today (full width table), then By day + P&L by ticker (2 cols) */}
                         <div className="tt-card p-4">
-                            <h2 className="text-sm font-semibold text-[var(--tt-text)] uppercase tracking-wide mb-3">Trade History</h2>
+                            <h2 className="text-sm font-semibold text-[var(--tt-text)] uppercase tracking-wide mb-0.5">Trade History</h2>
+                            <p className="text-[11px] text-[var(--tt-text-faint)] mb-3">
+                              Same range as slider above: {ledgerDateRange.start.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })} – {ledgerDateRange.end.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}. Closed and Realized P&L above use this range.
+                            </p>
 
                             {/* Row 1: Today's Trades — full width table */}
                             <div className="mb-4">
@@ -8081,12 +8105,12 @@
 
                             {/* Row 2: By Day (accordion) + P&L by Ticker — 2-column */}
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                              {/* Col 2: By day */}
+                              {/* Col 2: By day — same range as slider */}
                               <div>
-                                <h3 className="text-xs font-medium text-[var(--tt-text-faint)] mb-2 uppercase tracking-wider">By day</h3>
+                                <h3 className="text-xs font-medium text-[var(--tt-text-faint)] mb-2 uppercase tracking-wider">By day (in selected range)</h3>
                                 <div className="space-y-1 max-h-[1120px] overflow-y-auto">
                                   {ledgerActivityDays.length === 0 ? (
-                                    <div className="text-[13px] text-[var(--tt-text-faint)] py-2">No closed trades by day</div>
+                                    <div className="text-[13px] text-[var(--tt-text-faint)] py-2">No closed trades in this range. Adjust Start/End above or try 1D / 5D / 30D.</div>
                                   ) : ledgerActivityDays.slice(0, 160).map((day) => {
                                     const isExpanded = expandedByDayKey === day.key;
                                     return (

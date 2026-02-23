@@ -476,6 +476,7 @@ const ROUTES = [
   ["PUT", "/timed/admin/upticks", "PUT /timed/admin/upticks"],
   ["GET", "/timed/admin/sector-ratings", "GET /timed/admin/sector-ratings"],
   ["PUT", "/timed/admin/sector-ratings", "PUT /timed/admin/sector-ratings"],
+  ["POST", "/timed/admin/sync-universe", "POST /timed/admin/sync-universe"],
   // ── ETF Holdings Sync ──
   ["GET", "/timed/etf/groups", "GET /timed/etf/groups"],
   ["GET", (p) => /^\/timed\/etf\/holdings\/[A-Z]+$/i.test(p), "GET /timed/etf/holdings/:symbol"],
@@ -924,6 +925,24 @@ async function ensureTickerIndex(KV, ticker) {
   }
 }
 
+// ── Source Tagging: track where each ticker came from ──
+// KV key `timed:ticker-sources` maps ticker → Set of sources (GRNY, GRNJ, UPTICKS, SECTOR_ETF, etc.)
+async function updateTickerSources(KV, tickerOrTickers, source) {
+  if (!KV) return;
+  try {
+    const sources = (await kvGetJSON(KV, "timed:ticker-sources")) || {};
+    const tickers = Array.isArray(tickerOrTickers) ? tickerOrTickers : [tickerOrTickers];
+    for (const t of tickers) {
+      const sym = String(t).toUpperCase();
+      if (!sources[sym]) sources[sym] = [];
+      if (!sources[sym].includes(source)) sources[sym].push(source);
+    }
+    await kvPutJSON(KV, "timed:ticker-sources", sources);
+  } catch (e) {
+    console.warn("[SOURCE TAG] Failed:", String(e?.message || e).slice(0, 100));
+  }
+}
+
 // ── ETF Rebalance: auto-add net-new tickers to system ──
 // Called by syncAllETFHoldings when new tickers appear in GRNY/GRNI/GRNJ.
 // Adds to ticker index + SECTOR_MAP, triggers deep backfill + immediate scoring.
@@ -951,6 +970,12 @@ async function etfAutoAddTickers(env, tickers, weightMap, ctx) {
     } catch (e) {
       console.warn(`[ETF AUTO-ADD] Failed to add ${ticker}:`, String(e?.message || e).slice(0, 150));
     }
+  }
+
+  // Tag all added tickers with their ETF source
+  if (added.length > 0 && KV) {
+    const etfName = weightMap?._etfName || "ETF";
+    await updateTickerSources(KV, added, etfName);
   }
 
   // Deep backfill + score in background (don't block the sync response)
@@ -2104,12 +2129,15 @@ function qualifiesForEnter(d, asOfTs = null) {
 
   // ── Phase 1c: RSI Exhaustion Block on 1H ──
   // No LONG if 1H RSI > 72, no SHORT if 1H RSI < 28 (swing-appropriate levels)
+  // BYPASS: When Daily EMA regime is confirmed (+2/-2), RSI being extended is expected
+  // in strong trends. The regime already validates the trend, so don't block trend entries.
   const rsi1H = Number(d?.entry_quality?.details?.rsi1H) || 50;
   const inferredSideForRSI = sideFromStateOrScores(d);
-  if (inferredSideForRSI === "LONG" && rsi1H > 72) {
+  const _regimeBypass = Math.abs(Number(d?.ema_regime_daily) || 0) >= 2;
+  if (inferredSideForRSI === "LONG" && rsi1H > 72 && !_regimeBypass) {
     return { qualifies: false, reason: "rsi_1h_overbought", rsi1H };
   }
-  if (inferredSideForRSI === "SHORT" && rsi1H < 28) {
+  if (inferredSideForRSI === "SHORT" && rsi1H < 28 && !_regimeBypass) {
     return { qualifies: false, reason: "rsi_1h_oversold", rsi1H };
   }
 
@@ -2144,6 +2172,33 @@ function qualifiesForEnter(d, asOfTs = null) {
   // Adaptive per-state rank minimum
   if (stateGate?.min_rank > 0 && score < stateGate.min_rank) {
     return { qualifies: false, reason: "adaptive_rank_below_min", rank: score, required: stateGate.min_rank, state };
+  }
+
+  // Golden Profile gates: enforce HTF/LTF score floors from hindsight oracle
+  const _gp = d?._env?._goldenProfiles;
+  if (_gp) {
+    const gpState = _gp[state] || _gp["_default"];
+    if (gpState) {
+      const gpHtfFloor = Number(gpState.htf_score_median) || 0;
+      const gpLtfFloor = Number(gpState.ltf_score_median) || 0;
+      if (gpHtfFloor > 0 && htf < gpHtfFloor * 0.75) {
+        return { qualifies: false, reason: "golden_htf_below_floor", htf, floor: gpHtfFloor * 0.75, state };
+      }
+      if (gpLtfFloor > 0 && ltf < gpLtfFloor * 0.75) {
+        return { qualifies: false, reason: "golden_ltf_below_floor", ltf, floor: gpLtfFloor * 0.75, state };
+      }
+      // Signal confluence: require at least one of the golden signals if specified
+      const reqSignals = stateGate?.require_signals || gpState.top_signals;
+      if (Array.isArray(reqSignals) && reqSignals.length > 0) {
+        const activeSignals = Array.isArray(d?.active_signals) ? d.active_signals : [];
+        const signalNames = activeSignals.map(s => (typeof s === "string" ? s : s?.name || "").toLowerCase());
+        const hasAny = reqSignals.some(rs => signalNames.includes(String(rs).toLowerCase()));
+        if (!hasAny && activeSignals.length === 0 && reqSignals.length > 2) {
+          // Only enforce if we have enough golden signal data and ticker has no signals at all
+          return { qualifies: false, reason: "golden_no_signal_confluence", required: reqSignals.slice(0, 3), state };
+        }
+      }
+    }
   }
 
   // Completion gate: room to run — uses adaptive max_completion when available
@@ -2240,8 +2295,13 @@ function qualifiesForEnter(d, asOfTs = null) {
   // For pullback entries: require >= 0.3 (allow counter-LTF dips)
   // Golden Gate active = bypass support gate (probabilistic edge overrides)
   // ═══════════════════════════════════════════════════════════════════════════
+  // ST support gate: skip during replay (candle-based scoring may not produce
+  // reliable supertrend data). Also skip when Daily EMA regime is confirmed
+  // (regime already validates multi-TF trend alignment).
   const hasSupportData = d?.st_support != null;
-  if (hasSupportData) {
+  const _dailyRegimeRaw = Number(d?.ema_regime_daily) || 0;
+  const regimeConfirmed = Math.abs(_dailyRegimeRaw) >= 2;
+  if (hasSupportData && !isReplayMode && !regimeConfirmed) {
     const isBullEntry = state.includes("BULL_LTF_BULL") || state === "HTF_BULL_LTF_PULLBACK";
     const isBearEntry = state.includes("BEAR_LTF_BEAR") || state === "HTF_BEAR_LTF_PULLBACK";
     const minSupport = isPullback ? 0.3 : 0.5;
@@ -2319,6 +2379,13 @@ function qualifiesForEnter(d, asOfTs = null) {
     // Phase 1a: Entry quality gate — reject low-quality setups
     // Momentum paths: minimum volEntryMin (55-70 depending on vol tier)
     // Pullback/gold paths: minimum 45 (pullbacks naturally have lower alignment)
+    // EMA regime paths: bypass quality gate (regime IS the quality signal)
+    const isRegimePath = result.path?.startsWith("ema_regime_");
+    if (isRegimePath) {
+      result.precision = { fuelPct: primaryFuel, supportScore: stSupportScore, emaDepth30, emaDepthD, emaStruct30, emaStructD, emaMom30, emaMomD, activeGateCount: activeGates.length };
+      result.entryQuality = eqScore;
+      return result;
+    }
     const isGoldPath = result.path?.includes("gold") || result.path?.includes("pullback");
     let minQuality = isGoldPath ? 45 : volEntryMin;
 
@@ -2376,7 +2443,95 @@ function qualifiesForEnter(d, asOfTs = null) {
   };
   
   // ═══════════════════════════════════════════════════════════════════════════
-  // ENTRY PATHS: Each path has its own corridor/setup requirements
+  // PRIMARY ENTRY: EMA REGIME (Daily timeframe)
+  // The EMA regime captures the cascading cross sequence:
+  //   +2 = confirmed bull (5>48 AND 13>21), -2 = confirmed bear
+  //   +1 = early bull (5>48 only), -1 = early bear
+  // Confirmed regime (+2/-2) is the primary signal; ST alignment upgrades confidence.
+  // ═══════════════════════════════════════════════════════════════════════════
+  const dailyRegime = Number(d?.ema_regime_daily) || 0;
+  const regime4H = Number(d?.ema_regime_4h) || 0;
+  const regime1H = Number(d?.ema_regime_1h) || 0;
+  const dailyST = d?.st_support?.map?.D;
+  const stBullConfirms = dailyST?.dir === "bull" && dailyST?.aligned;
+  const stBearConfirms = dailyST?.dir === "bear" && dailyST?.aligned;
+  const stNotAgainstBull = dailyST?.dir !== "bear" || !dailyST?.aligned;
+  const stNotAgainstBear = dailyST?.dir !== "bull" || !dailyST?.aligned;
+  const inferredSide = sideFromStateOrScores(d);
+
+  // LONG: Confirmed daily EMA regime (5>48 AND 13>21)
+  // ST aligned = high confidence, ST not aligned but not aggressively bearish = medium
+  if (dailyRegime === 2 && inferredSide !== "SHORT") {
+    if (htf >= 5) {
+      let conf;
+      if (stBullConfirms) {
+        conf = (regime4H >= 2 && regime1H >= 1) ? "high" : "high";
+      } else {
+        conf = (regime4H >= 1) ? "medium" : "low";
+      }
+      return enrichResult({
+        qualifies: true,
+        path: "ema_regime_confirmed_long",
+        confidence: (sectorBull && sectorStrength >= 60) ? "high" : conf,
+        reason: stBullConfirms ? "daily_ema_regime_confirmed_with_st" : "daily_ema_regime_confirmed_st_pending",
+        emaRegime: dailyRegime,
+        sectorStrength,
+      });
+    }
+  }
+
+  // LONG: Early regime (5>48, 13/21 not yet) — need ST or 4H confirmation
+  if (dailyRegime === 1 && inferredSide !== "SHORT") {
+    const hasConf = stBullConfirms || regime4H >= 2 || hasStFlipBull || hasEmaCrossBull || hasSqRelease;
+    if (htf >= 8 && hasConf) {
+      return enrichResult({
+        qualifies: true,
+        path: "ema_regime_early_long",
+        confidence: stBullConfirms ? "medium" : "low",
+        reason: "daily_5_48_cross_with_confirmation",
+        emaRegime: dailyRegime,
+        sectorStrength,
+      });
+    }
+  }
+
+  // SHORT: Confirmed daily EMA regime bearish (5<48 AND 13<21)
+  if (dailyRegime === -2 && inferredSide !== "LONG") {
+    if (htf <= -5) {
+      let conf;
+      if (stBearConfirms) {
+        conf = (regime4H <= -2 && regime1H <= -1) ? "high" : "high";
+      } else {
+        conf = (regime4H <= -1) ? "medium" : "low";
+      }
+      return enrichResult({
+        qualifies: true,
+        path: "ema_regime_confirmed_short",
+        confidence: (sectorBear && sectorStrength >= 60) ? "high" : conf,
+        reason: stBearConfirms ? "daily_ema_regime_confirmed_bear_with_st" : "daily_ema_regime_confirmed_bear_st_pending",
+        emaRegime: dailyRegime,
+        sectorStrength,
+      });
+    }
+  }
+
+  // SHORT: Early regime bearish (5<48, 13>21 still) — need ST or 4H confirmation
+  if (dailyRegime === -1 && inferredSide !== "LONG") {
+    const hasConf = stBearConfirms || regime4H <= -2 || hasStFlipBull || hasEmaCrossBear || hasSqRelease;
+    if (htf <= -8 && hasConf) {
+      return enrichResult({
+        qualifies: true,
+        path: "ema_regime_early_short",
+        confidence: stBearConfirms ? "medium" : "low",
+        reason: "daily_5_48_cross_bear_with_confirmation",
+        emaRegime: dailyRegime,
+        sectorStrength,
+      });
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // SECONDARY ENTRY PATHS: Legacy paths (fire when regime check doesn't)
   // ═══════════════════════════════════════════════════════════════════════════
   
   // ═══════════════════════════════════════════════════════════════════════════
@@ -2562,27 +2717,89 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
     const phase_30m = Number(tickerData?.tf_tech?.["30"]?.ph?.v) || 0;
     
     // ─────────────────────────────────────────────────────────────────────────
-    // PRIORITY 1: EXIT - Immediate close conditions (highest priority)
+    // SMC / PDZ CONTEXT: Where is price in the swing range?
+    // Used to modulate exit thresholds throughout the kanban stage logic.
     // ─────────────────────────────────────────────────────────────────────────
-    
-    // Check SL breach using position's trailing SL
-    const positionSL = Number(openPosition.sl);
-    if (Number.isFinite(positionSL) && positionSL > 0 && Number.isFinite(currentPrice)) {
-      const slBreached = direction === "LONG" 
-        ? currentPrice <= positionSL 
-        : currentPrice >= positionSL;
-      if (slBreached) {
-        tickerData.__exit_reason = "sl_breached";
+    const _regimeForExit = Number(tickerData?.ema_regime_daily) || 0;
+    const _pdzZone = String(tickerData?.pdz_zone_D || "unknown");
+    const _pdzPct = Number(tickerData?.pdz_pct_D) || 50;
+    const _fvgD = tickerData?.fvg_D || {};
+    const _liqD = tickerData?.liq_D || {};
+
+    // PDZ-aware patience: when LONG in discount/equilibrium, be patient (pullback is healthy)
+    // When LONG in premium, be ready to trim/exit (move is extended)
+    const _longInDiscount = direction === "LONG" && (_pdzZone === "discount" || _pdzZone === "discount_approach");
+    const _longInPremium = direction === "LONG" && (_pdzZone === "premium" || _pdzZone === "premium_approach");
+    const _shortInPremium = direction === "SHORT" && (_pdzZone === "premium" || _pdzZone === "premium_approach");
+    const _shortInDiscount = direction === "SHORT" && (_pdzZone === "discount" || _pdzZone === "discount_approach");
+
+    // Favorable zone: LONG in discount/eq or SHORT in premium/eq = be patient
+    const _inFavorableZone = _longInDiscount || _shortInPremium;
+    // Extended zone: LONG in premium or SHORT in discount = be ready to exit
+    const _inExtendedZone = _longInPremium || _shortInDiscount;
+
+    // FVG support: bullish FVGs below (for LONG) provide structural support
+    const _hasFvgSupport = direction === "LONG" ? (_fvgD.activeBull > 0) : (_fvgD.activeBear > 0);
+
+    // Liquidity magnet: buyside liquidity above (for LONG) = hold for the sweep
+    const _hasLiqMagnet = direction === "LONG"
+      ? (_liqD.nearestBuysideDist > 0 && _liqD.nearestBuysideDist < 2.0)
+      : (_liqD.nearestSellsideDist > 0 && _liqD.nearestSellsideDist < 2.0);
+
+    // EMA regime is now ONE SIGNAL among many — not a master override
+    const _regimeConfirms = (direction === "LONG" && _regimeForExit >= 1) || (direction === "SHORT" && _regimeForExit <= -1);
+    const _regimeExitMinAge = positionAgeMin >= 240;
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // HIGHEST PRIORITY: EMA REGIME EXIT
+    // When the daily regime reverses, exit. This is a structural signal.
+    // ─────────────────────────────────────────────────────────────────────────
+    if (_regimeExitMinAge && !_regimeConfirms) {
+      if (direction === "LONG" && _regimeForExit <= 0) {
+        tickerData.__exit_reason = "ema_regime_reversed";
+        console.log(`[EMA REGIME EXIT] ${tickerData?.ticker}: LONG regime=${_regimeForExit} pdz=${_pdzZone}. pnl=${pnlPct.toFixed(1)}%. Trend over.`);
+        return "exit";
+      }
+      if (direction === "SHORT" && _regimeForExit >= 0) {
+        tickerData.__exit_reason = "ema_regime_reversed";
+        console.log(`[EMA REGIME EXIT] ${tickerData?.ticker}: SHORT regime=${_regimeForExit} pdz=${_pdzZone}. pnl=${pnlPct.toFixed(1)}%. Trend over.`);
         return "exit";
       }
     }
-    
-    // Hard exit at -8% loss (capital protection)
-    if (pnlPct <= -8) {
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // PRIORITY 1: EXIT - Immediate close conditions
+    // SL breach, max loss, critical invalidation, bias flip.
+    // PDZ context modulates thresholds: wider SL tolerance in favorable zone,
+    // tighter in extended zone. Regime is a factor, not an override.
+    // ─────────────────────────────────────────────────────────────────────────
+    const positionSL = Number(openPosition.sl);
+
+    if (Number.isFinite(positionSL) && positionSL > 0 && Number.isFinite(currentPrice)) {
+      const slBreached = direction === "LONG"
+        ? currentPrice <= positionSL
+        : currentPrice >= positionSL;
+      // In favorable zone with regime + FVG support: give one more chance (SL must breach by 0.5%)
+      if (slBreached) {
+        const slOvershoot = direction === "LONG"
+          ? (positionSL - currentPrice) / positionSL
+          : (currentPrice - positionSL) / positionSL;
+        const allowSlCushion = _inFavorableZone && _regimeConfirms && _hasFvgSupport && slOvershoot < 0.005;
+        if (!allowSlCushion) {
+          tickerData.__exit_reason = "sl_breached";
+          return "exit";
+        }
+      }
+    }
+
+    // Hard exit: capital protection
+    // PDZ-aware: wider tolerance in favorable zone with regime, tighter when extended
+    const maxLossPct = (_inFavorableZone && _regimeConfirms) ? -8 : _inExtendedZone ? -3 : -4;
+    if (pnlPct <= maxLossPct) {
       tickerData.__exit_reason = "max_loss";
       return "exit";
     }
-    
+
     // Check move status for critical issues
     const tickerDataWithPositionSL = Number.isFinite(positionSL) && positionSL > 0
       ? { ...tickerData, sl: positionSL }
@@ -2590,71 +2807,55 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
     const moveStatus = computeMoveStatus(tickerDataWithPositionSL);
     const reasons = moveStatus?.reasons || [];
     const severity = String(moveStatus?.severity || "").toUpperCase();
-    
-    // ─────────────────────────────────────────────────────────────────────────
-    // PRIORITY 1: EXIT - Only HARD invalidation signals (close position NOW)
-    // SL breach, max loss, or truly critical regime break.
-    // "below_trigger" alone is NOT an exit signal - it goes to DEFEND.
-    // ─────────────────────────────────────────────────────────────────────────
-    
-    // Hard exit at -4% loss (capital protection)
-    // DATA: Loser P10 is around -0.5%, but some outliers reach -4%.
-    // -4% is catastrophic for a day/swing trade - exit immediately.
-    if (pnlPct <= -4) {
-      tickerData.__exit_reason = "max_loss";
-      return "exit";
-    }
-    
-    // SL breach: the position's trailing stop has been hit
-    if (
-      reasons.includes("sl_breached") ||
-      severity === "CRITICAL" ||
-      reasons.includes("trigger_breached_5pct")
-    ) {
+
+    // Critical invalidation: always honor, but give regime+favorable zone a small buffer
+    if (reasons.includes("sl_breached") || severity === "CRITICAL" || reasons.includes("trigger_breached_5pct")) {
+      // In favorable zone with regime: downgrade to defend instead of hard exit
+      if (_inFavorableZone && _regimeConfirms && !reasons.includes("sl_breached")) {
+        tickerData.__exit_reason = "critical_downgraded_to_defend";
+        return "defend";
+      }
       tickerData.__exit_reason = reasons.join(",") || "critical";
       return "exit";
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // BIAS FLIP EXIT: Multi-TF consensus has fully reversed against our direction.
-    // If we're SHORT and the state is now HTF_BULL_LTF_BULL (full bullish alignment),
-    // the thesis is invalidated — exit the trade. Same for LONG + HTF_BEAR_LTF_BEAR.
-    // This catches positions like TT (SHORT in a bullish state) that should be closed.
-    // For partial flips (HTF flipped but LTF not confirmed), move to DEFEND instead.
-    //
-    // Note: gold_short entries are intentional counter-trend plays, but if the state
-    // stays/returns to full bull after 2+ hours, the mean-reversion failed — exit anyway.
+    // BIAS FLIP EXIT: Multi-TF consensus fully reversed against our direction.
+    // PDZ-aware: if extended AND bias flipped, exit faster.
+    // If in favorable zone, give more time.
     // ─────────────────────────────────────────────────────────────────────────
     const bfState = String(tickerData?.state || "");
     const bfHtfBull = bfState.startsWith("HTF_BULL");
     const bfHtfBear = bfState.startsWith("HTF_BEAR");
     const bfLtfBull = bfState.includes("LTF_BULL");
     const bfLtfBear = bfState.includes("LTF_BEAR");
-    // Require minimum 2 hours before bias-flip exit (gives counter-trend plays time to develop)
-    const biasFlipMinAge = positionAgeMin >= 120;
-    
-    // Full alignment against trade direction → EXIT (after min hold time)
-    if (biasFlipMinAge && direction === "SHORT" && bfHtfBull && bfLtfBull) {
-      tickerData.__exit_reason = "bias_flip_full_bull_vs_short";
-      console.log(`[BIAS FLIP EXIT] ${tickerData?.ticker}: SHORT position (${Math.round(positionAgeMin)}m old) but state is ${bfState} (full bullish). Thesis invalidated.`);
-      return "exit";
+    // PDZ-adjusted min age: shorter when extended, longer when in favorable zone
+    const biasFlipMinAge = _inExtendedZone ? positionAgeMin >= 60 : _inFavorableZone ? positionAgeMin >= 180 : positionAgeMin >= 120;
+
+    // Full alignment against trade direction → EXIT
+    if (biasFlipMinAge) {
+      if (direction === "SHORT" && bfHtfBull && bfLtfBull) {
+        tickerData.__exit_reason = "bias_flip_full_bull_vs_short";
+        console.log(`[BIAS FLIP EXIT] ${tickerData?.ticker}: SHORT position (${Math.round(positionAgeMin)}m old) but state is ${bfState} (full bullish). pdz=${_pdzZone}`);
+        return "exit";
+      }
+      if (direction === "LONG" && bfHtfBear && bfLtfBear) {
+        tickerData.__exit_reason = "bias_flip_full_bear_vs_long";
+        console.log(`[BIAS FLIP EXIT] ${tickerData?.ticker}: LONG position (${Math.round(positionAgeMin)}m old) but state is ${bfState} (full bearish). pdz=${_pdzZone}`);
+        return "exit";
+      }
     }
-    if (biasFlipMinAge && direction === "LONG" && bfHtfBear && bfLtfBear) {
-      tickerData.__exit_reason = "bias_flip_full_bear_vs_long";
-      console.log(`[BIAS FLIP EXIT] ${tickerData?.ticker}: LONG position (${Math.round(positionAgeMin)}m old) but state is ${bfState} (full bearish). Thesis invalidated.`);
-      return "exit";
-    }
-    
-    // HTF flipped but LTF not confirmed → DEFEND (partial flip, thesis weakening)
-    if (direction === "SHORT" && bfHtfBull && !bfLtfBull) {
+
+    // HTF flipped but LTF not confirmed → DEFEND (thesis weakening)
+    if (direction === "SHORT" && bfHtfBull && !bfLtfBull && positionAgeMin >= 60) {
       tickerData.__exit_reason = "bias_flip_htf_bull_vs_short";
       return "defend";
     }
-    if (direction === "LONG" && bfHtfBear && !bfLtfBear) {
+    if (direction === "LONG" && bfHtfBear && !bfLtfBear && positionAgeMin >= 60) {
       tickerData.__exit_reason = "bias_flip_htf_bear_vs_long";
       return "defend";
     }
-    
+
     // ─────────────────────────────────────────────────────────────────────────
     // PRIORITY 2: TRIM - At extremes, take partial profit
     // JOURNEY DATA: TRIM before pullback signals: ST flip (21%), ATR spike (14%),
@@ -2707,15 +2908,24 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
     const gateCompleted = (tickerData?.active_gates || []).some(g => g.completed);
     
     // POSITION AGE GUARD: Don't trim brand-new positions.
-    // Indicator-level signals (RSI extreme, fuel critical, phase extreme) can fire
-    // immediately after entry because they reflect the broader move, not the position.
     // Give the position at least 30 min to develop before trimming — unless P&L is
     // already extreme (>=5%) or actual position completion is near TP.
     const trimGuardActive = positionAgeMin < 30 && pnlPct < 3.0;
     const trimSignal = isRsiExtreme || isFuelCritical || isPhaseExtreme || isNearTp || isPnlExtreme || stFlipAgainst || gateCompleted;
-    
-    if (trimSignal && !trimGuardActive) {
-      tickerData.__trim_reason = isRsiExtreme ? "rsi_extreme" : 
+
+    // PDZ-AWARE TRIM MODULATION:
+    // In extended zone (LONG in premium / SHORT in discount): trim eagerly
+    // In favorable zone with FVG support + liquidity magnet: suppress weak trims
+    const _suppressWeakTrim = _inFavorableZone && _hasFvgSupport && _hasLiqMagnet && !isRsiExtreme && !isPnlExtreme;
+    const _pdzBoostTrim = _inExtendedZone && pnlPct > 1.5;
+
+    // Extended zone: lower pnl extreme threshold (take profit sooner)
+    const pnlExtremePdz = _inExtendedZone && pnlPct >= 3;
+
+    if ((trimSignal || pnlExtremePdz || _pdzBoostTrim) && !trimGuardActive && !_suppressWeakTrim) {
+      tickerData.__trim_reason = _pdzBoostTrim ? "pdz_extended" :
+                                  pnlExtremePdz ? "pdz_pnl_extended" :
+                                  isRsiExtreme ? "rsi_extreme" :
                                   isFuelCritical ? "fuel_critical" :
                                   isPhaseExtreme ? "phase_extreme" :
                                   gateCompleted ? "gate_completed" :
@@ -2744,9 +2954,13 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
       ((direction === "LONG" && sectorAlignForPosition.direction === "BEAR") ||
        (direction === "SHORT" && sectorAlignForPosition.direction === "BULL"));
 
-    // Adverse P&L threshold: wider when sector is with us (dips are buying opps)
-    // Normal: -2%, Sector aligned: -3%, Sector against: -1.5%
-    const adverseThreshold = sectorWithUs ? -3 : sectorAgainstUs ? -1.5 : -2;
+    // Adverse P&L threshold: PDZ + sector modulated
+    // Favorable zone (LONG in discount): wider tolerance — pullback is structural, dip is healthy
+    // Extended zone (LONG in premium): tighter — move is stretched, protect gains
+    // Sector alignment stacks on top
+    const _pdzAdverseAdj = _inFavorableZone ? -0.5 : _inExtendedZone ? 0.5 : 0;
+    const baseAdverseThreshold = sectorWithUs ? -3 : sectorAgainstUs ? -1.5 : -2;
+    const adverseThreshold = baseAdverseThreshold + _pdzAdverseAdj;
     const isAdverseMove = pnlPct < adverseThreshold && pnlPct > -6;
     
     // Below trigger / left corridor - position is weakening but not dead
@@ -5856,20 +6070,54 @@ function computeDirectionAwareSL(tickerData, baseSL, direction, entryPrice) {
 // Instead of variable 4-5 TP levels with 10-25-50-100% trims, we normalize to
 // exactly 3 tiers with fixed quantities and progressive SL trailing.
 // NOTE: These are now direction-aware via GOLD_STANDARD_PATTERNS.tpMultipliers
-const THREE_TIER_CONFIG = {
-  // ATR multiplier ranges for each tier.
-  // HISTORICAL MOVERS DATA (Feb 2026, 817 moves across 164 tickers):
-  //   Median UP move: +8.34%, Median DOWN move: -6.81%
-  //   Median duration: ~47 hours (2 trading days)
-  //   Old TP1 at 0.6x ATR (~1.2%) was far too tight — avg winner was only 0.4%.
-  //
-  // WIDENED TIERS to let winners run closer to median move size:
-  // TRIM at 1.5-2.5x ATR (~3%), EXIT at 2.5-4x ATR (~5%), RUNNER at 4-7x ATR (~8%).
-  // Equal trim tranches (33/33/34) instead of front-loaded 50/25/25.
-  TRIM:   { minMult: 1.5, maxMult: 2.5, trimPct: 0.33, label: "TRIM TP" },   // 33% off at 1.5-2.5x ATR
-  EXIT:   { minMult: 2.5, maxMult: 4.0, trimPct: 0.66, label: "EXIT TP" },   // another 33% at 2.5-4x ATR
-  RUNNER: { minMult: 4.0, maxMult: 7.0, trimPct: 1.0,  label: "RUNNER TP" }, // final 34% at 4-7x ATR
+// Default TP tier multipliers (overridden by calibrated values when available)
+const THREE_TIER_DEFAULTS = {
+  TRIM:   { minMult: 1.5, maxMult: 2.5, trimPct: 0.33, label: "TRIM TP" },
+  EXIT:   { minMult: 2.5, maxMult: 4.0, trimPct: 0.66, label: "EXIT TP" },
+  RUNNER: { minMult: 4.0, maxMult: 7.0, trimPct: 1.0,  label: "RUNNER TP" },
 };
+
+// Module-level cache for calibrated TP tiers (set during scoring cycle startup)
+let _calibratedTPTiers = null;
+
+// Minimum ATR multiplier floors — protects against bad calibration data
+const MIN_TP_TRIM_ATR = 1.5;
+const MIN_TP_EXIT_ATR = 2.5;
+const MIN_TP_RUNNER_ATR = 4.0;
+
+// Returns effective TP tier config, preferring calibrated values from model_config
+// Floors ensure calibrated values never go below sensible minimums
+function getThreeTierConfig() {
+  if (_calibratedTPTiers) {
+    const trimMult = Math.max(Number(_calibratedTPTiers.trim) || 0, MIN_TP_TRIM_ATR);
+    const exitMult = Math.max(Number(_calibratedTPTiers.exit) || 0, MIN_TP_EXIT_ATR);
+    const runnerMult = Math.max(Number(_calibratedTPTiers.runner) || 0, MIN_TP_RUNNER_ATR);
+    return {
+      TRIM: {
+        minMult: trimMult,
+        maxMult: trimMult + 1.0,
+        trimPct: THREE_TIER_DEFAULTS.TRIM.trimPct,
+        label: "TRIM TP (calibrated)",
+      },
+      EXIT: {
+        minMult: exitMult,
+        maxMult: exitMult + 1.5,
+        trimPct: THREE_TIER_DEFAULTS.EXIT.trimPct,
+        label: "EXIT TP (calibrated)",
+      },
+      RUNNER: {
+        minMult: runnerMult,
+        maxMult: runnerMult + 3.0,
+        trimPct: THREE_TIER_DEFAULTS.RUNNER.trimPct,
+        label: "RUNNER TP (calibrated)",
+      },
+    };
+  }
+  return THREE_TIER_DEFAULTS;
+}
+
+// Backward-compatible alias used throughout the codebase
+const THREE_TIER_CONFIG = THREE_TIER_DEFAULTS;
 
 // Helper: Infer ATR from TP levels when not directly available
 function inferAtrFromTPLevels(tickerData, entryPrice) {
@@ -7092,6 +7340,13 @@ async function processTradeSimulation(
   env = null,
   options = {},
 ) {
+  const sym = String(ticker || "").toUpperCase();
+
+  // Watch-only tickers go through scoring + kanban but never generate trades
+  if (WATCH_ONLY.has(sym)) {
+    return { ticker: sym, skipped: true, reason: "watch_only", watch_only: true };
+  }
+
   const forceUseIngestTs = !!options?.forceUseIngestTs;
   const replayCtx = options?.replayBatchContext;
   const isReplay = !!replayCtx;
@@ -7126,8 +7381,6 @@ async function processTradeSimulation(
       allTrades = (await kvGetJSON(KV, tradesKey)) || [];
     }
 
-    const sym = String(ticker || "").toUpperCase();
-    
     // Skip futures contracts - they require special handling that's not implemented
     if (FUTURES_TICKERS.has(sym)) {
       return { skipped: true, reason: "futures_not_supported" };
@@ -8148,12 +8401,20 @@ async function processTradeSimulation(
     // 2) DEFEND: Tighten SL to protect gains (warning signals, but not at extremes)
     // ─────────────────────────────────────────────────────────────────────────
     // DEFEND action: Move SL closer to entry to lock in gains or reduce loss
-    // Does NOT trim - just protects the position
+    // Uses lifecycle profiles (from oracle) when available to calibrate thresholds.
+    // Falls back to hard-coded defaults when profiles are missing.
     // ─────────────────────────────────────────────────────────────────────────
     const isDefend = stage === "defend";
     const lastDefendMs = Number(execState.lastDefendMs);
     const defendCooldownOk = !Number.isFinite(lastDefendMs) || now - lastDefendMs >= 5 * 60 * 1000; // 5m
-    
+
+    // Load lifecycle profiles from env (populated at worker init from KV)
+    const _lp = env?._lifecycleProfiles || {};
+    const _trimProfile = _lp.trim_profile || {};
+    const _holdProfile = _lp.hold_profile || {};
+    const _exitProfile = _lp.exit_profile || {};
+    const _pullbackProfile = _lp.pullback_profile || {};
+
     if (isDefend && !weekendNow && defendCooldownOk && openTrade && Number.isFinite(pxNow) && clamp(Number(openTrade.trimmedPct || 0), 0, 1) < 0.9999) {
       const entryPx = Number(openTrade.entryPrice);
       const dir = String(openTrade.direction || "").toUpperCase();
@@ -8161,7 +8422,6 @@ async function processTradeSimulation(
       const currentSL = Number(openTrade.sl);
       
       if (Number.isFinite(entryPx) && entryPx > 0) {
-        // Calculate P&L to determine SL strategy
         const pnlPct = isLong
           ? ((pxNow - entryPx) / entryPx) * 100
           : ((entryPx - pxNow) / entryPx) * 100;
@@ -8169,24 +8429,28 @@ async function processTradeSimulation(
         let newSL = currentSL;
         let defendAction = null;
         
-        // DATA-DRIVEN SL TIGHTENING:
-        // Old thresholds (3%/1.5%) were too aggressive — avg winner was only 0.4%.
-        // Widened to let winners develop before locking in breakeven.
-        if (pnlPct >= 5) {
-          // Strong profit >= 5%: Move SL to breakeven + 1% buffer
-          // This protects meaningful gains while allowing normal retracement
-          const buffer = entryPx * 0.01; // 1% buffer above breakeven
+        // PROFILE-DRIVEN SL TIGHTENING:
+        // Use lifecycle profile thresholds when available, otherwise hard-coded defaults.
+        // Oracle trim_profile.pnl_pct_p75 = typical PnL% at trim events (use as breakeven+ trigger)
+        // Oracle pullback_profile.pnl_pct_median = typical pullback depth (use as breakeven trigger)
+        const bevenPlusTrigger = _trimProfile.pnl_pct_p75 > 0 ? _trimProfile.pnl_pct_p75 : 5;
+        const bevenTrigger = _pullbackProfile.pnl_pct_median > 0 ? _pullbackProfile.pnl_pct_median : 3;
+        const bevenBuffer = _trimProfile.sample_count > 5 ? 0.008 : 0.01; // tighter buffer with more data
+
+        // PDZ modulation: in favorable zone, widen thresholds (let trade breathe)
+        const _pdzZoneNow = String(tickerData?.pdz_zone_D || "unknown");
+        const _inFavZone = (isLong && (_pdzZoneNow === "discount" || _pdzZoneNow === "discount_approach")) ||
+                           (!isLong && (_pdzZoneNow === "premium" || _pdzZoneNow === "premium_approach"));
+        const pdzSlack = _inFavZone ? 1.0 : 0;
+
+        if (pnlPct >= bevenPlusTrigger + pdzSlack) {
+          const buffer = entryPx * bevenBuffer;
           newSL = isLong ? entryPx + buffer : entryPx - buffer;
           defendAction = "BREAKEVEN_PLUS";
-        } else if (pnlPct >= 3) {
-          // Good profit (3-5%): Move SL to breakeven
-          // Only move to breakeven when we have a meaningful cushion
+        } else if (pnlPct >= bevenTrigger + pdzSlack) {
           newSL = entryPx;
           defendAction = "BREAKEVEN";
         }
-        // NOTE: Removed the -2% to -5% "LIMIT_LOSS" tightening.
-        // Data shows this causes premature exits. The original SL from entry
-        // should handle risk management. Don't tighten on losses.
         
         // Only update if new SL is tighter (more protective)
         const slImproved = Number.isFinite(newSL) && (
@@ -8358,38 +8622,55 @@ async function processTradeSimulation(
     //   Gate 2: Directional concentration — max 5 same-direction positions
     //   Gate 3: Correlation guard — block if highly correlated with existing
     //   Safety net: MAX_DAILY_ENTRIES to prevent runaway crons
-    const MAX_PER_SECTOR = 5;           // max open positions in one sector
-    const MAX_SAME_DIRECTION = 12;      // max positions in same direction (long/short)
+    const MAX_OPEN_POSITIONS = 15;      // hard cap on total open positions
+    const MAX_PER_SECTOR = 3;           // max open positions in one sector (was 5)
+    const MAX_SAME_DIRECTION = 8;       // max positions in same direction (was 12)
     const CORRELATION_SECTOR_THRESHOLD = 3; // if 3+ positions already in same sector, require higher quality
-    const MAX_DAILY_ENTRIES = 10;       // safety net (up from 5)
+    const MAX_DAILY_ENTRIES = 6;        // safety net (was 10)
     
     let smartGateBlocked = false;
     let smartGateReason = null;
     const db = env?.DB;
-    // Skip smart gates during replay (processing historical data)
-    if (isEnter && !weekendNow && !outsideRTH && enterCooldownOk && !sameEnterCycle && !openTrade && db && !isReplay) {
+    const canRunSmartGates = isEnter && !weekendNow && !outsideRTH && enterCooldownOk && !sameEnterCycle && !openTrade && (db || isReplay);
+    if (canRunSmartGates) {
       try {
-        // Query all open positions with their direction and ticker for sector lookup
-        const openPosResult = await db.prepare(
-          `SELECT ticker, direction FROM positions WHERE status = 'OPEN'`
-        ).all();
-        const openPositions = openPosResult?.results || [];
+        // Query all open positions: D1 for live, in-memory for replay
+        let openPositions = [];
+        if (isReplay && replayCtx?.allTrades) {
+          openPositions = replayCtx.allTrades
+            .filter(t => t && (t.status === "OPEN" || t.status === "TP_HIT_TRIM"))
+            .map(t => ({ ticker: String(t.ticker || "").toUpperCase(), direction: t.direction }));
+        } else if (db) {
+          const openPosResult = await db.prepare(
+            `SELECT ticker, direction FROM positions WHERE status = 'OPEN'`
+          ).all();
+          openPositions = openPosResult?.results || [];
+        }
         
         // Determine candidate's direction and sector
         const entryPath = String(tickerData?.__entry_path || tickerData?.entry_path || "").toLowerCase();
         const candidateDir = entryPath.includes("short") ? "SHORT" : "LONG";
         const candidateSector = getSector(sym) || "UNKNOWN";
         
+        // Gate 0: Total open position cap
+        if (openPositions.length >= MAX_OPEN_POSITIONS) {
+          smartGateBlocked = true;
+          smartGateReason = `position_cap:${openPositions.length}/${MAX_OPEN_POSITIONS}`;
+          console.log(`[SMART_GATE] Blocked ${sym}: ${smartGateReason}`);
+        }
+
         // Gate 1: Sector concentration
         let sectorCount = 0;
-        for (const pos of openPositions) {
-          const posSector = getSector(String(pos.ticker).toUpperCase()) || "UNKNOWN";
-          if (posSector === candidateSector && candidateSector !== "UNKNOWN") sectorCount++;
-        }
-        if (sectorCount >= MAX_PER_SECTOR) {
-          smartGateBlocked = true;
-          smartGateReason = `sector_full:${sectorCount}/${MAX_PER_SECTOR} ${candidateSector}`;
-          console.log(`[SMART_GATE] Blocked ${sym}: ${smartGateReason}`);
+        if (!smartGateBlocked) {
+          for (const pos of openPositions) {
+            const posSector = getSector(String(pos.ticker).toUpperCase()) || "UNKNOWN";
+            if (posSector === candidateSector && candidateSector !== "UNKNOWN") sectorCount++;
+          }
+          if (sectorCount >= MAX_PER_SECTOR) {
+            smartGateBlocked = true;
+            smartGateReason = `sector_full:${sectorCount}/${MAX_PER_SECTOR} ${candidateSector}`;
+            console.log(`[SMART_GATE] Blocked ${sym}: ${smartGateReason}`);
+          }
         }
         
         // Gate 2: Directional concentration
@@ -8409,7 +8690,7 @@ async function processTradeSimulation(
         // If 2+ positions already in same sector, require higher entry quality
         if (!smartGateBlocked && sectorCount >= CORRELATION_SECTOR_THRESHOLD) {
           const eqScore = Number(tickerData?.entry_quality?.score || tickerData?.__entry_quality) || 0;
-          const requiredQuality = 75; // higher bar when sector is already represented
+          const requiredQuality = 80; // higher bar when sector is already represented (was 75)
           if (eqScore > 0 && eqScore < requiredQuality) {
             smartGateBlocked = true;
             smartGateReason = `correlated:${sectorCount} in ${candidateSector}, need quality>=${requiredQuality} (got ${eqScore})`;
@@ -8419,11 +8700,20 @@ async function processTradeSimulation(
         
         // Safety net: daily entry count
         if (!smartGateBlocked) {
-          const today = new Date().toISOString().slice(0, 10);
-          const dailyResult = await db.prepare(
-            `SELECT COUNT(*) as cnt FROM execution_actions WHERE type = 'ENTRY' AND day = ?`
-          ).bind(today).first();
-          const dailyCount = Number(dailyResult?.cnt) || 0;
+          let dailyCount = 0;
+          if (isReplay && replayCtx?.allTrades) {
+            const dayStart = asOfMs ? new Date(asOfMs).toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10);
+            dailyCount = replayCtx.allTrades.filter(t => {
+              const ts = Number(t?.entry_ts || t?.created_at || 0);
+              return ts > 0 && new Date(ts).toISOString().slice(0, 10) === dayStart;
+            }).length;
+          } else if (db) {
+            const today = new Date().toISOString().slice(0, 10);
+            const dailyResult = await db.prepare(
+              `SELECT COUNT(*) as cnt FROM execution_actions WHERE type = 'ENTRY' AND day = ?`
+            ).bind(today).first();
+            dailyCount = Number(dailyResult?.cnt) || 0;
+          }
           if (dailyCount >= MAX_DAILY_ENTRIES) {
             smartGateBlocked = true;
             smartGateReason = `daily_limit:${dailyCount}/${MAX_DAILY_ENTRIES}`;
@@ -8540,16 +8830,18 @@ async function processTradeSimulation(
       }
       
       // Fallback SL calculation when TradingView doesn't provide one
-      // DATA: Trades need room to breathe. 1.0x ATR was too tight (62/80 exited in <15min).
-      // Using 1.5x ATR gives enough room for normal intraday noise.
+      // Uses calibrated SL multiplier from model_config if available, otherwise 1.5x ATR
+      // Floor: never allow SL tighter than 1.2x ATR (protects against bad calibration)
       if (!Number.isFinite(slCandidate) || slCandidate <= 0) {
         const atr = Number(tickerData?.atr);
+        const MIN_SL_ATR = 1.2;
+        const calibratedSlMult = Number(env?._adaptiveSLTP?.sl_atr) || 0;
+        const slMultiplier = calibratedSlMult >= MIN_SL_ATR ? calibratedSlMult : 1.5;
         if (Number.isFinite(atr) && atr > 0 && Number.isFinite(entryPx)) {
           slCandidate = direction === "LONG" 
-            ? entryPx - (atr * 1.5) 
-            : entryPx + (atr * 1.5);
+            ? entryPx - (atr * slMultiplier) 
+            : entryPx + (atr * slMultiplier);
         } else if (Number.isFinite(entryPx) && entryPx > 0) {
-          // Fallback: 2.5% from entry (gives room for normal retracements)
           slCandidate = direction === "LONG" 
             ? entryPx * 0.975 
             : entryPx * 1.025;
@@ -8634,9 +8926,27 @@ async function processTradeSimulation(
 
         // Apply direction-specific SL adjustment based on gold standard patterns
         const slAdjustment = computeDirectionAwareSL(tickerData, slCandidate, direction, entryPx);
-        const finalSL = slAdjustment.sl;
+        let finalSL = slAdjustment.sl;
         if (slAdjustment.adjusted) {
           console.log(`[GOLD_STANDARD_SL] ${sym} ${direction} SL adjusted: ${slCandidate.toFixed(2)} → ${finalSL.toFixed(2)} (${slAdjustment.reason})`);
+        }
+
+        // EMA regime entries: widen SL to 2.5x Daily ATR (trend-following needs room)
+        const isRegimeEntry = String(tickerData?.__entry_path || "").startsWith("ema_regime_");
+        if (isRegimeEntry) {
+          const dAtr = Number(tickerData?.tf_tech?.D?.atr) || Number(tickerData?.atr) || 0;
+          if (dAtr > 0) {
+            const regimeSL = direction === "LONG"
+              ? Math.round((entryPx - 2.5 * dAtr) * 100) / 100
+              : Math.round((entryPx + 2.5 * dAtr) * 100) / 100;
+            if (direction === "LONG" && regimeSL < finalSL) {
+              console.log(`[REGIME_SL] ${sym} LONG: widening SL ${finalSL.toFixed(2)} → ${regimeSL.toFixed(2)} (2.5x D-ATR=${dAtr.toFixed(2)})`);
+              finalSL = regimeSL;
+            } else if (direction === "SHORT" && regimeSL > finalSL) {
+              console.log(`[REGIME_SL] ${sym} SHORT: widening SL ${finalSL.toFixed(2)} → ${regimeSL.toFixed(2)} (2.5x D-ATR=${dAtr.toFixed(2)})`);
+              finalSL = regimeSL;
+            }
+          }
         }
 
         const calculatedRR = (() => {
@@ -10604,9 +10914,27 @@ async function processTradeSimulation(
             
             // Apply direction-specific SL adjustment based on gold standard patterns
             const slAdjustment = computeDirectionAwareSL(tickerData, baseSL, direction, entryPrice);
-            const finalSL = slAdjustment.sl;
+            let finalSL = slAdjustment.sl;
             if (slAdjustment.adjusted) {
               console.log(`[GOLD_STANDARD_SL] ${ticker} ${direction} SL adjusted: ${baseSL.toFixed(2)} → ${finalSL.toFixed(2)} (${slAdjustment.reason})`);
+            }
+
+            // EMA regime entries: widen SL to 2.5x Daily ATR (trend-following needs room)
+            const _isRegimeEntry2 = String(entryPath || "").startsWith("ema_regime_");
+            if (_isRegimeEntry2) {
+              const _dAtr2 = Number(tickerData?.tf_tech?.D?.atr) || Number(tickerData?.atr) || 0;
+              if (_dAtr2 > 0) {
+                const regimeSL2 = direction === "LONG"
+                  ? Math.round((entryPrice - 2.5 * _dAtr2) * 100) / 100
+                  : Math.round((entryPrice + 2.5 * _dAtr2) * 100) / 100;
+                if (direction === "LONG" && regimeSL2 < finalSL) {
+                  console.log(`[REGIME_SL] ${ticker} LONG: widening SL ${finalSL.toFixed(2)} → ${regimeSL2.toFixed(2)} (2.5x D-ATR=${_dAtr2.toFixed(2)})`);
+                  finalSL = regimeSL2;
+                } else if (direction === "SHORT" && regimeSL2 > finalSL) {
+                  console.log(`[REGIME_SL] ${ticker} SHORT: widening SL ${finalSL.toFixed(2)} → ${regimeSL2.toFixed(2)} (2.5x D-ATR=${_dAtr2.toFixed(2)})`);
+                  finalSL = regimeSL2;
+                }
+              }
             }
             
             const risk = Math.abs(entryPrice - finalSL);
@@ -11802,6 +12130,18 @@ async function runDataLifecycle(env, opts = {}) {
   const cutoff7d = now - DATA_LIFECYCLE_7D_MS;
 
   try {
+    // Schema migration: add EMA regime columns (idempotent)
+    try { await db.prepare(`ALTER TABLE trail_5m_facts ADD COLUMN ema_regime_D INTEGER DEFAULT 0`).run(); } catch (_) {}
+    try { await db.prepare(`ALTER TABLE trail_5m_facts ADD COLUMN had_ema_cross_5_48 INTEGER DEFAULT 0`).run(); } catch (_) {}
+    try { await db.prepare(`ALTER TABLE trail_5m_facts ADD COLUMN had_ema_cross_13_21 INTEGER DEFAULT 0`).run(); } catch (_) {}
+    // Schema migration: add SMC/ICT columns (idempotent)
+    try { await db.prepare(`ALTER TABLE trail_5m_facts ADD COLUMN pdz_zone TEXT DEFAULT 'unknown'`).run(); } catch (_) {}
+    try { await db.prepare(`ALTER TABLE trail_5m_facts ADD COLUMN pdz_pct REAL DEFAULT 50`).run(); } catch (_) {}
+    try { await db.prepare(`ALTER TABLE trail_5m_facts ADD COLUMN fvg_bull_count INTEGER DEFAULT 0`).run(); } catch (_) {}
+    try { await db.prepare(`ALTER TABLE trail_5m_facts ADD COLUMN fvg_bear_count INTEGER DEFAULT 0`).run(); } catch (_) {}
+    try { await db.prepare(`ALTER TABLE trail_5m_facts ADD COLUMN liq_bs_count INTEGER DEFAULT 0`).run(); } catch (_) {}
+    try { await db.prepare(`ALTER TABLE trail_5m_facts ADD COLUMN liq_ss_count INTEGER DEFAULT 0`).run(); } catch (_) {}
+
     // 1. Aggregate timed_trail (ts < 48h) into trail_5m_facts
     // Uses subqueries for first/last values per bucket (kanban_stage, price open/close)
     const agg = await db
@@ -11812,6 +12152,8 @@ async function runDataLifecycle(env, opts = {}) {
           ltf_score_avg, ltf_score_min, ltf_score_max,
           state, rank, completion, phase_pct,
           had_squeeze_release, had_ema_cross, had_st_flip, had_momentum_elite, had_flip_watch,
+          ema_regime_D, had_ema_cross_5_48, had_ema_cross_13_21,
+          pdz_zone, pdz_pct, fvg_bull_count, fvg_bear_count, liq_bs_count, liq_ss_count,
           kanban_stage_start, kanban_stage_end, kanban_changed,
           sample_count, created_at)
          SELECT
@@ -11833,6 +12175,31 @@ async function runDataLifecycle(env, opts = {}) {
           MAX(CASE WHEN t.flags_json LIKE '%st_flip%' THEN 1 ELSE 0 END),
           MAX(CASE WHEN t.flags_json LIKE '%momentum_elite%' THEN 1 ELSE 0 END),
           MAX(CASE WHEN t.flags_json LIKE '%flip_watch%' THEN 1 ELSE 0 END),
+          -- EMA regime: extract from flags_json (last row's regime value)
+          COALESCE(
+            (SELECT CAST(json_extract(flags_json, '$.ema_regime_D') AS INTEGER) FROM timed_trail
+             WHERE ticker = t.ticker AND (ts / 300000) * 300000 = (t.ts / 300000) * 300000 AND ts < ?1
+             AND flags_json LIKE '%ema_regime_D%' ORDER BY ts DESC LIMIT 1),
+            0),
+          MAX(CASE WHEN t.flags_json LIKE '%ema_cross_D_5_48%' THEN 1 ELSE 0 END),
+          MAX(CASE WHEN t.flags_json LIKE '%ema_cross_D_13_21%' THEN 1 ELSE 0 END),
+          -- SMC: PDZ zone and percentage (last row in bucket)
+          COALESCE(
+            (SELECT json_extract(flags_json, '$.pdz_zone_D') FROM timed_trail
+             WHERE ticker = t.ticker AND (ts / 300000) * 300000 = (t.ts / 300000) * 300000 AND ts < ?1
+             AND flags_json LIKE '%pdz_zone_D%' ORDER BY ts DESC LIMIT 1),
+            'unknown'),
+          COALESCE(
+            (SELECT CAST(json_extract(flags_json, '$.pdz_pct_D') AS REAL) FROM timed_trail
+             WHERE ticker = t.ticker AND (ts / 300000) * 300000 = (t.ts / 300000) * 300000 AND ts < ?1
+             AND flags_json LIKE '%pdz_pct_D%' ORDER BY ts DESC LIMIT 1),
+            50),
+          -- SMC: FVG counts (max active in bucket)
+          MAX(CASE WHEN t.flags_json LIKE '%fvg_bull_D%' THEN COALESCE(CAST(json_extract(t.flags_json, '$.fvg_bull_D') AS INTEGER), 0) ELSE 0 END),
+          MAX(CASE WHEN t.flags_json LIKE '%fvg_bear_D%' THEN COALESCE(CAST(json_extract(t.flags_json, '$.fvg_bear_D') AS INTEGER), 0) ELSE 0 END),
+          -- SMC: Liquidity zone counts (max in bucket)
+          MAX(CASE WHEN t.flags_json LIKE '%liq_bs_D%' THEN COALESCE(CAST(json_extract(t.flags_json, '$.liq_bs_D') AS INTEGER), 0) ELSE 0 END),
+          MAX(CASE WHEN t.flags_json LIKE '%liq_ss_D%' THEN COALESCE(CAST(json_extract(t.flags_json, '$.liq_ss_D') AS INTEGER), 0) ELSE 0 END),
           -- Kanban: first and last kanban_stage in the bucket
           (SELECT kanban_stage FROM timed_trail WHERE ticker = t.ticker AND (ts / 300000) * 300000 = (t.ts / 300000) * 300000 AND ts < ?1 AND kanban_stage IS NOT NULL ORDER BY ts ASC LIMIT 1),
           (SELECT kanban_stage FROM timed_trail WHERE ticker = t.ticker AND (ts / 300000) * 300000 = (t.ts / 300000) * 300000 AND ts < ?1 AND kanban_stage IS NOT NULL ORDER BY ts DESC LIMIT 1),
@@ -15790,6 +16157,14 @@ async function d1UpsertTrade(env, trade) {
          VALUES
           (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)`;
 
+  const resolvedEntryPrice = trade.entryPrice != null ? Number(trade.entryPrice)
+    : trade.entry_price != null ? Number(trade.entry_price) : null;
+  const resolvedPnlPct = trade.pnlPct != null ? Number(trade.pnlPct)
+    : trade.pnl_pct != null ? Number(trade.pnl_pct) : null;
+  const resolvedExitPrice = Number.isFinite(derivedExitPrice) ? derivedExitPrice
+    : trade.exitPrice != null ? Number(trade.exitPrice)
+    : trade.exit_price != null ? Number(trade.exit_price) : null;
+
   try {
     // Preserve created_at by inserting once.
     await db
@@ -15799,16 +16174,16 @@ async function d1UpsertTrade(env, trade) {
         ticker || null,
         direction || null,
         entryTs != null ? Number(entryTs) : null,
-        trade.entryPrice != null ? Number(trade.entryPrice) : null,
+        resolvedEntryPrice,
         trade.rank != null ? Number(trade.rank) : null,
         trade.rr != null ? Number(trade.rr) : null,
         trade.status != null ? String(trade.status) : null,
         exitTs != null ? Number(exitTs) : null,
-        Number.isFinite(derivedExitPrice) ? derivedExitPrice : null,
+        resolvedExitPrice,
         derivedExitReason != null ? String(derivedExitReason) : null,
         trade.trimmedPct != null ? Number(trade.trimmedPct) : null,
         trade.pnl != null ? Number(trade.pnl) : null,
-        trade.pnlPct != null ? Number(trade.pnlPct) : null,
+        resolvedPnlPct,
         trade.scriptVersion != null
           ? String(trade.scriptVersion)
           : trade.script_version != null
@@ -15835,16 +16210,16 @@ async function d1UpsertTrade(env, trade) {
         ticker || null,
         direction || null,
         entryTs != null ? Number(entryTs) : null,
-        trade.entryPrice != null ? Number(trade.entryPrice) : null,
+        resolvedEntryPrice,
         trade.rank != null ? Number(trade.rank) : null,
         trade.rr != null ? Number(trade.rr) : null,
         trade.status != null ? String(trade.status) : null,
         exitTs != null ? Number(exitTs) : null,
-        Number.isFinite(derivedExitPrice) ? derivedExitPrice : null,
+        resolvedExitPrice,
         derivedExitReason != null ? String(derivedExitReason) : null,
         trade.trimmedPct != null ? Number(trade.trimmedPct) : null,
         trade.pnl != null ? Number(trade.pnl) : null,
-        trade.pnlPct != null ? Number(trade.pnlPct) : null,
+        resolvedPnlPct,
         trade.scriptVersion != null
           ? String(trade.scriptVersion)
           : trade.script_version != null
@@ -17533,232 +17908,197 @@ function createKanbanStageEmbed(ticker, stage, prevStage, tickerData = null, ope
 // Sector Mapping & Ratings
 // ─────────────────────────────────────────────────────────────
 
+// ═══════════════════════════════════════════════════════════════════════════
+// SECTOR_MAP — Curated Ticker Universe (~152 tickers)
+// Sources: GRNY/GRNI, GRNJ, Newton Upticks (TT Selected + historical),
+//          S&P Sector ETFs, Crypto, Futures, Indices
+// ═══════════════════════════════════════════════════════════════════════════
 const SECTOR_MAP = {
-  // Consumer Discretionary
-  AMZN: "Consumer Discretionary",
-  TSLA: "Consumer Discretionary",
-  NKE: "Consumer Discretionary",
-  TJX: "Consumer Discretionary",
-  BABA: "Consumer Discretionary",
-  EXPE: "Consumer Discretionary",
-  RBLX: "Consumer Discretionary",
-  ULTA: "Consumer Discretionary",
-  APP: "Consumer Discretionary",
-  // Industrials
-  CAT: "Industrials",
-  GE: "Industrials",
-  BA: "Industrials",
-  EMR: "Industrials",
-  ETN: "Industrials",
-  DE: "Industrials",
-  PH: "Industrials",
-  CSX: "Industrials",
-  HII: "Industrials",
-  GEV: "Industrials",
-  TT: "Industrials",
-  PWR: "Industrials",
-  AWI: "Industrials",
-  WTS: "Industrials",
-  DY: "Industrials",
-  FIX: "Industrials",
-  ITT: "Industrials",
-  STRL: "Industrials",
-  JCI: "Industrials",
-  IBP: "Industrials",
-  DCI: "Industrials",
-  EME: "Industrials",
-  IESC: "Industrials",
-  BWXT: "Industrials",
-  BE: "Industrials",
-  JOBY: "Industrials",
-  AVAV: "Industrials",
-  // Information Technology
-  AAPL: "Information Technology",
-  MSFT: "Information Technology",
-  NVDA: "Information Technology",
-  AVGO: "Information Technology",
-  AMD: "Information Technology",
-  ORCL: "Information Technology",
-  CSCO: "Information Technology",
-  LRCX: "Information Technology",
-  KLAC: "Information Technology",
-  ANET: "Information Technology",
-  CDNS: "Information Technology",
-  CRWD: "Information Technology",
-  PANW: "Information Technology",
-  PLTR: "Information Technology",
-  MDB: "Information Technology",
-  PATH: "Information Technology",
-  QLYS: "Information Technology",
-  PEGA: "Information Technology",
-  IOT: "Information Technology",
-  PSTG: "Information Technology",
-  MU: "Information Technology",
-  APLD: "Information Technology",
-  CLS: "Information Technology",
-  CRS: "Information Technology",
-  SANM: "Information Technology",
-  IONQ: "Information Technology",
-  LITE: "Information Technology",
-  ON: "Information Technology",
-  KTOS: "Information Technology",
-  STX: "Information Technology",
-  PI: "Information Technology",
-  // Communication Services
-  META: "Communication Services",
-  GOOGL: "Communication Services",
-  NFLX: "Communication Services",
-  TWLO: "Communication Services",
-  RDDT: "Communication Services",
-  // Basic Materials
-  ALB: "Basic Materials",
-  MP: "Basic Materials",
-  NEU: "Basic Materials",
-  AU: "Basic Materials",
-  CCJ: "Basic Materials",
-  RGLD: "Basic Materials",
-  SN: "Basic Materials",
-  // Energy
-  VST: "Energy",
-  FSLR: "Energy",
-  TLN: "Energy",
-  WFRD: "Energy",
-  ENS: "Energy",
-  // Financials
-  JPM: "Financials",
-  GS: "Financials",
-  AXP: "Financials",
-  AXON: "Industrials",
-  SPGI: "Financials",
-  PNC: "Financials",
-  BK: "Financials",
-  ALLY: "Financials",
-  EWBC: "Financials",
-  WAL: "Financials",
-  SOFI: "Financials",
-  HOOD: "Financials",
-  MTB: "Financials",
-  // Consumer Staples
-  KO: "Consumer Staples",
-  WMT: "Consumer Staples",
-  COST: "Consumer Staples",
-  MNST: "Consumer Staples",
-  // Health Care
-  AMGN: "Health Care",
-  GILD: "Health Care",
-  UTHR: "Health Care",
-  HIMS: "Health Care",
-  NBIS: "Health Care",
-  // ETFs & Index Tracking
-  QQQ: "ETF",
-  SPY: "ETF",
-  IWM: "ETF",
-  XLB: "ETF",
-  XLC: "ETF",
-  XLE: "ETF",
-  XLF: "ETF",
-  XLI: "ETF",
-  XLK: "ETF",
-  XLP: "ETF",
-  XLRE: "ETF",
-  XLU: "ETF",
-  XLV: "ETF",
-  XLY: "ETF",
-  AAPU: "ETF",
-  // Crypto-Related
-  BTCUSD: "Crypto",
-  ETHUSD: "Crypto",
-  GLXY: "Crypto",
-  RIOT: "Crypto",
-  ETHA: "Crypto",
-  // Precious Metals (GC1!/SI1! are the canonical TV continuous contract symbols)
-  // Growth / Momentum
-  MSTR: "Information Technology",
-  RKLB: "Aerospace & Defense",
-  MLI: "Industrials",
-  MTZ: "Industrials",
-  NXT: "Industrials",
-  SGI: "Industrials",
-  AYI: "Industrials",
-  COIN: "Financials",
-  // Futures (TradingView sourced)
+  // ── Consumer Discretionary ──
+  AMZN: "Consumer Discretionary",    // GRNY + TT Selected
+  TSLA: "Consumer Discretionary",    // GRNY + TT Selected
+  TJX: "Consumer Discretionary",     // GRNY
+  BABA: "Consumer Discretionary",    // TT Selected
+  ULTA: "Consumer Discretionary",    // Upticks
+  APP: "Consumer Discretionary",     // TT Selected
+  DPZ: "Consumer Discretionary",     // GRNJ
+  H: "Consumer Discretionary",       // GRNJ (Hyatt Hotels)
+  LRN: "Consumer Discretionary",     // Upticks (Stride/K12)
+  // ── Consumer Staples ──
+  KO: "Consumer Staples",            // TT Selected
+  WMT: "Consumer Staples",           // TT Selected
+  COST: "Consumer Staples",          // GRNY
+  MNST: "Consumer Staples",          // GRNY
+  ELF: "Consumer Staples",           // GRNJ (e.l.f. Beauty)
+  // ── Industrials ──
+  CAT: "Industrials",                // GRNY
+  GE: "Industrials",                 // GRNY
+  ETN: "Industrials",                // GRNY
+  DE: "Industrials",                 // GRNY + Upticks
+  PH: "Industrials",                 // Upticks
+  CSX: "Industrials",                // TT Selected
+  HII: "Industrials",                // GRNJ + TT Selected
+  GEV: "Industrials",                // GRNY + TT Selected
+  TT: "Industrials",                 // TT Selected
+  PWR: "Industrials",                // GRNY + TT Selected
+  AWI: "Industrials",                // GRNJ
+  WTS: "Industrials",                // GRNJ
+  DY: "Industrials",                 // GRNJ
+  FIX: "Industrials",                // GRNJ
+  ITT: "Industrials",                // GRNJ
+  STRL: "Industrials",               // GRNJ
+  JCI: "Industrials",                // TT Selected
+  IBP: "Industrials",                // GRNJ
+  DCI: "Industrials",                // GRNJ
+  IESC: "Industrials",               // GRNJ
+  BWXT: "Industrials",               // GRNJ
+  BE: "Industrials",                 // GRNJ
+  AVAV: "Industrials",               // GRNJ
+  AXON: "Industrials",               // Upticks
+  MLI: "Industrials",                // GRNJ
+  NXT: "Industrials",                // GRNJ
+  SGI: "Industrials",                // GRNJ
+  CARR: "Industrials",               // GRNJ (Carrier Global)
+  CW: "Industrials",                 // GRNJ (Curtiss-Wright)
+  FLR: "Industrials",                // Upticks (Fluor)
+  J: "Industrials",                  // Upticks (Jacobs Solutions)
+  VMI: "Industrials",                // GRNJ (Valmont)
+  UNP: "Industrials",                // GRNY
+  ARRY: "Industrials",               // GRNJ (Array Technologies)
+  // ── Information Technology ──
+  AAPL: "Information Technology",     // GRNY
+  MSFT: "Information Technology",     // GRNY
+  NVDA: "Information Technology",     // GRNY
+  AVGO: "Information Technology",     // GRNY
+  AMD: "Information Technology",      // GRNY
+  ORCL: "Information Technology",     // TT Selected
+  KLAC: "Information Technology",     // GRNY
+  ANET: "Information Technology",     // GRNY
+  CDNS: "Information Technology",     // GRNY
+  PANW: "Information Technology",     // TT Selected
+  PLTR: "Information Technology",     // GRNY + Upticks
+  MDB: "Information Technology",      // GRNJ
+  PATH: "Information Technology",     // GRNJ
+  PSTG: "Information Technology",     // GRNJ
+  CLS: "Information Technology",      // TT Selected
+  CRS: "Information Technology",      // GRNJ + TT Selected
+  SANM: "Information Technology",     // GRNJ
+  IONQ: "Information Technology",     // GRNJ
+  LITE: "Information Technology",     // GRNJ
+  ON: "Information Technology",       // GRNJ
+  KTOS: "Information Technology",     // GRNJ + Upticks
+  MSTR: "Information Technology",     // GRNY
+  LSCC: "Information Technology",     // GRNJ (Lattice Semi)
+  FN: "Information Technology",       // GRNJ (Fabrinet)
+  SHOP: "Information Technology",     // Upticks
+  SMCI: "Information Technology",     // Upticks (Super Micro)
+  // ── Communication Services ──
+  META: "Communication Services",     // GRNY
+  GOOGL: "Communication Services",    // GRNY
+  NFLX: "Communication Services",     // GRNY
+  RDDT: "Communication Services",     // GRNJ + TT Selected
+  SATS: "Communication Services",     // GRNJ (EchoStar)
+  // ── Basic Materials ──
+  ALB: "Basic Materials",             // GRNJ
+  MP: "Basic Materials",              // GRNJ
+  CCJ: "Basic Materials",             // GRNJ
+  RGLD: "Basic Materials",            // GRNJ
+  SN: "Basic Materials",              // GRNJ
+  AU: "Basic Materials",              // Upticks (Barrick Gold)
+  APD: "Basic Materials",             // GRNY (Air Products)
+  PKG: "Basic Materials",             // GRNY (Packaging Corp)
+  PPG: "Basic Materials",             // GRNY (PPG Industries)
+  // ── Energy ──
+  VST: "Energy",                      // GRNY + TT Selected
+  FSLR: "Energy",                     // TT Selected
+  TLN: "Energy",                      // GRNJ
+  WFRD: "Energy",                     // GRNJ
+  ENS: "Energy",                      // GRNJ
+  CVX: "Energy",                      // GRNY
+  UUUU: "Energy",                     // GRNJ
+  DINO: "Energy",                     // GRNJ (HF Sinclair)
+  DTM: "Energy",                      // GRNJ (DT Midstream)
+  OKE: "Energy",                      // GRNY (ONEOK)
+  TPL: "Energy",                      // GRNY (Texas Pacific Land)
+  AR: "Energy",                       // Upticks (Antero Resources)
+  // ── Financials ──
+  JPM: "Financials",                  // GRNY
+  GS: "Financials",                   // GRNY
+  AXP: "Financials",                  // GRNY
+  SPGI: "Financials",                 // TT Selected
+  PNC: "Financials",                  // GRNY
+  BK: "Financials",                   // GRNY
+  ALLY: "Financials",                 // GRNJ
+  EWBC: "Financials",                 // GRNJ
+  WAL: "Financials",                  // GRNJ
+  SOFI: "Financials",                 // GRNJ
+  HOOD: "Financials",                 // GRNY
+  MTB: "Financials",                  // TT Selected
+  "BRK-B": "Financials",             // TT Selected
+  COIN: "Financials",                 // Upticks
+  // ── Health Care ──
+  AMGN: "Health Care",                // GRNY + TT Selected
+  GILD: "Health Care",                // TT Selected
+  UTHR: "Health Care",                // GRNJ
+  NBIS: "Health Care",                // GRNJ
+  EXEL: "Health Care",                // GRNJ (Exelixis)
+  HALO: "Health Care",                // GRNJ (Halozyme)
+  UHS: "Health Care",                 // GRNJ (Universal Health)
+  VRTX: "Health Care",                // Upticks (Vertex Pharma)
+  ISRG: "Health Care",                // Upticks (Intuitive Surgical)
+  // ── Aerospace & Defense ──
+  RKLB: "Aerospace & Defense",        // GRNJ
+  NOC: "Aerospace & Defense",         // GRNY (Northrop Grumman)
+  // ── Crypto-Related ──
+  BTCUSD: "Crypto",                   // Watch-only
+  ETHUSD: "Crypto",                   // Watch-only
+  GLXY: "Crypto",                     // GRNJ
+  RIOT: "Crypto",                     // GRNJ
+  ETHA: "Crypto",                     // TT Selected (iShares Ethereum ETF)
+  // ── S&P Sector ETFs (tradeable) ──
+  XLB: "Sector ETF",
+  XLC: "Sector ETF",
+  XLE: "Sector ETF",
+  XLF: "Sector ETF",
+  XLI: "Sector ETF",
+  XLK: "Sector ETF",
+  XLP: "Sector ETF",
+  XLRE: "Sector ETF",
+  XLU: "Sector ETF",
+  XLV: "Sector ETF",
+  XLY: "Sector ETF",
+  // ── Indices (watch-only — scored but not traded) ──
+  SPX: "Index",
+  SPY: "Index",
+  QQQ: "Index",
+  IWM: "Index",
+  DIA: "Index",
+  // ── Futures (watch-only — scored but not traded) ──
   "ES1!": "Futures",
   "NQ1!": "Futures",
   "GC1!": "Futures",
   "SI1!": "Futures",
   "VX1!": "Futures",
-  US500: "Futures",
-  // Additional tracked tickers
-  "BRK-B": "Financials",
-  // ── Added tickers (previously watchlist-only, now in SECTOR_MAP for scoring + pricing) ──
-  // Health Care
-  ABT: "Health Care",
-  LLY: "Health Care",
-  UNH: "Health Care",
-  LMND: "Financials",
-  // Information Technology
-  ARM: "Information Technology",
-  CRM: "Information Technology",
-  INTC: "Information Technology",
-  INTU: "Information Technology",
-  SHOP: "Information Technology",
-  SNDK: "Information Technology",
-  TSM: "Information Technology",
-  WDC: "Information Technology",
-  HUBS: "Information Technology",
-  IREN: "Information Technology",
-  CRWV: "Information Technology",
-  U: "Information Technology",
-  TEM: "Information Technology",
-  // Consumer Discretionary
-  CVNA: "Consumer Discretionary",
-  DKNG: "Consumer Discretionary",
-  JD: "Consumer Discretionary",
-  LULU: "Consumer Discretionary",
-  MCD: "Consumer Staples",
-  CELH: "Consumer Staples",
-  SPOT: "Communication Services",
-  // Industrials
-  FDX: "Industrials",
-  RTX: "Industrials",
-  UNP: "Industrials",
-  UPS: "Industrials",
-  WM: "Industrials",
-  SWK: "Industrials",
-  // Aerospace & Defense
-  ASTS: "Aerospace & Defense",
-  // Financials
-  XYZ: "Financials",
-  SBET: "Financials",
-  // Energy
-  CVX: "Energy",
-  XOM: "Energy",
-  UUUU: "Energy",
-  // Basic Materials / Mining
-  B: "Basic Materials",
-  HL: "Basic Materials",
-  AGYS: "Information Technology",
-  AEHR: "Information Technology",
-  // Crypto-Related
-  BMNR: "Crypto",
-  // ETFs
-  AGQ: "ETF",
-  GDX: "ETF",
-  IAU: "ETF",
-  SLV: "ETF",
-  SOXL: "ETF",
-  TNA: "ETF",
-  GRNY: "ETF",
-  KWEB: "ETF",
-  ETHT: "ETF",
-  XHB: "ETF",
-  DIA: "ETF",
-  GOLD: "Basic Materials",
-  // Indices
-  SPX: "Index",
-  // Commodities (Futures)
-  "CL1!": "Energy",
+  "CL1!": "Futures",
 };
+
+// Tickers that go through full scoring + kanban lanes but do NOT generate trades.
+// Account P&L reflects only tradeable instruments (stocks + sector ETFs).
+const WATCH_ONLY = new Set([
+  "SPX", "SPY", "QQQ", "IWM", "DIA",
+  "BTCUSD", "ETHUSD",
+  "ES1!", "NQ1!", "GC1!", "SI1!", "VX1!", "CL1!",
+]);
+
+// Current Newton Upticks — priority picks tagged as "TT Selected"
+const TT_SELECTED = new Set([
+  "RDDT", "AMZN", "BABA", "TSLA", "KO", "WMT", "ETHA", "BRK-B",
+  "GLXY", "MTB", "SPGI", "AMGN", "GILD", "CSX", "GEV", "HII",
+  "JCI", "PWR", "TT", "APP", "CLS", "FSLR", "ORCL", "PANW", "CRS", "VST",
+]);
+
+// Canonical universe: snapshot of hardcoded SECTOR_MAP before runtime KV expansion
+const CANONICAL_UNIVERSE = new Set(Object.keys(SECTOR_MAP));
 
 // Sector Ratings — as of Feb 13, 2026 (S&P Index Weight vs FSI Weight)
 const SECTOR_RATINGS = {
@@ -27282,8 +27622,9 @@ export default {
             binds.push(String(statusRaw).toUpperCase());
           }
         }
+        // Date range: "activity in range" — include trades open at any time in [since, until]
         if (since != null && Number.isFinite(since)) {
-          where += " AND entry_ts >= ?";
+          where += " AND (exit_ts IS NULL OR exit_ts >= ?)";
           binds.push(Number(since));
         }
         if (until != null && Number.isFinite(until)) {
@@ -29044,8 +29385,14 @@ export default {
         const intervalMinutes = Math.max(1, Math.min(30, Number(url.searchParams.get("intervalMinutes")) || 5));
         const cleanSlate = url.searchParams.get("cleanSlate") === "1";
         const trailOnly = url.searchParams.get("trailOnly") === "1";
+        const tickerFilter = url.searchParams.get("tickers"); // comma-separated filter
 
-        const allTickers = Object.keys(SECTOR_MAP);
+        let allTickers;
+        if (tickerFilter) {
+          allTickers = tickerFilter.split(",").map(t => t.trim().toUpperCase()).filter(Boolean);
+        } else {
+          allTickers = Object.keys(SECTOR_MAP);
+        }
         const batchTickers = allTickers.slice(tickerOffset, tickerOffset + tickerBatch);
         const hasMore = tickerOffset + tickerBatch < allTickers.length;
 
@@ -29162,6 +29509,7 @@ export default {
         const errors = [];
         const timeline = [];
         const stageCounts = {}; // Track stage distribution
+        const blockReasons = {}; // Track why entries are blocked (diagnostic)
         const pendingTrail = []; // Collect trail points for batch write
 
         for (const intervalTs of intervals) {
@@ -29256,6 +29604,15 @@ export default {
               const prevStage = existing?.kanban_stage;
               const stage = classifyKanbanStage(result, openTrade, intervalTs);
               let finalStage = stage;
+
+              // Diagnostic: track why qualifiesForEnter rejected (for debugging)
+              if (stage === "watch" && result.state) {
+                const diagEntry = qualifiesForEnter(result, intervalTs);
+                if (!diagEntry.qualifies) {
+                  result.__entry_block_reason = diagEntry.reason;
+                  blockReasons[diagEntry.reason] = (blockReasons[diagEntry.reason] || 0) + 1;
+                }
+              }
 
               // Enter gate: set cycle tracking
               if (finalStage === "enter_now" || finalStage === "enter") {
@@ -29450,6 +29807,20 @@ export default {
           console.log("[REPLAY] Last batch done, cleared replay:running lock");
         }
 
+        // Diagnostic snapshot: last scoring state per ticker
+        const lastSnapshot = {};
+        for (const ticker of batchTickers) {
+          const s = stateMap[ticker];
+          if (s) {
+            lastSnapshot[ticker] = {
+              state: s.state, htf_score: s.htf_score, ltf_score: s.ltf_score,
+              ema_regime_daily: s.ema_regime_daily, ema_regime_4h: s.ema_regime_4h,
+              st_support_D: s.st_support?.map?.D || null,
+              kanban_stage: s.kanban_stage, score: s.score || s.rank,
+            };
+          }
+        }
+
         return sendJSON({
           ok: true,
           date: dateParam,
@@ -29467,8 +29838,10 @@ export default {
           errorsCount: errors.length,
           errors: errors.slice(0, 10),
           stageCounts,
+          blockReasons,
           d1StateWritten,
           trailWritten,
+          lastSnapshot,
         }, 200, corsHeaders(env, req));
       }
 
@@ -31231,6 +31604,21 @@ export default {
             reportJson.hindsight_oracle = body.hindsight_oracle;
             await db.prepare(`UPDATE calibration_report SET report_json = ?1 WHERE report_id = ?2`).bind(JSON.stringify(reportJson), report.report_id).run();
             report.hindsight_oracle = body.hindsight_oracle;
+
+            // Store lifecycle profiles in model_config for the live trading engine
+            const lp = body.hindsight_oracle?.lifecycle_profiles;
+            if (lp && Object.keys(lp).length > 0) {
+              await db.prepare(`INSERT OR REPLACE INTO model_config (config_key, config_value, updated_at) VALUES ('lifecycle_profiles', ?1, ?2)`)
+                .bind(JSON.stringify(lp), Date.now()).run();
+              if (KV) await KV.put("timed:calibration:lifecycle-profiles", JSON.stringify(lp));
+              console.log(`[CALIBRATION] Stored lifecycle profiles: ${Object.keys(lp).join(", ")}`);
+            }
+
+            // Store golden profiles in KV (existing behavior preserved + lifecycle)
+            const gp = body.hindsight_oracle?.golden_profiles;
+            if (gp && KV) {
+              await KV.put("timed:calibration:golden-profiles", JSON.stringify({ profiles: gp, updated: Date.now() }));
+            }
           }
           if (KV) {
             writeCalibrationStatus(KV, "done", `Done! Report ${report?.report_id || "?"}.`, {
@@ -31414,6 +31802,54 @@ export default {
             ).bind(JSON.stringify(recs.adaptive_sl_tp), now).run();
             applied.push("adaptive_sl_tp");
           }
+
+          // Extract and store hindsight oracle golden profiles from report_json
+          const KV = env?.KV_TIMED;
+          if (KV) {
+            try {
+              const reportRow = await db.prepare(
+                `SELECT report_json FROM calibration_report WHERE report_id = ?1`
+              ).bind(reportId).first();
+              if (reportRow?.report_json) {
+                const reportJson = JSON.parse(reportRow.report_json);
+                const goldenProfiles = reportJson?.hindsight_oracle?.golden_profiles;
+                if (goldenProfiles && Object.keys(goldenProfiles).length > 0) {
+                  await kvPutJSON(KV, "timed:calibration:golden-profiles", {
+                    profiles: goldenProfiles,
+                    applied_at: now,
+                    report_id: reportId,
+                  });
+                  applied.push("golden_profiles");
+
+                  // Apply hindsight oracle recommendations to adaptive entry gates
+                  const oracleRecs = reportJson?.hindsight_oracle?.recommendations;
+                  if (Array.isArray(oracleRecs) && oracleRecs.length > 0) {
+                    const gates = recs.adaptive_entry_gates || {};
+                    for (const rec of oracleRecs) {
+                      if (rec.type === "threshold" && rec.state && rec.metric === "min_htf_score") {
+                        if (!gates[rec.state]) gates[rec.state] = {};
+                        gates[rec.state].min_htf = Number(rec.suggested) || 0;
+                      }
+                      if (rec.type === "signal" && rec.state && rec.signal) {
+                        if (!gates[rec.state]) gates[rec.state] = {};
+                        if (!gates[rec.state].require_signals) gates[rec.state].require_signals = [];
+                        gates[rec.state].require_signals.push(rec.signal);
+                      }
+                    }
+                    // Re-write the merged adaptive entry gates
+                    await db.prepare(
+                      `INSERT OR REPLACE INTO model_config (config_key, config_value, description, updated_at, updated_by)
+                       VALUES ('adaptive_entry_gates', ?1, 'Per-state entry gates (merged with golden profile recs)', ?2, 'calibration')`
+                    ).bind(JSON.stringify(gates), now).run();
+                    applied.push("golden_profile_recs_merged");
+                  }
+                }
+              }
+            } catch (gpErr) {
+              console.warn("[CALIBRATION APPLY] Golden profile extraction failed:", String(gpErr?.message || gpErr).slice(0, 200));
+            }
+          }
+
           await db.prepare(
             `UPDATE calibration_report SET applied_at = ?1, applied_by = 'admin' WHERE report_id = ?2`
           ).bind(now, reportId).run();
@@ -31962,7 +32398,23 @@ export default {
           const pnlRow = await db.prepare(
             "SELECT SUM(realized_pnl) as total_realized FROM account_ledger WHERE mode = ?1"
           ).bind(mode).first();
-          const totalRealized = pnlRow ? Number(pnlRow.total_realized) || 0 : 0;
+          let totalRealized = pnlRow ? Number(pnlRow.total_realized) || 0 : 0;
+
+          // Fallback: during replay, account_ledger is not populated.
+          // Sum realized P&L directly from closed trades (which replay DOES write).
+          if (totalRealized === 0 && mode === "trader") {
+            for (const tbl of ["trades", "positions"]) {
+              try {
+                const row = await db.prepare(
+                  `SELECT SUM(pnl) as total_pnl FROM ${tbl} WHERE status IN ('WIN','LOSS','FLAT') AND pnl IS NOT NULL`
+                ).first();
+                if (row && Number(row.total_pnl)) {
+                  totalRealized = Number(row.total_pnl);
+                  break;
+                }
+              } catch (_) {}
+            }
+          }
 
           // Mark-to-market open positions
           let unrealized = 0;
@@ -34583,6 +35035,11 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           const tickers = Array.isArray(body?.tickers) ? body.tickers.map(t => String(t).toUpperCase().trim()).filter(Boolean) : [];
           const unique = [...new Set(tickers)];
           await kvPutJSON(KV, "timed:admin:upticks", unique);
+          // Source-tag all uptick tickers
+          await updateTickerSources(KV, unique, "UPTICKS");
+          // Also ensure TT_SELECTED tickers have the tt_selected tag
+          const ttSel = unique.filter(t => TT_SELECTED.has(t));
+          if (ttSel.length > 0) await updateTickerSources(KV, ttSel, "TT_SELECTED");
           return sendJSON({ ok: true, count: unique.length, tickers: unique }, 200, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 200) }, 500, corsHeaders(env, req));
@@ -34616,6 +35073,40 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             }
           }
           return sendJSON({ ok: true, updated: Object.keys(ratings).length }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 200) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // Sync timed:tickers to match CANONICAL_UNIVERSE, remove dropped tickers
+      if (routeKey === "POST /timed/admin/sync-universe") {
+        try {
+          const expected = CANONICAL_UNIVERSE;
+          const existing = (await kvGetJSON(KV, "timed:tickers")) || [];
+          const existingSet = new Set(existing.map(t => String(t).toUpperCase()));
+          const toAdd = [...expected].filter(t => !existingSet.has(t));
+          const toRemove = existing.filter(t => !expected.has(String(t).toUpperCase()));
+          const updated = [...expected];
+          updated.sort();
+          await kvPutJSON(KV, "timed:tickers", updated);
+          // Also seed source tags for the initial universe
+          const sources = (await kvGetJSON(KV, "timed:ticker-sources")) || {};
+          for (const t of updated) {
+            if (!sources[t]) sources[t] = [];
+            if (WATCH_ONLY.has(t)) {
+              if (!sources[t].includes("WATCH_ONLY")) sources[t].push("WATCH_ONLY");
+            }
+            if (TT_SELECTED.has(t)) {
+              if (!sources[t].includes("TT_SELECTED")) sources[t].push("TT_SELECTED");
+            }
+          }
+          await kvPutJSON(KV, "timed:ticker-sources", sources);
+          return sendJSON({
+            ok: true,
+            total: updated.length,
+            added: toAdd,
+            removed: toRemove,
+          }, 200, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 200) }, 500, corsHeaders(env, req));
         }
@@ -40375,6 +40866,25 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
         env._adaptiveRegimeGates = _adaptiveRegimeGates;
         env._adaptiveSLTP = _adaptiveSLTP;
 
+        // Populate calibrated TP tiers for build3TierTPArray
+        if (_adaptiveSLTP?.tp_tiers) {
+          _calibratedTPTiers = _adaptiveSLTP.tp_tiers;
+        } else if (_adaptiveSLTP?.trim && _adaptiveSLTP?.exit && _adaptiveSLTP?.runner) {
+          _calibratedTPTiers = { trim: _adaptiveSLTP.trim, exit: _adaptiveSLTP.exit, runner: _adaptiveSLTP.runner };
+        }
+
+        // Load golden profiles from KV for HTF/LTF entry floors
+        try {
+          const gpData = await kvGetJSON(KV, "timed:calibration:golden-profiles");
+          env._goldenProfiles = gpData?.profiles || null;
+        } catch (_) {}
+
+        // Load lifecycle profiles from KV for PDZ-aware exit engine
+        try {
+          const lpData = await kvGetJSON(KV, "timed:calibration:lifecycle-profiles");
+          env._lifecycleProfiles = lpData || null;
+        } catch (_) {}
+
         // Load current VIX once for regime gates
         let _currentVix = null;
         try {
@@ -40452,9 +40962,13 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             result.rank = computeRank(result);
             result.score = result.rank;
 
-            // Inject adaptive config + VIX for qualifiesForEnter downstream
-            if (env._adaptiveEntryGates || env._adaptiveRegimeGates) {
-              result._env = { _adaptiveEntryGates: env._adaptiveEntryGates, _adaptiveRegimeGates: env._adaptiveRegimeGates };
+            // Inject adaptive config + VIX + golden profiles for qualifiesForEnter downstream
+            if (env._adaptiveEntryGates || env._adaptiveRegimeGates || env._goldenProfiles) {
+              result._env = {
+                _adaptiveEntryGates: env._adaptiveEntryGates,
+                _adaptiveRegimeGates: env._adaptiveRegimeGates,
+                _goldenProfiles: env._goldenProfiles,
+              };
             }
             if (env._currentVix != null) result._vix = env._currentVix;
 

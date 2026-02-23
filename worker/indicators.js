@@ -266,6 +266,287 @@ export function linregSeries(values, period) {
 // COMPOSITE BUNDLE: Mirrors Pine Script f_tf_bundle()
 // ═══════════════════════════════════════════════════════════════════════════════
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// SMC / ICT INDICATORS
+// Premium/Discount Zones, Fair Value Gaps, Liquidity Zone Detection
+// Ported from LuxAlgo Smart Money Concepts & ICT Concepts Pine Scripts
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Premium / Discount Zone detection.
+ * Uses trailing swing extremes (highest high / lowest low over lookback)
+ * to define PDZ zones matching the LuxAlgo Pine implementation.
+ *
+ * Premium  = top 5% of swing range  (sell/trim territory)
+ * Discount = bottom 5% of swing range (buy/hold territory)
+ * Equilibrium = middle band around 50% of range
+ *
+ * @param {Array} bars - OHLCV candle array sorted ascending
+ * @param {number} atr - ATR(14) for the timeframe
+ * @returns {{ zone: string, pct: number, swingHigh: number, swingLow: number,
+ *             premiumLine: number, discountLine: number, eqHigh: number, eqLow: number }}
+ */
+export function computePDZ(bars, atr) {
+  const DEFAULT = { zone: "unknown", pct: 50, swingHigh: 0, swingLow: 0,
+    premiumLine: 0, discountLine: 0, eqHigh: 0, eqLow: 0 };
+  if (!bars || bars.length < 20) return DEFAULT;
+
+  // Lookback: 50 bars (matches Pine swingsLengthInput default)
+  const lookback = Math.min(50, bars.length);
+  const recentBars = bars.slice(-lookback);
+
+  let swingHigh = -Infinity;
+  let swingLow = Infinity;
+  for (const b of recentBars) {
+    if (b.h > swingHigh) swingHigh = b.h;
+    if (b.l < swingLow) swingLow = b.l;
+  }
+
+  const range = swingHigh - swingLow;
+  if (range <= 0 || !Number.isFinite(range)) return DEFAULT;
+
+  const px = bars[bars.length - 1].c;
+
+  // Zone boundaries matching Pine: 95% from bottom = premium line, 5% = discount line
+  const premiumLine = swingLow + 0.95 * range;   // = 0.95*top + 0.05*bottom
+  const discountLine = swingLow + 0.05 * range;  // = 0.05*top + 0.95*bottom
+  const eqHigh = swingLow + 0.525 * range;       // equilibrium upper
+  const eqLow = swingLow + 0.475 * range;        // equilibrium lower
+
+  // Price position as percentage of range (0 = at swing low, 100 = at swing high)
+  const pct = Math.max(0, Math.min(100, Math.round(((px - swingLow) / range) * 1000) / 10));
+
+  let zone;
+  if (px >= premiumLine) zone = "premium";
+  else if (px <= discountLine) zone = "discount";
+  else if (px >= eqLow && px <= eqHigh) zone = "equilibrium";
+  else if (px > eqHigh) zone = "premium_approach";
+  else zone = "discount_approach";
+
+  return { zone, pct, swingHigh, swingLow, premiumLine, discountLine, eqHigh, eqLow };
+}
+
+/**
+ * Fair Value Gap detection.
+ * 3-candle pattern: a gap between candle[i].low and candle[i-2].high (bullish)
+ * or candle[i].high and candle[i-2].low (bearish).
+ *
+ * Tracks active (unfilled) vs mitigated FVGs within recent history.
+ *
+ * @param {Array} bars - OHLCV candle array sorted ascending
+ * @param {number} atr - ATR(14) for significance filtering
+ * @returns {{ activeBull: number, activeBear: number, inBullGap: boolean, inBearGap: boolean,
+ *             nearestBullDist: number, nearestBearDist: number, fvgs: Array }}
+ */
+export function detectFVGs(bars, atr) {
+  const DEFAULT = { activeBull: 0, activeBear: 0, inBullGap: false, inBearGap: false,
+    nearestBullDist: Infinity, nearestBearDist: Infinity, fvgs: [] };
+  if (!bars || bars.length < 10) return DEFAULT;
+
+  const fvgs = [];
+  // Scan last 100 bars for FVG formation (matching LuxAlgo's reasonable window)
+  const scanStart = Math.max(2, bars.length - 100);
+
+  for (let i = scanStart; i < bars.length; i++) {
+    const curr = bars[i];
+    const prev = bars[i - 1]; // middle candle
+    const prev2 = bars[i - 2];
+
+    // Bullish FVG: current candle's low > two-candles-ago high (gap up)
+    if (curr.l > prev2.h) {
+      const gapSize = curr.l - prev2.h;
+      // Auto-threshold: filter out insignificant gaps (< 10% of ATR)
+      if (atr > 0 && gapSize < atr * 0.1) continue;
+      fvgs.push({
+        type: "bull",
+        top: curr.l,
+        bottom: prev2.h,
+        mid: (curr.l + prev2.h) / 2,
+        ts: prev.ts || 0,
+        mitigated: false,
+      });
+    }
+
+    // Bearish FVG: current candle's high < two-candles-ago low (gap down)
+    if (curr.h < prev2.l) {
+      const gapSize = prev2.l - curr.h;
+      if (atr > 0 && gapSize < atr * 0.1) continue;
+      fvgs.push({
+        type: "bear",
+        top: prev2.l,
+        bottom: curr.h,
+        mid: (prev2.l + curr.h) / 2,
+        ts: prev.ts || 0,
+        mitigated: false,
+      });
+    }
+  }
+
+  // Check mitigation: FVG is mitigated when price returns through it
+  // For each FVG, scan bars AFTER its formation to see if price filled the gap
+  const px = bars[bars.length - 1].c;
+  for (const gap of fvgs) {
+    // Find the bar index where this FVG formed (the middle candle timestamp)
+    let formIdx = scanStart;
+    for (let k = scanStart; k < bars.length; k++) {
+      if ((bars[k].ts || 0) >= gap.ts) { formIdx = k; break; }
+    }
+    if (gap.type === "bull") {
+      for (let k = formIdx + 1; k < bars.length; k++) {
+        if (bars[k].l < gap.bottom) { gap.mitigated = true; break; }
+      }
+    } else {
+      for (let k = formIdx + 1; k < bars.length; k++) {
+        if (bars[k].h > gap.top) { gap.mitigated = true; break; }
+      }
+    }
+  }
+
+  // Separate active gaps
+  const activeBull = fvgs.filter(g => g.type === "bull" && !g.mitigated);
+  const activeBear = fvgs.filter(g => g.type === "bear" && !g.mitigated);
+
+  // Check if price is currently inside an active FVG
+  const inBullGap = activeBull.some(g => px >= g.bottom && px <= g.top);
+  const inBearGap = activeBear.some(g => px >= g.bottom && px <= g.top);
+
+  // Nearest active FVG distance (in ATR units)
+  let nearestBullDist = Infinity;
+  let nearestBearDist = Infinity;
+  for (const g of activeBull) {
+    const dist = px > g.top ? (px - g.top) : px < g.bottom ? (g.bottom - px) : 0;
+    const distAtr = atr > 0 ? dist / atr : dist;
+    if (distAtr < nearestBullDist) nearestBullDist = distAtr;
+  }
+  for (const g of activeBear) {
+    const dist = px > g.top ? (px - g.top) : px < g.bottom ? (g.bottom - px) : 0;
+    const distAtr = atr > 0 ? dist / atr : dist;
+    if (distAtr < nearestBearDist) nearestBearDist = distAtr;
+  }
+
+  return {
+    activeBull: activeBull.length,
+    activeBear: activeBear.length,
+    inBullGap,
+    inBearGap,
+    nearestBullDist: Number.isFinite(nearestBullDist) ? Math.round(nearestBullDist * 100) / 100 : -1,
+    nearestBearDist: Number.isFinite(nearestBearDist) ? Math.round(nearestBearDist * 100) / 100 : -1,
+    fvgs: fvgs.filter(g => !g.mitigated).slice(-10), // keep last 10 active
+  };
+}
+
+/**
+ * Liquidity Zone detection.
+ * Clusters pivot highs and lows at similar price levels.
+ * 3+ pivots within ATR/2.5 = liquidity zone (matching ICT Pine logic where a = 10/4 = 2.5).
+ * Zones are "swept" when price closes through them.
+ *
+ * @param {Array} bars - OHLCV candle array sorted ascending
+ * @param {number} atr - ATR(14) for clustering threshold
+ * @returns {{ buyside: Array, sellside: Array, nearestBuysideDist: number,
+ *             nearestSellsideDist: number, buysideCount: number, sellsideCount: number }}
+ */
+export function detectLiquidityZones(bars, atr) {
+  const DEFAULT = { buyside: [], sellside: [], nearestBuysideDist: -1,
+    nearestSellsideDist: -1, buysideCount: 0, sellsideCount: 0 };
+  if (!bars || bars.length < 20 || !Number.isFinite(atr) || atr <= 0) return DEFAULT;
+
+  // Find swing pivots with lookback of 3 (matching ICT Pine left=3)
+  const pivots = findSwingPivots(bars, 3);
+  const threshold = atr / 2.5; // clustering margin, matches Pine atr/a where a=10/4
+
+  // Cluster pivot highs (buyside liquidity = stops above equal highs)
+  const buyside = clusterPivots(pivots.highs, threshold);
+  // Cluster pivot lows (sellside liquidity = stops below equal lows)
+  const sellside = clusterPivots(pivots.lows, threshold);
+
+  const px = bars[bars.length - 1].c;
+
+  // Check if zones have been swept
+  for (const zone of buyside) {
+    zone.swept = px > zone.level + threshold * 0.5;
+  }
+  for (const zone of sellside) {
+    zone.swept = px < zone.level - threshold * 0.5;
+  }
+
+  // Filter to active (unswept) zones
+  const activeBuyside = buyside.filter(z => !z.swept);
+  const activeSellside = sellside.filter(z => !z.swept);
+
+  // Nearest distances in ATR units
+  let nearestBuysideDist = -1;
+  let nearestSellsideDist = -1;
+  for (const z of activeBuyside) {
+    const dist = (z.level - px) / atr;
+    if (dist > 0 && (nearestBuysideDist < 0 || dist < nearestBuysideDist)) {
+      nearestBuysideDist = Math.round(dist * 100) / 100;
+    }
+  }
+  for (const z of activeSellside) {
+    const dist = (px - z.level) / atr;
+    if (dist > 0 && (nearestSellsideDist < 0 || dist < nearestSellsideDist)) {
+      nearestSellsideDist = Math.round(dist * 100) / 100;
+    }
+  }
+
+  return {
+    buyside: activeBuyside.slice(0, 5),
+    sellside: activeSellside.slice(0, 5),
+    nearestBuysideDist,
+    nearestSellsideDist,
+    buysideCount: activeBuyside.length,
+    sellsideCount: activeSellside.length,
+  };
+}
+
+/**
+ * Cluster pivot points at similar price levels.
+ * Groups pivots within `threshold` of each other into zones.
+ * @param {Array<{price:number, idx:number, ts:number}>} pivots
+ * @param {number} threshold - maximum price distance for same cluster
+ * @returns {Array<{level:number, count:number, firstTs:number, lastTs:number}>}
+ */
+function clusterPivots(pivots, threshold) {
+  if (!pivots || pivots.length < 2) return [];
+
+  // Sort by price for clustering
+  const sorted = [...pivots].sort((a, b) => a.price - b.price);
+  const clusters = [];
+  let cluster = [sorted[0]];
+
+  for (let i = 1; i < sorted.length; i++) {
+    if (sorted[i].price - cluster[0].price <= threshold) {
+      cluster.push(sorted[i]);
+    } else {
+      if (cluster.length >= 3) {
+        const avg = cluster.reduce((s, p) => s + p.price, 0) / cluster.length;
+        clusters.push({
+          level: Math.round(avg * 100) / 100,
+          count: cluster.length,
+          firstTs: Math.min(...cluster.map(p => p.ts)),
+          lastTs: Math.max(...cluster.map(p => p.ts)),
+          swept: false,
+        });
+      }
+      cluster = [sorted[i]];
+    }
+  }
+  // Final cluster
+  if (cluster.length >= 3) {
+    const avg = cluster.reduce((s, p) => s + p.price, 0) / cluster.length;
+    clusters.push({
+      level: Math.round(avg * 100) / 100,
+      count: cluster.length,
+      firstTs: Math.min(...cluster.map(p => p.ts)),
+      lastTs: Math.max(...cluster.map(p => p.ts)),
+      swept: false,
+    });
+  }
+
+  return clusters;
+}
+
 /**
  * Compute the full indicator bundle for a single timeframe.
  * Mirrors Pine's f_tf_bundle() which returns 25 values.
@@ -514,6 +795,26 @@ export function computeTfBundle(bars, anchors = null) {
     if (e21 < e48) emaStack--;
   }
 
+  // EMA crosses (5/48) — early trend signal
+  let emaCross5_48_up = false, emaCross5_48_dn = false;
+  let emaCross5_48_up_ts = 0, emaCross5_48_dn_ts = 0;
+  if (last > 0 && Number.isFinite(e5s[last - 1]) && Number.isFinite(e48s[last - 1])) {
+    emaCross5_48_up = e5s[last - 1] <= e48s[last - 1] && e5 > e48;
+    emaCross5_48_dn = e5s[last - 1] >= e48s[last - 1] && e5 < e48;
+    if (emaCross5_48_up) emaCross5_48_up_ts = bars[last].ts;
+    if (emaCross5_48_dn) emaCross5_48_dn_ts = bars[last].ts;
+  }
+
+  // EMA crosses (13/21) — confirmation signal
+  let emaCross13_21_up = false, emaCross13_21_dn = false;
+  let emaCross13_21_up_ts = 0, emaCross13_21_dn_ts = 0;
+  if (last > 0 && Number.isFinite(e13s[last - 1]) && Number.isFinite(e21s[last - 1])) {
+    emaCross13_21_up = e13s[last - 1] <= e21s[last - 1] && e13 > e21;
+    emaCross13_21_dn = e13s[last - 1] >= e21s[last - 1] && e13 < e21;
+    if (emaCross13_21_up) emaCross13_21_up_ts = bars[last].ts;
+    if (emaCross13_21_dn) emaCross13_21_dn_ts = bars[last].ts;
+  }
+
   // EMA crosses (13/48)
   let emaCross13_48_up = false;
   let emaCross13_48_dn = false;
@@ -525,6 +826,18 @@ export function computeTfBundle(bars, anchors = null) {
     if (emaCross13_48_up) emaCross13_48_up_ts = bars[last].ts;
     if (emaCross13_48_dn) emaCross13_48_dn_ts = bars[last].ts;
   }
+
+  // EMA position state (current relationship, not just cross event)
+  const ema5above48 = Number.isFinite(e5) && Number.isFinite(e48) && e5 > e48;
+  const ema13above21 = Number.isFinite(e13) && Number.isFinite(e21) && e13 > e21;
+  const ema8above21 = Number.isFinite(e8) && Number.isFinite(e21) && e8 > e21;
+
+  // EMA Regime: -2 (confirmed bear) to +2 (confirmed bull)
+  let emaRegime = 0;
+  if (ema5above48 && ema13above21) emaRegime = 2;
+  else if (ema5above48 && !ema13above21) emaRegime = 1;
+  else if (!ema5above48 && ema13above21) emaRegime = -1;
+  else if (!ema5above48 && !ema13above21) emaRegime = -2;
 
   // SuperTrend slope
   const stSlopeUp = Number.isFinite(stLinePrev) ? stLine > stLinePrev : false;
@@ -543,13 +856,29 @@ export function computeTfBundle(bars, anchors = null) {
     }
   }
 
+  // Bars since last ST direction change (sustained conviction measure)
+  let stBarsSinceFlip = 0;
+  for (let k = last; k >= Math.max(0, last - 200); k--) {
+    if (st.dir[k] === stDir) stBarsSinceFlip++;
+    else break;
+  }
+
+  // ── SMC: Premium / Discount Zones (PDZ) ──
+  const pdz = computePDZ(bars, atr14);
+
+  // ── SMC: Fair Value Gaps (FVG) ──
+  const fvg = detectFVGs(bars, atr14);
+
+  // ── SMC: Liquidity Zone Detection ──
+  const liq = detectLiquidityZones(bars, atr14);
+
   return {
     px, lastTs,
     e3, e5, e8, e13, e21, e34, e48, e89, e200, e233,
     eFast, eSlow,
     emaDepth, emaStructure, emaMomentum, ribbonSpread,
     stLine, stDir, stLinePrev, stSlopeUp, stSlopeDn,
-    stFlip, stFlipDir, stFlip_ts,
+    stFlip, stFlipDir, stFlip_ts, stBarsSinceFlip,
     sqOn, sqOnPrev, sqRelease, sqRelease_ts, mom, momStd,
     phaseOsc, phaseVelocity, phaseZone,
     compressed,
@@ -559,8 +888,11 @@ export function computeTfBundle(bars, anchors = null) {
     ggUpCross, ggDnCross, ggDist,
     ggUpCross_ts, ggDnCross_ts,
     emaStack,
-    emaCross13_48_up, emaCross13_48_dn,
-    emaCross13_48_up_ts, emaCross13_48_dn_ts,
+    emaCross5_48_up, emaCross5_48_dn, emaCross5_48_up_ts, emaCross5_48_dn_ts,
+    emaCross13_21_up, emaCross13_21_dn, emaCross13_21_up_ts, emaCross13_21_dn_ts,
+    emaCross13_48_up, emaCross13_48_dn, emaCross13_48_up_ts, emaCross13_48_dn_ts,
+    ema5above48, ema13above21, ema8above21, emaRegime,
+    pdz, fvg, liq,
   };
 }
 
@@ -1270,6 +1602,8 @@ export function detectFlags(bundles) {
   const b60 = bundles?.["60"];
   const b10 = bundles?.["10"];
   const b5 = bundles?.["5"];
+  const bD = bundles?.["D"];
+  const b4H = bundles?.["240"];
 
   // SuperTrend flips (with timestamps)
   if (b30?.stFlip) { flags.st_flip_30m = true; flags.st_flip_30m_ts = b30.stFlip_ts; }
@@ -1296,6 +1630,20 @@ export function detectFlags(bundles) {
     flags.ema_cross_30m_13_48_ts = b30.emaCross13_48_up_ts || b30.emaCross13_48_dn_ts || 0;
   }
 
+  // Daily EMA crosses (5/48 = early signal, 13/21 = confirmation)
+  if (bD?.emaCross5_48_up) { flags.ema_cross_D_5_48_bull = true; flags.ema_cross_D_5_48_bull_ts = bD.emaCross5_48_up_ts; }
+  if (bD?.emaCross5_48_dn) { flags.ema_cross_D_5_48_bear = true; flags.ema_cross_D_5_48_bear_ts = bD.emaCross5_48_dn_ts; }
+  if (bD?.emaCross13_21_up) { flags.ema_cross_D_13_21_bull = true; flags.ema_cross_D_13_21_bull_ts = bD.emaCross13_21_up_ts; }
+  if (bD?.emaCross13_21_dn) { flags.ema_cross_D_13_21_bear = true; flags.ema_cross_D_13_21_bear_ts = bD.emaCross13_21_dn_ts; }
+
+  // EMA regime per timeframe (-2 to +2)
+  flags.ema_regime_D = bD?.emaRegime ?? 0;
+  flags.ema_regime_4H = b4H?.emaRegime ?? 0;
+  flags.ema_regime_1H = b60?.emaRegime ?? 0;
+  // EMA position state (current, not just cross events)
+  flags.ema5above48_D = bD?.ema5above48 ?? false;
+  flags.ema13above21_D = bD?.ema13above21 ?? false;
+
   // Squeeze releases (with timestamps)
   if (b30?.sqRelease) { flags.sq30_release = true; flags.sq30_release_ts = b30.sqRelease_ts; }
   if (b60?.sqRelease) { flags.sq1h_release = true; flags.sq1h_release_ts = b60.sqRelease_ts; }
@@ -1310,6 +1658,28 @@ export function detectFlags(bundles) {
   // Phase zone change (simplified: check if any LTF is in EXTREME zone)
   if (b30?.phaseZone === "EXTREME" || b10?.phaseZone === "EXTREME") {
     flags.phase_zone_change = true;
+  }
+
+  // SMC / ICT indicators: PDZ, FVG, Liquidity (for trail_5m_facts aggregation)
+  if (bD?.pdz) {
+    flags.pdz_zone_D = bD.pdz.zone;
+    flags.pdz_pct_D = bD.pdz.pct;
+  }
+  if (b4H?.pdz) {
+    flags.pdz_zone_4h = b4H.pdz.zone;
+    flags.pdz_pct_4h = b4H.pdz.pct;
+  }
+  if (bD?.fvg) {
+    flags.fvg_bull_D = bD.fvg.activeBull || 0;
+    flags.fvg_bear_D = bD.fvg.activeBear || 0;
+    flags.fvg_in_bull_D = bD.fvg.inBullGap ? 1 : 0;
+    flags.fvg_in_bear_D = bD.fvg.inBearGap ? 1 : 0;
+  }
+  if (bD?.liq) {
+    flags.liq_bs_D = bD.liq.buysideCount || 0;
+    flags.liq_ss_D = bD.liq.sellsideCount || 0;
+    flags.liq_bs_dist_D = bD.liq.nearestBuysideDist ?? -1;
+    flags.liq_ss_dist_D = bD.liq.nearestSellsideDist ?? -1;
   }
 
   return flags;
@@ -1775,6 +2145,16 @@ export function assembleTickerData(ticker, bundles, existingData = null, opts = 
         dots: phaseDotCode ? [phaseDotCode] : [],
       },
       fuel: fuel[tfLabel] || undefined,
+      pdz: b.pdz ? { zone: b.pdz.zone, pct: b.pdz.pct } : undefined,
+      fvg: b.fvg ? {
+        ab: b.fvg.activeBull, abr: b.fvg.activeBear,
+        ib: b.fvg.inBullGap ? 1 : 0, ibr: b.fvg.inBearGap ? 1 : 0,
+        nbd: b.fvg.nearestBullDist, nbrd: b.fvg.nearestBearDist,
+      } : undefined,
+      liq: b.liq ? {
+        bs: b.liq.buysideCount, ss: b.liq.sellsideCount,
+        bsd: b.liq.nearestBuysideDist, ssd: b.liq.nearestSellsideDist,
+      } : undefined,
     };
   }
 
@@ -1831,7 +2211,29 @@ export function assembleTickerData(ticker, bundles, existingData = null, opts = 
     atr_levels: atrLevels,
     fuel,
     ema_map: emaMap,
+    ema_regime_daily: bD?.emaRegime ?? 0,
+    ema_regime_4h: b4H?.emaRegime ?? 0,
+    ema_regime_1h: b1H?.emaRegime ?? 0,
+    st_bars_since_flip_D: bD?.stBarsSinceFlip ?? 0,
     active_gates: activeGates.length > 0 ? activeGates : undefined,
+    // ── SMC / ICT indicators (top-level convenience) ──
+    pdz_zone_D: bD?.pdz?.zone || "unknown",
+    pdz_pct_D: bD?.pdz?.pct ?? 50,
+    pdz_zone_4h: b4H?.pdz?.zone || "unknown",
+    pdz_pct_4h: b4H?.pdz?.pct ?? 50,
+    pdz_D: bD?.pdz || undefined,
+    pdz_4h: b4H?.pdz || undefined,
+    fvg_D: bD?.fvg ? { activeBull: bD.fvg.activeBull, activeBear: bD.fvg.activeBear,
+      inBullGap: bD.fvg.inBullGap, inBearGap: bD.fvg.inBearGap,
+      nearestBullDist: bD.fvg.nearestBullDist, nearestBearDist: bD.fvg.nearestBearDist } : undefined,
+    fvg_4h: b4H?.fvg ? { activeBull: b4H.fvg.activeBull, activeBear: b4H.fvg.activeBear,
+      inBullGap: b4H.fvg.inBullGap, inBearGap: b4H.fvg.inBearGap,
+      nearestBullDist: b4H.fvg.nearestBullDist, nearestBearDist: b4H.fvg.nearestBearDist } : undefined,
+    liq_D: bD?.liq ? { buysideCount: bD.liq.buysideCount, sellsideCount: bD.liq.sellsideCount,
+      nearestBuysideDist: bD.liq.nearestBuysideDist, nearestSellsideDist: bD.liq.nearestSellsideDist,
+      buyside: bD.liq.buyside, sellside: bD.liq.sellside } : undefined,
+    liq_4h: b4H?.liq ? { buysideCount: b4H.liq.buysideCount, sellsideCount: b4H.liq.sellsideCount,
+      nearestBuysideDist: b4H.liq.nearestBuysideDist, nearestSellsideDist: b4H.liq.nearestSellsideDist } : undefined,
     // ── Phoenix-inspired swing fields (Phase 1a, 2b, 3a) ──
     entry_quality: {
       score: entryQuality.score,
