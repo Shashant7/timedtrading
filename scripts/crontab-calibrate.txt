@@ -1,0 +1,6 @@
+# Add this line to crontab (crontab -e) to run calibration every 3 days at 6:00 AM:
+# 0 6 */3 * * cd /Users/shashant/timedtrading && ./scripts/sync-d1.sh && node scripts/calibrate.js >> data/calibration.log 2>&1
+
+# Or use launchd (macOS): copy plist and load:
+# cp scripts/com.timedtrading.calibrate.plist ~/Library/LaunchAgents/
+# launchctl load ~/Library/LaunchAgents/com.timedtrading.calibrate.plist

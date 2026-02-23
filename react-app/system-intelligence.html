@@ -642,6 +642,125 @@ function VIXRegimeCard({ vixBuckets }) {
   );
 }
 
+function AnalysisSummary({ report, recs }) {
+  if (!report) return null;
+  const o = report.system_health?.overall || {};
+  const paths = report.entry_paths || {};
+  const sltp = report.sl_tp_calibration || {};
+  const wfo = report.wfo_summary || {};
+
+  const sqnGrade = o.sqn >= 7 ? "Holy Grail" : o.sqn >= 5 ? "Excellent" : o.sqn >= 3 ? "Good" : o.sqn >= 1.5 ? "Average" : o.sqn >= 0 ? "Poor" : "Broken";
+  const sqnColor = o.sqn >= 3 ? "text-emerald-400" : o.sqn >= 1.5 ? "text-amber-400" : "text-rose-400";
+
+  const sortedPaths = Object.entries(paths).filter(([, v]) => v.n >= 3).sort((a, b) => (b[1].sqn || 0) - (a[1].sqn || 0));
+  const bestPaths = sortedPaths.filter(([, v]) => v.profit_factor > 1.2 && v.sqn > 0);
+  const worstPaths = sortedPaths.filter(([, v]) => v.profit_factor < 0.8 || v.sqn < -0.5).reverse();
+
+  const classifications = {};
+  if (report.trade_classifications) for (const [k, v] of Object.entries(report.trade_classifications)) classifications[k] = v;
+
+  const moveMfe = sltp.move_mfe?.p50;
+  const tpTrim = sltp.recommended_tp_trim_atr;
+  const slAtr = sltp.recommended_sl_atr;
+  const captureRatio = moveMfe && tpTrim ? Math.round((tpTrim / moveMfe) * 100) : null;
+
+  return (
+    <div className="card p-5 mb-4 border-l-4 border-blue-500/40">
+      <h3 className="text-sm font-semibold text-blue-300 mb-3">Analysis Summary</h3>
+      <div className="space-y-3 text-xs text-slate-300 leading-relaxed">
+        {/* Overall Grade */}
+        <div className="p-3 rounded-lg bg-white/[0.02] border border-white/[0.04]">
+          <div className="flex items-center gap-2 mb-1">
+            <span className="text-slate-400 font-medium">System Grade:</span>
+            <span className={`font-bold ${sqnColor}`}>{sqnGrade} (SQN {o.sqn})</span>
+          </div>
+          <p className="text-slate-400">
+            {o.n} trades analyzed. Win rate {o.win_rate}%, profit factor {o.profit_factor}, expectancy {o.expectancy >= 0 ? "+" : ""}{o.expectancy} per trade.
+            {o.sqn < 0 && " The system is currently losing money overall."}
+            {o.sqn >= 0 && o.sqn < 1.5 && " The system is near break-even but has no reliable edge yet."}
+            {o.sqn >= 1.5 && o.sqn < 3 && " The system has a modest edge but needs improvement for consistency."}
+            {o.sqn >= 3 && " The system has a solid, consistent edge."}
+            {o.n < 100 && ` Sample size is small (${o.n} trades) — run a full backtest for statistical confidence.`}
+          </p>
+        </div>
+
+        {/* Walk-Forward */}
+        {wfo?.verdict && (
+          <div className={`p-3 rounded-lg border ${wfo.verdict === "WARNING" ? "bg-amber-500/5 border-amber-500/20" : wfo.verdict === "FAIL" ? "bg-rose-500/5 border-rose-500/20" : "bg-emerald-500/5 border-emerald-500/20"}`}>
+            <span className="font-medium text-slate-400">Walk-Forward Test: </span>
+            <span className={wfo.verdict === "PASS" ? "text-emerald-400" : wfo.verdict === "WARNING" ? "text-amber-400" : "text-rose-400"}>{wfo.verdict}</span>
+            {wfo.in_sample_sqn != null && wfo.out_sample_sqn != null && (
+              <span className="text-slate-400"> — In-sample SQN {wfo.in_sample_sqn}, out-of-sample SQN {wfo.out_sample_sqn}.</span>
+            )}
+            {wfo.verdict === "WARNING" && <p className="text-slate-400 mt-1">The system performed worse on recent trades than older ones. This suggests the model may not be adapting to current market conditions.</p>}
+          </div>
+        )}
+
+        {/* Best / Worst Entry States */}
+        {(bestPaths.length > 0 || worstPaths.length > 0) && (
+          <div className="p-3 rounded-lg bg-white/[0.02] border border-white/[0.04]">
+            <div className="font-medium text-slate-400 mb-2">Entry State Performance</div>
+            {bestPaths.length > 0 && (
+              <div className="mb-2">
+                <span className="text-emerald-400 font-medium">Working: </span>
+                {bestPaths.map(([state, v]) => (
+                  <span key={state} className="inline-block mr-2">
+                    <span className="text-slate-300">{state.replace(/HTF_|LTF_/g, "").replace(/_/g, " ")}</span>
+                    <span className="text-emerald-400/70 ml-1">({v.n}t, {v.win_rate}% WR, PF {v.profit_factor})</span>
+                  </span>
+                ))}
+              </div>
+            )}
+            {worstPaths.length > 0 && (
+              <div>
+                <span className="text-rose-400 font-medium">Losing money: </span>
+                {worstPaths.map(([state, v]) => (
+                  <span key={state} className="inline-block mr-2">
+                    <span className="text-slate-300">{state.replace(/HTF_|LTF_/g, "").replace(/_/g, " ")}</span>
+                    <span className="text-rose-400/70 ml-1">({v.n}t, {v.win_rate}% WR, PF {v.profit_factor})</span>
+                  </span>
+                ))}
+                <p className="text-slate-400 mt-1">Consider disabling or heavily filtering entries in these states.</p>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* SL/TP Diagnosis */}
+        {slAtr != null && moveMfe != null && (
+          <div className="p-3 rounded-lg bg-white/[0.02] border border-white/[0.04]">
+            <div className="font-medium text-slate-400 mb-1">Stop Loss &amp; Take Profit</div>
+            <p className="text-slate-400">
+              Current SL recommendation: <span className="text-white font-medium">{slAtr} ATR</span>.
+              Median market move: <span className="text-white font-medium">{moveMfe} ATR</span>.
+              {captureRatio && <> TP trim at {tpTrim} ATR captures only <span className={captureRatio < 30 ? "text-rose-400 font-medium" : "text-white"}>{captureRatio}%</span> of the average move.</>}
+              {slAtr < 0.5 && " Stops may be too tight — normal price noise is likely triggering exits before the trade has time to work."}
+            </p>
+          </div>
+        )}
+
+        {/* Key Actions */}
+        {recs && (
+          <div className="p-3 rounded-lg bg-purple-500/5 border border-purple-500/20">
+            <div className="font-medium text-purple-300 mb-2">Recommended Actions</div>
+            <ul className="space-y-1 text-slate-400">
+              {recs.path_adjustments && Object.entries(recs.path_adjustments).filter(([, v]) => v.action === "DISABLE").map(([state]) => (
+                <li key={state}>Disable entries in <span className="text-white">{state.replace(/HTF_|LTF_/g, "").replace(/_/g, " ")}</span> — negative expectancy</li>
+              ))}
+              {Object.entries(paths).filter(([, v]) => v.action === "BOOST" && v.n >= 3).map(([state]) => (
+                <li key={state}>Increase allocation to <span className="text-emerald-400">{state.replace(/HTF_|LTF_/g, "").replace(/_/g, " ")}</span> — positive edge</li>
+              ))}
+              {recs.sl_atr != null && <li>Set stop loss to <span className="text-white">{recs.sl_atr} ATR</span></li>}
+              {recs.tp_tiers && <li>TP tiers: trim at <span className="text-white">{recs.tp_tiers.trim}</span>, exit at <span className="text-white">{recs.tp_tiers.exit}</span>, runner at <span className="text-white">{recs.tp_tiers.runner} ATR</span></li>}
+              {report.hindsight_oracle?.recommendations?.map((rec, i) => <li key={`oracle-${i}`}>{rec.message}</li>)}
+            </ul>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function CalibrationTab({ report, recs, reportId, onApply, applying, appliedMsg }) {
   const [sub, setSub] = useState("health");
   if (!report) return <div className="card p-12 text-center text-slate-400 text-sm">No calibration report. Run a calibration first.</div>;
@@ -649,7 +768,7 @@ function CalibrationTab({ report, recs, reportId, onApply, applying, appliedMsg 
     { id: "health", label: "Health" }, { id: "paths", label: "Entry Paths" }, { id: "profiles", label: "Profiles" },
     { id: "oracle", label: "Oracle" }, { id: "vix", label: "VIX Regime" }, { id: "signals", label: "Signals" },
     { id: "sltp", label: "SL/TP" }, { id: "rank", label: "Rank" }, { id: "wfo", label: "Walk-Forward" },
-    { id: "missed", label: "Missed" }, { id: "sizing", label: "Sizing" }, { id: "apply", label: "Apply" },
+    { id: "missed", label: "Missed" }, { id: "sizing", label: "Sizing" },
   ];
   return (
     <div>
@@ -658,7 +777,40 @@ function CalibrationTab({ report, recs, reportId, onApply, applying, appliedMsg 
           <button key={t.id} onClick={() => setSub(t.id)} className={`px-3 py-1.5 text-[11px] font-medium whitespace-nowrap ${sub === t.id ? "tab-active" : "tab-inactive"}`}>{t.label}</button>
         ))}
       </div>
-      {sub === "health" && <SystemHealthCard health={report.system_health} />}
+      {sub === "health" && (
+        <div>
+          <AnalysisSummary report={report} recs={recs} />
+          <SystemHealthCard health={report.system_health} />
+          {/* Apply section integrated into Health */}
+          {recs && (
+            <div className="card p-5 mt-4">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-sm font-semibold text-white">Apply Recommendations</h3>
+                <button className="btn btn-apply text-xs" onClick={() => onApply(reportId)} disabled={applying}>{applying ? "Applying..." : "Apply All"}</button>
+              </div>
+              {appliedMsg && <div className="mb-3 p-2 rounded bg-emerald-500/10 border border-emerald-500/20 text-xs text-emerald-300">{appliedMsg}</div>}
+              {report.wfo_summary?.verdict === "WARNING" && <div className="mb-3 p-2 rounded bg-amber-500/10 border border-amber-500/20 text-xs text-amber-300">WFO verdict is WARNING — apply with caution.</div>}
+              <div className="space-y-2 text-xs">
+                {recs.sl_atr != null && <div className="flex justify-between"><span className="text-slate-400">SL (ATR)</span><span className="text-white font-medium">{recs.sl_atr}</span></div>}
+                {recs.tp_tiers && <div className="flex justify-between"><span className="text-slate-400">TP Tiers</span><span className="text-white font-medium">Trim {recs.tp_tiers.trim}, Exit {recs.tp_tiers.exit}, Runner {recs.tp_tiers.runner}</span></div>}
+                {recs.rank_threshold != null && <div className="flex justify-between"><span className="text-slate-400">Rank Min</span><span className="text-white font-medium">{recs.rank_threshold}</span></div>}
+              </div>
+              {(recs.adaptive_entry_gates || recs.adaptive_regime_gates || recs.adaptive_sl_tp) && (
+                <div className="mt-4 pt-3 border-t border-white/[0.06]">
+                  <div className="text-[11px] font-semibold text-purple-400 mb-2">Adaptive Learning Parameters</div>
+                  <div className="space-y-1.5 text-[10px]">
+                    {recs.adaptive_entry_gates && <div className="flex justify-between"><span className="text-slate-400">Entry Gates</span><span className="text-white">{Object.keys(recs.adaptive_entry_gates).filter(k => k !== "_default").length} state-specific gates</span></div>}
+                    {recs.adaptive_regime_gates && <div className="flex justify-between"><span className="text-slate-400">VIX Regime Gates</span><span className="text-white">{Object.keys(recs.adaptive_regime_gates).length} regime rules</span></div>}
+                    {recs.adaptive_rank_weights && <div className="flex justify-between"><span className="text-slate-400">Rank Weights</span><span className="text-white">Dynamic scoring adjustments</span></div>}
+                    {recs.adaptive_sl_tp && <div className="flex justify-between"><span className="text-slate-400">SL/TP per State</span><span className="text-white">{Object.keys(recs.adaptive_sl_tp).filter(k => k !== "_default").length} state profiles</span></div>}
+                  </div>
+                  <p className="text-[9px] text-slate-500 mt-2">Click "Apply All" to write these adaptive parameters into the live scoring engine.</p>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
       {sub === "paths" && <EntryPathsCard paths={report.entry_paths} />}
       {sub === "profiles" && <ProfilesCard profiles={report.profiles || []} />}
       {sub === "oracle" && report.hindsight_oracle && (
@@ -696,33 +848,6 @@ function CalibrationTab({ report, recs, reportId, onApply, applying, appliedMsg 
       {sub === "wfo" && <WFOCard wfo={report.wfo_summary} />}
       {sub === "missed" && <MissedOpCard missed={report.missed_opportunities} />}
       {sub === "sizing" && <PositionSizingCard sizing={report.position_sizing} />}
-      {sub === "apply" && recs && (
-        <div className="card p-5">
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="text-sm font-semibold text-white">Recommendations</h3>
-            <button className="btn btn-apply text-xs" onClick={() => onApply(reportId)} disabled={applying}>{applying ? "Applying..." : "Apply All"}</button>
-          </div>
-          {appliedMsg && <div className="mb-3 p-2 rounded bg-emerald-500/10 border border-emerald-500/20 text-xs text-emerald-300">{appliedMsg}</div>}
-          {report.wfo_summary?.verdict === "WARNING" && <div className="mb-3 p-2 rounded bg-amber-500/10 border border-amber-500/20 text-xs text-amber-300">WFO verdict is WARNING — apply with caution.</div>}
-          <div className="space-y-2 text-xs">
-            {recs.sl_atr != null && <div className="flex justify-between"><span className="text-slate-400">SL (ATR)</span><span className="text-white font-medium">{recs.sl_atr}</span></div>}
-            {recs.tp_tiers && <div className="flex justify-between"><span className="text-slate-400">TP Tiers</span><span className="text-white font-medium">Trim {recs.tp_tiers.trim}, Exit {recs.tp_tiers.exit}, Runner {recs.tp_tiers.runner}</span></div>}
-            {recs.rank_threshold != null && <div className="flex justify-between"><span className="text-slate-400">Rank Min</span><span className="text-white font-medium">{recs.rank_threshold}</span></div>}
-          </div>
-          {(recs.adaptive_entry_gates || recs.adaptive_regime_gates || recs.adaptive_sl_tp) && (
-            <div className="mt-4 pt-3 border-t border-white/[0.06]">
-              <div className="text-[11px] font-semibold text-purple-400 mb-2">Adaptive Learning Parameters</div>
-              <div className="space-y-1.5 text-[10px]">
-                {recs.adaptive_entry_gates && <div className="flex justify-between"><span className="text-slate-400">Entry Gates</span><span className="text-white">{Object.keys(recs.adaptive_entry_gates).filter(k => k !== "_default").length} state-specific gates</span></div>}
-                {recs.adaptive_regime_gates && <div className="flex justify-between"><span className="text-slate-400">VIX Regime Gates</span><span className="text-white">{Object.keys(recs.adaptive_regime_gates).length} regime rules</span></div>}
-                {recs.adaptive_rank_weights && <div className="flex justify-between"><span className="text-slate-400">Rank Weights</span><span className="text-white">Dynamic scoring adjustments</span></div>}
-                {recs.adaptive_sl_tp && <div className="flex justify-between"><span className="text-slate-400">SL/TP per State</span><span className="text-white">{Object.keys(recs.adaptive_sl_tp).filter(k => k !== "_default").length} state profiles</span></div>}
-              </div>
-              <p className="text-[9px] text-slate-500 mt-2">Click "Apply All" to write these adaptive parameters into the live scoring engine.</p>
-            </div>
-          )}
-        </div>
-      )}
     </div>
   );
 }

@@ -3,6 +3,7 @@
 
 import { kvGetJSON, kvPutJSON } from "./storage.js";
 import { loadCalendar, isEquityHoliday, isEquityEarlyClose } from "./market-calendar.js";
+import { sendDailyBriefEmail, getEmailOptedInUsers } from "./email.js";
 
 // ═══════════════════════════════════════════════════════════════════════
 // D1 Schema
@@ -1465,6 +1466,24 @@ export async function generateDailyBrief(env, type, opts = {}) {
         body: esPrediction || `${type === "morning" ? "Morning" : "Evening"} brief published.`,
         link: "/daily-brief.html",
       }).catch(() => {});
+    }
+
+    // 10. Email daily brief to opted-in users
+    const prefKey = type === "morning" ? "daily_brief_morning" : "daily_brief_evening";
+    try {
+      const optedInUsers = await getEmailOptedInUsers(env, prefKey);
+      const briefPayload = { type, content, date: data.today, esPrediction };
+      let emailSent = 0;
+      for (const u of optedInUsers) {
+        sendDailyBriefEmail(env, u.email, briefPayload)
+          .then(r => { if (r.ok) emailSent++; })
+          .catch(() => {});
+      }
+      if (optedInUsers.length) {
+        console.log(`[DAILY BRIEF] Queued ${optedInUsers.length} ${prefKey} emails`);
+      }
+    } catch (e) {
+      console.warn("[DAILY BRIEF] Email dispatch failed:", String(e?.message || e).slice(0, 150));
     }
 
     return { ok: true, id: briefId, elapsed, chars: content.length };

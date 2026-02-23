@@ -44,6 +44,8 @@ EXECUTION_MODE = "simulation"
 ALPACA_BASE_URL = "https://paper-api.alpaca.markets"
 CF_ACCESS_TEAM_DOMAIN = "timedtrading"
 ADMIN_EMAIL = "shashant@gmail.com"
+EMAIL_ENABLED = "true"
+EMAIL_FROM = "notifications@timed-trading.com"
 # ── Dynamic Position Sizing (risk-based) ──
 # Uncomment and adjust to override defaults:
 # SIZING_BASE_RISK_PCT = "0.01"    # 1% of account per trade (baseline)
@@ -117,6 +119,8 @@ class_name = "AlpacaStream"
 # - ALPACA_API_KEY_ID: Alpaca Markets API Key ID (Algo Trader+ plan)
 # - ALPACA_API_SECRET_KEY: Alpaca Markets API Secret Key
 # - FINNHUB_API_KEY: Finnhub API key for earnings & economic calendar (Daily Brief)
+# - SENDGRID_API_KEY: SendGrid API key for outbound emails
+# - EMAIL_HMAC_SECRET: HMAC secret for unsubscribe token signing
 #
 # Environment Variables (non-sensitive - stored in wrangler.toml):
 # Required Secrets for Cloudflare Access (set via `wrangler secret put --env production`):
@@ -141,6 +145,8 @@ ALPACA_BASE_URL = "https://paper-api.alpaca.markets"
 # Cloudflare Access — user auth via Google SSO / One-time PIN
 CF_ACCESS_TEAM_DOMAIN = "timedtrading"
 ADMIN_EMAIL = "shashant@gmail.com"
+EMAIL_ENABLED = "true"
+EMAIL_FROM = "notifications@timed-trading.com"
 
 # Scheduled triggers — mirrors top-level [triggers] above
 [env.production.triggers]

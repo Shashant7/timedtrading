@@ -1,4 +1,5 @@
 // API module — HTTP helpers, CORS, rate limiting, auth, user management
+import { sendWelcomeEmail } from "./email.js";
 
 export const sendJSON = (obj, status = 200, headers = {}) =>
   new Response(JSON.stringify(obj, null, 2), {
@@ -407,6 +408,12 @@ export async function authenticateUser(req, env) {
     }
 
     console.log(`[AUTH] Auto-provisioned new user: ${email}`);
+    // Fire-and-forget welcome email on first login
+    if (env) {
+      sendWelcomeEmail(env, newUser).catch(e =>
+        console.warn("[AUTH] Welcome email failed:", String(e?.message || e).slice(0, 150))
+      );
+    }
     return newUser;
   } catch (e) {
     console.warn(
