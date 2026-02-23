@@ -103,6 +103,13 @@ echo "Total scored: $TOTAL_SCORED"
 echo "Total trades: $TOTAL_TRADES"
 echo ""
 
+# Step 2b: Close any positions still open at replay end
+echo "=== Closing open positions at replay end ($END_DATE) ==="
+CLOSE_RESULT=$(curl -s -m 120 -X POST "$API_BASE/timed/admin/close-replay-positions?date=$END_DATE&key=$API_KEY" 2>&1)
+CLOSED_COUNT=$(echo "$CLOSE_RESULT" | jq -r '.closed // 0' 2>/dev/null || echo "0")
+echo "Closed $CLOSED_COUNT open positions at $END_DATE market close"
+echo ""
+
 # Step 3: Get final statistics
 echo "=== Trade Statistics ==="
 TRADES_DATA=$(curl -s "$API_BASE/timed/trades?source=kv&key=$API_KEY" 2>&1)

@@ -441,6 +441,8 @@ const ROUTES = [
   ["GET", "/timed/admin/backfill-status", "GET /timed/admin/backfill-status"],
   ["POST", "/timed/admin/refresh-prices", "POST /timed/admin/refresh-prices"],
   ["POST", "/timed/admin/candle-replay", "POST /timed/admin/candle-replay"],
+  ["POST", "/timed/admin/reopen-stale-exits", "POST /timed/admin/reopen-stale-exits"],
+  ["POST", "/timed/admin/close-replay-positions", "POST /timed/admin/close-replay-positions"],
   ["POST", "/timed/admin/run-lifecycle", "POST /timed/admin/run-lifecycle"],
   ["POST", "/timed/admin/model-resolve", "POST /timed/admin/model-resolve"],
   ["POST", "/timed/admin/model-retro", "POST /timed/admin/model-retro"],
@@ -29843,6 +29845,143 @@ export default {
           trailWritten,
           lastSnapshot,
         }, 200, corsHeaders(env, req));
+      }
+
+      // POST /timed/admin/reopen-stale-exits?exitDate=YYYY-MM-DD&key=...
+      // Resets trades that were erroneously closed on the given date back to OPEN.
+      if (routeKey === "POST /timed/admin/reopen-stale-exits") {
+        const authFail = requireKeyOr401(req, env);
+        if (authFail) return authFail;
+        const db = env?.DB;
+        if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
+
+        const exitDate = url.searchParams.get("exitDate");
+        if (!exitDate || !/^\d{4}-\d{2}-\d{2}$/.test(exitDate)) {
+          return sendJSON({ ok: false, error: "exitDate required (YYYY-MM-DD)" }, 400, corsHeaders(env, req));
+        }
+        const dayStartMs = new Date(`${exitDate}T00:00:00Z`).getTime();
+        const dayEndMs = dayStartMs + 86400000;
+
+        try {
+          const affected = (await db.prepare(
+            `SELECT trade_id FROM trades WHERE exit_ts >= ?1 AND exit_ts < ?2 AND status IN ('WIN','LOSS','FLAT')`
+          ).bind(dayStartMs, dayEndMs).all())?.results || [];
+
+          if (affected.length === 0) {
+            return sendJSON({ ok: true, reopened: 0, message: "no trades exited on that date" }, 200, corsHeaders(env, req));
+          }
+
+          const stmts = [];
+          for (const row of affected) {
+            stmts.push(db.prepare(
+              `UPDATE trades SET status = 'OPEN', exit_ts = NULL, exit_price = NULL, exit_reason = NULL, pnl = NULL, pnl_pct = NULL WHERE trade_id = ?1`
+            ).bind(row.trade_id));
+          }
+          for (let i = 0; i < stmts.length; i += 100) {
+            await db.batch(stmts.slice(i, i + 100));
+          }
+
+          return sendJSON({ ok: true, reopened: affected.length }, 200, corsHeaders(env, req));
+        } catch (err) {
+          return sendJSON({ ok: false, error: String(err?.message || err).slice(0, 200) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // POST /timed/admin/close-replay-positions?date=YYYY-MM-DD&key=...
+      // After a replay, close all open positions at their last known price.
+      // Timestamps the exit at the given date's market close (4 PM ET).
+      if (routeKey === "POST /timed/admin/close-replay-positions") {
+        const authFail = requireKeyOr401(req, env);
+        if (authFail) return authFail;
+        const db = env?.DB;
+        const KV = env?.KV_TIMED;
+        if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
+
+        const dateParam = url.searchParams.get("date");
+        if (!dateParam || !/^\d{4}-\d{2}-\d{2}$/.test(dateParam)) {
+          return sendJSON({ ok: false, error: "date required (YYYY-MM-DD)" }, 400, corsHeaders(env, req));
+        }
+        const exitMs = nyWallTimeToUtcMs(dateParam, 16, 0, 0) || (new Date(`${dateParam}T21:00:00Z`).getTime());
+
+        try {
+          const openRows = (await db.prepare(
+            `SELECT trade_id, ticker, direction, entry_price, entry_ts, pnl FROM trades WHERE status NOT IN ('WIN','LOSS','FLAT') OR status IS NULL`
+          ).all())?.results || [];
+
+          if (openRows.length === 0) {
+            return sendJSON({ ok: true, closed: 0, message: "no open positions" }, 200, corsHeaders(env, req));
+          }
+
+          // Build last-known close price for each ticker from trail_5m_facts near the replay end date
+          const replayPrices = new Map();
+          try {
+            const priceRows = (await db.prepare(
+              `SELECT ticker, close FROM trail_5m_facts WHERE day_key <= ?1 ORDER BY day_key DESC, bucket_start DESC`
+            ).bind(dateParam).all())?.results || [];
+            for (const r of priceRows) {
+              const sym = String(r.ticker).toUpperCase();
+              if (!replayPrices.has(sym) && Number(r.close) > 0) {
+                replayPrices.set(sym, Number(r.close));
+              }
+            }
+          } catch (_) { /* trail_5m_facts may not exist */ }
+
+          const stmts = [];
+          let closed = 0;
+          const details = [];
+          for (const row of openRows) {
+            const sym = String(row.ticker).toUpperCase();
+            const entryPx = Number(row.entry_price);
+            // Priority: D1 trail_5m_facts close → KV latest → entry price (last resort)
+            const lastPx = replayPrices.get(sym) || (KV ? Number((await kvGetJSON(KV, `timed:latest:${sym}`))?.price) || 0 : 0) || entryPx;
+            const dir = String(row.direction).toUpperCase() === "SHORT" ? -1 : 1;
+            const shares = entryPx > 0 ? TRADE_SIZE / entryPx : 0;
+            const pnl = (lastPx - entryPx) * shares * dir;
+            const pnlPct = entryPx > 0 && shares > 0 ? (pnl / (entryPx * shares)) * 100 : 0;
+            const status = pnl > 0 ? "WIN" : pnl < 0 ? "LOSS" : "FLAT";
+
+            stmts.push(db.prepare(
+              `UPDATE trades SET status = ?1, exit_ts = ?2, exit_price = ?3, exit_reason = ?4, pnl = ?5, pnl_pct = ?6, updated_at = ?7 WHERE trade_id = ?8`
+            ).bind(status, exitMs, lastPx, "replay_end_close", pnl, pnlPct, exitMs, row.trade_id));
+            details.push({ ticker: sym, dir: dir === 1 ? "LONG" : "SHORT", entryPx, exitPx: lastPx, pnl: Math.round(pnl * 100) / 100, status });
+            closed++;
+          }
+
+          for (let i = 0; i < stmts.length; i += 100) {
+            await db.batch(stmts.slice(i, i + 100));
+          }
+
+          // Sync KV trades cache
+          try {
+            const kvTrades = await kvGetJSON(KV, "timed:trades:all") || [];
+            for (const t of kvTrades) {
+              const s = String(t.status || "").toUpperCase();
+              if (s !== "WIN" && s !== "LOSS" && s !== "FLAT") {
+                const entryPx = Number(t.entryPrice);
+                const sym = String(t.ticker).toUpperCase();
+                const lastPx = replayPrices.get(sym) || entryPx;
+                const dir = String(t.direction).toUpperCase() === "SHORT" ? -1 : 1;
+                const shares = Number(t.shares) || (entryPx > 0 ? TRADE_SIZE / entryPx : 0);
+                const pnl = (lastPx - entryPx) * shares * dir;
+                t.status = pnl > 0 ? "WIN" : pnl < 0 ? "LOSS" : "FLAT";
+                t.exitPrice = lastPx;
+                t.exit_ts = exitMs;
+                t.exitReason = "replay_end_close";
+                t.pnl = pnl;
+                t.realizedPnl = pnl;
+                t.pnlPct = entryPx > 0 ? (pnl / (entryPx * shares)) * 100 : 0;
+              }
+            }
+            await kvPutJSON(KV, "timed:trades:all", kvTrades);
+          } catch (kvErr) {
+            console.warn("[CLOSE-REPLAY] KV update failed:", kvErr);
+          }
+
+          const totalPnl = details.reduce((s, d) => s + d.pnl, 0);
+          return sendJSON({ ok: true, closed, exitDate: dateParam, exitMs, totalPnl: Math.round(totalPnl * 100) / 100, details: details.slice(0, 50) }, 200, corsHeaders(env, req));
+        } catch (err) {
+          return sendJSON({ ok: false, error: String(err?.message || err).slice(0, 200) }, 500, corsHeaders(env, req));
+        }
       }
 
       // POST /timed/admin/run-lifecycle?key=...

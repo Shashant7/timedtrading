@@ -6349,13 +6349,18 @@
         const [chartHover, setChartHover] = useState(null); // { idx, x, y, val, ts, pnl }
         const setRangePreset = useCallback((preset) => {
           const day = 24 * 60 * 60 * 1000;
-          const days = { "1D": 1, "5D": 5, "10D": 10, "30D": 30, "1Y": 365 }[preset] || 1;
           const end = new Date();
           end.setHours(23, 59, 59, 999);
-          const start = new Date(end.getTime() - days * day);
+          let start;
+          if (preset === "ALL") {
+            start = new Date(end.getTime() - SLIDER_RANGE_DAYS * day);
+          } else {
+            const days = { "1D": 1, "5D": 5, "10D": 10, "30D": 30, "1Y": 365 }[preset] || 1;
+            start = new Date(end.getTime() - days * day);
+          }
           start.setHours(0, 0, 0, 0);
           setLedgerDateRange({ start, end });
-          setAccountChartRange(preset);
+          setAccountChartRange(preset === "ALL" ? "1Y" : preset);
           setHorizonFilter("ALL");
         }, []);
         const [expandedPositionTicker, setExpandedPositionTicker] = useState(null); // ticker for expanded card
@@ -6371,14 +6376,12 @@
         const [ledgerTickerFilter, setLedgerTickerFilter] =
           useState(initialLedgerTicker);
         const [ledgerStatusFilter, setLedgerStatusFilter] = useState("all");
-        // Date range for Trade Tracker: start and end (default Feb 2 = first trade)
-        const SLIDER_RANGE_DAYS = 90;
+        const SLIDER_RANGE_DAYS = 365;
         const [ledgerDateRange, setLedgerDateRange] = useState(() => {
           const end = new Date();
           end.setHours(23, 59, 59, 999);
-          const start = new Date(end.getFullYear(), 1, 2); // Feb 2 (month 1 = February)
+          const start = new Date(end.getTime() - SLIDER_RANGE_DAYS * 24 * 60 * 60 * 1000);
           start.setHours(0, 0, 0, 0);
-          if (start.getTime() > end.getTime()) start.setFullYear(start.getFullYear() - 1);
           return { start, end };
         });
         const [ledgerIncludeEvidence, setLedgerIncludeEvidence] =
@@ -6546,13 +6549,13 @@
           status: ledgerStatusFilter,
           since: ledgerSince,
           until: ledgerUntil,
-          pageSize: 200,
+          pageSize: 500,
         });
         const ledgerAlerts = useLedgerAlerts({
           ticker: ledgerTickerFilter.trim(),
           since: ledgerSince,
           until: ledgerUntil,
-          pageSize: 200,
+          pageSize: 500,
         });
         const ledgerSummary = useLedgerSummary({
           since: ledgerSince,
@@ -6665,7 +6668,7 @@
             }
             const exitTs = tsToMs(t.exit_ts);
             const trimmedPct = Number(t.trimmed_pct ?? t.trimmedPct ?? 0);
-            const isClosed = t.status === "WIN" || t.status === "LOSS" || trimmedPct >= 0.9999;
+            const isClosed = t.status === "WIN" || t.status === "LOSS" || t.status === "FLAT" || trimmedPct >= 0.9999;
             if (isClosed && sane(exitTs)) {
               events.push({
                 ts: exitTs,
@@ -7552,14 +7555,14 @@
                               })()}
                             </div>
                             <div className="flex gap-1">
-                              {["1D", "5D", "10D", "30D", "1Y"].map((r) => (
+                              {["1D", "5D", "10D", "30D", "1Y", "ALL"].map((r) => (
                                 <button
                                   key={r}
                                   type="button"
                                   onClick={() => setRangePreset(r)}
-                                  title={`Show trades and metrics for last ${r === "1Y" ? "year" : r.replace("D", " days")}`}
+                                  title={r === "ALL" ? "Show all trades" : `Show trades and metrics for last ${r === "1Y" ? "year" : r.replace("D", " days")}`}
                                   className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-                                    accountChartRange === r
+                                    (r === "ALL" && ledgerRangeDays >= 364) || (r !== "ALL" && accountChartRange === r && ledgerRangeDays < 364)
                                       ? "bg-[var(--tt-accent)]/20 text-[var(--tt-accent)] border border-[var(--tt-accent)]/40"
                                       : "bg-transparent text-[var(--tt-text-muted)] border border-[var(--tt-border)] hover:text-[var(--tt-text)]"
                                   }`}
