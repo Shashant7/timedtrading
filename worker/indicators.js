@@ -2724,13 +2724,17 @@ export async function alpacaFetchAllBars(env, symbols, tfKey, start, end = null,
 
     const url = `${ALPACA_BASE}/stocks/bars?${params.toString()}`;
     try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 60000);
       const resp = await fetch(url, {
         headers: {
           "APCA-API-KEY-ID": apiKeyId,
           "APCA-API-SECRET-KEY": apiSecret,
           "Accept": "application/json",
         },
+        signal: controller.signal,
       });
+      clearTimeout(timer);
       if (!resp.ok) {
         const errText = await resp.text().catch(() => "");
         console.warn(`[ALPACA] Fetch bars failed: ${resp.status} ${errText.slice(0, 200)}`);
@@ -2740,18 +2744,15 @@ export async function alpacaFetchAllBars(env, symbols, tfKey, start, end = null,
       const bars = data.bars || {};
       let pageBars = 0;
       for (const [sym, barArr] of Object.entries(bars)) {
-        // Reverse-map: BRK.B → BRK-B (our format)
         const ourSym = reverseSymMap[sym] || sym;
         if (!allBars[ourSym]) allBars[ourSym] = [];
         allBars[ourSym].push(...barArr);
         pageBars += barArr.length;
       }
-      if (pages === 0) {
-        console.log(`[ALPACA] TF=${tfKey} page 0: ${Object.keys(bars).length} symbols, ${pageBars} bars`);
-      }
+      console.log(`[ALPACA] TF=${tfKey} page ${pages}: ${Object.keys(bars).length} syms, ${pageBars} bars, token=${pageToken ? 'yes' : 'no'}`);
       pageToken = data.next_page_token || null;
     } catch (fetchErr) {
-      console.warn(`[ALPACA] Fetch error:`, String(fetchErr).slice(0, 200));
+      console.warn(`[ALPACA] Fetch error (page ${pages}):`, String(fetchErr).slice(0, 200));
       break;
     }
     pages++;
@@ -3358,21 +3359,21 @@ export async function alpacaBackfill(env, tickers, _unused, tfKey = "all", since
       await KV.put("timed:backfill:status", JSON.stringify({
         ...status,
         updated_at: Date.now(),
-      }), { expirationTtl: 600 }); // auto-expire after 10 min
+      }), { expirationTtl: 3600 }); // auto-expire after 1 hour (deep backfills can take 20+ min per batch)
     } catch { /* best-effort */ }
   };
 
   const now = new Date();
   const DAY_MS = 24 * 60 * 60 * 1000;
 
-  // When sinceDays is set (e.g. 30), use a single start date for all TFs: previous N days.
+  // When sinceDays is set (e.g. 297), use a single start date for all TFs.
   // Otherwise use deep-history start dates per TF.
+  const tradingCalDays = (bars, barMinutes) => Math.ceil(bars * barMinutes / 390 * 7 / 5) + 5;
   let startDates;
   if (typeof sinceDays === "number" && sinceDays > 0) {
     const start = new Date(now.getTime() - sinceDays * DAY_MS).toISOString();
     startDates = { "M": start, "W": start, "D": start, "240": start, "60": start, "30": start, "10": start, "5": start };
   } else {
-    const tradingCalDays = (bars, barMinutes) => Math.ceil(bars * barMinutes / 390 * 7 / 5) + 5;
     startDates = {
       "M": new Date(now.getTime() - 365 * 10 * DAY_MS).toISOString(),
       "W": new Date(now.getTime() - 300 * 7 * DAY_MS).toISOString(),
@@ -3385,9 +3386,16 @@ export async function alpacaBackfill(env, tickers, _unused, tfKey = "all", since
     };
   }
 
-  // Process in symbol batches; 4H uses smaller batches to avoid Alpaca pagination timeouts
-  const getBatchSize = (tf) => tf === "240" ? 15 : 50;
-  const BATCH_SIZE = 100; // D1 safe batch limit
+  // Process in symbol batches; 4H uses smaller batches to avoid Alpaca pagination timeouts.
+  // Deep lookbacks (sinceDays > 120) need smaller batches because Alpaca's limit=10000
+  // is shared across all symbols per page. With 50 symbols, each gets only ~4k bars
+  // (51 trading days of 5m). With 10 symbols, each gets ~20k bars (256 days).
+  const needsDeepBatch = typeof sinceDays === "number" && sinceDays > 120;
+  const getBatchSize = (tf) => {
+    if (tf === "240") return 15;
+    return needsDeepBatch ? 10 : 50;
+  };
+  const BATCH_SIZE = 500; // D1 supports up to ~500 bound statements per batch
 
   for (let tfIdx = 0; tfIdx < tfsToBackfill.length; tfIdx++) {
     const tf = tfsToBackfill[tfIdx];

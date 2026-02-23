@@ -394,6 +394,7 @@ const ROUTES = [
   ["POST", "/timed/investor/dca/execute", "POST /timed/investor/dca/execute"],
   ["POST", "/timed/investor/auto-rebalance", "POST /timed/investor/auto-rebalance"],
   ["DELETE", "/timed/investor/purge-ticker", "DELETE /timed/investor/purge-ticker"],
+  ["GET", "/timed/portfolio/equity-curve", "GET /timed/portfolio/equity-curve"],
   ["GET", "/timed/debug/trades", "GET /timed/debug/trades"],
   ["GET", "/timed/debug/tickers", "GET /timed/debug/tickers"],
   ["GET", "/timed/debug/config", "GET /timed/debug/config"],
@@ -443,6 +444,8 @@ const ROUTES = [
   ["POST", "/timed/admin/candle-replay", "POST /timed/admin/candle-replay"],
   ["POST", "/timed/admin/reopen-stale-exits", "POST /timed/admin/reopen-stale-exits"],
   ["POST", "/timed/admin/close-replay-positions", "POST /timed/admin/close-replay-positions"],
+  ["POST", "/timed/admin/replay-lock", "POST /timed/admin/replay-lock"],
+  ["DELETE", "/timed/admin/replay-lock", "DELETE /timed/admin/replay-lock"],
   ["POST", "/timed/admin/run-lifecycle", "POST /timed/admin/run-lifecycle"],
   ["POST", "/timed/admin/model-resolve", "POST /timed/admin/model-resolve"],
   ["POST", "/timed/admin/model-retro", "POST /timed/admin/model-retro"],
@@ -7780,7 +7783,7 @@ async function processTradeSimulation(
       portfolio.cash = Number(portfolio.cash) + p * remainingShares;
 
       // Account ledger: record EXIT (cash inflow + realized P&L)
-      if (!isReplay && env?.DB) {
+      if (env?.DB) {
         d1InsertLedgerEntry(env, {
           mode: "trader",
           ts: trade.exit_ts || Date.now(),
@@ -8097,7 +8100,7 @@ async function processTradeSimulation(
       portfolio.cash = Number(portfolio.cash) + p * trimShares;
 
       // Account ledger: record TRIM (cash inflow + realized P&L)
-      if (!isReplay && env?.DB) {
+      if (env?.DB) {
         d1InsertLedgerEntry(env, {
           mode: "trader",
           ts: ev.timestamp ? new Date(ev.timestamp).getTime() : Date.now(),
@@ -9064,7 +9067,7 @@ async function processTradeSimulation(
             portfolio.cash = Number(portfolio.cash) - entryPx * shares;
 
             // Account ledger: record ENTRY (cash outflow)
-            if (!isReplay && env?.DB) {
+            if (env?.DB) {
               d1InsertLedgerEntry(env, {
                 mode: "trader",
                 ts: entryTsMs || Date.now(),
@@ -15432,24 +15435,34 @@ async function d1GetCandles(env, ticker, tf, limit = 200) {
  * Returns a Map<tf, {ok, candles}> — same shape as d1GetCandles per TF.
  * This reduces 9 D1 subrequests to 1, critical for staying under the 1000/invocation limit.
  */
-async function d1GetCandlesAllTfs(env, ticker, tfConfigs) {
+async function d1GetCandlesAllTfs(env, ticker, tfConfigs, opts = {}) {
   const db = env?.DB;
   if (!db) return {};
   const sym = String(ticker || "").toUpperCase();
   if (!sym) return {};
 
+  const beforeTs = Number(opts.beforeTs) || 0;
   const stmts = [];
   const tfKeys = [];
   for (const { tf, limit } of tfConfigs) {
     const tfKey = normalizeTfKey(tf);
     if (!tfKey) continue;
     const n = Math.max(10, Math.min(3000, Number(limit) || 200));
-    stmts.push(
-      db.prepare(
-        `SELECT ts, o, h, l, c, v FROM ticker_candles
-         WHERE ticker = ?1 AND tf = ?2 ORDER BY ts DESC LIMIT ?3`
-      ).bind(sym, tfKey, n)
-    );
+    if (beforeTs > 0) {
+      stmts.push(
+        db.prepare(
+          `SELECT ts, o, h, l, c, v FROM ticker_candles
+           WHERE ticker = ?1 AND tf = ?2 AND ts <= ?4 ORDER BY ts DESC LIMIT ?3`
+        ).bind(sym, tfKey, n, beforeTs)
+      );
+    } else {
+      stmts.push(
+        db.prepare(
+          `SELECT ts, o, h, l, c, v FROM ticker_candles
+           WHERE ticker = ?1 AND tf = ?2 ORDER BY ts DESC LIMIT ?3`
+        ).bind(sym, tfKey, n)
+      );
+    }
     tfKeys.push(tfKey);
   }
   if (stmts.length === 0) return {};
@@ -16485,6 +16498,399 @@ async function d1GetLedgerBalance(env, mode = "trader") {
   } catch {
     return mode === "trader" ? PORTFOLIO_START_CASH : 100000;
   }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Investor Daily Replay: runs once per replay day to evaluate investor positions
+// Uses computeInvestorScore + classifyInvestorStage for entry/exit decisions.
+// Exit logic: hybrid — wider 3x ATR trailing stop OR regime reversal.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const INVESTOR_REPLAY_CAPITAL = 100000;
+const INVESTOR_MAX_POSITIONS = 15;
+const INVESTOR_BASE_ALLOC_PCT = 0.05;
+const INVESTOR_STRONG_ALLOC_PCT = 0.07;
+const INVESTOR_MAX_ALLOC_PCT = 0.08;
+const INVESTOR_DCA_PCT = 0.02;
+const INVESTOR_DCA_MIN_GAP_DAYS = 20;
+const INVESTOR_TRAILING_STOP_ATR_MULT = 3.0;
+const INVESTOR_TRAILING_STOP_FIXED_PCT = 0.10;
+
+async function runInvestorDailyReplay(env, KV, replayCtx, dayDate) {
+  const db = env?.DB;
+  if (!db || !KV) return { ok: false, reason: "no_db_or_kv" };
+
+  const dayMs = new Date(`${dayDate}T20:00:00Z`).getTime(); // 4 PM ET ~ 20:00 UTC
+  if (!Number.isFinite(dayMs)) return { ok: false, reason: "bad_date" };
+
+  try {
+    await ensureInvestorPositionsSchema(db, KV);
+    await ensureAccountLedgerSchema(db, KV);
+  } catch { /* tables may already exist */ }
+
+  // Load all tickers from the replay context (KV latest state)
+  const tickerList = Object.keys(SECTOR_MAP);
+  const tickerDataMap = {};
+  for (const sym of tickerList) {
+    try {
+      const td = await kvGetJSON(KV, `timed:latest:${sym}`);
+      if (td && td.price > 0) tickerDataMap[sym] = td;
+    } catch { /* skip */ }
+  }
+
+  // Load existing open investor positions
+  let openPositions = [];
+  try {
+    openPositions = (await db.prepare(
+      "SELECT * FROM investor_positions WHERE status = 'OPEN'"
+    ).all())?.results || [];
+  } catch { /* table might not exist yet */ }
+  const posByTicker = {};
+  for (const p of openPositions) posByTicker[String(p.ticker).toUpperCase()] = p;
+
+  // Get investor ledger balance
+  let investorCash = await d1GetLedgerBalance(env, "investor");
+
+  // Compute investor scores for all tickers
+  const scoredTickers = [];
+  for (const [sym, td] of Object.entries(tickerDataMap)) {
+    try {
+      const { score, components, accumZone } = computeInvestorScore(td, {
+        rsRank: 50, sectorRsRank: 50, marketHealth: 50,
+      });
+      const existingPos = posByTicker[sym] || null;
+      const stage = classifyInvestorStage(td, score, existingPos, {
+        rsRank: 50, marketHealth: 50, accumZone,
+      });
+      scoredTickers.push({ sym, td, score, stage: stage.stage, stageReason: stage.reason, accumZone });
+    } catch { /* skip tickers that fail scoring */ }
+  }
+
+  let opened = 0, closed = 0, dcaBuys = 0, trimmed = 0;
+
+  // --- EXIT / TRIM existing positions ---
+  for (const pos of openPositions) {
+    const sym = String(pos.ticker).toUpperCase();
+    const td = tickerDataMap[sym];
+    if (!td) continue;
+
+    const price = Number(td.price);
+    if (!Number.isFinite(price) || price <= 0) continue;
+
+    const scored = scoredTickers.find(s => s.sym === sym);
+    const stage = scored?.stage || "research";
+    const avgEntry = Number(pos.avg_entry) || 0;
+    const shares = Number(pos.total_shares) || 0;
+    if (shares <= 0 || avgEntry <= 0) continue;
+
+    // Track high watermark for trailing stop (use price or cost-adjusted peak)
+    const costBasis = Number(pos.cost_basis) || (avgEntry * shares);
+    const currentValue = price * shares;
+    const peakPrice = Math.max(price, avgEntry); // simplified — real HWM would track in a column
+
+    // Hybrid exit check 1: regime reversal (classifyInvestorStage returns "reduce")
+    const regimeExit = (stage === "reduce" || stage === "exited");
+
+    // Hybrid exit check 2: wider trailing stop (3x ATR or 10% fixed)
+    const atr = Number(td.atr_D || td.atr || td.tf_tech?.D?.atr?.v);
+    let trailingStopPrice;
+    if (Number.isFinite(atr) && atr > 0) {
+      trailingStopPrice = peakPrice - (INVESTOR_TRAILING_STOP_ATR_MULT * atr);
+    } else {
+      trailingStopPrice = peakPrice * (1 - INVESTOR_TRAILING_STOP_FIXED_PCT);
+    }
+    const trailingStopHit = price < trailingStopPrice;
+
+    const shouldExit = regimeExit || trailingStopHit;
+    const exitReason = regimeExit ? `regime_${stage}` : "trailing_stop";
+
+    // Trim check: watch stage with large position (> 6% of capital)
+    const allocPct = costBasis / INVESTOR_REPLAY_CAPITAL;
+    const shouldTrim = !shouldExit && stage === "watch" && allocPct > 0.06;
+
+    if (shouldExit) {
+      // Full exit
+      const sellValue = price * shares;
+      const pnl = (price - avgEntry) * shares;
+      const lotId = `inv-lot-${sym}-exit-${dayDate}`;
+
+      await db.prepare(
+        "INSERT OR IGNORE INTO investor_lots (id, position_id, ticker, action, shares, price, value, ts, reason, created_at) VALUES (?1, ?2, ?3, 'SELL', ?4, ?5, ?6, ?7, ?8, ?7)"
+      ).bind(lotId, pos.id, sym, shares, price, sellValue, dayMs, exitReason).run();
+
+      await db.prepare(
+        "UPDATE investor_positions SET status = 'CLOSED', total_shares = 0, closed_at = ?1, updated_at = ?1, investor_stage = ?2 WHERE id = ?3"
+      ).bind(dayMs, "exited", pos.id).run();
+
+      investorCash += sellValue;
+      await d1InsertLedgerEntry(env, {
+        mode: "investor", ts: dayMs, event_type: "EXIT",
+        position_id: pos.id, ticker: sym, direction: "LONG",
+        qty: shares, price, cash_delta: sellValue,
+        realized_pnl: pnl, balance: investorCash,
+        note: `Exit ${sym} ${shares.toFixed(1)}sh @$${price.toFixed(2)} (${exitReason}) PnL=$${pnl.toFixed(2)}`,
+      }).catch(() => {});
+      closed++;
+
+    } else if (shouldTrim) {
+      // Trim 25%
+      const trimShares = shares * 0.25;
+      const trimValue = price * trimShares;
+      const pnl = (price - avgEntry) * trimShares;
+      const lotId = `inv-lot-${sym}-trim-${dayDate}`;
+      const newShares = shares - trimShares;
+      const newCost = avgEntry * newShares;
+
+      await db.prepare(
+        "INSERT OR IGNORE INTO investor_lots (id, position_id, ticker, action, shares, price, value, ts, reason, created_at) VALUES (?1, ?2, ?3, 'SELL', ?4, ?5, ?6, ?7, 'trim_overweight', ?7)"
+      ).bind(lotId, pos.id, sym, trimShares, price, trimValue, dayMs).run();
+
+      await db.prepare(
+        "UPDATE investor_positions SET total_shares = ?1, cost_basis = ?2, updated_at = ?3, investor_stage = 'watch' WHERE id = ?4"
+      ).bind(newShares, newCost, dayMs, pos.id).run();
+
+      investorCash += trimValue;
+      await d1InsertLedgerEntry(env, {
+        mode: "investor", ts: dayMs, event_type: "TRIM",
+        position_id: pos.id, ticker: sym, direction: "LONG",
+        qty: trimShares, price, cash_delta: trimValue,
+        realized_pnl: pnl, balance: investorCash,
+        note: `Trim ${sym} ${trimShares.toFixed(1)}sh @$${price.toFixed(2)} (overweight) PnL=$${pnl.toFixed(2)}`,
+      }).catch(() => {});
+      trimmed++;
+
+    } else {
+      // Update stage
+      if (scored) {
+        await db.prepare(
+          "UPDATE investor_positions SET investor_stage = ?1, updated_at = ?2 WHERE id = ?3"
+        ).bind(scored.stage, dayMs, pos.id).run().catch(() => {});
+      }
+    }
+  }
+
+  // Refresh positions after exits
+  openPositions = (await db.prepare(
+    "SELECT * FROM investor_positions WHERE status = 'OPEN'"
+  ).all())?.results || [];
+  const currentPosCount = openPositions.length;
+  const currentPosTickers = new Set(openPositions.map(p => String(p.ticker).toUpperCase()));
+
+  // --- DCA for existing positions ---
+  for (const pos of openPositions) {
+    const sym = String(pos.ticker).toUpperCase();
+    const scored = scoredTickers.find(s => s.sym === sym);
+    if (!scored || scored.stage !== "accumulate") continue;
+
+    // Enforce min gap between DCA buys
+    const lastEntry = Number(pos.last_entry_ts) || Number(pos.first_entry_ts) || 0;
+    const daysSinceLast = lastEntry > 0 ? (dayMs - lastEntry) / (86400 * 1000) : 999;
+    if (daysSinceLast < INVESTOR_DCA_MIN_GAP_DAYS) continue;
+
+    const price = Number(scored.td.price);
+    if (!Number.isFinite(price) || price <= 0) continue;
+
+    const dcaValue = INVESTOR_REPLAY_CAPITAL * INVESTOR_DCA_PCT;
+    if (investorCash < dcaValue) continue;
+
+    const dcaShares = dcaValue / price;
+    const newShares = (Number(pos.total_shares) || 0) + dcaShares;
+    const newCost = (Number(pos.cost_basis) || 0) + dcaValue;
+    const newAvg = newCost / newShares;
+    const lotId = `inv-lot-${sym}-dca-${dayDate}`;
+
+    await db.prepare(
+      "INSERT OR IGNORE INTO investor_lots (id, position_id, ticker, action, shares, price, value, ts, reason, created_at) VALUES (?1, ?2, ?3, 'DCA_BUY', ?4, ?5, ?6, ?7, 'replay_dca', ?7)"
+    ).bind(lotId, pos.id, sym, dcaShares, price, dcaValue, dayMs).run();
+
+    await db.prepare(
+      "UPDATE investor_positions SET total_shares = ?1, cost_basis = ?2, avg_entry = ?3, last_entry_ts = ?4, updated_at = ?4, dca_num_buys = dca_num_buys + 1, dca_total_invested = COALESCE(dca_total_invested, 0) + ?5 WHERE id = ?6"
+    ).bind(newShares, newCost, newAvg, dayMs, dcaValue, pos.id).run();
+
+    investorCash -= dcaValue;
+    await d1InsertLedgerEntry(env, {
+      mode: "investor", ts: dayMs, event_type: "DCA_BUY",
+      position_id: pos.id, ticker: sym, direction: "LONG",
+      qty: dcaShares, price, cash_delta: -dcaValue,
+      realized_pnl: 0, balance: investorCash,
+      note: `DCA ${sym} ${dcaShares.toFixed(1)}sh @$${price.toFixed(2)}`,
+    }).catch(() => {});
+    dcaBuys++;
+  }
+
+  // --- NEW ENTRIES: accumulate-stage tickers not already held ---
+  const candidates = scoredTickers
+    .filter(s => s.stage === "accumulate" && !currentPosTickers.has(s.sym))
+    .sort((a, b) => b.score - a.score);
+
+  for (const c of candidates) {
+    if (currentPosCount + opened >= INVESTOR_MAX_POSITIONS) break;
+
+    const price = Number(c.td.price);
+    if (!Number.isFinite(price) || price <= 0) continue;
+
+    const allocPct = c.score >= 70 ? INVESTOR_STRONG_ALLOC_PCT : INVESTOR_BASE_ALLOC_PCT;
+    const targetValue = Math.min(INVESTOR_REPLAY_CAPITAL * allocPct, INVESTOR_REPLAY_CAPITAL * INVESTOR_MAX_ALLOC_PCT);
+    if (investorCash < targetValue || targetValue < 50) continue;
+
+    const shares = targetValue / price;
+    const posId = `inv-pos-${c.sym}-${dayDate}`;
+    const lotId = `inv-lot-${c.sym}-entry-${dayDate}`;
+
+    await db.prepare(
+      `INSERT OR IGNORE INTO investor_positions (id, ticker, status, total_shares, cost_basis, avg_entry, first_entry_ts, last_entry_ts, investor_stage, target_alloc_pct, created_at, updated_at)
+       VALUES (?1, ?2, 'OPEN', ?3, ?4, ?5, ?6, ?6, 'accumulate', ?7, ?6, ?6)`
+    ).bind(posId, c.sym, shares, targetValue, price, dayMs, allocPct).run();
+
+    await db.prepare(
+      "INSERT OR IGNORE INTO investor_lots (id, position_id, ticker, action, shares, price, value, ts, reason, created_at) VALUES (?1, ?2, ?3, 'BUY', ?4, ?5, ?6, ?7, 'replay_entry', ?7)"
+    ).bind(lotId, posId, c.sym, shares, price, targetValue, dayMs).run();
+
+    investorCash -= targetValue;
+    currentPosTickers.add(c.sym);
+
+    await d1InsertLedgerEntry(env, {
+      mode: "investor", ts: dayMs, event_type: "ENTRY",
+      position_id: posId, ticker: c.sym, direction: "LONG",
+      qty: shares, price, cash_delta: -targetValue,
+      realized_pnl: 0, balance: investorCash,
+      note: `Entry ${c.sym} ${shares.toFixed(1)}sh @$${price.toFixed(2)} score=${c.score}`,
+    }).catch(() => {});
+    opened++;
+  }
+
+  console.log(`[INVESTOR REPLAY] ${dayDate}: opened=${opened} closed=${closed} dca=${dcaBuys} trimmed=${trimmed} cash=$${investorCash.toFixed(0)}`);
+  return { ok: true, dayDate, opened, closed, dcaBuys, trimmed, investorCash };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Portfolio Snapshots: end-of-day equity snapshot for both trader & investor
+// ─────────────────────────────────────────────────────────────────────────────
+
+async function ensurePortfolioSnapshotsSchema(db, KV) {
+  const throttleKey = "timed:schema:portfolio_snapshots:v1";
+  try {
+    if (KV) {
+      const last = Number(await KV.get(throttleKey));
+      if (Number.isFinite(last) && Date.now() - last < 24 * 60 * 60 * 1000) return;
+    }
+  } catch {}
+  try {
+    await db.exec(`
+      CREATE TABLE IF NOT EXISTS portfolio_snapshots (
+        id TEXT PRIMARY KEY,
+        mode TEXT NOT NULL,
+        snap_date TEXT NOT NULL,
+        ts INTEGER NOT NULL,
+        cash REAL NOT NULL,
+        positions_value REAL NOT NULL DEFAULT 0,
+        total_equity REAL NOT NULL,
+        open_positions INTEGER NOT NULL DEFAULT 0,
+        day_realized_pnl REAL DEFAULT 0,
+        day_trades INTEGER DEFAULT 0,
+        created_at INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_snap_mode_date ON portfolio_snapshots (mode, snap_date);
+      CREATE INDEX IF NOT EXISTS idx_snap_ts ON portfolio_snapshots (ts);
+    `);
+    if (KV) await KV.put(throttleKey, String(Date.now()));
+  } catch (err) {
+    console.error("[D1 SNAPSHOT] ensurePortfolioSnapshotsSchema failed:", err);
+  }
+}
+
+async function snapshotBothPortfolios(env, KV, replayCtx, dayDate) {
+  const db = env?.DB;
+  if (!db) return { ok: false, reason: "no_db" };
+
+  const dayMs = new Date(`${dayDate}T20:00:00Z`).getTime();
+  if (!Number.isFinite(dayMs)) return { ok: false, reason: "bad_date" };
+
+  await ensurePortfolioSnapshotsSchema(db, KV);
+
+  // --- Active Trader snapshot ---
+  let traderCash = await d1GetLedgerBalance(env, "trader");
+  let traderPositionsValue = 0;
+  let traderOpenCount = 0;
+  try {
+    const kvTrades = await kvGetJSON(KV, "timed:trades:all") || [];
+    const openTrades = kvTrades.filter(t => t.status === "OPEN");
+    traderOpenCount = openTrades.length;
+    for (const t of openTrades) {
+      const qty = Number(t.qty) || 0;
+      const curPrice = Number(t.currentPrice) || Number(t.price) || 0;
+      traderPositionsValue += qty * curPrice;
+    }
+  } catch {}
+
+  let traderDayPnl = 0;
+  let traderDayTrades = 0;
+  try {
+    const dayStart = new Date(`${dayDate}T00:00:00Z`).getTime();
+    const dayEnd = dayMs + 1;
+    const rows = (await db.prepare(
+      "SELECT SUM(realized_pnl) as pnl, COUNT(*) as cnt FROM account_ledger WHERE mode = 'trader' AND ts >= ?1 AND ts < ?2 AND event_type IN ('EXIT', 'TRIM')"
+    ).bind(dayStart, dayEnd).first());
+    traderDayPnl = Number(rows?.pnl) || 0;
+    traderDayTrades = Number(rows?.cnt) || 0;
+  } catch {}
+
+  const traderEquity = traderCash + traderPositionsValue;
+  const traderSnapId = `snap-trader-${dayDate}`;
+  try {
+    await db.prepare(
+      `INSERT OR REPLACE INTO portfolio_snapshots (id, mode, snap_date, ts, cash, positions_value, total_equity, open_positions, day_realized_pnl, day_trades, created_at)
+       VALUES (?1, 'trader', ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?3)`
+    ).bind(traderSnapId, dayDate, dayMs, traderCash, traderPositionsValue, traderEquity, traderOpenCount, traderDayPnl, traderDayTrades).run();
+  } catch (err) {
+    console.warn("[SNAPSHOT] Trader insert failed:", String(err).slice(0, 200));
+  }
+
+  // --- Investor snapshot ---
+  let investorCash = await d1GetLedgerBalance(env, "investor");
+  let investorPositionsValue = 0;
+  let investorOpenCount = 0;
+  try {
+    const invPos = (await db.prepare(
+      "SELECT ticker, total_shares FROM investor_positions WHERE status = 'OPEN'"
+    ).all())?.results || [];
+    investorOpenCount = invPos.length;
+    for (const p of invPos) {
+      const shares = Number(p.total_shares) || 0;
+      if (shares <= 0) continue;
+      try {
+        const td = await kvGetJSON(KV, `timed:latest:${p.ticker}`);
+        const curPrice = Number(td?.price) || 0;
+        investorPositionsValue += shares * curPrice;
+      } catch {}
+    }
+  } catch {}
+
+  let investorDayPnl = 0;
+  let investorDayTrades = 0;
+  try {
+    const dayStart = new Date(`${dayDate}T00:00:00Z`).getTime();
+    const dayEnd = dayMs + 1;
+    const rows = (await db.prepare(
+      "SELECT SUM(realized_pnl) as pnl, COUNT(*) as cnt FROM account_ledger WHERE mode = 'investor' AND ts >= ?1 AND ts < ?2 AND event_type IN ('EXIT', 'TRIM')"
+    ).bind(dayStart, dayEnd).first());
+    investorDayPnl = Number(rows?.pnl) || 0;
+    investorDayTrades = Number(rows?.cnt) || 0;
+  } catch {}
+
+  const investorEquity = investorCash + investorPositionsValue;
+  const investorSnapId = `snap-investor-${dayDate}`;
+  try {
+    await db.prepare(
+      `INSERT OR REPLACE INTO portfolio_snapshots (id, mode, snap_date, ts, cash, positions_value, total_equity, open_positions, day_realized_pnl, day_trades, created_at)
+       VALUES (?1, 'investor', ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?3)`
+    ).bind(investorSnapId, dayDate, dayMs, investorCash, investorPositionsValue, investorEquity, investorOpenCount, investorDayPnl, investorDayTrades).run();
+  } catch (err) {
+    console.warn("[SNAPSHOT] Investor insert failed:", String(err).slice(0, 200));
+  }
+
+  console.log(`[SNAPSHOT] ${dayDate}: trader=$${traderEquity.toFixed(0)} (${traderOpenCount} pos) | investor=$${investorEquity.toFixed(0)} (${investorOpenCount} pos)`);
+  return { ok: true, trader: { equity: traderEquity, cash: traderCash, positions: traderOpenCount }, investor: { equity: investorEquity, cash: investorCash, positions: investorOpenCount } };
 }
 
 async function d1GetOpenPosition(env, ticker, direction) {
@@ -29009,23 +29415,30 @@ export default {
           allTickers = allTickers.slice(batchOffset, batchOffset + batchLimit);
         }
 
-        // Run backfill in background (will take a while)
-        ctx.waitUntil(
-          alpacaBackfill(env, allTickers, d1UpsertCandle, tfParam, sinceDays)
-            .then(res => console.log(`[ALPACA BACKFILL] Done:`, JSON.stringify(res)))
-            .catch(err => console.error(`[ALPACA BACKFILL] Error:`, err))
-        );
-
-        return sendJSON(
-          {
-            ok: true,
-            message: `Alpaca backfill started in background for ${allTickers.length} ticker(s)`,
-            tickers: allTickers.length,
-            tickerList: allTickers.length <= 5 ? allTickers : undefined,
-            tf: tfParam,
-          },
-          200, corsHeaders(env, req),
-        );
+        // Run backfill synchronously (usage_model=unbound allows long-running requests)
+        try {
+          const backfillResult = await alpacaBackfill(env, allTickers, d1UpsertCandle, tfParam, sinceDays);
+          console.log(`[ALPACA BACKFILL] Done:`, JSON.stringify(backfillResult));
+          return sendJSON(
+            {
+              ok: true,
+              message: `Alpaca backfill complete for ${allTickers.length} ticker(s)`,
+              tickers: allTickers.length,
+              tickerList: allTickers.length <= 5 ? allTickers : undefined,
+              tf: tfParam,
+              upserted: backfillResult?.upserted || 0,
+              errors: backfillResult?.errors || 0,
+              perTf: backfillResult?.perTf || {},
+            },
+            200, corsHeaders(env, req),
+          );
+        } catch (bfErr) {
+          console.error(`[ALPACA BACKFILL] Error:`, bfErr);
+          return sendJSON(
+            { ok: false, error: String(bfErr?.message || bfErr).slice(0, 500) },
+            500, corsHeaders(env, req),
+          );
+        }
       }
 
       // POST /timed/admin/alpaca-compute?key=...&ticker=AAPL (compute scores for one ticker)
@@ -29383,7 +29796,7 @@ export default {
         }
 
         const tickerOffset = Math.max(0, Number(url.searchParams.get("tickerOffset")) || 0);
-        const tickerBatch = Math.max(1, Math.min(30, Number(url.searchParams.get("tickerBatch")) || 15));
+        const tickerBatch = Math.max(1, Math.min(80, Number(url.searchParams.get("tickerBatch")) || 15));
         const intervalMinutes = Math.max(1, Math.min(30, Number(url.searchParams.get("intervalMinutes")) || 5));
         const cleanSlate = url.searchParams.get("cleanSlate") === "1";
         const trailOnly = url.searchParams.get("trailOnly") === "1";
@@ -29437,7 +29850,7 @@ export default {
               console.warn("[REPLAY cleanSlate] D1 trades purge error:", String(d1Err?.message || d1Err).slice(0, 200));
             }
             // Optional tables — may not exist; purge individually
-            for (const tbl of ["positions", "execution_actions", "lots", "alerts", "ticker_latest"]) {
+            for (const tbl of ["positions", "execution_actions", "lots", "alerts", "ticker_latest", "account_ledger", "investor_positions", "investor_lots", "portfolio_snapshots"]) {
               try {
                 await db.prepare(`DELETE FROM ${tbl}`).run();
               } catch { /* table may not exist */ }
@@ -29446,16 +29859,19 @@ export default {
         }
 
         // Pre-load all candles for batch tickers (all 7 TFs) in parallel
+        // CRITICAL: Use beforeTs = market close of replay date so we only load
+        // candles up to this date. Without this, d1GetCandlesAllTfs returns the
+        // latest 1500 candles (e.g. from Dec 2025+) which are ALL after a Jul 2025
+        // replay date, causing ltf_score=0 and zero trades.
         const REPLAY_TFS = ["W", "D", "240", "60", "30", "10", "5"];
         const candleCache = {}; // { TICKER: { TF: [candles sorted asc by ts] } }
 
-        // Use batch D1 reads (1 call per ticker instead of 7) to stay under subrequest limit
         await Promise.all(
           batchTickers.map(async (ticker) => {
             candleCache[ticker] = {};
             try {
               const tfConfigs = REPLAY_TFS.map(tf => ({ tf, limit: 1500 }));
-              const batchResult = await d1GetCandlesAllTfs(env, ticker, tfConfigs);
+              const batchResult = await d1GetCandlesAllTfs(env, ticker, tfConfigs, { beforeTs: marketCloseMs });
               for (const tf of REPLAY_TFS) {
                 const res = batchResult[tf];
                 candleCache[ticker][tf] = (res?.ok && Array.isArray(res.candles)) ? res.candles : [];
@@ -29503,6 +29919,30 @@ export default {
           }
           stateMap[ticker] = existing || {};
         }
+
+        // Load golden profiles, adaptive gates, and VIX for entry gate parity with live cron.
+        // Without this, qualifiesForEnter bypasses golden profile floors + adaptive gates,
+        // making replay entries far looser than live.
+        let _replayGoldenProfiles = null;
+        let _replayAdaptiveEntryGates = null;
+        let _replayAdaptiveRegimeGates = null;
+        let _replayCurrentVix = null;
+        try {
+          const cfgRows = await db.batch([
+            db.prepare(`SELECT config_value FROM model_config WHERE config_key='adaptive_entry_gates'`),
+            db.prepare(`SELECT config_value FROM model_config WHERE config_key='adaptive_regime_gates'`),
+          ]);
+          if (cfgRows[0]?.results?.[0]?.config_value) _replayAdaptiveEntryGates = JSON.parse(cfgRows[0].results[0].config_value);
+          if (cfgRows[1]?.results?.[0]?.config_value) _replayAdaptiveRegimeGates = JSON.parse(cfgRows[1].results[0].config_value);
+        } catch {}
+        try {
+          const gpData = await kvGetJSON(KV, "timed:calibration:golden-profiles");
+          _replayGoldenProfiles = gpData?.profiles || null;
+        } catch {}
+        try {
+          const vixData = await kvGetJSON(KV, "timed:latest:VIX");
+          if (vixData?.price) _replayCurrentVix = Number(vixData.price);
+        } catch {}
 
         let processed = 0;
         let tradesCreated = 0;
@@ -29555,6 +29995,16 @@ export default {
               const existing = stateMap[ticker] || {};
               const result = assembleTickerData(ticker, bundleMap, existing, { rawBars });
               if (!result) { skipped++; continue; }
+
+              // Inject golden profiles + adaptive gates for entry parity with live cron
+              if (_replayGoldenProfiles || _replayAdaptiveEntryGates || _replayAdaptiveRegimeGates) {
+                result._env = {
+                  _goldenProfiles: _replayGoldenProfiles,
+                  _adaptiveEntryGates: _replayAdaptiveEntryGates,
+                  _adaptiveRegimeGates: _replayAdaptiveRegimeGates,
+                };
+              }
+              if (_replayCurrentVix != null) result._vix = _replayCurrentVix;
 
               // Enrich with timestamp and derived fields
               result.ts = intervalTs;
@@ -29803,9 +30253,27 @@ export default {
           }
         }
 
-        // Clear replay lock when this is the last batch
+        // End-of-day processing: investor replay + portfolio snapshots (last batch only)
         if (!hasMore) {
           await kvPutJSON(KV, "timed:replay:running", null);
+
+          // Run investor daily replay (evaluate entries/exits/DCA using scoring data)
+          try {
+            const invResult = await runInvestorDailyReplay(env, KV, replayCtx, dateParam);
+            if (invResult?.opened || invResult?.closed || invResult?.dcaBuys || invResult?.trimmed) {
+              console.log(`[REPLAY] Investor: +${invResult.opened} -${invResult.closed} dca=${invResult.dcaBuys} trim=${invResult.trimmed}`);
+            }
+          } catch (invErr) {
+            console.warn("[REPLAY] Investor daily replay failed:", String(invErr).slice(0, 200));
+          }
+
+          // Snapshot both portfolios
+          try {
+            await snapshotBothPortfolios(env, KV, replayCtx, dateParam);
+          } catch (snapErr) {
+            console.warn("[REPLAY] Portfolio snapshot failed:", String(snapErr).slice(0, 200));
+          }
+
           console.log("[REPLAY] Last batch done, cleared replay:running lock");
         }
 
@@ -29982,6 +30450,30 @@ export default {
         } catch (err) {
           return sendJSON({ ok: false, error: String(err?.message || err).slice(0, 200) }, 500, corsHeaders(env, req));
         }
+      }
+
+      // POST /timed/admin/replay-lock?key=...&reason=backtest
+      // Acquire replay lock — prevents live cron from running trade simulation.
+      if (routeKey === "POST /timed/admin/replay-lock") {
+        const authFail = requireKeyOr401(req, env);
+        if (authFail) return authFail;
+        const KV = env?.KV_TIMED;
+        if (!KV) return sendJSON({ ok: false, error: "no_kv" }, 500, corsHeaders(env, req));
+        const reason = url.searchParams.get("reason") || "backtest";
+        const lockVal = `${reason}@${new Date().toISOString()}`;
+        await KV.put("timed:replay:lock", lockVal, { expirationTtl: 86400 });
+        return sendJSON({ ok: true, lock: lockVal }, 200, corsHeaders(env, req));
+      }
+
+      // DELETE /timed/admin/replay-lock?key=...
+      // Release replay lock — re-enables live cron trade simulation.
+      if (routeKey === "DELETE /timed/admin/replay-lock") {
+        const authFail = requireKeyOr401(req, env);
+        if (authFail) return authFail;
+        const KV = env?.KV_TIMED;
+        if (!KV) return sendJSON({ ok: false, error: "no_kv" }, 500, corsHeaders(env, req));
+        await KV.delete("timed:replay:lock");
+        return sendJSON({ ok: true, released: true }, 200, corsHeaders(env, req));
       }
 
       // POST /timed/admin/run-lifecycle?key=...
@@ -32632,6 +33124,94 @@ export default {
           }, 200, corsHeaders(env, req));
         } catch (err) {
           console.error("[ACCOUNT SUMMARY] Error:", err);
+          return sendJSON({ ok: false, error: err.message }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // GET /timed/portfolio/equity-curve?mode=trader|investor|both&since=YYYY-MM-DD&until=YYYY-MM-DD
+      if (routeKey === "GET /timed/portfolio/equity-curve") {
+        try {
+          const db = env?.DB;
+          if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
+
+          await ensurePortfolioSnapshotsSchema(db, KV);
+
+          const mode = url.searchParams.get("mode") || "both";
+          const since = url.searchParams.get("since") || "2020-01-01";
+          const until = url.searchParams.get("until") || "2099-12-31";
+
+          const modes = mode === "both" ? ["trader", "investor"] : [mode];
+          const result = {};
+
+          for (const m of modes) {
+            const rows = (await db.prepare(
+              `SELECT snap_date, ts, cash, positions_value, total_equity, open_positions, day_realized_pnl, day_trades
+               FROM portfolio_snapshots
+               WHERE mode = ?1 AND snap_date >= ?2 AND snap_date <= ?3
+               ORDER BY snap_date ASC`
+            ).bind(m, since, until).all())?.results || [];
+
+            const startCash = m === "trader" ? PORTFOLIO_START_CASH : INVESTOR_REPLAY_CAPITAL;
+            let peakEquity = startCash;
+            let cumRealized = 0;
+
+            const points = rows.map(r => {
+              const eq = Number(r.total_equity) || 0;
+              cumRealized += Number(r.day_realized_pnl) || 0;
+              if (eq > peakEquity) peakEquity = eq;
+              const drawdown = peakEquity > 0 ? (eq - peakEquity) / peakEquity : 0;
+              return {
+                date: r.snap_date,
+                equity: Math.round(eq * 100) / 100,
+                cash: Math.round((Number(r.cash) || 0) * 100) / 100,
+                positionsValue: Math.round((Number(r.positions_value) || 0) * 100) / 100,
+                openPositions: Number(r.open_positions) || 0,
+                dayPnl: Math.round((Number(r.day_realized_pnl) || 0) * 100) / 100,
+                dayTrades: Number(r.day_trades) || 0,
+                drawdownPct: Math.round(drawdown * 10000) / 100,
+              };
+            });
+
+            const totalReturn = points.length > 0
+              ? (points[points.length - 1].equity - startCash) / startCash
+              : 0;
+            const maxDrawdown = points.length > 0
+              ? Math.min(...points.map(p => p.drawdownPct))
+              : 0;
+
+            // Sharpe approximation: annualized daily returns
+            let sharpe = 0;
+            if (points.length > 1) {
+              const dailyReturns = [];
+              for (let i = 1; i < points.length; i++) {
+                const prev = points[i - 1].equity;
+                if (prev > 0) dailyReturns.push((points[i].equity - prev) / prev);
+              }
+              if (dailyReturns.length > 1) {
+                const mean = dailyReturns.reduce((a, b) => a + b, 0) / dailyReturns.length;
+                const variance = dailyReturns.reduce((a, b) => a + (b - mean) ** 2, 0) / (dailyReturns.length - 1);
+                const stdDev = Math.sqrt(variance);
+                sharpe = stdDev > 0 ? (mean / stdDev) * Math.sqrt(252) : 0;
+              }
+            }
+
+            result[m] = {
+              points,
+              summary: {
+                startCash,
+                endEquity: points.length > 0 ? points[points.length - 1].equity : startCash,
+                totalReturnPct: Math.round(totalReturn * 10000) / 100,
+                maxDrawdownPct: maxDrawdown,
+                sharpe: Math.round(sharpe * 100) / 100,
+                totalDays: points.length,
+                cumRealized: Math.round(cumRealized * 100) / 100,
+              },
+            };
+          }
+
+          return sendJSON({ ok: true, ...result, generated_at: new Date().toISOString() }, 200, corsHeaders(env, req));
+        } catch (err) {
+          console.error("[EQUITY CURVE] Error:", err);
           return sendJSON({ ok: false, error: err.message }, 500, corsHeaders(env, req));
         }
       }
@@ -39882,6 +40462,10 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                 "DELETE FROM trades",
                 "DELETE FROM alerts",
                 "DELETE FROM ticker_latest",
+                "DELETE FROM account_ledger",
+                "DELETE FROM investor_positions",
+                "DELETE FROM investor_lots",
+                "DELETE FROM portfolio_snapshots",
               ]) {
                 try {
                   const r = await env.DB.prepare(sql).run();
@@ -41503,6 +42087,12 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
     const executionMarketOpen = isNyRegularMarketOpen();
     const allowExecution = _cronCalendar ? _calIsWithinOH(_cronCalendar) : executionMarketOpen;
 
+    // Replay lock: skip ALL trade simulation / reconciliation while a backtest is running
+    const _replayLock = await KV.get("timed:replay:lock");
+    if (_replayLock) {
+      console.log(`[CRON] Replay lock active (${_replayLock}). Skipping trade execution & reconciliation.`);
+    }
+
     if (!allowExecution) {
       const _gateNow = new Date();
       const _gateDayStr = _gateNow.toLocaleString("en-US", { timeZone: "America/New_York", weekday: "short" });
@@ -41511,7 +42101,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
     }
 
     // Drain queued actions at market open (once per day, first RTH cycle)
-    if (executionMarketOpen) {
+    if (executionMarketOpen && !_replayLock) {
       try {
         const drainResult = await drainQueuedActions(env);
         if (drainResult && !drainResult.skipped && (drainResult.executed > 0 || drainResult.expired > 0)) {
@@ -41522,8 +42112,8 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
       }
     }
 
-    // Update open trades (runs every 5 minutes, ONLY during market/extended hours)
-    if (allowExecution) {
+    // Update open trades (runs every 5 minutes, ONLY during market/extended hours, NOT during replay)
+    if (allowExecution && !_replayLock) {
       try {
         const tradesKey = "timed:trades:all";
         let allTrades = (await kvGetJSON(KV, tradesKey)) || [];
@@ -41665,11 +42255,8 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
       }
     }
 
-    // Kanban-driven executions: evaluate entries/trims/exits (ONLY during market/extended hours).
-    // Prevents phantom trades during off-hours when prices are stale.
-    // Uses SECTOR_MAP as ticker source (same as scoring loop) to avoid gaps where
-    // a ticker is scored but not evaluated for trade entry.
-    if (allowExecution) {
+    // Kanban-driven executions: evaluate entries/trims/exits (ONLY during market/extended hours, NOT during replay).
+    if (allowExecution && !_replayLock) {
       try {
         const execRemovedSet = new Set((await kvGetJSON(KV, "timed:removed")) || []);
         const userAddedForExec = await d1GetActiveUserTickersCached(env);
@@ -41693,11 +42280,9 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
 
     // ═══════════════════════════════════════════════════════════════════════════
     // POSITION RECONCILIATION: Ensure ALL D1 open positions are monitored
-    // This guarantees workflow follow-through: once a position opens, it MUST
-    // flow through the workflow until EXIT. Catches orphaned positions where
-    // TradingView alerts stopped firing or ticker fell out of KV index.
+    // (Skipped during replay to prevent live data from corrupting historical state)
     // ═══════════════════════════════════════════════════════════════════════════
-    try {
+    if (!_replayLock) try {
       const db = env?.DB;
       if (db) {
         // Fetch ALL open positions from D1 (source of truth)
