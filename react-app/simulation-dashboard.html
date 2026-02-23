@@ -189,6 +189,44 @@
         return n < 1e12 ? n * 1000 : n;
       }
 
+      function humanizeExitReason(raw) {
+        if (!raw) return "—";
+        const s = String(raw).trim();
+        const map = {
+          ema_regime_reversed: "Regime Reversed",
+          sl_breached: "Stop Loss Hit",
+          max_loss: "Max Loss Reached",
+          tp_reached: "Take Profit Hit",
+          TP_FULL: "Take Profit Hit",
+          replay_end_close: "Sim Period End",
+          bias_flip_full_bull_vs_short: "Bias Flip (Bull vs Short)",
+          bias_flip_full_bear_vs_long: "Bias Flip (Bear vs Long)",
+          bias_flip_htf_bull_vs_short: "HTF Bias Flip (Bull)",
+          bias_flip_htf_bear_vs_long: "HTF Bias Flip (Bear)",
+          critical_downgraded_to_defend: "Critical — Defend Mode",
+          hard_fuse_rsi_extreme: "RSI Fuse (Extreme)",
+          soft_fuse_rsi_confirmed: "RSI Fuse (Confirmed)",
+          SOFT_FUSE_RSI_CONFIRMED: "RSI Fuse (Confirmed)",
+          KANBAN_EXIT: "Exit Signal",
+          exit_signal: "Exit Signal",
+          overextended: "Overextended",
+          adverse_move_warning: "Adverse Move",
+          large_adverse_move: "Large Adverse Move",
+          left_entry_corridor: "Left Entry Corridor",
+          daily_ema_regime_break: "Daily EMA Break",
+          ichimoku_regime_break: "Ichimoku Break",
+          trigger_breached_5pct: "Trigger Breached 5%",
+          above_trigger: "Above Trigger",
+          below_trigger: "Below Trigger",
+        };
+        if (map[s]) return map[s];
+        const parts = s.split(",").map(p => p.trim()).filter(Boolean);
+        const mapped = parts.map(p => map[p] || p.replace(/_/g, " ")).filter(Boolean);
+        const unique = [...new Set(mapped)];
+        if (unique.length <= 2) return unique.join(" + ");
+        return unique[0];
+      }
+
       function resolveDirection(src) {
         const direct = String(src?.direction || "").toUpperCase();
         if (direct === "LONG" || direct === "SHORT") return direct;
@@ -6137,13 +6175,7 @@
                   {(() => {
                     if (loading) return <div className="text-[13px] text-[var(--tt-text-faint)] py-2">Loading...</div>;
                     if (todayActions2.length === 0) return <div className="text-[13px] text-[var(--tt-text-faint)] py-2">No activity today</div>;
-                    const simplifyReason = (raw) => {
-                      if (!raw) return "—";
-                      const s = String(raw).replace(/_/g, " ");
-                      const parts = s.split(",").map(p => p.trim()).filter(Boolean);
-                      if (parts.length <= 2) return parts.join(", ");
-                      return parts[0];
-                    };
+                    const simplifyReason = humanizeExitReason;
                     return (
                       <>
                         <div className="grid grid-cols-[50px_52px_48px_68px_50px_68px_1fr] gap-1.5 px-2 py-1 border-b border-white/[0.06] text-[9px] font-semibold uppercase tracking-wider text-[#6b7280]">
@@ -8080,9 +8112,7 @@
                                       const pnlColor = (action.pnl || 0) >= 0 ? "text-[var(--tt-accent)]" : "text-[var(--tt-negative)]";
                                       const t = action.trade || {};
                                       const qty = Number(t.shares || t.total_qty || 0);
-                                      const rawReason = String(t.exit_reason || t.__entry_reason || t.__trim_reason || "").replace(/_/g, " ");
-                                      const reasonParts = rawReason.split(",").map(p => p.trim()).filter(Boolean);
-                                      const reason = action.type === "ENTRY" ? "" : (reasonParts.length <= 2 ? reasonParts.join(", ") : reasonParts[0]);
+                                      const reason = action.type === "ENTRY" ? "" : humanizeExitReason(t.exit_reason || t.__entry_reason || t.__trim_reason || "");
                                       return (
                                         <div
                                           key={`${action.type}-${action.ticker}-${idx}`}
@@ -8156,8 +8186,8 @@
                                               return (
                                                 <div className="mt-1.5 space-y-1 text-[13px]">
                                                   {/* Table header */}
-                                                  <div className="grid grid-cols-[70px_50px_60px_70px_70px] gap-1.5 px-1 text-[11px] text-[var(--tt-text-faint)] font-medium uppercase">
-                                                    <span>Ticker</span><span>Action</span><span>Time</span><span>Price</span><span className="text-right">P&L</span>
+                                                  <div className="grid grid-cols-[70px_46px_56px_66px_66px_1fr] gap-1.5 px-1 text-[11px] text-[var(--tt-text-faint)] font-medium uppercase">
+                                                    <span>Ticker</span><span>Action</span><span>Time</span><span>Price</span><span className="text-right">P&L</span><span>Reason</span>
                                                   </div>
                                                   {sortedTickers.map(tk => {
                                                     const evs = byTicker[tk].sort((a, b) => (a.ts || 0) - (b.ts || 0));
@@ -8168,13 +8198,15 @@
                                                       const actionColor = action === "ENTRY" ? "text-cyan-400" : action === "EXIT" ? (ev.trade?.status === "WIN" ? "text-green-400" : "text-red-400") : "text-yellow-400";
                                                       const pnlStr = action === "EXIT" && ev.trade?.pnl != null ? fmtUsd(Number(ev.trade.pnl)) : "";
                                                       const pnlColor = Number(ev.trade?.pnl) >= 0 ? "text-[var(--tt-accent)]" : "text-[var(--tt-negative)]";
+                                                      const reason = action === "EXIT" ? humanizeExitReason(ev.trade?.exit_reason || ev.trade?.exitReason) : "";
                                                       return (
-                                                        <div key={`${tk}-${i}`} className="grid grid-cols-[70px_50px_60px_70px_70px] gap-1.5 py-1 px-1 rounded bg-[var(--tt-bg)] items-center">
+                                                        <div key={`${tk}-${i}`} className="grid grid-cols-[70px_46px_56px_66px_66px_1fr] gap-1.5 py-1 px-1 rounded bg-[var(--tt-bg)] items-center">
                                                           <span className="font-medium text-[var(--tt-text)] truncate">{i === 0 ? tk : ""}</span>
                                                           <span className={`${actionColor} font-semibold`}>{action}</span>
                                                           <span className="text-[var(--tt-text-muted)]">{timeStr}</span>
                                                           <span className="text-[var(--tt-text)]">{priceStr}</span>
                                                           <span className={`text-right font-semibold ${pnlColor}`}>{pnlStr}</span>
+                                                          <span className="text-[var(--tt-text-faint)] truncate text-[11px]" title={reason}>{reason}</span>
                                                         </div>
                                                       );
                                                     });
