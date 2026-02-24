@@ -6201,6 +6201,7 @@
         const [ledgerTickerFilter, setLedgerTickerFilter] =
           useState(initialLedgerTicker);
         const [ledgerStatusFilter, setLedgerStatusFilter] = useState("all");
+        const [accountChartRange, setAccountChartRange] = useState("30D");
         const SLIDER_RANGE_DAYS = 365;
         const [ledgerDateRange, setLedgerDateRange] = useState(() => {
           const end = new Date();
@@ -6211,7 +6212,6 @@
         });
         const [ledgerIncludeEvidence, setLedgerIncludeEvidence] =
           useState(true);
-        const [accountChartRange, setAccountChartRange] = useState("30D");
 
         const ledgerRangeDays = useMemo(() => {
           const a = ledgerDateRange.start.getTime();
