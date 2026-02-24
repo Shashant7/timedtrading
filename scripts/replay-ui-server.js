@@ -85,11 +85,29 @@ function getStatus() {
   };
 }
 
-function startReplay(resume = false) {
+function startReplay(resume = false, batchSize = null) {
   if (isReplayProcessRunning()) {
     return { ok: false, error: "Replay is already running" };
   }
-  const args = resume ? ["--resume"] : ["2025-07-01", "2026-02-23", "15"];
+  if (resume) {
+    const cp = getCheckpoint();
+    if (batchSize != null && cp?.nextDate) {
+      const n = Math.max(5, Math.min(50, parseInt(batchSize, 10) || 15));
+      try {
+        fs.writeFileSync(CHECKPOINT_FILE, `${cp.nextDate}\n${cp.endDate || "2026-02-23"}\n${n}\n`, "utf8");
+      } catch (_) {}
+    }
+    return startReplayInner(true, null);
+  }
+  const n = batchSize != null ? Math.max(5, Math.min(50, parseInt(batchSize, 10) || 25)) : 25;
+  return startReplayInner(false, n);
+}
+
+function startReplayInner(resume, batchSize) {
+  if (isReplayProcessRunning()) {
+    return { ok: false, error: "Replay is already running" };
+  }
+  const args = resume ? ["--resume"] : ["2025-07-01", "2026-02-23", String(batchSize)];
   const logDir = path.dirname(LOG_FILE);
   try {
     fs.mkdirSync(logDir, { recursive: true });
@@ -172,6 +190,7 @@ const HTML_PAGE = `<!DOCTYPE html>
       <span id="statusText">Checking…</span>
     </div>
     <div class="meta" id="meta"></div>
+    <div class="meta" style="margin-bottom: 8px;">Batch size (tickers per request): <select id="batchSize"><option value="15">15</option><option value="20">20</option><option value="25" selected>25</option><option value="30">30</option></select> <span id="batchNote"></span></div>
     <div class="buttons">
       <button class="primary" id="btnStart">Start (fresh)</button>
       <button class="secondary" id="btnResume">Resume</button>
@@ -190,6 +209,8 @@ const HTML_PAGE = `<!DOCTYPE html>
     const btnStart = document.getElementById("btnStart");
     const btnResume = document.getElementById("btnResume");
     const btnPause = document.getElementById("btnPause");
+    const batchSizeEl = document.getElementById("batchSize");
+    const batchNoteEl = document.getElementById("batchNote");
 
     function render(s) {
       dot.className = "dot " + (s.running ? "running" : "stopped");
@@ -197,7 +218,12 @@ const HTML_PAGE = `<!DOCTYPE html>
       let metaHtml = "";
       if (s.currentDate) metaHtml += "Current date: " + s.currentDate + " ";
       if (s.checkpoint) metaHtml += "Checkpoint: " + s.checkpoint.nextDate + " → " + (s.checkpoint.endDate || "?");
+      if (s.checkpoint && s.checkpoint.tickerBatch) metaHtml += " · Batch: " + s.checkpoint.tickerBatch;
       meta.innerHTML = metaHtml || "—";
+      if (s.checkpoint && s.checkpoint.tickerBatch && batchSizeEl) {
+        batchSizeEl.value = s.checkpoint.tickerBatch;
+        batchNoteEl.textContent = "(Resume will use selected size)";
+      } else if (batchNoteEl) batchNoteEl.textContent = "";
       logEl.textContent = (s.logTail || []).join("\\n") || "(no log)"; // \\n -> newline in browser
       btnStart.disabled = !!s.running;
       btnResume.disabled = !!s.running;
@@ -212,10 +238,12 @@ const HTML_PAGE = `<!DOCTYPE html>
     }
 
     btnStart.onclick = () => {
-      fetch("/api/start", { method: "POST" }).then(r => r.json()).then(d => { alert(d.ok ? "Started" : (d.error || "Failed")); fetchStatus(); });
+      const batch = batchSizeEl ? batchSizeEl.value : "25";
+      fetch("/api/start?batchSize=" + encodeURIComponent(batch), { method: "POST" }).then(r => r.json()).then(d => { alert(d.ok ? "Started" : (d.error || "Failed")); fetchStatus(); });
     };
     btnResume.onclick = () => {
-      fetch("/api/resume", { method: "POST" }).then(r => r.json()).then(d => { alert(d.ok ? "Resumed" : (d.error || "Failed")); fetchStatus(); });
+      const batch = batchSizeEl ? batchSizeEl.value : "25";
+      fetch("/api/resume?batchSize=" + encodeURIComponent(batch), { method: "POST" }).then(r => r.json()).then(d => { alert(d.ok ? "Resumed" : (d.error || "Failed")); fetchStatus(); });
     };
     btnPause.onclick = () => {
       fetch("/api/pause", { method: "POST" }).then(r => r.json()).then(d => { alert(d.ok ? "Paused" : (d.error || "Failed")); fetchStatus(); });
@@ -247,12 +275,14 @@ const server = http.createServer((req, res) => {
   }
 
   if (req.method === "POST" && url.pathname === "/api/start") {
-    setJson(startReplay(false));
+    const batch = url.searchParams.get("batchSize") || url.searchParams.get("batch") || null;
+    setJson(startReplay(false, batch));
     return;
   }
 
   if (req.method === "POST" && url.pathname === "/api/resume") {
-    setJson(startReplay(true));
+    const batch = url.searchParams.get("batchSize") || url.searchParams.get("batch") || null;
+    setJson(startReplay(true, batch));
     return;
   }
 

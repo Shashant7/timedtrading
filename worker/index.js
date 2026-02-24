@@ -30316,6 +30316,7 @@ export default {
 
         // End-of-day processing: investor replay + portfolio snapshots (last batch only)
         if (!hasMore) {
+          console.log(`[REPLAY] End-of-day for ${dateParam}: investor replay + snapshots (this can take 30-60s)`);
           await kvPutJSON(KV, "timed:replay:running", null);
 
           // Run investor daily replay (evaluate entries/exits/DCA using scoring data)

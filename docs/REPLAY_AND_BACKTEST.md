@@ -55,6 +55,12 @@ Status and a live log tail refresh every few seconds.
 - `POST /timed/admin/candle-replay?date=...&tickerOffset=...&tickerBatch=...` — Run one replay batch.
 - `DELETE /timed/admin/replay-lock` — Release lock.
 
+## Speed
+
+- **Batch size:** Default 25 tickers per request when starting from the UI; use a smaller batch (e.g. 15) if the worker times out.
+- **Pause between batches:** 0.5s.
+- **End-of-day:** Last batch each day runs investor replay + snapshots (~30–60s).
+
 ## Resilience
 
 - The replay loop retries each `candle-replay` request up to 5 times (30s between attempts) on network/timeout errors so a single failure doesn’t stop the run.

@@ -263,7 +263,7 @@ while [[ "$CURRENT_DATE" < "$END_DATE" ]] || [[ "$CURRENT_DATE" == "$END_DATE" ]
       HAS_MORE=false
     fi
 
-    sleep 1
+    sleep 0.5
   done
 
   TOTAL_TRADES=$((TOTAL_TRADES + DAY_TRADES))
