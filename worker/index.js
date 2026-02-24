@@ -435,6 +435,7 @@ const ROUTES = [
   ["POST", "/timed/admin/backfill-alerts", "POST /timed/admin/backfill-alerts"],
   ["POST", "/timed/admin/backfill-derived", "POST /timed/admin/backfill-derived"],
   ["POST", "/timed/admin/alpaca-backfill", "POST /timed/admin/alpaca-backfill"],
+  ["GET",  "/timed/admin/candle-gaps",     "GET /timed/admin/candle-gaps"],
   ["POST", "/timed/admin/alpaca-compute", "POST /timed/admin/alpaca-compute"],
   ["POST", "/timed/admin/purge-ticker-candles", "POST /timed/admin/purge-ticker-candles"],
   ["GET", "/timed/admin/alpaca-status", "GET /timed/admin/alpaca-status"],
@@ -29439,6 +29440,65 @@ export default {
             500, corsHeaders(env, req),
           );
         }
+      }
+
+      // GET /timed/admin/candle-gaps?key=...&startDate=2025-07-01&endDate=2026-02-23
+      // Returns per-ticker/TF coverage and lists tickers that need backfill.
+      if (routeKey === "GET /timed/admin/candle-gaps") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+
+        const startDateStr = url.searchParams.get("startDate");
+        const endDateStr = url.searchParams.get("endDate");
+        if (!startDateStr || !endDateStr) {
+          return sendJSON({ ok: false, error: "startDate and endDate required (YYYY-MM-DD)" }, 400, corsHeaders(env, req));
+        }
+
+        const startTs = new Date(startDateStr + "T00:00:00Z").getTime();
+        const endTs = new Date(endDateStr + "T23:59:59Z").getTime();
+        const db = env.DB;
+        const REPLAY_TFS_CHECK = ["M", "W", "D", "240", "60", "30", "10", "5"];
+        const allTickers = Object.keys(SECTOR_MAP);
+        const MIN_CANDLES = { M: 2, W: 8, D: 40, "240": 20, "60": 40, "30": 40, "10": 40, "5": 40 };
+
+        const { results: rows } = await db.prepare(
+          `SELECT ticker, tf, COUNT(*) as cnt
+           FROM ticker_candles
+           WHERE ts >= ?1 AND ts <= ?2
+           GROUP BY ticker, tf`
+        ).bind(startTs, endTs).all();
+
+        const coverage = {};
+        for (const r of rows) {
+          const t = String(r.ticker).toUpperCase();
+          if (!coverage[t]) coverage[t] = {};
+          coverage[t][r.tf] = Number(r.cnt);
+        }
+
+        const gaps = [];
+        const tickersNeedingBackfill = new Set();
+        for (const ticker of allTickers) {
+          const t = ticker.toUpperCase();
+          for (const tf of REPLAY_TFS_CHECK) {
+            const count = coverage[t]?.[tf] || 0;
+            const minRequired = MIN_CANDLES[tf] || 10;
+            if (count < minRequired) {
+              gaps.push({ ticker: t, tf, count, minRequired });
+              tickersNeedingBackfill.add(t);
+            }
+          }
+        }
+
+        return sendJSON({
+          ok: true,
+          allClear: gaps.length === 0,
+          totalTickers: allTickers.length,
+          tickersWithGaps: tickersNeedingBackfill.size,
+          tickersNeedingBackfill: [...tickersNeedingBackfill].sort(),
+          gapCount: gaps.length,
+          gaps: gaps.length <= 200 ? gaps : gaps.slice(0, 200),
+          truncated: gaps.length > 200,
+        }, 200, corsHeaders(env, req));
       }
 
       // POST /timed/admin/alpaca-compute?key=...&ticker=AAPL (compute scores for one ticker)

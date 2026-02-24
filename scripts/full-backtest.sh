@@ -3,7 +3,8 @@
 # Usage: ./scripts/full-backtest.sh [start_date] [end_date] [ticker_batch_size]
 #        ./scripts/full-backtest.sh --resume
 # Example: ./scripts/full-backtest.sh 2025-07-01 2026-02-23 15
-# Resume:  ./scripts/full-backtest.sh --resume
+# Resume: ./scripts/full-backtest.sh --resume
+# Note: Backfill automatically detects candle gaps and only fills what's missing.
 
 set -e
 
@@ -75,48 +76,114 @@ else
   SINCE_DAYS=$(( (NOW_EPOCH - START_EPOCH) / 86400 + 60 ))
   BF_BATCH=3
 
-  echo "Step 1.5: Backfilling candle data from Alpaca (sinceDays=$SINCE_DAYS)..."
-  echo "  $TOTAL_TICKERS tickers × 8 TFs, $BF_BATCH tickers per call (synchronous)"
-  echo ""
+  echo "Step 1.5: Checking candle coverage (gap detection)..."
+  GAP_RESULT=$(curl -s -m 120 \
+    "$API_BASE/timed/admin/candle-gaps?startDate=$START_DATE&endDate=$END_DATE&key=$API_KEY" 2>&1)
+  GAP_OK=$(echo "$GAP_RESULT" | jq -r '.ok // false' 2>/dev/null || echo "false")
+  ALL_CLEAR=$(echo "$GAP_RESULT" | jq -r '.allClear // false' 2>/dev/null || echo "false")
+  TICKERS_WITH_GAPS=$(echo "$GAP_RESULT" | jq -r '.tickersWithGaps // 0' 2>/dev/null || echo "0")
+  GAP_COUNT=$(echo "$GAP_RESULT" | jq -r '.gapCount // 0' 2>/dev/null || echo "0")
 
-  BF_OFFSET=0
-  BF_ROUND=0
-  BF_TOTAL_UPSERTED=0
-  BF_TOTAL_ERRORS=0
-  BF_START_TS=$(date +%s)
+  if [[ "$GAP_OK" != "true" ]]; then
+    echo "  WARNING: Gap check failed ($(echo "$GAP_RESULT" | head -c 200))"
+    echo "  Falling back to full backfill..."
+    ALL_CLEAR="false"
+    TICKERS_WITH_GAPS="$TOTAL_TICKERS"
+  fi
 
-  while [ "$BF_OFFSET" -lt "$TOTAL_TICKERS" ]; do
-    BF_ROUND=$((BF_ROUND + 1))
-    REMAINING=$((TOTAL_TICKERS - BF_OFFSET))
-    THIS_BATCH=$(( REMAINING < BF_BATCH ? REMAINING : BF_BATCH ))
+  if [[ "$ALL_CLEAR" == "true" ]]; then
+    echo "  All candles present — no gaps detected. Skipping backfill."
+    echo ""
+  else
+    BACKFILL_TICKERS=$(echo "$GAP_RESULT" | jq -r '.tickersNeedingBackfill[]' 2>/dev/null || echo "")
+    BACKFILL_COUNT=$(echo "$BACKFILL_TICKERS" | grep -c . 2>/dev/null || echo "$TICKERS_WITH_GAPS")
 
-    echo -n "  [$BF_ROUND] offset=$BF_OFFSET ($THIS_BATCH tickers)... "
+    echo "  Found $GAP_COUNT gaps across $TICKERS_WITH_GAPS tickers. Backfilling..."
+    echo ""
 
-    BF_RESULT=$(curl -s -m 600 -X POST \
-      "$API_BASE/timed/admin/alpaca-backfill?sinceDays=$SINCE_DAYS&tf=all&offset=$BF_OFFSET&limit=$THIS_BATCH&key=$API_KEY" 2>&1)
-    BF_OK=$(echo "$BF_RESULT" | jq -r '.ok // false' 2>/dev/null || echo "false")
-    UPSERTED=$(echo "$BF_RESULT" | jq -r '.upserted // 0' 2>/dev/null || echo "0")
-    BF_ERRS=$(echo "$BF_RESULT" | jq -r '.errors // 0' 2>/dev/null || echo "0")
+    BF_ROUND=0
+    BF_TOTAL_UPSERTED=0
+    BF_TOTAL_ERRORS=0
+    BF_START_TS=$(date +%s)
 
-    BF_TOTAL_UPSERTED=$((BF_TOTAL_UPSERTED + UPSERTED))
-    BF_TOTAL_ERRORS=$((BF_TOTAL_ERRORS + BF_ERRS))
-    ELAPSED=$(( $(date +%s) - BF_START_TS ))
-    PCTDONE=$(( (BF_OFFSET + THIS_BATCH) * 100 / TOTAL_TICKERS ))
+    if [[ -n "$BACKFILL_TICKERS" ]]; then
+      # Targeted backfill: only tickers with gaps, 3 at a time
+      TICKER_ARRAY=()
+      while IFS= read -r t; do
+        [[ -n "$t" ]] && TICKER_ARRAY+=("$t")
+      done <<< "$BACKFILL_TICKERS"
 
-    if [[ "$BF_OK" == "true" ]]; then
-      echo "done (${UPSERTED} candles, ${BF_ERRS}err) [${PCTDONE}% | ${ELAPSED}s]"
+      BF_IDX=0
+      while [ "$BF_IDX" -lt "${#TICKER_ARRAY[@]}" ]; do
+        BF_ROUND=$((BF_ROUND + 1))
+        BATCH_TICKERS=""
+        BATCH_END=$((BF_IDX + BF_BATCH))
+        while [ "$BF_IDX" -lt "$BATCH_END" ] && [ "$BF_IDX" -lt "${#TICKER_ARRAY[@]}" ]; do
+          [[ -n "$BATCH_TICKERS" ]] && BATCH_TICKERS="${BATCH_TICKERS},"
+          BATCH_TICKERS="${BATCH_TICKERS}${TICKER_ARRAY[$BF_IDX]}"
+          BF_IDX=$((BF_IDX + 1))
+        done
+
+        echo -n "  [$BF_ROUND] $BATCH_TICKERS ... "
+
+        # Backfill each ticker in the batch individually
+        BATCH_UPSERTED=0
+        BATCH_ERRS=0
+        IFS=',' read -ra BTICKERS <<< "$BATCH_TICKERS"
+        for BF_TICKER in "${BTICKERS[@]}"; do
+          BF_RESULT=$(curl -s -m 600 -X POST \
+            "$API_BASE/timed/admin/alpaca-backfill?sinceDays=$SINCE_DAYS&tf=all&ticker=$BF_TICKER&key=$API_KEY" 2>&1)
+          UPSERTED=$(echo "$BF_RESULT" | jq -r '.upserted // 0' 2>/dev/null || echo "0")
+          BF_ERR=$(echo "$BF_RESULT" | jq -r '.errors // 0' 2>/dev/null || echo "0")
+          BATCH_UPSERTED=$((BATCH_UPSERTED + UPSERTED))
+          BATCH_ERRS=$((BATCH_ERRS + BF_ERR))
+        done
+
+        BF_TOTAL_UPSERTED=$((BF_TOTAL_UPSERTED + BATCH_UPSERTED))
+        BF_TOTAL_ERRORS=$((BF_TOTAL_ERRORS + BATCH_ERRS))
+        ELAPSED=$(( $(date +%s) - BF_START_TS ))
+        PCTDONE=$(( BF_IDX * 100 / ${#TICKER_ARRAY[@]} ))
+        echo "done (${BATCH_UPSERTED} candles, ${BATCH_ERRS}err) [${PCTDONE}% | ${ELAPSED}s]"
+
+        sleep 2
+      done
     else
-      echo "ERROR: $(echo "$BF_RESULT" | head -c 300) [${ELAPSED}s]"
+      # Fallback: full universe backfill (gap check returned no ticker list)
+      BF_OFFSET=0
+      while [ "$BF_OFFSET" -lt "$TOTAL_TICKERS" ]; do
+        BF_ROUND=$((BF_ROUND + 1))
+        REMAINING=$((TOTAL_TICKERS - BF_OFFSET))
+        THIS_BATCH=$(( REMAINING < BF_BATCH ? REMAINING : BF_BATCH ))
+
+        echo -n "  [$BF_ROUND] offset=$BF_OFFSET ($THIS_BATCH tickers)... "
+
+        BF_RESULT=$(curl -s -m 600 -X POST \
+          "$API_BASE/timed/admin/alpaca-backfill?sinceDays=$SINCE_DAYS&tf=all&offset=$BF_OFFSET&limit=$THIS_BATCH&key=$API_KEY" 2>&1)
+        BF_OK_INNER=$(echo "$BF_RESULT" | jq -r '.ok // false' 2>/dev/null || echo "false")
+        UPSERTED=$(echo "$BF_RESULT" | jq -r '.upserted // 0' 2>/dev/null || echo "0")
+        BF_ERRS=$(echo "$BF_RESULT" | jq -r '.errors // 0' 2>/dev/null || echo "0")
+
+        BF_TOTAL_UPSERTED=$((BF_TOTAL_UPSERTED + UPSERTED))
+        BF_TOTAL_ERRORS=$((BF_TOTAL_ERRORS + BF_ERRS))
+        ELAPSED=$(( $(date +%s) - BF_START_TS ))
+        PCTDONE=$(( (BF_OFFSET + THIS_BATCH) * 100 / TOTAL_TICKERS ))
+
+        if [[ "$BF_OK_INNER" == "true" ]]; then
+          echo "done (${UPSERTED} candles, ${BF_ERRS}err) [${PCTDONE}% | ${ELAPSED}s]"
+        else
+          echo "ERROR: $(echo "$BF_RESULT" | head -c 300) [${ELAPSED}s]"
+        fi
+
+        BF_OFFSET=$((BF_OFFSET + BF_BATCH))
+        sleep 2
+      done
     fi
 
-    BF_OFFSET=$((BF_OFFSET + BF_BATCH))
-    sleep 2
-  done
-
-  BF_ELAPSED=$(( $(date +%s) - BF_START_TS ))
-  echo ""
-  echo "  Backfill complete: ${BF_TOTAL_UPSERTED} total candles, ${BF_TOTAL_ERRORS} errors (${BF_ELAPSED}s)"
-  echo ""
+    BF_ELAPSED=$(( $(date +%s) - BF_START_TS ))
+    echo ""
+    echo "  Backfill complete: ${BF_TOTAL_UPSERTED} total candles, ${BF_TOTAL_ERRORS} errors (${BF_ELAPSED}s)"
+    echo ""
+  fi
 fi
 
 # ─── Step 2: Process each trading day ────────────────────────────────────────

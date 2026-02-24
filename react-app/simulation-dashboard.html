@@ -5946,10 +5946,10 @@
             ${label}
           </h2>
 
-          ${/* ── 1. Equity Curve ── */}
+          ${""/* ── 1. Equity Curve ── */}
           html`<${EquityCurveChart} curveData=${curveData} mode=${mode} />`
 
-          ${/* ── 2. Metrics ── */}
+          ${""/* ── 2. Metrics ── */}
           <div className="grid grid-cols-2 lg:grid-cols-5 gap-2">
             <div className="tt-card p-3">
               <div className="text-[10px] text-[var(--tt-text-faint)] uppercase tracking-wide">Account</div>
@@ -5974,7 +5974,7 @@
             </div>
           </div>
 
-          ${/* ── 3. Open Positions ── */}
+          ${""/* ── 3. Open Positions ── */}
           <div className="tt-card p-4">
             <h3 className="text-xs font-medium text-[var(--tt-text-faint)] uppercase tracking-wider mb-3">
               Open Positions (${openPositionCards.length})
@@ -6005,7 +6005,7 @@
             }
           </div>
 
-          ${/* ── 4. Trade History ── */}
+          ${""/* ── 4. Trade History ── */}
           <div className="tt-card p-4">
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-xs font-medium text-[var(--tt-text-faint)] uppercase tracking-wider">
@@ -6058,7 +6058,7 @@
                   </div>`
               }
             ` : html`
-              ${/* Expanded: By Day + By Ticker side by side */}
+              ${""/* Expanded: By Day + By Ticker side by side */}
               <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
                 <div>
                   <h4 className="text-[11px] font-medium text-[var(--tt-text-faint)] mb-2 uppercase">By Day</h4>
