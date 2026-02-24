@@ -1,24 +1,51 @@
 #!/bin/bash
 # Full Candle-Based Backtest Script
 # Usage: ./scripts/full-backtest.sh [start_date] [end_date] [ticker_batch_size]
+#        ./scripts/full-backtest.sh --resume
 # Example: ./scripts/full-backtest.sh 2025-07-01 2026-02-23 15
+# Resume:  ./scripts/full-backtest.sh --resume
 
 set -e
 
 API_BASE="https://timed-trading-ingest.shashant.workers.dev"
 API_KEY="AwesomeSauce"
-START_DATE="${1:-2025-07-01}"
-END_DATE="${2:-$(date '+%Y-%m-%d')}"
-TICKER_BATCH="${3:-15}"
 INTERVAL_MIN=5
-
+CHECKPOINT_FILE="data/replay-checkpoint.txt"
 HOLIDAYS="2025-07-04 2025-09-01 2025-11-27 2025-12-25 2026-01-01 2026-01-19 2026-02-16 2026-05-26 2026-07-03 2026-09-07 2026-11-26 2026-12-25"
 
-echo "╔══════════════════════════════════════════════════════╗"
-echo "║  Candle-Based Backtest: $START_DATE → $END_DATE"
-echo "║  Ticker batch: $TICKER_BATCH | Interval: ${INTERVAL_MIN}m"
-echo "╚══════════════════════════════════════════════════════╝"
-echo ""
+RESUME=false
+for arg in "$@"; do
+  [[ "$arg" == "--resume" ]] && RESUME=true
+done
+
+if $RESUME; then
+  if [[ -f "$CHECKPOINT_FILE" ]]; then
+    CHECKPOINT_DATE=$(cat "$CHECKPOINT_FILE" | head -1 | tr -d '[:space:]')
+    CHECKPOINT_END=$(sed -n '2p' "$CHECKPOINT_FILE" | tr -d '[:space:]')
+    CHECKPOINT_BATCH=$(sed -n '3p' "$CHECKPOINT_FILE" | tr -d '[:space:]')
+    START_DATE="${CHECKPOINT_DATE}"
+    END_DATE="${CHECKPOINT_END:-$(date '+%Y-%m-%d')}"
+    TICKER_BATCH="${CHECKPOINT_BATCH:-15}"
+    echo "╔══════════════════════════════════════════════════════╗"
+    echo "║  RESUMING Backtest from $START_DATE → $END_DATE"
+    echo "║  Ticker batch: $TICKER_BATCH | Interval: ${INTERVAL_MIN}m"
+    echo "╚══════════════════════════════════════════════════════╝"
+    echo ""
+  else
+    echo "ERROR: No checkpoint file found at $CHECKPOINT_FILE"
+    echo "Run a fresh backtest first: ./scripts/full-backtest.sh 2025-07-01 2026-02-23 15"
+    exit 1
+  fi
+else
+  START_DATE="${1:-2025-07-01}"
+  END_DATE="${2:-$(date '+%Y-%m-%d')}"
+  TICKER_BATCH="${3:-15}"
+  echo "╔══════════════════════════════════════════════════════╗"
+  echo "║  Candle-Based Backtest: $START_DATE → $END_DATE"
+  echo "║  Ticker batch: $TICKER_BATCH | Interval: ${INTERVAL_MIN}m"
+  echo "╚══════════════════════════════════════════════════════╝"
+  echo ""
+fi
 
 # ─── Step 0: Acquire replay lock ─────────────────────────────────────────────
 echo "Step 0: Acquiring replay lock..."
@@ -26,66 +53,71 @@ LOCK_RESULT=$(curl -s -m 30 -X POST "$API_BASE/timed/admin/replay-lock?reason=ba
 echo "Lock: $(echo "$LOCK_RESULT" | jq -c '{ok, lock}' 2>/dev/null || echo "$LOCK_RESULT")"
 echo ""
 
-# ─── Step 1: Full reset ──────────────────────────────────────────────────────
-echo "Step 1: Resetting all trade state (D1 + KV)..."
-RESET_RESULT=$(curl -s -m 300 -X POST "$API_BASE/timed/admin/reset?resetLedger=1&key=$API_KEY")
-echo "Reset: $(echo "$RESET_RESULT" | jq -c '{ok, kvCleared}' 2>/dev/null || echo "$RESET_RESULT")"
-echo ""
+if $RESUME; then
+  echo "Step 1: SKIPPED (resuming from checkpoint $START_DATE)"
+  echo ""
+  echo "Step 1.5: SKIPPED (backfill already complete)"
+  echo ""
+else
+  # ─── Step 1: Full reset ────────────────────────────────────────────────────
+  echo "Step 1: Resetting all trade state (D1 + KV)..."
+  RESET_RESULT=$(curl -s -m 300 -X POST "$API_BASE/timed/admin/reset?resetLedger=1&key=$API_KEY")
+  echo "Reset: $(echo "$RESET_RESULT" | jq -c '{ok, kvCleared}' 2>/dev/null || echo "$RESET_RESULT")"
+  echo ""
 
-TOTAL_TICKERS=$(curl -s "$API_BASE/timed/admin/alpaca-status?key=$API_KEY" | jq -r '.total_tickers // 200' 2>/dev/null || echo "200")
-echo "Total tickers in universe: $TOTAL_TICKERS"
-echo ""
+  TOTAL_TICKERS=$(curl -s "$API_BASE/timed/admin/alpaca-status?key=$API_KEY" | jq -r '.total_tickers // 200' 2>/dev/null || echo "200")
+  echo "Total tickers in universe: $TOTAL_TICKERS"
+  echo ""
 
-# ─── Step 1.5: Backfill candle data from Alpaca ─────────────────────────────
-# Strategy: 3 tickers at a time, synchronous (handler awaits result).
-# Each call runs all 8 TFs for 3 tickers. Curl timeout=600s (10 min).
-START_EPOCH=$(date -j -f "%Y-%m-%d" "$START_DATE" "+%s" 2>/dev/null || date -d "$START_DATE" "+%s")
-NOW_EPOCH=$(date "+%s")
-SINCE_DAYS=$(( (NOW_EPOCH - START_EPOCH) / 86400 + 60 ))
-BF_BATCH=3
+  # ─── Step 1.5: Backfill candle data from Alpaca ───────────────────────────
+  START_EPOCH=$(date -j -f "%Y-%m-%d" "$START_DATE" "+%s" 2>/dev/null || date -d "$START_DATE" "+%s")
+  NOW_EPOCH=$(date "+%s")
+  SINCE_DAYS=$(( (NOW_EPOCH - START_EPOCH) / 86400 + 60 ))
+  BF_BATCH=3
 
-echo "Step 1.5: Backfilling candle data from Alpaca (sinceDays=$SINCE_DAYS)..."
-echo "  $TOTAL_TICKERS tickers × 8 TFs, $BF_BATCH tickers per call (synchronous)"
-echo ""
+  echo "Step 1.5: Backfilling candle data from Alpaca (sinceDays=$SINCE_DAYS)..."
+  echo "  $TOTAL_TICKERS tickers × 8 TFs, $BF_BATCH tickers per call (synchronous)"
+  echo ""
 
-BF_OFFSET=0
-BF_ROUND=0
-BF_TOTAL_UPSERTED=0
-BF_TOTAL_ERRORS=0
-BF_START_TS=$(date +%s)
+  BF_OFFSET=0
+  BF_ROUND=0
+  BF_TOTAL_UPSERTED=0
+  BF_TOTAL_ERRORS=0
+  BF_START_TS=$(date +%s)
 
-while [ "$BF_OFFSET" -lt "$TOTAL_TICKERS" ]; do
-  BF_ROUND=$((BF_ROUND + 1))
-  REMAINING=$((TOTAL_TICKERS - BF_OFFSET))
-  THIS_BATCH=$(( REMAINING < BF_BATCH ? REMAINING : BF_BATCH ))
+  while [ "$BF_OFFSET" -lt "$TOTAL_TICKERS" ]; do
+    BF_ROUND=$((BF_ROUND + 1))
+    REMAINING=$((TOTAL_TICKERS - BF_OFFSET))
+    THIS_BATCH=$(( REMAINING < BF_BATCH ? REMAINING : BF_BATCH ))
 
-  echo -n "  [$BF_ROUND] offset=$BF_OFFSET ($THIS_BATCH tickers)... "
+    echo -n "  [$BF_ROUND] offset=$BF_OFFSET ($THIS_BATCH tickers)... "
 
-  BF_RESULT=$(curl -s -m 600 -X POST \
-    "$API_BASE/timed/admin/alpaca-backfill?sinceDays=$SINCE_DAYS&tf=all&offset=$BF_OFFSET&limit=$THIS_BATCH&key=$API_KEY" 2>&1)
-  BF_OK=$(echo "$BF_RESULT" | jq -r '.ok // false' 2>/dev/null || echo "false")
-  UPSERTED=$(echo "$BF_RESULT" | jq -r '.upserted // 0' 2>/dev/null || echo "0")
-  BF_ERRS=$(echo "$BF_RESULT" | jq -r '.errors // 0' 2>/dev/null || echo "0")
+    BF_RESULT=$(curl -s -m 600 -X POST \
+      "$API_BASE/timed/admin/alpaca-backfill?sinceDays=$SINCE_DAYS&tf=all&offset=$BF_OFFSET&limit=$THIS_BATCH&key=$API_KEY" 2>&1)
+    BF_OK=$(echo "$BF_RESULT" | jq -r '.ok // false' 2>/dev/null || echo "false")
+    UPSERTED=$(echo "$BF_RESULT" | jq -r '.upserted // 0' 2>/dev/null || echo "0")
+    BF_ERRS=$(echo "$BF_RESULT" | jq -r '.errors // 0' 2>/dev/null || echo "0")
 
-  BF_TOTAL_UPSERTED=$((BF_TOTAL_UPSERTED + UPSERTED))
-  BF_TOTAL_ERRORS=$((BF_TOTAL_ERRORS + BF_ERRS))
-  ELAPSED=$(( $(date +%s) - BF_START_TS ))
-  PCTDONE=$(( (BF_OFFSET + THIS_BATCH) * 100 / TOTAL_TICKERS ))
+    BF_TOTAL_UPSERTED=$((BF_TOTAL_UPSERTED + UPSERTED))
+    BF_TOTAL_ERRORS=$((BF_TOTAL_ERRORS + BF_ERRS))
+    ELAPSED=$(( $(date +%s) - BF_START_TS ))
+    PCTDONE=$(( (BF_OFFSET + THIS_BATCH) * 100 / TOTAL_TICKERS ))
 
-  if [[ "$BF_OK" == "true" ]]; then
-    echo "done (${UPSERTED} candles, ${BF_ERRS}err) [${PCTDONE}% | ${ELAPSED}s]"
-  else
-    echo "ERROR: $(echo "$BF_RESULT" | head -c 300) [${ELAPSED}s]"
-  fi
+    if [[ "$BF_OK" == "true" ]]; then
+      echo "done (${UPSERTED} candles, ${BF_ERRS}err) [${PCTDONE}% | ${ELAPSED}s]"
+    else
+      echo "ERROR: $(echo "$BF_RESULT" | head -c 300) [${ELAPSED}s]"
+    fi
 
-  BF_OFFSET=$((BF_OFFSET + BF_BATCH))
-  sleep 2
-done
+    BF_OFFSET=$((BF_OFFSET + BF_BATCH))
+    sleep 2
+  done
 
-BF_ELAPSED=$(( $(date +%s) - BF_START_TS ))
-echo ""
-echo "  Backfill complete: ${BF_TOTAL_UPSERTED} total candles, ${BF_TOTAL_ERRORS} errors (${BF_ELAPSED}s)"
-echo ""
+  BF_ELAPSED=$(( $(date +%s) - BF_START_TS ))
+  echo ""
+  echo "  Backfill complete: ${BF_TOTAL_UPSERTED} total candles, ${BF_TOTAL_ERRORS} errors (${BF_ELAPSED}s)"
+  echo ""
+fi
 
 # ─── Step 2: Process each trading day ────────────────────────────────────────
 CURRENT_DATE="$START_DATE"
@@ -94,6 +126,7 @@ TOTAL_SCORED=0
 DAY_COUNT=0
 SKIP_COUNT=0
 IS_FIRST_BATCH=true
+if $RESUME; then IS_FIRST_BATCH=false; fi
 
 while [[ "$CURRENT_DATE" < "$END_DATE" ]] || [[ "$CURRENT_DATE" == "$END_DATE" ]]; do
   DAY_OF_WEEK=$(date -j -f "%Y-%m-%d" "$CURRENT_DATE" "+%u" 2>/dev/null || date -d "$CURRENT_DATE" "+%u")
@@ -160,7 +193,11 @@ while [[ "$CURRENT_DATE" < "$END_DATE" ]] || [[ "$CURRENT_DATE" == "$END_DATE" ]
   echo "  Day complete: scored=$DAY_SCORED trades=$DAY_TRADES"
   echo ""
 
-  CURRENT_DATE=$(date -j -v+1d -f "%Y-%m-%d" "$CURRENT_DATE" "+%Y-%m-%d" 2>/dev/null || date -d "$CURRENT_DATE + 1 day" "+%Y-%m-%d")
+  NEXT_DATE=$(date -j -v+1d -f "%Y-%m-%d" "$CURRENT_DATE" "+%Y-%m-%d" 2>/dev/null || date -d "$CURRENT_DATE + 1 day" "+%Y-%m-%d")
+  mkdir -p "$(dirname "$CHECKPOINT_FILE")"
+  printf '%s\n%s\n%s\n' "$NEXT_DATE" "$END_DATE" "$TICKER_BATCH" > "$CHECKPOINT_FILE"
+
+  CURRENT_DATE="$NEXT_DATE"
 done
 
 echo "╔══════════════════════════════════════════════════════╗"
@@ -210,4 +247,6 @@ echo "=== Releasing replay lock ==="
 UNLOCK_RESULT=$(curl -s -m 30 -X DELETE "$API_BASE/timed/admin/replay-lock?key=$API_KEY")
 echo "Unlock: $(echo "$UNLOCK_RESULT" | jq -c '{ok, released}' 2>/dev/null || echo "$UNLOCK_RESULT")"
 echo ""
-echo "=== All done ==="
+
+rm -f "$CHECKPOINT_FILE"
+echo "=== All done (checkpoint cleared) ==="

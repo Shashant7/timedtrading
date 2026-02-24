@@ -7590,7 +7590,7 @@ async function processTradeSimulation(
 
     // Portfolio (cash gating + bookkeeping)
     let portfolio = isReplay
-      ? { cash: 1e9 }
+      ? { cash: await d1GetLedgerBalance(env, "trader"), startCash: PORTFOLIO_START_CASH }
       : await getPortfolioState(KV);
 
     const stageTransition = stage && stage !== prevStage;
@@ -29863,7 +29863,7 @@ export default {
         // candles up to this date. Without this, d1GetCandlesAllTfs returns the
         // latest 1500 candles (e.g. from Dec 2025+) which are ALL after a Jul 2025
         // replay date, causing ltf_score=0 and zero trades.
-        const REPLAY_TFS = ["W", "D", "240", "60", "30", "10", "5"];
+        const REPLAY_TFS = ["M", "W", "D", "240", "60", "30", "10", "5"];
         const candleCache = {}; // { TICKER: { TF: [candles sorted asc by ts] } }
 
         await Promise.all(
@@ -29975,6 +29975,7 @@ export default {
               if (!hasData) { skipped++; continue; }
 
               const bundleMap = {
+                M: bundles.M || null,
                 W: bundles.W || null,
                 D: bundles.D || null,
                 "240": bundles["240"] || null,
