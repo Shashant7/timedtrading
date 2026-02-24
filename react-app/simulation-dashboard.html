@@ -6211,6 +6211,7 @@
         });
         const [ledgerIncludeEvidence, setLedgerIncludeEvidence] =
           useState(true);
+        const [accountChartRange, setAccountChartRange] = useState("30D");
 
         const ledgerRangeDays = useMemo(() => {
           const a = ledgerDateRange.start.getTime();
