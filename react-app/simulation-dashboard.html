@@ -13,6 +13,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
     <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/htm@3.1.1/dist/htm.umd.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
@@ -128,7 +129,12 @@
     <script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
     <script src="shared-right-rail.compiled.js?v=20260218a" type="text/babel"></script>
     <script type="text/babel">
-      const { useState, useEffect, useMemo, useCallback, memo, useRef } = React;
+      const { useState, useEffect, useMemo, useCallback, memo, useRef, createElement } = React;
+      const html = (function () {
+        const fn = typeof htm !== "undefined" ? htm.bind(createElement) : createElement;
+        if (typeof window !== "undefined") { window.__ttHtml = fn; window.html = fn; }
+        return fn;
+      })();
 
       // ─────────────────────────────────────────────────────────────
       // Constants
@@ -5836,6 +5842,8 @@
       // Renders: Equity Curve -> Metrics -> Open Positions -> Trade History
       // ─────────────────────────────────────────────────────────────
       function PortfolioColumn({ mode, summary, curveData, trades, positions, tickerData, loading, onSelectTrade }) {
+        const html = (typeof window !== "undefined" && (window.__ttHtml || window.html)) || null;
+        if (!html) throw new Error("htm not loaded");
         const isTrader = mode === "trader";
         const label = isTrader ? "Active Trader" : "Investor";
         const accentColor = isTrader ? "var(--tt-accent)" : "#8b5cf6";
