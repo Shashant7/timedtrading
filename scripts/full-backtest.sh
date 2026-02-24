@@ -223,8 +223,20 @@ while [[ "$CURRENT_DATE" < "$END_DATE" ]] || [[ "$CURRENT_DATE" == "$END_DATE" ]
       IS_FIRST_BATCH=false
     fi
 
-    RESULT=$(curl -s -m 600 -X POST \
-      "$API_BASE/timed/admin/candle-replay?date=$CURRENT_DATE&tickerOffset=$TICKER_OFFSET&tickerBatch=$TICKER_BATCH&intervalMinutes=$INTERVAL_MIN&key=$API_KEY${CLEAN_PARAM}" 2>&1)
+    RESULT=""
+    REPLAY_URL="$API_BASE/timed/admin/candle-replay?date=$CURRENT_DATE&tickerOffset=$TICKER_OFFSET&tickerBatch=$TICKER_BATCH&intervalMinutes=$INTERVAL_MIN&key=$API_KEY${CLEAN_PARAM}"
+    for retry in 1 2 3 4 5; do
+      RESULT=$(curl -s -m 600 -X POST "$REPLAY_URL" 2>&1) || true
+      if echo "$RESULT" | jq -e '.scored >= 0' >/dev/null 2>&1; then
+        break
+      fi
+      echo "  offset=$TICKER_OFFSET: attempt $retry failed (network/timeout?), retrying in 30s..."
+      sleep 30
+    done
+    if ! echo "$RESULT" | jq -e '.scored >= 0' >/dev/null 2>&1; then
+      echo "ERROR: candle-replay failed after 5 attempts. Last response: $(echo "$RESULT" | head -c 200)"
+      exit 1
+    fi
 
     SCORED=$(echo "$RESULT" | jq -r '.scored // 0' 2>/dev/null || echo "0")
     TRADES=$(echo "$RESULT" | jq -r '.tradesCreated // 0' 2>/dev/null || echo "0")

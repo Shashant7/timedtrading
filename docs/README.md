@@ -31,6 +31,7 @@
 
 ## Feature & Reference
 
+- [REPLAY_AND_BACKTEST.md](REPLAY_AND_BACKTEST.md) - Full backtest replay, gap-based backfill, Replay Control UI
 - [MOMENTUM_ELITE_IMPLEMENTATION.md](MOMENTUM_ELITE_IMPLEMENTATION.md) - Momentum Elite feature
 - [SECTOR_WATCHLIST_GUIDE.md](SECTOR_WATCHLIST_GUIDE.md) - Sector watchlist and ticker management
 

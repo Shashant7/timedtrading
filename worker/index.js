@@ -35531,9 +35531,13 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
       // This runs the full investor scoring pipeline and stores results in KV
       if (routeKey === "POST /timed/investor/compute") {
         try {
-          // Fetch all ticker data from KV
-          const tickerListResp = await kvGetJSON(env.KV_TIMED, "timed:tickers");
-          const allTickers = tickerListResp || [];
+          // Use same universe as replay (SECTOR_MAP ~152) so Investor page count matches replay
+          const canonicalTickers = Object.keys(SECTOR_MAP);
+          const kvTickers = (await kvGetJSON(env.KV_TIMED, "timed:tickers")) || [];
+          const tickerListResp = url.searchParams.get("universe") === "all"
+            ? kvTickers
+            : canonicalTickers;
+          const allTickers = Array.isArray(tickerListResp) ? tickerListResp : [];
           const tickerSyms = allTickers.map(t => typeof t === "string" ? t : t.ticker).filter(Boolean);
 
           // Get SPY candles for relative strength

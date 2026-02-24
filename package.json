@@ -1,5 +1,6 @@
 {
   "scripts": {
+    "replay-ui": "node scripts/replay-ui-server.js",
     "build:rail": "node scripts/compile-right-rail.js",
     "deploy": "npm run build:rail && node scripts/embed-dashboard.js && cd worker && wrangler deploy && wrangler deploy --env production",
     "deploy:worker": "node scripts/embed-dashboard.js && cd worker && wrangler deploy && wrangler deploy --env production"

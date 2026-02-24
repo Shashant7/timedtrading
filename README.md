@@ -107,6 +107,7 @@ Discord alerts are sent when:
 
 - [ARCHITECTURE.md](ARCHITECTURE.md) - System architecture, data flow, scoring
 - [docs/README.md](docs/README.md) - Documentation index
+- [docs/REPLAY_AND_BACKTEST.md](docs/REPLAY_AND_BACKTEST.md) - Full backtest replay and Replay Control UI (`npm run replay-ui`)
 - [tasks/WORKFLOW_ORCHESTRATION.md](tasks/WORKFLOW_ORCHESTRATION.md) - Dev workflow
 - [SECRETS_MANAGEMENT.md](SECRETS_MANAGEMENT.md) - Secrets (API keys, webhooks)
 
