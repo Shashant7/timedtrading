@@ -1354,13 +1354,13 @@
             const json = await res.json();
             if (!json.ok) {
               setError(json.detail || json.error || "Failed to add ticker");
-              return false;
+              return null;
             }
             await fetchSlots();
-            return true;
+            return json;
           } catch (e) {
             setError(String(e?.message || e));
-            return false;
+            return null;
           } finally { setAdding(false); }
         }, [fetchSlots]);
 
@@ -3403,9 +3403,11 @@
             if (d.state !== "HTF_BEAR_LTF_PULLBACK") continue;
           }
 
+          const isUnscored = d.ingest_kind === "user_ticker_seed" || d.ingest_kind === "admin_seed" || (d.state === "NEUTRAL" && Number(d.rank) === 0 && Number(d.htf_score) === 0 && Number(d.ltf_score) === 0);
           if (
             effectiveFilters.quadrants &&
-            !effectiveFilters.quadrants.includes(d.state)
+            !effectiveFilters.quadrants.includes(d.state) &&
+            !isUnscored
           )
             continue;
           if (
@@ -16726,15 +16728,32 @@
                           }}
                           className="w-full pl-9 pr-3 py-1.5 bg-white/[0.03] border border-white/[0.08] rounded-2xl text-white text-sm placeholder-[#6b7280] focus:border-white/[0.15] focus:outline-none transition-colors"
                         />
-                        {debouncedSearch && debouncedSearch.length >= 2 && tickers.length === 0 && !loading && (() => {
-                          const sym = debouncedSearch.toUpperCase().trim();
+                        {filters.search && filters.search.trim().length >= 2 && tickers.length === 0 && !loading && (() => {
+                          const sym = filters.search.toUpperCase().trim();
                           const alreadyInSlots = userTickers.slots.some(s => s.ticker === sym && (s.active || s.held));
                           return (
                             <div className="absolute top-full left-0 mt-1 z-50 w-full bg-[#1a1e2e] border border-white/[0.12] rounded-lg shadow-xl p-2.5">
-                              <div className="text-[11px] text-[#6b7280] mb-1.5">No tickers found for "{debouncedSearch}"</div>
+                              <div className="text-[11px] text-[#6b7280] mb-1.5">No tickers found for "{filters.search.trim()}"</div>
                               {alreadyInSlots ? (
-                                <div className="text-[10px] text-amber-400/70 px-1">
-                                  {sym} is already in your custom tickers{userTickers.slots.find(s => s.ticker === sym)?.held ? " (held)" : " — it may still be processing"}.
+                                <div className="flex items-center justify-between gap-2 px-1">
+                                  <div className="text-[10px] text-amber-400/70">
+                                    {sym} is in your custom tickers{userTickers.slots.find(s => s.ticker === sym)?.held ? " (held)" : ""}.
+                                  </div>
+                                  {!userTickers.slots.find(s => s.ticker === sym)?.held && (
+                                    <button
+                                      onClick={async () => {
+                                        const result = await userTickers.addTicker(sym);
+                                        if (result) {
+                                          if (result.seed_data) setTickerData(prev => ({ ...prev, [sym]: result.seed_data }));
+                                          refetch();
+                                        }
+                                      }}
+                                      disabled={userTickers.adding}
+                                      className="shrink-0 px-2 py-0.5 rounded bg-amber-600/20 border border-amber-500/30 text-amber-300 text-[10px] font-medium hover:bg-amber-600/30 transition-colors disabled:opacity-40"
+                                    >
+                                      {userTickers.adding ? "…" : "Retry"}
+                                    </button>
+                                  )}
                                 </div>
                               ) : (
                                 <button
@@ -16865,8 +16884,12 @@
                             e.preventDefault();
                             const val = addTickerInput.toUpperCase().trim();
                             if (!val) return;
-                            const ok = await userTickers.addTicker(val);
-                            if (ok) { setAddTickerInput(""); refetch(); }
+                            const result = await userTickers.addTicker(val);
+                            if (result) {
+                              if (result.seed_data) setTickerData(prev => ({ ...prev, [val]: result.seed_data }));
+                              setAddTickerInput("");
+                              refetch();
+                            }
                           }} className="flex gap-1.5 mb-2">
                             <input
                               type="text"

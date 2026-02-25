@@ -9,7 +9,8 @@
 # Investor-only backfill (after trader-only): ./scripts/full-backtest.sh --investor-only 2025-07-01 2026-02-23
 # Sequence (trader-only then investor-only): ./scripts/full-backtest.sh --sequence 2025-07-01 2026-02-23 20
 # Interval: 4th arg defaults to 5 (minutes). We use 5 min for replay fidelity; 10 is optional for faster runs.
-# By default the script uses fullDay=1 (worker runs all batches for each day in one request).
+# Each day is processed in batch-by-batch requests (tickerBatch tickers per request) to stay
+# within Cloudflare Worker CPU/wall-time limits. Investor replay runs on the last batch.
 # Note: Backfill automatically detects candle gaps and only fills what's missing.
 
 set -e
@@ -267,8 +268,10 @@ while [[ "$CURRENT_DATE" < "$END_DATE" ]] || [[ "$CURRENT_DATE" == "$END_DATE" ]
   DAY_COUNT=$((DAY_COUNT + 1))
   DAY_TRADES=0
   DAY_SCORED=0
+  DAY_D1=0
+  DAY_ERRS=0
+  DAY_TOTAL_TR=0
 
-  # fullDay=1: worker does all batches for the day in one request (much faster, fewer round-trips)
   CLEAN_PARAM=""
   if $IS_FIRST_BATCH; then
     CLEAN_PARAM="&cleanSlate=1"
@@ -276,42 +279,58 @@ while [[ "$CURRENT_DATE" < "$END_DATE" ]] || [[ "$CURRENT_DATE" == "$END_DATE" ]
   fi
   SKIP_INV=""
   $TRADER_ONLY && SKIP_INV="&skipInvestor=1"
-  REPLAY_URL="$API_BASE/timed/admin/candle-replay?date=$CURRENT_DATE&fullDay=1&tickerBatch=$TICKER_BATCH&intervalMinutes=$INTERVAL_MIN&key=$API_KEY${CLEAN_PARAM}${SKIP_INV}"
 
-  RESULT=""
-  for retry in 1 2 3 4 5; do
-    RESULT=$(curl -s -m 1200 -X POST "$REPLAY_URL" 2>&1) || true
-    if echo "$RESULT" | jq -e '.scored >= 0' >/dev/null 2>&1; then
+  # Process day in batches (avoids Cloudflare Worker CPU/wall-time limits on large DBs)
+  BATCH_OFFSET=0
+  BATCH_NUM=0
+  while true; do
+    BATCH_NUM=$((BATCH_NUM + 1))
+    REPLAY_URL="$API_BASE/timed/admin/candle-replay?date=$CURRENT_DATE&tickerOffset=$BATCH_OFFSET&tickerBatch=$TICKER_BATCH&intervalMinutes=$INTERVAL_MIN&key=$API_KEY${CLEAN_PARAM}${SKIP_INV}"
+    CLEAN_PARAM=""
+
+    RESULT=""
+    for retry in 1 2 3 4 5; do
+      RESULT=$(curl -s -m 300 -X POST "$REPLAY_URL" 2>&1) || true
+      if echo "$RESULT" | jq -e '.scored >= 0' >/dev/null 2>&1; then
+        break
+      fi
+      echo "  batch $BATCH_NUM attempt $retry failed, retrying in 15s..."
+      sleep 15
+    done
+    if ! echo "$RESULT" | jq -e '.scored >= 0' >/dev/null 2>&1; then
+      echo "ERROR: candle-replay failed after 5 attempts on $CURRENT_DATE batch $BATCH_NUM (offset=$BATCH_OFFSET)."
+      echo "  Last response: $(echo "$RESULT" | head -c 300)"
+      exit 1
+    fi
+
+    B_SCORED=$(echo "$RESULT" | jq -r '.scored // 0' 2>/dev/null || echo "0")
+    B_TRADES=$(echo "$RESULT" | jq -r '.tradesCreated // 0' 2>/dev/null || echo "0")
+    B_ERRS=$(echo "$RESULT" | jq -r '.errorsCount // 0' 2>/dev/null || echo "0")
+    B_TOTAL_TR=$(echo "$RESULT" | jq -r '.totalTrades // 0' 2>/dev/null || echo "0")
+    B_D1=$(echo "$RESULT" | jq -r '.d1StateWritten // 0' 2>/dev/null || echo "0")
+    B_HAS_MORE=$(echo "$RESULT" | jq -r '.hasMore // false' 2>/dev/null || echo "false")
+    B_NEXT_OFFSET=$(echo "$RESULT" | jq -r '.nextTickerOffset // 0' 2>/dev/null || echo "0")
+    B_TICKERS=$(echo "$RESULT" | jq -r '.tickersProcessed // 0' 2>/dev/null || echo "0")
+
+    DAY_SCORED=$((DAY_SCORED + B_SCORED))
+    DAY_TRADES=$((DAY_TRADES + B_TRADES))
+    DAY_D1=$((DAY_D1 + B_D1))
+    DAY_ERRS=$((DAY_ERRS + B_ERRS))
+    DAY_TOTAL_TR=$B_TOTAL_TR
+
+    echo "  batch $BATCH_NUM: ${B_TICKERS}tk scored=$B_SCORED trades=$B_TRADES d1=$B_D1 err=$B_ERRS"
+
+    if [[ "$B_HAS_MORE" != "true" ]]; then
       break
     fi
-    echo "  attempt $retry failed (network/timeout?), retrying in 30s..."
-    sleep 30
+    BATCH_OFFSET=$B_NEXT_OFFSET
+    sleep 2
   done
-  if ! echo "$RESULT" | jq -e '.scored >= 0' >/dev/null 2>&1; then
-    echo "ERROR: candle-replay failed after 5 attempts. Last response: $(echo "$RESULT" | head -c 200)"
-    exit 1
-  fi
-
-  SCORED=$(echo "$RESULT" | jq -r '.scored // 0' 2>/dev/null || echo "0")
-  TRADES=$(echo "$RESULT" | jq -r '.tradesCreated // 0' 2>/dev/null || echo "0")
-  ERRS=$(echo "$RESULT" | jq -r '.errorsCount // 0' 2>/dev/null || echo "0")
-  TOTAL_TR=$(echo "$RESULT" | jq -r '.totalTrades // 0' 2>/dev/null || echo "0")
-  D1_STATE=$(echo "$RESULT" | jq -r '.d1StateWritten // 0' 2>/dev/null || echo "0")
-  STAGES=$(echo "$RESULT" | jq -c '.stageCounts // {}' 2>/dev/null || echo "{}")
-  BLOCKS=$(echo "$RESULT" | jq -c '.blockReasons // {}' 2>/dev/null || echo "{}")
-
-  DAY_SCORED=$SCORED
-  DAY_TRADES=$TRADES
-
-  echo "  scored=$SCORED trades=$TRADES d1=$D1_STATE errors=$ERRS (total=$TOTAL_TR) $STAGES"
-  if [[ "$DAY_COUNT" -le 3 ]] && [[ "$BLOCKS" != "{}" ]]; then
-    echo "    blockReasons: $BLOCKS"
-  fi
 
   TOTAL_TRADES=$((TOTAL_TRADES + DAY_TRADES))
   TOTAL_SCORED=$((TOTAL_SCORED + DAY_SCORED))
 
-  echo "  Day complete: scored=$DAY_SCORED trades=$DAY_TRADES"
+  echo "  Day complete: scored=$DAY_SCORED trades=$DAY_TRADES total=$DAY_TOTAL_TR errors=$DAY_ERRS ($BATCH_NUM batches)"
   echo ""
 
   NEXT_DATE=$(date -j -v+1d -f "%Y-%m-%d" "$CURRENT_DATE" "+%Y-%m-%d" 2>/dev/null || date -d "$CURRENT_DATE + 1 day" "+%Y-%m-%d")

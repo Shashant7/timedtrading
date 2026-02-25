@@ -325,7 +325,7 @@
 
   // ── Paywall Screen ────────────────────────────────────────────────────────
   // Shown when user.tier === "free" and no active subscription.
-  // Offers Timed Trading Pro subscription with first month free trial.
+  // Offers Timed Trading Pro subscription with 14-day free trial.
   function PaywallScreen({ user, apiBase }) {
     const [loading, setLoading] = React.useState(false);
     const [error, setError] = React.useState(null);
@@ -384,14 +384,14 @@
             fontWeight: "600", color: "#00c853", background: "rgba(0,200,83,0.1)",
             border: "1px solid rgba(0,200,83,0.2)", marginBottom: "16px", letterSpacing: "0.5px",
           },
-        }, "FIRST MONTH FREE"),
+        }, "14-DAY FREE TRIAL"),
         // Title
         h("h1", { style: { fontSize: "24px", fontWeight: "700", color: "#e5e7eb", margin: "0 0 8px" } },
           "Timed Trading Pro"),
         h("p", { style: { fontSize: "32px", fontWeight: "800", color: "#ffffff", margin: "0 0 4px" } },
           "$60", h("span", { style: { fontSize: "16px", color: "#6b7280", fontWeight: "400" } }, "/month")),
         h("p", { style: { fontSize: "13px", color: "#6b7280", margin: "0 0 24px" } },
-          "Cancel anytime. No refunds. Charged monthly after trial."),
+          "14-day free trial. Cancel anytime. Charged monthly after trial."),
         // Features
         h("div", {
           style: {

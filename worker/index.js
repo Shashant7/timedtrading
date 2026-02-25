@@ -513,6 +513,7 @@ const ROUTES = [
   ["GET", "/timed/admin/ingestion-status", "GET /timed/admin/ingestion-status"],
   ["GET", "/timed/admin/backfill-status", "GET /timed/admin/backfill-status"],
   ["POST", "/timed/admin/refresh-prices", "POST /timed/admin/refresh-prices"],
+  ["POST", "/timed/admin/seed-ticker", "POST /timed/admin/seed-ticker"],
   ["POST", "/timed/admin/candle-replay", "POST /timed/admin/candle-replay"],
   ["POST", "/timed/admin/investor-replay", "POST /timed/admin/investor-replay"],
   ["POST", "/timed/admin/reopen-stale-exits", "POST /timed/admin/reopen-stale-exits"],
@@ -574,6 +575,8 @@ const ROUTES = [
   ["POST", "/timed/stripe/webhook", "POST /timed/stripe/webhook"],
   ["POST", "/timed/stripe/portal", "POST /timed/stripe/portal"],
   ["GET", "/timed/subscription", "GET /timed/subscription"],
+  ["GET", "/timed/admin/stripe/subscriptions", "GET /timed/admin/stripe/subscriptions"],
+  ["POST", "/timed/admin/stripe/cancel", "POST /timed/admin/stripe/cancel"],
   // ── Calibration Pipeline ──
   ["POST", "/timed/calibration/upload-moves", "POST /timed/calibration/upload-moves"],
   ["POST", "/timed/calibration/upload-autopsy", "POST /timed/calibration/upload-autopsy"],
@@ -16495,8 +16498,8 @@ async function ensureAccountLedgerSchema(db, KV) {
       const last = Number(await KV.get(throttleKey));
       if (Number.isFinite(last) && Date.now() - last < 24 * 60 * 60 * 1000) return;
     }
-    await db.exec(`
-      CREATE TABLE IF NOT EXISTS account_ledger (
+    await db.batch([
+      db.prepare(`CREATE TABLE IF NOT EXISTS account_ledger (
         ledger_id INTEGER PRIMARY KEY AUTOINCREMENT,
         mode TEXT NOT NULL DEFAULT 'trader',
         ts INTEGER NOT NULL,
@@ -16510,10 +16513,10 @@ async function ensureAccountLedgerSchema(db, KV) {
         realized_pnl REAL DEFAULT 0,
         balance REAL NOT NULL,
         note TEXT
-      );
-      CREATE INDEX IF NOT EXISTS idx_account_ledger_ts ON account_ledger (ts);
-      CREATE INDEX IF NOT EXISTS idx_account_ledger_mode_ts ON account_ledger (mode, ts);
-    `);
+      )`),
+      db.prepare("CREATE INDEX IF NOT EXISTS idx_account_ledger_ts ON account_ledger (ts)"),
+      db.prepare("CREATE INDEX IF NOT EXISTS idx_account_ledger_mode_ts ON account_ledger (mode, ts)"),
+    ]);
     if (KV) await KV.put(throttleKey, String(Date.now()));
   } catch (err) {
     console.error("[D1 LEDGER] ensureAccountLedgerSchema failed:", err);
@@ -16857,8 +16860,8 @@ async function ensurePortfolioSnapshotsSchema(db, KV) {
     }
   } catch {}
   try {
-    await db.exec(`
-      CREATE TABLE IF NOT EXISTS portfolio_snapshots (
+    await db.batch([
+      db.prepare(`CREATE TABLE IF NOT EXISTS portfolio_snapshots (
         id TEXT PRIMARY KEY,
         mode TEXT NOT NULL,
         snap_date TEXT NOT NULL,
@@ -16870,10 +16873,10 @@ async function ensurePortfolioSnapshotsSchema(db, KV) {
         day_realized_pnl REAL DEFAULT 0,
         day_trades INTEGER DEFAULT 0,
         created_at INTEGER NOT NULL
-      );
-      CREATE INDEX IF NOT EXISTS idx_snap_mode_date ON portfolio_snapshots (mode, snap_date);
-      CREATE INDEX IF NOT EXISTS idx_snap_ts ON portfolio_snapshots (ts);
-    `);
+      )`),
+      db.prepare("CREATE INDEX IF NOT EXISTS idx_snap_mode_date ON portfolio_snapshots (mode, snap_date)"),
+      db.prepare("CREATE INDEX IF NOT EXISTS idx_snap_ts ON portfolio_snapshots (ts)"),
+    ]);
     if (KV) await KV.put(throttleKey, String(Date.now()));
   } catch (err) {
     console.error("[D1 SNAPSHOT] ensurePortfolioSnapshotsSchema failed:", err);
@@ -23597,8 +23600,9 @@ export default {
             `SELECT ticker, payload_json, updated_at, kanban_stage, prev_kanban_stage FROM ticker_latest`,
           ).all();
 
-          // Filter: must be in SECTOR_MAP
-          const activeSet = new Set(Object.keys(SECTOR_MAP));
+          // Filter: must be in SECTOR_MAP or user-added tickers
+          const userAdded2 = await d1GetActiveUserTickersCached(env);
+          const activeSet = new Set([...Object.keys(SECTOR_MAP), ...userAdded2, ...MARKET_PULSE_SYMS]);
           const results = (rows?.results || []).filter(r => {
             const sym = String(r?.ticker || "").toUpperCase();
             return sym && activeSet.has(sym);
@@ -23979,6 +23983,25 @@ export default {
             }
           } catch (reconcileErr) {
             console.warn("[/timed/all] Position reconciliation failed:", String(reconcileErr?.message || reconcileErr));
+          }
+
+          // ── User-added ticker gap-fill (D1 fallback path) ──
+          // User tickers won't be in ticker_latest, so gap-fill from timed:latest:{sym} KV
+          try {
+            const missingUserTickers = userAdded2.filter(s => !data[s]);
+            if (missingUserTickers.length > 0) {
+              const kvResults = await Promise.all(
+                missingUserTickers.slice(0, 30).map(s => kvGetJSON(KV, `timed:latest:${s}`).catch(() => null))
+              );
+              for (let i = 0; i < Math.min(missingUserTickers.length, 30); i++) {
+                const kvPayload = kvResults[i];
+                if (kvPayload && typeof kvPayload === "object" && Number(kvPayload.price) > 0) {
+                  data[missingUserTickers[i]] = kvPayload;
+                }
+              }
+            }
+          } catch (userGapErr) {
+            console.warn("[/timed/all] User ticker gap-fill failed:", String(userGapErr?.message || userGapErr));
           }
 
           // ── Market Pulse placeholders (D1 fallback path) ──
@@ -29960,6 +29983,40 @@ export default {
       }
 
       // ═══════════════════════════════════════════════════════════════════════════
+      // POST /timed/admin/seed-ticker — fetch quote from TwelveData and seed KV
+      if (routeKey === "POST /timed/admin/seed-ticker") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const u = new URL(req.url);
+        const ticker = String(u.searchParams.get("ticker") || "").toUpperCase().trim();
+        if (!ticker) return sendJSON({ ok: false, error: "missing ticker" }, 400, corsHeaders(env, req));
+        try {
+          const result = await DataProvider.fetchLatestQuotes(env, [ticker]);
+          const snap = result?.snapshots?.[ticker];
+          if (!snap || !(snap.price > 0)) {
+            return sendJSON({ ok: false, error: "no_data", raw: result, ticker }, 404, corsHeaders(env, req));
+          }
+          const price = Number(snap.price);
+          const prevClose = Number(snap.prevDailyClose || 0);
+          const seedPayload = {
+            ticker, price, close: price,
+            open: Number(snap.dailyOpen || price),
+            high: Number(snap.dailyHigh || price),
+            low: Number(snap.dailyLow || price),
+            prev_close: prevClose || undefined,
+            day_change: prevClose > 0 ? price - prevClose : undefined,
+            day_change_pct: prevClose > 0 ? ((price - prevClose) / prevClose) * 100 : undefined,
+            ts: Date.now(), ingest_ts: Date.now(), ingest_kind: "admin_seed",
+            kanban_stage: null, state: "NEUTRAL", rank: 0, htf_score: 0, ltf_score: 0,
+          };
+          await kvPutJSON(KV, `timed:latest:${ticker}`, seedPayload);
+          return sendJSON({ ok: true, ticker, seeded: true, payload: seedPayload, raw_snap: snap }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300), ticker }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // ═══════════════════════════════════════════════════════════════════════════
       // GET /timed/admin/backfill-status
       // Returns current backfill progress from KV (written by alpacaBackfill).
       if (routeKey === "GET /timed/admin/backfill-status") {
@@ -30072,13 +30129,14 @@ export default {
         // latest 1500 candles (e.g. from Dec 2025+) which are ALL after a Jul 2025
         // replay date, causing ltf_score=0 and zero trades.
         const REPLAY_TFS = ["M", "W", "D", "240", "60", "30", "10", "5"];
+        const REPLAY_TF_LIMITS = { M: 200, W: 300, D: 600, "240": 600, "60": 600, "30": 600, "10": 500, "5": 500 };
         const candleCache = {}; // { TICKER: { TF: [candles sorted asc by ts] } }
 
         await Promise.all(
           batchTickers.map(async (ticker) => {
             candleCache[ticker] = {};
             try {
-              const tfConfigs = REPLAY_TFS.map(tf => ({ tf, limit: 1500 }));
+              const tfConfigs = REPLAY_TFS.map(tf => ({ tf, limit: REPLAY_TF_LIMITS[tf] || 600 }));
               const batchResult = await d1GetCandlesAllTfs(env, ticker, tfConfigs, { beforeTs: marketCloseMs });
               for (const tf of REPLAY_TFS) {
                 const res = batchResult[tf];
@@ -30162,20 +30220,34 @@ export default {
         const blockReasons = {}; // Track why entries are blocked (diagnostic)
         const pendingTrail = []; // Collect trail points for batch write
 
+        // Bundle cache: skip recomputation when candle count hasn't changed
+        // HTF bundles (M/W/D) are identical across all intraday intervals; 4H changes ~twice/day
+        const bundleCache = {}; // { `${ticker}:${tf}`: { endIdx, bundle } }
+
         for (const intervalTs of intervals) {
           for (const ticker of batchTickers) {
             try {
-              // Slice candles to only include bars at or before this interval
               const bundles = {};
               let hasData = false;
               for (const tf of REPLAY_TFS) {
                 const allCandles = candleCache[ticker][tf] || [];
-                const sliced = allCandles.filter(c => c.ts <= intervalTs);
-                if (sliced.length >= 50) {
-                  const bundle = computeTfBundle(sliced);
-                  if (bundle) {
-                    bundles[tf] = bundle;
+                let lo = 0, hi = allCandles.length - 1;
+                while (lo <= hi) { const mid = (lo + hi) >> 1; if (allCandles[mid].ts <= intervalTs) lo = mid + 1; else hi = mid - 1; }
+                const endIdx = hi + 1;
+                if (endIdx >= 50) {
+                  const cacheKey = `${ticker}:${tf}`;
+                  const cached = bundleCache[cacheKey];
+                  if (cached && cached.endIdx === endIdx) {
+                    bundles[tf] = cached.bundle;
                     hasData = true;
+                  } else {
+                    const sliced = allCandles.slice(0, endIdx);
+                    const bundle = computeTfBundle(sliced);
+                    if (bundle) {
+                      bundles[tf] = bundle;
+                      hasData = true;
+                      bundleCache[cacheKey] = { endIdx, bundle };
+                    }
                   }
                 }
               }
@@ -31492,10 +31564,15 @@ export default {
           const limit = getUserSlotLimit(user);
           const activeOrHeld = slots.filter(s => s.active || s.held);
 
-          // Check if already active
+          // Check if already active — if so, re-seed if data is missing (handles failed initial seeds)
           const existing = slots.find(s => s.ticker === rawTicker && s.active);
           if (existing) {
-            return sendJSON({ ok: false, error: "already_added", ticker: rawTicker, detail: `${rawTicker} is already in your custom tickers.` }, 409, corsHeaders(env, req));
+            const hasData = await kvGetJSON(KV, `timed:latest:${rawTicker}`);
+            if (hasData && Number(hasData.price) > 0) {
+              return sendJSON({ ok: false, error: "already_added", ticker: rawTicker, detail: `${rawTicker} is already in your custom tickers.` }, 409, corsHeaders(env, req));
+            }
+            // Fall through to re-validate and re-seed (ticker was added but never seeded properly)
+            console.log(`[USER_TICKERS] ${rawTicker} exists but has no data — re-seeding`);
           }
 
           // Check if ticker is already in the seeded universe
@@ -31503,26 +31580,46 @@ export default {
             return sendJSON({ ok: false, error: "already_in_universe", ticker: rawTicker, detail: `${rawTicker} is already tracked in the Timed Trading universe. Search for it by name.` }, 409, corsHeaders(env, req));
           }
 
-          // Validate ticker exists in Alpaca feed and capture snapshot for immediate seeding
-          let alpacaSnap = null;
+          // Validate ticker exists in the market data feed and capture snapshot for immediate seeding
+          let quoteSnap = null;
+          let validationError = null;
           try {
-            const alpacaKey = env.ALPACA_KEY_ID || env.ALPACA_API_KEY;
-            const alpacaSecret = env.ALPACA_SECRET_KEY || env.ALPACA_API_SECRET;
-            if (alpacaKey && alpacaSecret) {
-              const snapRes = await fetch(`https://data.alpaca.markets/v2/stocks/${rawTicker}/snapshot?feed=sip`, {
-                headers: { "APCA-API-KEY-ID": alpacaKey, "APCA-API-SECRET-KEY": alpacaSecret },
-              });
-              if (!snapRes.ok) {
-                return sendJSON({ ok: false, error: "ticker_not_found", ticker: rawTicker, detail: `${rawTicker} was not found in the market data feed. Please check the symbol.` }, 400, corsHeaders(env, req));
+            if (_usesTwelveData(env)) {
+              const result = await DataProvider.fetchLatestQuotes(env, [rawTicker]);
+              const snap = result?.snapshots?.[rawTicker];
+              if (snap && snap.price > 0) {
+                quoteSnap = snap;
+              } else {
+                validationError = `${rawTicker} was not found in the market data feed. Please check the symbol.`;
               }
-              alpacaSnap = await snapRes.json();
+            } else {
+              const alpacaKey = env.ALPACA_KEY_ID || env.ALPACA_API_KEY;
+              const alpacaSecret = env.ALPACA_SECRET_KEY || env.ALPACA_API_SECRET;
+              if (alpacaKey && alpacaSecret) {
+                const snapRes = await fetch(`https://data.alpaca.markets/v2/stocks/${rawTicker}/snapshot?feed=sip`, {
+                  headers: { "APCA-API-KEY-ID": alpacaKey, "APCA-API-SECRET-KEY": alpacaSecret },
+                });
+                if (!snapRes.ok) {
+                  validationError = `${rawTicker} was not found in the market data feed. Please check the symbol.`;
+                } else {
+                  quoteSnap = await snapRes.json();
+                  quoteSnap._isAlpaca = true;
+                }
+              }
             }
           } catch (e) {
-            console.warn(`[USER_TICKERS] Alpaca validation failed for ${rawTicker}:`, String(e?.message || e).slice(0, 100));
+            console.warn(`[USER_TICKERS] Ticker validation failed for ${rawTicker}:`, String(e?.message || e).slice(0, 100));
+            validationError = `Ticker validation failed: ${String(e?.message || e).slice(0, 100)}`;
+          }
+          if (!quoteSnap && validationError) {
+            return sendJSON({ ok: false, error: "ticker_not_found", ticker: rawTicker, detail: validationError }, 400, corsHeaders(env, req));
           }
 
+          // Skip limit/swap/cap checks if this is a re-seed of an existing ticker
+          const isReseed = !!existing;
+
           // Check slot limit
-          if (activeOrHeld.length >= limit) {
+          if (!isReseed && activeOrHeld.length >= limit) {
             return sendJSON({
               ok: false, error: "slot_limit_reached",
               slots_used: activeOrHeld.length, slots_max: limit,
@@ -31532,22 +31629,23 @@ export default {
           }
 
           // Check daily swap budget (only if this is a "re-add after delete" scenario)
-          const swapsToday = await d1CountUserSwapsToday(env, user.email);
           const wasDeleted = slots.find(s => s.ticker === rawTicker && s.deleted_at != null);
-          if (!wasDeleted && swapsToday >= USER_TICKER_DAILY_SWAPS) {
-            // Only enforce swap limit for genuinely new tickers after a delete happened today
-            const deletedToday = slots.some(s => s.deleted_at != null && s.deleted_at >= new Date().setUTCHours(0, 0, 0, 0));
-            if (deletedToday) {
-              return sendJSON({
-                ok: false, error: "daily_swap_limit",
-                detail: `Max ${USER_TICKER_DAILY_SWAPS} swap(s) per day. Try again tomorrow.`,
-              }, 429, corsHeaders(env, req));
+          if (!isReseed) {
+            const swapsToday = await d1CountUserSwapsToday(env, user.email);
+            if (!wasDeleted && swapsToday >= USER_TICKER_DAILY_SWAPS) {
+              const deletedToday = slots.some(s => s.deleted_at != null && s.deleted_at >= new Date().setUTCHours(0, 0, 0, 0));
+              if (deletedToday) {
+                return sendJSON({
+                  ok: false, error: "daily_swap_limit",
+                  detail: `Max ${USER_TICKER_DAILY_SWAPS} swap(s) per day. Try again tomorrow.`,
+                }, 429, corsHeaders(env, req));
+              }
             }
           }
 
           // Check system-wide cap for genuinely new tickers
           const isInCore = !!SECTOR_MAP[rawTicker];
-          const isAlreadyInSystem = isInCore || (await d1GetActiveUserTickers(env)).includes(rawTicker);
+          const isAlreadyInSystem = isReseed || isInCore || (await d1GetActiveUserTickers(env)).includes(rawTicker);
           if (!isAlreadyInSystem) {
             const uniqueCount = await d1CountUniqueNewUserTickers(env);
             if (uniqueCount >= USER_TICKER_SYSTEM_CAP) {
@@ -31574,23 +31672,36 @@ export default {
           // Invalidate the scoring cache
           _userTickersCache = null;
 
-          // Seed timed:latest:{ticker} immediately from Alpaca snapshot so ticker appears in UI now
+          // Seed timed:latest:{ticker} immediately so the card appears in the UI right away
           let seeded = false;
-          if (alpacaSnap && !isInCore) {
+          let seedPayload = null;
+          if (quoteSnap && !isInCore) {
             try {
-              const lt = alpacaSnap.latestTrade;
-              const pdb = alpacaSnap.prevDailyBar;
-              const db2 = alpacaSnap.dailyBar;
-              const price = Number(lt?.p || db2?.c || 0);
-              const prevClose = Number(pdb?.c || 0);
+              let price, prevClose, open, high, low;
+              if (quoteSnap._isAlpaca) {
+                const lt = quoteSnap.latestTrade;
+                const pdb = quoteSnap.prevDailyBar;
+                const db2 = quoteSnap.dailyBar;
+                price = Number(lt?.p || db2?.c || 0);
+                prevClose = Number(pdb?.c || 0);
+                open = Number(db2?.o || price);
+                high = Number(db2?.h || price);
+                low = Number(db2?.l || price);
+              } else {
+                price = Number(quoteSnap.price || 0);
+                prevClose = Number(quoteSnap.prevDailyClose || 0);
+                open = Number(quoteSnap.dailyOpen || price);
+                high = Number(quoteSnap.dailyHigh || price);
+                low = Number(quoteSnap.dailyLow || price);
+              }
               if (price > 0) {
-                const seedPayload = {
+                seedPayload = {
                   ticker: rawTicker,
                   price,
                   close: price,
-                  open: Number(db2?.o || price),
-                  high: Number(db2?.h || price),
-                  low: Number(db2?.l || price),
+                  open,
+                  high,
+                  low,
                   prev_close: prevClose || undefined,
                   day_change: prevClose > 0 ? price - prevClose : undefined,
                   day_change_pct: prevClose > 0 ? ((price - prevClose) / prevClose) * 100 : undefined,
@@ -31605,7 +31716,7 @@ export default {
                 };
                 await kvPutJSON(KV, `timed:latest:${rawTicker}`, seedPayload);
                 seeded = true;
-                console.log(`[USER_TICKERS] Seeded timed:latest:${rawTicker} from Alpaca snapshot (price=$${price})`);
+                console.log(`[USER_TICKERS] Seeded timed:latest:${rawTicker} (price=$${price})`);
               }
             } catch (e) {
               console.warn(`[USER_TICKERS] Seed failed for ${rawTicker}:`, String(e?.message || e).slice(0, 100));
@@ -31658,15 +31769,17 @@ export default {
             })());
           }
 
-          console.log(`[USER_TICKERS] ${user.email} added ${rawTicker} (core: ${isInCore}, backfill: ${backfillTriggered}, seeded: ${seeded})`);
+          console.log(`[USER_TICKERS] ${user.email} ${isReseed ? "re-seeded" : "added"} ${rawTicker} (core: ${isInCore}, backfill: ${backfillTriggered}, seeded: ${seeded})`);
           return sendJSON({
             ok: true,
             ticker: rawTicker,
             is_core_ticker: isInCore,
             backfill_triggered: backfillTriggered,
             seeded,
-            slots_used: activeOrHeld.length + 1,
+            reseeded: isReseed,
+            slots_used: isReseed ? activeOrHeld.length : activeOrHeld.length + 1,
             slots_max: limit,
+            seed_data: seedPayload || undefined,
           }, 200, corsHeaders(env, req));
         } catch (e) {
           console.error("[USER_TICKERS] POST error:", e);
@@ -31981,11 +32094,143 @@ export default {
           // Set subscription_status alongside tier so admin-granted Pro/VIP is distinguishable
           const subStatus = (tier === "pro" || tier === "vip" || tier === "admin") ? "manual" : "none";
 
+          // If promoting to VIP/admin (manual grant), cancel any active Stripe subscription
+          // so the user doesn't get a surprise charge when their trial ends or next billing cycle hits.
+          let stripeCanceled = null;
+          if ((tier === "vip" || tier === "admin") && env.STRIPE_SECRET_KEY) {
+            try {
+              const userRow = await DB.prepare(
+                `SELECT stripe_subscription_id, subscription_status FROM users WHERE email = ?`
+              ).bind(email).first();
+              const subId = userRow?.stripe_subscription_id;
+              const prevStatus = userRow?.subscription_status;
+              if (subId && prevStatus !== "canceled" && prevStatus !== "manual" && prevStatus !== "none") {
+                const cancelResp = await fetch(`https://api.stripe.com/v1/subscriptions/${subId}`, {
+                  method: "DELETE",
+                  headers: { "Authorization": `Bearer ${env.STRIPE_SECRET_KEY}` },
+                });
+                const cancelData = await cancelResp.json();
+                if (cancelResp.ok) {
+                  stripeCanceled = subId;
+                  console.log(`[ADMIN] Canceled Stripe subscription ${subId} for ${email} (promoted to ${tier})`);
+                } else {
+                  console.warn(`[ADMIN] Failed to cancel Stripe sub ${subId} for ${email}:`, cancelData.error?.message);
+                }
+              }
+            } catch (e) {
+              console.warn(`[ADMIN] Stripe cancellation check failed for ${email}:`, String(e?.message || e).slice(0, 150));
+            }
+          }
+
           await DB.prepare(
             `UPDATE users SET tier = ?, subscription_status = ?, expires_at = ?, updated_at = ? WHERE email = ?`
           ).bind(tier, subStatus, expiresAt, Date.now(), email).run();
 
-          return sendJSON({ ok: true, email, tier, subscription_status: subStatus, expires_at: expiresAt }, 200, corsHeaders(env, req));
+          return sendJSON({ ok: true, email, tier, subscription_status: subStatus, expires_at: expiresAt, stripe_canceled: stripeCanceled }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // GET /timed/admin/stripe/subscriptions — List all Stripe subscriptions and cross-reference D1
+      if (routeKey === "GET /timed/admin/stripe/subscriptions") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const stripeKey = env.STRIPE_SECRET_KEY;
+        if (!stripeKey) return sendJSON({ ok: false, error: "stripe_not_configured" }, 503, corsHeaders(env, req));
+        try {
+          const db = env?.DB;
+          const results = [];
+          let hasMore = true;
+          let startingAfter = null;
+
+          while (hasMore) {
+            const params = new URLSearchParams({ limit: "100", "expand[]": "data.customer" });
+            if (startingAfter) params.set("starting_after", startingAfter);
+            const resp = await fetch(`https://api.stripe.com/v1/subscriptions?${params}`, {
+              headers: { "Authorization": `Bearer ${stripeKey}` },
+            });
+            const data = await resp.json();
+            if (!resp.ok) return sendJSON({ ok: false, error: data.error?.message }, 500, corsHeaders(env, req));
+
+            for (const sub of (data.data || [])) {
+              const email = (typeof sub.customer === "object" ? sub.customer.email : null) || "";
+              let d1User = null;
+              if (db && email) {
+                d1User = await db.prepare("SELECT email, tier, subscription_status, trial_end FROM users WHERE email = ?1").bind(email.toLowerCase()).first();
+              }
+              results.push({
+                subscription_id: sub.id,
+                status: sub.status,
+                email,
+                customer_id: typeof sub.customer === "object" ? sub.customer.id : sub.customer,
+                created: new Date(sub.created * 1000).toISOString(),
+                current_period_end: sub.current_period_end ? new Date(sub.current_period_end * 1000).toISOString() : null,
+                trial_end: sub.trial_end ? new Date(sub.trial_end * 1000).toISOString() : null,
+                cancel_at_period_end: sub.cancel_at_period_end,
+                d1_tier: d1User?.tier || null,
+                d1_subscription_status: d1User?.subscription_status || null,
+                mismatch: d1User ? (
+                  (d1User.tier === "vip" || d1User.tier === "admin" || d1User.tier === "free") &&
+                  (sub.status === "active" || sub.status === "trialing")
+                ) : null,
+              });
+            }
+            hasMore = data.has_more;
+            if (hasMore && data.data.length > 0) startingAfter = data.data[data.data.length - 1].id;
+          }
+
+          const needsAction = results.filter(r => r.mismatch);
+          return sendJSON({
+            ok: true,
+            total: results.length,
+            needs_action: needsAction.length,
+            subscriptions: results,
+            action_needed: needsAction,
+          }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // POST /timed/admin/stripe/cancel?sub=sub_xxx — Cancel a Stripe subscription and update D1
+      if (routeKey === "POST /timed/admin/stripe/cancel") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const stripeKey = env.STRIPE_SECRET_KEY;
+        if (!stripeKey) return sendJSON({ ok: false, error: "stripe_not_configured" }, 503, corsHeaders(env, req));
+        const subId = url.searchParams.get("sub");
+        if (!subId || !subId.startsWith("sub_")) {
+          return sendJSON({ ok: false, error: "provide ?sub=sub_xxx" }, 400, corsHeaders(env, req));
+        }
+        try {
+          const cancelResp = await fetch(`https://api.stripe.com/v1/subscriptions/${subId}`, {
+            method: "DELETE",
+            headers: { "Authorization": `Bearer ${stripeKey}` },
+          });
+          const cancelData = await cancelResp.json();
+          if (!cancelResp.ok) {
+            return sendJSON({ ok: false, error: cancelData.error?.message || "cancel_failed" }, 500, corsHeaders(env, req));
+          }
+
+          const db = env?.DB;
+          let d1Updated = false;
+          if (db) {
+            const row = await db.prepare("SELECT email, tier FROM users WHERE stripe_subscription_id = ?1").bind(subId).first();
+            if (row) {
+              await db.prepare("UPDATE users SET subscription_status = 'canceled', stripe_subscription_id = NULL, updated_at = ?1 WHERE stripe_subscription_id = ?2")
+                .bind(Date.now(), subId).run();
+              d1Updated = true;
+              console.log(`[ADMIN] Canceled Stripe sub ${subId} for ${row.email} (tier stays ${row.tier})`);
+            }
+          }
+
+          return sendJSON({
+            ok: true,
+            subscription_id: subId,
+            stripe_status: cancelData.status,
+            d1_updated: d1Updated,
+          }, 200, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e?.message || e) }, 500, corsHeaders(env, req));
         }
@@ -32136,7 +32381,7 @@ export default {
 
           // Check if user has an existing Stripe customer with prior subscriptions
           // to prevent multiple free trials (e.g. user cancels, re-signs up for another trial).
-          let trialDays = 30; // default: first-month-free trial
+          let trialDays = 14; // default: 14-day free trial
           try {
             const custSearch = await fetch(
               `https://api.stripe.com/v1/customers?email=${encodeURIComponent(user.email)}&limit=1`,
@@ -32267,7 +32512,7 @@ export default {
                 email, type: "system",
                 title: "Subscription Activated",
                 body: subStatus === "trialing"
-                  ? "Welcome to Timed Trading Pro! Your 30-day free trial has started."
+                  ? "Welcome to Timed Trading Pro! Your 14-day free trial has started."
                   : "Welcome to Timed Trading Pro! Your subscription is now active.",
                 link: "/index-react.html",
               });
