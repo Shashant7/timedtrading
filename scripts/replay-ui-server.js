@@ -37,6 +37,7 @@ function getCheckpoint() {
     nextDate: lines[0] || null,
     endDate: lines[1] || null,
     tickerBatch: lines[2] || null,
+    intervalMin: lines[3] || null,
   };
 }
 
@@ -85,7 +86,7 @@ function getStatus() {
   };
 }
 
-function startReplay(resume = false, batchSize = null) {
+function startReplay(resume = false, batchSize = null, traderOnly = false, sequence = false, intervalMin = null) {
   if (isReplayProcessRunning()) {
     return { ok: false, error: "Replay is already running" };
   }
@@ -93,21 +94,25 @@ function startReplay(resume = false, batchSize = null) {
     const cp = getCheckpoint();
     if (batchSize != null && cp?.nextDate) {
       const n = Math.max(5, Math.min(50, parseInt(batchSize, 10) || 15));
+      const iv = intervalMin != null ? String(Math.max(1, Math.min(30, parseInt(intervalMin, 10) || 5))) : (cp?.intervalMin || "5");
       try {
-        fs.writeFileSync(CHECKPOINT_FILE, `${cp.nextDate}\n${cp.endDate || "2026-02-23"}\n${n}\n`, "utf8");
+        fs.writeFileSync(CHECKPOINT_FILE, `${cp.nextDate}\n${cp.endDate || "2026-02-23"}\n${n}\n${iv}\n`, "utf8");
       } catch (_) {}
     }
-    return startReplayInner(true, null);
+    return startReplayInner(true, null, traderOnly, sequence, intervalMin != null ? intervalMin : cp?.intervalMin || 5);
   }
   const n = batchSize != null ? Math.max(5, Math.min(50, parseInt(batchSize, 10) || 25)) : 25;
-  return startReplayInner(false, n);
+  const iv = intervalMin != null ? Math.max(1, Math.min(30, parseInt(intervalMin, 10) || 5)) : 5;
+  return startReplayInner(false, n, traderOnly, sequence, iv);
 }
 
-function startReplayInner(resume, batchSize) {
+function startReplayInner(resume, batchSize, traderOnly = false, sequence = false, intervalMin = 5) {
   if (isReplayProcessRunning()) {
     return { ok: false, error: "Replay is already running" };
   }
-  const args = resume ? ["--resume"] : ["2025-07-01", "2026-02-23", String(batchSize)];
+  const args = resume ? ["--resume"] : ["2025-07-01", "2026-02-23", String(batchSize), String(intervalMin)];
+  if (sequence) args.push("--sequence");
+  else if (traderOnly) args.push("--trader-only");
   const logDir = path.dirname(LOG_FILE);
   try {
     fs.mkdirSync(logDir, { recursive: true });
@@ -190,7 +195,11 @@ const HTML_PAGE = `<!DOCTYPE html>
       <span id="statusText">Checking…</span>
     </div>
     <div class="meta" id="meta"></div>
-    <div class="meta" style="margin-bottom: 8px;">Batch size (tickers per request): <select id="batchSize"><option value="15">15</option><option value="20">20</option><option value="25" selected>25</option><option value="30">30</option></select> <span id="batchNote"></span></div>
+    <div class="meta" style="margin-bottom: 8px;">Batch size: <select id="batchSize"><option value="15">15</option><option value="20">20</option><option value="25" selected>25</option><option value="30">30</option><option value="40">40</option></select> &nbsp; Interval: <select id="intervalMin"><option value="5" selected>5 min</option><option value="10">10 min (faster)</option></select> <span id="batchNote"></span></div>
+    <div class="meta" style="margin-bottom: 8px;">
+      <label><input type="checkbox" id="traderOnly" /> Trader only</label> — faster (skips investor at EOD)
+      <span style="margin-left: 12px;"><label><input type="checkbox" id="sequence" /> Sequence</label> — trader-only then investor-only (saves day state, then backfills investor)</span>
+    </div>
     <div class="buttons">
       <button class="primary" id="btnStart">Start (fresh)</button>
       <button class="secondary" id="btnResume">Resume</button>
@@ -210,7 +219,10 @@ const HTML_PAGE = `<!DOCTYPE html>
     const btnResume = document.getElementById("btnResume");
     const btnPause = document.getElementById("btnPause");
     const batchSizeEl = document.getElementById("batchSize");
+    const intervalMinEl = document.getElementById("intervalMin");
     const batchNoteEl = document.getElementById("batchNote");
+    const traderOnlyEl = document.getElementById("traderOnly");
+    const sequenceEl = document.getElementById("sequence");
 
     function render(s) {
       dot.className = "dot " + (s.running ? "running" : "stopped");
@@ -222,7 +234,8 @@ const HTML_PAGE = `<!DOCTYPE html>
       meta.innerHTML = metaHtml || "—";
       if (s.checkpoint && s.checkpoint.tickerBatch && batchSizeEl) {
         batchSizeEl.value = s.checkpoint.tickerBatch;
-        batchNoteEl.textContent = "(Resume will use selected size)";
+        if (intervalMinEl && s.checkpoint.intervalMin) intervalMinEl.value = s.checkpoint.intervalMin;
+        batchNoteEl.textContent = "(Resume will use selected size/interval)";
       } else if (batchNoteEl) batchNoteEl.textContent = "";
       logEl.textContent = (s.logTail || []).join("\\n") || "(no log)"; // \\n -> newline in browser
       btnStart.disabled = !!s.running;
@@ -239,11 +252,17 @@ const HTML_PAGE = `<!DOCTYPE html>
 
     btnStart.onclick = () => {
       const batch = batchSizeEl ? batchSizeEl.value : "25";
-      fetch("/api/start?batchSize=" + encodeURIComponent(batch), { method: "POST" }).then(r => r.json()).then(d => { alert(d.ok ? "Started" : (d.error || "Failed")); fetchStatus(); });
+      const interval = intervalMinEl ? intervalMinEl.value : "5";
+      const traderOnly = traderOnlyEl && traderOnlyEl.checked ? "1" : "0";
+      const sequence = sequenceEl && sequenceEl.checked ? "1" : "0";
+      fetch("/api/start?batchSize=" + encodeURIComponent(batch) + "&intervalMin=" + encodeURIComponent(interval) + "&traderOnly=" + traderOnly + "&sequence=" + sequence, { method: "POST" }).then(r => r.json()).then(d => { alert(d.ok ? "Started" : (d.error || "Failed")); fetchStatus(); });
     };
     btnResume.onclick = () => {
       const batch = batchSizeEl ? batchSizeEl.value : "25";
-      fetch("/api/resume?batchSize=" + encodeURIComponent(batch), { method: "POST" }).then(r => r.json()).then(d => { alert(d.ok ? "Resumed" : (d.error || "Failed")); fetchStatus(); });
+      const interval = intervalMinEl ? intervalMinEl.value : "5";
+      const traderOnly = traderOnlyEl && traderOnlyEl.checked ? "1" : "0";
+      const sequence = sequenceEl && sequenceEl.checked ? "1" : "0";
+      fetch("/api/resume?batchSize=" + encodeURIComponent(batch) + "&intervalMin=" + encodeURIComponent(interval) + "&traderOnly=" + traderOnly + "&sequence=" + sequence, { method: "POST" }).then(r => r.json()).then(d => { alert(d.ok ? "Resumed" : (d.error || "Failed")); fetchStatus(); });
     };
     btnPause.onclick = () => {
       fetch("/api/pause", { method: "POST" }).then(r => r.json()).then(d => { alert(d.ok ? "Paused" : (d.error || "Failed")); fetchStatus(); });
@@ -276,13 +295,19 @@ const server = http.createServer((req, res) => {
 
   if (req.method === "POST" && url.pathname === "/api/start") {
     const batch = url.searchParams.get("batchSize") || url.searchParams.get("batch") || null;
-    setJson(startReplay(false, batch));
+    const traderOnly = url.searchParams.get("traderOnly") === "1" || url.searchParams.get("traderOnly") === "true";
+    const sequence = url.searchParams.get("sequence") === "1" || url.searchParams.get("sequence") === "true";
+    const intervalMin = url.searchParams.get("intervalMin") || url.searchParams.get("interval") || null;
+    setJson(startReplay(false, batch, traderOnly, sequence, intervalMin));
     return;
   }
 
   if (req.method === "POST" && url.pathname === "/api/resume") {
     const batch = url.searchParams.get("batchSize") || url.searchParams.get("batch") || null;
-    setJson(startReplay(true, batch));
+    const traderOnly = url.searchParams.get("traderOnly") === "1" || url.searchParams.get("traderOnly") === "true";
+    const sequence = url.searchParams.get("sequence") === "1" || url.searchParams.get("sequence") === "true";
+    const intervalMin = url.searchParams.get("intervalMin") || url.searchParams.get("interval") || null;
+    setJson(startReplay(true, batch, traderOnly, sequence, intervalMin));
     return;
   }
 

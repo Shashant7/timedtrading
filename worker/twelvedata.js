@@ -108,6 +108,7 @@ export async function tdFetchTimeSeries(env, symbols, interval, start, end = nul
       outputsize: String(outputsize),
       order: "asc",
       timezone: "UTC",
+      prepost: "true",
     });
     if (start) params.set("start_date", start.replace("Z", "").replace("T", " ").slice(0, 19));
     if (end) params.set("end_date", end.replace("Z", "").replace("T", " ").slice(0, 19));
@@ -203,6 +204,7 @@ export async function tdFetchQuote(env, symbols) {
     const params = new URLSearchParams({
       symbol: tdSyms.join(","),
       apikey: apiKey,
+      prepost: "true",
     });
     const url = `${TD_BASE}/quote?${params}`;
     const data = await tdFetch(url, 15000);
@@ -236,6 +238,12 @@ function parseTdQuote(q) {
     dailyClose: price,
     dailyVolume: Number(q.volume) || 0,
     prevDailyClose: Number(q.previous_close) || 0,
+    change: Number(q.change) || 0,
+    percentChange: Number(q.percent_change) || 0,
+    extendedPrice: Number(q.extended_price) || 0,
+    extendedChange: Number(q.extended_change) || 0,
+    extendedPercentChange: Number(q.extended_percent_change) || 0,
+    isMarketOpen: q.is_market_open === true,
     minuteBar: null,
   };
 }
@@ -258,6 +266,7 @@ export async function tdFetchPrice(env, symbols) {
     const params = new URLSearchParams({
       symbol: tdSyms.join(","),
       apikey: apiKey,
+      prepost: "true",
     });
     const url = `${TD_BASE}/price?${params}`;
     const data = await tdFetch(url, 10000);

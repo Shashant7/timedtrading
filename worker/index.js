@@ -29681,13 +29681,33 @@ export default {
           const allTickers = Object.keys(SECTOR_MAP);
           const snapResult = await dataFetchSnapshots(env, allTickers);
           const snapshots = snapResult.snapshots || {};
+          let existingPrices = {};
+          try { const raw = await kvGetJSON(env.KV_TIMED, "timed:prices"); existingPrices = raw?.prices || {}; } catch (_) {}
           const prices = {};
           for (const [sym, snap] of Object.entries(snapshots)) {
             const price = snap.price;
             const prevClose = snap.prevDailyClose;
-            const dc = (price && prevClose && prevClose > 0) ? Math.round((price - prevClose) * 100) / 100 : 0;
-            const dp = (price && prevClose && prevClose > 0) ? Math.round(((price - prevClose) / prevClose) * 10000) / 100 : 0;
-            prices[sym] = { p: Math.round(price * 100) / 100, pc: Math.round(prevClose * 100) / 100, dc, dp, t: Date.now() };
+            const prev = existingPrices[sym] || {};
+            const nativeDc = Number(snap.change);
+            const nativeDp = Number(snap.percentChange);
+            const dc = (Number.isFinite(nativeDc) && nativeDc !== 0) ? Math.round(nativeDc * 100) / 100
+              : (price && prevClose && prevClose > 0) ? Math.round((price - prevClose) * 100) / 100 : 0;
+            const dp = (Number.isFinite(nativeDp) && nativeDp !== 0) ? Math.round(nativeDp * 100) / 100
+              : (price && prevClose && prevClose > 0) ? Math.round(((price - prevClose) / prevClose) * 10000) / 100 : 0;
+            const nativeExtDc = Number(snap.extendedChange);
+            const nativeExtDp = Number(snap.extendedPercentChange);
+            const nativeExtP = Number(snap.extendedPrice);
+            const entry = { p: Math.round(price * 100) / 100, pc: Math.round(prevClose * 100) / 100, dc, dp, t: Date.now() };
+            if (Number.isFinite(nativeExtDc) && nativeExtDc !== 0) {
+              entry.ahdc = Math.round(nativeExtDc * 100) / 100;
+              entry.ahdp = Number.isFinite(nativeExtDp) ? Math.round(nativeExtDp * 100) / 100 : 0;
+              if (Number.isFinite(nativeExtP) && nativeExtP > 0) entry.ahp = Math.round(nativeExtP * 100) / 100;
+            } else {
+              if (prev.ahdc !== undefined) entry.ahdc = prev.ahdc;
+              if (prev.ahdp !== undefined) entry.ahdp = prev.ahdp;
+              if (prev.ahp !== undefined) entry.ahp = prev.ahp;
+            }
+            prices[sym] = entry;
           }
           // Fallback for tickers missing from Alpaca (e.g. single-letter "W")
           const missing = allTickers.filter(s => !prices[s] || !(Number(prices[s]?.p) > 0));
@@ -36153,6 +36173,9 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             dailyChgPct: Number.isFinite(dailyChgPct) ? dailyChgPct : null,
             dailyChgDollar: Number.isFinite(dailyChgDollar) ? dailyChgDollar : null,
             prevClose: Number.isFinite(prevClose) ? prevClose : null,
+            prev_close: Number.isFinite(prevClose) ? prevClose : null,
+            day_change_pct: Number.isFinite(dailyChgPct) ? dailyChgPct : null,
+            day_change: Number.isFinite(dailyChgDollar) ? dailyChgDollar : null,
           };
         });
 
@@ -41293,15 +41316,28 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                 const rthClose = snap.dailyClose;
                 const pc = snap.prevDailyClose;
                 const isCryptoSym = CRYPTO_24H.has(sym);
-                // Crypto trades 24/7: use latest trade as price, no RTH/AH distinction
                 const displayPrice = isCryptoSym ? (ahPrice > 0 ? ahPrice : rthClose) : (rthClose > 0 ? rthClose : ahPrice);
                 if (!displayPrice || displayPrice <= 0) continue;
-                const dc = (displayPrice > 0 && pc > 0) ? Math.round((displayPrice - pc) * 100) / 100 : 0;
-                const dp = (displayPrice > 0 && pc > 0) ? Math.round(((displayPrice - pc) / pc) * 10000) / 100 : 0;
-                let extDc = 0, extDp = 0;
-                if (!isCryptoSym && ahPrice > 0 && rthClose > 0 && Math.abs(ahPrice - rthClose) > 0.001) {
+                // Prefer TwelveData's native change/percent_change when available
+                const nativeDc = Number(snap.change);
+                const nativeDp = Number(snap.percentChange);
+                const dc = (Number.isFinite(nativeDc) && nativeDc !== 0) ? Math.round(nativeDc * 100) / 100
+                  : (displayPrice > 0 && pc > 0) ? Math.round((displayPrice - pc) * 100) / 100 : 0;
+                const dp = (Number.isFinite(nativeDp) && nativeDp !== 0) ? Math.round(nativeDp * 100) / 100
+                  : (displayPrice > 0 && pc > 0) ? Math.round(((displayPrice - pc) / pc) * 10000) / 100 : 0;
+                // Prefer TwelveData's native extended_* fields (prepost=true)
+                const nativeExtDc = Number(snap.extendedChange);
+                const nativeExtDp = Number(snap.extendedPercentChange);
+                const nativeExtP = Number(snap.extendedPrice);
+                let extDc = 0, extDp = 0, extP = 0;
+                if (!isCryptoSym && Number.isFinite(nativeExtDc) && nativeExtDc !== 0) {
+                  extDc = Math.round(nativeExtDc * 100) / 100;
+                  extDp = Number.isFinite(nativeExtDp) ? Math.round(nativeExtDp * 100) / 100 : 0;
+                  extP = Number.isFinite(nativeExtP) && nativeExtP > 0 ? Math.round(nativeExtP * 100) / 100 : 0;
+                } else if (!isCryptoSym && ahPrice > 0 && rthClose > 0 && Math.abs(ahPrice - rthClose) > 0.001) {
                   extDc = Math.round((ahPrice - rthClose) * 100) / 100;
                   extDp = Math.round(((ahPrice - rthClose) / rthClose) * 10000) / 100;
+                  extP = Math.round(ahPrice * 100) / 100;
                 }
                 const prev = existing[sym] || {};
                 existing[sym] = {
@@ -41313,9 +41349,9 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                   dl: snap.dailyLow > 0 ? Math.round(snap.dailyLow * 100) / 100 : (prev.dl || 0),
                   dv: snap.dailyVolume || prev.dv || 0,
                   t: snap.trade_ts || Date.now(),
-                  ahp: extDc !== 0 ? Math.round(ahPrice * 100) / 100 : undefined,
-                  ahdc: extDc !== 0 ? extDc : undefined,
-                  ahdp: extDp !== 0 ? extDp : undefined,
+                  ahp: extDc !== 0 ? (extP || Math.round(ahPrice * 100) / 100) : prev.ahp,
+                  ahdc: extDc !== 0 ? extDc : prev.ahdc,
+                  ahdp: extDp !== 0 ? extDp : prev.ahdp,
                 };
                 restCount++;
               }
@@ -41501,12 +41537,26 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
               const isCryptoSym = CRYPTO_24H_FULL.has(sym);
               const displayPrice = isCryptoSym ? (ahPrice > 0 ? ahPrice : rthClose) : (rthClose > 0 ? rthClose : ahPrice);
               if (!displayPrice || displayPrice <= 0) continue;
-              const dc = (displayPrice > 0 && pc > 0) ? Math.round((displayPrice - pc) * 100) / 100 : 0;
-              const dp = (displayPrice > 0 && pc > 0) ? Math.round(((displayPrice - pc) / pc) * 10000) / 100 : 0;
-              let extDc = 0, extDp = 0;
-              if (!isCryptoSym && ahPrice > 0 && rthClose > 0 && Math.abs(ahPrice - rthClose) > 0.001) {
+              // Prefer TwelveData's native change/percent_change when available
+              const nativeDc = Number(snap.change);
+              const nativeDp = Number(snap.percentChange);
+              const dc = (Number.isFinite(nativeDc) && nativeDc !== 0) ? Math.round(nativeDc * 100) / 100
+                : (displayPrice > 0 && pc > 0) ? Math.round((displayPrice - pc) * 100) / 100 : 0;
+              const dp = (Number.isFinite(nativeDp) && nativeDp !== 0) ? Math.round(nativeDp * 100) / 100
+                : (displayPrice > 0 && pc > 0) ? Math.round(((displayPrice - pc) / pc) * 10000) / 100 : 0;
+              // Prefer TwelveData's native extended_* fields (prepost=true)
+              const nativeExtDc = Number(snap.extendedChange);
+              const nativeExtDp = Number(snap.extendedPercentChange);
+              const nativeExtP = Number(snap.extendedPrice);
+              let extDc = 0, extDp = 0, extP = 0;
+              if (!isCryptoSym && Number.isFinite(nativeExtDc) && nativeExtDc !== 0) {
+                extDc = Math.round(nativeExtDc * 100) / 100;
+                extDp = Number.isFinite(nativeExtDp) ? Math.round(nativeExtDp * 100) / 100 : 0;
+                extP = Number.isFinite(nativeExtP) && nativeExtP > 0 ? Math.round(nativeExtP * 100) / 100 : 0;
+              } else if (!isCryptoSym && ahPrice > 0 && rthClose > 0 && Math.abs(ahPrice - rthClose) > 0.001) {
                 extDc = Math.round((ahPrice - rthClose) * 100) / 100;
                 extDp = Math.round(((ahPrice - rthClose) / rthClose) * 10000) / 100;
+                extP = Math.round(ahPrice * 100) / 100;
               }
               const prev = prices[sym] || {};
               prices[sym] = {
@@ -41518,13 +41568,13 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                 dl: snap.dailyLow > 0 ? Math.round(snap.dailyLow * 100) / 100 : (prev.dl || 0),
                 dv: snap.dailyVolume || prev.dv || 0,
                 t: snap.trade_ts || Date.now(),
-                ahp: extDc !== 0 ? Math.round(ahPrice * 100) / 100 : undefined,
-                ahdc: extDc !== 0 ? extDc : undefined,
-                ahdp: extDp !== 0 ? extDp : undefined,
+                ahp: extDc !== 0 ? (extP || Math.round(ahPrice * 100) / 100) : prev.ahp,
+                ahdc: extDc !== 0 ? extDc : prev.ahdc,
+                ahdp: extDp !== 0 ? extDp : prev.ahdp,
               };
               restFallbackCount++;
             }
-            pricesSource = "alpaca_rest_fallback";
+            pricesSource = "rest_snapshot";
           } catch (e) {
             console.warn("[PRICE FEED] REST fallback error:", String(e?.message || e).slice(0, 200));
           }

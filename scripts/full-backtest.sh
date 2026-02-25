@@ -1,35 +1,52 @@
 #!/bin/bash
 # Full Candle-Based Backtest Script
 # Usage: ./scripts/full-backtest.sh [start_date] [end_date] [ticker_batch_size]
-#        ./scripts/full-backtest.sh --resume
+#        ./scripts/full-backtest.sh --resume [--trader-only]
+#        ./scripts/full-backtest.sh --trader-only 2025-07-01 2026-02-23 20
 # Example: ./scripts/full-backtest.sh 2025-07-01 2026-02-23 15
 # Resume: ./scripts/full-backtest.sh --resume
+# Trader-only (faster, no investor/snapshots): add --trader-only
+# Investor-only backfill (after trader-only): ./scripts/full-backtest.sh --investor-only 2025-07-01 2026-02-23
+# Sequence (trader-only then investor-only): ./scripts/full-backtest.sh --sequence 2025-07-01 2026-02-23 20
+# Interval: 4th arg defaults to 5 (minutes). We use 5 min for replay fidelity; 10 is optional for faster runs.
+# By default the script uses fullDay=1 (worker runs all batches for each day in one request).
 # Note: Backfill automatically detects candle gaps and only fills what's missing.
 
 set -e
 
 API_BASE="https://timed-trading-ingest.shashant.workers.dev"
 API_KEY="AwesomeSauce"
-INTERVAL_MIN=5
 CHECKPOINT_FILE="data/replay-checkpoint.txt"
 HOLIDAYS="2025-07-04 2025-09-01 2025-11-27 2025-12-25 2026-01-01 2026-01-19 2026-02-16 2026-05-26 2026-07-03 2026-09-07 2026-11-26 2026-12-25"
 
 RESUME=false
+TRADER_ONLY=false
+INVESTOR_ONLY=false
+SEQUENCE=false
+POSARGS=()
 for arg in "$@"; do
   [[ "$arg" == "--resume" ]] && RESUME=true
+  [[ "$arg" == "--trader-only" ]] && TRADER_ONLY=true
+  [[ "$arg" == "--investor-only" ]] && INVESTOR_ONLY=true
+  [[ "$arg" == "--sequence" ]] && SEQUENCE=true
+  [[ "$arg" != --* ]] && POSARGS+=("$arg")
 done
+if $SEQUENCE; then TRADER_ONLY=true; fi
 
 if $RESUME; then
   if [[ -f "$CHECKPOINT_FILE" ]]; then
     CHECKPOINT_DATE=$(cat "$CHECKPOINT_FILE" | head -1 | tr -d '[:space:]')
     CHECKPOINT_END=$(sed -n '2p' "$CHECKPOINT_FILE" | tr -d '[:space:]')
     CHECKPOINT_BATCH=$(sed -n '3p' "$CHECKPOINT_FILE" | tr -d '[:space:]')
+    CHECKPOINT_INTERVAL=$(sed -n '4p' "$CHECKPOINT_FILE" | tr -d '[:space:]')
     START_DATE="${CHECKPOINT_DATE}"
     END_DATE="${CHECKPOINT_END:-$(date '+%Y-%m-%d')}"
     TICKER_BATCH="${CHECKPOINT_BATCH:-15}"
+    INTERVAL_MIN="${CHECKPOINT_INTERVAL:-5}"
     echo "╔══════════════════════════════════════════════════════╗"
     echo "║  RESUMING Backtest from $START_DATE → $END_DATE"
     echo "║  Ticker batch: $TICKER_BATCH | Interval: ${INTERVAL_MIN}m"
+    $TRADER_ONLY && echo "║  Mode: trader-only (investor/snapshots skipped)"
     echo "╚══════════════════════════════════════════════════════╝"
     echo ""
   else
@@ -38,14 +55,52 @@ if $RESUME; then
     exit 1
   fi
 else
-  START_DATE="${1:-2025-07-01}"
-  END_DATE="${2:-$(date '+%Y-%m-%d')}"
-  TICKER_BATCH="${3:-15}"
+  START_DATE="${POSARGS[0]:-2025-07-01}"
+  END_DATE="${POSARGS[1]:-$(date '+%Y-%m-%d')}"
+  TICKER_BATCH="${POSARGS[2]:-15}"
+  INTERVAL_MIN="${POSARGS[3]:-5}"
   echo "╔══════════════════════════════════════════════════════╗"
   echo "║  Candle-Based Backtest: $START_DATE → $END_DATE"
   echo "║  Ticker batch: $TICKER_BATCH | Interval: ${INTERVAL_MIN}m"
+  $TRADER_ONLY && echo "║  Mode: trader-only (investor/snapshots skipped)"
+  $SEQUENCE && echo "║  Mode: sequence (trader-only then investor-only)"
   echo "╚══════════════════════════════════════════════════════╝"
   echo ""
+fi
+
+# ─── Investor-only only: no lock/reset/backfill/replay, just investor-replay per day ─
+if $INVESTOR_ONLY && ! $SEQUENCE; then
+  START_DATE="${POSARGS[0]:-2025-07-01}"
+  END_DATE="${POSARGS[1]:-2026-02-23}"
+  echo "╔══════════════════════════════════════════════════════╗"
+  echo "║  Investor-only backfill: $START_DATE → $END_DATE"
+  echo "╚══════════════════════════════════════════════════════╝"
+  echo ""
+  INV_CURRENT="$START_DATE"
+  INV_DAY_COUNT=0
+  while [[ "$INV_CURRENT" < "$END_DATE" ]] || [[ "$INV_CURRENT" == "$END_DATE" ]]; do
+    DW=$(date -j -f "%Y-%m-%d" "$INV_CURRENT" "+%u" 2>/dev/null || date -d "$INV_CURRENT" "+%u")
+    if [[ "$DW" -ge 6 ]]; then
+      INV_CURRENT=$(date -j -v+1d -f "%Y-%m-%d" "$INV_CURRENT" "+%Y-%m-%d" 2>/dev/null || date -d "$INV_CURRENT + 1 day" "+%Y-%m-%d")
+      continue
+    fi
+    if [[ " $HOLIDAYS " == *" $INV_CURRENT "* ]]; then
+      INV_CURRENT=$(date -j -v+1d -f "%Y-%m-%d" "$INV_CURRENT" "+%Y-%m-%d" 2>/dev/null || date -d "$INV_CURRENT + 1 day" "+%Y-%m-%d")
+      continue
+    fi
+    INV_RESULT=$(curl -s -m 120 -X POST "$API_BASE/timed/admin/investor-replay?date=$INV_CURRENT&key=$API_KEY" 2>&1)
+    if ! echo "$INV_RESULT" | jq -e '.ok' >/dev/null 2>&1; then
+      echo "ERROR: investor-replay failed for $INV_CURRENT: $(echo "$INV_RESULT" | head -c 300)"
+      exit 1
+    fi
+    INV_DAY_COUNT=$((INV_DAY_COUNT + 1))
+    echo "  $INV_CURRENT: ok"
+    INV_CURRENT=$(date -j -v+1d -f "%Y-%m-%d" "$INV_CURRENT" "+%Y-%m-%d" 2>/dev/null || date -d "$INV_CURRENT + 1 day" "+%Y-%m-%d")
+    sleep 1
+  done
+  echo ""
+  echo "Investor-only backfill complete ($INV_DAY_COUNT days)."
+  exit 0
 fi
 
 # ─── Step 0: Acquire replay lock ─────────────────────────────────────────────
@@ -213,58 +268,45 @@ while [[ "$CURRENT_DATE" < "$END_DATE" ]] || [[ "$CURRENT_DATE" == "$END_DATE" ]
   DAY_TRADES=0
   DAY_SCORED=0
 
-  TICKER_OFFSET=0
-  HAS_MORE=true
+  # fullDay=1: worker does all batches for the day in one request (much faster, fewer round-trips)
+  CLEAN_PARAM=""
+  if $IS_FIRST_BATCH; then
+    CLEAN_PARAM="&cleanSlate=1"
+    IS_FIRST_BATCH=false
+  fi
+  SKIP_INV=""
+  $TRADER_ONLY && SKIP_INV="&skipInvestor=1"
+  REPLAY_URL="$API_BASE/timed/admin/candle-replay?date=$CURRENT_DATE&fullDay=1&tickerBatch=$TICKER_BATCH&intervalMinutes=$INTERVAL_MIN&key=$API_KEY${CLEAN_PARAM}${SKIP_INV}"
 
-  while $HAS_MORE; do
-    CLEAN_PARAM=""
-    if $IS_FIRST_BATCH; then
-      CLEAN_PARAM="&cleanSlate=1"
-      IS_FIRST_BATCH=false
+  RESULT=""
+  for retry in 1 2 3 4 5; do
+    RESULT=$(curl -s -m 1200 -X POST "$REPLAY_URL" 2>&1) || true
+    if echo "$RESULT" | jq -e '.scored >= 0' >/dev/null 2>&1; then
+      break
     fi
-
-    RESULT=""
-    REPLAY_URL="$API_BASE/timed/admin/candle-replay?date=$CURRENT_DATE&tickerOffset=$TICKER_OFFSET&tickerBatch=$TICKER_BATCH&intervalMinutes=$INTERVAL_MIN&key=$API_KEY${CLEAN_PARAM}"
-    for retry in 1 2 3 4 5; do
-      RESULT=$(curl -s -m 600 -X POST "$REPLAY_URL" 2>&1) || true
-      if echo "$RESULT" | jq -e '.scored >= 0' >/dev/null 2>&1; then
-        break
-      fi
-      echo "  offset=$TICKER_OFFSET: attempt $retry failed (network/timeout?), retrying in 30s..."
-      sleep 30
-    done
-    if ! echo "$RESULT" | jq -e '.scored >= 0' >/dev/null 2>&1; then
-      echo "ERROR: candle-replay failed after 5 attempts. Last response: $(echo "$RESULT" | head -c 200)"
-      exit 1
-    fi
-
-    SCORED=$(echo "$RESULT" | jq -r '.scored // 0' 2>/dev/null || echo "0")
-    TRADES=$(echo "$RESULT" | jq -r '.tradesCreated // 0' 2>/dev/null || echo "0")
-    MORE=$(echo "$RESULT" | jq -r '.hasMore // false' 2>/dev/null || echo "false")
-    NEXT_OFFSET=$(echo "$RESULT" | jq -r '.nextTickerOffset // "null"' 2>/dev/null || echo "null")
-    ERRS=$(echo "$RESULT" | jq -r '.errorsCount // 0' 2>/dev/null || echo "0")
-    TOTAL_TR=$(echo "$RESULT" | jq -r '.totalTrades // 0' 2>/dev/null || echo "0")
-    D1_STATE=$(echo "$RESULT" | jq -r '.d1StateWritten // 0' 2>/dev/null || echo "0")
-    STAGES=$(echo "$RESULT" | jq -c '.stageCounts // {}' 2>/dev/null || echo "{}")
-    BLOCKS=$(echo "$RESULT" | jq -c '.blockReasons // {}' 2>/dev/null || echo "{}")
-
-    DAY_SCORED=$((DAY_SCORED + SCORED))
-    DAY_TRADES=$((DAY_TRADES + TRADES))
-
-    echo "  offset=$TICKER_OFFSET: scored=$SCORED trades=$TRADES d1=$D1_STATE errors=$ERRS (total=$TOTAL_TR) $STAGES"
-
-    if [[ "$DAY_COUNT" -le 3 ]] && [[ "$TICKER_OFFSET" -eq 0 ]] && [[ "$BLOCKS" != "{}" ]]; then
-      echo "    blockReasons: $BLOCKS"
-    fi
-
-    if [[ "$MORE" == "true" ]] && [[ "$NEXT_OFFSET" != "null" ]]; then
-      TICKER_OFFSET=$NEXT_OFFSET
-    else
-      HAS_MORE=false
-    fi
-
-    sleep 0.5
+    echo "  attempt $retry failed (network/timeout?), retrying in 30s..."
+    sleep 30
   done
+  if ! echo "$RESULT" | jq -e '.scored >= 0' >/dev/null 2>&1; then
+    echo "ERROR: candle-replay failed after 5 attempts. Last response: $(echo "$RESULT" | head -c 200)"
+    exit 1
+  fi
+
+  SCORED=$(echo "$RESULT" | jq -r '.scored // 0' 2>/dev/null || echo "0")
+  TRADES=$(echo "$RESULT" | jq -r '.tradesCreated // 0' 2>/dev/null || echo "0")
+  ERRS=$(echo "$RESULT" | jq -r '.errorsCount // 0' 2>/dev/null || echo "0")
+  TOTAL_TR=$(echo "$RESULT" | jq -r '.totalTrades // 0' 2>/dev/null || echo "0")
+  D1_STATE=$(echo "$RESULT" | jq -r '.d1StateWritten // 0' 2>/dev/null || echo "0")
+  STAGES=$(echo "$RESULT" | jq -c '.stageCounts // {}' 2>/dev/null || echo "{}")
+  BLOCKS=$(echo "$RESULT" | jq -c '.blockReasons // {}' 2>/dev/null || echo "{}")
+
+  DAY_SCORED=$SCORED
+  DAY_TRADES=$TRADES
+
+  echo "  scored=$SCORED trades=$TRADES d1=$D1_STATE errors=$ERRS (total=$TOTAL_TR) $STAGES"
+  if [[ "$DAY_COUNT" -le 3 ]] && [[ "$BLOCKS" != "{}" ]]; then
+    echo "    blockReasons: $BLOCKS"
+  fi
 
   TOTAL_TRADES=$((TOTAL_TRADES + DAY_TRADES))
   TOTAL_SCORED=$((TOTAL_SCORED + DAY_SCORED))
@@ -274,10 +316,39 @@ while [[ "$CURRENT_DATE" < "$END_DATE" ]] || [[ "$CURRENT_DATE" == "$END_DATE" ]
 
   NEXT_DATE=$(date -j -v+1d -f "%Y-%m-%d" "$CURRENT_DATE" "+%Y-%m-%d" 2>/dev/null || date -d "$CURRENT_DATE + 1 day" "+%Y-%m-%d")
   mkdir -p "$(dirname "$CHECKPOINT_FILE")"
-  printf '%s\n%s\n%s\n' "$NEXT_DATE" "$END_DATE" "$TICKER_BATCH" > "$CHECKPOINT_FILE"
+  printf '%s\n%s\n%s\n%s\n' "$NEXT_DATE" "$END_DATE" "$TICKER_BATCH" "$INTERVAL_MIN" > "$CHECKPOINT_FILE"
 
   CURRENT_DATE="$NEXT_DATE"
 done
+
+# ─── Phase 2 (sequence): investor-only backfill for same date range ─
+if $SEQUENCE; then
+  echo "=== Phase 2: Investor-only backfill ($START_DATE → $END_DATE) ==="
+  INV_CURRENT="$START_DATE"
+  INV_DAY_COUNT=0
+  while [[ "$INV_CURRENT" < "$END_DATE" ]] || [[ "$INV_CURRENT" == "$END_DATE" ]]; do
+    DW=$(date -j -f "%Y-%m-%d" "$INV_CURRENT" "+%u" 2>/dev/null || date -d "$INV_CURRENT" "+%u")
+    if [[ "$DW" -ge 6 ]]; then
+      INV_CURRENT=$(date -j -v+1d -f "%Y-%m-%d" "$INV_CURRENT" "+%Y-%m-%d" 2>/dev/null || date -d "$INV_CURRENT + 1 day" "+%Y-%m-%d")
+      continue
+    fi
+    if [[ " $HOLIDAYS " == *" $INV_CURRENT "* ]]; then
+      INV_CURRENT=$(date -j -v+1d -f "%Y-%m-%d" "$INV_CURRENT" "+%Y-%m-%d" 2>/dev/null || date -d "$INV_CURRENT + 1 day" "+%Y-%m-%d")
+      continue
+    fi
+    INV_RESULT=$(curl -s -m 120 -X POST "$API_BASE/timed/admin/investor-replay?date=$INV_CURRENT&key=$API_KEY" 2>&1)
+    if ! echo "$INV_RESULT" | jq -e '.ok' >/dev/null 2>&1; then
+      echo "ERROR: investor-replay failed for $INV_CURRENT: $(echo "$INV_RESULT" | head -c 300)"
+      exit 1
+    fi
+    INV_DAY_COUNT=$((INV_DAY_COUNT + 1))
+    echo "  $INV_CURRENT: ok"
+    INV_CURRENT=$(date -j -v+1d -f "%Y-%m-%d" "$INV_CURRENT" "+%Y-%m-%d" 2>/dev/null || date -d "$INV_CURRENT + 1 day" "+%Y-%m-%d")
+    sleep 1
+  done
+  echo "  Investor backfill: $INV_DAY_COUNT days"
+  echo ""
+fi
 
 echo "╔══════════════════════════════════════════════════════╗"
 echo "║  Backtest Complete"

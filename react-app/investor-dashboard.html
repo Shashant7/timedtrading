@@ -14,6 +14,7 @@
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="auth-gate.js?v=20260219a"></script>
+    <script src="shared-price-utils.js?v=20260225a"></script>
     <style>
       * { box-sizing: border-box; }
       body { margin: 0; background: #0a0a0f; color: #e5e7eb; font-family: 'Inter', system-ui, sans-serif; }
@@ -66,6 +67,7 @@
     <script type="text/babel">
       const { useState, useEffect, useCallback, useMemo } = React;
       const API_BASE = "";
+      const getDailyChange = window.TimedPriceUtils?.getDailyChange || (() => ({ dayPct: null, dayChg: null }));
 
       // ─── Helpers ──────────────────────────────────────────────────────
       function fmtPct(n) { return Number.isFinite(n) ? `${n >= 0 ? "+" : ""}${n.toFixed(1)}%` : "—"; }
@@ -273,7 +275,7 @@
                         React.createElement("span", { className: "text-xs font-semibold text-white" }, t.ticker),
                         React.createElement("span", { className: "flex items-center gap-1.5" },
                           t.price != null && Number.isFinite(t.price) && React.createElement("span", { className: "text-[10px] text-[#9ca3af] tabular-nums" }, `$${t.price.toFixed(2)}`),
-                          t.dailyChgPct != null && Number.isFinite(t.dailyChgPct) && React.createElement("span", { className: `text-[10px] font-medium tabular-nums ${t.dailyChgPct >= 0 ? "text-[#00e676]" : "text-red-400"}` }, `${t.dailyChgPct >= 0 ? "+" : ""}${t.dailyChgPct.toFixed(1)}%`),
+                          (() => { const _dc = getDailyChange(t); const _dp = _dc?.dayPct; return _dp != null && Number.isFinite(_dp) && React.createElement("span", { className: `text-[10px] font-medium tabular-nums ${_dp >= 0 ? "text-[#00e676]" : "text-red-400"}` }, `${_dp >= 0 ? "+" : ""}${_dp.toFixed(1)}%`); })(),
                         ),
                       ),
                       React.createElement("div", { className: "flex items-center justify-between mt-0.5" },
@@ -323,9 +325,7 @@
                     : `RS: ${t.rsRank || "—"}`,
                 ),
                 React.createElement("span", { className: "flex items-center gap-1" },
-                  t.dailyChgPct != null && Number.isFinite(t.dailyChgPct) && React.createElement("span", {
-                    className: `text-[9px] tabular-nums font-medium ${t.dailyChgPct >= 0 ? "text-[#00e676]" : "text-red-400"}`,
-                  }, `${t.dailyChgPct >= 0 ? "+" : ""}${t.dailyChgPct.toFixed(1)}%`),
+                  (() => { const _dc = getDailyChange(t); const _dp = _dc?.dayPct; return _dp != null && Number.isFinite(_dp) && React.createElement("span", { className: `text-[9px] tabular-nums font-medium ${_dp >= 0 ? "text-[#00e676]" : "text-red-400"}` }, `${_dp >= 0 ? "+" : ""}${_dp.toFixed(1)}%`); })(),
                   t.accumZone?.inZone && React.createElement("span", { className: "text-[8px] text-[#00e676] bg-[#00c853]/10 px-1 rounded" }, "ZONE"),
                   t.rs?.rsNewHigh3m && React.createElement("span", { className: "text-[8px] text-sky-400 bg-sky-500/10 px-1 rounded" }, "RS HIGH"),
                 ),
@@ -438,7 +438,8 @@
         if (!ticker || !data) return React.createElement("div", { className: "card p-4 text-center text-[#6b7280] text-sm" }, "Select a ticker to see details");
 
         const price = data.price;
-        const chg = data.dailyChgPct;
+        const _dcResult = getDailyChange(data);
+        const chg = _dcResult?.dayPct ?? null;
         const hasPrice = price != null && Number.isFinite(price);
 
         return React.createElement("div", { className: "card p-4 fade-in space-y-4" },

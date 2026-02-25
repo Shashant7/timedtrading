@@ -94,6 +94,9 @@
 - **Card entry_price priority**: Prefer `openTrade.entryPrice` (trail-corrected) over `t?.entry_price` from scoring snapshot. [2026-02-10]
 - **Right rail overlay must use opaque background**: No transparent overlays over dashboard. [2026-02-08]
 - **Admin-gate live market data for legal compliance**: Hide prices/changes from non-admin users. [2026-02-19]
+- **Use TwelveData's native quote fields, don't recompute**: TwelveData `/quote?prepost=true` returns `change`, `percent_change`, `extended_change`, `extended_percent_change`, `extended_price` server-side. `parseTdQuote` must parse these and the price feed must prefer them over manual `price - prevClose` computation. The old code set `dailyClose = price` which made EXT change always 0. [2026-02-25]
+- **Persist last-known AH data in KV — never overwrite with undefined**: When TwelveData stops returning `extended_*` fields (overnight/during RTH), the cron was setting `ahp`/`ahdc`/`ahdp` to `undefined`, which overwrites values from the `...prev` spread. Fix: fall back to `prev.ahp`/`prev.ahdc`/`prev.ahdp`. The admin `refresh-prices` endpoint must also read existing KV first to carry forward AH fields. This ensures the ETH movers row always shows the last known state. [2026-02-25]
+- **All frontend pages must use getDailyChange() from shared-price-utils.js**: Investor dashboard was using raw `t.dailyChgPct` from the server response instead of the shared utility. Any page showing daily change must import `shared-price-utils.js` and call `getDailyChange(t).dayPct` / `.dayChg`. Add field aliases (`prev_close`, `day_change_pct`, `day_change`) to server endpoints so getDailyChange's fallback chain works. [2026-02-25]
 
 ## Learning Loop & Model
 

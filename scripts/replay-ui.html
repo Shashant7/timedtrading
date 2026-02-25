@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Replay Control</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { font-family: system-ui, sans-serif; background: #0f1419; color: #e6edf3; margin: 0; padding: 24px; }
+    .card { background: #161b22; border: 1px solid #30363d; border-radius: 12px; padding: 20px; margin-bottom: 16px; }
+    h1 { margin: 0 0 8px 0; font-size: 1.25rem; }
+    .status { display: inline-flex; align-items: center; gap: 8px; padding: 4px 10px; border-radius: 20px; font-size: 13px; font-weight: 600; }
+    .status.running { background: rgba(35,134,54,0.2); color: #3fb950; }
+    .status.stopped { background: rgba(110,118,129,0.2); color: #8b949e; }
+    .status .dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+    .status.running .dot { animation: pulse 1.5s ease-in-out infinite; }
+    @keyframes pulse { 0%,100%{ opacity:1 } 50%{ opacity:0.5 } }
+    .progress { font-size: 13px; color: #8b949e; margin-top: 8px; }
+    .progress strong { color: #e6edf3; }
+    .btn { display: inline-block; padding: 10px 18px; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; border: none; margin-right: 8px; margin-top: 8px; }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .btn-start { background: #238636; color: #fff; }
+    .btn-start:hover:not(:disabled) { background: #2ea043; }
+    .btn-resume { background: #1f6feb; color: #fff; }
+    .btn-resume:hover:not(:disabled) { background: #388bfd; }
+    .btn-pause { background: #da3633; color: #fff; }
+    .btn-pause:hover:not(:disabled) { background: #f85149; }
+    .log { font-family: ui-monospace, monospace; font-size: 11px; background: #0d1117; border: 1px solid #30363d; border-radius: 8px; padding: 12px; max-height: 280px; overflow-y: auto; white-space: pre-wrap; word-break: break-all; }
+    .sub { font-size: 12px; color: #8b949e; margin-top: 16px; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Replay Control</h1>
+    <p class="sub">Full backtest: 2025-07-01 → 2026-02-23 (152 tickers)</p>
+    <div id="statusEl" class="status stopped"><span class="dot"></span><span>Stopped</span></div>
+    <div id="progressEl" class="progress"></div>
+    <div>
+      <button id="btnStart" class="btn btn-start">Start (fresh)</button>
+      <button id="btnResume" class="btn btn-resume">Resume</button>
+      <button id="btnPause" class="btn btn-pause" disabled>Pause</button>
+    </div>
+  </div>
+  <div class="card">
+    <h2 style="margin:0 0 8px 0; font-size: 1rem;">Recent log</h2>
+    <pre id="logEl" class="log">Loading...</pre>
+  </div>
+  <script>
+    (function() {
+      const port = 3847;
+      const api = 'http://localhost:' + port;
+      function refresh() {
+        fetch(api + '/api/status').then(r => r.json()).then(d => {
+          const statusEl = document.getElementById('statusEl');
+          const progressEl = document.getElementById('progressEl');
+          const logEl = document.getElementById('logEl');
+          const btnStart = document.getElementById('btnStart');
+          const btnResume = document.getElementById('btnResume');
+          const btnPause = document.getElementById('btnPause');
+
+          statusEl.className = 'status ' + (d.running ? 'running' : 'stopped');
+          statusEl.querySelector('span:last-child').textContent = d.running ? 'Running' : 'Stopped';
+          if (d.pid) statusEl.title = 'PID ' + d.pid;
+
+          let progress = '';
+          if (d.currentDate) progress += 'Current date: <strong>' + d.currentDate + '</strong>. ';
+          if (d.nextDate) progress += 'Next: <strong>' + d.nextDate + '</strong>. ';
+          if (d.totalTrades != null) progress += 'Total trades: <strong>' + d.totalTrades + '</strong>. ';
+          if (d.dayComplete) progress += 'Last day: ' + d.dayComplete.trades + ' trades. ';
+          progressEl.innerHTML = progress || 'No run yet.';
+
+          logEl.textContent = (d.lastLogLines && d.lastLogLines.length) ? d.lastLogLines.join('\n') : 'No log.';
+
+          btnStart.disabled = d.running;
+          btnResume.disabled = d.running;
+          btnPause.disabled = !d.running;
+        }).catch(function() {
+          document.getElementById('logEl').textContent = 'Start the server: node scripts/replay-ui-server.js';
+          document.getElementById('statusEl').querySelector('span:last-child').textContent = 'Server offline';
+        });
+      }
+      function act(action) {
+        fetch(api + '/api/' + action, { method: 'POST' }).then(function() { refresh(); }).catch(function() { refresh(); });
+      }
+      document.getElementById('btnStart').onclick = function() { act('start'); };
+      document.getElementById('btnResume').onclick = function() { act('resume'); };
+      document.getElementById('btnPause').onclick = function() { act('pause'); };
+      refresh();
+      setInterval(refresh, 4000);
+    })();
+  </script>
+</body>
+</html>
