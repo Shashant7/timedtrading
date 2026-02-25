@@ -17,6 +17,7 @@ _No active tasks._
 ---
 
 ## Recently Completed
+- **Guide & Tour Overhaul** [2026-02-25] — Investor first-visit guide (6-step modal + 5-step coachmarks tour), Active Trader guide refresh with platform philosophy and mode distinction, simulation portfolio review guidance, voice rules applied across all onboarding.
 - **Investor Dashboard Overhaul** [2026-02-25] — Full approachability redesign: plain-English labels with pro terms in tooltips, generated summary sentences in Right Rail, color-coded score verdicts (Strong/Mixed/Weak), verdict dots on score breakdown, inline education instead of hidden legends, no "you/your" voice. Bubble Chart legend (Active Trader) collapsed to single line.
 - **Right Rail Tabs Polish** [2026-02-25] — Interpretive Technicals, contextual Journey descriptions, fixed Model tab data source, Scoring Timeline collapsed into milestone groups.
 - **Bubble Chart Legend & Timeline** [2026-02-25] — Redesigned legend with visual examples, collapsed Scoring Timeline into grouped milestones with transition dividers.

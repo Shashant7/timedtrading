@@ -90,6 +90,7 @@
 - **Score breakdown rows need verdict dots**: A green/amber/red dot next to each row (based on value ÷ max > 60%/30%) lets beginners scan which factors are strong vs weak without understanding the numbers. [2026-02-25]
 - **Chart legends should be a single compact line**: Keep chart legends (Bubble Chart, etc.) to one horizontal row with terse labels. Use `title` attributes for full explanations. Two-row legends with SVG samples are too heavy. [2026-02-25]
 - **Technical terms: friendly label first, pro term in parentheses or title**: "Buy Zone" (not "Accumulation Zone"), "Performance vs Market" (not "Relative Strength vs SPY"), "Strength vs Market" (not "relativeStrength"). Professional term preserved in `title` or parenthetical for advanced users. [2026-02-25]
+- **Each page needs its own Guide + Tour with separate localStorage keys**: Active Trader uses `timedTrading_welcomeSeen` + `tt_coachmarks_completed_v1`, Investor uses `tt_investor_welcomeSeen` + `tt_investor_coachmarks_v1`. Each page is a separate HTML file with its own script scope, so guide/tour components must be duplicated (not shared). Coachmarks auto-start after the welcome modal is dismissed (poll for the localStorage key, then 800ms delay). [2026-02-25]
 
 ## Kanban & UI
 
