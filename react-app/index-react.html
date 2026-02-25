@@ -11181,7 +11181,7 @@
           })();
           const stage = String(t?.kanban_stage || "");
           const flags = t?.flags || {};
-          const score = Number(t?.score ?? t?.flip_watch_score ?? t?.weighted_score);
+          const score = Number(rankScoreForTicker(t)) || Number(t?.score ?? t?.flip_watch_score ?? t?.weighted_score);
           const price = Number(t?.price ?? t?.close);
 
           // Use position SL/TP when available (correct for SHORT trades), else fall back to ticker SL/TP
