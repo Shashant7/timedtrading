@@ -31569,15 +31569,16 @@ export default {
           const limit = getUserSlotLimit(user);
           const activeOrHeld = slots.filter(s => s.active || s.held);
 
-          // Check if already active — if so, re-seed if data is missing (handles failed initial seeds)
+          // Check if already active — allow re-scoring if ticker lacks scoring data
           const existing = slots.find(s => s.ticker === rawTicker && s.active);
           if (existing) {
             const hasData = await kvGetJSON(KV, `timed:latest:${rawTicker}`);
-            if (hasData && Number(hasData.price) > 0) {
+            const hasScoring = hasData && Number(hasData.price) > 0 && Number(hasData.htf_score) !== 0 && hasData.sl != null;
+            if (hasScoring) {
               return sendJSON({ ok: false, error: "already_added", ticker: rawTicker, detail: `${rawTicker} is already in your custom tickers.` }, 409, corsHeaders(env, req));
             }
-            // Fall through to re-validate and re-seed (ticker was added but never seeded properly)
-            console.log(`[USER_TICKERS] ${rawTicker} exists but has no data — re-seeding`);
+            // Fall through to re-validate and re-score (ticker was added but never scored)
+            console.log(`[USER_TICKERS] ${rawTicker} exists but lacks scoring — re-scoring`);
           }
 
           // Check if ticker is already in the seeded universe

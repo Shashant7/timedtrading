@@ -445,6 +445,7 @@
         selectedJourneyTs = null,
         initialRailTab = null,
         effectiveStage = null,
+        earningsMap = null,
       }) {
         const tickerSymbol = ticker?.ticker ? String(ticker.ticker) : "";
 
@@ -1402,19 +1403,21 @@
                         const showDesc = description && description !== name;
 
                         // Finnhub upcoming earnings (fresher than context.events)
-                        const finnhubEarn = window._ttEarningsMap?.[tickerSymbol];
+                        const _rrEarnMap = earningsMap || window._ttEarningsMap;
+                        const finnhubEarn = _rrEarnMap?.[String(tickerSymbol).toUpperCase()];
                         const finnhubEarnDate = finnhubEarn?.date;
                         const finnhubEarnHour = finnhubEarn?.hour;
                         const finnhubDaysAway = finnhubEarn?._daysAway;
                         const hasFinnhubEarn = !!finnhubEarn;
-                        const isEarningsImminent = hasFinnhubEarn && finnhubDaysAway <= 2 && finnhubDaysAway > -1;
+                        const isEarningsImminent = hasFinnhubEarn && finnhubDaysAway >= 0 && finnhubDaysAway <= 2;
                         const earnLabel = (() => {
                           if (!hasFinnhubEarn) return null;
                           const d = finnhubDaysAway;
-                          if (d <= 0 && d > -1) return "Today";
-                          if (d > 0 && d <= 1) return "Tomorrow";
-                          if (d < 0) return `${Math.abs(Math.round(d))} day${Math.abs(Math.round(d)) !== 1 ? "s" : ""} ago`;
-                          return `in ${Math.round(d)} day${Math.round(d) !== 1 ? "s" : ""}`;
+                          if (d === 0) return "Today";
+                          if (d === 1) return "Tomorrow";
+                          if (d === -1) return "Yesterday";
+                          if (d < 0) return `${Math.abs(d)} day${Math.abs(d) !== 1 ? "s" : ""} ago`;
+                          return `in ${d} day${d !== 1 ? "s" : ""}`;
                         })();
                         const earnHourLabel = (() => {
                           if (!finnhubEarnHour) return "";
@@ -1463,15 +1466,15 @@
                               </div>
                             )}
 
-                            {(marketCap || lastEarnEvt || (nextEarnTs && !hasFinnhubEarn)) ? (
-                              <div className={`mt-1.5 grid gap-1.5 text-[10px]`} style={{ gridTemplateColumns: `repeat(${[marketCap, lastEarnEvt, nextEarnTs && !hasFinnhubEarn].filter(Boolean).length}, 1fr)` }}>
+                            {(marketCap || (lastEarnEvt && !hasFinnhubEarn) || (nextEarnTs && !hasFinnhubEarn)) ? (
+                              <div className={`mt-1.5 grid gap-1.5 text-[10px]`} style={{ gridTemplateColumns: `repeat(${[marketCap, lastEarnEvt && !hasFinnhubEarn, nextEarnTs && !hasFinnhubEarn].filter(Boolean).length}, 1fr)` }}>
                                 {marketCap ? (
                                   <div className="p-1.5 bg-white/[0.02] border border-white/[0.06] rounded text-center">
                                     <div className="text-[9px] text-[#6b7280]">MCap</div>
                                     <div className="text-[11px] font-semibold text-white">{fmtMCap(marketCap)}</div>
                                   </div>
                                 ) : null}
-                                {lastEarnEvt ? (
+                                {lastEarnEvt && !hasFinnhubEarn ? (
                                   <div className="p-1.5 bg-white/[0.02] border border-white/[0.06] rounded text-center">
                                     <div className="text-[9px] text-[#6b7280]">Last Earnings</div>
                                     <div className="text-[11px] font-semibold text-white">{fmtDate(lastEarnEvt)}</div>

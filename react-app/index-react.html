@@ -11551,24 +11551,31 @@
               </div>
 
               {/* ── Row 3: Score, R:R, Alignment | SL, TP ── */}
-              <div className="relative flex items-center justify-between px-2 py-0.5 text-[10px] font-medium" style={{ zIndex: 1 }}>
-                <div className="flex items-center gap-2 text-[#8b95a5]">
-                  <span>Score <span className="text-white font-bold tabular-nums">{Number.isFinite(score) ? score.toFixed(0) : "—"}</span></span>
-                  <span>R:R <span className="text-white font-bold tabular-nums">{Number.isFinite(rrNow) ? rrNow.toFixed(2) : "—"}</span></span>
-                  {(() => {
-                    const wr = t?._alignment?.path_win_rate;
-                    if (wr == null) return null;
-                    const wrNum = Number(wr);
-                    if (!Number.isFinite(wrNum)) return null;
-                    const cls = wrNum >= 60 ? "text-emerald-400" : wrNum >= 45 ? "text-amber-400" : "text-rose-400";
-                    return <span className={`${cls} font-bold tabular-nums`} title={`Entry path historical win rate: ${wrNum.toFixed(0)}%`}>{wrNum.toFixed(0)}%</span>;
-                  })()}
+              {(!Number.isFinite(score) || score === 0) && sl == null && tp == null && Number(t?.price) > 0 ? (
+                <div className="relative flex items-center justify-center gap-2 px-2 py-1 text-[10px]" style={{ zIndex: 1 }}>
+                  <span className="loading-spinner loading-spinner-sm" style={{width:"10px",height:"10px",borderWidth:"1.5px",borderColor:"rgba(6,182,212,0.25)",borderTopColor:"rgb(6,182,212)"}}></span>
+                  <span className="text-cyan-400 font-medium">Scoring...</span>
                 </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-rose-400">SL <span className="font-bold tabular-nums">{sl != null ? `$${sl.toFixed(2)}` : "—"}</span></span>
-                  <span className="text-teal-400">TP <span className="font-bold tabular-nums">{tp != null ? `$${tp.toFixed(2)}` : "—"}</span></span>
+              ) : (
+                <div className="relative flex items-center justify-between px-2 py-0.5 text-[10px] font-medium" style={{ zIndex: 1 }}>
+                  <div className="flex items-center gap-2 text-[#8b95a5]">
+                    <span>Score <span className="text-white font-bold tabular-nums">{Number.isFinite(score) ? score.toFixed(0) : "—"}</span></span>
+                    <span>R:R <span className="text-white font-bold tabular-nums">{Number.isFinite(rrNow) ? rrNow.toFixed(2) : "—"}</span></span>
+                    {(() => {
+                      const wr = t?._alignment?.path_win_rate;
+                      if (wr == null) return null;
+                      const wrNum = Number(wr);
+                      if (!Number.isFinite(wrNum)) return null;
+                      const cls = wrNum >= 60 ? "text-emerald-400" : wrNum >= 45 ? "text-amber-400" : "text-rose-400";
+                      return <span className={`${cls} font-bold tabular-nums`} title={`Entry path historical win rate: ${wrNum.toFixed(0)}%`}>{wrNum.toFixed(0)}%</span>;
+                    })()}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-rose-400">SL <span className="font-bold tabular-nums">{sl != null ? `$${sl.toFixed(2)}` : "—"}</span></span>
+                    <span className="text-teal-400">TP <span className="font-bold tabular-nums">{tp != null ? `$${tp.toFixed(2)}` : "—"}</span></span>
+                  </div>
                 </div>
-              </div>
+              )}
 
               {/* ── Row 4: Lane reason + earnings callout ── */}
               {(laneReason || _earningsEvt) && (
