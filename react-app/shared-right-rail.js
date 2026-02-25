@@ -1222,20 +1222,27 @@
                       const icon = status === "INVALIDATED" ? "⛔" : status === "COMPLETED" ? "✅" : "🟢";
                       return <span className={`px-1.5 py-0.5 rounded border font-semibold ${pill}`}>{icon} {status}</span>;
                     })()}
+
+                    {/* Badges inline with stage/groups row */}
+                    {(() => {
+                      const flags = ticker?.flags || {};
+                      const badges = [];
+                      if (isPrimeBubble(ticker)) badges.push({ icon: "💎", label: "Prime", tip: "Prime: Top-ranked setup with high conviction" });
+                      if (flags.flip_watch) badges.push({ icon: "🎯", label: "Entry Zone", tip: "Entry Zone: Price is near optimal entry level" });
+                      if (flags.momentum_elite) badges.push({ icon: "🔥", label: "MoElite", tip: "MoElite: Elite momentum alignment across timeframes" });
+                      if (flags.sq30_on && !flags.sq30_release) badges.push({ icon: "🧨", label: "Squeeze", tip: "Squeeze: Bollinger Band squeeze detected — volatility expansion expected" });
+                      if (flags.sq30_release) badges.push({ icon: "⚡", label: "Release", tip: "Release: Squeeze has fired — momentum breakout in progress" });
+                      if (badges.length === 0) return null;
+                      return badges.map((b, i) => (
+                        <span key={`ib-${i}`} className="px-1.5 py-0.5 rounded border bg-white/5 border-white/10 text-[#d1d5db] font-semibold cursor-default" title={b.tip}>{b.icon} {b.label}</span>
+                      ));
+                    })()}
                   </div>
 
-                  {/* ── Badges & Indicator Pills — with inline descriptions ── */}
+                  {/* ── Indicator Pills — with inline descriptions ── */}
                   {(() => {
                     const flags = ticker?.flags || {};
                     const pills = [];
-                    const badges = [];
-
-                    // ── Badges (emoji-based, from flags + isPrimeBubble) ──
-                    if (isPrimeBubble(ticker)) badges.push({ icon: "💎", label: "Prime", tip: "Prime: Top-ranked setup with high conviction" });
-                    if (flags.flip_watch) badges.push({ icon: "🎯", label: "Entry Zone", tip: "Entry Zone: Price is near optimal entry level" });
-                    if (flags.momentum_elite) badges.push({ icon: "🔥", label: "MoElite", tip: "MoElite: Elite momentum alignment across timeframes" });
-                    if (flags.sq30_on && !flags.sq30_release) badges.push({ icon: "🧨", label: "Squeeze", tip: "Squeeze: Bollinger Band squeeze detected — volatility expansion expected" });
-                    if (flags.sq30_release) badges.push({ icon: "⚡", label: "Release", tip: "Release: Squeeze has fired — momentum breakout in progress" });
 
                     // ── Indicator Pills ──
 
@@ -1296,12 +1303,9 @@
                       pills.push({ label: tLabel, cls: tColor, desc: "Trend", tip: `Weekly Trend: ${tLabel}` });
                     }
 
-                    if (pills.length === 0 && badges.length === 0) return null;
+                    if (pills.length === 0) return null;
                     return (
-                      <div className="mt-2 flex items-center gap-2 flex-wrap text-[10px]">
-                        {badges.map((b, i) => (
-                          <span key={`ib-${i}`} className="px-1.5 py-0.5 rounded border bg-white/5 border-white/10 text-[#d1d5db] font-semibold cursor-default" title={b.tip}>{b.icon} {b.label}</span>
-                        ))}
+                      <div className="mt-1.5 flex items-center gap-2 flex-wrap text-[10px]">
                         {pills.map((p, i) => (
                           <span key={`ip-${i}`} className="inline-flex items-center gap-1 cursor-default" title={p.tip}>
                             <span className={`px-1.5 py-0.5 rounded border font-semibold ${p.cls}`}>{p.label}</span>

@@ -1345,12 +1345,9 @@
         return /*#__PURE__*/React.createElement("span", {
           className: `px-1.5 py-0.5 rounded border font-semibold ${pill}`
         }, icon, " ", status);
-      })()), (() => {
+      })(), (() => {
         const flags = ticker?.flags || {};
-        const pills = [];
         const badges = [];
-
-        // ── Badges (emoji-based, from flags + isPrimeBubble) ──
         if (isPrimeBubble(ticker)) badges.push({
           icon: "💎",
           label: "Prime",
@@ -1376,6 +1373,15 @@
           label: "Release",
           tip: "Release: Squeeze has fired — momentum breakout in progress"
         });
+        if (badges.length === 0) return null;
+        return badges.map((b, i) => /*#__PURE__*/React.createElement("span", {
+          key: `ib-${i}`,
+          className: "px-1.5 py-0.5 rounded border bg-white/5 border-white/10 text-[#d1d5db] font-semibold cursor-default",
+          title: b.tip
+        }, b.icon, " ", b.label));
+      })()), (() => {
+        const flags = ticker?.flags || {};
+        const pills = [];
 
         // ── Indicator Pills ──
 
@@ -1476,14 +1482,10 @@
             tip: `Weekly Trend: ${tLabel}`
           });
         }
-        if (pills.length === 0 && badges.length === 0) return null;
+        if (pills.length === 0) return null;
         return /*#__PURE__*/React.createElement("div", {
-          className: "mt-2 flex items-center gap-2 flex-wrap text-[10px]"
-        }, badges.map((b, i) => /*#__PURE__*/React.createElement("span", {
-          key: `ib-${i}`,
-          className: "px-1.5 py-0.5 rounded border bg-white/5 border-white/10 text-[#d1d5db] font-semibold cursor-default",
-          title: b.tip
-        }, b.icon, " ", b.label)), pills.map((p, i) => /*#__PURE__*/React.createElement("span", {
+          className: "mt-1.5 flex items-center gap-2 flex-wrap text-[10px]"
+        }, pills.map((p, i) => /*#__PURE__*/React.createElement("span", {
           key: `ip-${i}`,
           className: "inline-flex items-center gap-1 cursor-default",
           title: p.tip
