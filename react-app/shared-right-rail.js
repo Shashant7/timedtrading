@@ -546,6 +546,24 @@
         const [emaExpanded, setEmaExpanded] = useState(true);
         const [tpExpanded, setTpExpanded] = useState(true);
 
+        // Merged price source: overlay ticker prop's live price fields onto latestTicker
+        // so getDailyChange() resolves the same prev_close as the Card.
+        const priceSrc = useMemo(() => {
+          const base = latestTicker || ticker || {};
+          if (!latestTicker || !ticker) return base;
+          const liveOverlay = {};
+          const LIVE_KEYS = [
+            "_live_price", "_live_prev_close", "_live_daily_high",
+            "_live_daily_low", "_live_daily_volume", "_price_updated_at",
+            "_ah_price", "_ah_change", "_ah_change_pct",
+            "day_change_pct", "day_change", "change_pct", "change",
+          ];
+          for (const k of LIVE_KEYS) {
+            if (ticker[k] !== undefined) liveOverlay[k] = ticker[k];
+          }
+          return { ...base, ...liveOverlay };
+        }, [latestTicker, ticker]);
+
         // Prevent stale crosshair data from crashing renders when switching
         // tickers/timeframes/tabs quickly (e.g. clicking Chart right after selecting a ticker).
         useEffect(() => {
@@ -1043,7 +1061,7 @@
                       })()}
                       {/* CP + daily change inline — admin only for legal compliance */}
                       {document.body.dataset.userRole === "admin" && (() => {
-                        const src = latestTicker || ticker;
+                        const src = priceSrc;
                         const price = Number(src?._live_price || src?.price || src?.close || 0);
                         if (!price) return null;
                         const priceAge = src._price_updated_at ? (Date.now() - src._price_updated_at) / 60000 : Infinity;
@@ -1062,7 +1080,7 @@
                         );
                       })()}
                       {document.body.dataset.userRole === "admin" && (() => {
-                        const src = latestTicker || ticker;
+                        const src = priceSrc;
                         const { dayChg, dayPct, stale, marketOpen } = getDailyChange(src);
                         if (!Number.isFinite(dayChg) && !Number.isFinite(dayPct)) return null;
                         const sign = Number(dayChg || dayPct || 0) >= 0 ? "+" : "-";
@@ -4447,7 +4465,7 @@
                                   
                                   {/* Current Price + Daily Change for open trades (admin only) */}
                                   {!isClosed && document.body.dataset.userRole === "admin" && (() => {
-                                    const src = latestTicker || ticker;
+                                    const src = priceSrc;
                                     const cp = Number(src?.currentPrice ?? src?.cp ?? 0);
                                     const dayPct = Number(src?.dayPct ?? src?.dailyChangePct ?? 0);
                                     const dayChg = Number(src?.dayChg ?? src?.dailyChange ?? 0);
