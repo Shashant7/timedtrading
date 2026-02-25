@@ -5548,8 +5548,8 @@
                     <div
                       className="absolute rounded-2xl p-3 text-sm pointer-events-none z-10 shadow-2xl fade-in border border-white/[0.10]"
                       style={{
-                        left: tooltipPos.x + 10,
-                        top: tooltipPos.y - 10,
+                        left: tooltipPos.x > dimensions.width * 0.65 ? tooltipPos.x - 240 : tooltipPos.x + 10,
+                        top: tooltipPos.y > dimensions.height * 0.55 ? tooltipPos.y - 280 : tooltipPos.y - 10,
                         minWidth: "220px",
                         background: "rgba(255,255,255,0.06)",
                         backdropFilter: "blur(24px) saturate(1.4)",
