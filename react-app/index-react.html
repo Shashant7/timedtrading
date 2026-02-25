@@ -396,6 +396,10 @@
         animation: fadeIn 0.3s ease-in;
       }
 
+      /* Performance: isolate card/lane layout to prevent cascade reflows */
+      .kanban-card { contain: layout style paint; }
+      .kanban-lane { contain: layout style; }
+
       @keyframes fadeIn {
         from {
           opacity: 0;
@@ -461,7 +465,7 @@
     <script src="auth-gate.js?v=20260219a"></script>
     <script src="shared-price-utils.js?v=20260211a"></script>
     <script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
-    <script src="shared-right-rail.compiled.js?v=20260218a" type="text/babel"></script>
+    <script src="shared-right-rail.compiled.js?v=20260225a" type="text/babel"></script>
     <script type="text/babel">
       const { useState, useEffect, useMemo, useCallback, useRef, memo } = React;
 
@@ -1045,13 +1049,46 @@
       function useWebSocket(tickerData, setTickerData) {
         const wsRef = useRef(null);
         const reconnectTimer = useRef(null);
-        const reconnectDelay = useRef(1000); // exponential backoff: 1s → 2s → 4s → max 30s
+        const reconnectDelay = useRef(1000);
         const [wsConnected, setWsConnected] = useState(false);
         const [wsLastMessage, setWsLastMessage] = useState(0);
         const tickerDataRef = useRef(tickerData);
         tickerDataRef.current = tickerData;
         const setTickerDataRef = useRef(setTickerData);
         setTickerDataRef.current = setTickerData;
+
+        // Throttle WS updates: accumulate changes, flush at most every 2s
+        const wsPendingRef = useRef({});
+        const wsFlushTimerRef = useRef(null);
+        const WS_THROTTLE_MS = 2000;
+        const flushWsPending = useCallback(() => {
+          const pending = wsPendingRef.current;
+          if (!pending || Object.keys(pending).length === 0) return;
+          wsPendingRef.current = {};
+          const setter = setTickerDataRef.current;
+          if (!setter) return;
+          setter(prev => {
+            if (!prev || typeof prev !== "object" || Object.keys(prev).length === 0) return prev;
+            const result = { ...prev };
+            let changed = false;
+            for (const [sym, updates] of Object.entries(pending)) {
+              const existing = result[sym];
+              if (!existing) continue;
+              result[sym] = { ...existing, ...updates };
+              changed = true;
+            }
+            return changed ? result : prev;
+          });
+        }, []);
+        const queueWsUpdate = useCallback((sym, updates) => {
+          wsPendingRef.current[sym] = { ...(wsPendingRef.current[sym] || {}), ...updates };
+          if (!wsFlushTimerRef.current) {
+            wsFlushTimerRef.current = setTimeout(() => {
+              wsFlushTimerRef.current = null;
+              flushWsPending();
+            }, WS_THROTTLE_MS);
+          }
+        }, [flushWsPending]);
 
         const connect = useCallback(() => {
           // Don't connect if already connected or during SSR
@@ -1076,115 +1113,90 @@
                 setWsLastMessage(Date.now());
 
                 if (msg.type === "prices" && msg.data) {
-                  const setter = setTickerDataRef.current;
-                  if (!setter) return;
                   const wsTs = msg.updated_at || Date.now();
                   const MIN_PRICE_CHANGE_PCT = 0.05;
+                  const curData = tickerDataRef.current;
+                  if (!curData || typeof curData !== "object") return;
 
-                  setter(prev => {
-                    if (!prev || typeof prev !== "object" || Object.keys(prev).length === 0) return prev;
-                    const updatedData = { ...prev };
-                    let changed = false;
-                    for (const [sym, priceInfo] of Object.entries(msg.data)) {
-                      const normalizedSym = normTicker(sym);
-                      const existing = updatedData[normalizedSym];
-                      if (!existing || !(priceInfo.p > 0)) continue;
-                      if (existing._live_price === priceInfo.p) continue;
-                      const curPrice = Number(existing._live_price || existing.price || 0);
-                      if (curPrice > 0 && Math.abs(priceInfo.p - curPrice) / curPrice * 100 < MIN_PRICE_CHANGE_PCT) continue;
-                      const feedPc = Number(priceInfo.pc);
-                      const feedP = Number(priceInfo.p);
-                      const feedPcUsable = Number.isFinite(feedPc) && feedPc > 0 && feedP > 0
-                        && (Math.abs(feedPc - feedP) / feedP * 100) > 0.05;
-                      const bestPc = feedPcUsable
-                        ? feedPc
-                        : (existing._live_prev_close || existing.prev_close || undefined);
-                      const feedDc = Number(priceInfo.dc);
-                      const feedDp = Number(priceInfo.dp);
-                      updatedData[normalizedSym] = {
-                        ...existing,
-                        price: priceInfo.p,
-                        _live_price: priceInfo.p,
-                        ...(bestPc > 0 ? { _live_prev_close: bestPc } : {}),
-                        _live_daily_high: priceInfo.dh,
-                        _live_daily_low: priceInfo.dl,
-                        _live_daily_volume: priceInfo.dv,
-                        _price_updated_at: wsTs,
-                        ...(Number.isFinite(feedDp) ? { day_change_pct: feedDp, change_pct: feedDp } : {}),
-                        ...(Number.isFinite(feedDc) ? { day_change: feedDc, change: feedDc } : {}),
-                        ...(Number.isFinite(Number(priceInfo.ahp)) && priceInfo.ahp > 0 ? { _ah_price: priceInfo.ahp } : {}),
-                        ...(Number.isFinite(Number(priceInfo.ahdc)) ? { _ah_change: priceInfo.ahdc } : {}),
-                        ...(Number.isFinite(Number(priceInfo.ahdp)) ? { _ah_change_pct: priceInfo.ahdp } : {}),
-                      };
-                      changed = true;
-                    }
-                    return changed ? updatedData : prev;
-                  });
+                  for (const [sym, priceInfo] of Object.entries(msg.data)) {
+                    const normalizedSym = normTicker(sym);
+                    const existing = curData[normalizedSym];
+                    if (!existing || !(priceInfo.p > 0)) continue;
+                    if (existing._live_price === priceInfo.p) continue;
+                    const curPrice = Number(existing._live_price || existing.price || 0);
+                    if (curPrice > 0 && Math.abs(priceInfo.p - curPrice) / curPrice * 100 < MIN_PRICE_CHANGE_PCT) continue;
+                    const feedPc = Number(priceInfo.pc);
+                    const feedP = Number(priceInfo.p);
+                    const feedPcUsable = Number.isFinite(feedPc) && feedPc > 0 && feedP > 0
+                      && (Math.abs(feedPc - feedP) / feedP * 100) > 0.05;
+                    const bestPc = feedPcUsable
+                      ? feedPc
+                      : (existing._live_prev_close || existing.prev_close || undefined);
+                    const feedDc = Number(priceInfo.dc);
+                    const feedDp = Number(priceInfo.dp);
+                    queueWsUpdate(normalizedSym, {
+                      price: priceInfo.p,
+                      _live_price: priceInfo.p,
+                      ...(bestPc > 0 ? { _live_prev_close: bestPc } : {}),
+                      _live_daily_high: priceInfo.dh,
+                      _live_daily_low: priceInfo.dl,
+                      _live_daily_volume: priceInfo.dv,
+                      _price_updated_at: wsTs,
+                      ...(Number.isFinite(feedDp) ? { day_change_pct: feedDp, change_pct: feedDp } : {}),
+                      ...(Number.isFinite(feedDc) ? { day_change: feedDc, change: feedDc } : {}),
+                      ...(Number.isFinite(Number(priceInfo.ahp)) && priceInfo.ahp > 0 ? { _ah_price: priceInfo.ahp } : {}),
+                      ...(Number.isFinite(Number(priceInfo.ahdc)) ? { _ah_change: priceInfo.ahdc } : {}),
+                      ...(Number.isFinite(Number(priceInfo.ahdp)) ? { _ah_change_pct: priceInfo.ahdp } : {}),
+                    });
+                  }
                 }
 
                 if (msg.type === "tick_batch" && Array.isArray(msg.updates)) {
-                  const setter = setTickerDataRef.current;
-                  if (!setter) return;
                   const batchTs = msg.ts || Date.now();
                   const MIN_PRICE_CHANGE_PCT = 0.05;
+                  const curData = tickerDataRef.current;
+                  if (!curData || typeof curData !== "object") return;
 
-                  setter(prev => {
-                    if (!prev || typeof prev !== "object" || Object.keys(prev).length === 0) return prev;
-                    const updatedData = { ...prev };
-                    let changed = false;
-                    for (const u of msg.updates) {
-                      const normalizedSym = normTicker(u.s);
-                      const existing = updatedData[normalizedSym];
-                      if (!existing || !(u.last > 0)) continue;
-                      if (existing._live_price === u.last) continue;
-                      const curPrice = Number(existing._live_price || existing.price || 0);
-                      if (curPrice > 0 && Math.abs(u.last - curPrice) / curPrice * 100 < MIN_PRICE_CHANGE_PCT) continue;
-                      updatedData[normalizedSym] = {
-                        ...existing,
-                        price: u.last,
-                        _live_price: u.last,
-                        _price_updated_at: u.lastTs || batchTs,
-                        _session: u.session,
-                        ...(Number.isFinite(u.dayChgPct) ? { day_change_pct: u.dayChgPct, change_pct: u.dayChgPct } : {}),
-                        ...(Number.isFinite(u.dayChg) ? { day_change: u.dayChg, change: u.dayChg } : {}),
-                        ...(Number.isFinite(u.ahChg) ? { _ah_change: u.ahChg } : {}),
-                        ...(Number.isFinite(u.ahChgPct) ? { _ah_change_pct: u.ahChgPct } : {}),
-                      };
-                      changed = true;
-                    }
-                    return changed ? updatedData : prev;
-                  });
+                  for (const u of msg.updates) {
+                    const normalizedSym = normTicker(u.s);
+                    const existing = curData[normalizedSym];
+                    if (!existing || !(u.last > 0)) continue;
+                    if (existing._live_price === u.last) continue;
+                    const curPrice = Number(existing._live_price || existing.price || 0);
+                    if (curPrice > 0 && Math.abs(u.last - curPrice) / curPrice * 100 < MIN_PRICE_CHANGE_PCT) continue;
+                    queueWsUpdate(normalizedSym, {
+                      price: u.last,
+                      _live_price: u.last,
+                      _price_updated_at: u.lastTs || batchTs,
+                      _session: u.session,
+                      ...(Number.isFinite(u.dayChgPct) ? { day_change_pct: u.dayChgPct, change_pct: u.dayChgPct } : {}),
+                      ...(Number.isFinite(u.dayChg) ? { day_change: u.dayChg, change: u.dayChg } : {}),
+                      ...(Number.isFinite(u.ahChg) ? { _ah_change: u.ahChg } : {}),
+                      ...(Number.isFinite(u.ahChgPct) ? { _ah_change_pct: u.ahChgPct } : {}),
+                    });
+                  }
                 }
 
                 if (msg.type === "scoring" && msg.data) {
-                  const setter = setTickerDataRef.current;
-                  if (!setter) return;
-
-                  setter(prev => {
-                    if (!prev || typeof prev !== "object") return prev;
-                    const updatedData = { ...prev };
-                    let changed = false;
-                    for (const [sym, update] of Object.entries(msg.data)) {
-                      const normalizedSym = normTicker(sym);
-                      const existing = updatedData[normalizedSym];
-                      if (!existing) continue;
-                      const hasLivePrice = existing._live_price > 0;
-                      updatedData[normalizedSym] = {
-                        ...existing,
-                        ...(update.score != null ? { eqScore: update.score, eq_score: update.score } : {}),
-                        ...(update.stage ? { kanban_stage: update.stage } : {}),
-                        ...(update.dir ? { bias_direction: update.dir } : {}),
-                        ...(!hasLivePrice && update.price > 0 ? { price: update.price } : {}),
-                        ...(update.blockReason !== undefined ? {
-                          __entry_block_reason: update.blockReason || undefined,
-                          __execution_block_reason: update.blockReason || undefined,
-                        } : {}),
-                        _scoring_updated_at: update.ts || Date.now(),
-                      };
-                      changed = true;
-                    }
-                    return changed ? updatedData : prev;
-                  });
+                  const curData = tickerDataRef.current;
+                  if (!curData || typeof curData !== "object") return;
+                  for (const [sym, update] of Object.entries(msg.data)) {
+                    const normalizedSym = normTicker(sym);
+                    const existing = curData[normalizedSym];
+                    if (!existing) continue;
+                    const hasLivePrice = existing._live_price > 0;
+                    queueWsUpdate(normalizedSym, {
+                      ...(update.score != null ? { eqScore: update.score, eq_score: update.score } : {}),
+                      ...(update.stage ? { kanban_stage: update.stage } : {}),
+                      ...(update.dir ? { bias_direction: update.dir } : {}),
+                      ...(!hasLivePrice && update.price > 0 ? { price: update.price } : {}),
+                      ...(update.blockReason !== undefined ? {
+                        __entry_block_reason: update.blockReason || undefined,
+                        __execution_block_reason: update.blockReason || undefined,
+                      } : {}),
+                      _scoring_updated_at: update.ts || Date.now(),
+                    });
+                  }
                 }
 
               } catch (e) {
@@ -1219,13 +1231,15 @@
           connect();
           return () => {
             clearTimeout(reconnectTimer.current);
+            clearTimeout(wsFlushTimerRef.current);
+            flushWsPending();
             if (wsRef.current) {
-              wsRef.current.onclose = null; // prevent reconnect on unmount
+              wsRef.current.onclose = null;
               wsRef.current.close();
               wsRef.current = null;
             }
           };
-        }, [connect]);
+        }, [connect, flushWsPending]);
 
         // Ping every 30s to keep the connection alive
         useEffect(() => {
@@ -1320,6 +1334,7 @@
         const [slotsMax, setSlotsMax] = useState(3);
         const [tier, setTier] = useState("free");
         const [adding, setAdding] = useState(false);
+        const [addingTicker, setAddingTicker] = useState(null);
         const [error, setError] = useState(null);
 
         const fetchSlots = useCallback(async () => {
@@ -1345,6 +1360,7 @@
         const addTicker = useCallback(async (ticker) => {
           setError(null);
           setAdding(true);
+          setAddingTicker(ticker.toUpperCase().trim());
           try {
             const res = await fetch(`${API_BASE}/timed/user-tickers`, {
               method: "POST",
@@ -1361,7 +1377,10 @@
           } catch (e) {
             setError(String(e?.message || e));
             return null;
-          } finally { setAdding(false); }
+          } finally {
+            setAdding(false);
+            setAddingTicker(null);
+          }
         }, [fetchSlots]);
 
         const removeTicker = useCallback(async (ticker) => {
@@ -1383,7 +1402,7 @@
           }
         }, [fetchSlots]);
 
-        return { slots, slotsUsed, slotsMax, tier, adding, error, addTicker, removeTicker, refetch: fetchSlots, setError };
+        return { slots, slotsUsed, slotsMax, tier, adding, addingTicker, error, addTicker, removeTicker, refetch: fetchSlots, setError };
       }
 
       // Account Summary hook — single source of truth from account_ledger (GET /timed/account-summary)
@@ -3952,7 +3971,7 @@
               {(() => {
                 const eEvt = window._ttEarningsMap?.[ticker.ticker];
                 if (!eEvt) return null;
-                const isToday = eEvt._daysAway > -1 && eEvt._daysAway <= 1;
+                const isToday = eEvt._daysAway === 0 || eEvt._daysAway === 1;
                 return (
                   <circle
                     cx={x} cy={y}
@@ -7119,7 +7138,12 @@
             {/* Sparkline — daily price trend */}
             {ticker._sparkline && ticker._sparkline.length >= 3 && (
               <div className="mb-1 w-full">
-                <Sparkline data={ticker._sparkline} width={200} height={36} />
+                <Sparkline data={(() => {
+                  const lp = Number(ticker._live_price || ticker.price);
+                  const sp = ticker._sparkline;
+                  if (lp > 0 && sp.length > 0 && Math.abs(lp - sp[sp.length - 1]) / sp[sp.length - 1] > 0.005) return [...sp, lp];
+                  return sp;
+                })()} width={200} height={36} />
               </div>
             )}
 
@@ -11420,7 +11444,7 @@
                 }
               }}
               className={
-                "w-full text-left rounded-lg cursor-pointer transition-all hover:brightness-110 relative overflow-hidden border flex flex-col " +
+                "w-full text-left rounded-lg cursor-pointer hover:brightness-110 relative overflow-hidden border flex flex-col " +
                 primeEntryBorder +
                 primeEntryCls +
                 pulseCls + " " + (skin?.dayEdgeClass || "") + " " + (skin?.intensityPulse || "")
@@ -11429,8 +11453,6 @@
                 backgroundImage: cardBgImage,
                 boxShadow: primeEntryShadow,
                 height: "142px",
-                backdropFilter: "blur(16px) saturate(150%)",
-                WebkitBackdropFilter: "blur(16px) saturate(150%)",
               }}
             >
               {/* ── Direction accent strip ── */}
@@ -11445,7 +11467,14 @@
               {/* ── Sparkline background ── */}
               {t._sparkline && t._sparkline.length >= 3 && (
                 <div className="absolute inset-0 pointer-events-none" style={{ zIndex: 0 }}>
-                  <Sparkline data={t._sparkline} width={200} height={142} bgMode />
+                  <Sparkline data={(() => {
+                    const lp = Number(t._live_price || t.price);
+                    const sp = t._sparkline;
+                    if (lp > 0 && sp.length > 0 && Math.abs(lp - sp[sp.length - 1]) / sp[sp.length - 1] > 0.005) {
+                      return [...sp, lp];
+                    }
+                    return sp;
+                  })()} width={200} height={142} bgMode />
                 </div>
               )}
               <div className="relative flex flex-col flex-1 min-h-0" style={{ zIndex: 1 }}>
@@ -11541,23 +11570,22 @@
                 </div>
               </div>
 
-              {/* ── Row 4: Lane reason (trade info, block reason, etc) ── */}
-              {laneReason && (
-                <div className="relative px-2 py-0.5 text-[9px] font-semibold truncate" style={{ zIndex: 1 }}>
-                  <span className={laneReason.cls}>{laneReason.text}</span>
-                </div>
-              )}
-
-              {/* ── Earnings callout ── */}
-              {_earningsEvt && (
-                <div className="relative px-2 py-0.5 text-[9px] truncate" style={{ zIndex: 1 }}>
-                  <span className="text-amber-400/90 font-semibold">📅 Earnings {(() => {
-                    const d = _earningsEvt._daysAway;
-                    if (d <= 0 && d > -1) return "Today";
-                    if (d > 0 && d <= 1) return "Tomorrow";
-                    if (d < 0) return `${Math.abs(Math.round(d))}d ago`;
-                    return `in ${Math.round(d)}d`;
-                  })()}{_earningsEvt.hour ? ` ${String(_earningsEvt.hour).toUpperCase() === "BMO" ? "BMO" : String(_earningsEvt.hour).toUpperCase() === "AMC" ? "AMC" : ""}` : ""}</span>
+              {/* ── Row 4: Lane reason + earnings callout ── */}
+              {(laneReason || _earningsEvt) && (
+                <div className="relative flex items-center justify-between px-2 py-0.5 text-[9px] font-semibold truncate" style={{ zIndex: 1 }}>
+                  {laneReason ? <span className={`truncate ${laneReason.cls}`}>{laneReason.text}</span> : <span />}
+                  {_earningsEvt && (
+                    <span className="text-amber-400/90 shrink-0 ml-1">📅 {(() => {
+                      const d = _earningsEvt._daysAway;
+                      const h = _earningsEvt.hour;
+                      const hStr = h ? (() => { const hl = String(h).toLowerCase(); if (hl === "bmo" || hl === "before market open") return " BMO"; if (hl === "amc" || hl === "after market close") return " AMC"; return ""; })() : "";
+                      if (d === 0) return `Today${hStr}`;
+                      if (d === 1) return `Tmrw${hStr}`;
+                      if (d === -1) return `Yday${hStr}`;
+                      if (d < 0) return `${Math.abs(d)}d ago`;
+                      return `${d}d${hStr}`;
+                    })()}</span>
+                  )}
                 </div>
               )}
 
@@ -12634,7 +12662,7 @@
         }, [itemKeys, laneKey]);
 
         return (
-          <div className="flex items-stretch gap-0 mb-1">
+          <div className="flex items-stretch gap-0 mb-1 kanban-lane">
             {/* Lane label */}
             <div
               className={`flex flex-col justify-center items-center w-[52px] shrink-0 rounded-l-xl border-l-2 border-t border-b border-t-white/[0.04] border-b-white/[0.04] ${color} px-1 py-2`}
@@ -12666,7 +12694,7 @@
                   {items
                     .slice(0, 80)
                     .map((t) => (
-                      <div key={t.ticker || t.symbol} className="w-[280px] shrink-0">
+                      <div key={t.ticker || t.symbol} className="w-[280px] shrink-0 kanban-card">
                         {renderCompactCard(t)}
                       </div>
                     ))}
@@ -13508,7 +13536,7 @@
             <button
               key={t.ticker}
               onClick={() => onSelectTicker && onSelectTicker(t.ticker)}
-              className={`w-full text-left px-3 py-2 rounded-lg transition-all hover:brightness-[1.06] relative ${
+              className={`w-full text-left px-3 py-2 rounded-lg hover:brightness-[1.06] relative ${
                 winnerSig
                   ? "border border-purple-500/50 hover:border-purple-400"
                   : dirOutlineCls
@@ -13565,7 +13593,12 @@
                 <div className="flex items-center gap-3 flex-shrink-0">
                   {t._sparkline && t._sparkline.length >= 3 && (
                     <div style={{ width: 120 }}>
-                      <Sparkline data={t._sparkline} width={120} height={24} />
+                      <Sparkline data={(() => {
+                        const lp = Number(t._live_price || t.price);
+                        const sp = t._sparkline;
+                        if (lp > 0 && sp.length > 0 && Math.abs(lp - sp[sp.length - 1]) / sp[sp.length - 1] > 0.005) return [...sp, lp];
+                        return sp;
+                      })()} width={120} height={24} />
                     </div>
                   )}
                   <div className="text-right text-[11px]">
@@ -13964,7 +13997,7 @@
                         onClick={() =>
                           onSelectTicker && onSelectTicker(t.ticker)
                         }
-                        className={`text-left px-3 py-2 rounded-lg border border-white/[0.06] bg-white/[0.02] hover:brightness-[1.06] hover:border-[#3a4aa0] transition-all ${
+                        className={`text-left px-3 py-2 rounded-lg border border-white/[0.06] bg-white/[0.02] hover:brightness-[1.06] hover:border-[#3a4aa0] ${
                           skin?.dayEdgeClass || ""
                         }`}
                         style={{ backgroundImage: skin?.bgImage }}
@@ -15644,6 +15677,7 @@
         onJourneyHover = null,
         onJourneySelect = null,
         selectedJourneyTs = null,
+        earningsMap = null,
       }) => {
         const [tickerData, setTickerData] = useState(null);
         const [allLoadedData, setAllLoadedData] = useState(null);
@@ -15766,6 +15800,7 @@
             onJourneyHover={onJourneyHover}
             onJourneySelect={onJourneySelect}
             selectedJourneyTs={selectedJourneyTs}
+            earningsMap={earningsMap}
           />
         );
       };
@@ -15786,6 +15821,7 @@
         onJourneyHover = null,
         onJourneySelect = null,
         selectedJourneyTs = null,
+        earningsMap = null,
       }) => {
         if (!selectedTicker) return null;
 
@@ -15841,6 +15877,7 @@
                 onJourneyHover={onJourneyHover}
                 onJourneySelect={onJourneySelect}
                 selectedJourneyTs={selectedJourneyTs}
+                earningsMap={earningsMap}
               />
             );
           }
@@ -15901,6 +15938,7 @@
               onJourneySelect={onJourneySelect}
               selectedJourneyTs={selectedJourneyTs}
               effectiveStage={effectiveStage}
+              earningsMap={earningsMap}
             />
           );
 
@@ -15965,19 +16003,22 @@
         const { events: earningsEvents } = useEarningsEvents();
 
         // Build earnings lookup: symbol -> nearest upcoming (or most recent past) event
+        // Uses NY calendar day comparison to avoid timezone-offset errors
         const earningsMap = useMemo(() => {
           const map = {};
           if (!earningsEvents || earningsEvents.length === 0) return map;
-          const now = Date.now();
-          const sevenDaysMs = 7 * 86400000;
+          const todayNy = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+          const todayParts = todayNy.split("-").map(Number);
+          const todayDayNum = todayParts[0] * 10000 + todayParts[1] * 100 + todayParts[2];
           for (const e of earningsEvents) {
             const sym = String(e.symbol || "").toUpperCase();
-            if (!sym) continue;
-            const eventMs = new Date(e.date + "T16:00:00").getTime();
-            const daysAway = (eventMs - now) / 86400000;
-            if (daysAway < -2 || daysAway > 7) continue;
-            if (!map[sym] || Math.abs(daysAway) < Math.abs(map[sym]._daysAway)) {
-              map[sym] = { ...e, _eventMs: eventMs, _daysAway: daysAway };
+            if (!sym || !e.date) continue;
+            const eParts = e.date.split("-").map(Number);
+            const eDayNum = eParts[0] * 10000 + eParts[1] * 100 + eParts[2];
+            const calDays = eDayNum - todayDayNum;
+            if (calDays < -2 || calDays > 7) continue;
+            if (!map[sym] || Math.abs(calDays) < Math.abs(map[sym]._daysAway)) {
+              map[sym] = { ...e, _daysAway: calDays };
             }
           }
           return map;
@@ -16615,7 +16656,7 @@
                               : null;
                             return (
                               <button key={`ev-${i}`} onClick={() => handleTickerSelect(e.symbol)}
-                                className={`flex items-center gap-1.5 px-2 py-1 rounded-lg border ${chipColor(e)} flex-shrink-0 hover:brightness-125 transition-all`}>
+                                className={`flex items-center gap-1.5 px-2 py-1 rounded-lg border ${chipColor(e)} flex-shrink-0 hover:brightness-125`}>
                                 <span className="text-[10px] font-bold">{e.symbol}</span>
                                 <span className="text-[9px] opacity-70">{formatDate(e.date)}</span>
                                 {formatHour(e.hour) && <span className="text-[8px] opacity-60">{formatHour(e.hour)}</span>}
@@ -16643,7 +16684,7 @@
                       const chg = (() => { if (!td) return null; const dc = getDailyChange(td); return dc && Number.isFinite(dc.dayChg) ? dc.dayChg : null; })();
                       return (
                         <button key={`mp2-${sym}`} onClick={() => handleTickerSelect(sym)}
-                          className={`flex items-center gap-1.5 px-2 py-1 rounded-lg border ${borderCls} bg-white/[0.03] hover:bg-white/[0.06] transition-all flex-shrink-0`}>
+                          className={`flex items-center gap-1.5 px-2 py-1 rounded-lg border ${borderCls} bg-white/[0.03] hover:bg-white/[0.06] flex-shrink-0`}>
                           <span className="text-[10px] text-white font-bold">{sym}</span>
                           <span className="text-[9px] text-gray-400">${price.toFixed(2)}</span>
                           <span className={`text-[9px] font-semibold ${up ? "text-[#00e676]" : "text-rose-400"}`}>{pct >= 0 ? "+" : ""}{pct.toFixed(2)}%</span>
@@ -16959,19 +17000,26 @@
                               onChange={e => { setAddTickerInput(e.target.value.toUpperCase()); userTickers.setError(null); }}
                               placeholder="e.g. IONQ, SMCI"
                               maxLength={6}
-                              className="flex-1 px-2.5 py-1.5 rounded-lg bg-white/[0.06] border border-white/[0.10] text-white text-xs placeholder:text-[#4b5563] focus:outline-none focus:border-cyan-500/50"
+                              disabled={userTickers.adding}
+                              className="flex-1 px-2.5 py-1.5 rounded-lg bg-white/[0.06] border border-white/[0.10] text-white text-xs placeholder:text-[#4b5563] focus:outline-none focus:border-cyan-500/50 disabled:opacity-50"
                               autoFocus
                             />
                             <button
                               type="submit"
                               disabled={userTickers.adding || !addTickerInput.trim()}
-                              className="px-3 py-1.5 rounded-lg bg-cyan-600/80 hover:bg-cyan-500/80 text-white text-xs font-semibold disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                              className="px-3 py-1.5 rounded-lg bg-cyan-600/80 hover:bg-cyan-500/80 text-white text-xs font-semibold disabled:opacity-40 disabled:cursor-not-allowed transition-colors min-w-[48px]"
                             >
                               {userTickers.adding ? (
                                 <span className="inline-flex items-center gap-1"><span className="loading-spinner loading-spinner-sm" style={{width:"12px",height:"12px",borderWidth:"1.5px"}}></span></span>
                               ) : "Add"}
                             </button>
                           </form>
+                          {userTickers.adding && userTickers.addingTicker && (
+                            <div className="flex items-center gap-2 px-2 py-2 mb-2 rounded-lg bg-cyan-500/[0.08] border border-cyan-500/20 text-xs">
+                              <span className="loading-spinner loading-spinner-sm" style={{width:"14px",height:"14px",borderWidth:"1.5px",borderColor:"rgba(6,182,212,0.3)",borderTopColor:"rgb(6,182,212)"}}></span>
+                              <span className="text-cyan-300">Scoring <span className="font-bold">{userTickers.addingTicker}</span>...</span>
+                            </div>
+                          )}
                           {userTickers.error && (
                             <div className="text-[10px] text-rose-400 mb-2 px-1 flex items-start gap-1">
                               <span className="shrink-0">⚠</span>
@@ -17134,7 +17182,7 @@
 
                       {/* Bubble Chart - Center Hero (flexible, takes remaining space) */}
                       <div
-                        className={`w-full lg:flex-1 lg:min-w-0 transition-all ${
+                        className={`w-full lg:flex-1 lg:min-w-0 transition-[margin] duration-300 ${
                           selectedTicker ? "lg:mr-[470px]" : ""
                         }`}
                       >
@@ -17213,6 +17261,7 @@
                               setJourneySelectedPoint(p);
                             }}
                             selectedJourneyTs={journeySelectedPoint?.ts ?? null}
+                            earningsMap={earningsMap}
                           />
                         </div>
                       </>

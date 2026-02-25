@@ -133,6 +133,7 @@
 - **timed:removed blocklist persists after manual SECTOR_MAP additions**: Must clean via watchlist/add endpoint or manual KV cleanup. [2026-02-11]
 - **Backfill scripts should filter to active tickers**: Fetch `/timed/tickers` at startup, not full SECTOR_MAP. [2026-02-11]
 - **Backfill default for new tickers: 30 days**: `sinceDays=30` for watchlist add. [2026-02-10]
+- **`d1TickerHasCandles` must check scoring-TF candles, not just any candle**: A ticker with only 1-minute candles passes the old check but fails scoring (needs 50+ candles in D, W, 4H, 1H, 30m, 10m, 5m). Check for ≥3 distinct scoring TFs AND ≥50 daily candles. Also: scoring cron must auto-backfill user-added tickers that have insufficient data, and write scored results to D1 `ticker_latest` (not just KV) so the D1 fallback path serves correct data. [2026-02-25]
 - **Re-added tickers need ticker_latest row**: Upsert minimal row so `/timed/all` returns it. [2026-02-10]
 - **Ingestion-status must include all watchlist tickers**: Build from canonical list, include 0% coverage rows. [2026-02-10]
 - **Coverage metrics must check data QUALITY, not just row count**: Factor freshness, gap detection, count. [2026-02-09]

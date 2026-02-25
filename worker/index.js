@@ -15172,9 +15172,11 @@ async function d1TickerHasCandles(env, ticker) {
   if (!db) return false;
   try {
     const row = await db.prepare(
-      `SELECT 1 FROM ticker_candles WHERE ticker = ? LIMIT 1`
+      `SELECT COUNT(DISTINCT tf) as tf_count FROM ticker_candles
+       WHERE ticker = ?1 AND tf IN ('D', 'W', '240', '60', '30', '10', '5')
+       AND (SELECT COUNT(*) FROM ticker_candles WHERE ticker = ?1 AND tf = 'D') >= 50`
     ).bind(ticker).first();
-    return !!row;
+    return row?.tf_count >= 3;
   } catch { return false; }
 }
 
@@ -23987,23 +23989,24 @@ export default {
             console.warn("[/timed/all] Position reconciliation failed:", String(reconcileErr?.message || reconcileErr));
           }
 
-          // ── User-added ticker gap-fill (D1 fallback path) ──
-          // User tickers won't be in ticker_latest, so gap-fill from timed:latest:{sym} KV
+          // ── User-added ticker enrichment (D1 fallback path) ──
+          // D1 ticker_latest may have stale seed data for user tickers.
+          // Always overlay KV data for user-added tickers (not just missing ones).
           try {
-            const missingUserTickers = userAdded2.filter(s => !data[s]);
-            if (missingUserTickers.length > 0) {
+            const userTickersToEnrich = userAdded2.filter(s => s && !SECTOR_MAP[s]);
+            if (userTickersToEnrich.length > 0) {
               const kvResults = await Promise.all(
-                missingUserTickers.slice(0, 30).map(s => kvGetJSON(KV, `timed:latest:${s}`).catch(() => null))
+                userTickersToEnrich.slice(0, 30).map(s => kvGetJSON(KV, `timed:latest:${s}`).catch(() => null))
               );
-              for (let i = 0; i < Math.min(missingUserTickers.length, 30); i++) {
+              for (let i = 0; i < Math.min(userTickersToEnrich.length, 30); i++) {
                 const kvPayload = kvResults[i];
                 if (kvPayload && typeof kvPayload === "object" && Number(kvPayload.price) > 0) {
-                  data[missingUserTickers[i]] = kvPayload;
+                  data[userTickersToEnrich[i]] = kvPayload;
                 }
               }
             }
           } catch (userGapErr) {
-            console.warn("[/timed/all] User ticker gap-fill failed:", String(userGapErr?.message || userGapErr));
+            console.warn("[/timed/all] User ticker enrichment failed:", String(userGapErr?.message || userGapErr));
           }
 
           // ── Market Pulse placeholders (D1 fallback path) ──
@@ -29730,8 +29733,6 @@ export default {
             const dp = (Number.isFinite(nativeDp) && nativeDp !== 0) ? Math.round(nativeDp * 100) / 100
               : (price && prevClose && prevClose > 0) ? Math.round(((price - prevClose) / prevClose) * 10000) / 100 : 0;
             const dayRolled = _mktClosed && dc === 0 && dp === 0 && Number.isFinite(prev.dc) && prev.dc !== 0;
-            const nativeExtDc = Number(snap.extendedChange);
-            const nativeExtDp = Number(snap.extendedPercentChange);
             const nativeExtP = Number(snap.extendedPrice);
             const entry = {
               p: Math.round(price * 100) / 100,
@@ -29740,10 +29741,10 @@ export default {
               dp: dayRolled ? prev.dp : dp,
               t: Date.now(),
             };
-            if (_mktClosed && Number.isFinite(nativeExtDc) && nativeExtDc !== 0) {
-              entry.ahdc = Math.round(nativeExtDc * 100) / 100;
-              entry.ahdp = Number.isFinite(nativeExtDp) ? Math.round(nativeExtDp * 100) / 100 : 0;
-              if (Number.isFinite(nativeExtP) && nativeExtP > 0) entry.ahp = Math.round(nativeExtP * 100) / 100;
+            if (_mktClosed && Number.isFinite(nativeExtP) && nativeExtP > 0 && price > 0 && Math.abs(nativeExtP - price) > 0.001) {
+              entry.ahp = Math.round(nativeExtP * 100) / 100;
+              entry.ahdc = Math.round((nativeExtP - price) * 100) / 100;
+              entry.ahdp = Math.round(((nativeExtP - price) / price) * 10000) / 100;
             } else if (_mktClosed) {
               if (prev.ahdc !== undefined) entry.ahdc = prev.ahdc;
               if (prev.ahdp !== undefined) entry.ahdp = prev.ahdp;
@@ -31727,63 +31728,102 @@ export default {
             }
           }
 
-          // Deep backfill + immediate score — run via waitUntil so the response returns fast
+          // Inline scoring-ready backfill + scoring (synchronous, ~3-6s)
+          // Fetches enough candle data for scoring (50+ per TF), scores inline,
+          // and returns the scored data in the response so the card is immediately complete.
+          let scoredData = null;
           let backfillTriggered = false;
-          if (!isInCore && !(await d1TickerHasCandles(env, rawTicker))) {
+          const needsBackfill = !isInCore && !(await d1TickerHasCandles(env, rawTicker));
+          if (needsBackfill) {
             backfillTriggered = true;
+            const scoringStart = Date.now();
+            try {
+              // Quick backfill: 400 days covers 50+ weekly candles, 90+ daily,
+              // and plenty of intraday bars. All TFs in parallel for speed.
+              const QUICK_DAYS = 400;
+              if (_usesTwelveData(env)) {
+                await DataProvider.backfill(env, [rawTicker], "all", QUICK_DAYS);
+              } else {
+                await alpacaBackfill(env, [rawTicker], d1UpsertCandle, "all", QUICK_DAYS);
+              }
+              console.log(`[USER_TICKERS] Quick backfill done for ${rawTicker} (${Date.now() - scoringStart}ms)`);
+
+              const existing = await kvGetJSON(KV, `timed:latest:${rawTicker}`);
+              const result = await computeServerSideScores(rawTicker, d1GetCandles, env, existing);
+              if (result) {
+                const now = Date.now();
+                result.data_source = _usesTwelveData(env) ? "twelvedata" : "alpaca";
+                result.data_source_ts = now;
+                result.ingest_ts = now;
+                result.ingest_time = new Date(now).toISOString();
+                result.trigger_ts = now;
+                result.rank = computeRank(result);
+                result.score = result.rank;
+                if (existing?.price) result.price = existing.price;
+                if (existing?.prev_close) result.prev_close = existing.prev_close;
+                if (existing?.day_change) result.day_change = existing.day_change;
+                if (existing?.day_change_pct) result.day_change_pct = existing.day_change_pct;
+                await kvPutJSON(KV, `timed:latest:${rawTicker}`, result);
+                ctx.waitUntil(d1UpsertTickerLatest(env, rawTicker, result));
+                scoredData = result;
+                console.log(`[USER_TICKERS] Scored ${rawTicker}: score=${result.score}, stage=${result.kanban_stage} (${Date.now() - scoringStart}ms total)`);
+              }
+            } catch (e) {
+              console.warn(`[USER_TICKERS] Inline backfill+score failed for ${rawTicker}:`, String(e?.message || e).slice(0, 200));
+            }
+
+            // Fire deep backfill in background for full history
             ctx.waitUntil((async () => {
               try {
-                // null sinceDays → deep-history lookup: W gets ~2100 days, D gets 450, etc.
-                // This ensures 50+ candles per TF so scoring succeeds
                 if (_usesTwelveData(env)) {
                   await DataProvider.backfill(env, [rawTicker], "all", null);
                 } else {
                   await alpacaBackfill(env, [rawTicker], d1UpsertCandle, "all", null);
                 }
-                console.log(`[USER_TICKERS] Deep backfilled candles for ${rawTicker}`);
-
-                // Immediately score so the ticker gets SL/TP/state/stage
-                try {
-                  const existing = await kvGetJSON(KV, `timed:latest:${rawTicker}`);
-                  const result = await computeServerSideScores(rawTicker, d1GetCandles, env, existing);
-                  if (result) {
-                    const now = Date.now();
-                    result.data_source = _usesTwelveData(env) ? "twelvedata" : "alpaca";
-                    result.data_source_ts = now;
-                    result.ingest_ts = now;
-                    result.ingest_time = new Date(now).toISOString();
-                    result.trigger_ts = now;
-                    result.rank = computeRank(result);
-                    result.score = result.rank;
-                    if (existing?.price) result.price = existing.price;
-                    if (existing?.prev_close) result.prev_close = existing.prev_close;
-                    if (existing?.day_change) result.day_change = existing.day_change;
-                    if (existing?.day_change_pct) result.day_change_pct = existing.day_change_pct;
-                    await kvPutJSON(KV, `timed:latest:${rawTicker}`, result);
-                    console.log(`[USER_TICKERS] Scored ${rawTicker}: score=${result.score}, stage=${result.kanban_stage}, state=${result.state}`);
-                  } else {
-                    console.warn(`[USER_TICKERS] Scoring returned null for ${rawTicker} — insufficient candle data even after backfill`);
-                  }
-                } catch (scoreErr) {
-                  console.warn(`[USER_TICKERS] Post-backfill scoring failed for ${rawTicker}:`, String(scoreErr?.message || scoreErr).slice(0, 200));
-                }
+                console.log(`[USER_TICKERS] Deep backfill complete for ${rawTicker}`);
               } catch (e) {
                 console.warn(`[USER_TICKERS] Deep backfill failed for ${rawTicker}:`, String(e?.message || e).slice(0, 200));
               }
             })());
+          } else if (!isInCore) {
+            // Ticker already has candle data — just score it
+            try {
+              const existing = await kvGetJSON(KV, `timed:latest:${rawTicker}`);
+              const result = await computeServerSideScores(rawTicker, d1GetCandles, env, existing);
+              if (result) {
+                const now = Date.now();
+                result.data_source = _usesTwelveData(env) ? "twelvedata" : "alpaca";
+                result.data_source_ts = now;
+                result.ingest_ts = now;
+                result.ingest_time = new Date(now).toISOString();
+                result.trigger_ts = now;
+                result.rank = computeRank(result);
+                result.score = result.rank;
+                if (existing?.price) result.price = existing.price;
+                if (existing?.prev_close) result.prev_close = existing.prev_close;
+                if (existing?.day_change) result.day_change = existing.day_change;
+                if (existing?.day_change_pct) result.day_change_pct = existing.day_change_pct;
+                await kvPutJSON(KV, `timed:latest:${rawTicker}`, result);
+                ctx.waitUntil(d1UpsertTickerLatest(env, rawTicker, result));
+                scoredData = result;
+              }
+            } catch (scoreErr) {
+              console.warn(`[USER_TICKERS] Score-only failed for ${rawTicker}:`, String(scoreErr?.message || scoreErr).slice(0, 150));
+            }
           }
 
-          console.log(`[USER_TICKERS] ${user.email} ${isReseed ? "re-seeded" : "added"} ${rawTicker} (core: ${isInCore}, backfill: ${backfillTriggered}, seeded: ${seeded})`);
+          console.log(`[USER_TICKERS] ${user.email} ${isReseed ? "re-seeded" : "added"} ${rawTicker} (core: ${isInCore}, backfill: ${backfillTriggered}, scored: ${!!scoredData}, seeded: ${seeded})`);
           return sendJSON({
             ok: true,
             ticker: rawTicker,
             is_core_ticker: isInCore,
             backfill_triggered: backfillTriggered,
+            scored: !!scoredData,
             seeded,
             reseeded: isReseed,
             slots_used: isReseed ? activeOrHeld.length : activeOrHeld.length + 1,
             slots_max: limit,
-            seed_data: seedPayload || undefined,
+            seed_data: scoredData || seedPayload || undefined,
           }, 200, corsHeaders(env, req));
         } catch (e) {
           console.error("[USER_TICKERS] POST error:", e);
@@ -41591,20 +41631,13 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                   : (displayPrice > 0 && pc > 0) ? Math.round((displayPrice - pc) * 100) / 100 : 0;
                 const dp = (Number.isFinite(nativeDp) && nativeDp !== 0) ? Math.round(nativeDp * 100) / 100
                   : (displayPrice > 0 && pc > 0) ? Math.round(((displayPrice - pc) / pc) * 10000) / 100 : 0;
-                // Extended hours data — only populate when market is closed (ETH/pre-market)
                 let extDc = 0, extDp = 0, extP = 0;
                 if (_marketClosed && !isCryptoSym) {
-                  const nativeExtDc = Number(snap.extendedChange);
-                  const nativeExtDp = Number(snap.extendedPercentChange);
                   const nativeExtP = Number(snap.extendedPrice);
-                  if (Number.isFinite(nativeExtDc) && nativeExtDc !== 0) {
-                    extDc = Math.round(nativeExtDc * 100) / 100;
-                    extDp = Number.isFinite(nativeExtDp) ? Math.round(nativeExtDp * 100) / 100 : 0;
-                    extP = Number.isFinite(nativeExtP) && nativeExtP > 0 ? Math.round(nativeExtP * 100) / 100 : 0;
-                  } else if (ahPrice > 0 && rthClose > 0 && Math.abs(ahPrice - rthClose) > 0.001) {
-                    extDc = Math.round((ahPrice - rthClose) * 100) / 100;
-                    extDp = Math.round(((ahPrice - rthClose) / rthClose) * 10000) / 100;
-                    extP = Math.round(ahPrice * 100) / 100;
+                  if (Number.isFinite(nativeExtP) && nativeExtP > 0 && displayPrice > 0 && Math.abs(nativeExtP - displayPrice) > 0.001) {
+                    extP = Math.round(nativeExtP * 100) / 100;
+                    extDc = Math.round((nativeExtP - displayPrice) * 100) / 100;
+                    extDp = Math.round(((nativeExtP - displayPrice) / displayPrice) * 10000) / 100;
                   }
                 }
                 const prev = existing[sym] || {};
@@ -41797,9 +41830,13 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
         const nonZeroChanges = Object.values(prices).filter(p => Number(p?.dc) !== 0 || Number(p?.dp) !== 0).length;
         const doFresh = priceAgeMin < 3 && nonZeroChanges > 5;
 
+        // When market is closed, always fetch REST snapshots to get extended-hours pricing
+        // (the DO websocket only carries RTH data, so AH fields would never update otherwise)
+        const needsRestFetch = !doFresh || _marketClosed;
+
         // ── REST snapshot fallback when DO isn't providing fresh data ──
         let restFallbackCount = 0;
-        if (!doFresh) {
+        if (needsRestFetch) {
           try {
             const userAddedForPF = await d1GetActiveUserTickersCached(env);
             const allTickersForSnap = [...new Set([...Object.keys(SECTOR_MAP), ...userAddedForPF])];
@@ -41820,20 +41857,13 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                 : (displayPrice > 0 && pc > 0) ? Math.round((displayPrice - pc) * 100) / 100 : 0;
               const dp = (Number.isFinite(nativeDp) && nativeDp !== 0) ? Math.round(nativeDp * 100) / 100
                 : (displayPrice > 0 && pc > 0) ? Math.round(((displayPrice - pc) / pc) * 10000) / 100 : 0;
-              // Extended hours data — only populate when market is closed (ETH/pre-market)
               let extDc = 0, extDp = 0, extP = 0;
               if (_marketClosed && !isCryptoSym) {
-                const nativeExtDc = Number(snap.extendedChange);
-                const nativeExtDp = Number(snap.extendedPercentChange);
                 const nativeExtP = Number(snap.extendedPrice);
-                if (Number.isFinite(nativeExtDc) && nativeExtDc !== 0) {
-                  extDc = Math.round(nativeExtDc * 100) / 100;
-                  extDp = Number.isFinite(nativeExtDp) ? Math.round(nativeExtDp * 100) / 100 : 0;
-                  extP = Number.isFinite(nativeExtP) && nativeExtP > 0 ? Math.round(nativeExtP * 100) / 100 : 0;
-                } else if (ahPrice > 0 && rthClose > 0 && Math.abs(ahPrice - rthClose) > 0.001) {
-                  extDc = Math.round((ahPrice - rthClose) * 100) / 100;
-                  extDp = Math.round(((ahPrice - rthClose) / rthClose) * 10000) / 100;
-                  extP = Math.round(ahPrice * 100) / 100;
+                if (Number.isFinite(nativeExtP) && nativeExtP > 0 && displayPrice > 0 && Math.abs(nativeExtP - displayPrice) > 0.001) {
+                  extP = Math.round(nativeExtP * 100) / 100;
+                  extDc = Math.round((nativeExtP - displayPrice) * 100) / 100;
+                  extDp = Math.round(((nativeExtP - displayPrice) / displayPrice) * 10000) / 100;
                 }
               }
               const prev = prices[sym] || {};
@@ -42153,6 +42183,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
 
         const coreTickers = Object.keys(SECTOR_MAP);
         const userAddedTickers = await d1GetActiveUserTickersCached(env);
+        const _userAddedSet = new Set(userAddedTickers);
         const allTickers = [...new Set([...coreTickers, ...userAddedTickers])];
 
         // Score ALL tickers every cycle (core + user-added)
@@ -42282,6 +42313,21 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                 existing.ingest_time = new Date(now).toISOString();
                 existing._scoring_skip_reason = "insufficient_candle_data";
                 await kvPutJSON(KV, `timed:latest:${ticker}`, existing);
+              }
+              // Auto-backfill user-added tickers that lack scoring-TF candles
+              if (_userAddedSet.has(ticker) && !(await d1TickerHasCandles(env, ticker))) {
+                ctx.waitUntil((async () => {
+                  try {
+                    if (_usesTwelveData(env)) {
+                      await DataProvider.backfill(env, [ticker], "all", null);
+                    } else {
+                      await alpacaBackfill(env, [ticker], d1UpsertCandle, "all", null);
+                    }
+                    console.log(`[SCORING] Auto-backfilled user ticker ${ticker} (insufficient candle data)`);
+                  } catch (bfErr) {
+                    console.warn(`[SCORING] Auto-backfill failed for ${ticker}:`, String(bfErr?.message || bfErr).slice(0, 150));
+                  }
+                })());
               }
               skipped++;
               return;
@@ -42443,6 +42489,10 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             if (hasPayloadChangedMeaningfully(existing, result)) {
               await kvPutJSON(KV, `timed:latest:${ticker}`, result);
               scored++;
+              // Keep D1 ticker_latest in sync so the fallback path serves scored data
+              if (_userAddedSet.has(ticker) || !existing) {
+                ctx.waitUntil(d1UpsertTickerLatest(env, ticker, result));
+              }
               // Collect lightweight delta for WS push
               scoredUpdates[ticker] = {
                 score: result.eqScore ?? result.eq_score,
