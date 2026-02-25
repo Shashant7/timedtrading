@@ -4510,6 +4510,28 @@
                                 };
                                 return map[String(raw || "").toLowerCase()] || raw || "";
                               };
+                              const fmtShortDate = (ms) => {
+                                if (!Number.isFinite(ms)) return "—";
+                                const d = new Date(ms);
+                                const mo = d.toLocaleString("en-US", { month: "short" });
+                                const day = d.getDate();
+                                const h = d.getHours();
+                                const m = String(d.getMinutes()).padStart(2, "0");
+                                const ampm = h >= 12 ? "PM" : "AM";
+                                const h12 = h % 12 || 12;
+                                return `${mo} ${day}, ${h12}:${m} ${ampm}`;
+                              };
+                              const fmtDuration = (ms) => {
+                                if (!Number.isFinite(ms) || ms <= 0) return "";
+                                const mins = Math.round(ms / 60000);
+                                if (mins < 60) return `${mins}m`;
+                                const hrs = Math.floor(mins / 60);
+                                const rm = mins % 60;
+                                if (hrs < 24) return rm > 0 ? `${hrs}h ${rm}m` : `${hrs}h`;
+                                const days = Math.floor(hrs / 24);
+                                const rh = hrs % 24;
+                                return rh > 0 ? `${days}d ${rh}h` : `${days}d`;
+                              };
 
                               const sampled = downsampleByInterval(bubbleJourney, 15 * 60 * 1000).slice().reverse().slice(0, 80);
                               const deduped = [];
@@ -4526,40 +4548,65 @@
                                   prev = p;
                                 }
                               }
-                              const points = deduped.slice(0, 40);
-                              return points.map((p, idx) => {
-                                const ts = Number(p.__ts_ms);
-                                const rawState = p.state || p.quadrant || p.zone || "";
-                                const stateLabel = translateState(rawState);
-                                const stageLabel = translateStage(p.kanban_stage);
-                                const phasePct = p.phase_pct != null ? `${Math.round(Number(p.phase_pct) * 100)}%` : null;
-                                const htf = p.htf_score != null && Number.isFinite(Number(p.htf_score)) ? Number(p.htf_score).toFixed(1) : "—";
-                                const ltf = p.ltf_score != null && Number.isFinite(Number(p.ltf_score)) ? Number(p.ltf_score).toFixed(1) : "—";
-                                const rank = p.rank != null ? String(p.rank) : "—";
-                                const rr = p.rr != null && Number.isFinite(Number(p.rr)) ? Number(p.rr).toFixed(2) : (p.rr_at_alert != null && Number.isFinite(Number(p.rr_at_alert)) ? Number(p.rr_at_alert).toFixed(2) : "—");
-                                const isSelected = selectedJourneyTs != null && Number.isFinite(ts) && Number(ts) === Number(selectedJourneyTs);
+                              const allPoints = deduped.slice(0, 60);
 
-                                const prevPoint = idx > 0 ? points[idx - 1] : null;
+                              const groups = [];
+                              for (const p of allPoints) {
+                                const key = `${p.state || ""}|${p.kanban_stage || ""}`;
+                                const last = groups.length > 0 ? groups[groups.length - 1] : null;
+                                if (last && last.key === key) {
+                                  last.points.push(p);
+                                } else {
+                                  groups.push({ key, points: [p] });
+                                }
+                              }
+
+                              return groups.map((g, gIdx) => {
+                                const first = g.points[0];
+                                const last = g.points[g.points.length - 1];
+                                const rawState = first.state || first.quadrant || first.zone || "";
+                                const stateLabel = translateState(rawState);
+                                const stageLabel = translateStage(first.kanban_stage);
+
+                                const firstTs = Number(first.__ts_ms);
+                                const lastTs = Number(last.__ts_ms);
+                                const isSingle = g.points.length === 1;
+                                const duration = Math.abs(firstTs - lastTs);
+
+                                const scores = g.points.map(p => Number(p.rank)).filter(Number.isFinite);
+                                const minScore = scores.length > 0 ? Math.min(...scores) : null;
+                                const maxScore = scores.length > 0 ? Math.max(...scores) : null;
+                                const scoreStr = minScore != null ? (minScore === maxScore ? String(minScore) : `${minScore}–${maxScore}`) : "—";
+
+                                const htfs = g.points.map(p => Number(p.htf_score)).filter(Number.isFinite);
+                                const ltfs = g.points.map(p => Number(p.ltf_score)).filter(Number.isFinite);
+                                const htfStr = htfs.length > 0 ? (Math.min(...htfs).toFixed(1) === Math.max(...htfs).toFixed(1) ? htfs[0].toFixed(1) : `${Math.min(...htfs).toFixed(1)} to ${Math.max(...htfs).toFixed(1)}`) : "—";
+                                const ltfStr = ltfs.length > 0 ? (Math.min(...ltfs).toFixed(1) === Math.max(...ltfs).toFixed(1) ? ltfs[0].toFixed(1) : `${Math.min(...ltfs).toFixed(1)} to ${Math.max(...ltfs).toFixed(1)}`) : "—";
+
+                                const prevGroup = gIdx > 0 ? groups[gIdx - 1] : null;
                                 const transitions = [];
-                                if (prevPoint) {
-                                  const prevState = prevPoint.state || prevPoint.quadrant || prevPoint.zone || "";
-                                  const prevStage = prevPoint.kanban_stage || "";
-                                  if (rawState !== prevState) transitions.push(`State: ${translateState(prevState)} → ${stateLabel}`);
-                                  if ((p.kanban_stage || "") !== prevStage) transitions.push(`Stage: ${translateStage(prevStage)} → ${stageLabel}`);
+                                if (prevGroup) {
+                                  const pFirst = prevGroup.points[0];
+                                  const prevRawState = pFirst.state || pFirst.quadrant || pFirst.zone || "";
+                                  const prevRawStage = pFirst.kanban_stage || "";
+                                  if (rawState !== prevRawState) transitions.push(`${translateState(prevRawState)} → ${stateLabel}`);
+                                  if ((first.kanban_stage || "") !== prevRawStage) transitions.push(`${translateStage(prevRawStage)} → ${stageLabel}`);
                                 }
 
-                                const pointForChart = {
-                                  ts: Number.isFinite(ts) ? ts : null,
-                                  htf_score: p.htf_score != null ? Number(p.htf_score) : null,
-                                  ltf_score: p.ltf_score != null ? Number(p.ltf_score) : null,
-                                  phase_pct: p.phase_pct != null ? Number(p.phase_pct) : null,
-                                  completion: p.completion != null ? Number(p.completion) : null,
-                                  rank: p.rank != null ? Number(p.rank) : null,
-                                  rr: p.rr != null ? Number(p.rr) : null,
-                                  state: p.state || null,
+                                const latestPointForChart = {
+                                  ts: Number.isFinite(firstTs) ? firstTs : null,
+                                  htf_score: first.htf_score != null ? Number(first.htf_score) : null,
+                                  ltf_score: first.ltf_score != null ? Number(first.ltf_score) : null,
+                                  phase_pct: first.phase_pct != null ? Number(first.phase_pct) : null,
+                                  completion: first.completion != null ? Number(first.completion) : null,
+                                  rank: first.rank != null ? Number(first.rank) : null,
+                                  rr: first.rr != null ? Number(first.rr) : null,
+                                  state: first.state || null,
                                 };
+                                const isSelected = selectedJourneyTs != null && g.points.some(p => Number.isFinite(Number(p.__ts_ms)) && Number(p.__ts_ms) === Number(selectedJourneyTs));
+
                                 return (
-                                  <div key={`${ts}-${idx}`}>
+                                  <div key={`g-${gIdx}`}>
                                     {transitions.length > 0 && (
                                       <div className="py-1 flex items-center gap-1.5">
                                         <div className="flex-1 h-px bg-cyan-500/20"></div>
@@ -4568,22 +4615,27 @@
                                       </div>
                                     )}
                                     <div
-                                      className={`px-2 py-1.5 bg-white/[0.02] border rounded flex items-center justify-between gap-2 cursor-pointer transition-colors ${isSelected ? "border-cyan-400/80 bg-cyan-500/10" : "border-white/[0.06] hover:border-cyan-400/40 hover:bg-[#16224a]"}`}
-                                      onMouseEnter={() => { if (onJourneyHover) onJourneyHover(pointForChart); }}
+                                      className={`px-2 py-1.5 bg-white/[0.02] border rounded cursor-pointer transition-colors ${isSelected ? "border-cyan-400/80 bg-cyan-500/10" : "border-white/[0.06] hover:border-cyan-400/40 hover:bg-[#16224a]"}`}
+                                      onMouseEnter={() => { if (onJourneyHover) onJourneyHover(latestPointForChart); }}
                                       onMouseLeave={() => { if (onJourneyHover) onJourneyHover(null); }}
-                                      onClick={() => { if (onJourneySelect) onJourneySelect(pointForChart); }}
+                                      onClick={() => { if (onJourneySelect) onJourneySelect(latestPointForChart); }}
                                     >
-                                      <div className="min-w-0">
-                                        <div className="text-[10px] text-[#6b7280]">{Number.isFinite(ts) ? new Date(ts).toLocaleString() : "—"}</div>
-                                        <div className="text-[11px] text-white truncate">
-                                          {stateLabel}
-                                          {stageLabel && <span className="text-[#6b7280]"> · {stageLabel}</span>}
-                                          {phasePct && <span className="text-[#4b5563]"> · {phasePct}</span>}
+                                      <div className="flex items-center justify-between gap-2">
+                                        <div className="min-w-0">
+                                          <div className="text-[10px] text-[#6b7280]">
+                                            {isSingle ? fmtShortDate(firstTs) : `${fmtShortDate(firstTs)} – ${fmtShortDate(lastTs)}`}
+                                            {!isSingle && duration > 0 && <span className="text-[#4b5563] ml-1">({fmtDuration(duration)})</span>}
+                                          </div>
+                                          <div className="text-[11px] text-white truncate">
+                                            {stateLabel}
+                                            {stageLabel && <span className="text-[#6b7280]"> · {stageLabel}</span>}
+                                            {!isSingle && <span className="text-[#4b5563] ml-1 text-[9px]">({g.points.length} snapshots)</span>}
+                                          </div>
                                         </div>
-                                      </div>
-                                      <div className="text-right text-[10px] text-[#6b7280] whitespace-nowrap shrink-0">
-                                        <div>HTF <span className="text-white font-semibold">{htf}</span> · LTF <span className="text-white font-semibold">{ltf}</span></div>
-                                        <div>Score <span className="text-white font-semibold">{rank}</span> · RR <span className="text-white font-semibold">{rr}</span></div>
+                                        <div className="text-right text-[10px] text-[#6b7280] whitespace-nowrap shrink-0">
+                                          <div>Score <span className="text-white font-semibold">{scoreStr}</span></div>
+                                          <div>HTF <span className="text-white font-semibold">{htfStr}</span></div>
+                                        </div>
                                       </div>
                                     </div>
                                   </div>
