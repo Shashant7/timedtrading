@@ -546,25 +546,10 @@
         const [emaExpanded, setEmaExpanded] = useState(true);
         const [tpExpanded, setTpExpanded] = useState(true);
 
-        // Merged price source: overlay ticker prop's live price fields onto latestTicker
-        // so getDailyChange() resolves the same prev_close as the Card.
-        const priceSrc = useMemo(() => {
-          const base = latestTicker || ticker || {};
-          if (!latestTicker || !ticker) return base;
-          const liveOverlay = {};
-          const LIVE_KEYS = [
-            "_live_price", "_live_prev_close", "prev_close",
-            "_live_daily_high", "_live_daily_low", "_live_daily_volume",
-            "_price_updated_at",
-            "_ah_price", "_ah_change", "_ah_change_pct",
-            "day_change_pct", "day_change", "change_pct", "change",
-          ];
-          for (const k of LIVE_KEYS) {
-            const v = ticker[k];
-            if (v !== undefined && v !== null) liveOverlay[k] = v;
-          }
-          return { ...base, ...liveOverlay };
-        }, [latestTicker, ticker]);
+        // Price source: always use the ticker prop (same object the Card renders)
+        // for price/change display. latestTicker is only for context/scoring data.
+        // This guarantees the right rail shows identical values to the card.
+        const priceSrc = ticker || {};
 
         // Prevent stale crosshair data from crashing renders when switching
         // tickers/timeframes/tabs quickly (e.g. clicking Chart right after selecting a ticker).
