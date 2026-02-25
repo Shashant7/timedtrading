@@ -81,6 +81,16 @@
 - **Trading Assistant UI disclaimer**: Chat panel shows a small italic line under the input: "Not financial advice. For informational and educational purposes only. All trading involves risk." [2026-02-20]
 - **Discord embeds**: All trade/kanban/investor digest embeds use a footer that includes "Not financial advice". Descriptions already use human-readable phrasing (e.g. "Hit the stop loss", "Entry Signal", "Taking Profit"). [2026-02-20]
 
+## UI Approachability & Design
+
+- **Never use "you/your" in user-facing copy**: Always reference "the system", "the model", "the portfolio", or "this stock". Important for compliance (not personalized advice) and consistency. Applies to all pages: dashboards, tooltips, legends, empty states. [2026-02-25]
+- **Inline education beats hidden tooltips**: Don't hide explanations behind (i) icons or toggle buttons — users won't discover them. Weave explanations directly into the layout as subtitle text below metrics/headings. If there's no room, native `title` attributes are sufficient. The InfoTip (i) icon pattern was rejected as visual clutter. [2026-02-25]
+- **Lead with a plain-English summary, then show numbers**: Every detail panel (Right Rail, deep dive) should open with a generated one-liner summarizing the bottom line (e.g., "Mixed signals. The system recommends watching for now.") derived from score + stage. Users get the answer before parsing data. [2026-02-25]
+- **Raw scores need color-coded context words**: A number like "54" is meaningless without context. Always pair it with a verdict: "54 Mixed" (amber), "87 Strong" (green), "12 Weak" (red). Same for market health sub-scores. Users should never have to guess whether a number is good or bad. [2026-02-25]
+- **Score breakdown rows need verdict dots**: A green/amber/red dot next to each row (based on value ÷ max > 60%/30%) lets beginners scan which factors are strong vs weak without understanding the numbers. [2026-02-25]
+- **Chart legends should be a single compact line**: Keep chart legends (Bubble Chart, etc.) to one horizontal row with terse labels. Use `title` attributes for full explanations. Two-row legends with SVG samples are too heavy. [2026-02-25]
+- **Technical terms: friendly label first, pro term in parentheses or title**: "Buy Zone" (not "Accumulation Zone"), "Performance vs Market" (not "Relative Strength vs SPY"), "Strength vs Market" (not "relativeStrength"). Professional term preserved in `title` or parenthetical for advanced users. [2026-02-25]
+
 ## Kanban & UI
 
 - **Kanban lanes must separate signal quality from execution readiness**: `qualifiesForEnter()` = signal quality. Execution gates = Stage 2. Show SETUP (not ENTER) when blocked. [2026-02-10]
@@ -168,3 +178,4 @@
 - **Day-roll preservation must not depend on prev.dc !== 0**: The cron's day-roll guard `prev.dc !== 0` meant one missed cycle permanently lost daily change data until next market open. Fix: detect day-roll purely from `_marketClosed && dc === 0 && dp === 0`, then prefer `prev.dc` if available, else recompute from `prev.pc + displayPrice`. [2026-02-25]
 - **Map ALL timed:prices fields in every frontend merge path**: The initial /timed/all merge, usePriceFeed() polling, and WS price_batch handler must all map `pc` → `_live_prev_close` and `ahp/ahdc/ahdp` → `_ah_price/_ah_change/_ah_change_pct`. Missing mappings cause ext hours data to go stale when WebSocket drops, and prev_close to be absent on first load. [2026-02-25]
 - **Never use `dayPct !== 0` as a rendering guard**: A stock that didn't move or a day-rolled 0 value should show `+0.00%`, not hide the field entirely. Use `Number.isFinite(dayPct)` alone. [2026-02-25]
+- **Always run `npm run build:rail` after editing shared-right-rail.js**: The site loads `shared-right-rail.compiled.js`, not the source file. Editing only the `.js` file has no effect until `build:rail` compiles it. Also run this before `deploy`. [2026-02-25]

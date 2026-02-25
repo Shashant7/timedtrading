@@ -11,16 +11,18 @@ _No active tasks._
 - [ ] **Transactional / Alert Notifications** — Email delivery for trade alerts, system notifications, etc.
 - **Plan:** See `tasks/EMAIL_PLAN.md` for sending (Resend/SendGrid/etc.) and receiving (support/legal + optional inbound parsing).
 
-### Reports & Metrics
-- [x] **Usage by Feature by User Report** [2026-02-20] — D1 `feature_usage` table; POST /timed/usage (auth); GET /timed/admin/usage-report (admin). Admin Clients page has “Usage by Feature” tab. Frontend records usage on load (daily-brief, admin-clients; others can add).
-- [x] **Active User metrics fix** [2026-02-20] — Status payload now includes `activeUsers30d` (distinct users with last_login_at in last 30 days) and `scoringUserAddedTickers` (renamed from scoringUserAdded) so “active users” vs “user-added tickers” are unambiguous.
-
 ### Daily Brief
-- [x] **Friday / Holiday awareness** [2026-02-20] — `gatherDailyBriefData` now loads calendar, sets `calendar: { dayOfWeekLabel, isFriday, isHoliday, isEarlyClose }`; morning/evening prompts include calendar context so the brief acknowledges Friday, early close, or market holiday.
 - [ ] **News feed** — Extend beyond `fetchAlpacaEconNews` (economic/macro); add general market news section or broader news source for brief enrichment.
 
 ---
 
 ## Recently Completed
-- **Model Calibration Pipeline** [2026-02-19] — Three-artifact calibration system (Move Atlas, Trade Autopsy, Calibration Report) with WFO, SQN, MFE/MAE, IC, Kelly frameworks. `scripts/calibrate.js` + worker endpoints + `calibration.html` UI.
+- **Investor Dashboard Overhaul** [2026-02-25] — Full approachability redesign: plain-English labels with pro terms in tooltips, generated summary sentences in Right Rail, color-coded score verdicts (Strong/Mixed/Weak), verdict dots on score breakdown, inline education instead of hidden legends, no "you/your" voice. Bubble Chart legend (Active Trader) collapsed to single line.
+- **Right Rail Tabs Polish** [2026-02-25] — Interpretive Technicals, contextual Journey descriptions, fixed Model tab data source, Scoring Timeline collapsed into milestone groups.
+- **Bubble Chart Legend & Timeline** [2026-02-25] — Redesigned legend with visual examples, collapsed Scoring Timeline into grouped milestones with transition dividers.
+- **Price Consistency Overhaul** [2026-02-25] — Day-roll preservation, frontend merge paths for all price fields, getDailyChange() as single source of truth across all pages (Cards, Right Rail, Trades, Investor Dashboard).
+- **Card Layout Refresh** [2026-02-25] — Improved readability of daily change %, TT badge prominence, SHORT/LONG badge placement, emoji line separation.
+- **Model Calibration Pipeline** [2026-02-19] — Three-artifact calibration system (Move Atlas, Trade Autopsy, Calibration Report) with WFO, SQN, MFE/MAE, IC, Kelly frameworks.
 - **Enrich Consensus + Weekly Card Background** [2026-02-19] — see `archive/todo-enrich-consensus-weekly-cards-20260219.md`
+- **Usage by Feature by User Report** [2026-02-20] — D1 `feature_usage` table; POST /timed/usage; GET /timed/admin/usage-report.
+- **Friday / Holiday awareness in Daily Brief** [2026-02-20] — Calendar context in morning/evening prompts.

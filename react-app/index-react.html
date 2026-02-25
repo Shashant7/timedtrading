@@ -8301,36 +8301,44 @@
 
         const allSteps = [
           {
-            title: "How to use the Dashboard and Trade Tracker",
+            title: "Welcome to the Active Trader Dashboard",
             content: (
               <div className="space-y-4">
-                <p className="text-[#d1d5db]">
-                  The <strong className="text-white">Dashboard</strong> shows tickers in lanes (Setup to Enter to Hold to Defend to Trim to Exit). Follow <strong className="text-white">top to bottom</strong>: each lane tells you what to do now.
+                <p className="text-[#d1d5db] leading-relaxed">
+                  This platform takes a systematic approach to picking and managing stocks. The system continuously scores every stock across multiple timeframes, then places them in <strong className="text-white">action lanes</strong> based on where each stock is in its trend cycle.
                 </p>
-                <div className="bg-white/[0.03] border border-white/[0.06] rounded-lg p-4">
-                  <h3 className="text-teal-400 font-semibold mb-2">Dashboard</h3>
-                  <ul className="text-sm text-[#6b7280] list-disc list-inside space-y-1">
-                    <li>Click any card to open the <strong className="text-white">Right Rail</strong> (details, chart, SL/TP).</li>
-                    <li>Use the <strong className="text-white">Trade Tracker</strong> (Trades page) to review past trades and lane decisions.</li>
-                    <li>Top Gainers/Losers and the bubble chart help you scan the universe quickly.</li>
-                  </ul>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="bg-white/[0.03] border border-teal-500/20 rounded-lg p-4 ring-1 ring-teal-500/10">
+                    <h3 className="text-teal-400 font-semibold mb-1.5 text-sm">Active Trader (this page)</h3>
+                    <p className="text-xs text-[#9ca3af] leading-relaxed">
+                      Shorter-horizon swing trades. The system moves stocks through lanes: Setup → Enter → Hold → Defend → Trim → Exit. Each lane signals what action the system recommends right now.
+                    </p>
+                  </div>
+                  <div className="bg-white/[0.03] border border-white/[0.06] rounded-lg p-4">
+                    <h3 className="text-blue-400 font-semibold mb-1.5 text-sm">Investor</h3>
+                    <p className="text-xs text-[#9ca3af] leading-relaxed">
+                      Longer-horizon portfolio management. The system accumulates strong setups, holds through strength, and reduces when conditions weaken. Switch to it from the navigation bar.
+                    </p>
+                  </div>
                 </div>
                 <div className="bg-white/[0.03] border border-white/[0.06] rounded-lg p-4">
-                  <h3 className="text-teal-400 font-semibold mb-2">Trade Tracker</h3>
-                  <p className="text-sm text-[#6b7280]">Review open and closed trades, P&L, and why the system moved tickers between lanes. Use it to improve your timing and risk.</p>
+                  <h3 className="text-teal-400 font-semibold mb-1.5 text-sm">Simulation Portfolio</h3>
+                  <p className="text-xs text-[#9ca3af] leading-relaxed">
+                    The system runs a simulation portfolio that executes trades automatically based on scores and signals. Visit the <strong className="text-white">Trades</strong> page to review every entry, trim, exit, and P&L the system has generated.
+                  </p>
                 </div>
               </div>
             ),
           },
           {
-            title: "Save tickers you want to follow",
+            title: "Save tickers to follow their progress",
             content: (
               <div className="space-y-4">
-                <p className="text-[#d1d5db]">
-                  You can save any ticker to a personal list so you can quickly filter to them and follow their lanes.
+                <p className="text-[#d1d5db] leading-relaxed">
+                  Any ticker can be saved to a personal list for quick filtering. Use the <strong className="text-white">Saved</strong> button to show only saved tickers. Toggle the star on any card to add or remove it.
                 </p>
                 <p className="text-sm text-[#6b7280]">
-                  Use the <strong className="text-white">Saved</strong> filter to show only your saved tickers. Toggle the star on any card to add or remove it from your saved list.
+                  Saving a ticker does not affect the system's scoring or lane placement — it simply bookmarks the ticker for faster access.
                 </p>
               </div>
             ),
@@ -8375,12 +8383,20 @@
             ),
           },
           {
-            title: "You're all set",
+            title: "Ready to Explore",
             content: (
               <div className="space-y-4">
-                <p className="text-[#d1d5db]">
-                  Use the <strong className="text-white">Dashboard</strong> to follow lanes and the <strong className="text-white">Trades</strong> page to review open and closed trades. Close this guide to continue.
+                <p className="text-[#d1d5db] leading-relaxed">
+                  The <strong className="text-white">Dashboard</strong> shows real-time lane placements. The <strong className="text-white">Trades</strong> page shows every trade the simulation portfolio has taken. The <strong className="text-white">Investor</strong> page offers a longer-horizon view of the same universe.
                 </p>
+                <div className="bg-white/[0.03] border border-white/[0.06] rounded-lg p-4">
+                  <div className="flex items-start gap-2">
+                    <span className="text-blue-400 text-sm mt-0.5">ℹ</span>
+                    <p className="text-xs text-[#9ca3af] leading-relaxed">
+                      Reopen this guide anytime using the <strong className="text-white">Guide</strong> button. Use <strong className="text-white">Tour</strong> to walk through the interface step by step.
+                    </p>
+                  </div>
+                </div>
               </div>
             ),
           }
@@ -8467,7 +8483,7 @@
                     onClick={onClose}
                     className="px-6 py-2 rounded-lg bg-gradient-to-r from-green-500 to-blue-500 hover:from-green-600 hover:to-blue-600 text-white font-semibold transition-all"
                   >
-                    Start Trading! 🚀
+                    Let's go
                   </button>
                 )}
               </div>
@@ -17133,42 +17149,42 @@
         {
           target: "[data-coachmark='nav-modes']",
           title: "Navigation Modes",
-          body: "Switch between Active Trader for real-time opportunities, Investor for long-term portfolio analysis, Trades for execution history, and Model for strategy performance. Each mode is tailored to a different workflow.",
+          body: "Active Trader is for shorter-horizon swing trades \u2014 the system enters, manages, and exits positions over days to weeks. Investor is for longer-horizon portfolio management. Trades shows every trade the simulation portfolio has executed. Each mode offers a different view of the same universe.",
           position: "bottom",
           icon: "compass",
         },
         {
           target: "[data-coachmark='search-filter']",
           title: "Search, Filter & Discover",
-          body: "Type a ticker, comma-separated list, or use natural language filters like \"rank > 80\" or \"squeeze\". Click Filters to access advanced screening by indicators, sectors, and scoring thresholds.",
+          body: "Type a ticker, a comma-separated list, or natural language filters like \"rank > 80\" or \"squeeze\". The Filters button opens advanced screening by indicators, sectors, and scoring thresholds.",
           position: "bottom",
           icon: "search",
         },
         {
           target: "[data-coachmark='view-toggle']",
           title: "Cards, Table & Saved",
-          body: "Toggle between Card view (visual Kanban cards) and Table view (sortable data grid). Use the Saved button to bookmark tickers and quickly filter your watchlist.",
+          body: "Toggle between Card view (visual Kanban cards) and Table view (sortable data grid). The Saved button filters to bookmarked tickers for quick access.",
           position: "bottom",
           icon: "layout",
         },
         {
           target: "[data-coachmark='kanban-lanes']",
           title: "Kanban Pipeline",
-          body: "Tickers flow through stages: Setup (building a case) → Enter (ready for entry) → Hold (active position) → Defend/Trim/Exit (position management). Scroll horizontally in each lane to see all opportunities.",
+          body: "The system moves tickers through stages: Setup (building a case) \u2192 Enter (ready for entry) \u2192 Hold (active position) \u2192 Defend/Trim/Exit (position management). Each lane represents the system\u2019s current recommendation.",
           position: "top",
           icon: "columns",
         },
         {
           target: "[data-coachmark='viewport']",
           title: "Viewport",
-          body: "A compact ranked list of all tickers sorted by score and opportunity quality. Click any ticker to open its detail view. Use the filter tags above to narrow down by direction, sector, or trade phase.",
+          body: "A ranked list of all tickers sorted by score and opportunity quality. Click any ticker to open the Right Rail with full analysis. Filter tags above narrow by direction, sector, or trade phase.",
           position: "right",
           icon: "telescope",
         },
         {
           target: "[data-coachmark='bubble-chart']",
           title: "Bubble Chart",
-          body: "Visualize the entire universe at a glance. X-axis shows short-term trend, Y-axis shows long-term trend, bubble size reflects risk/reward ratio. Cyan = LONG, Red = SHORT. Click any bubble to inspect it.",
+          body: "The entire universe at a glance. X-axis shows short-term momentum, Y-axis shows long-term trend, and bubble size reflects risk/reward ratio. Cyan = LONG, Red = SHORT. Click any bubble for details.",
           position: "left",
           icon: "scatter",
         },

@@ -59,6 +59,14 @@
         to { transform: translateX(0); opacity: 1; }
       }
       .slide-in-right { animation: slideInRight 0.3s ease-out; }
+      @keyframes coachmark-pulse {
+        0%, 100% { box-shadow: 0 0 0 0 rgba(34,211,238,0.5); }
+        50% { box-shadow: 0 0 0 8px rgba(34,211,238,0); }
+      }
+      @keyframes coachmark-slide-in {
+        from { opacity: 0; transform: translateY(8px); }
+        to { opacity: 1; transform: translateY(0); }
+      }
     </style>
   </head>
   <body>
@@ -599,6 +607,343 @@
         );
       }
 
+      // ─── Investor Welcome Modal (first-visit guide) ──────────────
+      function InvestorWelcomeModal({ onClose }) {
+        const [step, setStep] = React.useState(0);
+        const steps = [
+          {
+            title: "Welcome to the Investor Dashboard",
+            body: React.createElement("div", { className: "space-y-4" },
+              React.createElement("p", { className: "text-[#d1d5db] leading-relaxed" },
+                "This platform takes a systematic approach to picking and managing stocks. The system continuously scores every stock across multiple timeframes, then places them in ",
+                React.createElement("strong", { className: "text-white" }, "action lanes"),
+                " based on where each stock is in its trend cycle."
+              ),
+              React.createElement("div", { className: "grid grid-cols-1 sm:grid-cols-2 gap-3" },
+                React.createElement("div", { className: "bg-white/[0.03] border border-white/[0.06] rounded-lg p-4" },
+                  React.createElement("h3", { className: "text-teal-400 font-semibold mb-1.5 text-sm" }, "Active Trader"),
+                  React.createElement("p", { className: "text-xs text-[#9ca3af] leading-relaxed" },
+                    "Shorter-horizon swing trades. The system enters, manages, and exits positions over days to weeks. Best for tracking fast-moving setups."
+                  ),
+                ),
+                React.createElement("div", { className: "bg-white/[0.03] border border-blue-500/20 rounded-lg p-4 ring-1 ring-blue-500/10" },
+                  React.createElement("h3", { className: "text-blue-400 font-semibold mb-1.5 text-sm" }, "Investor (this page)"),
+                  React.createElement("p", { className: "text-xs text-[#9ca3af] leading-relaxed" },
+                    "Longer-horizon portfolio management. The system accumulates strong setups, holds through strength, and reduces when conditions weaken. Designed for building positions over weeks to months."
+                  ),
+                ),
+              ),
+            ),
+          },
+          {
+            title: "The Action Board",
+            body: React.createElement("div", { className: "space-y-3" },
+              React.createElement("p", { className: "text-[#d1d5db] text-sm leading-relaxed" },
+                "The 4-column board is the core of the Investor experience. Each column represents an action the system recommends for the stocks placed there."
+              ),
+              React.createElement("div", { className: "space-y-2" },
+                React.createElement("div", { className: "flex items-start gap-3 bg-white/[0.03] border border-white/[0.06] rounded-lg p-3" },
+                  React.createElement("span", { className: "stage-badge stage-accumulate shrink-0 mt-0.5" }, "Accumulate"),
+                  React.createElement("p", { className: "text-xs text-[#9ca3af] leading-relaxed" }, "The stock pulled back to a favorable price while its trend is intact. The system recommends building a position in small pieces over time."),
+                ),
+                React.createElement("div", { className: "flex items-start gap-3 bg-white/[0.03] border border-white/[0.06] rounded-lg p-3" },
+                  React.createElement("span", { className: "stage-badge stage-core_hold shrink-0 mt-0.5" }, "Core Hold"),
+                  React.createElement("p", { className: "text-xs text-[#9ca3af] leading-relaxed" }, "Both the weekly and monthly trends are healthy. No action needed \u2014 the system recommends holding."),
+                ),
+                React.createElement("div", { className: "flex items-start gap-3 bg-white/[0.03] border border-white/[0.06] rounded-lg p-3" },
+                  React.createElement("span", { className: "stage-badge stage-watch shrink-0 mt-0.5" }, "Watch"),
+                  React.createElement("p", { className: "text-xs text-[#9ca3af] leading-relaxed" }, "Mixed signals. Something changed \u2014 perhaps the trend weakened or relative strength dipped. The system recommends waiting before adding capital."),
+                ),
+                React.createElement("div", { className: "flex items-start gap-3 bg-white/[0.03] border border-white/[0.06] rounded-lg p-3" },
+                  React.createElement("span", { className: "stage-badge stage-reduce shrink-0 mt-0.5" }, "Reduce"),
+                  React.createElement("p", { className: "text-xs text-[#9ca3af] leading-relaxed" }, "The stock is showing weakness. The system recommends trimming or exiting the position to protect capital."),
+                ),
+              ),
+            ),
+          },
+          {
+            title: "Scores & Market Health",
+            body: React.createElement("div", { className: "space-y-4" },
+              React.createElement("div", { className: "bg-white/[0.03] border border-white/[0.06] rounded-lg p-4" },
+                React.createElement("h3", { className: "text-teal-400 font-semibold mb-1.5 text-sm" }, "Investor Score (0\u2013100)"),
+                React.createElement("p", { className: "text-xs text-[#9ca3af] leading-relaxed mb-2" },
+                  "Every stock receives a score based on trend health, relative strength, and timing signals."
+                ),
+                React.createElement("div", { className: "flex gap-4 text-xs" },
+                  React.createElement("span", null, React.createElement("span", { className: "inline-block w-2 h-2 rounded-full bg-[#00e676] mr-1" }), React.createElement("span", { className: "text-[#9ca3af]" }, "70+ Strong")),
+                  React.createElement("span", null, React.createElement("span", { className: "inline-block w-2 h-2 rounded-full bg-amber-400 mr-1" }), React.createElement("span", { className: "text-[#9ca3af]" }, "50\u201369 Mixed")),
+                  React.createElement("span", null, React.createElement("span", { className: "inline-block w-2 h-2 rounded-full bg-red-400 mr-1" }), React.createElement("span", { className: "text-[#9ca3af]" }, "Under 50 Weak")),
+                ),
+              ),
+              React.createElement("div", { className: "bg-white/[0.03] border border-white/[0.06] rounded-lg p-4" },
+                React.createElement("h3", { className: "text-teal-400 font-semibold mb-1.5 text-sm" }, "Market Health Bar"),
+                React.createElement("p", { className: "text-xs text-[#9ca3af] leading-relaxed" },
+                  "The bar at the top shows the overall market environment \u2014 Participation (breadth), Market Mode (bullish/cautious/bearish), Trend Strength, and Long-Term health. These help the system decide whether conditions are favorable for accumulation or whether caution is warranted."
+                ),
+              ),
+              React.createElement("div", { className: "bg-white/[0.03] border border-white/[0.06] rounded-lg p-4" },
+                React.createElement("h3", { className: "text-teal-400 font-semibold mb-1.5 text-sm" }, "Account Summary"),
+                React.createElement("p", { className: "text-xs text-[#9ca3af] leading-relaxed" },
+                  "The compact row below Market Health shows the simulated portfolio\u2019s total value, available cash, capital currently invested, and open/closed profit & loss."
+                ),
+              ),
+            ),
+          },
+          {
+            title: "The Right Rail \u2014 Deep Dive",
+            body: React.createElement("div", { className: "space-y-4" },
+              React.createElement("p", { className: "text-[#d1d5db] text-sm leading-relaxed" },
+                "Click any ticker on the board or in the left list to open the Right Rail \u2014 a full analysis panel."
+              ),
+              React.createElement("div", { className: "bg-white/[0.03] border border-white/[0.06] rounded-lg p-4 space-y-2" },
+                React.createElement("div", { className: "flex items-start gap-2" },
+                  React.createElement("span", { className: "text-teal-400 text-sm mt-0.5" }, "\u2022"),
+                  React.createElement("p", { className: "text-xs text-[#9ca3af] leading-relaxed" }, "A plain-English summary at the top (e.g., \u201CStrong setup. The system sees a buying opportunity.\u201D)"),
+                ),
+                React.createElement("div", { className: "flex items-start gap-2" },
+                  React.createElement("span", { className: "text-teal-400 text-sm mt-0.5" }, "\u2022"),
+                  React.createElement("p", { className: "text-xs text-[#9ca3af] leading-relaxed" }, "Score breakdown showing which factors are strong (green) vs weak (red)"),
+                ),
+                React.createElement("div", { className: "flex items-start gap-2" },
+                  React.createElement("span", { className: "text-teal-400 text-sm mt-0.5" }, "\u2022"),
+                  React.createElement("p", { className: "text-xs text-[#9ca3af] leading-relaxed" }, "Performance vs the market across multiple timeframes"),
+                ),
+                React.createElement("div", { className: "flex items-start gap-2" },
+                  React.createElement("span", { className: "text-teal-400 text-sm mt-0.5" }, "\u2022"),
+                  React.createElement("p", { className: "text-xs text-[#9ca3af] leading-relaxed" }, "Buy Zone indicator \u2014 whether the stock is at a favorable entry point"),
+                ),
+              ),
+            ),
+          },
+          {
+            title: "Reviewing the Simulation Portfolio",
+            body: React.createElement("div", { className: "space-y-4" },
+              React.createElement("p", { className: "text-[#d1d5db] text-sm leading-relaxed" },
+                "The system runs a simulation portfolio that automatically executes trades based on scores and signals. This is not a live brokerage \u2014 it is a model portfolio that demonstrates how the system would manage positions."
+              ),
+              React.createElement("div", { className: "bg-white/[0.03] border border-white/[0.06] rounded-lg p-4" },
+                React.createElement("h3", { className: "text-teal-400 font-semibold mb-1.5 text-sm" }, "Portfolio Analytics (below the board)"),
+                React.createElement("p", { className: "text-xs text-[#9ca3af] leading-relaxed" },
+                  "Shows diversification, sector allocation, position health, and suggested actions for every position in the simulation portfolio."
+                ),
+              ),
+              React.createElement("div", { className: "bg-white/[0.03] border border-white/[0.06] rounded-lg p-4" },
+                React.createElement("h3", { className: "text-teal-400 font-semibold mb-1.5 text-sm" }, "Trades Page (in the navigation)"),
+                React.createElement("p", { className: "text-xs text-[#9ca3af] leading-relaxed" },
+                  "To see every individual trade the system has taken \u2014 entries, trims, exits, and P&L \u2014 visit the ",
+                  React.createElement("strong", { className: "text-white" }, "Trades"),
+                  " page from the navigation bar. It shows open positions, closed trades, win rate, and detailed execution history."
+                ),
+              ),
+            ),
+          },
+          {
+            title: "Ready to Explore",
+            body: React.createElement("div", { className: "space-y-4" },
+              React.createElement("p", { className: "text-[#d1d5db] text-sm leading-relaxed" },
+                "Click any ticker on the board or in the left list to start. The Right Rail shows everything the system knows about that stock."
+              ),
+              React.createElement("div", { className: "bg-white/[0.03] border border-white/[0.06] rounded-lg p-4" },
+                React.createElement("div", { className: "flex items-start gap-2" },
+                  React.createElement("span", { className: "text-blue-400 text-sm mt-0.5" }, "\u2139"),
+                  React.createElement("p", { className: "text-xs text-[#9ca3af] leading-relaxed" },
+                    "Reopen this guide anytime using the ",
+                    React.createElement("strong", { className: "text-white" }, "Guide"),
+                    " button in the navigation. Use the ",
+                    React.createElement("strong", { className: "text-white" }, "Tour"),
+                    " button to walk through the interface step by step."
+                  ),
+                ),
+              ),
+            ),
+          },
+        ];
+
+        const cur = steps[step];
+
+        return React.createElement("div", { className: "fixed inset-0 bg-black/80 backdrop-blur-sm z-[60] flex items-center justify-center p-4" },
+          React.createElement("div", { className: "bg-[#0f1117] border-2 border-white/[0.06] rounded-xl max-w-2xl w-full max-h-[90vh] overflow-hidden flex flex-col shadow-lg" },
+            React.createElement("div", { className: "bg-gradient-to-r from-blue-500/20 to-teal-500/20 border-b border-white/[0.06] p-6 flex items-center justify-between" },
+              React.createElement("div", null,
+                React.createElement("h2", { className: "text-xl font-bold text-white mb-1.5" }, cur.title),
+                React.createElement("div", { className: "flex gap-1" },
+                  ...steps.map((_, i) => React.createElement("div", {
+                    key: i,
+                    className: `h-2 rounded-full transition-all ${i === step ? "bg-blue-400 w-8" : i < step ? "bg-teal-400 w-2" : "bg-white/[0.04] w-2"}`,
+                  })),
+                ),
+              ),
+              React.createElement("button", {
+                onClick: onClose,
+                className: "text-[#6b7280] hover:text-white text-2xl font-bold w-8 h-8 flex items-center justify-center rounded hover:bg-white/[0.04] transition-colors",
+                title: "Close guide",
+              }, "\u00d7"),
+            ),
+            React.createElement("div", { className: "flex-1 overflow-y-auto p-6" }, cur.body),
+            React.createElement("div", { className: "border-t border-white/[0.06] p-4 flex items-center justify-between bg-white/[0.03]" },
+              React.createElement("button", {
+                onClick: () => setStep(s => s - 1),
+                disabled: step === 0,
+                className: `px-4 py-2 rounded-lg border transition-all ${step === 0 ? "border-white/[0.06] text-[#6b7280] opacity-50 cursor-not-allowed" : "border-white/[0.06] bg-white/5 hover:bg-white/[0.04] text-white"}`,
+              }, "\u2190 Previous"),
+              React.createElement("span", { className: "text-sm text-[#6b7280]" }, `Step ${step + 1} of ${steps.length}`),
+              step < steps.length - 1
+                ? React.createElement("button", {
+                    onClick: () => setStep(s => s + 1),
+                    className: "px-6 py-2 rounded-lg bg-gradient-to-r from-blue-500 to-teal-500 hover:from-blue-600 hover:to-teal-600 text-white font-semibold transition-all",
+                  }, "Next \u2192")
+                : React.createElement("button", {
+                    onClick: onClose,
+                    className: "px-6 py-2 rounded-lg bg-gradient-to-r from-green-500 to-blue-500 hover:from-green-600 hover:to-blue-600 text-white font-semibold transition-all",
+                  }, "Let\u2019s go"),
+            ),
+          ),
+        );
+      }
+
+      // ─── Investor Coachmarks (spotlight tour) ─────────────────────
+      const INVESTOR_COACHMARK_STEPS = [
+        { target: "[data-coachmark='market-health']", title: "Market Health", body: "The overall market environment at a glance. Green values indicate conditions favorable for accumulation, amber signals caution, and red suggests defensive positioning.", position: "bottom", icon: "pulse" },
+        { target: "[data-coachmark='action-board']", title: "Action Board", body: "Stocks flow between Accumulate, Core Hold, Watch, and Reduce based on their scores and trend health. Each column represents the system\u2019s recommendation for those stocks.", position: "top", icon: "columns" },
+        { target: "[data-coachmark='ticker-list']", title: "Ticker List", body: "A scrollable ranked list of all tracked stocks sorted by score. Click any ticker to see its full analysis in the Right Rail.", position: "right", icon: "list" },
+        { target: "[data-coachmark='right-rail']", title: "Deep Dive", body: "The detailed analysis panel. Shows a plain-English summary, score breakdown, performance vs the market, buy zone signals, and the investment thesis.", position: "left", icon: "details" },
+        { target: "[data-coachmark='portfolio-section']", title: "Portfolio Analytics", body: "Diversification, sector allocation, position health, and suggested actions for the simulation portfolio. Scroll down to find it below the main board.", position: "top", icon: "chart" },
+      ];
+
+      const INVESTOR_COACHMARK_ICONS = {
+        pulse: React.createElement("svg", { width: 20, height: 20, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "2", strokeLinecap: "round", strokeLinejoin: "round" },
+          React.createElement("polyline", { points: "22 12 18 12 15 21 9 3 6 12 2 12" })
+        ),
+        columns: React.createElement("svg", { width: 20, height: 20, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "2", strokeLinecap: "round", strokeLinejoin: "round" },
+          React.createElement("rect", { x: "3", y: "3", width: "18", height: "18", rx: "2" }),
+          React.createElement("line", { x1: "9", y1: "3", x2: "9", y2: "21" }),
+          React.createElement("line", { x1: "15", y1: "3", x2: "15", y2: "21" }),
+        ),
+        list: React.createElement("svg", { width: 20, height: 20, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "2", strokeLinecap: "round", strokeLinejoin: "round" },
+          React.createElement("line", { x1: "8", y1: "6", x2: "21", y2: "6" }),
+          React.createElement("line", { x1: "8", y1: "12", x2: "21", y2: "12" }),
+          React.createElement("line", { x1: "8", y1: "18", x2: "21", y2: "18" }),
+          React.createElement("line", { x1: "3", y1: "6", x2: "3.01", y2: "6" }),
+          React.createElement("line", { x1: "3", y1: "12", x2: "3.01", y2: "12" }),
+          React.createElement("line", { x1: "3", y1: "18", x2: "3.01", y2: "18" }),
+        ),
+        details: React.createElement("svg", { width: 20, height: 20, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "2", strokeLinecap: "round", strokeLinejoin: "round" },
+          React.createElement("rect", { x: "3", y: "3", width: "7", height: "7", rx: "1" }),
+          React.createElement("rect", { x: "14", y: "3", width: "7", height: "7", rx: "1" }),
+          React.createElement("rect", { x: "3", y: "14", width: "7", height: "7", rx: "1" }),
+          React.createElement("rect", { x: "14", y: "14", width: "7", height: "7", rx: "1" }),
+        ),
+        chart: React.createElement("svg", { width: 20, height: 20, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "2", strokeLinecap: "round", strokeLinejoin: "round" },
+          React.createElement("line", { x1: "18", y1: "20", x2: "18", y2: "10" }),
+          React.createElement("line", { x1: "12", y1: "20", x2: "12", y2: "4" }),
+          React.createElement("line", { x1: "6", y1: "20", x2: "6", y2: "14" }),
+        ),
+      };
+
+      function InvestorCoachmarks() {
+        const STORAGE_KEY = "tt_investor_coachmarks_v1";
+        const [step, setStep] = React.useState(-1);
+        const [rect, setRect] = React.useState(null);
+        const [visible, setVisible] = React.useState(false);
+        const rafRef = React.useRef(null);
+
+        React.useEffect(() => {
+          try { if (localStorage.getItem(STORAGE_KEY)) return; } catch { return; }
+          let cancelled = false;
+          const tryStart = () => {
+            try { if (!localStorage.getItem("tt_investor_welcomeSeen")) { if (!cancelled) setTimeout(tryStart, 500); return; } } catch { return; }
+            if (!cancelled) setTimeout(() => { if (!cancelled) setStep(0); }, 800);
+          };
+          tryStart();
+          return () => { cancelled = true; };
+        }, []);
+
+        React.useEffect(() => {
+          window.__restartInvestorCoachmarks = () => { setStep(0); };
+          return () => { delete window.__restartInvestorCoachmarks; };
+        }, []);
+
+        React.useEffect(() => {
+          if (step < 0 || step >= INVESTOR_COACHMARK_STEPS.length) { setVisible(false); return; }
+          const data = INVESTOR_COACHMARK_STEPS[step];
+          const measure = () => {
+            const el = document.querySelector(data.target);
+            if (!el) { setVisible(false); return; }
+            const r = el.getBoundingClientRect();
+            setRect({ top: r.top + window.scrollY, left: r.left + window.scrollX, width: r.width, height: r.height });
+            setVisible(true);
+            el.scrollIntoView({ behavior: "smooth", block: "nearest" });
+          };
+          measure();
+          rafRef.current = requestAnimationFrame(measure);
+          const iv = setInterval(measure, 400);
+          return () => { cancelAnimationFrame(rafRef.current); clearInterval(iv); };
+        }, [step]);
+
+        const skip = () => {
+          try { localStorage.setItem(STORAGE_KEY, "skipped"); } catch {}
+          setStep(-1);
+        };
+        const finish = () => {
+          try { localStorage.setItem(STORAGE_KEY, String(Date.now())); } catch {}
+          setStep(-1);
+        };
+        const next = () => { if (step < INVESTOR_COACHMARK_STEPS.length - 1) setStep(step + 1); else finish(); };
+        const prev = () => { if (step > 0) setStep(step - 1); };
+
+        if (step < 0 || !visible || !rect) return null;
+
+        const data = INVESTOR_COACHMARK_STEPS[step];
+        const pad = 8;
+        const isLast = step === INVESTOR_COACHMARK_STEPS.length - 1;
+
+        const tooltipStyle = {};
+        if (data.position === "bottom") { tooltipStyle.top = rect.top + rect.height + pad + 12; tooltipStyle.left = rect.left + rect.width / 2; tooltipStyle.transform = "translateX(-50%)"; }
+        else if (data.position === "top") { tooltipStyle.top = rect.top - pad - 12; tooltipStyle.left = rect.left + rect.width / 2; tooltipStyle.transform = "translate(-50%, -100%)"; }
+        else if (data.position === "left") { tooltipStyle.top = rect.top + rect.height / 2; tooltipStyle.left = rect.left - pad - 12; tooltipStyle.transform = "translate(-100%, -50%)"; }
+        else { tooltipStyle.top = rect.top + rect.height / 2; tooltipStyle.left = rect.left + rect.width + pad + 12; tooltipStyle.transform = "translateY(-50%)"; }
+
+        return ReactDOM.createPortal(
+          React.createElement("div", { className: "fixed inset-0 z-[70]", style: { pointerEvents: "auto" } },
+            React.createElement("svg", { className: "absolute inset-0 w-full h-full", style: { pointerEvents: "none" } },
+              React.createElement("defs", null,
+                React.createElement("mask", { id: "inv-cm-mask" },
+                  React.createElement("rect", { x: 0, y: 0, width: "100%", height: "100%", fill: "white" }),
+                  React.createElement("rect", { x: rect.left - pad, y: rect.top - pad, width: rect.width + pad * 2, height: rect.height + pad * 2, rx: 12, fill: "black" }),
+                ),
+              ),
+              React.createElement("rect", { x: 0, y: 0, width: "100%", height: "100%", fill: "rgba(0,0,0,0.7)", mask: "url(#inv-cm-mask)" }),
+            ),
+            React.createElement("div", {
+              style: { position: "absolute", left: rect.left - pad, top: rect.top - pad, width: rect.width + pad * 2, height: rect.height + pad * 2, borderRadius: 12, border: "2px solid rgba(34,211,238,0.5)", animation: "coachmark-pulse 2s ease-in-out infinite", pointerEvents: "none" },
+            }),
+            React.createElement("div", {
+              className: "absolute bg-[#0f1117] border border-white/[0.1] rounded-xl shadow-xl p-4 max-w-xs",
+              style: { ...tooltipStyle, animation: "coachmark-slide-in 0.3s ease-out", pointerEvents: "auto", zIndex: 71 },
+            },
+              React.createElement("div", { className: "flex items-center gap-2 mb-2" },
+                React.createElement("span", { className: "text-cyan-400" }, INVESTOR_COACHMARK_ICONS[data.icon] || null),
+                React.createElement("h3", { className: "text-white font-semibold text-sm" }, data.title),
+              ),
+              React.createElement("p", { className: "text-[#9ca3af] text-xs leading-relaxed mb-3" }, data.body),
+              React.createElement("div", { className: "flex items-center justify-between" },
+                React.createElement("div", { className: "flex gap-1" },
+                  step > 0 && React.createElement("button", { onClick: prev, className: "text-[10px] text-[#6b7280] hover:text-white px-2 py-1 rounded hover:bg-white/[0.06] transition-colors" }, "\u2190 Back"),
+                  React.createElement("button", { onClick: skip, className: "text-[10px] text-[#6b7280] hover:text-white px-2 py-1 rounded hover:bg-white/[0.06] transition-colors" }, "Skip tour"),
+                ),
+                React.createElement("div", { className: "flex items-center gap-2" },
+                  React.createElement("div", { className: "flex gap-1" },
+                    ...INVESTOR_COACHMARK_STEPS.map((_, i) => React.createElement("div", { key: i, className: `w-1.5 h-1.5 rounded-full ${i === step ? "bg-cyan-400" : i < step ? "bg-teal-500" : "bg-white/10"}` })),
+                  ),
+                  React.createElement("button", { onClick: next, className: "text-[10px] text-cyan-400 hover:text-white font-semibold px-2 py-1 rounded bg-cyan-500/10 hover:bg-cyan-500/20 transition-colors" }, isLast ? "Got it" : "Next \u2192"),
+                ),
+              ),
+            ),
+          ),
+          document.body,
+        );
+      }
+
       // ─── Main App ──────────────────────────────────────────────────
       function InvestorDashboard() {
         const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -612,6 +957,15 @@
         const [sectorFilter, setSectorFilter] = useState(null);
         const [searchQuery, setSearchQuery] = useState("");
         const [showSaved, setShowSaved] = useState(false);
+
+        // Guide & Tour state
+        const [showInvestorGuide, setShowInvestorGuide] = useState(() => {
+          try { return !localStorage.getItem("tt_investor_welcomeSeen"); } catch { return false; }
+        });
+        const closeInvestorGuide = useCallback(() => {
+          setShowInvestorGuide(false);
+          try { localStorage.setItem("tt_investor_welcomeSeen", "true"); } catch {}
+        }, []);
 
         // Record feature usage for Admin "Usage by Feature" (throttled 1h per user per feature)
         useEffect(() => {
@@ -790,7 +1144,8 @@
                 ),
               ),
               React.createElement("div", { className: "flex items-center gap-1.5 md:gap-2 shrink-0" },
-                React.createElement("a", { href: "/faq.html", className: "hidden md:inline-flex px-2 py-1 rounded-md text-[11px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all" }, "Guide"),
+                React.createElement("button", { onClick: () => setShowInvestorGuide(true), className: "hidden md:inline-flex px-2 py-1 rounded-md text-[11px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all" }, "Guide"),
+                React.createElement("button", { onClick: () => { try { localStorage.removeItem("tt_investor_coachmarks_v1"); } catch {} window.__restartInvestorCoachmarks?.(); }, className: "hidden md:inline-flex px-2 py-1 rounded-md text-[11px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all", title: "Restart the UI tour" }, "Tour"),
                 React.createElement("a", { href: "/faq.html", className: "hidden md:inline-flex px-2 py-1 rounded-md text-[11px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all" }, "FAQ"),
                 React.createElement("a", { href: "index-react.html", className: "hidden md:inline-flex px-2 py-1 rounded-md text-[11px] text-[#60a5fa] hover:text-[#93bbfc] hover:bg-[#60a5fa]/[0.06] transition-all font-medium" }, "Ask AI"),
                 (typeof window !== "undefined" && (window.TimedAuthHelpers?.getStoredSession()?.role === "admin" || window.TimedAuthHelpers?.getStoredSession()?.tier === "admin")) && React.createElement("a", { href: "admin-clients.html", "data-admin-only": "true", className: "hidden md:inline-flex px-2 py-1 rounded-md text-[11px] text-[#a78bfa]/80 hover:text-[#a78bfa] font-medium" }, "Admin"),
@@ -826,7 +1181,8 @@
               React.createElement("a", { href: "ticker-management.html", "data-admin-only": "true", className: "px-3 py-2 rounded-md text-[13px] text-[#9ca3af] hover:text-white hover:bg-white/[0.04] transition-all", onClick: () => setMobileMenuOpen(false) }, "Tickers"),
               React.createElement("a", { href: "daily-brief.html", className: "px-3 py-2 rounded-md text-[13px] text-[#f59e0b]/80 hover:text-[#f59e0b] hover:bg-[#f59e0b]/[0.06] transition-all font-medium", onClick: () => setMobileMenuOpen(false) }, "Daily Brief"),
               React.createElement("div", { className: "border-t border-white/[0.06] mt-1 pt-1 flex items-center gap-2" },
-                React.createElement("a", { href: "/faq.html", className: "px-3 py-2 rounded-md text-[12px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all" }, "Guide"),
+                React.createElement("button", { onClick: () => { setShowInvestorGuide(true); setMobileMenuOpen(false); }, className: "px-3 py-2 rounded-md text-[12px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all" }, "Guide"),
+                React.createElement("button", { onClick: () => { try { localStorage.removeItem("tt_investor_coachmarks_v1"); } catch {} window.__restartInvestorCoachmarks?.(); setMobileMenuOpen(false); }, className: "px-3 py-2 rounded-md text-[12px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all", title: "Restart tour" }, "Tour"),
                 React.createElement("a", { href: "/faq.html", className: "px-3 py-2 rounded-md text-[12px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all" }, "FAQ"),
                 React.createElement("a", { href: "index-react.html", className: "px-3 py-2 rounded-md text-[12px] text-[#60a5fa] hover:text-white hover:bg-white/[0.04] transition-all" }, "Ask AI"),
                 React.createElement("a", { href: "mailto:support@timed-trading.com", className: "px-3 py-2 rounded-md text-[12px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all" }, "Contact"),
@@ -926,7 +1282,7 @@
           ),
 
           // ═══ Market Health + Account Summary (compact row) ═══
-          React.createElement("div", { className: "px-4 pb-2 shrink-0 space-y-2" },
+          React.createElement("div", { className: "px-4 pb-2 shrink-0 space-y-2", "data-coachmark": "market-health" },
             React.createElement(MarketHealthBar, { health, loading }),
             acctSummary && React.createElement("div", { className: "card p-3 fade-in" },
               React.createElement("div", { className: "flex items-center justify-between flex-wrap gap-4 text-[11px]" },
@@ -956,7 +1312,7 @@
           // ═══ 3-Panel: Viewport | Action Kanban | Detail (responsive) ═══
           React.createElement("div", { className: "investor-3panel flex flex-col lg:flex-row gap-4 px-4 shrink-0" },
             // Left: Viewport (scrollable ticker list — hidden on mobile)
-            React.createElement("div", { className: "hidden lg:flex w-64 flex-shrink-0 flex-col min-h-0" },
+            React.createElement("div", { className: "hidden lg:flex w-64 flex-shrink-0 flex-col min-h-0", "data-coachmark": "ticker-list" },
               React.createElement("div", { className: "text-[10px] text-[#4b5563] mb-1 px-1 shrink-0" }, `${filteredTickers.length} ticker${filteredTickers.length !== 1 ? "s" : ""}`),
               React.createElement(TickerListViewport, {
                 tickers: filteredTickers,
@@ -968,7 +1324,7 @@
             ),
 
             // Center: Action Kanban (horizontally scrollable on mobile)
-            React.createElement("div", { className: "flex-1 flex flex-col min-h-[200px] lg:min-h-0 min-w-0" },
+            React.createElement("div", { className: "flex-1 flex flex-col min-h-[200px] lg:min-h-0 min-w-0", "data-coachmark": "action-board" },
               React.createElement(ActionBoardHeader, { actionCount }),
               filteredTickers.length > 0
                 ? React.createElement(ActionKanban, { tickers: filteredTickers, onSelect: setSelectedTicker, selectedTicker })
@@ -979,7 +1335,7 @@
             ),
 
             // Right: Detail — inline on desktop, hidden on mobile (slide-in overlay below)
-            React.createElement("div", { className: "hidden lg:block w-96 flex-shrink-0 overflow-y-auto min-h-0" },
+            React.createElement("div", { className: "hidden lg:block w-96 flex-shrink-0 overflow-y-auto min-h-0", "data-coachmark": "right-rail" },
               React.createElement(TickerDeepDive, { ticker: selectedTicker, data: selectedData }),
             ),
           ),
@@ -1010,9 +1366,15 @@
           ),
 
           // ═══ Portfolio Section (always visible below, no excess scrolling) ═══
-          portfolio && React.createElement("div", { className: "px-4 py-3 shrink-0" },
+          portfolio && React.createElement("div", { className: "px-4 py-3 shrink-0", "data-coachmark": "portfolio-section" },
             React.createElement(PortfolioSection, { portfolio }),
           ),
+
+          // ═══ Investor Guide Modal ═══
+          showInvestorGuide && React.createElement(InvestorWelcomeModal, { onClose: closeInvestorGuide }),
+
+          // ═══ Investor Coachmarks Tour ═══
+          React.createElement(InvestorCoachmarks, null),
         );
       }
 
