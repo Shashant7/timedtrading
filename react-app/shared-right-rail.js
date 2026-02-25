@@ -971,7 +971,7 @@
           { k: "1H", label: "1H" },
           { k: "30", label: "30m" },
           { k: "10", label: "10m" },
-          { k: "3", label: "3m" },
+          { k: "5", label: "5m" },
         ];
         const emaLevels = [5, 13, 21, 48, 89, 200, 233];
         const divIcon = (code) =>
@@ -2494,242 +2494,167 @@
                       {/* Timeframes (Per-TF technicals) */}
                       <div className="mt-6 pt-6 border-t-2 border-white/[0.06]">
                         <div className="text-sm font-bold text-[#6b7280] mb-4">
-                          ⏱ Timeframes
+                          Timeframe Analysis
                         </div>
-                        <div className="p-3 bg-white/[0.03] rounded-lg border border-white/[0.06]">
+                        <div className="space-y-2">
                           {tfTech ? (
-                            <div className="space-y-3">
-                              {tfOrder.map(({ k, label }) => {
+                            tfOrder.map(({ k, label }) => {
                                 const row = tfTech[k] || null;
-                                const atr = row && row.atr ? row.atr : null;
-                                const ema = row && row.ema ? row.ema : null;
-                                const ph = row && row.ph ? row.ph : null;
-                                const sq = row && row.sq ? row.sq : null;
-                                const rsi = row && row.rsi ? row.rsi : null;
+                                if (!row) return null;
+                                const atr = row.atr || null;
+                                const ema = row.ema || null;
+                                const ph = row.ph || null;
+                                const sq = row.sq || null;
+                                const rsi = row.rsi || null;
 
-                                const vis =
-                                  ema && Number.isFinite(Number(ema.vis))
-                                    ? Number(ema.vis)
-                                    : 0;
-                                const sig =
-                                  ema && Number.isFinite(Number(ema.sig))
-                                    ? Number(ema.sig)
-                                    : 0;
-                                const sigLabel =
-                                  sig === 1
-                                    ? "Bullish"
-                                    : sig === -1
-                                      ? "Bearish"
-                                      : "Neutral";
+                                const vis = ema && Number.isFinite(Number(ema.vis)) ? Number(ema.vis) : 0;
+                                const sig = ema && Number.isFinite(Number(ema.sig)) ? Number(ema.sig) : 0;
+                                const sigLabel = sig === 1 ? "Bullish" : sig === -1 ? "Bearish" : "Neutral";
+                                const sigColor = sig === 1 ? "text-green-400" : sig === -1 ? "text-red-400" : "text-[#6b7280]";
+                                const sigBg = sig === 1 ? "border-green-500/20" : sig === -1 ? "border-red-500/20" : "border-white/[0.06]";
 
-                                const sqIcons =
-                                  (sq && sq.c ? "🗜️" : "") +
-                                  (sq && sq.s ? "🧨" : "") +
-                                  (sq && sq.r ? "⚡️" : "");
+                                const aboveCount = emaLevels.reduce((c, _, i) => c + ((vis & (1 << i)) !== 0 ? 1 : 0), 0);
+                                const emaTotal = emaLevels.length;
 
-                                const atrBand = (() => {
-                                  if (!atr) return null;
-                                  const side = Number(atr.s) === -1 ? "-" : "+";
-                                  const lo =
-                                    atr.lo != null ? String(atr.lo) : null;
-                                  const hi =
-                                    atr.hi != null ? String(atr.hi) : null;
-                                  if (!lo) return null;
-                                  return hi
-                                    ? `${side}${lo}–${hi}`
-                                    : `${side}${lo}+`;
+                                const emaSummary = (() => {
+                                  if (aboveCount === emaTotal) return "Price above all moving averages — strong uptrend";
+                                  if (aboveCount >= 5) return `Price above ${aboveCount} of ${emaTotal} MAs — bullish structure`;
+                                  if (aboveCount >= 3) return `Price above ${aboveCount} of ${emaTotal} MAs — mixed, trending sideways`;
+                                  if (aboveCount >= 1) return `Price above only ${aboveCount} of ${emaTotal} MAs — weak, mostly below`;
+                                  return "Price below all moving averages — deep pullback or downtrend";
                                 })();
 
-                                const atrLastCross = (() => {
-                                  if (!atr || atr.x == null) return null;
-                                  const dir =
-                                    atr.xd === "dn"
-                                      ? "↓"
-                                      : atr.xd === "up"
-                                        ? "↑"
-                                        : "";
-                                  const side =
-                                    Number(atr.xs) === -1 ? "-" : "+";
-                                  return dir ? `${dir} ${side}${atr.x}` : null;
+                                const atrSummary = (() => {
+                                  if (!atr) return null;
+                                  const side = Number(atr.s);
+                                  const lo = Number(atr.lo);
+                                  const hi = atr.hi != null ? Number(atr.hi) : null;
+                                  if (!Number.isFinite(lo)) return null;
+                                  const dir = side === -1 ? "below" : "above";
+                                  if (hi != null && Number.isFinite(hi)) {
+                                    if (lo <= 0.5) return `Near the mean — price is within normal range`;
+                                    if (lo <= 1.5) return `${lo.toFixed(1)}–${hi.toFixed(1)} ATRs ${dir} mean — moderately extended`;
+                                    return `${lo.toFixed(1)}–${hi.toFixed(1)} ATRs ${dir} mean — stretched, watch for reversion`;
+                                  }
+                                  if (lo <= 0.5) return `Near the mean — price is within normal range`;
+                                  if (lo <= 1.5) return `${lo.toFixed(1)}+ ATRs ${dir} mean — moderately extended`;
+                                  return `${lo.toFixed(1)}+ ATRs ${dir} mean — stretched, watch for reversion`;
+                                })();
+
+                                const sqParts = [];
+                                if (sq && sq.c) sqParts.push("Compressed");
+                                if (sq && sq.s) sqParts.push("Fired");
+                                if (sq && sq.r) sqParts.push("Released");
+                                const sqSummary = sqParts.length > 0
+                                  ? sqParts.join(" → ")
+                                  : null;
+                                const sqDesc = (() => {
+                                  if (sq && sq.r) return "Energy released — momentum expanding";
+                                  if (sq && sq.s) return "Squeeze fired — breakout imminent";
+                                  if (sq && sq.c) return "Volatility compressed — building energy for a move";
+                                  return null;
+                                })();
+
+                                const r5 = rsi && rsi.r5 != null ? Number(rsi.r5) : null;
+                                const r14 = rsi && rsi.r14 != null ? Number(rsi.r14) : null;
+                                const rsiSummary = (() => {
+                                  const v = r14 != null ? r14 : r5;
+                                  if (v == null) return null;
+                                  if (v >= 75) return `RSI ${v.toFixed(0)} — overbought, watch for pullback`;
+                                  if (v >= 60) return `RSI ${v.toFixed(0)} — healthy bullish momentum`;
+                                  if (v >= 40) return `RSI ${v.toFixed(0)} — neutral, no strong momentum`;
+                                  if (v >= 25) return `RSI ${v.toFixed(0)} — weak, approaching oversold`;
+                                  return `RSI ${v.toFixed(0)} — oversold, bounce potential`;
+                                })();
+
+                                const phaseSummary = (() => {
+                                  if (!ph || ph.v == null) return null;
+                                  const v = Number(ph.v);
+                                  if (!Number.isFinite(v)) return null;
+                                  if (v >= 80) return `Phase ${v} — late stage, most of the move is done`;
+                                  if (v >= 50) return `Phase ${v} — mid-move, momentum still active`;
+                                  if (v >= 20) return `Phase ${v} — early stage, plenty of room`;
+                                  return `Phase ${v} — very early or resetting`;
+                                })();
+
+                                const phDivSummary = (() => {
+                                  const divs = (ph && Array.isArray(ph.div) ? ph.div : []).slice(0, 3);
+                                  if (divs.length === 0) return null;
+                                  const d = divs[0];
+                                  if (d === "B") return "Bullish divergence — price falling but momentum building (potential reversal up)";
+                                  if (d === "S") return "Bearish divergence — price rising but momentum fading (potential reversal down)";
+                                  return null;
+                                })();
+
+                                const tfInterpretation = (() => {
+                                  const parts = [];
+                                  if (sig === 1) {
+                                    if (sq && sq.r) parts.push("Bullish with momentum expanding after squeeze release");
+                                    else if (sq && sq.s) parts.push("Bullish — squeeze just fired, breakout starting");
+                                    else if (aboveCount >= 5) parts.push("Bullish trend with strong MA support");
+                                    else parts.push("Leaning bullish");
+                                  } else if (sig === -1) {
+                                    if (sq && sq.r) parts.push("Bearish with selling accelerating after squeeze release");
+                                    else if (sq && sq.s) parts.push("Bearish — squeeze just fired, breakdown starting");
+                                    else if (aboveCount <= 2) parts.push("Bearish trend with price below most MAs");
+                                    else parts.push("Leaning bearish");
+                                  } else {
+                                    if (sq && sq.c) parts.push("Neutral — volatility compressed, waiting for direction");
+                                    else parts.push("No clear directional bias on this timeframe");
+                                  }
+                                  return parts[0] || "";
                                 })();
 
                                 return (
-                                  <div
-                                    key={k}
-                                    className="bg-white/[0.02] border border-white/[0.06] rounded-lg p-3"
-                                  >
-                                    <div className="flex items-center justify-between mb-2">
-                                      <div className="text-sm font-semibold text-white">
-                                        {label}
-                                      </div>
-                                      <div className="text-xs text-[#6b7280] flex items-center gap-2">
-                                        <span>{sqIcons}</span>
-                                        <span
-                                          className={`font-semibold ${
-                                            sig === 1
-                                              ? "text-green-400"
-                                              : sig === -1
-                                                ? "text-red-400"
-                                                : "text-[#6b7280]"
-                                          }`}
-                                        >
-                                          {sigLabel}
-                                        </span>
-                                      </div>
+                                  <div key={k} className={`rounded-lg p-3 bg-white/[0.02] border ${sigBg}`}>
+                                    <div className="flex items-center justify-between mb-1.5">
+                                      <span className="text-sm font-bold text-white">{label}</span>
+                                      <span className={`text-xs font-semibold px-2 py-0.5 rounded ${sig === 1 ? "bg-green-500/15 text-green-400" : sig === -1 ? "bg-red-500/15 text-red-400" : "bg-white/[0.05] text-[#6b7280]"}`}>{sigLabel}</span>
                                     </div>
+                                    <div className="text-[11px] text-slate-300/80 italic mb-2.5 leading-snug">{tfInterpretation}</div>
 
-                                    <div className="grid grid-cols-2 gap-3">
-                                      <div>
-                                        <div className="text-[11px] text-[#6b7280] mb-1">
-                                          ATR band / last cross
-                                        </div>
-                                        <div className="text-xs text-white">
-                                          {atrBand ? (
-                                            <>
-                                              <span className="font-semibold">
-                                                {atrBand}
-                                              </span>
-                                              {atrLastCross ? (
-                                                <span className="ml-2 text-[#6b7280]">
-                                                  {atrLastCross}
-                                                </span>
-                                              ) : null}
-                                            </>
-                                          ) : (
-                                            <span className="text-[#6b7280]">
-                                              —
-                                            </span>
-                                          )}
-                                        </div>
+                                    <div className="space-y-1.5 text-[11px]">
+                                      <div className="flex items-start gap-2">
+                                        <span className="text-[#6b7280] w-12 shrink-0 pt-px" title="Moving Averages — how many EMAs price is above">MAs</span>
+                                        <span className="text-slate-300">{emaSummary}{ema && ema.stack != null ? ` (stack: ${ema.stack})` : ""}</span>
                                       </div>
-
-                                      <div>
-                                        <div className="text-[11px] text-[#6b7280] mb-1">
-                                          EMA visibility / stack
+                                      {atrSummary && (
+                                        <div className="flex items-start gap-2">
+                                          <span className="text-[#6b7280] w-12 shrink-0 pt-px" title="Average True Range — how far price is from its normal trading range">ATR</span>
+                                          <span className="text-slate-300">{atrSummary}</span>
                                         </div>
-                                        <div className="flex flex-wrap gap-1 items-center">
-                                          {emaLevels.map((n, idx) => {
-                                            const on = (vis & (1 << idx)) !== 0;
-                                            return (
-                                              <span
-                                                key={n}
-                                                className={`px-1.5 py-0.5 rounded text-[10px] border ${
-                                                  on
-                                                    ? "bg-green-500/15 border-green-500/30 text-green-300"
-                                                    : "bg-red-500/10 border-red-500/30 text-red-300"
-                                                }`}
-                                                title={`Price ${on ? "≥" : "<"} EMA${n}`}
-                                              >
-                                                {n}
-                                              </span>
-                                            );
-                                          })}
-                                          {ema && ema.stack != null && (
-                                            <span className="ml-2 text-[10px] text-[#6b7280]">
-                                              stack:{" "}
-                                              <span className="text-white font-semibold">
-                                                {ema.stack}
-                                              </span>
-                                            </span>
-                                          )}
+                                      )}
+                                      {rsiSummary && (
+                                        <div className="flex items-start gap-2">
+                                          <span className="text-[#6b7280] w-12 shrink-0 pt-px" title="Relative Strength Index — momentum oscillator (30=oversold, 70=overbought)">RSI</span>
+                                          <span className="text-slate-300">{rsiSummary}{r5 != null && r14 != null ? ` (fast: ${r5.toFixed(0)}, slow: ${r14.toFixed(0)})` : ""}</span>
                                         </div>
-                                      </div>
-                                    </div>
-
-                                    <div className="grid grid-cols-2 gap-3 mt-3">
-                                      <div>
-                                        <div className="text-[11px] text-[#6b7280] mb-1">
-                                          Phase Level
+                                      )}
+                                      {sqSummary && (
+                                        <div className="flex items-start gap-2">
+                                          <span className="text-[#6b7280] w-12 shrink-0 pt-px" title="Bollinger Band Squeeze — volatility compression that often precedes big moves">Sqz</span>
+                                          <span className="text-slate-300">{sqDesc || sqSummary}</span>
                                         </div>
-                                        <div className="text-xs text-white font-semibold">
-                                          {ph && ph.v != null ? ph.v : "—"}
+                                      )}
+                                      {phaseSummary && (
+                                        <div className="flex items-start gap-2">
+                                          <span className="text-[#6b7280] w-12 shrink-0 pt-px" title="Phase — how far along the current move is (0=early, 100=late)">Phase</span>
+                                          <span className="text-slate-300">{phaseSummary}</span>
                                         </div>
-                                        <div className="mt-1.5">
-                                          <div className="text-[10px] text-[#6b7280]">
-                                            Last 5 dots (recent first):
-                                          </div>
-                                          <div className="text-xs text-[#cbd5ff] mt-0.5">
-                                            {(() => {
-                                              const dots = (ph && Array.isArray(ph.dots) ? ph.dots : []).slice(0, 5);
-                                              if (dots.length === 0) return "—";
-                                              
-                                              const dotLabels = dots.map((code) => {
-                                                switch (code) {
-                                                  case "P100": return "+100";
-                                                  case "P618": return "+61.8";
-                                                  case "N618": return "-61.8";
-                                                  case "N100": return "-100";
-                                                  default: return code || "";
-                                                }
-                                              }).filter(Boolean);
-                                              
-                                              return dotLabels.join(", ");
-                                            })()}
-                                          </div>
+                                      )}
+                                      {phDivSummary && (
+                                        <div className="flex items-start gap-2">
+                                          <span className="text-[#6b7280] w-12 shrink-0 pt-px">Div</span>
+                                          <span className={`${(ph?.div?.[0]) === "B" ? "text-green-400/90" : "text-red-400/90"}`}>{phDivSummary}</span>
                                         </div>
-                                      </div>
-                                      <div>
-                                        <div className="text-[11px] text-[#6b7280] mb-1">
-                                          Divergence
-                                        </div>
-                                        <div className="text-base">
-                                          {(() => {
-                                            const divs = (ph && Array.isArray(ph.div) ? ph.div : []).slice(0, 3);
-                                            if (divs.length === 0) return <span className="text-xs text-[#6b7280]">None</span>;
-                                            
-                                            const mostRecent = divs[0];
-                                            const emoji = mostRecent === "B" ? "🐂" : mostRecent === "S" ? "🐻" : "";
-                                            const label = mostRecent === "B" ? "Bullish" : mostRecent === "S" ? "Bearish" : "";
-                                            const color = mostRecent === "B" ? "text-green-400" : "text-red-400";
-                                            
-                                            return (
-                                              <div className={`font-semibold ${color}`}>
-                                                {emoji} {label}
-                                              </div>
-                                            );
-                                          })()}
-                                        </div>
-                                      </div>
-                                      <div>
-                                        <div className="text-[11px] text-[#6b7280] mb-1">
-                                          RSI(5/14) / div
-                                        </div>
-                                        <div className="text-xs text-white">
-                                          <span className="font-semibold">
-                                            {rsi && rsi.r5 != null
-                                              ? rsi.r5
-                                              : "—"}
-                                          </span>
-                                          <span className="text-[#6b7280]">
-                                            {" "}
-                                            /{" "}
-                                          </span>
-                                          <span className="font-semibold">
-                                            {rsi && rsi.r14 != null
-                                              ? rsi.r14
-                                              : "—"}
-                                          </span>
-                                          <span className="ml-2">
-                                            {(rsi && Array.isArray(rsi.div)
-                                              ? rsi.div
-                                              : []
-                                            )
-                                              .slice(0, 2)
-                                              .map(divIcon)
-                                              .filter(Boolean)
-                                              .join(" ")}
-                                          </span>
-                                        </div>
-                                      </div>
+                                      )}
                                     </div>
                                   </div>
                                 );
-                              })}
-                            </div>
+                              })
                           ) : (
-                            <div className="text-xs text-[#6b7280]">
-                              No per-timeframe technicals available yet (update
-                              TradingView script + refresh data).
+                            <div className="text-xs text-[#6b7280] p-3 bg-white/[0.03] rounded-lg border border-white/[0.06]">
+                              No per-timeframe technicals available yet.
                             </div>
                           )}
                         </div>
@@ -2738,212 +2663,86 @@
                       {ticker.td_sequential &&
                         (() => {
                           const tdSeq = ticker.td_sequential;
+                          const bullPrep = Number(tdSeq.bullish_prep_count || 0);
+                          const bearPrep = Number(tdSeq.bearish_prep_count || 0);
+                          const bullLeadup = Number(tdSeq.bullish_leadup_count || 0);
+                          const bearLeadup = Number(tdSeq.bearish_leadup_count || 0);
+                          const hasTd9Bull = tdSeq.td9_bullish === true || tdSeq.td9_bullish === "true";
+                          const hasTd9Bear = tdSeq.td9_bearish === true || tdSeq.td9_bearish === "true";
+                          const hasTd13Bull = tdSeq.td13_bullish === true || tdSeq.td13_bullish === "true";
+                          const hasTd13Bear = tdSeq.td13_bearish === true || tdSeq.td13_bearish === "true";
+                          const hasExitLong = tdSeq.exit_long === true || tdSeq.exit_long === "true";
+                          const hasExitShort = tdSeq.exit_short === true || tdSeq.exit_short === "true";
+
+                          const tdSummary = (() => {
+                            if (hasExitLong) return "Exhaustion signal — the current up-move may be running out of steam. Consider tightening stops.";
+                            if (hasExitShort) return "Exhaustion signal — the current down-move may be running out of steam. Watch for a bounce.";
+                            if (hasTd13Bull) return "TD13 bullish complete — a strong reversal buy signal. The downtrend is likely exhausted.";
+                            if (hasTd13Bear) return "TD13 bearish complete — a strong reversal sell signal. The uptrend is likely exhausted.";
+                            if (hasTd9Bull) return "TD9 bullish complete — a potential buy reversal setup. Selling pressure may be near exhaustion.";
+                            if (hasTd9Bear) return "TD9 bearish complete — a potential sell reversal setup. Buying pressure may be near exhaustion.";
+                            if (bullPrep >= 7) return `Bullish setup ${bullPrep}/9 — nearing completion for a potential buy signal.`;
+                            if (bearPrep >= 7) return `Bearish setup ${bearPrep}/9 — nearing completion for a potential sell signal.`;
+                            if (bullPrep >= 4) return `Bullish setup building (${bullPrep}/9) — counting consecutive closes below prior close.`;
+                            if (bearPrep >= 4) return `Bearish setup building (${bearPrep}/9) — counting consecutive closes above prior close.`;
+                            return "No active TD Sequential patterns — the current trend hasn't reached a reversal count yet.";
+                          })();
+
                           return (
                             <div className="mt-6 pt-6 border-t-2 border-white/[0.06]">
-                              <div className="text-sm font-bold text-[#6b7280] mb-4">
-                                📈 TD Sequential
+                              <div className="text-sm font-bold text-[#6b7280] mb-2">
+                                TD Sequential
+                              </div>
+                              <div className="text-[11px] text-slate-300/80 italic mb-3 leading-snug">{tdSummary}</div>
+
+                              <div className="p-3 bg-white/[0.03] rounded-lg border border-white/[0.06] space-y-2">
+                                <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-[11px]">
+                                  <div className="flex justify-between">
+                                    <span className="text-[#6b7280]" title="Counts consecutive closes lower than 4 bars ago — a buy setup forms at 9">Buy Setup</span>
+                                    <span className={`font-semibold ${bullPrep >= 7 ? "text-yellow-400" : bullPrep >= 4 ? "text-green-400" : "text-[#6b7280]"}`}>{bullPrep}/9</span>
+                                  </div>
+                                  <div className="flex justify-between">
+                                    <span className="text-[#6b7280]" title="Counts consecutive closes higher than 4 bars ago — a sell setup forms at 9">Sell Setup</span>
+                                    <span className={`font-semibold ${bearPrep >= 7 ? "text-yellow-400" : bearPrep >= 4 ? "text-red-400" : "text-[#6b7280]"}`}>{bearPrep}/9</span>
+                                  </div>
+                                  <div className="flex justify-between">
+                                    <span className="text-[#6b7280]" title="After a completed buy setup, counts 13 bars for a stronger buy signal">Buy Countdown</span>
+                                    <span className={`font-semibold ${bullLeadup >= 10 ? "text-yellow-400" : bullLeadup >= 4 ? "text-green-400" : "text-[#6b7280]"}`}>{bullLeadup}/13</span>
+                                  </div>
+                                  <div className="flex justify-between">
+                                    <span className="text-[#6b7280]" title="After a completed sell setup, counts 13 bars for a stronger sell signal">Sell Countdown</span>
+                                    <span className={`font-semibold ${bearLeadup >= 10 ? "text-yellow-400" : bearLeadup >= 4 ? "text-red-400" : "text-[#6b7280]"}`}>{bearLeadup}/13</span>
+                                  </div>
+                                </div>
+
+                                {(hasTd9Bull || hasTd9Bear || hasTd13Bull || hasTd13Bear) && (
+                                  <div className="pt-2 mt-1 border-t border-white/[0.06] space-y-1">
+                                    {hasTd9Bull && <div className="flex items-center gap-2 text-xs"><span className="w-2 h-2 rounded-full bg-green-400"></span><span className="text-green-400 font-semibold">TD9 Buy</span><span className="text-[#6b7280]">— setup complete, potential reversal up</span></div>}
+                                    {hasTd9Bear && <div className="flex items-center gap-2 text-xs"><span className="w-2 h-2 rounded-full bg-red-400"></span><span className="text-red-400 font-semibold">TD9 Sell</span><span className="text-[#6b7280]">— setup complete, potential reversal down</span></div>}
+                                    {hasTd13Bull && <div className="flex items-center gap-2 text-xs"><span className="w-2 h-2 rounded-full bg-green-400"></span><span className="text-green-400 font-semibold">TD13 Buy</span><span className="text-[#6b7280]">— countdown complete, strong buy signal</span></div>}
+                                    {hasTd13Bear && <div className="flex items-center gap-2 text-xs"><span className="w-2 h-2 rounded-full bg-red-400"></span><span className="text-red-400 font-semibold">TD13 Sell</span><span className="text-[#6b7280]">— countdown complete, strong sell signal</span></div>}
+                                  </div>
+                                )}
                               </div>
 
-                              {/* Counts */}
-                              <div className="mb-4 p-3 bg-white/[0.03] rounded-lg border border-white/[0.06]">
-                                <div className="text-xs text-[#6b7280] mb-2">
-                                  Counts
-                                </div>
-                                <div className="grid grid-cols-2 gap-2 text-xs">
-                                  <div className="flex justify-between">
-                                    <span className="text-[#6b7280]">
-                                      Bullish Prep:
-                                    </span>
-                                    <span
-                                      className={`font-semibold ${
-                                        Number(tdSeq.bullish_prep_count || 0) >=
-                                        6
-                                          ? "text-yellow-400"
-                                          : Number(
-                                                tdSeq.bullish_prep_count || 0,
-                                              ) >= 3
-                                            ? "text-green-400"
-                                            : "text-[#6b7280]"
-                                      }`}
-                                    >
-                                      {tdSeq.bullish_prep_count || 0}/9
-                                    </span>
-                                  </div>
-                                  <div className="flex justify-between">
-                                    <span className="text-[#6b7280]">
-                                      Bearish Prep:
-                                    </span>
-                                    <span
-                                      className={`font-semibold ${
-                                        Number(tdSeq.bearish_prep_count || 0) >=
-                                        6
-                                          ? "text-yellow-400"
-                                          : Number(
-                                                tdSeq.bearish_prep_count || 0,
-                                              ) >= 3
-                                            ? "text-red-400"
-                                            : "text-[#6b7280]"
-                                      }`}
-                                    >
-                                      {tdSeq.bearish_prep_count || 0}/9
-                                    </span>
-                                  </div>
-                                  <div className="flex justify-between">
-                                    <span className="text-[#6b7280]">
-                                      Bullish Leadup:
-                                    </span>
-                                    <span
-                                      className={`font-semibold ${
-                                        Number(
-                                          tdSeq.bullish_leadup_count || 0,
-                                        ) >= 6
-                                          ? "text-yellow-400"
-                                          : Number(
-                                                tdSeq.bullish_leadup_count || 0,
-                                              ) >= 3
-                                            ? "text-green-400"
-                                            : "text-[#6b7280]"
-                                      }`}
-                                    >
-                                      {tdSeq.bullish_leadup_count || 0}/13
-                                    </span>
-                                  </div>
-                                  <div className="flex justify-between">
-                                    <span className="text-[#6b7280]">
-                                      Bearish Leadup:
-                                    </span>
-                                    <span
-                                      className={`font-semibold ${
-                                        Number(
-                                          tdSeq.bearish_leadup_count || 0,
-                                        ) >= 6
-                                          ? "text-yellow-400"
-                                          : Number(
-                                                tdSeq.bearish_leadup_count || 0,
-                                              ) >= 3
-                                            ? "text-red-400"
-                                            : "text-[#6b7280]"
-                                      }`}
-                                    >
-                                      {tdSeq.bearish_leadup_count || 0}/13
-                                    </span>
-                                  </div>
-                                </div>
-                              </div>
-
-                              {/* TD Sequential Patterns */}
-                              <div className="mb-4 p-3 bg-white/[0.03] rounded-lg border border-white/[0.06]">
-                                <div className="text-xs text-[#6b7280] mb-2">
-                                  TD Sequential Patterns
-                                </div>
-                                <div className="space-y-2">
-                                  {(tdSeq.td9_bullish === true ||
-                                    tdSeq.td9_bullish === "true") && (
-                                    <div className="flex items-center gap-2">
-                                      <span className="text-green-400 font-bold">
-                                        TD9
-                                      </span>
-                                      <span className="text-xs text-[#6b7280]">
-                                        Bullish (Prep Complete)
-                                      </span>
-                                    </div>
-                                  )}
-                                  {(tdSeq.td9_bearish === true ||
-                                    tdSeq.td9_bearish === "true") && (
-                                    <div className="flex items-center gap-2">
-                                      <span className="text-red-400 font-bold">
-                                        TD9
-                                      </span>
-                                      <span className="text-xs text-[#6b7280]">
-                                        Bearish (Prep Complete)
-                                      </span>
-                                    </div>
-                                  )}
-                                  {(tdSeq.td13_bullish === true ||
-                                    tdSeq.td13_bullish === "true") && (
-                                    <div className="flex items-center gap-2">
-                                      <span className="text-green-400 font-bold">
-                                        TD13
-                                      </span>
-                                      <span className="text-xs text-[#6b7280]">
-                                        Bullish (Leadup Complete)
-                                      </span>
-                                    </div>
-                                  )}
-                                  {(tdSeq.td13_bearish === true ||
-                                    tdSeq.td13_bearish === "true") && (
-                                    <div className="flex items-center gap-2">
-                                      <span className="text-red-400 font-bold">
-                                        TD13
-                                      </span>
-                                      <span className="text-xs text-[#6b7280]">
-                                        Bearish (Leadup Complete)
-                                      </span>
-                                    </div>
-                                  )}
-                                  {!tdSeq.td9_bullish &&
-                                    !tdSeq.td9_bearish &&
-                                    !tdSeq.td13_bullish &&
-                                    !tdSeq.td13_bearish && (
-                                      <div className="text-xs text-[#6b7280]">
-                                        No TD9/TD13 patterns active
-                                      </div>
-                                    )}
-                                </div>
-                              </div>
-
-                              {/* Exit Patterns */}
-                              {(tdSeq.exit_long === true ||
-                                tdSeq.exit_long === "true" ||
-                                tdSeq.exit_short === true ||
-                                tdSeq.exit_short === "true") && (
-                                <div
-                                  className={`mb-4 p-3 rounded-lg border-2 ${
-                                    tdSeq.exit_long === true ||
-                                    tdSeq.exit_long === "true"
-                                      ? "bg-red-500/20 border-red-500/50"
-                                      : "bg-red-500/20 border-red-500/50"
-                                  }`}
-                                >
+                              {(hasExitLong || hasExitShort) && (
+                                <div className="mt-2 p-3 rounded-lg border-2 bg-red-500/20 border-red-500/50">
                                   <div className="flex items-center justify-between">
-                                    <span className="text-xs text-[#6b7280]">
-                                      Exit Indicator
-                                    </span>
-                                    <span className="font-bold text-sm text-red-400">
-                                      {tdSeq.exit_long === true ||
-                                      tdSeq.exit_long === "true"
-                                        ? "EXIT LONG"
-                                        : "EXIT SHORT"}
-                                    </span>
+                                    <span className="text-xs text-[#6b7280]">Exhaustion Warning</span>
+                                    <span className="font-bold text-sm text-red-400">{hasExitLong ? "EXIT LONG" : "EXIT SHORT"}</span>
                                   </div>
-                                  <div className="text-xs text-[#6b7280] mt-1">
-                                    TD Sequential exhaustion/reversal detected
+                                  <div className="text-[11px] text-[#6b7280] mt-1">
+                                    {hasExitLong ? "The current rally shows signs of exhaustion — momentum is fading. Consider taking profits or raising stops." : "The current decline shows signs of exhaustion — selling pressure is fading. Watch for a reversal bounce."}
                                   </div>
                                 </div>
                               )}
 
-                              {/* Boost */}
-                              {tdSeq.boost !== undefined &&
-                                tdSeq.boost !== null &&
-                                Number(tdSeq.boost) !== 0 && (
-                                  <div className="mb-4 p-3 bg-white/[0.03] rounded-lg border border-white/[0.06]">
-                                    <div className="flex justify-between items-center">
-                                      <span className="text-xs text-[#6b7280]">
-                                        Score Boost
-                                      </span>
-                                      <span
-                                        className={`font-semibold ${
-                                          Number(tdSeq.boost) > 0
-                                            ? "text-green-400"
-                                            : "text-red-400"
-                                        }`}
-                                      >
-                                        {Number(tdSeq.boost) > 0 ? "+" : ""}
-                                        {Number(tdSeq.boost).toFixed(1)}
-                                      </span>
-                                    </div>
-                                  </div>
-                                )}
+                              {tdSeq.boost !== undefined && tdSeq.boost !== null && Number(tdSeq.boost) !== 0 && (
+                                <div className="mt-2 flex justify-between items-center text-xs px-3 py-2 bg-white/[0.03] rounded-lg border border-white/[0.06]">
+                                  <span className="text-[#6b7280]">Score impact from TD Sequential</span>
+                                  <span className={`font-semibold ${Number(tdSeq.boost) > 0 ? "text-green-400" : "text-red-400"}`}>{Number(tdSeq.boost) > 0 ? "+" : ""}{Number(tdSeq.boost).toFixed(1)}</span>
+                                </div>
+                              )}
                             </div>
                           );
                         })()}
@@ -2958,118 +2757,55 @@
                           const divType = divergence.type || "none";
                           const divStrength = Number(divergence.strength || 0);
 
-                          const rsiColor =
-                            rsiValue >= 70
-                              ? "text-red-400"
-                              : rsiValue <= 30
-                                ? "text-green-400"
-                                : rsiValue >= 50
-                                  ? "text-yellow-400"
-                                  : "text-blue-400";
-                          const levelColor =
-                            rsiLevel === "overbought"
-                              ? "text-red-400"
-                              : rsiLevel === "oversold"
-                                ? "text-green-400"
-                                : rsiLevel === "bullish"
-                                  ? "text-yellow-400"
-                                  : "text-blue-400";
+                          const rsiColor = rsiValue >= 70 ? "text-red-400" : rsiValue <= 30 ? "text-green-400" : rsiValue >= 50 ? "text-yellow-400" : "text-blue-400";
+                          const barColor = rsiValue >= 70 ? "bg-red-500" : rsiValue <= 30 ? "bg-green-500" : rsiValue >= 50 ? "bg-yellow-500" : "bg-blue-500";
+
+                          const rsiInterpretation = (() => {
+                            if (rsiValue >= 80) return "Extremely overbought — the rally is stretched and a pullback is likely. Caution buying here.";
+                            if (rsiValue >= 70) return "Overbought territory — momentum is strong but the move is getting extended. Watch for signs of slowing.";
+                            if (rsiValue >= 55) return "Healthy bullish momentum — price is trending up without being overextended. A good zone for trend-following.";
+                            if (rsiValue >= 45) return "Neutral momentum — no strong directional pressure. Price is consolidating or transitioning.";
+                            if (rsiValue >= 30) return "Weak momentum — price is under pressure but not yet at extreme levels.";
+                            if (rsiValue >= 20) return "Oversold territory — selling may be overdone. Watch for a bounce or reversal setup.";
+                            return "Extremely oversold — panic selling or capitulation. A snapback rally is possible.";
+                          })();
 
                           return (
                             <div className="mt-6 pt-6 border-t-2 border-white/[0.06]">
-                              <div className="text-sm font-bold text-[#6b7280] mb-4">
-                                📊 RSI & Divergence
+                              <div className="text-sm font-bold text-[#6b7280] mb-3">
+                                RSI & Divergence
                               </div>
 
-                              {/* RSI Value */}
-                              <div className="mb-4 p-3 bg-white/[0.03] rounded-lg border border-white/[0.06]">
-                                <div className="flex justify-between items-center mb-2">
-                                  <span className="text-xs text-[#6b7280]">
-                                    RSI (14)
-                                  </span>
-                                  <span
-                                    className={`font-bold text-lg ${rsiColor}`}
-                                  >
-                                    {rsiValue.toFixed(2)}
-                                  </span>
+                              <div className="p-3 bg-white/[0.03] rounded-lg border border-white/[0.06]">
+                                <div className="flex justify-between items-center mb-1">
+                                  <span className="text-xs text-[#6b7280]" title="Relative Strength Index (14-period) — measures momentum on a 0-100 scale. Below 30 is oversold, above 70 is overbought.">RSI (14)</span>
+                                  <span className={`font-bold text-lg ${rsiColor}`}>{rsiValue.toFixed(1)}</span>
                                 </div>
-                                <div className="flex justify-between items-center">
-                                  <span className="text-xs text-[#6b7280]">
-                                    Level
-                                  </span>
-                                  <span
-                                    className={`text-xs font-semibold ${levelColor}`}
-                                  >
-                                    {rsiLevel.charAt(0).toUpperCase() +
-                                      rsiLevel.slice(1)}
-                                  </span>
+                                <div className="mt-1.5 h-2 bg-white/[0.04] rounded-full overflow-hidden relative">
+                                  <div className={`h-full rounded-full transition-all ${barColor}`} style={{ width: `${rsiValue}%` }} />
                                 </div>
-                                {/* RSI Visual Bar */}
-                                <div className="mt-2 h-2 bg-white/[0.04] rounded-full overflow-hidden">
-                                  <div
-                                    className={`h-full rounded-full transition-all ${
-                                      rsiValue >= 70
-                                        ? "bg-red-500"
-                                        : rsiValue <= 30
-                                          ? "bg-green-500"
-                                          : rsiValue >= 50
-                                            ? "bg-yellow-500"
-                                            : "bg-blue-500"
-                                    }`}
-                                    style={{ width: `${rsiValue}%` }}
-                                  />
-                                </div>
-                                <div className="flex justify-between text-[10px] text-[#6b7280] mt-1">
-                                  <span>0</span>
+                                <div className="flex justify-between text-[9px] text-[#4b5563] mt-0.5">
+                                  <span>Oversold</span>
                                   <span>30</span>
                                   <span>50</span>
                                   <span>70</span>
-                                  <span>100</span>
+                                  <span>Overbought</span>
                                 </div>
+                                <div className="mt-2 text-[11px] text-slate-300/80 italic leading-snug">{rsiInterpretation}</div>
                               </div>
 
-                              {/* Divergence */}
                               {divType !== "none" && (
-                                <div
-                                  className={`mb-4 p-3 rounded-lg border-2 ${
-                                    divType === "bullish"
-                                      ? "bg-green-500/20 border-green-500/50"
-                                      : "bg-red-500/20 border-red-500/50"
-                                  }`}
-                                >
+                                <div className={`mt-2 p-3 rounded-lg border-2 ${divType === "bullish" ? "bg-green-500/15 border-green-500/40" : "bg-red-500/15 border-red-500/40"}`}>
                                   <div className="flex items-center justify-between mb-1">
-                                    <span className="text-xs text-[#6b7280]">
-                                      Divergence
-                                    </span>
-                                    <span
-                                      className={`font-bold text-sm ${
-                                        divType === "bullish"
-                                          ? "text-green-400"
-                                          : "text-red-400"
-                                      }`}
-                                    >
-                                      {divType === "bullish"
-                                        ? "🔼 BULLISH"
-                                        : "🔽 BEARISH"}
-                                    </span>
+                                    <span className="text-xs font-semibold text-[#6b7280]">Divergence Detected</span>
+                                    <span className={`font-bold text-sm ${divType === "bullish" ? "text-green-400" : "text-red-400"}`}>{divType === "bullish" ? "Bullish" : "Bearish"}</span>
                                   </div>
-                                  <div className="text-xs text-[#6b7280]">
+                                  <div className="text-[11px] text-slate-300/80 leading-snug">
                                     {divType === "bullish"
-                                      ? "Price lower low, RSI higher low (potential reversal up)"
-                                      : "Price higher high, RSI lower high (potential reversal down)"}
+                                      ? "Price made a lower low but RSI made a higher low — selling momentum is fading even as price drops. This often precedes a reversal upward."
+                                      : "Price made a higher high but RSI made a lower high — buying momentum is fading even as price rises. This often precedes a reversal downward."}
                                   </div>
-                                  {divStrength > 0 && (
-                                    <div className="text-xs text-[#6b7280] mt-1">
-                                      Strength: {divStrength.toFixed(2)}
-                                    </div>
-                                  )}
-                                </div>
-                              )}
-                              {divType === "none" && (
-                                <div className="mb-4 p-3 bg-white/[0.03] rounded-lg border border-white/[0.06]">
-                                  <div className="text-xs text-[#6b7280]">
-                                    No divergence detected
-                                  </div>
+                                  {divStrength > 0 && <div className="text-[10px] text-[#6b7280] mt-1">Signal strength: {divStrength.toFixed(2)}</div>}
                                 </div>
                               )}
                             </div>
@@ -3078,35 +2814,56 @@
 
                       {/* State, Horizon, Detected Patterns */}
                       <div className="mb-4 p-3 bg-white/[0.03] border-2 border-white/[0.06] rounded-lg">
-                        <div className="text-sm text-[#6b7280] mb-2">
-                          State & Horizon
+                        <div className="text-sm font-bold text-[#6b7280] mb-2">
+                          Current Position
                         </div>
-                        <div className="space-y-2 text-xs">
-                          <div className="flex justify-between items-center">
-                            <span className="text-[#6b7280]">State</span>
-                            <span className="font-semibold">
-                              {ticker.state || "—"}
-                            </span>
-                          </div>
-                          <div className="flex justify-between items-center">
-                            <span className="text-[#6b7280]">Horizon</span>
-                            <span className="font-semibold">
-                              {(() => {
-                                const bucket = String(
-                                  ticker.horizon_bucket || "",
-                                )
-                                  .trim()
-                                  .toUpperCase();
-                                if (bucket) return bucket.replace("_", " ");
-                                const eta = computeEtaDays(ticker);
-                                if (!Number.isFinite(eta)) return "—";
-                                if (eta <= 7) return "SHORT TERM";
-                                if (eta <= 30) return "SWING";
-                                return "POSITIONAL";
-                              })()}
-                            </span>
-                          </div>
-                        </div>
+                        {(() => {
+                          const stateTranslations = {
+                            "HTF_BULL_LTF_BULL": { label: "Fully Bullish", desc: "Both long-term and short-term trends aligned up — strongest buying condition", color: "text-green-400" },
+                            "HTF_BULL_LTF_PULLBACK": { label: "Bullish Pullback", desc: "Long-term trend is up, short-term pulling back — potential buy-the-dip zone", color: "text-yellow-400" },
+                            "HTF_BULL_LTF_BEAR": { label: "Bull Trend, Bear Momentum", desc: "Long-term still bullish but short-term momentum has turned down — wait for stabilization", color: "text-yellow-400" },
+                            "HTF_BEAR_LTF_BEAR": { label: "Fully Bearish", desc: "Both long-term and short-term trends aligned down — strongest selling condition", color: "text-red-400" },
+                            "HTF_BEAR_LTF_PULLBACK": { label: "Bearish Bounce", desc: "Long-term trend is down, short-term bouncing — potential sell-the-rip zone", color: "text-orange-400" },
+                            "HTF_BEAR_LTF_BULL": { label: "Bear Trend, Bull Momentum", desc: "Long-term still bearish but short-term momentum has turned up — could be a reversal or dead cat bounce", color: "text-orange-400" },
+                          };
+                          const raw = ticker.state || "";
+                          const translated = stateTranslations[raw] || null;
+                          const horizonLabel = (() => {
+                            const bucket = String(ticker.horizon_bucket || "").trim().toUpperCase();
+                            if (bucket) {
+                              if (bucket.includes("SHORT")) return { label: "Short Term", desc: "Expected to play out within days" };
+                              if (bucket.includes("SWING")) return { label: "Swing", desc: "Expected to play out over 1-4 weeks" };
+                              if (bucket.includes("POSITION")) return { label: "Positional", desc: "Expected to play out over weeks to months" };
+                              return { label: bucket.replace("_", " "), desc: "" };
+                            }
+                            const eta = computeEtaDays(ticker);
+                            if (!Number.isFinite(eta)) return null;
+                            if (eta <= 7) return { label: "Short Term", desc: `~${eta.toFixed(0)} days remaining` };
+                            if (eta <= 30) return { label: "Swing", desc: `~${eta.toFixed(0)} days remaining` };
+                            return { label: "Positional", desc: `~${eta.toFixed(0)} days remaining` };
+                          })();
+
+                          return (
+                            <div className="space-y-2 text-xs">
+                              <div>
+                                <div className="flex justify-between items-center">
+                                  <span className="text-[#6b7280]" title="The combined long-term (HTF) and short-term (LTF) trend state">Market State</span>
+                                  <span className={`font-semibold ${translated ? translated.color : "text-white"}`}>{translated ? translated.label : (raw || "—")}</span>
+                                </div>
+                                {translated && <div className="text-[10px] text-slate-400/80 mt-0.5 leading-snug">{translated.desc}</div>}
+                              </div>
+                              {horizonLabel && (
+                                <div>
+                                  <div className="flex justify-between items-center">
+                                    <span className="text-[#6b7280]" title="How long the trade setup is expected to take">Time Horizon</span>
+                                    <span className="font-semibold text-white">{horizonLabel.label}</span>
+                                  </div>
+                                  {horizonLabel.desc && <div className="text-[10px] text-slate-400/80 mt-0.5">{horizonLabel.desc}</div>}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })()}
                         {detectedPatterns && detectedPatterns.length > 0 && (
                           <div className="mt-3 pt-3 border-t border-white/[0.06]">
                             <div className="text-xs font-semibold text-yellow-400 mb-2">
@@ -3114,23 +2871,12 @@
                             </div>
                             <div className="space-y-2">
                               {detectedPatterns.map((pattern, idx) => (
-                                <div
-                                  key={`pattern-${idx}`}
-                                  className="p-2 rounded border bg-white/[0.02] border-white/[0.06]"
-                                >
+                                <div key={`pattern-${idx}`} className="p-2 rounded border bg-white/[0.02] border-white/[0.06]">
                                   <div className="flex items-center justify-between">
-                                    <div className="text-xs text-white font-semibold">
-                                      {pattern.description}
-                                    </div>
-                                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-yellow-500/20 text-yellow-300">
-                                      {pattern.confidence}
-                                    </span>
+                                    <div className="text-xs text-white font-semibold">{pattern.description}</div>
+                                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-yellow-500/20 text-yellow-300">{pattern.confidence}</span>
                                   </div>
-                                  {pattern.quadrant && (
-                                    <div className="text-[10px] text-[#6b7280] mt-0.5">
-                                      {pattern.quadrant}
-                                    </div>
-                                  )}
+                                  {pattern.quadrant && <div className="text-[10px] text-[#6b7280] mt-0.5">{pattern.quadrant}</div>}
                                 </div>
                               ))}
                             </div>
@@ -3139,172 +2885,45 @@
                       </div>
 
                       {/* EMA Cloud Positions */}
-                      {(ticker.daily_ema_cloud ||
-                        ticker.fourh_ema_cloud ||
-                        ticker.oneh_ema_cloud) &&
+                      {(ticker.daily_ema_cloud || ticker.fourh_ema_cloud || ticker.oneh_ema_cloud) &&
                         (() => {
-                          const daily = ticker.daily_ema_cloud;
-                          const fourH = ticker.fourh_ema_cloud;
-                          const oneH = ticker.oneh_ema_cloud;
+                          const clouds = [
+                            { data: ticker.daily_ema_cloud, label: "Daily", emas: "5/8 EMA", desc: "The short-term daily trend cloud" },
+                            { data: ticker.fourh_ema_cloud, label: "4H", emas: "8/13 EMA", desc: "The intermediate swing trend cloud" },
+                            { data: ticker.oneh_ema_cloud, label: "1H", emas: "13/21 EMA", desc: "The intraday momentum cloud" },
+                          ].filter(c => c.data);
+                          if (clouds.length === 0) return null;
 
-                          const getPositionColor = (position) => {
-                            if (position === "above") return "text-green-400";
-                            if (position === "below") return "text-red-400";
-                            return "text-yellow-400";
-                          };
-
-                          const getPositionEmoji = (position) => {
-                            if (position === "above") return "🔼";
-                            if (position === "below") return "🔽";
-                            return "➡️";
+                          const posDesc = (pos) => {
+                            if (pos === "above") return { text: "Above", color: "text-green-400", bg: "bg-green-500/15 border-green-500/30", meaning: "bullish — price is above the cloud, confirming upward momentum" };
+                            if (pos === "below") return { text: "Below", color: "text-red-400", bg: "bg-red-500/15 border-red-500/30", meaning: "bearish — price is below the cloud, confirming downward pressure" };
+                            return { text: "Inside", color: "text-yellow-400", bg: "bg-yellow-500/15 border-yellow-500/30", meaning: "neutral — price is inside the cloud, direction is uncertain" };
                           };
 
                           return (
                             <div className="mt-6 pt-6 border-t-2 border-white/[0.06]">
-                              <div className="text-sm font-bold text-[#6b7280] mb-4">
-                                ☁️ EMA Cloud Positions
+                              <div className="text-sm font-bold text-[#6b7280] mb-2">
+                                EMA Clouds
                               </div>
-
-                              {daily && (
-                                <div className="mb-3 p-3 bg-white/[0.03] rounded-lg border border-white/[0.06]">
-                                  <div className="text-xs text-[#6b7280] mb-2 font-semibold">
-                                    Daily (5-8 EMA)
-                                  </div>
-                                  <div className="flex justify-between items-center mb-1">
-                                    <span className="text-xs text-[#6b7280]">
-                                      Position
-                                    </span>
-                                    <span
-                                      className={`text-xs font-semibold ${getPositionColor(
-                                        daily.position,
-                                      )}`}
-                                    >
-                                      {getPositionEmoji(daily.position)}{" "}
-                                      {daily.position.toUpperCase()}
-                                    </span>
-                                  </div>
-                                  <div className="grid grid-cols-2 gap-2 text-xs mt-2">
-                                    <div className="flex justify-between">
-                                      <span className="text-[#6b7280]">
-                                        Upper:
-                                      </span>
-                                      <span className="text-white">
-                                        ${Number(daily.upper).toFixed(2)}
-                                      </span>
+                              <div className="text-[10px] text-slate-400/70 mb-3">EMA clouds show moving average zones — price above = bullish, below = bearish, inside = undecided</div>
+                              <div className="space-y-2">
+                                {clouds.map(({ data, label, emas, desc }) => {
+                                  const p = posDesc(data.position);
+                                  return (
+                                    <div key={label} className={`p-2.5 rounded-lg border ${p.bg}`}>
+                                      <div className="flex items-center justify-between mb-1">
+                                        <span className="text-xs font-semibold text-white" title={desc}>{label} <span className="text-[#6b7280] font-normal">({emas})</span></span>
+                                        <span className={`text-xs font-bold ${p.color}`}>{p.text}</span>
+                                      </div>
+                                      <div className="text-[10px] text-slate-400/80">{label} is {p.meaning}</div>
+                                      <div className="flex gap-4 mt-1.5 text-[10px] text-[#6b7280]">
+                                        <span>Cloud: ${Number(data.lower).toFixed(2)} – ${Number(data.upper).toFixed(2)}</span>
+                                        <span>Price: <span className="text-white font-semibold">${Number(data.price).toFixed(2)}</span></span>
+                                      </div>
                                     </div>
-                                    <div className="flex justify-between">
-                                      <span className="text-[#6b7280]">
-                                        Lower:
-                                      </span>
-                                      <span className="text-white">
-                                        ${Number(daily.lower).toFixed(2)}
-                                      </span>
-                                    </div>
-                                    <div className="flex justify-between col-span-2">
-                                      <span className="text-[#6b7280]">
-                                        Price:
-                                      </span>
-                                      <span className="text-white font-semibold">
-                                        ${Number(daily.price).toFixed(2)}
-                                      </span>
-                                    </div>
-                                  </div>
-                                </div>
-                              )}
-
-                              {fourH && (
-                                <div className="mb-3 p-3 bg-white/[0.03] rounded-lg border border-white/[0.06]">
-                                  <div className="text-xs text-[#6b7280] mb-2 font-semibold">
-                                    4H (8-13 EMA)
-                                  </div>
-                                  <div className="flex justify-between items-center mb-1">
-                                    <span className="text-xs text-[#6b7280]">
-                                      Position
-                                    </span>
-                                    <span
-                                      className={`text-xs font-semibold ${getPositionColor(
-                                        fourH.position,
-                                      )}`}
-                                    >
-                                      {getPositionEmoji(fourH.position)}{" "}
-                                      {fourH.position.toUpperCase()}
-                                    </span>
-                                  </div>
-                                  <div className="grid grid-cols-2 gap-2 text-xs mt-2">
-                                    <div className="flex justify-between">
-                                      <span className="text-[#6b7280]">
-                                        Upper:
-                                      </span>
-                                      <span className="text-white">
-                                        ${Number(fourH.upper).toFixed(2)}
-                                      </span>
-                                    </div>
-                                    <div className="flex justify-between">
-                                      <span className="text-[#6b7280]">
-                                        Lower:
-                                      </span>
-                                      <span className="text-white">
-                                        ${Number(fourH.lower).toFixed(2)}
-                                      </span>
-                                    </div>
-                                    <div className="flex justify-between col-span-2">
-                                      <span className="text-[#6b7280]">
-                                        Price:
-                                      </span>
-                                      <span className="text-white font-semibold">
-                                        ${Number(fourH.price).toFixed(2)}
-                                      </span>
-                                    </div>
-                                  </div>
-                                </div>
-                              )}
-
-                              {oneH && (
-                                <div className="mb-3 p-3 bg-white/[0.03] rounded-lg border border-white/[0.06]">
-                                  <div className="text-xs text-[#6b7280] mb-2 font-semibold">
-                                    1H (13-21 EMA)
-                                  </div>
-                                  <div className="flex justify-between items-center mb-1">
-                                    <span className="text-xs text-[#6b7280]">
-                                      Position
-                                    </span>
-                                    <span
-                                      className={`text-xs font-semibold ${getPositionColor(
-                                        oneH.position,
-                                      )}`}
-                                    >
-                                      {getPositionEmoji(oneH.position)}{" "}
-                                      {oneH.position.toUpperCase()}
-                                    </span>
-                                  </div>
-                                  <div className="grid grid-cols-2 gap-2 text-xs mt-2">
-                                    <div className="flex justify-between">
-                                      <span className="text-[#6b7280]">
-                                        Upper:
-                                      </span>
-                                      <span className="text-white">
-                                        ${Number(oneH.upper).toFixed(2)}
-                                      </span>
-                                    </div>
-                                    <div className="flex justify-between">
-                                      <span className="text-[#6b7280]">
-                                        Lower:
-                                      </span>
-                                      <span className="text-white">
-                                        ${Number(oneH.lower).toFixed(2)}
-                                      </span>
-                                    </div>
-                                    <div className="flex justify-between col-span-2">
-                                      <span className="text-[#6b7280]">
-                                        Price:
-                                      </span>
-                                      <span className="text-white font-semibold">
-                                        ${Number(oneH.price).toFixed(2)}
-                                      </span>
-                                    </div>
-                                  </div>
-                                </div>
-                              )}
+                                  );
+                                })}
+                              </div>
                             </div>
                           );
                         })()}
@@ -3338,7 +2957,7 @@
                           return (
                             <div className="mt-6 pt-6 border-t-2 border-white/[0.06]">
                               <div className="text-sm font-bold text-[#6b7280] mb-4">
-                                📊 Fundamental & Valuation
+                                Fundamental & Valuation
                               </div>
 
                               {/* Valuation Signal Badge */}
@@ -3389,7 +3008,7 @@
                               <div className="space-y-2 text-sm mb-4">
                                 {fund.pe_ratio !== null && (
                                   <div className="flex justify-between items-center py-1 border-b border-white/[0.06]/50">
-                                    <span className="text-[#6b7280]">
+                                    <span className="text-[#6b7280]" title="Price-to-Earnings — how much investors pay per $1 of earnings. Lower = cheaper relative to profits.">
                                       P/E Ratio
                                     </span>
                                     <span className="font-semibold">
@@ -3399,7 +3018,7 @@
                                 )}
                                 {fund.peg_ratio !== null && (
                                   <div className="flex justify-between items-center py-1 border-b border-white/[0.06]/50">
-                                    <span className="text-[#6b7280]">
+                                    <span className="text-[#6b7280]" title="P/E divided by earnings growth rate. Below 1.0 = potentially undervalued for its growth. Above 1.5 = expensive.">
                                       PEG Ratio
                                     </span>
                                     <span
@@ -3419,7 +3038,7 @@
                                 )}
                                 {fund.eps !== null && (
                                   <div className="flex justify-between items-center py-1 border-b border-white/[0.06]/50">
-                                    <span className="text-[#6b7280]">
+                                    <span className="text-[#6b7280]" title="Earnings Per Share (trailing 12 months) — how much profit the company earned per share over the past year.">
                                       EPS (TTM)
                                     </span>
                                     <span className="font-semibold">
@@ -3429,7 +3048,7 @@
                                 )}
                                 {fund.eps_growth_rate !== null && (
                                   <div className="flex justify-between items-center py-1 border-b border-white/[0.06]/50">
-                                    <span className="text-[#6b7280]">
+                                    <span className="text-[#6b7280]" title="Year-over-year earnings growth rate. Higher = company is growing profits faster.">
                                       EPS Growth (Annual)
                                     </span>
                                     <span
@@ -3471,7 +3090,7 @@
                                   }
                                   return (
                                     <div className="flex justify-between items-center py-1 border-b border-white/[0.06]/50">
-                                      <span className="text-[#6b7280]">
+                                      <span className="text-[#6b7280]" title="Total market value of all outstanding shares. Larger = more established company.">
                                         Market Cap
                                       </span>
                                       <span className="font-semibold">
@@ -4581,76 +4200,138 @@
 
                   {railTab === "MODEL" ? (
                     <>
-                      {/* ═══════════════════════════════════════════════════════════════ */}
-                      {/* MODEL TAB: Pattern matches, signals, and prediction context    */}
-                      {/* ═══════════════════════════════════════════════════════════════ */}
                       {(() => {
+                        const ms = modelSignal;
+                        const ts = ms?.ticker;
+                        const ss = ms?.sector;
+                        const mk = ms?.market;
                         const src = latestTicker || ticker;
-                        const pm = src?.pattern_match;
+                        const pm = ts || src?.pattern_match || ms?.patternMatch;
                         const kanbanMeta = src?.kanban_meta;
                         const patternBoost = src?.__pattern_boost;
                         const patternCaution = src?.__pattern_caution;
 
+                        const hasAnyData = ts || pm || ss || mk;
+
+                        const dirColor = (d) => d === "BULLISH" ? "text-[#00e676]" : d === "BEARISH" ? "text-red-400" : "text-slate-400";
+                        const dirBg = (d) => d === "BULLISH" ? "bg-[#00c853]/15 border-[#00c853]/30" : d === "BEARISH" ? "bg-red-500/15 border-red-500/30" : "bg-slate-500/10 border-slate-500/30";
+
+                        const describeDir = (d, net) => {
+                          if (d === "BULLISH") return net > 0.4 ? "Strong upward momentum — the model's scoring, patterns, and state all favor higher prices." : "Leaning bullish — more factors point up than down, but conviction isn't extreme.";
+                          if (d === "BEARISH") return net < -0.4 ? "Strong downward pressure — the model's scoring, patterns, and state all suggest lower prices." : "Leaning bearish — more factors point down than up, but conviction isn't extreme.";
+                          return "Mixed signals — no clear directional edge. The model sees roughly equal bull and bear factors.";
+                        };
+                        const describeSector = (regime, pct) => {
+                          if (regime === "BULLISH") return `${pct}% of sector tickers are trending up — this provides a tailwind for the trade.`;
+                          if (regime === "BEARISH") return `Only ${pct}% of sector tickers are bullish — the sector is a headwind.`;
+                          return `The sector is mixed with no strong trend — neither helping nor hurting.`;
+                        };
+                        const describeMarket = (sig, pct) => {
+                          if (!sig) return "";
+                          if (sig.includes("STRONG_BULL")) return `Broad market rally with ${pct}% of all tickers bullish — a rising tide lifting most boats.`;
+                          if (sig.includes("MILD_BULL")) return `Market leaning up with ${pct}% bullish — a modest tailwind.`;
+                          if (sig.includes("STRONG_BEAR")) return `Broad market weakness with only ${pct}% bullish — most stocks are under pressure.`;
+                          if (sig.includes("MILD_BEAR")) return `Market leaning down with ${pct}% bullish — a mild headwind.`;
+                          return `Market is neutral — no strong broad trend either way.`;
+                        };
+
+                        const direction = ts?.direction || pm?.direction || null;
+                        const netSignal = ts?.netSignal || pm?.netSignal || 0;
+
                         return (
-                          <div className="space-y-4">
-                            {/* Pattern Signal Summary */}
-                            <div className="p-3 bg-white/[0.03] border border-white/[0.06] rounded-lg">
-                              <div className="text-sm font-bold text-[#6b7280] mb-3">🧠 Model Signal</div>
-                              {pm ? (
-                                <div className="space-y-3">
-                                  <div className="flex items-center justify-between">
-                                    <span className="text-xs text-[#6b7280]">Direction</span>
-                                    <span className={`px-2 py-0.5 rounded text-xs font-bold ${
-                                      pm.direction === "BULLISH" ? "bg-[#00c853]/50 text-[#69f0ae] border border-[#00c853]/50" :
-                                      pm.direction === "BEARISH" ? "bg-red-900/50 text-red-300 border border-red-700/50" :
-                                      "bg-slate-800 text-slate-400 border border-slate-700"
-                                    }`}>{pm.direction}</span>
-                                  </div>
-                                  <div className="flex items-center justify-between">
-                                    <span className="text-xs text-[#6b7280]">Net Signal</span>
-                                    <span className={`text-sm font-bold ${pm.netSignal > 0 ? "text-[#00e676]" : pm.netSignal < 0 ? "text-red-400" : "text-slate-300"}`}>
-                                      {pm.netSignal > 0 ? "+" : ""}{pm.netSignal.toFixed(3)}
-                                    </span>
-                                  </div>
-                                  <div className="flex items-center justify-between">
-                                    <span className="text-xs text-[#6b7280]">Patterns Matched</span>
-                                    <span className="text-xs text-white font-semibold">{pm.bullCount} bull / {pm.bearCount} bear</span>
+                          <div className="space-y-3">
+                            {/* Ticker-Level Signal */}
+                            <div className={`p-3 rounded-lg border ${dirBg(direction)}`}>
+                              <div className="flex items-center justify-between mb-1.5">
+                                <span className="text-sm font-bold text-[#6b7280]">Ticker Signal</span>
+                                {direction && <span className={`text-xs font-bold px-2 py-0.5 rounded ${direction === "BULLISH" ? "bg-green-500/20 text-green-400" : direction === "BEARISH" ? "bg-red-500/20 text-red-400" : "bg-slate-500/15 text-slate-400"}`}>{direction}</span>}
+                              </div>
+                              {(ts || pm) ? (
+                                <>
+                                  <div className="text-[11px] text-slate-300/80 italic mb-2 leading-snug">{describeDir(direction, netSignal)}</div>
+                                  <div className="space-y-1.5 text-[11px]">
+                                    <div className="flex justify-between items-center">
+                                      <span className="text-[#6b7280]" title="Overall conviction score from -1 (strongly bearish) to +1 (strongly bullish). Combines pattern matching with the ticker's current scoring state.">Net Signal</span>
+                                      <span className={`font-bold ${netSignal > 0 ? "text-[#00e676]" : netSignal < 0 ? "text-red-400" : "text-slate-300"}`}>{netSignal > 0 ? "+" : ""}{netSignal.toFixed(2)}</span>
+                                    </div>
+                                    {(ts?.bullPatterns != null || pm?.bullCount != null) && (
+                                      <div className="flex justify-between items-center">
+                                        <span className="text-[#6b7280]" title="How many historical winning patterns (bull vs bear) currently match this ticker's setup.">Patterns Matched</span>
+                                        <span className="text-white font-semibold">{ts?.bullPatterns || pm?.bullCount || 0} bull / {ts?.bearPatterns || pm?.bearCount || 0} bear</span>
+                                      </div>
+                                    )}
+                                    {ts?.stateSignal != null && (
+                                      <div className="flex justify-between items-center">
+                                        <span className="text-[#6b7280]" title="Signal derived from the ticker's current quadrant (HTF/LTF state), kanban stage, and HTF score. Independent of pattern matching.">State Signal</span>
+                                        <span className={`font-semibold ${ts.stateSignal > 0 ? "text-green-400" : ts.stateSignal < 0 ? "text-red-400" : "text-slate-400"}`}>{ts.stateSignal > 0 ? "+" : ""}{ts.stateSignal.toFixed(2)}</span>
+                                      </div>
+                                    )}
+                                    {ts?.state && (
+                                      <div className="flex justify-between items-center">
+                                        <span className="text-[#6b7280]">State</span>
+                                        <span className="text-white text-[10px]">{ts.state.replace(/_/g, " ")}</span>
+                                      </div>
+                                    )}
+                                    {ts?.kanbanStage && (
+                                      <div className="flex justify-between items-center">
+                                        <span className="text-[#6b7280]">Stage</span>
+                                        <span className="text-white capitalize">{ts.kanbanStage.replace(/_/g, " ")}</span>
+                                      </div>
+                                    )}
                                   </div>
                                   {patternBoost && (
-                                    <div className="p-2 rounded bg-[#00c853]/30 border border-[#00c853]/50 text-xs text-[#69f0ae]">
-                                      Entry confidence boosted to <strong>{patternBoost}</strong> by pattern match
-                                    </div>
+                                    <div className="mt-2 p-2 rounded bg-[#00c853]/20 border border-[#00c853]/40 text-[11px] text-[#69f0ae]">Entry confidence boosted to <strong>{patternBoost}</strong> by pattern match</div>
                                   )}
                                   {patternCaution && (
-                                    <div className="p-2 rounded bg-amber-900/30 border border-amber-700/50 text-xs text-amber-300">
-                                      Caution: strong bear patterns detected (confidence: {patternCaution})
-                                    </div>
+                                    <div className="mt-2 p-2 rounded bg-amber-900/20 border border-amber-700/40 text-[11px] text-amber-300">Caution: strong bear patterns detected (confidence: {patternCaution})</div>
                                   )}
-                                </div>
+                                </>
                               ) : (
-                                <div className="text-xs text-[#555] italic">No pattern matches for this ticker at this time.</div>
+                                <div className="text-[11px] text-slate-400/80 italic leading-snug">
+                                  No ticker-level signal available yet. The model evaluates {tickerSymbol} against 17+ patterns every scoring cycle — matches appear when the ticker's state and indicators align with historically profitable setups.
+                                </div>
                               )}
                             </div>
+
+                            {/* Sector + Market */}
+                            {(ss || (mk && (mk.totalTickers || 0) > 5)) && (
+                              <div className="grid grid-cols-2 gap-2">
+                                {ss && (
+                                  <div className={`p-2.5 rounded-lg border ${ss.regime === "BULLISH" ? "bg-green-500/10 border-green-500/30" : ss.regime === "BEARISH" ? "bg-red-500/10 border-red-500/30" : "bg-slate-500/10 border-slate-500/30"}`}>
+                                    <div className="text-[9px] text-slate-400 uppercase font-bold mb-0.5">Sector</div>
+                                    <div className="text-[11px] font-bold text-white truncate">{ss.sector}</div>
+                                    <div className="text-[10px] text-slate-400 mt-0.5">{ss.breadthBullPct}% bullish · {ss.regime}</div>
+                                    <div className="text-[9px] text-slate-400/70 italic mt-1 leading-snug">{describeSector(ss.regime, ss.breadthBullPct)}</div>
+                                  </div>
+                                )}
+                                {mk && (mk.totalTickers || 0) > 5 && (
+                                  <div className={`p-2.5 rounded-lg border ${mk.signal?.includes("BULL") ? "bg-green-500/10 border-green-500/30" : mk.signal?.includes("BEAR") ? "bg-red-500/10 border-red-500/30" : "bg-slate-500/10 border-slate-500/30"}`}>
+                                    <div className="text-[9px] text-slate-400 uppercase font-bold mb-0.5">Market</div>
+                                    <div className={`text-[11px] font-bold ${mk.signal?.includes("BULL") ? "text-[#00e676]" : mk.signal?.includes("BEAR") ? "text-red-400" : "text-slate-300"}`}>{mk.signal?.replace(/_/g, " ")}</div>
+                                    <div className="text-[10px] text-slate-400 mt-0.5">{mk.breadthBullPct}% breadth</div>
+                                    <div className="text-[9px] text-slate-400/70 italic mt-1 leading-snug">{describeMarket(mk.signal, mk.breadthBullPct)}</div>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                            {mk?.riskFlag && (mk.totalTickers || 0) > 5 && (
+                              <div className="p-2 text-[11px] text-amber-300/80 bg-amber-500/10 border border-amber-500/20 rounded-lg">{mk.riskFlag}</div>
+                            )}
 
                             {/* Matched Patterns Detail */}
                             {pm && pm.matched && pm.matched.length > 0 && (
                               <div className="p-3 bg-white/[0.03] border border-white/[0.06] rounded-lg">
-                                <div className="text-sm font-bold text-[#6b7280] mb-3">Matched Patterns</div>
-                                <div className="space-y-2">
+                                <div className="text-sm font-bold text-[#6b7280] mb-2">Matched Patterns</div>
+                                <div className="text-[10px] text-slate-400/70 mb-2">These are historical setups that match the current conditions for {tickerSymbol}.</div>
+                                <div className="space-y-1.5">
                                   {pm.matched.map((m, i) => (
                                     <div key={m.id || i} className="flex items-center justify-between bg-[#0d1117] rounded-lg p-2 border border-[#1e2530]">
-                                      <div className="flex-1">
-                                        <div className="text-xs font-semibold text-white">{m.name}</div>
-                                        <div className="text-[10px] text-[#555]">{m.id}</div>
+                                      <div className="flex-1 min-w-0">
+                                        <div className="text-xs font-semibold text-white truncate">{m.name}</div>
                                       </div>
-                                      <div className="flex items-center gap-2">
-                                        <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
-                                          m.dir === "UP" ? "bg-[#00c853]/50 text-[#69f0ae]" : "bg-red-900/50 text-red-300"
-                                        }`}>{m.dir}</span>
-                                        <span className="text-xs text-[#6b7280]">{(m.conf * 100).toFixed(0)}%</span>
-                                        <span className={`text-xs font-semibold ${m.ev > 0 ? "text-[#00e676]" : m.ev < 0 ? "text-red-400" : "text-slate-400"}`}>
-                                          EV: {m.ev > 0 ? "+" : ""}{m.ev}
-                                        </span>
+                                      <div className="flex items-center gap-2 shrink-0 ml-2">
+                                        <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${m.dir === "UP" ? "bg-[#00c853]/50 text-[#69f0ae]" : "bg-red-900/50 text-red-300"}`}>{m.dir === "UP" ? "Bull" : "Bear"}</span>
+                                        <span className="text-[10px] text-[#6b7280]">{(m.conf * 100).toFixed(0)}%</span>
                                       </div>
                                     </div>
                                   ))}
@@ -4658,50 +4339,23 @@
                               </div>
                             )}
 
-                            {/* Best Match Spotlight */}
-                            {pm && (pm.bestBull || pm.bestBear) && (
-                              <div className="p-3 bg-white/[0.03] border border-white/[0.06] rounded-lg">
-                                <div className="text-sm font-bold text-[#6b7280] mb-3">Strongest Signals</div>
-                                <div className="grid grid-cols-2 gap-3">
-                                  {pm.bestBull && (
-                                    <div className="p-2 bg-[#00c853]/20 border border-[#00c853]/30 rounded-lg">
-                                      <div className="text-[10px] text-[#00e676] uppercase font-bold mb-1">Top Bull</div>
-                                      <div className="text-xs text-white font-semibold">{pm.bestBull.name}</div>
-                                      <div className="text-[10px] text-[#69f0ae] mt-1">
-                                        {(pm.bestBull.conf * 100).toFixed(0)}% confidence · EV: {pm.bestBull.ev > 0 ? "+" : ""}{pm.bestBull.ev}
-                                      </div>
-                                    </div>
-                                  )}
-                                  {pm.bestBear && (
-                                    <div className="p-2 bg-red-900/20 border border-red-700/30 rounded-lg">
-                                      <div className="text-[10px] text-red-400 uppercase font-bold mb-1">Top Bear</div>
-                                      <div className="text-xs text-white font-semibold">{pm.bestBear.name}</div>
-                                      <div className="text-[10px] text-red-300 mt-1">
-                                        {(pm.bestBear.conf * 100).toFixed(0)}% confidence · EV: {pm.bestBear.ev > 0 ? "+" : ""}{pm.bestBear.ev}
-                                      </div>
-                                    </div>
-                                  )}
-                                </div>
-                              </div>
-                            )}
-
-                            {/* Kanban Meta with Pattern Context */}
+                            {/* Kanban Meta */}
                             {kanbanMeta && kanbanMeta.patternMatch && (
-                              <div className="p-3 bg-white/[0.03] border border-white/[0.06] rounded-lg">
-                                <div className="text-sm font-bold text-[#6b7280] mb-2">🧠 Pattern-Driven Setup</div>
-                                <div className="text-xs text-blue-300">
-                                  This ticker was promoted from Watch to Setup by the model's pattern recognition engine.
-                                </div>
+                              <div className="p-2.5 bg-blue-500/10 border border-blue-500/25 rounded-lg">
+                                <div className="text-[11px] text-blue-300">This ticker was promoted to Setup by the pattern recognition engine — historical pattern matches triggered the stage advance.</div>
                               </div>
                             )}
 
-                            {/* No-match explanation */}
-                            {!pm && (
-                              <div className="p-3 bg-white/[0.03] border border-white/[0.06] rounded-lg">
-                                <div className="text-xs text-[#555]">
-                                  The model evaluates {tickerSymbol} against 17+ active patterns every scoring cycle.
-                                  Matches appear when the ticker's scoring state, signals, and indicators align
-                                  with historically profitable setups.
+                            {/* Explainer when nothing loaded yet */}
+                            {!hasAnyData && (
+                              <div className="p-3 bg-white/[0.03] border border-white/[0.06] rounded-lg space-y-2">
+                                <div className="text-sm font-bold text-[#6b7280]">How the Model Works</div>
+                                <div className="text-[11px] text-slate-400/80 leading-relaxed space-y-1.5">
+                                  <p>Every scoring cycle, the system evaluates {tickerSymbol} across three levels:</p>
+                                  <p><span className="text-white font-semibold">Ticker:</span> Matches the current setup (state, scores, indicators) against 17+ historical winning patterns and computes a net bullish/bearish signal.</p>
+                                  <p><span className="text-white font-semibold">Sector:</span> Measures how many tickers in the same sector are trending bullish — providing context on whether the sector is a tailwind or headwind.</p>
+                                  <p><span className="text-white font-semibold">Market:</span> Reads the broad market breadth to gauge whether conditions favor risk-on or risk-off positioning.</p>
+                                  <p className="text-[10px] text-slate-500 pt-1">Signals appear once the scoring data is loaded. If this is empty, the model endpoint may be temporarily unavailable.</p>
                                 </div>
                               </div>
                             )}
@@ -4748,19 +4402,33 @@
 
                         if (available.length === 0) return null;
 
+                        const dir = String(ticker.direction || "").toUpperCase();
+                        const stage = String(ticker.kanban_stage || "").toLowerCase().replace(/_/g, " ");
+                        const isLong = dir === "LONG" || dir === "BULLISH";
+                        const isShort = dir === "SHORT" || dir === "BEARISH";
+
                         const getInterpretation = (changePct, isUp, label) => {
                           const absChg = Math.abs(changePct);
-                          if (absChg < 2) {
-                            return `${sym} is trading relatively flat over ${label}, showing ${absChg.toFixed(1)}% ${isUp ? 'gain' : 'loss'}. Price action suggests consolidation.`;
-                          } else if (absChg < 5) {
-                            return `${sym} is ${isUp ? 'up' : 'down'} ${absChg.toFixed(1)}% over ${label}, showing ${isUp ? 'modest bullish momentum' : 'mild weakness'}.`;
-                          } else if (absChg < 10) {
-                            return `${sym} has ${isUp ? 'gained' : 'lost'} ${absChg.toFixed(1)}% in ${label}, indicating ${isUp ? 'strong momentum' : 'significant selling pressure'}.`;
-                          } else if (absChg < 20) {
-                            return `${sym} is showing ${isUp ? 'explosive upside' : 'severe downside'} with a ${absChg.toFixed(1)}% ${isUp ? 'rally' : 'decline'} over ${label}.`;
-                          } else {
-                            return `${sym} has ${isUp ? 'surged' : 'plunged'} ${absChg.toFixed(1)}% in ${label}—a ${isUp ? 'parabolic' : 'dramatic'} move.`;
+                          const aligned = (isLong && isUp) || (isShort && !isUp);
+                          const against = (isLong && !isUp) || (isShort && isUp);
+
+                          let momentum;
+                          if (absChg < 2) momentum = "relatively flat";
+                          else if (absChg < 5) momentum = isUp ? "modestly higher" : "modestly lower";
+                          else if (absChg < 10) momentum = isUp ? "solidly higher" : "notably lower";
+                          else if (absChg < 20) momentum = isUp ? "sharply higher" : "sharply lower";
+                          else momentum = isUp ? "surging" : "plunging";
+
+                          let base = `${sym} is ${momentum} over ${label} (${isUp ? "+" : ""}${changePct.toFixed(1)}%).`;
+
+                          if (aligned && absChg >= 2) {
+                            base += ` This aligns with the ${dir} thesis${stage ? ` — currently in "${stage}" stage` : ""}.`;
+                          } else if (against && absChg >= 3) {
+                            base += ` This moves against the ${dir} thesis${stage ? ` — "${stage}" stage may need reassessment` : ""}.`;
+                          } else if (absChg < 2) {
+                            base += stage ? ` Consolidating in "${stage}" stage — waiting for a catalyst.` : " Price is consolidating.";
                           }
+                          return base;
                         };
 
                         return (
@@ -4798,16 +4466,14 @@
                         );
                       })()}
 
-                      {/* Bubble Journey (15m increments) */}
+                      {/* Bubble Journey */}
                       <div className="mb-4 p-3 bg-white/[0.03] border-2 border-white/[0.06] rounded-lg">
                         <div className="flex items-center justify-between mb-2">
-                          <div className="text-sm text-[#6b7280]">
-                            Bubble Journey (15m increments)
+                          <div className="text-sm font-bold text-[#6b7280]">
+                            Scoring Timeline
                           </div>
                           <a
-                            href={`index-react.html?timeTravel=1&ticker=${encodeURIComponent(
-                              String(tickerSymbol).toUpperCase(),
-                            )}`}
+                            href={`index-react.html?timeTravel=1&ticker=${encodeURIComponent(String(tickerSymbol).toUpperCase())}`}
                             className="text-xs px-2 py-1 rounded bg-purple-500/20 border border-purple-500/30 text-purple-300 hover:bg-purple-500/30"
                             title="Open Time Travel (if supported)"
                           >
@@ -4816,23 +4482,35 @@
                         </div>
 
                         {bubbleJourneyLoading ? (
-                          <div className="text-xs text-[#6b7280] flex items-center gap-2">
-                            <div className="loading-spinner"></div>
-                            Loading trail…
-                          </div>
+                          <div className="text-xs text-[#6b7280] flex items-center gap-2"><div className="loading-spinner"></div>Loading trail…</div>
                         ) : bubbleJourneyError ? (
-                          <div className="text-xs text-red-400">
-                            Trail unavailable: {bubbleJourneyError}
-                          </div>
+                          <div className="text-xs text-red-400">Trail unavailable: {bubbleJourneyError}</div>
                         ) : bubbleJourney.length === 0 ? (
-                          <div className="text-xs text-[#6b7280]">
-                            No trail points found for this ticker.
-                          </div>
+                          <div className="text-xs text-[#6b7280]">No trail points found for this ticker.</div>
                         ) : (
-                          <div className="space-y-1 max-h-64 overflow-y-auto pr-1">
+                          <div className="space-y-0.5 max-h-72 overflow-y-auto pr-1">
                             {(() => {
-                              // Downsample and then deduplicate by removing consecutive entries
-                              // where state, kanban_stage, and scores haven't meaningfully changed
+                              const translateState = (raw) => {
+                                const map = {
+                                  "HTF_BULL_LTF_BULL": "Fully Bullish",
+                                  "HTF_BULL_LTF_PULLBACK": "Bullish, pulling back",
+                                  "HTF_BULL_LTF_BEAR": "Bullish trend, bearish momentum",
+                                  "HTF_BEAR_LTF_BEAR": "Fully Bearish",
+                                  "HTF_BEAR_LTF_PULLBACK": "Bearish, bouncing",
+                                  "HTF_BEAR_LTF_BULL": "Bear trend, bullish momentum",
+                                };
+                                return map[raw] || (raw || "—").replace(/_/g, " ");
+                              };
+                              const translateStage = (raw) => {
+                                const map = {
+                                  "watch": "Watch", "flip_watch": "Flip Watch", "just_flipped": "Just Flipped",
+                                  "setup": "Setup", "enter": "Enter", "enter_now": "Enter Now",
+                                  "just_entered": "Just Entered", "hold": "Hold", "defend": "Defend",
+                                  "trim": "Trim", "exit": "Exit", "parked": "Parked",
+                                };
+                                return map[String(raw || "").toLowerCase()] || raw || "";
+                              };
+
                               const sampled = downsampleByInterval(bubbleJourney, 15 * 60 * 1000).slice().reverse().slice(0, 80);
                               const deduped = [];
                               let prev = null;
@@ -4848,163 +4526,92 @@
                                   prev = p;
                                 }
                               }
-                              return deduped.slice(0, 40);
-                            })()
-                              .map((p, idx) => {
+                              const points = deduped.slice(0, 40);
+                              return points.map((p, idx) => {
                                 const ts = Number(p.__ts_ms);
-                                const state =
-                                  p.state || p.quadrant || p.zone || "—";
-                                const phasePct =
-                                  p.phase_pct != null
-                                    ? `${Math.round(Number(p.phase_pct) * 100)}%`
-                                    : "—";
-                                const htf =
-                                  p.htf_score != null &&
-                                  Number.isFinite(Number(p.htf_score))
-                                    ? Number(p.htf_score).toFixed(1)
-                                    : "—";
-                                const ltf =
-                                  p.ltf_score != null &&
-                                  Number.isFinite(Number(p.ltf_score))
-                                    ? Number(p.ltf_score).toFixed(1)
-                                    : "—";
-                                const rank =
-                                  p.rank != null ? String(p.rank) : "—";
-                                const rr =
-                                  p.rr != null && Number.isFinite(Number(p.rr))
-                                    ? Number(p.rr).toFixed(2)
-                                    : p.rr_at_alert != null &&
-                                        Number.isFinite(Number(p.rr_at_alert))
-                                      ? Number(p.rr_at_alert).toFixed(2)
-                                      : "—";
-                                const isSelected =
-                                  selectedJourneyTs != null &&
-                                  Number.isFinite(ts) &&
-                                  Number(ts) === Number(selectedJourneyTs);
+                                const rawState = p.state || p.quadrant || p.zone || "";
+                                const stateLabel = translateState(rawState);
+                                const stageLabel = translateStage(p.kanban_stage);
+                                const phasePct = p.phase_pct != null ? `${Math.round(Number(p.phase_pct) * 100)}%` : null;
+                                const htf = p.htf_score != null && Number.isFinite(Number(p.htf_score)) ? Number(p.htf_score).toFixed(1) : "—";
+                                const ltf = p.ltf_score != null && Number.isFinite(Number(p.ltf_score)) ? Number(p.ltf_score).toFixed(1) : "—";
+                                const rank = p.rank != null ? String(p.rank) : "—";
+                                const rr = p.rr != null && Number.isFinite(Number(p.rr)) ? Number(p.rr).toFixed(2) : (p.rr_at_alert != null && Number.isFinite(Number(p.rr_at_alert)) ? Number(p.rr_at_alert).toFixed(2) : "—");
+                                const isSelected = selectedJourneyTs != null && Number.isFinite(ts) && Number(ts) === Number(selectedJourneyTs);
+
+                                const prevPoint = idx > 0 ? points[idx - 1] : null;
+                                const transitions = [];
+                                if (prevPoint) {
+                                  const prevState = prevPoint.state || prevPoint.quadrant || prevPoint.zone || "";
+                                  const prevStage = prevPoint.kanban_stage || "";
+                                  if (rawState !== prevState) transitions.push(`State: ${translateState(prevState)} → ${stateLabel}`);
+                                  if ((p.kanban_stage || "") !== prevStage) transitions.push(`Stage: ${translateStage(prevStage)} → ${stageLabel}`);
+                                }
 
                                 const pointForChart = {
                                   ts: Number.isFinite(ts) ? ts : null,
-                                  htf_score:
-                                    p.htf_score != null
-                                      ? Number(p.htf_score)
-                                      : null,
-                                  ltf_score:
-                                    p.ltf_score != null
-                                      ? Number(p.ltf_score)
-                                      : null,
-                                  phase_pct:
-                                    p.phase_pct != null
-                                      ? Number(p.phase_pct)
-                                      : null,
-                                  completion:
-                                    p.completion != null
-                                      ? Number(p.completion)
-                                      : null,
+                                  htf_score: p.htf_score != null ? Number(p.htf_score) : null,
+                                  ltf_score: p.ltf_score != null ? Number(p.ltf_score) : null,
+                                  phase_pct: p.phase_pct != null ? Number(p.phase_pct) : null,
+                                  completion: p.completion != null ? Number(p.completion) : null,
                                   rank: p.rank != null ? Number(p.rank) : null,
                                   rr: p.rr != null ? Number(p.rr) : null,
                                   state: p.state || null,
                                 };
                                 return (
-                                  <div
-                                    key={`${ts}-${idx}`}
-                                    className={`px-2 py-1 bg-white/[0.02] border rounded flex items-center justify-between gap-2 cursor-pointer transition-colors ${
-                                      isSelected
-                                        ? "border-cyan-400/80 bg-cyan-500/10"
-                                        : "border-white/[0.06] hover:border-cyan-400/40 hover:bg-[#16224a]"
-                                    }`}
-                                    onMouseEnter={() => {
-                                      if (onJourneyHover)
-                                        onJourneyHover(pointForChart);
-                                    }}
-                                    onMouseLeave={() => {
-                                      if (onJourneyHover) onJourneyHover(null);
-                                    }}
-                                    onClick={() => {
-                                      if (onJourneySelect)
-                                        onJourneySelect(pointForChart);
-                                    }}
-                                  >
-                                    <div className="min-w-0">
-                                      <div className="text-[10px] text-[#6b7280]">
-                                        {Number.isFinite(ts)
-                                          ? new Date(ts).toLocaleString()
-                                          : "—"}
+                                  <div key={`${ts}-${idx}`}>
+                                    {transitions.length > 0 && (
+                                      <div className="py-1 flex items-center gap-1.5">
+                                        <div className="flex-1 h-px bg-cyan-500/20"></div>
+                                        <span className="text-[9px] text-cyan-400/70 whitespace-nowrap">{transitions.join(" · ")}</span>
+                                        <div className="flex-1 h-px bg-cyan-500/20"></div>
                                       </div>
-                                      <div className="text-xs text-white truncate">
-                                        {state}
-                                        <span className="text-[#4b5563]">
-                                          {" "}
-                                          •{" "}
-                                        </span>
-                                        <span className="text-[#6b7280]">
-                                          Phase
-                                        </span>{" "}
-                                        {phasePct}
+                                    )}
+                                    <div
+                                      className={`px-2 py-1.5 bg-white/[0.02] border rounded flex items-center justify-between gap-2 cursor-pointer transition-colors ${isSelected ? "border-cyan-400/80 bg-cyan-500/10" : "border-white/[0.06] hover:border-cyan-400/40 hover:bg-[#16224a]"}`}
+                                      onMouseEnter={() => { if (onJourneyHover) onJourneyHover(pointForChart); }}
+                                      onMouseLeave={() => { if (onJourneyHover) onJourneyHover(null); }}
+                                      onClick={() => { if (onJourneySelect) onJourneySelect(pointForChart); }}
+                                    >
+                                      <div className="min-w-0">
+                                        <div className="text-[10px] text-[#6b7280]">{Number.isFinite(ts) ? new Date(ts).toLocaleString() : "—"}</div>
+                                        <div className="text-[11px] text-white truncate">
+                                          {stateLabel}
+                                          {stageLabel && <span className="text-[#6b7280]"> · {stageLabel}</span>}
+                                          {phasePct && <span className="text-[#4b5563]"> · {phasePct}</span>}
+                                        </div>
                                       </div>
-                                      <div className="text-[10px] text-[#6b7280]">
-                                        <span className="text-[#4b5563]">
-                                          HTF
-                                        </span>{" "}
-                                        <span className="text-white font-semibold">
-                                          {htf}
-                                        </span>
-                                        <span className="text-[#4b5563]">
-                                          {" "}
-                                          •{" "}
-                                        </span>
-                                        <span className="text-[#4b5563]">
-                                          LTF
-                                        </span>{" "}
-                                        <span className="text-white font-semibold">
-                                          {ltf}
-                                        </span>
-                                      </div>
-                                    </div>
-                                    <div className="text-right text-[10px] text-[#6b7280] whitespace-nowrap">
-                                      <div>
-                                        <span className="text-[#4b5563]">
-                                          Rank
-                                        </span>{" "}
-                                        <span className="text-white font-semibold">
-                                          {rank}
-                                        </span>
-                                      </div>
-                                      <div>
-                                        <span className="text-[#4b5563]">
-                                          RR
-                                        </span>{" "}
-                                        <span className="text-white font-semibold">
-                                          {rr}
-                                        </span>
+                                      <div className="text-right text-[10px] text-[#6b7280] whitespace-nowrap shrink-0">
+                                        <div>HTF <span className="text-white font-semibold">{htf}</span> · LTF <span className="text-white font-semibold">{ltf}</span></div>
+                                        <div>Score <span className="text-white font-semibold">{rank}</span> · RR <span className="text-white font-semibold">{rr}</span></div>
                                       </div>
                                     </div>
                                   </div>
                                 );
-                              })}
+                              });
+                            })()}
                           </div>
                         )}
                       </div>
 
                       {/* Current State Summary */}
                       <div className="mb-4 p-3 bg-white/[0.03] border border-white/[0.06] rounded-lg">
-                        <div className="text-xs text-[#6b7280] mb-2 font-semibold">Current Status</div>
+                        <div className="text-xs text-[#6b7280] mb-2 font-semibold">Where Things Stand</div>
                         <div className="grid grid-cols-3 gap-2 text-xs">
                           <div>
-                            <div className="text-[#6b7280] text-[10px]">Phase</div>
+                            <div className="text-[#6b7280] text-[10px]" title="How far along the current move cycle is (0% = just started, 100% = fully played out)">Phase</div>
                             <div className="text-white font-semibold" style={{ color: phaseColor }}>
                               {(phase * 100).toFixed(0)}%
                             </div>
                           </div>
                           <div>
-                            <div className="text-[#6b7280] text-[10px]">Completion</div>
+                            <div className="text-[#6b7280] text-[10px]" title="How much of the expected price move has already happened">Completion</div>
                             <div className="text-white font-semibold">
-                              {ticker.completion != null
-                                ? `${(Number(ticker.completion) * 100).toFixed(0)}%`
-                                : "—"}
+                              {ticker.completion != null ? `${(Number(ticker.completion) * 100).toFixed(0)}%` : "—"}
                             </div>
                           </div>
                           <div>
-                            <div className="text-[#6b7280] text-[10px]">ETA</div>
+                            <div className="text-[#6b7280] text-[10px]" title="Estimated time remaining for the current move to play out">ETA</div>
                             <div className="text-white font-semibold">
                               {(() => {
                                 const eta = computeEtaDays(ticker);
@@ -5013,6 +4620,23 @@
                             </div>
                           </div>
                         </div>
+                        {(() => {
+                          const phasePct = Math.round(phase * 100);
+                          const completionPct = ticker.completion != null ? Math.round(Number(ticker.completion) * 100) : null;
+                          const eta = computeEtaDays(ticker);
+                          const parts = [];
+                          if (phasePct <= 25) parts.push("Still early in the move cycle");
+                          else if (phasePct <= 60) parts.push(`${phasePct}% through the move`);
+                          else if (phasePct <= 85) parts.push("Move is maturing");
+                          else parts.push("Late stage — most of the move is behind us");
+                          if (completionPct != null) {
+                            if (completionPct < 30) parts.push("plenty of room left to the target");
+                            else if (completionPct < 70) parts.push(`${completionPct}% of the expected move completed`);
+                            else parts.push("nearing the target");
+                          }
+                          if (Number.isFinite(eta)) parts.push(`~${eta.toFixed(1)} days estimated remaining`);
+                          return parts.length > 0 ? <div className="mt-2 text-[10px] text-slate-400/80 italic leading-snug">{parts.join(" — ")}.</div> : null;
+                        })()}
                       </div>
                     </>
                   ) : null}
