@@ -11390,7 +11390,7 @@
                 background: "linear-gradient(to bottom, rgba(0,0,0,0.30) 0%, rgba(0,0,0,0.05) 45%, rgba(0,0,0,0.40) 100%)",
               }} />
 
-              {/* ── Row 1: Star, Ticker, TT badge, Price (admin) ── */}
+              {/* ── Row 1: Star, Ticker, TT, LONG/SHORT | Price + Daily Chg ── */}
               <div className="relative flex items-center justify-between px-2 pt-1.5 pb-0" style={{ zIndex: 1 }}>
                 <div className="flex items-center gap-1.5 min-w-0">
                   {toggleSavedTicker && (
@@ -11417,42 +11417,44 @@
                     return <span className={`text-[13px] font-bold shrink-0 ${_isPrimeEntry ? "text-amber-300" : "text-white"}`} title={tip}>{sym}</span>;
                   })()}
                   {isTickerTTSelected(sym) && (
-                    <span className="inline-flex items-center justify-center px-1 py-px rounded text-[8px] font-bold shrink-0 tracking-wide bg-emerald-500/25 text-emerald-300 border border-emerald-400/40" title="TT Selected">TT</span>
+                    <span className="inline-flex items-center justify-center px-1.5 py-px rounded text-[9px] font-bold shrink-0 tracking-wide bg-emerald-500/35 text-emerald-200 border border-emerald-400/50" style={{ textShadow: "0 0 6px rgba(16,185,129,0.4)" }} title="TT Selected">TT</span>
                   )}
+                  <span className={`inline-flex items-center justify-center px-1.5 py-px rounded text-[9px] font-black shrink-0 tracking-wide ${dir === "LONG" ? "bg-cyan-500/80 text-white ring-1 ring-cyan-300/60" : "bg-rose-600/80 text-white ring-1 ring-rose-400/60"}`}>{dir}</span>
                 </div>
                 {window._ttIsAdmin && (
-                  <span className="text-white font-bold text-[13px] tabular-nums leading-tight shrink-0 ml-1" style={{ textShadow: "0 1px 3px rgba(0,0,0,0.8)" }}>
-                    {Number.isFinite(price) ? `$${price.toFixed(2)}` : "—"}
-                  </span>
+                  <div className="flex flex-col items-end shrink-0 ml-1">
+                    <span className="text-white font-bold text-[13px] tabular-nums leading-tight" style={{ textShadow: "0 1px 3px rgba(0,0,0,0.8)" }}>
+                      {Number.isFinite(price) ? `$${price.toFixed(2)}` : "—"}
+                    </span>
+                    {Number.isFinite(dayPct) && (
+                      <span className="text-[11px] font-bold tabular-nums leading-tight"
+                        style={{
+                          color: dayPct >= 0
+                            ? (Math.abs(dayPct) >= 3 ? "#4ade80" : "#00e676")
+                            : (Math.abs(dayPct) >= 3 ? "#fb7185" : "#f87171"),
+                          textShadow: "0 1px 4px rgba(0,0,0,0.7)",
+                        }}>
+                        {dayPct >= 0 ? "+" : ""}{dayPct.toFixed(2)}%
+                        {Number.isFinite(dayChg) ? ` (${dayChg >= 0 ? "+" : "-"}$${Math.abs(dayChg).toFixed(2)})` : ""}
+                      </span>
+                    )}
+                  </div>
                 )}
               </div>
 
-              {/* ── Row 2: LONG/SHORT, badges, bias pill | EXT Chg% ── */}
+              {/* ── Row 2: Badges, bias pill | EXT Chg% ── */}
               <div className="relative flex items-center justify-between px-2 py-0.5" style={{ zIndex: 1 }}>
                 <div className="flex items-center gap-1 min-w-0">
-                  <span className={`inline-flex items-center justify-center px-1.5 py-px rounded text-[9px] font-black shrink-0 tracking-wide ${dir === "LONG" ? "bg-cyan-500/80 text-white ring-1 ring-cyan-300/60" : "bg-rose-600/80 text-white ring-1 ring-rose-400/60"}`}>{dir}</span>
                   {badgesText && <span className="text-[10px] shrink-0">{badgesText}</span>}
                   <span className={`px-1 py-px rounded border text-[9px] font-extrabold tracking-wide shrink-0 ${dirPillCls}`} title={state}>
                     {biasLabelDisplay}
                   </span>
                 </div>
-                {window._ttIsAdmin && (
-                  <div className="flex flex-col items-end shrink-0 ml-1">
-                    {Number.isFinite(dayPct) && (
-                      <span className={`tabular-nums leading-tight ${Math.abs(dayPct) >= 3 ? "text-[11px] font-bold" : "text-[10px] font-semibold"}`}
-                        style={{ color: dayPct >= 0
-                          ? (Math.abs(dayPct) >= 3 ? "#4ade80" : "#00e676")
-                          : (Math.abs(dayPct) >= 3 ? "#fb7185" : "#f87171") }}>
-                        {dayPct >= 0 ? "+" : ""}{dayPct.toFixed(2)}%
-                      </span>
-                    )}
-                    {hasAH && (
-                      <span className={`text-[9px] font-medium tabular-nums leading-tight ${ahPct >= 0 ? "text-[#00e676]" : "text-rose-400"}`}>
-                        <span className="text-[8px] text-gray-400 mr-0.5">EXT</span>
-                        {ahPct >= 0 ? "+" : ""}{ahPct.toFixed(2)}%
-                      </span>
-                    )}
-                  </div>
+                {window._ttIsAdmin && hasAH && (
+                  <span className={`text-[9px] font-medium tabular-nums leading-tight shrink-0 ml-1 ${ahPct >= 0 ? "text-[#00e676]" : "text-rose-400"}`}>
+                    <span className="text-[8px] text-gray-400 mr-0.5">EXT</span>
+                    {ahPct >= 0 ? "+" : ""}{ahPct.toFixed(2)}%
+                  </span>
                 )}
               </div>
 
