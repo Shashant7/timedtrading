@@ -2,6 +2,7 @@
 import { DASHBOARD_HTML } from "./dashboard-html.js";
 export { PriceHub } from "./price-hub.js";
 export { AlpacaStream } from "./alpaca-stream.js";
+export { PriceStream } from "./price-stream.js";
 import {
   kvGetJSON,
   kvPutJSON,
@@ -64,6 +65,7 @@ import {
   computeTDSequentialMultiTF,
 } from "./indicators.js";
 import { createExecutionAdapter } from "./execution.js";
+import * as DataProvider from "./data-provider.js";
 import {
   loadCalendar,
   fetchAndCacheCalendar,
@@ -220,6 +222,72 @@ async function alpacaStreamStatus(env) {
   }
 }
 
+// ─── PriceStream DO helpers (TwelveData WebSocket) ──────────────────────
+async function priceStreamStart(env, symbols) {
+  if (!env.PRICE_STREAM) return null;
+  try {
+    const id = env.PRICE_STREAM.idFromName("global");
+    const stub = env.PRICE_STREAM.get(id);
+    const res = await stub.fetch(new Request("https://internal/start", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ symbols }),
+    }));
+    return res.json();
+  } catch (e) {
+    console.warn("[PRICE_STREAM] start failed:", String(e).slice(0, 200));
+    return null;
+  }
+}
+
+async function priceStreamStop(env) {
+  if (!env.PRICE_STREAM) return null;
+  try {
+    const id = env.PRICE_STREAM.idFromName("global");
+    const stub = env.PRICE_STREAM.get(id);
+    const res = await stub.fetch(new Request("https://internal/stop", { method: "POST" }));
+    return res.json();
+  } catch (e) {
+    console.warn("[PRICE_STREAM] stop failed:", String(e).slice(0, 200));
+    return null;
+  }
+}
+
+async function priceStreamStatus(env) {
+  if (!env.PRICE_STREAM) return { ok: false, error: "not_configured" };
+  try {
+    const id = env.PRICE_STREAM.idFromName("global");
+    const stub = env.PRICE_STREAM.get(id);
+    const res = await stub.fetch(new Request("https://internal/status"));
+    return res.json();
+  } catch (e) {
+    return { ok: false, error: String(e).slice(0, 200) };
+  }
+}
+
+// ─── Provider-aware stream routing ──────────────────────────────────────
+function _usesTwelveData(env) {
+  return (env?.DATA_PROVIDER || "alpaca").toLowerCase() === "twelvedata";
+}
+
+async function dataStreamStart(env, symbols) {
+  return _usesTwelveData(env) ? priceStreamStart(env, symbols) : alpacaStreamStart(env, symbols);
+}
+async function dataStreamStop(env) {
+  return _usesTwelveData(env) ? priceStreamStop(env) : alpacaStreamStop(env);
+}
+async function dataStreamStatus(env) {
+  return _usesTwelveData(env) ? priceStreamStatus(env) : alpacaStreamStatus(env);
+}
+
+async function dataFetchSnapshots(env, symbols) {
+  if (_usesTwelveData(env)) {
+    const result = await DataProvider.fetchLatestQuotes(env, symbols);
+    return result || { snapshots: {} };
+  }
+  return alpacaFetchSnapshots(env, symbols);
+}
+
 // ─── Pattern Library Cache (for Kanban integration) ────────────────────────
 // Avoids hitting D1 on every ingest. Refreshes every 5 minutes.
 let _patternCache = { patterns: [], ts: 0 };
@@ -344,6 +412,9 @@ const ROUTES = [
   ["GET", "/timed/alpaca-stream/status", "GET /timed/alpaca-stream/status"],
   ["POST", "/timed/alpaca-stream/start", "POST /timed/alpaca-stream/start"],
   ["POST", "/timed/alpaca-stream/stop", "POST /timed/alpaca-stream/stop"],
+  ["GET", "/timed/price-stream/status", "GET /timed/price-stream/status"],
+  ["POST", "/timed/price-stream/start", "POST /timed/price-stream/start"],
+  ["POST", "/timed/price-stream/stop", "POST /timed/price-stream/stop"],
   ["GET", "/timed/auth", "GET /timed/auth"],
   ["POST", "/timed/purge", "POST /timed/purge"],
   ["POST", "/timed/rebuild-index", "POST /timed/rebuild-index"],
@@ -443,6 +514,7 @@ const ROUTES = [
   ["GET", "/timed/admin/backfill-status", "GET /timed/admin/backfill-status"],
   ["POST", "/timed/admin/refresh-prices", "POST /timed/admin/refresh-prices"],
   ["POST", "/timed/admin/candle-replay", "POST /timed/admin/candle-replay"],
+  ["POST", "/timed/admin/investor-replay", "POST /timed/admin/investor-replay"],
   ["POST", "/timed/admin/reopen-stale-exits", "POST /timed/admin/reopen-stale-exits"],
   ["POST", "/timed/admin/close-replay-positions", "POST /timed/admin/close-replay-positions"],
   ["POST", "/timed/admin/replay-lock", "POST /timed/admin/replay-lock"],
@@ -986,12 +1058,17 @@ async function etfAutoAddTickers(env, tickers, weightMap, ctx) {
 
   // Deep backfill + score in background (don't block the sync response)
   if (added.length > 0 && ctx?.waitUntil) {
+    const useTD = _usesTwelveData(env);
     ctx.waitUntil((async () => {
       // Backfill in batches of 5 to stay under subrequest limits
       for (let i = 0; i < added.length; i += 5) {
         const batch = added.slice(i, i + 5);
         try {
-          await alpacaBackfill(env, batch, d1UpsertCandle, "all", null);
+          if (useTD) {
+            await DataProvider.backfill(env, batch, "all", null);
+          } else {
+            await alpacaBackfill(env, batch, d1UpsertCandle, "all", null);
+          }
           console.log(`[ETF AUTO-ADD] Backfilled ${batch.join(",")}`);
         } catch (e) {
           console.warn(`[ETF AUTO-ADD] Backfill failed for ${batch.join(",")}:`, String(e?.message || e).slice(0, 200));
@@ -1004,7 +1081,7 @@ async function etfAutoAddTickers(env, tickers, weightMap, ctx) {
           const result = await computeServerSideScores(ticker, d1GetCandles, env, existing);
           if (result) {
             const now = Date.now();
-            result.data_source = "alpaca";
+            result.data_source = useTD ? "twelvedata" : "alpaca";
             result.data_source_ts = now;
             result.ingest_ts = now;
             result.ingest_time = new Date(now).toISOString();
@@ -12395,13 +12472,13 @@ async function runDataLifecycle(env, opts = {}) {
     }
 
     // 6. Retention purges for secondary D1 tables
+    // trail_5m_facts: keep indefinitely (historical scores/signals from replay); no age-based purge
     const retentionPurges = [
       { table: "alerts", col: "ts", cutoff: now - DATA_LIFECYCLE_90D_MS, where: null },
       { table: "model_predictions", col: "ts", cutoff: now - DATA_LIFECYCLE_180D_MS, where: "AND resolved = 1" },
       { table: "model_outcomes", col: "resolution_ts", cutoff: now - DATA_LIFECYCLE_180D_MS, where: null },
       { table: "ml_v1_queue", col: "created_at", cutoff: now - DATA_LIFECYCLE_30D_MS, where: null },
       { table: "user_notifications", col: "created_at", cutoff: now - DATA_LIFECYCLE_60D_MS, where: "AND read_at IS NOT NULL" },
-      { table: "trail_5m_facts", col: "bucket_ts", cutoff: now - DATA_LIFECYCLE_180D_MS, where: null },
       { table: "queued_actions", col: "resolved_at", cutoff: now - DATA_LIFECYCLE_7D_MS, where: "AND status != 'PENDING'" },
       { table: "queued_actions", col: "queued_at", cutoff: now - 24 * 60 * 60 * 1000, where: "AND status = 'PENDING'" },
     ];
@@ -16517,7 +16594,7 @@ const INVESTOR_DCA_MIN_GAP_DAYS = 20;
 const INVESTOR_TRAILING_STOP_ATR_MULT = 3.0;
 const INVESTOR_TRAILING_STOP_FIXED_PCT = 0.10;
 
-async function runInvestorDailyReplay(env, KV, replayCtx, dayDate) {
+async function runInvestorDailyReplay(env, KV, replayCtx, dayDate, tickerDataMapOverride) {
   const db = env?.DB;
   if (!db || !KV) return { ok: false, reason: "no_db_or_kv" };
 
@@ -16529,14 +16606,17 @@ async function runInvestorDailyReplay(env, KV, replayCtx, dayDate) {
     await ensureAccountLedgerSchema(db, KV);
   } catch { /* tables may already exist */ }
 
-  // Load all tickers from the replay context (KV latest state)
-  const tickerList = Object.keys(SECTOR_MAP);
-  const tickerDataMap = {};
-  for (const sym of tickerList) {
-    try {
-      const td = await kvGetJSON(KV, `timed:latest:${sym}`);
-      if (td && td.price > 0) tickerDataMap[sym] = td;
-    } catch { /* skip */ }
+  // Use provided day state (investor-only backfill) or load from KV
+  let tickerDataMap = tickerDataMapOverride || null;
+  if (!tickerDataMap || Object.keys(tickerDataMap).length === 0) {
+    const tickerList = Object.keys(SECTOR_MAP);
+    tickerDataMap = {};
+    for (const sym of tickerList) {
+      try {
+        const td = await kvGetJSON(KV, `timed:latest:${sym}`);
+        if (td && td.price > 0) tickerDataMap[sym] = td;
+      } catch { /* skip */ }
+    }
   }
 
   // Load existing open investor positions
@@ -16800,7 +16880,7 @@ async function ensurePortfolioSnapshotsSchema(db, KV) {
   }
 }
 
-async function snapshotBothPortfolios(env, KV, replayCtx, dayDate) {
+async function snapshotBothPortfolios(env, KV, replayCtx, dayDate, tickerDataMapOverride) {
   const db = env?.DB;
   if (!db) return { ok: false, reason: "no_db" };
 
@@ -16859,11 +16939,17 @@ async function snapshotBothPortfolios(env, KV, replayCtx, dayDate) {
     for (const p of invPos) {
       const shares = Number(p.total_shares) || 0;
       if (shares <= 0) continue;
-      try {
-        const td = await kvGetJSON(KV, `timed:latest:${p.ticker}`);
-        const curPrice = Number(td?.price) || 0;
-        investorPositionsValue += shares * curPrice;
-      } catch {}
+      const ticker = String(p.ticker).toUpperCase();
+      let curPrice = 0;
+      if (tickerDataMapOverride && tickerDataMapOverride[ticker]) {
+        curPrice = Number(tickerDataMapOverride[ticker]?.price) || 0;
+      } else {
+        try {
+          const td = await kvGetJSON(KV, `timed:latest:${p.ticker}`);
+          curPrice = Number(td?.price) || 0;
+        } catch {}
+      }
+      investorPositionsValue += shares * curPrice;
     }
   } catch {}
 
@@ -25730,7 +25816,7 @@ export default {
       }
 
       // POST /timed/watchlist/add?key=... - Add tickers to watchlist
-      // Validates equity symbols against Alpaca universe before adding. Then triggers backfill (prev 30 days).
+      // Validates equity symbols against data provider before adding. Then triggers backfill (prev 30 days).
       // Supports both API key and CF Access JWT (admin) authentication.
       if (routeKey === "POST /timed/watchlist/add") {
         const authFail = await requireKeyOrAdmin(req, env);
@@ -25758,17 +25844,27 @@ export default {
             );
           }
 
-          // Validate equity symbols against Alpaca (skip futures 1!, crypto, etc.)
+          // Validate equity symbols against data provider (skip futures 1!, crypto, etc.)
           const toValidate = normalized.filter(t => !t.endsWith("1!"));
-          if (toValidate.length > 0 && env.ALPACA_API_KEY_ID && env.ALPACA_API_SECRET_KEY) {
-            const { valid: alpacaValid, invalid: alpacaInvalid } = await alpacaValidateSymbols(env, toValidate);
-            if (alpacaInvalid.length > 0) {
+          if (toValidate.length > 0) {
+            let validationResult = null;
+            if (_usesTwelveData(env) && env.TWELVEDATA_API_KEY) {
+              const tdResult = await DataProvider.validateSymbols(env, toValidate);
+              if (tdResult) {
+                const invalid = toValidate.filter(s => !tdResult[s]?.valid);
+                validationResult = { invalid };
+              }
+            } else if (env.ALPACA_API_KEY_ID && env.ALPACA_API_SECRET_KEY) {
+              const { invalid } = await alpacaValidateSymbols(env, toValidate);
+              validationResult = { invalid };
+            }
+            if (validationResult?.invalid?.length > 0) {
               return sendJSON(
                 {
                   ok: false,
-                  error: "alpaca_symbol_not_found",
-                  invalid: alpacaInvalid,
-                  message: `These symbols are not in the Alpaca US equity universe or are not tradable: ${alpacaInvalid.join(", ")}. Try another symbol.`,
+                  error: "symbol_not_found",
+                  invalid: validationResult.invalid,
+                  message: `These symbols are not tradable or not found: ${validationResult.invalid.join(", ")}. Try another symbol.`,
                 },
                 400,
                 corsHeaders(env, req),
@@ -25848,17 +25944,21 @@ export default {
             }
           }
 
-          // Trigger Alpaca candle backfill for added tickers (background via ctx.waitUntil)
+          // Trigger candle backfill for added tickers (background via ctx.waitUntil)
           // After backfill completes, auto-score each ticker so CP + dashboard data appear immediately
           const backfillTriggered = [];
-          if (added.length > 0 && env.ALPACA_ENABLED === "true" && env.ALPACA_API_KEY_ID && env.ALPACA_API_SECRET_KEY) {
+          const useTD = _usesTwelveData(env);
+          const hasBackfillCreds = useTD ? !!env.TWELVEDATA_API_KEY : (env.ALPACA_ENABLED === "true" && env.ALPACA_API_KEY_ID && env.ALPACA_API_SECRET_KEY);
+          if (added.length > 0 && hasBackfillCreds) {
             const tickersToBackfill = added.filter((t) => !t.endsWith("1!")).slice(0, 10);
             if (tickersToBackfill.length > 0) {
+              const backfillPromise = useTD
+                ? DataProvider.backfill(env, tickersToBackfill, "all", 30)
+                : alpacaBackfill(env, tickersToBackfill, d1UpsertCandle, "all", 30);
               ctx.waitUntil(
-                alpacaBackfill(env, tickersToBackfill, d1UpsertCandle, "all", 30)
+                backfillPromise
                   .then(async (res) => {
                     console.log(`[WATCHLIST ADD] Backfill done:`, JSON.stringify(res));
-                    // Auto-score each backfilled ticker so price/scores appear immediately
                     for (const tk of tickersToBackfill) {
                       try {
                         const existing = await kvGetJSON(KV, `timed:latest:${tk}`);
@@ -25866,7 +25966,7 @@ export default {
                         if (scored) {
                           scored.rank = computeRank(scored);
                           scored.score = scored.rank;
-                          scored.data_source = "alpaca";
+                          scored.data_source = useTD ? "twelvedata" : "alpaca";
                           scored.trigger_ts = Date.now();
                           await kvPutJSON(KV, `timed:latest:${tk}`, scored);
                           await d1UpsertTickerLatest(env, tk, scored);
@@ -26584,24 +26684,24 @@ export default {
         });
       }
 
-      // ── AlpacaStream management endpoints (admin only) ──
-      if (routeKey === "GET /timed/alpaca-stream/status") {
-        const status = await alpacaStreamStatus(env);
-        return sendJSON(status, 200, corsHeaders(env, req));
+      // ── Stream management endpoints (provider-aware, admin only) ──
+      if (routeKey === "GET /timed/alpaca-stream/status" || routeKey === "GET /timed/price-stream/status") {
+        const status = await dataStreamStatus(env);
+        return sendJSON({ ...status, provider: _usesTwelveData(env) ? "twelvedata" : "alpaca" }, 200, corsHeaders(env, req));
       }
-      if (routeKey === "POST /timed/alpaca-stream/start") {
+      if (routeKey === "POST /timed/alpaca-stream/start" || routeKey === "POST /timed/price-stream/start") {
         const authFail = await requireKeyOrAdmin(req, env);
         if (authFail) return authFail;
-        const alpacaBlocklist = new Set(["ES1!","NQ1!","YM1!","RTY1!","CL1!","GC1!","SI1!","HG1!","NG1!","BTCUSD","ETHUSD","US500","VX1!","SPX"]);
-        const symbols = Object.keys(SECTOR_MAP).filter(t => !alpacaBlocklist.has(t) && /^[A-Z]{1,5}(-[A-Z]{1,2})?$/.test(t));
-        const result = await alpacaStreamStart(env, symbols);
-        return sendJSON({ ok: true, result, symbols: symbols.length }, 200, corsHeaders(env, req));
+        const streamBlocklist = new Set(["ES1!","NQ1!","YM1!","RTY1!","CL1!","GC1!","SI1!","HG1!","NG1!","BTCUSD","ETHUSD","US500","VX1!","SPX"]);
+        const symbols = Object.keys(SECTOR_MAP).filter(t => !streamBlocklist.has(t) && /^[A-Z]{1,5}(-[A-Z]{1,2})?$/.test(t));
+        const result = await dataStreamStart(env, symbols);
+        return sendJSON({ ok: true, result, symbols: symbols.length, provider: _usesTwelveData(env) ? "twelvedata" : "alpaca" }, 200, corsHeaders(env, req));
       }
-      if (routeKey === "POST /timed/alpaca-stream/stop") {
+      if (routeKey === "POST /timed/alpaca-stream/stop" || routeKey === "POST /timed/price-stream/stop") {
         const authFail = await requireKeyOrAdmin(req, env);
         if (authFail) return authFail;
-        const result = await alpacaStreamStop(env);
-        return sendJSON({ ok: true, result }, 200, corsHeaders(env, req));
+        const result = await dataStreamStop(env);
+        return sendJSON({ ok: true, result, provider: _usesTwelveData(env) ? "twelvedata" : "alpaca" }, 200, corsHeaders(env, req));
       }
 
       // GET /timed/health
@@ -29392,14 +29492,15 @@ export default {
       // ═══════════════════════════════════════════════════════════════════════
 
       // POST /timed/admin/alpaca-backfill?key=...&tf=all|D|W|...&sinceDays=30
-      // One-time backfill of historical bars from Alpaca. sinceDays=30 limits to previous 30 days (default: deep history).
+      // One-time backfill of historical bars (provider-aware). sinceDays=30 limits to previous 30 days (default: deep history).
       if (routeKey === "POST /timed/admin/alpaca-backfill") {
         const authFail = await requireKeyOrAdmin(req, env);
         if (authFail) return authFail;
 
-        if (!env.ALPACA_API_KEY_ID || !env.ALPACA_API_SECRET_KEY) {
+        const useTD = _usesTwelveData(env);
+        if (!useTD && (!env.ALPACA_API_KEY_ID || !env.ALPACA_API_SECRET_KEY)) {
           return sendJSON(
-            { ok: false, error: "alpaca_not_configured", hint: "Set ALPACA_API_KEY_ID and ALPACA_API_SECRET_KEY via wrangler secret put" },
+            { ok: false, error: "data_provider_not_configured", hint: "Set DATA_PROVIDER and credentials" },
             400, corsHeaders(env, req),
           );
         }
@@ -29416,14 +29517,17 @@ export default {
           allTickers = allTickers.slice(batchOffset, batchOffset + batchLimit);
         }
 
-        // Run backfill synchronously (usage_model=unbound allows long-running requests)
         try {
-          const backfillResult = await alpacaBackfill(env, allTickers, d1UpsertCandle, tfParam, sinceDays);
-          console.log(`[ALPACA BACKFILL] Done:`, JSON.stringify(backfillResult));
+          const backfillResult = useTD
+            ? await DataProvider.backfill(env, allTickers, tfParam, sinceDays)
+            : await alpacaBackfill(env, allTickers, d1UpsertCandle, tfParam, sinceDays);
+          const provider = useTD ? "twelvedata" : "alpaca";
+          console.log(`[BACKFILL ${provider}] Done:`, JSON.stringify(backfillResult));
           return sendJSON(
             {
               ok: true,
-              message: `Alpaca backfill complete for ${allTickers.length} ticker(s)`,
+              provider,
+              message: `Backfill complete for ${allTickers.length} ticker(s)`,
               tickers: allTickers.length,
               tickerList: allTickers.length <= 5 ? allTickers : undefined,
               tf: tfParam,
@@ -29434,7 +29538,7 @@ export default {
             200, corsHeaders(env, req),
           );
         } catch (bfErr) {
-          console.error(`[ALPACA BACKFILL] Error:`, bfErr);
+          console.error(`[BACKFILL] Error:`, bfErr);
           return sendJSON(
             { ok: false, error: String(bfErr?.message || bfErr).slice(0, 500) },
             500, corsHeaders(env, req),
@@ -29575,7 +29679,7 @@ export default {
 
         try {
           const allTickers = Object.keys(SECTOR_MAP);
-          const snapResult = await alpacaFetchSnapshots(env, allTickers);
+          const snapResult = await dataFetchSnapshots(env, allTickers);
           const snapshots = snapResult.snapshots || {};
           const prices = {};
           for (const [sym, snap] of Object.entries(snapshots)) {
@@ -29855,11 +29959,13 @@ export default {
           return sendJSON({ ok: false, error: "date param required (YYYY-MM-DD)" }, 400, corsHeaders(env, req));
         }
 
-        const tickerOffset = Math.max(0, Number(url.searchParams.get("tickerOffset")) || 0);
+        const fullDay = url.searchParams.get("fullDay") === "1";
+        let tickerOffset = fullDay ? 0 : (Math.max(0, Number(url.searchParams.get("tickerOffset")) || 0));
         const tickerBatch = Math.max(1, Math.min(80, Number(url.searchParams.get("tickerBatch")) || 15));
         const intervalMinutes = Math.max(1, Math.min(30, Number(url.searchParams.get("intervalMinutes")) || 5));
         const cleanSlate = url.searchParams.get("cleanSlate") === "1";
         const trailOnly = url.searchParams.get("trailOnly") === "1";
+        const skipInvestor = url.searchParams.get("skipInvestor") === "1" || url.searchParams.get("traderOnly") === "1";
         const tickerFilter = url.searchParams.get("tickers"); // comma-separated filter
 
         let allTickers;
@@ -29867,12 +29973,6 @@ export default {
           allTickers = tickerFilter.split(",").map(t => t.trim().toUpperCase()).filter(Boolean);
         } else {
           allTickers = Object.keys(SECTOR_MAP);
-        }
-        const batchTickers = allTickers.slice(tickerOffset, tickerOffset + tickerBatch);
-        const hasMore = tickerOffset + tickerBatch < allTickers.length;
-
-        if (batchTickers.length === 0) {
-          return sendJSON({ ok: true, processed: 0, hasMore: false, message: "no_tickers_in_batch" }, 200, corsHeaders(env, req));
         }
 
         // Market hours: 9:30 AM to 4:00 PM ET
@@ -29888,8 +29988,21 @@ export default {
           intervals.push(ts);
         }
 
+        let dayScored = 0, dayTradesCreated = 0, daySkipped = 0, dayD1State = 0, dayTrailWritten = 0;
+        const dayErrors = [];
+        const mergedStageCounts = {};
+        const mergedBlockReasons = {};
+
+        while (true) {
+        const batchTickers = allTickers.slice(tickerOffset, tickerOffset + tickerBatch);
+        const hasMore = tickerOffset + tickerBatch < allTickers.length;
+
+        if (batchTickers.length === 0) {
+          return sendJSON({ ok: true, processed: 0, hasMore: false, message: "no_tickers_in_batch", fullDay: !!fullDay }, 200, corsHeaders(env, req));
+        }
+
         // Set replay-running lock (prevents live scoring cron from overwriting replay trades)
-        await kvPutJSON(KV, "timed:replay:running", { since: Date.now(), date: dateParam, offset: tickerOffset });
+        await kvPutJSON(KV, "timed:replay:running", { since: Date.now(), date: dateParam, offset: tickerOffset, fullDay: !!fullDay });
 
         // Clean slate: purge ALL trades on first batch of a day (KV + D1)
         if (cleanSlate && tickerOffset === 0) {
@@ -30314,29 +30427,40 @@ export default {
           }
         }
 
-        // End-of-day processing: investor replay + portfolio snapshots (last batch only)
+        // End-of-day processing: investor replay + portfolio snapshots (last batch only; skip if skipInvestor=1)
         if (!hasMore) {
-          console.log(`[REPLAY] End-of-day for ${dateParam}: investor replay + snapshots (this can take 30-60s)`);
           await kvPutJSON(KV, "timed:replay:running", null);
-
-          // Run investor daily replay (evaluate entries/exits/DCA using scoring data)
-          try {
-            const invResult = await runInvestorDailyReplay(env, KV, replayCtx, dateParam);
-            if (invResult?.opened || invResult?.closed || invResult?.dcaBuys || invResult?.trimmed) {
-              console.log(`[REPLAY] Investor: +${invResult.opened} -${invResult.closed} dca=${invResult.dcaBuys} trim=${invResult.trimmed}`);
+          if (!skipInvestor) {
+            console.log(`[REPLAY] End-of-day for ${dateParam}: investor replay + snapshots (this can take 30-60s)`);
+            try {
+              const invResult = await runInvestorDailyReplay(env, KV, replayCtx, dateParam);
+              if (invResult?.opened || invResult?.closed || invResult?.dcaBuys || invResult?.trimmed) {
+                console.log(`[REPLAY] Investor: +${invResult.opened} -${invResult.closed} dca=${invResult.dcaBuys} trim=${invResult.trimmed}`);
+              }
+            } catch (invErr) {
+              console.warn("[REPLAY] Investor daily replay failed:", String(invErr).slice(0, 200));
             }
-          } catch (invErr) {
-            console.warn("[REPLAY] Investor daily replay failed:", String(invErr).slice(0, 200));
+            try {
+              await snapshotBothPortfolios(env, KV, replayCtx, dateParam);
+            } catch (snapErr) {
+              console.warn("[REPLAY] Portfolio snapshot failed:", String(snapErr).slice(0, 200));
+            }
+          } else {
+            // Persist end-of-day ticker state for later investor-only backfill
+            const dayState = {};
+            for (const sym of Object.keys(SECTOR_MAP)) {
+              try {
+                const td = await kvGetJSON(KV, `timed:latest:${sym}`);
+                if (td && td.price > 0) dayState[sym] = td;
+              } catch { /* skip */ }
+            }
+            try {
+              await kvPutJSON(KV, `timed:replay:daystate:${dateParam}`, dayState);
+              console.log(`[REPLAY] Last batch done (trader only); saved day state for ${dateParam} (${Object.keys(dayState).length} tickers)`);
+            } catch (e) {
+              console.warn("[REPLAY] Failed to save day state:", String(e).slice(0, 150));
+            }
           }
-
-          // Snapshot both portfolios
-          try {
-            await snapshotBothPortfolios(env, KV, replayCtx, dateParam);
-          } catch (snapErr) {
-            console.warn("[REPLAY] Portfolio snapshot failed:", String(snapErr).slice(0, 200));
-          }
-
-          console.log("[REPLAY] Last batch done, cleared replay:running lock");
         }
 
         // Diagnostic snapshot: last scoring state per ticker
@@ -30353,28 +30477,92 @@ export default {
           }
         }
 
+        if (fullDay) {
+          dayScored += scored;
+          dayTradesCreated += tradesCreated;
+          daySkipped += skipped;
+          dayD1State += d1StateWritten;
+          dayTrailWritten += trailWritten;
+          dayErrors.push(...errors);
+          for (const k of Object.keys(stageCounts || {})) mergedStageCounts[k] = (mergedStageCounts[k] || 0) + (stageCounts[k] || 0);
+          for (const k of Object.keys(blockReasons || {})) mergedBlockReasons[k] = (mergedBlockReasons[k] || 0) + (blockReasons[k] || 0);
+          if (hasMore) {
+            tickerOffset += tickerBatch;
+            continue;
+          }
+        }
+
         return sendJSON({
           ok: true,
           date: dateParam,
           tickerOffset,
           tickerBatch,
-          tickersProcessed: batchTickers.length,
+          tickersProcessed: fullDay ? allTickers.length : batchTickers.length,
           intervals: intervals.length,
           intervalMinutes,
-          scored,
-          skipped,
-          tradesCreated,
+          scored: fullDay ? dayScored : scored,
+          skipped: fullDay ? daySkipped : skipped,
+          tradesCreated: fullDay ? dayTradesCreated : tradesCreated,
           totalTrades: replayCtx.allTrades.length,
-          hasMore,
-          nextTickerOffset: hasMore ? tickerOffset + tickerBatch : null,
-          errorsCount: errors.length,
-          errors: errors.slice(0, 10),
-          stageCounts,
-          blockReasons,
-          d1StateWritten,
-          trailWritten,
+          hasMore: fullDay ? false : hasMore,
+          nextTickerOffset: fullDay ? null : (hasMore ? tickerOffset + tickerBatch : null),
+          errorsCount: fullDay ? dayErrors.length : errors.length,
+          errors: (fullDay ? dayErrors : errors).slice(0, 10),
+          stageCounts: fullDay ? mergedStageCounts : stageCounts,
+          blockReasons: fullDay ? mergedBlockReasons : blockReasons,
+          d1StateWritten: fullDay ? dayD1State : d1StateWritten,
+          trailWritten: fullDay ? dayTrailWritten : trailWritten,
           lastSnapshot,
+          fullDay: !!fullDay,
         }, 200, corsHeaders(env, req));
+        }
+      }
+
+      // POST /timed/admin/investor-replay?date=YYYY-MM-DD&key=...
+      // Run investor daily replay + snapshots for one day using stored day state.
+      // Day state must exist from a prior trader-only replay (timed:replay:daystate:YYYY-MM-DD).
+      if (routeKey === "POST /timed/admin/investor-replay") {
+        const authFail = requireKeyOr401(req, env);
+        if (authFail) return authFail;
+
+        const db = env?.DB;
+        const KV = env?.KV_TIMED;
+        if (!db || !KV) return sendJSON({ ok: false, error: "no_db_or_kv" }, 500, corsHeaders(env, req));
+
+        const dateParam = url.searchParams.get("date");
+        if (!dateParam || !/^\d{4}-\d{2}-\d{2}$/.test(dateParam)) {
+          return sendJSON({ ok: false, error: "date param required (YYYY-MM-DD)" }, 400, corsHeaders(env, req));
+        }
+
+        let dayState;
+        try {
+          dayState = await kvGetJSON(KV, `timed:replay:daystate:${dateParam}`);
+        } catch (e) {
+          return sendJSON({ ok: false, error: "failed_to_load_day_state", detail: String(e).slice(0, 150) }, 500, corsHeaders(env, req));
+        }
+        if (!dayState || typeof dayState !== "object" || Object.keys(dayState).length === 0) {
+          return sendJSON({
+            ok: false,
+            error: "no_day_state",
+            message: "Run trader-only replay first for this date so day state is saved (timed:replay:daystate:" + dateParam + ")",
+          }, 400, corsHeaders(env, req));
+        }
+
+        try {
+          const invResult = await runInvestorDailyReplay(env, KV, null, dateParam, dayState);
+          if (invResult?.opened || invResult?.closed || invResult?.dcaBuys || invResult?.trimmed) {
+            console.log(`[INVESTOR-REPLAY] ${dateParam}: +${invResult.opened} -${invResult.closed} dca=${invResult.dcaBuys} trim=${invResult.trimmed}`);
+          }
+          await snapshotBothPortfolios(env, KV, null, dateParam, dayState);
+          return sendJSON({
+            ok: true,
+            date: dateParam,
+            investor: invResult || {},
+          }, 200, corsHeaders(env, req));
+        } catch (err) {
+          console.warn("[INVESTOR-REPLAY] Failed:", String(err).slice(0, 300));
+          return sendJSON({ ok: false, error: String(err?.message || err).slice(0, 200) }, 500, corsHeaders(env, req));
+        }
       }
 
       // POST /timed/admin/reopen-stale-exits?exitDate=YYYY-MM-DD&key=...
@@ -31397,7 +31585,11 @@ export default {
               try {
                 // null sinceDays → deep-history lookup: W gets ~2100 days, D gets 450, etc.
                 // This ensures 50+ candles per TF so scoring succeeds
-                await alpacaBackfill(env, [rawTicker], d1UpsertCandle, "all", null);
+                if (_usesTwelveData(env)) {
+                  await DataProvider.backfill(env, [rawTicker], "all", null);
+                } else {
+                  await alpacaBackfill(env, [rawTicker], d1UpsertCandle, "all", null);
+                }
                 console.log(`[USER_TICKERS] Deep backfilled candles for ${rawTicker}`);
 
                 // Immediately score so the ticker gets SL/TP/state/stage
@@ -31406,7 +31598,7 @@ export default {
                   const result = await computeServerSideScores(rawTicker, d1GetCandles, env, existing);
                   if (result) {
                     const now = Date.now();
-                    result.data_source = "alpaca";
+                    result.data_source = _usesTwelveData(env) ? "twelvedata" : "alpaca";
                     result.data_source_ts = now;
                     result.ingest_ts = now;
                     result.ingest_time = new Date(now).toISOString();
@@ -40956,48 +41148,70 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
     }
 
     // ═══════════════════════════════════════════════════════════════════════
-    // ALPACA BAR FETCHING — 5-min cadence, 4 AM - 8 PM ET (Phase 3)
+    // BAR FETCHING — 5-min cadence, 4 AM - 8 PM ET (Phase 3)
     //   Weekdays: */5 9-23 * * 1-5  (9:00-23:55 UTC)
     //             */5 0-1 * * 2-6   (00:00-01:55 UTC, = Mon-Fri evenings ET)
-    // Fetches bars from Alpaca and stores them in D1.
+    // Fetches bars from data provider (TwelveData or Alpaca) and stores in D1.
     // ═══════════════════════════════════════════════════════════════════════
-    const isAlpacaBarCron = vc.has("*/5 9-23 * * 1-5")
+    const isBarCron = vc.has("*/5 9-23 * * 1-5")
       || vc.has("*/5 0-1 * * 2-6");
-    if (isAlpacaBarCron) {
-      if (env.ALPACA_ENABLED === "true" && env.ALPACA_API_KEY_ID && env.ALPACA_API_SECRET_KEY) {
+    if (isBarCron) {
+      const useTD = _usesTwelveData(env);
+      const hasAlpacaCreds = env.ALPACA_ENABLED === "true" && env.ALPACA_API_KEY_ID && env.ALPACA_API_SECRET_KEY;
+      const hasTDCreds = useTD && env.TWELVEDATA_API_KEY;
 
-        // ── AlpacaStream lifecycle: start WS streaming if market is open ──
-        // The DO self-manages via alarm heartbeats once started.
-        if (env.ALPACA_STREAM) {
-          try {
-            const streamStatus = await alpacaStreamStatus(env);
-            if (!streamStatus.isRunning && isWithinOperatingHours()) {
-              const blocklist = new Set(["ES1!","NQ1!","YM1!","RTY1!","CL1!","GC1!","SI1!","HG1!","NG1!","BTCUSD","ETHUSD","US500","VX1!","SPX"]);
-              const userAddedForStream = await d1GetActiveUserTickersCached(env);
-              const symbols = [...new Set([...Object.keys(SECTOR_MAP), ...userAddedForStream])].filter(t => !blocklist.has(t) && /^[A-Z]{1,5}(-[A-Z]{1,2})?$/.test(t));
-              const startRes = await alpacaStreamStart(env, symbols);
-              console.log(`[ALPACA_STREAM] Started: ${symbols.length} symbols, result:`, JSON.stringify(startRes).slice(0, 200));
-            } else if (streamStatus.isRunning && !isWithinOperatingHours()) {
-              const stopRes = await alpacaStreamStop(env);
-              console.log("[ALPACA_STREAM] Stopped (outside operating hours):", JSON.stringify(stopRes).slice(0, 200));
-            }
-          } catch (streamErr) {
-            console.warn("[ALPACA_STREAM] Lifecycle error:", String(streamErr).slice(0, 200));
+      if (hasTDCreds || hasAlpacaCreds) {
+        // ── Stream lifecycle: start/stop WS streaming based on operating hours ──
+        try {
+          const streamStatus = await dataStreamStatus(env);
+          if (!streamStatus.isRunning && isWithinOperatingHours()) {
+            const blocklist = new Set(["ES1!","NQ1!","YM1!","RTY1!","CL1!","GC1!","SI1!","HG1!","NG1!","BTCUSD","ETHUSD","US500","VX1!","SPX"]);
+            const userAddedForStream = await d1GetActiveUserTickersCached(env);
+            const symbols = [...new Set([...Object.keys(SECTOR_MAP), ...userAddedForStream])].filter(t => !blocklist.has(t) && /^[A-Z]{1,5}(-[A-Z]{1,2})?$/.test(t));
+            const startRes = await dataStreamStart(env, symbols);
+            console.log(`[STREAM] Started (${useTD ? "TD" : "Alpaca"}): ${symbols.length} symbols, result:`, JSON.stringify(startRes).slice(0, 200));
+          } else if (streamStatus.isRunning && !isWithinOperatingHours()) {
+            const stopRes = await dataStreamStop(env);
+            console.log(`[STREAM] Stopped (${useTD ? "TD" : "Alpaca"}, outside operating hours):`, JSON.stringify(stopRes).slice(0, 200));
           }
+        } catch (streamErr) {
+          console.warn("[STREAM] Lifecycle error:", String(streamErr).slice(0, 200));
         }
 
-        // ── Bar cron: skip REST fetching when AlpacaStream is handling bars ──
+        // ── Bar cron: skip REST when WS stream is actively delivering bars ──
         let streamActive = false;
-        if (env.ALPACA_STREAM) {
-          try {
-            const st = await alpacaStreamStatus(env);
-            streamActive = st.isRunning && st.barsReceived > 0;
-          } catch (_) {}
-        }
+        try {
+          const st = await dataStreamStatus(env);
+          streamActive = st.isRunning && st.barsReceived > 0;
+        } catch (_) {}
 
         if (streamActive) {
-          console.log("[ALPACA CRON] Skipping REST bar fetch — AlpacaStream is active");
+          console.log(`[BAR CRON] Skipping REST bar fetch — ${useTD ? "PriceStream" : "AlpacaStream"} is active`);
+        } else if (useTD) {
+          // ── TwelveData REST bar fetch ──
+          try {
+            const SYMBOL_BLOCKLIST = new Set(["ES1!","NQ1!","YM1!","RTY1!","CL1!","GC1!","SI1!","BTCUSD","ETHUSD","US500","VX1!","SPX"]);
+            const userAdded = await d1GetActiveUserTickersCached(env);
+            const allTickers = [...new Set([...Object.keys(SECTOR_MAP), ...userAdded])]
+              .filter(t => !SYMBOL_BLOCKLIST.has(t) && /^[A-Z]{1,5}(-[A-Z]{1,2})?$/.test(t));
+            const result = await DataProvider.cronFetchLatest(env, allTickers);
+            if (result) {
+              console.log(`[TD CRON] Bars: ${result.upserted} upserted, ${result.errors} errors`);
+            }
+          } catch (err) {
+            console.error("[TD CRON] Error:", err);
+          }
+          // ── TwelveData crypto bars ──
+          try {
+            const cryptoResult = await DataProvider.cronFetchCrypto(env);
+            if (cryptoResult && (cryptoResult.upserted > 0 || cryptoResult.errors > 0)) {
+              console.log(`[TD CRYPTO CRON] ${cryptoResult.upserted} upserted, ${cryptoResult.errors} errors`);
+            }
+          } catch (err) {
+            console.error("[TD CRYPTO CRON] Error:", err);
+          }
         } else {
+          // ── Legacy Alpaca REST bar fetch ──
           try {
             const ALPACA_SYMBOL_BLOCKLIST = new Set([
               "ES1!", "NQ1!", "YM1!", "RTY1!", "CL1!", "GC1!", "SI1!",
@@ -41015,18 +41229,15 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           } catch (err) {
             console.error("[ALPACA CRON] Error:", err);
           }
-        }
-
-        // ── Crypto bars: always fetch via REST (AlpacaStream handles crypto WS separately) ──
-        // Keep REST as fallback; when AlpacaStream crypto WS is stable, this can be removed.
-        if (!streamActive) {
-          try {
-            const cryptoResult = await alpacaCronFetchCrypto(env);
-            if (cryptoResult.upserted > 0 || cryptoResult.errors > 0) {
-              console.log(`[ALPACA CRYPTO CRON] Fetched crypto bars: ${cryptoResult.upserted} upserted, ${cryptoResult.errors} errors`);
+          if (!streamActive) {
+            try {
+              const cryptoResult = await alpacaCronFetchCrypto(env);
+              if (cryptoResult.upserted > 0 || cryptoResult.errors > 0) {
+                console.log(`[ALPACA CRYPTO CRON] Fetched crypto bars: ${cryptoResult.upserted} upserted, ${cryptoResult.errors} errors`);
+              }
+            } catch (err) {
+              console.error("[ALPACA CRYPTO CRON] Error:", err);
             }
-          } catch (err) {
-            console.error("[ALPACA CRYPTO CRON] Error:", err);
           }
         }
       }
@@ -41035,7 +41246,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
 
     // ═══════════════════════════════════════════════════════════════════════
     // PRICE FEED — real-time price display + SL/TP checks
-    // Uses Alpaca Snapshots API for efficient batch price fetching.
+    // Uses Alpaca Snapshots or TwelveData Quotes for batch price fetching.
     // Stores prices in KV as `timed:prices` for the UI to poll.
     // Also checks open positions against SL/TP levels.
     // ═══════════════════════════════════════════════════════════════════════
@@ -41048,7 +41259,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
     const isLightweightPriceFeed = isPriceFeedCron
       && !vc.has("*/1 9-23 * * 1-5")
       && !vc.has("*/1 0-1 * * 2-6");
-    if (isPriceFeedCron && env.ALPACA_ENABLED === "true") {
+    if (isPriceFeedCron && (env.ALPACA_ENABLED === "true" || _usesTwelveData(env))) {
       const KV = env.KV_TIMED;
       try {
         const userAddedForPriceFeed = await d1GetActiveUserTickersCached(env);
@@ -41073,7 +41284,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           const needsRefresh = nonZeroCount < 10 || !hasAhData || (_utcM % 30 === 0);
           if (needsRefresh) {
             try {
-              const snapResult = await alpacaFetchSnapshots(env, allTickers);
+              const snapResult = await dataFetchSnapshots(env, allTickers);
               const snapshots = snapResult.snapshots || {};
               let restCount = 0;
               const CRYPTO_24H = new Set(["BTCUSD", "ETHUSD"]);
@@ -41280,7 +41491,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           try {
             const userAddedForPF = await d1GetActiveUserTickersCached(env);
             const allTickersForSnap = [...new Set([...Object.keys(SECTOR_MAP), ...userAddedForPF])];
-            const snapResult = await alpacaFetchSnapshots(env, allTickersForSnap);
+            const snapResult = await dataFetchSnapshots(env, allTickersForSnap);
             const snapshots = snapResult.snapshots || {};
             const CRYPTO_24H_FULL = new Set(["BTCUSD", "ETHUSD"]);
             for (const [sym, snap] of Object.entries(snapshots)) {
@@ -41548,15 +41759,15 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
     // ── Crypto bar fetching: true 24/7 coverage ──
     // Runs on EVERY */5 tick regardless of operating hours.
     // Crypto trades 24/7; only 2 tickers (BTCUSD, ETHUSD), lightweight.
-    if (env.ALPACA_ENABLED === "true" && env.ALPACA_API_KEY_ID && env.ALPACA_API_SECRET_KEY) {
+    if (_usesTwelveData(env) ? env.TWELVEDATA_API_KEY : (env.ALPACA_ENABLED === "true" && env.ALPACA_API_KEY_ID)) {
       ctx.waitUntil(
-        alpacaCronFetchCrypto(env)
-          .then(r => { if (r.upserted > 0) console.log(`[SCORING→CRYPTO] ${r.upserted} bars upserted`); })
+        (_usesTwelveData(env) ? DataProvider.cronFetchCrypto(env) : alpacaCronFetchCrypto(env))
+          .then(r => { if (r?.upserted > 0) console.log(`[SCORING→CRYPTO] ${r.upserted} bars upserted`); })
           .catch(e => console.warn("[SCORING→CRYPTO] error:", String(e).slice(0, 150)))
       );
     }
 
-    if (env.ALPACA_ENABLED === "true") {
+    if (env.ALPACA_ENABLED === "true" || _usesTwelveData(env)) {
       try {
         // ── COST GATE: Skip scoring entirely outside operating hours ──
         // Operating hours: 4 AM - 8 PM ET weekdays. This eliminates ~50% of all
@@ -41740,7 +41951,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             }
 
             const now = Date.now();
-            result.data_source = "alpaca";
+            result.data_source = _usesTwelveData(env) ? "twelvedata" : "alpaca";
             result.data_source_ts = now;
             result.ingest_ts = now;
             result.ingest_time = new Date(now).toISOString();

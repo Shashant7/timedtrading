@@ -18,10 +18,15 @@ database_id = "99fae5d6-98df-4e29-bab5-0665cac7a9ff"
 name = "PRICE_HUB"
 class_name = "PriceHub"
 
-# Durable Object: AlpacaStream — real-time Alpaca WebSocket price streaming
+# Durable Object: AlpacaStream — real-time Alpaca WebSocket price streaming (legacy)
 [[durable_objects.bindings]]
 name = "ALPACA_STREAM"
 class_name = "AlpacaStream"
+
+# Durable Object: PriceStream — TwelveData WebSocket price streaming
+[[durable_objects.bindings]]
+name = "PRICE_STREAM"
+class_name = "PriceStream"
 
 [[migrations]]
 tag = "v1"
@@ -30,6 +35,10 @@ new_classes = ["PriceHub"]
 [[migrations]]
 tag = "v2"
 new_classes = ["AlpacaStream"]
+
+[[migrations]]
+tag = "v3"
+new_classes = ["PriceStream"]
 
 [vars]
 DISCORD_ENABLE = "true"
@@ -43,6 +52,9 @@ TV_ACK_ALWAYS_200 = "true"
 ALPACA_ENABLED = "true"
 EXECUTION_MODE = "simulation"
 ALPACA_BASE_URL = "https://paper-api.alpaca.markets"
+# ── Data Provider: "twelvedata" or "alpaca" ──
+DATA_PROVIDER = "twelvedata"
+TWELVEDATA_PLAN = "pro"
 CF_ACCESS_TEAM_DOMAIN = "timedtrading"
 ADMIN_EMAIL = "shashant@gmail.com"
 EMAIL_ENABLED = "true"
@@ -105,10 +117,15 @@ database_id = "99fae5d6-98df-4e29-bab5-0665cac7a9ff"
 name = "PRICE_HUB"
 class_name = "PriceHub"
 
-# Durable Object: AlpacaStream — real-time Alpaca WebSocket price streaming
+# Durable Object: AlpacaStream — real-time Alpaca WebSocket price streaming (legacy)
 [[env.production.durable_objects.bindings]]
 name = "ALPACA_STREAM"
 class_name = "AlpacaStream"
+
+# Durable Object: PriceStream — TwelveData WebSocket price streaming
+[[env.production.durable_objects.bindings]]
+name = "PRICE_STREAM"
+class_name = "PriceStream"
 
 # Environment variables (non-sensitive config - stored here for persistence)
 # IMPORTANT: Secrets (API keys, webhooks) are NOT stored here for security
@@ -118,9 +135,10 @@ class_name = "AlpacaStream"
 # - TIMED_API_KEY: API key for POST /timed/ingest authentication
 # - DISCORD_WEBHOOK_URL: Discord webhook URL
 # - OPENAI_API_KEY: OpenAI API key for AI Assistant
-# - ALPACA_API_KEY_ID: Alpaca Markets API Key ID (Algo Trader+ plan)
-# - ALPACA_API_SECRET_KEY: Alpaca Markets API Secret Key
-# - FINNHUB_API_KEY: Finnhub API key for earnings & economic calendar (Daily Brief)
+# - ALPACA_API_KEY_ID: Alpaca Markets API Key ID (broker execution only)
+# - ALPACA_API_SECRET_KEY: Alpaca Markets API Secret Key (broker execution only)
+# - TWELVEDATA_API_KEY: TwelveData API key (data feed — Pro or Ultra plan)
+# - FINNHUB_API_KEY: Finnhub API key for earnings, economic calendar, and news (Daily Brief)
 # - SENDGRID_API_KEY: SendGrid API key for outbound emails
 # - EMAIL_HMAC_SECRET: HMAC secret for unsubscribe token signing
 #
@@ -144,6 +162,9 @@ TV_ACK_ALWAYS_200 = "true"
 ALPACA_ENABLED = "true"
 EXECUTION_MODE = "simulation"
 ALPACA_BASE_URL = "https://paper-api.alpaca.markets"
+# ── Data Provider: "twelvedata" or "alpaca" ──
+DATA_PROVIDER = "twelvedata"
+TWELVEDATA_PLAN = "pro"
 # Cloudflare Access — user auth via Google SSO / One-time PIN
 CF_ACCESS_TEAM_DOMAIN = "timedtrading"
 ADMIN_EMAIL = "shashant@gmail.com"

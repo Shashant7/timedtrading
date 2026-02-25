@@ -270,7 +270,7 @@ function parseForexFactoryHTML(html, dateStr) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════
-// Alpaca News Integration (for economic data releases)
+// Finnhub Market News Integration (replaces Alpaca News)
 // ═══════════════════════════════════════════════════════════════════════
 
 const ECON_KEYWORDS = [
@@ -288,58 +288,53 @@ const ECON_KEYWORDS = [
 ];
 
 /**
- * Fetch recent economic/market-moving news from Alpaca News API.
+ * Fetch recent economic/market-moving news from Finnhub General News API.
  * Filters for economic data releases and macro events.
  * @returns {Array<{headline, summary, source, created_at, url}>}
  */
-export async function fetchAlpacaEconNews(env, fromDate, toDate) {
-  const keyId = env?.ALPACA_API_KEY_ID;
-  const secret = env?.ALPACA_API_SECRET_KEY;
-  if (!keyId || !secret) {
-    console.warn("[ALPACA NEWS] No API keys configured");
+export async function fetchFinnhubMarketNews(env, fromDate, toDate) {
+  const token = env?.FINNHUB_API_KEY;
+  if (!token) {
+    console.warn("[FINNHUB NEWS] No API key configured (FINNHUB_API_KEY)");
     return [];
   }
   try {
-    // Alpaca News API v1beta1
-    const params = new URLSearchParams({
-      start: `${fromDate}T00:00:00Z`,
-      end: `${toDate}T23:59:59Z`,
-      sort: "desc",
-      limit: "50",
-      include_content: "false",
-    });
-    const url = `https://data.alpaca.markets/v1beta1/news?${params.toString()}`;
+    const fromTs = Math.floor(new Date(`${fromDate}T00:00:00Z`).getTime() / 1000);
+    const toTs = Math.floor(new Date(`${toDate}T23:59:59Z`).getTime() / 1000);
+    const url = `${FINNHUB_BASE}/news?category=general&minId=0&token=${token}`;
     const resp = await fetch(url, {
-      headers: {
-        "APCA-API-KEY-ID": keyId,
-        "APCA-API-SECRET-KEY": secret,
-        Accept: "application/json",
-      },
+      headers: { Accept: "application/json" },
+      signal: AbortSignal.timeout(15000),
     });
     if (!resp.ok) {
-      console.warn(`[ALPACA NEWS] Fetch failed: ${resp.status}`);
+      console.warn(`[FINNHUB NEWS] Fetch failed: ${resp.status}`);
       return [];
     }
-    const data = await resp.json();
-    const news = Array.isArray(data?.news) ? data.news : [];
-    console.log(`[ALPACA NEWS] Fetched ${news.length} articles (${fromDate} to ${toDate})`);
+    const news = await resp.json();
+    if (!Array.isArray(news)) return [];
 
-    // Filter to economic/macro news using keyword matching
-    const econNews = news.filter(article => {
+    // Filter to date range and economic keywords
+    const inRange = news.filter(a => {
+      const ts = Number(a.datetime) || 0;
+      return ts >= fromTs && ts <= toTs;
+    });
+    console.log(`[FINNHUB NEWS] ${inRange.length} articles in range (${fromDate} to ${toDate})`);
+
+    const econNews = inRange.filter(article => {
       const text = `${article.headline || ""} ${article.summary || ""}`.toLowerCase();
       return ECON_KEYWORDS.some(kw => text.includes(kw.toLowerCase()));
     });
 
-    console.log(`[ALPACA NEWS] ${econNews.length} economic/macro articles found`);
-    return econNews.map(a => ({
+    console.log(`[FINNHUB NEWS] ${econNews.length} economic/macro articles found`);
+    return econNews.slice(0, 20).map(a => ({
       headline: a.headline || "",
       summary: (a.summary || "").slice(0, 300),
       source: a.source || "",
-      created_at: a.created_at || "",
+      created_at: a.datetime ? new Date(a.datetime * 1000).toISOString() : "",
       url: a.url || "",
     }));
   } catch (e) {
-    console.error("[ALPACA NEWS] Error:", String(e).slice(0, 150));
+    console.error("[FINNHUB NEWS] Error:", String(e).slice(0, 150));
     return [];
   }
 }
@@ -432,7 +427,7 @@ export async function gatherDailyBriefData(env, type, opts = {}) {
     nqCandles,
     nqCandlesH1,
     nqCandlesM5,
-    alpacaEconNews,
+    finnhubEconNews,
     ffToday,
     ffYesterday,
   ] = await Promise.all([
@@ -483,8 +478,8 @@ export async function gatherDailyBriefData(env, type, opts = {}) {
     db && opts.d1GetCandles
       ? opts.d1GetCandles(env, "NQ1!", "5", 100).catch(() => ({ candles: [] }))
       : Promise.resolve({ candles: [] }),
-    // Alpaca economic/macro news (today + yesterday)
-    fetchAlpacaEconNews(env, yesterday, today),
+    // Finnhub economic/macro news (today + yesterday)
+    fetchFinnhubMarketNews(env, yesterday, today),
     // ForexFactory economic calendar (today)
     fetchForexFactoryCalendar(env, today),
     // ForexFactory economic calendar (yesterday)
@@ -586,7 +581,7 @@ export async function gatherDailyBriefData(env, type, opts = {}) {
     yesterdayEcon = ffYesterdayEvents;
   }
 
-  console.log(`[ECON] Sources: Finnhub today=${todayEcon.length}, yesterday=${yesterdayEcon.length}, week=${weekEcon.length}, FF today=${ffTodayEvents.length}, FF yesterday=${ffYesterdayEvents.length}, Alpaca news=${(alpacaEconNews || []).length}`);
+  console.log(`[ECON] Sources: Finnhub today=${todayEcon.length}, yesterday=${yesterdayEcon.length}, week=${weekEcon.length}, FF today=${ffTodayEvents.length}, FF yesterday=${ffYesterdayEvents.length}, Finnhub news=${(finnhubEconNews || []).length}`);
 
   // Open trades summary
   const trades = Array.isArray(tradesRaw) ? tradesRaw : [];
@@ -702,7 +697,7 @@ export async function gatherDailyBriefData(env, type, opts = {}) {
       ticker: p.ticker, shares: p.total_shares, avgEntry: p.avg_entry,
       costBasis: p.cost_basis, thesis: p.thesis, stage: p.investor_stage,
     })),
-    alpacaEconNews: (alpacaEconNews || []).slice(0, 10),
+    econNews: (finnhubEconNews || []).slice(0, 10),
     morningPrediction: morningBrief?.es_prediction || null,
     morningContent: type === "evening" ? (morningBrief?.content || "").slice(0, 1500) : null,
   };
@@ -1063,9 +1058,9 @@ ${data.economicEvents.length > 0
     ? data.economicEvents.map(fmtEconEvent).join("\n")
     : "No additional major US economic events this week."}
 
-## Market-Moving News Headlines (from Alpaca News):
-${(data.alpacaEconNews || []).length > 0
-    ? data.alpacaEconNews.map(n => `- [${(n.created_at || "").slice(0, 16)}] ${n.headline}${n.summary ? " — " + n.summary.slice(0, 150) : ""}`).join("\n")
+## Market-Moving News Headlines:
+${(data.econNews || []).length > 0
+    ? data.econNews.map(n => `- [${(n.created_at || "").slice(0, 16)}] ${n.headline}${n.summary ? " — " + n.summary.slice(0, 150) : ""}`).join("\n")
     : "No major economic/macro news headlines found."}
 
 ## Active Trader — Open Positions:
@@ -1183,9 +1178,9 @@ ${data.yesterdayEconomicEvents.length > 0
     ? data.yesterdayEconomicEvents.map(fmtEconEvent).join("\n")
     : "No major US economic releases yesterday."}
 
-## Market-Moving News Headlines (from Alpaca News):
-${(data.alpacaEconNews || []).length > 0
-    ? data.alpacaEconNews.map(n => `- [${(n.created_at || "").slice(0, 16)}] ${n.headline}${n.summary ? " — " + n.summary.slice(0, 150) : ""}`).join("\n")
+## Market-Moving News Headlines:
+${(data.econNews || []).length > 0
+    ? data.econNews.map(n => `- [${(n.created_at || "").slice(0, 16)}] ${n.headline}${n.summary ? " — " + n.summary.slice(0, 150) : ""}`).join("\n")
     : "No major economic/macro news headlines found."}
 
 ## After-Hours Earnings:
