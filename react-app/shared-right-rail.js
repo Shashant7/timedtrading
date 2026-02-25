@@ -553,13 +553,15 @@
           if (!latestTicker || !ticker) return base;
           const liveOverlay = {};
           const LIVE_KEYS = [
-            "_live_price", "_live_prev_close", "_live_daily_high",
-            "_live_daily_low", "_live_daily_volume", "_price_updated_at",
+            "_live_price", "_live_prev_close", "prev_close",
+            "_live_daily_high", "_live_daily_low", "_live_daily_volume",
+            "_price_updated_at",
             "_ah_price", "_ah_change", "_ah_change_pct",
             "day_change_pct", "day_change", "change_pct", "change",
           ];
           for (const k of LIVE_KEYS) {
-            if (ticker[k] !== undefined) liveOverlay[k] = ticker[k];
+            const v = ticker[k];
+            if (v !== undefined && v !== null) liveOverlay[k] = v;
           }
           return { ...base, ...liveOverlay };
         }, [latestTicker, ticker]);
@@ -1043,69 +1045,19 @@
               {/* Scrollable Content Area */}
               <div className="flex-1 overflow-y-auto">
                 <div className="sticky top-0 z-30 bg-[#0b0e11] border-b border-white/[0.04] px-5 py-3">
-                  {/* ── Row 1: Share + Close at very top right ── */}
-                  <div className="flex items-start justify-between">
-                    <div className="flex items-center gap-2 flex-wrap min-w-0">
-                      {/* Ticker + Bias pill */}
+                  {/* ── Row 1: Ticker + Direction (left) | Close/Share (right) ── */}
+                  <div className="flex items-center justify-between mb-1">
+                    <div className="flex items-center gap-2 min-w-0">
                       <h3 className="text-xl font-bold leading-none">{tickerSymbol}</h3>
                       {(() => {
                         const d = resolvedDir;
-                        const color = d === "LONG" ? "text-teal-400" : d === "SHORT" ? "text-rose-400" : "text-[#6b7280]";
-                        const bg = d === "LONG" ? "bg-teal-500/20" : d === "SHORT" ? "bg-rose-500/20" : "bg-white/[0.04]";
-                        const label = d === "LONG" ? "📈 LONG" : d === "SHORT" ? "📉 SHORT" : "—";
                         return (
-                          <span className={`inline-block px-2 py-0.5 rounded-md font-bold text-xs ${bg} ${color} border border-current/30`}>
-                            {label}
+                          <span className={`inline-flex items-center justify-center px-1.5 py-px rounded text-[9px] font-black tracking-wide ${d === "LONG" ? "bg-cyan-500/80 text-white ring-1 ring-cyan-300/60" : d === "SHORT" ? "bg-rose-600/80 text-white ring-1 ring-rose-400/60" : "bg-white/[0.04] text-[#6b7280]"}`}>
+                            {d || "—"}
                           </span>
-                        );
-                      })()}
-                      {/* CP + daily change inline — admin only for legal compliance */}
-                      {document.body.dataset.userRole === "admin" && (() => {
-                        const src = priceSrc;
-                        const price = Number(src?._live_price || src?.price || src?.close || 0);
-                        if (!price) return null;
-                        const priceAge = src._price_updated_at ? (Date.now() - src._price_updated_at) / 60000 : Infinity;
-                        const scoreAge = src.data_source_ts ? (Date.now() - src.data_source_ts) / 60000 : Infinity;
-                        const freshestAge = Math.min(priceAge, scoreAge);
-                        return (
-                          <span className="text-sm text-white font-semibold flex items-center gap-1">
-                            ${price.toFixed(2)}
-                            {freshestAge <= 2
-                              ? <span className="inline-block w-1.5 h-1.5 rounded-full bg-green-400" title={`Updated ${Math.round(freshestAge)}m ago`} />
-                              : freshestAge <= 10
-                                ? <span className="inline-block w-1.5 h-1.5 rounded-full bg-amber-400" title={`Updated ${Math.round(freshestAge)}m ago`} />
-                                : <span className="inline-block w-1.5 h-1.5 rounded-full bg-red-400" title={`Updated ${Math.round(freshestAge)}m ago`} />
-                            }
-                          </span>
-                        );
-                      })()}
-                      {document.body.dataset.userRole === "admin" && (() => {
-                        const src = priceSrc;
-                        const { dayChg, dayPct, stale, marketOpen } = getDailyChange(src);
-                        if (!Number.isFinite(dayChg) && !Number.isFinite(dayPct)) return null;
-                        const sign = Number(dayChg || dayPct || 0) >= 0 ? "+" : "-";
-                        const cls = Number(dayChg || dayPct || 0) >= 0 ? "text-green-400" : "text-red-400";
-                        const ahPct = Number(src?._ah_change_pct);
-                        const ahChg = Number(src?._ah_change);
-                        const hasAH = Number.isFinite(ahPct) && ahPct !== 0;
-                        return (
-                          <>
-                            <span className={`text-xs font-semibold ${cls}`}>
-                              {Number.isFinite(dayChg) ? `${sign}${fmtUsdAbs(dayChg)}` : ""}{" "}
-                              {Number.isFinite(dayPct) ? `(${sign}${Math.abs(dayPct).toFixed(2)}%)` : ""}
-                            </span>
-                            {hasAH && (
-                              <span className={`text-[10px] font-medium ${ahPct >= 0 ? "text-green-400" : "text-red-400"}`}>
-                                {ahPct >= 0 ? "+" : ""}{ahPct.toFixed(2)}%
-                                {Number.isFinite(ahChg) ? ` ${ahChg >= 0 ? "+" : ""}$${Math.abs(ahChg).toFixed(2)}` : ""}
-                                <span className="ml-0.5 text-[9px] text-[#6b7280]">AH</span>
-                              </span>
-                            )}
-                          </>
                         );
                       })()}
                     </div>
-                    {/* Share + Close buttons — top right */}
                     <div className="flex items-center gap-0.5 shrink-0 ml-2">
                       <button
                         onClick={() => {
@@ -1139,7 +1091,50 @@
                     </div>
                   </div>
 
-                  {/* ── Row 2: Entry stats (if open position) ── */}
+                  {/* ── Row 2: Price + Daily Change + EXT (admin only) ── */}
+                  {document.body.dataset.userRole === "admin" && (() => {
+                    const src = priceSrc;
+                    const price = Number(src?._live_price || src?.price || src?.close || 0);
+                    if (!price) return null;
+                    const priceAge = src._price_updated_at ? (Date.now() - src._price_updated_at) / 60000 : Infinity;
+                    const scoreAge = src.data_source_ts ? (Date.now() - src.data_source_ts) / 60000 : Infinity;
+                    const freshestAge = Math.min(priceAge, scoreAge);
+                    const freshnessColor = freshestAge <= 2 ? "bg-green-400" : freshestAge <= 10 ? "bg-amber-400" : "bg-red-400";
+                    const { dayChg, dayPct } = getDailyChange(src) || {};
+                    const chgVal = Number(dayChg || dayPct || 0);
+                    const chgColor = chgVal >= 0
+                      ? (Math.abs(dayPct || 0) >= 3 ? "#4ade80" : "#00e676")
+                      : (Math.abs(dayPct || 0) >= 3 ? "#fb7185" : "#f87171");
+                    const chgSign = chgVal >= 0 ? "+" : "";
+                    const ahPct = Number(src?._ah_change_pct);
+                    const hasAH = Number.isFinite(ahPct) && ahPct !== 0;
+                    return (
+                      <div className="flex items-end justify-between mt-1.5">
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-white font-bold text-lg tabular-nums leading-tight" style={{ textShadow: "0 1px 3px rgba(0,0,0,0.8)" }}>
+                            ${price.toFixed(2)}
+                          </span>
+                          <span className={`inline-block w-1.5 h-1.5 rounded-full ${freshnessColor}`} title={`Updated ${Math.round(freshestAge)}m ago`} />
+                        </div>
+                        <div className="flex flex-col items-end">
+                          {Number.isFinite(dayPct) && (
+                            <span className="text-[11px] font-bold tabular-nums leading-tight" style={{ color: chgColor, textShadow: "0 1px 4px rgba(0,0,0,0.7)" }}>
+                              {chgSign}{dayPct.toFixed(2)}%
+                              {Number.isFinite(dayChg) ? ` (${chgSign}$${Math.abs(dayChg).toFixed(2)})` : ""}
+                            </span>
+                          )}
+                          {hasAH && (
+                            <span className={`text-[10px] font-medium tabular-nums leading-tight mt-0.5 ${ahPct >= 0 ? "text-[#00e676]" : "text-rose-400"}`}>
+                              <span className="text-[9px] text-gray-400 mr-0.5">EXT</span>
+                              {ahPct >= 0 ? "+" : ""}{ahPct.toFixed(2)}%
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })()}
+
+                  {/* ── Row 3: Entry stats (if open position) ── */}
                   {(() => {
                     const stage = String(ticker?.kanban_stage || "");
                     const showEntryStats = ["enter_now", "hold", "just_entered", "trim", "exit"].includes(stage);
