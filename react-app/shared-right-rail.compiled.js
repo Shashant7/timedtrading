@@ -709,6 +709,11 @@
       const [emaExpanded, setEmaExpanded] = useState(true);
       const [tpExpanded, setTpExpanded] = useState(true);
 
+      // Price source: always use the ticker prop (same object the Card renders)
+      // for price/change display. latestTicker is only for context/scoring data.
+      // This guarantees the right rail shows identical values to the card.
+      const priceSrc = ticker || {};
+
       // Prevent stale crosshair data from crashing renders when switching
       // tickers/timeframes/tabs quickly (e.g. clicking Chart right after selecting a ticker).
       useEffect(() => {
@@ -1137,59 +1142,16 @@
       }, /*#__PURE__*/React.createElement("div", {
         className: "sticky top-0 z-30 bg-[#0b0e11] border-b border-white/[0.04] px-5 py-3"
       }, /*#__PURE__*/React.createElement("div", {
-        className: "flex items-start justify-between"
+        className: "flex items-center justify-between mb-1"
       }, /*#__PURE__*/React.createElement("div", {
-        className: "flex items-center gap-2 flex-wrap min-w-0"
+        className: "flex items-center gap-2 min-w-0"
       }, /*#__PURE__*/React.createElement("h3", {
         className: "text-xl font-bold leading-none"
       }, tickerSymbol), (() => {
         const d = resolvedDir;
-        const color = d === "LONG" ? "text-teal-400" : d === "SHORT" ? "text-rose-400" : "text-[#6b7280]";
-        const bg = d === "LONG" ? "bg-teal-500/20" : d === "SHORT" ? "bg-rose-500/20" : "bg-white/[0.04]";
-        const label = d === "LONG" ? "📈 LONG" : d === "SHORT" ? "📉 SHORT" : "—";
         return /*#__PURE__*/React.createElement("span", {
-          className: `inline-block px-2 py-0.5 rounded-md font-bold text-xs ${bg} ${color} border border-current/30`
-        }, label);
-      })(), document.body.dataset.userRole === "admin" && (() => {
-        const src = latestTicker || ticker;
-        const price = Number(src?._live_price || src?.price || src?.close || 0);
-        if (!price) return null;
-        const priceAge = src._price_updated_at ? (Date.now() - src._price_updated_at) / 60000 : Infinity;
-        const scoreAge = src.data_source_ts ? (Date.now() - src.data_source_ts) / 60000 : Infinity;
-        const freshestAge = Math.min(priceAge, scoreAge);
-        return /*#__PURE__*/React.createElement("span", {
-          className: "text-sm text-white font-semibold flex items-center gap-1"
-        }, "$", price.toFixed(2), freshestAge <= 2 ? /*#__PURE__*/React.createElement("span", {
-          className: "inline-block w-1.5 h-1.5 rounded-full bg-green-400",
-          title: `Updated ${Math.round(freshestAge)}m ago`
-        }) : freshestAge <= 10 ? /*#__PURE__*/React.createElement("span", {
-          className: "inline-block w-1.5 h-1.5 rounded-full bg-amber-400",
-          title: `Updated ${Math.round(freshestAge)}m ago`
-        }) : /*#__PURE__*/React.createElement("span", {
-          className: "inline-block w-1.5 h-1.5 rounded-full bg-red-400",
-          title: `Updated ${Math.round(freshestAge)}m ago`
-        }));
-      })(), document.body.dataset.userRole === "admin" && (() => {
-        const src = latestTicker || ticker;
-        const {
-          dayChg,
-          dayPct,
-          stale,
-          marketOpen
-        } = getDailyChange(src);
-        if (!Number.isFinite(dayChg) && !Number.isFinite(dayPct)) return null;
-        const sign = Number(dayChg || dayPct || 0) >= 0 ? "+" : "-";
-        const cls = Number(dayChg || dayPct || 0) >= 0 ? "text-green-400" : "text-red-400";
-        const ahPct = Number(src?._ah_change_pct);
-        const ahChg = Number(src?._ah_change);
-        const hasAH = Number.isFinite(ahPct) && ahPct !== 0;
-        return /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("span", {
-          className: `text-xs font-semibold ${cls}`
-        }, Number.isFinite(dayChg) ? `${sign}${fmtUsdAbs(dayChg)}` : "", " ", Number.isFinite(dayPct) ? `(${sign}${Math.abs(dayPct).toFixed(2)}%)` : ""), hasAH && /*#__PURE__*/React.createElement("span", {
-          className: `text-[10px] font-medium ${ahPct >= 0 ? "text-green-400" : "text-red-400"}`
-        }, ahPct >= 0 ? "+" : "", ahPct.toFixed(2), "%", Number.isFinite(ahChg) ? ` ${ahChg >= 0 ? "+" : ""}$${Math.abs(ahChg).toFixed(2)}` : "", /*#__PURE__*/React.createElement("span", {
-          className: "ml-0.5 text-[9px] text-[#6b7280]"
-        }, "AH")));
+          className: `inline-flex items-center justify-center px-1.5 py-px rounded text-[9px] font-black tracking-wide ${d === "LONG" ? "bg-cyan-500/80 text-white ring-1 ring-cyan-300/60" : d === "SHORT" ? "bg-rose-600/80 text-white ring-1 ring-rose-400/60" : "bg-white/[0.04] text-[#6b7280]"}`
+        }, d || "—");
       })()), /*#__PURE__*/React.createElement("div", {
         className: "flex items-center gap-0.5 shrink-0 ml-2"
       }, /*#__PURE__*/React.createElement("button", {
@@ -1242,7 +1204,49 @@
       }))), /*#__PURE__*/React.createElement("button", {
         onClick: onClose,
         className: "text-[#6b7280] hover:text-white transition-colors text-lg leading-none w-7 h-7 flex items-center justify-center rounded hover:bg-white/[0.04]"
-      }, "\u2715"))), (() => {
+      }, "\u2715"))), document.body.dataset.userRole === "admin" && (() => {
+        const src = priceSrc;
+        const price = Number(src?._live_price || src?.price || src?.close || 0);
+        if (!price) return null;
+        const priceAge = src._price_updated_at ? (Date.now() - src._price_updated_at) / 60000 : Infinity;
+        const scoreAge = src.data_source_ts ? (Date.now() - src.data_source_ts) / 60000 : Infinity;
+        const freshestAge = Math.min(priceAge, scoreAge);
+        const freshnessColor = freshestAge <= 2 ? "bg-green-400" : freshestAge <= 10 ? "bg-amber-400" : "bg-red-400";
+        const {
+          dayChg,
+          dayPct
+        } = getDailyChange(src) || {};
+        const chgVal = Number(dayChg || dayPct || 0);
+        const chgColor = chgVal >= 0 ? Math.abs(dayPct || 0) >= 3 ? "#4ade80" : "#00e676" : Math.abs(dayPct || 0) >= 3 ? "#fb7185" : "#f87171";
+        const chgSign = chgVal >= 0 ? "+" : "";
+        const ahPct = Number(src?._ah_change_pct);
+        const hasAH = Number.isFinite(ahPct) && ahPct !== 0;
+        return /*#__PURE__*/React.createElement("div", {
+          className: "flex items-end justify-between mt-1.5"
+        }, /*#__PURE__*/React.createElement("div", {
+          className: "flex items-center gap-1.5"
+        }, /*#__PURE__*/React.createElement("span", {
+          className: "text-white font-bold text-lg tabular-nums leading-tight",
+          style: {
+            textShadow: "0 1px 3px rgba(0,0,0,0.8)"
+          }
+        }, "$", price.toFixed(2)), /*#__PURE__*/React.createElement("span", {
+          className: `inline-block w-1.5 h-1.5 rounded-full ${freshnessColor}`,
+          title: `Updated ${Math.round(freshestAge)}m ago`
+        })), /*#__PURE__*/React.createElement("div", {
+          className: "flex flex-col items-end"
+        }, Number.isFinite(dayPct) && /*#__PURE__*/React.createElement("span", {
+          className: "text-[11px] font-bold tabular-nums leading-tight",
+          style: {
+            color: chgColor,
+            textShadow: "0 1px 4px rgba(0,0,0,0.7)"
+          }
+        }, chgSign, dayPct.toFixed(2), "%", Number.isFinite(dayChg) ? ` (${chgSign}$${Math.abs(dayChg).toFixed(2)})` : ""), hasAH && /*#__PURE__*/React.createElement("span", {
+          className: `text-[10px] font-medium tabular-nums leading-tight mt-0.5 ${ahPct >= 0 ? "text-[#00e676]" : "text-rose-400"}`
+        }, /*#__PURE__*/React.createElement("span", {
+          className: "text-[9px] text-gray-400 mr-0.5"
+        }, "EXT"), ahPct >= 0 ? "+" : "", ahPct.toFixed(2), "%")));
+      })(), (() => {
         const stage = String(ticker?.kanban_stage || "");
         const showEntryStats = ["enter_now", "hold", "just_entered", "trim", "exit"].includes(stage);
         if (!showEntryStats) return null;
@@ -3809,7 +3813,7 @@
         }, duration)), isClosed && /*#__PURE__*/React.createElement("span", {
           className: `text-xs font-bold ${isFlat ? "text-[#6b7280]" : computedPnlPct >= 0 ? "text-green-400" : "text-red-400"}`
         }, computedPnlPct >= 0 ? "+" : "", computedPnlPct.toFixed(2), "%")), !isClosed && document.body.dataset.userRole === "admin" && (() => {
-          const src = latestTicker || ticker;
+          const src = priceSrc;
           const cp = Number(src?.currentPrice ?? src?.cp ?? 0);
           const dayPct = Number(src?.dayPct ?? src?.dailyChangePct ?? 0);
           const dayChg = Number(src?.dayChg ?? src?.dailyChange ?? 0);
