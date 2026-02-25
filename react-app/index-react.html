@@ -17037,62 +17037,20 @@
                           selectedTicker ? "lg:mr-[470px]" : ""
                         }`}
                       >
-                        {/* Bubble Chart Legend */}
-                        <div className="px-3 py-2 mb-1 rounded-lg border border-white/[0.06] bg-white/[0.02] space-y-1.5" data-coachmark="bubble-chart">
-                          {/* Row 1: Direction + Visual Properties */}
-                          <div className="flex items-center gap-4 text-[10px] text-[#9ca3af] flex-wrap">
-                            <span className="font-semibold text-white text-[11px]">Bubble Chart</span>
-
-                            <span className="flex items-center gap-1.5" title="Long-term trend is bullish — system favors buying pullbacks or breakouts">
-                              <svg width="14" height="14" viewBox="0 0 14 14"><defs><radialGradient id="lgLong" cx="35%" cy="35%"><stop offset="0%" stopColor="#fff" stopOpacity="0.18"/><stop offset="50%" stopColor="#22d3ee" stopOpacity="0.7"/><stop offset="100%" stopColor="#0891b2" stopOpacity="0.5"/></radialGradient></defs><circle cx="7" cy="7" r="6" fill="url(#lgLong)" stroke="#22d3ee" strokeWidth="1"/></svg>
-                              <span>LONG <span className="text-[#4b5563]">(bullish)</span></span>
-                            </span>
-                            <span className="flex items-center gap-1.5" title="Long-term trend is bearish — system favors shorting rallies or breakdowns">
-                              <svg width="14" height="14" viewBox="0 0 14 14"><defs><radialGradient id="lgShort" cx="35%" cy="35%"><stop offset="0%" stopColor="#fff" stopOpacity="0.18"/><stop offset="50%" stopColor="#e11d48" stopOpacity="0.7"/><stop offset="100%" stopColor="#be123c" stopOpacity="0.5"/></radialGradient></defs><circle cx="7" cy="7" r="6" fill="url(#lgShort)" stroke="#e11d48" strokeWidth="1"/></svg>
-                              <span>SHORT <span className="text-[#4b5563]">(bearish)</span></span>
-                            </span>
-                            <span className="flex items-center gap-1.5" title="No clear directional bias — waiting for trend confirmation">
-                              <svg width="14" height="14" viewBox="0 0 14 14"><defs><radialGradient id="lgNeutral" cx="35%" cy="35%"><stop offset="0%" stopColor="#fff" stopOpacity="0.18"/><stop offset="50%" stopColor="#eab308" stopOpacity="0.6"/><stop offset="100%" stopColor="#ca8a04" stopOpacity="0.4"/></radialGradient></defs><circle cx="7" cy="7" r="6" fill="url(#lgNeutral)" stroke="#eab308" strokeWidth="1"/></svg>
-                              <span>Neutral</span>
-                            </span>
-
-                            <span className="text-[#4b5563]">|</span>
-
-                            <span className="flex items-center gap-1.5" title="Bigger bubble = higher Risk:Reward ratio with low completion — more upside remaining. Smaller = lower opportunity.">
-                              <svg width="28" height="14" viewBox="0 0 28 14">
-                                <circle cx="6" cy="7" r="3" fill="rgba(34,211,238,0.3)" stroke="#22d3ee" strokeWidth="0.7"/>
-                                <circle cx="20" cy="7" r="6" fill="rgba(34,211,238,0.3)" stroke="#22d3ee" strokeWidth="0.7"/>
-                              </svg>
-                              <span>Size = R:R</span>
-                            </span>
-
-                            <span className="flex items-center gap-1.5" title="Filled bubble = has scoring data from TradingView. Dashed outline = awaiting data (no scores yet).">
-                              <svg width="28" height="14" viewBox="0 0 28 14">
-                                <circle cx="6" cy="7" r="4.5" fill="rgba(34,211,238,0.4)" stroke="#22d3ee" strokeWidth="0.7"/>
-                                <circle cx="20" cy="7" r="4.5" fill="rgba(255,255,255,0.04)" stroke="rgba(255,255,255,0.3)" strokeWidth="0.7" strokeDasharray="2 2"/>
-                              </svg>
-                              <span>Fill = scored vs awaiting</span>
-                            </span>
-                          </div>
-
-                          {/* Row 2: Axes + Special States */}
-                          <div className="flex items-center gap-4 text-[10px] text-[#9ca3af] flex-wrap pl-[90px]">
-                            <span title="X-axis plots the Lower Timeframe Score — measures short-term momentum. Right = strong short-term uptrend, Left = short-term downtrend.">X: Short-term momentum</span>
-                            <span title="Y-axis plots the Higher Timeframe Score — measures long-term trend strength. Top = strong long-term uptrend, Bottom = long-term downtrend.">Y: Long-term trend</span>
-
-                            <span className="text-[#4b5563]">|</span>
-
-                            <span className="flex items-center gap-1.5" title="Pulsing glow ring = the system is highlighting this ticker for entry or active trade management (Enter, Hold, Defend, Trim, or Exit stage)">
-                              <svg width="14" height="14" viewBox="0 0 14 14"><circle cx="7" cy="7" r="5" fill="none" stroke="#22d3ee" strokeWidth="1.5" opacity="0.6"><animate attributeName="r" values="4;6;4" dur="2s" repeatCount="indefinite"/><animate attributeName="opacity" values="0.3;0.7;0.3" dur="2s" repeatCount="indefinite"/></circle></svg>
-                              Actionable
-                            </span>
-                            <span className="flex items-center gap-1.5" title="High-conviction momentum — passes ADR, volume, market cap, and momentum gates for LONG (buying strength) or SHORT (shorting weakness)">
-                              🔥 MoElite
-                            </span>
-                            <span className="flex items-center gap-1.5" title="Flip Watch — price is near the optimal entry level, in or near the scoring entry corridor">
-                              🎯 Flip Watch
-                            </span>
-                          </div>
+                        {/* Bubble Chart Legend — single line */}
+                        <div className="px-3 py-1.5 mb-1 rounded-lg border border-white/[0.06] bg-white/[0.02] flex items-center gap-3 text-[10px] text-[#9ca3af] overflow-x-auto flex-nowrap" data-coachmark="bubble-chart">
+                          <span className="font-semibold text-white text-[11px] shrink-0">Bubble Chart</span>
+                          <span className="flex items-center gap-1 shrink-0" title="Long-term trend is bullish"><svg width="10" height="10" viewBox="0 0 10 10"><circle cx="5" cy="5" r="4" fill="rgba(34,211,238,0.5)" stroke="#22d3ee" strokeWidth="0.8"/></svg> Long</span>
+                          <span className="flex items-center gap-1 shrink-0" title="Long-term trend is bearish"><svg width="10" height="10" viewBox="0 0 10 10"><circle cx="5" cy="5" r="4" fill="rgba(225,29,72,0.5)" stroke="#e11d48" strokeWidth="0.8"/></svg> Short</span>
+                          <span className="flex items-center gap-1 shrink-0" title="No clear directional bias"><svg width="10" height="10" viewBox="0 0 10 10"><circle cx="5" cy="5" r="4" fill="rgba(234,179,8,0.4)" stroke="#eab308" strokeWidth="0.8"/></svg> Neutral</span>
+                          <span className="text-[#4b5563] shrink-0">|</span>
+                          <span className="shrink-0" title="X-axis = short-term momentum, Y-axis = long-term trend">X: Momentum · Y: Trend</span>
+                          <span className="shrink-0" title="Bigger bubble = higher risk-to-reward with more upside remaining">Size = R:R</span>
+                          <span className="shrink-0" title="Filled = has scoring data, Dashed outline = awaiting data">Filled = scored</span>
+                          <span className="text-[#4b5563] shrink-0">|</span>
+                          <span className="flex items-center gap-1 shrink-0" title="Pulsing glow = system highlighting for entry or active management"><svg width="10" height="10" viewBox="0 0 10 10"><circle cx="5" cy="5" r="3.5" fill="none" stroke="#22d3ee" strokeWidth="1" opacity="0.6"><animate attributeName="r" values="3;4.5;3" dur="2s" repeatCount="indefinite"/><animate attributeName="opacity" values="0.3;0.7;0.3" dur="2s" repeatCount="indefinite"/></circle></svg> Actionable</span>
+                          <span className="shrink-0" title="High-conviction momentum setup">🔥 MoElite</span>
+                          <span className="shrink-0" title="Price near optimal entry level">🎯 Flip Watch</span>
                         </div>
                         <div className="h-[600px] sm:h-[700px] md:h-[800px] lg:h-[870px]">
                           {loading && tickers.length === 0 ? (
