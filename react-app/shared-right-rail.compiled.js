@@ -1484,15 +1484,15 @@
         }
         if (pills.length === 0) return null;
         return /*#__PURE__*/React.createElement("div", {
-          className: "mt-1.5 flex items-center gap-2 flex-wrap text-[10px]"
-        }, pills.map((p, i) => /*#__PURE__*/React.createElement("span", {
+          className: "mt-1.5 flex gap-3 flex-wrap text-[10px]"
+        }, pills.map((p, i) => /*#__PURE__*/React.createElement("div", {
           key: `ip-${i}`,
-          className: "inline-flex items-center gap-1 cursor-default",
+          className: "flex flex-col items-center gap-0.5 cursor-default",
           title: p.tip
         }, /*#__PURE__*/React.createElement("span", {
           className: `px-1.5 py-0.5 rounded border font-semibold ${p.cls}`
         }, p.label), /*#__PURE__*/React.createElement("span", {
-          className: "text-[#6b7280] text-[9px]"
+          className: "text-[#6b7280] text-[8px] leading-none"
         }, p.desc))));
       })(), /*#__PURE__*/React.createElement("div", {
         className: "mt-3 flex items-center gap-1.5 overflow-x-auto",

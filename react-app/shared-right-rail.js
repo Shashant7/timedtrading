@@ -1305,12 +1305,12 @@
 
                     if (pills.length === 0) return null;
                     return (
-                      <div className="mt-1.5 flex items-center gap-2 flex-wrap text-[10px]">
+                      <div className="mt-1.5 flex gap-3 flex-wrap text-[10px]">
                         {pills.map((p, i) => (
-                          <span key={`ip-${i}`} className="inline-flex items-center gap-1 cursor-default" title={p.tip}>
+                          <div key={`ip-${i}`} className="flex flex-col items-center gap-0.5 cursor-default" title={p.tip}>
                             <span className={`px-1.5 py-0.5 rounded border font-semibold ${p.cls}`}>{p.label}</span>
-                            <span className="text-[#6b7280] text-[9px]">{p.desc}</span>
-                          </span>
+                            <span className="text-[#6b7280] text-[8px] leading-none">{p.desc}</span>
+                          </div>
                         ))}
                       </div>
                     );
