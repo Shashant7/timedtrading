@@ -23334,6 +23334,7 @@ export default {
                   // Apply daily change from price feed if non-zero
                   const pfDc = Number(pf.dc);
                   const pfDp = Number(pf.dp);
+                  if (sym === "MSFT") data._debug_msft = { pfDp, pfDc, pfPc: Number(pf.pc), pfPcUsable, bestPc, dailyCandlePc: pcCache[sym] || 0 };
                   if (Number.isFinite(pfDp) && pfDp !== 0) {
                     obj.day_change_pct = pfDp;
                     obj.change_pct = pfDp;
@@ -23341,7 +23342,9 @@ export default {
                       obj.day_change = pfDc;
                       obj.change = pfDc;
                     }
-                    if (bestPc > 0) obj.prev_close = bestPc;
+                    // Trust pfPc when price feed has session-aware daily change
+                    const feedPc = pfPcUsable ? pfPc : bestPc;
+                    if (feedPc > 0) { obj.prev_close = feedPc; obj._live_prev_close = feedPc; }
                   } else if (!Number.isFinite(Number(obj.day_change_pct)) || Number(obj.day_change_pct) === 0) {
                     // Price feed has no daily change AND snapshot has none — compute from bestPc
                     if (bestPc > 0 && pfP > 0) {
@@ -23357,8 +23360,11 @@ export default {
                     }
                   }
                 }
+                data._price_overlay = { ok: true, updated_at: pricesUpdatedAt, tickers: Object.keys(livePrices.prices).length };
               }
-            } catch (_) { /* price overlay failed — serve snapshot as-is */ }
+            } catch (overlayErr) {
+              data._price_overlay = { ok: false, error: String(overlayErr?.message || overlayErr).slice(0, 200) };
+            }
 
             // ── Heartbeat fallback: catch futures/crypto still missing from data ──
             try {
@@ -29683,6 +29689,8 @@ export default {
           const snapshots = snapResult.snapshots || {};
           let existingPrices = {};
           try { const raw = await kvGetJSON(env.KV_TIMED, "timed:prices"); existingPrices = raw?.prices || {}; } catch (_) {}
+          const _mktOpen = isNyRegularMarketOpen();
+          const _mktClosed = !_mktOpen;
           const prices = {};
           for (const [sym, snap] of Object.entries(snapshots)) {
             const price = snap.price;
@@ -29694,15 +29702,22 @@ export default {
               : (price && prevClose && prevClose > 0) ? Math.round((price - prevClose) * 100) / 100 : 0;
             const dp = (Number.isFinite(nativeDp) && nativeDp !== 0) ? Math.round(nativeDp * 100) / 100
               : (price && prevClose && prevClose > 0) ? Math.round(((price - prevClose) / prevClose) * 10000) / 100 : 0;
+            const dayRolled = _mktClosed && dc === 0 && dp === 0 && Number.isFinite(prev.dc) && prev.dc !== 0;
             const nativeExtDc = Number(snap.extendedChange);
             const nativeExtDp = Number(snap.extendedPercentChange);
             const nativeExtP = Number(snap.extendedPrice);
-            const entry = { p: Math.round(price * 100) / 100, pc: Math.round(prevClose * 100) / 100, dc, dp, t: Date.now() };
+            const entry = {
+              p: Math.round(price * 100) / 100,
+              pc: (dayRolled && prev.pc > 0) ? prev.pc : Math.round(prevClose * 100) / 100,
+              dc: dayRolled ? prev.dc : dc,
+              dp: dayRolled ? prev.dp : dp,
+              t: Date.now(),
+            };
             if (Number.isFinite(nativeExtDc) && nativeExtDc !== 0) {
               entry.ahdc = Math.round(nativeExtDc * 100) / 100;
               entry.ahdp = Number.isFinite(nativeExtDp) ? Math.round(nativeExtDp * 100) / 100 : 0;
               if (Number.isFinite(nativeExtP) && nativeExtP > 0) entry.ahp = Math.round(nativeExtP * 100) / 100;
-            } else {
+            } else if (_mktClosed) {
               if (prev.ahdc !== undefined) entry.ahdc = prev.ahdc;
               if (prev.ahdp !== undefined) entry.ahdp = prev.ahdp;
               if (prev.ahp !== undefined) entry.ahp = prev.ahp;
@@ -41284,6 +41299,8 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
       && !vc.has("*/1 0-1 * * 2-6");
     if (isPriceFeedCron && (env.ALPACA_ENABLED === "true" || _usesTwelveData(env))) {
       const KV = env.KV_TIMED;
+      const _marketOpen = isNyRegularMarketOpen();
+      const _marketClosed = !_marketOpen;
       try {
         const userAddedForPriceFeed = await d1GetActiveUserTickersCached(env);
         const allTickers = [...new Set([...Object.keys(SECTOR_MAP), ...userAddedForPriceFeed])];
@@ -41340,18 +41357,26 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                   extP = Math.round(ahPrice * 100) / 100;
                 }
                 const prev = existing[sym] || {};
+                const dayRolled = !isCryptoSym && _marketClosed && dc === 0 && dp === 0;
+                const keepPc = dayRolled && prev.pc > 0 ? prev.pc : (pc > 0 ? Math.round(pc * 100) / 100 : (prev.pc || 0));
+                let keepDc = dc, keepDp = dp;
+                if (dayRolled) {
+                  if (Number.isFinite(prev.dc) && prev.dc !== 0) { keepDc = prev.dc; keepDp = prev.dp; }
+                  else if (keepPc > 0 && displayPrice > 0) { keepDc = Math.round((displayPrice - keepPc) * 100) / 100; keepDp = Math.round(((displayPrice - keepPc) / keepPc) * 10000) / 100; }
+                }
                 existing[sym] = {
                   ...prev,
                   p: Math.round(displayPrice * 100) / 100,
-                  pc: pc > 0 ? Math.round(pc * 100) / 100 : (prev.pc || 0),
-                  dc, dp,
+                  pc: keepPc,
+                  dc: keepDc,
+                  dp: keepDp,
                   dh: snap.dailyHigh > 0 ? Math.round(snap.dailyHigh * 100) / 100 : (prev.dh || 0),
                   dl: snap.dailyLow > 0 ? Math.round(snap.dailyLow * 100) / 100 : (prev.dl || 0),
                   dv: snap.dailyVolume || prev.dv || 0,
                   t: snap.trade_ts || Date.now(),
-                  ahp: extDc !== 0 ? (extP || Math.round(ahPrice * 100) / 100) : prev.ahp,
-                  ahdc: extDc !== 0 ? extDc : prev.ahdc,
-                  ahdp: extDp !== 0 ? extDp : prev.ahdp,
+                  ahp: extDc !== 0 ? (extP || Math.round(ahPrice * 100) / 100) : (_marketClosed ? prev.ahp : undefined),
+                  ahdc: extDc !== 0 ? extDc : (_marketClosed ? prev.ahdc : undefined),
+                  ahdp: extDp !== 0 ? extDp : (_marketClosed ? prev.ahdp : undefined),
                 };
                 restCount++;
               }
@@ -41362,7 +41387,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           }
 
           // D1 daily candle fallback for tickers still stale after REST snapshot
-          // (covers tickers Alpaca didn't return — small caps, recent adds, etc.)
+          // Uses date-bounded query (last 14 days) to avoid slow unbounded window scans.
           try {
             if (env?.DB) {
               const staleSyms = allTickers.filter(sym => {
@@ -41370,18 +41395,18 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                 return !e || Number(e.dp) === 0 || !Number.isFinite(Number(e.dp));
               });
               if (staleSyms.length > 0) {
+                const cutoff = Date.now() - 14 * 86400000;
                 const candleRows = await env.DB.prepare(
-                  `WITH deduped AS (
-                    SELECT ticker, ts, c,
-                      ROW_NUMBER() OVER (PARTITION BY ticker, CAST(ts / 86400000 AS INTEGER) ORDER BY ts DESC) as day_rn
-                    FROM ticker_candles WHERE tf = 'D'
-                  )
-                  SELECT ticker, ts, c FROM (
+                  `SELECT ticker, ts, c FROM (
                     SELECT ticker, ts, c, ROW_NUMBER() OVER (PARTITION BY ticker ORDER BY ts DESC) as rn
-                    FROM deduped WHERE day_rn = 1
+                    FROM (
+                      SELECT ticker, MAX(ts) as ts, c
+                      FROM ticker_candles WHERE tf = 'D' AND ts > ?1
+                      GROUP BY ticker, CAST(ts / 86400000 AS INTEGER)
+                    )
                   ) WHERE rn <= 2
                   ORDER BY ticker, ts DESC`
-                ).all();
+                ).bind(cutoff).all();
                 const cMap = {};
                 for (const r of (candleRows?.results || [])) {
                   const s = String(r.ticker).toUpperCase();
@@ -41401,10 +41426,10 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                   const prev = existing[sym] || {};
                   existing[sym] = {
                     ...prev,
-                    p: Math.round(todayC * 100) / 100,
+                    p: prev.p || Math.round(todayC * 100) / 100,
                     pc: Math.round(prevC * 100) / 100,
                     dc, dp,
-                    t: candles[0].ts || Date.now(),
+                    t: prev.t || candles[0].ts || Date.now(),
                   };
                   d1Count++;
                 }
@@ -41559,18 +41584,26 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                 extP = Math.round(ahPrice * 100) / 100;
               }
               const prev = prices[sym] || {};
+              const dayRolled = !isCryptoSym && _marketClosed && dc === 0 && dp === 0;
+              const keepPc = dayRolled && prev.pc > 0 ? prev.pc : (pc > 0 ? Math.round(pc * 100) / 100 : (prev.pc || 0));
+              let keepDc = dc, keepDp = dp;
+              if (dayRolled) {
+                if (Number.isFinite(prev.dc) && prev.dc !== 0) { keepDc = prev.dc; keepDp = prev.dp; }
+                else if (keepPc > 0 && displayPrice > 0) { keepDc = Math.round((displayPrice - keepPc) * 100) / 100; keepDp = Math.round(((displayPrice - keepPc) / keepPc) * 10000) / 100; }
+              }
               prices[sym] = {
                 ...prev,
                 p: Math.round(displayPrice * 100) / 100,
-                pc: pc > 0 ? Math.round(pc * 100) / 100 : (prev.pc || 0),
-                dc, dp,
+                pc: keepPc,
+                dc: keepDc,
+                dp: keepDp,
                 dh: snap.dailyHigh > 0 ? Math.round(snap.dailyHigh * 100) / 100 : (prev.dh || 0),
                 dl: snap.dailyLow > 0 ? Math.round(snap.dailyLow * 100) / 100 : (prev.dl || 0),
                 dv: snap.dailyVolume || prev.dv || 0,
                 t: snap.trade_ts || Date.now(),
-                ahp: extDc !== 0 ? (extP || Math.round(ahPrice * 100) / 100) : prev.ahp,
-                ahdc: extDc !== 0 ? extDc : prev.ahdc,
-                ahdp: extDp !== 0 ? extDp : prev.ahdp,
+                ahp: extDc !== 0 ? (extP || Math.round(ahPrice * 100) / 100) : (_marketClosed ? prev.ahp : undefined),
+                ahdc: extDc !== 0 ? extDc : (_marketClosed ? prev.ahdc : undefined),
+                ahdp: extDp !== 0 ? extDp : (_marketClosed ? prev.ahdp : undefined),
               };
               restFallbackCount++;
             }
@@ -41581,6 +41614,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
         }
 
         // D1 daily candle fallback for tickers still stale after REST snapshot
+        // Uses date-bounded query (last 14 days) to avoid slow unbounded window scans.
         try {
           if (env?.DB) {
             const staleFullSyms = allTickers.filter(sym => {
@@ -41588,18 +41622,18 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
               return !e || Number(e.dp) === 0 || !Number.isFinite(Number(e.dp));
             });
             if (staleFullSyms.length > 0) {
+              const cutoff = Date.now() - 14 * 86400000;
               const d1Rows = await env.DB.prepare(
-                `WITH deduped AS (
-                  SELECT ticker, ts, c,
-                    ROW_NUMBER() OVER (PARTITION BY ticker, CAST(ts / 86400000 AS INTEGER) ORDER BY ts DESC) as day_rn
-                  FROM ticker_candles WHERE tf = 'D'
-                )
-                SELECT ticker, ts, c FROM (
+                `SELECT ticker, ts, c FROM (
                   SELECT ticker, ts, c, ROW_NUMBER() OVER (PARTITION BY ticker ORDER BY ts DESC) as rn
-                  FROM deduped WHERE day_rn = 1
+                  FROM (
+                    SELECT ticker, MAX(ts) as ts, c
+                    FROM ticker_candles WHERE tf = 'D' AND ts > ?1
+                    GROUP BY ticker, CAST(ts / 86400000 AS INTEGER)
+                  )
                 ) WHERE rn <= 2
                 ORDER BY ticker, ts DESC`
-              ).all();
+              ).bind(cutoff).all();
               const d1Map = {};
               for (const r of (d1Rows?.results || [])) {
                 const s = String(r.ticker).toUpperCase();
@@ -41617,7 +41651,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                 const dp = Math.round(((todayC - prevC) / prevC) * 10000) / 100;
                 if (dp === 0) continue;
                 const prev = prices[sym] || {};
-                prices[sym] = { ...prev, p: Math.round(todayC * 100) / 100, pc: Math.round(prevC * 100) / 100, dc, dp, t: candles[0].ts || Date.now() };
+                prices[sym] = { ...prev, p: prev.p || Math.round(todayC * 100) / 100, pc: Math.round(prevC * 100) / 100, dc, dp, t: prev.t || candles[0].ts || Date.now() };
                 d1FullCount++;
               }
               if (d1FullCount > 0) console.log(`[PRICE FEED] D1 candle fallback updated ${d1FullCount} stale tickers`);

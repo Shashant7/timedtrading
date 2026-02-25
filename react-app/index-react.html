@@ -753,6 +753,11 @@
                         const dc = Number(pf.dc);
                         if (Number.isFinite(dp)) { obj.day_change_pct = dp; obj.change_pct = dp; }
                         if (Number.isFinite(dc)) { obj.day_change = dc; obj.change = dc; }
+                        const feedPc = Number(pf.pc);
+                        if (Number.isFinite(feedPc) && feedPc > 0) { obj._live_prev_close = feedPc; if (!obj.prev_close) obj.prev_close = feedPc; }
+                        if (Number.isFinite(Number(pf.ahp)) && pf.ahp > 0) obj._ah_price = pf.ahp;
+                        if (Number.isFinite(Number(pf.ahdc))) obj._ah_change = pf.ahdc;
+                        if (Number.isFinite(Number(pf.ahdp))) obj._ah_change_pct = pf.ahdp;
                       }
                     }
                   }
@@ -766,7 +771,7 @@
               // may contain a stale candle close due to KV eventual consistency).
               setData(prev => {
                 if (!prev || typeof prev !== "object" || Object.keys(prev).length === 0) return mergedData;
-                const LIVE_KEYS = ["_live_price", "_live_prev_close", "_live_daily_high", "_live_daily_low", "_live_daily_volume", "_price_updated_at", "day_change_pct", "change_pct", "day_change", "change"];
+                const LIVE_KEYS = ["_live_price", "_live_prev_close", "_live_daily_high", "_live_daily_low", "_live_daily_volume", "_price_updated_at", "day_change_pct", "change_pct", "day_change", "change", "_ah_price", "_ah_change", "_ah_change_pct"];
                 const result = { ...mergedData };
                 for (const sym of Object.keys(result)) {
                   const old = prev[sym];
@@ -1008,6 +1013,9 @@
                   _price_updated_at: feedTs,
                   ...(Number.isFinite(feedDp) ? { day_change_pct: feedDp, change_pct: feedDp } : {}),
                   ...(Number.isFinite(feedDc) ? { day_change: feedDc, change: feedDc } : {}),
+                  ...(Number.isFinite(Number(priceInfo.ahp)) && priceInfo.ahp > 0 ? { _ah_price: priceInfo.ahp } : {}),
+                  ...(Number.isFinite(Number(priceInfo.ahdc)) ? { _ah_change: priceInfo.ahdc } : {}),
+                  ...(Number.isFinite(Number(priceInfo.ahdp)) ? { _ah_change_pct: priceInfo.ahdp } : {}),
                 };
                 changed = true;
               }
@@ -1104,6 +1112,9 @@
                         _price_updated_at: wsTs,
                         ...(Number.isFinite(feedDp) ? { day_change_pct: feedDp, change_pct: feedDp } : {}),
                         ...(Number.isFinite(feedDc) ? { day_change: feedDc, change: feedDc } : {}),
+                        ...(Number.isFinite(Number(priceInfo.ahp)) && priceInfo.ahp > 0 ? { _ah_price: priceInfo.ahp } : {}),
+                        ...(Number.isFinite(Number(priceInfo.ahdc)) ? { _ah_change: priceInfo.ahdc } : {}),
+                        ...(Number.isFinite(Number(priceInfo.ahdp)) ? { _ah_change_pct: priceInfo.ahdp } : {}),
                       };
                       changed = true;
                     }
@@ -11427,7 +11438,7 @@
                 </div>
                 {window._ttIsAdmin && (
                   <div className="flex flex-col items-end shrink-0 ml-1">
-                    {Number.isFinite(dayPct) && dayPct !== 0 && (
+                    {Number.isFinite(dayPct) && (
                       <span className={`tabular-nums leading-tight ${Math.abs(dayPct) >= 3 ? "text-[11px] font-bold" : "text-[10px] font-semibold"}`}
                         style={{ color: dayPct >= 0
                           ? (Math.abs(dayPct) >= 3 ? "#4ade80" : "#00e676")

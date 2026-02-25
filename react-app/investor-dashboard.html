@@ -275,7 +275,7 @@
                         React.createElement("span", { className: "text-xs font-semibold text-white" }, t.ticker),
                         React.createElement("span", { className: "flex items-center gap-1.5" },
                           t.price != null && Number.isFinite(t.price) && React.createElement("span", { className: "text-[10px] text-[#9ca3af] tabular-nums" }, `$${t.price.toFixed(2)}`),
-                          (() => { const _dc = getDailyChange(t); const _dp = _dc?.dayPct; return _dp != null && Number.isFinite(_dp) && React.createElement("span", { className: `text-[10px] font-medium tabular-nums ${_dp >= 0 ? "text-[#00e676]" : "text-red-400"}` }, `${_dp >= 0 ? "+" : ""}${_dp.toFixed(1)}%`); })(),
+                          (() => { const _dc = getDailyChange(t); const _dp = _dc?.dayPct; const _dv = _dc?.dayChg; const _sign = (_dp || 0) >= 0 ? "+" : ""; const _cls = (_dp || 0) >= 0 ? "text-[#00e676]" : "text-red-400"; return (_dp != null && Number.isFinite(_dp)) && React.createElement("span", { className: `text-[10px] font-medium tabular-nums ${_cls}` }, `${_sign}${_dp.toFixed(1)}%`, Number.isFinite(_dv) ? ` (${_sign}$${Math.abs(_dv).toFixed(2)})` : ""); })(),
                         ),
                       ),
                       React.createElement("div", { className: "flex items-center justify-between mt-0.5" },
@@ -325,7 +325,7 @@
                     : `RS: ${t.rsRank || "—"}`,
                 ),
                 React.createElement("span", { className: "flex items-center gap-1" },
-                  (() => { const _dc = getDailyChange(t); const _dp = _dc?.dayPct; return _dp != null && Number.isFinite(_dp) && React.createElement("span", { className: `text-[9px] tabular-nums font-medium ${_dp >= 0 ? "text-[#00e676]" : "text-red-400"}` }, `${_dp >= 0 ? "+" : ""}${_dp.toFixed(1)}%`); })(),
+                  (() => { const _dc = getDailyChange(t); const _dp = _dc?.dayPct; const _dv = _dc?.dayChg; const _sign = (_dp || 0) >= 0 ? "+" : ""; const _cls = (_dp || 0) >= 0 ? "text-[#00e676]" : "text-red-400"; return (_dp != null && Number.isFinite(_dp)) && React.createElement("span", { className: `text-[9px] tabular-nums font-medium ${_cls}` }, `${_sign}${_dp.toFixed(1)}%`, Number.isFinite(_dv) ? ` (${_sign}$${Math.abs(_dv).toFixed(2)})` : ""); })(),
                   t.accumZone?.inZone && React.createElement("span", { className: "text-[8px] text-[#00e676] bg-[#00c853]/10 px-1 rounded" }, "ZONE"),
                   t.rs?.rsNewHigh3m && React.createElement("span", { className: "text-[8px] text-sky-400 bg-sky-500/10 px-1 rounded" }, "RS HIGH"),
                 ),
@@ -439,7 +439,8 @@
 
         const price = data.price;
         const _dcResult = getDailyChange(data);
-        const chg = _dcResult?.dayPct ?? null;
+        const chgPct = _dcResult?.dayPct ?? null;
+        const chgVal = _dcResult?.dayChg ?? null;
         const hasPrice = price != null && Number.isFinite(price);
 
         return React.createElement("div", { className: "card p-4 fade-in space-y-4" },
@@ -461,9 +462,10 @@
               React.createElement("div", { className: "text-[10px] text-[#6b7280] uppercase tracking-wide" }, "Current Price"),
               React.createElement("div", { className: "text-lg font-bold text-white tabular-nums" }, `$${price.toFixed(2)}`),
             ),
-            chg != null && Number.isFinite(chg) && React.createElement("div", { className: "text-right" },
+            (chgPct != null && Number.isFinite(chgPct)) && React.createElement("div", { className: "text-right" },
               React.createElement("div", { className: "text-[10px] text-[#6b7280] uppercase tracking-wide" }, "Daily Chg"),
-              React.createElement("div", { className: `text-lg font-bold tabular-nums ${chg >= 0 ? "text-[#00e676]" : "text-red-400"}` }, `${chg >= 0 ? "+" : ""}${chg.toFixed(2)}%`),
+              React.createElement("div", { className: `text-lg font-bold tabular-nums ${chgPct >= 0 ? "text-[#00e676]" : "text-red-400"}` }, `${chgPct >= 0 ? "+" : ""}${chgPct.toFixed(2)}%`),
+              Number.isFinite(chgVal) && React.createElement("div", { className: `text-[11px] font-medium tabular-nums ${chgVal >= 0 ? "text-[#00e676]/70" : "text-red-400/70"}` }, `${chgVal >= 0 ? "+" : "-"}$${Math.abs(chgVal).toFixed(2)}`),
             ),
             data.prevClose != null && Number.isFinite(data.prevClose) && React.createElement("div", { className: "text-right" },
               React.createElement("div", { className: "text-[10px] text-[#6b7280] uppercase tracking-wide" }, "Prev Close"),
@@ -626,6 +628,54 @@
           const interval = setInterval(fetchData, 60000);
           return () => clearInterval(interval);
         }, [fetchData]);
+
+        // Price feed: poll /timed/prices every 30s to keep prices fresh
+        useEffect(() => {
+          if (!scores?.tickers?.length) return;
+          let active = true;
+          const mergePrices = async () => {
+            try {
+              const res = await fetch(`${API_BASE}/timed/prices?_t=${Date.now()}`, { cache: "no-store" });
+              if (!res.ok || !active) return;
+              const json = await res.json();
+              if (!json.ok || !json.prices) return;
+              const feedTs = json.updated_at || Date.now();
+              setScores(prev => {
+                if (!prev?.tickers?.length) return prev;
+                let changed = false;
+                const updated = prev.tickers.map(t => {
+                  const pf = json.prices[t.ticker];
+                  if (!pf || !(Number(pf.p) > 0)) return t;
+                  if (t._live_price === pf.p) return t;
+                  changed = true;
+                  const feedPc = Number(pf.pc);
+                  const feedP = Number(pf.p);
+                  const feedPcUsable = Number.isFinite(feedPc) && feedPc > 0 && feedP > 0
+                    && (Math.abs(feedPc - feedP) / feedP * 100) > 0.05;
+                  const bestPc = feedPcUsable ? feedPc : (t._live_prev_close || t.prev_close || undefined);
+                  const feedDc = Number(pf.dc);
+                  const feedDp = Number(pf.dp);
+                  return {
+                    ...t,
+                    price: pf.p,
+                    _live_price: pf.p,
+                    ...(bestPc > 0 ? { _live_prev_close: bestPc, prev_close: bestPc } : {}),
+                    ...(Number.isFinite(feedDp) ? { day_change_pct: feedDp, change_pct: feedDp } : {}),
+                    ...(Number.isFinite(feedDc) ? { day_change: feedDc, change: feedDc } : {}),
+                    ...(Number.isFinite(Number(pf.ahp)) && pf.ahp > 0 ? { _ah_price: pf.ahp } : {}),
+                    ...(Number.isFinite(Number(pf.ahdc)) ? { _ah_change: pf.ahdc } : {}),
+                    ...(Number.isFinite(Number(pf.ahdp)) ? { _ah_change_pct: pf.ahdp } : {}),
+                    _price_updated_at: feedTs,
+                  };
+                });
+                return changed ? { ...prev, tickers: updated } : prev;
+              });
+            } catch (_) {}
+          };
+          mergePrices();
+          const interval = setInterval(mergePrices, 30000);
+          return () => { active = false; clearInterval(interval); };
+        }, [scores?.tickers?.length > 0]);
 
         const allTickers = useMemo(() => scores?.tickers || [], [scores]);
 

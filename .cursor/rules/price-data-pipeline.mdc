@@ -13,7 +13,9 @@ alwaysApply: true
 ## KV Price Format (`timed:prices`)
 - Short keys: `p` (price), `pc` (prev close), `dc` (day change $), `dp` (day change %), `dh`/`dl`/`dv` (daily high/low/volume), `t` (timestamp).
 - Extended hours: `ahp` (extended price), `ahdc` (AH change $), `ahdp` (AH change %).
-- NEVER set AH fields to `undefined` — always fall back to previous values (`prev.ahp`, `prev.ahdc`, `prev.ahdp`) when TwelveData doesn't return extended data. Last-known AH data persists until refreshed.
+- Session-aware persistence using `isNyRegularMarketOpen()` (handles holidays, weekends, early closes):
+  - **Market closed**: Preserve previous `dc`/`dp`/`pc` when TwelveData zeros them out (day-roll). Preserve `ahp`/`ahdc`/`ahdp` so EXT movers row stays visible.
+  - **Market open (RTH)**: Let fresh values flow through. Zeros clear AH fields, hiding the EXT row. Daily change resets naturally for the new day.
 
 ## Frontend: Single Source of Truth
 - `getDailyChange(t)` in `react-app/shared-price-utils.js` is the ONLY way to compute daily change. Returns `{ dayPct, dayChg }`.
@@ -23,7 +25,8 @@ alwaysApply: true
 
 ## RTH/ETH Movers
 - Top Gainers/Losers has two rows: RTH (intraday, `getDailyChange(t).dayPct`) and EXT (extended hours, `_ah_change_pct`).
-- EXT row shows last-known data — it does NOT auto-hide overnight. It persists until fresh data overwrites it.
+- **Market open**: EXT row auto-hides (AH fields cleared during RTH).
+- **Market closed**: EXT row shows last-known data, persists overnight/weekends/holidays.
 - Crypto tickers (BTCUSD, ETHUSD) are excluded from the EXT row (24/7 markets, no session distinction).
 
 ## Admin Gating & Attribution
