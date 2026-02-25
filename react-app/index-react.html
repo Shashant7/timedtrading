@@ -3948,6 +3948,28 @@
                   <stop offset="100%" stopColor={finalColor} stopOpacity={finalOpacity * 0.7} />
                 </radialGradient>
               </defs>
+              {/* Earnings ring — orange dashed ring for upcoming/recent earnings */}
+              {(() => {
+                const eEvt = window._ttEarningsMap?.[ticker.ticker];
+                if (!eEvt) return null;
+                const isToday = eEvt._daysAway > -1 && eEvt._daysAway <= 1;
+                return (
+                  <circle
+                    cx={x} cy={y}
+                    r={renderedSize + (isToday ? 6 : 4)}
+                    fill="none"
+                    stroke="#f59e0b"
+                    strokeWidth={isToday ? 2 : 1.5}
+                    strokeDasharray={isToday ? "none" : "4 3"}
+                    opacity={isToday ? 0.8 : 0.55}
+                    style={{ pointerEvents: "none" }}
+                  >
+                    {isToday && (
+                      <animate attributeName="opacity" values="0.5;0.9;0.5" dur="2s" repeatCount="indefinite" />
+                    )}
+                  </circle>
+                );
+              })()}
               {/* Outer glow ring for direction / special states */}
               {(dir || flipWatch || prime || winnerSig) && (
                 <circle
@@ -11308,6 +11330,8 @@
           if (flags.momentum_elite) badges.push("🔥");
           if (flags.sq30_release) badges.push("⚡");
           if (flags.sq30_on && !flags.sq30_release) badges.push("🧨");
+          const _earningsEvt = window._ttEarningsMap?.[sym];
+          if (_earningsEvt) badges.push("📅");
 
           // Daily change — single source: getDailyChange() which prioritises
           // Alpaca live feed (_live_daily_change_pct) > scoring snapshot > raw fields.
@@ -11521,6 +11545,19 @@
               {laneReason && (
                 <div className="relative px-2 py-0.5 text-[9px] font-semibold truncate" style={{ zIndex: 1 }}>
                   <span className={laneReason.cls}>{laneReason.text}</span>
+                </div>
+              )}
+
+              {/* ── Earnings callout ── */}
+              {_earningsEvt && (
+                <div className="relative px-2 py-0.5 text-[9px] truncate" style={{ zIndex: 1 }}>
+                  <span className="text-amber-400/90 font-semibold">📅 Earnings {(() => {
+                    const d = _earningsEvt._daysAway;
+                    if (d <= 0 && d > -1) return "Today";
+                    if (d > 0 && d <= 1) return "Tomorrow";
+                    if (d < 0) return `${Math.abs(Math.round(d))}d ago`;
+                    return `in ${Math.round(d)}d`;
+                  })()}{_earningsEvt.hour ? ` ${String(_earningsEvt.hour).toUpperCase() === "BMO" ? "BMO" : String(_earningsEvt.hour).toUpperCase() === "AMC" ? "AMC" : ""}` : ""}</span>
                 </div>
               )}
 
@@ -12346,6 +12383,7 @@
               <span className="shrink-0">🔥 <span className="text-[#8b95a5]">MoElite — strong momentum</span></span>
               <span className="shrink-0">🧨 <span className="text-[#8b95a5]">Squeeze — pressure building</span></span>
               <span className="shrink-0">⚡ <span className="text-[#8b95a5]">Release — breakout firing</span></span>
+              <span className="shrink-0">📅 <span className="text-[#8b95a5]">Earnings — within 7 days</span></span>
             </div>
 
             {/* Table */}
@@ -12860,6 +12898,7 @@
               <span className="shrink-0">🔥 <span className="text-[#8b95a5]">MoElite — strong momentum</span></span>
               <span className="shrink-0">🧨 <span className="text-[#8b95a5]">Squeeze — pressure building</span></span>
               <span className="shrink-0">⚡ <span className="text-[#8b95a5]">Release — breakout firing</span></span>
+              <span className="shrink-0">📅 <span className="text-[#8b95a5]">Earnings — within 7 days</span></span>
             </div>
             <div>
               <div className="flex flex-col">
@@ -15924,6 +15963,27 @@
         const userTickers = useUserTickers();
         const { sectors } = useSectors();
         const { events: earningsEvents } = useEarningsEvents();
+
+        // Build earnings lookup: symbol -> nearest upcoming (or most recent past) event
+        const earningsMap = useMemo(() => {
+          const map = {};
+          if (!earningsEvents || earningsEvents.length === 0) return map;
+          const now = Date.now();
+          const sevenDaysMs = 7 * 86400000;
+          for (const e of earningsEvents) {
+            const sym = String(e.symbol || "").toUpperCase();
+            if (!sym) continue;
+            const eventMs = new Date(e.date + "T16:00:00").getTime();
+            const daysAway = (eventMs - now) / 86400000;
+            if (daysAway < -2 || daysAway > 7) continue;
+            if (!map[sym] || Math.abs(daysAway) < Math.abs(map[sym]._daysAway)) {
+              map[sym] = { ...e, _eventMs: eventMs, _daysAway: daysAway };
+            }
+          }
+          return map;
+        }, [earningsEvents]);
+        window._ttEarningsMap = earningsMap;
+
         const [filters, setFilters] = useState(() => {
           // Safety check: reset to defaults if localStorage was cleared
           return {
@@ -17092,6 +17152,7 @@
                           <span className="flex items-center gap-1 shrink-0" title="Pulsing glow = system highlighting for entry or active management"><svg width="10" height="10" viewBox="0 0 10 10"><circle cx="5" cy="5" r="3.5" fill="none" stroke="#22d3ee" strokeWidth="1" opacity="0.6"><animate attributeName="r" values="3;4.5;3" dur="2s" repeatCount="indefinite"/><animate attributeName="opacity" values="0.3;0.7;0.3" dur="2s" repeatCount="indefinite"/></circle></svg> Actionable</span>
                           <span className="shrink-0" title="High-conviction momentum setup">🔥 MoElite</span>
                           <span className="shrink-0" title="Price near optimal entry level">🎯 Flip Watch</span>
+                          <span className="flex items-center gap-1 shrink-0" title="Upcoming or recent earnings event (within 7 days)"><svg width="12" height="12" viewBox="0 0 12 12"><circle cx="6" cy="6" r="4.5" fill="none" stroke="#f59e0b" strokeWidth="1.5" strokeDasharray="3 2" opacity="0.7"/></svg> Earnings</span>
                         </div>
                         <div className="h-[600px] sm:h-[700px] md:h-[800px] lg:h-[870px]">
                           {loading && tickers.length === 0 ? (

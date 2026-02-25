@@ -1091,7 +1091,8 @@
                       ? (Math.abs(dayPct || 0) >= 3 ? "#4ade80" : "#00e676")
                       : (Math.abs(dayPct || 0) >= 3 ? "#fb7185" : "#f87171");
                     const chgSign = chgVal >= 0 ? "+" : "";
-                    const ahPct = Number(src?._ah_change_pct);
+                    const _rrMktOpen = typeof isNyRegularMarketOpen === "function" ? isNyRegularMarketOpen() : false;
+                    const ahPct = _rrMktOpen ? null : Number(src?._ah_change_pct);
                     const hasAH = Number.isFinite(ahPct) && ahPct !== 0;
                     return (
                       <div className="flex items-end justify-between mt-1.5">
@@ -1399,6 +1400,31 @@
                         const nextEarnTs = Number(events?.next_earnings_ts || 0) || 0;
                         const lastEarnEvt = Number(events?.last_earnings_ts || 0) || lastEarnTs;
                         const showDesc = description && description !== name;
+
+                        // Finnhub upcoming earnings (fresher than context.events)
+                        const finnhubEarn = window._ttEarningsMap?.[tickerSymbol];
+                        const finnhubEarnDate = finnhubEarn?.date;
+                        const finnhubEarnHour = finnhubEarn?.hour;
+                        const finnhubDaysAway = finnhubEarn?._daysAway;
+                        const hasFinnhubEarn = !!finnhubEarn;
+                        const isEarningsImminent = hasFinnhubEarn && finnhubDaysAway <= 2 && finnhubDaysAway > -1;
+                        const earnLabel = (() => {
+                          if (!hasFinnhubEarn) return null;
+                          const d = finnhubDaysAway;
+                          if (d <= 0 && d > -1) return "Today";
+                          if (d > 0 && d <= 1) return "Tomorrow";
+                          if (d < 0) return `${Math.abs(Math.round(d))} day${Math.abs(Math.round(d)) !== 1 ? "s" : ""} ago`;
+                          return `in ${Math.round(d)} day${Math.round(d) !== 1 ? "s" : ""}`;
+                        })();
+                        const earnHourLabel = (() => {
+                          if (!finnhubEarnHour) return "";
+                          const h = String(finnhubEarnHour).toLowerCase();
+                          if (h === "bmo" || h === "before market open") return "Before Open";
+                          if (h === "amc" || h === "after market close") return "After Close";
+                          if (h === "dmh" || h === "during market hours") return "During Hours";
+                          return "";
+                        })();
+
                         return (
                           <div className="mb-3 px-2.5 py-2 bg-white/[0.03] border border-white/[0.06] rounded-lg">
                             {name ? (
@@ -1414,8 +1440,31 @@
                                 {description}
                               </div>
                             ) : null}
-                            {(marketCap || lastEarnEvt || nextEarnTs) ? (
-                              <div className={`mt-1.5 grid gap-1.5 text-[10px]`} style={{ gridTemplateColumns: `repeat(${[marketCap, lastEarnEvt, nextEarnTs].filter(Boolean).length}, 1fr)` }}>
+
+                            {/* Upcoming earnings callout — prominent when imminent */}
+                            {hasFinnhubEarn && (
+                              <div className={`mt-1.5 flex items-center gap-2 px-2.5 py-2 rounded-lg border ${isEarningsImminent ? "bg-amber-500/15 border-amber-500/40" : "bg-blue-500/10 border-blue-500/25"}`}>
+                                <span className="text-base">📅</span>
+                                <div className="min-w-0">
+                                  <div className={`text-[11px] font-bold ${isEarningsImminent ? "text-amber-300" : "text-blue-300"}`}>
+                                    Earnings {earnLabel}
+                                  </div>
+                                  <div className="text-[10px] text-[#9ca3af]">
+                                    {new Date(finnhubEarnDate + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}
+                                    {earnHourLabel ? ` · ${earnHourLabel}` : ""}
+                                    {finnhubEarn.epsEstimate != null ? ` · Est. $${Number(finnhubEarn.epsEstimate).toFixed(2)}` : ""}
+                                  </div>
+                                  {finnhubEarn.epsActual != null && finnhubEarn.epsEstimate != null && (
+                                    <div className={`text-[10px] font-semibold mt-0.5 ${finnhubEarn.epsActual >= finnhubEarn.epsEstimate ? "text-green-400" : "text-rose-400"}`}>
+                                      Reported ${Number(finnhubEarn.epsActual).toFixed(2)} — {finnhubEarn.epsActual >= finnhubEarn.epsEstimate ? "Beat" : "Miss"} by ${Math.abs(finnhubEarn.epsActual - finnhubEarn.epsEstimate).toFixed(2)}
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            )}
+
+                            {(marketCap || lastEarnEvt || (nextEarnTs && !hasFinnhubEarn)) ? (
+                              <div className={`mt-1.5 grid gap-1.5 text-[10px]`} style={{ gridTemplateColumns: `repeat(${[marketCap, lastEarnEvt, nextEarnTs && !hasFinnhubEarn].filter(Boolean).length}, 1fr)` }}>
                                 {marketCap ? (
                                   <div className="p-1.5 bg-white/[0.02] border border-white/[0.06] rounded text-center">
                                     <div className="text-[9px] text-[#6b7280]">MCap</div>
@@ -1428,7 +1477,7 @@
                                     <div className="text-[11px] font-semibold text-white">{fmtDate(lastEarnEvt)}</div>
                                   </div>
                                 ) : null}
-                                {nextEarnTs ? (
+                                {nextEarnTs && !hasFinnhubEarn ? (
                                   <div className="p-1.5 bg-blue-500/10 border border-blue-500/30 rounded text-center">
                                     <div className="text-[9px] text-blue-400">Next Earnings</div>
                                     <div className="text-[11px] font-semibold text-blue-300">{fmtDate(nextEarnTs)}</div>
