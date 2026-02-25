@@ -1283,7 +1283,7 @@
           return null;
         }
       })(), (() => {
-        const ingestTime = ticker.ingest_ts || ticker.ingest_time || ticker.ts;
+        const ingestTime = latestTicker?.ingest_ts || latestTicker?.ingest_time || ticker.ingest_ts || ticker.ingest_time || ticker.ts;
         if (!ingestTime) return null;
         try {
           const tv = typeof ingestTime === "string" ? new Date(ingestTime) : new Date(Number(ingestTime));
@@ -1478,16 +1478,12 @@
         }
         if (pills.length === 0 && badges.length === 0) return null;
         return /*#__PURE__*/React.createElement("div", {
-          className: "mt-2 flex flex-col gap-1.5"
-        }, badges.length > 0 && /*#__PURE__*/React.createElement("div", {
-          className: "flex items-center gap-1.5 flex-wrap text-[10px]"
+          className: "mt-2 flex items-center gap-2 flex-wrap text-[10px]"
         }, badges.map((b, i) => /*#__PURE__*/React.createElement("span", {
           key: `ib-${i}`,
           className: "px-1.5 py-0.5 rounded border bg-white/5 border-white/10 text-[#d1d5db] font-semibold cursor-default",
           title: b.tip
-        }, b.icon, " ", b.label))), pills.length > 0 && /*#__PURE__*/React.createElement("div", {
-          className: "flex items-center gap-2 flex-wrap text-[10px]"
-        }, pills.map((p, i) => /*#__PURE__*/React.createElement("span", {
+        }, b.icon, " ", b.label)), pills.map((p, i) => /*#__PURE__*/React.createElement("span", {
           key: `ip-${i}`,
           className: "inline-flex items-center gap-1 cursor-default",
           title: p.tip
@@ -1495,7 +1491,7 @@
           className: `px-1.5 py-0.5 rounded border font-semibold ${p.cls}`
         }, p.label), /*#__PURE__*/React.createElement("span", {
           className: "text-[#6b7280] text-[9px]"
-        }, p.desc)))));
+        }, p.desc))));
       })(), /*#__PURE__*/React.createElement("div", {
         className: "mt-3 flex items-center gap-1.5 overflow-x-auto",
         style: {

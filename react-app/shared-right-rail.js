@@ -1166,9 +1166,9 @@
                       } catch { return null; }
                     })()}
 
-                    {/* Ingest age pill */}
+                    {/* Ingest age pill — prefer latestTicker (freshness-merged by price feed) */}
                     {(() => {
-                      const ingestTime = ticker.ingest_ts || ticker.ingest_time || ticker.ts;
+                      const ingestTime = latestTicker?.ingest_ts || latestTicker?.ingest_time || ticker.ingest_ts || ticker.ingest_time || ticker.ts;
                       if (!ingestTime) return null;
                       try {
                         const tv = typeof ingestTime === "string" ? new Date(ingestTime) : new Date(Number(ingestTime));
@@ -1298,26 +1298,16 @@
 
                     if (pills.length === 0 && badges.length === 0) return null;
                     return (
-                      <div className="mt-2 flex flex-col gap-1.5">
-                        {/* Badges row */}
-                        {badges.length > 0 && (
-                          <div className="flex items-center gap-1.5 flex-wrap text-[10px]">
-                            {badges.map((b, i) => (
-                              <span key={`ib-${i}`} className="px-1.5 py-0.5 rounded border bg-white/5 border-white/10 text-[#d1d5db] font-semibold cursor-default" title={b.tip}>{b.icon} {b.label}</span>
-                            ))}
-                          </div>
-                        )}
-                        {/* Indicator pills with descriptions */}
-                        {pills.length > 0 && (
-                          <div className="flex items-center gap-2 flex-wrap text-[10px]">
-                            {pills.map((p, i) => (
-                              <span key={`ip-${i}`} className="inline-flex items-center gap-1 cursor-default" title={p.tip}>
-                                <span className={`px-1.5 py-0.5 rounded border font-semibold ${p.cls}`}>{p.label}</span>
-                                <span className="text-[#6b7280] text-[9px]">{p.desc}</span>
-                              </span>
-                            ))}
-                          </div>
-                        )}
+                      <div className="mt-2 flex items-center gap-2 flex-wrap text-[10px]">
+                        {badges.map((b, i) => (
+                          <span key={`ib-${i}`} className="px-1.5 py-0.5 rounded border bg-white/5 border-white/10 text-[#d1d5db] font-semibold cursor-default" title={b.tip}>{b.icon} {b.label}</span>
+                        ))}
+                        {pills.map((p, i) => (
+                          <span key={`ip-${i}`} className="inline-flex items-center gap-1 cursor-default" title={p.tip}>
+                            <span className={`px-1.5 py-0.5 rounded border font-semibold ${p.cls}`}>{p.label}</span>
+                            <span className="text-[#6b7280] text-[9px]">{p.desc}</span>
+                          </span>
+                        ))}
                       </div>
                     );
                   })()}
