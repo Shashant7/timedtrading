@@ -51,7 +51,7 @@
       /* Responsive 3-panel layout */
       .investor-3panel { min-height: 0; }
       @media (min-width: 1024px) {
-        .investor-3panel { height: min(480px, calc(100vh - 340px)); min-height: 280px; }
+        .investor-3panel { height: min(560px, calc(100vh - 300px)); min-height: 320px; }
       }
       /* Slide-in overlay from right (mobile right rail) */
       @keyframes slideInRight {
@@ -101,16 +101,6 @@
         return React.createElement("span", { className: "text-gray-500", title: "Neutral" }, "●");
       }
 
-      function InfoTip({ text }) {
-        return React.createElement("span", { className: "inline-flex items-center ml-1 cursor-help opacity-40 hover:opacity-80 transition-opacity", title: text },
-          React.createElement("svg", { width: 12, height: 12, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "2", strokeLinecap: "round", strokeLinejoin: "round" },
-            React.createElement("circle", { cx: "12", cy: "12", r: "10" }),
-            React.createElement("line", { x1: "12", y1: "16", x2: "12", y2: "12" }),
-            React.createElement("line", { x1: "12", y1: "8", x2: "12.01", y2: "8" }),
-          )
-        );
-      }
-
       const SIGNAL_LABELS = {
         rsi_oversold: "RSI is low (oversold)",
         above_monthly_ema: "Price above monthly trend line",
@@ -123,12 +113,45 @@
       };
 
       const COMPONENT_LABELS = {
-        weeklyTrend: { label: "Weekly Trend", tip: "Is the stock trending up or down on a weekly basis?" },
-        monthlyTrend: { label: "Monthly Trend", tip: "The bigger-picture direction over months -- more important than daily moves" },
-        relativeStrength: { label: "Strength vs Market", tip: "How this stock performs compared to the overall market (S&P 500)" },
-        accumulationSignal: { label: "Buy Zone Signal", tip: "Has the stock pulled back to a favorable price while the trend is still intact?" },
-        marketHealth: { label: "Market Conditions", tip: "Is the overall market environment supportive for holding stocks?" },
+        weeklyTrend: { label: "Weekly Trend", tip: "Is the stock trending up or down on a weekly basis?", max: 25 },
+        monthlyTrend: { label: "Monthly Trend", tip: "The bigger-picture direction over months", max: 20 },
+        relativeStrength: { label: "Strength vs Market", tip: "How this stock performs compared to the S&P 500", max: 20 },
+        accumulationSignal: { label: "Buy Zone Signal", tip: "Has the stock pulled back to a favorable entry price?", max: 15 },
+        marketHealth: { label: "Market Conditions", tip: "Is the overall market environment supportive?", max: 10 },
+        trendDurability: { label: "Trend Durability", tip: "How long and consistently the trend has held", max: 10 },
+        sectorContext: { label: "Sector Context", tip: "Is this stock's sector in favor right now?", max: 10 },
       };
+
+      function getScoreLabel(score) {
+        if (score >= 70) return "Strong";
+        if (score >= 50) return "Mixed";
+        return "Weak";
+      }
+
+      function getTickerSummary(score, stage) {
+        if (score >= 70 && stage === "accumulate") return "Strong setup. The system sees a buying opportunity.";
+        if (score >= 70 && stage === "core_hold") return "Strong and steady. The system recommends holding.";
+        if (score >= 70) return "Strong signals across the board.";
+        if (score >= 50 && stage === "accumulate") return "Moderate setup with a buying opportunity. The system suggests smaller sizing.";
+        if (score >= 50 && stage === "watch") return "Mixed signals. The system recommends watching for now.";
+        if (score >= 50 && stage === "core_hold") return "Decent health but not firing on all cylinders. Hold and monitor.";
+        if (score >= 50) return "Mixed signals — some positives, some caution flags.";
+        if (score < 50 && stage === "reduce") return "Weak setup. The system recommends reducing or exiting.";
+        if (score < 50 && stage === "watch") return "Weak signals. The system recommends caution.";
+        if (score < 50) return "Unfavorable conditions. The system advises caution.";
+        return "The system is evaluating this stock.";
+      }
+
+      function getRsSummary(rs) {
+        if (!rs) return null;
+        const pos = [rs.rs1m, rs.rs3m, rs.rs6m].filter(v => Number.isFinite(v) && v > 0).length;
+        const neg = [rs.rs1m, rs.rs3m, rs.rs6m].filter(v => Number.isFinite(v) && v < 0).length;
+        if (pos === 3) return "Outperforming the market across all timeframes.";
+        if (pos >= 2) return "Generally outperforming, with some recent softness.";
+        if (neg === 3) return "Underperforming the market. Relative weakness across the board.";
+        if (neg >= 2) return "Mostly underperforming. The market is doing better.";
+        return "Mixed performance relative to the market.";
+      }
 
       // ─── Market Health Bar ──────────────────────────────────────────
       function MarketHealthBar({ health, loading }) {
@@ -152,121 +175,58 @@
           ),
           React.createElement("div", { className: "text-[11px] text-[#6b7280] mb-3" }, "How healthy is the overall stock market right now?"),
           React.createElement(ScoreBar, { score, color }),
-          React.createElement("div", { className: "grid grid-cols-4 gap-3 mt-3" },
+          React.createElement("div", { className: "grid grid-cols-4 gap-4 mt-3" },
             React.createElement("div", { className: "text-center" },
-              React.createElement("div", { className: "text-[10px] text-[#6b7280] uppercase tracking-wide flex items-center justify-center" }, "Participation", React.createElement(InfoTip, { text: "How many stocks are going up vs down. Higher = healthier market. (Market Breadth)" })),
-              React.createElement("div", { className: "text-sm font-medium text-white" }, components?.breadth || 0),
+              React.createElement("div", { className: "text-[10px] text-[#6b7280] uppercase tracking-wide" }, "Participation"),
+              React.createElement("div", { className: "text-base font-semibold text-white" }, components?.breadth || 0),
+              React.createElement("div", { className: "text-[9px] text-[#4b5563] mt-0.5" }, "Stocks going up vs down"),
             ),
             React.createElement("div", { className: "text-center" },
-              React.createElement("div", { className: "text-[10px] text-[#6b7280] uppercase tracking-wide flex items-center justify-center" }, "Market Mode", React.createElement(InfoTip, { text: "Is the market in a bullish, cautious, or bearish environment? (Regime Score)" })),
-              React.createElement("div", { className: "text-sm font-medium text-white" }, components?.regimeScore || 0),
+              React.createElement("div", { className: "text-[10px] text-[#6b7280] uppercase tracking-wide" }, "Market Mode"),
+              React.createElement("div", { className: "text-base font-semibold text-white" }, components?.regimeScore || 0),
+              React.createElement("div", { className: "text-[9px] text-[#4b5563] mt-0.5" }, "Bullish, cautious, or bearish"),
             ),
             React.createElement("div", { className: "text-center" },
-              React.createElement("div", { className: "text-[10px] text-[#6b7280] uppercase tracking-wide flex items-center justify-center" }, "Trend Strength", React.createElement(InfoTip, { text: "Are stocks generally trending up or losing steam? (Trend Momentum)" })),
-              React.createElement("div", { className: "text-sm font-medium text-white" }, components?.trendMomentum || 0),
+              React.createElement("div", { className: "text-[10px] text-[#6b7280] uppercase tracking-wide" }, "Trend Strength"),
+              React.createElement("div", { className: "text-base font-semibold text-white" }, components?.trendMomentum || 0),
+              React.createElement("div", { className: "text-[9px] text-[#4b5563] mt-0.5" }, "Trending up or losing steam"),
             ),
             React.createElement("div", { className: "text-center" },
-              React.createElement("div", { className: "text-[10px] text-[#6b7280] uppercase tracking-wide flex items-center justify-center" }, "Long-Term", React.createElement(InfoTip, { text: "% of stocks above their 200-week average. Above 50% = broadly healthy market." })),
-              React.createElement("div", { className: "text-sm font-medium text-white" }, breadth?.pctAboveW200 ? `${breadth.pctAboveW200}%` : "—"),
+              React.createElement("div", { className: "text-[10px] text-[#6b7280] uppercase tracking-wide" }, "Long-Term"),
+              React.createElement("div", { className: "text-base font-semibold text-white" }, breadth?.pctAboveW200 ? `${breadth.pctAboveW200}%` : "—"),
+              React.createElement("div", { className: "text-[9px] text-[#4b5563] mt-0.5" }, "Above 200-week average"),
             ),
           ),
         );
       }
 
-      // ─── Action Board Header with Legend ────────────────────────────
+      // ─── Action Board Header (inline score key, no toggle) ─────────
       function ActionBoardHeader({ actionCount }) {
-        const [showLegend, setShowLegend] = useState(false);
-
-        return React.createElement("div", { className: "mb-2 shrink-0" },
-          React.createElement("div", { className: "flex items-center justify-between" },
+        return React.createElement("div", { className: "mb-3 shrink-0" },
+          React.createElement("div", { className: "flex items-center justify-between mb-1" },
             React.createElement("h2", { className: "text-sm font-semibold text-white" },
               "Action Board",
               React.createElement("span", { className: "text-[10px] text-[#4b5563] ml-2 font-normal" }, `${actionCount} ticker${actionCount !== 1 ? "s" : ""} need attention`),
             ),
-            React.createElement("button", {
-              onClick: () => setShowLegend(!showLegend),
-              className: `px-3 py-1.5 rounded-lg border text-[11px] font-bold transition-all flex items-center gap-1.5 ${
-                showLegend
-                  ? "bg-purple-500/25 border-purple-500/50 text-purple-200 shadow-[0_0_8px_rgba(168,85,247,0.25)]"
-                  : "bg-gradient-to-r from-purple-500/20 to-blue-500/20 border-purple-500/30 text-purple-300 hover:text-white hover:border-purple-400/50 hover:shadow-[0_0_8px_rgba(168,85,247,0.2)]"
-              }`,
-            },
-              React.createElement("svg", { width: 14, height: 14, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "2.5", strokeLinecap: "round", strokeLinejoin: "round" },
-                React.createElement("circle", { cx: "12", cy: "12", r: "10" }),
-                React.createElement("path", { d: "M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" }),
-                React.createElement("line", { x1: "12", y1: "17", x2: "12.01", y2: "17" }),
-              ),
-              React.createElement("span", null, showLegend ? "Hide Legend" : "How This Board Works"),
-              React.createElement("svg", { width: 10, height: 10, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "2.5", strokeLinecap: "round", strokeLinejoin: "round", style: { transform: showLegend ? "rotate(180deg)" : "none", transition: "transform 0.2s" } },
-                React.createElement("polyline", { points: "6 9 12 15 18 9" }),
-              ),
-            ),
           ),
-          showLegend && React.createElement("div", { className: "card p-3 mt-2 fade-in text-[11px] leading-relaxed" },
-            // Score guide
-            React.createElement("div", { className: "mb-3" },
-              React.createElement("div", { className: "text-[10px] text-[#9ca3af] uppercase tracking-wide font-semibold mb-1" }, "Investor Score"),
-              React.createElement("div", { className: "text-[10px] text-[#4b5563] mb-1.5" }, "The system rates each stock from 0-100 based on trend, strength vs market, and timing."),
-              React.createElement("div", { className: "flex items-center gap-3 flex-wrap" },
-                React.createElement("span", { className: "flex items-center gap-1" },
-                  React.createElement("span", { className: "w-2 h-2 rounded-full bg-[#00e676] inline-block" }),
-                  React.createElement("span", { className: "text-[#00e676] font-semibold" }, "70-100"),
-                  React.createElement("span", { className: "text-[#6b7280]" }, "Strong — trend, strength, and timing all look favorable"),
-                ),
-                React.createElement("span", { className: "flex items-center gap-1" },
-                  React.createElement("span", { className: "w-2 h-2 rounded-full bg-amber-400 inline-block" }),
-                  React.createElement("span", { className: "text-amber-400 font-semibold" }, "50-69"),
-                  React.createElement("span", { className: "text-[#6b7280]" }, "Mixed — some positives but not a clear picture yet"),
-                ),
-                React.createElement("span", { className: "flex items-center gap-1" },
-                  React.createElement("span", { className: "w-2 h-2 rounded-full bg-red-400 inline-block" }),
-                  React.createElement("span", { className: "text-red-400 font-semibold" }, "0-49"),
-                  React.createElement("span", { className: "text-[#6b7280]" }, "Weak — conditions are unfavorable, proceed with caution"),
-                ),
-              ),
+          React.createElement("div", { className: "flex items-center gap-3 text-[10px] text-[#6b7280]" },
+            React.createElement("span", { className: "flex items-center gap-1" },
+              React.createElement("span", { className: "w-1.5 h-1.5 rounded-full bg-[#00e676] inline-block" }),
+              React.createElement("span", null, "70+ Strong"),
             ),
-            // Lane guide
-            React.createElement("div", { className: "mb-3" },
-              React.createElement("div", { className: "text-[10px] text-[#9ca3af] uppercase tracking-wide font-semibold mb-1" }, "Action Lanes"),
-              React.createElement("div", { className: "text-[10px] text-[#4b5563] mb-1.5" }, "The system places each stock into one of four lanes based on its current score and trends."),
-              React.createElement("div", { className: "grid grid-cols-2 gap-x-4 gap-y-1.5" },
-                React.createElement("div", { className: "flex items-start gap-2" },
-                  React.createElement("span", { className: "stage-badge stage-accumulate !text-[9px] !py-0 shrink-0 mt-0.5" }, "Accumulate"),
-                  React.createElement("span", { className: "text-[#9ca3af]" }, "The stock is at a good price relative to its trend. The system suggests buying in small pieces over time (dollar-cost averaging) rather than all at once."),
-                ),
-                React.createElement("div", { className: "flex items-start gap-2" },
-                  React.createElement("span", { className: "stage-badge stage-core_hold !text-[9px] !py-0 shrink-0 mt-0.5" }, "Core Hold"),
-                  React.createElement("span", { className: "text-[#9ca3af]" }, "Both the weekly and monthly trends are healthy. No action needed — hold and let it work. The system will flag if the score drops below 65."),
-                ),
-                React.createElement("div", { className: "flex items-start gap-2" },
-                  React.createElement("span", { className: "stage-badge stage-watch !text-[9px] !py-0 shrink-0 mt-0.5" }, "Watch"),
-                  React.createElement("span", { className: "text-[#9ca3af]" }, "The picture is mixed. Something changed — maybe the trend weakened or strength vs the market dipped. The system recommends waiting before adding capital."),
-                ),
-                React.createElement("div", { className: "flex items-start gap-2" },
-                  React.createElement("span", { className: "stage-badge stage-reduce !text-[9px] !py-0 shrink-0 mt-0.5" }, "Reduce"),
-                  React.createElement("span", { className: "text-[#9ca3af]" }, "The stock is showing weakness. The system suggests trimming or exiting the position to protect capital."),
-                ),
-              ),
+            React.createElement("span", { className: "flex items-center gap-1" },
+              React.createElement("span", { className: "w-1.5 h-1.5 rounded-full bg-amber-400 inline-block" }),
+              React.createElement("span", null, "50-69 Mixed"),
             ),
-            // Badge/indicator guide
-            React.createElement("div", null,
-              React.createElement("div", { className: "text-[10px] text-[#9ca3af] uppercase tracking-wide font-semibold mb-1" }, "Badges"),
-              React.createElement("div", { className: "text-[10px] text-[#4b5563] mb-1.5" }, "Special conditions the system has detected for a stock."),
-              React.createElement("div", { className: "flex items-center gap-3 flex-wrap" },
-                React.createElement("span", { className: "flex items-center gap-1" },
-                  React.createElement("span", { className: "text-[9px] text-[#00e676] bg-[#00c853]/10 px-1.5 py-0.5 rounded" }, "ZONE"),
-                  React.createElement("span", { className: "text-[#6b7280]" }, "The stock pulled back to a good buy area while its longer-term trend is still healthy"),
-                ),
-                React.createElement("span", { className: "flex items-center gap-1" },
-                  React.createElement("span", { className: "text-[9px] text-sky-400 bg-sky-500/10 px-1.5 py-0.5 rounded" }, "RS HIGH"),
-                  React.createElement("span", { className: "text-[#6b7280]" }, "This stock is outperforming the overall market (S&P 500) at a new 3-month high"),
-                ),
-                React.createElement("span", { className: "flex items-center gap-1" },
-                  React.createElement("span", { className: "text-[10px] text-[#6b7280]" }, "RS: 85"),
-                  React.createElement("span", { className: "text-[#6b7280]" }, "= stronger than 85% of all stocks tracked, relative to the S&P 500"),
-                ),
-              ),
+            React.createElement("span", { className: "flex items-center gap-1" },
+              React.createElement("span", { className: "w-1.5 h-1.5 rounded-full bg-red-400 inline-block" }),
+              React.createElement("span", null, "Under 50 Weak"),
             ),
+            React.createElement("span", { className: "text-[#4b5563]" }, "|"),
+            React.createElement("span", { className: "text-[9px] text-[#00e676] bg-[#00c853]/10 px-1 rounded", title: "The stock pulled back to a good buy area while its longer-term trend is still healthy" }, "ZONE"),
+            React.createElement("span", { className: "text-[#4b5563]" }, "= buy area"),
+            React.createElement("span", { className: "text-[9px] text-sky-400 bg-sky-500/10 px-1 rounded", title: "This stock is outperforming the S&P 500 at a new 3-month high" }, "RS HIGH"),
+            React.createElement("span", { className: "text-[#4b5563]" }, "= beating the market"),
           ),
         );
       }
@@ -389,19 +349,21 @@
           // Metrics row
           React.createElement("div", { className: "grid grid-cols-3 gap-4 mb-4" },
             React.createElement("div", { className: "card p-3 text-center" },
-              React.createElement("div", { className: "text-[10px] text-[#6b7280] uppercase tracking-wide flex items-center justify-center" }, "Diversification", React.createElement(InfoTip, { text: "How spread out is the portfolio? A higher score means less risk from any single stock or sector." })),
+              React.createElement("div", { className: "text-[10px] text-[#6b7280] uppercase tracking-wide" }, "Diversification"),
               React.createElement("div", { className: `text-xl font-bold ${diversificationScore >= 60 ? "text-[#00e676]" : diversificationScore >= 40 ? "text-amber-400" : "text-red-400"}` }, diversificationScore),
               React.createElement(ScoreBar, { score: diversificationScore, color: diversificationScore >= 60 ? "#10b981" : "#f59e0b" }),
+              React.createElement("div", { className: "text-[9px] text-[#4b5563] mt-1" }, "How spread out is the portfolio?"),
             ),
             React.createElement("div", { className: "card p-3 text-center" },
-              React.createElement("div", { className: "text-[10px] text-[#6b7280] uppercase tracking-wide flex items-center justify-center" }, "Top-Heavy Risk", React.createElement(InfoTip, { text: "If the 3 largest positions make up too much of the portfolio, a single bad stock can cause outsized damage. Below 40% is ideal." })),
+              React.createElement("div", { className: "text-[10px] text-[#6b7280] uppercase tracking-wide" }, "Top-Heavy Risk"),
               React.createElement("div", { className: `text-xl font-bold ${concentrationRisk.rating === "GOOD" ? "text-[#00e676]" : concentrationRisk.rating === "MODERATE" ? "text-amber-400" : "text-red-400"}` }, `${concentrationRisk.top3Pct}%`),
-              React.createElement("div", { className: "text-[10px] text-[#6b7280]" }, `Top 3 positions (${concentrationRisk.rating === "GOOD" ? "Healthy" : concentrationRisk.rating === "MODERATE" ? "Moderate" : "High Risk"})`),
+              React.createElement("div", { className: "text-[10px] text-[#6b7280]" }, `Top 3 = ${concentrationRisk.top3Pct}%`),
+              React.createElement("div", { className: "text-[9px] text-[#4b5563] mt-0.5" }, concentrationRisk.rating === "GOOD" ? "Healthy — well distributed" : concentrationRisk.rating === "MODERATE" ? "Moderate — could be more spread out" : "High risk — too concentrated"),
             ),
             React.createElement("div", { className: "card p-3 text-center" },
               React.createElement("div", { className: "text-[10px] text-[#6b7280] uppercase tracking-wide" }, "Industries"),
               React.createElement("div", { className: "text-xl font-bold text-white" }, Object.keys(sectorAllocation).length),
-              React.createElement("div", { className: "text-[10px] text-[#6b7280]" }, "different sectors held"),
+              React.createElement("div", { className: "text-[9px] text-[#4b5563] mt-0.5" }, "Different sectors held"),
             ),
           ),
           // Sector allocation
@@ -473,133 +435,148 @@
 
       // ─── Ticker Deep Dive (Right Rail) ──────────────────────────────
       function TickerDeepDive({ ticker, data }) {
-        if (!ticker || !data) return React.createElement("div", { className: "card p-4 text-center text-[#6b7280] text-sm" }, "Select a ticker to see details");
+        if (!ticker || !data) return React.createElement("div", { className: "card p-6 text-center text-[#6b7280] text-sm" },
+          React.createElement("div", { className: "text-lg mb-2 opacity-30" }, "←"),
+          "Select a ticker to see the full analysis",
+        );
 
         const price = data.price;
         const _dcResult = getDailyChange(data);
         const chgPct = _dcResult?.dayPct ?? null;
         const chgVal = _dcResult?.dayChg ?? null;
         const hasPrice = price != null && Number.isFinite(price);
+        const scoreLabel = getScoreLabel(data.score);
+        const scoreColor = data.score >= 70 ? "text-[#00e676]" : data.score >= 50 ? "text-amber-400" : "text-red-400";
+        const summary = getTickerSummary(data.score, data.stage);
 
-        return React.createElement("div", { className: "card p-4 fade-in space-y-4" },
-          // Header: ticker + company name + sector + score
-          React.createElement("div", { className: "flex items-center justify-between" },
-            React.createElement("div", null,
-              React.createElement("h2", { className: "text-lg font-bold text-white" }, ticker),
-              data.companyName && React.createElement("div", { className: "text-xs text-[#9ca3af] mb-0.5" }, data.companyName),
-              React.createElement("span", { className: "text-[10px] text-[#6b7280]" }, data.sector || "Unknown"),
+        return React.createElement("div", { className: "card p-5 fade-in space-y-5" },
+          // ── Header: ticker + score with context ──
+          React.createElement("div", null,
+            React.createElement("div", { className: "flex items-center justify-between" },
+              React.createElement("div", null,
+                React.createElement("h2", { className: "text-lg font-bold text-white" }, ticker),
+                data.companyName && React.createElement("div", { className: "text-xs text-[#9ca3af]" }, data.companyName),
+                React.createElement("span", { className: "text-[10px] text-[#6b7280]" }, data.sector || "Unknown"),
+              ),
+              React.createElement("div", { className: "text-right" },
+                React.createElement("div", { className: "flex items-baseline gap-1.5 justify-end" },
+                  React.createElement("span", { className: `text-2xl font-bold ${scoreColor}` }, data.score),
+                  React.createElement("span", { className: `text-xs font-semibold ${scoreColor}` }, scoreLabel),
+                ),
+                React.createElement("div", { className: "text-[10px] text-[#6b7280]" }, "Investor Score"),
+              ),
             ),
-            React.createElement("div", { className: "text-right" },
-              React.createElement("div", { className: `text-2xl font-bold ${data.score >= 70 ? "text-[#00e676]" : data.score >= 50 ? "text-amber-400" : "text-red-400"}` }, data.score),
-              React.createElement("div", { className: "text-[10px] text-[#6b7280]" }, "Investor Score"),
-            ),
+            React.createElement("div", { className: "text-[11px] text-[#9ca3af] mt-2 italic leading-relaxed" }, summary),
           ),
-          // Price + Daily Change row
-          hasPrice && React.createElement("div", { className: "card p-2.5 flex items-center justify-between" },
+          // ── Price + Daily Change ──
+          hasPrice && React.createElement("div", { className: "card p-3 flex items-center justify-between" },
             React.createElement("div", null,
-              React.createElement("div", { className: "text-[10px] text-[#6b7280] uppercase tracking-wide" }, "Current Price"),
+              React.createElement("div", { className: "text-[10px] text-[#6b7280] uppercase tracking-wide" }, "Price"),
               React.createElement("div", { className: "text-lg font-bold text-white tabular-nums" }, `$${price.toFixed(2)}`),
             ),
             (chgPct != null && Number.isFinite(chgPct)) && React.createElement("div", { className: "text-right" },
-              React.createElement("div", { className: "text-[10px] text-[#6b7280] uppercase tracking-wide" }, "Daily Chg"),
+              React.createElement("div", { className: "text-[10px] text-[#6b7280] uppercase tracking-wide" }, "Today"),
               React.createElement("div", { className: `text-lg font-bold tabular-nums ${chgPct >= 0 ? "text-[#00e676]" : "text-red-400"}` }, `${chgPct >= 0 ? "+" : ""}${chgPct.toFixed(2)}%`),
               Number.isFinite(chgVal) && React.createElement("div", { className: `text-[11px] font-medium tabular-nums ${chgVal >= 0 ? "text-[#00e676]/70" : "text-red-400/70"}` }, `${chgVal >= 0 ? "+" : "-"}$${Math.abs(chgVal).toFixed(2)}`),
             ),
             data.prevClose != null && Number.isFinite(data.prevClose) && React.createElement("div", { className: "text-right" },
-              React.createElement("div", { className: "text-[10px] text-[#6b7280] uppercase tracking-wide" }, "Prev Close"),
+              React.createElement("div", { className: "text-[10px] text-[#6b7280] uppercase tracking-wide" }, "Yesterday's Close"),
               React.createElement("div", { className: "text-sm font-semibold text-[#9ca3af] tabular-nums" }, `$${data.prevClose.toFixed(2)}`),
             ),
           ),
-          React.createElement(ScoreBar, { score: data.score, color: data.score >= 70 ? "#10b981" : data.score >= 50 ? "#f59e0b" : "#ef4444" }),
-          // Stage + Start Position button
-          React.createElement("div", { className: "flex items-center justify-between" },
-            React.createElement("div", { className: "flex items-center gap-2" },
+          // ── Stage + action hint ──
+          React.createElement("div", null,
+            React.createElement("div", { className: "flex items-center gap-2 mb-1" },
               React.createElement(StageBadge, { stage: data.stage }),
-              React.createElement("span", { className: "text-[11px] text-[#6b7280]" }, data.stageReason),
+              data.stage === "accumulate" && React.createElement("span", {
+                className: "text-[10px] text-[#00e676]/80 bg-[#00c853]/10 px-2 py-0.5 rounded border border-[#00c853]/20",
+              }, "Buy signal — add in small portions"),
+              data.stage === "watch" && React.createElement("span", {
+                className: "text-[10px] text-amber-400/80 bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/20",
+              }, "The system suggests a small starter position"),
+              data.stage === "reduce" && React.createElement("span", {
+                className: "text-[10px] text-red-400/80 bg-red-500/10 px-2 py-0.5 rounded border border-red-500/20",
+              }, "Reduce signal — the system recommends trimming"),
             ),
-            data.stage === "accumulate" && React.createElement("span", {
-              className: "text-[9px] text-[#00e676]/80 bg-[#00c853]/10 px-2 py-0.5 rounded border border-[#00c853]/20",
-            }, "Buy signal — add in small portions"),
-            data.stage === "watch" && React.createElement("span", {
-              className: "text-[9px] text-amber-400/80 bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/20",
-            }, "The system suggests a small starter position"),
-            data.stage === "reduce" && React.createElement("span", {
-              className: "text-[9px] text-red-400/80 bg-red-500/10 px-2 py-0.5 rounded border border-red-500/20",
-            }, "Reduce signal — the system recommends trimming"),
+            data.stageReason && React.createElement("div", { className: "text-[10px] text-[#6b7280]" }, data.stageReason),
           ),
-          // Score components
+          // ── Score Breakdown with verdict dots ──
           data.components && React.createElement("div", null,
             React.createElement("h3", { className: "text-xs font-semibold text-[#9ca3af] mb-1 uppercase tracking-wide" }, "Score Breakdown"),
-            React.createElement("div", { className: "text-[10px] text-[#4b5563] mb-2" }, "How the system arrived at this stock's overall score."),
-            React.createElement("div", { className: "space-y-1.5" },
+            React.createElement("div", { className: "text-[10px] text-[#4b5563] mb-2.5" }, "How the system arrived at this stock's overall score."),
+            React.createElement("div", { className: "space-y-2" },
               ...Object.entries(data.components).map(([k, v]) => {
-                const meta = COMPONENT_LABELS[k] || { label: k.replace(/([A-Z])/g, " $1"), tip: "" };
-                return React.createElement("div", { key: k, className: "flex items-center justify-between" },
-                  React.createElement("span", { className: "text-[11px] text-[#9ca3af] flex items-center" }, meta.label, meta.tip && React.createElement(InfoTip, { text: meta.tip })),
-                  React.createElement("div", { className: "flex items-center gap-2" },
-                    React.createElement("div", { className: "w-20" },
-                      React.createElement(ScoreBar, { score: v, max: k === "weeklyTrend" ? 25 : k === "monthlyTrend" ? 20 : k === "relativeStrength" ? 20 : k === "accumulationSignal" ? 15 : 10, color: "#3b82f6" }),
-                    ),
-                    React.createElement("span", { className: "text-xs text-white w-6 text-right" }, v),
+                const meta = COMPONENT_LABELS[k] || { label: k.replace(/([A-Z])/g, " $1").trim(), tip: "", max: 10 };
+                const maxVal = meta.max || 10;
+                const pct = v / maxVal;
+                const dotColor = pct >= 0.6 ? "bg-[#00e676]" : pct >= 0.3 ? "bg-amber-400" : "bg-red-400";
+                return React.createElement("div", { key: k, className: "flex items-center gap-2", title: meta.tip },
+                  React.createElement("span", { className: `w-1.5 h-1.5 rounded-full ${dotColor} shrink-0` }),
+                  React.createElement("span", { className: "text-[11px] text-[#9ca3af] w-28 shrink-0" }, meta.label),
+                  React.createElement("div", { className: "flex-1" },
+                    React.createElement(ScoreBar, { score: v, max: maxVal, color: "#3b82f6" }),
                   ),
+                  React.createElement("span", { className: "text-xs text-white w-6 text-right tabular-nums shrink-0" }, v),
                 );
               }),
             ),
           ),
-          // Performance vs Market
+          // ── Performance vs Market ──
           data.rs && React.createElement("div", null,
             React.createElement("h3", { className: "text-xs font-semibold text-[#9ca3af] mb-1 uppercase tracking-wide" }, "Performance vs Market"),
-            React.createElement("div", { className: "text-[10px] text-[#4b5563] mb-2" }, "How this stock compares to the S&P 500 over different time periods."),
+            React.createElement("div", { className: "text-[10px] text-[#4b5563] mb-2.5" }, getRsSummary(data.rs)),
             React.createElement("div", { className: "grid grid-cols-3 gap-2" },
-              React.createElement("div", { className: "card p-2 text-center" },
+              React.createElement("div", { className: "card p-2.5 text-center" },
                 React.createElement("div", { className: "text-[10px] text-[#6b7280]" }, "1 Month"),
                 React.createElement("div", { className: `text-sm font-semibold ${data.rs.rs1m >= 0 ? "text-[#00e676]" : "text-red-400"}` }, fmtPct(data.rs.rs1m)),
-                React.createElement("div", { className: "text-[9px] text-[#4b5563]" }, "vs S&P 500"),
               ),
-              React.createElement("div", { className: "card p-2 text-center" },
-                React.createElement("div", { className: "text-[10px] text-[#6b7280]" }, "3 Month"),
+              React.createElement("div", { className: "card p-2.5 text-center" },
+                React.createElement("div", { className: "text-[10px] text-[#6b7280]" }, "3 Months"),
                 React.createElement("div", { className: `text-sm font-semibold ${data.rs.rs3m >= 0 ? "text-[#00e676]" : "text-red-400"}` }, fmtPct(data.rs.rs3m)),
-                React.createElement("div", { className: "text-[9px] text-[#4b5563]" }, "vs S&P 500"),
               ),
-              React.createElement("div", { className: "card p-2 text-center" },
-                React.createElement("div", { className: "text-[10px] text-[#6b7280]" }, "6 Month"),
+              React.createElement("div", { className: "card p-2.5 text-center" },
+                React.createElement("div", { className: "text-[10px] text-[#6b7280]" }, "6 Months"),
                 React.createElement("div", { className: `text-sm font-semibold ${data.rs.rs6m >= 0 ? "text-[#00e676]" : "text-red-400"}` }, fmtPct(data.rs.rs6m)),
-                React.createElement("div", { className: "text-[9px] text-[#4b5563]" }, "vs S&P 500"),
               ),
             ),
-            React.createElement("div", { className: "flex items-center gap-2 mt-2 flex-wrap" },
-              React.createElement("span", { className: "text-[11px] text-[#6b7280] flex items-center" },
-                `Outperforms ${data.rsRank}% of stocks`,
-                React.createElement(InfoTip, { text: "Relative Strength Rank — compares this stock's performance against every other tracked stock, relative to the S&P 500." }),
+            React.createElement("div", { className: "mt-2.5" },
+              React.createElement("div", { className: "flex items-center justify-between mb-1" },
+                React.createElement("span", { className: "text-[11px] text-[#9ca3af]", title: "Relative Strength Rank — compares this stock's performance against every other tracked stock, relative to the S&P 500" },
+                  `Outperforms ${data.rsRank}% of all tracked stocks`,
+                ),
+                React.createElement("div", { className: "flex items-center gap-1" },
+                  data.rs.rsNewHigh3m && React.createElement("span", { className: "text-[9px] text-sky-400 bg-sky-500/10 px-1.5 py-0.5 rounded", title: "This stock just hit a new 3-month high in relative strength vs the market" }, "3M Best"),
+                  data.rs.rsNewHigh6m && React.createElement("span", { className: "text-[9px] text-[#00e676] bg-[#00c853]/10 px-1.5 py-0.5 rounded", title: "This stock just hit a new 6-month high in relative strength vs the market" }, "6M Best"),
+                ),
               ),
-              data.rs.rsNewHigh3m && React.createElement("span", { className: "text-[10px] text-sky-400 bg-sky-500/10 px-1.5 py-0.5 rounded", title: "This stock just hit a new 3-month high in relative strength vs the market" }, "3-Month Best"),
-              data.rs.rsNewHigh6m && React.createElement("span", { className: "text-[10px] text-[#00e676] bg-[#00c853]/10 px-1.5 py-0.5 rounded", title: "This stock just hit a new 6-month high in relative strength vs the market" }, "6-Month Best"),
+              React.createElement(ScoreBar, { score: data.rsRank || 0, color: (data.rsRank || 0) >= 70 ? "#10b981" : (data.rsRank || 0) >= 40 ? "#3b82f6" : "#ef4444" }),
             ),
           ),
-          // Buy Zone (Accumulation Zone)
+          // ── Buy Zone ──
           data.accumZone && React.createElement("div", null,
-            React.createElement("h3", { className: "text-xs font-semibold text-[#9ca3af] mb-1 uppercase tracking-wide flex items-center" }, "Buy Zone", React.createElement(InfoTip, { text: "Has the stock pulled back to an attractive price while its longer-term trend is still healthy? (Accumulation Zone)" })),
+            React.createElement("h3", { className: "text-xs font-semibold text-[#9ca3af] mb-1 uppercase tracking-wide", title: "Has the stock pulled back to an attractive price while its longer-term trend is still healthy? (Accumulation Zone)" }, "Buy Zone"),
             data.accumZone.inZone
-              ? React.createElement("div", { className: "card p-2 border-[#00c853]/30" },
-                  React.createElement("div", { className: "flex items-center gap-2 mb-1" },
+              ? React.createElement("div", { className: "card p-3 border-[#00c853]/30" },
+                  React.createElement("div", { className: "flex items-center gap-2 mb-1.5" },
                     React.createElement("span", { className: "w-2 h-2 rounded-full bg-[#00e676] animate-pulse" }),
                     React.createElement("span", { className: "text-xs text-[#00e676] font-semibold" }, "In Buy Zone"),
+                    React.createElement("span", { className: "text-[10px] text-[#9ca3af]" }, `${data.accumZone.confidence}% confidence`),
                   ),
-                  React.createElement("div", { className: "text-[11px] text-[#9ca3af] mb-1" }, "The stock dipped to a favorable price without breaking its uptrend — historically a good area to start buying."),
-                  React.createElement("div", { className: "text-[11px] text-[#9ca3af]" }, `Confidence: ${data.accumZone.confidence}%`),
-                  React.createElement("div", { className: "flex flex-wrap gap-1 mt-1" },
+                  React.createElement("div", { className: "text-[11px] text-[#9ca3af] leading-relaxed mb-2" }, "The stock dipped to a favorable price without breaking its uptrend — historically a good area to start buying."),
+                  React.createElement("div", { className: "text-[10px] text-[#6b7280] mb-1" }, `${data.accumZone.signals?.length || 0} of 5 signals active:`),
+                  React.createElement("div", { className: "flex flex-wrap gap-1" },
                     ...data.accumZone.signals.map((s, i) =>
                       React.createElement("span", { key: i, className: "text-[9px] px-1.5 py-0.5 rounded bg-white/[0.04] text-[#9ca3af]" }, SIGNAL_LABELS[s] || s.replace(/_/g, " "))
                     ),
                   ),
                 )
-              : React.createElement("div", { className: "text-xs text-[#6b7280]" }, "Not in a buy zone right now. The stock hasn't pulled back to a favorable entry point yet."),
+              : React.createElement("div", { className: "text-[11px] text-[#6b7280] leading-relaxed" }, "Not in a buy zone right now. The stock hasn't pulled back to a favorable entry point yet."),
           ),
-          // Thesis
+          // ── Thesis ──
           data.thesis && React.createElement("div", null,
             React.createElement("h3", { className: "text-xs font-semibold text-[#9ca3af] mb-1 uppercase tracking-wide" }, "Investment Thesis"),
             React.createElement("div", { className: "text-[10px] text-[#4b5563] mb-2" }, "Why the system is tracking this stock and what would change the outlook."),
-            React.createElement("div", { className: "text-xs text-[#d1d5db] mb-2" }, data.thesis),
+            React.createElement("div", { className: "text-xs text-[#d1d5db] leading-relaxed mb-2" }, data.thesis),
             data.thesisInvalidation?.length > 0 && React.createElement("div", null,
               React.createElement("div", { className: "text-[10px] text-[#6b7280] mb-1" }, "What would change this view:"),
               ...data.thesisInvalidation.map((inv, i) =>
@@ -939,29 +916,23 @@
           // ═══ Market Health + Account Summary (compact row) ═══
           React.createElement("div", { className: "px-4 pb-2 shrink-0 space-y-2" },
             React.createElement(MarketHealthBar, { health, loading }),
-            acctSummary && React.createElement("div", { className: "card p-2.5 fade-in" },
-              React.createElement("div", { className: "flex items-center justify-between flex-wrap gap-3 text-[11px]" },
+            acctSummary && React.createElement("div", { className: "card p-3 fade-in" },
+              React.createElement("div", { className: "flex items-center justify-between flex-wrap gap-4 text-[11px]" },
                 React.createElement("span", { className: "text-[#6b7280]" }, "Account ",
                   React.createElement("span", { className: "text-white font-bold tabular-nums" }, fmtUsd(acctSummary.accountValue || 0)),
                 ),
                 React.createElement("span", { className: "text-[#6b7280]" }, "Cash ",
                   React.createElement("span", { className: "text-white font-bold tabular-nums" }, fmtUsd(acctSummary.cash || 0)),
                 ),
-                React.createElement("span", { className: "text-[#6b7280] flex items-center" }, "Invested",
-                  React.createElement(InfoTip, { text: "Total market value of all positions the portfolio currently holds" }),
-                  " ",
+                React.createElement("span", { className: "text-[#6b7280]", title: "Total market value of all positions the portfolio currently holds" }, "Invested ",
                   React.createElement("span", { className: "text-white font-bold tabular-nums" }, fmtUsd(acctSummary.markToMarket || 0)),
                 ),
-                React.createElement("span", { className: "text-[#6b7280] flex items-center" }, "Open P&L",
-                  React.createElement(InfoTip, { text: "Profit or loss on positions still held. Not locked in until the position is closed." }),
-                  " ",
+                React.createElement("span", { className: "text-[#6b7280]", title: "Profit or loss on positions still held — not locked in until the position is closed" }, "Open P&L ",
                   React.createElement("span", { className: `font-bold tabular-nums ${(acctSummary.unrealized || 0) >= 0 ? "text-[#00e676]" : "text-red-400"}` },
                     (acctSummary.unrealized >= 0 ? "+" : "") + fmtUsd(acctSummary.unrealized || 0),
                   ),
                 ),
-                React.createElement("span", { className: "text-[#6b7280] flex items-center" }, "Closed P&L",
-                  React.createElement(InfoTip, { text: "Profit or loss from positions that have already been sold." }),
-                  " ",
+                React.createElement("span", { className: "text-[#6b7280]", title: "Profit or loss from positions that have already been sold" }, "Closed P&L ",
                   React.createElement("span", { className: `font-bold tabular-nums ${(acctSummary.totalRealized || 0) >= 0 ? "text-[#00e676]" : "text-red-400"}` },
                     (acctSummary.totalRealized >= 0 ? "+" : "") + fmtUsd(acctSummary.totalRealized || 0),
                   ),
@@ -971,7 +942,7 @@
           ),
 
           // ═══ 3-Panel: Viewport | Action Kanban | Detail (responsive) ═══
-          React.createElement("div", { className: "investor-3panel flex flex-col lg:flex-row gap-3 px-4 shrink-0" },
+          React.createElement("div", { className: "investor-3panel flex flex-col lg:flex-row gap-4 px-4 shrink-0" },
             // Left: Viewport (scrollable ticker list — hidden on mobile)
             React.createElement("div", { className: "hidden lg:flex w-64 flex-shrink-0 flex-col min-h-0" },
               React.createElement("div", { className: "text-[10px] text-[#4b5563] mb-1 px-1 shrink-0" }, `${filteredTickers.length} ticker${filteredTickers.length !== 1 ? "s" : ""}`),
@@ -996,7 +967,7 @@
             ),
 
             // Right: Detail — inline on desktop, hidden on mobile (slide-in overlay below)
-            React.createElement("div", { className: "hidden lg:block w-80 flex-shrink-0 overflow-y-auto min-h-0" },
+            React.createElement("div", { className: "hidden lg:block w-96 flex-shrink-0 overflow-y-auto min-h-0" },
               React.createElement(TickerDeepDive, { ticker: selectedTicker, data: selectedData }),
             ),
           ),
