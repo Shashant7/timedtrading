@@ -23307,14 +23307,16 @@ export default {
                   obj._live_daily_high = pf.dh;
                   obj._live_daily_low = pf.dl;
                   obj._live_daily_volume = pf.dv;
-                  // Extended hours (AH/pre-market) change from price feed
-                  const pfAhDp2 = Number(pf.ahdp);
-                  const pfAhDc2 = Number(pf.ahdc);
-                  const pfAhP2 = Number(pf.ahp);
-                  if (Number.isFinite(pfAhDp2) && pfAhDp2 !== 0) {
-                    obj._ah_change_pct = pfAhDp2;
-                    obj._ah_change = Number.isFinite(pfAhDc2) ? pfAhDc2 : 0;
-                    if (Number.isFinite(pfAhP2) && pfAhP2 > 0) obj._ah_price = pfAhP2;
+                  // Extended hours (AH/pre-market) — only propagate when market is closed
+                  if (!isNyRegularMarketOpen()) {
+                    const pfAhDp2 = Number(pf.ahdp);
+                    const pfAhDc2 = Number(pf.ahdc);
+                    const pfAhP2 = Number(pf.ahp);
+                    if (Number.isFinite(pfAhDp2) && pfAhDp2 !== 0) {
+                      obj._ah_change_pct = pfAhDp2;
+                      obj._ah_change = Number.isFinite(pfAhDc2) ? pfAhDc2 : 0;
+                      if (Number.isFinite(pfAhP2) && pfAhP2 > 0) obj._ah_price = pfAhP2;
+                    }
                   }
 
                   // Pick best prev_close: daily candle > pf.pc (if divergent) > stored
@@ -24178,14 +24180,16 @@ export default {
                 obj._live_daily_low = pf.dl;
                 obj._live_daily_volume = pf.dv;
                 obj._price_updated_at = pricesUpdatedAt;
-                // Extended hours (AH/pre-market) change from price feed
-                const pfAhDp = Number(pf.ahdp);
-                const pfAhDc = Number(pf.ahdc);
-                const pfAhP = Number(pf.ahp);
-                if (Number.isFinite(pfAhDp) && pfAhDp !== 0) {
-                  obj._ah_change_pct = pfAhDp;
-                  obj._ah_change = Number.isFinite(pfAhDc) ? pfAhDc : 0;
-                  if (Number.isFinite(pfAhP) && pfAhP > 0) obj._ah_price = pfAhP;
+                // Extended hours (AH/pre-market) — only propagate when market is closed
+                if (!isNyRegularMarketOpen()) {
+                  const pfAhDp = Number(pf.ahdp);
+                  const pfAhDc = Number(pf.ahdc);
+                  const pfAhP = Number(pf.ahp);
+                  if (Number.isFinite(pfAhDp) && pfAhDp !== 0) {
+                    obj._ah_change_pct = pfAhDp;
+                    obj._ah_change = Number.isFinite(pfAhDc) ? pfAhDc : 0;
+                    if (Number.isFinite(pfAhP) && pfAhP > 0) obj._ah_price = pfAhP;
+                  }
                 }
                 if (Number.isFinite(pricesUpdatedAt) && pricesUpdatedAt > 0) {
                   const existingTs = Number(obj.ingest_ts) || Number(obj.ts) || 0;
@@ -29736,7 +29740,7 @@ export default {
               dp: dayRolled ? prev.dp : dp,
               t: Date.now(),
             };
-            if (Number.isFinite(nativeExtDc) && nativeExtDc !== 0) {
+            if (_mktClosed && Number.isFinite(nativeExtDc) && nativeExtDc !== 0) {
               entry.ahdc = Math.round(nativeExtDc * 100) / 100;
               entry.ahdp = Number.isFinite(nativeExtDp) ? Math.round(nativeExtDp * 100) / 100 : 0;
               if (Number.isFinite(nativeExtP) && nativeExtP > 0) entry.ahp = Math.round(nativeExtP * 100) / 100;
@@ -41587,19 +41591,21 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                   : (displayPrice > 0 && pc > 0) ? Math.round((displayPrice - pc) * 100) / 100 : 0;
                 const dp = (Number.isFinite(nativeDp) && nativeDp !== 0) ? Math.round(nativeDp * 100) / 100
                   : (displayPrice > 0 && pc > 0) ? Math.round(((displayPrice - pc) / pc) * 10000) / 100 : 0;
-                // Prefer TwelveData's native extended_* fields (prepost=true)
-                const nativeExtDc = Number(snap.extendedChange);
-                const nativeExtDp = Number(snap.extendedPercentChange);
-                const nativeExtP = Number(snap.extendedPrice);
+                // Extended hours data — only populate when market is closed (ETH/pre-market)
                 let extDc = 0, extDp = 0, extP = 0;
-                if (!isCryptoSym && Number.isFinite(nativeExtDc) && nativeExtDc !== 0) {
-                  extDc = Math.round(nativeExtDc * 100) / 100;
-                  extDp = Number.isFinite(nativeExtDp) ? Math.round(nativeExtDp * 100) / 100 : 0;
-                  extP = Number.isFinite(nativeExtP) && nativeExtP > 0 ? Math.round(nativeExtP * 100) / 100 : 0;
-                } else if (!isCryptoSym && ahPrice > 0 && rthClose > 0 && Math.abs(ahPrice - rthClose) > 0.001) {
-                  extDc = Math.round((ahPrice - rthClose) * 100) / 100;
-                  extDp = Math.round(((ahPrice - rthClose) / rthClose) * 10000) / 100;
-                  extP = Math.round(ahPrice * 100) / 100;
+                if (_marketClosed && !isCryptoSym) {
+                  const nativeExtDc = Number(snap.extendedChange);
+                  const nativeExtDp = Number(snap.extendedPercentChange);
+                  const nativeExtP = Number(snap.extendedPrice);
+                  if (Number.isFinite(nativeExtDc) && nativeExtDc !== 0) {
+                    extDc = Math.round(nativeExtDc * 100) / 100;
+                    extDp = Number.isFinite(nativeExtDp) ? Math.round(nativeExtDp * 100) / 100 : 0;
+                    extP = Number.isFinite(nativeExtP) && nativeExtP > 0 ? Math.round(nativeExtP * 100) / 100 : 0;
+                  } else if (ahPrice > 0 && rthClose > 0 && Math.abs(ahPrice - rthClose) > 0.001) {
+                    extDc = Math.round((ahPrice - rthClose) * 100) / 100;
+                    extDp = Math.round(((ahPrice - rthClose) / rthClose) * 10000) / 100;
+                    extP = Math.round(ahPrice * 100) / 100;
+                  }
                 }
                 const prev = existing[sym] || {};
                 const dayRolled = !isCryptoSym && _marketClosed && dc === 0 && dp === 0;
@@ -41619,9 +41625,9 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                   dl: snap.dailyLow > 0 ? Math.round(snap.dailyLow * 100) / 100 : (prev.dl || 0),
                   dv: snap.dailyVolume || prev.dv || 0,
                   t: snap.trade_ts || Date.now(),
-                  ahp: extDc !== 0 ? (extP || Math.round(ahPrice * 100) / 100) : (_marketClosed ? prev.ahp : undefined),
+                  ahp: extDc !== 0 ? extP : (_marketClosed ? prev.ahp : undefined),
                   ahdc: extDc !== 0 ? extDc : (_marketClosed ? prev.ahdc : undefined),
-                  ahdp: extDp !== 0 ? extDp : (_marketClosed ? prev.ahdp : undefined),
+                  ahdp: extDc !== 0 ? extDp : (_marketClosed ? prev.ahdp : undefined),
                 };
                 restCount++;
               }
@@ -41814,19 +41820,21 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                 : (displayPrice > 0 && pc > 0) ? Math.round((displayPrice - pc) * 100) / 100 : 0;
               const dp = (Number.isFinite(nativeDp) && nativeDp !== 0) ? Math.round(nativeDp * 100) / 100
                 : (displayPrice > 0 && pc > 0) ? Math.round(((displayPrice - pc) / pc) * 10000) / 100 : 0;
-              // Prefer TwelveData's native extended_* fields (prepost=true)
-              const nativeExtDc = Number(snap.extendedChange);
-              const nativeExtDp = Number(snap.extendedPercentChange);
-              const nativeExtP = Number(snap.extendedPrice);
+              // Extended hours data — only populate when market is closed (ETH/pre-market)
               let extDc = 0, extDp = 0, extP = 0;
-              if (!isCryptoSym && Number.isFinite(nativeExtDc) && nativeExtDc !== 0) {
-                extDc = Math.round(nativeExtDc * 100) / 100;
-                extDp = Number.isFinite(nativeExtDp) ? Math.round(nativeExtDp * 100) / 100 : 0;
-                extP = Number.isFinite(nativeExtP) && nativeExtP > 0 ? Math.round(nativeExtP * 100) / 100 : 0;
-              } else if (!isCryptoSym && ahPrice > 0 && rthClose > 0 && Math.abs(ahPrice - rthClose) > 0.001) {
-                extDc = Math.round((ahPrice - rthClose) * 100) / 100;
-                extDp = Math.round(((ahPrice - rthClose) / rthClose) * 10000) / 100;
-                extP = Math.round(ahPrice * 100) / 100;
+              if (_marketClosed && !isCryptoSym) {
+                const nativeExtDc = Number(snap.extendedChange);
+                const nativeExtDp = Number(snap.extendedPercentChange);
+                const nativeExtP = Number(snap.extendedPrice);
+                if (Number.isFinite(nativeExtDc) && nativeExtDc !== 0) {
+                  extDc = Math.round(nativeExtDc * 100) / 100;
+                  extDp = Number.isFinite(nativeExtDp) ? Math.round(nativeExtDp * 100) / 100 : 0;
+                  extP = Number.isFinite(nativeExtP) && nativeExtP > 0 ? Math.round(nativeExtP * 100) / 100 : 0;
+                } else if (ahPrice > 0 && rthClose > 0 && Math.abs(ahPrice - rthClose) > 0.001) {
+                  extDc = Math.round((ahPrice - rthClose) * 100) / 100;
+                  extDp = Math.round(((ahPrice - rthClose) / rthClose) * 10000) / 100;
+                  extP = Math.round(ahPrice * 100) / 100;
+                }
               }
               const prev = prices[sym] || {};
               const dayRolled = !isCryptoSym && _marketClosed && dc === 0 && dp === 0;
@@ -41846,9 +41854,9 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                 dl: snap.dailyLow > 0 ? Math.round(snap.dailyLow * 100) / 100 : (prev.dl || 0),
                 dv: snap.dailyVolume || prev.dv || 0,
                 t: snap.trade_ts || Date.now(),
-                ahp: extDc !== 0 ? (extP || Math.round(ahPrice * 100) / 100) : (_marketClosed ? prev.ahp : undefined),
+                ahp: extDc !== 0 ? extP : (_marketClosed ? prev.ahp : undefined),
                 ahdc: extDc !== 0 ? extDc : (_marketClosed ? prev.ahdc : undefined),
-                ahdp: extDp !== 0 ? extDp : (_marketClosed ? prev.ahdp : undefined),
+                ahdp: extDc !== 0 ? extDp : (_marketClosed ? prev.ahdp : undefined),
               };
               restFallbackCount++;
             }

@@ -11341,10 +11341,11 @@
             ? "0 0 12px rgba(251,191,36,0.25), 0 4px 12px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.12), inset 0 -1px 2px rgba(0,0,0,0.3)"
             : "0 4px 12px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.12), inset 0 -1px 2px rgba(0,0,0,0.3)";
 
-          // Extended hours change (AH/Pre-market) — skip for crypto (trades 24/7)
+          // Extended hours change (AH/Pre-market) — only show when market is closed, skip crypto (24/7)
           const _isCrypto = sym === "BTCUSD" || sym === "ETHUSD";
-          const ahPct = _isCrypto ? null : Number(t?._ah_change_pct);
-          const ahChg = _isCrypto ? null : Number(t?._ah_change);
+          const _mktOpen = isNyRegularMarketOpen();
+          const ahPct = (_isCrypto || _mktOpen) ? null : Number(t?._ah_change_pct);
+          const ahChg = (_isCrypto || _mktOpen) ? null : Number(t?._ah_change);
           const hasAH = Number.isFinite(ahPct) && ahPct !== 0;
 
           // Lane reason text
@@ -16664,8 +16665,9 @@
                     const rthGainers = rthSorted.slice(0, 5);
                     const rthLosers = rthSorted.slice(-5).reverse();
 
-                    // ETH movers: extended hours change (extended price vs RTH close)
-                    const ethArr = allArr.filter(t => !CRYPTO_24H.has(t?.ticker)).map(t => {
+                    // ETH movers: only show when market is closed
+                    const _moversMarketOpen = isNyRegularMarketOpen();
+                    const ethArr = _moversMarketOpen ? [] : allArr.filter(t => !CRYPTO_24H.has(t?.ticker)).map(t => {
                       const pct = Number(t?._ah_change_pct);
                       if (!Number.isFinite(pct) || pct === 0) return null;
                       const px = Number(t?._ah_price) || Number(t?.price ?? t?.close) || 0;

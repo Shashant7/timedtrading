@@ -15,7 +15,7 @@ alwaysApply: true
 - Extended hours: `ahp` (extended price), `ahdc` (AH change $), `ahdp` (AH change %).
 - Session-aware persistence using `isNyRegularMarketOpen()` (handles holidays, weekends, early closes):
   - **Market closed**: Preserve previous `dc`/`dp`/`pc` when TwelveData zeros them out (day-roll). Preserve `ahp`/`ahdc`/`ahdp` so EXT movers row stays visible.
-  - **Market open (RTH)**: Let fresh values flow through. Zeros clear AH fields, hiding the EXT row. Daily change resets naturally for the new day.
+  - **Market open (RTH)**: Let fresh values flow through. NEVER write `ahp`/`ahdc`/`ahdp` to KV during RTH — TwelveData returns stale extended-hours values even when the market is open. Gate on `isNyRegularMarketOpen()` before populating ext fields. Frontend also guards: cards/movers suppress EXT display when `isNyRegularMarketOpen()` is true.
 
 ## Frontend: Single Source of Truth
 - `getDailyChange(t)` in `react-app/shared-price-utils.js` is the ONLY way to compute daily change. Returns `{ dayPct, dayChg }`.
