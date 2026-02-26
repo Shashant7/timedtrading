@@ -6173,6 +6173,35 @@
       // Main App
       // ─────────────────────────────────────────────────────────────
       function GoProModal({ open, onClose }) {
+        const [loading, setLoading] = useState(false);
+        const [error, setError] = useState(null);
+        const handleCheckout = async () => {
+          setLoading(true);
+          setError(null);
+          try {
+            const res = await fetch("/timed/stripe/create-checkout", {
+              method: "POST",
+              credentials: "include",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                success_url: window.location.origin + "/index-react.html?stripe=success",
+                cancel_url: window.location.origin + "/index-react.html?stripe=cancel",
+              }),
+            });
+            const json = await res.json();
+            if (json.ok && json.url) {
+              window.location.href = json.url;
+            } else {
+              setError(json.error === "stripe_not_configured"
+                ? "Payments are not yet configured. Please contact support."
+                : (json.details || json.error || "Failed to create checkout session"));
+              setLoading(false);
+            }
+          } catch (e) {
+            setError("Network error. Please try again.");
+            setLoading(false);
+          }
+        };
         if (!open) return null;
         return html`<div class="fixed inset-0 z-[100] flex items-center justify-center p-4" onClick=${onClose}>
           <div class="absolute inset-0 bg-black/70 backdrop-blur-sm" />
@@ -6182,9 +6211,10 @@
               <svg class="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2"><path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
             </div>
             <h2 class="text-xl font-bold text-white mb-2">Unlock Timed Trading Pro</h2>
-            <p class="text-[13px] text-gray-400 mb-6 leading-relaxed">
+            <p class="text-[13px] text-gray-400 mb-1 leading-relaxed">
               Get full access to real-time prices, proprietary scoring, SL/TP levels, R:R analysis, entry/exit signals, all tickers, and deep technical analysis.
             </p>
+            <p class="text-[22px] font-extrabold text-white mb-4">$60<span class="text-[13px] font-normal text-gray-500">/month</span></p>
             <div class="space-y-2 text-left mb-6">
               ${["Real-time prices & daily change across all tickers","Composite Score, SL, TP, and R:R for every ticker","Entry & exit signals with confidence levels","Full Technicals, Model, Journey & Trade History tabs","Unlimited tickers + custom ticker slots","Open positions & complete trade ledger"].map((f, i) => html`
                 <div key=${i} class="flex items-start gap-2">
@@ -6193,10 +6223,15 @@
                 </div>
               `)}
             </div>
-            <a href="/pricing.html" class="block w-full py-3 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 text-white text-[14px] font-bold hover:from-amber-400 hover:to-amber-500 transition-all shadow-lg shadow-amber-500/25 no-underline text-center">
-              View Plans & Pricing
-            </a>
-            <p class="text-[10px] text-gray-600 mt-3">Cancel anytime. 7-day free trial available.</p>
+            <button
+              onClick=${handleCheckout}
+              disabled=${loading}
+              class=${`block w-full py-3 rounded-xl text-white text-[14px] font-bold transition-all shadow-lg shadow-amber-500/25 border-none ${loading ? "bg-gray-700 cursor-wait" : "bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 cursor-pointer"}`}
+            >
+              ${loading ? "Redirecting to Stripe..." : "Subscribe Now"}
+            </button>
+            ${error && html`<p class="text-[12px] text-red-400 mt-2">${error}</p>`}
+            <p class="text-[10px] text-gray-600 mt-3">Cancel anytime. Charged monthly.</p>
           </div>
         </div>`;
       }
