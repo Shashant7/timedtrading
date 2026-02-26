@@ -2559,13 +2559,14 @@
                                 const sq = row.sq || null;
                                 const rsi = row.rsi || null;
 
-                                const vis = ema && Number.isFinite(Number(ema.vis)) ? Number(ema.vis) : 0;
-                                const sig = ema && Number.isFinite(Number(ema.sig)) ? Number(ema.sig) : 0;
+                                const structure = ema && Number.isFinite(Number(ema.structure)) ? Number(ema.structure) : 0;
+                                const sig = structure >= 0.3 ? 1 : structure <= -0.3 ? -1 : 0;
                                 const sigLabel = sig === 1 ? "Bullish" : sig === -1 ? "Bearish" : "Neutral";
                                 const sigColor = sig === 1 ? "text-green-400" : sig === -1 ? "text-red-400" : "text-[#6b7280]";
                                 const sigBg = sig === 1 ? "border-green-500/20" : sig === -1 ? "border-red-500/20" : "border-white/[0.06]";
 
-                                const aboveCount = emaLevels.reduce((c, _, i) => c + ((vis & (1 << i)) !== 0 ? 1 : 0), 0);
+                                const depth = ema && Number.isFinite(Number(ema.depth)) ? Number(ema.depth) : 0;
+                                const aboveCount = Math.min(depth, emaLevels.length);
                                 const emaTotal = emaLevels.length;
 
                                 const emaSummary = (() => {
