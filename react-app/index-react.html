@@ -465,7 +465,7 @@
     <script src="auth-gate.js?v=20260219a"></script>
     <script src="shared-price-utils.js?v=20260211a"></script>
     <script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
-    <script src="shared-right-rail.compiled.js?v=20260225b" type="text/babel"></script>
+    <script src="shared-right-rail.compiled.js?v=20260226j" type="text/babel"></script>
     <script type="text/babel">
       const { useState, useEffect, useMemo, useCallback, useRef, memo } = React;
 
@@ -3898,6 +3898,10 @@
             borderColor = move.stroke;
           }
 
+          let finalBorderColor = borderColor;
+          const bRegime = String(ticker.regime_class || "");
+          const regimeDash = bRegime === "CHOPPY" ? "3,2" : bRegime === "TRANSITIONAL" ? "6,3" : undefined;
+
           const bubbleSize = isHovered ? finalSize * 1.2 : finalSize;
 
           // Calculate position correctly:
@@ -4034,6 +4038,7 @@
                 fill={`url(#${gradId})`}
                 stroke={finalBorderColor}
                 strokeWidth={finalBorderWidth}
+                strokeDasharray={regimeDash}
               />
               {/* Subtle highlight arc (top-left) for glassy look */}
               {renderedSize > 5 && (
@@ -5780,6 +5785,27 @@
                             {Math.round(completionForSize(tooltip) * 100)}%
                           </span>
                         </div>
+                        {tooltip.regime_class && (
+                          <div className="flex justify-between">
+                            <span className="text-[#6b7280]">Regime</span>
+                            <span className={`font-semibold ${tooltip.regime_class === "TRENDING" ? "text-emerald-400" : tooltip.regime_class === "CHOPPY" ? "text-rose-400" : "text-amber-400"}`}>
+                              {tooltip.regime_class}
+                            </span>
+                          </div>
+                        )}
+                        {(() => {
+                          const rm = tooltip.rvol_map || {};
+                          const rv = Math.max(Number(rm?.["30"]?.vr) || 0, Number(rm?.["60"]?.vr) || 0);
+                          if (rv <= 0) return null;
+                          return (
+                            <div className="flex justify-between">
+                              <span className="text-[#6b7280]">RVOL</span>
+                              <span className={`font-semibold ${rv >= 1.5 ? "text-emerald-400" : rv >= 0.8 ? "text-white" : "text-rose-400"}`}>
+                                {rv.toFixed(2)}x
+                              </span>
+                            </div>
+                          );
+                        })()}
                       </div>
                     </div>
                   );
@@ -11344,6 +11370,38 @@
             EARLY_BEAR: "Early Bear", LATE_BEAR: "Late Bear", STRONG_BEAR: "Strong Bear",
           }[regimeCombined] || null;
 
+          // v3: Regime classification + RVOL + Kijun SL + Ticker Profile
+          const v3Regime = String(t?.regime_class || "");
+          const v3RegimeScore = Number(t?.regime_score) || 0;
+          const v3BehaviorType = String(t?._ticker_profile?.behavior_type || "");
+          const v3SlMult = Number(t?._ticker_profile?.sl_mult) || 0;
+          const v3TpMult = Number(t?._ticker_profile?.tp_mult) || 0;
+          const v3RvolMap = t?.rvol_map || {};
+          const v3Rvol30 = Number(v3RvolMap?.["30"]?.vr) || 0;
+          const v3Rvol1H = Number(v3RvolMap?.["60"]?.vr) || 0;
+          const v3RvolBest = Math.max(v3Rvol30, v3Rvol1H) || 0;
+          const v3KijunSL = dir === "LONG"
+            ? Number(t?.ichimoku_d?.kijunSL_long) || null
+            : Number(t?.ichimoku_d?.kijunSL_short) || null;
+          const v3BlockReason = String(t?.__execution_block_reason || t?.__entry_block_reason || "");
+          const v3BlockLabel = {
+            rvol_dead_zone: "Low Volume",
+            shorts_blocked_in_chop: "No Shorts (Choppy)",
+            htf_below_regime_floor: "Score Too Low",
+            loss_streak_cooldown: "Loss Cooldown",
+            "rr_too_low": "R:R Too Low",
+            move_too_advanced: "Move Advanced",
+            fuel_exhausted: "Fuel Exhausted",
+            entry_quality_too_low: "Quality Low",
+            trigger_stale: "Signal Stale",
+            rsi_1h_overbought: "RSI Overbought",
+            rsi_1h_oversold: "RSI Oversold",
+            price_below_sl_long: "Below SL",
+            price_too_close_to_sl: "Near SL",
+            st_support_weak_bull: "ST Weak",
+            st_support_weak_bear: "ST Weak",
+          }[v3BlockReason.split(",")[0]?.split(":")[0]] || null;
+
           // Emoji badges
           const badges = [];
           const _isPrime = isPrimeBubble(t);
@@ -11513,7 +11571,7 @@
                   )}
                   <span className={`inline-flex items-center justify-center px-1.5 py-px rounded text-[9px] font-black shrink-0 tracking-wide ${dir === "LONG" ? "bg-cyan-500/80 text-white ring-1 ring-cyan-300/60" : "bg-rose-600/80 text-white ring-1 ring-rose-400/60"}`}>{dir}</span>
                 </div>
-                {window._ttIsAdmin && (
+                {window._ttIsPro && (
                   <div className="flex flex-col items-end shrink-0 ml-1">
                     <span className="text-white font-bold text-[13px] tabular-nums leading-tight" style={{ textShadow: "0 1px 3px rgba(0,0,0,0.8)" }}>
                       {Number.isFinite(price) ? `$${price.toFixed(2)}` : "—"}
@@ -11534,15 +11592,40 @@
                 )}
               </div>
 
-              {/* ── Row 2: Badges, bias pill | EXT Chg% ── */}
+              {/* ── Row 2: Badges, bias pill, regime, RVOL | EXT Chg% ── */}
               <div className="relative flex items-center justify-between px-2 py-0.5" style={{ zIndex: 1 }}>
                 <div className="flex items-center gap-1 min-w-0">
                   {badgesText && <span className="text-[10px] shrink-0">{badgesText}</span>}
                   <span className={`px-1 py-px rounded border text-[9px] font-extrabold tracking-wide shrink-0 ${dirPillCls}`} title={state}>
                     {biasLabelDisplay}
                   </span>
+                  {v3Regime && (
+                    <span className={`px-1 py-px rounded text-[8px] font-bold tracking-wide shrink-0 ${
+                      v3Regime === "TRENDING" ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/40"
+                      : v3Regime === "CHOPPY" ? "bg-rose-500/20 text-rose-300 border border-rose-500/40"
+                      : "bg-amber-500/20 text-amber-300 border border-amber-500/40"
+                    }`} title={`Regime: ${v3Regime} (score ${v3RegimeScore})`}>
+                      {v3Regime === "TRENDING" ? "TRD" : v3Regime === "CHOPPY" ? "CHP" : "TRN"}
+                    </span>
+                  )}
+                  {v3RvolBest > 0 && (
+                    <span className={`text-[8px] font-bold tabular-nums shrink-0 ${
+                      v3RvolBest >= 1.5 ? "text-emerald-400" : v3RvolBest >= 0.8 ? "text-gray-400" : "text-rose-400"
+                    }`} title={`RVOL: ${v3RvolBest.toFixed(2)}x (30m: ${v3Rvol30.toFixed(2)}, 1H: ${v3Rvol1H.toFixed(2)})`}>
+                      V{v3RvolBest.toFixed(1)}
+                    </span>
+                  )}
+                  {v3BehaviorType && (
+                    <span className={`px-1 py-px rounded text-[7px] font-bold tracking-wide shrink-0 ${
+                      v3BehaviorType === "MOMENTUM" ? "bg-blue-500/20 text-blue-300 border border-blue-500/30"
+                      : v3BehaviorType === "MEAN_REVERT" ? "bg-purple-500/20 text-purple-300 border border-purple-500/30"
+                      : "bg-gray-500/20 text-gray-400 border border-gray-500/30"
+                    }`} title={`Behavior: ${v3BehaviorType}${v3SlMult ? ` | SL×${v3SlMult}` : ""}${v3TpMult ? ` TP×${v3TpMult}` : ""}`}>
+                      {v3BehaviorType === "MOMENTUM" ? "MOM" : v3BehaviorType === "MEAN_REVERT" ? "MR" : "MIX"}
+                    </span>
+                  )}
                 </div>
-                {window._ttIsAdmin && hasAH && (
+                {window._ttIsPro && hasAH && (
                   <span className={`text-[9px] font-medium tabular-nums leading-tight shrink-0 ml-1 ${ahPct >= 0 ? "text-[#00e676]" : "text-rose-400"}`}>
                     <span className="text-[8px] text-gray-400 mr-0.5">EXT</span>
                     {ahPct >= 0 ? "+" : ""}{ahPct.toFixed(2)}%
@@ -11550,11 +11633,20 @@
                 )}
               </div>
 
-              {/* ── Row 3: Score, R:R, Alignment | SL, TP ── */}
-              {(!Number.isFinite(score) || score === 0) && sl == null && tp == null && Number(t?.price) > 0 ? (
+              {/* ── Row 3: Score, R:R, Alignment | SL, TP (Pro only) ── */}
+              {!window._ttIsPro ? (
+                <div className="relative flex items-center justify-center px-2 py-1" style={{ zIndex: 1 }}>
+                  <span className="text-[10px] text-gray-500 font-medium flex items-center gap-1">
+                    <svg className="w-3 h-3 text-amber-400/70" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd"/></svg>
+                    <span className="text-amber-400/80 font-semibold">Score, SL/TP, R:R</span>
+                    <span className="text-gray-500 mx-0.5">—</span>
+                    <span className="text-amber-400/60 hover:text-amber-300 cursor-pointer" onClick={(e) => { e.stopPropagation(); window.dispatchEvent(new CustomEvent("tt-go-pro")); }}>Go Pro</span>
+                  </span>
+                </div>
+              ) : (!Number.isFinite(score) || score === 0) && sl == null && tp == null && Number(t?.price) > 0 ? (
                 <div className="relative flex items-center justify-center gap-2 px-2 py-1 text-[10px]" style={{ zIndex: 1 }}>
                   <span className="loading-spinner loading-spinner-sm" style={{width:"10px",height:"10px",borderWidth:"1.5px",borderColor:"rgba(6,182,212,0.25)",borderTopColor:"rgb(6,182,212)"}}></span>
-                  <span className="text-cyan-400 font-medium">Scoring...</span>
+                  <span className="text-cyan-400 font-medium">{t?.ingest_kind === "user_ticker_seed" || t?.ingest_kind === "admin_seed" ? "Onboarding..." : "Scoring..."}</span>
                 </div>
               ) : (
                 <div className="relative flex items-center justify-between px-2 py-0.5 text-[10px] font-medium" style={{ zIndex: 1 }}>
@@ -11572,15 +11664,23 @@
                   </div>
                   <div className="flex items-center gap-2">
                     <span className="text-rose-400">SL <span className="font-bold tabular-nums">{sl != null ? `$${sl.toFixed(2)}` : "—"}</span></span>
+                    {v3KijunSL != null && <span className="text-orange-300/70" title="Kijun-Sen reference SL">K<span className="font-bold tabular-nums">{v3KijunSL.toFixed(0)}</span></span>}
                     <span className="text-teal-400">TP <span className="font-bold tabular-nums">{tp != null ? `$${tp.toFixed(2)}` : "—"}</span></span>
                   </div>
                 </div>
               )}
 
-              {/* ── Row 4: Lane reason + earnings callout ── */}
-              {(laneReason || _earningsEvt) && (
+              {/* ── Row 4: Lane reason (Pro) + earnings callout (all) ── */}
+              {(((laneReason || v3BlockLabel) && window._ttIsPro) || _earningsEvt) && (
                 <div className="relative flex items-center justify-between px-2 py-0.5 text-[9px] font-semibold truncate" style={{ zIndex: 1 }}>
-                  {laneReason ? <span className={`truncate ${laneReason.cls}`}>{laneReason.text}</span> : <span />}
+                  <div className="flex items-center gap-1 min-w-0">
+                    {window._ttIsPro && laneReason ? <span className={`truncate ${laneReason.cls}`}>{laneReason.text}</span> : null}
+                    {window._ttIsPro && v3BlockLabel && stage === "setup" && (
+                      <span className="px-1 py-px rounded bg-rose-500/15 text-rose-300/80 border border-rose-500/25 text-[8px]" title={v3BlockReason}>
+                        {v3BlockLabel}
+                      </span>
+                    )}
+                  </div>
                   {_earningsEvt && (
                     <span className="text-amber-400/90 shrink-0 ml-1">📅 {(() => {
                       const d = _earningsEvt._daysAway;
@@ -12434,13 +12534,13 @@
                     </th>
                     <th className="px-2 py-2 text-left text-[11px] font-medium text-gray-400">Name</th>
                     <th className="px-2 py-2 text-center text-[11px] font-medium text-gray-400">Bias</th>
-                    {window._ttIsAdmin && <th className="px-1 py-2 text-right text-[11px] font-medium text-gray-400 cursor-pointer hover:text-white select-none" onClick={() => handleSort("price")}>
+                    {window._ttIsPro && <th className="px-1 py-2 text-right text-[11px] font-medium text-gray-400 cursor-pointer hover:text-white select-none" onClick={() => handleSort("price")}>
                       Price{sortArrow("price")}
                     </th>}
-                    {window._ttIsAdmin && <th className="px-1 py-2 text-right text-[11px] font-medium text-gray-400 cursor-pointer hover:text-white select-none" onClick={() => handleSort("change")}>
+                    {window._ttIsPro && <th className="px-1 py-2 text-right text-[11px] font-medium text-gray-400 cursor-pointer hover:text-white select-none" onClick={() => handleSort("change")}>
                       Day %{sortArrow("change")}
                     </th>}
-                    {window._ttIsAdmin && <th className="px-1 py-2 text-right text-[11px] font-medium text-gray-400">Day $</th>}
+                    {window._ttIsPro && <th className="px-1 py-2 text-right text-[11px] font-medium text-gray-400">Day $</th>}
                     <th className="px-2 py-2 text-center text-[11px] font-medium text-gray-400" title="SL/EP/TP Progress">Trade</th>
                     <th className="px-1 py-2 text-center text-[11px] font-medium text-gray-400 cursor-pointer hover:text-white select-none" onClick={() => handleSort("score")}>
                       Score{sortArrow("score")}
@@ -12533,17 +12633,17 @@
                         <td className="px-2 py-1.5 text-center">
                           <span className={`text-[11px] font-bold ${dirColor}`}>{dir === "L" ? "LONG" : "SHORT"}</span>
                         </td>
-                        {window._ttIsAdmin && <td className="px-1 py-1 text-right text-[11px] text-white font-medium tabular-nums">
+                        {window._ttIsPro && <td className="px-1 py-1 text-right text-[11px] text-white font-medium tabular-nums">
                           {price > 0 ? `$${price.toFixed(2)}` : <span className="text-gray-600">—</span>}
                         </td>}
-                        {window._ttIsAdmin && <td className="px-1 py-1 text-right text-[11px] tabular-nums">
+                        {window._ttIsPro && <td className="px-1 py-1 text-right text-[11px] tabular-nums">
                           {dayPct !== null ? (
                             <span style={{ color: dayPct > 0 ? "#00e676" : dayPct < 0 ? "#ef4444" : "#9ca3af" }}>
                               {dayPct > 0 ? "+" : ""}{dayPct.toFixed(2)}%
                             </span>
                           ) : <span className="text-gray-600">—</span>}
                         </td>}
-                        {window._ttIsAdmin && <td className="px-1 py-1 text-right text-[11px] tabular-nums">
+                        {window._ttIsPro && <td className="px-1 py-1 text-right text-[11px] tabular-nums">
                           {dayChg !== null ? (
                             <span style={{ color: dayChg > 0 ? "#00e676" : dayChg < 0 ? "#ef4444" : "#9ca3af" }}>
                               {dayChg > 0 ? "+" : ""}{dayChg.toFixed(2)}
@@ -12705,10 +12805,26 @@
                         {renderCompactCard(t)}
                       </div>
                     ))}
+                  {!window._ttIsPro && (
+                    <div className="w-[280px] shrink-0 kanban-card flex items-center justify-center">
+                      <div className="w-full rounded-xl border border-amber-500/30 bg-gradient-to-br from-amber-500/10 to-amber-600/5 p-4 flex flex-col items-center gap-2 text-center cursor-pointer hover:border-amber-400/50 transition-colors"
+                        onClick={() => window.dispatchEvent(new CustomEvent("tt-go-pro"))}>
+                        <svg className="w-6 h-6 text-amber-400" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd"/></svg>
+                        <span className="text-[11px] font-bold text-amber-300">Unlock All Tickers</span>
+                        <span className="text-[9px] text-gray-400">Upgrade to Pro for full access</span>
+                        <span className="mt-1 px-3 py-1 rounded-full bg-amber-500/20 border border-amber-500/40 text-[10px] font-bold text-amber-300 hover:bg-amber-500/30 transition-colors">Go Pro</span>
+                      </div>
+                    </div>
+                  )}
                 </div>
               ) : (
                 <div className="text-[10px] text-[#4b5563] italic flex items-center h-full px-2">
-                  No tickers
+                  {!window._ttIsPro ? (
+                    <span className="flex items-center gap-1 cursor-pointer text-amber-400/70 hover:text-amber-300 transition-colors" onClick={() => window.dispatchEvent(new CustomEvent("tt-go-pro"))}>
+                      <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd"/></svg>
+                      Go Pro to unlock
+                    </span>
+                  ) : "No tickers"}
                 </div>
               )}
             </div>
@@ -16069,6 +16185,13 @@
         const [dashboardViewMode, setDashboardViewMode] = useState(() => {
           try { return localStorage.getItem("timedTrading_viewMode") || "advanced"; } catch { return "advanced"; }
         });
+        const [dashboardMode, setDashboardMode] = useState(() => {
+          try { return localStorage.getItem("timedTrading_dashboardMode") || "trader"; } catch { return "trader"; }
+        });
+        const handleDashboardModeChange = useCallback((mode) => {
+          setDashboardMode(mode);
+          try { localStorage.setItem("timedTrading_dashboardMode", mode); } catch {}
+        }, []);
         const [viewSwitching, setViewSwitching] = useState(false);
         const toggleViewMode = useCallback((mode) => {
           if (mode === dashboardViewMode) return;
@@ -16359,13 +16482,10 @@
             isObject: data && typeof data === 'object'
           });
           
-          const filtered = applyFilters(data, effectiveFilters, trades, socialAdditions, savedTickers);
-          console.log('[TICKERS MEMO] Filtered tickers:', {
-            inputDataKeys: dataKeys.length,
-            filteredCount: filtered.length,
-            effectiveFilters: effectiveFilters,
-            tradesCount: (trades || []).length
-          });
+          let filtered = applyFilters(data, effectiveFilters, trades, socialAdditions, savedTickers);
+          if (!window._ttIsPro && window._ttMemberTickerSet) {
+            filtered = filtered.filter(t => window._ttMemberTickerSet.has(String(t?.ticker || "").toUpperCase()));
+          }
           return filtered;
         }, [data, effectiveFilters, trades, socialAdditions, timeTravelTickers, savedTickers]);
 
@@ -16676,8 +16796,8 @@
                     );
                   })()}
 
-                  {/* ═══ 1. MARKET PULSE — right below top header ═══ */}
-                  {isAdmin && (() => {
+                  {/* ═══ 1. MARKET PULSE — Pro/VIP/Admin only (real-time prices) ═══ */}
+                  {window._ttIsPro && (() => {
                     const allData = data && typeof data === "object" ? data : {};
                     const renderPulseChip = (sym) => {
                       const td = allData[sym];
@@ -16727,8 +16847,8 @@
                     );
                   })()}
 
-                  {/* ═══ 2. TOP GAINERS/LOSERS — RTH + ETH split ═══ */}
-                  {isAdmin && (() => {
+                  {/* ═══ 2. TOP GAINERS/LOSERS — visible to all users ═══ */}
+                  {(() => {
                     const allArr = data && typeof data === 'object' ? Object.values(data) : [];
                     const CRYPTO_24H = new Set(["BTCUSD", "ETHUSD"]);
                     const chip = (t, isGain, pctKey = "_pct", priceKey = "_price") => {
@@ -16865,6 +16985,14 @@
                                     </button>
                                   )}
                                 </div>
+                              ) : !window._ttIsPro ? (
+                                <button
+                                  onClick={() => window.dispatchEvent(new CustomEvent("tt-go-pro"))}
+                                  className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-amber-500/10 border border-amber-500/25 text-amber-300 text-xs font-medium hover:bg-amber-500/20 transition-colors"
+                                >
+                                  <svg className="w-3.5 h-3.5 text-amber-400" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd"/></svg>
+                                  <span>Go Pro to add <span className="font-bold">{sym}</span></span>
+                                </button>
                               ) : (
                                 <button
                                   onClick={() => { setAddTickerInput(sym); setShowAddTicker(true); }}
@@ -16923,6 +17051,27 @@
                     </div>
                   </div>
 
+                  {/* ═══ 4b. MODE SEGMENT CONTROLLER — Active Trader / Investor ═══ */}
+                  <div className="mb-3 flex items-center gap-3">
+                    <div className="flex items-center bg-white/[0.04] border border-white/[0.10] rounded-xl overflow-hidden shadow-sm">
+                      <a
+                        href="index-react.html"
+                        className="flex items-center gap-1.5 px-4 py-2 text-[12px] font-semibold transition-all bg-gradient-to-r from-cyan-500/20 to-teal-500/15 text-white"
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" /></svg>
+                        Active Trader
+                      </a>
+                      <a
+                        href="investor-dashboard.html"
+                        className="flex items-center gap-1.5 px-4 py-2 text-[12px] font-semibold transition-all text-[#6b7280] hover:text-white hover:bg-white/[0.05] border-l border-white/[0.06]"
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                        Investor
+                      </a>
+                    </div>
+                    <span className="text-[9px] text-[#4b5563]">Switch trading mode</span>
+                  </div>
+
                   {/* ═══ 5. VIEW TOGGLE (Cards/Table) — prominent, with icons ═══ */}
                   <div className="mb-3 flex flex-wrap items-center gap-3" data-coachmark="view-toggle">
                     <div className="flex items-center bg-white/[0.04] border border-white/[0.10] rounded-xl overflow-hidden shadow-sm">
@@ -16969,19 +17118,30 @@
                       ⭐ Saved{savedTickers.size > 0 ? ` (${savedTickers.size})` : ""}
                     </button>
 
-                    {/* Add Custom Ticker (Phase 5) */}
+                    {/* Add Custom Ticker (Phase 5) — Pro only; Members see Go Pro CTA */}
                     <div className="relative" ref={addTickerRef}>
-                      <button
-                        onClick={() => setShowAddTicker(!showAddTicker)}
-                        className={`px-3 py-1.5 rounded-lg border text-xs font-semibold transition-colors ${
-                          showAddTicker
-                            ? "bg-cyan-500/20 border-cyan-500/40 text-cyan-300"
-                            : "bg-white/[0.02] border-white/[0.06] text-[#6b7280] hover:text-cyan-300 hover:bg-cyan-500/10"
-                        }`}
-                        title={`Add custom tickers (${userTickers.slotsUsed}/${userTickers.slotsMax} slots)`}
-                      >
-                        + Add Ticker{userTickers.slotsUsed > 0 ? ` (${userTickers.slotsUsed}/${userTickers.slotsMax})` : ""}
-                      </button>
+                      {!window._ttIsPro ? (
+                        <button
+                          onClick={() => window.dispatchEvent(new CustomEvent("tt-go-pro"))}
+                          className="px-3 py-1.5 rounded-lg border border-amber-500/30 bg-amber-500/10 text-xs font-semibold text-amber-300 hover:bg-amber-500/20 hover:border-amber-400/40 transition-colors flex items-center gap-1"
+                          title="Upgrade to Pro to add custom tickers"
+                        >
+                          <svg className="w-3 h-3 text-amber-400" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd"/></svg>
+                          Go Pro to Add Tickers
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => setShowAddTicker(!showAddTicker)}
+                          className={`px-3 py-1.5 rounded-lg border text-xs font-semibold transition-colors ${
+                            showAddTicker
+                              ? "bg-cyan-500/20 border-cyan-500/40 text-cyan-300"
+                              : "bg-white/[0.02] border-white/[0.06] text-[#6b7280] hover:text-cyan-300 hover:bg-cyan-500/10"
+                          }`}
+                          title={`Add custom tickers (${userTickers.slotsUsed}/${userTickers.slotsMax} slots)`}
+                        >
+                          + Add Ticker{userTickers.slotsUsed > 0 ? ` (${userTickers.slotsUsed}/${userTickers.slotsMax})` : ""}
+                        </button>
+                      )}
                       {showAddTicker && (
                         <div className="absolute top-full left-0 mt-1.5 z-50 w-[360px] bg-[#1a1e2e] border border-white/[0.12] rounded-xl shadow-2xl p-4" onClick={e => e.stopPropagation()}>
                           <div className="text-[11px] text-[#6b7280] mb-1">
@@ -17101,45 +17261,6 @@
                     </div>
                   )}
 
-                  {/* (Top Movers moved to section 2 above) */}
-
-                  {/* (Market Pulse moved to section 1 above) */}
-
-                  {/* Kanban Lanes (horizontal swim-lanes) or Simple Table */}
-                  <div className="relative" data-coachmark="kanban-lanes">
-                    {viewSwitching && (
-                      <div className="absolute inset-0 z-30 flex items-center justify-center bg-[#0d1117]/80 backdrop-blur-sm rounded-xl" style={{ minHeight: 200 }}>
-                        <div className="flex flex-col items-center gap-2">
-                          <svg className="animate-spin h-7 w-7 text-cyan-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                          </svg>
-                          <span className="text-[11px] text-gray-400 font-medium">Switching view…</span>
-                        </div>
-                      </div>
-                    )}
-                    {dashboardViewMode === "simple" ? (
-                      <SimpleKanbanTable
-                        tickers={tickers}
-                        trades={trades}
-                        onSelectTicker={handleTickerSelect}
-                        rankPositions={rankedTickerPositions}
-                        savedTickers={savedTickers}
-                        toggleSavedTicker={toggleSavedTicker}
-                        contextData={data}
-                      />
-                    ) : (
-                      <EarlyMoversPanel
-                        tickers={tickers}
-                        trades={trades}
-                        onSelectTicker={handleTickerSelect}
-                        rankPositions={rankedTickerPositions}
-                        rankTotal={allTickersWithRanks.length}
-                        savedTickers={savedTickers}
-                        toggleSavedTicker={toggleSavedTicker}
-                      />
-                    )}
-                  </div>
                 </header>
 
                 {/* Error Display */}
@@ -17189,7 +17310,7 @@
 
                       {/* Bubble Chart - Center Hero (flexible, takes remaining space) */}
                       <div
-                        className={`w-full lg:flex-1 lg:min-w-0 transition-[margin] duration-300 ${
+                        className={`relative w-full lg:flex-1 lg:min-w-0 transition-[margin] duration-300 ${
                           selectedTicker ? "lg:mr-[470px]" : ""
                         }`}
                       >
@@ -17237,6 +17358,17 @@
                               thesisMode={isThesisModeActive(filters)}
                             />
                           )}
+                          {!window._ttIsPro && (
+                            <div className="absolute bottom-3 left-1/2 -translate-x-1/2 z-10">
+                              <button className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[#0d1117]/90 border border-amber-500/40 backdrop-blur-sm hover:border-amber-400/60 transition-colors"
+                                onClick={() => window.dispatchEvent(new CustomEvent("tt-go-pro"))}>
+                                <svg className="w-3.5 h-3.5 text-amber-400" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd"/></svg>
+                                <span className="text-[10px] font-bold text-amber-300">Showing {window._ttMemberTickers?.length || 10} tickers</span>
+                                <span className="text-[9px] text-gray-400 mx-0.5">—</span>
+                                <span className="text-[10px] font-bold text-amber-400">Go Pro for all</span>
+                              </button>
+                            </div>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -17273,6 +17405,79 @@
                         </div>
                       </>
                     )}
+                    {/* ═══ BELOW: Active Trader / Investor Mode Toggle + Content ═══ */}
+                    <div className="mt-6">
+                      <div className="flex items-center justify-center gap-1 mb-4">
+                        <div className="inline-flex items-center bg-white/[0.04] border border-white/[0.10] rounded-xl overflow-hidden shadow-sm">
+                          <button
+                            onClick={() => handleDashboardModeChange("trader")}
+                            className={`px-5 py-2 text-[13px] font-semibold transition-all ${
+                              dashboardMode === "trader"
+                                ? "bg-gradient-to-r from-cyan-500/20 to-blue-500/15 text-white border-r border-white/[0.06]"
+                                : "text-[#6b7280] hover:text-white hover:bg-white/[0.05] border-r border-white/[0.06]"
+                            }`}
+                          >
+                            Active Trader
+                          </button>
+                          <button
+                            onClick={() => handleDashboardModeChange("investor")}
+                            className={`px-5 py-2 text-[13px] font-semibold transition-all ${
+                              dashboardMode === "investor"
+                                ? "bg-gradient-to-r from-emerald-500/20 to-teal-500/15 text-white"
+                                : "text-[#6b7280] hover:text-white hover:bg-white/[0.05]"
+                            }`}
+                          >
+                            Investor
+                          </button>
+                        </div>
+                      </div>
+
+                      {dashboardMode === "trader" ? (
+                        <div className="relative" data-coachmark="kanban-lanes">
+                          {viewSwitching && (
+                            <div className="absolute inset-0 z-30 flex items-center justify-center bg-[#0d1117]/80 backdrop-blur-sm rounded-xl" style={{ minHeight: 200 }}>
+                              <div className="flex flex-col items-center gap-2">
+                                <svg className="animate-spin h-7 w-7 text-cyan-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                                </svg>
+                                <span className="text-[11px] text-gray-400 font-medium">Switching view…</span>
+                              </div>
+                            </div>
+                          )}
+                          {dashboardViewMode === "simple" ? (
+                            <SimpleKanbanTable
+                              tickers={tickers}
+                              trades={trades}
+                              onSelectTicker={handleTickerSelect}
+                              rankPositions={rankedTickerPositions}
+                              savedTickers={savedTickers}
+                              toggleSavedTicker={toggleSavedTicker}
+                              contextData={data}
+                            />
+                          ) : (
+                            <EarlyMoversPanel
+                              tickers={tickers}
+                              trades={trades}
+                              onSelectTicker={handleTickerSelect}
+                              rankPositions={rankedTickerPositions}
+                              rankTotal={allTickersWithRanks.length}
+                              savedTickers={savedTickers}
+                              toggleSavedTicker={toggleSavedTicker}
+                            />
+                          )}
+                        </div>
+                      ) : (
+                        <div className="rounded-xl border border-white/[0.06] overflow-hidden" style={{ minHeight: 600 }}>
+                          <iframe
+                            src="investor-dashboard.html?embedded=true"
+                            className="w-full border-0"
+                            style={{ height: "calc(100vh - 100px)", minHeight: 600, background: "#0b0e11" }}
+                            title="Investor Dashboard"
+                          />
+                        </div>
+                      )}
+                    </div>
                   </div>
                 )}
               </div>

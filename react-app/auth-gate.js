@@ -592,6 +592,7 @@
     const [error, setError] = useState(null);
     const [serverVerified, setServerVerified] = useState(false); // true only after /timed/me confirms auth
     const [stripeActivating, setStripeActivating] = useState(false); // true when waiting for Stripe webhook
+    const [memberTickers, setMemberTickers] = useState(null); // freemium gate ticker list from /timed/me
 
     const TIER_ORDER = { free: 0, pro: 1, vip: 1, admin: 2 };
 
@@ -611,6 +612,7 @@
               setUser(session);
               setState("authenticated");
               setServerVerified(true);
+              if (Array.isArray(json.member_tickers)) setMemberTickers(json.member_tickers);
               return;
             }
           }
@@ -755,13 +757,31 @@
     }, []);
 
     // Set user role on body for CSS-based admin gating of nav links
+    // Expose _ttIsPro and _ttMemberTickers for freemium gating
     // MUST be before any conditional returns to obey Rules of Hooks
     useEffect(() => {
       if (user) {
-        document.body.dataset.userRole = (user.role === "admin" || user.tier === "admin") ? "admin" : (user.role || "member");
+        const isAdmin = user.role === "admin" || user.tier === "admin";
+        const isPro = isAdmin || user.tier === "pro" || user.tier === "vip" ||
+          user.subscription_status === "active" || user.subscription_status === "trialing" || user.subscription_status === "manual";
+        document.body.dataset.userRole = isAdmin ? "admin" : (user.role || "member");
         document.body.dataset.userTier = user.tier || "free";
+        document.body.dataset.isPro = isPro ? "true" : "false";
+
+        // Expose globals for component-level gating
+        Object.defineProperty(window, '_ttIsPro', { get() { return document.body.dataset.isPro === "true"; }, configurable: true });
       }
     }, [user]);
+
+    // Expose member ticker list from /timed/me response
+    useEffect(() => {
+      const DEFAULT_MEMBER_TICKERS = ["AAPL","TSLA","NVDA","JPM","NFLX","MSFT","GOOGL","AMZN","META","XOM"];
+      const tickers = (Array.isArray(memberTickers) && memberTickers.length > 0)
+        ? memberTickers
+        : DEFAULT_MEMBER_TICKERS;
+      window._ttMemberTickers = tickers;
+      window._ttMemberTickerSet = new Set(tickers.map(t => String(t).toUpperCase()));
+    }, [memberTickers]);
 
     // Register push notifications once authenticated AND server-verified.
     // Placed here (before conditional returns) to obey Rules of Hooks.

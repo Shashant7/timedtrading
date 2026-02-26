@@ -1115,10 +1115,11 @@
 
         const [showFilters, setShowFilters] = useState(false);
         const activeFilterCount = (sectorFilter ? 1 : 0) + (showSaved ? 1 : 0);
+        const isEmbedded = new URLSearchParams(window.location.search).get("embedded") === "true";
 
         return React.createElement("div", { className: "min-h-screen flex flex-col" },
-          // ═══ Nav ═══
-          React.createElement("nav", { className: "sticky top-0 z-50 border-b border-white/[0.06] shrink-0", style: { background: "rgba(10,10,15,0.95)", backdropFilter: "blur(12px)" } },
+          // ═══ Nav (hidden when embedded in main dashboard) ═══
+          !isEmbedded && React.createElement("nav", { className: "sticky top-0 z-50 border-b border-white/[0.06] shrink-0", style: { background: "rgba(10,10,15,0.95)", backdropFilter: "blur(12px)" } },
             React.createElement("div", { className: "flex items-center justify-between px-4 py-2.5" },
               React.createElement("div", { className: "flex items-center gap-3 md:gap-5 min-w-0" },
                 React.createElement("a", { href: "index-react.html", className: "flex items-center gap-2 no-underline shrink-0" },
@@ -1408,5 +1409,8 @@
     <footer id="legal-footer" style="position:fixed;bottom:0;left:0;right:0;z-index:9999;background:rgba(10,10,15,0.92);backdrop-filter:blur(6px);border-top:1px solid rgba(255,255,255,0.06);padding:6px 16px;text-align:center;font-size:10px;color:#6b7280;line-height:1.4;">
       For informational and educational purposes only. Not investment advice. Past performance does not guarantee future results. All trading involves risk of loss. <a href="/terms.html" style="color:#6b7280;text-decoration:underline;">Full Terms</a> · Market data powered by <a href="https://twelvedata.com" target="_blank" rel="noopener" style="color:#6b7280;text-decoration:underline;">Twelve Data</a>
     </footer>
+    <script>if(new URLSearchParams(window.location.search).get("embedded")==="true"){document.getElementById("legal-footer").style.display="none";document.body.style.background="transparent";}</script>
+    <script>if(new URLSearchParams(window.location.search).get("embedded")==="true"){var f=document.getElementById("legal-footer");if(f)f.style.display="none";}</script>
+    <script>if(new URLSearchParams(window.location.search).get("embedded")==="true"){var f=document.getElementById("legal-footer");if(f)f.style.display="none";}</script>
   </body>
 </html>

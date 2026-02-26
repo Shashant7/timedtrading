@@ -439,12 +439,32 @@ function getTickerType(ticker) {
   return 'large_cap'; // default for known stocks not explicitly typed
 }
 
+const SECTOR_ETF_MAP = {
+  "Information Technology": "XLK",
+  "Consumer Discretionary": "XLY",
+  "Communication Services": "XLC",
+  "Healthcare": "XLV",
+  "Financials": "XLF",
+  "Industrials": "XLI",
+  "Consumer Staples": "XLP",
+  "Energy": "XLE",
+  "Utilities": "XLU",
+  "Real Estate": "XLRE",
+  "Basic Materials": "XLB",
+};
+
+function getSectorETF(sector) {
+  return SECTOR_ETF_MAP[sector] || null;
+}
+
 module.exports = {
   SECTOR_MAP,
   SECTOR_RATINGS,
+  SECTOR_ETF_MAP,
   TICKER_TYPE_MAP,
   getSector,
   getSectorRating,
+  getSectorETF,
   getTickersInSector,
   getAllSectors,
   getTickerType,

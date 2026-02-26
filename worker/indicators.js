@@ -263,6 +263,219 @@ export function linregSeries(values, period) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
+// ICHIMOKU KINKO HYO — Full native computation
+// Components: Tenkan-Sen, Kijun-Sen, Senkou Span A/B, Chikou Span
+// Derived signals: TK Cross, Price vs Cloud, Cloud Color/Thickness,
+//   Chikou Confirmation, Kumo Twist, Kijun Slope, Overextension
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function highestHigh(bars, period, endIdx) {
+  let max = -Infinity;
+  const start = Math.max(0, endIdx - period + 1);
+  for (let i = start; i <= endIdx; i++) max = Math.max(max, bars[i].h);
+  return max;
+}
+
+function lowestLow(bars, period, endIdx) {
+  let min = Infinity;
+  const start = Math.max(0, endIdx - period + 1);
+  for (let i = start; i <= endIdx; i++) min = Math.min(min, bars[i].l);
+  return min;
+}
+
+/**
+ * Full Ichimoku computation from OHLCV bars.
+ * Returns all 5 lines + derived signals for the most recent bar.
+ *
+ * Periods: Tenkan=9, Kijun=26, Senkou B=52, displacement=26
+ * Minimum bars needed: 78 (52 + 26 for full cloud displacement).
+ * Gracefully degrades with fewer bars (returns partial data with flags).
+ *
+ * @param {Array<{h:number,l:number,c:number}>} bars - sorted ascending by time
+ * @param {number} [atr14] - ATR(14) for normalization (optional, for thickness/spread)
+ * @returns {object|null} Ichimoku state or null if insufficient data
+ */
+export function computeIchimoku(bars, atr14 = 0) {
+  if (!bars || bars.length < 26) return null;
+
+  const n = bars.length;
+  const last = n - 1;
+  const px = bars[last].c;
+
+  // ── Core Lines ──
+  const tenkan = (highestHigh(bars, 9, last) + lowestLow(bars, 9, last)) / 2;
+  const kijun  = (highestHigh(bars, 26, last) + lowestLow(bars, 26, last)) / 2;
+
+  // Senkou Span A = (Tenkan + Kijun) / 2 (current value; would be plotted 26 ahead)
+  const senkouA = (tenkan + kijun) / 2;
+
+  // Senkou Span B = midpoint of 52-period high/low (current; plotted 26 ahead)
+  const hasFull52 = n >= 52;
+  const senkouB = hasFull52
+    ? (highestHigh(bars, 52, last) + lowestLow(bars, 52, last)) / 2
+    : (highestHigh(bars, n, last) + lowestLow(bars, n, last)) / 2;
+
+  // Chikou Span = current close compared to price 26 bars ago
+  const chikouRef = last >= 26 ? bars[last - 26].c : null;
+
+  // ── Previous-bar values (for cross detection) ──
+  let tenkanPrev = NaN, kijunPrev = NaN;
+  if (last >= 1) {
+    const p = last - 1;
+    tenkanPrev = (highestHigh(bars, 9, p) + lowestLow(bars, 9, p)) / 2;
+    kijunPrev  = (highestHigh(bars, 26, p) + lowestLow(bars, 26, p)) / 2;
+  }
+
+  // Kijun 5 bars ago (for slope)
+  let kijun5Ago = NaN;
+  if (last >= 5) {
+    const p5 = last - 5;
+    kijun5Ago = (highestHigh(bars, 26, p5) + lowestLow(bars, 26, p5)) / 2;
+  }
+
+  // ── Derived Signals ──
+
+  // TK Cross: Tenkan crossing Kijun
+  const tkBull = tenkan > kijun;
+  const tkCrossUp = Number.isFinite(tenkanPrev) && tenkanPrev <= kijunPrev && tenkan > kijun;
+  const tkCrossDn = Number.isFinite(tenkanPrev) && tenkanPrev >= kijunPrev && tenkan < kijun;
+
+  // Cloud boundaries (the cloud that price is interacting with NOW is the one
+  // computed 26 bars ago — i.e., Senkou A/B from bar[last-26])
+  let cloudTop, cloudBase;
+  if (last >= 26 && n >= 52) {
+    const sA26 = ((highestHigh(bars, 9, last - 26) + lowestLow(bars, 9, last - 26)) / 2
+                + (highestHigh(bars, 26, last - 26) + lowestLow(bars, 26, last - 26)) / 2) / 2;
+    const sB26 = last >= 52
+      ? (highestHigh(bars, 52, last - 26) + lowestLow(bars, 52, last - 26)) / 2
+      : senkouB;
+    cloudTop  = Math.max(sA26, sB26);
+    cloudBase = Math.min(sA26, sB26);
+  } else {
+    cloudTop  = Math.max(senkouA, senkouB);
+    cloudBase = Math.min(senkouA, senkouB);
+  }
+
+  // Price vs Cloud
+  let priceVsCloud = "inside";
+  if (px > cloudTop) priceVsCloud = "above";
+  else if (px < cloudBase) priceVsCloud = "below";
+
+  // Cloud color (future cloud — the one being projected now)
+  const cloudBullish = senkouA > senkouB;
+
+  // Cloud thickness normalized by ATR (0 = razor thin, >2 = very thick)
+  const rawThickness = Math.abs(senkouA - senkouB);
+  const cloudThickness = (atr14 > 0) ? rawThickness / atr14 : 0;
+
+  // Chikou confirmation: current close vs price 26 bars ago
+  let chikouAbove = null;
+  if (chikouRef != null) {
+    chikouAbove = px > chikouRef;
+  }
+
+  // Kumo twist detection (future cloud color change)
+  // Compare current Senkou A vs B relationship to 5 bars ago
+  let kumoTwist = false;
+  if (last >= 5 && n >= 52) {
+    const p5 = last - 5;
+    const sA5ago = ((highestHigh(bars, 9, p5) + lowestLow(bars, 9, p5)) / 2
+                  + (highestHigh(bars, 26, p5) + lowestLow(bars, 26, p5)) / 2) / 2;
+    const sB5ago = (highestHigh(bars, 52, p5) + lowestLow(bars, 52, p5)) / 2;
+    const wasBullish = sA5ago > sB5ago;
+    if (wasBullish !== cloudBullish) kumoTwist = true;
+  }
+
+  // TK Spread: how far apart Tenkan and Kijun are (normalized by ATR)
+  // Wide = trending, narrow = consolidating/choppy
+  const tkSpread = (atr14 > 0) ? (tenkan - kijun) / atr14 : 0;
+
+  // Kijun slope: rising/falling/flat
+  let kijunSlope = 0;
+  if (Number.isFinite(kijun5Ago) && atr14 > 0) {
+    kijunSlope = (kijun - kijun5Ago) / atr14;
+  }
+
+  // Price-to-Kijun distance (overextension gauge)
+  const priceToKijun = (atr14 > 0) ? (px - kijun) / atr14 : 0;
+
+  return {
+    tenkan, kijun, senkouA, senkouB, chikouRef,
+    cloudTop, cloudBase,
+    tkBull, tkCrossUp, tkCrossDn,
+    priceVsCloud,       // "above" | "below" | "inside"
+    cloudBullish,       // Senkou A > Senkou B (future cloud is green)
+    cloudThickness,     // ATR-normalized, 0 = thin, >2 = thick
+    chikouAbove,        // true/false/null
+    kumoTwist,          // recent Senkou A/B crossover
+    tkSpread,           // ATR-normalized, + = bull, - = bear, near 0 = chop
+    kijunSlope,         // ATR-normalized, + = rising, - = falling
+    priceToKijun,       // ATR-normalized distance from equilibrium
+  };
+}
+
+/**
+ * Ichimoku score for a single timeframe.
+ * Converts the qualitative Ichimoku signals into a numerical score.
+ * Range: -43 to +43 (clamped to ±50 for safety).
+ *
+ * Scoring breakdown:
+ *   TK relationship (±8): Tenkan above/below Kijun
+ *   Price vs Cloud (±12): Above/below/inside the Kumo
+ *   Cloud color (±5): Future cloud bullish/bearish
+ *   Chikou confirmation (±8): Price vs 26-bar-ago price
+ *   Kijun slope (±5): Equilibrium line direction
+ *   Cloud thickness bonus (0-5): Thick cloud = strong conviction
+ *   Overextension penalty (-5 to 0): Too far from Kijun = mean reversion risk
+ */
+export function computeIchimokuScore(ich) {
+  if (!ich) return 0;
+
+  let score = 0;
+
+  // TK relationship: ±8
+  score += ich.tkBull ? 8 : -8;
+
+  // Price vs Cloud: ±12
+  if (ich.priceVsCloud === "above") score += 12;
+  else if (ich.priceVsCloud === "below") score -= 12;
+  // "inside" = 0, intentionally neutral
+
+  // Cloud color (future trend direction): ±5
+  score += ich.cloudBullish ? 5 : -5;
+
+  // Chikou confirmation: ±8
+  if (ich.chikouAbove === true) score += 8;
+  else if (ich.chikouAbove === false) score -= 8;
+  // null (insufficient data) = 0
+
+  // Kijun slope: ±5 (clamped, normalized by ATR)
+  if (Number.isFinite(ich.kijunSlope)) {
+    const slopeContrib = Math.max(-1, Math.min(1, ich.kijunSlope * 2)) * 5;
+    score += slopeContrib;
+  }
+
+  // Cloud thickness bonus: 0-5 (thick cloud amplifies conviction)
+  if (Number.isFinite(ich.cloudThickness) && ich.cloudThickness > 0.5) {
+    const thickBonus = Math.min(5, (ich.cloudThickness - 0.5) * 3.33);
+    // Bonus is directional: amplifies the current trend
+    score += (score > 0 ? thickBonus : -thickBonus);
+  }
+
+  // Overextension penalty: 0 to -5 (too far from Kijun = reversion risk)
+  if (Number.isFinite(ich.priceToKijun)) {
+    const dist = Math.abs(ich.priceToKijun);
+    if (dist > 2.0) {
+      const penalty = Math.min(5, (dist - 2.0) * 2.5);
+      // Penalty always pulls toward zero
+      score += (score > 0 ? -penalty : penalty);
+    }
+  }
+
+  return Math.max(-50, Math.min(50, score));
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
 // COMPOSITE BUNDLE: Mirrors Pine Script f_tf_bundle()
 // ═══════════════════════════════════════════════════════════════════════════════
 
@@ -706,11 +919,27 @@ export function computeTfBundle(bars, anchors = null) {
   const momStdArr = stdevSeries(momArr.map(v => Number.isFinite(v) ? v : 0), 20);
   const momStd = momStdArr[last];
 
-  // Volume
+  // Volume + Enhanced RVOL
   const vols = bars.map(b => b.v || 0);
   const volSmaArr = smaSeries(vols, 20);
   const volSma = volSmaArr[last];
   const volRatio = (volSma > 0 && vols[last] > 0) ? vols[last] / volSma : 1.0;
+
+  // RVOL 5-bar: recent volume trend vs 20-bar average
+  let rvol5 = 1.0;
+  if (volSma > 0 && last >= 4) {
+    let sum5 = 0;
+    for (let i = last - 4; i <= last; i++) sum5 += (vols[i] || 0);
+    rvol5 = (sum5 / 5) / volSma;
+  }
+
+  // RVOL spike: current bar vs max of last 20 bars (breakout detection)
+  let rvolSpike = 0;
+  if (last >= 19 && vols[last] > 0) {
+    let maxVol = 0;
+    for (let i = last - 19; i < last; i++) maxVol = Math.max(maxVol, vols[i] || 0);
+    rvolSpike = maxVol > 0 ? vols[last] / maxVol : 0;
+  }
 
   // RSI
   const rsiArr = rsiSeries(closes, 14);
@@ -872,6 +1101,9 @@ export function computeTfBundle(bars, anchors = null) {
   // ── SMC: Liquidity Zone Detection ──
   const liq = detectLiquidityZones(bars, atr14);
 
+  // ── Ichimoku Kinko Hyo (native computation) ──
+  const ichimoku = computeIchimoku(bars, atr14);
+
   return {
     px, lastTs,
     e3, e5, e8, e13, e21, e34, e48, e89, e200, e233,
@@ -883,7 +1115,7 @@ export function computeTfBundle(bars, anchors = null) {
     phaseOsc, phaseVelocity, phaseZone,
     compressed,
     atr14, atrRatio,
-    volRatio,
+    volRatio, rvol5, rvolSpike,
     rsi,
     ggUpCross, ggDnCross, ggDist,
     ggUpCross_ts, ggDnCross_ts,
@@ -893,6 +1125,7 @@ export function computeTfBundle(bars, anchors = null) {
     emaCross13_48_up, emaCross13_48_dn, emaCross13_48_up_ts, emaCross13_48_dn_ts,
     ema5above48, ema13above21, ema8above21, emaRegime,
     pdz, fvg, liq,
+    ichimoku,
   };
 }
 
@@ -1026,91 +1259,140 @@ export function computeLTFBundleScore(b, anchors = null) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// WEIGHTED BLENDING (mirrors Pine lines 342-396)
+// WEIGHTED BLENDING — v3 Timeframe Architecture
+//
+// HTF: M(10%) → W(20%) → D(40%) → 4H(30%)
+//   Daily is the anchor (healthy change rate). Weekly/Monthly confirm but lag.
+//   4H catches early flip detection.
+//
+// LTF: 1H(35%) → 30m(30%) → 10m(20%) → 5m(15%)
+//   1H stabilizes the LTF bundle, reducing noise sensitivity.
+//   30m provides swing context, 10m/5m for precise timing.
+//
+// Ichimoku blending: 30% of HTF bundle, 20% of LTF bundle.
 // ═══════════════════════════════════════════════════════════════════════════════
 
 /**
- * Volatility-adjusted HTF weights (mirrors Pine f_volatility_adjusted_weights).
+ * Volatility-adjusted HTF weights.
+ * Base: D(40%), 4H(30%), W(20%), M(10%)
+ * High-ATR timeframes get boosted (more signal), low-ATR get dampened.
  */
-function volatilityAdjustedHTFWeights(atrRW, atrRD, atrR4, atrR1, learnedAdj = null) {
-  let wW_base = 0.50, wD_base = 0.35, w4H_base = 0.10, w1H_base = 0.05;
-  // Apply learned EMA adjustments (stored as multipliers around 1.0)
+function volatilityAdjustedHTFWeights(atrRM, atrRW, atrRD, atrR4, learnedAdj = null) {
+  let wM_base = 0.10, wW_base = 0.20, wD_base = 0.40, w4H_base = 0.30;
   if (learnedAdj) {
-    wW_base *= (learnedAdj.W || 1.0);
-    wD_base *= (learnedAdj.D || 1.0);
+    wM_base  *= (learnedAdj.M   || 1.0);
+    wW_base  *= (learnedAdj.W   || 1.0);
+    wD_base  *= (learnedAdj.D   || 1.0);
     w4H_base *= (learnedAdj["240"] || 1.0);
-    w1H_base *= (learnedAdj["60"] || 1.0);
   }
-  let wW = (atrRW > 1.5) ? wW_base * 0.7 : wW_base * 1.2;
-  let wD = (atrRD > 1.3) ? wD_base * 1.2 : wD_base * 0.9;
-  let w4H = (atrR4 > 1.2) ? w4H_base * 1.3 : w4H_base * 0.8;
-  let w1H = (atrR1 > 1.1) ? w1H_base * 1.2 : w1H_base * 0.9;
-  const total = wW + wD + w4H + w1H;
-  return { wW: wW / total, wD: wD / total, w4H: w4H / total, w1H: w1H / total };
+  // High volatility = more signal, boost weight. Low = dampen.
+  let wM  = (atrRM > 1.3) ? wM_base * 0.8  : wM_base * 1.1;   // M lags, dampen in vol
+  let wW  = (atrRW > 1.5) ? wW_base * 0.85 : wW_base * 1.1;   // W confirms, slight dampen in vol
+  let wD  = (atrRD > 1.3) ? wD_base * 1.15 : wD_base * 0.95;  // D is anchor, boost in vol
+  let w4H = (atrR4 > 1.2) ? w4H_base * 1.2 : w4H_base * 0.9;  // 4H detects flips, boost in vol
+  const total = wM + wW + wD + w4H;
+  return { wM: wM / total, wW: wW / total, wD: wD / total, w4H: w4H / total };
 }
 
 /**
- * Session-aware LTF weights.
- * Updated: 3m dropped, replaced with 5m. Weights: 30m(55%), 10m(30%), 5m(15%).
- * @param {boolean} isRTH - whether we're in Regular Trading Hours
+ * Session-aware LTF weights (swing-first: no 5m).
+ * Base: 1H(50%), 30m(30%), 10m(20%)
+ * During RTH, slightly boost 1H (most liquid swing signal).
  */
 function sessionAdjustedLTFWeights(isRTH, learnedAdj = null) {
-  let w30_base = 0.55, w10_base = 0.30, w5_base = 0.15;
+  let w1H_base = 0.50, w30_base = 0.30, w10_base = 0.20;
   if (learnedAdj) {
+    w1H_base *= (learnedAdj["60"] || 1.0);
     w30_base *= (learnedAdj["30"] || 1.0);
     w10_base *= (learnedAdj["10"] || 1.0);
-    w5_base *= (learnedAdj["5"] || 1.0);
   }
-  if (!isRTH) return { w30: w30_base, w10: w10_base, w5: w5_base };
-  let w30 = w30_base * 1.15;
-  let w10 = w10_base * 1.0;
-  let w5 = w5_base * 0.7;
-  const total = w30 + w10 + w5;
-  return { w30: w30 / total, w10: w10 / total, w5: w5 / total };
+  if (!isRTH) return { w1H: w1H_base, w30: w30_base, w10: w10_base };
+  let w1H = w1H_base * 1.08;
+  let w30 = w30_base * 1.03;
+  let w10 = w10_base * 0.92;
+  const total = w1H + w30 + w10;
+  return { w1H: w1H / total, w30: w30 / total, w10: w10 / total };
 }
 
 /**
- * Compute final HTF score from 4 timeframe bundles.
- * @param {object} wBundle - Weekly bundle
- * @param {object} dBundle - Daily bundle
- * @param {object} h4Bundle - 4H bundle
- * @param {object} h1Bundle - 1H bundle
+ * Compute final HTF score from 4 timeframe bundles + Ichimoku.
+ *
+ * Architecture: M(10%) → W(20%) → D(40%) → 4H(30%)
+ * Ichimoku contributes 30% of final score, existing EMA/ST/squeeze 70%.
+ *
+ * @param {object} mBundle  - Monthly bundle (may be null for sparse data)
+ * @param {object} wBundle  - Weekly bundle
+ * @param {object} dBundle  - Daily bundle (anchor)
+ * @param {object} h4Bundle - 4H bundle (early flip detection)
+ * @param {object} [learnedAdj] - calibration weight adjustments
  * @returns {number} weighted HTF score in [-50, 50]
  */
-export function computeWeightedHTFScore(wBundle, dBundle, h4Bundle, h1Bundle, learnedAdj = null) {
-  const htfW = computeHTFBundleScore(wBundle);
-  const htfD = computeHTFBundleScore(dBundle);
+export function computeWeightedHTFScore(mBundle, wBundle, dBundle, h4Bundle, learnedAdj = null) {
+  // Existing EMA/ST/squeeze bundle scores
+  const htfM  = computeHTFBundleScore(mBundle);
+  const htfW  = computeHTFBundleScore(wBundle);
+  const htfD  = computeHTFBundleScore(dBundle);
   const htf4H = computeHTFBundleScore(h4Bundle);
-  const htf1H = computeHTFBundleScore(h1Bundle);
 
-  const atrRW = wBundle?.atrRatio || 1.0;
-  const atrRD = dBundle?.atrRatio || 1.0;
+  const atrRM = mBundle?.atrRatio  || 1.0;
+  const atrRW = wBundle?.atrRatio  || 1.0;
+  const atrRD = dBundle?.atrRatio  || 1.0;
   const atrR4 = h4Bundle?.atrRatio || 1.0;
-  const atrR1 = h1Bundle?.atrRatio || 1.0;
 
-  const { wW, wD, w4H, w1H } = volatilityAdjustedHTFWeights(atrRW, atrRD, atrR4, atrR1, learnedAdj);
+  const { wM, wW, wD, w4H } = volatilityAdjustedHTFWeights(atrRM, atrRW, atrRD, atrR4, learnedAdj);
+  const existingScore = htfM * wM + htfW * wW + htfD * wD + htf4H * w4H;
 
-  return clamp(htfW * wW + htfD * wD + htf4H * w4H + htf1H * w1H, -50, 50);
+  // Ichimoku component: weighted average of per-TF Ichimoku scores
+  // Same TF weights but Ichimoku naturally strongest on D/W
+  const ichM  = computeIchimokuScore(mBundle?.ichimoku);
+  const ichW  = computeIchimokuScore(wBundle?.ichimoku);
+  const ichD  = computeIchimokuScore(dBundle?.ichimoku);
+  const ich4H = computeIchimokuScore(h4Bundle?.ichimoku);
+
+  const ichScore = ichM * wM + ichW * wW + ichD * wD + ich4H * w4H;
+
+  // Blend: 70% existing signals + 30% Ichimoku
+  // If no Ichimoku data available (all return 0), blend is pure existing
+  const hasIchimoku = (mBundle?.ichimoku || wBundle?.ichimoku || dBundle?.ichimoku || h4Bundle?.ichimoku);
+  const ichWeight = hasIchimoku ? 0.30 : 0.0;
+  const blended = existingScore * (1 - ichWeight) + ichScore * ichWeight;
+
+  return clamp(blended, -50, 50);
 }
 
 /**
- * Compute final LTF score from 3 timeframe bundles.
- * Updated: uses 5m instead of 3m. Weights: 30m(55%), 10m(30%), 5m(15%).
+ * Compute final LTF score from 3 timeframe bundles + Ichimoku (swing-first: no 5m).
+ *
+ * Architecture: 1H(50%) → 30m(30%) → 10m(20%)
+ * Ichimoku contributes 20% of final score, existing signals 80%.
+ *
+ * @param {object} h1Bundle  - 1H bundle (anchor for LTF stability)
  * @param {object} m30Bundle - 30m bundle
  * @param {object} m10Bundle - 10m bundle
- * @param {object} m5Bundle - 5m bundle (was 3m)
- * @param {{ ATRd: number }} anchors - daily anchors
+ * @param {{ ATRd: number }} anchors - daily anchors for Golden Gate normalization
  * @param {boolean} isRTH - Regular Trading Hours flag
+ * @param {object} [learnedAdj] - calibration weight adjustments
  * @returns {number} weighted LTF score in [-50, 50]
  */
-export function computeWeightedLTFScore(m30Bundle, m10Bundle, m5Bundle, anchors = null, isRTH = true, learnedAdj = null) {
+export function computeWeightedLTFScore(h1Bundle, m30Bundle, m10Bundle, anchors = null, isRTH = true, learnedAdj = null) {
+  const ltf1H = computeLTFBundleScore(h1Bundle, anchors);
   const ltf30 = computeLTFBundleScore(m30Bundle, anchors);
   const ltf10 = computeLTFBundleScore(m10Bundle, anchors);
-  const ltf5 = computeLTFBundleScore(m5Bundle, anchors);
 
-  const { w30, w10, w5 } = sessionAdjustedLTFWeights(isRTH, learnedAdj);
+  const { w1H, w30, w10 } = sessionAdjustedLTFWeights(isRTH, learnedAdj);
+  const existingScore = ltf1H * w1H + ltf30 * w30 + ltf10 * w10;
 
-  return clamp(ltf30 * w30 + ltf10 * w10 + ltf5 * w5, -50, 50);
+  const ich1H = computeIchimokuScore(h1Bundle?.ichimoku);
+  const ich30 = computeIchimokuScore(m30Bundle?.ichimoku);
+  const ich10 = computeIchimokuScore(m10Bundle?.ichimoku);
+
+  const ichScore = ich1H * 0.50 + ich30 * 0.30 + ich10 * 0.20;
+
+  const hasIchimoku = (h1Bundle?.ichimoku || m30Bundle?.ichimoku);
+  const ichWeight = hasIchimoku ? 0.20 : 0.0;
+  const blended = existingScore * (1 - ichWeight) + ichScore * ichWeight;
+
+  return clamp(blended, -50, 50);
 }
 
 /**
@@ -1123,6 +1405,230 @@ export function classifyState(htfScore, ltfScore) {
   if (htfBull && !ltfBull) return "HTF_BULL_LTF_PULLBACK";
   if (!htfBull && !ltfBull) return "HTF_BEAR_LTF_BEAR";
   return "HTF_BEAR_LTF_PULLBACK";
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// REGIME CLASSIFIER — Chop Detection Engine
+//
+// Classifies each ticker into TRENDING / TRANSITIONAL / CHOPPY based on
+// multi-signal confluence from Ichimoku, EMA structure, SuperTrend stability,
+// squeeze state, and relative volume.
+//
+// This is the single biggest lever for the scoring overhaul:
+//   - Jul–Oct 2025 (trending): 53-62% win rate, profitable
+//   - Nov–Feb 2026 (choppy):   41-49% win rate, losing money
+//   - Trade count doubled while quality dropped
+//
+// The regime classifier enables:
+//   - Adaptive entry thresholds (higher bar in chop)
+//   - Trade frequency governance (fewer entries in chop)
+//   - SHORT blocking in chop
+//   - SL width adjustment
+//   - Position size scaling
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Classify the market regime for a single ticker.
+ *
+ * Uses the Daily bundle as primary (most weight) with 4H and Weekly as
+ * confirmation/early-warning. Returns a regime enum + numeric score.
+ *
+ * @param {object} dBundle  - Daily computeTfBundle output
+ * @param {object} [h4Bundle] - 4H bundle (optional, for early detection)
+ * @param {object} [wBundle]  - Weekly bundle (optional, for confirmation)
+ * @returns {{ regime: string, score: number, factors: object }}
+ *   regime: "TRENDING" | "TRANSITIONAL" | "CHOPPY"
+ *   score:  -15 (extreme chop) to +15 (strong trend)
+ *   factors: breakdown of what contributed to the score
+ */
+export function classifyTickerRegime(dBundle, h4Bundle = null, wBundle = null) {
+  let score = 0;
+  const factors = {};
+
+  // ── 1. Ichimoku Cloud Thickness (Daily) — strongest chop signal ──
+  // Thick cloud = strong trend support/resistance. Thin = no conviction.
+  const ichD = dBundle?.ichimoku;
+  if (ichD) {
+    const ct = ichD.cloudThickness || 0;
+    if (ct > 1.5)      { score += 3; factors.cloud_thickness = "+3 (thick: " + ct.toFixed(2) + ")"; }
+    else if (ct > 0.8)  { score += 1; factors.cloud_thickness = "+1 (moderate: " + ct.toFixed(2) + ")"; }
+    else if (ct < 0.3)  { score -= 3; factors.cloud_thickness = "-3 (thin: " + ct.toFixed(2) + ")"; }
+    else                { score -= 1; factors.cloud_thickness = "-1 (narrow: " + ct.toFixed(2) + ")"; }
+
+    // Price inside cloud = regime uncertainty
+    if (ichD.priceVsCloud === "inside") {
+      score -= 2;
+      factors.price_in_cloud = "-2 (inside kumo)";
+    }
+
+    // TK Spread: wide = trending, narrow = choppy
+    const tks = Math.abs(ichD.tkSpread || 0);
+    if (tks > 0.5)      { score += 2; factors.tk_spread = "+2 (wide: " + tks.toFixed(2) + ")"; }
+    else if (tks > 0.2)  { score += 1; factors.tk_spread = "+1 (moderate: " + tks.toFixed(2) + ")"; }
+    else if (tks < 0.1)  { score -= 2; factors.tk_spread = "-2 (flat: " + tks.toFixed(2) + ")"; }
+
+    // Kijun slope: flat = range
+    const ks = Math.abs(ichD.kijunSlope || 0);
+    if (ks > 0.3)       { score += 1; factors.kijun_slope = "+1 (moving)"; }
+    else if (ks < 0.05)  { score -= 1; factors.kijun_slope = "-1 (flat)"; }
+
+    // Kumo twist = potential regime change
+    if (ichD.kumoTwist)  { score -= 1; factors.kumo_twist = "-1 (twist detected)"; }
+  }
+
+  // ── 2. EMA Structure Convergence (Daily) ──
+  // Tangled EMAs = chop. Fanned out = trend.
+  const emaStruct = dBundle?.emaStructure ?? 0;
+  if (Math.abs(emaStruct) > 0.7) {
+    score += 2;
+    factors.ema_structure = "+2 (fanned: " + emaStruct.toFixed(2) + ")";
+  } else if (Math.abs(emaStruct) < 0.3) {
+    score -= 2;
+    factors.ema_structure = "-2 (tangled: " + emaStruct.toFixed(2) + ")";
+  }
+
+  // ── 3. SuperTrend Stability (Daily) ──
+  // Long-running ST direction = trending. Recent flips = chop.
+  const stBars = dBundle?.stBarsSinceFlip ?? 0;
+  if (stBars > 15)     { score += 2; factors.st_stability = "+2 (" + stBars + " bars since flip)"; }
+  else if (stBars > 8) { score += 1; factors.st_stability = "+1 (" + stBars + " bars since flip)"; }
+  else if (stBars < 3) { score -= 2; factors.st_stability = "-2 (recent flip: " + stBars + " bars)"; }
+
+  // ── 4. Squeeze State (Daily) ──
+  // Active squeeze = energy building but directionless. Dampens conviction.
+  if (dBundle?.sqOn) {
+    score -= 1;
+    factors.squeeze = "-1 (squeeze active)";
+  }
+
+  // ── 5. Volume Conviction (Daily) ──
+  // Low volume = unreliable signals. High volume = institutional participation.
+  const rvol = dBundle?.rvol5 ?? dBundle?.volRatio ?? 1.0;
+  if (rvol < 0.6) {
+    score -= 2;
+    factors.volume = "-2 (thin: rvol=" + rvol.toFixed(2) + ")";
+  } else if (rvol > 1.5) {
+    score += 1;
+    factors.volume = "+1 (strong: rvol=" + rvol.toFixed(2) + ")";
+  }
+
+  // ── 6. 4H Early Warning (optional) ──
+  // 4H flips faster than daily — use as leading indicator
+  if (h4Bundle) {
+    const ich4H = h4Bundle.ichimoku;
+    if (ich4H?.priceVsCloud === "inside") {
+      score -= 1;
+      factors.h4_cloud = "-1 (4H inside cloud)";
+    }
+    // 4H SuperTrend recently flipped while daily hasn't = divergence = chop
+    if (h4Bundle.stBarsSinceFlip != null && h4Bundle.stBarsSinceFlip < 3 && stBars > 5) {
+      score -= 1;
+      factors.h4_st_diverge = "-1 (4H ST flipped, daily hasn't)";
+    }
+  }
+
+  // ── 7. Weekly Confirmation (optional) ──
+  // Weekly inside cloud or thin cloud = macro uncertainty
+  if (wBundle?.ichimoku) {
+    if (wBundle.ichimoku.priceVsCloud === "inside") {
+      score -= 1;
+      factors.w_cloud = "-1 (weekly inside cloud)";
+    }
+    if ((wBundle.ichimoku.cloudThickness || 0) < 0.3) {
+      score -= 1;
+      factors.w_thin = "-1 (weekly cloud thin)";
+    }
+  }
+
+  // ── Classify ──
+  const regime = score >= 5 ? "TRENDING"
+    : score >= 0 ? "TRANSITIONAL"
+    : "CHOPPY";
+
+  return { regime, score, factors };
+}
+
+/**
+ * Classify the overall market regime using SPY (or QQQ) data.
+ * This provides a global overlay — when the market itself is choppy,
+ * all tickers should trade more conservatively regardless of their
+ * individual regime.
+ *
+ * @param {object} spyDailyBundle - SPY daily computeTfBundle output
+ * @param {object} [spyWeeklyBundle] - SPY weekly bundle
+ * @returns {{ regime: string, score: number, factors: object }}
+ */
+export function classifyMarketRegime(spyDailyBundle, spyWeeklyBundle = null) {
+  if (!spyDailyBundle) return { regime: "UNKNOWN", score: 0, factors: {} };
+  return classifyTickerRegime(spyDailyBundle, null, spyWeeklyBundle);
+}
+
+/**
+ * Get regime-adaptive trading parameters.
+ * These are the guardrails that tighten or loosen based on regime.
+ *
+ * @param {string} tickerRegime - "TRENDING" | "TRANSITIONAL" | "CHOPPY"
+ * @param {string} [marketRegime] - global overlay from SPY
+ * @returns {object} adaptive parameters for entry/exit gates
+ */
+export function getRegimeParams(tickerRegime, marketRegime = null) {
+  // If market is choppy, override ticker regime to at least TRANSITIONAL
+  const effectiveRegime = (marketRegime === "CHOPPY" && tickerRegime === "TRENDING")
+    ? "TRANSITIONAL"
+    : (marketRegime === "CHOPPY" ? "CHOPPY" : tickerRegime);
+
+  const params = {
+    TRENDING: {
+      regime: "TRENDING",
+      minHTFScore: 10,
+      minRR: 1.5,
+      maxCompletion: 0.60,
+      positionSizeMultiplier: 1.0,
+      shortsAllowed: true,
+      shortRvolMin: 1.0,     // SHORTs need at least normal volume
+      maxDailyEntries: 10,
+      maxWeeklyEntries: 15,
+      slCushionMultiplier: 1.0,
+      maxHoldDaysLosing: 20,
+      rvolDeadZone: 0.4,     // RVOL below this = no entry
+      rvolLowThreshold: 0.7, // Below this = elevated score requirement
+      rvolLowScoreAdj: 5,    // Add this to minHTFScore when RVOL is low
+    },
+    TRANSITIONAL: {
+      regime: "TRANSITIONAL",
+      minHTFScore: 15,
+      minRR: 2.0,
+      maxCompletion: 0.45,
+      positionSizeMultiplier: 0.75,
+      shortsAllowed: true,
+      shortRvolMin: 1.3,     // SHORTs need elevated volume
+      maxDailyEntries: 5,
+      maxWeeklyEntries: 8,
+      slCushionMultiplier: 1.15,  // 15% wider stops
+      maxHoldDaysLosing: 12,
+      rvolDeadZone: 0.5,
+      rvolLowThreshold: 0.8,
+      rvolLowScoreAdj: 5,
+    },
+    CHOPPY: {
+      regime: "CHOPPY",
+      minHTFScore: 25,
+      minRR: 3.0,
+      maxCompletion: 0.30,
+      positionSizeMultiplier: 0.50,
+      shortsAllowed: false,   // No SHORTs in chop — they have negative EV
+      shortRvolMin: Infinity,
+      maxDailyEntries: 2,
+      maxWeeklyEntries: 3,
+      slCushionMultiplier: 1.30,  // 30% wider stops
+      maxHoldDaysLosing: 7,
+      rvolDeadZone: 0.5,
+      rvolLowThreshold: 0.8,
+      rvolLowScoreAdj: 10,
+    },
+  };
+
+  return params[effectiveRegime] || params.TRANSITIONAL;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -1142,7 +1648,7 @@ export function classifyState(htfScore, ltfScore) {
 /**
  * Compute Entry Quality Score (0-100) for swing/position trading.
  *
- * @param {object} bundles - { W, D, "240", "60", "30", "10", "5" }
+ * @param {object} bundles - { W, D, "240", "60", "30", "10" }
  * @param {string} side - "LONG" or "SHORT"
  * @param {object} regime - { daily, weekly, combined } from computeSwingRegime
  * @returns {{ score: number, structure: number, momentum: number, confirmation: number, details: object }}
@@ -1220,7 +1726,7 @@ export function computeEntryQualityScore(bundles, side, regime = null) {
     }
   } else {
     // Fallback: use HTF score direction as proxy
-    const htfScore = computeWeightedHTFScore(bundles?.W, bD, b4H, b1H);
+    const htfScore = computeWeightedHTFScore(bundles?.M, bundles?.W, bD, b4H);
     if ((isLong && htfScore > 10) || (!isLong && htfScore < -10)) {
       confirmation += 10;
       confirmDetails.regime = "score_aligned";
@@ -1593,7 +2099,7 @@ export function classifyVolatilityTier(atr14Daily, price) {
 
 /**
  * Detect event-based flags from bundles across all timeframes.
- * @param {object} bundles - { W, D, "240", "60", "30", "10", "3" } current bundles
+ * @param {object} bundles - { W, D, "240", "60", "30", "10" } current bundles
  * @returns {object} flags matching the shape expected by qualifiesForEnter / classifyKanbanStage
  */
 export function detectFlags(bundles) {
@@ -1601,7 +2107,6 @@ export function detectFlags(bundles) {
   const b30 = bundles?.["30"];
   const b60 = bundles?.["60"];
   const b10 = bundles?.["10"];
-  const b5 = bundles?.["5"];
   const bD = bundles?.["D"];
   const b4H = bundles?.["240"];
 
@@ -1609,8 +2114,6 @@ export function detectFlags(bundles) {
   if (b30?.stFlip) { flags.st_flip_30m = true; flags.st_flip_30m_ts = b30.stFlip_ts; }
   if (b60?.stFlip) { flags.st_flip_1h = true; flags.st_flip_1h_ts = b60.stFlip_ts; }
   if (b10?.stFlip) { flags.st_flip_10m = true; flags.st_flip_10m_ts = b10.stFlip_ts; }
-  if (b5?.stFlip) { flags.st_flip_5m = true; flags.st_flip_5m_ts = b5.stFlip_ts; }
-
   // Bear-side ST flip (timestamp is the most recent bear flip)
   if (b30?.stFlipDir === -1 || b60?.stFlipDir === -1) {
     flags.st_flip_bear = true;
@@ -1693,11 +2196,11 @@ export function detectFlags(bundles) {
  * Synthesize SuperTrend direction + slope across all timeframes into a
  * single support assessment.
  *
- * @param {object} bundles - { W, D, "240", "60", "30", "10", "3" }
+ * @param {object} bundles - { W, D, "240", "60", "30", "10" }
  * @returns {object} { map, bullCount, bearCount, slopeAligned, supportScore }
  */
 export function buildSTSupportMap(bundles) {
-  const TF_WEIGHTS = { W: 0.25, D: 0.22, "240": 0.18, "60": 0.14, "30": 0.10, "10": 0.07, "5": 0.04 };
+  const TF_WEIGHTS = { W: 0.26, D: 0.23, "240": 0.19, "60": 0.15, "30": 0.10, "10": 0.07 };
   const map = {};
   let bullCount = 0;
   let bearCount = 0;
@@ -1932,7 +2435,6 @@ export function assembleTickerData(ticker, bundles, existingData = null, opts = 
   const b1H = bundles?.["60"];
   const b30 = bundles?.["30"];
   const b10 = bundles?.["10"];
-  const b5 = bundles?.["5"];
 
   // Compute daily anchors for Golden Gate
   let anchors = null;
@@ -1946,9 +2448,10 @@ export function assembleTickerData(ticker, bundles, existingData = null, opts = 
   }
 
   // Compute scores (pass learned weight adjustments if available)
+  // v3 TF architecture: HTF = M/W/D/4H, LTF = 1H/30m/10m
   const _learnedScoreAdj = opts?.scoreWeights || null;
-  const htfScore = computeWeightedHTFScore(bW, bD, b4H, b1H, _learnedScoreAdj);
-  const ltfScore = computeWeightedLTFScore(b30, b10, b5, anchors, isRTHNow(), _learnedScoreAdj);
+  const htfScore = computeWeightedHTFScore(bM, bW, bD, b4H, _learnedScoreAdj);
+  const ltfScore = computeWeightedLTFScore(b1H, b30, b10, anchors, isRTHNow(), _learnedScoreAdj);
   const state = classifyState(htfScore, ltfScore);
 
   // Detect flags
@@ -2004,7 +2507,7 @@ export function assembleTickerData(ticker, bundles, existingData = null, opts = 
 
   // ── EMA Triplet Map per key timeframe ──
   const emaMap = {};
-  const tfEmaSources = { M: bM, W: bW, D: bD, "240": b4H, "60": b1H, "30": b30, "10": b10, "5": b5 };
+  const tfEmaSources = { M: bM, W: bW, D: bD, "240": b4H, "60": b1H, "30": b30, "10": b10 };
   for (const [tf, b] of Object.entries(tfEmaSources)) {
     if (b && Number.isFinite(b.emaDepth)) {
       emaMap[tf] = {
@@ -2087,7 +2590,7 @@ export function assembleTickerData(ticker, bundles, existingData = null, opts = 
 
   // Build tf_tech for compatibility with existing worker logic
   const tfTech = {};
-  const tfMap = { M: bM, W: bW, D: bD, "4H": b4H, "1H": b1H, "30": b30, "10": b10, "5": b5 };
+  const tfMap = { M: bM, W: bW, D: bD, "4H": b4H, "1H": b1H, "30": b30, "10": b10 };
   for (const [tfLabel, b] of Object.entries(tfMap)) {
     if (!b) continue;
     // ATR band: which Fibonacci ATR zone price is in
@@ -2174,6 +2677,10 @@ export function assembleTickerData(ticker, bundles, existingData = null, opts = 
   const eqSide = swingConsensus.direction
     || (htfScore >= 0 ? "LONG" : "SHORT");
   const entryQuality = computeEntryQualityScore(bundles, eqSide, regime);
+
+  // ── Regime Classification (v3 chop filter) ──
+  const regimeClass = classifyTickerRegime(bD, b4H, bW);
+  const regimeParams = getRegimeParams(regimeClass.regime);
 
   return {
     ...base,
@@ -2262,7 +2769,82 @@ export function assembleTickerData(ticker, bundles, existingData = null, opts = 
     } : undefined,
     volatility_tier: volTier.tier,
     volatility_atr_pct: volTier.atrPct,
+    // ── v3 Regime Classification (chop filter) ──
+    regime_class: regimeClass.regime,          // "TRENDING" | "TRANSITIONAL" | "CHOPPY"
+    regime_score: regimeClass.score,           // -15 to +15
+    regime_factors: regimeClass.factors,       // breakdown for debugging/UI
+    regime_params: regimeParams,               // adaptive trading parameters
     data_source: "alpaca",
+    // ── Ichimoku native data (replaces external ichimoku_d/ichimoku_w) ──
+    ichimoku_d: bD?.ichimoku ? {
+      position: bD.ichimoku.priceVsCloud,
+      tenkan: Math.round(bD.ichimoku.tenkan * 100) / 100,
+      kijun: Math.round(bD.ichimoku.kijun * 100) / 100,
+      senkouA: Math.round(bD.ichimoku.senkouA * 100) / 100,
+      senkouB: Math.round(bD.ichimoku.senkouB * 100) / 100,
+      cloudTop: Math.round(bD.ichimoku.cloudTop * 100) / 100,
+      cloudBase: Math.round(bD.ichimoku.cloudBase * 100) / 100,
+      tkBull: bD.ichimoku.tkBull,
+      tkCrossUp: bD.ichimoku.tkCrossUp,
+      tkCrossDn: bD.ichimoku.tkCrossDn,
+      cloudBullish: bD.ichimoku.cloudBullish,
+      cloudThickness: Math.round(bD.ichimoku.cloudThickness * 100) / 100,
+      chikouAbove: bD.ichimoku.chikouAbove,
+      kumoTwist: bD.ichimoku.kumoTwist,
+      tkSpread: Math.round(bD.ichimoku.tkSpread * 100) / 100,
+      kijunSlope: Math.round(bD.ichimoku.kijunSlope * 100) / 100,
+      priceToKijun: Math.round(bD.ichimoku.priceToKijun * 100) / 100,
+      score: computeIchimokuScore(bD.ichimoku),
+      // Kijun SL anchor: Kijun ± ATR cushion (for adaptive SL in worker)
+      kijunSL_long:  ATRd > 0 ? Math.round((bD.ichimoku.kijun - ATRd * 0.2) * 100) / 100 : undefined,
+      kijunSL_short: ATRd > 0 ? Math.round((bD.ichimoku.kijun + ATRd * 0.2) * 100) / 100 : undefined,
+      cloudSL_long:  Math.round(bD.ichimoku.cloudBase * 100) / 100,
+      cloudSL_short: Math.round(bD.ichimoku.cloudTop * 100) / 100,
+    } : undefined,
+    ichimoku_w: bW?.ichimoku ? {
+      position: bW.ichimoku.priceVsCloud,
+      tenkan: Math.round(bW.ichimoku.tenkan * 100) / 100,
+      kijun: Math.round(bW.ichimoku.kijun * 100) / 100,
+      cloudBullish: bW.ichimoku.cloudBullish,
+      cloudThickness: Math.round(bW.ichimoku.cloudThickness * 100) / 100,
+      chikouAbove: bW.ichimoku.chikouAbove,
+      tkBull: bW.ichimoku.tkBull,
+      score: computeIchimokuScore(bW.ichimoku),
+    } : undefined,
+    // ── Ichimoku map for all TFs (compact) ──
+    ichimoku_map: (() => {
+      const map = {};
+      const ichSources = { M: bM, W: bW, D: bD, "240": b4H, "60": b1H, "30": b30, "10": b10 };
+      for (const [tf, b] of Object.entries(ichSources)) {
+        if (b?.ichimoku) {
+          map[tf] = {
+            pos: b.ichimoku.priceVsCloud,    // "above" | "below" | "inside"
+            tkB: b.ichimoku.tkBull,           // Tenkan > Kijun
+            cB: b.ichimoku.cloudBullish,      // future cloud is green
+            cT: Math.round(b.ichimoku.cloudThickness * 100) / 100,
+            chi: b.ichimoku.chikouAbove,      // Chikou confirmation
+            ks: Math.round(b.ichimoku.kijunSlope * 100) / 100,
+            sc: computeIchimokuScore(b.ichimoku), // score ±50
+          };
+        }
+      }
+      return Object.keys(map).length > 0 ? map : undefined;
+    })(),
+    // ── RVOL map for all TFs ──
+    rvol_map: (() => {
+      const map = {};
+      const rvolSources = { M: bM, W: bW, D: bD, "240": b4H, "60": b1H, "30": b30, "10": b10 };
+      for (const [tf, b] of Object.entries(rvolSources)) {
+        if (b && Number.isFinite(b.volRatio)) {
+          map[tf] = {
+            vr: Math.round(b.volRatio * 100) / 100,     // current bar vs SMA20
+            r5: Math.round((b.rvol5 || 1) * 100) / 100, // 5-bar avg vs SMA20
+            sp: Math.round((b.rvolSpike || 0) * 100) / 100, // vs 20-bar max
+          };
+        }
+      }
+      return Object.keys(map).length > 0 ? map : undefined;
+    })(),
     // ── Investor-grade monthly data (Phase 1A) ──
     monthly_bundle: bM ? {
       supertrend_dir: bM.stDir,       // 1 = bullish, -1 = bearish
@@ -2445,12 +3027,12 @@ export function computeTDSequential(candles, tf, opts = {}) {
  *   - Counts from the highest-tf active signal are preferred
  *   - per_tf breakdown includes ALL available TFs for chart overlays
  *
- * @param {object} candlesByTf - { "5": [...], "10": [...], "30": [...], "60": [...], "240": [...], D: [...], W: [...], M: [...] }
+ * @param {object} candlesByTf - { "10": [...], "30": [...], "60": [...], "240": [...], D: [...], W: [...], M: [...] }
  * @param {boolean} htfBull - Higher-timeframe bullish bias
  * @returns {object} merged td_sequential object with per_tf breakdown for all TFs
  */
 export function computeTDSequentialMultiTF(candlesByTf, htfBull = true) {
-  const allTfs = ["5", "10", "30", "60", "240", "D", "W", "M"];
+  const allTfs = ["10", "30", "60", "240", "D", "W", "M"];
   const results = {};
   const perTf = {};
 
@@ -2619,13 +3201,13 @@ const TF_TO_ALPACA = {
 
 // All timeframes we need for scoring
 // M (Monthly) included for investor-grade scoring (computeInvestorScore)
-const ALL_TFS = ["M", "W", "D", "240", "60", "30", "10", "5"];
+const ALL_TFS = ["M", "W", "D", "240", "60", "30", "10"];
 
-// All timeframes we fetch from Alpaca for candle storage (1m removed — Phase 2 cost optimization)
-const CRON_FETCH_TFS = ["M", "W", "D", "240", "60", "30", "10", "5"];
+// All timeframes we fetch from Alpaca for candle storage (5m dropped — swing focus)
+const CRON_FETCH_TFS = ["M", "W", "D", "240", "60", "30", "10"];
 
-// TD Sequential timeframes — computed on 8 TFs for chart overlays (1m removed)
-const TD_SEQ_TFS = ["5", "10", "30", "60", "240", "D", "W", "M"];
+// TD Sequential timeframes — computed on 7 TFs for chart overlays (5m dropped)
+const TD_SEQ_TFS = ["10", "30", "60", "240", "D", "W", "M"];
 
 /**
  * Fetch historical bars from Alpaca for multiple symbols.
@@ -2869,11 +3451,10 @@ export async function alpacaCronFetchCrypto(env) {
   const minuteOfHour = new Date().getUTCMinutes();
   const isTopOfHour = minuteOfHour < 5;
   const tfsThisCycle = isTopOfHour
-    ? ["5", "10", "30", "60", "240", "D", "W", "M"]
-    : ["5", "10", "30", "60", "240"];
+    ? ["10", "30", "60", "240", "D", "W", "M"]
+    : ["10", "30", "60", "240"];
 
   const TF_LOOKBACK_MS = {
-    "5":   4 * 60 * 60 * 1000,      // 4 hours
     "10":  6 * 60 * 60 * 1000,      // 6 hours
     "30":  12 * 60 * 60 * 1000,     // 12 hours
     "60":  48 * 60 * 60 * 1000,     // 48 hours
@@ -3237,18 +3818,15 @@ export async function alpacaCronFetchLatest(env, allTickers, upsertCandle) {
   const isTopOfHour = minuteOfHour < 5;
 
   const tfsThisCycle = isTopOfHour
-    ? ["5", "10", "30", "60", "240", "D", "W", "M"]
-    : ["5", "10", "30", "60", "240"];
+    ? ["10", "30", "60", "240", "D", "W", "M"]
+    : ["10", "30", "60", "240"];
 
   const halfIdx = slotIdx % 2;
   const mid = Math.ceil(allTickers.length / 2);
   const tickersThisCycle = halfIdx === 0 ? allTickers.slice(0, mid) : allTickers.slice(mid);
   console.log(`[ALPACA CRON] TFs=[${tfsThisCycle}] half=${halfIdx} tickers=${tickersThisCycle.length}/${allTickers.length} slot=${slotIdx}${isTopOfHour ? " (hourly D/W/M)" : ""}`);
 
-  // Lookback windows per TF — just enough to catch up if a cron tick was missed.
-  // Shorter windows = smaller Alpaca responses = faster fetches.
   const TF_LOOKBACK_MS = {
-    "5":   2 * 60 * 60 * 1000,     // 2 hours
     "10":  3 * 60 * 60 * 1000,     // 3 hours
     "30":  6 * 60 * 60 * 1000,     // 6 hours
     "60":  24 * 60 * 60 * 1000,    // 24 hours
@@ -3372,7 +3950,7 @@ export async function alpacaBackfill(env, tickers, _unused, tfKey = "all", since
   let startDates;
   if (typeof sinceDays === "number" && sinceDays > 0) {
     const start = new Date(now.getTime() - sinceDays * DAY_MS).toISOString();
-    startDates = { "M": start, "W": start, "D": start, "240": start, "60": start, "30": start, "10": start, "5": start };
+    startDates = { "M": start, "W": start, "D": start, "240": start, "60": start, "30": start, "10": start };
   } else {
     startDates = {
       "M": new Date(now.getTime() - 365 * 10 * DAY_MS).toISOString(),
@@ -3382,7 +3960,6 @@ export async function alpacaBackfill(env, tickers, _unused, tfKey = "all", since
       "60": new Date(now.getTime() - tradingCalDays(1000, 60) * DAY_MS).toISOString(),
       "30": new Date(now.getTime() - tradingCalDays(1000, 30) * DAY_MS).toISOString(),
       "10": new Date(now.getTime() - tradingCalDays(3000, 10) * DAY_MS).toISOString(),
-      "5": new Date(now.getTime() - tradingCalDays(5000, 5) * DAY_MS).toISOString(),
     };
   }
 
@@ -3601,7 +4178,6 @@ export async function computeServerSideScores(ticker, getCandles, env, existingD
     "60": bundles["60"] || null,
     "30": bundles["30"] || null,
     "10": bundles["10"] || null,
-    "5": bundles["5"] || null,
   };
 
   // Pass raw bars + optional learned weights so assembleTickerData uses them
@@ -3611,6 +4187,20 @@ export async function computeServerSideScores(ticker, getCandles, env, existingD
   if (existingData?._scoreWeights) assembleOpts.scoreWeights = existingData._scoreWeights;
   const tickerData = assembleTickerData(ticker, bundleMap, existingData, assembleOpts);
   if (!tickerData) return null;
+
+  // ── Three-Tier Awareness: attach ticker profile if available ──
+  const tickerProfile = existingData?._tickerProfile || null;
+  if (tickerProfile) {
+    tickerData._ticker_profile = {
+      behavior_type: tickerProfile.behaviorType || tickerProfile.behavior_type,
+      sl_mult: tickerProfile.slMult || tickerProfile.sl_mult || 1.0,
+      tp_mult: tickerProfile.tpMult || tickerProfile.tp_mult || 1.0,
+      entry_threshold_adj: tickerProfile.entryThresholdAdj || tickerProfile.entry_threshold_adj || 0,
+      atr_pct_p50: tickerProfile.atrPctP50 || tickerProfile.atr_pct_p50 || 0,
+      trend_persistence: tickerProfile.trendPersistence || tickerProfile.trend_persistence || 0.5,
+      ichimoku_responsiveness: tickerProfile.ichimokuResponsiveness || tickerProfile.ichimoku_responsiveness || 0.5,
+    };
+  }
 
   // ── Compute TD Sequential (D/W/M) and attach ──
   if (Object.keys(tdSeqCandles).length > 0) {

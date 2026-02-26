@@ -130,13 +130,45 @@ export function computeInvestorScore(tickerData, opts = {}) {
     else components.sectorContext = 0;
   }
 
+  // ── v3: Ichimoku Confirmation (bonus up to +15, penalty up to -10) ──
+  components.ichimokuConfirm = 0;
+  const ichW = tickerData?.ichimoku_w;
+  const ichM = tickerData?.ichimoku_map?.M;
+  if (ichW) {
+    if (ichW.priceVsCloud === "above") components.ichimokuConfirm += 4;
+    else if (ichW.priceVsCloud === "inside") components.ichimokuConfirm -= 2;
+    else if (ichW.priceVsCloud === "below") components.ichimokuConfirm -= 5;
+
+    if (ichW.cloudBullish) components.ichimokuConfirm += 2;
+    else components.ichimokuConfirm -= 1;
+
+    const ct = ichW.cloudThickness || 0;
+    if (ct > 1.0) components.ichimokuConfirm += 2;
+    else if (ct < 0.3) components.ichimokuConfirm -= 2;
+
+    const ks = Math.abs(ichW.kijunSlope || 0);
+    if (ks > 0.2) components.ichimokuConfirm += 2;
+    else if (ks < 0.05) components.ichimokuConfirm -= 1;
+
+    if (ichW.tkCross === "bullish") components.ichimokuConfirm += 3;
+    else if (ichW.tkCross === "bearish") components.ichimokuConfirm -= 2;
+  }
+  if (ichM) {
+    if (ichM.priceVsCloud === "above") components.ichimokuConfirm += 2;
+    else if (ichM.priceVsCloud === "below") components.ichimokuConfirm -= 3;
+
+    if (ichM.cloudBullish) components.ichimokuConfirm += 1;
+  }
+  components.ichimokuConfirm = Math.max(-10, Math.min(15, components.ichimokuConfirm));
+
   const score = Math.max(0, Math.min(100,
     components.weeklyTrend +
     components.monthlyTrend +
     components.relativeStrength +
     components.accumulationSignal +
     components.trendDurability +
-    components.sectorContext
+    components.sectorContext +
+    components.ichimokuConfirm
   ));
 
   return { score: Math.round(score), components, accumZone };
@@ -399,8 +431,26 @@ export function classifyInvestorStage(tickerData, investorScore, existingPositio
     return { stage: "reduce", reason: "monthly_supertrend_bearish" };
   }
 
+  // ── v3: Regime + Ichimoku enrichment ──
+  const tickerRegime = String(tickerData?.regime_class || "");
+  const ichW = tickerData?.ichimoku_w;
+
   // ── With open position ──
   if (existingPosition) {
+    const posEntry = Number(existingPosition.entry_price || existingPosition.avg_entry || 0);
+    const curPrice = Number(tickerData?.price || 0);
+    const posPnlPct = posEntry > 0 && curPrice > 0 ? ((curPrice - posEntry) / posEntry) * 100 : 0;
+
+    // v3: CHOPPY regime + losing → exit earlier
+    if (tickerRegime === "CHOPPY" && posPnlPct < -5) {
+      return { stage: "reduce", reason: "choppy_regime_losing" };
+    }
+
+    // v3: Weekly Ichimoku price inside cloud → reduce (trend uncertain)
+    if (ichW?.priceVsCloud === "inside" && posPnlPct < 0) {
+      return { stage: "reduce", reason: "weekly_ichimoku_inside_cloud" };
+    }
+
     // Reduce: investor score < 50 or weekly SuperTrend bearish or RS rank < 30th pct
     if (investorScore < 50) {
       return { stage: "reduce", reason: "investor_score_low" };
@@ -410,6 +460,11 @@ export function classifyInvestorStage(tickerData, investorScore, existingPositio
     }
     if (rsRank < 30) {
       return { stage: "reduce", reason: "rs_rank_declining" };
+    }
+
+    // v3: CHOPPY regime with weak Weekly Ichimoku → downgrade to watch
+    if (tickerRegime === "CHOPPY" && ichW?.priceVsCloud !== "above") {
+      return { stage: "watch", reason: "choppy_regime_ichimoku_weak" };
     }
 
     // Watch: score dropping (50-65) or RS rank declining

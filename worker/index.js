@@ -66,6 +66,7 @@ import {
 } from "./indicators.js";
 import { createExecutionAdapter } from "./execution.js";
 import * as DataProvider from "./data-provider.js";
+import { onboardTicker, loadTickerProfile, loadSectorProfile, mergeProfileWeights } from "./onboard-ticker.js";
 import {
   loadCalendar,
   fetchAndCacheCalendar,
@@ -518,6 +519,7 @@ const ROUTES = [
   ["POST", "/timed/admin/investor-replay", "POST /timed/admin/investor-replay"],
   ["POST", "/timed/admin/reopen-stale-exits", "POST /timed/admin/reopen-stale-exits"],
   ["POST", "/timed/admin/close-replay-positions", "POST /timed/admin/close-replay-positions"],
+  ["POST", "/timed/admin/reconcile-replay", "POST /timed/admin/reconcile-replay"],
   ["POST", "/timed/admin/replay-lock", "POST /timed/admin/replay-lock"],
   ["DELETE", "/timed/admin/replay-lock", "DELETE /timed/admin/replay-lock"],
   ["POST", "/timed/admin/run-lifecycle", "POST /timed/admin/run-lifecycle"],
@@ -529,6 +531,9 @@ const ROUTES = [
   ["GET", "/timed/model/patterns", "GET /timed/model/patterns"],
   ["GET", "/timed/model/changelog", "GET /timed/model/changelog"],
   ["GET", "/timed/model/signals", "GET /timed/model/signals"],
+  ["POST", "/timed/admin/onboard", "POST /timed/admin/onboard"],
+  ["GET", "/timed/profile/:ticker", "GET /timed/profile/:ticker"],
+  ["GET", "/timed/onboard-status/:ticker", "GET /timed/onboard-status/:ticker"],
   ["GET", "/timed/model/direction-accuracy", "GET /timed/model/direction-accuracy"],
   ["GET", "/timed/model/retrospective", "GET /timed/model/retrospective"],
   // Screener / Discovery / Enrichment
@@ -541,6 +546,9 @@ const ROUTES = [
   ["GET", "/timed/auth/login", "GET /timed/auth/login"],
   ["GET", "/timed/me", "GET /timed/me"],
   ["POST", "/timed/accept-terms", "POST /timed/accept-terms"],
+  // Member Tickers (freemium gate)
+  ["GET", "/timed/member-tickers", "GET /timed/member-tickers"],
+  ["POST", "/timed/admin/member-tickers", "POST /timed/admin/member-tickers"],
   // ── User-Added Tickers (Phase 5) ──
   ["GET", "/timed/user-tickers", "GET /timed/user-tickers"],
   ["POST", "/timed/user-tickers", "POST /timed/user-tickers"],
@@ -584,6 +592,7 @@ const ROUTES = [
   ["GET", "/timed/calibration/report", "GET /timed/calibration/report"],
   ["GET", "/timed/calibration/status", "GET /timed/calibration/status"],
   ["POST", "/timed/calibration/apply", "POST /timed/calibration/apply"],
+  ["POST", "/timed/calibration/profile-impact", "POST /timed/calibration/profile-impact"],
   ["POST", "/timed/trades/reset", "POST /timed/trades/reset"],
   // ── System Intelligence (unified Calibration + Model) ──
   ["GET", "/timed/system/dashboard", "GET /timed/system/dashboard"],
@@ -1060,46 +1069,15 @@ async function etfAutoAddTickers(env, tickers, weightMap, ctx) {
   }
 
   // Deep backfill + score in background (don't block the sync response)
+  // Unified onboarding pipeline: backfill → harvest → fingerprint → calibrate → score
   if (added.length > 0 && ctx?.waitUntil) {
-    const useTD = _usesTwelveData(env);
     ctx.waitUntil((async () => {
-      // Backfill in batches of 5 to stay under subrequest limits
-      for (let i = 0; i < added.length; i += 5) {
-        const batch = added.slice(i, i + 5);
-        try {
-          if (useTD) {
-            await DataProvider.backfill(env, batch, "all", null);
-          } else {
-            await alpacaBackfill(env, batch, d1UpsertCandle, "all", null);
-          }
-          console.log(`[ETF AUTO-ADD] Backfilled ${batch.join(",")}`);
-        } catch (e) {
-          console.warn(`[ETF AUTO-ADD] Backfill failed for ${batch.join(",")}:`, String(e?.message || e).slice(0, 200));
-        }
-      }
-      // Score each ticker after backfill
       for (const ticker of added) {
         try {
-          const existing = await kvGetJSON(KV, `timed:latest:${ticker}`);
-          const result = await computeServerSideScores(ticker, d1GetCandles, env, existing);
-          if (result) {
-            const now = Date.now();
-            result.data_source = useTD ? "twelvedata" : "alpaca";
-            result.data_source_ts = now;
-            result.ingest_ts = now;
-            result.ingest_time = new Date(now).toISOString();
-            result.trigger_ts = now;
-            result.rank = computeRank(result);
-            result.score = result.rank;
-            if (existing?.price) result.price = existing.price;
-            if (existing?.prev_close) result.prev_close = existing.prev_close;
-            if (existing?.day_change) result.day_change = existing.day_change;
-            if (existing?.day_change_pct) result.day_change_pct = existing.day_change_pct;
-            await kvPutJSON(KV, `timed:latest:${ticker}`, result);
-            console.log(`[ETF AUTO-ADD] Scored ${ticker}: score=${result.score}, state=${result.state}`);
-          }
+          const result = await onboardTicker(env, ticker, { getCandles: d1GetCandles, sinceDays: 730 });
+          console.log(`[ETF AUTO-ADD] Onboarded ${ticker}: ok=${result.ok}, moves=${result.moveCount}, type=${result.profile?.behaviorType}`);
         } catch (e) {
-          console.warn(`[ETF AUTO-ADD] Score failed for ${ticker}:`, String(e?.message || e).slice(0, 150));
+          console.warn(`[ETF AUTO-ADD] Onboard failed for ${ticker}:`, String(e?.message || e).slice(0, 200));
         }
       }
     })());
@@ -1705,9 +1683,9 @@ function triggerSummaryAndScore(tickerData) {
   if (has("ST_FLIP_30M")) score += 1;
   score += 3 * matchSide("BUYABLE_DIP_1H_13_48_LONG", "BUYABLE_DIP_1H_13_48_SHORT");  // Was +7
 
-  // LTF triggers (5m, 10m) — keep same weights (minor contributors)
+  // LTF triggers (10m) — keep same weights (minor contributors)
   if (has("SQUEEZE_RELEASE_10M")) score += 1;  // Was +3
-  if (has("SQUEEZE_RELEASE_5M")) score += 1;   // Was +2
+  if (has("SQUEEZE_RELEASE_5M")) score += 0.5; // Kept for historical triggers, 5m TF dropped
   if (has("SQUEEZE_RELEASE_3M")) score += 0.5; // Was +1
   if (has("SQUEEZE_RELEASE_1M")) score += 0.5; // Was +1
   score += 1 * matchSide("EMA_CROSS_10M_13_48_BULL", "EMA_CROSS_10M_13_48_BEAR");  // Was +2
@@ -2190,6 +2168,57 @@ function qualifiesForEnter(d, asOfTs = null) {
   const multiHorizonGate = activeGates.filter(g => !g.completed).length >= 2; // Day + Week both active
   
   // ═══════════════════════════════════════════════════════════════════════════
+  // v3 REGIME + RVOL HARD GATES: Apply before all other checks
+  // These gates address the core problem: over-trading in choppy markets
+  // and entering without volume confirmation.
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  const regimeClass = String(d?.regime_class || "TRANSITIONAL");
+  const rParams = d?.regime_params || {};
+  const rvol30 = d?.rvol_map?.["30"]?.vr ?? d?.rvol_map?.["60"]?.vr ?? 1.0;
+  const rvol1H = d?.rvol_map?.["60"]?.vr ?? 1.0;
+  const rvolBest = Math.max(rvol30, rvol1H);
+  const inferredSide = sideFromStateOrScores(d);
+
+  // RVOL Dead Zone: volume too thin for any reliable signal
+  const rvolDeadZone = rParams.rvolDeadZone ?? 0.4;
+  if (rvolBest < rvolDeadZone) {
+    return { qualifies: false, reason: "rvol_dead_zone", rvol: rvolBest, threshold: rvolDeadZone, regime: regimeClass };
+  }
+
+  // Regime-based SHORT blocking: SHORTs have negative EV in chop
+  if (inferredSide === "SHORT" && rParams.shortsAllowed === false) {
+    return { qualifies: false, reason: "shorts_blocked_in_chop", regime: regimeClass };
+  }
+
+  // SHORT volume gate: SHORTs need elevated RVOL (institutional selling must be visible)
+  const shortRvolMin = rParams.shortRvolMin ?? 1.0;
+  if (inferredSide === "SHORT" && rvolBest < shortRvolMin) {
+    return { qualifies: false, reason: "short_rvol_too_low", rvol: rvolBest, required: shortRvolMin, regime: regimeClass };
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // THREE-TIER REGIME GATE: Market + Sector + Ticker
+  // Entry requires no more than 1 of 3 layers in CHOPPY
+  // ═══════════════════════════════════════════════════════════════════════════
+  const marketRegime = String(d?._env?._marketRegime?.regime || "UNKNOWN");
+  const sectorRegime = String(d?._env?._sectorRegime?.regime || "UNKNOWN");
+  const tickerRegime = regimeClass; // already extracted above
+
+  let choppyCount = 0;
+  if (marketRegime === "CHOPPY") choppyCount++;
+  if (sectorRegime === "CHOPPY") choppyCount++;
+  if (tickerRegime === "CHOPPY") choppyCount++;
+
+  if (choppyCount >= 2) {
+    return { qualifies: false, reason: "multi_tier_choppy", choppyCount, market: marketRegime, sector: sectorRegime, ticker: tickerRegime };
+  }
+
+  // Ticker profile entry threshold adjustment: raise the bar for mean-revert / extreme-vol tickers
+  const _tp = d?._ticker_profile || null;
+  const entryThresholdAdj = Number(_tp?.entry_threshold_adj) || 0;
+
+  // ═══════════════════════════════════════════════════════════════════════════
   // UNIVERSAL HARD GATES: Apply to ALL entries
   // ═══════════════════════════════════════════════════════════════════════════
   
@@ -2211,7 +2240,7 @@ function qualifiesForEnter(d, asOfTs = null) {
   // Volatility tier can raise the minimum (HIGH/EXTREME harder to qualify).
   const eqScore = Number(d?.entry_quality?.score) || 0;
   const volTier = String(d?.volatility_tier || "MEDIUM");
-  const volEntryMin = volTier === "EXTREME" ? 70 : volTier === "HIGH" ? 65 : volTier === "MEDIUM" ? 55 : 50;
+  const volEntryMin = (volTier === "EXTREME" ? 70 : volTier === "HIGH" ? 65 : volTier === "MEDIUM" ? 55 : 50) + entryThresholdAdj;
 
   // ── Phase 1c: RSI Exhaustion Block on 1H ──
   // No LONG if 1H RSI > 72, no SHORT if 1H RSI < 28 (swing-appropriate levels)
@@ -2287,12 +2316,17 @@ function qualifiesForEnter(d, asOfTs = null) {
     }
   }
 
-  // Completion gate: room to run — uses adaptive max_completion when available
+  // Completion gate: room to run — regime-adaptive + calibration
   const isPullback = state === "HTF_BULL_LTF_PULLBACK" || state === "HTF_BEAR_LTF_PULLBACK";
   const defaultMaxCompletion = isPullback ? 0.60 : 0.40;
-  const maxCompletion = stateGate?.max_completion ?? defaultMaxCompletion;
+  // v3: Regime tightens completion cap in chop (less room = don't chase)
+  const regimeMaxCompletion = rParams.maxCompletion ?? defaultMaxCompletion;
+  const maxCompletion = Math.min(
+    stateGate?.max_completion ?? defaultMaxCompletion,
+    regimeMaxCompletion
+  );
   if (completion > maxCompletion) {
-    return { qualifies: false, reason: "move_too_advanced" };
+    return { qualifies: false, reason: "move_too_advanced", regime: regimeClass };
   }
   
   // Fuel gate (replaces binary phase gate): continuous 0-100% measure of move exhaustion
@@ -2311,14 +2345,14 @@ function qualifiesForEnter(d, asOfTs = null) {
     }
   }
   
-  // RR gate: must have favorable risk/reward
-  // Phase 1c: tighten minimums — 1.5 for momentum, 1.2 for pullbacks
-  // Skip R:R check for gold_short entries (TradingView sends LONG-oriented SL/TP)
+  // RR gate: must have favorable risk/reward — regime-adaptive
+  // v3: Choppy requires higher RR (3.0x) to compensate for lower win rate
   const isPotentialGoldShort = state === "HTF_BULL_LTF_BULL" && htf >= 25 && ltf >= 15;
   const rrKnown = Number.isFinite(rr) && rr > 0;
-  const rrMin = isPullback ? 1.2 : 1.5;
+  const regimeMinRR = rParams.minRR ?? 1.5;
+  const rrMin = Math.max(isPullback ? 1.2 : 1.5, regimeMinRR);
   if (rrKnown && rr < rrMin && !isPotentialGoldShort) {
-    return { qualifies: false, reason: "rr_too_low" };
+    return { qualifies: false, reason: "rr_too_low", regime: regimeClass };
   }
   
   // ─────────────────────────────────────────────────────────────────────────────
@@ -2522,12 +2556,31 @@ function qualifiesForEnter(d, asOfTs = null) {
       emaStruct30, emaStructD,
       emaMom30, emaMomD,
       activeGateCount: activeGates.length,
+      // v3: regime + RVOL context for position sizing and management
+      regime: regimeClass,
+      regimeScore: d?.regime_score ?? 0,
+      rvolBest,
+      positionSizeMultiplier: rParams.positionSizeMultiplier ?? 1.0,
     };
     // Phase 1a: attach entry quality for model learning and dashboard
     result.entryQuality = eqScore;
     return result;
   };
   
+  // ═══════════════════════════════════════════════════════════════════════════
+  // v3 REGIME-ADAPTIVE HTF SCORE FLOOR
+  // In choppy markets, require much higher conviction before any entry path.
+  // RVOL low (but above dead zone) also raises the bar.
+  // ═══════════════════════════════════════════════════════════════════════════
+  const regimeMinHTF = rParams.minHTFScore ?? 10;
+  const rvolLowThreshold = rParams.rvolLowThreshold ?? 0.7;
+  const rvolLowAdj = (rvolBest < rvolLowThreshold) ? (rParams.rvolLowScoreAdj ?? 5) : 0;
+  const effectiveMinHTF = regimeMinHTF + rvolLowAdj;
+
+  if (Math.abs(htf) < effectiveMinHTF) {
+    return { qualifies: false, reason: "htf_below_regime_floor", htf, required: effectiveMinHTF, regime: regimeClass, rvol: rvolBest };
+  }
+
   // ═══════════════════════════════════════════════════════════════════════════
   // PRIMARY ENTRY: EMA REGIME (Daily timeframe)
   // The EMA regime captures the cascading cross sequence:
@@ -2543,7 +2596,7 @@ function qualifiesForEnter(d, asOfTs = null) {
   const stBearConfirms = dailyST?.dir === "bear" && dailyST?.aligned;
   const stNotAgainstBull = dailyST?.dir !== "bear" || !dailyST?.aligned;
   const stNotAgainstBear = dailyST?.dir !== "bull" || !dailyST?.aligned;
-  const inferredSide = sideFromStateOrScores(d);
+  // inferredSide already declared at top of function (v3 regime gates)
 
   // LONG: Confirmed daily EMA regime (5>48 AND 13>21)
   // ST aligned = high confidence, ST not aligned but not aggressively bearish = medium
@@ -2883,6 +2936,24 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
     const maxLossPct = (_inFavorableZone && _regimeConfirms) ? -8 : _inExtendedZone ? -3 : -4;
     if (pnlPct <= maxLossPct) {
       tickerData.__exit_reason = "max_loss";
+      return "exit";
+    }
+
+    // v3: Time-based exit for losers in chop
+    // If a position is losing money and the ticker's regime is choppy,
+    // don't wait for full SL hit — cut early. The longer you hold a loser
+    // in chop, the more it bleeds (mean-reverting environment).
+    const tradeRegime = String(tickerData?.regime_class || "TRANSITIONAL");
+    const maxHoldDaysLosing = tradeRegime === "CHOPPY" ? 7
+      : tradeRegime === "TRANSITIONAL" ? 12 : 20;
+    const positionAgeDays = positionAgeMin / (60 * 24);
+    if (pnlPct < 0 && positionAgeDays >= maxHoldDaysLosing) {
+      tickerData.__exit_reason = `time_exit_loser_${tradeRegime.toLowerCase()}`;
+      return "exit";
+    }
+    // In CHOPPY regime with moderate loss: exit after half the time if losing > 2%
+    if (tradeRegime === "CHOPPY" && pnlPct < -2 && positionAgeDays >= maxHoldDaysLosing / 2) {
+      tickerData.__exit_reason = "time_exit_chop_accelerated";
       return "exit";
     }
 
@@ -3565,26 +3636,36 @@ function dailyEmaRegimeOk(tickerData, side) {
 }
 
 function ichimokuRegimeOk(tickerData, side) {
-  const dPos =
-    tickerData?.ichimoku_d?.position != null
-      ? String(tickerData.ichimoku_d.position).toLowerCase()
-      : "";
-  const wPos =
-    tickerData?.ichimoku_w?.position != null
-      ? String(tickerData.ichimoku_w.position).toLowerCase()
-      : "";
+  const ichD = tickerData?.ichimoku_d;
+  const ichW = tickerData?.ichimoku_w;
 
-  // If we don't have Ichimoku in the payload yet, don't block.
+  const dPos = ichD?.position ? String(ichD.position).toLowerCase() : "";
+  const wPos = ichW?.position ? String(ichW.position).toLowerCase() : "";
+
+  // If no Ichimoku data, don't block.
   if (!dPos && !wPos) return true;
 
-  const dBadLong = dPos === "below";
-  const wBadLong = wPos === "below";
-  const dBadShort = dPos === "above";
-  const wBadShort = wPos === "above";
+  // v3 enhanced: use Ichimoku score + cloud position + Chikou for richer gate.
+  // A score below -15 is meaningfully bearish; above +15 is meaningfully bullish.
+  const dScore = ichD?.score ?? 0;
+  const wScore = ichW?.score ?? 0;
 
-  // Block only when BOTH HTFs disagree with the trade direction.
-  if (side === "LONG") return !(dBadLong && wBadLong);
-  if (side === "SHORT") return !(dBadShort && wBadShort);
+  if (side === "LONG") {
+    const dBad = dPos === "below" || dScore < -15;
+    const wBad = wPos === "below" || wScore < -15;
+    // Block when BOTH daily and weekly are against the trade.
+    // Also block if daily Chikou confirms bearish AND cloud is bearish.
+    if (dBad && wBad) return false;
+    if (dPos === "below" && ichD?.chikouAbove === false && !ichD?.cloudBullish) return false;
+    return true;
+  }
+  if (side === "SHORT") {
+    const dBad = dPos === "above" || dScore > 15;
+    const wBad = wPos === "above" || wScore > 15;
+    if (dBad && wBad) return false;
+    if (dPos === "above" && ichD?.chikouAbove === true && ichD?.cloudBullish) return false;
+    return true;
+  }
   return true;
 }
 
@@ -4759,7 +4840,7 @@ async function updateScoringWeightAdjustments(env) {
   try {
     await d1EnsureLearningSchema(env);
     const EMA_ALPHA = 0.1;
-    const TF_KEYS = ["W", "D", "240", "60", "30", "10", "5"];
+    const TF_KEYS = ["W", "D", "240", "60", "30", "10"];
 
     // Get current adjustments (or initialize at 1.0)
     let current = {};
@@ -4856,7 +4937,7 @@ async function updateScoringWeights(env) {
     const adj = {
       W: current.W || 1.0, D: current.D || 1.0, "240": current["240"] || 1.0,
       "60": current["60"] || 1.0, "30": current["30"] || 1.0,
-      "10": current["10"] || 1.0, "5": current["5"] || 1.0,
+      "10": current["10"] || 1.0,
     };
 
     // For each trade, check if HTF-heavy or LTF-heavy weighting was more predictive
@@ -4883,7 +4964,7 @@ async function updateScoringWeights(env) {
       adj[k] = adj[k] * (1 - EMA_ALPHA) + htfMultiplier * EMA_ALPHA;
       adj[k] = Math.round(Math.max(0.5, Math.min(1.5, adj[k])) * 1000) / 1000;
     }
-    for (const k of ["30", "10", "5"]) {
+    for (const k of ["30", "10"]) {
       adj[k] = adj[k] * (1 - EMA_ALPHA) + ltfMultiplier * EMA_ALPHA;
       adj[k] = Math.round(Math.max(0.5, Math.min(1.5, adj[k])) * 1000) / 1000;
     }
@@ -6503,6 +6584,41 @@ function build3TierTPArray(tickerData, entryPrice, direction) {
       timeframe: "D",
       multiplier: runnerMult,
     });
+  }
+
+  // ── v3: Cloud Boundary TP Enhancement ──
+  // Ichimoku Senkou Span edges are natural S/R zones. If a cloud boundary
+  // is between our entry and an ATR-based TP, it acts as a magnet.
+  // We don't replace TPs — we nudge them toward the nearest cloud boundary
+  // when it's within 15% of the TP price (structural confluence).
+  const ichD = tickerData?.ichimoku_d;
+  if (ichD) {
+    const cloudTop = Number(ichD.cloudSL_short);   // Senkou Span upper edge
+    const cloudBot = Number(ichD.cloudSL_long);     // Senkou Span lower edge
+    const kijun = Number(ichD.kijun);
+
+    for (const tp of result) {
+      if (!Number.isFinite(tp.price)) continue;
+      const candidates = [];
+      if (Number.isFinite(cloudTop) && cloudTop > 0) candidates.push(cloudTop);
+      if (Number.isFinite(cloudBot) && cloudBot > 0) candidates.push(cloudBot);
+      if (Number.isFinite(kijun) && kijun > 0) candidates.push(kijun);
+
+      for (const level of candidates) {
+        // Level must be in the profit direction
+        const inProfitDir = isLong ? level > entryPrice : level < entryPrice;
+        if (!inProfitDir) continue;
+
+        const dist = Math.abs(tp.price - level);
+        const tpDist = Math.abs(tp.price - entryPrice);
+        // Nudge if cloud boundary is within 15% of the TP distance from entry
+        if (tpDist > 0 && dist / tpDist < 0.15) {
+          tp.price = Math.round(level * 100) / 100;
+          tp.source = (tp.source || "") + " +Ichimoku";
+          break; // only nudge once per TP
+        }
+      }
+    }
   }
 
   // Ensure TPs are sorted by distance from entry (closest first)
@@ -8712,7 +8828,11 @@ async function processTradeSimulation(
     const MAX_PER_SECTOR = 3;           // max open positions in one sector (was 5)
     const MAX_SAME_DIRECTION = 8;       // max positions in same direction (was 12)
     const CORRELATION_SECTOR_THRESHOLD = 3; // if 3+ positions already in same sector, require higher quality
-    const MAX_DAILY_ENTRIES = 6;        // safety net (was 10)
+    // v3: Regime-adaptive daily entry cap
+    const tickerRegimeClass = String(tickerData?.regime_class || "TRANSITIONAL");
+    const regimeDailyMax = tickerRegimeClass === "CHOPPY" ? 2
+      : tickerRegimeClass === "TRANSITIONAL" ? 4 : 6;
+    const MAX_DAILY_ENTRIES = regimeDailyMax;
     
     let smartGateBlocked = false;
     let smartGateReason = null;
@@ -8804,6 +8924,62 @@ async function processTradeSimulation(
             smartGateBlocked = true;
             smartGateReason = `daily_limit:${dailyCount}/${MAX_DAILY_ENTRIES}`;
             console.log(`[SMART_GATE] Blocked ${sym}: ${smartGateReason}`);
+          }
+        }
+
+        // v3: Consecutive loss cooldown
+        // After 3+ consecutive losses in the last 5 days, impose a 24h cooldown.
+        // This prevents doubling down when the system is cold.
+        if (!smartGateBlocked) {
+          try {
+            let recentLosses = 0;
+            if (isReplay && replayCtx?.allTrades) {
+              const fiveDaysAgo = (asOfMs || Date.now()) - 5 * 86400000;
+              const recent = replayCtx.allTrades
+                .filter(t => t && t.status === "LOSS" && Number(t.exit_ts || 0) > fiveDaysAgo)
+                .sort((a, b) => (b.exit_ts || 0) - (a.exit_ts || 0));
+              let streak = 0;
+              for (const t of recent) {
+                if (t.status === "LOSS") streak++;
+                else break;
+              }
+              recentLosses = streak;
+            } else if (db) {
+              const fiveDaysMs = Date.now() - 5 * 86400000;
+              const lossRows = await db.prepare(
+                `SELECT status FROM trades WHERE exit_ts > ?1 AND status IN ('WIN','LOSS') ORDER BY exit_ts DESC LIMIT 10`
+              ).bind(fiveDaysMs).all();
+              let streak = 0;
+              for (const r of (lossRows?.results || [])) {
+                if (r.status === "LOSS") streak++;
+                else break;
+              }
+              recentLosses = streak;
+            }
+            if (recentLosses >= 3) {
+              // Check if most recent loss was within 24h
+              let lastLossTs = 0;
+              if (isReplay && replayCtx?.allTrades) {
+                const fiveDaysAgo = (asOfMs || Date.now()) - 5 * 86400000;
+                const losses = replayCtx.allTrades
+                  .filter(t => t && t.status === "LOSS" && Number(t.exit_ts || 0) > fiveDaysAgo)
+                  .sort((a, b) => (b.exit_ts || 0) - (a.exit_ts || 0));
+                lastLossTs = losses[0]?.exit_ts || 0;
+              } else if (db) {
+                const row = await db.prepare(
+                  `SELECT exit_ts FROM trades WHERE status = 'LOSS' ORDER BY exit_ts DESC LIMIT 1`
+                ).first();
+                lastLossTs = Number(row?.exit_ts) || 0;
+              }
+              const nowMs = asOfMs || Date.now();
+              if (lastLossTs > 0 && (nowMs - lastLossTs) < 24 * 60 * 60 * 1000) {
+                smartGateBlocked = true;
+                smartGateReason = `loss_streak_cooldown:${recentLosses}_consecutive_losses`;
+                console.log(`[SMART_GATE] Blocked ${sym}: ${smartGateReason}`);
+              }
+            }
+          } catch (e) {
+            console.warn(`[SMART_GATE] Loss streak check failed:`, e.message);
           }
         }
       } catch (e) {
@@ -9035,6 +9211,69 @@ async function processTradeSimulation(
           }
         }
 
+        // ── v3: Kijun-Based SL Blending ──
+        // Ichimoku Kijun-Sen is a natural support/resistance — price tends to revert
+        // to it during trends. Using Kijun as SL anchor keeps stops at structurally
+        // meaningful levels rather than arbitrary ATR multiples.
+        // Blend 40% Kijun + 60% existing SL (transitioning toward Kijun after validation).
+        const ichSL = direction === "LONG"
+          ? Number(tickerData?.ichimoku_d?.kijunSL_long)
+          : Number(tickerData?.ichimoku_d?.kijunSL_short);
+        if (Number.isFinite(ichSL) && ichSL > 0) {
+          const preSL = finalSL;
+          const kijunWeight = 0.40;
+          if (direction === "LONG" && ichSL < entryPx) {
+            finalSL = Math.round((finalSL * (1 - kijunWeight) + ichSL * kijunWeight) * 100) / 100;
+            if (finalSL >= entryPx) finalSL = preSL; // safety: don't move SL above entry
+          } else if (direction === "SHORT" && ichSL > entryPx) {
+            finalSL = Math.round((finalSL * (1 - kijunWeight) + ichSL * kijunWeight) * 100) / 100;
+            if (finalSL <= entryPx) finalSL = preSL;
+          }
+          if (finalSL !== preSL) {
+            console.log(`[KIJUN_SL] ${sym} ${direction}: blended SL ${preSL.toFixed(2)} → ${finalSL.toFixed(2)} (kijun=${ichSL.toFixed(2)}, w=${kijunWeight})`);
+          }
+        }
+
+        // ── v3: Regime-Adaptive SL Cushion ──
+        // In choppy markets, prices whipsaw more violently. Widen SL to avoid
+        // getting stopped out on noise, then compensate with smaller position size.
+        const entryRegimeClass = String(tickerData?.regime_class || "TRANSITIONAL");
+        const slCushion = tickerData?.regime_params?.slCushionMultiplier ?? 1.0;
+        if (slCushion > 1.0) {
+          const preSL = finalSL;
+          const slDist = Math.abs(entryPx - finalSL);
+          const cushionedDist = slDist * slCushion;
+          finalSL = direction === "LONG"
+            ? Math.round((entryPx - cushionedDist) * 100) / 100
+            : Math.round((entryPx + cushionedDist) * 100) / 100;
+          console.log(`[REGIME_SL_CUSHION] ${sym} ${direction}: ${preSL.toFixed(2)} → ${finalSL.toFixed(2)} (regime=${entryRegimeClass}, cushion=${slCushion}x)`);
+        }
+
+        // ── Three-Tier: Ticker Profile SL/TP Multiplier ──
+        const _tickerProfile = tickerData?._ticker_profile;
+        const profileSlMult = Number(_tickerProfile?.sl_mult) || 1.0;
+        const profileTpMult = Number(_tickerProfile?.tp_mult) || 1.0;
+        if (profileSlMult !== 1.0 && Number.isFinite(finalSL) && Number.isFinite(entryPx)) {
+          const preSL = finalSL;
+          const slDist = Math.abs(entryPx - finalSL);
+          const adjustedDist = slDist * profileSlMult;
+          finalSL = direction === "LONG"
+            ? Math.round((entryPx - adjustedDist) * 100) / 100
+            : Math.round((entryPx + adjustedDist) * 100) / 100;
+          console.log(`[PROFILE_SL] ${sym}: ${preSL.toFixed(2)} → ${finalSL.toFixed(2)} (type=${_tickerProfile?.behavior_type}, mult=${profileSlMult})`);
+        }
+        if (profileTpMult !== 1.0) {
+          if (trimTp?.price && Number.isFinite(trimTp.price)) {
+            trimTp.price = Math.round((entryPx + (trimTp.price - entryPx) * profileTpMult) * 100) / 100;
+          }
+          if (exitTp?.price && Number.isFinite(exitTp.price)) {
+            exitTp.price = Math.round((entryPx + (exitTp.price - entryPx) * profileTpMult) * 100) / 100;
+          }
+          if (runnerTp?.price && Number.isFinite(runnerTp.price)) {
+            runnerTp.price = Math.round((entryPx + (runnerTp.price - entryPx) * profileTpMult) * 100) / 100;
+          }
+        }
+
         const calculatedRR = (() => {
           if (!runnerTp || !Number.isFinite(finalSL) || !Number.isFinite(entryPx)) {
             return Number(tickerData?.rr) || 0;
@@ -9067,11 +9306,14 @@ async function processTradeSimulation(
           const accountValue = Number(portfolio.startCash || PORTFOLIO_START_CASH) +
             (allTrades || []).filter(t => t.status === "WIN" || t.status === "LOSS").reduce((sum, t) => sum + (Number(t.realizedPnl) || 0), 0);
           const sizing = computeRiskBasedSize(confidence, accountValue, entryPx, finalSL, sizingSignals.vixLevel, env);
+          // v3: Regime-adaptive position sizing — scale down in chop
+          const regimePosMultiplier = tickerData?.regime_params?.positionSizeMultiplier ?? 1.0;
+          const regimeAdjustedNotional = sizing.notional * regimePosMultiplier;
           // Cap by available cash
-          notional = Math.min(sizing.notional, cash);
+          notional = Math.min(regimeAdjustedNotional, cash);
           shares = notional / entryPx;
           pointValue = 1;
-          sizingMeta = sizing;
+          sizingMeta = { ...sizing, regimePosMultiplier };
         } else {
           shares = null;
           notional = null;
@@ -11022,7 +11264,58 @@ async function processTradeSimulation(
                 }
               }
             }
-            
+
+            // v3: Kijun-Based SL Blending (live path)
+            const _ichSL2 = direction === "LONG"
+              ? Number(tickerData?.ichimoku_d?.kijunSL_long)
+              : Number(tickerData?.ichimoku_d?.kijunSL_short);
+            if (Number.isFinite(_ichSL2) && _ichSL2 > 0) {
+              const _preSL2 = finalSL;
+              const _kw2 = 0.40;
+              if (direction === "LONG" && _ichSL2 < entryPrice) {
+                finalSL = Math.round((finalSL * (1 - _kw2) + _ichSL2 * _kw2) * 100) / 100;
+                if (finalSL >= entryPrice) finalSL = _preSL2;
+              } else if (direction === "SHORT" && _ichSL2 > entryPrice) {
+                finalSL = Math.round((finalSL * (1 - _kw2) + _ichSL2 * _kw2) * 100) / 100;
+                if (finalSL <= entryPrice) finalSL = _preSL2;
+              }
+              if (finalSL !== _preSL2) {
+                console.log(`[KIJUN_SL] ${ticker} ${direction}: blended SL ${_preSL2.toFixed(2)} → ${finalSL.toFixed(2)} (kijun=${_ichSL2.toFixed(2)})`);
+              }
+            }
+
+            // v3: Regime-Adaptive SL Cushion (live path)
+            const _slCush2 = tickerData?.regime_params?.slCushionMultiplier ?? 1.0;
+            if (_slCush2 > 1.0) {
+              const _pre2 = finalSL;
+              const _dist2 = Math.abs(entryPrice - finalSL);
+              const _cd2 = _dist2 * _slCush2;
+              finalSL = direction === "LONG"
+                ? Math.round((entryPrice - _cd2) * 100) / 100
+                : Math.round((entryPrice + _cd2) * 100) / 100;
+              console.log(`[REGIME_SL_CUSHION] ${ticker} ${direction}: ${_pre2.toFixed(2)} → ${finalSL.toFixed(2)} (regime=${tickerData?.regime_class}, cushion=${_slCush2}x)`);
+            }
+
+            // Three-Tier: Ticker Profile SL/TP Multiplier (live path)
+            const _tp2 = tickerData?._ticker_profile;
+            const _pSlM2 = Number(_tp2?.sl_mult) || 1.0;
+            const _pTpM2 = Number(_tp2?.tp_mult) || 1.0;
+            if (_pSlM2 !== 1.0 && Number.isFinite(finalSL) && Number.isFinite(entryPrice)) {
+              const _pre3 = finalSL;
+              const _d3 = Math.abs(entryPrice - finalSL);
+              finalSL = direction === "LONG"
+                ? Math.round((entryPrice - _d3 * _pSlM2) * 100) / 100
+                : Math.round((entryPrice + _d3 * _pSlM2) * 100) / 100;
+              console.log(`[PROFILE_SL] ${ticker}: ${_pre3.toFixed(2)} → ${finalSL.toFixed(2)} (type=${_tp2?.behavior_type}, mult=${_pSlM2})`);
+            }
+            if (_pTpM2 !== 1.0 && tpArray?.length) {
+              for (const tp of tpArray) {
+                if (tp?.price && Number.isFinite(tp.price)) {
+                  tp.price = Math.round((entryPrice + (tp.price - entryPrice) * _pTpM2) * 100) / 100;
+                }
+              }
+            }
+
             const risk = Math.abs(entryPrice - finalSL);
             const gain =
               direction === "LONG" ? maxTP - entryPrice : entryPrice - maxTP;
@@ -11079,6 +11372,18 @@ async function processTradeSimulation(
               ],
               ...tradeCalc,
             };
+
+            // v3: Regime-adaptive position sizing (live path)
+            const _regimePosM = tickerData?.regime_params?.positionSizeMultiplier ?? 1.0;
+            if (_regimePosM < 1.0 && trade.shares > 0) {
+              trade.shares = trade.shares * _regimePosM;
+              trade.regimePosMultiplier = _regimePosM;
+              if (trade.history?.[0]) {
+                trade.history[0].shares = trade.shares;
+                trade.history[0].value = entryPrice * trade.shares;
+              }
+              console.log(`[REGIME_SIZE] ${ticker} ${direction}: shares scaled by ${_regimePosM}x (regime=${tickerData?.regime_class})`);
+            }
 
             allTrades.push(trade);
             allTrades.sort((a, b) => {
@@ -12190,7 +12495,6 @@ const PURGE_BATCH = 5000;
  *  1m and 3m entries removed — no longer written, existing rows purged by one-time cleanup.
  *  5m/10m increased to 90 days to support 6-12 month model training data. */
 const CANDLE_RETENTION_DAYS = {
-  "5": 90,
   "10": 90,
   "10m": 90,
   "30": 90,
@@ -13881,6 +14185,126 @@ async function d1EnsureLearningSchema(env) {
     try {
       await db.prepare(`ALTER TABLE direction_accuracy ADD COLUMN signal_snapshot_json TEXT`).run();
     } catch { /* column may already exist */ }
+    // Three-tier awareness: ticker + sector profiles
+    try {
+      await db.batch([
+        db.prepare(`CREATE TABLE IF NOT EXISTS ticker_profiles (
+          ticker TEXT PRIMARY KEY,
+          sector TEXT,
+          sub_industry TEXT,
+          atr_pct_p50 REAL,
+          atr_pct_p90 REAL,
+          daily_range_pct REAL,
+          gap_frequency REAL,
+          behavior_type TEXT,
+          trend_persistence REAL,
+          mean_reversion_speed REAL,
+          avg_move_atr REAL,
+          avg_move_duration_bars REAL,
+          avg_move_duration_days REAL,
+          move_count_2yr INTEGER,
+          rvol_baseline REAL,
+          rvol_spike_threshold REAL,
+          volume_pattern TEXT,
+          best_timeframes_json TEXT,
+          ichimoku_responsiveness REAL,
+          supertrend_flip_accuracy REAL,
+          ema_cross_accuracy REAL,
+          tf_weights_json TEXT,
+          signal_weights_json TEXT,
+          sl_mult REAL DEFAULT 1.0,
+          tp_mult REAL DEFAULT 1.0,
+          entry_threshold_adj REAL DEFAULT 0,
+          sample_count INTEGER DEFAULT 0,
+          calibrated_at INTEGER,
+          calibration_version INTEGER DEFAULT 1
+        )`),
+        db.prepare(`CREATE TABLE IF NOT EXISTS sector_profiles (
+          sector TEXT PRIMARY KEY,
+          current_regime TEXT,
+          regime_score REAL,
+          etf_ticker TEXT,
+          avg_atr_pct REAL,
+          dominant_behavior_type TEXT,
+          correlation_to_spy REAL,
+          tf_weights_json TEXT,
+          signal_weights_json TEXT,
+          sl_mult_adj REAL DEFAULT 1.0,
+          tp_mult_adj REAL DEFAULT 1.0,
+          ticker_count INTEGER DEFAULT 0,
+          updated_at INTEGER
+        )`),
+      ]);
+    } catch { /* tables may already exist */ }
+
+    // v3: Ichimoku + RVOL + regime columns for calibration
+    const v3Cols = [
+      `ALTER TABLE direction_accuracy ADD COLUMN regime_class TEXT`,
+      `ALTER TABLE direction_accuracy ADD COLUMN regime_score INTEGER`,
+      `ALTER TABLE direction_accuracy ADD COLUMN rvol_best REAL`,
+      `ALTER TABLE direction_accuracy ADD COLUMN ichimoku_score_d REAL`,
+      `ALTER TABLE direction_accuracy ADD COLUMN ichimoku_position_d TEXT`,
+      `ALTER TABLE direction_accuracy ADD COLUMN cloud_thickness_d REAL`,
+      `ALTER TABLE direction_accuracy ADD COLUMN tk_cross_d TEXT`,
+      `ALTER TABLE direction_accuracy ADD COLUMN entry_quality_score INTEGER`,
+      `ALTER TABLE direction_accuracy ADD COLUMN vol_tier TEXT`,
+      `ALTER TABLE direction_accuracy ADD COLUMN position_size_mult REAL`,
+    ];
+    for (const stmt of v3Cols) {
+      try { await db.prepare(stmt).run(); } catch { /* column may already exist */ }
+    }
+    // Three-tier awareness: per-ticker and per-sector profile tables
+    try {
+      await db.batch([
+        db.prepare(`CREATE TABLE IF NOT EXISTS ticker_profiles (
+          ticker TEXT PRIMARY KEY,
+          sector TEXT,
+          sub_industry TEXT,
+          atr_pct_p50 REAL,
+          atr_pct_p90 REAL,
+          daily_range_pct REAL,
+          gap_frequency REAL,
+          behavior_type TEXT,
+          trend_persistence REAL,
+          mean_reversion_speed REAL,
+          avg_move_atr REAL,
+          avg_move_duration_bars REAL,
+          avg_move_duration_days REAL,
+          move_count_2yr INTEGER,
+          rvol_baseline REAL,
+          rvol_spike_threshold REAL,
+          volume_pattern TEXT,
+          best_timeframes_json TEXT,
+          ichimoku_responsiveness REAL,
+          supertrend_flip_accuracy REAL,
+          ema_cross_accuracy REAL,
+          tf_weights_json TEXT,
+          signal_weights_json TEXT,
+          sl_mult REAL DEFAULT 1.0,
+          tp_mult REAL DEFAULT 1.0,
+          entry_threshold_adj REAL DEFAULT 0,
+          moves_json TEXT,
+          sample_count INTEGER DEFAULT 0,
+          calibrated_at INTEGER,
+          calibration_version INTEGER DEFAULT 1
+        )`),
+        db.prepare(`CREATE TABLE IF NOT EXISTS sector_profiles (
+          sector TEXT PRIMARY KEY,
+          current_regime TEXT,
+          regime_score REAL,
+          etf_ticker TEXT,
+          avg_atr_pct REAL,
+          dominant_behavior_type TEXT,
+          correlation_to_spy REAL,
+          tf_weights_json TEXT,
+          signal_weights_json TEXT,
+          sl_mult_adj REAL DEFAULT 1.0,
+          tp_mult_adj REAL DEFAULT 1.0,
+          ticker_count INTEGER DEFAULT 0,
+          updated_at INTEGER
+        )`),
+      ]);
+    } catch { /* tables may already exist */ }
     _learningSchemaReady = true;
   } catch (e) {
     console.error("[LEARNING] Schema migration failed:", String(e).slice(0, 200));
@@ -14334,7 +14758,7 @@ async function runCalibrationAnalysis(env) {
     }
   }
 
-  // C. Signal Information Coefficients
+  // C. Signal Information Coefficients (original + v3 signals)
   const signalNames = ["ema_cross", "supertrend", "ema_structure", "ema_depth", "rsi"];
   const signalIC = {};
   const newSignalWeights = {};
@@ -14359,9 +14783,35 @@ async function runCalibrationAnalysis(env) {
     const ic = spearmanCorrelation(xs, ys);
     signalIC[sig] = { ic: Math.round(ic * 1000) / 1000, n: xs.length };
   }
+
+  // v3: IC for Ichimoku/RVOL/regime signals from direction_accuracy
+  const v3SignalNames = ["regime_score", "rvol_best", "ichimoku_score_d", "cloud_thickness_d", "entry_quality_score"];
+  let daRows = [];
+  try {
+    const daResult = await db.prepare(
+      `SELECT regime_score, rvol_best, ichimoku_score_d, cloud_thickness_d, entry_quality_score, pnl_pct
+       FROM direction_accuracy WHERE status IN ('WIN','LOSS') AND pnl_pct IS NOT NULL`
+    ).all();
+    daRows = daResult?.results || [];
+  } catch { /* direction_accuracy may not have v3 cols yet */ }
+
+  for (const sig of v3SignalNames) {
+    const xs = [], ys = [];
+    for (const row of daRows) {
+      const val = Number(row[sig]);
+      const pnl = Number(row.pnl_pct);
+      if (Number.isFinite(val) && Number.isFinite(pnl)) {
+        xs.push(val);
+        ys.push(pnl);
+      }
+    }
+    const ic = xs.length >= 5 ? spearmanCorrelation(xs, ys) : 0;
+    signalIC[sig] = { ic: Math.round(ic * 1000) / 1000, n: xs.length, source: "direction_accuracy" };
+  }
+
   const totalAbsIC = Object.values(signalIC).reduce((s, v) => s + Math.abs(v.ic), 0) || 1;
-  for (const sig of signalNames) {
-    newSignalWeights[sig] = Math.round((Math.abs(signalIC[sig].ic) / totalAbsIC) * 100) / 100;
+  for (const sig of [...signalNames, ...v3SignalNames]) {
+    newSignalWeights[sig] = Math.round((Math.abs(signalIC[sig]?.ic || 0) / totalAbsIC) * 100) / 100;
   }
 
   // D. SL/TP Calibration (Sweeney MFE/MAE)
@@ -14470,6 +14920,14 @@ async function runCalibrationAnalysis(env) {
       ema_cross: scoring?.ema_cross ?? 0,
       st_flip: scoring?.st_flip ?? 0,
       momentum_elite: scoring?.momentum_elite ?? 0,
+      // v3: Ichimoku + RVOL + Regime signals
+      regime_class: item.regime_class ?? scoring?.regime_class ?? null,
+      regime_score: item.regime_score ?? scoring?.regime_score ?? null,
+      rvol_best: item.rvol_best ?? scoring?.rvol_best ?? null,
+      ichimoku_score_d: item.ichimoku_score_d ?? scoring?.ichimoku_score_d ?? null,
+      ichimoku_position_d: item.ichimoku_position_d ?? scoring?.ichimoku_position_d ?? null,
+      cloud_thickness_d: item.cloud_thickness_d ?? scoring?.cloud_thickness_d ?? null,
+      entry_quality_score: item.entry_quality_score ?? scoring?.entry_quality_score ?? null,
     };
   }
 
@@ -14511,6 +14969,16 @@ async function runCalibrationAnalysis(env) {
         if (a._scoring.momentum_elite) signalCounts.momentum_elite = (signalCounts.momentum_elite || 0) + 1;
       }
 
+      // v3: Regime/Ichimoku/RVOL distributions
+      const regimes = arr.map(a => a._scoring.regime_class).filter(Boolean);
+      const regimeDist = {};
+      for (const r of regimes) regimeDist[r] = (regimeDist[r] || 0) + 1;
+      const regimeScores = arr.map(a => a._scoring.regime_score).filter(v => v != null).sort((a,b) => a-b);
+      const rvolVals = arr.map(a => a._scoring.rvol_best).filter(v => v != null && v > 0).sort((a,b) => a-b);
+      const ichScores = arr.map(a => a._scoring.ichimoku_score_d).filter(v => v != null).sort((a,b) => a-b);
+      const cloudThicks = arr.map(a => a._scoring.cloud_thickness_d).filter(v => v != null).sort((a,b) => a-b);
+      const eqScores = arr.map(a => a._scoring.entry_quality_score).filter(v => v != null && v > 0).sort((a,b) => a-b);
+
       let winRate = 0, expectancy = 0, sqn = 0, avgR = 0;
       if (profileType === "winner_move") {
         winRate = 100;
@@ -14542,6 +15010,13 @@ async function runCalibrationAnalysis(env) {
         avg_move_atr: Math.round((arr.reduce((s, a) => s + (a.move_atr || a.mfe_atr || 0), 0) / arr.length) * 100) / 100,
         avg_duration_days: Math.round((arr.reduce((s, a) => s + (a.duration_days || ((a.exit_ts - a.entry_ts) / 86400000) || 0), 0) / arr.length) * 10) / 10,
         top_signals_json: JSON.stringify(signalCounts),
+        // v3: Regime/Ichimoku/RVOL profile data
+        regime_distribution: regimeDist,
+        regime_score_p25: percentile(regimeScores, 25), regime_score_p50: percentile(regimeScores, 50),
+        rvol_p25: percentile(rvolVals, 25), rvol_p50: percentile(rvolVals, 50), rvol_p75: percentile(rvolVals, 75),
+        ichimoku_score_p25: percentile(ichScores, 25), ichimoku_score_p50: percentile(ichScores, 50),
+        cloud_thickness_p50: percentile(cloudThicks, 50),
+        entry_quality_p25: percentile(eqScores, 25), entry_quality_p50: percentile(eqScores, 50),
         sl_atr: moveMAEs.length >= 3 ? Math.round(percentile(moveMAEs, 75) * 100) / 100 : null,
         tp_trim_atr: moveMFEsLocal.length >= 3 ? Math.round(percentile(moveMFEsLocal, 50) * 100) / 100 : null,
         tp_exit_atr: moveMFEsLocal.length >= 3 ? Math.round(percentile(moveMFEsLocal, 75) * 100) / 100 : null,
@@ -14666,12 +15141,135 @@ async function runCalibrationAnalysis(env) {
     },
   };
 
+  // v3: Regime Class Analysis from direction_accuracy
+  const v3RegimeAnalysis = {};
+  if (daRows.length > 0) {
+    const byRC = {};
+    for (const row of daRows) {
+      const rc = row.regime_class || "UNKNOWN";
+      (byRC[rc] = byRC[rc] || []).push(row);
+    }
+    for (const [rc, arr] of Object.entries(byRC)) {
+      const wins = arr.filter(r => Number(r.pnl_pct) > 0).length;
+      const losses = arr.length - wins;
+      const avgPnl = arr.reduce((s, r) => s + (Number(r.pnl_pct) || 0), 0) / arr.length;
+      const avgRvol = arr.reduce((s, r) => s + (Number(r.rvol_best) || 0), 0) / (arr.filter(r => r.rvol_best != null).length || 1);
+      const avgIch = arr.reduce((s, r) => s + (Number(r.ichimoku_score_d) || 0), 0) / (arr.filter(r => r.ichimoku_score_d != null).length || 1);
+      v3RegimeAnalysis[rc] = {
+        n: arr.length, wins, losses,
+        win_rate: Math.round((wins / arr.length) * 1000) / 10,
+        avg_pnl_pct: Math.round(avgPnl * 100) / 100,
+        avg_rvol: Math.round(avgRvol * 100) / 100,
+        avg_ichimoku_score: Math.round(avgIch * 100) / 100,
+      };
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // L. PER-TICKER PROFILE IMPACT ANALYSIS
+  // Joins trades with ticker_profiles to measure whether per-ticker
+  // calibrations (SL/TP mult, entry threshold, behavior type) improved outcomes.
+  // ═══════════════════════════════════════════════════════════════════════
+  let profileImpact = null;
+  try {
+    const { results: tickerProfiles } = await db.prepare(`SELECT * FROM ticker_profiles`).all();
+    const profileMap = {};
+    for (const p of tickerProfiles) profileMap[p.ticker] = p;
+
+    if (tickerProfiles.length > 0) {
+      const byBehavior = {};
+      const slGroups = { wide: [], normal: [] };
+      const tpGroups = { extended: [], normal: [] };
+      const entryAdjGroups = { raised: [], normal: [] };
+      const perTicker = {};
+
+      for (const t of trades) {
+        const sym = String(t.ticker || "").toUpperCase();
+        const prof = profileMap[sym];
+        const pnl = Number(t.pnl_pct) || 0;
+        const isWin = pnl > 0;
+
+        const bt = prof?.behavior_type || "UNPROFILEED";
+        (byBehavior[bt] = byBehavior[bt] || []).push(t);
+
+        if (prof) {
+          const slM = Number(prof.sl_mult) || 1;
+          const tpM = Number(prof.tp_mult) || 1;
+          const ethAdj = Number(prof.entry_threshold_adj) || 0;
+
+          if (slM > 1.1) slGroups.wide.push(t); else slGroups.normal.push(t);
+          if (tpM > 1.1) tpGroups.extended.push(t); else tpGroups.normal.push(t);
+          if (ethAdj > 0) entryAdjGroups.raised.push(t); else entryAdjGroups.normal.push(t);
+        } else {
+          slGroups.normal.push(t);
+          tpGroups.normal.push(t);
+          entryAdjGroups.normal.push(t);
+        }
+
+        (perTicker[sym] = perTicker[sym] || []).push(t);
+      }
+
+      const behaviorBreakdown = {};
+      for (const [bt, arr] of Object.entries(byBehavior)) {
+        const m = computeMetrics(arr);
+        const tickers = [...new Set(arr.map(t => t.ticker))];
+        behaviorBreakdown[bt] = { ticker_count: tickers.length, ...m };
+      }
+
+      const slImpact = {
+        wide_sl: { n: slGroups.wide.length, ...computeMetrics(slGroups.wide) },
+        normal_sl: { n: slGroups.normal.length, ...computeMetrics(slGroups.normal) },
+      };
+      const tpImpact = {
+        extended_tp: { n: tpGroups.extended.length, ...computeMetrics(tpGroups.extended) },
+        normal_tp: { n: tpGroups.normal.length, ...computeMetrics(tpGroups.normal) },
+      };
+      const entryImpact = {
+        raised_bar: { n: entryAdjGroups.raised.length, ...computeMetrics(entryAdjGroups.raised) },
+        normal_bar: { n: entryAdjGroups.normal.length, ...computeMetrics(entryAdjGroups.normal) },
+      };
+
+      const tickerRankings = Object.entries(perTicker)
+        .map(([sym, arr]) => {
+          const m = computeMetrics(arr);
+          const prof = profileMap[sym];
+          return {
+            ticker: sym, ...m,
+            behavior_type: prof?.behavior_type || "N/A",
+            sl_mult: Number(prof?.sl_mult) || 1,
+            tp_mult: Number(prof?.tp_mult) || 1,
+            atr_pct: Number(prof?.atr_pct_p50) || 0,
+            entry_threshold_adj: Number(prof?.entry_threshold_adj) || 0,
+          };
+        })
+        .filter(r => r.n >= 3)
+        .sort((a, b) => b.expectancy - a.expectancy);
+
+      const top10 = tickerRankings.slice(0, 10);
+      const bottom10 = tickerRankings.slice(-10).reverse();
+
+      profileImpact = {
+        profiled_tickers: tickerProfiles.length,
+        total_trades_analyzed: trades.length,
+        by_behavior_type: behaviorBreakdown,
+        sl_multiplier_impact: slImpact,
+        tp_multiplier_impact: tpImpact,
+        entry_threshold_impact: entryImpact,
+        top_10_tickers: top10,
+        bottom_10_tickers: bottom10,
+      };
+    }
+  } catch (e) {
+    console.warn("[CALIBRATION] Profile impact analysis error:", String(e).slice(0, 200));
+  }
+
   const reportJson = {
     system_health: systemHealth,
     entry_paths: pathReport,
     signal_ic: signalIC,
     sl_tp_calibration: slTP,
     regime_filters: regimeFilters,
+    v3_regime_analysis: v3RegimeAnalysis,
     rank_optimization: { deciles: rankDeciles, best_cutoff: bestRankCutoff, best_sqn: bestRankSQN },
     position_sizing: positionSizing,
     missed_opportunities: { count: missedMoves, total_moves: moves.length, common_signals: missedSignals },
@@ -14679,6 +15277,7 @@ async function runCalibrationAnalysis(env) {
     profiles: { winner_move: winnerMoveProfiles, winner_trade: winnerTradeProfiles, loser_trade: loserTradeProfiles },
     adaptive_params: { entry_gates: adaptiveEntryGates, regime_gates: adaptiveRegimeGates, rank_weights: adaptiveRankWeights, sl_tp: adaptiveSLTP },
     vix_buckets: Object.fromEntries(Object.entries(vixBuckets).map(([k, arr]) => [k, computeMetrics(arr)])),
+    profile_impact: profileImpact,
   };
 
   const reportId = `cal_${Date.now()}`;
@@ -15016,14 +15615,36 @@ async function d1LogDirectionAccuracy(env, trade, tickerData, entryPath) {
       signalSnapshot = JSON.stringify(snap);
     }
 
+    // v3: Capture Ichimoku/RVOL/regime signals at entry for downstream IC analysis
+    const ichD = tickerData?.ichimoku_d;
+    const regimeClass = tickerData?.regime_class || null;
+    const regimeScore = tickerData?.regime_score ?? null;
+    const rvolMap = tickerData?.rvol_map;
+    const rvol30 = rvolMap?.["30"]?.vr ?? rvolMap?.["60"]?.vr ?? null;
+    const rvol1H = rvolMap?.["60"]?.vr ?? null;
+    const rvolBest = (rvol30 != null && rvol1H != null) ? Math.max(rvol30, rvol1H)
+      : rvol30 ?? rvol1H ?? null;
+    const ichScoreD = ichD?.score ?? null;
+    const ichPosD = ichD?.position ?? null;
+    const cloudThickD = ichD?.cloudThickness ?? null;
+    const tkCrossD = ichD?.tkCross ?? null;
+    const eqScore = Number(tickerData?.entry_quality?.score) || null;
+    const volTier = tickerData?.volatility_tier || null;
+    const posSizeMult = tickerData?.regime_params?.positionSizeMultiplier ?? null;
+
     await db.prepare(
       `INSERT OR IGNORE INTO direction_accuracy
        (trade_id, ticker, ts, traded_direction, consensus_direction, htf_score_direction,
         state_direction, direction_source, htf_score, ltf_score,
         regime_daily, regime_weekly, regime_combined,
         bullish_count, bearish_count, tf_stack_json, entry_path,
-        rank, rr, entry_price, signal_snapshot_json, status)
-       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, 'OPEN')`
+        rank, rr, entry_price, signal_snapshot_json,
+        regime_class, regime_score, rvol_best,
+        ichimoku_score_d, ichimoku_position_d, cloud_thickness_d, tk_cross_d,
+        entry_quality_score, vol_tier, position_size_mult,
+        status)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21,
+               ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, 'OPEN')`
     ).bind(
       trade.id,
       trade.ticker,
@@ -15046,6 +15667,16 @@ async function d1LogDirectionAccuracy(env, trade, tickerData, entryPath) {
       Number(trade.rr) || 0,
       Number(trade.entryPrice) || 0,
       signalSnapshot,
+      regimeClass,
+      regimeScore,
+      rvolBest,
+      ichScoreD,
+      ichPosD,
+      cloudThickD,
+      tkCrossD,
+      eqScore,
+      volTier,
+      posSizeMult,
     ).run();
   } catch (e) {
     console.warn("[LEARNING] d1LogDirectionAccuracy failed:", String(e).slice(0, 150));
@@ -15173,7 +15804,7 @@ async function d1TickerHasCandles(env, ticker) {
   try {
     const row = await db.prepare(
       `SELECT COUNT(DISTINCT tf) as tf_count FROM ticker_candles
-       WHERE ticker = ?1 AND tf IN ('D', 'W', '240', '60', '30', '10', '5')
+       WHERE ticker = ?1 AND tf IN ('D', 'W', '240', '60', '30', '10')
        AND (SELECT COUNT(*) FROM ticker_candles WHERE ticker = ?1 AND tf = 'D') >= 50`
     ).bind(ticker).first();
     return row?.tf_count >= 3;
@@ -16767,6 +17398,15 @@ async function runInvestorDailyReplay(env, KV, replayCtx, dayDate, tickerDataMap
     const sym = String(pos.ticker).toUpperCase();
     const scored = scoredTickers.find(s => s.sym === sym);
     if (!scored || scored.stage !== "accumulate") continue;
+
+    // v3: RVOL dead zone gate — skip DCA when volume is too thin
+    const dcaRvolMap = scored.td?.rvol_map || {};
+    const dcaRvol = Math.max(Number(dcaRvolMap?.["D"]?.vr) || 0, Number(dcaRvolMap?.["60"]?.vr) || 0);
+    const dcaRvolDeadZone = scored.td?.regime_params?.rvolDeadZone ?? 0.4;
+    if (dcaRvol > 0 && dcaRvol < dcaRvolDeadZone) {
+      console.log(`[INVESTOR_DCA_SKIP] ${sym}: RVOL ${dcaRvol.toFixed(2)} below dead zone ${dcaRvolDeadZone}`);
+      continue;
+    }
 
     // Enforce min gap between DCA buys
     const lastEntry = Number(pos.last_entry_ts) || Number(pos.first_entry_ts) || 0;
@@ -25980,44 +26620,26 @@ export default {
             }
           }
 
-          // Trigger candle backfill for added tickers (background via ctx.waitUntil)
-          // After backfill completes, auto-score each ticker so CP + dashboard data appear immediately
+          // Unified onboarding: deep backfill → harvest moves → fingerprint → calibrate → score
           const backfillTriggered = [];
-          const useTD = _usesTwelveData(env);
-          const hasBackfillCreds = useTD ? !!env.TWELVEDATA_API_KEY : (env.ALPACA_ENABLED === "true" && env.ALPACA_API_KEY_ID && env.ALPACA_API_SECRET_KEY);
-          if (added.length > 0 && hasBackfillCreds) {
-            const tickersToBackfill = added.filter((t) => !t.endsWith("1!")).slice(0, 10);
-            if (tickersToBackfill.length > 0) {
-              const backfillPromise = useTD
-                ? DataProvider.backfill(env, tickersToBackfill, "all", 30)
-                : alpacaBackfill(env, tickersToBackfill, d1UpsertCandle, "all", 30);
-              ctx.waitUntil(
-                backfillPromise
-                  .then(async (res) => {
-                    console.log(`[WATCHLIST ADD] Backfill done:`, JSON.stringify(res));
-                    for (const tk of tickersToBackfill) {
-                      try {
-                        const existing = await kvGetJSON(KV, `timed:latest:${tk}`);
-                        const scored = await computeServerSideScores(tk, d1GetCandles, env, existing);
-                        if (scored) {
-                          scored.rank = computeRank(scored);
-                          scored.score = scored.rank;
-                          scored.data_source = useTD ? "twelvedata" : "alpaca";
-                          scored.trigger_ts = Date.now();
-                          await kvPutJSON(KV, `timed:latest:${tk}`, scored);
-                          await d1UpsertTickerLatest(env, tk, scored);
-                          console.log(`[WATCHLIST ADD] Auto-scored ${tk}: price=${scored.price}, state=${scored.state}`);
-                        } else {
-                          console.warn(`[WATCHLIST ADD] Auto-score ${tk}: insufficient candle data`);
-                        }
-                      } catch (scoreErr) {
-                        console.error(`[WATCHLIST ADD] Auto-score ${tk} error:`, String(scoreErr));
-                      }
+          if (added.length > 0) {
+            const tickersToOnboard = added.filter((t) => !t.endsWith("1!")).slice(0, 10);
+            if (tickersToOnboard.length > 0) {
+              ctx.waitUntil((async () => {
+                for (const tk of tickersToOnboard) {
+                  try {
+                    const result = await onboardTicker(env, tk, { getCandles: d1GetCandles, sinceDays: 730 });
+                    console.log(`[WATCHLIST ADD] Onboarded ${tk}: ${JSON.stringify({ ok: result.ok, moves: result.moveCount, profile: result.profile?.behaviorType })}`);
+                    if (result.ok) {
+                      const scored = await kvGetJSON(KV, `timed:latest:${tk}`);
+                      if (scored) await d1UpsertTickerLatest(env, tk, scored);
                     }
-                  })
-                  .catch((err) => console.error(`[WATCHLIST ADD] Backfill error:`, err))
-              );
-              backfillTriggered.push(...tickersToBackfill);
+                  } catch (e) {
+                    console.error(`[WATCHLIST ADD] Onboard ${tk} error:`, String(e).slice(0, 200));
+                  }
+                }
+              })());
+              backfillTriggered.push(...tickersToOnboard);
             }
           }
 
@@ -29597,9 +30219,9 @@ export default {
         const startTs = new Date(startDateStr + "T00:00:00Z").getTime();
         const endTs = new Date(endDateStr + "T23:59:59Z").getTime();
         const db = env.DB;
-        const REPLAY_TFS_CHECK = ["M", "W", "D", "240", "60", "30", "10", "5"];
+        const REPLAY_TFS_CHECK = ["M", "W", "D", "240", "60", "30", "10"];
         const allTickers = Object.keys(SECTOR_MAP);
-        const MIN_CANDLES = { M: 2, W: 8, D: 40, "240": 20, "60": 40, "30": 40, "10": 40, "5": 40 };
+        const MIN_CANDLES = { M: 2, W: 8, D: 40, "240": 20, "60": 40, "30": 40, "10": 40 };
 
         const { results: rows } = await db.prepare(
           `SELECT ticker, tf, COUNT(*) as cnt
@@ -29760,7 +30382,7 @@ export default {
               try {
                 let price = 0;
                 let prevClose = 0;
-                const res = await d1GetCandles(env, sym, "5", 1);
+                const res = await d1GetCandles(env, sym, "10", 1);
                 if (res?.ok && res.candles?.length > 0 && Number.isFinite(res.candles[0].c))
                   price = Number(res.candles[0].c);
                 if (!(price > 0) && KV) {
@@ -29847,8 +30469,8 @@ export default {
 
         // Expected minimums per TF (approximate for good chart + scoring coverage)
         // Canonical 9 TFs (3m dropped)
-        const expected = { "5": 500, "10": 500, "30": 300, "60": 300, "240": 300, "D": 250, "W": 200, "M": 60 };
-        const tfs = ["M", "W", "D", "240", "60", "30", "10", "5"];
+        const expected = { "10": 500, "30": 300, "60": 300, "240": 300, "D": 250, "W": 200, "M": 60 };
+        const tfs = ["M", "W", "D", "240", "60", "30", "10"];
 
         // Expected trading days in the last N calendar days (for gap detection)
         // Intraday TFs: check last 30 calendar days (~21 trading days)
@@ -29857,7 +30479,7 @@ export default {
         const gapSinceTs = Date.now() - GAP_WINDOW_MS;
         const EXPECTED_TRADING_DAYS = 21; // ~21 trading days in 30 calendar days
         // Which TFs should have daily coverage (intraday TFs)
-        const INTRADAY_TFS = new Set(["1", "5", "10", "30", "60", "240"]);
+        const INTRADAY_TFS = new Set(["1", "10", "30", "60", "240"]);
 
         try {
           // Run two queries in parallel via db.batch():
@@ -30059,7 +30681,7 @@ export default {
         const fullDay = url.searchParams.get("fullDay") === "1";
         let tickerOffset = fullDay ? 0 : (Math.max(0, Number(url.searchParams.get("tickerOffset")) || 0));
         const tickerBatch = Math.max(1, Math.min(80, Number(url.searchParams.get("tickerBatch")) || 15));
-        const intervalMinutes = Math.max(1, Math.min(30, Number(url.searchParams.get("intervalMinutes")) || 5));
+        const intervalMinutes = Math.max(1, Math.min(30, Number(url.searchParams.get("intervalMinutes")) || 10));
         const cleanSlate = url.searchParams.get("cleanSlate") === "1";
         const trailOnly = url.searchParams.get("trailOnly") === "1";
         const skipInvestor = url.searchParams.get("skipInvestor") === "1" || url.searchParams.get("traderOnly") === "1";
@@ -30133,8 +30755,8 @@ export default {
         // candles up to this date. Without this, d1GetCandlesAllTfs returns the
         // latest 1500 candles (e.g. from Dec 2025+) which are ALL after a Jul 2025
         // replay date, causing ltf_score=0 and zero trades.
-        const REPLAY_TFS = ["M", "W", "D", "240", "60", "30", "10", "5"];
-        const REPLAY_TF_LIMITS = { M: 200, W: 300, D: 600, "240": 600, "60": 600, "30": 600, "10": 500, "5": 500 };
+        const REPLAY_TFS = ["M", "W", "D", "240", "60", "30", "10"];
+        const REPLAY_TF_LIMITS = { M: 200, W: 300, D: 600, "240": 600, "60": 600, "30": 600, "10": 500 };
         const candleCache = {}; // { TICKER: { TF: [candles sorted asc by ts] } }
 
         await Promise.all(
@@ -30267,7 +30889,6 @@ export default {
                 "60": bundles["60"] || null,
                 "30": bundles["30"] || null,
                 "10": bundles["10"] || null,
-                "5": bundles["5"] || null,
               };
 
               // Pass raw Daily/Weekly candles for Phase 2a regime detection
@@ -30282,12 +30903,24 @@ export default {
               const result = assembleTickerData(ticker, bundleMap, existing, { rawBars });
               if (!result) { skipped++; continue; }
 
-              // Inject golden profiles + adaptive gates for entry parity with live cron
-              if (_replayGoldenProfiles || _replayAdaptiveEntryGates || _replayAdaptiveRegimeGates) {
+              // Inject golden profiles + adaptive gates + three-tier regime for entry parity
+              {
+                const _rSector = SECTOR_MAP[ticker] || "Unknown";
+                // In replay, derive market/sector regime from stateMap (latest scored data per ticker)
+                const _rSpyData = stateMap["SPY"];
+                const _rMktRegime = _rSpyData?.regime_class
+                  ? { regime: _rSpyData.regime_class, score: _rSpyData.regime_score || 0 } : null;
+                const _sectorETFs = require("./sector-mapping.js").SECTOR_ETF_MAP || {};
+                const _rSectorETF = _sectorETFs[_rSector];
+                const _rSectorData = _rSectorETF ? stateMap[_rSectorETF] : null;
+                const _rSecRegime = _rSectorData?.regime_class
+                  ? { regime: _rSectorData.regime_class, score: _rSectorData.regime_score || 0 } : null;
                 result._env = {
                   _goldenProfiles: _replayGoldenProfiles,
                   _adaptiveEntryGates: _replayAdaptiveEntryGates,
                   _adaptiveRegimeGates: _replayAdaptiveRegimeGates,
+                  _marketRegime: _rMktRegime,
+                  _sectorRegime: _rSecRegime,
                 };
               }
               if (_replayCurrentVix != null) result._vix = _replayCurrentVix;
@@ -30742,19 +31375,33 @@ export default {
             return sendJSON({ ok: true, closed: 0, message: "no open positions" }, 200, corsHeaders(env, req));
           }
 
-          // Build last-known close price for each ticker from trail_5m_facts near the replay end date
+          // Build last-known close price for each ticker
           const replayPrices = new Map();
+          // Try trail_5m_facts first (correct column names: price_close, bucket_ts)
           try {
             const priceRows = (await db.prepare(
-              `SELECT ticker, close FROM trail_5m_facts WHERE day_key <= ?1 ORDER BY day_key DESC, bucket_start DESC`
-            ).bind(dateParam).all())?.results || [];
+              `SELECT ticker, price_close FROM trail_5m_facts WHERE bucket_ts <= ?1 ORDER BY bucket_ts DESC`
+            ).bind(exitMs).all())?.results || [];
             for (const r of priceRows) {
               const sym = String(r.ticker).toUpperCase();
-              if (!replayPrices.has(sym) && Number(r.close) > 0) {
-                replayPrices.set(sym, Number(r.close));
+              if (!replayPrices.has(sym) && Number(r.price_close) > 0) {
+                replayPrices.set(sym, Number(r.price_close));
               }
             }
-          } catch (_) { /* trail_5m_facts may not exist */ }
+          } catch (_) { /* trail_5m_facts may not exist or be empty */ }
+          // Fallback: ticker_candles daily close (covers tickers missing from trail_5m_facts)
+          try {
+            const dateStart = exitMs - 5 * 86400000;
+            const candleRows = (await db.prepare(
+              `SELECT ticker, c FROM ticker_candles WHERE tf = 'D' AND ts >= ?1 AND ts <= ?2 ORDER BY ts DESC`
+            ).bind(dateStart, exitMs).all())?.results || [];
+            for (const r of candleRows) {
+              const sym = String(r.ticker).toUpperCase();
+              if (!replayPrices.has(sym) && Number(r.c) > 0) {
+                replayPrices.set(sym, Number(r.c));
+              }
+            }
+          } catch (_) { /* ticker_candles fallback */ }
 
           const stmts = [];
           let closed = 0;
@@ -30807,10 +31454,379 @@ export default {
             console.warn("[CLOSE-REPLAY] KV update failed:", kvErr);
           }
 
+          // Close matching open positions so account-summary unrealized goes to 0
+          let posClosed = 0;
+          try {
+            const openPos = (await db.prepare(
+              `SELECT position_id FROM positions WHERE status = 'OPEN'`
+            ).all())?.results || [];
+            if (openPos.length > 0) {
+              const posStmts = openPos.map(p =>
+                db.prepare(
+                  `UPDATE positions SET status = 'CLOSED', total_qty = 0, closed_at = ?1, updated_at = ?1 WHERE position_id = ?2`
+                ).bind(exitMs, p.position_id)
+              );
+              for (let i = 0; i < posStmts.length; i += 100) {
+                await db.batch(posStmts.slice(i, i + 100));
+              }
+              posClosed = openPos.length;
+            }
+          } catch (posErr) {
+            console.warn("[CLOSE-REPLAY] positions sync failed:", posErr);
+          }
+
           const totalPnl = details.reduce((s, d) => s + d.pnl, 0);
-          return sendJSON({ ok: true, closed, exitDate: dateParam, exitMs, totalPnl: Math.round(totalPnl * 100) / 100, details: details.slice(0, 50) }, 200, corsHeaders(env, req));
+          return sendJSON({ ok: true, closed, posClosed, exitDate: dateParam, exitMs, totalPnl: Math.round(totalPnl * 100) / 100, details: details.slice(0, 50) }, 200, corsHeaders(env, req));
         } catch (err) {
           return sendJSON({ ok: false, error: String(err?.message || err).slice(0, 200) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // ═══════════════════════════════════════════════════════════════════════
+      // THREE-TIER AWARENESS: Onboard / Profile / Status Endpoints
+      // ═══════════════════════════════════════════════════════════════════════
+
+      // POST /timed/admin/onboard?ticker=AAPL&key=...
+      // Re-runs the full onboarding pipeline for a ticker (or comma-separated list).
+      if (routeKey === "POST /timed/admin/onboard") {
+        const authFail = requireKeyOr401(req, env);
+        if (authFail) return authFail;
+        const tickerParam = normTicker(url.searchParams.get("ticker"));
+        if (!tickerParam) return sendJSON({ ok: false, error: "ticker required" }, 400, corsHeaders(env, req));
+
+        const tickers = tickerParam.split(",").map(t => t.trim().toUpperCase()).filter(Boolean);
+        const results = [];
+        for (const tk of tickers.slice(0, 20)) {
+          try {
+            const r = await onboardTicker(env, tk, { getCandles: d1GetCandles, sinceDays: 730 });
+            results.push({ ticker: tk, ...r });
+          } catch (e) {
+            results.push({ ticker: tk, ok: false, error: String(e).slice(0, 200) });
+          }
+        }
+        return sendJSON({ ok: true, results }, 200, corsHeaders(env, req));
+      }
+
+      // GET /timed/profile/:ticker — view a ticker's behavioral profile
+      if (routeKey === "GET /timed/profile/:ticker") {
+        const tickerParam = normTicker(pathParts[2]);
+        if (!tickerParam) return sendJSON({ ok: false, error: "ticker required" }, 400, corsHeaders(env, req));
+
+        const profile = await loadTickerProfile(env, tickerParam);
+        if (!profile) return sendJSON({ ok: false, error: "no_profile", ticker: tickerParam }, 404, corsHeaders(env, req));
+
+        const sector = profile.sector || SECTOR_MAP[tickerParam] || "Unknown";
+        const sectorProfile = await loadSectorProfile(env, sector);
+
+        return sendJSON({
+          ok: true,
+          ticker: tickerParam,
+          profile,
+          sector_profile: sectorProfile || null,
+        }, 200, corsHeaders(env, req));
+      }
+
+      // GET /timed/onboard-status/:ticker — check onboarding progress
+      if (routeKey === "GET /timed/onboard-status/:ticker") {
+        const tickerParam = normTicker(pathParts[2]);
+        if (!tickerParam) return sendJSON({ ok: false, error: "ticker required" }, 400, corsHeaders(env, req));
+
+        const status = await kvGetJSON(KV, `timed:onboard:${tickerParam}`);
+        return sendJSON({ ok: true, ticker: tickerParam, status: status || { step: "none", progress: 0 } }, 200, corsHeaders(env, req));
+      }
+
+      // ═══════════════════════════════════════════════════════════════════════
+      // THREE-TIER AWARENESS: Admin Onboard + Profile Endpoints
+      // ═══════════════════════════════════════════════════════════════════════
+
+      // POST /timed/admin/onboard?ticker=AAPL&key=...
+      // Manually trigger full onboarding pipeline for one or more tickers.
+      if (routeKey === "POST /timed/admin/onboard") {
+        const authFail = requireKeyOr401(req, env);
+        if (authFail) return authFail;
+
+        const tickerParam = url.searchParams.get("ticker");
+        let tickers = [];
+        if (tickerParam) {
+          tickers = tickerParam.split(",").map(t => t.trim().toUpperCase()).filter(Boolean);
+        } else {
+          try {
+            const { obj: body } = await readBodyAsJSON(req);
+            if (Array.isArray(body?.tickers)) tickers = body.tickers.map(t => String(t).toUpperCase().trim()).filter(Boolean);
+          } catch { /* no body */ }
+        }
+
+        if (tickers.length === 0) {
+          return sendJSON({ ok: false, error: "ticker param required" }, 400, corsHeaders(env, req));
+        }
+
+        const sinceDays = Number(url.searchParams.get("sinceDays")) || 730;
+        const results = [];
+
+        for (const tk of tickers.slice(0, 20)) {
+          try {
+            const res = await onboardTicker(env, tk, { getCandles: d1GetCandles, sinceDays });
+            results.push({ ticker: tk, ...res });
+          } catch (e) {
+            results.push({ ticker: tk, ok: false, error: String(e).slice(0, 200) });
+          }
+        }
+
+        return sendJSON({ ok: true, results }, 200, corsHeaders(env, req));
+      }
+
+      // GET /timed/profile/:ticker — View a ticker's behavioral profile
+      if (routeKey === "GET /timed/profile/:ticker") {
+        const sym = normTicker(url.pathname.split("/").pop());
+        if (!sym) return sendJSON({ ok: false, error: "ticker required" }, 400, corsHeaders(env, req));
+
+        const profile = await loadTickerProfile(env, sym);
+        if (!profile) return sendJSON({ ok: false, error: "no_profile", ticker: sym }, 404, corsHeaders(env, req));
+
+        const sector = profile.sector || SECTOR_MAP[sym] || "Unknown";
+        const sectorProfile = await loadSectorProfile(env, sector);
+
+        return sendJSON({
+          ok: true,
+          ticker: sym,
+          profile,
+          sector_profile: sectorProfile || null,
+          merged: mergeProfileWeights(null, sectorProfile, profile),
+        }, 200, corsHeaders(env, req));
+      }
+
+      // GET /timed/onboard-status/:ticker — Check onboarding progress
+      if (routeKey === "GET /timed/onboard-status/:ticker") {
+        const sym = normTicker(url.pathname.split("/").pop());
+        if (!sym) return sendJSON({ ok: false, error: "ticker required" }, 400, corsHeaders(env, req));
+
+        const status = await kvGetJSON(KV, `timed:onboard:${sym}`);
+        return sendJSON({ ok: true, ticker: sym, status: status || { step: "none", progress: 0 } }, 200, corsHeaders(env, req));
+      }
+
+      // ═══════════════════════════════════════════════════════════════════════
+      // THREE-TIER AWARENESS ENDPOINTS
+      // ═══════════════════════════════════════════════════════════════════════
+
+      // POST /timed/admin/onboard?ticker=AAPL&key=...
+      // Manual re-onboarding: deep backfill → harvest → fingerprint → calibrate → score
+      if (routeKey === "POST /timed/admin/onboard") {
+        const authFail = requireKeyOr401(req, env);
+        if (authFail) return authFail;
+
+        const tickerParam = normTicker(url.searchParams.get("ticker"));
+        if (!tickerParam) {
+          return sendJSON({ ok: false, error: "ticker param required" }, 400, corsHeaders(env, req));
+        }
+
+        const sinceDays = Math.max(30, Math.min(1100, Number(url.searchParams.get("sinceDays")) || 730));
+        const skipBackfill = url.searchParams.get("skipBackfill") === "1";
+
+        try {
+          const result = await onboardTicker(env, tickerParam, {
+            getCandles: d1GetCandles,
+            sinceDays,
+            skipBackfill,
+          });
+          return sendJSON({ ok: true, ticker: tickerParam, ...result }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e).slice(0, 300) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // GET /timed/profile/:ticker — View a ticker's behavioral profile
+      if (routeKey === "GET /timed/profile/:ticker") {
+        const tickerParam = normTicker(pathParts[2]);
+        if (!tickerParam) {
+          return sendJSON({ ok: false, error: "ticker required" }, 400, corsHeaders(env, req));
+        }
+
+        try {
+          const profile = await loadTickerProfile(env, tickerParam);
+          if (!profile) {
+            return sendJSON({ ok: false, error: "no_profile", ticker: tickerParam }, 404, corsHeaders(env, req));
+          }
+
+          const sector = profile.sector || SECTOR_MAP[tickerParam] || "Unknown";
+          const sectorProfile = await loadSectorProfile(env, sector);
+
+          return sendJSON({
+            ok: true,
+            ticker: tickerParam,
+            profile,
+            sectorProfile: sectorProfile || null,
+            sector,
+          }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e).slice(0, 200) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // GET /timed/onboard-status/:ticker — Check onboarding progress
+      if (routeKey === "GET /timed/onboard-status/:ticker") {
+        const tickerParam = normTicker(pathParts[2]);
+        if (!tickerParam) {
+          return sendJSON({ ok: false, error: "ticker required" }, 400, corsHeaders(env, req));
+        }
+
+        try {
+          const status = await kvGetJSON(KV, `timed:onboard:${tickerParam}`);
+          return sendJSON({
+            ok: true,
+            ticker: tickerParam,
+            onboarding: status || { step: "none", progress: 0, message: "Not started" },
+          }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e).slice(0, 200) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // POST /timed/admin/reconcile-replay?date=YYYY-MM-DD&key=...
+      // One-time reconciliation: reverts live-cron-contaminated trades, closes all
+      // remaining open trades at historical prices, closes all open positions, and
+      // clears account_ledger so it rebuilds cleanly.
+      if (routeKey === "POST /timed/admin/reconcile-replay") {
+        const authFail = requireKeyOr401(req, env);
+        if (authFail) return authFail;
+        const db = env?.DB;
+        const KV = env?.KV_TIMED;
+        if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
+
+        const dateParam = url.searchParams.get("date");
+        if (!dateParam || !/^\d{4}-\d{2}-\d{2}$/.test(dateParam)) {
+          return sendJSON({ ok: false, error: "date required (YYYY-MM-DD)" }, 400, corsHeaders(env, req));
+        }
+        const exitMs = nyWallTimeToUtcMs(dateParam, 16, 0, 0) || (new Date(`${dateParam}T21:00:00Z`).getTime());
+        const log = [];
+
+        try {
+          // ── 1. Build historical close-price map from ticker_candles (daily TF) ──
+          const priceMap = new Map();
+          const dateStart = new Date(`${dateParam}T05:00:00Z`).getTime() - 5 * 86400000; // 5 days before
+          const dateEnd = exitMs;
+          try {
+            const rows = (await db.prepare(
+              `SELECT ticker, c, ts FROM ticker_candles WHERE tf = 'D' AND ts >= ?1 AND ts <= ?2 ORDER BY ts DESC`
+            ).bind(dateStart, dateEnd).all())?.results || [];
+            for (const r of rows) {
+              const sym = String(r.ticker).toUpperCase();
+              if (!priceMap.has(sym) && Number(r.c) > 0) {
+                priceMap.set(sym, Number(r.c));
+              }
+            }
+          } catch (e) { log.push(`ticker_candles query failed: ${e.message}`); }
+          log.push(`Historical prices loaded: ${priceMap.size} tickers`);
+
+          // ── 2. Revert trades closed by live cron after replay end ──
+          const contaminated = (await db.prepare(
+            `SELECT trade_id FROM trades WHERE exit_ts > ?1 AND exit_reason != 'replay_end_close' AND status IN ('WIN','LOSS','FLAT')`
+          ).bind(exitMs).all())?.results || [];
+
+          if (contaminated.length > 0) {
+            const revertStmts = contaminated.map(r =>
+              db.prepare(
+                `UPDATE trades SET status = 'OPEN', exit_ts = NULL, exit_price = NULL, exit_reason = 'unknown', pnl = NULL, pnl_pct = NULL, updated_at = ?1 WHERE trade_id = ?2`
+              ).bind(Date.now(), r.trade_id)
+            );
+            for (let i = 0; i < revertStmts.length; i += 100) {
+              await db.batch(revertStmts.slice(i, i + 100));
+            }
+            log.push(`Reverted ${contaminated.length} live-cron-contaminated trades to OPEN`);
+          }
+
+          // ── 3. Close all OPEN trades at historical prices ──
+          const openTrades = (await db.prepare(
+            `SELECT trade_id, ticker, direction, entry_price, trimmed_pct FROM trades WHERE status NOT IN ('WIN','LOSS','FLAT') OR status IS NULL`
+          ).all())?.results || [];
+
+          const closeStmts = [];
+          const tradeDetails = [];
+          for (const row of openTrades) {
+            const sym = String(row.ticker).toUpperCase();
+            const entryPx = Number(row.entry_price);
+            const lastPx = priceMap.get(sym) || entryPx;
+            const dir = String(row.direction).toUpperCase() === "SHORT" ? -1 : 1;
+            const trimPct = Number(row.trimmed_pct) || 0;
+            const fullShares = entryPx > 0 ? TRADE_SIZE / entryPx : 0;
+            const remainingShares = fullShares * (1 - trimPct);
+            const pnl = (lastPx - entryPx) * remainingShares * dir;
+            const pnlPct = entryPx > 0 && remainingShares > 0 ? (pnl / (entryPx * remainingShares)) * 100 : 0;
+            const status = pnl > 0 ? "WIN" : pnl < 0 ? "LOSS" : "FLAT";
+
+            closeStmts.push(db.prepare(
+              `UPDATE trades SET status = ?1, exit_ts = ?2, exit_price = ?3, exit_reason = ?4, pnl = ?5, pnl_pct = ?6, updated_at = ?7 WHERE trade_id = ?8`
+            ).bind(status, exitMs, lastPx, "reconcile_replay_close", pnl, pnlPct, exitMs, row.trade_id));
+            tradeDetails.push({ ticker: sym, dir: dir === 1 ? "LONG" : "SHORT", entryPx, exitPx: lastPx, pnl: Math.round(pnl * 100) / 100, status });
+          }
+          for (let i = 0; i < closeStmts.length; i += 100) {
+            await db.batch(closeStmts.slice(i, i + 100));
+          }
+          log.push(`Closed ${openTrades.length} trades at ${dateParam} prices`);
+
+          // ── 4. Close all OPEN positions ──
+          const openPositions = (await db.prepare(
+            `SELECT position_id FROM positions WHERE status = 'OPEN'`
+          ).all())?.results || [];
+          if (openPositions.length > 0) {
+            const posStmts = openPositions.map(p =>
+              db.prepare(
+                `UPDATE positions SET status = 'CLOSED', total_qty = 0, closed_at = ?1, updated_at = ?1 WHERE position_id = ?2`
+              ).bind(exitMs, p.position_id)
+            );
+            for (let i = 0; i < posStmts.length; i += 100) {
+              await db.batch(posStmts.slice(i, i + 100));
+            }
+            log.push(`Closed ${openPositions.length} positions`);
+          }
+
+          // ── 5. Clear account_ledger for trader mode (forces re-backfill) ──
+          try {
+            await db.prepare("DELETE FROM account_ledger WHERE mode = 'trader'").run();
+            log.push("Cleared trader account_ledger");
+          } catch (e) { log.push(`account_ledger clear failed: ${e.message}`); }
+
+          // ── 6. Sync KV trades cache ──
+          try {
+            const kvTrades = await kvGetJSON(KV, "timed:trades:all") || [];
+            let kvUpdated = 0;
+            for (const t of kvTrades) {
+              const s = String(t.status || "").toUpperCase();
+              if (s !== "WIN" && s !== "LOSS" && s !== "FLAT") {
+                const entryPx = Number(t.entryPrice || t.entry_price);
+                const sym = String(t.ticker).toUpperCase();
+                const lastPx = priceMap.get(sym) || entryPx;
+                const dir = String(t.direction).toUpperCase() === "SHORT" ? -1 : 1;
+                const shares = Number(t.shares) || (entryPx > 0 ? TRADE_SIZE / entryPx : 0);
+                const pnl = (lastPx - entryPx) * shares * dir;
+                t.status = pnl > 0 ? "WIN" : pnl < 0 ? "LOSS" : "FLAT";
+                t.exitPrice = lastPx;
+                t.exit_ts = exitMs;
+                t.exitReason = "reconcile_replay_close";
+                t.pnl = pnl;
+                t.realizedPnl = pnl;
+                t.pnlPct = entryPx > 0 ? (pnl / (entryPx * shares)) * 100 : 0;
+                kvUpdated++;
+              }
+            }
+            await kvPutJSON(KV, "timed:trades:all", kvTrades);
+            log.push(`KV trades cache: updated ${kvUpdated} entries`);
+          } catch (kvErr) { log.push(`KV sync failed: ${kvErr.message}`); }
+
+          const totalPnl = tradeDetails.reduce((s, d) => s + d.pnl, 0);
+          return sendJSON({
+            ok: true,
+            exitDate: dateParam,
+            exitMs,
+            reverted: contaminated.length,
+            tradesClosed: openTrades.length,
+            positionsClosed: openPositions.length,
+            totalPnl: Math.round(totalPnl * 100) / 100,
+            pricesUsed: priceMap.size,
+            log,
+            tradeDetails: tradeDetails.slice(0, 50),
+          }, 200, corsHeaders(env, req));
+        } catch (err) {
+          return sendJSON({ ok: false, error: String(err?.message || err).slice(0, 300), log }, 500, corsHeaders(env, req));
         }
       }
 
@@ -31447,6 +32463,17 @@ export default {
             }
           } catch (_) { /* ignore */ }
 
+          // Load member (freemium) ticker list
+          const DEFAULT_MEMBER_TICKERS = ["AAPL","TSLA","NVDA","JPM","NFLX","MSFT","GOOGL","AMZN","META","XOM"];
+          let memberTickers = DEFAULT_MEMBER_TICKERS;
+          try {
+            const DB = env?.DB;
+            if (DB) {
+              const row = await DB.prepare(`SELECT config_value FROM model_config WHERE config_key = 'member_ticker_list'`).first();
+              if (row?.config_value) memberTickers = JSON.parse(row.config_value);
+            }
+          } catch (_) { /* use default */ }
+
           return sendJSON({
             ok: true,
             authenticated: true,
@@ -31461,9 +32488,49 @@ export default {
               terms_accepted_at: user.terms_accepted_at || null,
             },
             saved_tickers: savedTickers,
+            member_tickers: memberTickers,
           }, 200, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e?.message || e) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // ═══════════════════════════════════════════════════════════════════════
+      // MEMBER TICKERS (Freemium Gate)
+      // ═══════════════════════════════════════════════════════════════════════
+
+      if (routeKey === "GET /timed/member-tickers") {
+        const DEFAULT_MEMBER_TICKERS = ["AAPL","TSLA","NVDA","JPM","NFLX","MSFT","GOOGL","AMZN","META","XOM"];
+        let tickers = DEFAULT_MEMBER_TICKERS;
+        try {
+          const db = env?.DB;
+          if (db) {
+            const row = await db.prepare(`SELECT config_value FROM model_config WHERE config_key = 'member_ticker_list'`).first();
+            if (row?.config_value) tickers = JSON.parse(row.config_value);
+          }
+        } catch (_) { /* use default */ }
+        return sendJSON({ ok: true, tickers }, 200, corsHeaders(env, req));
+      }
+
+      if (routeKey === "POST /timed/admin/member-tickers") {
+        const authFail = requireKeyOr401(req, env);
+        if (authFail) return authFail;
+        try {
+          const body = await req.json();
+          const tickers = body.tickers;
+          if (!Array.isArray(tickers) || tickers.length === 0) {
+            return sendJSON({ ok: false, error: "tickers array required" }, 400, corsHeaders(env, req));
+          }
+          const cleaned = tickers.map(t => String(t).toUpperCase().trim()).filter(Boolean);
+          const db = env?.DB;
+          if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
+          await db.prepare(
+            `INSERT OR REPLACE INTO model_config (config_key, config_value, description, updated_at, updated_by)
+             VALUES ('member_ticker_list', ?1, 'Freemium gate: tickers visible to free members', ?2, 'admin')`
+          ).bind(JSON.stringify(cleaned), Date.now()).run();
+          return sendJSON({ ok: true, tickers: cleaned, count: cleaned.length }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
         }
       }
 
@@ -33064,6 +34131,134 @@ export default {
             `UPDATE calibration_report SET applied_at = ?1, applied_by = 'admin' WHERE report_id = ?2`
           ).bind(now, reportId).run();
           return sendJSON({ ok: true, applied }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // ═══════════════════════════════════════════════════════════════════════
+      // PROFILE IMPACT — lightweight per-ticker analysis (walk-forward)
+      // ═══════════════════════════════════════════════════════════════════════
+
+      if (routeKey === "POST /timed/calibration/profile-impact") {
+        try {
+          const authFail = requireKeyOr401(req, env);
+          if (authFail) return authFail;
+          const db = env?.DB;
+          if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
+
+          const { results: allTrades } = await db.prepare(
+            `SELECT trade_id, ticker, direction, entry_ts, exit_ts, entry_price, exit_price,
+                    status, exit_reason, pnl, pnl_pct, rr FROM trades WHERE status IN ('WIN','LOSS')`
+          ).all();
+          if (!allTrades.length) return sendJSON({ ok: false, error: "no_closed_trades" }, 404, corsHeaders(env, req));
+
+          const { results: tickerProfiles } = await db.prepare(`SELECT * FROM ticker_profiles`).all();
+          const profileMap = {};
+          for (const p of tickerProfiles) profileMap[p.ticker] = p;
+
+          const byBehavior = {};
+          const slGroups = { wide: [], normal: [] };
+          const tpGroups = { extended: [], normal: [] };
+          const entryAdjGroups = { raised: [], normal: [] };
+          const perTicker = {};
+
+          for (const t of allTrades) {
+            const sym = String(t.ticker || "").toUpperCase();
+            const prof = profileMap[sym];
+            const pnlPct = Number(t.pnl_pct) || 0;
+
+            const bt = prof?.behavior_type || "UNPROFILED";
+            (byBehavior[bt] = byBehavior[bt] || []).push({ ...t, pnl_pct: pnlPct });
+
+            if (prof) {
+              const slM = Number(prof.sl_mult) || 1;
+              const tpM = Number(prof.tp_mult) || 1;
+              const ethAdj = Number(prof.entry_threshold_adj) || 0;
+              if (slM > 1.1) slGroups.wide.push(t); else slGroups.normal.push(t);
+              if (tpM > 1.1) tpGroups.extended.push(t); else tpGroups.normal.push(t);
+              if (ethAdj > 0) entryAdjGroups.raised.push(t); else entryAdjGroups.normal.push(t);
+            } else {
+              slGroups.normal.push(t);
+              tpGroups.normal.push(t);
+              entryAdjGroups.normal.push(t);
+            }
+
+            (perTicker[sym] = perTicker[sym] || []).push(t);
+          }
+
+          function quickMetrics(arr) {
+            if (!arr.length) return { n: 0, win_rate: 0, expectancy: 0, avg_pnl_pct: 0, sqn: 0 };
+            let wins = 0, totalPnl = 0, totalWinPnl = 0, totalLossPnl = 0;
+            const pnls = [];
+            for (const t of arr) {
+              const p = Number(t.pnl_pct) || 0;
+              pnls.push(p);
+              totalPnl += p;
+              if (p > 0) { wins++; totalWinPnl += p; } else { totalLossPnl += Math.abs(p); }
+            }
+            const n = arr.length;
+            const wr = wins / n;
+            const avgWin = wins > 0 ? totalWinPnl / wins : 0;
+            const avgLoss = (n - wins) > 0 ? totalLossPnl / (n - wins) : 0;
+            const exp = (wr * avgWin) - ((1 - wr) * avgLoss);
+            const mean = totalPnl / n;
+            const variance = pnls.reduce((s, p) => s + (p - mean) ** 2, 0) / n;
+            const stdev = Math.sqrt(variance) || 1;
+            const sqn = (mean / stdev) * Math.sqrt(Math.min(n, 100));
+            return {
+              n,
+              win_rate: Math.round(wr * 1000) / 10,
+              expectancy: Math.round(exp * 100) / 100,
+              avg_pnl_pct: Math.round(mean * 100) / 100,
+              sqn: Math.round(sqn * 100) / 100,
+            };
+          }
+
+          const behaviorBreakdown = {};
+          for (const [bt, arr] of Object.entries(byBehavior)) {
+            const tickers = [...new Set(arr.map(t => t.ticker))];
+            behaviorBreakdown[bt] = { ticker_count: tickers.length, ...quickMetrics(arr) };
+          }
+
+          const tickerRankings = Object.entries(perTicker)
+            .map(([sym, arr]) => {
+              const m = quickMetrics(arr);
+              const prof = profileMap[sym];
+              return {
+                ticker: sym, ...m,
+                behavior_type: prof?.behavior_type || "N/A",
+                sl_mult: Number(prof?.sl_mult) || 1,
+                tp_mult: Number(prof?.tp_mult) || 1,
+                atr_pct: Number(prof?.atr_pct_p50) || 0,
+              };
+            })
+            .filter(r => r.n >= 2)
+            .sort((a, b) => b.expectancy - a.expectancy);
+
+          const overall = quickMetrics(allTrades);
+
+          return sendJSON({
+            ok: true,
+            overall,
+            profiled_tickers: tickerProfiles.length,
+            total_trades: allTrades.length,
+            by_behavior_type: behaviorBreakdown,
+            sl_impact: {
+              wide_sl: quickMetrics(slGroups.wide),
+              normal_sl: quickMetrics(slGroups.normal),
+            },
+            tp_impact: {
+              extended_tp: quickMetrics(tpGroups.extended),
+              normal_tp: quickMetrics(tpGroups.normal),
+            },
+            entry_threshold_impact: {
+              raised_bar: quickMetrics(entryAdjGroups.raised),
+              normal_bar: quickMetrics(entryAdjGroups.normal),
+            },
+            top_10: tickerRankings.slice(0, 10),
+            bottom_10: tickerRankings.slice(-10).reverse(),
+          }, 200, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
         }
@@ -42116,10 +43311,10 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
     // ═══════════════════════════════════════════════════════════════════════
     // SCORING CRON (*/5) — PRIMARY SCORING LOOP
     //
-    // Every 5 minutes: fetch scores for all tickers using 7 TFs (W,D,4H,1H,30m,10m,5m).
+    // Every 5 minutes: fetch scores for all tickers using 7 TFs (M,W,D,4H,1H,30m,10m).
     // This is the sole scoring loop (old */1 fast scoring removed — caused whiplash).
     // 5m cadence provides trend confirmation; UI uses 2-consecutive-cycle logic for
-    // entry signals (10m effective confirmation window).
+    // entry signals (10m effective confirmation window). 5m TF dropped for swing focus.
     //
     // Priority order: P0 open positions → P1 setup/enter → P2 rest
     // Parallel: 10 tickers concurrently, each with 7+ concurrent D1 reads
@@ -42262,6 +43457,33 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
         } catch (_) {}
         env._currentVix = _currentVix;
 
+        // Three-Tier Awareness: load SPY market regime + sector ETF regimes
+        let _marketRegimeObj = null;
+        try {
+          const spyData = await kvGetJSON(KV, "timed:latest:SPY");
+          if (spyData?.regime_class) {
+            _marketRegimeObj = { regime: spyData.regime_class, score: spyData.regime_score || 0 };
+          }
+        } catch (_) {}
+        env._marketRegime = _marketRegimeObj;
+
+        const _sectorRegimeCache = {};
+        const { SECTOR_ETF_MAP: _sectorETFs } = require("./sector-mapping.js");
+        if (_sectorETFs) {
+          try {
+            const etfTickers = [...new Set(Object.values(_sectorETFs))];
+            const etfResults = await Promise.all(etfTickers.map(async (etf) => {
+              const d = await kvGetJSON(KV, `timed:latest:${etf}`);
+              return { etf, regime: d?.regime_class || "UNKNOWN", score: d?.regime_score || 0 };
+            }));
+            for (const [sector, etf] of Object.entries(_sectorETFs)) {
+              const match = etfResults.find(r => r.etf === etf);
+              if (match) _sectorRegimeCache[sector] = { regime: match.regime, score: match.score, etf };
+            }
+          } catch (_) {}
+        }
+        env._sectorRegimeCache = _sectorRegimeCache;
+
         // Priority: open positions first, then everything else
         const tickersToScore = [];
         for (const t of openTickerSet) {
@@ -42289,7 +43511,6 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
               { tf: "W", limit: 100 }, { tf: "D", limit: 250 },
               { tf: "240", limit: 250 }, { tf: "60", limit: 150 },
               { tf: "30", limit: 100 }, { tf: "10", limit: 100 },
-              { tf: "5", limit: 100 },
               { tf: "M", limit: 24 },
             ];
             const candleCache = await d1GetCandlesAllTfs(env, ticker, tfConfigs);
@@ -42299,11 +43520,18 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
               return candleCache[tfKey] || { ok: false, candles: [] };
             };
 
-            // Inject learned weights so assembleTickerData uses them
+            // Inject learned weights + ticker profile so assembleTickerData uses them
             const hasLearnedWeights = _learnedTfWeights || _learnedScoreAdj || _learnedSignalWeights;
             const existWithWeights = hasLearnedWeights
               ? { ...(existing || {}), ...(_learnedTfWeights ? { _tfWeights: _learnedTfWeights } : {}), ...(_learnedSignalWeights ? { _signalWeights: _learnedSignalWeights } : {}), ...(_learnedScoreAdj ? { _scoreWeights: _learnedScoreAdj } : {}) }
-              : existing;
+              : { ...(existing || {}) };
+
+            // Three-Tier: inject ticker profile for SL/TP multipliers and behavior type
+            try {
+              const profileCached = await kvGetJSON(KV, `timed:profile:${ticker}`);
+              if (profileCached) existWithWeights._tickerProfile = profileCached;
+            } catch { /* non-critical */ }
+
             const result = await computeServerSideScores(ticker, getCandlesCached, env, existWithWeights);
             if (!result) {
               if (existing && typeof existing === "object") {
@@ -42346,14 +43574,16 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             result.rank = computeRank(result);
             result.score = result.rank;
 
-            // Inject adaptive config + VIX + golden profiles for qualifiesForEnter downstream
-            if (env._adaptiveEntryGates || env._adaptiveRegimeGates || env._goldenProfiles) {
-              result._env = {
-                _adaptiveEntryGates: env._adaptiveEntryGates,
-                _adaptiveRegimeGates: env._adaptiveRegimeGates,
-                _goldenProfiles: env._goldenProfiles,
-              };
-            }
+            // Inject adaptive config + VIX + golden profiles + three-tier regime for qualifiesForEnter
+            const tickerSector = SECTOR_MAP[ticker] || "Unknown";
+            result._env = {
+              ...(result._env || {}),
+              _adaptiveEntryGates: env._adaptiveEntryGates || null,
+              _adaptiveRegimeGates: env._adaptiveRegimeGates || null,
+              _goldenProfiles: env._goldenProfiles || null,
+              _marketRegime: env._marketRegime || null,
+              _sectorRegime: env._sectorRegimeCache?.[tickerSector] || null,
+            };
             if (env._currentVix != null) result._vix = env._currentVix;
 
             // Overnight signal injection (throttled to once/day)

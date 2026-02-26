@@ -1321,27 +1321,32 @@
                   {/* Right Rail Tabs — single row, no wrapping */}
                   <div className="mt-3 flex items-center gap-1.5 overflow-x-auto" style={{ scrollbarWidth: "none" }}>
                     {[
-                      { k: "ANALYSIS", label: "Analysis" },
-                      { k: "TECHNICALS", label: "Technicals" },
-                      { k: "MODEL", label: "Model" },
-                      { k: "JOURNEY", label: "Journey" },
+                      { k: "ANALYSIS", label: "Analysis", proOnly: false },
+                      { k: "TECHNICALS", label: "Technicals", proOnly: true },
+                      { k: "MODEL", label: "Model", proOnly: true },
+                      { k: "JOURNEY", label: "Journey", proOnly: true },
                       {
                         k: "TRADE_HISTORY",
                         label: `Trades (${Array.isArray(ledgerTrades) ? ledgerTrades.length : 0})`,
+                        proOnly: true,
                       },
                     ].map((t) => {
                       const active = railTab === t.k;
+                      const locked = t.proOnly && !window._ttIsPro;
                       return (
                         <button
                           key={`rail-tab-${t.k}`}
                           onClick={() => setRailTab(t.k)}
-                          className={`px-2.5 py-1 rounded-lg border text-[11px] font-semibold transition-all whitespace-nowrap flex-shrink-0 ${
+                          className={`px-2.5 py-1 rounded-lg border text-[11px] font-semibold transition-all whitespace-nowrap flex-shrink-0 flex items-center gap-1 ${
                             active
                               ? "border-blue-400 bg-blue-500/20 text-blue-200"
-                              : "border-white/[0.06] bg-white/[0.03] text-[#6b7280] hover:text-white"
+                              : locked
+                                ? "border-amber-500/20 bg-amber-500/5 text-amber-400/60 hover:text-amber-300"
+                                : "border-white/[0.06] bg-white/[0.03] text-[#6b7280] hover:text-white"
                           }`}
                         >
                           {t.label}
+                          {locked && <svg className="w-3 h-3 text-amber-400/60" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd"/></svg>}
                         </button>
                       );
                     })}
@@ -1350,7 +1355,26 @@
 
                 {/* Padded body content (keeps header top-aligned) */}
                 <div className="p-6 pt-4">
-                  {railTab === "ANALYSIS" ? (
+                  {!window._ttIsPro && railTab !== "ANALYSIS" ? (
+                    <div className="flex flex-col items-center justify-center py-16 gap-4 text-center">
+                      <div className="w-16 h-16 rounded-full bg-amber-500/10 border border-amber-500/30 flex items-center justify-center">
+                        <svg className="w-8 h-8 text-amber-400" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd"/></svg>
+                      </div>
+                      <div>
+                        <h3 className="text-[14px] font-bold text-white mb-1">Pro Feature</h3>
+                        <p className="text-[11px] text-gray-400 max-w-[240px]">
+                          {railTab === "TECHNICALS" && "Deep multi-timeframe technical analysis with scoring breakdowns across all indicators."}
+                          {railTab === "MODEL" && "AI model confidence, signal strength, and entry/exit decision rationale."}
+                          {railTab === "JOURNEY" && "Full ticker journey tracking with historical stage transitions and time-in-stage analytics."}
+                          {railTab === "TRADE_HISTORY" && "Complete trade ledger with P&L, win rate, and performance analytics."}
+                        </p>
+                      </div>
+                      <button className="px-5 py-2 rounded-full bg-gradient-to-r from-amber-500 to-amber-600 text-white text-[12px] font-bold hover:from-amber-400 hover:to-amber-500 transition-all shadow-lg shadow-amber-500/20"
+                        onClick={() => window.dispatchEvent(new CustomEvent("tt-go-pro"))}>
+                        Upgrade to Pro
+                      </button>
+                    </div>
+                  ) : railTab === "ANALYSIS" ? (
                     <>
                       {/* ═══════════════════════════════════════════════════════════ */}
                       {/* 1. CONTEXT                                                  */}
@@ -1488,6 +1512,113 @@
                                 ) : null}
                               </div>
                             ) : null}
+                          </div>
+                        );
+                      })()}
+
+                      {/* ═══════════════════════════════════════════════════════════ */}
+                      {/* 1b. REGIME CONTEXT (v3)                                    */}
+                      {/* ═══════════════════════════════════════════════════════════ */}
+                      {(() => {
+                        const rc = String(ticker?.regime_class || "");
+                        if (!rc) return null;
+                        const rs = Number(ticker?.regime_score) || 0;
+                        const rf = ticker?.regime_factors || {};
+                        const rp = ticker?.regime_params || {};
+                        const rvolMap = ticker?.rvol_map || {};
+                        const rv30 = Number(rvolMap?.["30"]?.vr) || 0;
+                        const rv1h = Number(rvolMap?.["60"]?.vr) || 0;
+                        const rvBest = Math.max(rv30, rv1h);
+                        const regBg = rc === "TRENDING" ? "bg-emerald-500/10 border-emerald-500/30" : rc === "CHOPPY" ? "bg-rose-500/10 border-rose-500/30" : "bg-amber-500/10 border-amber-500/30";
+                        const regTxt = rc === "TRENDING" ? "text-emerald-300" : rc === "CHOPPY" ? "text-rose-300" : "text-amber-300";
+                        const factorKeys = Object.keys(rf);
+                        return (
+                          <div className={`mb-3 px-2.5 py-2 rounded-lg border ${regBg}`}>
+                            <div className="flex items-center justify-between mb-1.5">
+                              <div className="flex items-center gap-1.5">
+                                <span className={`text-[11px] font-bold ${regTxt}`}>{rc}</span>
+                                <span className="text-[10px] text-slate-400">Regime</span>
+                              </div>
+                              <span className={`text-[11px] font-bold tabular-nums ${regTxt}`}>{rs >= 0 ? "+" : ""}{rs}</span>
+                            </div>
+                            <div className="grid grid-cols-3 gap-1.5 text-[9px] mb-1.5">
+                              <div className="p-1 bg-white/[0.03] rounded text-center">
+                                <div className="text-[8px] text-slate-500">RVOL</div>
+                                <div className={`font-bold tabular-nums ${rvBest >= 1.5 ? "text-emerald-400" : rvBest >= 0.8 ? "text-white" : "text-rose-400"}`}>{rvBest.toFixed(2)}x</div>
+                              </div>
+                              <div className="p-1 bg-white/[0.03] rounded text-center">
+                                <div className="text-[8px] text-slate-500">Min HTF</div>
+                                <div className="font-bold text-white tabular-nums">{rp.minHTFScore ?? "—"}</div>
+                              </div>
+                              <div className="p-1 bg-white/[0.03] rounded text-center">
+                                <div className="text-[8px] text-slate-500">Size</div>
+                                <div className="font-bold text-white tabular-nums">{rp.positionSizeMultiplier != null ? `${rp.positionSizeMultiplier}x` : "—"}</div>
+                              </div>
+                            </div>
+                            {factorKeys.length > 0 && (
+                              <div className="flex flex-wrap gap-x-2 gap-y-0.5 text-[8px] text-slate-400">
+                                {factorKeys.slice(0, 6).map(k => (
+                                  <span key={k} title={rf[k]}>{k.replace(/_/g," ")}: <span className={`font-semibold ${String(rf[k]).startsWith("+") ? "text-emerald-400" : String(rf[k]).startsWith("-") ? "text-rose-400" : "text-white"}`}>{String(rf[k]).split(" ")[0]}</span></span>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })()}
+
+                      {/* ═══════════════════════════════════════════════════════════ */}
+                      {/* 1c. TICKER PROFILE (Three-Tier Awareness)                  */}
+                      {/* ═══════════════════════════════════════════════════════════ */}
+                      {(() => {
+                        const tp = ticker?._ticker_profile;
+                        if (!tp || !tp.behavior_type) return null;
+                        const bt = String(tp.behavior_type);
+                        const btColor = bt === "MOMENTUM" ? "text-blue-300" : bt === "MEAN_REVERT" ? "text-purple-300" : "text-slate-300";
+                        const btBg = bt === "MOMENTUM" ? "bg-blue-500/10 border-blue-500/30" : bt === "MEAN_REVERT" ? "bg-purple-500/10 border-purple-500/30" : "bg-slate-500/10 border-slate-500/30";
+                        const slM = Number(tp.sl_mult) || 1;
+                        const tpM = Number(tp.tp_mult) || 1;
+                        const ethAdj = Number(tp.entry_threshold_adj) || 0;
+                        const atrPct = Number(tp.atr_pct_p50) || 0;
+                        const trendP = Number(tp.trend_persistence) || 0;
+                        const ichResp = Number(tp.ichimoku_responsiveness) || 0;
+                        return (
+                          <div className={`mb-3 px-2.5 py-2 rounded-lg border ${btBg}`}>
+                            <div className="flex items-center justify-between mb-1.5">
+                              <div className="flex items-center gap-1.5">
+                                <span className={`text-[11px] font-bold ${btColor}`}>{bt.replace("_", " ")}</span>
+                                <span className="text-[10px] text-slate-400">Profile</span>
+                              </div>
+                            </div>
+                            <div className="grid grid-cols-3 gap-1.5 text-[9px] mb-1.5">
+                              <div className="p-1 bg-white/[0.03] rounded text-center">
+                                <div className="text-[8px] text-slate-500">ATR%</div>
+                                <div className="font-bold text-white tabular-nums">{atrPct > 0 ? `${(atrPct * 100).toFixed(1)}%` : "—"}</div>
+                              </div>
+                              <div className="p-1 bg-white/[0.03] rounded text-center">
+                                <div className="text-[8px] text-slate-500">SL Mult</div>
+                                <div className={`font-bold tabular-nums ${slM > 1.05 ? "text-amber-300" : slM < 0.95 ? "text-emerald-300" : "text-white"}`}>{slM.toFixed(2)}x</div>
+                              </div>
+                              <div className="p-1 bg-white/[0.03] rounded text-center">
+                                <div className="text-[8px] text-slate-500">TP Mult</div>
+                                <div className={`font-bold tabular-nums ${tpM > 1.05 ? "text-emerald-300" : tpM < 0.95 ? "text-amber-300" : "text-white"}`}>{tpM.toFixed(2)}x</div>
+                              </div>
+                            </div>
+                            <div className="grid grid-cols-3 gap-1.5 text-[9px]">
+                              <div className="p-1 bg-white/[0.03] rounded text-center">
+                                <div className="text-[8px] text-slate-500">Trend Persist</div>
+                                <div className={`font-bold tabular-nums ${trendP >= 0.6 ? "text-emerald-400" : trendP <= 0.35 ? "text-rose-400" : "text-white"}`}>{(trendP * 100).toFixed(0)}%</div>
+                              </div>
+                              <div className="p-1 bg-white/[0.03] rounded text-center">
+                                <div className="text-[8px] text-slate-500">Ichi Resp</div>
+                                <div className={`font-bold tabular-nums ${ichResp >= 0.6 ? "text-emerald-400" : ichResp <= 0.35 ? "text-rose-400" : "text-white"}`}>{(ichResp * 100).toFixed(0)}%</div>
+                              </div>
+                              {ethAdj !== 0 && (
+                                <div className="p-1 bg-white/[0.03] rounded text-center">
+                                  <div className="text-[8px] text-slate-500">Entry Adj</div>
+                                  <div className={`font-bold tabular-nums ${ethAdj > 0 ? "text-amber-300" : "text-emerald-300"}`}>{ethAdj > 0 ? "+" : ""}{ethAdj}</div>
+                                </div>
+                              )}
+                            </div>
                           </div>
                         );
                       })()}
