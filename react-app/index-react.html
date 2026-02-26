@@ -4240,179 +4240,6 @@
         },
       );
 
-      const Bubble = memo(
-        ({ ticker, onClick, onHover, isHovered, showLabels }) => {
-          const comp = ticker.completion != null ? Number(ticker.completion) : 0;
-          const phasePct = ticker.phase_pct != null ? Number(ticker.phase_pct) : 0;
-          const rr = ticker.rr != null ? Number(ticker.rr) : 0;
-          const waitingForData = ticker.waitingForData === true;
-
-          const validComp = Number.isFinite(comp) ? Math.max(0, Math.min(1, comp)) : 0;
-          const validPhasePct = Number.isFinite(phasePct) ? Math.max(0, Math.min(1, phasePct)) : 0;
-          const validRR = Number.isFinite(rr) && rr > 0 ? rr : 0;
-
-          const cappedRR = Math.min(validRR, 5);
-          const completionPenalty = 1 - validComp;
-          const baseSize = 8;
-          const rrMultiplier = 6;
-          const size = waitingForData ? baseSize * 0.7 : baseSize + cappedRR * rrMultiplier * completionPenalty;
-          const sizeVariation = (ticker.ticker?.charCodeAt(0) || 0) % 3;
-          const finalSize = Math.max(baseSize, size + sizeVariation * 0.5);
-
-          const prime = isPrimeBubble(ticker);
-          const flags = ticker.flags || {};
-          const dir = getDirectionFromState(ticker);
-          const flipWatch = !!flags.flip_watch;
-          const winnerSig = isWinnerSignature(ticker);
-
-          // Direction-aware color (matches kanban card accents)
-          let color;
-          if (waitingForData) {
-            color = "#5c6475";
-          } else if (dir === "LONG") {
-            const p = Number.isFinite(validPhasePct) ? Math.max(0, Math.min(1, validPhasePct)) : 0.1;
-            color = p < 0.3 ? "#22d3ee" : p < 0.6 ? "#06b6d4" : "#0891b2";
-          } else if (dir === "SHORT") {
-            const p = Number.isFinite(validPhasePct) ? Math.max(0, Math.min(1, validPhasePct)) : 0.1;
-            color = p < 0.3 ? "#fb7185" : p < 0.6 ? "#e11d48" : "#be123c";
-          } else {
-            const p = Number.isFinite(validPhasePct) ? Math.max(0, Math.min(1, validPhasePct)) : 0.1;
-            color = p < 0.3 ? "#14b8a6" : p < 0.6 ? "#eab308" : "#e11d48";
-          }
-          if (!color || typeof color !== "string" || !color.startsWith("#")) color = "#14b8a6";
-
-          const opacity = waitingForData ? 0.55 : isHovered ? 1 : dir ? 0.92 : prime ? 0.9 : 0.85;
-
-          const borderWidth = waitingForData ? 1.5
-            : dir ? 2.5
-            : flipWatch ? 3.5
-            : prime ? 3
-            : winnerSig ? 3
-            : flags.sq30_release ? 2
-            : flags.sq30_on ? 2
-            : 1.5;
-
-          const borderColor = waitingForData ? "#8b92a0"
-            : dir === "LONG" ? "#22d3ee"
-            : dir === "SHORT" ? "#e11d48"
-            : flipWatch ? "#fbbf24"
-            : prime ? "#14b8a6"
-            : winnerSig ? "#a855f7"
-            : flags.sq30_release ? "#00ffff"
-            : flags.sq30_on ? "#ffd700"
-            : "rgba(255,255,255,0.25)";
-
-          const bubbleSize = isHovered ? finalSize * 1.2 : finalSize;
-
-          const x = Number(ticker.ltf_score) || 0;
-          const y = Number(ticker.htf_score) || 0;
-
-          const hasSqueeze = flags.sq30_release || flags.sq30_on;
-          const emoji = prime ? "💎" : flags.sq30_release ? "⚡" : flags.sq30_on ? "🧨" : "";
-          const labelY = y - bubbleSize - (emoji ? 12 : 8);
-
-          return (
-            <g
-              onClick={() => onClick(ticker.ticker)}
-              onMouseEnter={() => onHover(ticker.ticker)}
-              onMouseLeave={() => onHover(null)}
-              onTouchStart={(e) => {
-                e.preventDefault();
-                onHover(ticker.ticker);
-                onClick(ticker.ticker);
-              }}
-              onTouchEnd={(e) => {
-                e.preventDefault();
-                onHover(null);
-              }}
-              style={{
-                cursor: "pointer",
-                transition: "all 0.2s ease-out",
-                touchAction: "manipulation",
-              }}
-            >
-              {/* Glow effect for prime */}
-              {prime && (
-                <circle
-                  cx={x}
-                  cy={y}
-                  r={bubbleSize + 2}
-                  fill="none"
-                  stroke="#14b8a6"
-                  strokeWidth="1"
-                  opacity="0.3"
-                />
-              )}
-              <circle
-                cx={x}
-                cy={y}
-                r={Math.max(3, bubbleSize)}
-                fill={color}
-                fillOpacity={opacity}
-                stroke={borderColor}
-                strokeWidth={borderWidth}
-                strokeDasharray={
-                  !waitingForData && move.dash ? move.dash : undefined
-                }
-              />
-              {/* Move status badge (Completed / Invalidated) */}
-              {!waitingForData && move.status !== "ACTIVE" && (
-                <g style={{ pointerEvents: "none" }}>
-                  <text
-                    x={x + bubbleSize * 0.55}
-                    y={y - bubbleSize * 0.55}
-                    textAnchor="middle"
-                    dominantBaseline="middle"
-                    fontSize="12"
-                    fontWeight="800"
-                    style={{ textShadow: "0 0 4px rgba(0,0,0,0.9)" }}
-                  >
-                    {move.icon}
-                  </text>
-                </g>
-              )}
-              {/* Emoji above bubble */}
-              {emoji && (
-                <text
-                  x={x}
-                  y={labelY}
-                  textAnchor="middle"
-                  fontSize={prime ? "14" : "12"}
-                  fill={
-                    prime
-                      ? "#14b8a6"
-                      : flags.sq30_release
-                        ? "#00ffff"
-                        : "#ffd700"
-                  }
-                  fontWeight="bold"
-                  style={{ textShadow: "0 0 3px rgba(0,0,0,0.8)" }}
-                >
-                  {emoji}
-                </text>
-              )}
-              {/* Ticker label */}
-              {(showLabels || isHovered) && (
-                <text
-                  x={x}
-                  y={labelY - (emoji ? 14 : 8)}
-                  textAnchor="middle"
-                  fontSize="10"
-                  fill="#f0f2f5"
-                  fontWeight="600"
-                  style={{
-                    textShadow: "0 0 4px rgba(0,0,0,0.9)",
-                    pointerEvents: "none",
-                  }}
-                >
-                  {ticker.ticker}
-                </text>
-              )}
-            </g>
-          );
-        },
-      );
-
       // Hook to fetch trail data for all tickers
       // NOTE: This is intentionally "best effort" and must not hammer the API.
       function useAllTrails(tickers, enabled = true) {
@@ -16095,8 +15922,56 @@
       // ─────────────────────────────────────────────────────────────
       // Main App
       // ─────────────────────────────────────────────────────────────
+      function GoProModal({ open, onClose }) {
+        if (!open) return null;
+        return (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4" onClick={onClose}>
+            <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" />
+            <div className="relative bg-[#0f1219] border border-white/[0.10] rounded-2xl shadow-2xl max-w-md w-full p-8 text-center" onClick={e => e.stopPropagation()}>
+              <button onClick={onClose} className="absolute top-3 right-3 text-gray-500 hover:text-white transition-colors text-lg">&times;</button>
+              <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center">
+                <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+              </div>
+              <h2 className="text-xl font-bold text-white mb-2">Unlock Timed Trading Pro</h2>
+              <p className="text-[13px] text-gray-400 mb-6 leading-relaxed">
+                Get full access to real-time prices, proprietary scoring, SL/TP levels, R:R analysis, entry/exit signals, all tickers, and deep technical analysis.
+              </p>
+              <div className="space-y-2 text-left mb-6">
+                {[
+                  "Real-time prices & daily change across all tickers",
+                  "Composite Score, SL, TP, and R:R for every ticker",
+                  "Entry & exit signals with confidence levels",
+                  "Full Technicals, Model, Journey & Trade History tabs",
+                  "Unlimited tickers + custom ticker slots",
+                  "Open positions & complete trade ledger",
+                ].map((f, i) => (
+                  <div key={i} className="flex items-start gap-2">
+                    <svg className="w-4 h-4 text-amber-400 mt-0.5 shrink-0" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd"/></svg>
+                    <span className="text-[12px] text-gray-300">{f}</span>
+                  </div>
+                ))}
+              </div>
+              <a
+                href="/pricing.html"
+                className="block w-full py-3 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 text-white text-[14px] font-bold hover:from-amber-400 hover:to-amber-500 transition-all shadow-lg shadow-amber-500/25 no-underline"
+              >
+                View Plans & Pricing
+              </a>
+              <p className="text-[10px] text-gray-600 mt-3">Cancel anytime. 7-day free trial available.</p>
+            </div>
+          </div>
+        );
+      }
+
       function App() {
         const isAdmin = window._ttIsAdmin;
+
+        const [goProOpen, setGoProOpen] = useState(false);
+        useEffect(() => {
+          const handler = () => setGoProOpen(true);
+          window.addEventListener("tt-go-pro", handler);
+          return () => window.removeEventListener("tt-go-pro", handler);
+        }, []);
 
         const {
           data,
@@ -17483,6 +17358,7 @@
               </div>
             </div>
             <Coachmarks />
+            <GoProModal open={goProOpen} onClose={() => setGoProOpen(false)} />
           </>
         );
       }
@@ -17957,7 +17833,7 @@
           // Check if React 18 createRoot is available
           const AuthGate = window.TimedAuthGate;
           const wrappedApp = AuthGate
-            ? React.createElement(AuthGate, { apiBase: "", requiredTier: "pro" },
+            ? React.createElement(AuthGate, { apiBase: "", requiredTier: "free" },
                 (user) => React.createElement(window.App, { user }))
             : React.createElement(window.App);
           if (ReactDOM.createRoot) {
