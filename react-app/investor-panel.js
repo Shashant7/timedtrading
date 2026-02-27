@@ -23,7 +23,7 @@
   function InvestorCard({ t, onSelect, selectedTicker, savedTickers, toggleSavedTicker }) {
     const SparklineBg = window.TimedSparkline;
     const sym = String(t?.ticker || "").toUpperCase();
-    const stage = t.stage || "research";
+    const stage = t.stage || "research_avoid";
     const score = Number(t.score) || 0;
     const scoreCls = score >= 70 ? "text-[#00e676]" : score >= 50 ? "text-amber-400" : "text-red-400";
     const _dc = getDailyChange(t);
@@ -37,9 +37,9 @@
       "linear-gradient(to bottom, rgba(120,160,255,0.04) 0%, transparent 40%, rgba(0,0,0,0.15) 100%)",
       `linear-gradient(0deg, ${glassBg}, ${glassBg})`,
     ].join(", ");
-    const stageColors = { accumulate: "#10b981", core_hold: "#3b82f6", watch: "#f59e0b", reduce: "#ef4444", research: "#8b5cf6", exited: "#6b7280" };
+    const stageColors = { accumulate: "#10b981", core_hold: "#3b82f6", watch: "#f59e0b", reduce: "#ef4444", research_on_watch: "#a78bfa", research_low: "#8b5cf6", research_avoid: "#6b7280", research: "#6b7280", exited: "#6b7280" };
     const accentColor = stageColors[stage] || "#6b7280";
-    const stageLabels = { accumulate: "Accum", core_hold: "Core", watch: "Watch", reduce: "Reduce", research: "Research", exited: "Exited" };
+    const stageLabels = { accumulate: "Accum", core_hold: "Core", watch: "Watch", reduce: "Reduce", research_on_watch: "On Watch", research_low: "Low Conv", research_avoid: "Avoid", research: "Research", exited: "Exited" };
 
     return React.createElement("div", {
       key: sym,
@@ -107,6 +107,8 @@
           ),
           stage === "accumulate" && React.createElement("span", { className: "text-[8px] text-[#00e676]/80 font-semibold" }, "Consider buying"),
           stage === "reduce" && React.createElement("span", { className: "text-[8px] text-rose-400/80 font-semibold" }, "Consider trimming"),
+          stage === "research_on_watch" && React.createElement("span", { className: "text-[8px] text-violet-400/80 font-semibold" }, "On radar"),
+          stage === "research_avoid" && React.createElement("span", { className: "text-[8px] text-[#6b7280]/80 font-semibold" }, "Caution"),
         ),
 
         React.createElement("div", { className: "relative mt-auto px-2 pb-1.5 pt-0.5", style: { zIndex: 1 } },
@@ -158,19 +160,23 @@
 
   function ActionKanban({ tickers, onSelect, selectedTicker, savedTickers, toggleSavedTicker }) {
     const laneScrollRef = useRef({});
-    const stages = ["accumulate", "core_hold", "watch", "reduce"];
+    const stages = ["accumulate", "core_hold", "watch", "reduce", "research_on_watch", "research_low", "research_avoid"];
     const stageMeta = {
       accumulate: { label: "Accumulate", icon: "📈", color: "#10b981", title: "Consider buying — price is in a favorable zone" },
       core_hold: { label: "Core Hold", icon: "📊", color: "#3b82f6", title: "Keep holding — trend and strength are solid" },
       watch: { label: "Watch", icon: "👁", color: "#f59e0b", title: "Wait and monitor — signals are mixed" },
       reduce: { label: "Reduce", icon: "📉", color: "#ef4444", title: "Consider selling — showing signs of weakness" },
+      research_on_watch: { label: "On Watch", icon: "🔍", color: "#a78bfa", title: "On the radar — moderate score, worth tracking" },
+      research_low: { label: "Low Conviction", icon: "📋", color: "#8b5cf6", title: "Low conviction — not actionable yet" },
+      research_avoid: { label: "Avoid", icon: "⛔", color: "#6b7280", title: "Weak signals — system advises caution" },
     };
     const grouped = {};
     for (const s of stages) grouped[s] = [];
-    for (const t of tickers) {
-      const stage = t.stage || "research";
-      if (grouped[stage]) grouped[stage].push(t);
-    }
+        for (const t of tickers) {
+          let stage = t.stage || "research_avoid";
+          if (stage === "research") stage = "research_avoid"; // backward compat: old API
+          if (grouped[stage]) grouped[stage].push(t);
+        }
     const renderCard = (t) => React.createElement(InvestorCard, { key: t.ticker, t, onSelect, selectedTicker, savedTickers: savedTickers || new Set(), toggleSavedTicker });
 
     return React.createElement("div", { className: "flex-1 overflow-y-auto space-y-1 min-h-0", "data-coachmark": "action-board" },
@@ -358,7 +364,7 @@
       return list;
     }, [scores, memberTickers, memberTickersLoaded, tickerData, searchQuery, filterGroup, savedTickers]);
 
-    const actionCount = useMemo(() => allTickers.filter(t => t.stage && t.stage !== "research").length, [allTickers]);
+    const actionCount = useMemo(() => allTickers.filter(t => t.stage && !t.stage.startsWith("research_")).length, [allTickers]);
 
     return React.createElement("div", { className: "space-y-4" },
       React.createElement("div", { className: "flex items-center justify-between" },

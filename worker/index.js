@@ -31537,19 +31537,24 @@ export default {
       // THREE-TIER AWARENESS: Onboard / Profile / Status Endpoints
       // ═══════════════════════════════════════════════════════════════════════
 
-      // POST /timed/admin/onboard?ticker=AAPL&key=...
+      // POST /timed/admin/onboard?ticker=AAPL&key=... (API key or admin JWT)
       // Re-runs the full onboarding pipeline for a ticker (or comma-separated list).
+      // skipBackfill=1 skips candle fetch (use after Fill Gaps).
       if (routeKey === "POST /timed/admin/onboard") {
-        const authFail = requireKeyOr401(req, env);
+        const authFail = await requireKeyOrAdmin(req, env);
         if (authFail) return authFail;
-        const tickerParam = normTicker(url.searchParams.get("ticker"));
-        if (!tickerParam) return sendJSON({ ok: false, error: "ticker required" }, 400, corsHeaders(env, req));
+        const tickerParam = url.searchParams.get("ticker");
+        const tickers = tickerParam
+          ? tickerParam.split(",").map(t => normTicker(t)).filter(Boolean)
+          : [];
+        if (tickers.length === 0) return sendJSON({ ok: false, error: "ticker required" }, 400, corsHeaders(env, req));
 
-        const tickers = tickerParam.split(",").map(t => t.trim().toUpperCase()).filter(Boolean);
+        const sinceDays = Math.max(30, Math.min(1100, Number(url.searchParams.get("sinceDays")) || 730));
+        const skipBackfill = url.searchParams.get("skipBackfill") === "1";
         const results = [];
         for (const tk of tickers.slice(0, 20)) {
           try {
-            const r = await onboardTicker(env, tk, { getCandles: d1GetCandles, sinceDays: 730 });
+            const r = await onboardTicker(env, tk, { getCandles: d1GetCandles, sinceDays, skipBackfill });
             results.push({ ticker: tk, ...r });
           } catch (e) {
             results.push({ ticker: tk, ok: false, error: String(e).slice(0, 200) });

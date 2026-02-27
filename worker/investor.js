@@ -493,13 +493,17 @@ export function classifyInvestorStage(tickerData, investorScore, existingPositio
     return { stage: "watch", reason: investorScore >= 60 ? "promising" : "monitoring" };
   }
 
-  // Research: below 50 — still in the universe but not actionable yet
-  if (investorScore >= 30) {
-    return { stage: "research", reason: "moderate_score" };
+  // Research sub-classes: below 50 — still in universe, clarity on conviction level
+  // research_on_watch: 40-49 — on the radar, moderate signals
+  if (investorScore >= 40) {
+    return { stage: "research_on_watch", reason: "moderate_score" };
   }
-
-  // Below 30: low conviction
-  return { stage: "research", reason: "low_score" };
+  // research_low: 30-39 — low conviction, not actionable yet
+  if (investorScore >= 30) {
+    return { stage: "research_low", reason: "low_conviction" };
+  }
+  // research_avoid: <30 — avoid, weak signals
+  return { stage: "research_avoid", reason: "low_score" };
 }
 
 

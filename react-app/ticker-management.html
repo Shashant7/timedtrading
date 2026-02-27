@@ -271,6 +271,7 @@
       // ── Member Ticker List (freemium gate: tickers visible to free Members in Investor Mode) ──
       function MemberTickerListManager() {
         const [tickers, setTickers] = useState([]);
+        const [savedTickers, setSavedTickers] = useState([]); // last persisted state
         const [input, setInput] = useState("");
         const [saving, setSaving] = useState(false);
         const [msg, setMsg] = useState(null);
@@ -279,7 +280,12 @@
         useEffect(() => {
           fetch(`${API_BASE}/timed/member-tickers`, { credentials: "include" })
             .then(r => r.json())
-            .then(d => { if (d.ok && Array.isArray(d.tickers)) setTickers(d.tickers); })
+            .then(d => {
+              if (d.ok && Array.isArray(d.tickers)) {
+                setTickers(d.tickers);
+                setSavedTickers(d.tickers);
+              }
+            })
             .catch(() => {});
         }, []);
 
@@ -290,6 +296,7 @@
           setInput("");
         };
         const removeTicker = (t) => setTickers(prev => prev.filter(x => x !== t));
+        const hasUnsavedChanges = JSON.stringify([...tickers].sort()) !== JSON.stringify([...savedTickers].sort());
         const save = async () => {
           setSaving(true);
           setMsg(null);
@@ -300,11 +307,16 @@
               credentials: "include",
               body: JSON.stringify({ tickers }),
             });
-            const d = await r.json();
+            let d;
+            try { d = await r.json(); } catch { d = {}; }
             if (d.ok) {
+              setSavedTickers([...tickers]);
               setMsg({ type: "success", text: `Saved ${d.count} tickers for Member users` });
             } else {
-              setMsg({ type: "error", text: d.error || "Save failed" });
+              const errText = r.status === 401 || r.status === 403
+                ? "Not authorized. Sign in as admin or use API key."
+                : (d.error || "Save failed");
+              setMsg({ type: "error", text: errText });
             }
           } catch (e) {
             setMsg({ type: "error", text: e.message });
@@ -316,6 +328,7 @@
             <button onClick={() => setOpen(v => !v)} className="flex items-center gap-2 text-left w-full group">
               <span className="text-[11px] text-amber-400 uppercase tracking-wide font-semibold">Member Ticker List</span>
               <span className="text-[10px] text-gray-500 bg-white/[0.04] px-1.5 py-0.5 rounded">{tickers.length}</span>
+              {hasUnsavedChanges && <span className="text-[9px] text-amber-400 font-medium">(unsaved)</span>}
               <span className="text-gray-600 text-xs group-hover:text-white ml-auto">{open ? "▲" : "▼"}</span>
             </button>
             {open && (
@@ -338,8 +351,8 @@
                     className="bg-white/5 border border-white/10 rounded px-3 py-1.5 text-sm text-white placeholder-gray-600 w-64 focus:outline-none focus:border-amber-500/50"
                   />
                   <button onClick={addTickers} disabled={!input.trim()} className="px-3 py-1.5 bg-amber-600/60 hover:bg-amber-600 rounded text-xs font-medium text-white disabled:opacity-40">Add</button>
-                  <button onClick={save} disabled={saving} className="px-3 py-1.5 bg-blue-600/60 hover:bg-blue-600 rounded text-xs font-medium text-white disabled:opacity-40 ml-auto">
-                    {saving ? "Saving..." : "Save Changes"}
+                  <button onClick={save} disabled={saving || !hasUnsavedChanges} className="px-3 py-1.5 bg-blue-600/60 hover:bg-blue-600 rounded text-xs font-medium text-white disabled:opacity-40 ml-auto" title={!hasUnsavedChanges ? "No changes to save" : "Save Member ticker list"}>
+                    {saving ? "Saving..." : hasUnsavedChanges ? "Save Changes" : "Saved"}
                   </button>
                 </div>
                 {msg && (
@@ -743,7 +756,7 @@
               if (json.added > 0) parts.push(`${json.added} ticker(s) added`);
               if (json.reactivated > 0) parts.push(`${json.reactivated} reactivated`);
               const bfTickers = Array.isArray(json.backfillTriggered) ? json.backfillTriggered : [];
-              if (bfTickers.length > 0) parts.push(`Candle backfill started for ${bfTickers.join(", ")}`);
+              if (bfTickers.length > 0) parts.push(`Backfill started for ${bfTickers.join(", ")} — use Fill then Score if needed`);
               const msg = parts.length > 0 ? parts.join(". ") + "." : "No changes needed.";
               setActionStatus({ type: "success", msg });
               setAddInput("");
@@ -789,8 +802,33 @@
         // ── Sequential backfill state ──
         const [seqBackfill, setSeqBackfill] = useState(null); // { running, current, index, total, log, cancelled }
         const seqCancelRef = useRef(false);
+        const [scoreStatus, setScoreStatus] = useState({}); // { ticker: "running"|"ok"|"error" }
 
-        // ── Fill gaps (backfill) — single ticker ──
+        // ── Run onboard (score) — single ticker, skipBackfill when candles already filled ──
+        async function handleRunOnboard(ticker) {
+          const isTV = TV_TICKERS.has(ticker);
+          if (isTV) return;
+          setScoreStatus(prev => ({ ...prev, [ticker]: "running" }));
+          try {
+            const res = await fetch(`${API_BASE}/timed/admin/onboard?ticker=${encodeURIComponent(ticker)}&skipBackfill=1`, {
+              method: "POST",
+              credentials: "include",
+            });
+            const json = await res.json();
+            if (json.ok && (json.results?.[0]?.ok ?? json.ok)) {
+              setScoreStatus(prev => ({ ...prev, [ticker]: "ok" }));
+              fetchData();
+              setTimeout(() => setScoreStatus(prev => { const n = { ...prev }; delete n[ticker]; return n; }), 3000);
+            } else {
+              const err = json.results?.[0]?.error ?? json.error ?? "unknown";
+              setScoreStatus(prev => ({ ...prev, [ticker]: `error: ${err}` }));
+            }
+          } catch (e) {
+            setScoreStatus(prev => ({ ...prev, [ticker]: `error: ${e.message}` }));
+          }
+        }
+
+        // ── Fill gaps (backfill) — single ticker; after completion runs onboard to compute scores ──
         async function handleFillGaps(ticker) {
           const isTV = TV_TICKERS.has(ticker);
           if (isTV) return;
@@ -806,7 +844,7 @@
             const json = await res.json();
             if (json.ok) {
               setBackfillStatus(prev => ({ ...prev, [ticker]: "started" }));
-              // Poll for completion, then refresh
+              // Poll for completion, then run onboard (score) and refresh
               const pollDone = async () => {
                 for (let attempt = 0; attempt < 60; attempt++) {
                   await new Promise(r => setTimeout(r, 3000));
@@ -820,6 +858,19 @@
                     }));
                   } catch { break; }
                 }
+                setBackfillStatus(prev => { const n = { ...prev }; delete n[ticker]; return n; });
+                // Run onboard to compute scores from newly filled candles
+                setBackfillStatus(prev => ({ ...prev, [ticker]: "scoring..." }));
+                try {
+                  const onRes = await fetch(`${API_BASE}/timed/admin/onboard?ticker=${encodeURIComponent(ticker)}&skipBackfill=1`, {
+                    method: "POST",
+                    credentials: "include",
+                  });
+                  const onJson = await onRes.json();
+                  if (onJson.ok && (onJson.results?.[0]?.ok ?? onJson.ok)) {
+                    setBackfillStatus(prev => ({ ...prev, [ticker]: "done" }));
+                  }
+                } catch (_) { /* scoring may fail if insufficient data */ }
                 setBackfillStatus(prev => { const n = { ...prev }; delete n[ticker]; return n; });
                 fetchData();
               };
@@ -1345,7 +1396,7 @@
                               <TFCell key={tf} tfData={t.tfs?.[tf]} />
                             ))}
                             <td className="px-2 py-1.5 text-center">
-                              <div className="flex items-center justify-center gap-1">
+                              <div className="flex items-center justify-center gap-1 flex-wrap">
                                 {(t.quality ?? t.pct) < 100 && (
                                   isTV ? (
                                     <span className="text-[9px] text-gray-600" title="TV-sourced: re-export from TradingView">TV</span>
@@ -1354,11 +1405,21 @@
                                       onClick={() => handleFillGaps(t.ticker)}
                                       disabled={bfStatus === "running"}
                                       className="px-2 py-0.5 text-[10px] bg-[#00c853]/20 hover:bg-[#00c853]/40 text-[#00e676] rounded disabled:opacity-40"
-                                      title="Fill data gaps via backfill"
+                                      title="Fill data gaps via backfill (then runs scoring)"
                                     >
-                                      {bfStatus === "running" ? "..." : bfStatus === "started" ? "OK" : "Fill"}
+                                      {bfStatus === "running" ? "..." : bfStatus === "started" ? "OK" : bfStatus === "scoring..." ? "Score" : "Fill"}
                                     </button>
                                   )
+                                )}
+                                {!isTV && (
+                                  <button
+                                    onClick={() => handleRunOnboard(t.ticker)}
+                                    disabled={scoreStatus[t.ticker] === "running"}
+                                    className="px-2 py-0.5 text-[10px] bg-amber-600/20 hover:bg-amber-600/40 text-amber-300 rounded disabled:opacity-40"
+                                    title="Run scoring from existing candles (use after Fill)"
+                                  >
+                                    {scoreStatus[t.ticker] === "running" ? "..." : scoreStatus[t.ticker] === "ok" ? "✓" : "Score"}
+                                  </button>
                                 )}
                                 <button
                                   onClick={() => handleRemove([t.ticker])}

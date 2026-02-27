@@ -478,7 +478,7 @@
     <script src="shared-price-utils.js?v=20260211a"></script>
     <script src="investor-panel.js?v=20260226a"></script>
     <script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
-    <script src="shared-right-rail.compiled.js?v=20260226j" type="text/babel"></script>
+    <script src="shared-right-rail.compiled.js?v=20260226k" type="text/babel"></script>
     <script type="text/babel">
       const { useState, useEffect, useMemo, useCallback, useRef, memo } = React;
 
@@ -5596,7 +5596,9 @@
                         <div className="flex justify-between">
                           <span className="text-[#6b7280]">RR</span>
                           <span className="font-semibold">
-                            {tooltip.rr ? Number(tooltip.rr).toFixed(2) : "—"}
+                            {window._ttIsPro
+                              ? (tooltip.rr ? Number(tooltip.rr).toFixed(2) : "—")
+                              : <span className="text-amber-400" title="Upgrade to Pro for R:R">Go Pro</span>}
                           </span>
                         </div>
                         <div className="flex justify-between">
@@ -5605,26 +5607,35 @@
                             {tooltip.state || "—"}
                           </span>
                         </div>
-                        <div className="flex justify-between">
-                          <span className="text-[#6b7280]">Phase</span>
-                          <span
-                            className="font-semibold"
-                            style={{
-                              color: phaseToColor(
-                                Number(tooltip.phase_pct) || 0,
-                              ),
-                            }}
-                          >
-                            {Math.round((Number(tooltip.phase_pct) || 0) * 100)}
-                            %{tooltip.phase_zone && ` (${tooltip.phase_zone})`}
-                          </span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-[#6b7280]">Completion</span>
-                          <span className="font-semibold">
-                            {Math.round(completionForSize(tooltip) * 100)}%
-                          </span>
-                        </div>
+                        {window._ttIsPro ? (
+                          <>
+                            <div className="flex justify-between">
+                              <span className="text-[#6b7280]">Phase</span>
+                              <span
+                                className="font-semibold"
+                                style={{
+                                  color: phaseToColor(
+                                    Number(tooltip.phase_pct) || 0,
+                                  ),
+                                }}
+                              >
+                                {Math.round((Number(tooltip.phase_pct) || 0) * 100)}
+                                %{tooltip.phase_zone && ` (${tooltip.phase_zone})`}
+                              </span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-[#6b7280]">Completion</span>
+                              <span className="font-semibold">
+                                {Math.round(completionForSize(tooltip) * 100)}%
+                              </span>
+                            </div>
+                          </>
+                        ) : (
+                          <div className="flex justify-between">
+                            <span className="text-[#6b7280]">Progress</span>
+                            <span className="font-semibold text-amber-400" title="Upgrade to Pro for Phase & Completion">Go Pro</span>
+                          </div>
+                        )}
                         {tooltip.regime_class && (
                           <div className="flex justify-between">
                             <span className="text-[#6b7280]">Regime</span>
@@ -11220,9 +11231,14 @@
           const v3Rvol30 = Number(v3RvolMap?.["30"]?.vr) || 0;
           const v3Rvol1H = Number(v3RvolMap?.["60"]?.vr) || 0;
           const v3RvolBest = Math.max(v3Rvol30, v3Rvol1H) || 0;
-          const v3KijunSL = dir === "LONG"
+          let v3KijunSL = dir === "LONG"
             ? Number(t?.ichimoku_d?.kijunSL_long) || null
             : Number(t?.ichimoku_d?.kijunSL_short) || null;
+          // Sanity: hide Kijun when >50% away from price (avoids wrong values like K754 for $394)
+          if (v3KijunSL != null && Number.isFinite(price) && price > 0) {
+            const pctAway = Math.abs(v3KijunSL - price) / price;
+            if (pctAway > 0.5) v3KijunSL = null;
+          }
           const v3BlockReason = String(t?.__execution_block_reason || t?.__entry_block_reason || "");
           const v3BlockLabel = {
             rvol_dead_zone: "Low Volume",

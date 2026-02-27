@@ -1,11 +1,23 @@
 # Current Tasks
 
+## Admin Add/Remove/Update Tickers [2026-02-26] ✅
+- [x] Fix SL/TP display: hide Kijun when >50% from price
+- [x] Backfill reliability: run onboard after Fill Gaps; admin/onboard via requireKeyOrAdmin
+- [x] Member ticker save: unsaved indicator, 401 feedback, Save disabled when no changes
+- [x] Add-ticker UX: Fill → Score flow, Score button, clearer success message
+
 ## Polish Phase [2026-02-26]
 - [x] Fix placeholder XXXX in simulation-dashboard (blurred teaser)
 - [x] Standardize empty states (contextual messages kept)
 - [ ] Consolidate ScoreBar/MarketHealthBar if beneficial
 - [ ] Card/spacing consistency pass
 - [ ] Verify getDailyChange usage everywhere
+
+## Investor Research Lanes [2026-02-26] ✅
+- [x] Add research sub-stages: research_on_watch (40-49), research_low (30-39), research_avoid (<30)
+- [x] Add 7 lanes to Action Kanban: Accumulate, Core Hold, Watch, Reduce, On Watch, Low Conviction, Avoid
+- [x] Update investor-panel.js, investor-dashboard.html, shared-right-rail.js
+- [x] Backward compat for legacy "research" stage
 
 ## Active: Investor Mode UI Alignment [2026-02-26] ✅
 - [x] Refactor Investor lanes to KanbanColumn-like structure (horizontal scroll, icon, count, color strip)

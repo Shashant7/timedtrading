@@ -1371,7 +1371,7 @@
                     {[
                       { k: "ANALYSIS", label: "Analysis", proOnly: false },
                       { k: "INVESTOR", label: "Investor", proOnly: false },
-                      { k: "TECHNICALS", label: "Technicals", proOnly: true },
+                      { k: "TECHNICALS", label: "Technicals", proOnly: false },
                       { k: "MODEL", label: "Model", proOnly: true },
                       { k: "JOURNEY", label: "Journey", proOnly: true },
                       {
@@ -1404,7 +1404,7 @@
 
                 {/* Padded body content (keeps header top-aligned) */}
                 <div className="p-6 pt-4">
-                  {!window._ttIsPro && railTab !== "ANALYSIS" && railTab !== "INVESTOR" ? (
+                  {!window._ttIsPro && railTab !== "ANALYSIS" && railTab !== "INVESTOR" && railTab !== "TECHNICALS" ? (
                     <div className="flex flex-col items-center justify-center py-16 gap-4 text-center">
                       <div className="w-16 h-16 rounded-full bg-amber-500/10 border border-amber-500/30 flex items-center justify-center">
                         <svg className="w-8 h-8 text-amber-400" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd"/></svg>
@@ -1448,6 +1448,9 @@
                         if (score >= 50) return "Mixed signals — some positives, some caution flags.";
                         if (score < 50 && stage === "reduce") return "Weak setup. The system recommends reducing or exiting.";
                         if (score < 50 && stage === "watch") return "Weak signals. The system recommends caution.";
+                        if (stage === "research_on_watch") return "On the radar. Moderate score — worth tracking.";
+                        if (stage === "research_low") return "Low conviction. Not actionable yet.";
+                        if (stage === "research_avoid" || stage === "research") return "Weak signals. The system advises caution.";
                         if (score < 50) return "Unfavorable conditions. The system advises caution.";
                         return "The system is evaluating this stock.";
                       };
@@ -1477,7 +1480,8 @@
                       const score = Number(d.score) || 0;
                       const scoreCls = score >= 70 ? "text-[#00e676]" : score >= 50 ? "text-amber-400" : "text-red-400";
                       const summary = getTickerSummary(score, d.stage);
-                      const stageCls = { accumulate: "bg-[#00c853]/15 text-[#34d399] border-[#00c853]/30", core_hold: "bg-blue-500/15 text-[#60a5fa] border-blue-500/30", watch: "bg-amber-500/15 text-[#fbbf24] border-amber-500/30", reduce: "bg-red-500/15 text-[#f87171] border-red-500/30", research: "bg-purple-500/15 text-[#a78bfa] border-purple-500/30", exited: "bg-gray-500/15 text-[#9ca3af] border-gray-500/30" }[d.stage] || "bg-gray-500/15 text-[#9ca3af] border-gray-500/30";
+                      const INVESTOR_STAGE_LABELS = { accumulate: "Accumulate", core_hold: "Core Hold", watch: "Watch", reduce: "Reduce", research_on_watch: "On Watch", research_low: "Low Conviction", research_avoid: "Avoid", research: "Research", exited: "Exited" };
+                      const stageCls = { accumulate: "bg-[#00c853]/15 text-[#34d399] border-[#00c853]/30", core_hold: "bg-blue-500/15 text-[#60a5fa] border-blue-500/30", watch: "bg-amber-500/15 text-[#fbbf24] border-amber-500/30", reduce: "bg-red-500/15 text-[#f87171] border-red-500/30", research_on_watch: "bg-violet-500/15 text-[#a78bfa] border-violet-500/30", research_low: "bg-purple-500/15 text-[#a78bfa] border-purple-500/30", research_avoid: "bg-gray-500/15 text-[#9ca3af] border-gray-500/30", research: "bg-gray-500/15 text-[#9ca3af] border-gray-500/30", exited: "bg-gray-500/15 text-[#9ca3af] border-gray-500/30" }[d.stage] || "bg-gray-500/15 text-[#9ca3af] border-gray-500/30";
 
                       return (
                         <div className="space-y-5">
@@ -1506,7 +1510,7 @@
 
                           <div>
                             <div className="flex items-center gap-2 mb-1">
-                              <span className={`px-2 py-0.5 rounded-md text-[11px] font-semibold border ${stageCls}`}>{(d.stage || "research").replace("_", " ")}</span>
+                              <span className={`px-2 py-0.5 rounded-md text-[11px] font-semibold border ${stageCls}`}>{INVESTOR_STAGE_LABELS[d.stage] || (d.stage || "research_avoid").replace(/_/g, " ")}</span>
                               {d.stage === "accumulate" && <span className="text-[10px] text-[#00e676]/80 bg-[#00c853]/10 px-2 py-0.5 rounded border border-[#00c853]/20">Buy signal — add in small portions</span>}
                               {d.stage === "watch" && <span className="text-[10px] text-amber-400/80 bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/20">The system suggests a small starter position</span>}
                               {d.stage === "reduce" && <span className="text-[10px] text-red-400/80 bg-red-500/10 px-2 py-0.5 rounded border border-red-500/20">Reduce signal — the system recommends trimming</span>}
@@ -2187,8 +2191,23 @@
                         const tpRunner = tpSane(tpRunnerRaw);
                         const has3Tier = (Number.isFinite(tpTrim) && tpTrim > 0) || (Number.isFinite(tpExit) && tpExit > 0);
 
-                        const legacyTarget = computeTpTargetPrice(ticker);
-                        const legacyMax = computeTpMaxPrice(ticker);
+                        const legacyTargetRaw = computeTpTargetPrice(ticker);
+                        const legacyMaxRaw = computeTpMaxPrice(ticker);
+                        // Direction sanity: for LONG, TP must be above price; for SHORT, below
+                        const legacyTarget = (() => {
+                          if (!Number.isFinite(legacyTargetRaw) || legacyTargetRaw <= 0) return null;
+                          if (!resolvedDir || !Number.isFinite(price) || price <= 0) return legacyTargetRaw;
+                          if (resolvedDir === "LONG" && legacyTargetRaw <= price) return null;
+                          if (resolvedDir === "SHORT" && legacyTargetRaw >= price) return null;
+                          return legacyTargetRaw;
+                        })();
+                        const legacyMax = (() => {
+                          if (!Number.isFinite(legacyMaxRaw) || legacyMaxRaw <= 0) return null;
+                          if (!resolvedDir || !Number.isFinite(price) || price <= 0) return legacyMaxRaw;
+                          if (resolvedDir === "LONG" && legacyMaxRaw <= price) return null;
+                          if (resolvedDir === "SHORT" && legacyMaxRaw >= price) return null;
+                          return legacyMaxRaw;
+                        })();
                         const hasLegacy = !has3Tier && (Number.isFinite(legacyTarget) || Number.isFinite(legacyMax));
 
                         if (!hasSl && !has3Tier && !hasLegacy && !Number.isFinite(rr)) return null;
@@ -2267,12 +2286,14 @@
                                         </div>
                                         <div className="flex items-center gap-2">
                                           <span className={`text-xs font-bold ${tier.text}`}>${tier.tp.toFixed(2)}</span>
-                                          {Number.isFinite(tier.rr) && <span className="text-[10px] font-semibold text-blue-400">{tier.rr.toFixed(2)}:1</span>}
+                                          {window._ttIsPro && Number.isFinite(tier.rr) && <span className="text-[10px] font-semibold text-blue-400">{tier.rr.toFixed(2)}:1</span>}
                                         </div>
                                       </div>
-                                      <div className="h-1.5 bg-white/[0.06] rounded-full overflow-hidden">
-                                        <div className={`h-full ${tier.label.includes("1") ? "bg-yellow-500" : tier.label.includes("2") ? "bg-orange-500" : "bg-teal-500"} transition-all`} style={{ width: `${Math.round(progress * 100)}%` }} />
-                                      </div>
+                                      {window._ttIsPro && (
+                                        <div className="h-1.5 bg-white/[0.06] rounded-full overflow-hidden">
+                                          <div className={`h-full ${tier.label.includes("1") ? "bg-yellow-500" : tier.label.includes("2") ? "bg-orange-500" : "bg-teal-500"} transition-all`} style={{ width: `${Math.round(progress * 100)}%` }} />
+                                        </div>
+                                      )}
                                     </div>
                                   );
                                 })
