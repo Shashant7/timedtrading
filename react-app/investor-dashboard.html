@@ -1208,7 +1208,6 @@
 
         const [showFilters, setShowFilters] = useState(false);
         const activeFilterCount = (sectorFilter ? 1 : 0) + (showSaved ? 1 : 0);
-        const isEmbedded = new URLSearchParams(window.location.search).get("embedded") === "true";
 
         return React.createElement("div", { className: "min-h-screen flex flex-col" },
           // ═══ Nav (hidden when embedded in main dashboard) ═══
