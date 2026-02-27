@@ -12372,15 +12372,28 @@
               ))}
             </div>
 
-            {/* Badge Legend */}
-            <div className="mb-3 px-2 py-1.5 rounded-lg border border-white/[0.04] bg-white/[0.015] flex items-center flex-nowrap gap-x-5 text-[10px] text-[#6b7280] overflow-x-auto">
-              <span className="text-[11px] font-semibold text-white/70 shrink-0">Badges</span>
-              <span className="shrink-0">💎 <span className="text-[#8b95a5]">Prime — top-quality setup</span></span>
-              <span className="shrink-0">🎯 <span className="text-[#8b95a5]">Entry Zone — actionable window</span></span>
-              <span className="shrink-0">🔥 <span className="text-[#8b95a5]">MoElite — strong momentum</span></span>
-              <span className="shrink-0">🧨 <span className="text-[#8b95a5]">Squeeze — pressure building</span></span>
-              <span className="shrink-0">⚡ <span className="text-[#8b95a5]">Release — breakout firing</span></span>
-              <span className="shrink-0">📅 <span className="text-[#8b95a5]">Earnings — within 7 days</span></span>
+            {/* Legend: Lanes + Badges (Active Trader Table view) */}
+            <div className="mb-3 space-y-1.5">
+              <div className="px-2 py-1.5 rounded-lg border border-white/[0.04] bg-white/[0.015] flex items-center flex-nowrap gap-x-4 text-[10px] text-[#6b7280] overflow-x-auto">
+                <span className="text-[11px] font-semibold text-white/70 shrink-0">Pipeline</span>
+                <span className="shrink-0">📋 Setup</span>
+                <span className="shrink-0">🎯 Enter</span>
+                <span className="shrink-0">🆕 New</span>
+                <span className="text-[#4b5563] shrink-0">→</span>
+                <span className="shrink-0">🔒 Hold</span>
+                <span className="shrink-0">🛡 Defend</span>
+                <span className="shrink-0">✂️ Trim</span>
+                <span className="shrink-0">🚪 Exit</span>
+              </div>
+              <div className="px-2 py-1.5 rounded-lg border border-white/[0.04] bg-white/[0.015] flex items-center flex-nowrap gap-x-5 text-[10px] text-[#6b7280] overflow-x-auto">
+                <span className="text-[11px] font-semibold text-white/70 shrink-0">Badges</span>
+                <span className="shrink-0">💎 <span className="text-[#8b95a5]">Prime — meets all quality gates</span></span>
+                <span className="shrink-0">🎯 <span className="text-[#8b95a5]">Entry Zone — price near optimal entry</span></span>
+                <span className="shrink-0">🔥 <span className="text-[#8b95a5]">MoElite — momentum + volume confirmation</span></span>
+                <span className="shrink-0">🧨 <span className="text-[#8b95a5]">Squeeze — volatility squeeze, breakout expected</span></span>
+                <span className="shrink-0">⚡ <span className="text-[#8b95a5]">Release — squeeze released, breakout firing</span></span>
+                <span className="shrink-0">📅 <span className="text-[#8b95a5]">Earnings — within 7 days</span></span>
+              </div>
             </div>
 
             {/* Table */}
@@ -12904,15 +12917,28 @@
 
         return (
           <div>
-            {/* Legend Bar: Badges with descriptions (matches Table View) */}
-            <div className="mb-2 px-2 py-1.5 rounded-lg border border-white/[0.04] bg-white/[0.015] flex items-center flex-nowrap gap-x-5 text-[10px] text-[#6b7280] overflow-x-auto">
-              <span className="text-[11px] font-semibold text-white/70 shrink-0">Badges</span>
-              <span className="shrink-0">💎 <span className="text-[#8b95a5]">Prime — top-quality setup</span></span>
-              <span className="shrink-0">🎯 <span className="text-[#8b95a5]">Entry Zone — actionable window</span></span>
-              <span className="shrink-0">🔥 <span className="text-[#8b95a5]">MoElite — strong momentum</span></span>
-              <span className="shrink-0">🧨 <span className="text-[#8b95a5]">Squeeze — pressure building</span></span>
-              <span className="shrink-0">⚡ <span className="text-[#8b95a5]">Release — breakout firing</span></span>
-              <span className="shrink-0">📅 <span className="text-[#8b95a5]">Earnings — within 7 days</span></span>
+            {/* Legend: Lanes + Badges (Active Trader Cards view) */}
+            <div className="mb-2 space-y-1.5">
+              <div className="px-2 py-1.5 rounded-lg border border-white/[0.04] bg-white/[0.015] flex items-center flex-nowrap gap-x-4 text-[10px] text-[#6b7280] overflow-x-auto">
+                <span className="text-[11px] font-semibold text-white/70 shrink-0">Pipeline</span>
+                <span className="shrink-0">📋 <span className="text-[#8b95a5]">Setup — qualified, awaiting window</span></span>
+                <span className="shrink-0">🎯 <span className="text-[#8b95a5]">Enter — gates clear, will execute</span></span>
+                <span className="shrink-0">🆕 <span className="text-[#8b95a5]">New — just opened today</span></span>
+                <span className="text-[#4b5563] shrink-0">→</span>
+                <span className="shrink-0">🔒 <span className="text-[#8b95a5]">Hold — healthy, let run</span></span>
+                <span className="shrink-0">🛡 <span className="text-[#8b95a5]">Defend — tighten stops</span></span>
+                <span className="shrink-0">✂️ <span className="text-[#8b95a5]">Trim — near TP, take partials</span></span>
+                <span className="shrink-0">🚪 <span className="text-[#8b95a5]">Exit — closed or invalidated</span></span>
+              </div>
+              <div className="px-2 py-1.5 rounded-lg border border-white/[0.04] bg-white/[0.015] flex items-center flex-nowrap gap-x-5 text-[10px] text-[#6b7280] overflow-x-auto">
+                <span className="text-[11px] font-semibold text-white/70 shrink-0">Badges</span>
+                <span className="shrink-0">💎 <span className="text-[#8b95a5]">Prime — meets all quality gates</span></span>
+                <span className="shrink-0">🎯 <span className="text-[#8b95a5]">Entry Zone — price near optimal entry</span></span>
+                <span className="shrink-0">🔥 <span className="text-[#8b95a5]">MoElite — momentum + volume confirmation</span></span>
+                <span className="shrink-0">🧨 <span className="text-[#8b95a5]">Squeeze — volatility squeeze, breakout expected</span></span>
+                <span className="shrink-0">⚡ <span className="text-[#8b95a5]">Release — squeeze released, breakout firing</span></span>
+                <span className="shrink-0">📅 <span className="text-[#8b95a5]">Earnings — within 7 days</span></span>
+              </div>
             </div>
             <div>
               <div className="flex flex-col">
@@ -17314,21 +17340,28 @@
                           selectedTicker ? "lg:mr-[470px]" : ""
                         }`}
                       >
-                        {/* Bubble Chart Legend — single line */}
-                        <div className="px-3 py-1.5 mb-1 rounded-lg border border-white/[0.06] bg-white/[0.02] flex items-center gap-3 text-[10px] text-[#9ca3af] overflow-x-auto flex-nowrap" data-coachmark="bubble-chart">
-                          <span className="font-semibold text-white text-[11px] shrink-0">Bubble Chart</span>
-                          <span className="flex items-center gap-1 shrink-0" title="Long-term trend is bullish"><svg width="10" height="10" viewBox="0 0 10 10"><circle cx="5" cy="5" r="4" fill="rgba(34,211,238,0.5)" stroke="#22d3ee" strokeWidth="0.8"/></svg> Long</span>
-                          <span className="flex items-center gap-1 shrink-0" title="Long-term trend is bearish"><svg width="10" height="10" viewBox="0 0 10 10"><circle cx="5" cy="5" r="4" fill="rgba(225,29,72,0.5)" stroke="#e11d48" strokeWidth="0.8"/></svg> Short</span>
-                          <span className="flex items-center gap-1 shrink-0" title="No clear directional bias"><svg width="10" height="10" viewBox="0 0 10 10"><circle cx="5" cy="5" r="4" fill="rgba(234,179,8,0.4)" stroke="#eab308" strokeWidth="0.8"/></svg> Neutral</span>
-                          <span className="text-[#4b5563] shrink-0">|</span>
-                          <span className="shrink-0" title="X-axis = short-term momentum, Y-axis = long-term trend">X: Momentum · Y: Trend</span>
-                          <span className="shrink-0" title="Bigger bubble = higher risk-to-reward with more upside remaining">Size = R:R</span>
-                          <span className="shrink-0" title="Filled = has scoring data, Dashed outline = awaiting data">Filled = scored</span>
-                          <span className="text-[#4b5563] shrink-0">|</span>
-                          <span className="flex items-center gap-1 shrink-0" title="Pulsing glow = system highlighting for entry or active management"><svg width="10" height="10" viewBox="0 0 10 10"><circle cx="5" cy="5" r="3.5" fill="none" stroke="#22d3ee" strokeWidth="1" opacity="0.6"><animate attributeName="r" values="3;4.5;3" dur="2s" repeatCount="indefinite"/><animate attributeName="opacity" values="0.3;0.7;0.3" dur="2s" repeatCount="indefinite"/></circle></svg> Actionable</span>
-                          <span className="shrink-0" title="High-conviction momentum setup">🔥 MoElite</span>
-                          <span className="shrink-0" title="Price near optimal entry level">🎯 Flip Watch</span>
-                          <span className="flex items-center gap-1 shrink-0" title="Upcoming or recent earnings event (within 7 days)"><svg width="12" height="12" viewBox="0 0 12 12"><circle cx="6" cy="6" r="4.5" fill="none" stroke="#f59e0b" strokeWidth="1.5" strokeDasharray="3 2" opacity="0.7"/></svg> Earnings</span>
+                        {/* Bubble Chart Legend — Analysis view */}
+                        <div className="px-3 py-2 mb-1 rounded-lg border border-white/[0.06] bg-white/[0.02] space-y-1.5" data-coachmark="bubble-chart">
+                          <div className="flex items-center gap-3 text-[10px] text-[#9ca3af] overflow-x-auto flex-nowrap">
+                            <span className="font-semibold text-white text-[11px] shrink-0">Bubble Chart</span>
+                            <span className="flex items-center gap-1 shrink-0" title="Bullish trend — system bias is long"><svg width="10" height="10" viewBox="0 0 10 10"><circle cx="5" cy="5" r="4" fill="rgba(34,211,238,0.5)" stroke="#22d3ee" strokeWidth="0.8"/></svg> Long</span>
+                            <span className="flex items-center gap-1 shrink-0" title="Bearish trend — system bias is short"><svg width="10" height="10" viewBox="0 0 10 10"><circle cx="5" cy="5" r="4" fill="rgba(225,29,72,0.5)" stroke="#e11d48" strokeWidth="0.8"/></svg> Short</span>
+                            <span className="flex items-center gap-1 shrink-0" title="No clear directional bias"><svg width="10" height="10" viewBox="0 0 10 10"><circle cx="5" cy="5" r="4" fill="rgba(234,179,8,0.4)" stroke="#eab308" strokeWidth="0.8"/></svg> Neutral</span>
+                            <span className="text-[#4b5563] shrink-0">|</span>
+                            <span className="shrink-0" title="Right = bullish short-term momentum; Up = bullish long-term trend">X: LTF momentum · Y: HTF trend</span>
+                            <span className="shrink-0" title="Green = long entry zone (top half); Red = short entry zone (bottom half)">Green/Red zones = entry corridors</span>
+                            <span className="shrink-0" title="Bigger = higher R:R with more upside left">Size ∝ R:R × upside</span>
+                            <span className="shrink-0" title="Solid = scored; Dashed = awaiting data">Filled = scored</span>
+                          </div>
+                          <div className="flex items-center gap-3 text-[10px] text-[#9ca3af] overflow-x-auto flex-nowrap">
+                            <span className="text-[#6b7280] shrink-0">Badges:</span>
+                            <span className="flex items-center gap-1 shrink-0" title="System highlighting for entry or active management"><svg width="10" height="10" viewBox="0 0 10 10"><circle cx="5" cy="5" r="3.5" fill="none" stroke="#22d3ee" strokeWidth="1" opacity="0.6"><animate attributeName="r" values="3;4.5;3" dur="2s" repeatCount="indefinite"/><animate attributeName="opacity" values="0.3;0.7;0.3" dur="2s" repeatCount="indefinite"/></circle></svg> Actionable</span>
+                            <span className="shrink-0" title="Momentum elite — strong volume + price confirmation">🔥 MoElite</span>
+                            <span className="shrink-0" title="Price near optimal entry — actionable window">🎯 Flip Watch</span>
+                            <span className="flex items-center gap-1 shrink-0" title="Earnings within 7 days — consider timing"><svg width="12" height="12" viewBox="0 0 12 12"><circle cx="6" cy="6" r="4.5" fill="none" stroke="#f59e0b" strokeWidth="1.5" strokeDasharray="3 2" opacity="0.7"/></svg> Earnings</span>
+                            <span className="text-[#4b5563] shrink-0">|</span>
+                            <span className="shrink-0 text-[#8b95a5]">Upper-right = best longs · Lower-left = best shorts</span>
+                          </div>
                         </div>
                         <div className="h-[600px] sm:h-[700px] md:h-[800px] lg:h-[870px]">
                           {loading && tickers.length === 0 ? (
