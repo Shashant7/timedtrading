@@ -44,6 +44,11 @@ TV Exports/
 # Backfill temp output
 _backfill_tmp.sql
 
+# Replay/generated output
+data/replay-checkpoint.txt
+data/onboard-summary.json
+losing-trades-report.txt
+
 # CloudFlare
 .wrangler/
 wrangler.toml.local
