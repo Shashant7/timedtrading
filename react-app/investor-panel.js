@@ -194,17 +194,60 @@
     if (!health) return React.createElement("div", { className: "card p-4 mb-4" },
       React.createElement("div", { className: "text-[#6b7280] text-sm" }, loading ? "Loading market health…" : "Market health data hasn't been calculated yet. It updates automatically during market hours.")
     );
-    const { score, regime, breadth } = health;
+    const { score, regime, breadth, components, computedAt } = health;
     const color = score >= 70 ? "#10b981" : score >= 45 ? "#f59e0b" : "#ef4444";
+    const fmtTime = (ts) => {
+      if (!ts) return "";
+      const d = new Date(ts);
+      const ago = Math.round((Date.now() - ts) / 60000);
+      if (ago < 60) return `${ago}m ago`;
+      if (ago < 1440) return `${Math.floor(ago / 60)}h ago`;
+      return d.toLocaleDateString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+    };
+    const MetricCell = (label, value, desc, colorFn) => {
+      const v = value ?? 0;
+      const c = colorFn ? colorFn(v) : (v >= 20 ? "#00e676" : v >= 10 ? "#fbbf24" : "#f87171");
+      const w = v >= 20 ? "Strong" : v >= 10 ? "Fair" : "Weak";
+      return React.createElement("div", { key: label, className: "text-center" },
+        React.createElement("div", { className: "text-[10px] text-[#6b7280] uppercase tracking-wide" }, label),
+        React.createElement("div", { className: "flex items-baseline justify-center gap-1" },
+          React.createElement("span", { className: "text-base font-semibold text-white" }, typeof v === "number" ? v : v),
+          (typeof v === "number" && label !== "Long-Term") && React.createElement("span", { className: "text-[10px] font-semibold", style: { color: c } }, w),
+        ),
+        React.createElement("div", { className: "text-[9px] text-[#4b5563] mt-0.5" }, desc),
+      );
+    };
     return React.createElement("div", { className: "card p-4 mb-4 fade-in" },
       React.createElement("div", { className: "flex items-center justify-between mb-1" },
         React.createElement("div", { className: "flex items-center gap-3" },
           React.createElement("h2", { className: "text-sm font-semibold text-white" }, "Market Health"),
           React.createElement(RegimeBadge, { regime }),
         ),
-        React.createElement("span", { className: "text-sm font-bold", style: { color } }, Number.isFinite(score) ? score : "—"),
+        React.createElement("div", { className: "flex items-center gap-2" },
+          React.createElement("span", { className: "text-2xl font-bold", style: { color } }, Number.isFinite(score) ? score : "—"),
+          React.createElement("span", { className: "text-[#6b7280] text-xs" }, "/ 100"),
+        ),
       ),
-      breadth?.pctAboveW200 != null && React.createElement("div", { className: "text-[10px] text-[#6b7280] mt-1" }, `${breadth.pctAboveW200}% above 200-week avg`),
+      React.createElement("div", { className: "text-[11px] text-[#6b7280] mb-2" }, "How healthy is the overall stock market right now? Combines breadth, regime, trend strength, and sector participation."),
+      React.createElement(ScoreBar, { score, color }),
+      React.createElement("div", { className: "grid grid-cols-2 sm:grid-cols-5 gap-3 mt-3" },
+        MetricCell("Participation", components?.breadth, "Stocks above key EMAs", (v) => v >= 20 ? "#00e676" : v >= 10 ? "#fbbf24" : "#f87171"),
+        MetricCell("Market Mode", components?.regimeScore, "SPY/QQQ swing regime", (v) => v >= 20 ? "#00e676" : v >= 10 ? "#fbbf24" : "#f87171"),
+        MetricCell("Trend Strength", components?.trendMomentum, "Weekly structure avg", (v) => v >= 20 ? "#00e676" : v >= 10 ? "#fbbf24" : "#f87171"),
+        MetricCell("Sector Health", components?.sectorHealth, "Bullish sectors count", (v) => v >= 10 ? "#00e676" : v >= 5 ? "#fbbf24" : "#f87171"),
+        React.createElement("div", { key: "lt", className: "text-center" },
+          React.createElement("div", { className: "text-[10px] text-[#6b7280] uppercase tracking-wide" }, "Long-Term"),
+          React.createElement("div", { className: "flex items-baseline justify-center gap-1" },
+            React.createElement("span", { className: "text-base font-semibold text-white" }, breadth?.pctAboveW200 != null ? `${breadth.pctAboveW200}%` : "—"),
+            breadth?.pctAboveW200 != null && React.createElement("span", {
+              className: "text-[10px] font-semibold",
+              style: { color: (breadth.pctAboveW200 >= 60 ? "#00e676" : breadth.pctAboveW200 >= 40 ? "#fbbf24" : "#f87171") },
+            }, breadth.pctAboveW200 >= 60 ? "Healthy" : breadth.pctAboveW200 >= 40 ? "Fair" : "Weak"),
+          ),
+          React.createElement("div", { className: "text-[9px] text-[#4b5563] mt-0.5" }, "Above 200-week avg"),
+        ),
+      ),
+      computedAt && React.createElement("div", { className: "text-[9px] text-[#4b5563] mt-2" }, "Updated ", fmtTime(computedAt)),
     );
   }
 

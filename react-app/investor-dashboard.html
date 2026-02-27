@@ -183,9 +183,9 @@
               React.createElement("span", { className: "text-[#6b7280] text-xs" }, "/ 100"),
             ),
           ),
-          React.createElement("div", { className: "text-[11px] text-[#6b7280] mb-3" }, "How healthy is the overall stock market right now?"),
+          React.createElement("div", { className: "text-[11px] text-[#6b7280] mb-3" }, "How healthy is the overall stock market right now? Combines breadth, regime, trend strength, and sector participation."),
           React.createElement(ScoreBar, { score, color }),
-          React.createElement("div", { className: "grid grid-cols-4 gap-4 mt-3" },
+          React.createElement("div", { className: "grid grid-cols-2 sm:grid-cols-5 gap-4 mt-3" },
             (() => { const v = components?.breadth || 0; const c = v >= 20 ? "#00e676" : v >= 10 ? "#fbbf24" : "#f87171"; const w = v >= 20 ? "Strong" : v >= 10 ? "Fair" : "Weak"; return React.createElement("div", { className: "text-center" },
               React.createElement("div", { className: "text-[10px] text-[#6b7280] uppercase tracking-wide" }, "Participation"),
               React.createElement("div", { className: "flex items-baseline justify-center gap-1" },
@@ -202,7 +202,7 @@
               ),
               React.createElement("div", { className: "text-[9px] text-[#4b5563] mt-0.5" }, "Bullish, cautious, or bearish"),
             ); })(),
-            (() => { const v = components?.trendMomentum || 0; const c = v >= 20 ? "#00e676" : v >= 10 ? "#fbbf24" : "#f87171"; const w = v >= 20 ? "Strong" : v >= 10 ? "Fair" : "Weak"; return React.createElement("div", { className: "text-center" },
+            (() => { const v = components?.trendMomentum || 0; const c = v >= 20 ? "#00e676" : v >= 10 ? "#fbbf24" : "#f87171"; const w = v >= 20 ? "Strong" : v >= 10 ? "Fair" : "Weak"; return React.createElement("div", { key: "ts", className: "text-center" },
               React.createElement("div", { className: "text-[10px] text-[#6b7280] uppercase tracking-wide" }, "Trend Strength"),
               React.createElement("div", { className: "flex items-baseline justify-center gap-1" },
                 React.createElement("span", { className: "text-base font-semibold text-white" }, v),
@@ -210,7 +210,15 @@
               ),
               React.createElement("div", { className: "text-[9px] text-[#4b5563] mt-0.5" }, "Trending up or losing steam"),
             ); })(),
-            (() => { const v = breadth?.pctAboveW200; const n = Number(v) || 0; const c = n >= 60 ? "#00e676" : n >= 40 ? "#fbbf24" : "#f87171"; const w = n >= 60 ? "Healthy" : n >= 40 ? "Fair" : "Weak"; return React.createElement("div", { className: "text-center" },
+            (() => { const v = components?.sectorHealth || 0; const c = v >= 10 ? "#00e676" : v >= 5 ? "#fbbf24" : "#f87171"; const w = v >= 10 ? "Strong" : v >= 5 ? "Fair" : "Weak"; return React.createElement("div", { key: "sh", className: "text-center" },
+              React.createElement("div", { className: "text-[10px] text-[#6b7280] uppercase tracking-wide" }, "Sector Health"),
+              React.createElement("div", { className: "flex items-baseline justify-center gap-1" },
+                React.createElement("span", { className: "text-base font-semibold text-white" }, v),
+                React.createElement("span", { className: "text-[10px] font-semibold", style: { color: c } }, w),
+              ),
+              React.createElement("div", { className: "text-[9px] text-[#4b5563] mt-0.5" }, "Bullish sectors count"),
+            ); })(),
+            (() => { const v = breadth?.pctAboveW200; const n = Number(v) || 0; const c = n >= 60 ? "#00e676" : n >= 40 ? "#fbbf24" : "#f87171"; const w = n >= 60 ? "Healthy" : n >= 40 ? "Fair" : "Weak"; return React.createElement("div", { key: "lt", className: "text-center" },
               React.createElement("div", { className: "text-[10px] text-[#6b7280] uppercase tracking-wide" }, "Long-Term"),
               React.createElement("div", { className: "flex items-baseline justify-center gap-1" },
                 React.createElement("span", { className: "text-base font-semibold text-white" }, v ? `${v}%` : "—"),
@@ -218,6 +226,16 @@
               ),
               React.createElement("div", { className: "text-[9px] text-[#4b5563] mt-0.5" }, "Above 200-week average"),
             ); })(),
+          ),
+          health?.computedAt && React.createElement("div", { className: "text-[9px] text-[#4b5563] mt-2" },
+            "Updated ",
+            (() => {
+              const ts = health.computedAt;
+              const ago = Math.round((Date.now() - ts) / 60000);
+              if (ago < 60) return `${ago}m ago`;
+              if (ago < 1440) return `${Math.floor(ago / 60)}h ago`;
+              return new Date(ts).toLocaleDateString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+            })(),
           ),
         );
       }

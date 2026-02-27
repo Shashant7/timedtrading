@@ -1,5 +1,12 @@
 # Current Tasks
 
+## Polish Phase [2026-02-26]
+- [x] Fix placeholder XXXX in simulation-dashboard (blurred teaser)
+- [x] Standardize empty states (contextual messages kept)
+- [ ] Consolidate ScoreBar/MarketHealthBar if beneficial
+- [ ] Card/spacing consistency pass
+- [ ] Verify getDailyChange usage everywhere
+
 ## Active: Investor Mode UI Alignment [2026-02-26] ✅
 - [x] Refactor Investor lanes to KanbanColumn-like structure (horizontal scroll, icon, count, color strip)
 - [x] Create Investor cards matching CompactCard styling (280px, glass, consistent layout)
