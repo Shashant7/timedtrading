@@ -2,6 +2,16 @@
 
 Historical candle-based replay for the full universe (Active Trader + Investor), with gap-based backfill and a local control UI.
 
+## Prerequisite: One-Time Historical Backfill
+
+Historical candles must be in D1 before replay. **Run once**:
+
+```bash
+./scripts/backfill-history.sh
+```
+
+This fetches full history for all tickers and all TFs (M, W, D, 240, 60, 30, 10, 5, 1) from TwelveData and stores in `ticker_candles`. After this, backtests will find data ready. Re-run only when adding new tickers or extending the universe.
+
 ## Quick start
 
 **Replay Control UI (recommended)**
@@ -45,7 +55,7 @@ Status and a live log tail refresh every few seconds.
 
 1. **Lock** — Acquires a replay lock (KV) so only one run is active.
 2. **Reset** — Clears trade state (D1 + KV): `trades`, `account_ledger`, `investor_positions`, `investor_lots`, `portfolio_snapshots`, and related keys. Candles in `ticker_candles` are **not** cleared.
-3. **Backfill (gap-based)** — Calls `GET /timed/admin/candle-gaps?startDate=...&endDate=...`. If `allClear` is true, skips backfill. Otherwise backfills only tickers with missing candle coverage (same universe as replay, ~152).
+3. **Backfill (gap-based)** — Calls `GET /timed/admin/candle-gaps?startDate=...&endDate=...`. If `allClear` is true, skips backfill. Otherwise backfills only tickers with missing candle coverage. **Run `./scripts/backfill-history.sh` once** to avoid gaps; then this step typically skips.
 4. **Replay** — For each trading day in range (skips weekends and listed holidays), calls `POST /timed/admin/candle-replay` in batches (e.g. 15 tickers per batch). At end of each day: runs investor daily replay and snapshots both portfolios (unless `--trader-only` or `--sequence`; then day state is saved to KV for investor-only backfill).
 5. **Sequence (optional)** — If `--sequence` was used, after the replay loop the script runs an investor-only pass: for each day it calls `POST /timed/admin/investor-replay?date=...` using the saved day state. No candles are loaded again.
 6. **Checkpoint** — After each day, writes `data/replay-checkpoint.txt` (next date, end date, batch size) so you can resume with `--resume`.

@@ -131,6 +131,10 @@ export async function tdFetchTimeSeries(env, symbols, interval, start, end = nul
         result[ourSym] = symData.values.map(tdBarToAlpacaBar);
       }
     }
+    // TwelveData PRO: 8 req/min → 8s between requests
+    if (i + BATCH < filtered.length) {
+      await new Promise((r) => setTimeout(r, 8000));
+    }
   }
 
   return { bars: result };

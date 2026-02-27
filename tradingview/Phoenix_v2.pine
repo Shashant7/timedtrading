@@ -297,7 +297,7 @@ entriesWindowOK = (not useDayTimeFilter) or (dayOK and timeOK)
 groupCore  = "ENTRY: B) Core EMAs & ATR"
 
 
-emaFastLen  = input.int(4,  "Fast EMA",          group=groupCore)
+emaFastLen  = input.int(5,  "Fast EMA",          group=groupCore, tooltip="5 EMA on Daily = bias/continuation. 13/48 on LTF = timing.")
 emaSlowLen  = input.int(48, "Slow EMA",          group=groupCore)
 emaMidLen   = input.int(13, "Mid EMA (context)", group=groupCore)
 exitEmaLen  = input.int(7,  "Exit EMA (exits)",  group=groupCore)
@@ -1368,7 +1368,7 @@ var bool nearBearLead = false
 nearBullLead := tdxGateLeadEntries and (_tdx_bull_lead_e >= (tdxLeadLen - tdxLeadBlockWindow))
 nearBearLead := tdxGateLeadEntries and (_tdx_bear_lead_e >= (tdxLeadLen - tdxLeadBlockWindow))
 
-// Crosses - Primary 4/48 EMA
+// Crosses - Primary 5/48 EMA (Daily: bias/continuation; LTF: timing)
 crossUp_FastSlow  = ta.crossover(emaFast, emaSlow)
 crossDn_FastSlow  = ta.crossunder(emaFast, emaSlow)
 crossAny_FastSlow = ta.cross(emaFast, emaSlow)

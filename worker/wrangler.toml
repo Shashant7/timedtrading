@@ -1,7 +1,6 @@
 name = "timed-trading-ingest"
 main = "index.js"
 compatibility_date = "2024-01-01"
-usage_model = "unbound"
 
 # Top-level bindings (used when deploying without --env flag)
 [[kv_namespaces]]
@@ -85,7 +84,6 @@ crons = [
 [env.production]
 name = "timed-trading-ingest"
 main = "index.js"
-usage_model = "unbound"
 # Note: workers.dev subdomains don't need route configuration
 # Routes are only needed for custom domains
 # The worker is automatically available at: timed-trading-ingest.shashant.workers.dev

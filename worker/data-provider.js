@@ -26,7 +26,7 @@ import {
 } from "./twelvedata.js";
 
 function getProvider(env) {
-  return (env?.DATA_PROVIDER || "alpaca").toLowerCase();
+  return (env?.DATA_PROVIDER || "twelvedata").toLowerCase();
 }
 
 function isUltra(env) {
@@ -394,18 +394,22 @@ export async function cronFetchCrypto(env) {
 // Returns null when provider is Alpaca (caller uses legacy path).
 // ═══════════════════════════════════════════════════════════════════════════════
 
-const BACKFILL_TFS = ["M", "W", "D", "240", "60", "30", "10", "5"];
+// Match REPLAY_TFS — 5m used only by live cron (rolling), not backtest
+const BACKFILL_TFS = ["M", "W", "D", "240", "60", "30", "10"];
 
 const DEEP_START_DAYS = {
-  "M": 365 * 10, "W": 365 * 6, "D": 450, "240": 200,
-  "60": 140, "30": 140, "10": 140, "5": 140,
+  "M": 365 * 10, "W": 365 * 6, "D": 450, "240": 450,
+  "60": 450, "30": 450, "10": 450,
 };
 
-export async function backfill(env, tickers, tfKey = "all", sinceDays = null) {
+export async function backfill(env, tickers, tfKey = "all", opts = null) {
   if (getProvider(env) !== "twelvedata") return null;
 
   const db = env?.DB;
   if (!db) return { ok: false, error: "no_db_binding" };
+
+  const optsObj = typeof opts === "object" && opts !== null ? opts : { sinceDays: opts };
+  const { sinceDays, startDate: startDateStr, endDate: endDateStr } = optsObj;
 
   const tfsToBackfill = tfKey === "all" ? BACKFILL_TFS : [tfKey];
   let totalUpserted = 0, totalErrors = 0;
@@ -428,8 +432,14 @@ export async function backfill(env, tickers, tfKey = "all", sinceDays = null) {
 
   for (let tfIdx = 0; tfIdx < tfsToBackfill.length; tfIdx++) {
     const tf = tfsToBackfill[tfIdx];
-    const daysBack = sinceDays || DEEP_START_DAYS[tf] || 140;
-    const start = new Date(now - daysBack * DAY_MS).toISOString();
+    let start, end = null;
+    if (startDateStr && endDateStr) {
+      start = new Date(startDateStr + "T00:00:00Z").toISOString();
+      end = new Date(endDateStr + "T23:59:59Z").toISOString();
+    } else {
+      const daysBack = sinceDays || DEEP_START_DAYS[tf] || 140;
+      start = new Date(now - daysBack * DAY_MS).toISOString();
+    }
     let tfUpserted = 0, tfErrors = 0;
 
     await updateProgress({
@@ -442,7 +452,7 @@ export async function backfill(env, tickers, tfKey = "all", sinceDays = null) {
     // Crypto
     if (cryptoTickers.length > 0) {
       try {
-        const result = await fetchCryptoBars(env, cryptoTickers, tf, start, null, 10000);
+        const result = await fetchCryptoBars(env, cryptoTickers, tf, start, end, 10000);
         if (result?.bars) {
           const { upserted, errors } = await _batchUpsertBars(db, result.bars, tf);
           tfUpserted += upserted;
@@ -458,7 +468,7 @@ export async function backfill(env, tickers, tfKey = "all", sinceDays = null) {
     for (let i = 0; i < stockTickers.length; i += 8) {
       const batch = stockTickers.slice(i, i + 8);
       try {
-        const result = await fetchAllBars(env, batch, tf, start, null, 5000);
+        const result = await fetchAllBars(env, batch, tf, start, end, 5000);
         if (result?.bars) {
           const { upserted, errors } = await _batchUpsertBars(db, result.bars, tf);
           tfUpserted += upserted;
@@ -468,9 +478,9 @@ export async function backfill(env, tickers, tfKey = "all", sinceDays = null) {
         tfErrors++;
         console.warn(`[TD BACKFILL] TF ${tf} batch error:`, String(e).slice(0, 200));
       }
-      // Rate-limit pacing
+      // TwelveData PRO: 8 req/min. 8s between batches keeps us under limit.
       if (i + 8 < stockTickers.length) {
-        await new Promise(r => setTimeout(r, 800));
+        await new Promise(r => setTimeout(r, 8000));
       }
     }
 

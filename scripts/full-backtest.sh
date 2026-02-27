@@ -126,15 +126,14 @@ else
   echo "Total tickers in universe: $TOTAL_TICKERS"
   echo ""
 
-  # ─── Step 1.5: Backfill candle data from Alpaca ───────────────────────────
-  START_EPOCH=$(date -j -f "%Y-%m-%d" "$START_DATE" "+%s" 2>/dev/null || date -d "$START_DATE" "+%s")
-  NOW_EPOCH=$(date "+%s")
-  SINCE_DAYS=$(( (NOW_EPOCH - START_EPOCH) / 86400 + 60 ))
+  # ─── Step 1.5: Backfill candle data ─────────────────────────────────────────
+  # Backfill from 60 days before start (EMA/indicator warm-up) through end date
+  BF_START_DATE=$(date -j -v-60d -f "%Y-%m-%d" "$START_DATE" "+%Y-%m-%d" 2>/dev/null || date -d "$START_DATE 60 days ago" "+%Y-%m-%d" 2>/dev/null || echo "$START_DATE")
   BF_BATCH=3
 
-  echo "Step 1.5: Checking candle coverage (gap detection)..."
+  echo "Step 1.5: Checking candle coverage (gap detection, range $BF_START_DATE → $END_DATE)..."
   GAP_RESULT=$(curl -s -m 120 \
-    "$API_BASE/timed/admin/candle-gaps?startDate=$START_DATE&endDate=$END_DATE&key=$API_KEY" 2>&1)
+    "$API_BASE/timed/admin/candle-gaps?startDate=$BF_START_DATE&endDate=$END_DATE&key=$API_KEY" 2>&1)
   GAP_OK=$(echo "$GAP_RESULT" | jq -r '.ok // false' 2>/dev/null || echo "false")
   ALL_CLEAR=$(echo "$GAP_RESULT" | jq -r '.allClear // false' 2>/dev/null || echo "false")
   TICKERS_WITH_GAPS=$(echo "$GAP_RESULT" | jq -r '.tickersWithGaps // 0' 2>/dev/null || echo "0")
@@ -188,7 +187,7 @@ else
         IFS=',' read -ra BTICKERS <<< "$BATCH_TICKERS"
         for BF_TICKER in "${BTICKERS[@]}"; do
           BF_RESULT=$(curl -s -m 600 -X POST \
-            "$API_BASE/timed/admin/alpaca-backfill?sinceDays=$SINCE_DAYS&tf=all&ticker=$BF_TICKER&key=$API_KEY" 2>&1)
+            "$API_BASE/timed/admin/alpaca-backfill?startDate=$BF_START_DATE&endDate=$END_DATE&tf=all&ticker=$BF_TICKER&key=$API_KEY" 2>&1)
           UPSERTED=$(echo "$BF_RESULT" | jq -r '.upserted // 0' 2>/dev/null || echo "0")
           BF_ERR=$(echo "$BF_RESULT" | jq -r '.errors // 0' 2>/dev/null || echo "0")
           BATCH_UPSERTED=$((BATCH_UPSERTED + UPSERTED))
@@ -214,7 +213,7 @@ else
         echo -n "  [$BF_ROUND] offset=$BF_OFFSET ($THIS_BATCH tickers)... "
 
         BF_RESULT=$(curl -s -m 600 -X POST \
-          "$API_BASE/timed/admin/alpaca-backfill?sinceDays=$SINCE_DAYS&tf=all&offset=$BF_OFFSET&limit=$THIS_BATCH&key=$API_KEY" 2>&1)
+          "$API_BASE/timed/admin/alpaca-backfill?startDate=$BF_START_DATE&endDate=$END_DATE&tf=all&offset=$BF_OFFSET&limit=$THIS_BATCH&key=$API_KEY" 2>&1)
         BF_OK_INNER=$(echo "$BF_RESULT" | jq -r '.ok // false' 2>/dev/null || echo "false")
         UPSERTED=$(echo "$BF_RESULT" | jq -r '.upserted // 0' 2>/dev/null || echo "0")
         BF_ERRS=$(echo "$BF_RESULT" | jq -r '.errors // 0' 2>/dev/null || echo "0")

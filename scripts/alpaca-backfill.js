@@ -9,7 +9,7 @@
  *   node scripts/alpaca-backfill.js --tickers AXON,TSM,ARM --tf D
  *
  * Environment:
- *   DATA_PROVIDER          - "alpaca" (default) or "twelvedata"
+ *   DATA_PROVIDER          - "twelvedata" (default) or "alpaca"
  *   ALPACA_API_KEY_ID      - Alpaca API Key ID
  *   ALPACA_API_SECRET_KEY  - Alpaca API Secret Key
  *   TWELVEDATA_API_KEY     - TwelveData API Key
@@ -44,15 +44,14 @@ const TF_CONFIGS = {
   "M":   { alpaca: "1Month", td: "1month", daysBack: 365 * 10, limit: 10000, tdSize: 5000 },
   "W":   { alpaca: "1Week",  td: "1week",  daysBack: 365 * 6,  limit: 10000, tdSize: 5000 },
   "D":   { alpaca: "1Day",   td: "1day",   daysBack: 450,       limit: 10000, tdSize: 5000 },
-  "240": { alpaca: "4Hour",  td: "4h",     daysBack: 200,       limit: 10000, tdSize: 5000 },
-  "60":  { alpaca: "1Hour",  td: "1h",     daysBack: 140,       limit: 10000, tdSize: 5000 },
-  "30":  { alpaca: "30Min",  td: "30min",  daysBack: 140,       limit: 10000, tdSize: 5000 },
-  "10":  { alpaca: "10Min",  td: "5min",   daysBack: 140,       limit: 10000, tdSize: 5000, aggregate10m: true },
-  "5":   { alpaca: "5Min",   td: "5min",   daysBack: 140,       limit: 10000, tdSize: 5000 },
-  "1":   { alpaca: "1Min",   td: "1min",   daysBack: 5,         limit: 10000, tdSize: 5000 },
+  "240": { alpaca: "4Hour",  td: "4h",     daysBack: 450,       limit: 10000, tdSize: 5000 },
+  "60":  { alpaca: "1Hour",  td: "1h",     daysBack: 450,       limit: 10000, tdSize: 5000 },
+  "30":  { alpaca: "30Min",  td: "30min",  daysBack: 450,       limit: 10000, tdSize: 5000 },
+  "10":  { alpaca: "10Min",  td: "5min",   daysBack: 450,       limit: 10000, tdSize: 5000, aggregate10m: true },
 };
 
-const TF_ORDER = ["M", "W", "D", "240", "60", "30", "10", "5", "1"];
+// Replay uses M,W,D,240,60,30,10 only. 5m is for live cron (rolling fetch). 1m not used.
+const TF_ORDER = ["M", "W", "D", "240", "60", "30", "10"];
 
 // ═══════════════════════════════════════════════════════════════════════
 // TwelveData helpers
@@ -112,17 +111,27 @@ async function fetchTwelveDataBars(symbols, tfKey, startISO) {
 
     const url = `${TD_BASE}/time_series?${params}`;
     let data;
-    try {
-      const resp = await fetch(url, { signal: AbortSignal.timeout(60000) });
-      if (!resp.ok) {
-        console.error(`  TD HTTP ${resp.status}: ${(await resp.text()).slice(0, 200)}`);
-        continue;
+    for (let retry = 0; retry < 3; retry++) {
+      try {
+        const resp = await fetch(url, { signal: AbortSignal.timeout(60000) });
+        if (resp.status === 429) {
+          const wait = 60000 * (retry + 1);
+          console.warn(`  TD 429 rate limit — waiting ${wait / 1000}s before retry`);
+          await new Promise(r => setTimeout(r, wait));
+          continue;
+        }
+        if (!resp.ok) {
+          console.error(`  TD HTTP ${resp.status}: ${(await resp.text()).slice(0, 200)}`);
+          break;
+        }
+        data = await resp.json();
+        break;
+      } catch (e) {
+        console.error(`  TD fetch error: ${String(e).slice(0, 150)}`);
+        break;
       }
-      data = await resp.json();
-    } catch (e) {
-      console.error(`  TD fetch error: ${String(e).slice(0, 150)}`);
-      continue;
     }
+    if (!data) continue;
 
     function parseBars(values) {
       return values.map(v => {
@@ -152,9 +161,9 @@ async function fetchTwelveDataBars(symbols, tfKey, startISO) {
       }
     }
 
-    // TwelveData rate limit: 8 req/min on Pro — pace requests
+    // TwelveData PRO: 8 req/min (free tier); PRO may be higher. Use 8s to stay under 8 req/min.
     if (i + BATCH < filtered.length) {
-      await new Promise(r => setTimeout(r, 800));
+      await new Promise(r => setTimeout(r, 8000));
     }
   }
 
@@ -313,7 +322,7 @@ async function main() {
   let tfFilter = null;
   let batchSize = 30;
   let tickerFilter = null;
-  let provider = process.env.DATA_PROVIDER || "alpaca";
+  let provider = process.env.DATA_PROVIDER || "twelvedata";
 
   for (let i = 0; i < args.length; i++) {
     if (args[i] === "--tf" && args[i + 1]) tfFilter = args[++i];
@@ -382,7 +391,7 @@ async function main() {
         console.error(`\n    Batch error: ${e.message}`);
       }
 
-      await new Promise(r => setTimeout(r, useTD ? 800 : 200));
+      await new Promise(r => setTimeout(r, useTD ? 8000 : 200));
     }
   }
 

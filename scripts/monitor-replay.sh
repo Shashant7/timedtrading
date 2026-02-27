@@ -28,15 +28,17 @@ count_trading_days() {
   echo "$count"
 }
 
-# Find the log file
+# Find the log file (prefer walk-forward logs from full-backtest, then replay-*.log)
 if [[ -n "$1" && -f "$1" ]]; then
   LOG="$1"
 else
-  LOG=$(ls -t data/replay-*.log 2>/dev/null | head -1)
+  # Walk-forward runs full-backtest and writes to walk-forward-*.log; use most recent
+  LOG=$(ls -t data/walk-forward-*.log data/replay-*.log 2>/dev/null | head -1)
 fi
 
 if [[ -z "$LOG" || ! -f "$LOG" ]]; then
   echo -e "${RED}No replay log found. Run the backtest first or pass a logfile path.${NC}"
+  echo -e "${DIM}  e.g. ./scripts/monitor-replay.sh data/walk-forward-YYYYMMDD-HHMMSS.log${NC}"
   exit 1
 fi
 
@@ -76,8 +78,9 @@ while true; do
 
   # Parse progress from log
   LAST_DAY=$(grep "^=== Processing " "$LOG" | tail -1 | sed 's/=== Processing \(.*\) ===/\1/')
-  DAYS_STARTED=$(grep -c "^=== Processing " "$LOG" 2>/dev/null || echo "0")
-  DAYS_COMPLETED=$(grep -c "Day complete:" "$LOG" 2>/dev/null || echo "0")
+  # grep -c exits 1 when 0 matches; avoid || echo "0" which doubles output to "0\n0"
+  DAYS_STARTED=$(grep -c "^=== Processing " "$LOG" 2>/dev/null || true); DAYS_STARTED=${DAYS_STARTED:-0}
+  DAYS_COMPLETED=$(grep -c "Day complete:" "$LOG" 2>/dev/null || true); DAYS_COMPLETED=${DAYS_COMPLETED:-0}
 
   # Sum trades and scores from "Day complete:" lines
   TOTAL_TRADES=$(grep "Day complete:" "$LOG" | grep -o 'trades=[0-9]*' | grep -o '[0-9]*' | paste -sd+ - | bc 2>/dev/null || echo "0")
@@ -86,7 +89,7 @@ while true; do
   TOTAL_OPEN=$(grep "Day complete:" "$LOG" | tail -1 | grep -o 'total=[0-9]*' | grep -o '[0-9]*' || echo "?")
 
   LAST_BATCH=$(grep "  batch \|  scored=" "$LOG" | tail -1)
-  RETRY_COUNT=$(grep -c "attempt.*failed\|retrying" "$LOG" 2>/dev/null || echo "0")
+  RETRY_COUNT=$(grep -c "attempt.*failed\|retrying" "$LOG" 2>/dev/null || true); RETRY_COUNT=${RETRY_COUNT:-0}
 
   # Elapsed time
   NOW_EPOCH=$(date "+%s")

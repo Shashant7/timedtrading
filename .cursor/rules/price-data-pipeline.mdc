@@ -6,7 +6,7 @@ alwaysApply: true
 # Price Data Pipeline
 
 ## Data Provider: TwelveData
-- Primary provider is TwelveData (`DATA_PROVIDER=twelvedata`). Alpaca is used for execution and historical backfill.
+- Primary provider is TwelveData (`DATA_PROVIDER=twelvedata`). Use TwelveData wherever possible: price feed, quotes, historical bars, backfill. Alpaca is used for execution and as fallback when TwelveData is unavailable.
 - `parseTdQuote()` in `worker/twelvedata.js` MUST parse all native fields from `/quote?prepost=true`: `change`, `percent_change`, `extended_change`, `extended_percent_change`, `extended_price`, `is_market_open`.
 - Price feed cron jobs MUST prefer TwelveData's native change fields over manual `price - prevClose` computation.
 

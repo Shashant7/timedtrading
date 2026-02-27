@@ -1926,23 +1926,48 @@ export function computeSwingRegime(dailyBars, weeklyBars) {
 /**
  * Per-TF bias: continuous score from -1.0 (bearish) to +1.0 (bullish).
  * Uses all available bundle signals instead of a single EMA cross.
+ * For Daily: prioritizes 5/48 EMA cross + ST slope (bias/continuation).
+ * For LTF: uses 13/48 for timing.
  */
-function computeTfBias(b, signalW = null) {
+function computeTfBias(b, signalW = null, isDaily = false) {
   const sw = signalW || {};
   const wEmaCross    = Number(sw.ema_cross)     || 0.15;
+  const wEma5_48     = Number(sw.ema5_48)       || (isDaily ? 0.20 : 0); // Daily: 5/48 cross gets extra weight
+  const wStSlope     = Number(sw.st_slope)      || (isDaily ? 0.15 : 0.08); // ST sloping = continuation
   const wSuperTrend  = Number(sw.supertrend)    || 0.25;
   const wEmaStruct   = Number(sw.ema_structure) || 0.25;
   const wEmaDepth    = Number(sw.ema_depth)     || 0.20;
-  const wRsi         = Number(sw.rsi)           || 0.15;
+  const wRsi         = Number(sw.rsi)            || 0.15;
 
   let score = 0, weight = 0;
   const signals = {};
 
-  if (isFinite(b.e13) && isFinite(b.e48)) {
+  // EMA cross: Daily uses 5/48 (bias/continuation), LTF uses 13/48 (timing)
+  if (isDaily && isFinite(b.e5) && isFinite(b.e48) && wEma5_48 > 0) {
+    const s = b.e5 > b.e48 ? 1 : -1;
+    score += s * wEma5_48; weight += wEma5_48;
+    signals.ema5_48 = s;
+  }
+  if (!isDaily && isFinite(b.e13) && isFinite(b.e48)) {
     const s = b.e13 > b.e48 ? 1 : -1;
     score += s * wEmaCross; weight += wEmaCross;
     signals.ema_cross = s;
   }
+  if (isDaily && isFinite(b.e13) && isFinite(b.e48)) {
+    // Daily: 13/48 as confirmation (regime: 5>48 AND 13>21)
+    const s = b.e13 > b.e48 ? 1 : -1;
+    score += s * wEmaCross; weight += wEmaCross;
+    signals.ema_cross = s;
+  }
+
+  // ST slope: sloping in trend direction = strong continuation (Daily gets higher weight)
+  const stSlopeAlign = (b.stDir === -1 && b.stSlopeUp) || (b.stDir === 1 && b.stSlopeDn);
+  if (stSlopeAlign && wStSlope > 0) {
+    const s = b.stDir === -1 ? 1 : -1;
+    score += s * wStSlope; weight += wStSlope;
+    signals.st_slope = s;
+  }
+
   if (b.stDir === -1 || b.stDir === 1) {
     const s = b.stDir === -1 ? 1 : -1;
     score += s * wSuperTrend; weight += wSuperTrend;
@@ -1968,15 +1993,16 @@ function computeTfBias(b, signalW = null) {
 }
 
 export function computeSwingConsensus(bundles, regime = null, tfWeights = null, signalWeights = null) {
-  const DEFAULT_WEIGHTS = { "10": 1, "30": 1, "60": 1, "240": 1, "D": 1 };
+  // Daily gets higher weight: 5/48 cross + ST slope = strong bias/continuation
+  const DEFAULT_WEIGHTS = { "10": 1, "30": 1, "60": 1, "240": 1, "D": 1.5 };
   const w = tfWeights && typeof tfWeights === "object" ? { ...DEFAULT_WEIGHTS, ...tfWeights } : DEFAULT_WEIGHTS;
 
   const TFS = [
-    { key: "10",  label: "10m", b: bundles?.["10"] },
-    { key: "30",  label: "30m", b: bundles?.["30"] },
-    { key: "60",  label: "1H",  b: bundles?.["60"] },
-    { key: "240", label: "4H",  b: bundles?.["240"] },
-    { key: "D",   label: "D",   b: bundles?.D },
+    { key: "10",  label: "10m", b: bundles?.["10"], isDaily: false },
+    { key: "30",  label: "30m", b: bundles?.["30"], isDaily: false },
+    { key: "60",  label: "1H",  b: bundles?.["60"], isDaily: false },
+    { key: "240", label: "4H",  b: bundles?.["240"], isDaily: false },
+    { key: "D",   label: "D",   b: bundles?.D, isDaily: true },
   ];
 
   let bullishCount = 0;
@@ -1987,14 +2013,15 @@ export function computeSwingConsensus(bundles, regime = null, tfWeights = null, 
   let freshestCrossTf = null;
   let freshestCrossAge = Infinity;
 
-  for (const { key, label, b } of TFS) {
+  for (const { key, label, b, isDaily } of TFS) {
     const tfW = Number(w[key]) || 1;
-    if (!b || !Number.isFinite(b.e13) || !Number.isFinite(b.e48)) {
+    const hasEma = (isDaily && Number.isFinite(b?.e5) && Number.isFinite(b?.e48)) || (Number.isFinite(b?.e13) && Number.isFinite(b?.e48));
+    if (!b || !hasEma) {
       tfStack.push({ tf: label, bias: "unknown", biasScore: 0, weight: tfW, signals: {}, crossAge: null, crossDir: null });
       continue;
     }
 
-    const { bias: biasScore, signals } = computeTfBias(b, signalWeights);
+    const { bias: biasScore, signals } = computeTfBias(b, signalWeights, isDaily);
 
     totalWeight += tfW;
     totalBiasWeighted += biasScore * tfW;
@@ -2003,11 +2030,16 @@ export function computeSwingConsensus(bundles, regime = null, tfWeights = null, 
     if (bullish) bullishCount++;
     else bearishCount++;
 
-    const crossUp = b.emaCross13_48_up || false;
-    const crossDn = b.emaCross13_48_dn || false;
+    // Daily: prefer 5/48 cross; LTF: use 13/48 cross
+    const crossUp = isDaily ? (b.emaCross5_48_up || b.emaCross13_48_up) : b.emaCross13_48_up;
+    const crossDn = isDaily ? (b.emaCross5_48_dn || b.emaCross13_48_dn) : b.emaCross13_48_dn;
     const crossDir = crossUp ? "up" : crossDn ? "down" : null;
 
-    const crossTs = crossUp ? b.emaCross13_48_up_ts : crossDn ? b.emaCross13_48_dn_ts : 0;
+    const crossTs = crossUp
+      ? (b.emaCross5_48_up_ts || b.emaCross13_48_up_ts || 0)
+      : crossDn
+        ? (b.emaCross5_48_dn_ts || b.emaCross13_48_dn_ts || 0)
+        : 0;
     const crossAge = (crossTs > 0 && b.lastTs > 0) ? Math.max(0, b.lastTs - crossTs) : null;
 
     if (crossTs > 0 && crossAge !== null && crossAge < freshestCrossAge) {
@@ -2634,12 +2666,16 @@ export function assembleTickerData(ticker, bundles, existingData = null, opts = 
       return null;
     })();
 
+    // Price vs 21 EMA: required for entry guards (LONG: price above 21 EMA, SHORT: price below)
+    const priceAboveEma21 = Number.isFinite(b.px) && Number.isFinite(b.e21) ? b.px >= b.e21 : null;
+
     tfTech[tfLabel] = {
       ema: {
         stack: b.emaStack,
         depth: b.emaDepth || 0,
         structure: Math.round((b.emaStructure || 0) * 1000) / 1000,
         momentum: Math.round((b.emaMomentum || 0) * 1000) / 1000,
+        priceAboveEma21,
       },
       atr: atrBand ? { ...atrBand, ...(atrCross || {}) } : (atrCross || undefined),
       sq: { s: b.sqOn ? 1 : 0, r: b.sqRelease ? 1 : 0, c: b.compressed ? 1 : 0 },
@@ -3919,12 +3955,15 @@ export async function alpacaCronFetchLatest(env, allTickers, upsertCandle) {
  * @param {string[]} tickers
  * @param {object|Function} _unused - DEPRECATED: previously upsertCandle callback, now ignored
  * @param {string} tfKey - single timeframe to backfill (or "all")
- * @param {number} [sinceDays] - if set, backfill only the previous N calendar days (default: deep history)
+ * @param {number|object} [opts] - sinceDays (number) or { sinceDays, startDate, endDate } for explicit range
  * @returns {Promise<object>}
  */
-export async function alpacaBackfill(env, tickers, _unused, tfKey = "all", sinceDays = null) {
+export async function alpacaBackfill(env, tickers, _unused, tfKey = "all", opts = null) {
   const db = env?.DB;
   if (!db) return { ok: false, error: "no_db_binding" };
+
+  const optsObj = typeof opts === "object" && opts !== null ? opts : { sinceDays: opts };
+  const { sinceDays, startDate: startDateStr, endDate: endDateStr } = optsObj;
 
   const tfsToBackfill = tfKey === "all" ? CRON_FETCH_TFS : [tfKey];
   let totalUpserted = 0;
@@ -3946,11 +3985,15 @@ export async function alpacaBackfill(env, tickers, _unused, tfKey = "all", since
   const now = new Date();
   const DAY_MS = 24 * 60 * 60 * 1000;
 
-  // When sinceDays is set (e.g. 297), use a single start date for all TFs.
-  // Otherwise use deep-history start dates per TF.
+  // When startDate/endDate provided, use explicit range. Else when sinceDays set, use lookback. Else deep history.
   const tradingCalDays = (bars, barMinutes) => Math.ceil(bars * barMinutes / 390 * 7 / 5) + 5;
-  let startDates;
-  if (typeof sinceDays === "number" && sinceDays > 0) {
+  let startDates, endDates = null;
+  if (startDateStr && endDateStr) {
+    const start = new Date(startDateStr + "T00:00:00Z").toISOString();
+    const end = new Date(endDateStr + "T23:59:59Z").toISOString();
+    startDates = { "M": start, "W": start, "D": start, "240": start, "60": start, "30": start, "10": start };
+    endDates = { "M": end, "W": end, "D": end, "240": end, "60": end, "30": end, "10": end };
+  } else if (typeof sinceDays === "number" && sinceDays > 0) {
     const start = new Date(now.getTime() - sinceDays * DAY_MS).toISOString();
     startDates = { "M": start, "W": start, "D": start, "240": start, "60": start, "30": start, "10": start };
   } else {
@@ -3979,6 +4022,7 @@ export async function alpacaBackfill(env, tickers, _unused, tfKey = "all", since
   for (let tfIdx = 0; tfIdx < tfsToBackfill.length; tfIdx++) {
     const tf = tfsToBackfill[tfIdx];
     const start = startDates[tf];
+    const end = endDates?.[tf] ?? null;
     if (!start) continue;
     const batchSize = getBatchSize(tf);
     let tfUpserted = 0;
@@ -4001,7 +4045,7 @@ export async function alpacaBackfill(env, tickers, _unused, tfKey = "all", since
     // Backfill crypto tickers first (separate endpoint)
     if (cryptoTickers.length > 0) {
       try {
-        const cryptoBars = await alpacaFetchCryptoBars(env, cryptoTickers, tf, start, null, 10000);
+        const cryptoBars = await alpacaFetchCryptoBars(env, cryptoTickers, tf, start, end, 10000);
         const stmts = [];
         const updatedAt = Date.now();
         for (const [sym, bars] of Object.entries(cryptoBars)) {
@@ -4041,7 +4085,7 @@ export async function alpacaBackfill(env, tickers, _unused, tfKey = "all", since
     for (let i = 0; i < stockTickers.length; i += batchSize) {
       const batch = stockTickers.slice(i, i + batchSize);
       try {
-        const allBars = await alpacaFetchAllBars(env, batch, tf, start, null, 10000);
+        const allBars = await alpacaFetchAllBars(env, batch, tf, start, end, 10000);
 
         // Collect all candle INSERT statements for this Alpaca batch
         const stmts = [];

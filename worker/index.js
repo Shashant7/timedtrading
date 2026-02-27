@@ -269,7 +269,7 @@ async function priceStreamStatus(env) {
 
 // ─── Provider-aware stream routing ──────────────────────────────────────
 function _usesTwelveData(env) {
-  return (env?.DATA_PROVIDER || "alpaca").toLowerCase() === "twelvedata";
+  return (env?.DATA_PROVIDER || "twelvedata").toLowerCase() === "twelvedata";
 }
 
 async function dataStreamStart(env, symbols) {
@@ -30313,9 +30313,15 @@ export default {
         if (authFail) return authFail;
 
         const useTD = _usesTwelveData(env);
+        if (useTD && !env.TWELVEDATA_API_KEY) {
+          return sendJSON(
+            { ok: false, error: "data_provider_not_configured", hint: "Set TWELVEDATA_API_KEY for TwelveData backfill" },
+            400, corsHeaders(env, req),
+          );
+        }
         if (!useTD && (!env.ALPACA_API_KEY_ID || !env.ALPACA_API_SECRET_KEY)) {
           return sendJSON(
-            { ok: false, error: "data_provider_not_configured", hint: "Set DATA_PROVIDER and credentials" },
+            { ok: false, error: "data_provider_not_configured", hint: "Set ALPACA credentials or DATA_PROVIDER=twelvedata" },
             400, corsHeaders(env, req),
           );
         }
@@ -30323,6 +30329,8 @@ export default {
         const tfParam = url.searchParams.get("tf") || "all";
         const sinceDaysParam = url.searchParams.get("sinceDays");
         const sinceDays = sinceDaysParam != null && sinceDaysParam !== "" ? Math.max(1, Number(sinceDaysParam) || 30) : null;
+        const startDateParam = url.searchParams.get("startDate") || null;
+        const endDateParam = url.searchParams.get("endDate") || null;
         const tickerParam = normTicker(url.searchParams.get("ticker")) || null;
         const batchOffset = Math.max(0, Number(url.searchParams.get("offset")) || 0);
         const rawLimit = url.searchParams.get("limit");
@@ -30332,10 +30340,11 @@ export default {
           allTickers = allTickers.slice(batchOffset, batchOffset + batchLimit);
         }
 
+        const backfillOpts = { sinceDays, startDate: startDateParam, endDate: endDateParam };
         try {
           const backfillResult = useTD
-            ? await DataProvider.backfill(env, allTickers, tfParam, sinceDays)
-            : await alpacaBackfill(env, allTickers, d1UpsertCandle, tfParam, sinceDays);
+            ? await DataProvider.backfill(env, allTickers, tfParam, backfillOpts)
+            : await alpacaBackfill(env, allTickers, d1UpsertCandle, tfParam, backfillOpts);
           const provider = useTD ? "twelvedata" : "alpaca";
           console.log(`[BACKFILL ${provider}] Done:`, JSON.stringify(backfillResult));
           return sendJSON(

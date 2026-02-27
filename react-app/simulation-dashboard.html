@@ -2106,7 +2106,8 @@
       // Universal Right Rail (shared component from shared-right-rail.js)
       const _fmtUsd = typeof fmtUsd === "function" ? fmtUsd : (v) => (Number.isFinite(Number(v)) ? new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 }).format(Number(v)) : "—");
       const _fmtUsdAbs = typeof fmtUsdAbs === "function" ? fmtUsdAbs : (n) => (Number.isFinite(Number(n)) ? `$${Math.abs(Number(n)).toFixed(2)}` : "—");
-      const TickerDetailRightRail = window.TickerDetailRightRailFactory({
+      const TickerDetailRightRail = (typeof window.TickerDetailRightRailFactory === "function")
+        ? window.TickerDetailRightRailFactory({
         React,
         API_BASE,
         fmtUsd: _fmtUsd,
@@ -2144,7 +2145,8 @@
         getTickerSector,
         normalizeSectorKey,
         sectorKeyToCanonicalName,
-      });
+      })
+        : () => null;
 
       function TradeRow({ trade, tickerData, onTickerClick, onTradeClick }) {
         const pnlColor = trade.pnl >= 0 ? "text-green-400" : "text-red-400";
@@ -7445,6 +7447,19 @@
                     </button>
                   </div>
                 </header>
+
+                {/* Error banners — surface fetch failures so page doesn't appear "stuck" */}
+                {(error || tradesError || (ledgerTrades ?? {}).error) && (
+                  <div className="mb-4 p-4 rounded-lg border border-red-500/30 bg-red-500/10 text-red-400 text-sm">
+                    <strong>Load error:</strong> {error || tradesError || (ledgerTrades ?? {}).error}
+                    <button
+                      onClick={() => { refetch(); refetchTrades(); if (ledgerTrades?.refetch) ledgerTrades.refetch(); }}
+                      className="ml-3 px-2 py-1 rounded bg-red-500/20 hover:bg-red-500/30 text-xs"
+                    >
+                      Retry
+                    </button>
+                  </div>
+                )}
 
                 {/* ═══ Dual-Column Layout: Active Trader | Investor ═══ */}
                 <div className={`${selectedTicker || selectedTrade ? "mr-[470px]" : ""}`}>

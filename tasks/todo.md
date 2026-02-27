@@ -1,5 +1,11 @@
 # Current Tasks
 
+## 22 Losing Trades Fixes [2026-02-27] ✅
+- [x] 1. Stop replay (released lock)
+- [x] 2. Apply entry guards: 21 EMA on 10m (LONG: price above, SHORT: price below)
+- [x] 3. CAT fix: replay entry price now uses 10m candle close (not "freshest" across TFs)
+- [x] 4. Re-run replay for GE, CAT, BABA (July 1, 2025): 0 trades created (guards blocked bad entries)
+
 ## Admin Add/Remove/Update Tickers [2026-02-26] ✅
 - [x] Fix SL/TP display: hide Kijun when >50% from price
 - [x] Backfill reliability: run onboard after Fill Gaps; admin/onboard via requireKeyOrAdmin
@@ -12,17 +18,6 @@
 - [ ] Consolidate ScoreBar/MarketHealthBar if beneficial
 - [ ] Card/spacing consistency pass
 - [ ] Verify getDailyChange usage everywhere
-
-## Investor Research Lanes [2026-02-26] ✅
-- [x] Add research sub-stages: research_on_watch (40-49), research_low (30-39), research_avoid (<30)
-- [x] Add 7 lanes to Action Kanban: Accumulate, Core Hold, Watch, Reduce, On Watch, Low Conviction, Avoid
-- [x] Update investor-panel.js, investor-dashboard.html, shared-right-rail.js
-- [x] Backward compat for legacy "research" stage
-
-## Active: Investor Mode UI Alignment [2026-02-26] ✅
-- [x] Refactor Investor lanes to KanbanColumn-like structure (horizontal scroll, icon, count, color strip)
-- [x] Create Investor cards matching CompactCard styling (280px, glass, consistent layout)
-- [x] Align Investor Right Rail with Active Trader (fixed overlay, 450px, slide-in, same chrome)
 
 ## Backlog
 
@@ -43,13 +38,6 @@
 ---
 
 ## Recently Completed
-- **Guide & Tour Overhaul** [2026-02-25] — Investor first-visit guide (6-step modal + 5-step coachmarks tour), Active Trader guide refresh with platform philosophy and mode distinction, simulation portfolio review guidance, voice rules applied across all onboarding.
-- **Investor Dashboard Overhaul** [2026-02-25] — Full approachability redesign: plain-English labels with pro terms in tooltips, generated summary sentences in Right Rail, color-coded score verdicts (Strong/Mixed/Weak), verdict dots on score breakdown, inline education instead of hidden legends, no "you/your" voice. Bubble Chart legend (Active Trader) collapsed to single line.
-- **Right Rail Tabs Polish** [2026-02-25] — Interpretive Technicals, contextual Journey descriptions, fixed Model tab data source, Scoring Timeline collapsed into milestone groups.
-- **Bubble Chart Legend & Timeline** [2026-02-25] — Redesigned legend with visual examples, collapsed Scoring Timeline into grouped milestones with transition dividers.
-- **Price Consistency Overhaul** [2026-02-25] — Day-roll preservation, frontend merge paths for all price fields, getDailyChange() as single source of truth across all pages (Cards, Right Rail, Trades, Investor Dashboard).
-- **Card Layout Refresh** [2026-02-25] — Improved readability of daily change %, TT badge prominence, SHORT/LONG badge placement, emoji line separation.
-- **Model Calibration Pipeline** [2026-02-19] — Three-artifact calibration system (Move Atlas, Trade Autopsy, Calibration Report) with WFO, SQN, MFE/MAE, IC, Kelly frameworks.
-- **Enrich Consensus + Weekly Card Background** [2026-02-19] — see `archive/todo-enrich-consensus-weekly-cards-20260219.md`
-- **Usage by Feature by User Report** [2026-02-20] — D1 `feature_usage` table; POST /timed/usage; GET /timed/admin/usage-report.
-- **Friday / Holiday awareness in Daily Brief** [2026-02-20] — Calendar context in morning/evening prompts.
+- **Backfill for Backtest** [2026-02-27] — alpaca-backfill now accepts startDate/endDate to target the backtest range. full-backtest.sh backfills from 60 days before start (EMA warm-up) through end. Gap check uses same extended range. Fixes "0 candles" when backtest range was misaligned with sinceDays.
+- **Losing Trades Report** [2026-02-27] — GET /timed/admin/losing-trades-report endpoint + scripts/losing-trades-report.js for manual review (ticker, dates, P&L, signals at entry). Deploy worker before use.
+- **Daily 5/48 EMA + ST Slope Priority** [2026-02-27]
