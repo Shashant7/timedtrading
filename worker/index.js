@@ -32564,7 +32564,7 @@ export default {
       }
 
       if (routeKey === "POST /timed/admin/member-tickers") {
-        const authFail = requireKeyOr401(req, env);
+        const authFail = await requireKeyOrAdmin(req, env);
         if (authFail) return authFail;
         try {
           const body = await req.json();

@@ -69,7 +69,10 @@
               className: `shrink-0 text-[13px] hover:scale-110 transition-transform ${savedTickers?.has(sym) ? "text-amber-400" : "text-[#4b5563] hover:text-amber-300"}`,
               title: savedTickers?.has(sym) ? "Remove from Saved" : "Add to Saved",
             }, savedTickers?.has(sym) ? "\u2733" : "\u2606"),
-            React.createElement("span", { className: "text-[13px] font-bold text-white shrink-0", style: { textShadow: "0 1px 3px rgba(0,0,0,0.8)" } }, sym),
+            React.createElement("div", { className: "flex flex-col min-w-0 shrink" },
+              React.createElement("span", { className: "text-[13px] font-bold text-white shrink-0", style: { textShadow: "0 1px 3px rgba(0,0,0,0.8)" } }, sym),
+              t.companyName && React.createElement("span", { className: "text-[9px] text-[#9ca3af] truncate", title: t.companyName }, t.companyName),
+            ),
             React.createElement("span", {
               className: "inline-flex items-center justify-center px-1.5 py-px rounded text-[9px] font-bold shrink-0 tracking-wide bg-violet-500/40 text-violet-200 border border-violet-400/60",
               style: { textShadow: "0 0 6px rgba(139,92,246,0.5)" },
@@ -126,11 +129,11 @@
 
     return React.createElement("div", { className: "flex items-stretch gap-0 mb-1 kanban-lane" },
       React.createElement("div", {
-        className: "flex flex-col justify-center items-center w-[52px] shrink-0 rounded-l-xl border-l-2 border-t border-b border-t-white/[0.04] border-b-white/[0.04] px-1 py-2",
+        className: "flex flex-col justify-center items-center min-w-[72px] w-[72px] shrink-0 rounded-l-xl border-l-2 border-t border-b border-t-white/[0.04] border-b-white/[0.04] px-1.5 py-2",
         style: { borderLeftColor: color, background: "linear-gradient(180deg, rgba(255,255,255,0.04) 0%, rgba(255,255,255,0.015) 100%)" },
         title: title,
       },
-        React.createElement("span", { className: "text-[11px] font-semibold text-white/90 tracking-wide text-center leading-tight" }, icon, React.createElement("br"), title),
+        React.createElement("span", { className: "text-[11px] font-semibold text-white/90 tracking-wide text-center leading-tight break-words" }, icon, React.createElement("br"), title),
         React.createElement("span", { className: `text-[10px] font-bold tabular-nums mt-0.5 ${count > 0 ? "text-white/80" : "text-[#4b5563]"}` }, count),
       ),
       React.createElement("div", {
@@ -210,13 +213,20 @@
     const [health, setHealth] = useState(null);
     const [loading, setLoading] = useState(true);
     const [memberTickers, setMemberTickers] = useState([]);
+    const [memberTickersLoaded, setMemberTickersLoaded] = useState(false);
     const base = apiBase || "";
 
     useEffect(() => {
-      if (window._ttIsPro || window._ttIsAdmin) return;
+      if (window._ttIsPro || window._ttIsAdmin) {
+        setMemberTickersLoaded(true);
+        return;
+      }
       fetch(`${base}/timed/member-tickers`).then(r => r.json())
-        .then(j => { if (j.ok && Array.isArray(j.tickers)) setMemberTickers(j.tickers.map(s => String(s).toUpperCase())); })
-        .catch(() => {});
+        .then(j => {
+          if (j.ok && Array.isArray(j.tickers)) setMemberTickers(j.tickers.map(s => String(s).toUpperCase()));
+          setMemberTickersLoaded(true);
+        })
+        .catch(() => { setMemberTickersLoaded(true); });
     }, [base]);
 
     const fetchData = useCallback(async () => {
@@ -288,9 +298,12 @@
           _sparkline: mainData?._sparkline || t._sparkline,
         };
       });
-      if (!window._ttIsPro && !window._ttIsAdmin && memberTickers.length > 0) {
-        const allowed = new Set(memberTickers);
-        list = list.filter(t => allowed.has(t.ticker));
+      if (!window._ttIsPro && !window._ttIsAdmin) {
+        if (!memberTickersLoaded) list = [];
+        else if (memberTickers.length > 0) {
+          const allowed = new Set(memberTickers);
+          list = list.filter(t => allowed.has(t.ticker));
+        } else list = [];
       }
       if (searchQuery && searchQuery.trim()) {
         const q = searchQuery.trim().toUpperCase();
@@ -300,7 +313,7 @@
         list = list.filter(t => savedTickers.has(t.ticker));
       }
       return list;
-    }, [scores, memberTickers, tickerData, searchQuery, filterGroup, savedTickers]);
+    }, [scores, memberTickers, memberTickersLoaded, tickerData, searchQuery, filterGroup, savedTickers]);
 
     const actionCount = useMemo(() => allTickers.filter(t => t.stage && t.stage !== "research").length, [allTickers]);
 

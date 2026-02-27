@@ -2104,9 +2104,10 @@ export function classifyVolatilityTier(atr14Daily, price) {
  */
 export function detectFlags(bundles) {
   const flags = {};
+  const b5 = bundles?.["5"];
+  const b10 = bundles?.["10"];
   const b30 = bundles?.["30"];
   const b60 = bundles?.["60"];
-  const b10 = bundles?.["10"];
   const bD = bundles?.["D"];
   const b4H = bundles?.["240"];
 
@@ -2435,6 +2436,7 @@ export function assembleTickerData(ticker, bundles, existingData = null, opts = 
   const b1H = bundles?.["60"];
   const b30 = bundles?.["30"];
   const b10 = bundles?.["10"];
+  const b5 = bundles?.["5"];
 
   // Compute daily anchors for Golden Gate
   let anchors = null;
