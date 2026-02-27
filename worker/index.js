@@ -514,6 +514,7 @@ const ROUTES = [
   ["GET", "/timed/admin/alpaca-status", "GET /timed/admin/alpaca-status"],
   ["GET", "/timed/admin/ingestion-status", "GET /timed/admin/ingestion-status"],
   ["GET", "/timed/admin/backfill-status", "GET /timed/admin/backfill-status"],
+  ["GET", "/timed/admin/losing-trades-report", "GET /timed/admin/losing-trades-report"],
   ["POST", "/timed/admin/refresh-prices", "POST /timed/admin/refresh-prices"],
   ["POST", "/timed/admin/seed-ticker", "POST /timed/admin/seed-ticker"],
   ["POST", "/timed/admin/candle-replay", "POST /timed/admin/candle-replay"],
@@ -2215,6 +2216,25 @@ function qualifiesForEnter(d, asOfTs = null) {
     return { qualifies: false, reason: "multi_tier_choppy", choppyCount, market: marketRegime, sector: sectorRegime, ticker: tickerRegime };
   }
 
+  // ═══════════════════════════════════════════════════════════════════════════
+  // 10m PRICE vs 21 EMA GATE: Never enter LONG if price below 21 EMA on 10m;
+  // never enter SHORT if price above 21 EMA on 10m. (User feedback: GE/BABA bad trades)
+  // EXCEPTION: Daily regime confirmed (ema_regime_daily ±2) — we're buying/selling
+  // a pullback in a strong trend; price can be below/above 21 EMA at the pullback.
+  // ═══════════════════════════════════════════════════════════════════════════
+  const emaRegimeDaily = Number(d?.ema_regime_daily) || 0;
+  const isRegimeConfirmedLong = emaRegimeDaily >= 2 && inferredSide === "LONG";
+  const isRegimeConfirmedShort = emaRegimeDaily <= -2 && inferredSide === "SHORT";
+  if (!isRegimeConfirmedLong && !isRegimeConfirmedShort) {
+    const priceAboveEma21_10m = d?.tf_tech?.["10"]?.ema?.priceAboveEma21;
+    if (priceAboveEma21_10m === false && inferredSide === "LONG") {
+      return { qualifies: false, reason: "price_below_21ema_10m" };
+    }
+    if (priceAboveEma21_10m === true && inferredSide === "SHORT") {
+      return { qualifies: false, reason: "price_above_21ema_10m" };
+    }
+  }
+
   // Ticker profile entry threshold adjustment: raise the bar for mean-revert / extreme-vol tickers
   const _tp = d?._ticker_profile || null;
   const entryThresholdAdj = Number(_tp?.entry_threshold_adj) || 0;
@@ -2332,13 +2352,16 @@ function qualifiesForEnter(d, asOfTs = null) {
   
   // Fuel gate (replaces binary phase gate): continuous 0-100% measure of move exhaustion
   // Phase 1c: tightened fuel minimums (40→45 momentum, 30→35 pullback)
+  // Regime-confirmed (ema_regime_daily ±2): use lower min (25) — strong trend allows pullback entry (CAT)
+  const _regimeForFuel = Number(d?.ema_regime_daily) || 0;
+  const fuelRegimeConfirmed = (_regimeForFuel >= 2 && inferredSide === "LONG") || (_regimeForFuel <= -2 && inferredSide === "SHORT");
   const hasFuelData = d?.fuel != null;
   if (hasFuelData) {
-    const minFuel = isPullback ? 35 : 45;
+    const minFuel = fuelRegimeConfirmed ? 25 : (isPullback ? 35 : 45);
     if (primaryFuel < minFuel) {
       return { qualifies: false, reason: "fuel_exhausted", fuelPct: primaryFuel };
     }
-  } else {
+  } else if (!hasFuelData) {
     // Legacy phase gate — Phase 1c: tightened from 0.60/0.45 to 0.50/0.35
     const maxPhase = isPullback ? 0.50 : 0.35;
     if (Math.abs(phase) > maxPhase) {
@@ -2599,9 +2622,21 @@ function qualifiesForEnter(d, asOfTs = null) {
   const stNotAgainstBear = dailyST?.dir !== "bull" || !dailyST?.aligned;
   // inferredSide already declared at top of function (v3 regime gates)
 
+  // LTF alignment gate: don't enter regime trades when the 10m is strongly running
+  // against you. Wait for intraday momentum to at least stop opposing the trade.
+  // atr.xs only exists after a ST flip; use ema depth+structure as primary signal
+  // since they're always available from the bundle computation.
+  const ltf10mDepth = d?.tf_tech?.["10"]?.ema?.depth ?? 5;
+  const ltf10mStruct = d?.tf_tech?.["10"]?.ema?.structure ?? 0;
+  const ltfStrongBull = ltf10mDepth >= 8 && ltf10mStruct >= 0.5;
+  const ltfStrongBear = ltf10mDepth >= 8 && ltf10mStruct <= -0.5;
+
   // LONG: Confirmed daily EMA regime (5>48 AND 13>21)
   // ST aligned = high confidence, ST not aligned but not aggressively bearish = medium
   if (dailyRegime === 2 && inferredSide !== "SHORT") {
+    if (ltfStrongBear) {
+      return { qualifies: false, reason: "ltf_opposing_long", ltf10mDepth, ltf10mStruct, regime: regimeClass };
+    }
     if (htf >= 5) {
       let conf;
       if (stBullConfirms) {
@@ -2622,6 +2657,9 @@ function qualifiesForEnter(d, asOfTs = null) {
 
   // LONG: Early regime (5>48, 13/21 not yet) — need ST or 4H confirmation
   if (dailyRegime === 1 && inferredSide !== "SHORT") {
+    if (ltfStrongBear) {
+      return { qualifies: false, reason: "ltf_opposing_long", ltf10mDepth, ltf10mStruct, regime: regimeClass };
+    }
     const hasConf = stBullConfirms || regime4H >= 2 || hasStFlipBull || hasEmaCrossBull || hasSqRelease;
     if (htf >= 8 && hasConf) {
       return enrichResult({
@@ -2637,6 +2675,9 @@ function qualifiesForEnter(d, asOfTs = null) {
 
   // SHORT: Confirmed daily EMA regime bearish (5<48 AND 13<21)
   if (dailyRegime === -2 && inferredSide !== "LONG") {
+    if (ltfStrongBull) {
+      return { qualifies: false, reason: "ltf_opposing_short", ltf10mDepth, ltf10mStruct, regime: regimeClass };
+    }
     if (htf <= -5) {
       let conf;
       if (stBearConfirms) {
@@ -2657,6 +2698,9 @@ function qualifiesForEnter(d, asOfTs = null) {
 
   // SHORT: Early regime bearish (5<48, 13>21 still) — need ST or 4H confirmation
   if (dailyRegime === -1 && inferredSide !== "LONG") {
+    if (ltfStrongBull) {
+      return { qualifies: false, reason: "ltf_opposing_short", ltf10mDepth, ltf10mStruct, regime: regimeClass };
+    }
     const hasConf = stBearConfirms || regime4H <= -2 || hasStFlipBull || hasEmaCrossBear || hasSqRelease;
     if (htf <= -8 && hasConf) {
       return enrichResult({
@@ -7544,6 +7588,11 @@ async function processTradeSimulation(
   options = {},
 ) {
   const sym = String(ticker || "").toUpperCase();
+  const _stage = String(tickerData?.kanban_stage || "");
+  const _isEnter = _stage === "enter" || _stage === "enter_now";
+  if (options?.replayBatchContext?.processDebug && _isEnter && options.replayBatchContext.processDebug.length < 2) {
+    options.replayBatchContext.processDebug.push({ sym, at: "entry", stage: _stage, hasEntryPath: !!tickerData?.__entry_path });
+  }
 
   // Watch-only tickers go through scoring + kanban but never generate trades
   if (WATCH_ONLY.has(sym)) {
@@ -7638,7 +7687,12 @@ async function processTradeSimulation(
       // Fall back to state-based direction (momentum, squeeze, etc.)
       direction = stateDirection;
     }
-    if (!direction) return;
+    if (!direction) {
+      if (options?.replayBatchContext?.processDebug && options.replayBatchContext.processDebug.length < 5) {
+        options.replayBatchContext.processDebug.push({ sym, at: "no_direction", entryPath: tickerData?.__entry_path, state: tickerData?.state });
+      }
+      return;
+    }
     
     // ─────────────────────────────────────────────────────────────────────────
     // DIRECTION VALIDATION: Allow intentional mean-reversion entries (gold_short)
@@ -7655,6 +7709,9 @@ async function processTradeSimulation(
     // (e.g., momentum/squeeze entries where direction must align with state)
     const directionMismatch = stateDirection && direction !== stateDirection && !hasIntentionalEntryPath;
     if (directionMismatch) {
+      if (options?.replayBatchContext?.processDebug && options.replayBatchContext.processDebug.length < 8) {
+        options.replayBatchContext.processDebug.push({ sym, at: "dir_mismatch", direction, stateDirection, entryPath, state: tickerData?.state });
+      }
       console.log(`[DIRECTION_MISMATCH] ${sym}: entryPath=${entryPath} suggests ${direction}, but state=${tickerData.state} suggests ${stateDirection}. Blocking entry.`);
       return { skipped: true, reason: `direction_mismatch: ${direction} vs ${stateDirection}` };
     }
@@ -7787,9 +7844,17 @@ async function processTradeSimulation(
     const now = (isReplay && Number.isFinite(asOfMs) && asOfMs > 0) ? asOfMs : Date.now();
 
     // Portfolio (cash gating + bookkeeping)
-    let portfolio = isReplay
-      ? { cash: await d1GetLedgerBalance(env, "trader"), startCash: PORTFOLIO_START_CASH }
-      : await getPortfolioState(KV);
+    // Replay: skip D1 ledger read (expensive, can fail); use start cash so trades are allowed
+    let portfolio;
+    if (isReplay) {
+      portfolio = { cash: PORTFOLIO_START_CASH, startCash: PORTFOLIO_START_CASH };
+    } else {
+      try {
+        portfolio = await getPortfolioState(KV);
+      } catch (portErr) {
+        portfolio = { cash: 0, startCash: 0 };
+      }
+    }
 
     const stageTransition = stage && stage !== prevStage;
     // IMPORTANT:
@@ -7799,6 +7864,9 @@ async function processTradeSimulation(
     // prevent churn / duplicate entries).
     // Support both new "enter" stage and legacy "enter_now" stage
     const isEnter = stage === "enter" || stage === "enter_now";
+    if (isReplay && isEnter && replayCtx?.processDebug && replayCtx.processDebug.length < 4) {
+      replayCtx.processDebug.push({ sym, at: "isEnter", stage, storedStage });
+    }
     // DEBUG: Log stage computation
     if (isReplay && (stage === "enter" || stage === "enter_now")) {
       console.log(`[REPLAY_ENTER_CHECK] ${sym} stage=${stage} storedStage=${storedStage} recomputedStage=${recomputedStage} isEnter=${isEnter} entryPath=${tickerData?.__entry_path}`);
@@ -7818,9 +7886,15 @@ async function processTradeSimulation(
     // In replay mode: use in-memory Map from replayCtx.execStates (persists across intervals)
     // In live mode: use KV storage
     const execKey = `timed:exec:last:${sym}`;
-    const execState = isReplay
-      ? (replayCtx?.execStates?.get(sym) || {})
-      : (await kvGetJSON(KV, execKey)) || {};
+    let execState;
+    if (isReplay) {
+      execState = replayCtx?.execStates?.get(sym) || {};
+      if (isEnter && replayCtx?.processDebug && replayCtx.processDebug.length < 2) {
+        replayCtx.processDebug.push({ sym, at: "post_exec" });
+      }
+    } else {
+      execState = (await kvGetJSON(KV, execKey)) || {};
+    }
     const lastEnterMs = Number(execState.lastEnterMs);
     const lastTrimMs = Number(execState.lastTrimMs);
     const lastExitMs = Number(execState.lastExitMs);
@@ -8452,6 +8526,15 @@ async function processTradeSimulation(
     // During replay, use the simulation time to check RTH.
     const entryTimeRef = isReplay && Number.isFinite(asOfMs) ? new Date(asOfMs) : new Date();
     const outsideRTH = !isNyRegularMarketOpen(entryTimeRef);
+    // Declare early so pre_gate diagnostic can reference; smart gates populate below
+    let smartGateBlocked = false;
+    let smartGateReason = null;
+    if (isReplay && isEnter && replayCtx?.processDebug && replayCtx.processDebug.length < 2) {
+      replayCtx.processDebug.push({ sym, at: "after_rth", outsideRTH });
+    }
+    if (isReplay && isEnter && replayCtx?.processDebug && replayCtx.processDebug.length < 12) {
+      replayCtx.processDebug.push({ sym, at: "pre_gate", weekendNow, outsideRTH, enterCooldownOk, sameEnterCycle, openTrade: !!openTrade, smartGateBlocked });
+    }
 
     // ═══════════════════════════════════════════════════════════════════════════
     // Phase 4a/4b/4c: FUSE EXIT ENGINE — Swing-adapted exit system
@@ -8835,10 +8918,11 @@ async function processTradeSimulation(
       : tickerRegimeClass === "TRANSITIONAL" ? 4 : 6;
     const MAX_DAILY_ENTRIES = regimeDailyMax;
     
-    let smartGateBlocked = false;
-    let smartGateReason = null;
     const db = env?.DB;
     const canRunSmartGates = isEnter && !weekendNow && !outsideRTH && enterCooldownOk && !sameEnterCycle && !openTrade && (db || isReplay);
+    if (isReplay && isEnter && replayCtx?.processDebug && replayCtx.processDebug.length < 8) {
+      replayCtx.processDebug.push({ sym, at: "before_smart", weekendNow, outsideRTH, canRun: !!canRunSmartGates });
+    }
     if (canRunSmartGates) {
       try {
         // Query all open positions: D1 for live, in-memory for replay
@@ -9022,6 +9106,10 @@ async function processTradeSimulation(
     }
     
     if (isEnter && (weekendNow || outsideRTH || !enterCooldownOk || sameEnterCycle || openTrade || recentTradeBlocked || smartGateBlocked)) {
+      // Replay debug: capture why we're blocked
+      if (isReplay && replayCtx?.processDebug && replayCtx.processDebug.length < 25) {
+        replayCtx.processDebug.push({ sym, gate: "blocked", weekendNow, outsideRTH, enterCooldownOk, sameEnterCycle, openTrade: !!openTrade, recentTradeBlocked, smartGateBlocked, smartGateReason });
+      }
       // ── KANBAN STAGE CORRECTION ──
       // Entry signal is valid but execution gates blocked. Downgrade the stored
       // kanban_stage from "enter" → "setup" so the UI accurately reflects that
@@ -9068,6 +9156,10 @@ async function processTradeSimulation(
       }
     }
     if (isEnter && !weekendNow && !outsideRTH && enterCooldownOk && !sameEnterCycle && !openTrade && !recentTradeBlocked && !smartGateBlocked) {
+      // Replay debug: we passed all gates, about to attempt trade creation
+      if (isReplay && replayCtx?.processDebug && replayCtx.processDebug.length < 25) {
+        replayCtx.processDebug.push({ sym, gate: "passed", dir: direction, entryPath: tickerData?.__entry_path, entryPx: entryPxCandidate });
+      }
       // Clear stale block reason from KV so UI shows "ready" immediately
       if (!isReplay && KV) {
         try {
@@ -9127,17 +9219,19 @@ async function processTradeSimulation(
         Number.isFinite(slCandidate) && slCandidate > 0 &&
         Number.isFinite(tpCandidate) && tpCandidate > 0;
       
-      // Capture debug for replay
-      if (isReplay && replayCtx?.processDebug && replayCtx.processDebug.length < 3) {
+      // Capture debug for replay: why trade creation may fail
+      if (isReplay && replayCtx?.processDebug && replayCtx.processDebug.length < 25) {
         replayCtx.processDebug.push({
           sym,
+          gate: "trade_validation",
           dir: direction,
           entryPx,
           pxNow,
           slCandidate,
           tpCandidate,
-          atr: tickerData?.atr,
           allValid,
+          hasSl: Number.isFinite(slCandidate) && slCandidate > 0,
+          hasTp: Number.isFinite(tpCandidate) && tpCandidate > 0,
         });
       }
       if (!allValid) {
@@ -9161,11 +9255,14 @@ async function processTradeSimulation(
         Number.isFinite(tpCandidate) &&
         tpCandidate > 0
       ) {
+       try {
         // ── Step 1: Compute SL first (needed for risk-based sizing) ──
         // Build 3-tier TP array for this trade
         const tpArray = build3TierTPArray(tickerData, entryPx, direction);
         const validTP = tpArray.length > 0 ? tpArray[0].price : tpCandidate;
         const runnerTp = tpArray.find(tp => tp.tier === "RUNNER");
+        const trimTp = tpArray.find(tp => tp.tier === "TRIM");
+        const exitTp = tpArray.find(tp => tp.tier === "EXIT");
 
         // Ensure SL is on the correct side of entry price
         if (direction === "SHORT" && Number.isFinite(slCandidate) && slCandidate < entryPx) {
@@ -9322,6 +9419,9 @@ async function processTradeSimulation(
           sizingMeta = { method: "insufficient_cash" };
         }
 
+        if (isReplay && replayCtx?.processDebug && replayCtx.processDebug.length < 30) {
+          replayCtx.processDebug.push({ sym, gate: "sizing", shares, notional, cash, method: sizingMeta?.method });
+        }
         if (Number.isFinite(shares) && shares > 0 && notional != null) {
             const tradeId = `${sym}-${now}-${Math.random().toString(36).substr(2, 9)}`;
             const entryTime = eventTs();
@@ -9390,8 +9490,8 @@ async function processTradeSimulation(
             // Portfolio cash decreases by cost
             portfolio.cash = Number(portfolio.cash) - entryPx * shares;
 
-            // Account ledger: record ENTRY (cash outflow)
-            if (env?.DB) {
+            // Account ledger: record ENTRY (cash outflow) — skip during replay
+            if (env?.DB && !isReplay) {
               d1InsertLedgerEntry(env, {
                 mode: "trader",
                 ts: entryTsMs || Date.now(),
@@ -9580,6 +9680,12 @@ async function processTradeSimulation(
               : {};
           tickerData.flags.portfolio_no_cash = true;
         }
+       } catch (entryBlockErr) {
+         console.error(`[ENTRY_BLOCK_ERROR] ${sym}:`, String(entryBlockErr?.message || entryBlockErr).slice(0, 300));
+         if (isReplay && replayCtx?.processDebug && replayCtx.processDebug.length < 30) {
+           replayCtx.processDebug.push({ sym, gate: "entry_error", error: String(entryBlockErr?.message || entryBlockErr).slice(0, 200) });
+         }
+       }
       }
     } // end of entry block
 
@@ -30704,6 +30810,43 @@ export default {
         return sendJSON({ ok: true, status: status || null }, 200, corsHeaders(env, req));
       }
 
+      // GET /timed/admin/losing-trades-report?key=...
+      // Returns all losing trades with signal snapshots at entry for manual review.
+      if (routeKey === "GET /timed/admin/losing-trades-report") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const db = env?.DB;
+        if (!db) return sendJSON({ ok: false, error: "d1_not_configured" }, 503, corsHeaders(env, req));
+        try {
+          const { results: rows } = await db.prepare(
+            `SELECT t.trade_id, t.ticker, t.direction, t.entry_ts, t.exit_ts,
+                    t.entry_price, t.exit_price, t.pnl, t.pnl_pct, t.exit_reason,
+                    da.signal_snapshot_json, da.entry_path, da.consensus_direction
+             FROM trades t
+             LEFT JOIN direction_accuracy da ON da.trade_id = t.trade_id
+             WHERE t.status = 'LOSS'
+             ORDER BY t.entry_ts DESC`
+          ).all();
+          const trades = (rows || []).map(r => ({
+            trade_id: r.trade_id,
+            ticker: r.ticker,
+            direction: r.direction,
+            entry_ts: r.entry_ts,
+            exit_ts: r.exit_ts,
+            entry_price: r.entry_price,
+            exit_price: r.exit_price,
+            pnl: r.pnl,
+            pnl_pct: r.pnl_pct,
+            exit_reason: r.exit_reason,
+            signal_snapshot_json: r.signal_snapshot_json,
+            entry_path: r.entry_path,
+            consensus_direction: r.consensus_direction,
+          }));
+          return sendJSON({ ok: true, count: trades.length, trades }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 200) }, 500, corsHeaders(env, req));
+        }
+      }
 
       // POST /timed/admin/candle-replay
       // Pure candle-based replay: generates scoring snapshots from Alpaca historical
@@ -30843,7 +30986,7 @@ export default {
             console.warn(`[REPLAY] D1 trade load failed:`, String(d1TradeErr?.message || d1TradeErr).slice(0, 150));
           }
         }
-        const replayCtx = { allTrades, execStates: new Map() };
+        const replayCtx = { allTrades, execStates: new Map(), processDebug: [] };
 
         // State map: track evolving ticker state across intervals
         // Primary: KV, Fallback: D1 ticker_latest (KV writes can silently fail)
@@ -31028,11 +31171,18 @@ export default {
               let finalStage = stage;
 
               // Diagnostic: track why qualifiesForEnter rejected (for debugging)
-              if (stage === "watch" && result.state) {
+              // Include enter/enter_now so we capture fuel_exhausted etc when stage=enter but QFE fails
+              const needsBlockDiag = ["watch", "setup", "discovery", "enter", "enter_now"].includes(stage) && result.state;
+              if (needsBlockDiag) {
                 const diagEntry = qualifiesForEnter(result, intervalTs);
                 if (!diagEntry.qualifies) {
                   result.__entry_block_reason = diagEntry.reason;
+                  if (diagEntry.fuelPct != null) result.__entry_block_fuel_pct = diagEntry.fuelPct;
                   blockReasons[diagEntry.reason] = (blockReasons[diagEntry.reason] || 0) + 1;
+                } else {
+                  // Clear stale block reasons carried from previous interval via assembleTickerData spread
+                  delete result.__entry_block_reason;
+                  delete result.__entry_block_fuel_pct;
                 }
               }
 
@@ -31052,9 +31202,14 @@ export default {
               }
 
               // Track entry price on stage transitions
+              // CAT bug fix: Prefer 10m candle close for replay entry (most granular intraday).
+              // "Freshest" across TFs can pick wrong price (e.g. daily/4H from different bar).
               const isNewEntry = (finalStage === "enter_now" || finalStage === "enter") && prevStage !== "enter_now" && prevStage !== "enter";
               if (isNewEntry) {
-                const price = Number(result?.price);
+                const b10 = bundleMap["10"];
+                const price10m = Number(b10?.px);
+                const priceFallback = Number(result?.price);
+                const price = (Number.isFinite(price10m) && price10m > 0) ? price10m : priceFallback;
                 if (Number.isFinite(price) && price > 0) {
                   result.entry_price = price;
                   result.entry_ts = intervalTs;
@@ -31267,8 +31422,12 @@ export default {
             lastSnapshot[ticker] = {
               state: s.state, htf_score: s.htf_score, ltf_score: s.ltf_score,
               ema_regime_daily: s.ema_regime_daily, ema_regime_4h: s.ema_regime_4h,
+              fuel_D: s.fuel?.D?.fuelPct ?? null, fuel_10: s.fuel?.["10"]?.fuelPct ?? null, fuel_30: s.fuel?.["30"]?.fuelPct ?? null,
               st_support_D: s.st_support?.map?.D || null,
               kanban_stage: s.kanban_stage, score: s.score || s.rank,
+              block_reason: s.__entry_block_reason || null,
+              block_fuel_pct: s.__entry_block_fuel_pct ?? null,
+              primary_fuel: (s.fuel != null) ? Math.max(s.fuel?.["30"]?.fuelPct ?? 50, s.fuel?.["10"]?.fuelPct ?? 50) : null,
             };
           }
         }
@@ -31309,6 +31468,7 @@ export default {
           d1StateWritten: fullDay ? dayD1State : d1StateWritten,
           trailWritten: fullDay ? dayTrailWritten : trailWritten,
           lastSnapshot,
+          processDebug: replayCtx?.processDebug?.slice(0, 30) || [],
           fullDay: !!fullDay,
         }, 200, corsHeaders(env, req));
         }
