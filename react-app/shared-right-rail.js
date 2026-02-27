@@ -466,7 +466,12 @@
         const [candlePerf, setCandlePerf] = useState(null);
         const [candlePerfLoading, setCandlePerfLoading] = useState(false);
 
-        const [railTab, setRailTab] = useState("ANALYSIS"); // ANALYSIS | TECHNICALS | MODEL | JOURNEY | TRADE_HISTORY
+        const [railTab, setRailTab] = useState("ANALYSIS"); // ANALYSIS | TECHNICALS | MODEL | JOURNEY | TRADE_HISTORY | INVESTOR
+
+        // Investor tab: per-ticker data from /timed/investor/ticker
+        const [investorData, setInvestorData] = useState(null);
+        const [investorLoading, setInvestorLoading] = useState(false);
+        const [investorError, setInvestorError] = useState(null);
 
         // Right Rail: multi-timeframe candles chart (fetched on-demand)
         const [chartTf, setChartTf] = useState("10"); // Default to 10m
@@ -558,9 +563,10 @@
           setCrosshair(null);
         }, [tickerSymbol, chartTf, railTab]);
 
-        // Default tab: use initialRailTab when provided (e.g. Trade Tracker), else Analysis when switching tickers
+        // Default tab: use initialRailTab when provided (Investor mode → INVESTOR, Trade Tracker → TRADE_HISTORY), else Analysis
         useEffect(() => {
-          setRailTab(initialRailTab || "ANALYSIS");
+          const def = initialRailTab || "ANALYSIS";
+          setRailTab(def === "INVESTOR" ? "INVESTOR" : def);
         }, [tickerSymbol, initialRailTab]);
 
         useEffect(() => {
@@ -570,6 +576,38 @@
           setChartVisibleCount(80);
           setChartEndOffset(0);
         }, [tickerSymbol]);
+
+        // Fetch investor data when INVESTOR tab is selected
+        useEffect(() => {
+          const sym = String(tickerSymbol || "").trim().toUpperCase();
+          if (railTab !== "INVESTOR" || !sym) {
+            setInvestorData(null);
+            setInvestorError(null);
+            setInvestorLoading(false);
+            return;
+          }
+          let cancelled = false;
+          const fetchInvestor = async () => {
+            try {
+              setInvestorLoading(true);
+              setInvestorError(null);
+              const res = await fetch(`${API_BASE}/timed/investor/ticker?ticker=${encodeURIComponent(sym)}`, { cache: "no-store" });
+              if (!res.ok) throw new Error(`HTTP ${res.status}`);
+              const json = await res.json();
+              if (!json.ok) throw new Error(json.error || "investor_failed");
+              if (!cancelled) setInvestorData({ ticker: sym, ...json });
+            } catch (e) {
+              if (!cancelled) {
+                setInvestorData(null);
+                setInvestorError(String(e?.message || e));
+              }
+            } finally {
+              if (!cancelled) setInvestorLoading(false);
+            }
+          };
+          fetchInvestor();
+          return () => { cancelled = true; };
+        }, [railTab, tickerSymbol]);
 
         // Reset zoom/pan on timeframe change
         useEffect(() => {
@@ -1330,6 +1368,7 @@
                         label: `Trades (${Array.isArray(ledgerTrades) ? ledgerTrades.length : 0})`,
                         proOnly: true,
                       },
+                      { k: "INVESTOR", label: "Investor", proOnly: false },
                     ].map((t) => {
                       const active = railTab === t.k;
                       const locked = t.proOnly && !window._ttIsPro;
@@ -1355,7 +1394,7 @@
 
                 {/* Padded body content (keeps header top-aligned) */}
                 <div className="p-6 pt-4">
-                  {!window._ttIsPro && railTab !== "ANALYSIS" ? (
+                  {!window._ttIsPro && railTab !== "ANALYSIS" && railTab !== "INVESTOR" ? (
                     <div className="flex flex-col items-center justify-center py-16 gap-4 text-center">
                       <div className="w-16 h-16 rounded-full bg-amber-500/10 border border-amber-500/30 flex items-center justify-center">
                         <svg className="w-8 h-8 text-amber-400" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd"/></svg>
@@ -1374,6 +1413,157 @@
                         Upgrade to Pro
                       </button>
                     </div>
+                  ) : railTab === "INVESTOR" ? (
+                    /* ═══════════════════════════════════════════════════════════ */
+                    /* INVESTOR TAB — Long-term portfolio view (score, stage, Buy Zone, etc.) */
+                    /* ═══════════════════════════════════════════════════════════ */
+                    (() => {
+                      const COMPONENT_LABELS = {
+                        weeklyTrend: { label: "Weekly Trend", tip: "Is the stock trending up or down on a weekly basis?", max: 25 },
+                        monthlyTrend: { label: "Monthly Trend", tip: "The bigger-picture direction over months", max: 20 },
+                        relativeStrength: { label: "Strength vs Market", tip: "How this stock performs compared to the S&P 500", max: 20 },
+                        accumulationSignal: { label: "Buy Zone Signal", tip: "Has the stock pulled back to a favorable entry price?", max: 15 },
+                        marketHealth: { label: "Market Conditions", tip: "Is the overall market environment supportive?", max: 10 },
+                        trendDurability: { label: "Trend Durability", tip: "How long and consistently the trend has held", max: 10 },
+                        sectorContext: { label: "Sector Context", tip: "Is this stock's sector in favor right now?", max: 10 },
+                      };
+                      const getScoreLabel = (s) => s >= 70 ? "Strong" : s >= 50 ? "Mixed" : "Weak";
+                      const getTickerSummary = (score, stage) => {
+                        if (score >= 70 && stage === "accumulate") return "Strong setup. The system sees a buying opportunity.";
+                        if (score >= 70 && stage === "core_hold") return "Strong and steady. The system recommends holding.";
+                        if (score >= 70) return "Strong signals across the board.";
+                        if (score >= 50 && stage === "accumulate") return "Moderate setup with a buying opportunity. The system suggests smaller sizing.";
+                        if (score >= 50 && stage === "watch") return "Mixed signals. The system recommends watching for now.";
+                        if (score >= 50 && stage === "core_hold") return "Decent health but not firing on all cylinders. Hold and monitor.";
+                        if (score >= 50) return "Mixed signals — some positives, some caution flags.";
+                        if (score < 50 && stage === "reduce") return "Weak setup. The system recommends reducing or exiting.";
+                        if (score < 50 && stage === "watch") return "Weak signals. The system recommends caution.";
+                        if (score < 50) return "Unfavorable conditions. The system advises caution.";
+                        return "The system is evaluating this stock.";
+                      };
+                      const getRsSummary = (rs) => {
+                        if (!rs) return null;
+                        const pos = [rs.rs1m, rs.rs3m, rs.rs6m].filter(v => Number.isFinite(v) && v > 0).length;
+                        const neg = [rs.rs1m, rs.rs3m, rs.rs6m].filter(v => Number.isFinite(v) && v < 0).length;
+                        if (pos === 3) return "Outperforming the market across all timeframes.";
+                        if (pos >= 2) return "Generally outperforming, with some recent softness.";
+                        if (neg === 3) return "Underperforming the market. Relative weakness across the board.";
+                        if (neg >= 2) return "Mostly underperforming. The market is doing better.";
+                        return "Mixed performance relative to the market.";
+                      };
+                      const fmtPct = (n) => Number.isFinite(n) ? `${n >= 0 ? "+" : ""}${n.toFixed(1)}%` : "—";
+                      const SIGNAL_LABELS = { rsi_oversold: "RSI is low (oversold)", above_monthly_ema: "Price above monthly trend line", monthly_trend_intact: "Monthly trend still healthy", weekly_trend_intact: "Weekly trend still healthy", above_weekly_ema: "Price above weekly trend line", rsi_divergence: "Momentum divergence detected", volume_climax: "Unusual selling volume (capitulation)", near_support: "Price near a support level" };
+
+                      if (investorLoading) return <div className="flex items-center justify-center py-12"><div className="loading-spinner" /><span className="ml-2 text-[#6b7280] text-sm">Loading investor data…</span></div>;
+                      if (investorError) return <div className="py-8 text-center"><p className="text-red-400 text-sm mb-2">{investorError}</p><p className="text-[#6b7280] text-xs">Investor scores are computed hourly. Try again later.</p></div>;
+                      const d = investorData;
+                      if (!d) return <div className="py-8 text-center text-[#6b7280] text-sm">No investor data for this ticker yet.</div>;
+
+                      const merged = { ...ticker, ...d };
+                      const price = merged.price ?? ticker?.price ?? d?.price;
+                      const dc = getDailyChange(merged);
+                      const chgPct = dc?.dayPct ?? null;
+                      const chgVal = dc?.dayChg ?? null;
+                      const score = Number(d.score) || 0;
+                      const scoreCls = score >= 70 ? "text-[#00e676]" : score >= 50 ? "text-amber-400" : "text-red-400";
+                      const summary = getTickerSummary(score, d.stage);
+                      const stageCls = { accumulate: "bg-[#00c853]/15 text-[#34d399] border-[#00c853]/30", core_hold: "bg-blue-500/15 text-[#60a5fa] border-blue-500/30", watch: "bg-amber-500/15 text-[#fbbf24] border-amber-500/30", reduce: "bg-red-500/15 text-[#f87171] border-red-500/30", research: "bg-purple-500/15 text-[#a78bfa] border-purple-500/30", exited: "bg-gray-500/15 text-[#9ca3af] border-gray-500/30" }[d.stage] || "bg-gray-500/15 text-[#9ca3af] border-gray-500/30";
+
+                      return (
+                        <div className="space-y-5">
+                          <div>
+                            <div className="flex items-center justify-between mb-1">
+                              <div>
+                                <div className="text-lg font-bold text-white">{d.ticker}</div>
+                                {d.companyName && <div className="text-xs text-[#9ca3af]">{d.companyName}</div>}
+                                <div className="text-[10px] text-[#6b7280]">{d.sector || "Unknown"}</div>
+                              </div>
+                              <div className="text-right">
+                                <div className={`flex items-baseline gap-1.5 justify-end text-2xl font-bold ${scoreCls}`}>{score} <span className="text-xs font-semibold">{getScoreLabel(score)}</span></div>
+                                <div className="text-[10px] text-[#6b7280]">Investor Score</div>
+                              </div>
+                            </div>
+                            <div className="text-[11px] text-[#9ca3af] mt-2 italic leading-relaxed">{summary}</div>
+                          </div>
+
+                          {price != null && Number.isFinite(price) && (
+                            <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-3 flex items-center justify-between">
+                              <div><div className="text-[10px] text-[#6b7280] uppercase">Price</div><div className="text-lg font-bold text-white tabular-nums">${Number(price).toFixed(2)}</div></div>
+                              {(chgPct != null && Number.isFinite(chgPct)) && <div className="text-right"><div className="text-[10px] text-[#6b7280] uppercase">Today</div><div className={`text-lg font-bold tabular-nums ${chgPct >= 0 ? "text-[#00e676]" : "text-red-400"}`}>{chgPct >= 0 ? "+" : ""}{chgPct.toFixed(2)}%</div>{Number.isFinite(chgVal) && <div className={`text-[11px] ${chgVal >= 0 ? "text-[#00e676]/70" : "text-red-400/70"}`}>{chgVal >= 0 ? "+" : "-"}${Math.abs(chgVal).toFixed(2)}</div>}</div>}
+                              {d.prevClose != null && Number.isFinite(d.prevClose) && <div className="text-right"><div className="text-[10px] text-[#6b7280] uppercase">Prev Close</div><div className="text-sm font-semibold text-[#9ca3af] tabular-nums">${d.prevClose.toFixed(2)}</div></div>}
+                            </div>
+                          )}
+
+                          <div>
+                            <div className="flex items-center gap-2 mb-1">
+                              <span className={`px-2 py-0.5 rounded-md text-[11px] font-semibold border ${stageCls}`}>{(d.stage || "research").replace("_", " ")}</span>
+                              {d.stage === "accumulate" && <span className="text-[10px] text-[#00e676]/80 bg-[#00c853]/10 px-2 py-0.5 rounded border border-[#00c853]/20">Buy signal — add in small portions</span>}
+                              {d.stage === "watch" && <span className="text-[10px] text-amber-400/80 bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/20">The system suggests a small starter position</span>}
+                              {d.stage === "reduce" && <span className="text-[10px] text-red-400/80 bg-red-500/10 px-2 py-0.5 rounded border border-red-500/20">Reduce signal — the system recommends trimming</span>}
+                            </div>
+                            {d.stageReason && <div className="text-[10px] text-[#6b7280]">{d.stageReason}</div>}
+                          </div>
+
+                          {d.components && Object.keys(d.components).length > 0 && (
+                            <div>
+                              <h3 className="text-xs font-semibold text-[#9ca3af] mb-1 uppercase">Score Breakdown</h3>
+                              <div className="text-[10px] text-[#4b5563] mb-2.5">How the system arrived at this stock's overall score.</div>
+                              <div className="space-y-2">
+                                {Object.entries(d.components).map(([k, v]) => {
+                                  const meta = COMPONENT_LABELS[k] || { label: k.replace(/([A-Z])/g, " $1").trim(), tip: "", max: 10 };
+                                  const maxVal = meta.max || 10;
+                                  const pct = v / maxVal;
+                                  const dotColor = pct >= 0.6 ? "bg-[#00e676]" : pct >= 0.3 ? "bg-amber-400" : "bg-red-400";
+                                  return (
+                                    <div key={k} className="flex items-center gap-2" title={meta.tip}>
+                                      <span className={`w-1.5 h-1.5 rounded-full ${dotColor} shrink-0`} />
+                                      <span className="text-[11px] text-[#9ca3af] w-28 shrink-0">{meta.label}</span>
+                                      <div className="flex-1 h-1.5 rounded-full bg-white/[0.06] overflow-hidden"><div className="h-full rounded-full bg-[#3b82f6]" style={{ width: `${Math.min(100, (v / maxVal) * 100)}%` }} /></div>
+                                      <span className="text-xs text-white w-6 text-right tabular-nums shrink-0">{v}</span>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          )}
+
+                          {d.rs && (
+                            <div>
+                              <h3 className="text-xs font-semibold text-[#9ca3af] mb-1 uppercase">Performance vs Market</h3>
+                              <div className="text-[10px] text-[#4b5563] mb-2.5">{getRsSummary(d.rs)}</div>
+                              <div className="grid grid-cols-3 gap-2">
+                                <div className="rounded-lg border border-white/[0.06] p-2.5 text-center"><div className="text-[10px] text-[#6b7280]">1 Month</div><div className={`text-sm font-semibold ${d.rs.rs1m >= 0 ? "text-[#00e676]" : "text-red-400"}`}>{fmtPct(d.rs.rs1m)}</div></div>
+                                <div className="rounded-lg border border-white/[0.06] p-2.5 text-center"><div className="text-[10px] text-[#6b7280]">3 Months</div><div className={`text-sm font-semibold ${d.rs.rs3m >= 0 ? "text-[#00e676]" : "text-red-400"}`}>{fmtPct(d.rs.rs3m)}</div></div>
+                                <div className="rounded-lg border border-white/[0.06] p-2.5 text-center"><div className="text-[10px] text-[#6b7280]">6 Months</div><div className={`text-sm font-semibold ${d.rs.rs6m >= 0 ? "text-[#00e676]" : "text-red-400"}`}>{fmtPct(d.rs.rs6m)}</div></div>
+                              </div>
+                              {d.rsRank != null && <div className="mt-2.5"><div className="flex items-center justify-between mb-1 text-[11px] text-[#9ca3af]">Outperforms {d.rsRank}% of all tracked stocks</div><div className="h-1.5 rounded-full bg-white/[0.06] overflow-hidden"><div className="h-full rounded-full bg-[#3b82f6]" style={{ width: `${Math.min(100, d.rsRank)}%` }} /></div></div>}
+                            </div>
+                          )}
+
+                          {d.accumZone && (
+                            <div>
+                              <h3 className="text-xs font-semibold text-[#9ca3af] mb-1 uppercase" title="Has the stock pulled back to an attractive price?">Buy Zone</h3>
+                              {d.accumZone.inZone ? (
+                                <div className="rounded-lg border border-[#00c853]/30 p-3">
+                                  <div className="flex items-center gap-2 mb-1.5"><span className="w-2 h-2 rounded-full bg-[#00e676] animate-pulse" /><span className="text-xs text-[#00e676] font-semibold">In Buy Zone</span><span className="text-[10px] text-[#9ca3af]">{d.accumZone.confidence}% confidence</span></div>
+                                  <div className="text-[11px] text-[#9ca3af] leading-relaxed mb-2">The stock dipped to a favorable price without breaking its uptrend.</div>
+                                  {d.accumZone.signals?.length > 0 && <div className="flex flex-wrap gap-1">{d.accumZone.signals.map((s, i) => <span key={i} className="text-[9px] px-1.5 py-0.5 rounded bg-white/[0.04] text-[#9ca3af]">{SIGNAL_LABELS[s] || s.replace(/_/g, " ")}</span>)}</div>}
+                                </div>
+                              ) : <div className="text-[11px] text-[#6b7280]">Not in a buy zone right now.</div>}
+                            </div>
+                          )}
+
+                          {d.thesis && (
+                            <div>
+                              <h3 className="text-xs font-semibold text-[#9ca3af] mb-1 uppercase">Investment Thesis</h3>
+                              <div className="text-[10px] text-[#4b5563] mb-2">Why the system is tracking this stock.</div>
+                              <div className="text-xs text-[#d1d5db] leading-relaxed mb-2">{d.thesis}</div>
+                              {d.thesisInvalidation?.length > 0 && <div><div className="text-[10px] text-[#6b7280] mb-1">What would change this view:</div>{d.thesisInvalidation.map((inv, i) => <div key={i} className="text-[11px] text-red-400/80 pl-2">• {inv}</div>)}</div>}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()
                   ) : railTab === "ANALYSIS" ? (
                     <>
                       {/* ═══════════════════════════════════════════════════════════ */}
@@ -4656,13 +4846,24 @@
                           <div className="text-sm font-bold text-[#6b7280]">
                             Scoring Timeline
                           </div>
-                          <a
-                            href={`index-react.html?timeTravel=1&ticker=${encodeURIComponent(String(tickerSymbol).toUpperCase())}`}
-                            className="text-xs px-2 py-1 rounded bg-purple-500/20 border border-purple-500/30 text-purple-300 hover:bg-purple-500/30"
-                            title="Open Time Travel (if supported)"
-                          >
-                            Time Travel
-                          </a>
+                          {window._ttIsPro ? (
+                            <a
+                              href={`index-react.html?timeTravel=1&ticker=${encodeURIComponent(String(tickerSymbol).toUpperCase())}`}
+                              className="text-xs px-2 py-1 rounded bg-purple-500/20 border border-purple-500/30 text-purple-300 hover:bg-purple-500/30"
+                              title="Open Time Travel"
+                            >
+                              Time Travel
+                            </a>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => window.dispatchEvent(new CustomEvent("tt-go-pro"))}
+                              className="text-xs px-2 py-1 rounded bg-amber-500/20 border border-amber-500/30 text-amber-300 hover:bg-amber-500/30"
+                              title="Time Travel — Pro feature"
+                            >
+                              Time Travel Pro
+                            </button>
+                          )}
                         </div>
 
                         {bubbleJourneyLoading ? (

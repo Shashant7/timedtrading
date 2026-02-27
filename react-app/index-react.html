@@ -15627,6 +15627,7 @@
         onJourneySelect = null,
         selectedJourneyTs = null,
         earningsMap = null,
+        initialRailTab = null,
       }) => {
         const [tickerData, setTickerData] = useState(null);
         const [allLoadedData, setAllLoadedData] = useState(null);
@@ -15750,6 +15751,7 @@
             onJourneySelect={onJourneySelect}
             selectedJourneyTs={selectedJourneyTs}
             earningsMap={earningsMap}
+            initialRailTab={initialRailTab}
           />
         );
       };
@@ -15771,6 +15773,7 @@
         onJourneySelect = null,
         selectedJourneyTs = null,
         earningsMap = null,
+        dashboardMode = "trader",
       }) => {
         if (!selectedTicker) return null;
 
@@ -15815,6 +15818,7 @@
               "Ticker not found in local data, fetching from API:",
               tickerUpper,
             );
+            const initialRailTab = dashboardMode === "investor" ? "INVESTOR" : "ANALYSIS";
             return (
               <TickerDetailsLoader
                 tickerSymbol={tickerUpper}
@@ -15827,6 +15831,7 @@
                 onJourneySelect={onJourneySelect}
                 selectedJourneyTs={selectedJourneyTs}
                 earningsMap={earningsMap}
+                initialRailTab={initialRailTab}
               />
             );
           }
@@ -15873,6 +15878,7 @@
 
           // TEMPORARILY DISABLE PORTAL - render inline to avoid freeze issues
           // TODO: Re-enable portal once freeze is resolved
+          const initialRailTab = dashboardMode === "investor" ? "INVESTOR" : "ANALYSIS";
           return (
             <TickerDetailRightRail
               ticker={foundTicker}
@@ -15888,6 +15894,7 @@
               selectedJourneyTs={selectedJourneyTs}
               effectiveStage={effectiveStage}
               earningsMap={earningsMap}
+              initialRailTab={initialRailTab}
             />
           );
 
@@ -16369,6 +16376,17 @@
             console.error("Error setting selected ticker:", error);
           }
         }, []);
+
+        // Listen for ticker selection from embedded Investor iframe (postMessage)
+        useEffect(() => {
+          const onMessage = (e) => {
+            if (e?.data?.type === "tt-select-ticker") {
+              handleTickerSelect(e.data.ticker || null);
+            }
+          };
+          window.addEventListener("message", onMessage);
+          return () => window.removeEventListener("message", onMessage);
+        }, [handleTickerSelect]);
 
         const debouncedSearch = useDebounce(filters.search, 300);
         const effectiveFilters = { ...filters, search: debouncedSearch };
@@ -16980,38 +16998,8 @@
                     <span className="text-[9px] text-[#4b5563]">Switch trading mode</span>
                   </div>
 
-                  {/* ═══ 5. VIEW TOGGLE (Cards/Table) — prominent, with icons ═══ */}
+                  {/* View toggle + saved filter moved into Active Trader section below */}
                   <div className="mb-3 flex flex-wrap items-center gap-3" data-coachmark="view-toggle">
-                    <div className="flex items-center bg-white/[0.04] border border-white/[0.10] rounded-xl overflow-hidden shadow-sm">
-                      <button
-                        onClick={() => toggleViewMode("advanced")}
-                        className={`flex items-center gap-1.5 px-4 py-2 text-[12px] font-semibold transition-all ${
-                          dashboardViewMode === "advanced"
-                            ? "bg-gradient-to-r from-cyan-500/20 to-teal-500/15 text-white border-r border-white/10"
-                            : "text-[#6b7280] hover:text-white hover:bg-white/[0.05] border-r border-white/[0.06]"
-                        }`}
-                        title="Kanban card view"
-                      >
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                          <rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>
-                        </svg>
-                        Cards
-                      </button>
-                      <button
-                        onClick={() => toggleViewMode("simple")}
-                        className={`flex items-center gap-1.5 px-4 py-2 text-[12px] font-semibold transition-all ${
-                          dashboardViewMode === "simple"
-                            ? "bg-gradient-to-r from-blue-500/20 to-indigo-500/15 text-white"
-                            : "text-[#6b7280] hover:text-white hover:bg-white/[0.05]"
-                        }`}
-                        title="Table view"
-                      >
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                          <line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/>
-                        </svg>
-                        Table
-                      </button>
-                    </div>
 
                     {/* Saved Filter */}
                     <button
@@ -17141,18 +17129,32 @@
                       )}
                     </div>
 
-                    {/* Time Travel */}
-                    <div className="flex-1 min-w-[200px]">
-                      <TimeTravelSlider
-                        tickers={timeTravelBaseTickers}
-                        allTickers={data}
-                        data={data}
-                        onTimeChange={setTimeTravelTickers}
-                        tickerFilter={filters.tickerFilter}
-                        selectedTicker={selectedTicker}
-                        compact={true}
-                      />
-                    </div>
+                    {/* Time Travel — Pro feature: full control for Pro, teaser for Members */}
+                    {window._ttIsPro ? (
+                      <div className="flex-1 min-w-[200px]">
+                        <TimeTravelSlider
+                          tickers={timeTravelBaseTickers}
+                          allTickers={data}
+                          data={data}
+                          onTimeChange={setTimeTravelTickers}
+                          tickerFilter={filters.tickerFilter}
+                          selectedTicker={selectedTicker}
+                          compact={true}
+                        />
+                      </div>
+                    ) : (
+                      <div className="flex-1 min-w-[140px]">
+                        <button
+                          onClick={() => window.dispatchEvent(new CustomEvent("tt-go-pro"))}
+                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-amber-500/40 bg-amber-500/5 hover:bg-amber-500/10 hover:border-amber-400/50 transition-colors text-[11px] text-amber-400/90 font-medium"
+                          title="Replay historical bubble positions — Pro feature"
+                        >
+                          <svg className="w-3.5 h-3.5 text-amber-400/80" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd"/></svg>
+                          <span>⏱️ Time Travel</span>
+                          <span className="text-[10px] text-amber-300/70">Pro</span>
+                        </button>
+                      </div>
+                    )}
                   </div>
 
                   {/* Filter Groups (collapsible) */}
@@ -17281,6 +17283,42 @@
                       </div>
                     </div>
 
+                    {/* Cards / Table View controller — below Bubble Chart, Active Trader only */}
+                    {dashboardMode === "trader" && (
+                      <div className="flex flex-wrap items-center gap-3">
+                        <div className="flex items-center bg-white/[0.04] border border-white/[0.10] rounded-xl overflow-hidden shadow-sm">
+                          <button
+                            onClick={() => toggleViewMode("advanced")}
+                            className={`flex items-center gap-1.5 px-4 py-2 text-[12px] font-semibold transition-all ${
+                              dashboardViewMode === "advanced"
+                                ? "bg-gradient-to-r from-cyan-500/20 to-teal-500/15 text-white border-r border-white/10"
+                                : "text-[#6b7280] hover:text-white hover:bg-white/[0.05] border-r border-white/[0.06]"
+                            }`}
+                            title="Kanban card view"
+                          >
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                              <rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>
+                            </svg>
+                            Cards
+                          </button>
+                          <button
+                            onClick={() => toggleViewMode("simple")}
+                            className={`flex items-center gap-1.5 px-4 py-2 text-[12px] font-semibold transition-all ${
+                              dashboardViewMode === "simple"
+                                ? "bg-gradient-to-r from-blue-500/20 to-indigo-500/15 text-white"
+                                : "text-[#6b7280] hover:text-white hover:bg-white/[0.05]"
+                            }`}
+                            title="Table view"
+                          >
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                              <line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/>
+                            </svg>
+                            Table
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
                     {/* Right Rail - Detail View (slides in from right, fixed to viewport) */}
                     {selectedTicker && (
                       <>
@@ -17309,6 +17347,7 @@
                             }}
                             selectedJourneyTs={journeySelectedPoint?.ts ?? null}
                             earningsMap={earningsMap}
+                            dashboardMode={dashboardMode}
                           />
                         </div>
                       </>

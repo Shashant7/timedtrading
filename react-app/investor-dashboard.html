@@ -59,6 +59,8 @@
         to { transform: translateX(0); opacity: 1; }
       }
       .slide-in-right { animation: slideInRight 0.3s ease-out; }
+      .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+      .scrollbar-hide::-webkit-scrollbar { display: none; }
       @keyframes coachmark-pulse {
         0%, 100% { box-shadow: 0 0 0 0 rgba(34,211,238,0.5); }
         50% { box-shadow: 0 0 0 8px rgba(34,211,238,0); }
@@ -251,60 +253,138 @@
         );
       }
 
-      // ─── Action Kanban (Accumulate / Core Hold / Watch / Reduce) ──────
-      function ActionKanban({ tickers, onSelect, selectedTicker }) {
-        const stages = ["accumulate", "core_hold", "watch", "reduce"];
-        const stageLabels = { accumulate: "Accumulate", core_hold: "Core Hold", watch: "Watch", reduce: "Reduce" };
-        const stageColors = { accumulate: "#10b981", core_hold: "#3b82f6", watch: "#f59e0b", reduce: "#ef4444" };
-        const stageDescriptions = { accumulate: "Consider buying — price is in a favorable zone", core_hold: "Keep holding — trend and strength are solid", watch: "Wait and monitor — signals are mixed", reduce: "Consider selling — showing signs of weakness" };
+      // ─── Investor Card (matches Active Trader CompactCard: 280px, glass, consistent layout) ──
+      function InvestorCard({ t, onSelect, selectedTicker, savedTickers, toggleSavedTicker }) {
+        const sym = String(t?.ticker || "").toUpperCase();
+        const stage = t.stage || "research";
+        const score = Number(t.score) || 0;
+        const scoreCls = score >= 70 ? "text-[#00e676]" : score >= 50 ? "text-amber-400" : "text-red-400";
+        const _dc = getDailyChange(t);
+        const dayPct = _dc?.dayPct;
+        const dayChg = _dc?.dayChg;
+        const price = t.price != null && Number.isFinite(t.price) ? t.price : null;
+        const isSelected = selectedTicker === sym;
+        const glassBg = "rgba(10,16,28,0.45)";
+        const cardBgImage = [
+          "linear-gradient(170deg, rgba(255,255,255,0.07) 0%, rgba(255,255,255,0.02) 25%, transparent 55%)",
+          "linear-gradient(to bottom, rgba(120,160,255,0.04) 0%, transparent 40%, rgba(0,0,0,0.15) 100%)",
+          `linear-gradient(0deg, ${glassBg}, ${glassBg})`,
+        ].join(", ");
+        const stageColors = { accumulate: "#10b981", core_hold: "#3b82f6", watch: "#f59e0b", reduce: "#ef4444", research: "#8b5cf6", exited: "#6b7280" };
+        const accentColor = stageColors[stage] || "#6b7280";
 
+        return React.createElement("div", {
+          key: sym,
+          role: "button",
+          tabIndex: 0,
+          onClick: () => onSelect && onSelect(sym),
+          onKeyDown: (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onSelect && onSelect(sym); } },
+          className: `w-full text-left rounded-lg cursor-pointer hover:brightness-110 relative overflow-hidden border flex flex-col transition-all ${isSelected ? "border-white/30 bg-white/[0.08]" : "border-white/[0.08]"}`,
+          style: { backgroundImage: cardBgImage, boxShadow: "0 4px 12px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.12)", height: "142px" },
+        },
+          React.createElement("div", { className: "absolute left-0 top-0 bottom-0 w-[3px] rounded-l-lg", style: { background: accentColor, boxShadow: `0 0 6px ${accentColor}66` } }),
+          React.createElement("div", { className: "relative flex flex-col flex-1 min-h-0 p-2", style: { zIndex: 1 } },
+            React.createElement("div", { className: "flex items-center justify-between" },
+              React.createElement("div", { className: "flex items-center gap-1.5 min-w-0" },
+                toggleSavedTicker && React.createElement("button", {
+                  onClick: (e) => { e.stopPropagation(); toggleSavedTicker(sym); },
+                  className: `text-[13px] hover:scale-110 transition-transform shrink-0 ${savedTickers?.has(sym) ? "text-amber-400" : "text-[#4b5563] hover:text-amber-300"}`,
+                  title: savedTickers?.has(sym) ? "Remove from Saved" : "Add to Saved",
+                }, savedTickers?.has(sym) ? "★" : "☆"),
+                React.createElement("span", { className: "text-xs font-bold text-white truncate" }, sym),
+                React.createElement("span", { className: `stage-badge stage-${stage} !text-[8px] !py-0 !px-1 shrink-0` }, stage.replace("_", " ")),
+              ),
+              React.createElement("div", { className: "flex items-center gap-1.5 shrink-0" },
+                price != null && React.createElement("span", { className: "text-[10px] text-[#9ca3af] tabular-nums" }, `$${price.toFixed(2)}`),
+                (dayPct != null && Number.isFinite(dayPct)) && React.createElement("span", { className: `text-[10px] font-semibold tabular-nums ${dayPct >= 0 ? "text-[#00e676]" : "text-red-400"}` }, `${dayPct >= 0 ? "+" : ""}${dayPct.toFixed(1)}%`),
+              ),
+            ),
+            React.createElement("div", { className: "flex items-center justify-between mt-1" },
+              React.createElement("span", { className: `text-sm font-bold tabular-nums ${scoreCls}` }, Number.isFinite(score) ? score : "—"),
+              React.createElement("span", { className: "flex items-center gap-1" },
+                t.accumZone?.inZone && React.createElement("span", { className: "text-[9px] text-[#00e676] bg-[#00c853]/10 px-1 rounded" }, "ZONE"),
+                t.rs?.rsNewHigh3m && React.createElement("span", { className: "text-[9px] text-sky-400 bg-sky-500/10 px-1 rounded" }, "RS HIGH"),
+              ),
+            ),
+            React.createElement("div", { className: "mt-auto pt-1" },
+              React.createElement(ScoreBar, { score: Math.min(100, Math.max(0, score)), color: score >= 70 ? "#10b981" : score >= 50 ? "#f59e0b" : "#ef4444" }),
+            ),
+          ),
+        );
+      }
+
+      // ─── Investor Kanban Column (matches Active Trader KanbanColumn: horizontal scroll, icon, count) ──
+      function InvestorKanbanColumn({ laneKey, title, icon, color, count, items, renderCard, laneScrollRef }) {
+        const listRef = React.useRef(null);
+        React.useEffect(() => {
+          try {
+            const el = listRef.current;
+            if (!el || !laneScrollRef?.current) return;
+            const saved = laneScrollRef.current[laneKey];
+            if (Number.isFinite(saved) && saved > 0) el.scrollLeft = saved;
+          } catch {}
+        }, [laneKey, items?.map(i => i.ticker).join(",")]);
+
+        return React.createElement("div", { className: "flex items-stretch gap-0 mb-1 kanban-lane" },
+          React.createElement("div", {
+            className: "flex flex-col justify-center items-center w-[52px] shrink-0 rounded-l-xl border-l-2 border-t border-b border-t-white/[0.04] border-b-white/[0.04] px-1 py-2",
+            style: { borderLeftColor: color, background: "linear-gradient(180deg, rgba(255,255,255,0.04) 0%, rgba(255,255,255,0.015) 100%)" },
+            title: title,
+          },
+            React.createElement("span", { className: "text-[11px] font-semibold text-white/90 tracking-wide text-center leading-tight" }, icon, React.createElement("br"), title),
+            React.createElement("span", { className: `text-[10px] font-bold tabular-nums mt-0.5 ${count > 0 ? "text-white/80" : "text-[#4b5563]"}` }, count),
+          ),
+          React.createElement("div", {
+            ref: listRef,
+            className: "flex-1 rounded-r-xl border-t border-r border-b border-white/[0.04] p-1.5 overflow-x-auto scrollbar-hide",
+            style: { overflowAnchor: "none", WebkitOverflowScrolling: "touch", background: "rgba(255,255,255,0.01)" },
+            onScroll: () => {
+              try {
+                const el = listRef.current;
+                if (el && laneScrollRef?.current) laneScrollRef.current[laneKey] = el.scrollLeft;
+              } catch {}
+            },
+          },
+            Array.isArray(items) && items.length > 0
+              ? React.createElement("div", { className: "flex gap-1.5" },
+                  items.slice(0, 80).map(t => React.createElement("div", { key: t.ticker, className: "w-[280px] shrink-0 kanban-card" }, renderCard(t))),
+                )
+              : React.createElement("div", { className: "text-[10px] text-[#4b5563] italic flex items-center h-full px-2 min-h-[80px]" }, "No tickers"),
+          ),
+        );
+      }
+
+      // ─── Action Kanban (KanbanColumn-like lanes: Accumulate / Core Hold / Watch / Reduce) ──────
+      function ActionKanban({ tickers, onSelect, selectedTicker, savedTickers, toggleSavedTicker }) {
+        const laneScrollRef = React.useRef({});
+        const stages = ["accumulate", "core_hold", "watch", "reduce"];
+        const stageMeta = {
+          accumulate: { label: "Accumulate", icon: "📈", color: "#10b981", title: "Consider buying — price is in a favorable zone" },
+          core_hold: { label: "Core Hold", icon: "📊", color: "#3b82f6", title: "Keep holding — trend and strength are solid" },
+          watch: { label: "Watch", icon: "👁", color: "#f59e0b", title: "Wait and monitor — signals are mixed" },
+          reduce: { label: "Reduce", icon: "📉", color: "#ef4444", title: "Consider selling — showing signs of weakness" },
+        };
         const grouped = {};
         for (const s of stages) grouped[s] = [];
         for (const t of tickers) {
           const stage = t.stage || "research";
           if (grouped[stage]) grouped[stage].push(t);
         }
+        const renderCard = (t) => React.createElement(InvestorCard, { key: t.ticker, t, onSelect, selectedTicker, savedTickers: savedTickers || new Set(), toggleSavedTicker });
 
-        const hasAny = stages.some(s => grouped[s].length > 0);
-
-        return React.createElement("div", { className: "flex-1 overflow-x-auto overflow-y-hidden" },
-          React.createElement("div", { className: "grid grid-cols-4 gap-2 h-full min-w-[640px] lg:min-w-0" },
-            ...stages.map(stage =>
-              React.createElement("div", { key: stage, className: "flex flex-col min-h-0" },
-                React.createElement("div", { className: "flex items-center justify-between mb-2 px-1 shrink-0" },
-                  React.createElement("div", { className: "flex items-center gap-1" },
-                    React.createElement("span", { className: `stage-badge stage-${stage}` }, stageLabels[stage]),
-                    React.createElement("span", { className: "text-[10px] text-[#4b5563]" }, `(${grouped[stage].length})`),
-                  ),
-                ),
-                React.createElement("div", { className: "text-[10px] text-[#4b5563] mb-2 px-1 shrink-0" }, stageDescriptions[stage]),
-                React.createElement("div", { className: "flex-1 overflow-y-auto space-y-1 pr-0.5", style: { minHeight: 0 } },
-                  ...grouped[stage].map(t =>
-                    React.createElement("div", {
-                      key: t.ticker,
-                      className: `card card-hover p-2 cursor-pointer transition-all ${selectedTicker === t.ticker ? "border-white/20 bg-white/[0.06]" : ""}`,
-                      onClick: () => onSelect(t.ticker),
-                    },
-                      React.createElement("div", { className: "flex items-center justify-between" },
-                        React.createElement("span", { className: "text-xs font-semibold text-white" }, t.ticker),
-                        React.createElement("span", { className: "flex items-center gap-1.5" },
-                          t.price != null && Number.isFinite(t.price) && React.createElement("span", { className: "text-[10px] text-[#9ca3af] tabular-nums" }, `$${t.price.toFixed(2)}`),
-                          (() => { const _dc = getDailyChange(t); const _dp = _dc?.dayPct; const _dv = _dc?.dayChg; const _sign = (_dp || 0) >= 0 ? "+" : ""; const _cls = (_dp || 0) >= 0 ? "text-[#00e676]" : "text-red-400"; return (_dp != null && Number.isFinite(_dp)) && React.createElement("span", { className: `text-[10px] font-medium tabular-nums ${_cls}` }, `${_sign}${_dp.toFixed(1)}%`, Number.isFinite(_dv) ? ` (${_sign}$${Math.abs(_dv).toFixed(2)})` : ""); })(),
-                        ),
-                      ),
-                      React.createElement("div", { className: "flex items-center justify-between mt-0.5" },
-                        React.createElement("span", { className: `text-[11px] font-semibold tabular-nums ${t.score >= 70 ? "text-[#00e676]" : t.score >= 50 ? "text-amber-400" : "text-red-400"}` }, t.score),
-                        React.createElement("span", { className: "flex items-center gap-1" },
-                          t.accumZone?.inZone && React.createElement("span", { className: "text-[9px] text-[#00e676] bg-[#00c853]/10 px-1 rounded" }, "ZONE"),
-                          t.rs?.rsNewHigh3m && React.createElement("span", { className: "text-[9px] text-sky-400 bg-sky-500/10 px-1 rounded" }, "RS HIGH"),
-                        ),
-                      ),
-                    )
-                  ),
-                  grouped[stage].length === 0 && React.createElement("div", { className: "text-[10px] text-[#4b5563] text-center py-6 opacity-50" }, "No tickers"),
-                ),
-              )
-            ),
+        return React.createElement("div", { className: "flex-1 overflow-y-auto space-y-1 min-h-0", "data-coachmark": "action-board" },
+          ...stages.map(stage =>
+            React.createElement(InvestorKanbanColumn, {
+              key: stage,
+              laneKey: stage,
+              title: stageMeta[stage].label,
+              icon: stageMeta[stage].icon,
+              color: stageMeta[stage].color,
+              count: grouped[stage].length,
+              items: grouped[stage],
+              renderCard,
+              laneScrollRef,
+            }),
           ),
         );
       }
@@ -952,6 +1032,19 @@
         const [portfolio, setPortfolio] = useState(null);
         const [acctSummary, setAcctSummary] = useState(null);
         const [selectedTicker, setSelectedTicker] = useState(null);
+        const isEmbedded = new URLSearchParams(window.location.search).get("embedded") === "true";
+        const handleSelectTicker = useCallback((ticker) => {
+          setSelectedTicker(ticker);
+          if (isEmbedded && ticker && window.parent !== window) {
+            try { window.parent.postMessage({ type: "tt-select-ticker", ticker: String(ticker).toUpperCase() }, "*"); } catch (_) {}
+          }
+        }, [isEmbedded]);
+        const handleCloseTicker = useCallback(() => {
+          setSelectedTicker(null);
+          if (isEmbedded && window.parent !== window) {
+            try { window.parent.postMessage({ type: "tt-select-ticker", ticker: null }, "*"); } catch (_) {}
+          }
+        }, [isEmbedded]);
         const [loading, setLoading] = useState(false);
         const [lastComputed, setLastComputed] = useState(null);
         const [sectorFilter, setSectorFilter] = useState(null);
@@ -1310,57 +1403,52 @@
             ),
           ),
 
-          // ═══ 3-Panel: Viewport | Action Kanban | Detail (responsive) ═══
+          // ═══ 2-Panel: Viewport | Action Kanban (Right Rail is fixed overlay when ticker selected — matches Active Trader) ═══
           React.createElement("div", { className: "investor-3panel flex flex-col lg:flex-row gap-4 px-4 shrink-0" },
             // Left: Viewport (scrollable ticker list — hidden on mobile)
             React.createElement("div", { className: "hidden lg:flex w-64 flex-shrink-0 flex-col min-h-0", "data-coachmark": "ticker-list" },
               React.createElement("div", { className: "text-[10px] text-[#4b5563] mb-1 px-1 shrink-0" }, `${filteredTickers.length} ticker${filteredTickers.length !== 1 ? "s" : ""}`),
               React.createElement(TickerListViewport, {
                 tickers: filteredTickers,
-                onSelect: setSelectedTicker,
+                onSelect: handleSelectTicker,
                 selectedTicker,
                 savedTickers,
                 toggleSavedTicker,
               }),
             ),
 
-            // Center: Action Kanban (horizontally scrollable on mobile)
-            React.createElement("div", { className: "flex-1 flex flex-col min-h-[200px] lg:min-h-0 min-w-0", "data-coachmark": "action-board" },
+            // Center: Action Kanban (full width when no Right Rail)
+            React.createElement("div", { className: `flex-1 flex flex-col min-h-[200px] lg:min-h-0 min-w-0 transition-[margin] duration-300 ${selectedTicker && !isEmbedded ? "lg:mr-[470px]" : ""}`, "data-coachmark": "action-board" },
               React.createElement(ActionBoardHeader, { actionCount }),
               filteredTickers.length > 0
-                ? React.createElement(ActionKanban, { tickers: filteredTickers, onSelect: setSelectedTicker, selectedTicker })
+                ? React.createElement(ActionKanban, { tickers: filteredTickers, onSelect: handleSelectTicker, selectedTicker, savedTickers, toggleSavedTicker })
                 : React.createElement("div", { className: "card p-8 text-center text-[#6b7280] flex-1" },
                     React.createElement("div", { className: "text-lg mb-2" }, "No investor data yet"),
                     React.createElement("div", { className: "text-sm" }, "Stock scores are calculated every hour while the market is open. Check back soon."),
                   ),
             ),
-
-            // Right: Detail — inline on desktop, hidden on mobile (slide-in overlay below)
-            React.createElement("div", { className: "hidden lg:block w-96 flex-shrink-0 overflow-y-auto min-h-0", "data-coachmark": "right-rail" },
-              React.createElement(TickerDeepDive, { ticker: selectedTicker, data: selectedData }),
-            ),
           ),
 
-          // ═══ Mobile Right Rail — fixed slide-in overlay (lg: hidden) ═══
-          selectedTicker && React.createElement("div", { className: "lg:hidden" },
-            // Backdrop
+          // ═══ Right Rail — fixed overlay (when NOT embedded; when embedded, parent shows Right Rail via postMessage) ═══
+          selectedTicker && !isEmbedded && React.createElement("div", null,
             React.createElement("div", {
-              className: "fixed inset-0 bg-black/50 z-40",
-              onClick: () => setSelectedTicker(null),
+              className: "fixed inset-0 z-30",
+              onMouseDown: handleCloseTicker,
             }),
-            // Slide-in panel
             React.createElement("div", {
-              className: "fixed right-0 top-0 w-full sm:w-[380px] h-full bg-[#0a0a0f] border-l border-white/[0.06] z-50 slide-in-right shadow-xl overflow-y-auto",
+              className: "fixed right-0 top-[60px] sm:top-[52px] w-full sm:w-[450px] bottom-[64px] sm:bottom-[56px] bg-[#0b0e11] border-l border-white/[0.04] z-40 slide-in-right shadow-xl overflow-y-auto",
+              onMouseDown: (e) => e.stopPropagation(),
+              "data-coachmark": "right-rail",
             },
-              // Close button
-              React.createElement("div", { className: "sticky top-0 z-10 flex items-center justify-between p-3 border-b border-white/[0.06] bg-[#0a0a0f]/95 backdrop-blur-sm" },
-                React.createElement("span", { className: "text-xs text-[#6b7280] font-medium" }, selectedTicker),
+              React.createElement("div", { className: "sticky top-0 z-10 flex items-center justify-between px-4 py-3 border-b border-white/[0.06] bg-[#0b0e11]/95 backdrop-blur-sm" },
+                React.createElement("span", { className: "text-sm font-semibold text-white" }, selectedTicker),
                 React.createElement("button", {
-                  onClick: () => setSelectedTicker(null),
-                  className: "text-[#6b7280] hover:text-white transition-colors text-lg leading-none w-7 h-7 flex items-center justify-center rounded hover:bg-white/[0.06]",
+                  onClick: handleCloseTicker,
+                  className: "text-[#6b7280] hover:text-white transition-colors text-lg leading-none w-8 h-8 flex items-center justify-center rounded hover:bg-white/[0.06]",
+                  "aria-label": "Close",
                 }, "\u2715"),
               ),
-              React.createElement("div", { className: "p-3" },
+              React.createElement("div", { className: "p-4" },
                 React.createElement(TickerDeepDive, { ticker: selectedTicker, data: selectedData }),
               ),
             ),
@@ -1384,7 +1472,7 @@
       const root = ReactDOM.createRoot(document.getElementById("root"));
       root.render(
         _AuthGate
-          ? React.createElement(_AuthGate, { apiBase: API_BASE, requiredTier: "pro" },
+          ? React.createElement(_AuthGate, { apiBase: API_BASE, requiredTier: "free" },
               (user) => React.createElement(InvestorDashboard, { user })
             )
           : React.createElement(InvestorDashboard)
