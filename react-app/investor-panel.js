@@ -28,6 +28,7 @@
     const scoreCls = score >= 70 ? "text-[#00e676]" : score >= 50 ? "text-amber-400" : "text-red-400";
     const _dc = getDailyChange(t);
     const dayPct = _dc?.dayPct;
+    const dayChg = _dc?.dayChg;
     const price = t.price != null && Number.isFinite(t.price) ? t.price : null;
     const isSelected = selectedTicker === sym;
     const glassBg = "rgba(10,16,28,0.45)";
@@ -38,6 +39,7 @@
     ].join(", ");
     const stageColors = { accumulate: "#10b981", core_hold: "#3b82f6", watch: "#f59e0b", reduce: "#ef4444", research: "#8b5cf6", exited: "#6b7280" };
     const accentColor = stageColors[stage] || "#6b7280";
+    const stageLabels = { accumulate: "Accum", core_hold: "Core", watch: "Watch", reduce: "Reduce", research: "Research", exited: "Exited" };
 
     return React.createElement("div", {
       key: sym,
@@ -57,30 +59,54 @@
           return sp;
         })(), width: 200, height: 142, bgMode: true }),
       ),
-      React.createElement("div", { className: "relative flex flex-col flex-1 min-h-0 p-2", style: { zIndex: 1 } },
-        React.createElement("div", { className: "flex items-center justify-between" },
+      React.createElement("div", { className: "relative flex flex-col flex-1 min-h-0", style: { zIndex: 1 } },
+        React.createElement("div", { className: "absolute inset-0 pointer-events-none rounded-lg", style: { background: "linear-gradient(to bottom, rgba(0,0,0,0.30) 0%, rgba(0,0,0,0.05) 45%, rgba(0,0,0,0.40) 100%)" } }),
+
+        React.createElement("div", { className: "relative flex items-center justify-between px-2 pt-1.5 pb-0", style: { zIndex: 1 } },
           React.createElement("div", { className: "flex items-center gap-1.5 min-w-0" },
             toggleSavedTicker && React.createElement("button", {
               onClick: (e) => { e.stopPropagation(); toggleSavedTicker(sym); },
-              className: `text-[13px] hover:scale-110 transition-transform shrink-0 ${savedTickers?.has(sym) ? "text-amber-400" : "text-[#4b5563] hover:text-amber-300"}`,
+              className: `shrink-0 text-[13px] hover:scale-110 transition-transform ${savedTickers?.has(sym) ? "text-amber-400" : "text-[#4b5563] hover:text-amber-300"}`,
               title: savedTickers?.has(sym) ? "Remove from Saved" : "Add to Saved",
-            }, savedTickers?.has(sym) ? "★" : "☆"),
-            React.createElement("span", { className: "text-xs font-bold text-white truncate" }, sym),
-            React.createElement("span", { className: `stage-badge stage-${stage} !text-[8px] !py-0 !px-1 shrink-0` }, stage.replace("_", " ")),
+            }, savedTickers?.has(sym) ? "\u2733" : "\u2606"),
+            React.createElement("span", { className: "text-[13px] font-bold text-white shrink-0", style: { textShadow: "0 1px 3px rgba(0,0,0,0.8)" } }, sym),
+            React.createElement("span", {
+              className: "inline-flex items-center justify-center px-1.5 py-px rounded text-[9px] font-bold shrink-0 tracking-wide bg-violet-500/40 text-violet-200 border border-violet-400/60",
+              style: { textShadow: "0 0 6px rgba(139,92,246,0.5)" },
+              title: "Timed Trading Investor",
+            }, "TT"),
+            React.createElement("span", { className: `inline-flex items-center px-1.5 py-px rounded text-[8px] font-bold shrink-0 tracking-wide border`, style: { background: `${accentColor}30`, color: accentColor, borderColor: `${accentColor}60` } }, stageLabels[stage] || stage),
           ),
-          React.createElement("div", { className: "flex items-center gap-1.5 shrink-0" },
-            price != null && React.createElement("span", { className: "text-[10px] text-[#9ca3af] tabular-nums" }, `$${price.toFixed(2)}`),
-            (dayPct != null && Number.isFinite(dayPct)) && React.createElement("span", { className: `text-[10px] font-semibold tabular-nums ${dayPct >= 0 ? "text-[#00e676]" : "text-red-400"}` }, `${dayPct >= 0 ? "+" : ""}${dayPct.toFixed(1)}%`),
+          React.createElement("div", { className: "flex flex-col items-end shrink-0 ml-1" },
+            price != null && React.createElement("span", { className: "text-white font-bold text-[13px] tabular-nums leading-tight", style: { textShadow: "0 1px 3px rgba(0,0,0,0.8)" } }, `$${price.toFixed(2)}`),
+            (dayPct != null && Number.isFinite(dayPct)) && React.createElement("span", {
+              className: "text-[11px] font-bold tabular-nums leading-tight",
+              style: { color: dayPct >= 0 ? (Math.abs(dayPct) >= 3 ? "#4ade80" : "#00e676") : (Math.abs(dayPct) >= 3 ? "#fb7185" : "#f87171"), textShadow: "0 1px 4px rgba(0,0,0,0.7)" },
+            }, `${dayPct >= 0 ? "+" : ""}${dayPct.toFixed(2)}%${Number.isFinite(dayChg) ? ` (${dayChg >= 0 ? "+" : "-"}$${Math.abs(dayChg).toFixed(2)})` : ""}`),
           ),
         ),
-        React.createElement("div", { className: "flex items-center justify-between mt-1" },
-          React.createElement("span", { className: `text-sm font-bold tabular-nums ${scoreCls}` }, Number.isFinite(score) ? score : "—"),
-          React.createElement("span", { className: "flex items-center gap-1" },
-            t.accumZone?.inZone && React.createElement("span", { className: "text-[9px] text-[#00e676] bg-[#00c853]/10 px-1 rounded" }, "ZONE"),
-            t.rs?.rsNewHigh3m && React.createElement("span", { className: "text-[9px] text-sky-400 bg-sky-500/10 px-1 rounded" }, "RS HIGH"),
+
+        React.createElement("div", { className: "relative flex items-center justify-between px-2 py-0.5", style: { zIndex: 1 } },
+          React.createElement("div", { className: "flex items-center gap-1.5 text-[10px] font-medium text-[#8b95a5]" },
+            React.createElement("span", null, "Score ", React.createElement("span", { className: `font-bold tabular-nums ${scoreCls}` }, Number.isFinite(score) ? score : "\u2014")),
+            t.rsRank != null && React.createElement("span", null, "RS ", React.createElement("span", { className: "font-bold tabular-nums text-white" }, `${t.rsRank}%`)),
+          ),
+          React.createElement("div", { className: "flex items-center gap-1" },
+            t.accumZone?.inZone && React.createElement("span", { className: "text-[9px] font-bold text-[#00e676] bg-[#00c853]/15 px-1.5 py-px rounded border border-[#00c853]/30" }, "BUY ZONE"),
+            t.rs?.rsNewHigh3m && React.createElement("span", { className: "text-[9px] font-bold text-sky-400 bg-sky-500/15 px-1.5 py-px rounded border border-sky-500/30" }, "RS HIGH"),
           ),
         ),
-        React.createElement("div", { className: "mt-auto pt-1" },
+
+        React.createElement("div", { className: "relative flex items-center justify-between px-2 py-0.5 text-[9px]", style: { zIndex: 1 } },
+          React.createElement("div", { className: "flex items-center gap-1" },
+            t.rs?.rs1m != null && React.createElement("span", { className: `font-semibold tabular-nums ${t.rs.rs1m >= 0 ? "text-[#00e676]" : "text-rose-400"}` }, `1M:${t.rs.rs1m >= 0 ? "+" : ""}${Number(t.rs.rs1m).toFixed(1)}%`),
+            t.rs?.rs3m != null && React.createElement("span", { className: `font-semibold tabular-nums ${t.rs.rs3m >= 0 ? "text-[#00e676]" : "text-rose-400"}` }, `3M:${t.rs.rs3m >= 0 ? "+" : ""}${Number(t.rs.rs3m).toFixed(1)}%`),
+          ),
+          stage === "accumulate" && React.createElement("span", { className: "text-[8px] text-[#00e676]/80 font-semibold" }, "Consider buying"),
+          stage === "reduce" && React.createElement("span", { className: "text-[8px] text-rose-400/80 font-semibold" }, "Consider trimming"),
+        ),
+
+        React.createElement("div", { className: "relative mt-auto px-2 pb-1.5 pt-0.5", style: { zIndex: 1 } },
           React.createElement(ScoreBar, { score: Math.min(100, Math.max(0, score)), color: score >= 70 ? "#10b981" : score >= 50 ? "#f59e0b" : "#ef4444" }),
         ),
       ),
@@ -179,7 +205,7 @@
     );
   }
 
-  function InvestorPanel({ apiBase, onSelectTicker, savedTickers, toggleSavedTicker, selectedTicker, tickerData }) {
+  function InvestorPanel({ apiBase, onSelectTicker, savedTickers, toggleSavedTicker, selectedTicker, tickerData, searchQuery, filterGroup }) {
     const [scores, setScores] = useState(null);
     const [health, setHealth] = useState(null);
     const [loading, setLoading] = useState(true);
@@ -266,8 +292,15 @@
         const allowed = new Set(memberTickers);
         list = list.filter(t => allowed.has(t.ticker));
       }
+      if (searchQuery && searchQuery.trim()) {
+        const q = searchQuery.trim().toUpperCase();
+        list = list.filter(t => t.ticker.includes(q));
+      }
+      if (filterGroup === "SAVED" && savedTickers && savedTickers.size > 0) {
+        list = list.filter(t => savedTickers.has(t.ticker));
+      }
       return list;
-    }, [scores, memberTickers, tickerData]);
+    }, [scores, memberTickers, tickerData, searchQuery, filterGroup, savedTickers]);
 
     const actionCount = useMemo(() => allTickers.filter(t => t.stage && t.stage !== "research").length, [allTickers]);
 

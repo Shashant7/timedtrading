@@ -446,8 +446,10 @@
         initialRailTab = null,
         effectiveStage = null,
         earningsMap = null,
+        addingTicker = null,
       }) {
         const tickerSymbol = ticker?.ticker ? String(ticker.ticker) : "";
+        const isAdding = addingTicker && String(addingTicker).toUpperCase() === tickerSymbol;
 
         // Fetch full latest payload for Right Rail (ensures `context` shows even when /timed/all is context-light).
         const [latestTicker, setLatestTicker] = useState(null);
@@ -1114,6 +1116,14 @@
                       </button>
                     </div>
                   </div>
+
+                  {/* ── Adding ticker progress banner ── */}
+                  {isAdding && (
+                    <div className="flex items-center gap-2 px-3 py-2 mt-1 rounded-lg bg-cyan-500/15 border border-cyan-500/30">
+                      <span className="loading-spinner loading-spinner-sm" style={{ width: "12px", height: "12px", borderWidth: "1.5px", borderColor: "rgba(6,182,212,0.25)", borderTopColor: "rgb(6,182,212)" }} />
+                      <span className="text-[11px] font-medium text-cyan-300">Adding ticker… Scoring {tickerSymbol}</span>
+                    </div>
+                  )}
 
                   {/* ── Row 2: Price + Daily Change + EXT (admin only) ── */}
                   {document.body.dataset.userRole === "admin" && (() => {

@@ -581,9 +581,11 @@
       selectedJourneyTs = null,
       initialRailTab = null,
       effectiveStage = null,
-      earningsMap = null
+      earningsMap = null,
+      addingTicker = null
     }) {
       const tickerSymbol = ticker?.ticker ? String(ticker.ticker) : "";
+      const isAdding = addingTicker && String(addingTicker).toUpperCase() === tickerSymbol;
 
       // Fetch full latest payload for Right Rail (ensures `context` shows even when /timed/all is context-light).
       const [latestTicker, setLatestTicker] = useState(null);
@@ -1250,7 +1252,20 @@
       }))), /*#__PURE__*/React.createElement("button", {
         onClick: onClose,
         className: "text-[#6b7280] hover:text-white transition-colors text-lg leading-none w-7 h-7 flex items-center justify-center rounded hover:bg-white/[0.04]"
-      }, "\u2715"))), document.body.dataset.userRole === "admin" && (() => {
+      }, "\u2715"))), isAdding && /*#__PURE__*/React.createElement("div", {
+        className: "flex items-center gap-2 px-3 py-2 mt-1 rounded-lg bg-cyan-500/15 border border-cyan-500/30"
+      }, /*#__PURE__*/React.createElement("span", {
+        className: "loading-spinner loading-spinner-sm",
+        style: {
+          width: "12px",
+          height: "12px",
+          borderWidth: "1.5px",
+          borderColor: "rgba(6,182,212,0.25)",
+          borderTopColor: "rgb(6,182,212)"
+        }
+      }), /*#__PURE__*/React.createElement("span", {
+        className: "text-[11px] font-medium text-cyan-300"
+      }, "Adding ticker\u2026 Scoring ", tickerSymbol)), document.body.dataset.userRole === "admin" && (() => {
         const src = priceSrc;
         const price = Number(src?._live_price || src?.price || src?.close || 0);
         if (!price) return null;
