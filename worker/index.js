@@ -66,6 +66,7 @@ import {
 } from "./indicators.js";
 import { createExecutionAdapter } from "./execution.js";
 import * as DataProvider from "./data-provider.js";
+import { tdFetchEarningsCalendar } from "./twelvedata.js";
 import { onboardTicker, loadTickerProfile, loadSectorProfile, mergeProfileWeights } from "./onboard-ticker.js";
 import {
   loadCalendar,
@@ -25555,31 +25556,81 @@ export default {
       }
 
       // GET /timed/earnings/upcoming — cached upcoming earnings for universe tickers
+      // ?debug=1 returns raw Finnhub sample + tickers NFLX,TSLA,AAPL for verification
       if (routeKey === "GET /timed/earnings/upcoming") {
         try {
+          const debug = url.searchParams.get("debug") === "1";
           let cached = await kvGetJSON(KV, "timed:earnings:upcoming");
           const staleMs = 6 * 3600 * 1000;
           const isEmpty = !cached?.events || cached.events.length === 0;
           const isStale = cached?.updated_at && (Date.now() - cached.updated_at) > staleMs;
-          if (isEmpty || isStale) {
+          let rawFinnhub = null;
+          if (isEmpty || isStale || debug) {
             try {
               const today = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
               const future = new Date(Date.now() + 5 * 86400000).toLocaleDateString("en-CA", { timeZone: "America/New_York" });
-              const raw = await fetchFinnhubEarnings(env, today, future);
+              rawFinnhub = await fetchFinnhubEarnings(env, today, future);
               const universeSet = new Set(Object.keys(SECTOR_MAP));
-              const filtered = raw
+              let filtered = rawFinnhub
                 .filter(e => e.symbol && universeSet.has(e.symbol.toUpperCase()))
                 .map(e => ({ ...e, symbol: e.symbol.toUpperCase() }));
-              cached = { events: filtered, updated_at: Date.now() };
-              ctx.waitUntil(kvPutJSON(KV, "timed:earnings:upcoming", cached, 86400).catch(() => {}));
+              // TwelveData gate: only show earnings when TwelveData confirms (avoids Finnhub false positives)
+              try {
+                const tdRes = await tdFetchEarningsCalendar(env, today, future);
+                if (!tdRes._error && tdRes.earnings && typeof tdRes.earnings === "object") {
+                  const tdConfirmed = new Set();
+                  for (const [date, arr] of Object.entries(tdRes.earnings)) {
+                    if (Array.isArray(arr)) for (const e of arr) {
+                      const sym = String(e.symbol || "").toUpperCase();
+                      if (sym) tdConfirmed.add(`${sym}|${(date || "").slice(0, 10)}`);
+                    }
+                  }
+                  if (tdConfirmed.size > 0) filtered = filtered.filter(e => tdConfirmed.has(`${e.symbol}|${(e.date || "").slice(0, 10)}`));
+                }
+              } catch (_) {}
+              if (!debug) {
+                cached = { events: filtered, updated_at: Date.now() };
+                ctx.waitUntil(kvPutJSON(KV, "timed:earnings:upcoming", cached, 86400).catch(() => {}));
+              } else {
+                cached = { events: filtered, updated_at: Date.now() };
+              }
             } catch (fetchErr) {
               console.warn("[EARNINGS] On-demand fetch failed:", String(fetchErr?.message || fetchErr).slice(0, 150));
             }
           }
+          const payload = { ok: true, events: cached?.events || [], updated_at: cached?.updated_at || 0 };
+          if (debug && rawFinnhub) {
+            const today = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+            const future = new Date(Date.now() + 5 * 86400000).toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+            const checkTickers = ["NFLX", "TSLA", "AAPL"];
+            const debugObj = {
+              finnhub_range: { today, future },
+              finnhub_total: rawFinnhub.length,
+              finnhub_sample: rawFinnhub.slice(0, 8).map(e => ({ symbol: e.symbol, date: e.date, hour: e.hour, epsEstimate: e.epsEstimate, epsActual: e.epsActual })),
+              check_tickers_finnhub: Object.fromEntries(checkTickers.map(sym => [sym, rawFinnhub.filter(e => String(e.symbol || "").toUpperCase() === sym).map(e => ({ symbol: e.symbol, date: e.date, hour: e.hour }))])),
+            };
+            try {
+              const tdRes = await tdFetchEarningsCalendar(env, today, future);
+              if (!tdRes._error && tdRes.earnings && typeof tdRes.earnings === "object") {
+                const tdFlat = [];
+                for (const [date, arr] of Object.entries(tdRes.earnings)) {
+                  if (Array.isArray(arr)) for (const e of arr) tdFlat.push({ ...e, date });
+                }
+                debugObj.twelvedata_total = tdFlat.length;
+                debugObj.twelvedata_sample = tdFlat.slice(0, 8).map(e => ({ symbol: e.symbol, date: e.date, name: e.name }));
+                debugObj.check_tickers_twelvedata = Object.fromEntries(checkTickers.map(sym => [sym, tdFlat.filter(e => String(e.symbol || "").toUpperCase() === sym).map(e => ({ symbol: e.symbol, date: e.date }))]));
+              } else {
+                debugObj.twelvedata_error = tdRes._error || tdRes._detail || "no_earnings";
+              }
+            } catch (tdErr) {
+              debugObj.twelvedata_error = String(tdErr?.message || tdErr).slice(0, 100);
+            }
+            payload._debug = debugObj;
+          }
           return sendJSON(
-            { ok: true, events: cached?.events || [], updated_at: cached?.updated_at || 0 },
+            payload,
             200,
-            { ...corsHeaders(env, req), "Cache-Control": "public, max-age=300" },
+            { ...corsHeaders(env, req), "Cache-Control": debug ? "no-store" : "public, max-age=300" },
           );
         } catch (e) {
           console.error("[EARNINGS] GET error:", String(e));

@@ -177,6 +177,18 @@
         box-shadow: 0 0 8px var(--tt-accent-dim);
       }
 
+      /* Investor panel stage badges */
+      .stage-badge { padding: 2px 8px; border-radius: 6px; font-size: 11px; font-weight: 600; text-transform: uppercase; }
+      .stage-accumulate { background: rgba(16,185,129,0.15); color: #34d399; border: 1px solid rgba(16,185,129,0.3); }
+      .stage-core_hold { background: rgba(59,130,246,0.15); color: #60a5fa; border: 1px solid rgba(59,130,246,0.3); }
+      .stage-watch { background: rgba(245,158,11,0.15); color: #fbbf24; border: 1px solid rgba(245,158,11,0.3); }
+      .stage-reduce { background: rgba(239,68,68,0.15); color: #f87171; border: 1px solid rgba(239,68,68,0.3); }
+      .stage-research { background: rgba(139,92,246,0.15); color: #a78bfa; border: 1px solid rgba(139,92,246,0.3); }
+      .stage-exited { background: rgba(107,114,128,0.15); color: #9ca3af; border: 1px solid rgba(107,114,128,0.3); }
+      .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+      .scrollbar-hide::-webkit-scrollbar { display: none; }
+      .card { background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.06); border-radius: 12px; }
+
       .loading-spinner {
         width: 28px;
         height: 28px;
@@ -464,6 +476,7 @@
 
     <script src="auth-gate.js?v=20260219a"></script>
     <script src="shared-price-utils.js?v=20260211a"></script>
+    <script src="investor-panel.js?v=20260226a"></script>
     <script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
     <script src="shared-right-rail.compiled.js?v=20260226j" type="text/babel"></script>
     <script type="text/babel">
@@ -17364,7 +17377,7 @@
                                 : "text-[#6b7280] hover:text-white hover:bg-white/[0.05] border-r border-white/[0.06]"
                             }`}
                           >
-                            Active Trader
+                            Analysis
                           </button>
                           <button
                             onClick={() => handleDashboardModeChange("investor")}
@@ -17415,13 +17428,20 @@
                           )}
                         </div>
                       ) : (
-                        <div className="rounded-xl border border-white/[0.06] overflow-hidden" style={{ minHeight: 600 }}>
-                          <iframe
-                            src="investor-dashboard.html?embedded=true"
-                            className="w-full border-0"
-                            style={{ height: "calc(100vh - 100px)", minHeight: 600, background: "#0b0e11" }}
-                            title="Investor Dashboard"
-                          />
+                        <div className="rounded-xl border border-white/[0.06] overflow-hidden p-4" style={{ minHeight: 600, background: "#0b0e11" }}>
+                          {typeof window.InvestorPanel === "function" ? (
+                            React.createElement(window.InvestorPanel, {
+                              apiBase: API_BASE,
+                              onSelectTicker: handleTickerSelect,
+                              savedTickers,
+                              toggleSavedTicker,
+                              selectedTicker,
+                            })
+                          ) : (
+                            <div className="flex items-center justify-center h-64 text-[#6b7280]">
+                              <span>Loading Investor panel…</span>
+                            </div>
+                          )}
                         </div>
                       )}
                     </div>

@@ -337,6 +337,24 @@ export async function tdFetchExchangeSchedule(env, date = "today") {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
+// Earnings Calendar — schedule of earnings for date range (40 credits/request)
+// Returns: { earnings: { "YYYY-MM-DD": [ { symbol, name, currency, ... } ] } }
+// ═══════════════════════════════════════════════════════════════════════════════
+
+export async function tdFetchEarningsCalendar(env, startDate, endDate) {
+  const apiKey = getApiKey(env);
+  if (!apiKey) return { _error: "missing_credentials" };
+
+  const params = new URLSearchParams({
+    start_date: startDate,
+    end_date: endDate,
+    apikey: apiKey,
+  });
+  const url = `${TD_BASE}/earnings_calendar?${params}`;
+  return tdFetch(url, 15000);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
 // Exports for data-provider layer
 // ═══════════════════════════════════════════════════════════════════════════════
 

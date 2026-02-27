@@ -2368,13 +2368,23 @@
         // Use position SL/TP when available (correct for SHORT trades)
         const posSlRaw = ticker?.has_open_position ? Number(ticker?.position_sl) : NaN;
         const posTpRaw = ticker?.has_open_position ? Number(ticker?.position_tp) : NaN;
-        const sl = Number.isFinite(posSlRaw) && posSlRaw > 0 ? posSlRaw : ticker.sl ? Number(ticker.sl) : null;
+        const price = Number(ticker?.price);
+        const slRaw = Number.isFinite(posSlRaw) && posSlRaw > 0 ? posSlRaw : ticker.sl ? Number(ticker.sl) : null;
+        // Direction-aware SL sanity: LONG → SL below price; SHORT → SL above price.
+        // Stale ingest data can have LONG-style SL when state flipped to SHORT.
+        const slSane = raw => {
+          if (!Number.isFinite(raw) || raw <= 0) return null;
+          if (!resolvedDir || !Number.isFinite(price) || price <= 0) return raw;
+          if (resolvedDir === "LONG" && raw >= price) return null;
+          if (resolvedDir === "SHORT" && raw <= price) return null;
+          return raw;
+        };
+        const sl = slSane(slRaw);
         // Original SL at trade creation — used to determine if TSL is active
         const slOrigRaw = Number(trade?.sl_original ?? ticker?.position_sl_original ?? 0);
-        const slOrig = Number.isFinite(slOrigRaw) && slOrigRaw > 0 ? slOrigRaw : null;
-        const price = Number(ticker?.price);
+        const slOrig = Number.isFinite(slOrigRaw) && slOrigRaw > 0 ? slSane(slOrigRaw) : null;
         const rr = ticker.rr ? Number(ticker.rr) : null;
-        const hasSl = Number.isFinite(sl) && sl > 0;
+        const hasSl = sl != null && sl > 0;
         // TSL is active when current SL has moved > 0.5% from original
         const tslActive = hasSl && slOrig && Math.abs(sl - slOrig) / slOrig > 0.005;
 
