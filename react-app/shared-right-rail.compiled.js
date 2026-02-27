@@ -1551,6 +1551,10 @@
         label: "Analysis",
         proOnly: false
       }, {
+        k: "INVESTOR",
+        label: "Investor",
+        proOnly: false
+      }, {
         k: "TECHNICALS",
         label: "Technicals",
         proOnly: true
@@ -1566,10 +1570,6 @@
         k: "TRADE_HISTORY",
         label: `Trades (${Array.isArray(ledgerTrades) ? ledgerTrades.length : 0})`,
         proOnly: true
-      }, {
-        k: "INVESTOR",
-        label: "Investor",
-        proOnly: false
       }].map(t => {
         const active = railTab === t.k;
         const locked = t.proOnly && !window._ttIsPro;
@@ -4270,7 +4270,7 @@
             className: "text-xs text-yellow-300"
           }, "Chart render error (data may be malformed). Check console for details.");
         }
-      })())) : null, railTab === "TRADE_HISTORY" ? /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
+      })())) : null, railTab === "TRADE_HISTORY" && window._ttIsPro ? /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
         className: "mb-4 p-3 bg-white/[0.03] border-2 border-white/[0.06] rounded-lg"
       }, /*#__PURE__*/React.createElement("div", {
         className: "flex items-center justify-between mb-2"

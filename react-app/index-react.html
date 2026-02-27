@@ -2603,6 +2603,7 @@
           </div>
         );
       }
+      window.TimedSparkline = Sparkline;
 
       function computeReturnPct(ticker) {
         const direct =
@@ -16047,7 +16048,8 @@
         const { wsConnected, wsLastMessage } = useWebSocket(data, setTickerData);
         const { priceLastUpdated } = usePriceFeed(data, setTickerData);
         const { trades } = useTrades();
-        const { summary: accountSummary } = useAccountSummary("trader");
+        const accountMode = dashboardMode === "investor" ? "investor" : "trader";
+        const { summary: accountSummary } = useAccountSummary(accountMode);
         const { pending: queuedPending, pendingCount: queuedPendingCount } = useQueuedActions();
         const userTickers = useUserTickers();
         const { sectors } = useSectors();
@@ -16114,7 +16116,11 @@
           try { return localStorage.getItem("timedTrading_viewMode") || "advanced"; } catch { return "advanced"; }
         });
         const [dashboardMode, setDashboardMode] = useState(() => {
-          try { return localStorage.getItem("timedTrading_dashboardMode") || "trader"; } catch { return "trader"; }
+          try {
+            const stored = localStorage.getItem("timedTrading_dashboardMode");
+            if (stored === "trader" || stored === "investor" || stored === "analysis") return stored;
+            return "analysis";
+          } catch { return "analysis"; }
         });
         const handleDashboardModeChange = useCallback((mode) => {
           setDashboardMode(mode);
@@ -16618,8 +16624,7 @@
                     )}
                     {/* Desktop nav links */}
                     <div className="hidden lg:flex items-center gap-0.5" data-coachmark="nav-modes">
-                      <a href="index-react.html" className="px-3 py-1 rounded-md text-[13px] text-white bg-white/[0.07] font-medium">Active Trader</a>
-                      <a href="investor-dashboard.html" className="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Investor</a>
+                      <a href="index-react.html" className="px-3 py-1 rounded-md text-[13px] text-white bg-white/[0.07] font-medium">Analysis</a>
                       <a href="simulation-dashboard.html" className="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Trades</a>
                       <a href="system-intelligence.html" className="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">System Intelligence</a>
                       <a href="screener.html" data-admin-only="true" className="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Screener</a>
@@ -16654,8 +16659,7 @@
                 {/* Mobile dropdown menu */}
                 {mobileMenuOpen && (
                   <div className="lg:hidden border-t border-white/[0.06] px-4 py-2 flex flex-col gap-0.5" style={{background:"rgba(10,10,15,0.98)"}}>
-                    <a href="index-react.html" className="px-3 py-2 rounded-md text-[13px] text-white bg-white/[0.07] font-medium" onClick={() => setMobileMenuOpen(false)}>Active Trader</a>
-                    <a href="investor-dashboard.html" className="px-3 py-2 rounded-md text-[13px] text-[#9ca3af] hover:text-white hover:bg-white/[0.04] transition-all" onClick={() => setMobileMenuOpen(false)}>Investor</a>
+                    <a href="index-react.html" className="px-3 py-2 rounded-md text-[13px] text-white bg-white/[0.07] font-medium" onClick={() => setMobileMenuOpen(false)}>Analysis</a>
                     <a href="simulation-dashboard.html" className="px-3 py-2 rounded-md text-[13px] text-[#9ca3af] hover:text-white hover:bg-white/[0.04] transition-all" onClick={() => setMobileMenuOpen(false)}>Trades</a>
                     <a href="system-intelligence.html" className="px-3 py-2 rounded-md text-[13px] text-[#9ca3af] hover:text-white hover:bg-white/[0.04] transition-all" onClick={() => setMobileMenuOpen(false)}>System Intelligence</a>
                     <a href="screener.html" data-admin-only="true" className="px-3 py-2 rounded-md text-[13px] text-[#9ca3af] hover:text-white hover:bg-white/[0.04] transition-all" onClick={() => setMobileMenuOpen(false)}>Screener</a>
@@ -16858,8 +16862,8 @@
                     );
                   })()}
 
-                  {/* ═══ 3. ACCOUNT SUMMARY — above search ═══ */}
-                  <div className="mb-4">
+                  {/* ═══ 3. ACCOUNT SUMMARY — above search (Active Trader / Investor modes only) ═══ */}
+                  {(dashboardMode === "trader" || dashboardMode === "investor") && <div className="mb-4">
                     <ActionCenterPanel
                       tickers={tickers}
                       trades={trades}
@@ -16874,7 +16878,7 @@
                       savedTickers={savedTickers}
                       toggleSavedTicker={toggleSavedTicker}
                     />
-                  </div>
+                  </div>}
 
                   {/* ═══ 4. SEARCH (left) + FILTERS + PILLS & REFRESH (right) ═══ */}
                   <div className="mb-3 flex flex-wrap items-center justify-between gap-3" data-coachmark="search-filter">
@@ -16990,25 +16994,43 @@
                     </div>
                   </div>
 
-                  {/* ═══ 4b. MODE SEGMENT CONTROLLER — Active Trader / Investor ═══ */}
+                  {/* ═══ 4b. MODE SELECTOR — Analysis / Active Trader / Investor ═══ */}
                   <div className="mb-3 flex items-center gap-3">
-                    <div className="flex items-center bg-white/[0.04] border border-white/[0.10] rounded-xl overflow-hidden shadow-sm">
-                      <a
-                        href="index-react.html"
-                        className="flex items-center gap-1.5 px-4 py-2 text-[12px] font-semibold transition-all bg-gradient-to-r from-cyan-500/20 to-teal-500/15 text-white"
+                    <div className="inline-flex items-center bg-white/[0.04] border border-white/[0.10] rounded-xl overflow-hidden shadow-sm">
+                      <button
+                        onClick={() => handleDashboardModeChange("analysis")}
+                        className={`flex items-center gap-1.5 px-4 py-2 text-[12px] font-semibold transition-all ${
+                          dashboardMode === "analysis"
+                            ? "bg-gradient-to-r from-violet-500/20 to-indigo-500/15 text-white"
+                            : "text-[#6b7280] hover:text-white hover:bg-white/[0.05]"
+                        }`}
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
+                        Analysis
+                      </button>
+                      <button
+                        onClick={() => handleDashboardModeChange("trader")}
+                        className={`flex items-center gap-1.5 px-4 py-2 text-[12px] font-semibold transition-all border-l border-white/[0.06] ${
+                          dashboardMode === "trader"
+                            ? "bg-gradient-to-r from-cyan-500/20 to-teal-500/15 text-white"
+                            : "text-[#6b7280] hover:text-white hover:bg-white/[0.05]"
+                        }`}
                       >
                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" /></svg>
                         Active Trader
-                      </a>
-                      <a
-                        href="investor-dashboard.html"
-                        className="flex items-center gap-1.5 px-4 py-2 text-[12px] font-semibold transition-all text-[#6b7280] hover:text-white hover:bg-white/[0.05] border-l border-white/[0.06]"
+                      </button>
+                      <button
+                        onClick={() => handleDashboardModeChange("investor")}
+                        className={`flex items-center gap-1.5 px-4 py-2 text-[12px] font-semibold transition-all border-l border-white/[0.06] ${
+                          dashboardMode === "investor"
+                            ? "bg-gradient-to-r from-emerald-500/20 to-teal-500/15 text-white"
+                            : "text-[#6b7280] hover:text-white hover:bg-white/[0.05]"
+                        }`}
                       >
                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
                         Investor
-                      </a>
+                      </button>
                     </div>
-                    <span className="text-[9px] text-[#4b5563]">Switch trading mode</span>
                   </div>
 
                   {/* View toggle + saved filter moved into Active Trader section below */}
@@ -17209,10 +17231,12 @@
                 {/* Ingestion Status Panel removed — was a floating widget showing stale/fresh ticker counts.
                      Not useful for end users; admin can check via /admin-clients.html or Worker logs. */}
 
-                {/* Main Content - Hero Layout: Activity Feed (left) | Bubble Chart (center) | Detail (right) */}
+                {/* Main Content — mode-exclusive rendering */}
                 {!error && (
                   <div className="space-y-4">
-                    {/* Hero Section: Activity Feed | Bubble Chart | Detail View */}
+
+                    {/* ═══ ANALYSIS MODE: Viewport + Bubble Chart ═══ */}
+                    {dashboardMode === "analysis" && (
                     <div className="flex flex-col lg:flex-row gap-4 items-stretch">
                       {/* Viewport - Left side */}
                       <div className="w-full lg:w-[320px] lg:flex-shrink-0 h-[600px] sm:h-[700px] md:h-[800px] lg:h-[900px]" data-coachmark="viewport">
@@ -17295,8 +17319,9 @@
                         </div>
                       </div>
                     </div>
+                    )}
 
-                    {/* Cards / Table View controller — below Bubble Chart, Active Trader only */}
+                    {/* Cards / Table View controller — Active Trader only */}
                     {dashboardMode === "trader" && (
                       <div className="flex flex-wrap items-center gap-3">
                         <div className="flex items-center bg-white/[0.04] border border-white/[0.10] rounded-xl overflow-hidden shadow-sm">
@@ -17365,86 +17390,63 @@
                         </div>
                       </>
                     )}
-                    {/* ═══ BELOW: Active Trader / Investor Mode Toggle + Content ═══ */}
-                    <div className="mt-6">
-                      <div className="flex items-center justify-center gap-1 mb-4">
-                        <div className="inline-flex items-center bg-white/[0.04] border border-white/[0.10] rounded-xl overflow-hidden shadow-sm">
-                          <button
-                            onClick={() => handleDashboardModeChange("trader")}
-                            className={`px-5 py-2 text-[13px] font-semibold transition-all ${
-                              dashboardMode === "trader"
-                                ? "bg-gradient-to-r from-cyan-500/20 to-blue-500/15 text-white border-r border-white/[0.06]"
-                                : "text-[#6b7280] hover:text-white hover:bg-white/[0.05] border-r border-white/[0.06]"
-                            }`}
-                          >
-                            Analysis
-                          </button>
-                          <button
-                            onClick={() => handleDashboardModeChange("investor")}
-                            className={`px-5 py-2 text-[13px] font-semibold transition-all ${
-                              dashboardMode === "investor"
-                                ? "bg-gradient-to-r from-emerald-500/20 to-teal-500/15 text-white"
-                                : "text-[#6b7280] hover:text-white hover:bg-white/[0.05]"
-                            }`}
-                          >
-                            Investor
-                          </button>
-                        </div>
+                    {/* ═══ ACTIVE TRADER MODE: Kanban Lanes ═══ */}
+                    {dashboardMode === "trader" && (
+                      <div className="relative" data-coachmark="kanban-lanes">
+                        {viewSwitching && (
+                          <div className="absolute inset-0 z-30 flex items-center justify-center bg-[#0d1117]/80 backdrop-blur-sm rounded-xl" style={{ minHeight: 200 }}>
+                            <div className="flex flex-col items-center gap-2">
+                              <svg className="animate-spin h-7 w-7 text-cyan-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                              </svg>
+                              <span className="text-[11px] text-gray-400 font-medium">Switching view…</span>
+                            </div>
+                          </div>
+                        )}
+                        {dashboardViewMode === "simple" ? (
+                          <SimpleKanbanTable
+                            tickers={tickers}
+                            trades={trades}
+                            onSelectTicker={handleTickerSelect}
+                            rankPositions={rankedTickerPositions}
+                            savedTickers={savedTickers}
+                            toggleSavedTicker={toggleSavedTicker}
+                            contextData={data}
+                          />
+                        ) : (
+                          <EarlyMoversPanel
+                            tickers={tickers}
+                            trades={trades}
+                            onSelectTicker={handleTickerSelect}
+                            rankPositions={rankedTickerPositions}
+                            rankTotal={allTickersWithRanks.length}
+                            savedTickers={savedTickers}
+                            toggleSavedTicker={toggleSavedTicker}
+                          />
+                        )}
                       </div>
+                    )}
 
-                      {dashboardMode === "trader" ? (
-                        <div className="relative" data-coachmark="kanban-lanes">
-                          {viewSwitching && (
-                            <div className="absolute inset-0 z-30 flex items-center justify-center bg-[#0d1117]/80 backdrop-blur-sm rounded-xl" style={{ minHeight: 200 }}>
-                              <div className="flex flex-col items-center gap-2">
-                                <svg className="animate-spin h-7 w-7 text-cyan-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                                </svg>
-                                <span className="text-[11px] text-gray-400 font-medium">Switching view…</span>
-                              </div>
-                            </div>
-                          )}
-                          {dashboardViewMode === "simple" ? (
-                            <SimpleKanbanTable
-                              tickers={tickers}
-                              trades={trades}
-                              onSelectTicker={handleTickerSelect}
-                              rankPositions={rankedTickerPositions}
-                              savedTickers={savedTickers}
-                              toggleSavedTicker={toggleSavedTicker}
-                              contextData={data}
-                            />
-                          ) : (
-                            <EarlyMoversPanel
-                              tickers={tickers}
-                              trades={trades}
-                              onSelectTicker={handleTickerSelect}
-                              rankPositions={rankedTickerPositions}
-                              rankTotal={allTickersWithRanks.length}
-                              savedTickers={savedTickers}
-                              toggleSavedTicker={toggleSavedTicker}
-                            />
-                          )}
-                        </div>
-                      ) : (
-                        <div className="rounded-xl border border-white/[0.06] overflow-hidden p-4" style={{ minHeight: 600, background: "#0b0e11" }}>
-                          {typeof window.InvestorPanel === "function" ? (
-                            React.createElement(window.InvestorPanel, {
-                              apiBase: API_BASE,
-                              onSelectTicker: handleTickerSelect,
-                              savedTickers,
-                              toggleSavedTicker,
-                              selectedTicker,
-                            })
-                          ) : (
-                            <div className="flex items-center justify-center h-64 text-[#6b7280]">
-                              <span>Loading Investor panel…</span>
-                            </div>
-                          )}
-                        </div>
-                      )}
-                    </div>
+                    {/* ═══ INVESTOR MODE: Market Health + Investor Kanban ═══ */}
+                    {dashboardMode === "investor" && (
+                      <div className="rounded-xl border border-white/[0.06] overflow-hidden p-4" style={{ minHeight: 600, background: "#0b0e11" }}>
+                        {typeof window.InvestorPanel === "function" ? (
+                          React.createElement(window.InvestorPanel, {
+                            apiBase: API_BASE,
+                            onSelectTicker: handleTickerSelect,
+                            savedTickers,
+                            toggleSavedTicker,
+                            selectedTicker,
+                            tickerData: data,
+                          })
+                        ) : (
+                          <div className="flex items-center justify-center h-64 text-[#6b7280]">
+                            <span>Loading Investor panel…</span>
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
                 )}
               </div>

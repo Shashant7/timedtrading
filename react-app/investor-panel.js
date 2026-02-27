@@ -21,6 +21,7 @@
   }
 
   function InvestorCard({ t, onSelect, selectedTicker, savedTickers, toggleSavedTicker }) {
+    const SparklineBg = window.TimedSparkline;
     const sym = String(t?.ticker || "").toUpperCase();
     const stage = t.stage || "research";
     const score = Number(t.score) || 0;
@@ -48,6 +49,14 @@
       style: { backgroundImage: cardBgImage, boxShadow: "0 4px 12px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.12)", height: "142px" },
     },
       React.createElement("div", { className: "absolute left-0 top-0 bottom-0 w-[3px] rounded-l-lg", style: { background: accentColor, boxShadow: `0 0 6px ${accentColor}66` } }),
+      SparklineBg && t._sparkline && t._sparkline.length >= 3 && React.createElement("div", { className: "absolute inset-0 pointer-events-none", style: { zIndex: 0 } },
+        React.createElement(SparklineBg, { data: (() => {
+          const lp = Number(t._live_price || t.price);
+          const sp = t._sparkline;
+          if (lp > 0 && sp.length > 0 && Math.abs(lp - sp[sp.length - 1]) / sp[sp.length - 1] > 0.005) return [...sp, lp];
+          return sp;
+        })(), width: 200, height: 142, bgMode: true }),
+      ),
       React.createElement("div", { className: "relative flex flex-col flex-1 min-h-0 p-2", style: { zIndex: 1 } },
         React.createElement("div", { className: "flex items-center justify-between" },
           React.createElement("div", { className: "flex items-center gap-1.5 min-w-0" },
@@ -170,11 +179,19 @@
     );
   }
 
-  function InvestorPanel({ apiBase, onSelectTicker, savedTickers, toggleSavedTicker, selectedTicker }) {
+  function InvestorPanel({ apiBase, onSelectTicker, savedTickers, toggleSavedTicker, selectedTicker, tickerData }) {
     const [scores, setScores] = useState(null);
     const [health, setHealth] = useState(null);
     const [loading, setLoading] = useState(true);
+    const [memberTickers, setMemberTickers] = useState([]);
     const base = apiBase || "";
+
+    useEffect(() => {
+      if (window._ttIsPro || window._ttIsAdmin) return;
+      fetch(`${base}/timed/member-tickers`).then(r => r.json())
+        .then(j => { if (j.ok && Array.isArray(j.tickers)) setMemberTickers(j.tickers.map(s => String(s).toUpperCase())); })
+        .catch(() => {});
+    }, [base]);
 
     const fetchData = useCallback(async () => {
       setLoading(true);
@@ -236,8 +253,21 @@
 
     const allTickers = useMemo(() => {
       if (!scores?.tickers) return [];
-      return scores.tickers.map(t => ({ ...t, ticker: String(t.ticker || "").toUpperCase() }));
-    }, [scores]);
+      let list = scores.tickers.map(t => {
+        const sym = String(t.ticker || "").toUpperCase();
+        const mainData = tickerData?.[sym];
+        return {
+          ...t,
+          ticker: sym,
+          _sparkline: mainData?._sparkline || t._sparkline,
+        };
+      });
+      if (!window._ttIsPro && !window._ttIsAdmin && memberTickers.length > 0) {
+        const allowed = new Set(memberTickers);
+        list = list.filter(t => allowed.has(t.ticker));
+      }
+      return list;
+    }, [scores, memberTickers, tickerData]);
 
     const actionCount = useMemo(() => allTickers.filter(t => t.stage && t.stage !== "research").length, [allTickers]);
 

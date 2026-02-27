@@ -1360,6 +1360,7 @@
                   <div className="mt-3 flex items-center gap-1.5 overflow-x-auto" style={{ scrollbarWidth: "none" }}>
                     {[
                       { k: "ANALYSIS", label: "Analysis", proOnly: false },
+                      { k: "INVESTOR", label: "Investor", proOnly: false },
                       { k: "TECHNICALS", label: "Technicals", proOnly: true },
                       { k: "MODEL", label: "Model", proOnly: true },
                       { k: "JOURNEY", label: "Journey", proOnly: true },
@@ -1368,7 +1369,6 @@
                         label: `Trades (${Array.isArray(ledgerTrades) ? ledgerTrades.length : 0})`,
                         proOnly: true,
                       },
-                      { k: "INVESTOR", label: "Investor", proOnly: false },
                     ].map((t) => {
                       const active = railTab === t.k;
                       const locked = t.proOnly && !window._ttIsPro;
@@ -4233,7 +4233,7 @@
                     </>
                   ) : null}
 
-                  {railTab === "TRADE_HISTORY" ? (
+                  {railTab === "TRADE_HISTORY" && window._ttIsPro ? (
                     <>
                       <div className="mb-4 p-3 bg-white/[0.03] border-2 border-white/[0.06] rounded-lg">
                         <div className="flex items-center justify-between mb-2">
