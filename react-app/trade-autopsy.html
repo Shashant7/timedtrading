@@ -145,8 +145,21 @@
         return out;
       }
 
+      // Find bar time closest to a timestamp (candles use Unix seconds)
+      function findBarTime(mapped, tsMs) {
+        if (!mapped?.length || !Number.isFinite(tsMs)) return null;
+        const tsSec = tsMs > 1e12 ? Math.floor(tsMs / 1000) : tsMs;
+        let best = mapped[0];
+        let bestDiff = Math.abs(best.time - tsSec);
+        for (const b of mapped) {
+          const d = Math.abs(b.time - tsSec);
+          if (d < bestDiff) { bestDiff = d; best = b; }
+        }
+        return best.time;
+      }
+
       // ── Interactive Chart (TradingView Lightweight Charts) ───────────────────
-      function AutopsyChart({ ticker, entryPrice, exitPrice, entryTs, exitTs, height = 360 }) {
+      function AutopsyChart({ ticker, entryPrice, exitPrice, entryTs, exitTs, trimTs, height = 360 }) {
         const containerRef = useRef(null);
         const chartRef = useRef(null);
         const seriesRef = useRef(null);
@@ -306,6 +319,27 @@
               priceLinesRef.current.push(pl);
             }
 
+            // Bar markers: Entry, Exit, Trim(s)
+            const entryMs = Number(entryTs);
+            const exitMs = Number(exitTs);
+            const trimMs = Number(trimTs);
+            const markers = [];
+            const entryBar = findBarTime(mapped, entryMs);
+            if (entryBar != null) {
+              markers.push({ time: entryBar, position: "belowBar", color: "#60a5fa", shape: "arrowUp", text: "Entry", size: 2 });
+            }
+            const exitBar = findBarTime(mapped, exitMs);
+            if (exitBar != null && exitBar !== entryBar) {
+              markers.push({ time: exitBar, position: "aboveBar", color: "#f59e0b", shape: "arrowDown", text: "Exit", size: 2 });
+            }
+            if (Number.isFinite(trimMs) && trimMs > 0) {
+              const trimBar = findBarTime(mapped, trimMs);
+              if (trimBar != null && trimBar !== entryBar && trimBar !== exitBar) {
+                markers.push({ time: trimBar, position: "aboveBar", color: "#a78bfa", shape: "circle", text: "Trim", size: 1.5 });
+              }
+            }
+            try { candleSeries.setMarkers(markers); } catch (_) {}
+
             chart.timeScale().fitContent();
             requestAnimationFrame(() => {
               if (chartRef.current && containerRef.current) {
@@ -383,7 +417,7 @@
             chartRef.current = null;
             seriesRef.current = null;
           };
-        }, [ticker, tf, entryPrice, exitPrice, entryTs, exitTs, height, mapCandles]);
+        }, [ticker, tf, entryPrice, exitPrice, entryTs, exitTs, trimTs, height, mapCandles]);
 
         return (
           <div className="tt-card overflow-hidden">
@@ -502,6 +536,7 @@
                       exitPrice={trade?.exit_price || trade?.exitPrice}
                       entryTs={trade?.entry_ts}
                       exitTs={trade?.exit_ts}
+                      trimTs={trade?.trim_ts}
                       height={280}
                     />
                   </div>
