@@ -175,9 +175,10 @@
         return out;
       }
 
-      // SuperTrend as broken line: insert null at trend flips so the line has visible gaps
-      function computeSuperTrendBroken(data, period = 10, multiplier = 3) {
-        const out = [];
+      // SuperTrend as two separate line segments (upper band / lower band) for a clean break at flips
+      function computeSuperTrendSegments(data, period = 10, multiplier = 3) {
+        const upper = [];
+        const lower = [];
         const k = 2 / (period + 1);
         let atr = null;
         let prevClose = data[0]?.close ?? 0;
@@ -189,7 +190,8 @@
           prevClose = c;
           if (i < period) {
             atr = atr == null ? tr : tr * k + atr * (1 - k);
-            out.push({ time: data[i].time, value: (h + l) / 2 });
+            const hl2 = (h + l) / 2;
+            lower.push({ time: data[i].time, value: hl2 });
             continue;
           }
           atr = tr * k + atr * (1 - k);
@@ -199,7 +201,6 @@
           const finalUpper = (prevUpper == null || basicUpper < prevUpper || data[i - 1].close > prevUpper) ? basicUpper : prevUpper;
           const finalLower = (prevLower == null || basicLower > prevLower || data[i - 1].close < prevLower) ? basicLower : prevLower;
           const prevSt = st;
-          const prevTrend = trend;
           if (st == null) {
             st = finalLower;
             trend = 1;
@@ -210,10 +211,10 @@
           }
           prevUpper = finalUpper;
           prevLower = finalLower;
-          const flipped = prevTrend !== 0 && trend !== prevTrend;
-          out.push({ time: data[i].time, value: flipped ? null : st });
+          if (trend === 1) lower.push({ time: data[i].time, value: st });
+          else upper.push({ time: data[i].time, value: st });
         }
-        return out;
+        return { upper, lower };
       }
 
       // Find bar that was current at timestamp (bar at or before this moment)
@@ -373,19 +374,26 @@
             const ema21Data = computeEMA(mapped, 21);
             const ema48Data = computeEMA(mapped, 48);
             const ema200Data = computeEMA(mapped, 200);
-            const superTrendData = computeSuperTrendBroken(mapped, 10, 3);
-            indicatorDataRef.current = { ema9: ema9Data, ema21: ema21Data, ema48: ema48Data, ema200: ema200Data, superTrend: superTrendData };
+            const superTrendSegments = computeSuperTrendSegments(mapped, 10, 3);
+            indicatorDataRef.current = { ema9: ema9Data, ema21: ema21Data, ema48: ema48Data, ema200: ema200Data, superTrend: superTrendSegments };
             const ema9 = chart.addLineSeries({ color: "#a78bfa", lineWidth: 2, title: "EMA 9" });
             const ema21 = chart.addLineSeries({ color: "#f472b6", lineWidth: 2, title: "EMA 21" });
             const ema48 = chart.addLineSeries({ color: "#38bdf8", lineWidth: 2, title: "EMA 48" });
             const ema200 = chart.addLineSeries({ color: "#fbbf24", lineWidth: 2, title: "EMA 200" });
-            const superTrend = chart.addLineSeries({ color: "#f97316", lineWidth: 2, title: "SuperTrend" });
+            const superTrendUpper = chart.addLineSeries({ color: "#f97316", lineWidth: 2, title: "SuperTrend" });
+            const superTrendLower = chart.addLineSeries({ color: "#f97316", lineWidth: 2, title: "" });
             ema9.setData(showIndicators.ema9 ? ema9Data : []);
             ema21.setData(showIndicators.ema21 ? ema21Data : []);
             ema48.setData(showIndicators.ema48 ? ema48Data : []);
             ema200.setData(showIndicators.ema200 ? ema200Data : []);
-            superTrend.setData(showIndicators.superTrend ? superTrendData : []);
-            emaSeriesRef.current = [ema9, ema21, ema48, ema200, superTrend];
+            if (showIndicators.superTrend) {
+              superTrendUpper.setData(superTrendSegments.upper);
+              superTrendLower.setData(superTrendSegments.lower);
+            } else {
+              superTrendUpper.setData([]);
+              superTrendLower.setData([]);
+            }
+            emaSeriesRef.current = [ema9, ema21, ema48, ema200, superTrendUpper, superTrendLower];
 
             // Add entry/exit price lines (thicker, solid, prominent labels)
             for (const pl of priceLinesRef.current) {
@@ -442,13 +450,31 @@
             const entryBarTime = findBarTime(mapped, entryTs);
             const exitBarTime = findBarTime(mapped, exitTs);
             const hasTradeRange = entryBarTime != null && exitBarTime != null;
+            let visibleFrom = mapped[0].time, visibleTo = mapped[mapped.length - 1].time;
             if (hasTradeRange) {
               const barSec = tf === "D" ? 86400 : tf === "60" ? 3600 : tf === "10" ? 600 : 300;
               const padding = 3 * barSec;
-              const from = Math.max(mapped[0].time, entryBarTime - padding);
-              const to = Math.min(mapped[mapped.length - 1].time, exitBarTime + padding);
+              visibleFrom = Math.max(mapped[0].time, entryBarTime - padding);
+              visibleTo = Math.min(mapped[mapped.length - 1].time, exitBarTime + padding);
               try {
-                chart.timeScale().setVisibleRange({ from, to });
+                chart.timeScale().setVisibleRange({ from: visibleFrom, to: visibleTo });
+              } catch (_) {}
+            }
+            // Constrain price scale to visible range so indicators (e.g. SuperTrend) don't stretch the axis
+            const visibleCandles = mapped.filter(b => b.time >= visibleFrom && b.time <= visibleTo);
+            const priceValues = [...visibleCandles.flatMap(b => [b.low, b.high])];
+            if (Number.isFinite(ep)) priceValues.push(ep);
+            if (Number.isFinite(xp)) priceValues.push(xp);
+            if (priceValues.length > 0) {
+              let priceMin = Math.min(...priceValues);
+              let priceMax = Math.max(...priceValues);
+              const paddingPct = 0.08;
+              const range = Math.max(priceMax - priceMin, 1) * (1 + 2 * paddingPct);
+              const center = (priceMin + priceMax) / 2;
+              priceMin = center - range / 2;
+              priceMax = center + range / 2;
+              try {
+                candleSeries.priceScale().setVisibleRange({ from: priceMin, to: priceMax });
               } catch (_) {}
             }
             requestAnimationFrame(() => {
@@ -532,12 +558,18 @@
         useEffect(() => {
           const series = emaSeriesRef.current;
           const data = indicatorDataRef.current;
-          if (!data || !series || series.length !== 5) return;
+          if (!data || !series || series.length !== 6) return;
           series[0].setData(showIndicators.ema9 ? data.ema9 : []);
           series[1].setData(showIndicators.ema21 ? data.ema21 : []);
           series[2].setData(showIndicators.ema48 ? data.ema48 : []);
           series[3].setData(showIndicators.ema200 ? data.ema200 : []);
-          series[4].setData(showIndicators.superTrend ? data.superTrend : []);
+          if (showIndicators.superTrend && data.superTrend) {
+            series[4].setData(data.superTrend.upper || []);
+            series[5].setData(data.superTrend.lower || []);
+          } else {
+            series[4].setData([]);
+            series[5].setData([]);
+          }
         }, [showIndicators]);
 
         const toggleIndicator = (key) => {
@@ -812,6 +844,24 @@
           } catch (_) {}
         }, []);
 
+        const refreshAll = useCallback(async () => {
+          setLoading(true);
+          setError(null);
+          try {
+            const [tradesRes, annRes] = await Promise.all([
+              fetch(`${API_BASE}/timed/admin/trade-autopsy/trades`, fetchOpts).then(r => r.json()),
+              fetch(`${API_BASE}/timed/admin/trade-autopsy/annotations?all=1`, fetchOpts).then(r => r.json()),
+            ]);
+            if (tradesRes.ok && Array.isArray(tradesRes.trades)) setTrades(tradesRes.trades);
+            else setError(tradesRes?.error === "unauthorized" ? "Admin access required" : "Failed to load trades");
+            if (annRes.ok && annRes.annotations) setAnnotations(annRes.annotations);
+          } catch (_) {
+            setError("Failed to load trades");
+          } finally {
+            setLoading(false);
+          }
+        }, []);
+
         useEffect(() => {
           Promise.all([
             fetch(`${API_BASE}/timed/admin/trade-autopsy/trades`, fetchOpts).then(r => r.json()),
@@ -915,8 +965,13 @@
             </nav>
 
             <main className="max-w-[1200px] mx-auto px-4 md:px-6 py-6">
-              <h1 className="text-xl font-semibold text-white mb-1">Trade Autopsy</h1>
-              <p className="text-[13px] text-[#6b7280] mb-4">Review and annotate trades. Click a row to open the chart and add classification.</p>
+              <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
+                <div>
+                  <h1 className="text-xl font-semibold text-white mb-1">Trade Autopsy</h1>
+                  <p className="text-[13px] text-[#6b7280]">Review and annotate trades. Click a row to open the chart and add classification. This list is a snapshot — use <strong className="text-[#9ca3af]">Refresh</strong> to load new trades. Backtests run in the terminal (<code className="text-[11px] bg-white/[0.06] px-1 rounded">./scripts/full-backtest.sh</code>), not in the UI.</p>
+                </div>
+                <button onClick={refreshAll} className="shrink-0 px-3 py-1.5 rounded-lg bg-white/[0.06] border border-white/[0.08] text-[12px] font-medium text-[#9ca3af] hover:text-white hover:bg-white/[0.1] transition-all">Refresh</button>
+              </div>
 
               {!loading && !error && trades.length > 0 && (
                 <div className="flex flex-wrap gap-3 mb-4">
