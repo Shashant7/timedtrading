@@ -7325,7 +7325,8 @@
         );
 
         return (
-          <div className="tt-root min-h-screen p-0 pb-16" style={{ background: "var(--tt-bg-base)" }}>
+          <>
+            <div className="tt-root min-h-screen p-0 pb-16" style={{ background: "var(--tt-bg-base)" }}>
               {/* ═══ Unified Nav Bar ═══ */}
               <nav className="sticky top-0 z-50 border-b border-white/[0.06]" style={{background:"rgba(10,10,15,0.95)",backdropFilter:"blur(12px)"}}>
                 <div className="flex items-center justify-between px-4 py-2.5">
@@ -7550,8 +7551,8 @@
               </div>
             </div>
 
-                {/* Daily Summary Modal */}
-                {showSummary && dailySummary && (
+            {/* Daily Summary Modal */}
+            {showSummary && dailySummary && (
                   <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
                     <div className="bg-[var(--tt-bg-elevated)] border border-[var(--tt-border)] rounded-xl p-6 max-w-3xl w-full max-h-[90vh] overflow-y-auto">
                       <div className="flex items-center justify-between mb-4">
@@ -7928,12 +7929,13 @@
                     </div>
                   </div>
                 )}
-              <GoProModal open={goProOpen} onClose={() => setGoProOpen(false)} />
-          </div>
+            <GoProModal open={goProOpen} onClose={() => setGoProOpen(false)} />
+            </div>
+          </>
         );
       }
 
-      // Error boundary so render errors show in UI instead of blank screen so render errors show in UI instead of blank screen
+      // Error boundary so render errors show in UI instead of blank screen
       class TrackerErrorBoundary extends React.Component {
         state = { error: null };
         static getDerivedStateFromError(err) {
