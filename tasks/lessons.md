@@ -1,7 +1,7 @@
-# Lessons Learned
+# Lessons Learned (Full Archive)
 
-> Update after ANY correction from the user.
-> Review at session start. Ruthlessly iterate until mistake rate drops.
+> **Quick refresh:** See [CONTEXT.md](../CONTEXT.md) for condensed critical lessons.
+> Update after ANY correction from the user. Review at session start.
 
 ---
 
