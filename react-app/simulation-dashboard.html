@@ -7325,7 +7325,7 @@
         );
 
         return (
-          <>
+          <React.Fragment>
             <div className="tt-root min-h-screen p-0 pb-16" style={{ background: "var(--tt-bg-base)" }}>
               {/* ═══ Unified Nav Bar ═══ */}
               <nav className="sticky top-0 z-50 border-b border-white/[0.06]" style={{background:"rgba(10,10,15,0.95)",backdropFilter:"blur(12px)"}}>
@@ -7929,7 +7929,7 @@
                   </div>
                 )}
             <GoProModal open={goProOpen} onClose={() => setGoProOpen(false)} />
-          </>
+          </React.Fragment>
         );
       }
 
