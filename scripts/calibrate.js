@@ -641,6 +641,27 @@ if (!SKIP_AUTOPSY) {
       });
     }
 
+    // Fetch manual annotations from D1 and merge into autopsied trades
+    console.log(`  [${elapsed()}] Fetching manual annotations...`);
+    let annotationCount = 0;
+    try {
+      const annResp = await fetch(`${API_BASE}/timed/admin/trade-autopsy/annotations?all=1&key=${API_KEY}`);
+      if (annResp.ok) {
+        const annData = await annResp.json();
+        const annotationMap = annData.annotations || {};
+        for (const t of autopsiedTrades) {
+          const ann = annotationMap[t.trade_id];
+          if (ann && ann.classification) {
+            t.manual_classification = ann.classification;
+            annotationCount++;
+          }
+        }
+      }
+    } catch (e) {
+      console.log(`    Could not fetch annotations: ${e.message}`);
+    }
+    console.log(`  [${elapsed()}] Merged ${annotationCount} manual annotations`);
+
     console.log(`  [${elapsed()}] Autopsied trades: ${autopsiedTrades.length}`);
     const byCls = {};
     for (const t of autopsiedTrades) byCls[t.classification] = (byCls[t.classification] || 0) + 1;
