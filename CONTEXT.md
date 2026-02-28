@@ -20,6 +20,7 @@ npm run deploy:worker   # worker only (skip right-rail)
 - **Worker**: `cd worker && wrangler deploy` + `wrangler deploy --env production` — deploy BOTH
 - **Pages**: Auto-deploys on `git push main` (static files from `react-app/`)
 - **CRITICAL**: `simulation-dashboard.html` and all `react-app/*.html` files are served by **Pages**, NOT the worker. `deploy:worker` does NOT update them. Must `git commit && git push` to trigger Pages deploy.
+- **Trades page JSX**: App's return must have a single root. Use `return ( <> <div className="tt-root"> ... <GoProModal /> ... </div> </> );` — no extra `</div>` before GoProModal.
 - **Right rail**: Edit `shared-right-rail.js` → run `node scripts/compile-right-rail.js` → update `?v=` cache busters
 
 ## Stack
