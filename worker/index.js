@@ -518,6 +518,10 @@ const ROUTES = [
   ["GET", "/timed/admin/trade-autopsy/trades", "GET /timed/admin/trade-autopsy/trades"],
   ["GET", "/timed/admin/trade-autopsy/annotations", "GET /timed/admin/trade-autopsy/annotations"],
   ["POST", "/timed/admin/trade-autopsy/annotations", "POST /timed/admin/trade-autopsy/annotations"],
+  ["POST", "/timed/admin/trade-autopsy/correct-entry", "POST /timed/admin/trade-autopsy/correct-entry"],
+  ["POST", "/timed/admin/trade-autopsy/correct-all-entries", "POST /timed/admin/trade-autopsy/correct-all-entries"],
+  ["POST", "/timed/admin/trade-autopsy/correct-exit", "POST /timed/admin/trade-autopsy/correct-exit"],
+  ["POST", "/timed/admin/trade-autopsy/correct-all-exits", "POST /timed/admin/trade-autopsy/correct-all-exits"],
   ["POST", "/timed/admin/refresh-prices", "POST /timed/admin/refresh-prices"],
   ["POST", "/timed/admin/seed-ticker", "POST /timed/admin/seed-ticker"],
   ["POST", "/timed/admin/candle-replay", "POST /timed/admin/candle-replay"],
@@ -7950,7 +7954,17 @@ async function processTradeSimulation(
       !!lastEnterSide &&
       lastEnterSide === direction;
 
-    const pxNow = Number(tickerData?.price);
+    let pxNow = Number(tickerData?.price);
+    // REPLAY exit fix: Prefer 10m candle close at exit interval (mirrors entry fix).
+    // When 10m bundle was missing, result.price could be daily/4H; use candleCache when available.
+    if (isReplay && Number.isFinite(asOfMs) && replayCtx?.candleCache?.[sym]?.["10"]?.length > 0) {
+      const allCandles10 = replayCtx.candleCache[sym]["10"];
+      const last10m = allCandles10.filter((c) => c.ts <= asOfMs).pop();
+      const exit10m = last10m ? Number(last10m.c) : null;
+      if (Number.isFinite(exit10m) && exit10m > 0) {
+        pxNow = exit10m;
+      }
+    }
     // CRITICAL: For LIVE entries, always use the current market price.
     // tickerData.entry_price can be hours/days stale (set when signal first fired).
     // For REPLAY, use the stored entry_price since pxNow is the replay candle close.
@@ -30973,6 +30987,298 @@ export default {
         }
       }
 
+      // POST /timed/admin/trade-autopsy/correct-entry — body: { trade_id }
+      // Fixes entry_price from 10m candle at entry_ts when stored price differs (e.g. replay used wrong fallback).
+      if (routeKey === "POST /timed/admin/trade-autopsy/correct-entry") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const db = env?.DB;
+        if (!db) return sendJSON({ ok: false, error: "d1_not_configured" }, 503, corsHeaders(env, req));
+        try {
+          const body = await req.json().catch(() => ({}));
+          const tradeId = body?.trade_id || body?.tradeId;
+          if (!tradeId || typeof tradeId !== "string") {
+            return sendJSON({ ok: false, error: "missing trade_id" }, 400, corsHeaders(env, req));
+          }
+          const row = await db.prepare(
+            `SELECT trade_id, ticker, direction, entry_ts, entry_price, exit_ts, exit_price, pnl, pnl_pct, status FROM trades WHERE trade_id = ?`
+          ).bind(tradeId).first();
+          if (!row) {
+            return sendJSON({ ok: false, error: "trade_not_found" }, 404, corsHeaders(env, req));
+          }
+          const entryTs = Number(row.entry_ts);
+          if (!Number.isFinite(entryTs) || entryTs <= 0) {
+            return sendJSON({ ok: false, error: "invalid_entry_ts" }, 400, corsHeaders(env, req));
+          }
+          const asOfMs = entryTs < 1e12 ? entryTs * 1000 : entryTs;
+          const candleRes = await d1GetCandlesAsOf(env, row.ticker, "10", 10, asOfMs);
+          if (!candleRes?.ok || !Array.isArray(candleRes.candles) || candleRes.candles.length === 0) {
+            return sendJSON({ ok: false, error: "no_10m_candle_at_entry" }, 400, corsHeaders(env, req));
+          }
+          const lastCandle = candleRes.candles.filter((c) => c.ts <= asOfMs).pop() || candleRes.candles[candleRes.candles.length - 1];
+          const newEntryPrice = Number(lastCandle?.c);
+          if (!Number.isFinite(newEntryPrice) || newEntryPrice <= 0) {
+            return sendJSON({ ok: false, error: "invalid_candle_close" }, 400, corsHeaders(env, req));
+          }
+          const oldEntryPrice = Number(row.entry_price);
+          if (Math.abs(newEntryPrice - oldEntryPrice) < 0.001) {
+            return sendJSON({ ok: true, corrected: false, message: "entry_price_already_correct" }, 200, corsHeaders(env, req));
+          }
+          let newPnl = row.pnl;
+          let newPnlPct = row.pnl_pct;
+          if (row.status && !["OPEN", "TP_HIT_TRIM"].includes(String(row.status)) && Number.isFinite(Number(row.exit_price))) {
+            const exitPrice = Number(row.exit_price);
+            const dirSign = String(row.direction).toUpperCase() === "SHORT" ? -1 : 1;
+            const oldPnl = Number(row.pnl) || 0;
+            const oldEntry = Number.isFinite(oldEntryPrice) && oldEntryPrice > 0 ? oldEntryPrice : newEntryPrice;
+            const priceDiff = exitPrice - oldEntry;
+            const shares = (Math.abs(priceDiff) > 1e-9 && Number.isFinite(oldPnl))
+              ? Math.abs(oldPnl / (priceDiff * dirSign))
+              : null;
+            if (Number.isFinite(shares) && shares > 0) {
+              newPnl = (exitPrice - newEntryPrice) * shares * dirSign;
+              newPnlPct = Number.isFinite(newEntryPrice) && newEntryPrice > 0
+                ? (((exitPrice - newEntryPrice) * dirSign) / newEntryPrice) * 100
+                : row.pnl_pct;
+            }
+          }
+          await db.prepare(
+            `UPDATE trades SET entry_price = ?1, pnl = ?2, pnl_pct = ?3, updated_at = ?4 WHERE trade_id = ?5`
+          ).bind(newEntryPrice, newPnl, newPnlPct, Date.now(), tradeId).run();
+          return sendJSON({
+            ok: true,
+            corrected: true,
+            trade_id: tradeId,
+            old_entry_price: oldEntryPrice,
+            new_entry_price: newEntryPrice,
+            pnl_updated: row.status && !["OPEN", "TP_HIT_TRIM"].includes(String(row.status)),
+          }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 200) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // POST /timed/admin/trade-autopsy/correct-all-entries — Batch fix entry prices from 10m candles
+      // Params: dryRun=1 (preview only), limit=N (max trades to process, default 500)
+      if (routeKey === "POST /timed/admin/trade-autopsy/correct-all-entries") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const db = env?.DB;
+        if (!db) return sendJSON({ ok: false, error: "d1_not_configured" }, 503, corsHeaders(env, req));
+        const dryRun = url.searchParams.get("dryRun") === "1";
+        const limit = Math.min(500, Math.max(1, Number(url.searchParams.get("limit")) || 500));
+        const minDiffPct = Number(url.searchParams.get("minDiffPct")) || 0.5;
+        try {
+          const { results: rows } = await db.prepare(
+            `SELECT trade_id, ticker, direction, entry_ts, entry_price, exit_ts, exit_price, pnl, pnl_pct, status
+             FROM trades WHERE status NOT IN ('OPEN', 'TP_HIT_TRIM') AND entry_ts IS NOT NULL
+             ORDER BY entry_ts DESC LIMIT ?1`
+          ).bind(limit).all();
+          const corrected = [];
+          const skipped = [];
+          const errors = [];
+          for (const row of rows || []) {
+            const entryTs = Number(row.entry_ts);
+            if (!Number.isFinite(entryTs) || entryTs <= 0) { skipped.push({ trade_id: row.trade_id, reason: "invalid_entry_ts" }); continue; }
+            const asOfMs = entryTs < 1e12 ? entryTs * 1000 : entryTs;
+            const candleRes = await d1GetCandlesAsOf(env, row.ticker, "10", 10, asOfMs);
+            if (!candleRes?.ok || !Array.isArray(candleRes.candles) || candleRes.candles.length === 0) {
+              skipped.push({ trade_id: row.trade_id, reason: "no_10m_candle" });
+              continue;
+            }
+            const lastCandle = candleRes.candles.filter((c) => c.ts <= asOfMs).pop() || candleRes.candles[candleRes.candles.length - 1];
+            const newEntryPrice = Number(lastCandle?.c);
+            if (!Number.isFinite(newEntryPrice) || newEntryPrice <= 0) { skipped.push({ trade_id: row.trade_id, reason: "invalid_candle" }); continue; }
+            const oldEntryPrice = Number(row.entry_price);
+            const diffPct = oldEntryPrice > 0 ? Math.abs(newEntryPrice - oldEntryPrice) / oldEntryPrice * 100 : 100;
+            if (diffPct < minDiffPct) continue;
+            if (!dryRun) {
+              let newPnl = row.pnl, newPnlPct = row.pnl_pct;
+              if (Number.isFinite(Number(row.exit_price))) {
+                const exitPrice = Number(row.exit_price);
+                const dirSign = String(row.direction).toUpperCase() === "SHORT" ? -1 : 1;
+                const oldPnl = Number(row.pnl) || 0;
+                const priceDiff = exitPrice - oldEntryPrice;
+                const shares = (Math.abs(priceDiff) > 1e-9 && Number.isFinite(oldPnl))
+                  ? Math.abs(oldPnl / (priceDiff * dirSign)) : null;
+                if (Number.isFinite(shares) && shares > 0) {
+                  newPnl = (exitPrice - newEntryPrice) * shares * dirSign;
+                  newPnlPct = (((exitPrice - newEntryPrice) * dirSign) / newEntryPrice) * 100;
+                }
+              }
+              try {
+                await db.prepare(
+                  `UPDATE trades SET entry_price = ?1, pnl = ?2, pnl_pct = ?3, updated_at = ?4 WHERE trade_id = ?5`
+                ).bind(newEntryPrice, newPnl, newPnlPct, Date.now(), row.trade_id).run();
+              } catch (e) {
+                errors.push({ trade_id: row.trade_id, error: String(e?.message || e).slice(0, 80) });
+                continue;
+              }
+            }
+            corrected.push({
+              trade_id: row.trade_id,
+              ticker: row.ticker,
+              old_entry_price: oldEntryPrice,
+              new_entry_price: newEntryPrice,
+              diff_pct: Math.round(diffPct * 100) / 100,
+            });
+          }
+          return sendJSON({
+            ok: true,
+            dryRun,
+            processed: (rows || []).length,
+            corrected: corrected.length,
+            skipped: skipped.length,
+            errors: errors.length,
+            details: corrected.slice(0, 50),
+            skipped_sample: skipped.slice(0, 10),
+          }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 200) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // POST /timed/admin/trade-autopsy/correct-exit — body: { trade_id }
+      // Fixes exit_price from 10m candle at exit_ts when stored price differs (e.g. replay used wrong fallback).
+      if (routeKey === "POST /timed/admin/trade-autopsy/correct-exit") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const db = env?.DB;
+        if (!db) return sendJSON({ ok: false, error: "d1_not_configured" }, 503, corsHeaders(env, req));
+        try {
+          const body = await req.json().catch(() => ({}));
+          const tradeId = body?.trade_id || body?.tradeId;
+          if (!tradeId || typeof tradeId !== "string") {
+            return sendJSON({ ok: false, error: "missing trade_id" }, 400, corsHeaders(env, req));
+          }
+          const row = await db.prepare(
+            `SELECT trade_id, ticker, direction, entry_ts, entry_price, exit_ts, exit_price, pnl, pnl_pct, status FROM trades WHERE trade_id = ?`
+          ).bind(tradeId).first();
+          if (!row) {
+            return sendJSON({ ok: false, error: "trade_not_found" }, 404, corsHeaders(env, req));
+          }
+          const exitTs = Number(row.exit_ts);
+          if (!Number.isFinite(exitTs) || exitTs <= 0) {
+            return sendJSON({ ok: false, error: "invalid_exit_ts" }, 400, corsHeaders(env, req));
+          }
+          const asOfMs = exitTs < 1e12 ? exitTs * 1000 : exitTs;
+          const candleRes = await d1GetCandlesAsOf(env, row.ticker, "10", 10, asOfMs);
+          if (!candleRes?.ok || !Array.isArray(candleRes.candles) || candleRes.candles.length === 0) {
+            return sendJSON({ ok: false, error: "no_10m_candle_at_exit" }, 400, corsHeaders(env, req));
+          }
+          const lastCandle = candleRes.candles.filter((c) => c.ts <= asOfMs).pop() || candleRes.candles[candleRes.candles.length - 1];
+          const newExitPrice = Number(lastCandle?.c);
+          if (!Number.isFinite(newExitPrice) || newExitPrice <= 0) {
+            return sendJSON({ ok: false, error: "invalid_candle_close" }, 400, corsHeaders(env, req));
+          }
+          const oldExitPrice = Number(row.exit_price);
+          if (Math.abs(newExitPrice - oldExitPrice) < 0.001) {
+            return sendJSON({ ok: true, corrected: false, message: "exit_price_already_correct" }, 200, corsHeaders(env, req));
+          }
+          const entryPrice = Number(row.entry_price);
+          const dirSign = String(row.direction).toUpperCase() === "SHORT" ? -1 : 1;
+          const shares = (Math.abs(newExitPrice - entryPrice) > 1e-9 && Number.isFinite(Number(row.pnl)))
+            ? Math.abs(Number(row.pnl) / ((oldExitPrice - entryPrice) * dirSign))
+            : null;
+          let newPnl = row.pnl;
+          let newPnlPct = row.pnl_pct;
+          if (Number.isFinite(shares) && shares > 0 && Number.isFinite(entryPrice) && entryPrice > 0) {
+            newPnl = (newExitPrice - entryPrice) * shares * dirSign;
+            newPnlPct = (((newExitPrice - entryPrice) * dirSign) / entryPrice) * 100;
+          }
+          await db.prepare(
+            `UPDATE trades SET exit_price = ?1, pnl = ?2, pnl_pct = ?3, updated_at = ?4 WHERE trade_id = ?5`
+          ).bind(newExitPrice, newPnl, newPnlPct, Date.now(), tradeId).run();
+          return sendJSON({
+            ok: true,
+            corrected: true,
+            trade_id: tradeId,
+            old_exit_price: oldExitPrice,
+            new_exit_price: newExitPrice,
+            pnl_updated: true,
+          }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 200) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // POST /timed/admin/trade-autopsy/correct-all-exits — Batch fix exit prices from 10m candles
+      // Params: dryRun=1 (preview only), limit=N (max trades to process, default 500), minDiffPct=N
+      if (routeKey === "POST /timed/admin/trade-autopsy/correct-all-exits") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const db = env?.DB;
+        if (!db) return sendJSON({ ok: false, error: "d1_not_configured" }, 503, corsHeaders(env, req));
+        const dryRun = url.searchParams.get("dryRun") === "1";
+        const limit = Math.min(500, Math.max(1, Number(url.searchParams.get("limit")) || 500));
+        const minDiffPct = Number(url.searchParams.get("minDiffPct")) || 0.5;
+        try {
+          const { results: rows } = await db.prepare(
+            `SELECT trade_id, ticker, direction, entry_ts, entry_price, exit_ts, exit_price, pnl, pnl_pct, status
+             FROM trades WHERE status NOT IN ('OPEN', 'TP_HIT_TRIM') AND exit_ts IS NOT NULL
+             ORDER BY exit_ts DESC LIMIT ?1`
+          ).bind(limit).all();
+          const corrected = [];
+          const skipped = [];
+          const errors = [];
+          for (const row of rows || []) {
+            const exitTs = Number(row.exit_ts);
+            if (!Number.isFinite(exitTs) || exitTs <= 0) { skipped.push({ trade_id: row.trade_id, reason: "invalid_exit_ts" }); continue; }
+            const asOfMs = exitTs < 1e12 ? exitTs * 1000 : exitTs;
+            const candleRes = await d1GetCandlesAsOf(env, row.ticker, "10", 10, asOfMs);
+            if (!candleRes?.ok || !Array.isArray(candleRes.candles) || candleRes.candles.length === 0) {
+              skipped.push({ trade_id: row.trade_id, reason: "no_10m_candle" });
+              continue;
+            }
+            const lastCandle = candleRes.candles.filter((c) => c.ts <= asOfMs).pop() || candleRes.candles[candleRes.candles.length - 1];
+            const newExitPrice = Number(lastCandle?.c);
+            if (!Number.isFinite(newExitPrice) || newExitPrice <= 0) { skipped.push({ trade_id: row.trade_id, reason: "invalid_candle" }); continue; }
+            const oldExitPrice = Number(row.exit_price);
+            const diffPct = oldExitPrice > 0 ? Math.abs(newExitPrice - oldExitPrice) / oldExitPrice * 100 : 100;
+            if (diffPct < minDiffPct) continue;
+            if (!dryRun) {
+              const entryPrice = Number(row.entry_price);
+              const dirSign = String(row.direction).toUpperCase() === "SHORT" ? -1 : 1;
+              const shares = (Math.abs(oldExitPrice - entryPrice) > 1e-9 && Number.isFinite(Number(row.pnl)))
+                ? Math.abs(Number(row.pnl) / ((oldExitPrice - entryPrice) * dirSign))
+                : null;
+              let newPnl = row.pnl, newPnlPct = row.pnl_pct;
+              if (Number.isFinite(shares) && shares > 0 && Number.isFinite(entryPrice) && entryPrice > 0) {
+                newPnl = (newExitPrice - entryPrice) * shares * dirSign;
+                newPnlPct = (((newExitPrice - entryPrice) * dirSign) / entryPrice) * 100;
+              }
+              try {
+                await db.prepare(
+                  `UPDATE trades SET exit_price = ?1, pnl = ?2, pnl_pct = ?3, updated_at = ?4 WHERE trade_id = ?5`
+                ).bind(newExitPrice, newPnl, newPnlPct, Date.now(), row.trade_id).run();
+              } catch (e) {
+                errors.push({ trade_id: row.trade_id, error: String(e?.message || e).slice(0, 80) });
+                continue;
+              }
+            }
+            corrected.push({
+              trade_id: row.trade_id,
+              ticker: row.ticker,
+              old_exit_price: oldExitPrice,
+              new_exit_price: newExitPrice,
+              diff_pct: Math.round(diffPct * 100) / 100,
+            });
+          }
+          return sendJSON({
+            ok: true,
+            dryRun,
+            processed: (rows || []).length,
+            corrected: corrected.length,
+            skipped: skipped.length,
+            errors: errors.length,
+            details: corrected.slice(0, 50),
+            skipped_sample: skipped.slice(0, 10),
+          }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 200) }, 500, corsHeaders(env, req));
+        }
+      }
+
       // POST /timed/admin/candle-replay
       // Pure candle-based replay: generates scoring snapshots from Alpaca historical
       // candle data (no trail/webhook dependency). Pre-loads candles into memory,
@@ -31111,7 +31417,7 @@ export default {
             console.warn(`[REPLAY] D1 trade load failed:`, String(d1TradeErr?.message || d1TradeErr).slice(0, 150));
           }
         }
-        const replayCtx = { allTrades, execStates: new Map(), processDebug: [] };
+        const replayCtx = { allTrades, execStates: new Map(), processDebug: [], candleCache };
 
         // State map: track evolving ticker state across intervals
         // Primary: KV, Fallback: D1 ticker_latest (KV writes can silently fail)
@@ -31328,11 +31634,17 @@ export default {
 
               // Track entry price on stage transitions
               // CAT bug fix: Prefer 10m candle close for replay entry (most granular intraday).
-              // "Freshest" across TFs can pick wrong price (e.g. daily/4H from different bar).
+              // When 10m bundle is missing (endIdx < 50), use last 10m bar from candleCache directly
+              // instead of result.price (which can be daily/4H from wrong bar).
               const isNewEntry = (finalStage === "enter_now" || finalStage === "enter") && prevStage !== "enter_now" && prevStage !== "enter";
               if (isNewEntry) {
                 const b10 = bundleMap["10"];
-                const price10m = Number(b10?.px);
+                let price10m = Number(b10?.px);
+                if (!(Number.isFinite(price10m) && price10m > 0)) {
+                  const allCandles10 = candleCache[ticker]?.["10"] || [];
+                  const last10m = allCandles10.filter((c) => c.ts <= intervalTs).pop();
+                  price10m = last10m ? Number(last10m.c) : null;
+                }
                 const priceFallback = Number(result?.price);
                 const price = (Number.isFinite(price10m) && price10m > 0) ? price10m : priceFallback;
                 if (Number.isFinite(price) && price > 0) {

@@ -60,6 +60,10 @@ npm run deploy:worker   # worker only (skip right-rail)
 - Replay: load candles with `beforeTs` (ts <= replay date), not latest
 - Backfill before replay; 10m candles required for trades
 
+**Inspecting candles**
+- `TICKER=FIX DATE=2025-09-18 TIME=12:10 node scripts/inspect-candles.js` — API
+- Add `--d1` to query D1 directly via wrangler
+
 **Alpaca**
 - BRK.B not BRK-B; one bad symbol fails batch
 - Multi-symbol `limit` is TOTAL not per-symbol

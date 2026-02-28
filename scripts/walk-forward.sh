@@ -130,43 +130,66 @@ fi
 
 # ═══════════════════════════════════════════════════════════════════════════
 # STEP 3: Run Calibration Analysis
+# calibration/run expects calibration_trade_autopsy to be populated.
+# calibrate.js harvests moves + autopsies trades + uploads + runs analysis.
 # ═══════════════════════════════════════════════════════════════════════════
 
 echo "═══ Step 3/4: Calibration Analysis ═══"
 echo ""
 
 CALIB_START=$(date "+%s")
-echo "  Running POST /timed/calibration/run ..."
+echo "  Running calibrate.js (harvest + autopsy + upload + analysis)..."
+echo "  (This may take 10–15 min with USE_D1=1)"
+echo ""
 
-CALIB_RESULT=$(curl -s -m 300 -X POST \
-  "$API_BASE/timed/calibration/run?key=$API_KEY" \
-  -H "Content-Type: application/json" 2>&1)
+CALIB_OK=false
+CALIB_REPORT_ID="none"
+WFO_IS="N/A"
+WFO_OS="N/A"
+WFO_DEG="N/A"
+WFO_VERDICT="N/A"
+SH_WR="N/A"
+SH_EXP="N/A"
+SH_SQN="N/A"
+SH_N="N/A"
 
-CALIB_OK=$(echo "$CALIB_RESULT" | jq -r '.ok // false' 2>/dev/null)
-CALIB_REPORT_ID=$(echo "$CALIB_RESULT" | jq -r '.report_id // "none"' 2>/dev/null)
-CALIB_ELAPSED=$(( $(date "+%s") - CALIB_START ))
+set +e
+set -o pipefail 2>/dev/null || true
+USE_D1=1 TIMED_API_KEY="$API_KEY" API_BASE="$API_BASE" node "$SCRIPT_DIR/calibrate.js" --lookback 250 2>&1 | tee -a "$LOG_FILE"
+CALIB_EXIT=$?
+set -e
+set +o pipefail 2>/dev/null || true
 
-if [[ "$CALIB_OK" == "true" ]]; then
-  echo "  Calibration complete (${CALIB_ELAPSED}s)"
-  echo "  Report ID: $CALIB_REPORT_ID"
-
-  # Extract key metrics
-  WFO_IS=$(echo "$CALIB_RESULT" | jq -r '.wfo_summary.in_sample_sqn // "N/A"' 2>/dev/null)
-  WFO_OS=$(echo "$CALIB_RESULT" | jq -r '.wfo_summary.out_sample_sqn // "N/A"' 2>/dev/null)
-  WFO_DEG=$(echo "$CALIB_RESULT" | jq -r '.wfo_summary.degradation_pct // "N/A"' 2>/dev/null)
-  WFO_VERDICT=$(echo "$CALIB_RESULT" | jq -r '.wfo_summary.verdict // "N/A"' 2>/dev/null)
-  SH_WR=$(echo "$CALIB_RESULT" | jq -r '.system_health.overall.win_rate // "N/A"' 2>/dev/null)
-  SH_EXP=$(echo "$CALIB_RESULT" | jq -r '.system_health.overall.expectancy // "N/A"' 2>/dev/null)
-  SH_SQN=$(echo "$CALIB_RESULT" | jq -r '.system_health.overall.sqn // "N/A"' 2>/dev/null)
-  SH_N=$(echo "$CALIB_RESULT" | jq -r '.system_health.overall.n // "N/A"' 2>/dev/null)
-
+if [[ "${CALIB_EXIT:-1}" -eq 0 ]]; then
+  CALIB_ELAPSED=$(( $(date "+%s") - CALIB_START ))
   echo ""
-  echo "  System Health:"
-  echo "    Trades: $SH_N  |  Win Rate: $SH_WR%  |  Expectancy: $SH_EXP  |  SQN: $SH_SQN"
-  echo "    Walk-Fwd IS/OS: $WFO_IS / $WFO_OS (degradation: ${WFO_DEG}%) → $WFO_VERDICT"
+  echo "  Calibration script completed (${CALIB_ELAPSED}s). Fetching latest report..."
+
+  CALIB_REPORT=$(curl -s -m 60 "$API_BASE/timed/calibration/report?key=$API_KEY" 2>&1)
+  if echo "$CALIB_REPORT" | jq -e '.ok' >/dev/null 2>&1; then
+    CALIB_OK=true
+    CALIB_REPORT_ID=$(echo "$CALIB_REPORT" | jq -r '.report_id // "none"' 2>/dev/null)
+    RPT=$(echo "$CALIB_REPORT" | jq -r '.report' 2>/dev/null)
+    WFO_IS=$(echo "$RPT" | jq -r '.wfo_summary.in_sample_sqn // "N/A"' 2>/dev/null)
+    WFO_OS=$(echo "$RPT" | jq -r '.wfo_summary.out_sample_sqn // "N/A"' 2>/dev/null)
+    WFO_DEG=$(echo "$RPT" | jq -r '.wfo_summary.degradation_pct // "N/A"' 2>/dev/null)
+    WFO_VERDICT=$(echo "$RPT" | jq -r '.wfo_summary.verdict // "N/A"' 2>/dev/null)
+    SH_WR=$(echo "$RPT" | jq -r '.system_health.overall.win_rate // "N/A"' 2>/dev/null)
+    SH_EXP=$(echo "$RPT" | jq -r '.system_health.overall.expectancy // "N/A"' 2>/dev/null)
+    SH_SQN=$(echo "$RPT" | jq -r '.system_health.overall.sqn // "N/A"' 2>/dev/null)
+    SH_N=$(echo "$RPT" | jq -r '.system_health.overall.n // "N/A"' 2>/dev/null)
+
+    echo "  Calibration complete. Report ID: $CALIB_REPORT_ID"
+    echo ""
+    echo "  System Health:"
+    echo "    Trades: $SH_N  |  Win Rate: $SH_WR%  |  Expectancy: $SH_EXP  |  SQN: $SH_SQN"
+    echo "    Walk-Fwd IS/OS: $WFO_IS / $WFO_OS (degradation: ${WFO_DEG}%) → $WFO_VERDICT"
+  fi
 else
-  echo "  Calibration failed: $(echo "$CALIB_RESULT" | jq -r '.error // "unknown"' 2>/dev/null)"
-  echo "  Full response: $(echo "$CALIB_RESULT" | head -c 500)"
+  CALIB_ELAPSED=$(( $(date "+%s") - CALIB_START ))
+  echo ""
+  echo "  Calibration script failed or timed out (${CALIB_ELAPSED}s)"
+  echo "  Check $LOG_FILE for details. Continuing to profile-impact..."
 fi
 echo ""
 
