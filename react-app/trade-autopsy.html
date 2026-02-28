@@ -145,17 +145,18 @@
         return out;
       }
 
-      // Find bar time closest to a timestamp (candles use Unix seconds)
+      // Find bar that was current at timestamp (bar at or before this moment)
+      // Candles use Unix seconds; tsMs can be ms or seconds
       function findBarTime(mapped, tsMs) {
         if (!mapped?.length || !Number.isFinite(tsMs)) return null;
         const tsSec = tsMs > 1e12 ? Math.floor(tsMs / 1000) : tsMs;
-        let best = mapped[0];
-        let bestDiff = Math.abs(best.time - tsSec);
+        let best = null;
         for (const b of mapped) {
-          const d = Math.abs(b.time - tsSec);
-          if (d < bestDiff) { bestDiff = d; best = b; }
+          if (b.time <= tsSec && (best === null || b.time > best.time)) best = b;
         }
-        return best.time;
+        if (best) return best.time;
+        if (mapped[0].time > tsSec) return mapped[0].time;
+        return null;
       }
 
       // ── Interactive Chart (TradingView Lightweight Charts) ───────────────────
