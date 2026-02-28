@@ -19,6 +19,7 @@ npm run deploy:worker   # worker only (skip right-rail)
 
 - **Worker**: `cd worker && wrangler deploy` + `wrangler deploy --env production` — deploy BOTH
 - **Pages**: Auto-deploys on `git push main` (static files from `react-app/`)
+- **CRITICAL**: `simulation-dashboard.html` and all `react-app/*.html` files are served by **Pages**, NOT the worker. `deploy:worker` does NOT update them. Must `git commit && git push` to trigger Pages deploy.
 - **Right rail**: Edit `shared-right-rail.js` → run `node scripts/compile-right-rail.js` → update `?v=` cache busters
 
 ## Stack

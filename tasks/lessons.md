@@ -9,6 +9,7 @@
 
 - **Deploy worker to BOTH environments**: `cd worker && npx wrangler deploy && npx wrangler deploy --env production`. Both crons can fire from either. Deploying only one leaves stale code running. [2026-02-11, reinforced 2026-02-18]
 - **Two deployment targets — Worker (wrangler deploy) + Pages (git push)**: Static files served by Pages (auto-deploy on push). API by Worker. Changing right rail JS requires both. Always update `?v=` cache busters. [2026-02-11]
+- **Pages serves simulation-dashboard.html, NOT the worker**: The worker embeds dashboard-html.js and serves it at `/` and `/dashboard`. But the Trades page link goes to `simulation-dashboard.html`, which is a static file served by Cloudflare Pages. `npm run deploy:worker` does NOT update Pages. You MUST `git commit && git push` any changes to `react-app/*.html` files to trigger Pages auto-deploy. The embed + worker deploy is only for the root `/` route. [2026-02-28]
 - **Always recompile shared-right-rail.js after editing**: Run `node scripts/compile-right-rail.js` from project root. Update cache buster on `<script>` tags afterward. [2026-02-18, 2026-02-19]
 - **Worker routes go through `/timed/*` prefix on custom domain**: New endpoints (including WebSocket) must use `/timed/` prefix. [2026-02-11]
 - **Worker ROUTES array must include new endpoints**: Add to both `ROUTES` array AND handler section, else `not_found`. [2026-02-11]
