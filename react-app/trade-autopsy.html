@@ -250,6 +250,11 @@
               return;
             }
             const mapped = mapCandles(candles);
+            if (mapped.length < 2) {
+              setError("Insufficient candle data (need at least 2 bars)");
+              setLoading(false);
+              return;
+            }
             candleSeries.setData(mapped);
 
             // Add EMA 9 and EMA 21
@@ -295,17 +300,20 @@
 
             chart.timeScale().fitContent();
             requestAnimationFrame(() => {
-              if (chartRef.current) {
+              if (chartRef.current && containerRef.current) {
                 chartRef.current.timeScale().scrollToPosition(-3, false);
-                const w = containerRef.current?.clientWidth;
-                if (w > 0) chartRef.current.applyOptions({ width: w });
+                const w = containerRef.current.clientWidth;
+                const h = containerRef.current.clientHeight;
+                if (w > 0 && h > 0) chartRef.current.resize(w, h);
               }
             });
             setTimeout(() => {
-              if (chartRef.current && containerRef.current?.clientWidth > 0) {
-                chartRef.current.applyOptions({ width: containerRef.current.clientWidth });
+              if (chartRef.current && containerRef.current) {
+                const w = containerRef.current.clientWidth;
+                const h = containerRef.current.clientHeight;
+                if (w > 0 && h > 0) chartRef.current.resize(w, h);
               }
-            }, 150);
+            }, 200);
             setLoading(false);
           };
 
@@ -337,7 +345,9 @@
 
           const handleResize = () => {
             if (containerRef.current && chartRef.current) {
-              chartRef.current.applyOptions({ width: containerRef.current.clientWidth });
+              const w = containerRef.current.clientWidth;
+              const h = containerRef.current.clientHeight;
+              if (w > 0 && h > 0) chartRef.current.resize(w, h);
             }
           };
           const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(handleResize) : null;
