@@ -307,10 +307,6 @@
                   <a href="index-react.html" className="hidden md:inline-flex px-2 py-1 rounded-md text-[11px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all" title="Restart tour">Tour</a>
                   <a href="/faq.html" className="hidden md:inline-flex px-2 py-1 rounded-md text-[11px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">FAQ</a>
                   <a href="index-react.html" className="hidden md:inline-flex px-2 py-1 rounded-md text-[11px] text-[#60a5fa] hover:text-[#93bbfc] hover:bg-[#60a5fa]/[0.06] transition-all font-medium">Ask AI</a>
-                  {(storedUser?.role === 'admin' || storedUser?.tier === 'admin') && (
-                    <a href="admin-clients.html" data-admin-only="true" className="hidden md:inline-flex px-2 py-1 rounded-md text-[11px] text-[#a78bfa]/80 hover:text-[#a78bfa] font-medium">Admin</a>
-                  )}
-                  <span className="hidden sm:inline text-[11px] text-[#4b5563]">Paper · $1k/trade</span>
                   {scanTs && (
                     <span className="hidden sm:inline text-[11px] text-[#4b5563]">
                       Last scan: {new Date(scanTs).toLocaleString()}

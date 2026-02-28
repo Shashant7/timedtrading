@@ -27,7 +27,7 @@ npm run deploy:worker   # worker only (skip right-rail)
 
 - **Canonical source**: `index-react.html` — "Unified Nav Bar" comment. All pages must match this structure.
 - **Nav links (order)**: Analysis, Trades, System Intelligence, Screener, Tickers, Trade Autopsy, Admin (conditional), Daily Brief.
-- **Right side (order)**: Guide, Tour, FAQ, Ask AI, Admin (conditional), Paper · $1k/trade, NotificationCenter, UserBadge, hamburger (md:hidden). Mobile menu includes same links + Tour in footer + Contact.
+- **Right side (order)**: Guide, Tour, FAQ, Ask AI, NotificationCenter (bell), UserBadge (avatar), hamburger (md:hidden). No Admin link and no "Paper · $1k/trade" in the right block; Admin lives only in the center nav tabs. Analysis uses buttons for Guide/Tour/Ask AI; other pages use links. Mobile menu includes same links + Contact.
 - **Breakpoint**: Use `md` (768px) for desktop nav and `md:hidden` for mobile menu so the full nav is visible on typical desktop widths.
 - **Styling**: `border-white/[0.06]`, `background: rgba(10,10,15,0.95)`, same logo and link styles. When adding a new page, copy the nav block from `index-react.html` and set the active link only.
 - **Global component**: Nav is currently duplicated per page. A future shared component (e.g. `shared-nav.js` mounting into `#global-nav-root`) would allow one place to edit; not yet implemented.
