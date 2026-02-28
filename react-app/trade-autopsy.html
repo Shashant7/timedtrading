@@ -68,32 +68,53 @@
 
       const fetchOpts = { cache: "no-store", credentials: "include" };
 
-      function formatSignals(snap) {
-        if (!snap) return "(no snapshot)";
+      const TF_ORDER = ["10m", "30m", "1H", "4H", "D"];
+      const SIGNAL_LABELS = {
+        ema_cross: "EMA cross",
+        supertrend: "SuperTrend",
+        ema_structure: "EMA structure",
+        ema_depth: "EMA depth",
+        rsi: "RSI",
+        ema5_48: "EMA 5/48",
+        s1_slope: "Slope",
+      };
+      function formatPath(path) {
+        if (!path || typeof path !== "string") return null;
+        return path.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+      }
+      function parseSnapshot(snap) {
+        if (!snap) return null;
         try {
           const parsed = typeof snap === "string" ? JSON.parse(snap) : snap;
-          if (!parsed?.tf || typeof parsed.tf !== "object") return "(empty)";
-          const lines = [];
-          for (const [tf, data] of Object.entries(parsed.tf)) {
-            const sigs = data?.signals;
-            if (!sigs || typeof sigs !== "object") continue;
-            const parts = [];
-            for (const [k, v] of Object.entries(sigs)) {
-              if (v != null && Number.isFinite(v)) parts.push(`${k}=${v}`);
-            }
-            if (parts.length) lines.push(`  ${tf}: ${parts.join(", ")}`);
-          }
-          return lines.length ? lines.join("\n") : "(no signals)";
-        } catch { return "(parse error)"; }
+          if (!parsed?.tf || typeof parsed.tf !== "object") return null;
+          return TF_ORDER.filter(tf => parsed.tf[tf]).map(tf => ({
+            tf,
+            signals: parsed.tf[tf]?.signals || {},
+          }));
+        } catch { return null; }
       }
-
-      function formatTfStack(tfStackJson) {
-        if (!tfStackJson) return "(no stack)";
+      function parseTfStack(tfStackJson) {
+        if (!tfStackJson) return null;
         try {
           const parsed = typeof tfStackJson === "string" ? JSON.parse(tfStackJson) : tfStackJson;
-          if (!Array.isArray(parsed)) return "(empty)";
-          return parsed.map(e => `  ${e.tf}: ${e.bias || "?"}`).join("\n") || "(empty)";
-        } catch { return "(parse error)"; }
+          if (!Array.isArray(parsed)) return null;
+          return parsed.filter(e => e?.tf);
+        } catch { return null; }
+      }
+      function signalValueLabel(key, value) {
+        if (value == null || !Number.isFinite(value)) return null;
+        if (key === "ema_cross" || key === "supertrend") return value === 1 ? "Bullish" : "Bearish";
+        if (key === "rsi") return String(value);
+        return String(value);
+      }
+      function signalValueColor(key, value) {
+        if (key === "ema_cross" || key === "supertrend") return value === 1 ? "text-[#22c55e]" : "text-[#ef4444]";
+        if (key === "rsi") {
+          if (value >= 70) return "text-[#ef4444]";
+          if (value <= 30) return "text-[#22c55e]";
+          return "text-[#d1d5db]";
+        }
+        return "text-[#d1d5db]";
       }
 
       function formatDate(ms) {
@@ -243,7 +264,7 @@
         const [loading, setLoading] = useState(true);
         const [error, setError] = useState(null);
         const [tf, setTf] = useState("10");
-        const [showIndicators, setShowIndicators] = useState({ ema9: true, ema21: true, ema48: true, ema200: true, superTrend: true });
+        const [showIndicators, setShowIndicators] = useState({ ema9: false, ema21: false, ema48: false, ema200: false, superTrend: false });
 
         const mapCandles = useCallback((candles) => {
           const mapped = candles.map(c => {
@@ -376,12 +397,13 @@
             const ema200Data = computeEMA(mapped, 200);
             const superTrendSegments = computeSuperTrendSegments(mapped, 10, 3);
             indicatorDataRef.current = { ema9: ema9Data, ema21: ema21Data, ema48: ema48Data, ema200: ema200Data, superTrend: superTrendSegments };
-            const ema9 = chart.addLineSeries({ color: "#a78bfa", lineWidth: 2, title: "EMA 9" });
-            const ema21 = chart.addLineSeries({ color: "#f472b6", lineWidth: 2, title: "EMA 21" });
-            const ema48 = chart.addLineSeries({ color: "#38bdf8", lineWidth: 2, title: "EMA 48" });
-            const ema200 = chart.addLineSeries({ color: "#fbbf24", lineWidth: 2, title: "EMA 200" });
-            const superTrendUpper = chart.addLineSeries({ color: "#f97316", lineWidth: 2, title: "SuperTrend" });
-            const superTrendLower = chart.addLineSeries({ color: "#f97316", lineWidth: 2, title: "" });
+            const noPriceLine = { lastValueVisible: false, priceLineVisible: false };
+            const ema9 = chart.addLineSeries({ color: "#a78bfa", lineWidth: 2, title: "EMA 9", ...noPriceLine });
+            const ema21 = chart.addLineSeries({ color: "#f472b6", lineWidth: 2, title: "EMA 21", ...noPriceLine });
+            const ema48 = chart.addLineSeries({ color: "#38bdf8", lineWidth: 2, title: "EMA 48", ...noPriceLine });
+            const ema200 = chart.addLineSeries({ color: "#fbbf24", lineWidth: 2, title: "EMA 200", ...noPriceLine });
+            const superTrendUpper = chart.addLineSeries({ color: "#f97316", lineWidth: 2, title: "SuperTrend", ...noPriceLine });
+            const superTrendLower = chart.addLineSeries({ color: "#f97316", lineWidth: 2, title: "", ...noPriceLine });
             ema9.setData(showIndicators.ema9 ? ema9Data : []);
             ema21.setData(showIndicators.ema21 ? ema21Data : []);
             ema48.setData(showIndicators.ema48 ? ema48Data : []);
@@ -424,6 +446,18 @@
               });
               priceLinesRef.current.push(pl);
             }
+            const lastClose = mapped.length > 0 ? mapped[mapped.length - 1].close : null;
+            if (Number.isFinite(lastClose) && lastClose > 0) {
+              const pl = candleSeries.createPriceLine({
+                price: lastClose,
+                color: "#6b7280",
+                lineWidth: 1,
+                lineStyle: LightweightCharts.LineStyle.Dashed,
+                axisLabelVisible: true,
+                title: "Price",
+              });
+              priceLinesRef.current.push(pl);
+            }
 
             // Bar markers: Entry, Exit, Trim(s)
             const entryMs = Number(entryTs);
@@ -452,10 +486,9 @@
             const hasTradeRange = entryBarTime != null && exitBarTime != null;
             let visibleFrom = mapped[0].time, visibleTo = mapped[mapped.length - 1].time;
             if (hasTradeRange) {
-              const barSec = tf === "D" ? 86400 : tf === "60" ? 3600 : tf === "10" ? 600 : 300;
-              const padding = 3 * barSec;
-              visibleFrom = Math.max(mapped[0].time, entryBarTime - padding);
-              visibleTo = Math.min(mapped[mapped.length - 1].time, exitBarTime + padding);
+              const oneWeekSec = 5 * 24 * 3600;
+              visibleFrom = Math.max(mapped[0].time, entryBarTime - oneWeekSec);
+              visibleTo = Math.min(mapped[mapped.length - 1].time, exitBarTime + oneWeekSec);
               try {
                 chart.timeScale().setVisibleRange({ from: visibleFrom, to: visibleTo });
               } catch (_) {}
@@ -626,30 +659,88 @@
         const [notes, setNotes] = useState(annotations?.notes ?? "");
         const [classification, setClassification] = useState(annotations?.classification ?? "");
         const [saving, setSaving] = useState(false);
-        const [correcting, setCorrecting] = useState(false);
         const [candleCloseAtEntry, setCandleCloseAtEntry] = useState(null);
+        const [candleCloseAtExit, setCandleCloseAtExit] = useState(null);
+        const appliedEntryRef = useRef(false);
+        const appliedExitRef = useRef(false);
 
         const tradeId = trade?.trade_id || trade?.id || `${trade?.ticker}-${trade?.entry_ts}`;
         const storedEntry = Number(trade?.entry_price || trade?.entryPrice);
+        const storedExit = Number(trade?.exit_price || trade?.exitPrice);
 
-        // Fetch 10m candle at entry time to verify stored entry vs our data
+        // Fetch 10m candle at entry and exit to align stored prices with bar closes
         useEffect(() => {
           if (!trade?.ticker || !trade?.entry_ts) return;
-          const rawTs = Number(trade.entry_ts);
-          const asOfMs = Number.isFinite(rawTs) && rawTs > 0 ? (rawTs < 1e12 ? rawTs * 1000 : rawTs) : null;
-          if (!asOfMs) return;
-          fetch(`${API_BASE}/timed/candles?ticker=${encodeURIComponent(trade.ticker)}&tf=10&limit=5&asOfTs=${asOfMs}`, fetchOpts)
-            .then(r => r.json())
-            .then(data => {
-              const candles = data?.candles;
-              if (Array.isArray(candles) && candles.length > 0) {
-                const last = candles[candles.length - 1];
-                const close = Number(last?.c);
-                if (Number.isFinite(close) && close > 0) setCandleCloseAtEntry(close);
-              }
-            })
-            .catch(() => {});
-        }, [trade?.ticker, trade?.entry_ts]);
+          const asOfMs = (ts) => {
+            const raw = Number(ts);
+            if (!Number.isFinite(raw) || raw <= 0) return null;
+            return raw < 1e12 ? raw * 1000 : raw;
+          };
+          const entryMs = asOfMs(trade.entry_ts);
+          if (entryMs) {
+            fetch(`${API_BASE}/timed/candles?ticker=${encodeURIComponent(trade.ticker)}&tf=10&limit=5&asOfTs=${entryMs}`, fetchOpts)
+              .then(r => r.json())
+              .then(data => {
+                const candles = data?.candles;
+                if (Array.isArray(candles) && candles.length > 0) {
+                  const close = Number(candles[candles.length - 1]?.c);
+                  if (Number.isFinite(close) && close > 0) setCandleCloseAtEntry(close);
+                }
+              })
+              .catch(() => {});
+          }
+          if (trade?.exit_ts) {
+            const exitMs = asOfMs(trade.exit_ts);
+            if (exitMs) {
+              fetch(`${API_BASE}/timed/candles?ticker=${encodeURIComponent(trade.ticker)}&tf=10&limit=5&asOfTs=${exitMs}`, fetchOpts)
+                .then(r => r.json())
+                .then(data => {
+                  const candles = data?.candles;
+                  if (Array.isArray(candles) && candles.length > 0) {
+                    const close = Number(candles[candles.length - 1]?.c);
+                    if (Number.isFinite(close) && close > 0) setCandleCloseAtExit(close);
+                  }
+                })
+                .catch(() => {});
+            }
+          }
+        }, [trade?.ticker, trade?.entry_ts, trade?.exit_ts]);
+
+        // Auto-apply entry/exit price correction so displayed prices match 10m bar closes
+        useEffect(() => {
+          if (!tradeId || !onRefreshTrades) return;
+          const run = async () => {
+            let didCorrect = false;
+            if (Number.isFinite(candleCloseAtEntry) && Number.isFinite(storedEntry) && Math.abs(candleCloseAtEntry - storedEntry) > 0.01 && !appliedEntryRef.current) {
+              appliedEntryRef.current = true;
+              try {
+                const res = await fetch(`${API_BASE}/timed/admin/trade-autopsy/correct-entry`, {
+                  ...fetchOpts,
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ trade_id: tradeId }),
+                });
+                const data = await res.json();
+                if (data.ok && data.corrected) didCorrect = true;
+              } catch (_) {}
+            }
+            if (Number.isFinite(candleCloseAtExit) && Number.isFinite(storedExit) && Math.abs(candleCloseAtExit - storedExit) > 0.01 && !appliedExitRef.current) {
+              appliedExitRef.current = true;
+              try {
+                const res = await fetch(`${API_BASE}/timed/admin/trade-autopsy/correct-exit`, {
+                  ...fetchOpts,
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ trade_id: tradeId }),
+                });
+                const data = await res.json();
+                if (data.ok && data.corrected) didCorrect = true;
+              } catch (_) {}
+            }
+            if (didCorrect) await onRefreshTrades();
+          };
+          run();
+        }, [tradeId, candleCloseAtEntry, candleCloseAtExit, storedEntry, storedExit, onRefreshTrades]);
 
         const handleSave = async () => {
           setSaving(true);
@@ -667,27 +758,6 @@
             }
           } finally {
             setSaving(false);
-          }
-        };
-
-        const handleCorrectEntry = async () => {
-          setCorrecting(true);
-          try {
-            const res = await fetch(`${API_BASE}/timed/admin/trade-autopsy/correct-entry`, {
-              ...fetchOpts,
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ trade_id: tradeId }),
-            });
-            const data = await res.json();
-            if (data.ok && data.corrected) {
-              await Promise.all([onRefreshTrades?.(), onSave?.()]);
-              onClose?.();
-            } else if (data.ok && !data.corrected) {
-              setCandleCloseAtEntry(null);
-            }
-          } finally {
-            setCorrecting(false);
           }
         };
 
@@ -713,24 +783,6 @@
                     <span className="text-[10px] font-semibold text-[#60a5fa] uppercase tracking-wider">Entry</span>
                     <span className="text-[13px] font-semibold text-white">{formatDate(trade?.entry_ts)} @ {fmtUsd(trade?.entry_price || trade?.entryPrice)}</span>
                   </div>
-                  {Number.isFinite(candleCloseAtEntry) && (
-                    <div className="flex items-center gap-2 px-2.5 py-1 rounded-md bg-white/[0.04] border border-white/[0.06]">
-                      <span className="text-[10px] text-[#9ca3af]">10m candle at entry:</span>
-                      <span className="text-[12px] font-medium text-[#d1d5db]">{fmtUsd(candleCloseAtEntry)}</span>
-                      {Number.isFinite(storedEntry) && Math.abs(candleCloseAtEntry - storedEntry) > 0.01 && (
-                        <>
-                          <span className="text-[10px] text-[#f59e0b]">(differs from stored)</span>
-                          <button
-                            onClick={handleCorrectEntry}
-                            disabled={correcting}
-                            className="px-2 py-0.5 rounded text-[10px] font-medium bg-[#14b8a6]/20 text-[#14b8a6] hover:bg-[#14b8a6]/30 disabled:opacity-50"
-                          >
-                            {correcting ? "Correcting…" : "Correct entry"}
-                          </button>
-                        </>
-                      )}
-                    </div>
-                  )}
                   <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#f59e0b]/15 border border-[#f59e0b]/30">
                     <span className="text-[10px] font-semibold text-[#f59e0b] uppercase tracking-wider">Exit</span>
                     <span className="text-[13px] font-semibold text-white">{formatDate(trade?.exit_ts)} @ {fmtUsd(trade?.exit_price || trade?.exitPrice)}</span>
@@ -740,20 +792,61 @@
                   </div>
                   {trade?.status && <div className="text-[12px] text-[#9ca3af]">Status: {trade.status}</div>}
                 </div>
-                {Number.isFinite(candleCloseAtEntry) && Number.isFinite(storedEntry) && Math.abs(candleCloseAtEntry - storedEntry) > 0.01 && (
-                  <div className="text-[11px] text-[#9ca3af] px-1">
-                    Entry price may differ from TradingView — our data (Alpaca/TwelveData) can vary from TV&apos;s feed. If the 10m candle above matches stored entry, our data is internally consistent.
-                  </div>
-                )}
+                <div className="text-[11px] text-[#9ca3af] px-1">
+                  Entry and exit prices are aligned to the 10m bar close at that time.
+                </div>
 
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 flex-1 min-h-0">
                   <div className="lg:col-span-1 flex flex-col gap-3 min-h-0 overflow-y-auto">
-                    {(entrySnap || tfStack) && (
+                    {(entrySnap || tfStack || trade?.entry_path) && (
                       <div className="tt-card p-3 shrink-0">
                         <div className="text-[11px] font-semibold text-[#14b8a6] uppercase tracking-wider mb-2">Signal snapshot at entry</div>
-                        {entrySnap && <pre className="text-[11px] text-[#d1d5db] whitespace-pre-wrap font-mono leading-relaxed">{formatSignals(entrySnap)}</pre>}
-                        {tfStack && <><div className="text-[11px] font-medium text-[#9ca3af] mt-2">TF bias stack</div><pre className="text-[11px] text-[#d1d5db] whitespace-pre-wrap font-mono leading-relaxed mt-0.5">{formatTfStack(tfStack)}</pre></>}
-                        {trade?.entry_path && <div className="text-[11px] text-[#9ca3af] mt-2 pt-2 border-t border-white/[0.06]">Path: {trade.entry_path}</div>}
+                        {trade?.entry_path && (
+                          <div className="mb-3 px-2.5 py-1.5 rounded-lg bg-[#14b8a6]/10 border border-[#14b8a6]/20">
+                            <span className="text-[10px] text-[#9ca3af] uppercase tracking-wider">Regime</span>
+                            <div className="text-[13px] font-semibold text-white mt-0.5">{formatPath(trade.entry_path)}</div>
+                          </div>
+                        )}
+                        {parseTfStack(tfStack)?.length > 0 && (
+                          <div className="mb-3">
+                            <span className="text-[10px] text-[#9ca3af] uppercase tracking-wider block mb-1.5">Timeframe bias</span>
+                            <div className="flex flex-wrap gap-1.5">
+                              {parseTfStack(tfStack).map(({ tf, bias }) => {
+                                const b = String(bias || "").toLowerCase();
+                                const isBull = b === "bullish";
+                                const isBear = b === "bearish";
+                                const label = isBull ? "Bullish" : isBear ? "Bearish" : (bias || "—");
+                                const style = isBull ? "bg-[#22c55e]/15 text-[#22c55e]" : isBear ? "bg-[#ef4444]/15 text-[#ef4444]" : "bg-white/[0.06] text-[#9ca3af]";
+                                return (
+                                  <span key={tf} className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium ${style}`}>
+                                    <span className="opacity-80">{tf}</span>
+                                    <span>{label}</span>
+                                  </span>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
+                        {parseSnapshot(entrySnap)?.length > 0 && (
+                          <div>
+                            <span className="text-[10px] text-[#9ca3af] uppercase tracking-wider block mb-1.5">Indicators by timeframe</span>
+                            <div className="space-y-2">
+                              {parseSnapshot(entrySnap).map(({ tf, signals }) => (
+                                <div key={tf} className="px-2 py-1.5 rounded-md bg-white/[0.03] border border-white/[0.06]">
+                                  <div className="text-[10px] font-medium text-[#9ca3af] mb-1">{tf}</div>
+                                  <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-[11px]">
+                                    {Object.entries(signals).filter(([, v]) => v != null && Number.isFinite(v)).map(([k, v]) => (
+                                      <span key={k} className="flex items-center gap-1">
+                                        <span className="text-[#6b7280]">{SIGNAL_LABELS[k] || k}:</span>
+                                        <span className={signalValueColor(k, v)}>{signalValueLabel(k, v)}</span>
+                                      </span>
+                                    ))}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
                       </div>
                     )}
                     {(exitReason != null || Number.isFinite(mfe) || Number.isFinite(mae)) && (
@@ -840,7 +933,15 @@
           try {
             const r = await fetch(`${API_BASE}/timed/admin/trade-autopsy/trades`, fetchOpts);
             const d = await r.json();
-            if (d.ok && Array.isArray(d.trades)) setTrades(d.trades);
+            if (d.ok && Array.isArray(d.trades)) {
+              setTrades(d.trades);
+              setSelectedTrade(prev => {
+                if (!prev) return prev;
+                const id = prev.trade_id || prev.id || `${prev.ticker}-${prev.entry_ts}`;
+                const updated = d.trades.find(t => (t.trade_id || t.id || `${t.ticker}-${t.entry_ts}`) === id);
+                return updated || prev;
+              });
+            }
           } catch (_) {}
         }, []);
 
