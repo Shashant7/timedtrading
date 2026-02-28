@@ -179,9 +179,11 @@
           }
 
           const limit = 250;
+          const container = containerRef.current;
+          const initialWidth = Math.max(container.clientWidth || 400, 200);
 
-          const chart = LightweightCharts.createChart(containerRef.current, {
-            width: containerRef.current.clientWidth,
+          const chart = LightweightCharts.createChart(container, {
+            width: initialWidth,
             height: height,
             layout: {
               background: { type: "solid", color: "#0b0e11" },
@@ -237,11 +239,9 @@
           seriesRef.current = candleSeries;
 
           const asOfMs = Number(exitTs || entryTs);
-          const asOfSec = Number.isFinite(asOfMs) && asOfMs > 0
-            ? (asOfMs > 1e12 ? Math.floor(asOfMs / 1000) : asOfMs)
-            : null;
+          const asOfTsParam = Number.isFinite(asOfMs) && asOfMs > 0 ? asOfMs : null;
           let url = `${API_BASE}/timed/candles?ticker=${encodeURIComponent(ticker)}&tf=${tf}&limit=${limit}`;
-          if (asOfSec) url += `&asOfTs=${asOfSec}`;
+          if (asOfTsParam) url += `&asOfTs=${asOfTsParam}`;
 
           const doRender = (candles) => {
             if (!candles || candles.length === 0) {
@@ -295,8 +295,17 @@
 
             chart.timeScale().fitContent();
             requestAnimationFrame(() => {
-              if (chartRef.current) chartRef.current.timeScale().scrollToPosition(-3, false);
+              if (chartRef.current) {
+                chartRef.current.timeScale().scrollToPosition(-3, false);
+                const w = containerRef.current?.clientWidth;
+                if (w > 0) chartRef.current.applyOptions({ width: w });
+              }
             });
+            setTimeout(() => {
+              if (chartRef.current && containerRef.current?.clientWidth > 0) {
+                chartRef.current.applyOptions({ width: containerRef.current.clientWidth });
+              }
+            }, 150);
             setLoading(false);
           };
 
@@ -309,7 +318,7 @@
                 return;
               }
               let candles = data.candles;
-              if (candles.length < 2 && asOfSec) {
+              if (candles.length < 2 && asOfTsParam) {
                 const fallbackUrl = `${API_BASE}/timed/candles?ticker=${encodeURIComponent(ticker)}&tf=${tf}&limit=${limit}`;
                 return fetch(fallbackUrl, { cache: "no-store" })
                   .then(r => r.json())
