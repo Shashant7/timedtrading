@@ -243,77 +243,83 @@
           let url = `${API_BASE}/timed/candles?ticker=${encodeURIComponent(ticker)}&tf=${tf}&limit=${limit}`;
           if (asOfSec) url += `&asOfTs=${asOfSec}`;
 
+          const doRender = (candles) => {
+            if (!candles || candles.length === 0) {
+              setError("No chart data for this ticker");
+              setLoading(false);
+              return;
+            }
+            const mapped = mapCandles(candles);
+            candleSeries.setData(mapped);
+
+            // Add EMA 9 and EMA 21
+            for (const s of emaSeriesRef.current) {
+              try { chart.removeSeries(s); } catch (_) {}
+            }
+            emaSeriesRef.current = [];
+            const ema9 = chart.addLineSeries({ color: "#a78bfa", lineWidth: 2, title: "EMA 9" });
+            const ema21 = chart.addLineSeries({ color: "#f472b6", lineWidth: 2, title: "EMA 21" });
+            ema9.setData(computeEMA(mapped, 9));
+            ema21.setData(computeEMA(mapped, 21));
+            emaSeriesRef.current = [ema9, ema21];
+
+            // Add entry/exit price lines (thicker, solid, prominent labels)
+            for (const pl of priceLinesRef.current) {
+              try { candleSeries.removePriceLine(pl); } catch (_) {}
+            }
+            priceLinesRef.current = [];
+            const ep = Number(entryPrice);
+            const xp = Number(exitPrice);
+            if (Number.isFinite(ep) && ep > 0) {
+              const pl = candleSeries.createPriceLine({
+                price: ep,
+                color: "#60a5fa",
+                lineWidth: 2,
+                lineStyle: LightweightCharts.LineStyle.Solid,
+                axisLabelVisible: true,
+                title: "Entry",
+              });
+              priceLinesRef.current.push(pl);
+            }
+            if (Number.isFinite(xp) && xp > 0 && xp !== ep) {
+              const pl = candleSeries.createPriceLine({
+                price: xp,
+                color: "#f59e0b",
+                lineWidth: 2,
+                lineStyle: LightweightCharts.LineStyle.Solid,
+                axisLabelVisible: true,
+                title: "Exit",
+              });
+              priceLinesRef.current.push(pl);
+            }
+
+            chart.timeScale().fitContent();
+            requestAnimationFrame(() => {
+              if (chartRef.current) chartRef.current.timeScale().scrollToPosition(-3, false);
+            });
+            setLoading(false);
+          };
+
           fetch(url, { cache: "no-store" })
             .then(r => r.json())
             .then(data => {
-              if (!data.ok || !data.candles || data.candles.length === 0) {
+              if (!data.ok || !data.candles) {
                 setError("No chart data for this ticker");
                 setLoading(false);
                 return;
               }
-              const mapped = mapCandles(data.candles);
-              candleSeries.setData(mapped);
-
-              // Add EMA 9 and EMA 21
-              for (const s of emaSeriesRef.current) {
-                try { chart.removeSeries(s); } catch (_) {}
+              let candles = data.candles;
+              if (candles.length < 2 && asOfSec) {
+                const fallbackUrl = `${API_BASE}/timed/candles?ticker=${encodeURIComponent(ticker)}&tf=${tf}&limit=${limit}`;
+                return fetch(fallbackUrl, { cache: "no-store" })
+                  .then(r => r.json())
+                  .then(d => {
+                    if (d.ok && d.candles && d.candles.length >= 2) candles = d.candles;
+                    doRender(candles);
+                  })
+                  .catch(() => doRender(candles));
               }
-              emaSeriesRef.current = [];
-              const ema9 = chart.addLineSeries({ color: "#a78bfa", lineWidth: 2, title: "EMA 9" });
-              const ema21 = chart.addLineSeries({ color: "#f472b6", lineWidth: 2, title: "EMA 21" });
-              ema9.setData(computeEMA(mapped, 9));
-              ema21.setData(computeEMA(mapped, 21));
-              const rsiData = computeRSI(mapped, 14);
-              const rsiSeries = chart.addLineSeries({
-                color: "#14b8a6",
-                lineWidth: 1,
-                priceScaleId: "rsi",
-                title: "RSI 14",
-              });
-              try {
-                chart.priceScale("rsi").applyOptions({
-                  scaleMargins: { top: 0.75, bottom: 0.08 },
-                  borderVisible: false,
-                });
-              } catch (_) {}
-              rsiSeries.setData(rsiData);
-              emaSeriesRef.current = [ema9, ema21, rsiSeries];
-
-              // Add entry/exit price lines (thicker, solid, prominent labels)
-              for (const pl of priceLinesRef.current) {
-                try { candleSeries.removePriceLine(pl); } catch (_) {}
-              }
-              priceLinesRef.current = [];
-              const ep = Number(entryPrice);
-              const xp = Number(exitPrice);
-              if (Number.isFinite(ep) && ep > 0) {
-                const pl = candleSeries.createPriceLine({
-                  price: ep,
-                  color: "#60a5fa",
-                  lineWidth: 2,
-                  lineStyle: LightweightCharts.LineStyle.Solid,
-                  axisLabelVisible: true,
-                  title: "Entry",
-                });
-                priceLinesRef.current.push(pl);
-              }
-              if (Number.isFinite(xp) && xp > 0 && xp !== ep) {
-                const pl = candleSeries.createPriceLine({
-                  price: xp,
-                  color: "#f59e0b",
-                  lineWidth: 2,
-                  lineStyle: LightweightCharts.LineStyle.Solid,
-                  axisLabelVisible: true,
-                  title: "Exit",
-                });
-                priceLinesRef.current.push(pl);
-              }
-
-              chart.timeScale().fitContent();
-              requestAnimationFrame(() => {
-                if (chartRef.current) chartRef.current.timeScale().scrollToPosition(-3, false);
-              });
-              setLoading(false);
+              doRender(candles);
             })
             .catch(e => {
               setError("Failed to load chart");
@@ -356,7 +362,7 @@
                 ))}
               </div>
             </div>
-            <div ref={containerRef} style={{ height }}>
+            <div ref={containerRef} style={{ height, minWidth: 200, width: "100%" }} className="w-full">
               {error && !loading && (
                 <div className="flex items-center justify-center h-full text-[#6b7280] text-[13px]">{error}</div>
               )}
