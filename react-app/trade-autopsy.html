@@ -107,12 +107,51 @@
         return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 }).format(n);
       }
 
+      // ── Indicator helpers (computed from OHLC) ───────────────────────────────
+      function computeEMA(data, period) {
+        const k = 2 / (period + 1);
+        const out = [];
+        let ema = null;
+        for (let i = 0; i < data.length; i++) {
+          const c = data[i].close;
+          if (ema == null) {
+            let sum = 0;
+            for (let j = 0; j < Math.min(period, i + 1); j++) sum += data[j].close;
+            ema = sum / Math.min(period, i + 1);
+          } else {
+            ema = c * k + ema * (1 - k);
+          }
+          out.push({ time: data[i].time, value: ema });
+        }
+        return out;
+      }
+      function computeRSI(data, period = 14) {
+        const out = [];
+        for (let i = 0; i < data.length; i++) {
+          if (i < period) {
+            out.push({ time: data[i].time, value: 50 });
+            continue;
+          }
+          let gains = 0, losses = 0;
+          for (let j = i - period + 1; j <= i; j++) {
+            const chg = data[j].close - (j > 0 ? data[j - 1].close : data[j].close);
+            if (chg > 0) gains += chg; else losses -= chg;
+          }
+          const avgGain = gains / period, avgLoss = losses / period;
+          const rs = avgLoss === 0 ? 100 : avgGain / avgLoss;
+          const rsi = 100 - (100 / (1 + rs));
+          out.push({ time: data[i].time, value: Math.max(0, Math.min(100, rsi)) });
+        }
+        return out;
+      }
+
       // ── Interactive Chart (TradingView Lightweight Charts) ───────────────────
-      function AutopsyChart({ ticker, entryPrice, exitPrice, height = 360 }) {
+      function AutopsyChart({ ticker, entryPrice, exitPrice, entryTs, exitTs, height = 360 }) {
         const containerRef = useRef(null);
         const chartRef = useRef(null);
         const seriesRef = useRef(null);
         const priceLinesRef = useRef([]);
+        const emaSeriesRef = useRef([]);
         const [loading, setLoading] = useState(true);
         const [error, setError] = useState(null);
         const [tf, setTf] = useState("10");
@@ -197,7 +236,13 @@
           });
           seriesRef.current = candleSeries;
 
-          const url = `${API_BASE}/timed/candles?ticker=${encodeURIComponent(ticker)}&tf=${tf}&limit=${limit}`;
+          const asOfMs = Number(exitTs || entryTs);
+          const asOfSec = Number.isFinite(asOfMs) && asOfMs > 0
+            ? (asOfMs > 1e12 ? Math.floor(asOfMs / 1000) : asOfMs)
+            : null;
+          let url = `${API_BASE}/timed/candles?ticker=${encodeURIComponent(ticker)}&tf=${tf}&limit=${limit}`;
+          if (asOfSec) url += `&asOfTs=${asOfSec}`;
+
           fetch(url, { cache: "no-store" })
             .then(r => r.json())
             .then(data => {
@@ -209,7 +254,32 @@
               const mapped = mapCandles(data.candles);
               candleSeries.setData(mapped);
 
-              // Add entry/exit price lines
+              // Add EMA 9 and EMA 21
+              for (const s of emaSeriesRef.current) {
+                try { chart.removeSeries(s); } catch (_) {}
+              }
+              emaSeriesRef.current = [];
+              const ema9 = chart.addLineSeries({ color: "#a78bfa", lineWidth: 2, title: "EMA 9" });
+              const ema21 = chart.addLineSeries({ color: "#f472b6", lineWidth: 2, title: "EMA 21" });
+              ema9.setData(computeEMA(mapped, 9));
+              ema21.setData(computeEMA(mapped, 21));
+              const rsiData = computeRSI(mapped, 14);
+              const rsiSeries = chart.addLineSeries({
+                color: "#14b8a6",
+                lineWidth: 1,
+                priceScaleId: "rsi",
+                title: "RSI 14",
+              });
+              try {
+                chart.priceScale("rsi").applyOptions({
+                  scaleMargins: { top: 0.75, bottom: 0.08 },
+                  borderVisible: false,
+                });
+              } catch (_) {}
+              rsiSeries.setData(rsiData);
+              emaSeriesRef.current = [ema9, ema21, rsiSeries];
+
+              // Add entry/exit price lines (thicker, solid, prominent labels)
               for (const pl of priceLinesRef.current) {
                 try { candleSeries.removePriceLine(pl); } catch (_) {}
               }
@@ -220,8 +290,8 @@
                 const pl = candleSeries.createPriceLine({
                   price: ep,
                   color: "#60a5fa",
-                  lineWidth: 1,
-                  lineStyle: LightweightCharts.LineStyle.Dashed,
+                  lineWidth: 2,
+                  lineStyle: LightweightCharts.LineStyle.Solid,
                   axisLabelVisible: true,
                   title: "Entry",
                 });
@@ -231,8 +301,8 @@
                 const pl = candleSeries.createPriceLine({
                   price: xp,
                   color: "#f59e0b",
-                  lineWidth: 1,
-                  lineStyle: LightweightCharts.LineStyle.Dashed,
+                  lineWidth: 2,
+                  lineStyle: LightweightCharts.LineStyle.Solid,
                   axisLabelVisible: true,
                   title: "Exit",
                 });
@@ -263,11 +333,12 @@
             if (ro) ro.disconnect();
             window.removeEventListener("resize", handleResize);
             priceLinesRef.current = [];
+            emaSeriesRef.current = [];
             chart.remove();
             chartRef.current = null;
             seriesRef.current = null;
           };
-        }, [ticker, tf, entryPrice, exitPrice, height, mapCandles]);
+        }, [ticker, tf, entryPrice, exitPrice, entryTs, exitTs, height, mapCandles]);
 
         return (
           <div className="tt-card overflow-hidden">
@@ -343,30 +414,38 @@
               </div>
 
               <div className="p-4 flex-1 min-h-0 flex flex-col gap-3">
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-[12px] text-[#9ca3af] shrink-0">
-                  <div>Entry: {formatDate(trade?.entry_ts)} @ {fmtUsd(trade?.entry_price || trade?.entryPrice)}</div>
-                  <div>Exit: {formatDate(trade?.exit_ts)} @ {fmtUsd(trade?.exit_price || trade?.exitPrice)}</div>
-                  <div>P&L: <span className={Number(trade?.pnl) >= 0 ? "text-[#22c55e]" : "text-[#ef4444]"}>{fmtUsd(trade?.pnl)}</span></div>
-                  <div>Status: {trade?.status || "—"}</div>
+                <div className="flex flex-wrap items-center gap-3 shrink-0">
+                  <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#60a5fa]/15 border border-[#60a5fa]/30">
+                    <span className="text-[10px] font-semibold text-[#60a5fa] uppercase tracking-wider">Entry</span>
+                    <span className="text-[13px] font-semibold text-white">{formatDate(trade?.entry_ts)} @ {fmtUsd(trade?.entry_price || trade?.entryPrice)}</span>
+                  </div>
+                  <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#f59e0b]/15 border border-[#f59e0b]/30">
+                    <span className="text-[10px] font-semibold text-[#f59e0b] uppercase tracking-wider">Exit</span>
+                    <span className="text-[13px] font-semibold text-white">{formatDate(trade?.exit_ts)} @ {fmtUsd(trade?.exit_price || trade?.exitPrice)}</span>
+                  </div>
+                  <div className="text-[12px] text-[#9ca3af]">
+                    P&L: <span className={Number(trade?.pnl) >= 0 ? "text-[#22c55e] font-semibold" : "text-[#ef4444] font-semibold"}>{fmtUsd(trade?.pnl)}</span>
+                  </div>
+                  {trade?.status && <div className="text-[12px] text-[#9ca3af]">Status: {trade.status}</div>}
                 </div>
 
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 flex-1 min-h-0">
-                  <div className="lg:col-span-1 flex flex-col gap-2 min-h-0 overflow-y-auto">
+                  <div className="lg:col-span-1 flex flex-col gap-3 min-h-0 overflow-y-auto">
                     {(entrySnap || tfStack) && (
-                      <div className="tt-card p-2.5 shrink-0">
-                        <div className="text-[10px] font-semibold text-[#6b7280] uppercase tracking-wider mb-1">Signal snapshot at entry</div>
-                        {entrySnap && <pre className="text-[10px] text-[#9ca3af] whitespace-pre-wrap font-mono leading-tight">{formatSignals(entrySnap)}</pre>}
-                        {tfStack && <><div className="text-[10px] text-[#6b7280] mt-1">TF bias stack:</div><pre className="text-[10px] text-[#9ca3af] whitespace-pre-wrap font-mono leading-tight">{formatTfStack(tfStack)}</pre></>}
-                        {trade?.entry_path && <div className="text-[10px] text-[#6b7280] mt-0.5">Path: {trade.entry_path}</div>}
+                      <div className="tt-card p-3 shrink-0">
+                        <div className="text-[11px] font-semibold text-[#14b8a6] uppercase tracking-wider mb-2">Signal snapshot at entry</div>
+                        {entrySnap && <pre className="text-[11px] text-[#d1d5db] whitespace-pre-wrap font-mono leading-relaxed">{formatSignals(entrySnap)}</pre>}
+                        {tfStack && <><div className="text-[11px] font-medium text-[#9ca3af] mt-2">TF bias stack</div><pre className="text-[11px] text-[#d1d5db] whitespace-pre-wrap font-mono leading-relaxed mt-0.5">{formatTfStack(tfStack)}</pre></>}
+                        {trade?.entry_path && <div className="text-[11px] text-[#9ca3af] mt-2 pt-2 border-t border-white/[0.06]">Path: {trade.entry_path}</div>}
                       </div>
                     )}
                     {(exitReason != null || Number.isFinite(mfe) || Number.isFinite(mae)) && (
-                      <div className="tt-card p-2.5 shrink-0">
-                        <div className="text-[10px] font-semibold text-[#6b7280] uppercase tracking-wider mb-1">Exit context</div>
-                        <div className="text-[11px] text-[#9ca3af] space-y-0.5">
-                          {exitReason && <div>Reason: {exitReason}</div>}
-                          {Number.isFinite(mfe) && <div>MFE: {mfe.toFixed(2)}%</div>}
-                          {Number.isFinite(mae) && <div>MAE: {mae.toFixed(2)}%</div>}
+                      <div className="tt-card p-3 shrink-0">
+                        <div className="text-[11px] font-semibold text-[#f59e0b] uppercase tracking-wider mb-2">Exit context</div>
+                        <div className="text-[12px] text-[#d1d5db] space-y-1">
+                          {exitReason && <div className="break-words"><span className="text-[#9ca3af]">Reason:</span> {exitReason}</div>}
+                          {Number.isFinite(mfe) && <div><span className="text-[#9ca3af]">MFE:</span> <span className="text-[#22c55e]">{mfe.toFixed(2)}%</span></div>}
+                          {Number.isFinite(mae) && <div><span className="text-[#9ca3af]">MAE:</span> <span className="text-[#ef4444]">{mae.toFixed(2)}%</span></div>}
                         </div>
                       </div>
                     )}
@@ -376,6 +455,8 @@
                       ticker={trade?.ticker}
                       entryPrice={trade?.entry_price || trade?.entryPrice}
                       exitPrice={trade?.exit_price || trade?.exitPrice}
+                      entryTs={trade?.entry_ts}
+                      exitTs={trade?.exit_ts}
                       height={280}
                     />
                   </div>
