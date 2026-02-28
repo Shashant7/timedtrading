@@ -1,0 +1,10 @@
+{
+  "compilerOptions": {
+    "jsx": "react",
+    "module": "ESNext",
+    "moduleResolution": "node",
+    "checkJs": false
+  },
+  "include": ["react-app/**/*.html", "react-app/**/*.js"],
+  "exclude": ["node_modules"]
+}
