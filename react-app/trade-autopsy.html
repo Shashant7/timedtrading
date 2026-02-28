@@ -108,7 +108,7 @@
       }
 
       // ── Interactive Chart (TradingView Lightweight Charts) ───────────────────
-      function AutopsyChart({ ticker, entryPrice, exitPrice }) {
+      function AutopsyChart({ ticker, entryPrice, exitPrice, height = 360 }) {
         const containerRef = useRef(null);
         const chartRef = useRef(null);
         const seriesRef = useRef(null);
@@ -143,7 +143,7 @@
 
           const chart = LightweightCharts.createChart(containerRef.current, {
             width: containerRef.current.clientWidth,
-            height: 360,
+            height: height,
             layout: {
               background: { type: "solid", color: "#0b0e11" },
               textColor: "#6b7280",
@@ -267,7 +267,7 @@
             chartRef.current = null;
             seriesRef.current = null;
           };
-        }, [ticker, tf, entryPrice, exitPrice, mapCandles]);
+        }, [ticker, tf, entryPrice, exitPrice, height, mapCandles]);
 
         return (
           <div className="tt-card overflow-hidden">
@@ -285,7 +285,7 @@
                 ))}
               </div>
             </div>
-            <div ref={containerRef} style={{ height: 360 }}>
+            <div ref={containerRef} style={{ height }}>
               {error && !loading && (
                 <div className="flex items-center justify-center h-full text-[#6b7280] text-[13px]">{error}</div>
               )}
@@ -334,75 +334,81 @@
 
         return (
           <div className="fixed inset-0 z-[100] flex items-center justify-center p-4" style={{ background: "rgba(0,0,0,0.7)", backdropFilter: "blur(4px)" }} onClick={onClose}>
-            <div className="tt-card w-full max-w-4xl max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
-              <div className="sticky top-0 z-10 flex items-center justify-between px-4 py-3 border-b border-white/[0.06]" style={{ background: "var(--tt-bg-surface)" }}>
+            <div className="tt-card w-full max-w-5xl max-h-[90vh] overflow-hidden flex flex-col" onClick={e => e.stopPropagation()}>
+              <div className="flex items-center justify-between px-4 py-2.5 border-b border-white/[0.06] shrink-0" style={{ background: "var(--tt-bg-surface)" }}>
                 <h2 className="text-[15px] font-semibold text-white">
                   {trade?.ticker} {trade?.direction || ""} — Trade Autopsy
                 </h2>
                 <button onClick={onClose} className="p-1.5 rounded-md text-[#6b7280] hover:text-white hover:bg-white/[0.06]">✕</button>
               </div>
 
-              <div className="p-4 space-y-4">
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-[12px] text-[#9ca3af]">
+              <div className="p-4 flex-1 min-h-0 flex flex-col gap-3">
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-[12px] text-[#9ca3af] shrink-0">
                   <div>Entry: {formatDate(trade?.entry_ts)} @ {fmtUsd(trade?.entry_price || trade?.entryPrice)}</div>
                   <div>Exit: {formatDate(trade?.exit_ts)} @ {fmtUsd(trade?.exit_price || trade?.exitPrice)}</div>
                   <div>P&L: <span className={Number(trade?.pnl) >= 0 ? "text-[#22c55e]" : "text-[#ef4444]"}>{fmtUsd(trade?.pnl)}</span></div>
                   <div>Status: {trade?.status || "—"}</div>
                 </div>
 
-                {(entrySnap || tfStack) && (
-                  <div className="tt-card p-3">
-                    <div className="text-[11px] font-semibold text-[#6b7280] uppercase tracking-wider mb-1.5">Signal snapshot at entry</div>
-                    {entrySnap && <pre className="text-[11px] text-[#9ca3af] whitespace-pre-wrap font-mono">{formatSignals(entrySnap)}</pre>}
-                    {tfStack && <><div className="text-[11px] text-[#6b7280] mt-1.5">TF bias stack:</div><pre className="text-[11px] text-[#9ca3af] whitespace-pre-wrap font-mono">{formatTfStack(tfStack)}</pre></>}
-                    {trade?.entry_path && <div className="text-[11px] text-[#6b7280] mt-1">Path: {trade.entry_path}</div>}
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 flex-1 min-h-0">
+                  <div className="lg:col-span-1 flex flex-col gap-2 min-h-0 overflow-y-auto">
+                    {(entrySnap || tfStack) && (
+                      <div className="tt-card p-2.5 shrink-0">
+                        <div className="text-[10px] font-semibold text-[#6b7280] uppercase tracking-wider mb-1">Signal snapshot at entry</div>
+                        {entrySnap && <pre className="text-[10px] text-[#9ca3af] whitespace-pre-wrap font-mono leading-tight">{formatSignals(entrySnap)}</pre>}
+                        {tfStack && <><div className="text-[10px] text-[#6b7280] mt-1">TF bias stack:</div><pre className="text-[10px] text-[#9ca3af] whitespace-pre-wrap font-mono leading-tight">{formatTfStack(tfStack)}</pre></>}
+                        {trade?.entry_path && <div className="text-[10px] text-[#6b7280] mt-0.5">Path: {trade.entry_path}</div>}
+                      </div>
+                    )}
+                    {(exitReason != null || Number.isFinite(mfe) || Number.isFinite(mae)) && (
+                      <div className="tt-card p-2.5 shrink-0">
+                        <div className="text-[10px] font-semibold text-[#6b7280] uppercase tracking-wider mb-1">Exit context</div>
+                        <div className="text-[11px] text-[#9ca3af] space-y-0.5">
+                          {exitReason && <div>Reason: {exitReason}</div>}
+                          {Number.isFinite(mfe) && <div>MFE: {mfe.toFixed(2)}%</div>}
+                          {Number.isFinite(mae) && <div>MAE: {mae.toFixed(2)}%</div>}
+                        </div>
+                      </div>
+                    )}
                   </div>
-                )}
-
-                {(exitReason != null || Number.isFinite(mfe) || Number.isFinite(mae)) && (
-                  <div className="tt-card p-3">
-                    <div className="text-[11px] font-semibold text-[#6b7280] uppercase tracking-wider mb-1.5">Exit context</div>
-                    <div className="text-[12px] text-[#9ca3af] space-y-0.5">
-                      {exitReason && <div>Reason: {exitReason}</div>}
-                      {Number.isFinite(mfe) && <div>MFE: {mfe.toFixed(2)}%</div>}
-                      {Number.isFinite(mae) && <div>MAE: {mae.toFixed(2)}%</div>}
-                    </div>
+                  <div className="lg:col-span-2 min-h-[280px] flex flex-col">
+                    <AutopsyChart
+                      ticker={trade?.ticker}
+                      entryPrice={trade?.entry_price || trade?.entryPrice}
+                      exitPrice={trade?.exit_price || trade?.exitPrice}
+                      height={280}
+                    />
                   </div>
-                )}
-
-                <AutopsyChart
-                  ticker={trade?.ticker}
-                  entryPrice={trade?.entry_price || trade?.entryPrice}
-                  exitPrice={trade?.exit_price || trade?.exitPrice}
-                />
-
-                <div>
-                  <label className="block text-[12px] font-medium text-[#9ca3af] mb-1.5">Classification</label>
-                  <select
-                    value={classification}
-                    onChange={e => setClassification(e.target.value)}
-                    className="w-full px-3 py-2 rounded-lg bg-white/[0.04] border border-white/[0.06] text-[13px] text-white focus:outline-none focus:ring-1 focus:ring-[#14b8a6]/50"
-                  >
-                    {CLASSIFICATION_OPTIONS.map(opt => (
-                      <option key={opt.value || "empty"} value={opt.value}>{opt.label}</option>
-                    ))}
-                  </select>
                 </div>
 
-                <div>
-                  <label className="block text-[12px] font-medium text-[#9ca3af] mb-1.5">Notes / Description</label>
-                  <textarea
-                    value={notes}
-                    onChange={e => setNotes(e.target.value)}
-                    placeholder="Add notes about this trade (e.g., what went wrong, lessons learned, data issues...)"
-                    rows={4}
-                    className="w-full px-3 py-2 rounded-lg bg-white/[0.04] border border-white/[0.06] text-[13px] text-white placeholder-[#4b5563] focus:outline-none focus:ring-1 focus:ring-[#14b8a6]/50 resize-none"
-                  />
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 shrink-0">
+                  <div>
+                    <label className="block text-[11px] font-medium text-[#9ca3af] mb-1">Classification</label>
+                    <select
+                      value={classification}
+                      onChange={e => setClassification(e.target.value)}
+                      className="w-full px-2.5 py-1.5 rounded-lg bg-white/[0.04] border border-white/[0.06] text-[12px] text-white focus:outline-none focus:ring-1 focus:ring-[#14b8a6]/50"
+                    >
+                      {CLASSIFICATION_OPTIONS.map(opt => (
+                        <option key={opt.value || "empty"} value={opt.value}>{opt.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-medium text-[#9ca3af] mb-1">Notes / Description</label>
+                    <textarea
+                      value={notes}
+                      onChange={e => setNotes(e.target.value)}
+                      placeholder="Add notes about this trade..."
+                      rows={2}
+                      className="w-full px-2.5 py-1.5 rounded-lg bg-white/[0.04] border border-white/[0.06] text-[12px] text-white placeholder-[#4b5563] focus:outline-none focus:ring-1 focus:ring-[#14b8a6]/50 resize-none"
+                    />
+                  </div>
                 </div>
 
-                <div className="flex justify-end gap-2 pt-2">
-                  <button onClick={onClose} className="px-4 py-2 rounded-lg text-[13px] text-[#9ca3af] hover:bg-white/[0.04]" disabled={saving}>Cancel</button>
-                  <button onClick={handleSave} disabled={saving} className="px-4 py-2 rounded-lg text-[13px] font-medium bg-[#14b8a6]/20 text-[#14b8a6] hover:bg-[#14b8a6]/30 disabled:opacity-50">{saving ? "Saving…" : "Save"}</button>
+                <div className="flex justify-end gap-2 shrink-0">
+                  <button onClick={onClose} className="px-3 py-1.5 rounded-lg text-[12px] text-[#9ca3af] hover:bg-white/[0.04]" disabled={saving}>Cancel</button>
+                  <button onClick={handleSave} disabled={saving} className="px-3 py-1.5 rounded-lg text-[12px] font-medium bg-[#14b8a6]/20 text-[#14b8a6] hover:bg-[#14b8a6]/30 disabled:opacity-50">{saving ? "Saving…" : "Save"}</button>
                 </div>
               </div>
             </div>
