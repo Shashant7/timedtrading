@@ -30878,7 +30878,7 @@ export default {
         try {
           await d1EnsureLearningSchema(env);
           const { results: rows } = await db.prepare(
-            `SELECT t.trade_id, t.ticker, t.direction, t.entry_ts, t.exit_ts,
+            `SELECT t.trade_id, t.ticker, t.direction, t.entry_ts, t.exit_ts, t.trim_ts,
                     t.entry_price, t.exit_price, t.pnl, t.pnl_pct, t.exit_reason,
                     da.signal_snapshot_json, da.entry_path, da.consensus_direction,
                     da.max_favorable_excursion, da.max_adverse_excursion, da.tf_stack_json
@@ -30893,6 +30893,7 @@ export default {
             direction: r.direction,
             entry_ts: r.entry_ts,
             exit_ts: r.exit_ts,
+            trim_ts: r.trim_ts,
             entry_price: r.entry_price,
             exit_price: r.exit_price,
             pnl: r.pnl,
