@@ -243,8 +243,11 @@
           });
           seriesRef.current = candleSeries;
 
-          const asOfMs = Number(exitTs || entryTs);
-          const asOfTsParam = Number.isFinite(asOfMs) && asOfMs > 0 ? asOfMs : null;
+          const rawTs = Number(exitTs || entryTs);
+          const asOfMs = Number.isFinite(rawTs) && rawTs > 0
+            ? (rawTs < 1e12 ? rawTs * 1000 : rawTs)
+            : null;
+          const asOfTsParam = asOfMs;
           let url = `${API_BASE}/timed/candles?ticker=${encodeURIComponent(ticker)}&tf=${tf}&limit=${limit}`;
           if (asOfTsParam) url += `&asOfTs=${asOfTsParam}`;
 
