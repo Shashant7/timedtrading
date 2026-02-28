@@ -157,10 +157,9 @@
         const [tf, setTf] = useState("10");
 
         const mapCandles = useCallback((candles) => {
-          return candles.map(c => {
+          const mapped = candles.map(c => {
             const rawTs = Number(c.ts);
-            const ts = rawTs > 1e12 ? rawTs / 1000 : rawTs;
-            const up = Number(c.c) >= Number(c.o);
+            const ts = rawTs > 1e12 ? Math.floor(rawTs / 1000) : rawTs;
             return {
               time: ts,
               open: Number(c.o),
@@ -169,6 +168,12 @@
               close: Number(c.c),
             };
           }).filter(c => c.open > 0 && c.high > 0).sort((a, b) => a.time - b.time);
+          const seen = new Set();
+          return mapped.filter(x => {
+            if (seen.has(x.time)) return false;
+            seen.add(x.time);
+            return true;
+          });
         }, []);
 
         useEffect(() => {
@@ -332,9 +337,21 @@
                   .then(r => r.json())
                   .then(d => {
                     if (d.ok && d.candles && d.candles.length >= 2) candles = d.candles;
+                    if (candles.length < 2) {
+                      setError("Insufficient chart data (try a different timeframe)");
+                      setLoading(false);
+                      return;
+                    }
                     doRender(candles);
                   })
-                  .catch(() => doRender(candles));
+                  .catch(() => {
+                    if (candles.length < 2) {
+                      setError("Insufficient chart data (try a different timeframe)");
+                      setLoading(false);
+                    } else {
+                      doRender(candles);
+                    }
+                  });
               }
               doRender(candles);
             })
