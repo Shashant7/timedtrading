@@ -326,7 +326,7 @@
             const markers = [];
             const entryBar = findBarTime(mapped, entryMs);
             if (entryBar != null) {
-              markers.push({ time: entryBar, position: "belowBar", color: "#60a5fa", shape: "arrowUp", text: "Entry", size: 2 });
+              markers.push({ time: entryBar, position: "inBar", color: "#60a5fa", shape: "arrowUp", text: "Entry", size: 2 });
             }
             const exitBar = findBarTime(mapped, exitMs);
             if (exitBar != null && exitBar !== entryBar) {
