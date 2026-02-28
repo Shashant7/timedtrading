@@ -145,6 +145,36 @@
         return out;
       }
 
+      function computeSuperTrend(data, period = 10, multiplier = 3) {
+        const out = [];
+        const k = 2 / (period + 1);
+        let atr = null;
+        let prevClose = data[0]?.close ?? 0;
+        let prevUpper = null, prevLower = null, st = null;
+        for (let i = 0; i < data.length; i++) {
+          const h = data[i].high, l = data[i].low, c = data[i].close;
+          const tr = Math.max(h - l, Math.abs(h - prevClose), Math.abs(l - prevClose));
+          prevClose = c;
+          if (i < period) {
+            atr = atr == null ? tr : tr * k + atr * (1 - k);
+            out.push({ time: data[i].time, value: (h + l) / 2 });
+            continue;
+          }
+          atr = tr * k + atr * (1 - k);
+          const hl2 = (h + l) / 2;
+          const basicUpper = hl2 + multiplier * atr;
+          const basicLower = hl2 - multiplier * atr;
+          const finalUpper = (prevUpper == null || basicUpper < prevUpper || data[i - 1].close > prevUpper) ? basicUpper : prevUpper;
+          const finalLower = (prevLower == null || basicLower > prevLower || data[i - 1].close < prevLower) ? basicLower : prevLower;
+          const prevSt = st;
+          st = (st == null) ? finalLower : (st === prevUpper ? (c > prevUpper ? finalLower : finalUpper) : (c < prevLower ? finalUpper : finalLower));
+          prevUpper = finalUpper;
+          prevLower = finalLower;
+          out.push({ time: data[i].time, value: st });
+        }
+        return out;
+      }
+
       // Find bar that was current at timestamp (bar at or before this moment)
       // Candles use Unix seconds; tsMs can be ms or seconds
       function findBarTime(mapped, tsMs) {
@@ -242,7 +272,9 @@
               tickMarkFormatter: (time) => {
                 try {
                   const d = new Date(time * 1000);
-                  return d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: "America/New_York" });
+                  const dateStr = d.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "America/New_York" });
+                  const timeStr = d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: "America/New_York" });
+                  return dateStr + " " + timeStr;
                 } catch { return ""; }
               },
             },
@@ -250,7 +282,9 @@
               timeFormatter: (time) => {
                 try {
                   const d = new Date(time * 1000);
-                  return d.toLocaleString("en-US", { hour: "numeric", minute: "2-digit", second: "2-digit", timeZone: "America/New_York" });
+                  const dateStr = d.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "America/New_York" });
+                  const timeStr = d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", second: "2-digit", timeZone: "America/New_York" });
+                  return dateStr + " " + timeStr;
                 } catch { return ""; }
               },
             },
@@ -286,16 +320,22 @@
             }
             candleSeries.setData(mapped);
 
-            // Add EMA 9 and EMA 21
+            // Add EMAs and SuperTrend
             for (const s of emaSeriesRef.current) {
               try { chart.removeSeries(s); } catch (_) {}
             }
             emaSeriesRef.current = [];
             const ema9 = chart.addLineSeries({ color: "#a78bfa", lineWidth: 2, title: "EMA 9" });
             const ema21 = chart.addLineSeries({ color: "#f472b6", lineWidth: 2, title: "EMA 21" });
+            const ema48 = chart.addLineSeries({ color: "#38bdf8", lineWidth: 2, title: "EMA 48" });
+            const ema200 = chart.addLineSeries({ color: "#fbbf24", lineWidth: 2, title: "EMA 200" });
+            const superTrend = chart.addLineSeries({ color: "#f97316", lineWidth: 2, title: "SuperTrend" });
             ema9.setData(computeEMA(mapped, 9));
             ema21.setData(computeEMA(mapped, 21));
-            emaSeriesRef.current = [ema9, ema21];
+            ema48.setData(computeEMA(mapped, 48));
+            ema200.setData(computeEMA(mapped, 200));
+            superTrend.setData(computeSuperTrend(mapped, 10, 3));
+            emaSeriesRef.current = [ema9, ema21, ema48, ema200, superTrend];
 
             // Add entry/exit price lines (thicker, solid, prominent labels)
             for (const pl of priceLinesRef.current) {
@@ -349,9 +389,21 @@
             try { candleSeries.setMarkers(markers); } catch (_) {}
 
             chart.timeScale().fitContent();
+            const entryBarTime = findBarTime(mapped, entryTs);
+            const exitBarTime = findBarTime(mapped, exitTs);
+            const hasTradeRange = entryBarTime != null && exitBarTime != null;
+            if (hasTradeRange) {
+              const barSec = tf === "D" ? 86400 : tf === "60" ? 3600 : tf === "10" ? 600 : 300;
+              const padding = 3 * barSec;
+              const from = Math.max(mapped[0].time, entryBarTime - padding);
+              const to = Math.min(mapped[mapped.length - 1].time, exitBarTime + padding);
+              try {
+                chart.timeScale().setVisibleRange({ from, to });
+              } catch (_) {}
+            }
             requestAnimationFrame(() => {
               if (chartRef.current && containerRef.current) {
-                chartRef.current.timeScale().scrollToPosition(-3, false);
+                if (!hasTradeRange) chartRef.current.timeScale().scrollToPosition(-3, false);
                 const w = containerRef.current.clientWidth;
                 const h = containerRef.current.clientHeight;
                 if (w > 0 && h > 0) chartRef.current.resize(w, h);
@@ -452,6 +504,15 @@
                   <div className="loading-spinner" style={{ width: 24, height: 24 }} />
                 </div>
               )}
+            </div>
+            <div className="px-3 py-2 flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-white/[0.04] bg-white/[0.02] text-[11px] text-[#9ca3af]">
+              <span className="flex items-center gap-1.5"><span className="inline-block w-3 h-0.5 rounded bg-[#60a5fa]" /> Entry</span>
+              <span className="flex items-center gap-1.5"><span className="inline-block w-3 h-0.5 rounded bg-[#f59e0b]" /> Exit</span>
+              <span className="flex items-center gap-1.5"><span className="inline-block w-3 h-0.5 rounded bg-[#a78bfa]" /> EMA 9</span>
+              <span className="flex items-center gap-1.5"><span className="inline-block w-3 h-0.5 rounded bg-[#f472b6]" /> EMA 21</span>
+              <span className="flex items-center gap-1.5"><span className="inline-block w-3 h-0.5 rounded bg-[#38bdf8]" /> EMA 48</span>
+              <span className="flex items-center gap-1.5"><span className="inline-block w-3 h-0.5 rounded bg-[#fbbf24]" /> EMA 200</span>
+              <span className="flex items-center gap-1.5"><span className="inline-block w-3 h-0.5 rounded bg-[#f97316]" /> SuperTrend</span>
             </div>
           </div>
         );
@@ -733,13 +794,13 @@
                     </div>
                     <span className="text-[14px] md:text-[15px] font-bold text-white hidden sm:inline" style={{ letterSpacing: "-0.03em" }}>Timed Trading</span>
                   </a>
-                  <div className="hidden lg:flex items-center gap-0.5">
+                  <div className="hidden md:flex items-center gap-0.5">
                     <a href="index-react.html" className="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Analysis</a>
                     <a href="simulation-dashboard.html" className="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Trades</a>
                     <a href="system-intelligence.html" className="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">System Intelligence</a>
                     <a href="screener.html" data-admin-only="true" className="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Screener</a>
                     <a href="ticker-management.html" data-admin-only="true" className="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Tickers</a>
-                    <a href="trade-autopsy.html" className="px-3 py-1 rounded-md text-[13px] text-[#14b8a6] bg-[#14b8a6]/[0.08] font-medium">Trade Autopsy</a>
+                    <a href="trade-autopsy.html" className="px-3 py-1 rounded-md text-[13px] text-white bg-white/[0.07] font-medium">Trade Autopsy</a>
                     <a href="daily-brief.html" id="nav-daily-brief" className="relative px-3 py-1 rounded-md text-[13px] text-[#f59e0b]/80 hover:text-[#f59e0b] hover:bg-[#f59e0b]/[0.06] transition-all font-medium">
                       Daily Brief
                       <span id="brief-badge" className="hidden absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-[#f59e0b]" style={{ animation: "pulse-badge 2s ease-in-out infinite" }} />
@@ -757,7 +818,7 @@
                   <span className="hidden sm:inline text-[11px] text-[#4b5563]">Paper · $1k/trade</span>
                   {window.TimedNotificationCenter && <window.TimedNotificationCenter apiBase={API_BASE} />}
                   {window.TimedUserBadge && <window.TimedUserBadge user={window.TimedAuthHelpers?.getStoredSession()} compact />}
-                  <button onClick={() => setMobileMenuOpen(v => !v)} className="lg:hidden p-1.5 rounded-md text-[#6b7280] hover:text-white hover:bg-white/[0.06] transition-all" aria-label="Toggle menu">
+                  <button onClick={() => setMobileMenuOpen(v => !v)} className="md:hidden p-1.5 rounded-md text-[#6b7280] hover:text-white hover:bg-white/[0.06] transition-all" aria-label="Toggle menu">
                     {mobileMenuOpen ? (
                       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
                     ) : (
@@ -767,13 +828,13 @@
                 </div>
               </div>
               {mobileMenuOpen && (
-                <div className="lg:hidden border-t border-white/[0.06] px-4 py-2 flex flex-col gap-0.5" style={{ background: "rgba(10,10,15,0.98)" }}>
+                <div className="md:hidden border-t border-white/[0.06] px-4 py-2 flex flex-col gap-0.5" style={{ background: "rgba(10,10,15,0.98)" }}>
                   <a href="index-react.html" className="px-3 py-2 rounded-md text-[13px] text-[#9ca3af] hover:text-white hover:bg-white/[0.04] transition-all" onClick={() => setMobileMenuOpen(false)}>Analysis</a>
                   <a href="simulation-dashboard.html" className="px-3 py-2 rounded-md text-[13px] text-[#9ca3af] hover:text-white hover:bg-white/[0.04] transition-all" onClick={() => setMobileMenuOpen(false)}>Trades</a>
                   <a href="system-intelligence.html" className="px-3 py-2 rounded-md text-[13px] text-[#9ca3af] hover:text-white hover:bg-white/[0.04] transition-all" onClick={() => setMobileMenuOpen(false)}>System Intelligence</a>
                   <a href="screener.html" data-admin-only="true" className="px-3 py-2 rounded-md text-[13px] text-[#9ca3af] hover:text-white hover:bg-white/[0.04] transition-all" onClick={() => setMobileMenuOpen(false)}>Screener</a>
                   <a href="ticker-management.html" data-admin-only="true" className="px-3 py-2 rounded-md text-[13px] text-[#9ca3af] hover:text-white hover:bg-white/[0.04] transition-all" onClick={() => setMobileMenuOpen(false)}>Tickers</a>
-                  <a href="trade-autopsy.html" className="px-3 py-2 rounded-md text-[13px] text-[#14b8a6] font-medium" onClick={() => setMobileMenuOpen(false)}>Trade Autopsy</a>
+                  <a href="trade-autopsy.html" className="px-3 py-2 rounded-md text-[13px] text-white bg-white/[0.07] font-medium" onClick={() => setMobileMenuOpen(false)}>Trade Autopsy</a>
                   <a href="daily-brief.html" className="px-3 py-2 rounded-md text-[13px] text-[#f59e0b]/80 hover:text-[#f59e0b] hover:bg-[#f59e0b]/[0.06] transition-all font-medium" onClick={() => setMobileMenuOpen(false)}>Daily Brief</a>
                   <div className="border-t border-white/[0.06] mt-1 pt-1 flex items-center gap-2">
                     <a href="/faq.html" className="px-3 py-2 rounded-md text-[12px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Guide</a>

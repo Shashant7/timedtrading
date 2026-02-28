@@ -23,6 +23,15 @@ npm run deploy:worker   # worker only (skip right-rail)
 - **Trades page JSX**: App's return must have a single root. Use `return ( <> <div className="tt-root"> ... <GoProModal /> ... </div> </> );` — no extra `</div>` before GoProModal.
 - **Right rail**: Edit `shared-right-rail.js` → run `node scripts/compile-right-rail.js` → update `?v=` cache busters
 
+## Global nav (header + right side)
+
+- **Canonical source**: `index-react.html` — "Unified Nav Bar" comment. All pages must match this structure.
+- **Nav links (order)**: Analysis, Trades, System Intelligence, Screener, Tickers, Trade Autopsy, Admin (conditional), Daily Brief.
+- **Right side (order)**: Guide, Tour, FAQ, Ask AI, Admin (conditional), Paper · $1k/trade, NotificationCenter, UserBadge, hamburger (md:hidden). Mobile menu includes same links + Tour in footer + Contact.
+- **Breakpoint**: Use `md` (768px) for desktop nav and `md:hidden` for mobile menu so the full nav is visible on typical desktop widths.
+- **Styling**: `border-white/[0.06]`, `background: rgba(10,10,15,0.95)`, same logo and link styles. When adding a new page, copy the nav block from `index-react.html` and set the active link only.
+- **Global component**: Nav is currently duplicated per page. A future shared component (e.g. `shared-nav.js` mounting into `#global-nav-root`) would allow one place to edit; not yet implemented.
+
 ## Stack
 
 | Layer    | Tech |
