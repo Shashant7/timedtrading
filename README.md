@@ -2,8 +2,6 @@
 
 A TradingView Indicator system that scores tickers against signals across LTF and HTF, with a CloudFlare Worker backend, D1 ledger, and interactive Bubble Quadrant visualization.
 
-> **Agents:** Read [CONTEXT.md](CONTEXT.md) first for workflow, deploy, and lessons.
-
 **Agents:** Read [CONTEXT.md](CONTEXT.md) first for workflow, deploy, and lessons.
 
 ## Project Structure
