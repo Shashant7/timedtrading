@@ -108,7 +108,7 @@
       }
 
       // ── Interactive Chart (TradingView Lightweight Charts) ───────────────────
-      function AutopsyChart({ ticker, entryTs, exitTs, entryPrice, exitPrice }) {
+      function AutopsyChart({ ticker, entryPrice, exitPrice }) {
         const containerRef = useRef(null);
         const chartRef = useRef(null);
         const seriesRef = useRef(null);
@@ -139,7 +139,6 @@
             return;
           }
 
-          const asOfTs = exitTs && Number.isFinite(exitTs) ? exitTs : null;
           const limit = 250;
 
           const chart = LightweightCharts.createChart(containerRef.current, {
@@ -198,7 +197,7 @@
           });
           seriesRef.current = candleSeries;
 
-          const url = `${API_BASE}/timed/candles?ticker=${encodeURIComponent(ticker)}&tf=${tf}&limit=${limit}${asOfTs ? "&asOfTs=" + asOfTs : ""}`;
+          const url = `${API_BASE}/timed/candles?ticker=${encodeURIComponent(ticker)}&tf=${tf}&limit=${limit}`;
           fetch(url, { cache: "no-store" })
             .then(r => r.json())
             .then(data => {
@@ -268,7 +267,7 @@
             chartRef.current = null;
             seriesRef.current = null;
           };
-        }, [ticker, exitTs, tf, entryPrice, exitPrice, mapCandles]);
+        }, [ticker, tf, entryPrice, exitPrice, mapCandles]);
 
         return (
           <div className="tt-card overflow-hidden">
@@ -335,7 +334,7 @@
 
         return (
           <div className="fixed inset-0 z-[100] flex items-center justify-center p-4" style={{ background: "rgba(0,0,0,0.7)", backdropFilter: "blur(4px)" }} onClick={onClose}>
-            <div className="tt-card w-full max-w-2xl max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+            <div className="tt-card w-full max-w-4xl max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
               <div className="sticky top-0 z-10 flex items-center justify-between px-4 py-3 border-b border-white/[0.06]" style={{ background: "var(--tt-bg-surface)" }}>
                 <h2 className="text-[15px] font-semibold text-white">
                   {trade?.ticker} {trade?.direction || ""} — Trade Autopsy
@@ -373,8 +372,6 @@
 
                 <AutopsyChart
                   ticker={trade?.ticker}
-                  entryTs={trade?.entry_ts}
-                  exitTs={trade?.exit_ts}
                   entryPrice={trade?.entry_price || trade?.entryPrice}
                   exitPrice={trade?.exit_price || trade?.exitPrice}
                 />
