@@ -515,6 +515,9 @@ const ROUTES = [
   ["GET", "/timed/admin/ingestion-status", "GET /timed/admin/ingestion-status"],
   ["GET", "/timed/admin/backfill-status", "GET /timed/admin/backfill-status"],
   ["GET", "/timed/admin/losing-trades-report", "GET /timed/admin/losing-trades-report"],
+  ["GET", "/timed/admin/trade-autopsy/trades", "GET /timed/admin/trade-autopsy/trades"],
+  ["GET", "/timed/admin/trade-autopsy/annotations", "GET /timed/admin/trade-autopsy/annotations"],
+  ["POST", "/timed/admin/trade-autopsy/annotations", "POST /timed/admin/trade-autopsy/annotations"],
   ["POST", "/timed/admin/refresh-prices", "POST /timed/admin/refresh-prices"],
   ["POST", "/timed/admin/seed-ticker", "POST /timed/admin/seed-ticker"],
   ["POST", "/timed/admin/candle-replay", "POST /timed/admin/candle-replay"],
@@ -14279,6 +14282,10 @@ async function d1EnsureLearningSchema(env) {
         config_key TEXT PRIMARY KEY, config_value TEXT NOT NULL, description TEXT,
         updated_at INTEGER NOT NULL, updated_by TEXT DEFAULT 'system'
       )`),
+      db.prepare(`CREATE TABLE IF NOT EXISTS trade_autopsy_annotations (
+        trade_id TEXT PRIMARY KEY, classification TEXT NOT NULL DEFAULT '',
+        notes TEXT, updated_at INTEGER NOT NULL
+      )`),
     ]);
     try {
       await db.batch([
@@ -14287,6 +14294,7 @@ async function d1EnsureLearningSchema(env) {
         db.prepare(`CREATE INDEX IF NOT EXISTS idx_da_entry_path ON direction_accuracy (entry_path)`),
         db.prepare(`CREATE INDEX IF NOT EXISTS idx_da_status ON direction_accuracy (status)`),
         db.prepare(`CREATE INDEX IF NOT EXISTS idx_pp_enabled ON path_performance (enabled)`),
+        db.prepare(`CREATE INDEX IF NOT EXISTS idx_autopsy_classification ON trade_autopsy_annotations (classification)`),
       ]);
     } catch { /* indexes may already exist */ }
     try {
@@ -25778,6 +25786,8 @@ export default {
           const limitRaw = url.searchParams.get("limit");
           const limit =
             limitRaw != null && limitRaw !== "" ? Number(limitRaw) : 200;
+          const asOfTsRaw = url.searchParams.get("asOfTs");
+          const asOfTs = asOfTsRaw != null && asOfTsRaw !== "" ? Number(asOfTsRaw) : null;
           if (!ticker || !tf) {
             return sendJSON(
               { ok: false, error: "missing ticker/tf" },
@@ -25786,7 +25796,9 @@ export default {
             );
           }
 
-          const res = await d1GetCandles(env, ticker, tf, limit);
+          const res = Number.isFinite(asOfTs) && asOfTs > 0
+            ? await d1GetCandlesAsOf(env, ticker, tf, limit, asOfTs)
+            : await d1GetCandles(env, ticker, tf, limit);
           if (!res?.ok) {
             return sendJSON(
               { ok: false, error: res?.error || "candles_read_failed" },
@@ -30852,6 +30864,109 @@ export default {
             consensus_direction: r.consensus_direction,
           }));
           return sendJSON({ ok: true, count: trades.length, trades }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 200) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // GET /timed/admin/trade-autopsy/trades — All closed trades with direction_accuracy (entry + exit context)
+      if (routeKey === "GET /timed/admin/trade-autopsy/trades") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const db = env?.DB;
+        if (!db) return sendJSON({ ok: false, error: "d1_not_configured" }, 503, corsHeaders(env, req));
+        try {
+          await d1EnsureLearningSchema(env);
+          const { results: rows } = await db.prepare(
+            `SELECT t.trade_id, t.ticker, t.direction, t.entry_ts, t.exit_ts,
+                    t.entry_price, t.exit_price, t.pnl, t.pnl_pct, t.exit_reason,
+                    da.signal_snapshot_json, da.entry_path, da.consensus_direction,
+                    da.max_favorable_excursion, da.max_adverse_excursion, da.tf_stack_json
+             FROM trades t
+             LEFT JOIN direction_accuracy da ON da.trade_id = t.trade_id
+             WHERE t.status NOT IN ('OPEN', 'TP_HIT_TRIM')
+             ORDER BY t.entry_ts DESC`
+          ).all();
+          const trades = (rows || []).map(r => ({
+            trade_id: r.trade_id,
+            ticker: r.ticker,
+            direction: r.direction,
+            entry_ts: r.entry_ts,
+            exit_ts: r.exit_ts,
+            entry_price: r.entry_price,
+            exit_price: r.exit_price,
+            pnl: r.pnl,
+            pnl_pct: r.pnl_pct,
+            exit_reason: r.exit_reason,
+            signal_snapshot_json: r.signal_snapshot_json,
+            entry_path: r.entry_path,
+            consensus_direction: r.consensus_direction,
+            max_favorable_excursion: r.max_favorable_excursion,
+            max_adverse_excursion: r.max_adverse_excursion,
+            tf_stack_json: r.tf_stack_json,
+          }));
+          return sendJSON({ ok: true, count: trades.length, trades }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 200) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // GET /timed/admin/trade-autopsy/annotations?trade_id=... or ?all=1
+      if (routeKey === "GET /timed/admin/trade-autopsy/annotations") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const db = env?.DB;
+        if (!db) return sendJSON({ ok: false, error: "d1_not_configured" }, 503, corsHeaders(env, req));
+        try {
+          await d1EnsureLearningSchema(env);
+          const tradeId = url.searchParams.get("trade_id");
+          const all = url.searchParams.get("all") === "1";
+          if (tradeId) {
+            const row = await db.prepare(
+              `SELECT trade_id, classification, notes, updated_at FROM trade_autopsy_annotations WHERE trade_id = ?`
+            ).bind(tradeId).first();
+            return sendJSON({ ok: true, annotation: row || null }, 200, corsHeaders(env, req));
+          }
+          if (all) {
+            const { results } = await db.prepare(
+              `SELECT trade_id, classification, notes, updated_at FROM trade_autopsy_annotations`
+            ).all();
+            const map = {};
+            for (const r of results || []) map[r.trade_id] = { classification: r.classification, notes: r.notes, updatedAt: r.updated_at };
+            return sendJSON({ ok: true, annotations: map }, 200, corsHeaders(env, req));
+          }
+          return sendJSON({ ok: false, error: "missing trade_id or all=1" }, 400, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 200) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // POST /timed/admin/trade-autopsy/annotations — body: { trade_id, classification?, notes? }
+      if (routeKey === "POST /timed/admin/trade-autopsy/annotations") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const db = env?.DB;
+        if (!db) return sendJSON({ ok: false, error: "d1_not_configured" }, 503, corsHeaders(env, req));
+        try {
+          const body = await req.json().catch(() => ({}));
+          const tradeId = body?.trade_id || body?.tradeId;
+          if (!tradeId || typeof tradeId !== "string") {
+            return sendJSON({ ok: false, error: "missing trade_id" }, 400, corsHeaders(env, req));
+          }
+          const classification = String(body?.classification ?? "").trim();
+          const notes = body?.notes != null ? String(body.notes) : null;
+          const now = Date.now();
+          await d1EnsureLearningSchema(env);
+          if (!classification && !notes) {
+            await db.prepare(`DELETE FROM trade_autopsy_annotations WHERE trade_id = ?`).bind(tradeId).run();
+            return sendJSON({ ok: true, deleted: true }, 200, corsHeaders(env, req));
+          }
+          await db.prepare(
+            `INSERT INTO trade_autopsy_annotations (trade_id, classification, notes, updated_at)
+             VALUES (?, ?, ?, ?)
+             ON CONFLICT(trade_id) DO UPDATE SET classification=excluded.classification, notes=excluded.notes, updated_at=excluded.updated_at`
+          ).bind(tradeId, classification, notes, now).run();
+          return sendJSON({ ok: true }, 200, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 200) }, 500, corsHeaders(env, req));
         }

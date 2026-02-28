@@ -16685,6 +16685,7 @@
                       <a href="system-intelligence.html" className="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">System Intelligence</a>
                       <a href="screener.html" data-admin-only="true" className="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Screener</a>
                       <a href="ticker-management.html" data-admin-only="true" className="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Tickers</a>
+                      <a href="trade-autopsy.html" data-admin-only="true" className="px-3 py-1 rounded-md text-[13px] text-[#14b8a6]/80 hover:text-[#14b8a6] hover:bg-[#14b8a6]/[0.06] transition-all font-medium">Trade Autopsy</a>
                       {(window.TimedAuthHelpers?.getStoredSession()?.role === "admin" || window.TimedAuthHelpers?.getStoredSession()?.tier === "admin") && (
                         <a href="admin-clients.html" data-admin-only="true" className="px-3 py-1 rounded-md text-[13px] text-[#a78bfa]/80 hover:text-[#a78bfa] hover:bg-[#a78bfa]/[0.06] transition-all font-medium">Admin</a>
                       )}
@@ -16720,6 +16721,7 @@
                     <a href="system-intelligence.html" className="px-3 py-2 rounded-md text-[13px] text-[#9ca3af] hover:text-white hover:bg-white/[0.04] transition-all" onClick={() => setMobileMenuOpen(false)}>System Intelligence</a>
                     <a href="screener.html" data-admin-only="true" className="px-3 py-2 rounded-md text-[13px] text-[#9ca3af] hover:text-white hover:bg-white/[0.04] transition-all" onClick={() => setMobileMenuOpen(false)}>Screener</a>
                     <a href="ticker-management.html" data-admin-only="true" className="px-3 py-2 rounded-md text-[13px] text-[#9ca3af] hover:text-white hover:bg-white/[0.04] transition-all" onClick={() => setMobileMenuOpen(false)}>Tickers</a>
+                    <a href="trade-autopsy.html" data-admin-only="true" className="px-3 py-2 rounded-md text-[13px] text-[#14b8a6]/80 hover:text-[#14b8a6] font-medium" onClick={() => setMobileMenuOpen(false)}>Trade Autopsy</a>
                     {(window.TimedAuthHelpers?.getStoredSession()?.role === "admin" || window.TimedAuthHelpers?.getStoredSession()?.tier === "admin") && (
                       <a href="admin-clients.html" data-admin-only="true" className="px-3 py-2 rounded-md text-[13px] text-[#a78bfa]/80 hover:text-[#a78bfa] hover:bg-[#a78bfa]/[0.06] transition-all font-medium" onClick={() => setMobileMenuOpen(false)}>Admin</a>
                     )}
