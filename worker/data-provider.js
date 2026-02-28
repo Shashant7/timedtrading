@@ -55,18 +55,52 @@ export async function fetchAllBars(env, symbols, tfKey, start, end = null, limit
   return null;
 }
 
+// TwelveData returns most recent N bars when only start_date is used. Use start+end date chunks.
+const TD_PAGE_SIZE = 5000;
+const CHUNK_DAYS_5MIN = 64;   // ~5000 bars of 5min per chunk
+const CHUNK_DAYS_30MIN = 225; // 2 chunks for 450 days
+
+async function _tdFetchBarsChunked(env, symbols, interval, start, end, chunkDays) {
+  const allBars = {};
+  const targetEnd = end ? new Date(end).getTime() : Date.now() + 86400000;
+  let chunkStart = new Date(start).getTime();
+  const chunkMs = chunkDays * 24 * 60 * 60 * 1000;
+
+  while (chunkStart < targetEnd) {
+    const chunkEnd = Math.min(chunkStart + chunkMs, targetEnd);
+    const chunkStartISO = new Date(chunkStart).toISOString();
+    const chunkEndISO = new Date(chunkEnd).toISOString();
+
+    const raw = await tdFetchTimeSeries(env, symbols, interval, chunkStartISO, chunkEndISO, TD_PAGE_SIZE);
+    if (raw.error) return raw;
+
+    for (const [sym, barArr] of Object.entries(raw.bars || {})) {
+      if (!allBars[sym]) allBars[sym] = [];
+      allBars[sym].push(...barArr);
+    }
+    chunkStart = chunkEnd;
+    await new Promise((r) => setTimeout(r, 8000));
+  }
+  return { bars: allBars };
+}
+
 async function _tdFetchBars(env, symbols, tfKey, start, end, limit) {
   const tdInterval = TF_TO_TD[tfKey];
 
-  // 10min: fetch 5min bars and aggregate
+  // 10min: fetch 5min bars in chunks (start+end per chunk) and aggregate
   if (tfKey === "10") {
-    const raw = await tdFetchTimeSeries(env, symbols, "5min", start, end, limit * 2);
+    const raw = await _tdFetchBarsChunked(env, symbols, "5min", start, end, CHUNK_DAYS_5MIN);
     if (raw.error) return raw;
     const bars = {};
     for (const [sym, barArr] of Object.entries(raw.bars || {})) {
       bars[sym] = aggregate5mTo10m(barArr);
     }
     return { bars };
+  }
+
+  // 30min: chunked fetch
+  if (tfKey === "30") {
+    return _tdFetchBarsChunked(env, symbols, "30min", start, end, CHUNK_DAYS_30MIN);
   }
 
   if (!tdInterval) {

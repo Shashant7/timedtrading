@@ -85,10 +85,164 @@ function aggregate5mTo10m(bars) {
   return result;
 }
 
+// TwelveData outputsize max 5000. Use start+end date chunks for 10m/30m (API returns most recent N when only start_date used).
+const TD_PAGE_SIZE = 5000;
+
+async function fetchOnePage(batch, interval, startISO, outputsize = TD_PAGE_SIZE, endISO = null) {
+  const tdSyms = batch.map(toTdSymbol);
+  const params = new URLSearchParams({
+    symbol: tdSyms.join(","),
+    interval,
+    apikey: TD_KEY,
+    outputsize: String(outputsize),
+    order: "asc",
+    timezone: "UTC",
+  });
+  params.set("start_date", startISO.replace("Z", "").replace("T", " ").slice(0, 19));
+  if (endISO) params.set("end_date", endISO.replace("Z", "").replace("T", " ").slice(0, 19));
+
+  const url = `${TD_BASE}/time_series?${params}`;
+  for (let retry = 0; retry < 3; retry++) {
+    try {
+      const resp = await fetch(url, { signal: AbortSignal.timeout(60000) });
+      if (resp.status === 429) {
+        await new Promise(r => setTimeout(r, 60000 * (retry + 1)));
+        continue;
+      }
+      if (!resp.ok) return null;
+      return await resp.json();
+    } catch (_) { return null; }
+  }
+  return null;
+}
+
+// TwelveData returns most recent N bars when only start_date is used. Use start+end date chunks.
+const CHUNK_DAYS_5MIN = 64; // ~5000 bars of 5min per chunk
+
+async function fetchTwelveData10mPaginated(symbols, startISO) {
+  const filtered = symbols.filter(s => !TD_SKIP.has(s));
+  const allBars = {};
+  const BATCH = 8;
+
+  const parseV = (v) => {
+    const dt = v.datetime || "";
+    const ts = (dt.includes("T") ? dt : dt.replace(" ", "T")) + (dt.endsWith("Z") ? "" : "Z");
+    return { t: ts, o: Number(v.open), h: Number(v.high), l: Number(v.low), c: Number(v.close), v: Number(v.volume) || 0 };
+  };
+
+  const endISO = new Date(Date.now() + 86400000).toISOString(); // through today
+  let chunkStart = new Date(startISO).getTime();
+  const targetEnd = new Date(endISO).getTime();
+  const chunkMs = CHUNK_DAYS_5MIN * 24 * 60 * 60 * 1000;
+
+  for (let i = 0; i < filtered.length; i += BATCH) {
+    const batch = filtered.slice(i, i + BATCH);
+    const accum = Object.fromEntries(batch.map(s => [s, []]));
+    let currentChunkStart = chunkStart;
+
+    while (currentChunkStart < targetEnd) {
+      const chunkEnd = Math.min(currentChunkStart + chunkMs, targetEnd);
+      const chunkStartISO = new Date(currentChunkStart).toISOString();
+      const chunkEndISO = new Date(chunkEnd).toISOString();
+
+      const data = await fetchOnePage(batch, "5min", chunkStartISO, TD_PAGE_SIZE, chunkEndISO);
+      if (!data) break;
+
+      let gotAny = false;
+      if (batch.length === 1) {
+        const vals = data.values || [];
+        if (vals.length > 0) {
+          accum[batch[0]].push(...aggregate5mTo10m(vals.map(parseV)));
+          gotAny = true;
+        }
+      } else {
+        for (const [tdSym, symData] of Object.entries(data)) {
+          if (tdSym === "status" || !symData?.values) continue;
+          const ourSym = fromTdSymbol(tdSym);
+          accum[ourSym].push(...aggregate5mTo10m(symData.values.map(parseV)));
+          gotAny = true;
+        }
+      }
+      if (!gotAny) break;
+      currentChunkStart = chunkEnd;
+      await new Promise(r => setTimeout(r, 8000));
+    }
+
+    for (const [sym, bars] of Object.entries(accum)) {
+      if (bars.length > 0) allBars[sym] = bars;
+    }
+    if (i + BATCH < filtered.length) await new Promise(r => setTimeout(r, 8000));
+  }
+  return allBars;
+}
+
+// 30min: 5000 bars ≈ 385 days. Use 2 chunks of 225 days for 450.
+const CHUNK_DAYS_30MIN = 225;
+
+async function fetchTwelveDataPaginated(symbols, startISO, interval, chunkDays) {
+  const filtered = symbols.filter(s => !TD_SKIP.has(s));
+  const allBars = {};
+  const BATCH = 8;
+
+  const parseV = (v) => {
+    const dt = v.datetime || "";
+    const ts = (dt.includes("T") ? dt : dt.replace(" ", "T")) + (dt.endsWith("Z") ? "" : "Z");
+    return { t: ts, o: Number(v.open), h: Number(v.high), l: Number(v.low), c: Number(v.close), v: Number(v.volume) || 0 };
+  };
+
+  const endISO = new Date(Date.now() + 86400000).toISOString();
+  let chunkStart = new Date(startISO).getTime();
+  const targetEnd = new Date(endISO).getTime();
+  const chunkMs = chunkDays * 24 * 60 * 60 * 1000;
+
+  for (let i = 0; i < filtered.length; i += BATCH) {
+    const batch = filtered.slice(i, i + BATCH);
+    const accum = Object.fromEntries(batch.map(s => [s, []]));
+    let currentChunkStart = chunkStart;
+
+    while (currentChunkStart < targetEnd) {
+      const chunkEnd = Math.min(currentChunkStart + chunkMs, targetEnd);
+      const chunkStartISO = new Date(currentChunkStart).toISOString();
+      const chunkEndISO = new Date(chunkEnd).toISOString();
+
+      const data = await fetchOnePage(batch, interval, chunkStartISO, TD_PAGE_SIZE, chunkEndISO);
+      if (!data) break;
+
+      let gotAny = false;
+      if (batch.length === 1) {
+        const vals = data.values || [];
+        if (vals.length > 0) {
+          accum[batch[0]].push(...vals.map(parseV));
+          gotAny = true;
+        }
+      } else {
+        for (const [tdSym, symData] of Object.entries(data)) {
+          if (tdSym === "status" || !symData?.values) continue;
+          const ourSym = fromTdSymbol(tdSym);
+          accum[ourSym].push(...symData.values.map(parseV));
+          gotAny = true;
+        }
+      }
+      if (!gotAny) break;
+      currentChunkStart = chunkEnd;
+      await new Promise(r => setTimeout(r, 8000));
+    }
+
+    for (const [sym, bars] of Object.entries(accum)) {
+      if (bars.length > 0) allBars[sym] = bars;
+    }
+    if (i + BATCH < filtered.length) await new Promise(r => setTimeout(r, 8000));
+  }
+  return allBars;
+}
+
 async function fetchTwelveDataBars(symbols, tfKey, startISO) {
   const cfg = TF_CONFIGS[tfKey];
   if (!cfg) throw new Error(`Unknown TF: ${tfKey}`);
   if (!TD_KEY) throw new Error("TWELVEDATA_API_KEY not set");
+
+  if (tfKey === "10") return fetchTwelveData10mPaginated(symbols, startISO);
+  if (tfKey === "30") return fetchTwelveDataPaginated(symbols, startISO, "30min", CHUNK_DAYS_30MIN);
 
   const filtered = symbols.filter(s => !TD_SKIP.has(s));
   const allBars = {};
