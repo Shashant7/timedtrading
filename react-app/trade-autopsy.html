@@ -239,10 +239,21 @@
       }
 
       // Find bar that was current at timestamp (bar at or before this moment)
-      // Candles use Unix seconds; tsMs can be ms or seconds
+      // Candles: Unix seconds (intraday) or "YYYY-MM-DD" string (daily)
       function findBarTime(mapped, tsMs) {
         if (!mapped?.length || !Number.isFinite(tsMs)) return null;
         const tsSec = tsMs > 1e12 ? Math.floor(tsMs / 1000) : tsMs;
+        const isDaily = typeof mapped[0].time === "string";
+        if (isDaily) {
+          const dayStr = new Date(tsSec * 1000).toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+          let best = null;
+          for (const b of mapped) {
+            if (String(b.time) <= dayStr && (best === null || String(b.time) > String(best.time))) best = b;
+          }
+          if (best) return best.time;
+          if (String(mapped[0].time) > dayStr) return mapped[0].time;
+          return null;
+        }
         let best = null;
         for (const b of mapped) {
           if (b.time <= tsSec && (best === null || b.time > best.time)) best = b;
@@ -266,7 +277,7 @@
         const [tf, setTf] = useState("10");
         const [showIndicators, setShowIndicators] = useState({ ema9: false, ema21: false, ema48: false, ema200: false, superTrend: false });
 
-        const mapCandles = useCallback((candles) => {
+        const mapCandles = useCallback((candles, timeframe) => {
           const mapped = candles.map(c => {
             const rawTs = Number(c.ts);
             const ts = rawTs > 1e12 ? Math.floor(rawTs / 1000) : rawTs;
@@ -279,11 +290,23 @@
             };
           }).filter(c => c.open > 0 && c.high > 0).sort((a, b) => a.time - b.time);
           const seen = new Set();
-          return mapped.filter(x => {
+          const deduped = mapped.filter(x => {
             if (seen.has(x.time)) return false;
             seen.add(x.time);
             return true;
           });
+
+          if (timeframe === "D") {
+            const dayKey = (ts) => new Date(ts * 1000).toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+            const byDay = new Map();
+            for (const b of deduped) {
+              const key = dayKey(b.time);
+              const existing = byDay.get(key);
+              if (!existing || b.time >= existing.time) byDay.set(key, { ...b, time: key });
+            }
+            return Array.from(byDay.entries()).sort((a, b) => a[0].localeCompare(b[0])).map(([, b]) => b);
+          }
+          return deduped;
         }, []);
 
         useEffect(() => {
@@ -337,6 +360,11 @@
               rightOffset: 3,
               tickMarkFormatter: (time) => {
                 try {
+                  if (typeof time === "string") {
+                    const [y, m, d] = time.split("-").map(Number);
+                    const date = new Date(y, (m || 1) - 1, d || 1);
+                    return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+                  }
                   const d = new Date(time * 1000);
                   const dateStr = d.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "America/New_York" });
                   const timeStr = d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: "America/New_York" });
@@ -347,6 +375,11 @@
             localization: {
               timeFormatter: (time) => {
                 try {
+                  if (typeof time === "string") {
+                    const [y, m, d] = time.split("-").map(Number);
+                    const date = new Date(y, (m || 1) - 1, d || 1);
+                    return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+                  }
                   const d = new Date(time * 1000);
                   const dateStr = d.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "America/New_York" });
                   const timeStr = d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", second: "2-digit", timeZone: "America/New_York" });
@@ -378,7 +411,7 @@
               setLoading(false);
               return;
             }
-            const mapped = mapCandles(candles);
+            const mapped = mapCandles(candles, tf);
             if (mapped.length < 2) {
               setError("Insufficient candle data (need at least 2 bars)");
               setLoading(false);
@@ -484,17 +517,30 @@
             const entryBarTime = findBarTime(mapped, entryTs);
             const exitBarTime = findBarTime(mapped, exitTs);
             const hasTradeRange = entryBarTime != null && exitBarTime != null;
+            const isDailyTime = typeof mapped[0].time === "string";
             let visibleFrom = mapped[0].time, visibleTo = mapped[mapped.length - 1].time;
             if (hasTradeRange) {
-              const oneWeekSec = 5 * 24 * 3600;
-              visibleFrom = Math.max(mapped[0].time, entryBarTime - oneWeekSec);
-              visibleTo = Math.min(mapped[mapped.length - 1].time, exitBarTime + oneWeekSec);
+              if (isDailyTime) {
+                const idxEntry = mapped.findIndex(b => b.time === entryBarTime);
+                const idxExit = mapped.findIndex(b => b.time === exitBarTime);
+                if (idxEntry >= 0 && idxExit >= 0) {
+                  const padding = 5;
+                  const fromIdx = Math.max(0, idxEntry - padding);
+                  const toIdx = Math.min(mapped.length - 1, idxExit + padding);
+                  visibleFrom = mapped[fromIdx].time;
+                  visibleTo = mapped[toIdx].time;
+                }
+              } else {
+                const oneWeekSec = 5 * 24 * 3600;
+                visibleFrom = Math.max(mapped[0].time, entryBarTime - oneWeekSec);
+                visibleTo = Math.min(mapped[mapped.length - 1].time, exitBarTime + oneWeekSec);
+              }
               try {
                 chart.timeScale().setVisibleRange({ from: visibleFrom, to: visibleTo });
               } catch (_) {}
             }
             // Constrain price scale to visible range so indicators (e.g. SuperTrend) don't stretch the axis
-            const visibleCandles = mapped.filter(b => b.time >= visibleFrom && b.time <= visibleTo);
+            const visibleCandles = mapped.filter(b => (isDailyTime ? String(b.time) >= String(visibleFrom) && String(b.time) <= String(visibleTo) : b.time >= visibleFrom && b.time <= visibleTo));
             const priceValues = [...visibleCandles.flatMap(b => [b.low, b.high])];
             if (Number.isFinite(ep)) priceValues.push(ep);
             if (Number.isFinite(xp)) priceValues.push(xp);
