@@ -1510,20 +1510,29 @@
           // Total Closed P&L = fully closed + trimmed realized
           const totalPnl = closedPnl + trimmedRealizedPnl;
 
-          // Open P&L: prefer D1 pre-computed pnl (accurate from replay) over client-side calculation
+          // Open P&L: only from positions with remaining shares (match UI: 0 qty => 0 contribution so open P&L isn't inflated)
           const openPnl = [...open, ...trimmed].reduce((sum, t) => {
-            // Use stored P&L if available (from replay/trade engine)
-            const storedPnl = Number(t.pnl ?? t.pnl_amount);
-            if (Number.isFinite(storedPnl)) return sum + storedPnl;
-
-            // Fallback: compute from currentPrice
-            const shares = t.shares || TRADE_SIZE / (t.entryPrice || 1);
-            const trimmedPct = t.trimmedPct || 0;
+            const tickerSym = String(t.ticker || "").toUpperCase();
+            const isFut = FUTURES_SPECS[tickerSym] || tickerSym.endsWith("1!");
+            const baseQty = Number(t.qty ?? t.total_qty ?? t.total_shares ?? t.shares);
+            const shares =
+              Number.isFinite(baseQty) && baseQty >= 0
+                ? baseQty
+                : isFut && FUTURES_SPECS[tickerSym]
+                  ? 1
+                  : TRADE_SIZE / (t.entryPrice || 1);
+            const trimmedPct = t.trimmedPct ?? t.trimmed_pct ?? 0;
             const remainingShares = shares - shares * trimmedPct;
+
+            if (remainingShares <= 0) return sum;
+
             const entryPrice = t.entryPrice || 0;
             const currentPrice = t.currentPrice || entryPrice;
 
-            if (remainingShares > 0 && entryPrice > 0) {
+            const storedPnl = Number(t.pnl ?? t.pnl_amount);
+            if (Number.isFinite(storedPnl) && entryPrice > 0) return sum + storedPnl;
+
+            if (entryPrice > 0) {
               const direction = t.direction || "LONG";
               if (direction === "LONG") {
                 return sum + (currentPrice - entryPrice) * remainingShares;
