@@ -690,6 +690,8 @@ function AnalysisSummary({ report, recs }) {
 
   const classifications = {};
   if (report.trade_classifications) for (const [k, v] of Object.entries(report.trade_classifications)) classifications[k] = v;
+  const manualNotes = report.trade_classifications?.manual_notes_for_learning || [];
+  const manualNotesCount = manualNotes.length;
 
   const moveMfe = sltp.move_mfe?.p50;
   const tpTrim = sltp.recommended_tp_trim_atr;
@@ -755,6 +757,24 @@ function AnalysisSummary({ report, recs }) {
                 <p className="text-slate-400 mt-1">Consider disabling or heavily filtering entries in these states.</p>
               </div>
             )}
+          </div>
+        )}
+
+        {/* Manual feedback (Trade Autopsy) */}
+        {(classifications.manual_bad_trade_count > 0 || manualNotesCount > 0) && (
+          <div className="p-3 rounded-lg bg-teal-500/5 border border-teal-500/20">
+            <div className="font-medium text-teal-300 mb-1">Manual feedback (Trade Autopsy)</div>
+            <p className="text-slate-400">
+              {classifications.manual_bad_trade_count > 0 && <span>{classifications.manual_bad_trade_count} trades tagged as Bad Trade (excluded from metrics). </span>}
+              {manualNotesCount > 0 && <span>{manualNotesCount} trades include notes — used alongside classifications for learning and calibration.</span>}
+            </p>
+            {manualNotesCount > 0 && manualNotes.slice(0, 5).map((row, i) => (
+              <div key={row.trade_id || i} className="mt-1.5 pl-2 border-l-2 border-teal-500/30 text-slate-400 text-[11px]">
+                <span className="text-slate-300 font-medium">{row.ticker}</span>
+                {row.classification && <span className="ml-1 text-teal-400/80">{row.classification}</span>}
+                <span className="block text-slate-500 truncate max-w-md" title={row.notes}>{row.notes}</span>
+              </div>
+            ))}
           </div>
         )}
 

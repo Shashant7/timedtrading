@@ -14625,14 +14625,18 @@ async function autopsyTradesServerSide(env) {
   ).all();
   if (!rawTrades.length) return 0;
 
-  // Batch-load manual annotations so they can be stored alongside auto-classification
+  // Batch-load manual annotations (classification + notes) for calibration and learning
   const annotationMap = {};
   try {
     const { results: annotations } = await db.prepare(
-      `SELECT trade_id, classification, notes FROM trade_autopsy_annotations WHERE classification != ''`
+      `SELECT trade_id, classification, notes FROM trade_autopsy_annotations
+       WHERE (classification IS NOT NULL AND classification != '') OR (notes IS NOT NULL AND trim(notes) != '')`
     ).all();
     for (const ann of (annotations || [])) {
-      annotationMap[ann.trade_id] = ann.classification;
+      annotationMap[ann.trade_id] = {
+        classification: ann.classification && String(ann.classification).trim() ? ann.classification : null,
+        notes: ann.notes && String(ann.notes).trim() ? ann.notes : null,
+      };
     }
   } catch (_) {}
 
@@ -14777,7 +14781,9 @@ async function autopsyTradesServerSide(env) {
 
     const vixAtEntry = getVixAtTs(entryTs);
 
-    const manualClassification = annotationMap[trade.trade_id] || null;
+    const annotation = annotationMap[trade.trade_id] || {};
+    const manualClassification = annotation.classification || null;
+    const manualNotes = annotation.notes || null;
 
     results.push({
       trade_id: trade.trade_id, ticker, direction, entry_ts: entryTs, exit_ts: exitTs,
@@ -14786,7 +14792,7 @@ async function autopsyTradesServerSide(env) {
       mfe_pct: mfePct, mfe_atr: mfeAtr, mae_pct: maePct, mae_atr: maeAtr,
       exit_efficiency: exitEfficiency, sl_hit_before_mfe: slHitBeforeMfe ? 1 : 0,
       time_to_mfe_min: timeToMfeMin, optimal_hold_min: timeToMfeMin,
-      classification, manual_classification: manualClassification,
+      classification, manual_classification: manualClassification, manual_notes: manualNotes,
       entry_signals_json: trade.signal_snapshot_json || null,
       entry_path: entryPath,
       rank_at_entry: Number(trade.rank) || 0,
@@ -14801,15 +14807,15 @@ async function autopsyTradesServerSide(env) {
     });
   }
 
-  // Ensure manual_classification column exists
   try { await db.prepare(`ALTER TABLE calibration_trade_autopsy ADD COLUMN manual_classification TEXT`).run(); } catch (_) {}
+  try { await db.prepare(`ALTER TABLE calibration_trade_autopsy ADD COLUMN manual_notes TEXT`).run(); } catch (_) {}
 
   await db.prepare(`DELETE FROM calibration_trade_autopsy`).run();
   for (let i = 0; i < results.length; i += 50) {
     const chunk = results.slice(i, i + 50);
     await db.batch(chunk.map(t => db.prepare(
-      `INSERT OR REPLACE INTO calibration_trade_autopsy (trade_id,ticker,direction,entry_ts,exit_ts,entry_price,exit_price,sl_price,pnl_pct,r_multiple,mfe_pct,mfe_atr,mae_pct,mae_atr,exit_efficiency,sl_hit_before_mfe,time_to_mfe_min,optimal_hold_min,classification,manual_classification,entry_signals_json,entry_path,rank_at_entry,regime_at_entry,vix_at_entry,htf_score_at_entry,ltf_score_at_entry,state_at_entry,completion_at_entry,phase_at_entry,flags_at_entry,created_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,?25,?26,?27,?28,?29,?30,?31,?32)`
-    ).bind(t.trade_id, t.ticker, t.direction, t.entry_ts, t.exit_ts, t.entry_price, t.exit_price, t.sl_price, t.pnl_pct, t.r_multiple, t.mfe_pct, t.mfe_atr, t.mae_pct, t.mae_atr, t.exit_efficiency, t.sl_hit_before_mfe, t.time_to_mfe_min, t.optimal_hold_min, t.classification, t.manual_classification, t.entry_signals_json, t.entry_path, t.rank_at_entry, t.regime_at_entry, t.vix_at_entry, t.htf_score_at_entry, t.ltf_score_at_entry, t.state_at_entry, t.completion_at_entry, t.phase_at_entry, t.flags_at_entry, Date.now())));
+      `INSERT OR REPLACE INTO calibration_trade_autopsy (trade_id,ticker,direction,entry_ts,exit_ts,entry_price,exit_price,sl_price,pnl_pct,r_multiple,mfe_pct,mfe_atr,mae_pct,mae_atr,exit_efficiency,sl_hit_before_mfe,time_to_mfe_min,optimal_hold_min,classification,manual_classification,manual_notes,entry_signals_json,entry_path,rank_at_entry,regime_at_entry,vix_at_entry,htf_score_at_entry,ltf_score_at_entry,state_at_entry,completion_at_entry,phase_at_entry,flags_at_entry,created_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,?25,?26,?27,?28,?29,?30,?31,?32,?33)`
+    ).bind(t.trade_id, t.ticker, t.direction, t.entry_ts, t.exit_ts, t.entry_price, t.exit_price, t.sl_price, t.pnl_pct, t.r_multiple, t.mfe_pct, t.mfe_atr, t.mae_pct, t.mae_atr, t.exit_efficiency, t.sl_hit_before_mfe, t.time_to_mfe_min, t.optimal_hold_min, t.classification, t.manual_classification, t.manual_notes || null, t.entry_signals_json, t.entry_path, t.rank_at_entry, t.regime_at_entry, t.vix_at_entry, t.htf_score_at_entry, t.ltf_score_at_entry, t.state_at_entry, t.completion_at_entry, t.phase_at_entry, t.flags_at_entry, Date.now())));
   }
   return results.length;
 }
@@ -15464,6 +15470,10 @@ async function runCalibrationAnalysis(env) {
       total_trades_after_exclusion: trades.length,
       excluded_count: classificationBreakdown.excluded.length,
       manual_bad_trade_count: manualBadTrades.size,
+      manual_notes_for_learning: allTradesRaw
+        .filter(t => t.manual_notes && String(t.manual_notes).trim())
+        .slice(0, 200)
+        .map(t => ({ trade_id: t.trade_id, ticker: t.ticker, classification: t.manual_classification || t.classification, notes: t.manual_notes })),
     },
     profiles: { winner_move: winnerMoveProfiles, winner_trade: winnerTradeProfiles, loser_trade: loserTradeProfiles },
     adaptive_params: { entry_gates: adaptiveEntryGates, regime_gates: adaptiveRegimeGates, rank_weights: adaptiveRankWeights, sl_tp: adaptiveSLTP },
@@ -15583,6 +15593,8 @@ async function d1EnsureCalibrationSchema(env) {
     try { await db.prepare(`ALTER TABLE calibration_trade_autopsy ADD COLUMN completion_at_entry REAL`).run(); } catch (_) {}
     try { await db.prepare(`ALTER TABLE calibration_trade_autopsy ADD COLUMN phase_at_entry REAL`).run(); } catch (_) {}
     try { await db.prepare(`ALTER TABLE calibration_trade_autopsy ADD COLUMN flags_at_entry TEXT`).run(); } catch (_) {}
+    try { await db.prepare(`ALTER TABLE calibration_trade_autopsy ADD COLUMN manual_classification TEXT`).run(); } catch (_) {}
+    try { await db.prepare(`ALTER TABLE calibration_trade_autopsy ADD COLUMN manual_notes TEXT`).run(); } catch (_) {}
     // Calibration profiles table
     try {
       await db.prepare(`CREATE TABLE IF NOT EXISTS calibration_profiles (
@@ -34548,6 +34560,8 @@ export default {
           }
           if (body.clear) await db.prepare(`DELETE FROM calibration_trade_autopsy`).run();
           try { await db.prepare(`ALTER TABLE calibration_trade_autopsy ADD COLUMN manual_classification TEXT`).run(); } catch (_) {}
+    try { await db.prepare(`ALTER TABLE calibration_trade_autopsy ADD COLUMN manual_notes TEXT`).run(); } catch (_) {}
+          try { await db.prepare(`ALTER TABLE calibration_trade_autopsy ADD COLUMN manual_notes TEXT`).run(); } catch (_) {}
           const batchSize = 50;
           let inserted = 0;
           for (let i = 0; i < trades.length; i += batchSize) {
@@ -34556,17 +34570,17 @@ export default {
               `INSERT OR REPLACE INTO calibration_trade_autopsy
                (trade_id,ticker,direction,entry_ts,exit_ts,entry_price,exit_price,sl_price,
                 pnl_pct,r_multiple,mfe_pct,mfe_atr,mae_pct,mae_atr,exit_efficiency,
-                sl_hit_before_mfe,time_to_mfe_min,optimal_hold_min,classification,manual_classification,
+                sl_hit_before_mfe,time_to_mfe_min,optimal_hold_min,classification,manual_classification,manual_notes,
                 entry_signals_json,entry_path,rank_at_entry,regime_at_entry,
                 vix_at_entry,htf_score_at_entry,ltf_score_at_entry,state_at_entry,
                 completion_at_entry,phase_at_entry,flags_at_entry,created_at)
-               VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,?25,?26,?27,?28,?29,?30,?31,?32)`
+               VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,?25,?26,?27,?28,?29,?30,?31,?32,?33)`
             ).bind(
               t.trade_id, t.ticker, t.direction, t.entry_ts, t.exit_ts,
               t.entry_price, t.exit_price, t.sl_price, t.pnl_pct, t.r_multiple,
               t.mfe_pct, t.mfe_atr, t.mae_pct, t.mae_atr, t.exit_efficiency,
               t.sl_hit_before_mfe ? 1 : 0, t.time_to_mfe_min, t.optimal_hold_min,
-              t.classification, t.manual_classification || null,
+              t.classification, t.manual_classification || null, t.manual_notes ?? null,
               t.entry_signals_json || null,
               t.entry_path, t.rank_at_entry, t.regime_at_entry,
               t.vix_at_entry ?? null, t.htf_score_at_entry ?? null, t.ltf_score_at_entry ?? null,
