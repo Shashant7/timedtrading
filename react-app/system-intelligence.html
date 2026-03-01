@@ -583,6 +583,84 @@ function MissedOpCard({ missed }) {
     </div>
   );
 }
+function SameTickerRepeatsCard({ data }) {
+  if (!data || data.cluster_count === 0) {
+    return (
+      <div className="card p-5">
+        <h3 className="text-sm font-semibold text-amber-200/90 mb-2">Same-ticker repeat trades</h3>
+        <p className="text-xs text-slate-500">No clusters of same ticker, same direction, re-entered within {data?.window_days ?? 10} days. Either no repeat trades in the sample or re-entries are spaced farther apart.</p>
+      </div>
+    );
+  }
+  const clusters = data.clusters || [];
+  return (
+    <div className="card p-5">
+      <h3 className="text-sm font-semibold text-amber-200/90 mb-2">Same-ticker repeat trades (within {data.window_days} days)</h3>
+      <p className="text-xs text-slate-400 mb-3">
+        Trades on the same ticker in the same direction, re-entered within a short window. This can indicate: aligning with oscillation (good), getting faked out and re-entering (bad), or exiting too early and leaving money on the table.
+      </p>
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4 text-center">
+        <div className="p-2 rounded bg-white/[0.03] border border-white/[0.06]">
+          <div className="text-[10px] text-slate-500 uppercase">Clusters</div>
+          <div className="text-lg font-bold text-white">{data.cluster_count}</div>
+        </div>
+        <div className="p-2 rounded bg-white/[0.03] border border-white/[0.06]">
+          <div className="text-[10px] text-slate-500 uppercase">Trades in clusters</div>
+          <div className="text-lg font-bold text-white">{data.total_trades_in_clusters}</div>
+        </div>
+        <div className="p-2 rounded bg-white/[0.03] border border-white/[0.06]">
+          <div className="text-[10px] text-slate-500 uppercase">Total P&amp;L (repeats)</div>
+          <div className={`text-lg font-bold ${data.total_pnl_pct_from_repeats >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
+            {data.total_pnl_pct_from_repeats >= 0 ? "+" : ""}{data.total_pnl_pct_from_repeats}%
+          </div>
+        </div>
+        <div className="p-2 rounded bg-white/[0.03] border border-white/[0.06]">
+          <div className="text-[10px] text-slate-500 uppercase">Avg capture vs MFE</div>
+          <div className="text-lg font-bold text-slate-300">{data.avg_capture_ratio != null ? (data.avg_capture_ratio * 100).toFixed(0) + "%" : "—"}</div>
+        </div>
+      </div>
+      {data.interpretation && data.interpretation.length > 0 && (
+        <div className="mb-4 p-3 rounded bg-amber-500/10 border border-amber-500/20">
+          <div className="text-xs font-medium text-amber-300 mb-1">What we can learn</div>
+          <ul className="list-disc list-inside text-xs text-slate-400 space-y-0.5">
+            {data.interpretation.map((line, i) => <li key={i}>{line}</li>)}
+          </ul>
+        </div>
+      )}
+      {data.recommendation && <p className="text-xs text-slate-400 mb-3 pl-2 border-l-2 border-amber-500/30">{data.recommendation}</p>}
+      <div className="overflow-x-auto">
+        <table className="w-full text-xs">
+          <thead><tr className="text-slate-500 border-b border-white/[0.05]">
+            <th className="text-left py-1.5 font-medium">Ticker</th>
+            <th className="text-left py-1.5 font-medium">Dir</th>
+            <th className="text-right px-2 font-medium">N</th>
+            <th className="text-right px-2 font-medium">Total P&amp;L%</th>
+            <th className="text-right px-2 font-medium">Win%</th>
+            <th className="text-right px-2 font-medium">Pattern</th>
+            <th className="text-right px-2 font-medium">Avg gap (d)</th>
+            <th className="text-right px-2 font-medium">MFE vs realized</th>
+            <th className="text-right pl-2 font-medium">SL before MFE</th>
+          </tr></thead>
+          <tbody>
+            {clusters.map((c, i) => (
+              <tr key={i} className="border-b border-white/[0.03]">
+                <td className="py-1.5 font-mono text-slate-300">{c.ticker}</td>
+                <td className="py-1.5 text-slate-400">{c.direction}</td>
+                <td className="text-right px-2">{c.n_trades}</td>
+                <td className={`text-right px-2 font-medium ${(c.total_pnl_pct || 0) >= 0 ? "text-emerald-400" : "text-rose-400"}`}>{c.total_pnl_pct != null ? (c.total_pnl_pct >= 0 ? "+" : "") + c.total_pnl_pct + "%" : "—"}</td>
+                <td className="text-right px-2">{c.win_rate_pct != null ? c.win_rate_pct + "%" : "—"}</td>
+                <td className="text-right px-2 font-mono text-[10px] text-slate-500">{c.pattern || "—"}</td>
+                <td className="text-right px-2">{c.avg_gap_days != null ? c.avg_gap_days : "—"}</td>
+                <td className="text-right px-2">{c.mfe_vs_realized != null ? (c.mfe_vs_realized * 100).toFixed(0) + "%" : "—"}</td>
+                <td className="text-right pl-2">{c.sl_hit_before_mfe_count ?? "—"}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
 function PositionSizingCard({ sizing }) {
   if (!sizing) return null;
   return (
@@ -778,6 +856,41 @@ function AnalysisSummary({ report, recs }) {
           </div>
         )}
 
+        {/* Same-ticker repeat trades (re-entries within short window) */}
+        {report.same_ticker_repeat_analysis && report.same_ticker_repeat_analysis.cluster_count > 0 && (
+          <div className="p-3 rounded-lg bg-amber-500/5 border border-amber-500/20">
+            <div className="font-medium text-amber-300 mb-1">Same-ticker repeat trades (within {report.same_ticker_repeat_analysis.window_days} days)</div>
+            <p className="text-slate-400 mb-1">
+              {report.same_ticker_repeat_analysis.cluster_count} clusters ({report.same_ticker_repeat_analysis.total_trades_in_clusters} trades) — same ticker, same direction, re-entered within a short window. Total P&amp;L from repeats:{" "}
+              <span className={report.same_ticker_repeat_analysis.total_pnl_pct_from_repeats >= 0 ? "text-emerald-400" : "text-rose-400"}>
+                {report.same_ticker_repeat_analysis.total_pnl_pct_from_repeats >= 0 ? "+" : ""}{report.same_ticker_repeat_analysis.total_pnl_pct_from_repeats}%
+              </span>
+              {report.same_ticker_repeat_analysis.avg_capture_ratio != null && (
+                <span className="text-slate-500"> · Avg capture vs MFE: {(report.same_ticker_repeat_analysis.avg_capture_ratio * 100).toFixed(0)}%</span>
+              )}
+              {report.same_ticker_repeat_analysis.sl_before_mfe_count > 0 && (
+                <span className="text-slate-500"> · SL hit before MFE: {report.same_ticker_repeat_analysis.sl_before_mfe_count} times</span>
+              )}
+            </p>
+            {report.same_ticker_repeat_analysis.interpretation && report.same_ticker_repeat_analysis.interpretation.length > 0 && (
+              <ul className="list-disc list-inside text-slate-400 text-[11px] space-y-0.5 mt-1">
+                {report.same_ticker_repeat_analysis.interpretation.map((line, i) => (
+                  <li key={i}>{line}</li>
+                ))}
+              </ul>
+            )}
+            {report.same_ticker_repeat_analysis.clusters && report.same_ticker_repeat_analysis.clusters.length > 0 && (
+              <div className="mt-2 text-[10px] text-slate-500">
+                Sample: {report.same_ticker_repeat_analysis.clusters.slice(0, 5).map(c => (
+                  <span key={`${c.ticker}-${c.direction}-${c.trade_ids?.[0]}`} className="inline-block mr-2">
+                    <span className="text-slate-300">{c.ticker}</span> {c.direction} {c.n_trades}t <span className={c.total_pnl_pct >= 0 ? "text-emerald-500" : "text-rose-500"}>{c.total_pnl_pct}%</span> [{c.pattern}]
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
         {/* SL/TP Diagnosis */}
         {slAtr != null && moveMfe != null && (
           <div className="p-3 rounded-lg bg-white/[0.02] border border-white/[0.04]">
@@ -804,6 +917,7 @@ function AnalysisSummary({ report, recs }) {
               ))}
               {recs.sl_atr != null && <li>Set stop loss to <span className="text-white">{recs.sl_atr} ATR</span></li>}
               {recs.tp_tiers && <li>TP tiers: trim at <span className="text-white">{recs.tp_tiers.trim}</span>, exit at <span className="text-white">{recs.tp_tiers.exit}</span>, runner at <span className="text-white">{recs.tp_tiers.runner} ATR</span></li>}
+              {recs.same_ticker_repeat_recommendation && <li className="text-amber-200/90">Same-ticker repeats: {recs.same_ticker_repeat_recommendation}</li>}
               {report.hindsight_oracle?.recommendations?.map((rec, i) => <li key={`oracle-${i}`}>{rec.message}</li>)}
             </ul>
           </div>
@@ -820,7 +934,7 @@ function CalibrationTab({ report, recs, reportId, onApply, applying, appliedMsg 
     { id: "health", label: "Health" }, { id: "paths", label: "Entry Paths" }, { id: "profiles", label: "Profiles" },
     { id: "oracle", label: "Oracle" }, { id: "vix", label: "VIX Regime" }, { id: "signals", label: "Signals" },
     { id: "sltp", label: "SL/TP" }, { id: "rank", label: "Rank" }, { id: "wfo", label: "Walk-Forward" },
-    { id: "missed", label: "Missed" }, { id: "sizing", label: "Sizing" },
+    { id: "repeats", label: "Same-Ticker Repeats" }, { id: "missed", label: "Missed" }, { id: "sizing", label: "Sizing" },
   ];
   return (
     <div>
@@ -898,6 +1012,7 @@ function CalibrationTab({ report, recs, reportId, onApply, applying, appliedMsg 
       {sub === "sltp" && <SLTPCard sltp={report.sl_tp_calibration} />}
       {sub === "rank" && <RankCard rank={report.rank_optimization} />}
       {sub === "wfo" && <WFOCard wfo={report.wfo_summary} />}
+      {sub === "repeats" && <SameTickerRepeatsCard data={report.same_ticker_repeat_analysis} />}
       {sub === "missed" && <MissedOpCard missed={report.missed_opportunities} />}
       {sub === "sizing" && <PositionSizingCard sizing={report.position_sizing} />}
     </div>

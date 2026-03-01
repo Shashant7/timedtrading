@@ -15452,6 +15452,103 @@ async function runCalibrationAnalysis(env) {
     classificationMetrics[cls] = { ...computeMetrics(arr), manual_count: arr.filter(t => t.manual_classification === cls).length };
   }
 
+  // Same-ticker same-direction repeat-trade analysis (re-entries within short window)
+  const REPEAT_WINDOW_DAYS = 10; // re-entry within 10 days of previous exit = "repeat"
+  const sameTickerRepeatAnalysis = (() => {
+    const byKey = {};
+    for (const t of trades) {
+      const key = `${String(t.ticker).toUpperCase()}_${String(t.direction || "LONG").toUpperCase()}`;
+      if (!byKey[key]) byKey[key] = [];
+      byKey[key].push(t);
+    }
+    const clusters = [];
+    for (const [key, arr] of Object.entries(byKey)) {
+      if (arr.length < 2) continue;
+      const sorted = [...arr].sort((a, b) => (a.entry_ts || 0) - (b.entry_ts || 0));
+      const windowSec = REPEAT_WINDOW_DAYS * 86400;
+      let i = 0;
+      while (i < sorted.length) {
+        const cluster = [sorted[i]];
+        let j = i + 1;
+        while (j < sorted.length) {
+          const prevExit = sorted[j - 1].exit_ts || 0;
+          const nextEntry = sorted[j].entry_ts || 0;
+          if (nextEntry - prevExit <= windowSec) {
+            cluster.push(sorted[j]);
+            j++;
+          } else break;
+        }
+        if (cluster.length >= 2) {
+          const [ticker, dir] = key.split("_");
+          const gaps = [];
+          for (let k = 1; k < cluster.length; k++) {
+            gaps.push(((cluster[k].entry_ts || 0) - (cluster[k - 1].exit_ts || 0)) / 86400);
+          }
+          const pnlPcts = cluster.map(t => t.pnl_pct || 0);
+          const mfePcts = cluster.map(t => t.mfe_pct || 0);
+          const slBeforeMfe = cluster.filter(t => t.sl_hit_before_mfe).length;
+          const totalPnlPct = pnlPcts.reduce((a, b) => a + b, 0);
+          const wins = pnlPcts.filter(p => p > 0).length;
+          const pattern = pnlPcts.map(p => p > 0 ? "W" : "L").join("-");
+          const avgMfe = mfePcts.reduce((a, b) => a + b, 0) / mfePcts.length;
+          const avgPnl = pnlPcts.reduce((a, b) => a + b, 0) / pnlPcts.length;
+          const exitEfficiencies = cluster.map(t => t.exit_efficiency).filter(x => x != null && Number.isFinite(x));
+          const avgExitEff = exitEfficiencies.length ? exitEfficiencies.reduce((a, b) => a + b, 0) / exitEfficiencies.length : null;
+          clusters.push({
+            ticker,
+            direction: dir,
+            n_trades: cluster.length,
+            total_pnl_pct: Math.round(totalPnlPct * 100) / 100,
+            win_rate_pct: Math.round((wins / cluster.length) * 10) / 10,
+            avg_gap_days: Math.round((gaps.reduce((a, b) => a + b, 0) / gaps.length) * 10) / 10,
+            pattern,
+            avg_mfe_pct: Math.round(avgMfe * 10) / 10,
+            avg_realized_pct: Math.round(avgPnl * 10) / 10,
+            mfe_vs_realized: avgMfe > 0 ? Math.round((avgPnl / avgMfe) * 100) / 100 : null,
+            sl_hit_before_mfe_count: slBeforeMfe,
+            avg_exit_efficiency: avgExitEff != null ? Math.round(avgExitEff * 100) / 100 : null,
+            trade_ids: cluster.map(t => t.trade_id),
+          });
+          i = j;
+        } else i++;
+      }
+    }
+    const totalRepeatTrades = clusters.reduce((s, c) => s + c.n_trades, 0);
+    const totalPnlFromRepeats = clusters.reduce((s, c) => s + c.total_pnl_pct, 0);
+    const avgCapture = clusters.filter(c => c.mfe_vs_realized != null).length
+      ? clusters.reduce((s, c) => s + (c.mfe_vs_realized || 0), 0) / clusters.filter(c => c.mfe_vs_realized != null).length
+      : null;
+    const totalSlBeforeMfe = clusters.reduce((s, c) => s + c.sl_hit_before_mfe_count, 0);
+    const interpretation = [];
+    if (clusters.length > 0) {
+      if (totalPnlFromRepeats < 0 && totalRepeatTrades >= 5) {
+        interpretation.push("Repeat trades (same ticker, same direction, within 10 days) are net negative. Possible overtrading or getting faked out on re-entry.");
+      } else if (totalPnlFromRepeats > 0 && avgCapture != null && avgCapture < 0.5) {
+        interpretation.push("Repeat trades are profitable but we capture well under half of the average MFE. Consider holding longer or widening targets.");
+      }
+      if (totalSlBeforeMfe > totalRepeatTrades * 0.3) {
+        interpretation.push("SL is often hit before price reaches MFE on repeat trades — stops may be too tight or entries too early in the move.");
+      }
+      if (interpretation.length === 0 && clusters.length >= 3) {
+        interpretation.push("Repeat-trade sample is small; monitor whether re-entries on the same ticker/direction add or subtract value over time.");
+      }
+    }
+    return {
+      window_days: REPEAT_WINDOW_DAYS,
+      cluster_count: clusters.length,
+      total_trades_in_clusters: clusters.reduce((s, c) => s + c.n_trades, 0),
+      total_pnl_pct_from_repeats: Math.round(totalPnlFromRepeats * 100) / 100,
+      avg_capture_ratio: avgCapture != null ? Math.round(avgCapture * 100) / 100 : null,
+      sl_before_mfe_count: totalSlBeforeMfe,
+      clusters: clusters.slice(0, 30),
+      interpretation,
+      recommendation: interpretation.length > 0 ? interpretation[0] : (clusters.length === 0 ? null : "Review repeat-trade clusters in detail to see if exits are too early or re-entries are getting faked out."),
+    };
+  })();
+  if (sameTickerRepeatAnalysis.cluster_count > 0 && sameTickerRepeatAnalysis.recommendation) {
+    recommendations.same_ticker_repeat_recommendation = sameTickerRepeatAnalysis.recommendation;
+  }
+
   const reportJson = {
     system_health: systemHealth,
     entry_paths: pathReport,
@@ -15475,6 +15572,7 @@ async function runCalibrationAnalysis(env) {
         .slice(0, 200)
         .map(t => ({ trade_id: t.trade_id, ticker: t.ticker, classification: t.manual_classification || t.classification, notes: t.manual_notes })),
     },
+    same_ticker_repeat_analysis: sameTickerRepeatAnalysis,
     profiles: { winner_move: winnerMoveProfiles, winner_trade: winnerTradeProfiles, loser_trade: loserTradeProfiles },
     adaptive_params: { entry_gates: adaptiveEntryGates, regime_gates: adaptiveRegimeGates, rank_weights: adaptiveRankWeights, sl_tp: adaptiveSLTP },
     vix_buckets: Object.fromEntries(Object.entries(vixBuckets).map(([k, arr]) => [k, computeMetrics(arr)])),
