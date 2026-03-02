@@ -34853,24 +34853,33 @@ export default {
           if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
 
           // Load all closed trades with full context
-          const tradesRaw = (await db.prepare(`
-            SELECT t.*, p.direction, p.entry_path, p.cost_basis, p.total_qty,
-                   p.sector, p.regime_at_entry, p.rank_at_entry, p.signal_snapshot
-            FROM trades t
-            LEFT JOIN positions p ON t.position_id = p.position_id
-            WHERE t.status IN ('WIN','LOSS','FLAT') AND t.pnl IS NOT NULL
-            ORDER BY t.entry_ts ASC
-          `).all())?.results || [];
+          // Try trades table first, fallback to positions-only if trades doesn't exist
+          let tradesRaw = [];
+          try {
+            tradesRaw = (await db.prepare(`
+              SELECT * FROM trades WHERE status IN ('WIN','LOSS','FLAT') AND pnl IS NOT NULL ORDER BY entry_ts ASC
+            `).all())?.results || [];
+          } catch (e1) {
+            try {
+              tradesRaw = (await db.prepare(`
+                SELECT * FROM positions WHERE status IN ('WIN','LOSS','FLAT') AND pnl IS NOT NULL ORDER BY entry_ts ASC
+              `).all())?.results || [];
+            } catch { tradesRaw = []; }
+          }
 
           if (tradesRaw.length === 0) {
             return sendJSON({ ok: false, error: "no_closed_trades" }, 404, corsHeaders(env, req));
           }
 
           const trades = tradesRaw.map(t => {
-            const pnlPct = Number(t.pnl_pct || t.pnlPct) || (Number(t.cost_basis) > 0 ? (Number(t.pnl) / Number(t.cost_basis)) * 100 : 0);
+            const pnlVal = Number(t.pnl) || 0;
+            const cb = Number(t.cost_basis) || 0;
+            const pnlPct = Number(t.pnl_pct || t.pnlPct) || (cb > 0 ? (pnlVal / cb) * 100 : 0);
+            let snap = null;
+            try { if (t.signal_snapshot) snap = JSON.parse(t.signal_snapshot); } catch {}
             return {
               ...t,
-              pnl: Number(t.pnl) || 0,
+              pnl: pnlVal,
               pnl_pct: pnlPct,
               mfe_pct: Number(t.mfe_pct) || 0,
               mae_pct: Number(t.mae_pct) || 0,
@@ -34878,13 +34887,14 @@ export default {
               mae_atr: Number(t.mae_atr) || 0,
               entry_ts: Number(t.entry_ts) || 0,
               exit_ts: Number(t.exit_ts) || 0,
-              rank: Number(t.rank_at_entry || t.rank) || 0,
+              rank: Number(t.rank_at_entry || t.rank || snap?.rank) || 0,
               direction: String(t.direction || "LONG").toUpperCase(),
-              entry_path: t.entry_path || "unknown",
+              entry_path: t.entry_path || snap?.entry_path || "unknown",
               exit_reason: t.exit_reason || t.exitReason || "unknown",
               ticker: String(t.ticker || "").toUpperCase(),
-              sector: t.sector || "Unknown",
-              regime: t.regime_at_entry || "unknown",
+              sector: t.sector || snap?.sector || "Unknown",
+              regime: t.regime_at_entry || snap?.regime_class || "unknown",
+              signal_snapshot: t.signal_snapshot || null,
             };
           });
 
