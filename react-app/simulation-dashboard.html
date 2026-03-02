@@ -5873,22 +5873,28 @@
         const totalPnl = acctVal - startCash;
 
         const openTrades = useMemo(() => {
-          return (trades || []).filter(t => {
-            const s = String(t.status || "").toUpperCase();
-            return s === "OPEN" || s === "TP_HIT_TRIM";
-          });
-        }, [trades]);
+          if (isTrader) {
+            return (trades || []).filter(t => {
+              const s = String(t.status || "").toUpperCase();
+              return s === "OPEN" || s === "TP_HIT_TRIM";
+            });
+          }
+          return []; // Investor open positions come from positions API, not trades list
+        }, [trades, isTrader]);
 
         const closedTrades = useMemo(() => {
-          return (trades || []).filter(t => {
-            const s = String(t.status || "").toUpperCase();
-            return s === "WIN" || s === "LOSS" || s === "FLAT" || Number(t.trimmed_pct ?? t.trimmedPct ?? 0) >= 0.9999;
-          });
-        }, [trades]);
+          if (isTrader) {
+            return (trades || []).filter(t => {
+              const s = String(t.status || "").toUpperCase();
+              return s === "WIN" || s === "LOSS" || s === "FLAT" || Number(t.trimmed_pct ?? t.trimmedPct ?? 0) >= 0.9999;
+            });
+          }
+          return (trades || []).filter(t => String(t.action || "").toUpperCase() === "SELL");
+        }, [trades, isTrader]);
 
         const wins = closedTrades.filter(t => (Number(t.pnl) || 0) > 0).length;
         const losses = closedTrades.filter(t => (Number(t.pnl) || 0) <= 0).length;
-        const realizedPnl = closedTrades.reduce((s, t) => s + (Number(t.pnl) || 0), 0);
+        const realizedPnl = (summary != null && Number.isFinite(Number(summary.totalRealized))) ? Number(summary.totalRealized) : closedTrades.reduce((s, t) => s + (Number(t.pnl) || 0), 0);
 
         // Open positions with live P&L
         const openPositionCards = useMemo(() => {
@@ -5913,36 +5919,40 @@
         const tradeHistory = useMemo(() => {
           const all = (trades || []).map(t => {
             const s = String(t.status || "").toUpperCase();
-            const isClosed = s === "WIN" || s === "LOSS" || s === "FLAT";
+            const act = String(t.action || "").toUpperCase();
+            const isClosed = isTrader ? (s === "WIN" || s === "LOSS" || s === "FLAT") : (act === "SELL");
+            const ts = t.entry_ts || t.ts;
             return {
               ticker: String(t.ticker || "").toUpperCase(),
-              date: t.exit_ts ? new Date(Number(t.exit_ts)).toLocaleDateString("en-CA") : (t.entry_ts ? new Date(Number(t.entry_ts)).toLocaleDateString("en-CA") : "—"),
-              action: isClosed ? "EXIT" : (Number(t.trimmed_pct) > 0 ? "TRIM" : "ENTRY"),
-              price: isClosed ? Number(t.exit_price) : Number(t.entry_price),
+              date: ts ? new Date(Number(ts)).toLocaleDateString("en-CA") : "—",
+              action: isClosed ? "EXIT" : (isTrader && Number(t.trimmed_pct) > 0 ? "TRIM" : "ENTRY"),
+              price: isClosed ? Number(t.exit_price || t.price) : Number(t.entry_price || t.price),
               pnl: isClosed ? Number(t.pnl) || 0 : null,
-              reason: isClosed ? humanizeExitReason(t.exit_reason || t.exitReason) : "",
+              reason: isClosed && isTrader ? humanizeExitReason(t.exit_reason || t.exitReason) : (isClosed && t.reason ? t.reason : ""),
               status: s,
               raw: t,
             };
           });
           all.sort((a, b) => (b.date || "").localeCompare(a.date || ""));
           return all;
-        }, [trades]);
+        }, [trades, isTrader]);
 
         // By-day grouping for expanded view
         const byDay = useMemo(() => {
           const map = {};
           for (const t of trades || []) {
-            const day = t.entry_ts ? new Date(Number(t.entry_ts)).toLocaleDateString("en-CA") : "unknown";
+            const ts = t.entry_ts || t.ts;
+            const day = ts ? new Date(Number(ts)).toLocaleDateString("en-CA") : "unknown";
             if (!map[day]) map[day] = { day, entries: 0, exits: 0, pnl: 0, actions: [] };
             const s = String(t.status || "").toUpperCase();
-            const isClosed = s === "WIN" || s === "LOSS" || s === "FLAT";
+            const act = String(t.action || "").toUpperCase();
+            const isClosed = isTrader ? (s === "WIN" || s === "LOSS" || s === "FLAT") : (act === "SELL");
             if (isClosed) { map[day].exits++; map[day].pnl += (Number(t.pnl) || 0); }
             else map[day].entries++;
             map[day].actions.push(t);
           }
           return Object.values(map).sort((a, b) => b.day.localeCompare(a.day));
-        }, [trades]);
+        }, [trades, isTrader]);
 
         // By-ticker grouping for expanded view
         const byTicker = useMemo(() => {
@@ -5952,14 +5962,16 @@
             if (!map[tk]) map[tk] = { ticker: tk, trades: [], totalPnl: 0, wins: 0, losses: 0 };
             map[tk].trades.push(t);
             const s = String(t.status || "").toUpperCase();
-            if (s === "WIN" || s === "LOSS" || s === "FLAT") {
+            const act = String(t.action || "").toUpperCase();
+            const isClosed = isTrader ? (s === "WIN" || s === "LOSS" || s === "FLAT") : (act === "SELL");
+            if (isClosed) {
               map[tk].totalPnl += Number(t.pnl) || 0;
               if ((Number(t.pnl) || 0) > 0) map[tk].wins++;
               else map[tk].losses++;
             }
           }
           return Object.values(map).sort((a, b) => Math.abs(b.totalPnl) - Math.abs(a.totalPnl));
-        }, [trades]);
+        }, [trades, isTrader]);
 
         if (loading) {
           return html`<div className="space-y-4">
