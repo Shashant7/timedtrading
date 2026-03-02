@@ -599,10 +599,12 @@ const ROUTES = [
   ["POST", "/timed/calibration/upload-autopsy", "POST /timed/calibration/upload-autopsy"],
   ["POST", "/timed/calibration/run", "POST /timed/calibration/run"],
   ["GET", "/timed/calibration/report", "GET /timed/calibration/report"],
+  ["GET", "/timed/calibration/deep-audit", "GET /timed/calibration/deep-audit"],
   ["GET", "/timed/calibration/status", "GET /timed/calibration/status"],
   ["POST", "/timed/calibration/apply", "POST /timed/calibration/apply"],
   ["POST", "/timed/calibration/profile-impact", "POST /timed/calibration/profile-impact"],
   ["POST", "/timed/trades/reset", "POST /timed/trades/reset"],
+  ["POST", "/timed/admin/model-config", "POST /timed/admin/model-config"],
   // ── System Intelligence (unified Calibration + Model) ──
   ["GET", "/timed/system/dashboard", "GET /timed/system/dashboard"],
   ["GET", "/timed/system/history", "GET /timed/system/history"],
@@ -2195,6 +2197,42 @@ function qualifiesForEnter(d, asOfTs = null) {
     return { qualifies: false, reason: "rvol_dead_zone", rvol: rvolBest, threshold: rvolDeadZone, regime: regimeClass };
   }
 
+  // ═══════════════════════════════════════════════════════════════════════════
+  // DEEP AUDIT GATES: Configurable gates from deep-audit recommendations
+  // Keys stored in model_config, loaded into d._env
+  // ═══════════════════════════════════════════════════════════════════════════
+  const _daConfig = d?._env?._deepAuditConfig || {};
+
+  // DA-1: SHORT minimum rank gate
+  const daShortMinRank = Number(_daConfig.deep_audit_short_min_rank) || 0;
+  if (daShortMinRank > 0 && inferredSide === "SHORT" && score < daShortMinRank) {
+    const isBearConfirmed = state.includes("BEAR") && state.includes("BEAR");
+    if (!isBearConfirmed) {
+      return { qualifies: false, reason: "da_short_rank_too_low", rank: score, required: daShortMinRank };
+    }
+  }
+
+  // DA-2: Ticker blacklist
+  const daBlacklist = _daConfig.deep_audit_ticker_blacklist;
+  if (Array.isArray(daBlacklist) && daBlacklist.length > 0) {
+    const sym = String(d?.sym || d?.ticker || "").toUpperCase();
+    if (daBlacklist.includes(sym)) {
+      return { qualifies: false, reason: "da_ticker_blacklisted", ticker: sym };
+    }
+  }
+
+  // DA-3: Toxic hour avoidance
+  const daAvoidHours = _daConfig.deep_audit_avoid_hours;
+  if (daAvoidHours != null) {
+    const avoidArr = Array.isArray(daAvoidHours) ? daAvoidHours : [daAvoidHours];
+    const nowMs = asOfTs > 0 ? asOfTs : Date.now();
+    const entryHour = new Date(nowMs).getUTCHours();
+    const nyHour = ((entryHour - 5 + 24) % 24);
+    if (avoidArr.includes(nyHour)) {
+      return { qualifies: false, reason: "da_toxic_hour", hour: nyHour };
+    }
+  }
+
   // Regime-based SHORT blocking: SHORTs have negative EV in chop
   if (inferredSide === "SHORT" && rParams.shortsAllowed === false) {
     return { qualifies: false, reason: "shorts_blocked_in_chop", regime: regimeClass };
@@ -2985,7 +3023,11 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
 
     // Hard exit: capital protection
     // PDZ-aware: wider tolerance in favorable zone with regime, tighter when extended
-    const maxLossPct = (_inFavorableZone && _regimeConfirms) ? -8 : _inExtendedZone ? -3 : -4;
+    // Deep Audit override: if configured, use tighter thresholds
+    const _daMaxLoss = tickerData?._env?._deepAuditConfig?.deep_audit_max_loss_pct;
+    const maxLossPct = _daMaxLoss
+      ? ((_inFavorableZone && _regimeConfirms) ? Number(_daMaxLoss.pdz || -5) : _inExtendedZone ? Number(_daMaxLoss.normal || -2) : Number(_daMaxLoss.normal || -2) - 1)
+      : ((_inFavorableZone && _regimeConfirms) ? -8 : _inExtendedZone ? -3 : -4);
     if (pnlPct <= maxLossPct) {
       tickerData.__exit_reason = "max_loss";
       return "exit";
@@ -9377,6 +9419,24 @@ async function processTradeSimulation(
             : Math.round((entryPx + adjustedDist) * 100) / 100;
           console.log(`[PROFILE_SL] ${sym}: ${preSL.toFixed(2)} → ${finalSL.toFixed(2)} (type=${_tickerProfile?.behavior_type}, mult=${profileSlMult})`);
         }
+
+        // ── Deep Audit: SL Cap — enforce maximum SL multiplier ──
+        const _daSlCap = Number(env?._deepAuditConfig?.deep_audit_sl_cap_mult) || 0;
+        if (_daSlCap > 0 && Number.isFinite(finalSL) && Number.isFinite(entryPx)) {
+          const atrForCap = Number(tickerData?.atr) || 0;
+          if (atrForCap > 0) {
+            const actualSlDist = Math.abs(entryPx - finalSL);
+            const maxSlDist = atrForCap * _daSlCap;
+            if (actualSlDist > maxSlDist) {
+              const preSL = finalSL;
+              finalSL = direction === "LONG"
+                ? Math.round((entryPx - maxSlDist) * 100) / 100
+                : Math.round((entryPx + maxSlDist) * 100) / 100;
+              console.log(`[DA_SL_CAP] ${sym}: ${preSL.toFixed(2)} → ${finalSL.toFixed(2)} (cap=${_daSlCap}x ATR)`);
+            }
+          }
+        }
+
         if (profileTpMult !== 1.0) {
           if (trimTp?.price && Number.isFinite(trimTp.price)) {
             trimTp.price = Math.round((entryPx + (trimTp.price - entryPx) * profileTpMult) * 100) / 100;
@@ -31625,6 +31685,18 @@ export default {
           if (cfgRows[0]?.results?.[0]?.config_value) _replayAdaptiveEntryGates = JSON.parse(cfgRows[0].results[0].config_value);
           if (cfgRows[1]?.results?.[0]?.config_value) _replayAdaptiveRegimeGates = JSON.parse(cfgRows[1].results[0].config_value);
         } catch {}
+        // Load deep audit config for replay parity with live
+        try {
+          const daKeys = ["deep_audit_short_min_rank", "deep_audit_ticker_blacklist", "deep_audit_max_loss_pct", "deep_audit_sl_cap_mult", "deep_audit_rsi_tp_delay", "deep_audit_avoid_hours", "deep_audit_block_regime"];
+          const daRows = (await db.prepare(
+            `SELECT config_key, config_value FROM model_config WHERE config_key IN (${daKeys.map((_, i) => `?${i + 1}`).join(",")})`
+          ).bind(...daKeys).all())?.results || [];
+          const _daConfig = {};
+          for (const r of daRows) {
+            try { _daConfig[r.config_key] = JSON.parse(r.config_value); } catch { _daConfig[r.config_key] = r.config_value; }
+          }
+          env._deepAuditConfig = _daConfig;
+        } catch {}
         try {
           const gpData = await kvGetJSON(KV, "timed:calibration:golden-profiles");
           _replayGoldenProfiles = gpData?.profiles || null;
@@ -31718,6 +31790,7 @@ export default {
                   _adaptiveRegimeGates: _replayAdaptiveRegimeGates,
                   _marketRegime: _rMktRegime,
                   _sectorRegime: _rSecRegime,
+                  _deepAuditConfig: env._deepAuditConfig || null,
                 };
               }
               if (_replayCurrentVix != null) result._vix = _replayCurrentVix;
@@ -34771,6 +34844,437 @@ export default {
         }
       }
 
+      // ═══════════════════════════════════════════════════════════════════════
+      // GET /timed/calibration/deep-audit — comprehensive system evaluation
+      // ═══════════════════════════════════════════════════════════════════════
+      if (routeKey === "GET /timed/calibration/deep-audit") {
+        try {
+          const db = env?.DB;
+          if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
+
+          // Load all closed trades with full context
+          const tradesRaw = (await db.prepare(`
+            SELECT t.*, p.direction, p.entry_path, p.cost_basis, p.total_qty,
+                   p.sector, p.regime_at_entry, p.rank_at_entry, p.signal_snapshot
+            FROM trades t
+            LEFT JOIN positions p ON t.position_id = p.position_id
+            WHERE t.status IN ('WIN','LOSS','FLAT') AND t.pnl IS NOT NULL
+            ORDER BY t.entry_ts ASC
+          `).all())?.results || [];
+
+          if (tradesRaw.length === 0) {
+            return sendJSON({ ok: false, error: "no_closed_trades" }, 404, corsHeaders(env, req));
+          }
+
+          const trades = tradesRaw.map(t => {
+            const pnlPct = Number(t.pnl_pct || t.pnlPct) || (Number(t.cost_basis) > 0 ? (Number(t.pnl) / Number(t.cost_basis)) * 100 : 0);
+            return {
+              ...t,
+              pnl: Number(t.pnl) || 0,
+              pnl_pct: pnlPct,
+              mfe_pct: Number(t.mfe_pct) || 0,
+              mae_pct: Number(t.mae_pct) || 0,
+              mfe_atr: Number(t.mfe_atr) || 0,
+              mae_atr: Number(t.mae_atr) || 0,
+              entry_ts: Number(t.entry_ts) || 0,
+              exit_ts: Number(t.exit_ts) || 0,
+              rank: Number(t.rank_at_entry || t.rank) || 0,
+              direction: String(t.direction || "LONG").toUpperCase(),
+              entry_path: t.entry_path || "unknown",
+              exit_reason: t.exit_reason || t.exitReason || "unknown",
+              ticker: String(t.ticker || "").toUpperCase(),
+              sector: t.sector || "Unknown",
+              regime: t.regime_at_entry || "unknown",
+            };
+          });
+
+          // Helper: compute metrics for a subset
+          function auditMetrics(subset) {
+            if (!subset.length) return { n: 0, win_rate: 0, expectancy: 0, sqn: 0, avg_pnl_pct: 0, profit_factor: 0, total_pnl_pct: 0 };
+            let wins = 0, totalWinPnl = 0, totalLossPnl = 0, totalPnl = 0;
+            const rs = [];
+            for (const t of subset) {
+              const p = t.pnl_pct;
+              totalPnl += p;
+              rs.push(p);
+              if (p > 0) { wins++; totalWinPnl += Math.abs(p); }
+              else { totalLossPnl += Math.abs(p); }
+            }
+            const n = subset.length;
+            const wr = wins / n;
+            const avgW = wins > 0 ? totalWinPnl / wins : 0;
+            const avgL = (n - wins) > 0 ? totalLossPnl / (n - wins) : 0;
+            const exp = (wr * avgW) - ((1 - wr) * avgL);
+            const pf = totalLossPnl > 0 ? totalWinPnl / totalLossPnl : totalWinPnl > 0 ? 999 : 0;
+            const mean = rs.reduce((a, b) => a + b, 0) / n;
+            const std = Math.sqrt(rs.reduce((a, b) => a + (b - mean) ** 2, 0) / n) || 1;
+            const sqn = (mean / std) * Math.sqrt(n);
+            return {
+              n,
+              win_rate: Math.round(wr * 1000) / 10,
+              expectancy: Math.round(exp * 100) / 100,
+              sqn: Math.round(sqn * 100) / 100,
+              avg_pnl_pct: Math.round(mean * 100) / 100,
+              profit_factor: pf === 999 ? 999 : Math.round(pf * 100) / 100,
+              total_pnl_pct: Math.round(totalPnl * 100) / 100,
+            };
+          }
+
+          // ── 1. Overall Metrics ──
+          const overall = auditMetrics(trades);
+
+          // ── 2. Direction Analysis ──
+          const longs = trades.filter(t => t.direction === "LONG");
+          const shorts = trades.filter(t => t.direction === "SHORT");
+          const directionAnalysis = {
+            LONG: auditMetrics(longs),
+            SHORT: auditMetrics(shorts),
+            verdict: shorts.length >= 10 && auditMetrics(shorts).expectancy < 0 ? "RESTRICT_SHORT" : "OK",
+          };
+
+          // ── 3. Exit Reason Audit ──
+          const exitReasonMap = {};
+          for (const t of trades) {
+            const reason = t.exit_reason;
+            if (!exitReasonMap[reason]) exitReasonMap[reason] = [];
+            exitReasonMap[reason].push(t);
+          }
+          const exitReasonAudit = {};
+          for (const [reason, arr] of Object.entries(exitReasonMap)) {
+            const m = auditMetrics(arr);
+            let verdict = "OK";
+            if (m.win_rate >= 80 && m.avg_pnl_pct > 1) verdict = "STAR";
+            else if (m.win_rate <= 10 && m.avg_pnl_pct < -1) verdict = "TOXIC";
+            else if (m.win_rate <= 30 && m.avg_pnl_pct < 0) verdict = "BAD";
+            else if (m.win_rate >= 60 && m.avg_pnl_pct > 0) verdict = "GOOD";
+            exitReasonAudit[reason] = { ...m, verdict };
+          }
+
+          // ── 4. Ticker Profiles ──
+          const tickerMap = {};
+          for (const t of trades) {
+            if (!tickerMap[t.ticker]) tickerMap[t.ticker] = [];
+            tickerMap[t.ticker].push(t);
+          }
+          const tickerProfiles = {};
+          const toxicTickers = [];
+          const edgeTickers = [];
+          for (const [ticker, arr] of Object.entries(tickerMap)) {
+            const m = auditMetrics(arr);
+            const avgMfe = arr.reduce((s, t) => s + t.mfe_pct, 0) / arr.length;
+            const avgMae = arr.reduce((s, t) => s + t.mae_pct, 0) / arr.length;
+            let grade = "NEUTRAL";
+            if (m.sqn < -1 && m.n >= 3) { grade = "TOXIC"; toxicTickers.push(ticker); }
+            else if (m.sqn > 1 && m.n >= 3) { grade = "EDGE"; edgeTickers.push(ticker); }
+            else if (m.expectancy < -0.5 && m.n >= 3) { grade = "WEAK"; }
+            else if (m.expectancy > 0.5 && m.n >= 3) { grade = "STRONG"; }
+            tickerProfiles[ticker] = { ...m, avg_mfe_pct: Math.round(avgMfe * 100) / 100, avg_mae_pct: Math.round(avgMae * 100) / 100, grade };
+          }
+
+          // ── 5. Entry Path Report Card ──
+          const pathMap = {};
+          for (const t of trades) {
+            const path = t.entry_path;
+            if (!pathMap[path]) pathMap[path] = [];
+            pathMap[path].push(t);
+          }
+          const entryPaths = {};
+          for (const [path, arr] of Object.entries(pathMap)) {
+            const m = auditMetrics(arr);
+            let action = "KEEP";
+            if (m.sqn < 0 && m.n >= 10) action = "DISABLE";
+            else if (m.sqn < 0.5 && m.n >= 10) action = "RESTRICT";
+            else if (m.sqn > 1.5 && m.n >= 5) action = "BOOST";
+            entryPaths[path] = { ...m, action };
+          }
+
+          // ── 6. Regime Analysis ──
+          const regimeMap = {};
+          for (const t of trades) {
+            const reg = t.regime || "unknown";
+            if (!regimeMap[reg]) regimeMap[reg] = [];
+            regimeMap[reg].push(t);
+          }
+          const regimeAnalysis = {};
+          for (const [regime, arr] of Object.entries(regimeMap)) {
+            regimeAnalysis[regime] = auditMetrics(arr);
+          }
+
+          // ── 7. Time-of-Day Analysis ──
+          const hourMap = {};
+          for (const t of trades) {
+            if (!t.entry_ts) continue;
+            const d = new Date(t.entry_ts > 1e12 ? t.entry_ts : t.entry_ts * 1000);
+            const h = d.getUTCHours();
+            const nyH = ((h - 5 + 24) % 24); // approximate ET
+            if (!hourMap[nyH]) hourMap[nyH] = [];
+            hourMap[nyH].push(t);
+          }
+          const timeOfDay = {};
+          for (const [hour, arr] of Object.entries(hourMap)) {
+            timeOfDay[hour] = auditMetrics(arr);
+          }
+
+          // ── 8. Hold Time Analysis ──
+          const holdTimes = trades.map(t => {
+            const entMs = t.entry_ts > 1e12 ? t.entry_ts : t.entry_ts * 1000;
+            const exMs = t.exit_ts > 1e12 ? t.exit_ts : t.exit_ts * 1000;
+            return { ...t, hold_min: (exMs - entMs) / 60000 };
+          }).filter(t => t.hold_min > 0);
+
+          const holdBuckets = {
+            "< 1h": holdTimes.filter(t => t.hold_min < 60),
+            "1-4h": holdTimes.filter(t => t.hold_min >= 60 && t.hold_min < 240),
+            "4h-1d": holdTimes.filter(t => t.hold_min >= 240 && t.hold_min < 1440),
+            "1-3d": holdTimes.filter(t => t.hold_min >= 1440 && t.hold_min < 4320),
+            "3-7d": holdTimes.filter(t => t.hold_min >= 4320 && t.hold_min < 10080),
+            "> 7d": holdTimes.filter(t => t.hold_min >= 10080),
+          };
+          const holdTimeAnalysis = {};
+          for (const [bucket, arr] of Object.entries(holdBuckets)) {
+            holdTimeAnalysis[bucket] = auditMetrics(arr);
+          }
+
+          // ── 9. Drawdown Analysis ──
+          let equity = 0, peak = 0, maxDD = 0, maxDDStart = 0, maxDDEnd = 0;
+          let ddStart = 0, currentDD = 0;
+          let consecLosses = 0, maxConsecLosses = 0;
+          const equityCurve = [];
+          for (const t of trades) {
+            equity += t.pnl_pct;
+            equityCurve.push({ ts: t.exit_ts, equity: Math.round(equity * 100) / 100, ticker: t.ticker });
+            if (equity > peak) { peak = equity; ddStart = t.exit_ts; }
+            currentDD = peak - equity;
+            if (currentDD > maxDD) { maxDD = currentDD; maxDDStart = ddStart; maxDDEnd = t.exit_ts; }
+            if (t.pnl_pct <= 0) { consecLosses++; if (consecLosses > maxConsecLosses) maxConsecLosses = consecLosses; }
+            else { consecLosses = 0; }
+          }
+          const drawdownAnalysis = {
+            max_drawdown_pct: Math.round(maxDD * 100) / 100,
+            max_consecutive_losses: maxConsecLosses,
+            peak_equity_pct: Math.round(peak * 100) / 100,
+            final_equity_pct: Math.round(equity * 100) / 100,
+          };
+
+          // ── 10. Trade Classification Breakdown ──
+          const classBreakdown = { optimal: 0, left_money: 0, bad_entry: 0, gave_back: 0, noise_trade: 0 };
+          for (const t of trades) {
+            const mfe = t.mfe_pct, mae = t.mae_pct, pnl = t.pnl_pct;
+            const exitEff = mfe > 0 ? pnl / mfe : 0;
+            if (t.mfe_atr < 0.5 && t.mae_atr < 0.5) classBreakdown.noise_trade++;
+            else if (pnl > 0 && exitEff >= 0.7) classBreakdown.optimal++;
+            else if (pnl > 0 && exitEff < 0.5) classBreakdown.left_money++;
+            else if (mfe > 1 && pnl <= 0) classBreakdown.gave_back++;
+            else if (mae > mfe && pnl <= 0) classBreakdown.bad_entry++;
+            else if (pnl > 0) classBreakdown.left_money++;
+            else classBreakdown.bad_entry++;
+          }
+
+          // ── 11. Sector Analysis ──
+          const sectorMap = {};
+          for (const t of trades) {
+            const sec = t.sector || "Unknown";
+            if (!sectorMap[sec]) sectorMap[sec] = [];
+            sectorMap[sec].push(t);
+          }
+          const sectorAnalysis = {};
+          for (const [sec, arr] of Object.entries(sectorMap)) {
+            sectorAnalysis[sec] = auditMetrics(arr);
+          }
+
+          // ── 12. SL/TP Analysis ──
+          const winnerMaePcts = trades.filter(t => t.pnl_pct > 0).map(t => t.mae_pct).sort((a, b) => a - b);
+          const winnerMfePcts = trades.filter(t => t.pnl_pct > 0).map(t => t.mfe_pct).sort((a, b) => a - b);
+          const loserMfePcts = trades.filter(t => t.pnl_pct <= 0).map(t => t.mfe_pct).sort((a, b) => a - b);
+          const pctl = (arr, p) => arr.length > 0 ? arr[Math.min(Math.floor(arr.length * p), arr.length - 1)] : 0;
+          const slTpAnalysis = {
+            winner_mae: { p50: Math.round(pctl(winnerMaePcts, 0.5) * 100) / 100, p75: Math.round(pctl(winnerMaePcts, 0.75) * 100) / 100, p90: Math.round(pctl(winnerMaePcts, 0.9) * 100) / 100 },
+            winner_mfe: { p50: Math.round(pctl(winnerMfePcts, 0.5) * 100) / 100, p75: Math.round(pctl(winnerMfePcts, 0.75) * 100) / 100, p90: Math.round(pctl(winnerMfePcts, 0.9) * 100) / 100 },
+            loser_mfe: { p50: Math.round(pctl(loserMfePcts, 0.5) * 100) / 100, p75: Math.round(pctl(loserMfePcts, 0.75) * 100) / 100, p90: Math.round(pctl(loserMfePcts, 0.9) * 100) / 100 },
+          };
+
+          // ═══════════════════════════════════════════════════════
+          // RECOMMENDATIONS ENGINE (impact-scored)
+          // ═══════════════════════════════════════════════════════
+          const recommendations = [];
+
+          // R1: SHORT restriction
+          if (shorts.length >= 10) {
+            const sm = auditMetrics(shorts);
+            if (sm.expectancy < 0) {
+              const highConvShorts = shorts.filter(t => t.rank >= 80);
+              const savedPnl = shorts.filter(t => t.rank < 80 && t.pnl_pct < 0).reduce((s, t) => s + Math.abs(t.pnl_pct), 0);
+              const lostPnl = shorts.filter(t => t.rank < 80 && t.pnl_pct > 0).reduce((s, t) => s + t.pnl_pct, 0);
+              recommendations.push({
+                id: "restrict_short",
+                title: "Restrict SHORT trades to high-conviction only",
+                impact_pct: Math.round((savedPnl - lostPnl) * 100) / 100,
+                confidence: sm.n >= 50 ? "HIGH" : sm.n >= 20 ? "MEDIUM" : "LOW",
+                detail: `SHORT: ${sm.win_rate}% WR, ${sm.avg_pnl_pct}% avg P&L across ${sm.n} trades. Restricting to rank>=80 would filter ${shorts.length - highConvShorts.length} trades. Estimated net P&L recovery: +${Math.round((savedPnl - lostPnl) * 100) / 100}% pts.`,
+                config: { key: "deep_audit_short_min_rank", value: 80 },
+              });
+            }
+          }
+
+          // R2: max_loss tightening
+          const maxLossTrades = trades.filter(t => t.exit_reason.includes("max_loss"));
+          if (maxLossTrades.length >= 5) {
+            const mlm = auditMetrics(maxLossTrades);
+            const totalDamage = maxLossTrades.reduce((s, t) => s + Math.abs(t.pnl_pct), 0);
+            const halfRecovery = totalDamage * 0.4;
+            recommendations.push({
+              id: "tighten_max_loss",
+              title: "Tighten max-loss fuse thresholds",
+              impact_pct: Math.round(halfRecovery * 100) / 100,
+              confidence: maxLossTrades.length >= 20 ? "HIGH" : "MEDIUM",
+              detail: `${maxLossTrades.length} max_loss exits at avg ${mlm.avg_pnl_pct}%. Total damage: -${Math.round(totalDamage * 100) / 100}% pts. Tighter fuse (-2%/-5% from -3%/-8%) could recover ~40%.`,
+              config: { key: "deep_audit_max_loss_pct", value: { normal: -2, pdz: -5 } },
+            });
+          }
+
+          // R3: Ticker blacklist
+          if (toxicTickers.length > 0) {
+            const toxicDamage = toxicTickers.reduce((s, tk) => {
+              return s + tickerMap[tk].reduce((s2, t) => s2 + Math.abs(Math.min(0, t.pnl_pct)), 0);
+            }, 0);
+            recommendations.push({
+              id: "ticker_blacklist",
+              title: `Auto-ban ${toxicTickers.length} toxic tickers`,
+              impact_pct: Math.round(toxicDamage * 0.6 * 100) / 100,
+              confidence: "HIGH",
+              detail: `Tickers with SQN < -1.0 and n>=3: ${toxicTickers.join(", ")}. These collectively lost ${Math.round(toxicDamage * 100) / 100}% pts. Blacklisting prevents future entries.`,
+              config: { key: "deep_audit_ticker_blacklist", value: toxicTickers },
+            });
+          }
+
+          // R4: SL cap
+          const wideSLTrades = trades.filter(t => {
+            try {
+              const snap = t.signal_snapshot ? JSON.parse(t.signal_snapshot) : {};
+              return (snap.sl_mult || 1) > 1.2;
+            } catch { return false; }
+          });
+          const normalSLTrades = trades.filter(t => !wideSLTrades.includes(t));
+          if (wideSLTrades.length >= 20) {
+            const wm = auditMetrics(wideSLTrades);
+            const nm = auditMetrics(normalSLTrades);
+            if (nm.sqn > wm.sqn) {
+              recommendations.push({
+                id: "sl_cap",
+                title: "Cap SL multiplier at 1.2x ATR",
+                impact_pct: Math.round((nm.avg_pnl_pct - wm.avg_pnl_pct) * wideSLTrades.length * 0.3 * 100) / 100,
+                confidence: wideSLTrades.length >= 50 ? "HIGH" : "MEDIUM",
+                detail: `Wide SL (>1.2x): ${wm.win_rate}% WR, SQN ${wm.sqn}. Normal SL: ${nm.win_rate}% WR, SQN ${nm.sqn}. Capping improves consistency.`,
+                config: { key: "deep_audit_sl_cap_mult", value: 1.2 },
+              });
+            }
+          }
+
+          // R5: RSI exit preference
+          const rsiExits = trades.filter(t => t.exit_reason.includes("RSI") || t.exit_reason.includes("FUSE"));
+          if (rsiExits.length >= 10) {
+            const rm = auditMetrics(rsiExits);
+            const nonRsi = trades.filter(t => !rsiExits.includes(t));
+            const nrm = auditMetrics(nonRsi);
+            if (rm.avg_pnl_pct > nrm.avg_pnl_pct * 2) {
+              recommendations.push({
+                id: "rsi_exit_preference",
+                title: "Favor RSI exhaustion exits over fixed TP",
+                impact_pct: Math.round((rm.avg_pnl_pct - nrm.avg_pnl_pct) * Math.min(30, nonRsi.length * 0.1) * 100) / 100,
+                confidence: rm.n >= 50 ? "HIGH" : "MEDIUM",
+                detail: `RSI exits: ${rm.win_rate}% WR, ${rm.avg_pnl_pct}% avg. Non-RSI exits: ${nrm.win_rate}% WR, ${nrm.avg_pnl_pct}% avg. Delay TP when RSI is trending to let more trades reach RSI exit.`,
+                config: { key: "deep_audit_rsi_tp_delay", value: true },
+              });
+            }
+          }
+
+          // R6: Regime-based entry blocking
+          for (const [regime, arr] of Object.entries(regimeMap)) {
+            if (arr.length < 10) continue;
+            const m = auditMetrics(arr);
+            if (m.expectancy < -0.5) {
+              recommendations.push({
+                id: `block_regime_${regime}`,
+                title: `Block entries in ${regime} regime`,
+                impact_pct: Math.round(Math.abs(m.total_pnl_pct) * 0.5 * 100) / 100,
+                confidence: arr.length >= 30 ? "HIGH" : "MEDIUM",
+                detail: `${regime}: ${m.win_rate}% WR, ${m.avg_pnl_pct}% avg P&L across ${m.n} trades. Total P&L: ${m.total_pnl_pct}%.`,
+                config: { key: "deep_audit_block_regime", value: regime },
+              });
+            }
+          }
+
+          // R7: Time-of-day toxic hours
+          for (const [hour, m] of Object.entries(timeOfDay)) {
+            if (m.n < 10) continue;
+            if (m.expectancy < -0.5) {
+              recommendations.push({
+                id: `avoid_hour_${hour}`,
+                title: `Avoid entries at ${hour}:00 ET`,
+                impact_pct: Math.round(Math.abs(m.total_pnl_pct) * 0.3 * 100) / 100,
+                confidence: m.n >= 30 ? "HIGH" : "MEDIUM",
+                detail: `Hour ${hour}:00 ET: ${m.win_rate}% WR, ${m.avg_pnl_pct}% avg across ${m.n} trades.`,
+                config: { key: "deep_audit_avoid_hours", value: Number(hour) },
+              });
+            }
+          }
+
+          // Sort recommendations by impact descending
+          recommendations.sort((a, b) => b.impact_pct - a.impact_pct);
+
+          // ── Build Top 5 Strengths / Issues ──
+          const strengths = [];
+          const issues = [];
+
+          // Strengths from exit reasons
+          for (const [reason, data] of Object.entries(exitReasonAudit)) {
+            if (data.verdict === "STAR") strengths.push({ label: `${reason} exits`, detail: `${data.win_rate}% WR, +${data.avg_pnl_pct}% avg across ${data.n} trades` });
+          }
+          if (directionAnalysis.LONG.win_rate > 55) strengths.push({ label: "LONG direction", detail: `${directionAnalysis.LONG.win_rate}% WR, +${directionAnalysis.LONG.avg_pnl_pct}% avg` });
+          if (edgeTickers.length > 0) strengths.push({ label: `${edgeTickers.length} edge tickers`, detail: edgeTickers.slice(0, 5).join(", ") });
+
+          // Issues from exit reasons
+          for (const [reason, data] of Object.entries(exitReasonAudit)) {
+            if (data.verdict === "TOXIC" && data.n >= 5) issues.push({ label: `${reason} exits`, detail: `${data.win_rate}% WR, ${data.avg_pnl_pct}% avg across ${data.n} trades` });
+          }
+          if (directionAnalysis.SHORT.expectancy < 0 && shorts.length >= 10) {
+            issues.push({ label: "SHORT trades unprofitable", detail: `${directionAnalysis.SHORT.win_rate}% WR, ${directionAnalysis.SHORT.avg_pnl_pct}% avg across ${directionAnalysis.SHORT.n} trades` });
+          }
+          if (toxicTickers.length > 0) {
+            issues.push({ label: `${toxicTickers.length} toxic tickers`, detail: toxicTickers.join(", ") });
+          }
+          if (drawdownAnalysis.max_consecutive_losses >= 5) {
+            issues.push({ label: `${drawdownAnalysis.max_consecutive_losses} consecutive losses`, detail: `Max drawdown: ${drawdownAnalysis.max_drawdown_pct}%` });
+          }
+
+          return sendJSON({
+            ok: true,
+            generated_at: new Date().toISOString(),
+            trade_count: trades.length,
+            overall,
+            direction_analysis: directionAnalysis,
+            exit_reason_audit: exitReasonAudit,
+            ticker_profiles: tickerProfiles,
+            toxic_tickers: toxicTickers,
+            edge_tickers: edgeTickers,
+            entry_paths: entryPaths,
+            regime_analysis: regimeAnalysis,
+            time_of_day: timeOfDay,
+            hold_time_analysis: holdTimeAnalysis,
+            drawdown_analysis: drawdownAnalysis,
+            classification_breakdown: classBreakdown,
+            sector_analysis: sectorAnalysis,
+            sl_tp_analysis: slTpAnalysis,
+            strengths: strengths.slice(0, 5),
+            issues: issues.slice(0, 5),
+            recommendations,
+          }, 200, corsHeaders(env, req));
+        } catch (e) {
+          console.error("[DEEP AUDIT] Error:", e);
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
+        }
+      }
+
       if (routeKey === "GET /timed/calibration/status") {
         try {
           const KV = env?.KV_TIMED;
@@ -35094,6 +35598,32 @@ export default {
       }
 
       // ═══════════════════════════════════════════════════════════════════════
+      // POST /timed/admin/model-config — write arbitrary keys to model_config
+      if (routeKey === "POST /timed/admin/model-config") {
+        try {
+          const db = env?.DB;
+          if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
+          const body = await req.json();
+          const updates = body?.updates;
+          if (!Array.isArray(updates) || updates.length === 0) {
+            return sendJSON({ ok: false, error: "updates array required" }, 400, corsHeaders(env, req));
+          }
+          const stmts = [];
+          for (const u of updates) {
+            if (!u.key) continue;
+            stmts.push(db.prepare(
+              `INSERT OR REPLACE INTO model_config (config_key, config_value, description, updated_at, updated_by) VALUES (?1, ?2, ?3, ?4, ?5)`
+            ).bind(u.key, String(u.value), u.description || `Deep audit: ${u.key}`, new Date().toISOString(), "deep_audit"));
+          }
+          if (stmts.length > 0) {
+            await db.batch(stmts);
+          }
+          return sendJSON({ ok: true, written: stmts.length }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
+        }
+      }
+
       // SYSTEM INTELLIGENCE (unified Calibration + Model)
       // ═══════════════════════════════════════════════════════════════════════
 
@@ -44266,6 +44796,22 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           _calibratedTPTiers = { trim: _adaptiveSLTP.trim, exit: _adaptiveSLTP.exit, runner: _adaptiveSLTP.runner };
         }
 
+        // Load deep audit config from model_config
+        let _deepAuditConfig = {};
+        try {
+          const db2 = env?.DB;
+          if (db2) {
+            const daKeys = ["deep_audit_short_min_rank", "deep_audit_ticker_blacklist", "deep_audit_max_loss_pct", "deep_audit_sl_cap_mult", "deep_audit_rsi_tp_delay", "deep_audit_avoid_hours", "deep_audit_block_regime"];
+            const daRows = (await db2.prepare(
+              `SELECT config_key, config_value FROM model_config WHERE config_key IN (${daKeys.map((_, i) => `?${i + 1}`).join(",")})`
+            ).bind(...daKeys).all())?.results || [];
+            for (const r of daRows) {
+              try { _deepAuditConfig[r.config_key] = JSON.parse(r.config_value); } catch { _deepAuditConfig[r.config_key] = r.config_value; }
+            }
+          }
+        } catch (_) {}
+        env._deepAuditConfig = _deepAuditConfig;
+
         // Load golden profiles from KV for HTF/LTF entry floors
         try {
           const gpData = await kvGetJSON(KV, "timed:calibration:golden-profiles");
@@ -44412,6 +44958,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
               _goldenProfiles: env._goldenProfiles || null,
               _marketRegime: env._marketRegime || null,
               _sectorRegime: env._sectorRegimeCache?.[tickerSector] || null,
+              _deepAuditConfig: env._deepAuditConfig || null,
             };
             if (env._currentVix != null) result._vix = env._currentVix;
 

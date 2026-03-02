@@ -5937,10 +5937,12 @@
             return {
               ticker: String(t.ticker || "").toUpperCase(),
               date: ts ? new Date(Number(ts)).toLocaleDateString("en-CA") : "—",
-              action: isClosed ? "EXIT" : (isTrader && Number(t.trimmed_pct) > 0 ? "TRIM" : "ENTRY"),
-              price: isClosed ? Number(t.exit_price || t.price) : Number(t.entry_price || t.price),
+              action: isTrader
+                ? (isClosed ? "EXIT" : (Number(t.trimmed_pct) > 0 ? "TRIM" : "ENTRY"))
+                : (act === "SELL" ? "SELL" : act === "DCA_BUY" ? "DCA" : "BUY"),
+              price: Number(t.exit_price || t.price || t.entry_price) || 0,
               pnl: isClosed ? Number(t.pnl) || 0 : null,
-              reason: isClosed && isTrader ? humanizeExitReason(t.exit_reason || t.exitReason) : (isClosed && t.reason ? t.reason : ""),
+              reason: isClosed && isTrader ? humanizeExitReason(t.exit_reason || t.exitReason) : (t.reason || ""),
               status: s,
               raw: t,
             };
@@ -6077,7 +6079,7 @@
           <div className="tt-card p-4">
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-xs font-medium text-[var(--tt-text-faint)] uppercase tracking-wider">
-                Trade History (${tradeHistory.length})
+                ${isTrader ? `Trade History (${tradeHistory.length})` : `Lot History (${closedTrades.length} exits / ${tradeHistory.length} lots)`}
               </h3>
               ${window._ttIsPro && tradeHistory.length > 0 && html`<button
                 onClick=${() => setExpanded(!expanded)}
@@ -6126,7 +6128,7 @@
                       </thead>
                       <tbody>
                         ${tradeHistory.slice(0, 50).map((h, i) => {
-                          const actionColor = h.action === "ENTRY" ? "text-cyan-400" : h.action === "EXIT" ? (h.pnl >= 0 ? "text-[var(--tt-accent)]" : "text-[var(--tt-negative)]") : "text-yellow-400";
+                          const actionColor = (h.action === "ENTRY" || h.action === "BUY" || h.action === "DCA") ? "text-cyan-400" : (h.action === "EXIT" || h.action === "SELL") ? (h.pnl != null && h.pnl >= 0 ? "text-[var(--tt-accent)]" : "text-[var(--tt-negative)]") : "text-yellow-400";
                           return html`<tr
                             key=${i}
                             className="border-b border-[var(--tt-border)]/30 hover:bg-[var(--tt-bg-hover)] cursor-pointer transition-colors"

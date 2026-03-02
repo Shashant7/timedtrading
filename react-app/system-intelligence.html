@@ -1206,6 +1206,379 @@ function HistoryTab({ onViewReport }) {
 }
 
 // ═══════════════════════════════════════════════════════════════
+// DEEP AUDIT TAB
+// ═══════════════════════════════════════════════════════════════
+function DeepAuditTab() {
+  const [audit, setAudit] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [applying, setApplying] = useState(false);
+  const [appliedMsg, setAppliedMsg] = useState(null);
+  const [subTab, setSubTab] = useState("summary");
+
+  const runAudit = async () => {
+    setLoading(true); setError(null);
+    try {
+      const res = await fetch(`${API_BASE}/timed/calibration/deep-audit?_t=${Date.now()}`, { cache: "no-store" });
+      const json = await res.json();
+      if (!json.ok) throw new Error(json.error || "Audit failed");
+      setAudit(json);
+    } catch (e) { setError(e.message); }
+    finally { setLoading(false); }
+  };
+
+  useEffect(() => { runAudit(); }, []);
+
+  const applyTopRecs = async () => {
+    if (!audit?.recommendations?.length) return;
+    setApplying(true); setAppliedMsg(null);
+    try {
+      const top3 = audit.recommendations.slice(0, 3);
+      const config = {};
+      for (const r of top3) { if (r.config) config[r.config.key] = r.config.value; }
+      const res = await fetch(`${API_BASE}/timed/admin/model-config`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ updates: Object.entries(config).map(([k, v]) => ({ key: k, value: JSON.stringify(v) })) }),
+      });
+      const json = await res.json();
+      setAppliedMsg(json.ok ? `Applied ${top3.length} recommendations to model_config` : (json.error || "Apply failed"));
+    } catch (e) { setAppliedMsg("Error: " + e.message); }
+    finally { setApplying(false); }
+  };
+
+  const pct = (v) => v != null ? `${v}%` : "—";
+  const signPct = (v) => v != null ? (v >= 0 ? `+${v}%` : `${v}%`) : "—";
+  const cardCls = "rounded-lg border p-3";
+  const cardStyle = (positive) => ({ background: "rgba(255,255,255,0.02)", borderColor: positive ? "rgba(16,185,129,0.2)" : "rgba(239,68,68,0.2)" });
+
+  if (loading) return (
+    <div className="flex items-center justify-center py-20">
+      <div className="w-6 h-6 border-2 border-white/20 border-t-emerald-500 rounded-full" style={{animation:"spin 0.7s linear infinite"}} />
+      <span className="ml-3 text-sm text-slate-400">Running deep audit...</span>
+    </div>
+  );
+
+  if (error) return (
+    <div className="p-4 rounded-lg bg-rose-500/10 border border-rose-500/20 text-rose-300 text-sm">
+      <p className="font-medium">Deep Audit Error</p><p className="mt-1">{error}</p>
+      <button className="mt-2 px-3 py-1 rounded bg-rose-500/20 text-xs" onClick={runAudit}>Retry</button>
+    </div>
+  );
+
+  if (!audit) return <div className="text-center py-10 text-slate-400 text-sm">Click "Run Audit" to start</div>;
+
+  const subTabs = [
+    { id: "summary", label: "Executive Summary" },
+    { id: "direction", label: "Direction" },
+    { id: "exits", label: "Exit Reasons" },
+    { id: "tickers", label: "Tickers" },
+    { id: "paths", label: "Entry Paths" },
+    { id: "time", label: "Time & Hold" },
+    { id: "recs", label: `Recommendations (${audit.recommendations?.length || 0})` },
+  ];
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-4">
+        <div>
+          <h2 className="text-base font-semibold text-white">Deep System Audit</h2>
+          <p className="text-[11px] text-slate-400">{audit.trade_count} closed trades analyzed at {new Date(audit.generated_at).toLocaleString()}</p>
+        </div>
+        <div className="flex gap-2">
+          <button className="px-3 py-1.5 rounded text-xs font-medium bg-white/5 border border-white/10 text-slate-300 hover:bg-white/10" onClick={runAudit}>Refresh</button>
+          {audit.recommendations?.length > 0 && (
+            <button className="px-3 py-1.5 rounded text-xs font-medium bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 hover:bg-emerald-500/25"
+              onClick={applyTopRecs} disabled={applying}>
+              {applying ? "Applying..." : `Apply Top ${Math.min(3, audit.recommendations.length)} Recs`}
+            </button>
+          )}
+        </div>
+      </div>
+      {appliedMsg && <div className="mb-3 p-2 rounded text-xs bg-emerald-500/10 border border-emerald-500/20 text-emerald-300">{appliedMsg}</div>}
+
+      <div className="flex gap-1 border-b border-white/[0.06] mb-4 overflow-x-auto">
+        {subTabs.map(t => (
+          <button key={t.id} onClick={() => setSubTab(t.id)} className={`px-3 py-1.5 text-[11px] font-medium whitespace-nowrap ${subTab === t.id ? "tab-active" : "tab-inactive"}`}>{t.label}</button>
+        ))}
+      </div>
+
+      {/* ── Executive Summary ── */}
+      {subTab === "summary" && (
+        <div className="space-y-4">
+          {/* Overall Metrics */}
+          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-2">
+            {[
+              ["Trades", audit.overall.n],
+              ["Win Rate", pct(audit.overall.win_rate)],
+              ["Expectancy", signPct(audit.overall.expectancy)],
+              ["SQN", audit.overall.sqn],
+              ["Profit Factor", audit.overall.profit_factor],
+              ["Max DD", `-${audit.drawdown_analysis.max_drawdown_pct}%`],
+              ["Max Consec L", audit.drawdown_analysis.max_consecutive_losses],
+            ].map(([label, val]) => (
+              <div key={label} className={cardCls} style={{background:"rgba(255,255,255,0.02)", borderColor:"rgba(255,255,255,0.06)"}}>
+                <div className="text-[10px] text-slate-500 uppercase">{label}</div>
+                <div className="text-sm font-bold text-white mt-0.5">{val}</div>
+              </div>
+            ))}
+          </div>
+
+          {/* Classification */}
+          <div className={cardCls} style={{background:"rgba(255,255,255,0.02)", borderColor:"rgba(255,255,255,0.06)"}}>
+            <h3 className="text-xs font-medium text-slate-400 mb-2">Trade Classification</h3>
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
+              {Object.entries(audit.classification_breakdown || {}).map(([cls, count]) => {
+                const colors = { optimal: "text-emerald-400", left_money: "text-amber-400", bad_entry: "text-rose-400", gave_back: "text-orange-400", noise_trade: "text-slate-400" };
+                return (
+                  <div key={cls} className="text-center">
+                    <div className={`text-lg font-bold ${colors[cls] || "text-white"}`}>{count}</div>
+                    <div className="text-[10px] text-slate-500">{cls.replace(/_/g, " ")}</div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Strengths & Issues side by side */}
+          <div className="grid md:grid-cols-2 gap-3">
+            <div className={cardCls} style={{background:"rgba(16,185,129,0.04)", borderColor:"rgba(16,185,129,0.15)"}}>
+              <h3 className="text-xs font-medium text-emerald-400 mb-2">Strengths</h3>
+              {(audit.strengths || []).map((s, i) => (
+                <div key={i} className="mb-1.5">
+                  <div className="text-[12px] font-medium text-white">{s.label}</div>
+                  <div className="text-[11px] text-slate-400">{s.detail}</div>
+                </div>
+              ))}
+              {(!audit.strengths || audit.strengths.length === 0) && <div className="text-xs text-slate-500">No notable strengths detected</div>}
+            </div>
+            <div className={cardCls} style={{background:"rgba(239,68,68,0.04)", borderColor:"rgba(239,68,68,0.15)"}}>
+              <h3 className="text-xs font-medium text-rose-400 mb-2">Issues</h3>
+              {(audit.issues || []).map((s, i) => (
+                <div key={i} className="mb-1.5">
+                  <div className="text-[12px] font-medium text-white">{s.label}</div>
+                  <div className="text-[11px] text-slate-400">{s.detail}</div>
+                </div>
+              ))}
+              {(!audit.issues || audit.issues.length === 0) && <div className="text-xs text-slate-500">No critical issues detected</div>}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Direction Analysis ── */}
+      {subTab === "direction" && (
+        <div className="space-y-3">
+          {["LONG", "SHORT"].map(dir => {
+            const d = audit.direction_analysis?.[dir];
+            if (!d) return null;
+            const isGood = d.expectancy >= 0;
+            return (
+              <div key={dir} className={cardCls} style={cardStyle(isGood)}>
+                <div className="flex items-center gap-2 mb-2">
+                  <span className={`text-sm font-bold ${isGood ? "text-emerald-400" : "text-rose-400"}`}>{dir}</span>
+                  <span className="text-[10px] px-1.5 py-0.5 rounded" style={{background: isGood ? "rgba(16,185,129,0.15)" : "rgba(239,68,68,0.15)", color: isGood ? "#34d399" : "#fca5a5"}}>{d.n} trades</span>
+                </div>
+                <div className="grid grid-cols-3 md:grid-cols-6 gap-3 text-center">
+                  {[["Win Rate", pct(d.win_rate)], ["Expectancy", signPct(d.expectancy)], ["SQN", d.sqn], ["Avg P&L", signPct(d.avg_pnl_pct)], ["PF", d.profit_factor], ["Total P&L", signPct(d.total_pnl_pct)]].map(([l,v]) => (
+                    <div key={l}><div className="text-[10px] text-slate-500">{l}</div><div className="text-xs font-semibold text-white">{v}</div></div>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+          {audit.direction_analysis?.verdict === "RESTRICT_SHORT" && (
+            <div className="p-3 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-300 text-xs">
+              Recommendation: SHORT trades are net-negative. Restrict to high-conviction only (rank &gt;= 80).
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Exit Reasons ── */}
+      {subTab === "exits" && (
+        <div className="overflow-x-auto">
+          <table className="w-full text-[11px]">
+            <thead><tr className="text-slate-500 border-b border-white/[0.06]">
+              <th className="py-2 text-left font-medium">Exit Reason</th>
+              <th className="py-2 text-right font-medium">Count</th>
+              <th className="py-2 text-right font-medium">Win Rate</th>
+              <th className="py-2 text-right font-medium">Avg P&L</th>
+              <th className="py-2 text-right font-medium">Total P&L</th>
+              <th className="py-2 text-right font-medium">SQN</th>
+              <th className="py-2 text-center font-medium">Verdict</th>
+            </tr></thead>
+            <tbody>
+              {Object.entries(audit.exit_reason_audit || {}).sort((a, b) => b[1].n - a[1].n).map(([reason, d]) => {
+                const colors = { STAR: "text-emerald-400 bg-emerald-500/10", GOOD: "text-emerald-300 bg-emerald-500/5", OK: "text-slate-300 bg-white/5", BAD: "text-amber-400 bg-amber-500/10", TOXIC: "text-rose-400 bg-rose-500/10" };
+                return (
+                  <tr key={reason} className="border-b border-white/[0.03] hover:bg-white/[0.02]">
+                    <td className="py-1.5 text-white font-medium max-w-[200px] truncate" title={reason}>{reason}</td>
+                    <td className="py-1.5 text-right text-slate-300">{d.n}</td>
+                    <td className="py-1.5 text-right text-slate-300">{pct(d.win_rate)}</td>
+                    <td className={`py-1.5 text-right font-semibold ${d.avg_pnl_pct >= 0 ? "text-emerald-400" : "text-rose-400"}`}>{signPct(d.avg_pnl_pct)}</td>
+                    <td className={`py-1.5 text-right ${d.total_pnl_pct >= 0 ? "text-emerald-400" : "text-rose-400"}`}>{signPct(d.total_pnl_pct)}</td>
+                    <td className="py-1.5 text-right text-slate-300">{d.sqn}</td>
+                    <td className="py-1.5 text-center"><span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${colors[d.verdict] || colors.OK}`}>{d.verdict}</span></td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* ── Tickers ── */}
+      {subTab === "tickers" && (
+        <div>
+          {audit.toxic_tickers?.length > 0 && (
+            <div className="mb-3 p-2 rounded bg-rose-500/10 border border-rose-500/20 text-xs text-rose-300">
+              <span className="font-medium">Toxic ({audit.toxic_tickers.length}):</span> {audit.toxic_tickers.join(", ")}
+            </div>
+          )}
+          {audit.edge_tickers?.length > 0 && (
+            <div className="mb-3 p-2 rounded bg-emerald-500/10 border border-emerald-500/20 text-xs text-emerald-300">
+              <span className="font-medium">Edge ({audit.edge_tickers.length}):</span> {audit.edge_tickers.join(", ")}
+            </div>
+          )}
+          <div className="overflow-x-auto max-h-[500px] overflow-y-auto">
+            <table className="w-full text-[11px]">
+              <thead className="sticky top-0 bg-[#0f1117]"><tr className="text-slate-500 border-b border-white/[0.06]">
+                <th className="py-2 text-left font-medium">Ticker</th>
+                <th className="py-2 text-right font-medium">N</th>
+                <th className="py-2 text-right font-medium">WR</th>
+                <th className="py-2 text-right font-medium">Avg P&L</th>
+                <th className="py-2 text-right font-medium">SQN</th>
+                <th className="py-2 text-right font-medium">MFE</th>
+                <th className="py-2 text-right font-medium">MAE</th>
+                <th className="py-2 text-center font-medium">Grade</th>
+              </tr></thead>
+              <tbody>
+                {Object.entries(audit.ticker_profiles || {}).sort((a, b) => b[1].total_pnl_pct - a[1].total_pnl_pct).map(([ticker, d]) => {
+                  const gradeColors = { EDGE: "text-emerald-400 bg-emerald-500/10", STRONG: "text-emerald-300 bg-emerald-500/5", NEUTRAL: "text-slate-300 bg-white/5", WEAK: "text-amber-400 bg-amber-500/10", TOXIC: "text-rose-400 bg-rose-500/10" };
+                  return (
+                    <tr key={ticker} className="border-b border-white/[0.03] hover:bg-white/[0.02]">
+                      <td className="py-1.5 text-white font-medium">{ticker}</td>
+                      <td className="py-1.5 text-right text-slate-300">{d.n}</td>
+                      <td className="py-1.5 text-right text-slate-300">{pct(d.win_rate)}</td>
+                      <td className={`py-1.5 text-right font-semibold ${d.avg_pnl_pct >= 0 ? "text-emerald-400" : "text-rose-400"}`}>{signPct(d.avg_pnl_pct)}</td>
+                      <td className="py-1.5 text-right text-slate-300">{d.sqn}</td>
+                      <td className="py-1.5 text-right text-slate-300">{pct(d.avg_mfe_pct)}</td>
+                      <td className="py-1.5 text-right text-slate-300">{pct(d.avg_mae_pct)}</td>
+                      <td className="py-1.5 text-center"><span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${gradeColors[d.grade] || gradeColors.NEUTRAL}`}>{d.grade}</span></td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* ── Entry Paths ── */}
+      {subTab === "paths" && (
+        <div className="space-y-3">
+          {Object.entries(audit.entry_paths || {}).sort((a, b) => b[1].n - a[1].n).map(([path, d]) => {
+            const actionColors = { KEEP: "text-slate-300 bg-white/5", BOOST: "text-emerald-400 bg-emerald-500/10", RESTRICT: "text-amber-400 bg-amber-500/10", DISABLE: "text-rose-400 bg-rose-500/10" };
+            return (
+              <div key={path} className={cardCls} style={{background:"rgba(255,255,255,0.02)", borderColor:"rgba(255,255,255,0.06)"}}>
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-xs font-semibold text-white">{path}</span>
+                  <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${actionColors[d.action] || actionColors.KEEP}`}>{d.action}</span>
+                </div>
+                <div className="grid grid-cols-3 md:grid-cols-6 gap-2 text-center text-[11px]">
+                  {[["N", d.n], ["WR", pct(d.win_rate)], ["Exp", signPct(d.expectancy)], ["SQN", d.sqn], ["PF", d.profit_factor], ["Total", signPct(d.total_pnl_pct)]].map(([l,v]) => (
+                    <div key={l}><div className="text-[10px] text-slate-500">{l}</div><div className="text-xs text-white">{v}</div></div>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* ── Time & Hold ── */}
+      {subTab === "time" && (
+        <div className="space-y-4">
+          <div>
+            <h3 className="text-xs font-medium text-slate-400 mb-2">Time of Day (ET)</h3>
+            <div className="grid grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-2">
+              {Object.entries(audit.time_of_day || {}).sort((a, b) => Number(a[0]) - Number(b[0])).map(([h, d]) => (
+                <div key={h} className={cardCls} style={{background: d.avg_pnl_pct >= 0 ? "rgba(16,185,129,0.05)" : "rgba(239,68,68,0.05)", borderColor: d.avg_pnl_pct >= 0 ? "rgba(16,185,129,0.15)" : "rgba(239,68,68,0.15)"}}>
+                  <div className="text-[10px] text-slate-500">{h}:00</div>
+                  <div className={`text-xs font-bold ${d.avg_pnl_pct >= 0 ? "text-emerald-400" : "text-rose-400"}`}>{signPct(d.avg_pnl_pct)}</div>
+                  <div className="text-[10px] text-slate-500">{d.n}t / {pct(d.win_rate)}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+          <div>
+            <h3 className="text-xs font-medium text-slate-400 mb-2">Hold Time Buckets</h3>
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2">
+              {Object.entries(audit.hold_time_analysis || {}).map(([bucket, d]) => (
+                <div key={bucket} className={cardCls} style={{background:"rgba(255,255,255,0.02)", borderColor:"rgba(255,255,255,0.06)"}}>
+                  <div className="text-[10px] text-slate-500 font-medium">{bucket}</div>
+                  <div className={`text-sm font-bold ${d.avg_pnl_pct >= 0 ? "text-emerald-400" : "text-rose-400"}`}>{signPct(d.avg_pnl_pct)}</div>
+                  <div className="text-[10px] text-slate-400">{d.n} trades / {pct(d.win_rate)} WR</div>
+                </div>
+              ))}
+            </div>
+          </div>
+          {audit.sector_analysis && (
+            <div>
+              <h3 className="text-xs font-medium text-slate-400 mb-2">Sector Performance</h3>
+              <div className="overflow-x-auto">
+                <table className="w-full text-[11px]">
+                  <thead><tr className="text-slate-500 border-b border-white/[0.06]">
+                    <th className="py-1.5 text-left font-medium">Sector</th>
+                    <th className="py-1.5 text-right font-medium">N</th>
+                    <th className="py-1.5 text-right font-medium">WR</th>
+                    <th className="py-1.5 text-right font-medium">Avg P&L</th>
+                    <th className="py-1.5 text-right font-medium">SQN</th>
+                  </tr></thead>
+                  <tbody>
+                    {Object.entries(audit.sector_analysis).sort((a, b) => b[1].n - a[1].n).map(([sec, d]) => (
+                      <tr key={sec} className="border-b border-white/[0.03]">
+                        <td className="py-1.5 text-white">{sec}</td>
+                        <td className="py-1.5 text-right text-slate-300">{d.n}</td>
+                        <td className="py-1.5 text-right">{pct(d.win_rate)}</td>
+                        <td className={`py-1.5 text-right font-semibold ${d.avg_pnl_pct >= 0 ? "text-emerald-400" : "text-rose-400"}`}>{signPct(d.avg_pnl_pct)}</td>
+                        <td className="py-1.5 text-right text-slate-300">{d.sqn}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Recommendations ── */}
+      {subTab === "recs" && (
+        <div className="space-y-3">
+          {(audit.recommendations || []).length === 0 && <div className="text-sm text-slate-400 text-center py-10">No recommendations generated</div>}
+          {(audit.recommendations || []).map((r, i) => (
+            <div key={r.id} className={cardCls} style={{background:"rgba(255,255,255,0.02)", borderColor: i < 3 ? "rgba(16,185,129,0.2)" : "rgba(255,255,255,0.06)"}}>
+              <div className="flex items-center justify-between mb-1">
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] font-bold text-slate-500">#{i + 1}</span>
+                  <span className="text-xs font-semibold text-white">{r.title}</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${r.confidence === "HIGH" ? "text-emerald-400 bg-emerald-500/10" : r.confidence === "MEDIUM" ? "text-amber-400 bg-amber-500/10" : "text-slate-300 bg-white/5"}`}>{r.confidence}</span>
+                  <span className="text-xs font-bold text-emerald-400">+{r.impact_pct}% pts</span>
+                </div>
+              </div>
+              <p className="text-[11px] text-slate-400 leading-relaxed">{r.detail}</p>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
 // MAIN APP
 // ═══════════════════════════════════════════════════════════════
 function App() {
@@ -1356,6 +1729,7 @@ function App() {
 
   const tabs = [
     { id: "dashboard", label: "Dashboard" },
+    { id: "deep-audit", label: "Deep Audit" },
     { id: "calibration", label: "Calibration" },
     { id: "patterns", label: "Patterns & Learning" },
     { id: "history", label: "History" },
@@ -1406,6 +1780,7 @@ function App() {
         ) : (
           <>
             {tab === "dashboard" && <DashboardTab dashboard={dashboard} />}
+            {tab === "deep-audit" && <DeepAuditTab />}
             {tab === "calibration" && <CalibrationTab report={report} recs={recs} reportId={reportId} onApply={handleApply} applying={applying} appliedMsg={appliedMsg} />}
             {tab === "patterns" && <PatternsTab />}
             {tab === "history" && <HistoryTab onViewReport={handleViewReport} />}

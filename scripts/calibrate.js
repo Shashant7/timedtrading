@@ -8,8 +8,10 @@
  *   3. Upload & trigger server-side analysis — uploads data, server runs lightweight runCalibrationAnalysis
  *
  * Usage:
- *   node scripts/calibrate.js [--lookback 400] [--ticker AAPL] [--dry-run] [--skip-moves] [--skip-autopsy] [--no-sync]
- *   Use --no-sync to skip delta sync before run. Use USE_D1=1 to read from D1 instead of local SQLite.
+ *   node scripts/calibrate.js [--lookback 400] [--since 2025-07-01] [--ticker AAPL] [--dry-run] [--skip-moves] [--skip-autopsy] [--no-sync]
+ *   Use --no-sync to skip delta sync before run.
+ *   USE_D1=1 — Read from worker D1 (recommended): full trade set, matches Trade Autopsy and annotations.
+ *   Without USE_D1 — Read from local SQLite (data/timed-local.db); run ./scripts/export-d1.sh first for a complete snapshot.
  */
 
 const { execSync } = require("child_process");
@@ -23,6 +25,9 @@ const getArg = (name, dflt) => {
 const hasFlag = (name) => args.includes(`--${name}`);
 
 const LOOKBACK_DAYS = Number(getArg("lookback", "400"));
+const SINCE_DATE = getArg("since", "2025-07-01"); // Only include data from this date (when trades exist)
+const SINCE_TS_MS = new Date(SINCE_DATE + "T00:00:00Z").getTime();
+const SINCE_TS_SEC = Math.floor(SINCE_TS_MS / 1000);
 const TICKER_FILTER = getArg("ticker", null);
 const DRY_RUN = hasFlag("dry-run");
 const SKIP_MOVES = hasFlag("skip-moves");
@@ -110,6 +115,11 @@ async function apiPost(endpoint, body) {
   return resp.json();
 }
 
+async function apiGet(endpoint) {
+  const resp = await fetch(`${API_BASE}${endpoint}?key=${API_KEY}`, { method: "GET" });
+  return resp.json();
+}
+
 function computeATR(candles, period = 14) {
   const atrs = new Array(candles.length).fill(0);
   for (let i = 1; i < candles.length; i++) {
@@ -184,9 +194,11 @@ if (!USE_D1 && !NO_SYNC && db) {
 }
 
 console.log(`\n╔══════════════════════════════════════════════════════╗`);
-console.log(`║   Model Calibration Pipeline (local)                 ║`);
+console.log(`║   Model Calibration Pipeline                        ║`);
 console.log(`╚══════════════════════════════════════════════════════╝`);
+console.log(`  Source: ${USE_D1 ? "D1 (worker)" : "local SQLite"}`);
 console.log(`  Lookback: ${LOOKBACK_DAYS} days`);
+console.log(`  Since: ${SINCE_DATE} (only data from this date)`);
 console.log(`  Ticker filter: ${TICKER_FILTER || "ALL"}`);
 console.log(`  Dry run: ${DRY_RUN}`);
 console.log();
@@ -196,6 +208,7 @@ console.log();
 // ═══════════════════════════════════════════════════════════════════════════
 
 let harvestedMoves = [];
+let byTicker = {};
 
 if (!SKIP_MOVES) {
   console.log("═══ Step 1: Harvesting Moves ═══\n");
@@ -207,11 +220,14 @@ if (!SKIP_MOVES) {
   );
   console.log(`  [${elapsed()}] Total: ${rawCandles.length} daily candles`);
 
-  const byTicker = {};
+  byTicker = {};
   for (const c of rawCandles) {
+    const ts = Number(c.ts);
+    const tsMs = ts > 1e12 ? ts : ts * 1000;
+    if (tsMs < SINCE_TS_MS) continue;
     const t = String(c.ticker).toUpperCase();
     (byTicker[t] = byTicker[t] || []).push({
-      ts: Number(c.ts), o: Number(c.o), h: Number(c.h),
+      ts, o: Number(c.o), h: Number(c.h),
       l: Number(c.l), c: Number(c.c),
     });
   }
@@ -437,7 +453,8 @@ if (!SKIP_AUTOPSY) {
   console.log("═══ Step 2: Autopsying Trades ═══\n");
 
   const tickerWhere = TICKER_FILTER ? `AND t.ticker='${TICKER_FILTER}'` : "";
-  console.log(`  [${elapsed()}] Fetching closed trades...`);
+  const sinceWhere = `AND t.entry_ts >= ${SINCE_TS_SEC}`;
+  console.log(`  [${elapsed()}] Fetching closed trades (on or after ${SINCE_DATE})...`);
   const trades = queryChunked(
     `SELECT t.trade_id, t.ticker, t.direction, t.entry_ts, t.exit_ts,
             t.entry_price, t.exit_price, t.pnl_pct, t.rank, t.rr, t.status,
@@ -445,7 +462,7 @@ if (!SKIP_AUTOPSY) {
             da.entry_path AS da_entry_path
      FROM trades t
      LEFT JOIN direction_accuracy da ON da.trade_id = t.trade_id
-     WHERE t.status IN ('WIN','LOSS','FLAT') ${tickerWhere}
+     WHERE t.status IN ('WIN','LOSS','FLAT') ${tickerWhere} ${sinceWhere}
      ORDER BY t.entry_ts`
   );
   console.log(`  Closed trades: ${trades.length}`);
@@ -641,44 +658,46 @@ if (!SKIP_AUTOPSY) {
       });
     }
 
-    // Fetch manual annotations from D1 and merge into autopsied trades
+    // Fetch manual annotations from D1 and merge into autopsied trades (no top-level await)
     console.log(`  [${elapsed()}] Fetching manual annotations...`);
     let annotationCount = 0;
-    try {
-      const annResp = await fetch(`${API_BASE}/timed/admin/trade-autopsy/annotations?all=1&key=${API_KEY}`);
-      if (annResp.ok) {
-        const annData = await annResp.json();
+    fetch(`${API_BASE}/timed/admin/trade-autopsy/annotations?all=1&key=${API_KEY}`)
+      .then(annResp => (annResp.ok ? annResp.json() : {}))
+      .then(annData => {
         const annotationMap = annData.annotations || {};
         for (const t of autopsiedTrades) {
           const ann = annotationMap[t.trade_id];
-          if (ann && ann.classification) {
-            t.manual_classification = ann.classification;
-            annotationCount++;
+          if (ann) {
+            if (ann.classification) {
+              t.manual_classification = ann.classification;
+              annotationCount++;
+            }
+            if (ann.notes != null && String(ann.notes).trim()) t.manual_notes = ann.notes;
           }
         }
-      }
-    } catch (e) {
-      console.log(`    Could not fetch annotations: ${e.message}`);
-    }
-    console.log(`  [${elapsed()}] Merged ${annotationCount} manual annotations`);
-
-    console.log(`  [${elapsed()}] Autopsied trades: ${autopsiedTrades.length}`);
-    const byCls = {};
-    for (const t of autopsiedTrades) byCls[t.classification] = (byCls[t.classification] || 0) + 1;
-    for (const [cls, n] of Object.entries(byCls).sort((a, b) => b[1] - a[1])) {
-      console.log(`    ${cls}: ${n}`);
-    }
-    if (autopsiedTrades.length > 0) {
-      const avgR = autopsiedTrades.reduce((s, t) => s + t.r_multiple, 0) / autopsiedTrades.length;
-      const avgEff = autopsiedTrades.reduce((s, t) => s + t.exit_efficiency, 0) / autopsiedTrades.length;
-      const withVix = autopsiedTrades.filter(t => t.vix_at_entry != null).length;
-      const withState = autopsiedTrades.filter(t => t.state_at_entry != null).length;
-      const unknownState = autopsiedTrades.filter(t => !t.state_at_entry || t.state_at_entry === "unknown").length;
-      console.log(`    Avg R-multiple: ${avgR.toFixed(2)}`);
-      console.log(`    Avg exit efficiency: ${(avgEff * 100).toFixed(1)}%`);
-      console.log(`    With VIX: ${withVix}  |  With scoring state: ${withState}  |  Unknown state: ${unknownState}`);
-    }
-    console.log();
+      })
+      .catch(e => { console.log(`    Could not fetch annotations: ${e.message}`); })
+      .finally(() => {
+        console.log(`  [${elapsed()}] Merged ${annotationCount} manual annotations`);
+        console.log(`  [${elapsed()}] Autopsied trades: ${autopsiedTrades.length}`);
+        const byCls = {};
+        for (const t of autopsiedTrades) byCls[t.classification] = (byCls[t.classification] || 0) + 1;
+        for (const [cls, n] of Object.entries(byCls).sort((a, b) => b[1] - a[1])) {
+          console.log(`    ${cls}: ${n}`);
+        }
+        if (autopsiedTrades.length > 0) {
+          const avgR = autopsiedTrades.reduce((s, t) => s + t.r_multiple, 0) / autopsiedTrades.length;
+          const avgEff = autopsiedTrades.reduce((s, t) => s + t.exit_efficiency, 0) / autopsiedTrades.length;
+          const withVix = autopsiedTrades.filter(t => t.vix_at_entry != null).length;
+          const withState = autopsiedTrades.filter(t => t.state_at_entry != null).length;
+          const unknownState = autopsiedTrades.filter(t => !t.state_at_entry || t.state_at_entry === "unknown").length;
+          console.log(`    Avg R-multiple: ${avgR.toFixed(2)}`);
+          console.log(`    Avg exit efficiency: ${(avgEff * 100).toFixed(1)}%`);
+          console.log(`    With VIX: ${withVix}  |  With scoring state: ${withState}  |  Unknown state: ${unknownState}`);
+        }
+        console.log();
+        runUpload();
+      });
   }
 } else {
   console.log("  Skipping trade autopsy (--skip-autopsy)\n");
@@ -1124,7 +1143,7 @@ async function uploadAndAnalyze() {
     if (r.system_health) {
       const h = r.system_health.overall;
       console.log(`\n  System Health:`);
-      console.log(`    Trades: ${h.n}  |  Win Rate: ${(h.win_rate * 100).toFixed(1)}%  |  Expectancy: ${h.expectancy}`);
+      console.log(`    Trades: ${h.n}  |  Win Rate: ${Number(h.win_rate).toFixed(1)}%  |  Expectancy: ${h.expectancy}`);
       console.log(`    SQN: ${h.sqn}  |  Avg R: ${h.avg_r}  |  Profit Factor: ${h.profit_factor}`);
       const verdict = h.sqn >= 3 ? "EXCELLENT" : h.sqn >= 2 ? "GOOD" : h.sqn >= 1 ? "NEEDS WORK" : "BROKEN";
       console.log(`    Verdict: ${verdict}`);
@@ -1150,13 +1169,86 @@ async function uploadAndAnalyze() {
   } else {
     console.error(`  [${elapsed()}] Analysis failed:`, runResp.error);
   }
+
+  // ═══ Deep Audit: Time-of-Day, Hold Time, Drawdown ═══
+  console.log(`  [${elapsed()}] Running deep audit...`);
+  try {
+    const daResp = await apiGet("/timed/calibration/deep-audit");
+    if (daResp.ok) {
+      console.log(`\n  ╔═══════════════════════════════════════════════╗`);
+      console.log(`  ║   DEEP SYSTEM AUDIT                            ║`);
+      console.log(`  ╚═══════════════════════════════════════════════╝`);
+
+      const o = daResp.overall;
+      console.log(`\n  Overall: ${o.n} trades  |  WR ${o.win_rate}%  |  SQN ${o.sqn}  |  PF ${o.profit_factor}  |  Exp ${o.expectancy}`);
+
+      const dd = daResp.drawdown_analysis;
+      console.log(`  Drawdown: Max DD ${dd.max_drawdown_pct}%  |  Max Consec Losses ${dd.max_consecutive_losses}  |  Peak ${dd.peak_equity_pct}%`);
+
+      // Direction
+      console.log(`\n  Direction:`);
+      for (const dir of ["LONG", "SHORT"]) {
+        const d = daResp.direction_analysis?.[dir];
+        if (d) console.log(`    ${dir}: ${d.n}t  WR ${d.win_rate}%  Exp ${d.expectancy}  SQN ${d.sqn}  Total ${d.total_pnl_pct}%`);
+      }
+      if (daResp.direction_analysis?.verdict === "RESTRICT_SHORT") {
+        console.log(`    ** RECOMMENDATION: Restrict SHORT trades (negative expectancy) **`);
+      }
+
+      // Time of Day
+      console.log(`\n  Time of Day (ET):`);
+      const todEntries = Object.entries(daResp.time_of_day || {}).sort((a, b) => Number(a[0]) - Number(b[0]));
+      for (const [h, d] of todEntries) {
+        if (d.n < 5) continue;
+        const bar = d.avg_pnl_pct >= 0 ? "+" : "";
+        console.log(`    ${String(h).padStart(2)}:00  ${String(d.n).padStart(3)}t  WR ${String(d.win_rate).padStart(5)}%  ${bar}${d.avg_pnl_pct}%`);
+      }
+
+      // Hold Time
+      console.log(`\n  Hold Time Buckets:`);
+      for (const [bucket, d] of Object.entries(daResp.hold_time_analysis || {})) {
+        if (d.n === 0) continue;
+        console.log(`    ${bucket.padEnd(8)}  ${String(d.n).padStart(3)}t  WR ${String(d.win_rate).padStart(5)}%  Avg ${d.avg_pnl_pct >= 0 ? "+" : ""}${d.avg_pnl_pct}%`);
+      }
+
+      // Classification
+      console.log(`\n  Classification:`);
+      for (const [cls, cnt] of Object.entries(daResp.classification_breakdown || {})) {
+        console.log(`    ${cls.padEnd(15)} ${cnt}`);
+      }
+
+      // Top Recommendations
+      if (daResp.recommendations?.length > 0) {
+        console.log(`\n  Recommendations (${daResp.recommendations.length}):`);
+        for (const r of daResp.recommendations.slice(0, 5)) {
+          console.log(`    #${daResp.recommendations.indexOf(r) + 1} [${r.confidence}] +${r.impact_pct}% pts — ${r.title}`);
+        }
+      }
+
+      // Toxic & Edge tickers
+      if (daResp.toxic_tickers?.length > 0) {
+        console.log(`\n  Toxic Tickers: ${daResp.toxic_tickers.join(", ")}`);
+      }
+      if (daResp.edge_tickers?.length > 0) {
+        console.log(`  Edge Tickers: ${daResp.edge_tickers.join(", ")}`);
+      }
+      console.log();
+    } else {
+      console.log(`  Deep audit skipped: ${daResp.error || "no data"}`);
+    }
+  } catch (e) {
+    console.log(`  Deep audit error: ${e.message}`);
+  }
 }
 
-uploadAndAnalyze().then(() => {
-  if (db) try { db.close(); } catch (_) {}
-  console.log(`  [${elapsed()}] Done.\n`);
-}).catch(err => {
-  if (db) try { db.close(); } catch (_) {}
-  console.error("Fatal error:", err);
-  process.exit(1);
-});
+function runUpload() {
+  uploadAndAnalyze().then(() => {
+    if (db) try { db.close(); } catch (_) {}
+    console.log(`  [${elapsed()}] Done.\n`);
+  }).catch(err => {
+    if (db) try { db.close(); } catch (_) {}
+    console.error("Fatal error:", err);
+    process.exit(1);
+  });
+}
+if (SKIP_AUTOPSY || autopsiedTrades.length === 0) runUpload();
