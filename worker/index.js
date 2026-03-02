@@ -603,6 +603,7 @@ const ROUTES = [
   ["GET", "/timed/calibration/status", "GET /timed/calibration/status"],
   ["POST", "/timed/calibration/apply", "POST /timed/calibration/apply"],
   ["POST", "/timed/calibration/profile-impact", "POST /timed/calibration/profile-impact"],
+  ["POST", "/timed/calibration/rollback",       "POST /timed/calibration/rollback"],
   ["POST", "/timed/trades/reset", "POST /timed/trades/reset"],
   ["POST", "/timed/admin/model-config", "POST /timed/admin/model-config"],
   // ── System Intelligence (unified Calibration + Model) ──
@@ -2369,9 +2370,11 @@ function qualifiesForEnter(d, asOfTs = null) {
     }
   }
 
-  // Adaptive per-state rank minimum
-  if (stateGate?.min_rank > 0 && score < stateGate.min_rank) {
-    return { qualifies: false, reason: "adaptive_rank_below_min", rank: score, required: stateGate.min_rank, state };
+  // Adaptive per-state rank minimum (with calibrated global fallback)
+  const _calibRankMin = Number(d?._env?._calibratedRankMin) || 0;
+  const effectiveRankMin = stateGate?.min_rank > 0 ? stateGate.min_rank : (_calibRankMin > 0 ? _calibRankMin : 0);
+  if (effectiveRankMin > 0 && score < effectiveRankMin) {
+    return { qualifies: false, reason: "adaptive_rank_below_min", rank: score, required: effectiveRankMin, state };
   }
 
   // Golden Profile gates: enforce HTF/LTF score floors from hindsight oracle
@@ -9326,12 +9329,14 @@ async function processTradeSimulation(
       }
       
       // Fallback SL calculation when TradingView doesn't provide one
-      // Uses calibrated SL multiplier from model_config if available, otherwise 1.5x ATR
+      // Lookup chain: per-state adaptive SL → _default adaptive → calibrated global → 1.5x ATR
       // Floor: never allow SL tighter than 1.2x ATR (protects against bad calibration)
       if (!Number.isFinite(slCandidate) || slCandidate <= 0) {
         const atr = Number(tickerData?.atr);
         const MIN_SL_ATR = 1.2;
-        const calibratedSlMult = Number(env?._adaptiveSLTP?.sl_atr) || 0;
+        const _sltp = env?._adaptiveSLTP;
+        const _tradeState = tickerData?.state || "";
+        const calibratedSlMult = Number(_sltp?.[_tradeState]?.sl_atr) || Number(_sltp?.["_default"]?.sl_atr) || Number(env?._calibratedSlAtr) || 0;
         const slMultiplier = calibratedSlMult >= MIN_SL_ATR ? calibratedSlMult : 1.5;
         if (Number.isFinite(atr) && atr > 0 && Number.isFinite(entryPx)) {
           slCandidate = direction === "LONG" 
@@ -15029,6 +15034,12 @@ async function runCalibrationAnalysis(env) {
   const manualBadTrades = new Set(
     trades.filter(t => t.manual_classification === "bad_trade").map(t => t.trade_id)
   );
+  // Trades tagged bad_exit: entry was good but SL/TP/trim was wrong.
+  // These stay in the winner/loser buckets by P&L (valid entry signal) but are
+  // flagged so their MFE/MAE gets 2x weight in SL/TP calibration.
+  const manualBadExits = new Set(
+    trades.filter(t => t.manual_classification === "bad_exit").map(t => t.trade_id)
+  );
 
   const splitIdx = Math.floor(trades.length * 0.75);
   const tradeSorted = [...trades].sort((a, b) => (a.entry_ts || 0) - (b.entry_ts || 0));
@@ -15342,9 +15353,18 @@ async function runCalibrationAnalysis(env) {
         winRate = m.win_rate; expectancy = m.expectancy; sqn = m.sqn; avgR = m.avg_r;
       }
 
-      // SL/TP per state from move data
-      const moveMAEs = arr.filter(a => a.mae_atr != null).map(a => a.mae_atr || a.pullback_atr || 0);
-      const moveMFEsLocal = arr.map(a => a.mfe_atr || a.max_ext_atr || a.move_atr || 0);
+      // SL/TP per state from move data. bad_exit trades get 2x weight (their MFE/MAE
+      // is the signal that exit logic was wrong — calibration should listen harder).
+      const moveMAEs = [], moveMFEsLocal = [];
+      for (const a of arr) {
+        const mae = a.mae_atr ?? a.pullback_atr ?? null;
+        const mfe = a.mfe_atr || a.max_ext_atr || a.move_atr || 0;
+        const weight = manualBadExits.has(a.trade_id) ? 2 : 1;
+        for (let w = 0; w < weight; w++) {
+          if (mae != null) moveMAEs.push(mae);
+          moveMFEsLocal.push(mfe);
+        }
+      }
 
       profiles.push({
         profile_id: `${profileType}_${state}_${Date.now()}`,
@@ -15743,6 +15763,7 @@ async function runCalibrationAnalysis(env) {
       total_trades_after_exclusion: trades.length,
       excluded_count: classificationBreakdown.excluded.length,
       manual_bad_trade_count: manualBadTrades.size,
+      manual_bad_exit_count: manualBadExits.size,
       manual_notes_for_learning: allTradesRaw
         .filter(t => t.manual_notes && String(t.manual_notes).trim())
         .slice(0, 200)
@@ -31920,6 +31941,7 @@ export default {
                   _marketRegime: _rMktRegime,
                   _sectorRegime: _rSecRegime,
                   _deepAuditConfig: env._deepAuditConfig || null,
+                  _calibratedRankMin: env._calibratedRankMin || 0,
                 };
               }
               if (_replayCurrentVix != null) result._vix = _replayCurrentVix;
@@ -35472,6 +35494,40 @@ export default {
           const recs = JSON.parse(row.recommendations_json || "{}");
           const applied = [];
           const now = Date.now();
+
+          // ── Calibration Versioning: snapshot current config before overwriting ──
+          try {
+            await db.prepare(`CREATE TABLE IF NOT EXISTS model_config_history (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              version INTEGER NOT NULL,
+              report_id TEXT,
+              config_key TEXT NOT NULL,
+              config_value TEXT,
+              created_at INTEGER NOT NULL
+            )`).run();
+            const versionRow = await db.prepare(`SELECT MAX(version) as v FROM model_config_history`).first();
+            const nextVersion = (versionRow?.v || 0) + 1;
+            const VERSIONED_KEYS = [
+              "consensus_signal_weights", "consensus_tf_weights",
+              "calibrated_sl_atr", "calibrated_tp_tiers", "calibrated_rank_min",
+              "adaptive_rank_weights", "adaptive_entry_gates", "adaptive_regime_gates", "adaptive_sl_tp",
+            ];
+            const currentCfg = await db.prepare(
+              `SELECT config_key, config_value FROM model_config WHERE config_key IN (${VERSIONED_KEYS.map((_, i) => `?${i+1}`).join(",")})`
+            ).bind(...VERSIONED_KEYS).all();
+            if (currentCfg?.results?.length > 0) {
+              const stmts = currentCfg.results.map(r =>
+                db.prepare(`INSERT INTO model_config_history (version, report_id, config_key, config_value, created_at) VALUES (?1, ?2, ?3, ?4, ?5)`)
+                  .bind(nextVersion, reportId, r.config_key, r.config_value, now)
+              );
+              for (let i = 0; i < stmts.length; i += 50) {
+                await db.batch(stmts.slice(i, i + 50));
+              }
+              console.log(`[CALIBRATION APPLY] Versioned ${currentCfg.results.length} config keys as v${nextVersion}`);
+            }
+          } catch (vErr) {
+            console.warn("[CALIBRATION APPLY] Versioning failed (non-blocking):", String(vErr?.message || vErr).slice(0, 150));
+          }
           if (recs.signal_weights) {
             await db.prepare(
               `INSERT OR REPLACE INTO model_config (config_key, config_value, description, updated_at, updated_by)
@@ -35605,6 +35661,48 @@ export default {
           return sendJSON({ ok: true, applied }, 200, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // ═══════════════════════════════════════════════════════════════════════
+      // CALIBRATION ROLLBACK — restore previous model_config version
+      // ═══════════════════════════════════════════════════════════════════════
+
+      if (routeKey === "POST /timed/calibration/rollback") {
+        try {
+          const db = env?.DB;
+          if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
+          const body = await req.json().catch(() => ({}));
+          const targetVersion = body.version || null;
+
+          let version = targetVersion;
+          if (!version) {
+            const maxRow = await db.prepare(`SELECT MAX(version) as v FROM model_config_history`).first();
+            version = maxRow?.v || 0;
+          }
+          if (!version || version <= 0) {
+            return sendJSON({ ok: false, error: "no_history_to_rollback" }, 400, corsHeaders(env, req));
+          }
+
+          const rows = (await db.prepare(
+            `SELECT config_key, config_value FROM model_config_history WHERE version = ?1`
+          ).bind(version).all())?.results || [];
+          if (rows.length === 0) {
+            return sendJSON({ ok: false, error: "version_not_found", version }, 404, corsHeaders(env, req));
+          }
+
+          const now = Date.now();
+          const stmts = rows.map(r =>
+            db.prepare(`INSERT OR REPLACE INTO model_config (config_key, config_value, description, updated_at, updated_by) VALUES (?1, ?2, ?3, ?4, ?5)`)
+              .bind(r.config_key, r.config_value, `Rolled back from v${version}`, now, "rollback")
+          );
+          for (let i = 0; i < stmts.length; i += 50) {
+            await db.batch(stmts.slice(i, i + 50));
+          }
+          console.log(`[CALIBRATION ROLLBACK] Restored v${version}: ${rows.length} keys`);
+          return sendJSON({ ok: true, version, restored: rows.length, keys: rows.map(r => r.config_key) }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
         }
       }
 
@@ -44959,11 +45057,30 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
         env._adaptiveSLTP = _adaptiveSLTP;
 
         // Populate calibrated TP tiers for build3TierTPArray
-        if (_adaptiveSLTP?.tp_tiers) {
+        // Lookup: per-state _default from adaptive_sl_tp → calibrated_tp_tiers global
+        const _sltpDefault = _adaptiveSLTP?.["_default"] || {};
+        if (_sltpDefault.tp_trim_atr && _sltpDefault.tp_exit_atr && _sltpDefault.tp_runner_atr) {
+          _calibratedTPTiers = { trim: _sltpDefault.tp_trim_atr, exit: _sltpDefault.tp_exit_atr, runner: _sltpDefault.tp_runner_atr };
+        } else if (_adaptiveSLTP?.tp_tiers) {
           _calibratedTPTiers = _adaptiveSLTP.tp_tiers;
-        } else if (_adaptiveSLTP?.trim && _adaptiveSLTP?.exit && _adaptiveSLTP?.runner) {
-          _calibratedTPTiers = { trim: _adaptiveSLTP.trim, exit: _adaptiveSLTP.exit, runner: _adaptiveSLTP.runner };
         }
+        // Fallback: calibrated_tp_tiers from model_config (written by /calibration/apply)
+        if (!_calibratedTPTiers) {
+          try {
+            const tpRow = (await env.DB?.prepare(`SELECT config_value FROM model_config WHERE config_key='calibrated_tp_tiers'`).first());
+            if (tpRow?.config_value) _calibratedTPTiers = JSON.parse(tpRow.config_value);
+          } catch (_) {}
+        }
+        // Fallback: calibrated_sl_atr global (for SL in processTradeSimulation)
+        try {
+          const slRow = (await env.DB?.prepare(`SELECT config_value FROM model_config WHERE config_key='calibrated_sl_atr'`).first());
+          if (slRow?.config_value) env._calibratedSlAtr = Number(slRow.config_value) || 0;
+        } catch (_) {}
+        // Fallback: calibrated_rank_min for qualifiesForEnter
+        try {
+          const rkRow = (await env.DB?.prepare(`SELECT config_value FROM model_config WHERE config_key='calibrated_rank_min'`).first());
+          if (rkRow?.config_value) env._calibratedRankMin = Number(rkRow.config_value) || 0;
+        } catch (_) {}
 
         // Load deep audit config from model_config
         let _deepAuditConfig = {};
@@ -45128,6 +45245,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
               _marketRegime: env._marketRegime || null,
               _sectorRegime: env._sectorRegimeCache?.[tickerSector] || null,
               _deepAuditConfig: env._deepAuditConfig || null,
+              _calibratedRankMin: env._calibratedRankMin || 0,
             };
             if (env._currentVix != null) result._vix = env._currentVix;
 
