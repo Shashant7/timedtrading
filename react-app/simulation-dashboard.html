@@ -508,8 +508,8 @@
         const [error, setError] = useState(null);
         const hasLoadedRef = React.useRef(false);
 
-        // Fetch trades from Worker
-        const fetchTrades = useCallback(async (version = null) => {
+        // Fetch trades from Worker (retries once on 429 using retryAfter)
+        const fetchTrades = useCallback(async (version = null, isRetry = false) => {
           try {
             if (!hasLoadedRef.current) setLoading(true);
             setRefreshing(true);
@@ -521,7 +521,7 @@
               ? `${API_BASE}/timed/trades?source=${source}&version=${encodeURIComponent(version)}`
               : `${API_BASE}/timed/trades?source=${source}`;
             const url = `${baseUrl}&_t=${ts}`;
-            console.log(`[UI] Fetching trades from ${url}`);
+            if (!isRetry) console.log(`[UI] Fetching trades from ${url}`);
             const res = await fetch(url, {
               cache: "no-store",
               headers: {
@@ -530,9 +530,21 @@
                 Expires: "0",
               },
             });
+            if (res.status === 429 && !isRetry) {
+              const errBody = await res.json().catch(() => ({}));
+              const waitSec = Math.min(60, Math.max(2, Number(errBody.retryAfter) || 10));
+              console.log(`[UI] Rate limited (429), retrying after ${waitSec}s`);
+              await new Promise(r => setTimeout(r, waitSec * 1000));
+              return fetchTrades(version, true);
+            }
             console.log(`[UI] Response status: ${res.status}, ok: ${res.ok}`);
             if (!res.ok) {
               const errorText = await res.text();
+              let errJson = null;
+              try { errJson = JSON.parse(errorText); } catch (_) {}
+              if (errJson?.error === "rate_limit_exceeded") {
+                setError(`Rate limited. Retry in ${errJson.retryAfter ?? 60}s or refresh later.`);
+              }
               console.error(`[UI] HTTP ${res.status} error:`, errorText);
               throw new Error(
                 `HTTP ${res.status}: ${errorText.substring(0, 100)}`,

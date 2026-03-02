@@ -35313,14 +35313,14 @@ export default {
 
       // GET /timed/trades?version=2.1.0 (Get all trades, optional version filter)
       if (routeKey === "GET /timed/trades") {
-        // Rate limiting - increased limits for UI polling (100 requests per minute)
+        // Rate limiting - generous for dashboard (200/min so multiple tabs/refresh don't hit 429)
         const ip = req.headers.get("CF-Connecting-IP") || "unknown";
         const rateLimit = await checkRateLimit(
           KV,
           ip,
           "/timed/trades",
-          100, // 100 requests
-          60, // per minute (instead of per hour)
+          200, // 200 requests
+          60, // per minute
         );
 
         if (!rateLimit.allowed) {
