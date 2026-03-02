@@ -36,6 +36,9 @@ function generateTradingDays(from, to) {
   return days;
 }
 
+// Timeout per batch so backfill doesn't hang indefinitely (Worker can be slow under load)
+const REPLAY_TIMEOUT_MS = 3 * 60 * 1000; // 3 minutes per batch
+
 async function runCandleReplay(date, tickerOffset, tickerBatch) {
   const params = new URLSearchParams({
     key: TIMED_KEY,
@@ -47,14 +50,22 @@ async function runCandleReplay(date, tickerOffset, tickerBatch) {
   });
 
   const url = `${WORKER_BASE}/timed/admin/candle-replay?${params}`;
-  const resp = await fetch(url, { method: "POST" });
+  const controller = new AbortController();
+  const to = setTimeout(() => controller.abort(), REPLAY_TIMEOUT_MS);
 
-  if (!resp.ok) {
-    const text = await resp.text();
-    throw new Error(`HTTP ${resp.status}: ${text.slice(0, 300)}`);
+  try {
+    const resp = await fetch(url, { method: "POST", signal: controller.signal });
+    clearTimeout(to);
+    if (!resp.ok) {
+      const text = await resp.text();
+      throw new Error(`HTTP ${resp.status}: ${text.slice(0, 300)}`);
+    }
+    return resp.json();
+  } catch (e) {
+    clearTimeout(to);
+    if (e.name === "AbortError") throw new Error(`timeout after ${REPLAY_TIMEOUT_MS / 1000}s`);
+    throw e;
   }
-
-  return resp.json();
 }
 
 async function triggerLifecycle() {
@@ -74,27 +85,39 @@ async function replayOneDay(date, batchSize) {
     batchNum++;
     process.stdout.write(`    B${batchNum}(${offset}): `);
 
-    try {
-      const result = await runCandleReplay(date, offset, batchSize);
+    let result = null;
+    let lastErr = null;
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      try {
+        result = await runCandleReplay(date, offset, batchSize);
+        break;
+      } catch (e) {
+        lastErr = e;
+        if (e.message && e.message.includes("timeout") && attempt < 2) {
+          process.stdout.write(`timeout→retry `);
+          await new Promise(r => setTimeout(r, 2000));
+        } else {
+          process.stdout.write(`FAIL `);
+          offset += batchSize;
+          if (batchNum > 30) break;
+          result = null;
+          break;
+        }
+      }
+    }
 
+    if (result) {
       if (!result.ok && result.error) {
         console.error(`ERR: ${result.error}`);
         break;
       }
-
       const scored = result.scored || 0;
       const skipped = result.skipped || 0;
       dayScored += scored;
       daySkipped += skipped;
-
       process.stdout.write(`${scored}s `);
-
       hasMore = result.hasMore === true;
       offset = result.nextTickerOffset || (offset + batchSize);
-    } catch (e) {
-      process.stdout.write(`FAIL `);
-      offset += batchSize;
-      if (batchNum > 30) break;
     }
 
     // Small delay between batches

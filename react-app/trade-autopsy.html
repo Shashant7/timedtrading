@@ -1020,6 +1020,20 @@
           }).catch(() => setError("Failed to load trades")).finally(() => setLoading(false));
         }, []);
 
+        // Deep link: ?trade_id=XXX — open that trade's autopsy modal when trades are loaded
+        const tradeIdFromUrl = (() => {
+          const params = new URLSearchParams(window.location.search);
+          return params.get("trade_id") || params.get("tradeId") || null;
+        })();
+        useEffect(() => {
+          if (!tradeIdFromUrl || !trades.length) return;
+          const match = trades.find(t => (t.trade_id || t.id || "") === tradeIdFromUrl);
+          if (match) {
+            setSelectedTrade(match);
+            try { window.history.replaceState(null, "", `${window.location.pathname}?trade_id=${encodeURIComponent(tradeIdFromUrl)}`); } catch (_) {}
+          }
+        }, [tradeIdFromUrl, trades]);
+
         const filteredTrades = useMemo(() => {
           let out = trades;
           if (filterTicker.trim()) {

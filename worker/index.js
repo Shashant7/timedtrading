@@ -608,6 +608,9 @@ const ROUTES = [
   // ── System Intelligence (unified Calibration + Model) ──
   ["GET", "/timed/system/dashboard", "GET /timed/system/dashboard"],
   ["GET", "/timed/system/history", "GET /timed/system/history"],
+  // ── Move Discovery ──
+  ["GET", "/timed/move-discovery", "GET /timed/move-discovery"],
+  ["POST", "/timed/move-discovery", "POST /timed/move-discovery"],
 ];
 
 function getRouteKey(method, pathname) {
@@ -2151,7 +2154,7 @@ function computeCompletionToTier(tickerData, tier = "TRIM") {
 function qualifiesForEnter(d, asOfTs = null) {
   const state = String(d?.state || "");
   const inCorridor = corridorSide(d) != null;
-  const score = Number(d?.score ?? d?.rank) || 0;
+  let score = Number(d?.score ?? d?.rank) || 0;
   const flags = d?.flags || {};
   const htf = Number(d?.htf_score) || 0;
   const ltf = Number(d?.ltf_score) || 0;
@@ -2231,6 +2234,22 @@ function qualifiesForEnter(d, asOfTs = null) {
     if (avoidArr.includes(nyHour)) {
       return { qualifies: false, reason: "da_toxic_hour", hour: nyHour };
     }
+  }
+
+  // DA-4: Minimum HTF score gate
+  // Move discovery: captured moves avg HTF 27.9 vs missed 20.8 at entry.
+  // Filtering out low-HTF entries reduces noise trades.
+  const daMinHtf = Number(_daConfig.deep_audit_min_htf_score) || 0;
+  if (daMinHtf > 0 && htf < daMinHtf) {
+    return { qualifies: false, reason: "da_htf_too_low", htf, required: daMinHtf };
+  }
+
+  // DA-5: Momentum elite rank boost
+  // Move discovery: 19.6% of captured moves had momentum elite vs 15.4% missed.
+  const daMeBoost = Number(_daConfig.deep_audit_momentum_elite_rank_boost) || 0;
+  const hasMomentumElite = !!d?.flags?.had_momentum_elite || !!d?.had_momentum_elite;
+  if (hasMomentumElite && daMeBoost > 0) {
+    score = Math.min(100, score + daMeBoost);
   }
 
   // Regime-based SHORT blocking: SHORTs have negative EV in chop
@@ -2889,7 +2908,43 @@ function qualifiesForEnter(d, asOfTs = null) {
   if ((flags.thesis_match || flags.momentum_elite) && score >= 70 && rr >= 2.0) {
     return enrichResult({ qualifies: true, path: "elite", confidence: "medium", reason: "momentum_elite" });
   }
-  
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // PATH 6: BREAKOUT ENTRIES (daily level, ATR-relative, EMA stack)
+  //
+  // These paths address the scoring gap: 56.5% of missed valid moves had LOW_RANK
+  // because the reactive scoring engine rates tickers low before traditional triggers
+  // (squeeze, EMA cross, ST flip) fire. Breakout detection catches early moves by
+  // looking at price vs. key levels + volume surge instead.
+  //
+  // Intentionally bypasses rank/completion gates (breakouts occur before those mature).
+  // Still requires: not blacklisted, not toxic hour, minimum RR, minimum entry quality.
+  // ═══════════════════════════════════════════════════════════════════════════
+  const bo = d?.breakout;
+  if (bo && bo.dir === inferredSide) {
+    const boTypeKey = `deep_audit_breakout_${bo.type}_enabled`;
+    const boEnabled = _daConfig[boTypeKey] !== "0";
+    if (boEnabled) {
+      const boMinRR = Number(_daConfig.deep_audit_breakout_min_rr) || 1.5;
+      const boMinEQ = Number(_daConfig.deep_audit_breakout_min_entry_quality) || 40;
+
+      if (rrKnown && rr < boMinRR) {
+        // RR too low for breakout entry
+      } else if (eqScore > 0 && eqScore < boMinEQ) {
+        // Entry quality too low for breakout entry
+      } else {
+        const boConf = (bo.rvol >= 2.0) ? "high" : (bo.rvol >= 1.5) ? "medium" : "low";
+        return enrichResult({
+          qualifies: true,
+          path: `breakout_${bo.type}_${inferredSide.toLowerCase()}`,
+          confidence: boConf,
+          reason: `breakout_${bo.type}`,
+          breakout: bo,
+        });
+      }
+    }
+  }
+
   return { qualifies: false, reason: "criteria_not_met" };
 }
 
@@ -2977,7 +3032,8 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
 
     // EMA regime is now ONE SIGNAL among many — not a master override
     const _regimeConfirms = (direction === "LONG" && _regimeForExit >= 1) || (direction === "SHORT" && _regimeForExit <= -1);
-    const _regimeExitMinAge = positionAgeMin >= 240;
+    const _daMinHoldRegimeH = Number(tickerData?._env?._deepAuditConfig?.deep_audit_min_hold_regime_exit_hours) || 0;
+    const _regimeExitMinAge = positionAgeMin >= Math.max(240, _daMinHoldRegimeH * 60);
 
     // ─────────────────────────────────────────────────────────────────────────
     // HIGHEST PRIORITY: EMA REGIME EXIT
@@ -7952,8 +8008,24 @@ async function processTradeSimulation(
       execState.lastEnterSide != null ? String(execState.lastEnterSide) : null;
     const curTriggerTs = Number(tickerData?.trigger_ts);
     // DATA: 66% of entries were within 1hr of previous on same ticker. Most were losers.
-    // Increase cooldown from 10m to 4hrs to prevent rapid re-entry churn.
-    const ENTER_COOLDOWN_MS = 4 * 60 * 60 * 1000; // 4 hours
+    // Move discovery: 73% of churns start with a LOSS. Extended cooldown after losses.
+    const BASE_ENTER_COOLDOWN_MS = 4 * 60 * 60 * 1000; // 4 hours
+    const _daLossCooldownH = Number(env?._deepAuditConfig?.deep_audit_loss_cooldown_hours) || 0;
+
+    let ENTER_COOLDOWN_MS = BASE_ENTER_COOLDOWN_MS;
+    if (_daLossCooldownH > 0) {
+      const lastClosedOnTicker = allTrades
+        .filter(t => String(t?.ticker || "").toUpperCase() === sym && (t?.status === "LOSS" || t?.status === "WIN" || t?.status === "FLAT"))
+        .sort((a, b) => {
+          const ats = Number(a?.exit_ts) || Number(a?.entry_ts) || 0;
+          const bts = Number(b?.exit_ts) || Number(b?.entry_ts) || 0;
+          return bts - ats;
+        })[0];
+      if (lastClosedOnTicker?.status === "LOSS") {
+        ENTER_COOLDOWN_MS = Math.max(BASE_ENTER_COOLDOWN_MS, _daLossCooldownH * 60 * 60 * 1000);
+      }
+    }
+
     const enterCooldownOk =
       !Number.isFinite(lastEnterMs) || now - lastEnterMs >= ENTER_COOLDOWN_MS;
     const trimCooldownOk =
@@ -8203,6 +8275,11 @@ async function processTradeSimulation(
                 pnl: pnlRemaining,
               },
             );
+            const chartUrl = getTradeAutopsyChartUrl(env, trade.id);
+            if (chartUrl) {
+              embed.fields = embed.fields || [];
+              embed.fields.push({ name: "Chart", value: `[View entry/trim/exit chart](${chartUrl})`, inline: false });
+            }
             const allow = shouldSendDiscordAlert(env, "TRADE_EXIT", {
               ticker: sym,
               direction: trade.direction,
@@ -8510,6 +8587,11 @@ async function processTradeSimulation(
               delta,
               { qty: trimShares, value: p * trimShares, pnl: pnlRealized },
             );
+            const trimChartUrl = getTradeAutopsyChartUrl(env, trade.id);
+            if (trimChartUrl) {
+              embed.fields = embed.fields || [];
+              embed.fields.push({ name: "Chart", value: `[View entry/trim/exit chart](${trimChartUrl})`, inline: false });
+            }
             const sendRes = allow
               ? await notifyDiscord(env, embed).catch((err) => ({
                   ok: false,
@@ -9437,6 +9519,26 @@ async function processTradeSimulation(
           }
         }
 
+        // ── Deep Audit: SL Floor — enforce minimum SL distance ──
+        // Prevents stops from being too tight relative to normal price noise.
+        // Move discovery data shows avg valid move has 10.5% pullback; stops
+        // tighter than 1x ATR get clipped by noise on otherwise winning trades.
+        const _daSlFloor = Number(env?._deepAuditConfig?.deep_audit_sl_floor_mult) || 0;
+        if (_daSlFloor > 0 && Number.isFinite(finalSL) && Number.isFinite(entryPx)) {
+          const atrForFloor = Number(tickerData?.atr) || 0;
+          if (atrForFloor > 0) {
+            const actualSlDist = Math.abs(entryPx - finalSL);
+            const minSlDist = atrForFloor * _daSlFloor;
+            if (actualSlDist < minSlDist) {
+              const preSL = finalSL;
+              finalSL = direction === "LONG"
+                ? Math.round((entryPx - minSlDist) * 100) / 100
+                : Math.round((entryPx + minSlDist) * 100) / 100;
+              console.log(`[DA_SL_FLOOR] ${sym}: ${preSL.toFixed(2)} → ${finalSL.toFixed(2)} (floor=${_daSlFloor}x ATR=${atrForFloor.toFixed(2)})`);
+            }
+          }
+        }
+
         if (profileTpMult !== 1.0) {
           if (trimTp?.price && Number.isFinite(trimTp.price)) {
             trimTp.price = Math.round((entryPx + (trimTp.price - entryPx) * profileTpMult) * 100) / 100;
@@ -9667,6 +9769,11 @@ async function processTradeSimulation(
                       pnl: 0,
                     },
                   );
+                  const entryChartUrl = getTradeAutopsyChartUrl(env, tradeId);
+                  if (entryChartUrl) {
+                    embed.fields = embed.fields || [];
+                    embed.fields.push({ name: "Chart", value: `[View entry/trim/exit chart](${entryChartUrl})`, inline: false });
+                  }
                   const sendRes = allow
                     ? await notifyDiscord(env, embed).catch((err) => ({
                         ok: false,
@@ -12319,6 +12426,15 @@ function computeRank(d) {
   const tdSeqBoost = tdIsHigherTF ? (Number(tdSeq.boost) || 0) : 0;
   if (Number.isFinite(tdSeqBoost) && tdSeqBoost !== 0) {
     score += tdSeqBoost;
+  }
+
+  // Breakout detection rank boost: lift tickers showing breakout signals
+  // from their typical low rank (avg 5.8) into the 20-30 range so entry
+  // paths can consider them before traditional triggers fire.
+  const bo = d?.breakout;
+  if (bo && bo.type) {
+    const boostMap = { daily_level: 20, atr_breakout: 15, ema_stack: 12 };
+    score += boostMap[bo.type] || 10;
   }
 
   score = Math.max(0, Math.min(100, score));
@@ -19059,6 +19175,19 @@ function generateTradeActionInterpretation(
     action: actionText,
     reasons: reasons.join("\n"),
   };
+}
+
+/** Base URL for frontend (Trade Autopsy, etc.). Uses APP_URL or default Pages URL. */
+function getAppBaseUrl(env) {
+  const base = (env && env.APP_URL) ? String(env.APP_URL).replace(/\/$/, "") : "https://timedtrading.pages.dev";
+  return base;
+}
+
+/** URL to open Trade Autopsy for a specific trade (chart with entry/trim/exit). */
+function getTradeAutopsyChartUrl(env, tradeId) {
+  if (!tradeId) return null;
+  const base = getAppBaseUrl(env);
+  return `${base}/trade-autopsy.html?trade_id=${encodeURIComponent(String(tradeId))}`;
 }
 
 // Helper: Create Discord embed for trade entry
@@ -31687,7 +31816,7 @@ export default {
         } catch {}
         // Load deep audit config for replay parity with live
         try {
-          const daKeys = ["deep_audit_short_min_rank", "deep_audit_ticker_blacklist", "deep_audit_max_loss_pct", "deep_audit_sl_cap_mult", "deep_audit_rsi_tp_delay", "deep_audit_avoid_hours", "deep_audit_block_regime"];
+          const daKeys = ["deep_audit_short_min_rank", "deep_audit_ticker_blacklist", "deep_audit_max_loss_pct", "deep_audit_sl_cap_mult", "deep_audit_sl_floor_mult", "deep_audit_rsi_tp_delay", "deep_audit_avoid_hours", "deep_audit_block_regime", "deep_audit_min_hold_regime_exit_hours", "deep_audit_loss_cooldown_hours", "deep_audit_min_htf_score", "deep_audit_momentum_elite_rank_boost", "deep_audit_breakout_daily_level_enabled", "deep_audit_breakout_atr_breakout_enabled", "deep_audit_breakout_ema_stack_enabled", "deep_audit_breakout_min_rr", "deep_audit_breakout_min_entry_quality"];
           const daRows = (await db.prepare(
             `SELECT config_key, config_value FROM model_config WHERE config_key IN (${daKeys.map((_, i) => `?${i + 1}`).join(",")})`
           ).bind(...daKeys).all())?.results || [];
@@ -35848,6 +35977,36 @@ export default {
           return sendJSON({ ok: true, history }, 200, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // ═══════════════════════════════════════════════════════════════════════
+      // MOVE DISCOVERY — serve/store report from discover-moves.js
+      // ═══════════════════════════════════════════════════════════════════════
+
+      if (routeKey === "GET /timed/move-discovery") {
+        try {
+          const KV = env?.KV_TIMED;
+          if (!KV) return sendJSON({ ok: false, error: "no_kv" }, 500, corsHeaders(env, req));
+          const raw = await KV.get("timed:move-discovery", "text");
+          if (!raw) return sendJSON({ ok: false, error: "no_data", hint: "Run: USE_D1=1 node scripts/discover-moves.js --upload" }, 404, corsHeaders(env, req));
+          return new Response(raw, { status: 200, headers: { ...corsHeaders(env, req), "Content-Type": "application/json", "Cache-Control": "public, max-age=300" } });
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      if (routeKey === "POST /timed/move-discovery") {
+        try {
+          const KV = env?.KV_TIMED;
+          if (!KV) return sendJSON({ ok: false, error: "no_kv" }, 500, corsHeaders(env, req));
+          const body = await req.json();
+          if (!body?.report) return sendJSON({ ok: false, error: "missing report" }, 400, corsHeaders(env, req));
+          const reportStr = typeof body.report === "string" ? body.report : JSON.stringify(body.report);
+          await KV.put("timed:move-discovery", reportStr, { expirationTtl: 86400 * 90 });
+          return sendJSON({ ok: true, size: reportStr.length }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
         }
       }
 
@@ -44811,7 +44970,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
         try {
           const db2 = env?.DB;
           if (db2) {
-            const daKeys = ["deep_audit_short_min_rank", "deep_audit_ticker_blacklist", "deep_audit_max_loss_pct", "deep_audit_sl_cap_mult", "deep_audit_rsi_tp_delay", "deep_audit_avoid_hours", "deep_audit_block_regime"];
+            const daKeys = ["deep_audit_short_min_rank", "deep_audit_ticker_blacklist", "deep_audit_max_loss_pct", "deep_audit_sl_cap_mult", "deep_audit_sl_floor_mult", "deep_audit_rsi_tp_delay", "deep_audit_avoid_hours", "deep_audit_block_regime", "deep_audit_min_hold_regime_exit_hours", "deep_audit_loss_cooldown_hours", "deep_audit_min_htf_score", "deep_audit_momentum_elite_rank_boost", "deep_audit_breakout_daily_level_enabled", "deep_audit_breakout_atr_breakout_enabled", "deep_audit_breakout_ema_stack_enabled", "deep_audit_breakout_min_rr", "deep_audit_breakout_min_entry_quality"];
             const daRows = (await db2.prepare(
               `SELECT config_key, config_value FROM model_config WHERE config_key IN (${daKeys.map((_, i) => `?${i + 1}`).join(",")})`
             ).bind(...daKeys).all())?.results || [];

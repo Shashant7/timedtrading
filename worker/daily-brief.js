@@ -427,6 +427,12 @@ export async function gatherDailyBriefData(env, type, opts = {}) {
     nqCandles,
     nqCandlesH1,
     nqCandlesM5,
+    spyCandles,
+    spyCandlesH1,
+    spyCandlesM5,
+    qqqCandles,
+    qqqCandlesH1,
+    qqqCandlesM5,
     finnhubEconNews,
     ffToday,
     ffYesterday,
@@ -477,6 +483,26 @@ export async function gatherDailyBriefData(env, type, opts = {}) {
     // NQ 5-min candles (last 100)
     db && opts.d1GetCandles
       ? opts.d1GetCandles(env, "NQ1!", "5", 100).catch(() => ({ candles: [] }))
+      : Promise.resolve({ candles: [] }),
+    // SPY candles (daily, hourly, 5m) — day trader levels alongside ES
+    db && opts.d1GetCandles
+      ? opts.d1GetCandles(env, "SPY", "D", 20).catch(() => ({ candles: [] }))
+      : Promise.resolve({ candles: [] }),
+    db && opts.d1GetCandles
+      ? opts.d1GetCandles(env, "SPY", "60", 50).catch(() => ({ candles: [] }))
+      : Promise.resolve({ candles: [] }),
+    db && opts.d1GetCandles
+      ? opts.d1GetCandles(env, "SPY", "5", 100).catch(() => ({ candles: [] }))
+      : Promise.resolve({ candles: [] }),
+    // QQQ candles (daily, hourly, 5m) — day trader levels alongside NQ
+    db && opts.d1GetCandles
+      ? opts.d1GetCandles(env, "QQQ", "D", 20).catch(() => ({ candles: [] }))
+      : Promise.resolve({ candles: [] }),
+    db && opts.d1GetCandles
+      ? opts.d1GetCandles(env, "QQQ", "60", 50).catch(() => ({ candles: [] }))
+      : Promise.resolve({ candles: [] }),
+    db && opts.d1GetCandles
+      ? opts.d1GetCandles(env, "QQQ", "5", 100).catch(() => ({ candles: [] }))
       : Promise.resolve({ candles: [] }),
     // Finnhub economic/macro news (today + yesterday)
     fetchFinnhubMarketNews(env, yesterday, today),
@@ -633,6 +659,18 @@ export async function gatherDailyBriefData(env, type, opts = {}) {
     nqCandlesM5?.candles || [], nqData
   );
 
+  // SPY technical summary (day trader levels alongside ES; SPX ≈ same scale as ES)
+  const spyTechnical = summarizeTechnical(
+    spyCandles?.candles || [], spyCandlesH1?.candles || [],
+    spyCandlesM5?.candles || [], spyData
+  );
+
+  // QQQ technical summary (day trader levels alongside NQ)
+  const qqqTechnical = summarizeTechnical(
+    qqqCandles?.candles || [], qqqCandlesH1?.candles || [],
+    qqqCandlesM5?.candles || [], qqqData
+  );
+
   // Build result
   const extract = (d) => d ? {
     price: Number(d.price) || 0,
@@ -666,6 +704,8 @@ export async function gatherDailyBriefData(env, type, opts = {}) {
     },
     esTechnical,
     nqTechnical,
+    spyTechnical,
+    qqqTechnical,
     sectors,
     todayEarnings,
     weekEarnings: weekEarnings.slice(0, 30), // cap for prompt size
@@ -954,6 +994,7 @@ Writing Guidelines:
 - Use ticker symbols in CAPS (e.g., AAPL, ES1!)
 - Format percentage changes inline like: AAPL +2.30%, XLK -1.10%
 - CRITICAL: ALL economic data values (CPI, PPI, GDP, etc.) MUST use EXACTLY two decimal places (e.g., 2.40%, 0.30%, not 2.4%, 0.3%). Copy values EXACTLY as provided.
+- Logic and levels: Bearish scenarios (rejection, break below, failure to hold) must target a price LOWER than the key level mentioned. Bullish scenarios (hold, reclaim, break above) must target a price HIGHER than the key level. Never write "break below X" and then give a target "at Y" where Y > X.
 - Keep total length to 1500-2500 words — be thorough, not terse
 - Do NOT use emojis
 
@@ -1020,11 +1061,17 @@ ${Object.entries(data.market).filter(([, v]) => v).map(([sym, v]) => {
   return parts.join(", ");
 }).join("\n")}
 
-## ES Technical Summary:
+## ES Technical Summary (futures; use for ES and approximate SPX — same scale):
 ${JSON.stringify(data.esTechnical, null, 1)}
 
-## NQ Technical Summary:
+## NQ Technical Summary (futures):
 ${JSON.stringify(data.nqTechnical, null, 1)}
+
+## SPY Technical Summary (ETF — day trader levels alongside ES/SPX):
+${JSON.stringify(data.spyTechnical, null, 1)}
+
+## QQQ Technical Summary (ETF — day trader levels alongside NQ):
+${JSON.stringify(data.qqqTechnical, null, 1)}
 
 ## Sector ETF Performance (sorted by magnitude):
 ${data.sectors.map(s => `${s.sym}: ${s.dayChangePct >= 0 ? "+" : ""}${s.dayChangePct.toFixed(2)}% ($${s.price.toFixed(2)})`).join("\n")}
@@ -1100,13 +1147,16 @@ ${(data.investorPositions || []).length > 0
    - **Time Context**: When? "Near-term weakness into Feb 20 before a rebound into early March" — give a timeline, not just direction.
    - Reference VIX (elevated = wider ranges, compressed = breakout pending), EMAs, and any visible pattern setups.
 
-3. **Day Trader Levels & Game Plan** — Use the ATR Fibonacci levels for BOTH ES and NQ:
-   - **ATR Fib Levels**: List the 38.2%, 50%, 61.8%, and 100% ATR levels above and below the anchor (prev close). These define the intraday playing field.
-   - **Golden Gate Status**: If OPEN_UP or OPEN_DOWN, highlight prominently — price has crossed the 38.2% ATR level, so target the 50% and 61.8%.
-   - **Overnight/pre-market range**: key reference for the opening print
-   - **Conditional Game Plan**: Write it as a decision tree:
-     "If ES opens above [overnight high] and holds the +23.6% ATR at $XXXX → bullish bias, target +38.2% at $XXXX, then +50% at $XXXX"
-     "If ES rejects at [level] and breaks below the overnight low at $XXXX → bearish, target -38.2% at $XXXX"
+3. **Day Trader Levels & Game Plan** — Provide levels for BOTH the futures and their cash/ETF equivalents:
+   - **ES / SPX / SPY**: Use ES technical for ES and approximate SPX (same scale). Use SPY technical for SPY-specific levels. List ATR Fib levels (38.2%, 50%, 61.8%, 100%) for each so traders can use ES, SPX, or SPY.
+   - **NQ / QQQ**: Use NQ technical for NQ and QQQ technical for QQQ. List ATR Fib levels for both so traders can use either.
+   - **ATR Fib Levels**: For each instrument (ES, SPY, NQ, QQQ), list the 38.2%, 50%, 61.8%, and 100% ATR levels above and below the anchor (prev close). These define the intraday playing field.
+   - **Golden Gate Status**: If OPEN_UP or OPEN_DOWN for ES or NQ, highlight prominently — price has crossed the 38.2% ATR level, so target the 50% and 61.8%.
+   - **Overnight/pre-market range**: key reference for the opening print (from ES and NQ 5m data).
+   - **Conditional Game Plan**: Write it as a decision tree. CRITICAL — one scenario per sentence, direction must match the target:
+     - Bullish: "If ES opens above [overnight high] and holds [support level], target +38.2% at $XXXX" — the target price MUST be above the reference level.
+     - Bearish: "If ES rejects at [resistance] and breaks below [level], target -38.2% at $XXXX" — the target price MUST be below the break level. Never say "break below" and then give a target price above that level.
+     - Do NOT combine two scenarios in one sentence (e.g. "A rejection at X and a break below Y targets Z" is wrong). Use separate sentences: "Rejection at X targets [level below X]. Alternatively, a break below Y would target [level below Y]."
    - Note any major data release timing that could cause volatility spikes (e.g., "CPI at 8:30 AM — expect elevated volatility, wait for the first 15-min candle to close before committing")
 
 4. **Earnings Watch** — What tickers have earnings today and this week? Pre-market or after-hours? Any pre-market results? Key names to watch.
@@ -1153,11 +1203,17 @@ ${Object.entries(data.market).filter(([, v]) => v).map(([sym, v]) => {
   return parts.join(", ");
 }).join("\n")}
 
-## ES Technical Summary:
+## ES Technical Summary (futures; use for ES and approximate SPX — same scale):
 ${JSON.stringify(data.esTechnical, null, 1)}
 
-## NQ Technical Summary:
+## NQ Technical Summary (futures):
 ${JSON.stringify(data.nqTechnical, null, 1)}
+
+## SPY Technical Summary (ETF — day trader levels alongside ES/SPX):
+${JSON.stringify(data.spyTechnical, null, 1)}
+
+## QQQ Technical Summary (ETF — day trader levels alongside NQ):
+${JSON.stringify(data.qqqTechnical, null, 1)}
 
 ## Sector ETF Performance (sorted by magnitude):
 ${data.sectors.map(s => `${s.sym}: ${s.dayChangePct >= 0 ? "+" : ""}${s.dayChangePct.toFixed(2)}% ($${s.price.toFixed(2)})`).join("\n")}
@@ -1288,7 +1344,42 @@ async function callOpenAI(env, systemPrompt, userPrompt) {
   }
 
   const json = await resp.json();
-  return json.choices?.[0]?.message?.content || "";
+  const raw = json.choices?.[0]?.message?.content || "";
+  return sanitizeBriefContent(raw);
+}
+
+/**
+ * Remove or fix contradictory sentences (e.g. "break below X ... targets at Y" where Y > X).
+ * Catches: (1) "break below X" with target "at Y" where Y > X; (2) "rejection at X" with target "at Y" where Y > X.
+ */
+function sanitizeBriefContent(text) {
+  if (!text || typeof text !== "string") return text;
+  const sentences = text.split(/(?<=[.!?])\s+/);
+  const out = [];
+  for (const sent of sentences) {
+    const atMatch = sent.match(/targets?\s+[^.]*?\s+at\s+([\d.]+)/i) || sent.match(/(?:^|[,\s])at\s+([\d.]+)\s*[.]?$/i);
+    const atNum = atMatch && parseFloat(atMatch[1]);
+    if (!Number.isFinite(atNum)) { out.push(sent); continue; }
+
+    const belowMatch = sent.match(/break below\s+([\d.]+)/i);
+    if (belowMatch) {
+      const belowNum = parseFloat(belowMatch[1]);
+      if (Number.isFinite(belowNum) && atNum > belowNum) {
+        continue; // bearish "break below X" but target above X — drop
+      }
+    }
+
+    const rejectionMatch = sent.match(/rejection at\s+([\d.]+)/i);
+    if (rejectionMatch) {
+      const rejNum = parseFloat(rejectionMatch[1]);
+      if (Number.isFinite(rejNum) && atNum > rejNum && /target|targets|toward|to\s+\d/i.test(sent)) {
+        continue; // "rejection at X" (bearish) but target above X — drop
+      }
+    }
+
+    out.push(sent);
+  }
+  return out.join(" ").replace(/\s{2,}/g, " ").trim();
 }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -1313,24 +1404,28 @@ function buildDiscordBriefEmbed(type, data, content, esPrediction) {
     fields.push({ name: "Market Snapshot", value: mktParts.join(" | "), inline: false });
   }
 
-  // ATR Fibonacci Levels (from ES technical)
-  const esFib = data.esTechnical?.atrFibLevels;
-  if (esFib && esFib.levels) {
-    const lvl = esFib.levels;
+  // ATR Fibonacci Levels — ES (and SPX same scale), SPY, NQ, QQQ
+  const fmtFib = (fib, label) => {
+    if (!fib || !fib.levels) return null;
+    const lvl = fib.levels;
     const fibStr = [
       `38.2%: ${lvl["-38.2%"] ?? "—"} / ${lvl["+38.2%"] ?? "—"}`,
       `50%: ${lvl["-50%"] ?? "—"} / ${lvl["+50%"] ?? "—"}`,
       `61.8%: ${lvl["-61.8%"] ?? "—"} / ${lvl["+61.8%"] ?? "—"}`,
     ].join("\n");
-    const gate = esFib.goldenGate === "OPEN_UP" ? "🟢 Golden Gate OPEN UP"
-      : esFib.goldenGate === "OPEN_DOWN" ? "🔴 Golden Gate OPEN DOWN"
+    const gate = fib.goldenGate === "OPEN_UP" ? "🟢 OPEN UP"
+      : fib.goldenGate === "OPEN_DOWN" ? "🔴 OPEN DOWN"
       : "⚪ Neutral";
-    fields.push({
-      name: `ES Day Trader Levels (ATR ${esFib.dayAtr?.toFixed?.(1) ?? "—"})`,
-      value: `${gate}\n${fibStr}`,
-      inline: false,
-    });
-  }
+    return { name: `${label} (ATR ${fib.dayAtr?.toFixed?.(1) ?? "—"})`, value: `${gate}\n${fibStr}` };
+  };
+  const esFib = data.esTechnical?.atrFibLevels;
+  const spyFib = data.spyTechnical?.atrFibLevels;
+  const nqFib = data.nqTechnical?.atrFibLevels;
+  const qqqFib = data.qqqTechnical?.atrFibLevels;
+  if (esFib?.levels) fields.push(fmtFib(esFib, "ES / SPX Day Trader Levels"));
+  if (spyFib?.levels) fields.push(fmtFib(spyFib, "SPY Day Trader Levels"));
+  if (nqFib?.levels) fields.push(fmtFib(nqFib, "NQ Day Trader Levels"));
+  if (qqqFib?.levels) fields.push(fmtFib(qqqFib, "QQQ Day Trader Levels"));
 
   // Economic Events
   const econEvents = (data.todayEconomicEvents || []).slice(0, 3);

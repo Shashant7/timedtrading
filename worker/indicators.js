@@ -2460,6 +2460,195 @@ export function computeFuelGauge(bundle) {
  * @param {object} [opts] - Optional: { rawBars: { D: [], W: [] }, regime: object }
  * @returns {object} tickerData payload
  */
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// BREAKOUT DETECTION — Three detection methods for identifying early breakout
+// setups that the reactive scoring engine misses (low rank at move start).
+// Each returns a breakout descriptor { type, dir, ... } or null.
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Detect daily level breakout: price breaking above lastHigh or below lastLow
+ * from swing pivot analysis, with volume confirmation.
+ *
+ * @param {object} dailyBundle - daily TF bundle (from computeTfBundle)
+ * @param {object} regime - from computeSwingRegime (has pivots.daily.lastHigh/lastLow)
+ * @param {number} price - current price
+ * @returns {object|null} breakout descriptor or null
+ */
+function detectDailyLevelBreak(dailyBundle, regime, price) {
+  if (!dailyBundle || !regime?.pivots?.daily || !Number.isFinite(price) || price <= 0) return null;
+
+  const lastHigh = regime.pivots.daily.lastHigh?.price;
+  const lastLow = regime.pivots.daily.lastLow?.price;
+  const atr = dailyBundle.atr14;
+  const rvolSp = dailyBundle.rvolSpike || 0;
+  const rvol5Val = dailyBundle.rvol5 || 1;
+  const rvolBest = Math.max(rvolSp, rvol5Val);
+
+  if (!Number.isFinite(atr) || atr <= 0) return null;
+  if (rvolBest < 1.3) return null;
+
+  // Bullish breakout: price above last swing high
+  if (Number.isFinite(lastHigh) && lastHigh > 0 && price > lastHigh) {
+    const dist = (price - lastHigh) / atr;
+    if (dist >= 0 && dist < 1.5) {
+      return {
+        type: "daily_level",
+        dir: "LONG",
+        level: Math.round(lastHigh * 100) / 100,
+        distance_atr: Math.round(dist * 100) / 100,
+        rvol: Math.round(rvolBest * 100) / 100,
+      };
+    }
+  }
+
+  // Bearish breakout: price below last swing low
+  if (Number.isFinite(lastLow) && lastLow > 0 && price < lastLow) {
+    const dist = (lastLow - price) / atr;
+    if (dist >= 0 && dist < 1.5) {
+      return {
+        type: "daily_level",
+        dir: "SHORT",
+        level: Math.round(lastLow * 100) / 100,
+        distance_atr: Math.round(dist * 100) / 100,
+        rvol: Math.round(rvolBest * 100) / 100,
+      };
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Detect ATR-relative breakout: price breaking out of an N-day range
+ * with the move >= 2x ATR and volume confirmation.
+ *
+ * @param {object} dailyBundle - daily TF bundle
+ * @param {Array} dailyBars - raw daily bars sorted ascending
+ * @param {number} price - current price
+ * @param {number} [lookback=10] - number of bars for range computation
+ * @returns {object|null} breakout descriptor or null
+ */
+function detectATRBreakout(dailyBundle, dailyBars, price, lookback = 10) {
+  if (!dailyBundle || !Array.isArray(dailyBars) || dailyBars.length < lookback + 1) return null;
+  if (!Number.isFinite(price) || price <= 0) return null;
+
+  const atr = dailyBundle.atr14;
+  if (!Number.isFinite(atr) || atr <= 0) return null;
+
+  const rvolSp = dailyBundle.rvolSpike || 0;
+  const rvol5Val = dailyBundle.rvol5 || 1;
+  const rvolBest = Math.max(rvolSp, rvol5Val);
+  if (rvolBest < 1.2) return null;
+
+  // Compute N-day range (excluding the latest bar, which is the breakout bar)
+  const rangeSlice = dailyBars.slice(-(lookback + 1), -1);
+  if (rangeSlice.length < lookback) return null;
+
+  let rangeHigh = -Infinity, rangeLow = Infinity;
+  for (const bar of rangeSlice) {
+    if (Number.isFinite(bar.h)) rangeHigh = Math.max(rangeHigh, bar.h);
+    if (Number.isFinite(bar.l)) rangeLow = Math.min(rangeLow, bar.l);
+  }
+
+  if (!Number.isFinite(rangeHigh) || !Number.isFinite(rangeLow)) return null;
+
+  // Bullish ATR breakout
+  if (price > rangeHigh) {
+    const moveAtr = (price - rangeLow) / atr;
+    if (moveAtr >= 2.0) {
+      return {
+        type: "atr_breakout",
+        dir: "LONG",
+        range_high: Math.round(rangeHigh * 100) / 100,
+        range_low: Math.round(rangeLow * 100) / 100,
+        range_atr: Math.round(moveAtr * 100) / 100,
+        rvol: Math.round(rvolBest * 100) / 100,
+      };
+    }
+  }
+
+  // Bearish ATR breakout
+  if (price < rangeLow) {
+    const moveAtr = (rangeHigh - price) / atr;
+    if (moveAtr >= 2.0) {
+      return {
+        type: "atr_breakout",
+        dir: "SHORT",
+        range_high: Math.round(rangeHigh * 100) / 100,
+        range_low: Math.round(rangeLow * 100) / 100,
+        range_atr: Math.round(moveAtr * 100) / 100,
+        rvol: Math.round(rvolBest * 100) / 100,
+      };
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Detect EMA stack breakout: fully aligned EMA stack (5>8>13>21>48 or inverse)
+ * with price above/below the fastest EMA and volume confirmation.
+ *
+ * @param {object} dailyBundle - daily TF bundle (has emaStack, emaRegime, e5, px)
+ * @param {number} price - current price
+ * @returns {object|null} breakout descriptor or null
+ */
+function detectEMAStackBreakout(dailyBundle, price) {
+  if (!dailyBundle || !Number.isFinite(price) || price <= 0) return null;
+
+  const stack = dailyBundle.emaStack || 0;
+  const regime = dailyBundle.emaRegime || 0;
+  const e5 = dailyBundle.e5;
+  const rvolSp = dailyBundle.rvolSpike || 0;
+  const rvol5Val = dailyBundle.rvol5 || 1;
+  const rvolBest = Math.max(rvolSp, rvol5Val);
+
+  if (rvolBest < 1.0) return null;
+  if (!Number.isFinite(e5)) return null;
+
+  // Bullish: 3+ aligned EMAs, regime at least +1, price above EMA5
+  if (stack >= 3 && regime >= 1 && price > e5) {
+    return {
+      type: "ema_stack",
+      dir: "LONG",
+      stack,
+      regime,
+      rvol: Math.round(rvolBest * 100) / 100,
+    };
+  }
+
+  // Bearish: 3+ bearish aligned EMAs, regime at least -1, price below EMA5
+  if (stack <= -3 && regime <= -1 && price < e5) {
+    return {
+      type: "ema_stack",
+      dir: "SHORT",
+      stack,
+      regime,
+      rvol: Math.round(rvolBest * 100) / 100,
+    };
+  }
+
+  return null;
+}
+
+/**
+ * Run all three breakout detectors, returning the first match (priority order:
+ * daily level > ATR > EMA stack — most specific first).
+ *
+ * @param {object} dailyBundle - daily TF bundle
+ * @param {object} regime - from computeSwingRegime
+ * @param {number} price - current price
+ * @param {Array} dailyBars - raw daily bars
+ * @returns {object|null} breakout descriptor or null
+ */
+function detectBreakout(dailyBundle, regime, price, dailyBars) {
+  return detectDailyLevelBreak(dailyBundle, regime, price)
+      || detectATRBreakout(dailyBundle, dailyBars, price)
+      || detectEMAStackBreakout(dailyBundle, price);
+}
+
 export function assembleTickerData(ticker, bundles, existingData = null, opts = null) {
   const bM = bundles?.M;
   const bW = bundles?.W;
@@ -2720,6 +2909,10 @@ export function assembleTickerData(ticker, bundles, existingData = null, opts = 
   const regimeClass = classifyTickerRegime(bD, b4H, bW);
   const regimeParams = getRegimeParams(regimeClass.regime);
 
+  // ── Breakout Detection (daily level, ATR-relative, EMA stack) ──
+  const rawDailyBars = rawBarsEarly?.D || rawBarsEarly?.daily || [];
+  const breakout = detectBreakout(bD, regime, price, rawDailyBars);
+
   return {
     ...base,
     ticker: ticker.toUpperCase(),
@@ -2812,6 +3005,7 @@ export function assembleTickerData(ticker, bundles, existingData = null, opts = 
     regime_score: regimeClass.score,           // -15 to +15
     regime_factors: regimeClass.factors,       // breakdown for debugging/UI
     regime_params: regimeParams,               // adaptive trading parameters
+    breakout: breakout || undefined,           // breakout detection result
     data_source: "alpaca",
     // ── Ichimoku native data (replaces external ichimoku_d/ichimoku_w) ──
     ichimoku_d: bD?.ichimoku ? {

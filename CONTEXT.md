@@ -71,6 +71,13 @@ npm run deploy:worker   # worker only (skip right-rail)
 - Replay: load candles with `beforeTs` (ts <= replay date), not latest
 - Backfill before replay; 10m candles required for trades
 
+**Breakout Entry Paths**
+- Three detectors in `indicators.js`: `detectDailyLevelBreak`, `detectATRBreakout`, `detectEMAStackBreakout`
+- Wired via `detectBreakout()` → `tickerData.breakout` in `assembleTickerData`
+- Entry path `breakout_{type}_{long/short}` in `qualifiesForEnter` — bypasses rank/completion gates
+- Rank boost in `computeRank`: +20 daily_level, +15 atr_breakout, +12 ema_stack
+- Config: `deep_audit_breakout_{daily_level|atr_breakout|ema_stack}_enabled`, `_min_rr`, `_min_entry_quality`
+
 **Inspecting candles**
 - `TICKER=FIX DATE=2025-09-18 TIME=12:10 node scripts/inspect-candles.js` — API
 - Add `--d1` to query D1 directly via wrangler

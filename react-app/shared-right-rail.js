@@ -431,6 +431,465 @@
       );
     }
 
+    // ── Trade chart (entry/trim/exit + SL/TP, for users in Right Rail Trade History) ──
+    function TradeEventChart({ trade, currentPrice, height = 280, apiBase }) {
+      const containerRef = useRef(null);
+      const chartRef = useRef(null);
+      const seriesRef = useRef(null);
+      const priceLinesRef = useRef([]);
+      const [loading, setLoading] = useState(true);
+      const [error, setError] = useState(null);
+
+      const LWC = typeof LightweightCharts !== "undefined" ? LightweightCharts : null;
+      const ticker = trade?.ticker ? String(trade.ticker).toUpperCase() : "";
+      const entryPrice = Number(trade?.entry_price || 0);
+      const exitPrice = Number(trade?.exit_price || 0);
+      const entryTs = trade?.entry_ts;
+      const exitTs = trade?.exit_ts;
+      const trimTs = trade?.trim_ts;
+      const trimPrice = Number(trade?.trim_price || 0);
+      const sl = Number(trade?.sl ?? trade?.sl_price ?? 0);
+      const tp = Number(trade?.tp ?? 0);
+      const isClosed = trade?.status === "WIN" || trade?.status === "LOSS" || trade?.status === "FLAT";
+      const hasTrimmed = (Number(trade?.trimmed_pct || trade?.trimmedPct || 0) > 0);
+
+      useEffect(() => {
+        if (!containerRef.current || !ticker || !LWC || !apiBase) {
+          setLoading(false);
+          if (!ticker) setError("No trade selected");
+          else if (!LWC) setError("Charts unavailable");
+          return;
+        }
+
+        function findBarTime(mapped, tsMs) {
+          if (!mapped?.length || !Number.isFinite(tsMs)) return null;
+          const tsSec = tsMs > 1e12 ? Math.floor(tsMs / 1000) : tsMs;
+          const isDaily = typeof mapped[0].time === "string";
+          if (isDaily) {
+            const dayStr = new Date(tsSec * 1000).toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+            let best = null;
+            for (const b of mapped) {
+              if (String(b.time) <= dayStr && (best === null || String(b.time) > String(best.time))) best = b;
+            }
+            if (best) return best.time;
+            if (String(mapped[0].time) > dayStr) return mapped[0].time;
+            return null;
+          }
+          let best = null;
+          for (const b of mapped) {
+            if (b.time <= tsSec && (best === null || b.time > best.time)) best = b;
+          }
+          if (best) return best.time;
+          if (mapped[0].time > tsSec) return mapped[0].time;
+          return null;
+        }
+
+        function mapCandles(candles, tf) {
+          const mapped = (candles || []).map(c => {
+            const rawTs = Number(c.ts);
+            const ts = rawTs > 1e12 ? Math.floor(rawTs / 1000) : rawTs;
+            return {
+              time: ts,
+              open: Number(c.o),
+              high: Number(c.h),
+              low: Number(c.l),
+              close: Number(c.c),
+            };
+          }).filter(c => c.open > 0 && c.high > 0).sort((a, b) => a.time - b.time);
+          const seen = new Set();
+          const deduped = mapped.filter(x => {
+            if (seen.has(x.time)) return false;
+            seen.add(x.time);
+            return true;
+          });
+          return deduped;
+        }
+
+        const entryMs = entryTs ? (Number(entryTs) < 1e12 ? Number(entryTs) * 1000 : Number(entryTs)) : null;
+        const exitMs = exitTs ? (Number(exitTs) < 1e12 ? Number(exitTs) * 1000 : Number(exitTs)) : null;
+        const threeDaysMs = 3 * 24 * 60 * 60 * 1000;
+        const asOfMs = exitMs ? exitMs + threeDaysMs : (entryMs || Date.now());
+        const limit = 800;
+        const container = containerRef.current;
+        const w = Math.max(container.clientWidth || 320, 200);
+
+        const chart = LWC.createChart(container, {
+          width: w,
+          height: height,
+          layout: { background: { type: "solid", color: "#0b0e11" }, textColor: "#6b7280", fontSize: 10 },
+          grid: { vertLines: { color: "rgba(38,50,95,0.35)" }, horzLines: { color: "rgba(38,50,95,0.35)" } },
+          crosshair: { mode: LWC.CrosshairMode.Normal },
+          rightPriceScale: { borderColor: "rgba(38,50,95,0.5)", scaleMargins: { top: 0.08, bottom: 0.08 } },
+          timeScale: { borderColor: "rgba(38,50,95,0.5)", timeVisible: true, rightOffset: 3 },
+          handleScroll: { vertTouchDrag: false },
+        });
+        chartRef.current = chart;
+
+        const candleSeries = chart.addCandlestickSeries({
+          upColor: "#22c55e", downColor: "#ef4444",
+          borderUpColor: "#22c55e", borderDownColor: "#ef4444",
+          wickUpColor: "#22c55e", wickDownColor: "#ef4444",
+        });
+        seriesRef.current = candleSeries;
+
+        const noLine = { lastValueVisible: false, priceLineVisible: false };
+
+        const url = `${apiBase}/timed/candles?ticker=${encodeURIComponent(ticker)}&tf=10&limit=${limit}&asOfTs=${asOfMs}`;
+        fetch(url, { cache: "no-store" })
+          .then(r => r.json())
+          .then(data => {
+            if (!data.ok || !data.candles || (data.candles || []).length < 2) {
+              setError("No chart data");
+              setLoading(false);
+              return;
+            }
+            const mapped = mapCandles(data.candles, "10");
+            candleSeries.setData(mapped);
+
+            for (const pl of priceLinesRef.current) {
+              try { candleSeries.removePriceLine(pl); } catch (_) {}
+            }
+            priceLinesRef.current = [];
+
+            const rnd = (v) => (Number.isFinite(v) && v > 0 ? v : null);
+            if (rnd(entryPrice)) {
+              priceLinesRef.current.push(candleSeries.createPriceLine({
+                price: entryPrice, color: "#60a5fa", lineWidth: 2, lineStyle: LWC.LineStyle.Solid, axisLabelVisible: true, title: "Entry",
+              }));
+            }
+            if (isClosed && rnd(exitPrice) && exitPrice !== entryPrice) {
+              priceLinesRef.current.push(candleSeries.createPriceLine({
+                price: exitPrice, color: "#f59e0b", lineWidth: 2, lineStyle: LWC.LineStyle.Solid, axisLabelVisible: true, title: "Exit",
+              }));
+            }
+            if (hasTrimmed && rnd(trimPrice)) {
+              priceLinesRef.current.push(candleSeries.createPriceLine({
+                price: trimPrice, color: "#a78bfa", lineWidth: 1.5, lineStyle: LWC.LineStyle.Dashed, axisLabelVisible: true, title: "Trim",
+              }));
+            }
+            if (rnd(sl)) {
+              priceLinesRef.current.push(candleSeries.createPriceLine({
+                price: sl, color: "#ef4444", lineWidth: 2, lineStyle: LWC.LineStyle.Solid, axisLabelVisible: true, title: "SL",
+              }));
+            }
+            if (rnd(tp)) {
+              priceLinesRef.current.push(candleSeries.createPriceLine({
+                price: tp, color: "#22c55e", lineWidth: 2, lineStyle: LWC.LineStyle.Solid, axisLabelVisible: true, title: "TP",
+              }));
+            }
+            const curPrice = Number(currentPrice);
+            if (!isClosed && rnd(curPrice)) {
+              priceLinesRef.current.push(candleSeries.createPriceLine({
+                price: curPrice, color: "#e5e7eb", lineWidth: 1.5, lineStyle: LWC.LineStyle.LargeDashed, axisLabelVisible: true, title: "Current",
+              }));
+            }
+
+            const entryBar = findBarTime(mapped, entryMs);
+            const exitBar = exitMs ? findBarTime(mapped, exitMs) : null;
+            const trimBar = trimTs ? findBarTime(mapped, Number(trimTs) < 1e12 ? Number(trimTs) * 1000 : Number(trimTs)) : null;
+            const markers = [];
+            if (entryBar) markers.push({ time: entryBar, position: "inBar", color: "#60a5fa", shape: "arrowUp", text: "Entry", size: 2 });
+            if (exitBar && exitBar !== entryBar) markers.push({ time: exitBar, position: "aboveBar", color: "#f59e0b", shape: "arrowDown", text: "Exit", size: 2 });
+            if (trimBar && trimBar !== entryBar && trimBar !== exitBar) markers.push({ time: trimBar, position: "aboveBar", color: "#a78bfa", shape: "circle", text: "Trim", size: 1.5 });
+            try { candleSeries.setMarkers(markers); } catch (_) {}
+
+            chart.timeScale().fitContent();
+            const oneWeekSec = 5 * 24 * 3600;
+            const visibleFrom = entryBar != null ? Math.max(mapped[0].time, entryBar - oneWeekSec) : mapped[0].time;
+            const visibleTo = (exitBar != null ? Math.min(mapped[mapped.length - 1].time, exitBar + oneWeekSec) : mapped[mapped.length - 1].time);
+            try { chart.timeScale().setVisibleRange({ from: visibleFrom, to: visibleTo }); } catch (_) {}
+
+            const visibleCandles = mapped.filter(b => b.time >= visibleFrom && b.time <= visibleTo);
+            const priceVals = [...visibleCandles.flatMap(b => [b.low, b.high])];
+            if (entryPrice > 0) priceVals.push(entryPrice);
+            if (exitPrice > 0) priceVals.push(exitPrice);
+            if (sl > 0) priceVals.push(sl);
+            if (tp > 0) priceVals.push(tp);
+            if (curPrice > 0) priceVals.push(curPrice);
+            if (priceVals.length > 0) {
+              let mn = Math.min(...priceVals), mx = Math.max(...priceVals);
+              const pad = (mx - mn) * 0.1 || 1;
+              try { candleSeries.priceScale().setVisibleRange({ from: mn - pad, to: mx + pad }); } catch (_) {}
+            }
+            setLoading(false);
+          })
+          .catch(() => {
+            setError("Failed to load chart");
+            setLoading(false);
+          });
+
+        return () => {
+          try { if (chartRef.current) chartRef.current.remove(); } catch (_) {}
+          chartRef.current = null;
+          seriesRef.current = null;
+          priceLinesRef.current = [];
+        };
+      }, [ticker, trade?.trade_id || trade?.entry_ts, entryPrice, exitPrice, entryTs, exitTs, trimTs, trimPrice, sl, tp, isClosed, hasTrimmed, currentPrice, height, apiBase, LWC]);
+
+      useEffect(() => {
+        const el = containerRef.current;
+        if (!el) return;
+        const ro = new ResizeObserver(() => {
+          if (chartRef.current && el.clientWidth > 0) chartRef.current.resize(el.clientWidth, height);
+        });
+        ro.observe(el);
+        return () => ro.disconnect();
+      }, [height]);
+
+      if (!trade?.ticker) {
+        return (
+          <div className="rounded-lg bg-white/[0.03] border border-white/[0.06] p-4 text-center text-[12px] text-[#6b7280]" style={{ minHeight: height }}>
+            Select a trade to view chart
+          </div>
+        );
+      }
+      if (error) {
+        return (
+          <div className="rounded-lg bg-white/[0.03] border border-white/[0.06] p-4 text-center text-[12px] text-amber-400" style={{ minHeight: height }}>
+            {error}
+          </div>
+        );
+      }
+      return (
+        <div className="rounded-lg overflow-hidden border border-white/[0.06]">
+          <div className="px-2 py-1 flex items-center justify-between bg-white/[0.03] border-b border-white/[0.06] text-[10px] text-[#6b7280]">
+            <span>Entry · Exit · Trim · SL · TP{!isClosed && " · Current"}</span>
+          </div>
+          <div ref={containerRef} style={{ width: "100%", height: height, background: "#0b0e11" }} />
+          {loading && (
+            <div className="absolute inset-0 flex items-center justify-center bg-[#0b0e11]/80 text-[12px] text-[#6b7280]" style={{ marginTop: -height }}>
+              Loading…
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    // ── Trade chart (entry/trim/exit + SL/TP) for Right Rail Trade History ──
+    function TradeEventChart({ trade, currentPrice, height = 280, apiBase }) {
+      const containerRef = useRef(null);
+      const chartRef = useRef(null);
+      const seriesRef = useRef(null);
+      const priceLinesRef = useRef([]);
+      const [loading, setLoading] = useState(true);
+      const [error, setError] = useState(null);
+
+      const LWC = typeof LightweightCharts !== "undefined" ? LightweightCharts : null;
+
+      const findBarTime = (mapped, tsMs) => {
+        if (!mapped?.length || !Number.isFinite(tsMs)) return null;
+        const tsSec = tsMs > 1e12 ? Math.floor(tsMs / 1000) : tsMs;
+        const isDaily = typeof mapped[0].time === "string";
+        if (isDaily) {
+          const dayStr = new Date(tsSec * 1000).toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+          let best = null;
+          for (const b of mapped) {
+            if (String(b.time) <= dayStr && (best === null || String(b.time) > String(best.time))) best = b;
+          }
+          if (best) return best.time;
+          if (String(mapped[0].time) > dayStr) return mapped[0].time;
+          return null;
+        }
+        let best = null;
+        for (const b of mapped) {
+          if (b.time <= tsSec && (best === null || b.time > best.time)) best = b;
+        }
+        if (best) return best.time;
+        if (mapped[0].time > tsSec) return mapped[0].time;
+        return null;
+      };
+
+      const mapCandles = (candles, tf) => {
+        if (!candles?.length) return [];
+        const mapped = candles.map(c => {
+          const rawTs = Number(c.ts);
+          const ts = rawTs > 1e12 ? Math.floor(rawTs / 1000) : rawTs;
+          return {
+            time: ts,
+            open: Number(c.o),
+            high: Number(c.h),
+            low: Number(c.l),
+            close: Number(c.c),
+          };
+        }).filter(c => c.open > 0 && c.high > 0).sort((a, b) => a.time - b.time);
+        const seen = new Set();
+        return mapped.filter(x => {
+          if (seen.has(x.time)) return false;
+          seen.add(x.time);
+          return true;
+        });
+      };
+
+      useEffect(() => {
+        if (!containerRef.current || !trade?.ticker || !apiBase || !LWC) {
+          setLoading(false);
+          if (!LWC) setError("Charts unavailable");
+          return;
+        }
+
+        const tickerSym = String(trade.ticker).toUpperCase();
+        const entryMs = Number(trade.entry_ts);
+        const exitMs = Number(trade.exit_ts) || null;
+        const isClosed = trade.status === "WIN" || trade.status === "LOSS" || trade.status === "FLAT";
+        const asOfMs = isClosed && exitMs ? exitMs + 3 * 24 * 60 * 60 * 1000 : Date.now();
+        const limit = 800;
+        const url = `${apiBase}/timed/candles?ticker=${encodeURIComponent(tickerSym)}&tf=10&limit=${limit}&asOfTs=${asOfMs}`;
+
+        fetch(url, { cache: "no-store" })
+          .then(r => r.json())
+          .then(data => {
+            if (!data.ok || !data.candles?.length) {
+              setError("No chart data");
+              setLoading(false);
+              return;
+            }
+            const mapped = mapCandles(data.candles, "10");
+            if (mapped.length < 2) {
+              setError("Insufficient data");
+              setLoading(false);
+              return;
+            }
+
+            const container = containerRef.current;
+            const chart = LWC.createChart(container, {
+              width: Math.max(container.clientWidth || 320, 200),
+              height,
+              layout: { background: { type: "solid", color: "#0b0e11" }, textColor: "#6b7280", fontSize: 10 },
+              grid: { vertLines: { color: "rgba(38,50,95,0.35)" }, horzLines: { color: "rgba(38,50,95,0.35)" } },
+              crosshair: { mode: LWC.CrosshairMode.Normal },
+              rightPriceScale: { borderColor: "rgba(38,50,95,0.5)", scaleMargins: { top: 0.08, bottom: 0.08 } },
+              timeScale: { borderColor: "rgba(38,50,95,0.5)", timeVisible: true, rightOffset: 3 },
+              handleScroll: { vertTouchDrag: false },
+            });
+            chartRef.current = chart;
+
+            const candleSeries = chart.addCandlestickSeries({
+              upColor: "#22c55e", downColor: "#ef4444",
+              borderUpColor: "#22c55e", borderDownColor: "#ef4444",
+              wickUpColor: "#22c55e", wickDownColor: "#ef4444",
+            });
+            seriesRef.current = candleSeries;
+            candleSeries.setData(mapped);
+
+            const lines = [];
+
+            const ep = Number(trade.entry_price || 0);
+            const xp = Number(trade.exit_price || 0);
+            const trimPx = Number(trade.trim_price || 0);
+            const sl = Number(trade.sl || trade.sl_price || 0);
+            const tp = Number(trade.tp || 0);
+            const curPx = Number.isFinite(Number(currentPrice)) ? Number(currentPrice) : 0;
+
+            if (Number.isFinite(ep) && ep > 0) {
+              const pl = candleSeries.createPriceLine({
+                price: ep, color: "#60a5fa", lineWidth: 2, lineStyle: LWC.LineStyle.Solid,
+                axisLabelVisible: true, title: "Entry",
+              });
+              lines.push(pl);
+            }
+            if (Number.isFinite(xp) && xp > 0 && xp !== ep) {
+              const pl = candleSeries.createPriceLine({
+                price: xp, color: "#f59e0b", lineWidth: 2, lineStyle: LWC.LineStyle.Solid,
+                axisLabelVisible: true, title: "Exit",
+              });
+              lines.push(pl);
+            }
+            if (Number.isFinite(trimPx) && trimPx > 0 && trimPx !== ep && trimPx !== xp) {
+              const pl = candleSeries.createPriceLine({
+                price: trimPx, color: "#a78bfa", lineWidth: 1.5, lineStyle: LWC.LineStyle.Dashed,
+                axisLabelVisible: true, title: "Trim",
+              });
+              lines.push(pl);
+            }
+            if (Number.isFinite(sl) && sl > 0) {
+              const pl = candleSeries.createPriceLine({
+                price: sl, color: "#ef4444", lineWidth: 1.5, lineStyle: LWC.LineStyle.Dashed,
+                axisLabelVisible: true, title: "SL",
+              });
+              lines.push(pl);
+            }
+            if (Number.isFinite(tp) && tp > 0) {
+              const pl = candleSeries.createPriceLine({
+                price: tp, color: "#22c55e", lineWidth: 1.5, lineStyle: LWC.LineStyle.Dashed,
+                axisLabelVisible: true, title: "TP",
+              });
+              lines.push(pl);
+            }
+            if (!isClosed && curPx > 0) {
+              const pl = candleSeries.createPriceLine({
+                price: curPx, color: "#e5e7eb", lineWidth: 1, lineStyle: LWC.LineStyle.LargeDashed,
+                axisLabelVisible: true, title: "Current",
+              });
+              lines.push(pl);
+            }
+            priceLinesRef.current = lines;
+
+            const entryBar = findBarTime(mapped, entryMs);
+            const exitBar = exitMs ? findBarTime(mapped, exitMs) : null;
+            const trimMs = Number(trade.trim_ts);
+            const trimBar = Number.isFinite(trimMs) && trimMs > 0 ? findBarTime(mapped, trimMs) : null;
+            const markers = [];
+            if (entryBar != null) markers.push({ time: entryBar, position: "inBar", color: "#60a5fa", shape: "arrowUp", text: "Entry", size: 2 });
+            if (exitBar != null && exitBar !== entryBar) markers.push({ time: exitBar, position: "aboveBar", color: "#f59e0b", shape: "arrowDown", text: "Exit", size: 2 });
+            if (trimBar != null && trimBar !== entryBar && trimBar !== exitBar) markers.push({ time: trimBar, position: "aboveBar", color: "#a78bfa", shape: "circle", text: "Trim", size: 1.5 });
+            try { candleSeries.setMarkers(markers); } catch (_) {}
+
+            chart.timeScale().fitContent();
+            const oneWeekSec = 5 * 24 * 3600;
+            const visibleFrom = entryBar != null ? Math.max(mapped[0].time, entryBar - oneWeekSec) : mapped[0].time;
+            const visibleTo = exitBar != null ? Math.min(mapped[mapped.length - 1].time, exitBar + oneWeekSec) : mapped[mapped.length - 1].time;
+            try { chart.timeScale().setVisibleRange({ from: visibleFrom, to: visibleTo }); } catch (_) {}
+
+            const priceValues = mapped.filter(b => b.time >= visibleFrom && b.time <= visibleTo).flatMap(b => [b.low, b.high]);
+            if (ep > 0) priceValues.push(ep);
+            if (xp > 0) priceValues.push(xp);
+            if (curPx > 0) priceValues.push(curPx);
+            if (sl > 0) priceValues.push(sl);
+            if (tp > 0) priceValues.push(tp);
+            if (priceValues.length > 0) {
+              let mn = Math.min(...priceValues), mx = Math.max(...priceValues);
+              const pad = (mx - mn) * 0.1 || 1;
+              try { candleSeries.priceScale().setVisibleRange({ from: mn - pad, to: mx + pad }); } catch (_) {}
+            }
+
+            setLoading(false);
+          })
+          .catch(() => {
+            setError("Failed to load chart");
+            setLoading(false);
+          });
+
+        return () => {
+          try { if (chartRef.current) chartRef.current.remove(); } catch (_) {}
+          chartRef.current = null;
+          seriesRef.current = null;
+          priceLinesRef.current = [];
+        };
+      }, [trade?.ticker, trade?.entry_ts, trade?.exit_ts, trade?.entry_price, trade?.exit_price, trade?.trim_ts, trade?.trim_price, trade?.sl, trade?.tp, trade?.status, currentPrice, height, apiBase]);
+
+      if (!trade?.ticker) return null;
+      return (
+        <div className="rounded-lg overflow-hidden border border-white/[0.08] bg-[#0b0e11] relative">
+          <div className="px-2 py-1.5 flex items-center justify-between border-b border-white/[0.06]">
+            <span className="text-[10px] text-[#6b7280] font-medium">
+              {trade.ticker} {trade.direction || ""} — Entry · Exit · SL · TP
+            </span>
+          </div>
+          <div ref={containerRef} style={{ height }} className="w-full" />
+          {loading && (
+            <div className="absolute inset-0 flex items-center justify-center bg-[#0b0e11]/80 text-[12px] text-[#6b7280]" style={{ marginTop: 40 }}>
+              Loading chart…
+            </div>
+          )}
+          {error && (
+            <div className="absolute inset-0 flex items-center justify-center bg-[#0b0e11]/90 text-[12px] text-amber-400" style={{ marginTop: 40 }}>
+              {error}
+            </div>
+          )}
+        </div>
+      );
+    }
+
     return function TickerDetailRightRail({
         ticker,
         trade = null,
@@ -553,6 +1012,10 @@
         const [scoreExpanded, setScoreExpanded] = useState(true);
         const [emaExpanded, setEmaExpanded] = useState(true);
         const [tpExpanded, setTpExpanded] = useState(true);
+        // Trade History: which trade's chart is shown (for embedded entry/exit/SL/TP chart)
+        const [tradeChartSelection, setTradeChartSelection] = useState(null);
+        // Trade History: which trade's chart to show (for embedded entry/exit/SL/TP chart)
+        const [tradeChartSelection, setTradeChartSelection] = useState(null);
 
         // Price source: always use the ticker prop (same object the Card renders)
         // for price/change display. latestTicker is only for context/scoring data.
@@ -571,12 +1034,20 @@
           setRailTab(def === "INVESTOR" ? "INVESTOR" : def);
         }, [tickerSymbol, initialRailTab]);
 
+        // Trade History: default chart selection to first trade when trades load
+        useEffect(() => {
+          if (railTab === "TRADE_HISTORY" && ledgerTrades.length > 0 && !tradeChartSelection) {
+            setTradeChartSelection(ledgerTrades[0]);
+          }
+        }, [railTab, ledgerTrades, tradeChartSelection]);
+
         useEffect(() => {
           setChartCandles([]);
           setChartError(null);
           setChartLoading(false);
           setChartVisibleCount(80);
           setChartEndOffset(0);
+          setTradeChartSelection(null);
         }, [tickerSymbol]);
 
         // Fetch investor data when INVESTOR tab is selected
@@ -781,9 +1252,11 @@
             setLedgerTrades([]);
             setLedgerTradesError(null);
             setLedgerTradesLoading(false);
+            setTradeChartSelection(null);
             return;
           }
 
+          setTradeChartSelection(null); // clear so default will be first of new list
           let cancelled = false;
           const fetchLedgerTrades = async () => {
             try {
@@ -822,6 +1295,13 @@
             cancelled = true;
           };
         }, [tickerSymbol]);
+
+        // Default Trade History chart to first trade when tab has trades and no selection
+        useEffect(() => {
+          if (railTab === "TRADE_HISTORY" && ledgerTrades.length > 0 && tradeChartSelection == null) {
+            setTradeChartSelection(ledgerTrades[0]);
+          }
+        }, [railTab, ledgerTrades, tradeChartSelection]);
 
         useEffect(() => {
           const sym = String(tickerSymbol || "")
@@ -4281,6 +4761,23 @@
                             Open
                           </a>
                         </div>
+
+                        {/* Embedded trade chart: entry, exit, trim, SL, TP (and live current for open) */}
+                        {!ledgerTradesLoading && ledgerTrades.length > 0 && tradeChartSelection && (
+                          <div className="mb-3">
+                            <TradeEventChart
+                              trade={tradeChartSelection}
+                              currentPrice={
+                                (tradeChartSelection.status !== "WIN" && tradeChartSelection.status !== "LOSS" && tradeChartSelection.status !== "FLAT")
+                                  ? (Number(priceSrc?.price ?? priceSrc?.currentPrice ?? 0) || 0)
+                                  : undefined
+                              }
+                              height={280}
+                              apiBase={API_BASE}
+                            />
+                          </div>
+                        )}
+
                         {ledgerTradesLoading ? (
                           <div className="text-xs text-[#6b7280] flex items-center gap-2">
                             <div className="loading-spinner"></div>
@@ -4296,6 +4793,19 @@
                           </div>
                         ) : (
                           <div className="space-y-3">
+                            {/* Embedded trade chart (entry/exit/trim + SL/TP + current for open) */}
+                            <div className="mb-3">
+                              <TradeEventChart
+                                trade={tradeChartSelection || undefined}
+                                currentPrice={
+                                  tradeChartSelection && (tradeChartSelection.status !== "WIN" && tradeChartSelection.status !== "LOSS" && tradeChartSelection.status !== "FLAT")
+                                    ? (Number(priceSrc?.price ?? priceSrc?.currentPrice ?? priceSrc?.cp) || null)
+                                    : null
+                                }
+                                height={280}
+                                apiBase={API_BASE}
+                              />
+                            </div>
                             {/* Ticker P&L Summary */}
                             {(() => {
                               const openTrades = ledgerTrades.filter(t => t.status !== "WIN" && t.status !== "LOSS");
@@ -4423,10 +4933,16 @@
                                 return m > 0 ? `${h}h ${m}m` : `${h}h`;
                               })();
                               
+                              const isChartSelected = tradeChartSelection && (tradeChartSelection.trade_id || tradeChartSelection.id) === (t.trade_id || t.id);
                               return (
                                 <div
                                   key={t.trade_id}
-                                  className="p-2.5 bg-white/[0.02] border border-white/[0.06] rounded"
+                                  role="button"
+                                  tabIndex={0}
+                                  onClick={() => setTradeChartSelection(t)}
+                                  onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setTradeChartSelection(t); } }}
+                                  className={`p-2.5 rounded cursor-pointer transition-all ${isChartSelected ? "bg-white/[0.08] border-2 border-[#60a5fa]/50" : "bg-white/[0.02] border border-white/[0.06] hover:bg-white/[0.04] hover:border-white/[0.1]"}`}
+                                  title="Click to show this trade on the chart above"
                                 >
                                   {/* Header row: Status | Direction | P&L */}
                                   <div className="flex items-center justify-between mb-1.5">
@@ -4596,6 +5112,19 @@
                                         )}
                                       </>
                                     )}
+                                  </div>
+
+                                  {/* View chart (entry/trim/exit) — same as Trade Autopsy + Discord link */}
+                                  <div className="mt-2 pt-2 border-t border-white/[0.06]">
+                                    <a
+                                      href={`trade-autopsy.html?trade_id=${encodeURIComponent(t.trade_id || t.id || "")}`}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="text-[10px] px-2 py-1 rounded bg-white/[0.06] border border-white/[0.08] text-[#93b8f7] hover:text-white hover:bg-white/[0.1] transition-colors inline-flex items-center gap-1"
+                                      title="Open Trade Autopsy chart (entry, trim, exit)"
+                                    >
+                                      View chart
+                                    </a>
                                   </div>
                                 </div>
                               );
