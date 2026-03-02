@@ -56,10 +56,10 @@
 
       const CLASSIFICATION_OPTIONS = [
         { value: "", label: "— Classify —" },
-        { value: "good_trade", label: "Good Trade", hint: "Entry and management were both sound" },
-        { value: "bad_exit", label: "Good Entry, Bad Exit", hint: "Right read on entry, but SL/TP/trim needs work — calibration tunes exit logic" },
-        { value: "bad_trade", label: "Bad Trade", hint: "Should not have entered — forced to loser in calibration" },
-        { value: "data_error", label: "Bad Data", hint: "Stale price, wrong SL/TP, glitch — excluded from calibration" },
+        { value: "good_trade", label: "Good Trade", hint: "Entry and management were both sound", color: "#22c55e", icon: "✓" },
+        { value: "bad_exit", label: "Bad Exit", hint: "Right entry, but SL/TP/trim needs work", color: "#f59e0b", icon: "↗" },
+        { value: "bad_trade", label: "Bad Trade", hint: "Should not have entered", color: "#ef4444", icon: "✗" },
+        { value: "data_error", label: "Bad Data", hint: "Stale price, glitch — excluded", color: "#6b7280", icon: "⚠" },
       ];
 
       const fetchOpts = { cache: "no-store", credentials: "include" };
@@ -915,29 +915,41 @@
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 shrink-0">
+                <div className="space-y-3 shrink-0">
                   <div>
-                    <label className="block text-[11px] font-medium text-[#9ca3af] mb-1">Classification</label>
-                    <select
-                      value={classification}
-                      onChange={e => setClassification(e.target.value)}
-                      className="w-full px-2.5 py-1.5 rounded-lg bg-white/[0.04] border border-white/[0.06] text-[12px] text-white focus:outline-none focus:ring-1 focus:ring-[#14b8a6]/50"
-                    >
-                      {CLASSIFICATION_OPTIONS.map(opt => (
-                        <option key={opt.value || "empty"} value={opt.value}>{opt.label}</option>
-                      ))}
-                    </select>
+                    <label className="block text-[11px] font-medium text-[#9ca3af] mb-2">Classification</label>
+                    <div className="flex gap-2">
+                      {CLASSIFICATION_OPTIONS.filter(o => o.value).map(opt => {
+                        const selected = classification === opt.value;
+                        return (
+                          <button
+                            key={opt.value}
+                            onClick={() => setClassification(selected ? "" : opt.value)}
+                            title={opt.hint}
+                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-medium transition-all duration-150"
+                            style={{
+                              background: selected ? opt.color + "20" : "rgba(255,255,255,0.03)",
+                              border: `1px solid ${selected ? opt.color + "80" : "rgba(255,255,255,0.06)"}`,
+                              color: selected ? opt.color : "#9ca3af",
+                            }}
+                          >
+                            <span className="text-[13px]">{opt.icon}</span>
+                            {opt.label}
+                          </button>
+                        );
+                      })}
+                    </div>
                     {classification && CLASSIFICATION_OPTIONS.find(o => o.value === classification)?.hint && (
-                      <p className="text-[10px] text-[#6b7280] mt-1">{CLASSIFICATION_OPTIONS.find(o => o.value === classification).hint}</p>
+                      <p className="text-[10px] text-[#6b7280] mt-1.5">{CLASSIFICATION_OPTIONS.find(o => o.value === classification).hint}</p>
                     )}
                   </div>
                   <div>
-                    <label className="block text-[11px] font-medium text-[#9ca3af] mb-1">Notes / Description</label>
+                    <label className="block text-[11px] font-medium text-[#9ca3af] mb-1">Notes</label>
                     <textarea
                       value={notes}
                       onChange={e => setNotes(e.target.value)}
-                      placeholder="Add notes about this trade..."
-                      rows={2}
+                      placeholder="Optional notes..."
+                      rows={1}
                       className="w-full px-2.5 py-1.5 rounded-lg bg-white/[0.04] border border-white/[0.06] text-[12px] text-white placeholder-[#4b5563] focus:outline-none focus:ring-1 focus:ring-[#14b8a6]/50 resize-none"
                     />
                   </div>
@@ -1222,7 +1234,13 @@
                               <td className="px-4 py-2.5 text-[#9ca3af]">{formatDate(t.exit_ts)}</td>
                               <td className={`px-4 py-2.5 text-right font-medium ${Number(t.pnl) >= 0 ? "text-[#22c55e]" : "text-[#ef4444]"}`}>{fmtUsd(t.pnl)}</td>
                               <td className="px-4 py-2.5 text-[#9ca3af]">{t.status || "—"}</td>
-                              <td className="px-4 py-2.5 text-[#6b7280]">{clsOpt?.label || "—"}</td>
+                              <td className="px-4 py-2.5">
+                                {clsOpt?.value ? (
+                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium" style={{ background: clsOpt.color + "18", color: clsOpt.color }}>
+                                    {clsOpt.icon} {clsOpt.label}
+                                  </span>
+                                ) : <span className="text-[#4b5563]">—</span>}
+                              </td>
                             </tr>
                           );
                         })}
