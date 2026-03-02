@@ -917,33 +917,6 @@
 
                 <div className="space-y-3 shrink-0">
                   <div>
-                    <label className="block text-[11px] font-medium text-[#9ca3af] mb-2">Classification</label>
-                    <div className="flex gap-2">
-                      {CLASSIFICATION_OPTIONS.filter(o => o.value).map(opt => {
-                        const selected = classification === opt.value;
-                        return (
-                          <button
-                            key={opt.value}
-                            onClick={() => setClassification(selected ? "" : opt.value)}
-                            title={opt.hint}
-                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-medium transition-all duration-150"
-                            style={{
-                              background: selected ? opt.color + "20" : "rgba(255,255,255,0.03)",
-                              border: `1px solid ${selected ? opt.color + "80" : "rgba(255,255,255,0.06)"}`,
-                              color: selected ? opt.color : "#9ca3af",
-                            }}
-                          >
-                            <span className="text-[13px]">{opt.icon}</span>
-                            {opt.label}
-                          </button>
-                        );
-                      })}
-                    </div>
-                    {classification && CLASSIFICATION_OPTIONS.find(o => o.value === classification)?.hint && (
-                      <p className="text-[10px] text-[#6b7280] mt-1.5">{CLASSIFICATION_OPTIONS.find(o => o.value === classification).hint}</p>
-                    )}
-                  </div>
-                  <div>
                     <label className="block text-[11px] font-medium text-[#9ca3af] mb-1">Notes</label>
                     <textarea
                       value={notes}
@@ -955,7 +928,30 @@
                   </div>
                 </div>
 
-                <div className="flex justify-end gap-2 shrink-0">
+                <div className="flex items-center justify-end gap-2 flex-wrap shrink-0">
+                  {classification && CLASSIFICATION_OPTIONS.find(o => o.value === classification)?.hint && (
+                    <span className="text-[10px] text-[#6b7280] mr-auto">{CLASSIFICATION_OPTIONS.find(o => o.value === classification).hint}</span>
+                  )}
+                  {CLASSIFICATION_OPTIONS.filter(o => o.value).map(opt => {
+                    const selected = classification === opt.value;
+                    return (
+                      <button
+                        key={opt.value}
+                        onClick={() => setClassification(selected ? "" : opt.value)}
+                        title={opt.hint}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-medium transition-all duration-150"
+                        style={{
+                          background: selected ? opt.color + "20" : "rgba(255,255,255,0.03)",
+                          border: `1px solid ${selected ? opt.color + "80" : "rgba(255,255,255,0.06)"}`,
+                          color: selected ? opt.color : "#9ca3af",
+                        }}
+                      >
+                        <span className="text-[13px]">{opt.icon}</span>
+                        {opt.label}
+                      </button>
+                    );
+                  })}
+                  <span className="w-px h-5 bg-white/[0.08]" />
                   <button onClick={onClose} className="px-3 py-1.5 rounded-lg text-[12px] text-[#9ca3af] hover:bg-white/[0.04]" disabled={saving}>Cancel</button>
                   <button onClick={handleSave} disabled={saving} className="px-3 py-1.5 rounded-lg text-[12px] font-medium bg-[#14b8a6]/20 text-[#14b8a6] hover:bg-[#14b8a6]/30 disabled:opacity-50">{saving ? "Saving…" : "Save"}</button>
                 </div>
