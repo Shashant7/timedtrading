@@ -14994,15 +14994,20 @@ async function runCalibrationAnalysis(env) {
   });
   if (!trades.length) throw new Error("no_trade_data_after_exclusions");
 
-  // Trades manually tagged as bad_trade should be treated as losers regardless of P&L
   const manualBadTrades = new Set(
     trades.filter(t => t.manual_classification === "bad_trade").map(t => t.trade_id)
   );
-  // Trades tagged bad_exit: entry was good but SL/TP/trim was wrong.
-  // These stay in the winner/loser buckets by P&L (valid entry signal) but are
-  // flagged so their MFE/MAE gets 2x weight in SL/TP calibration.
+  // bad_exit: good entry, bad exit management → 2x MFE weight (tunes TP/trailing)
   const manualBadExits = new Set(
     trades.filter(t => t.manual_classification === "bad_exit").map(t => t.trade_id)
+  );
+  // early_entry: right thesis, bad timing → 2x MAE weight (tunes entry confirmation/SL width)
+  const manualEarlyEntries = new Set(
+    trades.filter(t => t.manual_classification === "early_entry").map(t => t.trade_id)
+  );
+  // ok_trade: acceptable but unremarkable → neutral weight (1x), neither penalizes nor rewards
+  const manualOkTrades = new Set(
+    trades.filter(t => t.manual_classification === "ok_trade").map(t => t.trade_id)
   );
 
   const splitIdx = Math.floor(trades.length * 0.75);
@@ -15317,15 +15322,20 @@ async function runCalibrationAnalysis(env) {
         winRate = m.win_rate; expectancy = m.expectancy; sqn = m.sqn; avgR = m.avg_r;
       }
 
-      // SL/TP per state from move data. bad_exit trades get 2x weight (their MFE/MAE
-      // is the signal that exit logic was wrong — calibration should listen harder).
+      // SL/TP per state from move data with classification-weighted analysis:
+      // bad_exit → 2x MFE weight (left money on table, tunes TP/trailing)
+      // early_entry → 2x MAE weight (drawdown before recovery, tunes SL/confirmation)
+      // ok_trade → 1x (neutral), good_trade → 1x (standard reinforcement)
       const moveMAEs = [], moveMFEsLocal = [];
       for (const a of arr) {
         const mae = a.mae_atr ?? a.pullback_atr ?? null;
         const mfe = a.mfe_atr || a.max_ext_atr || a.move_atr || 0;
-        const weight = manualBadExits.has(a.trade_id) ? 2 : 1;
-        for (let w = 0; w < weight; w++) {
+        const mfeWeight = manualBadExits.has(a.trade_id) ? 2 : 1;
+        const maeWeight = manualEarlyEntries.has(a.trade_id) ? 2 : 1;
+        for (let w = 0; w < maeWeight; w++) {
           if (mae != null) moveMAEs.push(mae);
+        }
+        for (let w = 0; w < mfeWeight; w++) {
           moveMFEsLocal.push(mfe);
         }
       }
@@ -15728,6 +15738,8 @@ async function runCalibrationAnalysis(env) {
       excluded_count: classificationBreakdown.excluded.length,
       manual_bad_trade_count: manualBadTrades.size,
       manual_bad_exit_count: manualBadExits.size,
+      manual_early_entry_count: manualEarlyEntries.size,
+      manual_ok_trade_count: manualOkTrades.size,
       manual_notes_for_learning: allTradesRaw
         .filter(t => t.manual_notes && String(t.manual_notes).trim())
         .slice(0, 200)

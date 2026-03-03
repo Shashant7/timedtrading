@@ -63,10 +63,12 @@
 
       const CLASSIFICATION_OPTIONS = [
         { value: "", label: "— Classify —" },
-        { value: "good_trade", label: "Good Trade", hint: "Entry and management were both sound", color: "#22c55e", icon: "✓" },
-        { value: "bad_exit", label: "Bad Exit", hint: "Right entry, but SL/TP/trim needs work", color: "#f59e0b", icon: "↗" },
-        { value: "bad_trade", label: "Bad Trade", hint: "Should not have entered", color: "#ef4444", icon: "✗" },
-        { value: "data_error", label: "Bad Data", hint: "Stale price, glitch — excluded", color: "#6b7280", icon: "⚠" },
+        { value: "good_trade", label: "Good Trade", hint: "Entry + exit both solid — reinforces path", color: "#22c55e", icon: "✓" },
+        { value: "ok_trade", label: "Ok Trade", hint: "Acceptable, small win/loss — neutral weight", color: "#8b5cf6", icon: "~" },
+        { value: "early_entry", label: "Early Entry", hint: "Right thesis, bad timing — tunes confirmation", color: "#06b6d4", icon: "⏱" },
+        { value: "bad_exit", label: "Bad Exit", hint: "Good entry, cut early or held too long — tunes TP", color: "#f59e0b", icon: "↗" },
+        { value: "bad_trade", label: "Bad Trade", hint: "Should not have entered — penalizes path", color: "#ef4444", icon: "✗" },
+        { value: "data_error", label: "Bad Data", hint: "Stale price, glitch — excluded from analysis", color: "#6b7280", icon: "⚠" },
       ];
 
       const fetchOpts = { cache: "no-store", credentials: "include" };
@@ -938,7 +940,7 @@
                 </div>
 
                 <div className="shrink-0 order-4">
-                  <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 mb-2 sm:mb-0">
+                  <div className="grid grid-cols-3 sm:flex sm:flex-wrap gap-1.5 sm:gap-2 mb-2">
                     {CLASSIFICATION_OPTIONS.filter(o => o.value).map(opt => {
                       const selected = classification === opt.value;
                       return (
@@ -946,25 +948,25 @@
                           key={opt.value}
                           onClick={() => setClassification(selected ? "" : opt.value)}
                           title={opt.hint}
-                          className="flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3 py-2 sm:py-1.5 rounded-lg text-[12px] font-medium transition-all duration-150"
+                          className="flex items-center justify-center gap-1 sm:gap-1.5 px-1.5 sm:px-3 py-2.5 sm:py-1.5 rounded-lg text-[11px] sm:text-[12px] font-medium transition-all duration-150 min-w-0"
                           style={{
-                            background: selected ? opt.color + "20" : "rgba(255,255,255,0.03)",
-                            border: `1px solid ${selected ? opt.color + "80" : "rgba(255,255,255,0.06)"}`,
+                            background: selected ? opt.color + "22" : "rgba(255,255,255,0.03)",
+                            border: `1.5px solid ${selected ? opt.color + "90" : "rgba(255,255,255,0.06)"}`,
                             color: selected ? opt.color : "#9ca3af",
                           }}
                         >
-                          <span className="text-[13px]">{opt.icon}</span>
-                          {opt.label}
+                          <span className="text-[13px] shrink-0">{opt.icon}</span>
+                          <span className="truncate">{opt.label}</span>
                         </button>
                       );
                     })}
                   </div>
                   {classification && CLASSIFICATION_OPTIONS.find(o => o.value === classification)?.hint && (
-                    <div className="text-[10px] text-[#6b7280] mb-2">{CLASSIFICATION_OPTIONS.find(o => o.value === classification).hint}</div>
+                    <div className="text-[10px] text-[#6b7280] mb-2 px-0.5">{CLASSIFICATION_OPTIONS.find(o => o.value === classification).hint}</div>
                   )}
                   <div className="flex items-center justify-end gap-2 pt-2 border-t border-white/[0.06]">
-                    <button onClick={onClose} className="px-4 py-2 sm:py-1.5 rounded-lg text-[12px] text-[#9ca3af] hover:bg-white/[0.04]" disabled={saving}>Cancel</button>
-                    <button onClick={handleSave} disabled={saving} className="px-4 py-2 sm:py-1.5 rounded-lg text-[12px] font-medium bg-[#14b8a6]/20 text-[#14b8a6] hover:bg-[#14b8a6]/30 disabled:opacity-50">{saving ? "Saving…" : "Save"}</button>
+                    <button onClick={onClose} className="px-4 py-2.5 sm:py-1.5 rounded-lg text-[12px] text-[#9ca3af] hover:bg-white/[0.04]" disabled={saving}>Cancel</button>
+                    <button onClick={handleSave} disabled={saving} className="px-5 py-2.5 sm:py-1.5 rounded-lg text-[12px] font-medium bg-[#14b8a6]/20 text-[#14b8a6] hover:bg-[#14b8a6]/30 disabled:opacity-50">{saving ? "Saving…" : "Save"}</button>
                   </div>
                 </div>
               </div>
