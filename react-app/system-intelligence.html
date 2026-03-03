@@ -68,6 +68,7 @@ function NavHeader() {
             <a href="index-react.html" className="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Analysis</a>
             <a href="simulation-dashboard.html" className="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Trades</a>
             <a href="system-intelligence.html" className="px-3 py-1 rounded-md text-[13px] text-white bg-white/[0.07] font-medium">System Intelligence</a>
+            <a href="move-discovery.html" data-admin-only="true" className="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Move Discovery</a>
             <a href="screener.html" data-admin-only="true" className="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Screener</a>
             <a href="ticker-management.html" data-admin-only="true" className="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Tickers</a>
             <a href="trade-autopsy.html" className="px-3 py-1 rounded-md text-[13px] text-[#14b8a6]/80 hover:text-[#14b8a6] hover:bg-[#14b8a6]/[0.06] transition-all font-medium">Trade Autopsy</a>
@@ -101,6 +102,7 @@ function NavHeader() {
           <a href="index-react.html" className="px-3 py-2 rounded-md text-[13px] text-[#9ca3af] hover:text-white hover:bg-white/[0.04] transition-all" onClick={() => setMobileMenuOpen(false)}>Analysis</a>
           <a href="simulation-dashboard.html" className="px-3 py-2 rounded-md text-[13px] text-[#9ca3af] hover:text-white hover:bg-white/[0.04] transition-all" onClick={() => setMobileMenuOpen(false)}>Trades</a>
           <a href="system-intelligence.html" className="px-3 py-2 rounded-md text-[13px] text-white bg-white/[0.07] font-medium" onClick={() => setMobileMenuOpen(false)}>System Intelligence</a>
+          <a href="move-discovery.html" data-admin-only="true" className="px-3 py-2 rounded-md text-[13px] text-[#9ca3af] hover:text-white hover:bg-white/[0.04] transition-all" onClick={() => setMobileMenuOpen(false)}>Move Discovery</a>
           <a href="screener.html" data-admin-only="true" className="px-3 py-2 rounded-md text-[13px] text-[#9ca3af] hover:text-white hover:bg-white/[0.04] transition-all" onClick={() => setMobileMenuOpen(false)}>Screener</a>
           <a href="ticker-management.html" data-admin-only="true" className="px-3 py-2 rounded-md text-[13px] text-[#9ca3af] hover:text-white hover:bg-white/[0.04] transition-all" onClick={() => setMobileMenuOpen(false)}>Tickers</a>
           <a href="trade-autopsy.html" className="px-3 py-2 rounded-md text-[13px] text-[#14b8a6]/80 hover:text-[#14b8a6] font-medium" onClick={() => setMobileMenuOpen(false)}>Trade Autopsy</a>
@@ -931,10 +933,12 @@ function CalibrationTab({ report, recs, reportId, onApply, applying, appliedMsg 
   const [sub, setSub] = useState("health");
   if (!report) return <div className="card p-12 text-center text-slate-400 text-sm">No calibration report. Run a calibration first.</div>;
   const subs = [
-    { id: "health", label: "Health" }, { id: "paths", label: "Entry Paths" }, { id: "profiles", label: "Profiles" },
-    { id: "oracle", label: "Oracle" }, { id: "vix", label: "VIX Regime" }, { id: "signals", label: "Signals" },
-    { id: "sltp", label: "SL/TP" }, { id: "rank", label: "Rank" }, { id: "wfo", label: "Walk-Forward" },
-    { id: "repeats", label: "Same-Ticker Repeats" }, { id: "missed", label: "Missed" }, { id: "sizing", label: "Sizing" },
+    { id: "health", label: "Health & Apply" },
+    { id: "entries", label: "Entry Paths & Profiles" },
+    { id: "models", label: "Models & Signals" },
+    { id: "risk", label: "Risk Management" },
+    { id: "context", label: "Market Context" },
+    { id: "quality", label: "Trade Quality" },
   ];
   return (
     <div>
@@ -947,7 +951,6 @@ function CalibrationTab({ report, recs, reportId, onApply, applying, appliedMsg 
         <div>
           <AnalysisSummary report={report} recs={recs} />
           <SystemHealthCard health={report.system_health} />
-          {/* Apply section integrated into Health */}
           {recs && (
             <div className="card p-5 mt-4">
               <div className="flex items-center justify-between mb-3">
@@ -977,44 +980,94 @@ function CalibrationTab({ report, recs, reportId, onApply, applying, appliedMsg 
           )}
         </div>
       )}
-      {sub === "paths" && <EntryPathsCard paths={report.entry_paths} />}
-      {sub === "profiles" && <ProfilesCard profiles={report.profiles || []} />}
-      {sub === "oracle" && report.hindsight_oracle && (
-        <div className="card p-5">
-          <h3 className="text-sm font-semibold text-amber-200/90 mb-2">Hindsight Oracle (5m perfect entry/exit)</h3>
-          <p className="text-xs text-slate-500 mb-3">Qualifying moves: {report.hindsight_oracle.qualifying_moves} → fingerprints: {report.hindsight_oracle.fingerprints_count}</p>
-          {report.hindsight_oracle.golden_profiles && Object.keys(report.hindsight_oracle.golden_profiles).length > 0 && (
-            <div className="mb-4">
-              <h4 className="text-xs font-semibold text-slate-400 mb-2">Golden profiles by state</h4>
-              <div className="overflow-x-auto"><table className="w-full text-xs"><thead><tr className="text-slate-500 border-b border-white/[0.05]">
-                <th className="text-left py-1.5 font-medium">State</th><th className="text-right px-2 font-medium">N</th><th className="text-right px-2 font-medium">Squeeze%</th><th className="text-right px-2 font-medium">EMA%</th><th className="text-right px-2 font-medium">ST%</th><th className="text-right px-2 font-medium">HTF med</th><th className="text-right pl-2 font-medium">Avg ATR</th>
-              </tr></thead><tbody>
-                {Object.entries(report.hindsight_oracle.golden_profiles).map(([state, g]) => (
-                  <tr key={state} className="border-b border-white/[0.03]">
-                    <td className="py-1.5 font-mono text-slate-300">{state.replace(/HTF_|LTF_/g, "").replace(/_/g, " ")}</td>
-                    <td className="text-right px-2">{g.sample_count}</td><td className="text-right px-2">{g.squeeze_release_pct}%</td><td className="text-right px-2">{g.ema_cross_pct}%</td><td className="text-right px-2">{g.st_flip_pct}%</td><td className="text-right px-2">{g.htf_score_median}</td><td className="text-right pl-2">{g.avg_move_atr}</td>
-                  </tr>
-                ))}
-              </tbody></table></div>
-            </div>
-          )}
-          {report.hindsight_oracle.recommendations && report.hindsight_oracle.recommendations.length > 0 && (
-            <div><h4 className="text-xs font-semibold text-slate-400 mb-2">Recommendations</h4>
-              <ul className="space-y-1.5">{report.hindsight_oracle.recommendations.map((rec, i) => (
-                <li key={i} className="text-xs text-slate-300 pl-2 border-l-2 border-amber-500/30">{rec.message}</li>
-              ))}</ul>
-            </div>
-          )}
+      {sub === "entries" && (
+        <div className="space-y-6">
+          <div>
+            <h3 className="text-sm font-semibold text-white mb-3 flex items-center gap-2">Entry Paths <span className="text-[10px] text-slate-500 font-normal">How we enter trades</span></h3>
+            <EntryPathsCard paths={report.entry_paths} />
+          </div>
+          <div className="border-t border-white/[0.06] pt-5">
+            <h3 className="text-sm font-semibold text-white mb-3 flex items-center gap-2">Profiles <span className="text-[10px] text-slate-500 font-normal">State-specific performance profiles</span></h3>
+            <ProfilesCard profiles={report.profiles || []} />
+          </div>
         </div>
       )}
-      {sub === "vix" && <VIXRegimeCard vixBuckets={report.vix_buckets} />}
-      {sub === "signals" && <SignalICCard ic={report.signal_ic} />}
-      {sub === "sltp" && <SLTPCard sltp={report.sl_tp_calibration} />}
-      {sub === "rank" && <RankCard rank={report.rank_optimization} />}
-      {sub === "wfo" && <WFOCard wfo={report.wfo_summary} />}
-      {sub === "repeats" && <SameTickerRepeatsCard data={report.same_ticker_repeat_analysis} />}
-      {sub === "missed" && <MissedOpCard missed={report.missed_opportunities} />}
-      {sub === "sizing" && <PositionSizingCard sizing={report.position_sizing} />}
+      {sub === "models" && (
+        <div className="space-y-6">
+          {report.hindsight_oracle && (
+            <div className="card p-5">
+              <h3 className="text-sm font-semibold text-amber-200/90 mb-2">Hindsight Oracle (5m perfect entry/exit)</h3>
+              <p className="text-xs text-slate-500 mb-3">Qualifying moves: {report.hindsight_oracle.qualifying_moves} | Fingerprints: {report.hindsight_oracle.fingerprints_count}</p>
+              {report.hindsight_oracle.golden_profiles && Object.keys(report.hindsight_oracle.golden_profiles).length > 0 && (
+                <div className="mb-4">
+                  <h4 className="text-xs font-semibold text-slate-400 mb-2">Golden profiles by state</h4>
+                  <div className="overflow-x-auto"><table className="w-full text-xs"><thead><tr className="text-slate-500 border-b border-white/[0.05]">
+                    <th className="text-left py-1.5 font-medium">State</th><th className="text-right px-2 font-medium">N</th><th className="text-right px-2 font-medium">Squeeze%</th><th className="text-right px-2 font-medium">EMA%</th><th className="text-right px-2 font-medium">ST%</th><th className="text-right px-2 font-medium">HTF med</th><th className="text-right pl-2 font-medium">Avg ATR</th>
+                  </tr></thead><tbody>
+                    {Object.entries(report.hindsight_oracle.golden_profiles).map(([state, g]) => (
+                      <tr key={state} className="border-b border-white/[0.03]">
+                        <td className="py-1.5 font-mono text-slate-300">{state.replace(/HTF_|LTF_/g, "").replace(/_/g, " ")}</td>
+                        <td className="text-right px-2">{g.sample_count}</td><td className="text-right px-2">{g.squeeze_release_pct}%</td><td className="text-right px-2">{g.ema_cross_pct}%</td><td className="text-right px-2">{g.st_flip_pct}%</td><td className="text-right px-2">{g.htf_score_median}</td><td className="text-right pl-2">{g.avg_move_atr}</td>
+                      </tr>
+                    ))}
+                  </tbody></table></div>
+                </div>
+              )}
+              {report.hindsight_oracle.recommendations?.length > 0 && (
+                <div><h4 className="text-xs font-semibold text-slate-400 mb-2">Recommendations</h4>
+                  <ul className="space-y-1.5">{report.hindsight_oracle.recommendations.map((rec, i) => (
+                    <li key={i} className="text-xs text-slate-300 pl-2 border-l-2 border-amber-500/30">{rec.message}</li>
+                  ))}</ul>
+                </div>
+              )}
+            </div>
+          )}
+          <div className="border-t border-white/[0.06] pt-5">
+            <h3 className="text-sm font-semibold text-white mb-3">Signal Importance (IC)</h3>
+            <SignalICCard ic={report.signal_ic} />
+          </div>
+        </div>
+      )}
+      {sub === "risk" && (
+        <div className="space-y-6">
+          <div>
+            <h3 className="text-sm font-semibold text-white mb-3">Stop Loss & Take Profit Calibration</h3>
+            <SLTPCard sltp={report.sl_tp_calibration} />
+          </div>
+          <div className="border-t border-white/[0.06] pt-5">
+            <h3 className="text-sm font-semibold text-white mb-3">Rank Optimization</h3>
+            <RankCard rank={report.rank_optimization} />
+          </div>
+          <div className="border-t border-white/[0.06] pt-5">
+            <h3 className="text-sm font-semibold text-white mb-3">Position Sizing</h3>
+            <PositionSizingCard sizing={report.position_sizing} />
+          </div>
+        </div>
+      )}
+      {sub === "context" && (
+        <div className="space-y-6">
+          <div>
+            <h3 className="text-sm font-semibold text-white mb-3">VIX Regime Performance</h3>
+            <VIXRegimeCard vixBuckets={report.vix_buckets} />
+          </div>
+          <div className="border-t border-white/[0.06] pt-5">
+            <h3 className="text-sm font-semibold text-white mb-3">Walk-Forward Optimization</h3>
+            <WFOCard wfo={report.wfo_summary} />
+          </div>
+        </div>
+      )}
+      {sub === "quality" && (
+        <div className="space-y-6">
+          <div>
+            <h3 className="text-sm font-semibold text-white mb-3">Same-Ticker Repeat Trades</h3>
+            <SameTickerRepeatsCard data={report.same_ticker_repeat_analysis} />
+          </div>
+          <div className="border-t border-white/[0.06] pt-5">
+            <h3 className="text-sm font-semibold text-white mb-3">Missed Opportunities</h3>
+            <MissedOpCard missed={report.missed_opportunities} />
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -1579,6 +1632,27 @@ function DeepAuditTab() {
 }
 
 // ═══════════════════════════════════════════════════════════════
+// UNIFIED ANALYSIS TAB (merges Deep Audit + Calibration)
+// ═══════════════════════════════════════════════════════════════
+function UnifiedAnalysisTab({ report, recs, reportId, onApply, applying, appliedMsg }) {
+  const [section, setSection] = useState("live");
+  return (
+    <div>
+      <div className="flex gap-1 mb-5">
+        <button onClick={() => setSection("live")} className={`px-4 py-2 text-xs font-semibold rounded-lg transition-all ${section === "live" ? "bg-emerald-500/15 text-emerald-300 border border-emerald-500/30" : "bg-white/[0.03] text-slate-400 border border-white/[0.06] hover:bg-white/[0.06]"}`}>
+          Live Audit
+        </button>
+        <button onClick={() => setSection("calibration")} className={`px-4 py-2 text-xs font-semibold rounded-lg transition-all ${section === "calibration" ? "bg-indigo-500/15 text-indigo-300 border border-indigo-500/30" : "bg-white/[0.03] text-slate-400 border border-white/[0.06] hover:bg-white/[0.06]"}`}>
+          Calibration Report
+        </button>
+      </div>
+      {section === "live" && <DeepAuditTab />}
+      {section === "calibration" && <CalibrationTab report={report} recs={recs} reportId={reportId} onApply={onApply} applying={applying} appliedMsg={appliedMsg} />}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
 // MAIN APP
 // ═══════════════════════════════════════════════════════════════
 function App() {
@@ -1723,14 +1797,13 @@ function App() {
     try {
       const res = await fetch(`${API_BASE}/timed/calibration/report?report_id=${rid}`, { credentials: "include" });
       const data = await res.json();
-      if (data.ok) { setReport(data.report); setRecs(data.recommendations); setReportId(data.report_id); setTab("calibration"); }
+      if (data.ok) { setReport(data.report); setRecs(data.recommendations); setReportId(data.report_id); setTab("analysis"); }
     } catch (_) {}
   };
 
   const tabs = [
     { id: "dashboard", label: "Dashboard" },
-    { id: "deep-audit", label: "Deep Audit" },
-    { id: "calibration", label: "Calibration" },
+    { id: "analysis", label: "Analysis" },
     { id: "patterns", label: "Patterns & Learning" },
     { id: "history", label: "History" },
   ];
@@ -1780,8 +1853,7 @@ function App() {
         ) : (
           <>
             {tab === "dashboard" && <DashboardTab dashboard={dashboard} />}
-            {tab === "deep-audit" && <DeepAuditTab />}
-            {tab === "calibration" && <CalibrationTab report={report} recs={recs} reportId={reportId} onApply={handleApply} applying={applying} appliedMsg={appliedMsg} />}
+            {tab === "analysis" && <UnifiedAnalysisTab report={report} recs={recs} reportId={reportId} onApply={handleApply} applying={applying} appliedMsg={appliedMsg} />}
             {tab === "patterns" && <PatternsTab />}
             {tab === "history" && <HistoryTab onViewReport={handleViewReport} />}
           </>

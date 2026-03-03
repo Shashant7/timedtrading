@@ -997,6 +997,7 @@ Writing Guidelines:
 - Logic and levels: Bearish scenarios (rejection, break below, failure to hold) must target a price LOWER than the key level mentioned. Bullish scenarios (hold, reclaim, break above) must target a price HIGHER than the key level. Never write "break below X" and then give a target "at Y" where Y > X.
 - Keep total length to 1500-2500 words — be thorough, not terse
 - Do NOT use emojis
+- CRITICAL FORMATTING: Use proper markdown with BLANK LINES before every ## and ### header. Each section must be separated by a blank line. Use bullet lists (- item) on separate lines, not inline. The output will be rendered as HTML via a markdown parser — without blank lines before headers, they won't render correctly.
 
 Timed Trading Scoring Model Reference (ALWAYS reference these signals):
 - **state**: Current model signal state — LONG (bullish setup), SHORT (bearish setup), WATCH (neutral, waiting for confirmation), or FLAT (no position/signal)

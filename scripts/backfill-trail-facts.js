@@ -10,6 +10,7 @@
  *   TIMED_API_KEY=AwesomeSauce node scripts/backfill-trail-facts.js --dates 2026-02-05,2026-02-06
  *   TIMED_API_KEY=AwesomeSauce node scripts/backfill-trail-facts.js --from 2025-10-01 --to 2026-02-06
  *   TIMED_API_KEY=AwesomeSauce node scripts/backfill-trail-facts.js --batch 20 --chunk 5
+ *   TIMED_API_KEY=AwesomeSauce node scripts/backfill-trail-facts.js --from 2025-07-01 --to 2026-02-27 --resume-from 2026-01-23  # skip days before 2026-01-23
  */
 
 const TIMED_KEY = process.env.TIMED_API_KEY || "AwesomeSauce";
@@ -134,6 +135,7 @@ async function main() {
   let toDate = "2026-02-06";
   let batchSize = 20;
   let chunkSize = 5; // aggregate after every N days
+  let resumeFrom = null; // YYYY-MM-DD: skip all dates before this (pick up where you left off)
 
   for (let i = 0; i < args.length; i++) {
     if (args[i] === "--dates" && args[i + 1]) {
@@ -141,6 +143,7 @@ async function main() {
     }
     if (args[i] === "--from" && args[i + 1]) fromDate = args[++i];
     if (args[i] === "--to" && args[i + 1]) toDate = args[++i];
+    if (args[i] === "--resume-from" && args[i + 1]) resumeFrom = args[++i].trim();
     if (args[i] === "--batch" && args[i + 1]) batchSize = parseInt(args[++i]);
     if (args[i] === "--chunk" && args[i + 1]) chunkSize = parseInt(args[++i]);
   }
@@ -149,10 +152,23 @@ async function main() {
     dates = generateTradingDays(fromDate, toDate);
   }
 
+  if (resumeFrom) {
+    const before = dates.length;
+    dates = dates.filter(d => d >= resumeFrom);
+    const skipped = before - dates.length;
+    if (dates.length === 0) {
+      console.error(`  --resume-from ${resumeFrom}: no trading days on or after that date. Nothing to do.`);
+      process.exit(0);
+    }
+    if (skipped > 0) {
+      console.log(`  Resuming from ${resumeFrom}: skipping ${skipped} earlier day(s), ${dates.length} day(s) left.`);
+    }
+  }
+
   console.log(`\n╔══════════════════════════════════════════════╗`);
   console.log(`║   Trail 5m Facts Extended Backfill           ║`);
   console.log(`╚══════════════════════════════════════════════╝`);
-  console.log(`  Dates: ${dates[0]} → ${dates[dates.length - 1]} (${dates.length} trading days)`);
+  console.log(`  Dates: ${dates[0]} → ${dates[dates.length - 1]} (${dates.length} trading days)${resumeFrom ? ` [resumed from ${resumeFrom}]` : ""}`);
   console.log(`  Batch: ${batchSize} tickers/request, Chunk: ${chunkSize} days before aggregation`);
   console.log(`  Worker: ${WORKER_BASE}`);
   console.log();

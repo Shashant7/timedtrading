@@ -92,11 +92,20 @@
         font-size: 15px;
         font-weight: 600;
         color: #e5e7eb;
-        margin: 20px 0 8px 0;
-        padding-bottom: 6px;
+        margin: 24px 0 10px 0;
+        padding-bottom: 8px;
         border-bottom: 1px solid rgba(255,255,255,0.06);
       }
+      .brief-content h2:first-child { margin-top: 0; }
       .brief-content h3 {
+        font-size: 14px;
+        font-weight: 600;
+        color: #d1d5db;
+        margin: 20px 0 8px 0;
+        padding-bottom: 4px;
+        border-bottom: 1px solid rgba(255,255,255,0.03);
+      }
+      .brief-content h4 {
         font-size: 13px;
         font-weight: 600;
         color: #d1d5db;
@@ -104,18 +113,22 @@
       }
       .brief-content p {
         font-size: 13px;
-        line-height: 1.7;
+        line-height: 1.75;
         color: #9ca3af;
-        margin: 6px 0;
+        margin: 8px 0;
       }
       .brief-content ul, .brief-content ol {
         font-size: 13px;
-        line-height: 1.7;
+        line-height: 1.75;
         color: #9ca3af;
-        margin: 6px 0;
+        margin: 8px 0;
         padding-left: 20px;
       }
-      .brief-content li { margin: 3px 0; }
+      .brief-content li {
+        margin: 4px 0;
+        padding-left: 2px;
+      }
+      .brief-content li::marker { color: #4b5563; }
       .brief-content strong { color: #e5e7eb; }
       .brief-content em { color: #d1d5db; }
       .brief-content code {
@@ -128,9 +141,14 @@
       .brief-content blockquote {
         border-left: 3px solid rgba(245, 158, 11, 0.4);
         padding-left: 12px;
-        margin: 12px 0;
+        margin: 14px 0;
         color: #9ca3af;
         font-style: italic;
+      }
+      .brief-content hr {
+        border: none;
+        border-top: 1px solid rgba(255,255,255,0.06);
+        margin: 20px 0;
       }
     </style>
   </head>
@@ -144,11 +162,16 @@
       // ── Markdown Renderer ──────────────────────────────────────────────────
       function renderMarkdown(md) {
         if (!md) return "";
+        // Pre-process: AI briefs arrive as one long line with headers like " ### "
+        // inline. Insert blank lines so marked renders them as real headings.
+        let cleaned = md
+          .replace(/ (#{2,4}) /g, "\n\n$1 ")             // blank line before ## / ### / #### headers
+          .replace(/ - \*\*/g, "\n- **")                 // split inline bold-list items onto new lines
+          .replace(/ - ([A-Z])/g, "\n- $1")              // split inline dash-lists starting with uppercase
         if (typeof marked !== "undefined" && marked.parse) {
-          return marked.parse(md, { breaks: true, gfm: true });
+          return marked.parse(cleaned, { breaks: true, gfm: true });
         }
-        // Fallback: basic line breaks
-        return md.replace(/\n/g, "<br/>");
+        return cleaned.replace(/\n/g, "<br/>");
       }
 
       // ── Brief Card Component ───────────────────────────────────────────────

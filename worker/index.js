@@ -2791,45 +2791,9 @@ function qualifiesForEnter(d, asOfTs = null) {
   // Strategy: Buy the pullback in a bullish trend when LTF starts recovering
   // SECTOR ALIGNMENT BOOST: When sector is bullish, relax thresholds and boost confidence
   // ═══════════════════════════════════════════════════════════════════════════
-  if (state === "HTF_BULL_LTF_PULLBACK") {
-    // DATA: gold_long had 82% loss rate (292 trades, -$20k). The pullbackCorridor
-    // was too loose — any LTF -5 to -10 passed because ltfRecovering was trivially true.
-    // Tighten: require HTF >= 10 (stronger trend), and require a REAL confirmation signal
-    // (SuperTrend flip, EMA cross, or squeeze release), not just ltf > -10.
-    const htfMin = (sectorBull && sectorStrength >= 50) ? 8 : 10;
-    const pullbackCorridor = htf >= htfMin && ltf >= -25 && ltf <= 3;
-    const hasRealConfirmation = hasStFlipBull || hasEmaCrossBull || hasSqRelease;
-    if (pullbackCorridor) {
-      // High confidence: deep pullback WITH real recovery confirmation signal
-      if (ltf <= -5 && hasRealConfirmation) {
-        const conf = (sectorBull && sectorStrength >= 60) ? "high_sector" : "high";
-        return enrichResult({ qualifies: true, path: "gold_long", confidence: conf, reason: "pullback_with_confirmation", sectorStrength });
-      }
-      // Medium→High with sector: shallow pullback with SuperTrend or EMA confirmation
-      if (ltf <= 0 && (hasStFlipBull || hasEmaCrossBull)) {
-        const conf = (sectorBull && sectorStrength >= 60) ? "high" : "medium";
-        return enrichResult({ qualifies: true, path: "gold_long_shallow", confidence: conf, reason: "shallow_with_signal", sectorStrength });
-      }
-      // Medium confidence: deep pullback with strong HTF structure
-      // DATA: gold_long_deep had 81% loss rate (223 trades, -$16k). Tighten:
-      //   HTF 10→15, LTF -8→-12, require real confirmation OR strong sector alignment
-      if (ltf <= -12 && htf >= 15 && (hasRealConfirmation || (sectorBull && sectorStrength >= 60))) {
-        return enrichResult({ qualifies: true, path: "gold_long_deep", confidence: "medium", reason: "deep_pullback_structure", sectorStrength });
-      }
-      // SECTOR UNLOCK: When sector is strongly aligned, allow entry with just HTF+pullback
-      // This captures the NVDA/AVGO/TSM pattern — individual ticker may not have all signals
-      // but the sector conviction is the confirmation
-      if (sectorBull && sectorStrength >= 70 && htf >= 8 && ltf <= 0) {
-        return enrichResult({ qualifies: true, path: "gold_long_sector", confidence: "medium", reason: "sector_aligned_pullback", sectorStrength });
-      }
-      // Low confidence: corridor pullback
-      // DATA: gold_long_corridor had 73% loss rate (106 trades, -$4.1k).
-      // Now requires real confirmation signal + strong HTF + sector alignment
-      if (ltf <= -5 && htf >= 15 && inCorridor && hasRealConfirmation && sectorBull) {
-        return enrichResult({ qualifies: true, path: "gold_long_corridor", confidence: "low", reason: "corridor_pullback_confirmed", sectorStrength });
-      }
-    }
-  }
+  // gold_long DISABLED — 0% WR across 8 trades (-$542 PnL) in trade autopsy.
+  // Calibration flagged DISABLE. All gold_long entries classified bad_trade/bad_exit.
+  // if (state === "HTF_BULL_LTF_PULLBACK") { ... }
   
   // ═══════════════════════════════════════════════════════════════════════════
   // PATH 2: GOLD SHORT (82.7% of big DOWN moves start from HTF_BULL_LTF_BULL)
@@ -43145,9 +43109,9 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
               if (!rawTicker || !Number.isFinite(tsVal)) continue;
               try {
                 const payRow = await db.prepare(
-                  `SELECT payload_json FROM timed_trail WHERE ticker = ?1 AND ts = ?2 LIMIT 1`,
+                  `SELECT price, htf_score, ltf_score, completion, phase_pct, state, rank, flags_json, trigger_reason, trigger_dir, kanban_stage, payload_json FROM timed_trail WHERE ticker = ?1 AND ts = ?2 LIMIT 1`,
                 ).bind(rawTicker, tsVal).first();
-                rows.push({ ticker: rawTicker, ts: tsVal, payload_json: payRow?.payload_json ?? null });
+                rows.push({ ticker: rawTicker, ts: tsVal, ...payRow });
               } catch {
                 rows.push({ ticker: rawTicker, ts: tsVal, payload_json: null });
               }
@@ -43237,12 +43201,30 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             try {
               payload = row.payload_json ? JSON.parse(row.payload_json) : null;
             } catch {
-              continue;
+              payload = null;
             }
-            if (!payload || typeof payload !== "object") continue;
-
             const rowTs = Number(row?.ts);
             if (!Number.isFinite(rowTs)) continue;
+            if (!payload || typeof payload !== "object") {
+              let flagsObj = {};
+              try { if (row.flags_json) flagsObj = JSON.parse(row.flags_json); } catch {}
+              payload = {
+                ticker,
+                price: row.price != null ? Number(row.price) : undefined,
+                htf_score: row.htf_score != null ? Number(row.htf_score) : undefined,
+                ltf_score: row.ltf_score != null ? Number(row.ltf_score) : undefined,
+                completion: row.completion != null ? Number(row.completion) : undefined,
+                phase_pct: row.phase_pct != null ? Number(row.phase_pct) : undefined,
+                state: row.state || undefined,
+                rank: row.rank != null ? Number(row.rank) : undefined,
+                score: row.rank != null ? Number(row.rank) : undefined,
+                flags: flagsObj,
+                trigger_reason: row.trigger_reason || undefined,
+                trigger_dir: row.trigger_dir || undefined,
+                kanban_stage: row.kanban_stage || undefined,
+                _reconstructed: true,
+              };
+            }
             payload.ts = rowTs;
             payload.ingest_ts = rowTs;
             // Replay: ensure trigger_ts for lifecycle gate (use ingest ts if missing)
