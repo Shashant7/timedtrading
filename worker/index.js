@@ -2772,17 +2772,14 @@ function qualifiesForEnter(d, asOfTs = null) {
   }
 
   // LTF SuperTrend alignment: block when BOTH 10m+30m ST oppose trade direction.
-  // Opposing HTF STs are resistance levels to manage, not entry blockers.
-  // Pullback entries exempt — LTF is naturally opposed during pullbacks.
+  // Pullbacks: still require at least one LTF ST aligned (full opposition = breakdown, not dip).
   const stDir10m = d?.tf_tech?.["10"]?.stDir ?? 0;
   const stDir30m = d?.tf_tech?.["30"]?.stDir ?? 0;
-  if (!isPullback) {
-    if (inferredSide === "LONG" && stDir10m === 1 && stDir30m === 1) {
-      return { qualifies: false, reason: "ltf_st_both_bearish", stDir10m, stDir30m };
-    }
-    if (inferredSide === "SHORT" && stDir10m === -1 && stDir30m === -1) {
-      return { qualifies: false, reason: "ltf_st_both_bullish", stDir10m, stDir30m };
-    }
+  if (inferredSide === "LONG" && stDir10m === 1 && stDir30m === 1) {
+    return { qualifies: false, reason: isPullback ? "ltf_st_both_bearish_pullback" : "ltf_st_both_bearish", stDir10m, stDir30m };
+  }
+  if (inferredSide === "SHORT" && stDir10m === -1 && stDir30m === -1) {
+    return { qualifies: false, reason: isPullback ? "ltf_st_both_bullish_pullback" : "ltf_st_both_bullish", stDir10m, stDir30m };
   }
 
   // Elliott Wave context (soft annotation, not a gate).
@@ -6508,7 +6505,7 @@ function _getTrailStyleMults(tickerData) {
   const map = {
     wide:     { preTrim: 1.5,  postTrimBuf: 0.75, runner: 3.5,  style: "wide" },
     adaptive: { preTrim: 1.0,  postTrimBuf: 0.5,  runner: 2.5,  style: "adaptive" },
-    tight:    { preTrim: 0.75, postTrimBuf: 0.35, runner: 1.75, style: "tight" },
+    tight:    { preTrim: 1.0,  postTrimBuf: 0.4,  runner: 2.0,  style: "tight" },
     standard: { preTrim: 1.0,  postTrimBuf: 0.5,  runner: 2.5,  style: "standard" },
   };
   return map[style] || map.standard;
@@ -8839,18 +8836,21 @@ async function processTradeSimulation(
         }
       }
 
+      // Position age (shared across Phase 4c, DEFEND, and 3-tier)
+      const _posAgeMin = Number.isFinite(entryMsNorm) ? (now - entryMsNorm) / 60000 : 999;
+
       // Phase 4c: DYNAMIC TRAILING — for profitable untrimmed trades
       // When pnl > 2%: trigger a trim to lock in profit and activate post-trim protections
       // (Phase 4c skip, DEFEND skip, ATR-buffered SL). This is more robust than hoping
       // the soft fuse or TP-hit trims fire first. After trim, the runner breathes.
       // When pnl 1-2%: personality-scaled ATR trail to prevent premature Kanban exits.
       const _trimmedPctForTrail = clamp(Number(openTrade?.trimmedPct || 0), 0, 1);
-      if (!fuseExitFired && _trimmedPctForTrail < 0.01 && Number.isFinite(entryPx) && entryPx > 0) {
+      if (!fuseExitFired && _trimmedPctForTrail < 0.01 && Number.isFinite(entryPx) && entryPx > 0 && _posAgeMin >= 15) {
         const pnlPct = isLong
           ? ((pxNow - entryPx) / entryPx) * 100
           : ((entryPx - pxNow) / entryPx) * 100;
 
-        if (pnlPct > 2.0) {
+        if (pnlPct > 2.0 && trimMinAgeOk) {
           console.log(`[TRAILING TRIM] ${sym} pnl=${pnlPct.toFixed(1)}% > 2%: trimming ${Math.round(THREE_TIER_CONFIG.TRIM.trimPct * 100)}% to activate post-trim protections`);
           await trimTradeToPct(openTrade, THREE_TIER_CONFIG.TRIM.trimPct, pxNow, "PROFIT_PROTECT_TRIM");
           fuseExitFired = true;
@@ -8946,7 +8946,8 @@ async function processTradeSimulation(
     // DEFEND's breakeven/breakeven+ overrides the more generous post-trim SL buffer,
     // defeating the purpose of giving runners room to breathe after locking in trim profit.
     const _defendTrimPct = clamp(Number(openTrade?.trimmedPct || 0), 0, 1);
-    if (isDefend && !weekendNow && defendCooldownOk && openTrade && Number.isFinite(pxNow) && _defendTrimPct < 0.01) {
+    const _defendAgeMin = Number.isFinite(entryMsNorm) ? (now - entryMsNorm) / 60000 : 999;
+    if (isDefend && !weekendNow && defendCooldownOk && _defendAgeMin >= 30 && openTrade && Number.isFinite(pxNow) && _defendTrimPct < 0.01) {
       const entryPx = Number(openTrade.entryPrice);
       const dir = String(openTrade.direction || "").toUpperCase();
       const isLong = dir === "LONG";

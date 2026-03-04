@@ -78,6 +78,15 @@ npm run deploy:worker   # worker only (skip right-rail)
 - Rank boost in `computeRank`: +20 daily_level, +15 atr_breakout, +12 ema_stack
 - Config: `deep_audit_breakout_{daily_level|atr_breakout|ema_stack}_enabled`, `_min_rr`, `_min_entry_quality`
 
+**Ticker Learning System**
+- `scripts/build-ticker-learning.js` — discovers moves from daily candles (2020+), enriches with 30m signals, classifies personality, writes to `ticker_moves` + `ticker_move_signals` D1 tables
+- `scripts/build-ticker-profiles.js` — analyzes signal precision, derives entry/exit params, writes `learning_json` to `ticker_profiles`
+- Personalities: VOLATILE_RUNNER, PULLBACK_PLAYER, SLOW_GRINDER, MODERATE, TREND_FOLLOWER
+- Trail styles: wide (3.5x runner), adaptive (2.5x), tight (2.0x), standard (2.5x) — in `_getTrailStyleMults()`
+- Entry boost: RSI zone alignment (+2), EMA alignment (+2), personality adjust (±1), capped ±4
+- Continuous learning: `d1UpdateLearningOnClose()` adjusts SL/TP multipliers per trade outcome
+- UI: System Intelligence → Ticker Profiles tab; Trade Autopsy → Learning Profile card
+
 **Inspecting candles**
 - `TICKER=FIX DATE=2025-09-18 TIME=12:10 node scripts/inspect-candles.js` — API
 - Add `--d1` to query D1 directly via wrangler

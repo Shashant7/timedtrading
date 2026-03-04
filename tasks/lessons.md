@@ -290,3 +290,45 @@ Based on manual classification of 373 trades (140 bad_trade, 131 bad_exit, 85 go
 
 - **Local indicators match TwelveData with zero divergence**: Ran `scripts/indicator-sanity-check.js` comparing RSI(14), SuperTrend(3.0/10), ATR(14), EMA(21) across 5 tickers (AAPL, CAT, KO, SMCI, GLD) on both Daily and 30m timeframes. Result: 50/50 checks PASS, 0% mean error on all. Our `rsiSeries`, `superTrendSeries`, `atrSeries`, `emaSeries` in `worker/indicators.js` produce identical values to TwelveData's API endpoints when given the same candle data. This means we can safely use TwelveData's pre-computed indicators for historical data and trust that signal fingerprints will match what we compute at entry time. [2026-03-04]
 - **Intraday timestamp format difference**: TwelveData returns daily datetimes as `YYYY-MM-DD` but intraday as `YYYY-MM-DD HH:MM:SS` (space, not `T`). Must normalize with `.replace(" ", "T")` before parsing as ISO. Initial run showed 25/25 daily PASS but 0/0 for 30m due to timestamp mismatch. [2026-03-04]
+
+## Ticker Learning System — Phases 1-9
+
+- **Full pipeline**: 546K daily candles (2020-present) → 54,221 moves → 269,905 lifecycle signals → 320 ticker profiles with personality, entry_params, long/short directional analysis → integrated into entry scoring + trade management + UI. [2026-03-04]
+- **Personality classifications**: VOLATILE_RUNNER (146), PULLBACK_PLAYER (122), MODERATE (34), SLOW_GRINDER (17), TREND_FOLLOWER (1). Each drives trail_style (wide/adaptive/tight/standard) and SL/TP multipliers. [2026-03-04]
+- **LTF signal drilldown (30m)**: 10m/30m candle data available from Feb 2024 for all 320 tickers. `build-ticker-learning.js` enriches origin+completion signals with 30m RSI and SuperTrend. 25,843 signals enriched. `build-ticker-profiles.js` incorporates `ltf_30m_rsi_mean_long`, `ltf_30m_st_aligned_pct` into entry_params. [2026-03-04]
+- **Continuous learning loop**: `d1UpdateLearningOnClose()` fires on every trade close — appends outcome to rolling `recent_outcomes` (cap 50), incrementally adjusts SL/TP multipliers via 5% decay factor, computes rolling win rate, invalidates KV profile cache. [2026-03-04]
+- **D1 bulk write optimization**: Direct `execD1` per-batch = 2s overhead each → 90min estimated. Solution: write SQL to chunk files (30 stmts/file, 20 move rows/INSERT, 40 signal rows/INSERT), execute via `wrangler d1 execute --file`. Reduced to ~15 min. `SQLITE_TOOBIG` if single file too large. [2026-03-04]
+- **Candle loading optimization**: `OFFSET`-based pagination on 546K rows = 465s. Fix: query `DISTINCT ticker` first, then batch 15 tickers with `WHERE ticker IN (...)`. Reduced to ~55s. [2026-03-04]
+- **LTF enrichment OOM**: Loading all 30m candles (2.5M rows) into memory caused OOM. Fix: process per-ticker-batch (load → compute indicators → enrich signals → free), never hold all 30m data at once. [2026-03-04]
+- **ticker_profiles schema**: `learning_json` TEXT column stores the full learning profile. `personality` column does NOT exist as standalone — always extract from `learning_json`. Check existing rows before UPDATE vs INSERT to avoid missing non-nullable columns. [2026-03-04]
+
+## Trail Style Integration
+
+- **Personality-based trailing stops**: `_getTrailStyleMults(tickerData)` returns ATR multipliers by `__learning_trail_style`. Applied at 3 locations: Phase 4c pre-trim trail, 3-tier runner ATR trail, 3-tier non-runner post-trim buffer. Values: wide (1.5/0.75/3.5x), adaptive (1.0/0.5/2.5x), tight (1.0/0.4/2.0x), standard (1.0/0.5/2.5x). Tight floor raised from 0.75 to 1.0 to prevent premature stops. [2026-03-04]
+
+## Early Exit Prevention
+
+- **Phase 4c needs minimum hold time**: Without a hold guard, trailing and trim can fire on brand-new positions (1-2% spike → trail → normal pullback → stopped out). Added 15-min minimum hold before Phase 4c can activate, plus `trimMinAgeOk` (10 min) before PROFIT_PROTECT_TRIM. [2026-03-04]
+- **DEFEND needs minimum hold time**: At pnl ≥ 3%, DEFEND was moving SL to breakeven regardless of position age. A 15-min-old position at 3.5% could be tightened and stopped on a normal pullback. Added `_posAgeMin >= 30` guard. [2026-03-04]
+- **SuperTrend gate now applies to pullbacks too**: Previously, pullback entries (`HTF_BULL_LTF_PULLBACK`) were exempt from the LTF ST gate — allowed LONG when both 10m+30m ST were bearish. This let "breakdown, not dip" entries through. Removed the exemption: require at least one LTF ST aligned for all entries. [2026-03-04]
+
+## Daily Brief Accuracy
+
+- **Multi-Day Change Summary section**: Added explicit "Today" vs "5-day" values for ES/NQ/SPY/QQQ to both morning and evening AI prompts. The AI was mixing single-day and multi-day figures because `structureContext.fiveDayChangePct` was buried in nested JSON. Now surfaced as a first-class section with "NEVER estimate or calculate percentages yourself" instruction. [2026-03-04]
+- **Anti-hallucination rule strengthened**: Rule #2 now directs the model to use "Multi-Day Change Summary" fields for all percentage statements. Previously just said "use dayChangePct values" which was ambiguous for multi-day narratives. [2026-03-04]
+
+## Ticker-Level Learning System — Full Implementation [2026-03-04]
+
+- **9-phase pipeline**: (1a) Backfill 546K daily candles 2020-present, (1b) local indicators match TwelveData exactly, (2) discovered 54K moves across 320 tickers via ATR-relative detection, (3) extracted 270K lifecycle signals (origin/growth/maturity/shakeout/completion), (4) computed signal precision per ticker (RSI zones, EMA alignment, ST precision), (5) built 320 personality-classified profiles (VOLATILE_RUNNER, PULLBACK_PLAYER, SLOW_GRINDER, MODERATE, TREND_FOLLOWER), (6) integrated into `qualifiesForEnter` (RSI zone + EMA alignment boosts), (7) integrated into trade management (SL widening for volatile runners, trail_style hint), (8) UI: Ticker Profiles sub-tab + Trade Autopsy learning card, (9) continuous learning loop on trade close.
+- **Personality-based trail styles**: `_getTrailStyleMults()` returns ATR multipliers per personality. Wide (VOLATILE_RUNNER): 1.5x preTrim, 3.5x runner. Adaptive (PULLBACK_PLAYER): 1.0x/2.5x. Tight (SLOW_GRINDER): 0.75x/1.75x. Applied at Phase 4c pre-trim, 3-tier runner, 3-tier non-runner post-trim buffer.
+- **LTF signal drilldown (30m)**: `build-ticker-learning.js` loads 30m candles for moves since Feb 2024, computes RSI-14 and SuperTrend at origin+completion phases. Stored in `rsi_30m`/`st_dir_30m` columns of `ticker_move_signals`. Profiles include `ltf_30m_rsi_mean_long/short` and `ltf_30m_st_aligned_pct`.
+- **Continuous learning loop**: `d1UpdateLearningOnClose()` fires on every trade close. Appends outcome to rolling `recent_outcomes` (cap 50). Incrementally adjusts `sl_atr_mult` when MAE > SL on losses (5% decay), `tp_atr_mult` when MFE > TP on wins. Tracks `recent_win_rate`. Invalidates KV profile cache.
+- **Optimized D1 writes**: Chunked SQL files (20 moves / 40 signals per INSERT, 30 statements per file) to avoid SQLITE_TOOBIG. Candle loading by batched ticker IN-clauses instead of OFFSET scans (55s vs 465s). Per-ticker-batch LTF enrichment to avoid OOM.
+- **Daily Brief fix**: Added "Multi-Day Change Summary" section to both morning and evening prompts with explicit Today vs 5-day labels. Strengthened anti-hallucination rule #2: "NEVER compute percentages yourself — use ONLY the provided numbers."
+
+## Entry/Exit Logic Gaps Identified [2026-03-04]
+
+- **Pullback exemption bypasses ST gate**: When `state === "HTF_BULL_LTF_PULLBACK"`, the SuperTrend gate (block LONG when both 10m+30m bearish) is skipped. This can allow LONG entries into breakdowns mistaken for pullbacks. Fix: apply a weaker version of the gate even for pullbacks — require at least ONE of 10m/30m ST to be bullish.
+- **Phase 4c has no minimum hold time**: Trail at pnl 1-2% and PROFIT_PROTECT_TRIM at pnl > 2% can fire immediately after entry. A quick spike to 1.2% triggers trailing; a normal pullback then hits the stop. Fix: require `trimMinAgeOk` (10min) before Phase 4c can fire.
+- **DEFEND has no minimum hold time**: At pnl >= 3%, DEFEND tightens SL to breakeven even on 15-minute-old positions. A new position at 3.5% profit gets breakeven SL, then stops out on a normal pullback. Fix: add 30min minimum hold before DEFEND can tighten.
+- **Tight trail style (0.75x ATR) too close**: SLOW_GRINDER personality uses 0.75x ATR pre-trim trail, which is very tight for volatile names. Floor at 1.0x ATR to prevent noise exits.
