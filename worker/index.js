@@ -609,6 +609,7 @@ const ROUTES = [
   // ── System Intelligence (unified Calibration + Model) ──
   ["GET", "/timed/system/dashboard", "GET /timed/system/dashboard"],
   ["GET", "/timed/system/history", "GET /timed/system/history"],
+  ["GET", "/timed/system/ticker-profiles", "GET /timed/system/ticker-profiles"],
   // ── Move Discovery ──
   ["GET", "/timed/move-discovery", "GET /timed/move-discovery"],
   ["POST", "/timed/move-discovery", "POST /timed/move-discovery"],
@@ -2305,6 +2306,60 @@ function qualifiesForEnter(d, asOfTs = null) {
   const entryThresholdAdj = Number(_tp?.entry_threshold_adj) || 0;
 
   // ═══════════════════════════════════════════════════════════════════════════
+  // TICKER LEARNING SYSTEM: personality-aware confidence adjustments
+  // Uses learned profiles from historical move analysis (54K+ moves, 320 tickers)
+  // ═══════════════════════════════════════════════════════════════════════════
+  const _learn = _tp?.learning || null;
+  let learningBoost = 0;
+  let learningContext = null;
+
+  if (_learn && _learn.entry_params) {
+    const dirProfile = inferredSide === "LONG" ? _learn.long_profile : _learn.short_profile;
+    const ep = _learn.entry_params;
+
+    if (dirProfile) {
+      // RSI sweet-spot alignment: boost when current RSI matches the zone
+      // that historically produced the best moves for this ticker+direction
+      const _rsiD = d?.tf_tech?.D?.rsi?.r5 ?? 50;
+      const rsiZone = _rsiD < 40 ? "low" : _rsiD > 60 ? "high" : "mid";
+      const bestZone = dirProfile.rsi_best_zone || "mid";
+      if (rsiZone === bestZone) learningBoost += 2;
+
+      // EMA alignment boost: if historical data shows EMA alignment matters
+      // for this ticker, boost when aligned
+      const emaBoost = Number(ep.ema_alignment_boost) || 1;
+      const currentEmaAligned = inferredSide === "LONG"
+        ? (d?.tf_tech?.D?.ema21 > d?.tf_tech?.D?.ema48)
+        : (d?.tf_tech?.D?.ema21 < d?.tf_tech?.D?.ema48);
+      if (currentEmaAligned && emaBoost > 1.2) learningBoost += 2;
+      if (!currentEmaAligned && emaBoost > 1.5) learningBoost -= 2;
+    }
+
+    // Personality-based volatility context
+    const personality = _learn.personality;
+    if (personality === "VOLATILE_RUNNER") {
+      // Volatile runners need stronger confirmation — widen the bar slightly
+      learningBoost -= 1;
+    } else if (personality === "SLOW_GRINDER") {
+      // Slow grinders rarely produce false signals — reward patience
+      learningBoost += 1;
+    }
+
+    learningContext = {
+      personality: _learn.personality,
+      trail_style: ep.trail_style,
+      tp_mult: ep.tp_atr_mult,
+      sl_mult: ep.sl_atr_mult,
+      boost: learningBoost,
+    };
+  }
+
+  // Apply learning boost to score (capped at ±4)
+  if (learningBoost !== 0) {
+    score += Math.max(-4, Math.min(4, learningBoost));
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
   // UNIVERSAL HARD GATES: Apply to ALL entries
   // ═══════════════════════════════════════════════════════════════════════════
   
@@ -2593,7 +2648,7 @@ function qualifiesForEnter(d, asOfTs = null) {
     // EMA regime paths: bypass quality gate (regime IS the quality signal)
     const isRegimePath = result.path?.startsWith("ema_regime_");
     if (isRegimePath) {
-      result.precision = { fuelPct: primaryFuel, supportScore: stSupportScore, emaDepth30, emaDepthD, emaStruct30, emaStructD, emaMom30, emaMomD, activeGateCount: activeGates.length };
+      result.precision = { fuelPct: primaryFuel, supportScore: stSupportScore, emaDepth30, emaDepthD, emaStruct30, emaStructD, emaMom30, emaMomD, activeGateCount: activeGates.length, ewContext };
       result.entryQuality = eqScore;
       return result;
     }
@@ -2647,11 +2702,12 @@ function qualifiesForEnter(d, asOfTs = null) {
       emaStruct30, emaStructD,
       emaMom30, emaMomD,
       activeGateCount: activeGates.length,
-      // v3: regime + RVOL context for position sizing and management
       regime: regimeClass,
       regimeScore: d?.regime_score ?? 0,
       rvolBest,
       positionSizeMultiplier: rParams.positionSizeMultiplier ?? 1.0,
+      ewContext,
+      learningContext,
     };
     // Phase 1a: attach entry quality for model learning and dashboard
     result.entryQuality = eqScore;
@@ -2689,14 +2745,57 @@ function qualifiesForEnter(d, asOfTs = null) {
   const stNotAgainstBear = dailyST?.dir !== "bull" || !dailyST?.aligned;
   // inferredSide already declared at top of function (v3 regime gates)
 
-  // LTF alignment gate: don't enter regime trades when the 10m is strongly running
-  // against you. Wait for intraday momentum to at least stop opposing the trade.
-  // atr.xs only exists after a ST flip; use ema depth+structure as primary signal
-  // since they're always available from the bundle computation.
+  // LTF alignment gate: don't enter when intraday momentum is actively opposing.
+  // Two checks: (1) deep EMA trend against you, (2) both 10m+30m RSI in bearish/bullish zone.
+  // The RSI check catches "entering upstream" — e.g., going LONG when both LTFs are selling.
   const ltf10mDepth = d?.tf_tech?.["10"]?.ema?.depth ?? 5;
   const ltf10mStruct = d?.tf_tech?.["10"]?.ema?.structure ?? 0;
-  const ltfStrongBull = ltf10mDepth >= 8 && ltf10mStruct >= 0.5;
-  const ltfStrongBear = ltf10mDepth >= 8 && ltf10mStruct <= -0.5;
+  const ltf10mRsi = d?.tf_tech?.["10"]?.rsi?.r5 ?? 50;
+  const ltf30mRsi = d?.tf_tech?.["30"]?.rsi?.r5 ?? 50;
+  const ltfStrongBull = (ltf10mDepth >= 8 && ltf10mStruct >= 0.5) || (ltf10mRsi > 60 && ltf30mRsi > 55);
+  const ltfStrongBear = (ltf10mDepth >= 8 && ltf10mStruct <= -0.5) || (ltf10mRsi < 40 && ltf30mRsi < 45);
+
+  // Overbought/oversold gate: block entries at RSI exhaustion across multiple timeframes.
+  // When 2+ of (30m, 1H, 4H, D) show RSI > 68, a LONG is chasing at the top.
+  // When 2+ show RSI < 32, a SHORT is chasing at the bottom.
+  const _rsi30m = d?.tf_tech?.["30"]?.rsi?.r5 ?? 50;
+  const _rsi1H = d?.tf_tech?.["1H"]?.rsi?.r5 ?? 50;
+  const _rsi4H = d?.tf_tech?.["4H"]?.rsi?.r5 ?? 50;
+  const _rsiD = d?.tf_tech?.D?.rsi?.r5 ?? 50;
+  const _obCount = (_rsi30m > 68 ? 1 : 0) + (_rsi1H > 68 ? 1 : 0) + (_rsi4H > 68 ? 1 : 0) + (_rsiD > 68 ? 1 : 0);
+  const _osCount = (_rsi30m < 32 ? 1 : 0) + (_rsi1H < 32 ? 1 : 0) + (_rsi4H < 32 ? 1 : 0) + (_rsiD < 32 ? 1 : 0);
+  if (inferredSide !== "SHORT" && _obCount >= 2) {
+    return { qualifies: false, reason: "overbought_exhaustion", rsi30m: _rsi30m, rsi1H: _rsi1H, rsi4H: _rsi4H, rsiD: _rsiD, obCount: _obCount };
+  }
+  if (inferredSide !== "LONG" && _osCount >= 2) {
+    return { qualifies: false, reason: "oversold_exhaustion", rsi30m: _rsi30m, rsi1H: _rsi1H, rsi4H: _rsi4H, rsiD: _rsiD, osCount: _osCount };
+  }
+
+  // LTF SuperTrend alignment: block when BOTH 10m+30m ST oppose trade direction.
+  // Opposing HTF STs are resistance levels to manage, not entry blockers.
+  // Pullback entries exempt — LTF is naturally opposed during pullbacks.
+  const stDir10m = d?.tf_tech?.["10"]?.stDir ?? 0;
+  const stDir30m = d?.tf_tech?.["30"]?.stDir ?? 0;
+  if (!isPullback) {
+    if (inferredSide === "LONG" && stDir10m === 1 && stDir30m === 1) {
+      return { qualifies: false, reason: "ltf_st_both_bearish", stDir10m, stDir30m };
+    }
+    if (inferredSide === "SHORT" && stDir10m === -1 && stDir30m === -1) {
+      return { qualifies: false, reason: "ltf_st_both_bullish", stDir10m, stDir30m };
+    }
+  }
+
+  // Elliott Wave context (soft annotation, not a gate).
+  // When HTF impulse aligns with trade direction, it confirms the thesis.
+  // When it opposes, it's useful context for targets/expectations.
+  const ewD = d?.tf_tech?.D?.ew;
+  const ewW = d?.tf_tech?.W?.ew;
+  let ewContext = "none";
+  if (ewD?.detected) {
+    const ewAligns = (inferredSide === "LONG" && ewD.dir === 1)
+                  || (inferredSide === "SHORT" && ewD.dir === -1);
+    ewContext = ewAligns ? "w3_aligned" : "w3_opposed";
+  }
 
   // LONG: Confirmed daily EMA regime (5>48 AND 13>21)
   // ST aligned = high confidence, ST not aligned but not aggressively bearish = medium
@@ -8138,7 +8237,9 @@ async function processTradeSimulation(
 
       trade.exitReason = closeReason;
       trade.exitPrice = p;
-      trade.exit_ts = Number.isFinite(asOfMs) ? asOfMs : (isoToMs(eventTs()) || Date.now());
+      const rawExitTs = Number.isFinite(asOfMs) ? asOfMs : (isoToMs(eventTs()) || Date.now());
+      const entryTsNum = Number(trade.entry_ts) || isoToMs(trade.entryTime) || 0;
+      trade.exit_ts = (entryTsNum > 0 && rawExitTs < entryTsNum) ? entryTsNum : rawExitTs;
       trade.status = trade.realizedPnl > 0 ? "WIN" : trade.realizedPnl < 0 ? "LOSS" : "FLAT";
       trade.pnl = trade.realizedPnl;
       trade.pnlPct =
@@ -8169,6 +8270,7 @@ async function processTradeSimulation(
           note: `Exit ${sym} ${remainingShares}sh @$${p.toFixed(2)} (${closeReason}) PnL=$${pnlRemaining.toFixed(2)}`,
         }).catch(e => console.error("[LEDGER] EXIT insert failed:", e));
         d1UpdateDirectionOutcome(env, trade).catch(() => {});
+        d1UpdateLearningOnClose(env, trade, tickerData).catch(e => console.warn("[LEARNING_LOOP] fire-and-forget failed:", String(e).slice(0, 100)));
       }
 
       // Persist via execution adapter (D1 source of truth), then Discord
@@ -8393,19 +8495,24 @@ async function processTradeSimulation(
         }
       }
 
-      // Tier 1: TRIM TP hit (60%) -> Move SL to Breakeven (entry price)
+      // Tier 1: TRIM TP hit (33%) -> Move SL to entry minus 0.5 ATR buffer
+      // Exact breakeven is too tight — normal pullbacks wick through entry and shake out runners.
+      // 0.5 ATR gives breathing room while still protecting from full reversals.
       if (tgt >= THREE_TIER_CONFIG.TRIM.trimPct && oldTrim < THREE_TIER_CONFIG.TRIM.trimPct) {
         if (Number.isFinite(entryPrice) && entryPrice > 0) {
-          const beStop = entryPrice;
-          // For LONG: only tighten if new SL is higher; for SHORT: only if lower
+          const atrVal = Number(tickerData?.atr) || 0;
+          const buffer = atrVal > 0 ? atrVal * 0.5 : entryPrice * 0.005;
+          const beStop = dir === "LONG"
+            ? entryPrice - buffer
+            : entryPrice + buffer;
           const shouldTighten = dir === "LONG"
             ? beStop > oldSl || !Number.isFinite(oldSl)
             : beStop < oldSl || !Number.isFinite(oldSl);
           if (shouldTighten) {
             trade.sl = beStop;
             slAdjusted = true;
-            slAdjustReason = "TRIM_TP_HIT_SL_TO_BE";
-            console.log(`[3-TIER] ${sym} TRIM TP hit: SL moved to BE at $${beStop.toFixed(2)}`);
+            slAdjustReason = "TRIM_TP_HIT_SL_NEAR_BE";
+            console.log(`[3-TIER] ${sym} TRIM TP hit: SL moved to BE-buffer at $${beStop.toFixed(2)} (entry=$${entryPrice.toFixed(2)}, buffer=$${buffer.toFixed(2)})`);
           }
         }
       }
@@ -8678,12 +8785,12 @@ async function processTradeSimulation(
       }
 
       // Phase 4b: SOFT FUSE — arm on moderate RSI, confirm with structure break
+      // Respects 3-tier system: trim first if untrimmed, only full exit if already trimmed
       if (!fuseExitFired) {
         const softArmLong = isLong && rsi1H >= 75;
         const softArmShort = !isLong && rsi1H <= 25;
 
         if (softArmLong || softArmShort) {
-          // Check structural confirmation: Daily EMA(21) break or 4H SuperTrend flip
           const dailyEma21 = tickerData?.tf_tech?.D?.ema?.depth ?? 5;
           const st4HFlip = tickerData?.tf_tech?.["4H"]?.atr;
           const st4HBear = st4HFlip?.x === "bear" || st4HFlip?.xs === 1;
@@ -8691,50 +8798,63 @@ async function processTradeSimulation(
           const phaseOsc4H = tickerData?.tf_tech?.["4H"]?.ph?.v ?? 0;
           const phaseDot4H = Math.abs(phaseOsc4H) > 61.8;
 
-          // Confirm for LONG: price broke below Daily EMA(21) OR 4H ST flipped bear OR phase leaving distribution
-          const dEma21Break = isLong ? (dailyEma21 < 4) : (dailyEma21 > 6); // depth < 4 means below key EMAs
+          const dEma21Break = isLong ? (dailyEma21 < 4) : (dailyEma21 > 6);
           const stConfirm = isLong ? st4HBear : st4HBull;
 
           if (dEma21Break || stConfirm || phaseDot4H) {
-            console.log(`[FUSE EXIT] ${sym} SOFT FUSE: ${isLong ? "LONG" : "SHORT"} rsi1H=${rsi1H} dEma21Break=${dEma21Break} stConfirm=${stConfirm}`);
-            tickerData.__exit_reason = `soft_fuse_rsi_confirmed`;
-            await closeTradeAtPrice(openTrade, pxNow, "SOFT_FUSE_RSI_CONFIRMED");
-            const fuseExecUpdate = { ...execState, lastExitMs: now };
-            if (isReplay && replayCtx?.execStates) replayCtx.execStates.set(sym, fuseExecUpdate);
-            else if (!isReplay) await kvPutJSON(KV, execKey, fuseExecUpdate);
-            fuseExitFired = true;
+            const currentTrimPct = clamp(Number(openTrade.trimmedPct || 0), 0, 1);
+
+            if (currentTrimPct < THREE_TIER_CONFIG.TRIM.trimPct - 0.01) {
+              // Not yet trimmed — trim first instead of full exit
+              console.log(`[FUSE TRIM] ${sym} SOFT FUSE: trimming ${Math.round(THREE_TIER_CONFIG.TRIM.trimPct * 100)}% first (rsi1H=${rsi1H} dEma21Break=${dEma21Break} stConfirm=${stConfirm})`);
+              await trimTradeToPct(openTrade, THREE_TIER_CONFIG.TRIM.trimPct, pxNow, "SOFT_FUSE_TRIM");
+              const fuseExecUpdate = { ...execState, lastTrimMs: now };
+              if (isReplay && replayCtx?.execStates) replayCtx.execStates.set(sym, fuseExecUpdate);
+              else if (!isReplay) await kvPutJSON(KV, execKey, fuseExecUpdate);
+              // Block exit handler this evaluation — runner continues with buffered SL
+              fuseExitFired = true;
+            } else {
+              // Already trimmed — now close the remaining runner
+              console.log(`[FUSE EXIT] ${sym} SOFT FUSE: closing runner (rsi1H=${rsi1H} dEma21Break=${dEma21Break} stConfirm=${stConfirm} trimmedPct=${(currentTrimPct * 100).toFixed(0)}%)`);
+              tickerData.__exit_reason = `soft_fuse_rsi_confirmed`;
+              await closeTradeAtPrice(openTrade, pxNow, "SOFT_FUSE_RSI_CONFIRMED");
+              const fuseExecUpdate = { ...execState, lastExitMs: now };
+              if (isReplay && replayCtx?.execStates) replayCtx.execStates.set(sym, fuseExecUpdate);
+              else if (!isReplay) await kvPutJSON(KV, execKey, fuseExecUpdate);
+              fuseExitFired = true;
+            }
           }
         }
       }
 
-      // Phase 4c: DYNAMIC TRAILING STOP — trail using Daily EMA(21) after profit
-      if (!fuseExitFired && Number.isFinite(entryPx) && entryPx > 0) {
+      // Phase 4c: DYNAMIC TRAILING — for profitable untrimmed trades
+      // When pnl > 2%: trigger a trim to lock in profit and activate post-trim protections
+      // (Phase 4c skip, DEFEND skip, ATR-buffered SL). This is more robust than hoping
+      // the soft fuse or TP-hit trims fire first. After trim, the runner breathes.
+      // When pnl 1-2%: gentle 1x ATR trail to prevent premature Kanban exits.
+      const _trimmedPctForTrail = clamp(Number(openTrade?.trimmedPct || 0), 0, 1);
+      if (!fuseExitFired && _trimmedPctForTrail < 0.01 && Number.isFinite(entryPx) && entryPx > 0) {
         const pnlPct = isLong
           ? ((pxNow - entryPx) / entryPx) * 100
           : ((entryPx - pxNow) / entryPx) * 100;
 
-        // Only trail after position is profitable (> 1%)
-        if (pnlPct > 1.0) {
+        if (pnlPct > 2.0) {
+          console.log(`[TRAILING TRIM] ${sym} pnl=${pnlPct.toFixed(1)}% > 2%: trimming ${Math.round(THREE_TIER_CONFIG.TRIM.trimPct * 100)}% to activate post-trim protections`);
+          await trimTradeToPct(openTrade, THREE_TIER_CONFIG.TRIM.trimPct, pxNow, "PROFIT_PROTECT_TRIM");
+          fuseExitFired = true;
+        } else if (pnlPct > 1.0) {
           const currentSL = Number(openTrade.sl);
           const atrD = Number(tickerData?.atr_d) || 0;
-
-          // After TP1 hit (use completion as proxy): trail with Daily EMA(21)
-          // Approximate Daily EMA(21) from tf_tech
-          const dBundle = tickerData?.tf_tech?.D;
-          const dEmaStructure = dBundle?.ema?.structure ?? 0;
 
           if (atrD > 0 && Number.isFinite(currentSL)) {
             let newSL;
             if (isLong) {
-              // Trail: SL = price - 1x Daily ATR (gives room for pullbacks)
               newSL = Math.round((pxNow - 1.0 * atrD) * 100) / 100;
-              // Only ratchet up, never down
               if (newSL > currentSL) {
                 openTrade.sl = newSL;
                 console.log(`[TRAILING SL] ${sym} LONG trail: SL ${currentSL.toFixed(2)} → ${newSL.toFixed(2)} (pnl=${pnlPct.toFixed(1)}%)`);
               }
             } else {
-              // SHORT: trail SL downward
               newSL = Math.round((pxNow + 1.0 * atrD) * 100) / 100;
               if (newSL < currentSL) {
                 openTrade.sl = newSL;
@@ -8809,7 +8929,11 @@ async function processTradeSimulation(
     const _exitProfile = _lp.exit_profile || {};
     const _pullbackProfile = _lp.pullback_profile || {};
 
-    if (isDefend && !weekendNow && defendCooldownOk && openTrade && Number.isFinite(pxNow) && clamp(Number(openTrade.trimmedPct || 0), 0, 1) < 0.9999) {
+    // Skip DEFEND for trimmed trades: the 3-tier system manages SL post-trim.
+    // DEFEND's breakeven/breakeven+ overrides the more generous post-trim SL buffer,
+    // defeating the purpose of giving runners room to breathe after locking in trim profit.
+    const _defendTrimPct = clamp(Number(openTrade?.trimmedPct || 0), 0, 1);
+    if (isDefend && !weekendNow && defendCooldownOk && openTrade && Number.isFinite(pxNow) && _defendTrimPct < 0.01) {
       const entryPx = Number(openTrade.entryPrice);
       const dir = String(openTrade.direction || "").toUpperCase();
       const isLong = dir === "LONG";
@@ -9471,6 +9595,29 @@ async function processTradeSimulation(
           console.log(`[PROFILE_SL] ${sym}: ${preSL.toFixed(2)} → ${finalSL.toFixed(2)} (type=${_tickerProfile?.behavior_type}, mult=${profileSlMult})`);
         }
 
+        // ── Ticker Learning: personality-aware SL/TP adjustment ──
+        const _learning = _tickerProfile?.learning;
+        if (_learning?.entry_params && Number.isFinite(finalSL) && Number.isFinite(entryPx)) {
+          const lep = _learning.entry_params;
+          const dAtr = Number(tickerData?.tf_tech?.D?.atr) || Number(tickerData?.atr) || 0;
+
+          // Personality-based trail style hint (consumed by trim/trail logic downstream)
+          if (lep.trail_style) tickerData.__learning_trail_style = lep.trail_style;
+
+          // Volatile runners: widen SL using learned typical pullback
+          if (_learning.personality === "VOLATILE_RUNNER" && dAtr > 0) {
+            const learnedSlDist = dAtr * (lep.sl_atr_mult || 1.5);
+            const currentSlDist = Math.abs(entryPx - finalSL);
+            if (learnedSlDist > currentSlDist * 1.15) {
+              const preSL = finalSL;
+              finalSL = direction === "LONG"
+                ? Math.round((entryPx - learnedSlDist) * 100) / 100
+                : Math.round((entryPx + learnedSlDist) * 100) / 100;
+              console.log(`[LEARNING_SL] ${sym}: widened ${preSL.toFixed(2)} → ${finalSL.toFixed(2)} (personality=VOLATILE_RUNNER, sl_mult=${lep.sl_atr_mult}x ATR)`);
+            }
+          }
+        }
+
         // ── Deep Audit: SL Cap — enforce maximum SL multiplier ──
         const _daSlCap = Number(env?._deepAuditConfig?.deep_audit_sl_cap_mult) || 0;
         if (_daSlCap > 0 && Number.isFinite(finalSL) && Number.isFinite(entryPx)) {
@@ -9926,10 +10073,14 @@ async function processTradeSimulation(
           // NON-RUNNER: Standard protection logic
           // ─────────────────────────────────────────────────────────────────────
           if (!isRunnerPhase || candidate == null) {
-            // Candidate 1: break-even once +5% (or after trim with gains)
-            // DATA: Breakeven at +3% was too aggressive — winners need room to develop.
-            // Only move to breakeven when we have a significant cushion.
-            if (pnlPct >= 5.0 || (trimmedPct > 0 && pnlPct >= 2.0)) {
+            // Candidate 1: protect gains with ATR-buffered breakeven
+            // Post-trim: use entry ± 0.5 ATR to match trim SL buffer (gives runner room).
+            // Pre-trim: use exact breakeven at 5%+ pnl.
+            if (trimmedPct > 0 && pnlPct >= 2.0) {
+              const _protAtr = Number(tickerData?.atr) || 0;
+              const _protBuf = _protAtr > 0 ? _protAtr * 0.5 : entry * 0.005;
+              candidate = dir === "LONG" ? entry - _protBuf : entry + _protBuf;
+            } else if (pnlPct >= 5.0) {
               candidate = entry;
             }
 
@@ -13306,6 +13457,53 @@ async function d1EnsureCandleSchema(env) {
       try { await db.prepare(sql).run(); } catch { /* table may not exist yet */ }
     }
 
+    // ── Ticker Learning System tables ──
+    await db.prepare(`CREATE TABLE IF NOT EXISTS ticker_moves (
+      id TEXT PRIMARY KEY,
+      ticker TEXT NOT NULL,
+      direction TEXT NOT NULL,
+      start_ts INTEGER NOT NULL,
+      end_ts INTEGER NOT NULL,
+      peak_ts INTEGER,
+      duration_days INTEGER,
+      move_pct REAL,
+      move_atr REAL,
+      start_price REAL,
+      end_price REAL,
+      peak_price REAL,
+      atr_at_start REAL,
+      max_pullback_pct REAL,
+      pullback_count INTEGER DEFAULT 0,
+      rsi_at_start REAL,
+      ema_aligned INTEGER DEFAULT 0,
+      ema_state TEXT,
+      personality TEXT,
+      created_at INTEGER NOT NULL
+    )`).run();
+    try { await db.prepare(`CREATE INDEX IF NOT EXISTS idx_moves_ticker ON ticker_moves (ticker, start_ts)`).run(); } catch {}
+    try { await db.prepare(`CREATE INDEX IF NOT EXISTS idx_moves_dir ON ticker_moves (direction, move_atr DESC)`).run(); } catch {}
+
+    await db.prepare(`CREATE TABLE IF NOT EXISTS ticker_move_signals (
+      id TEXT PRIMARY KEY,
+      move_id TEXT NOT NULL,
+      phase TEXT NOT NULL,
+      phase_pct REAL,
+      ts INTEGER NOT NULL,
+      rsi_d REAL,
+      rsi_30m REAL,
+      st_dir_d INTEGER,
+      st_dir_30m INTEGER,
+      st_slope_d INTEGER,
+      atr_d REAL,
+      ema21_d REAL,
+      ema48_d REAL,
+      ema_cross_d INTEGER,
+      price REAL,
+      signals_json TEXT,
+      FOREIGN KEY (move_id) REFERENCES ticker_moves(id)
+    )`).run();
+    try { await db.prepare(`CREATE INDEX IF NOT EXISTS idx_move_signals_move ON ticker_move_signals (move_id, phase_pct)`).run(); } catch {}
+
     try {
       if (KV)
         await KV.put(throttleKey, String(Date.now()), {
@@ -16062,6 +16260,78 @@ async function d1UpdateDirectionOutcome(env, trade) {
     ).run();
   } catch (e) {
     console.warn("[LEARNING] Failed to update direction outcome:", String(e).slice(0, 150));
+  }
+}
+
+async function d1UpdateLearningOnClose(env, trade, tickerData) {
+  const db = env?.DB;
+  if (!db || !trade?.ticker) return;
+  try {
+    const ticker = trade.ticker;
+    const row = (await db.prepare(
+      `SELECT learning_json FROM ticker_profiles WHERE ticker = ?`
+    ).bind(ticker).first());
+    if (!row?.learning_json) return;
+
+    let learning;
+    try { learning = JSON.parse(row.learning_json); } catch (_) { return; }
+    if (!learning?.entry_params) return;
+
+    const direction = String(trade.direction || "").toUpperCase();
+    const pnlPct = Number(trade.pnlPct) || 0;
+    const isWin = pnlPct > 0;
+    const mfe = Number(trade.maxFavorableExcursion) || 0;
+    const mae = Number(trade.maxAdverseExcursion) || 0;
+
+    const outcomes = learning.recent_outcomes || [];
+    outcomes.push({
+      ts: Date.now(),
+      dir: direction,
+      pnl_pct: Math.round(pnlPct * 100) / 100,
+      mfe: Math.round(mfe * 100) / 100,
+      mae: Math.round(mae * 100) / 100,
+      win: isWin,
+    });
+    if (outcomes.length > 50) outcomes.splice(0, outcomes.length - 50);
+    learning.recent_outcomes = outcomes;
+
+    const ep = learning.entry_params;
+    const DECAY = 0.05;
+
+    if (mae > 0 && ep.sl_atr_mult) {
+      const dAtr = Number(tickerData?.tf_tech?.D?.atr) || Number(tickerData?.atr) || 0;
+      if (dAtr > 0) {
+        const maeAtrMult = mae / 100 * (Number(trade.entryPrice) || 1) / dAtr;
+        if (maeAtrMult > ep.sl_atr_mult * 1.1 && !isWin) {
+          ep.sl_atr_mult = Math.round((ep.sl_atr_mult + DECAY * (maeAtrMult - ep.sl_atr_mult)) * 100) / 100;
+        }
+      }
+    }
+
+    if (mfe > 0 && ep.tp_atr_mult) {
+      const dAtr = Number(tickerData?.tf_tech?.D?.atr) || Number(tickerData?.atr) || 0;
+      if (dAtr > 0) {
+        const mfeAtrMult = mfe / 100 * (Number(trade.entryPrice) || 1) / dAtr;
+        if (isWin && mfeAtrMult > ep.tp_atr_mult * 1.1) {
+          ep.tp_atr_mult = Math.round((ep.tp_atr_mult + DECAY * (mfeAtrMult - ep.tp_atr_mult)) * 100) / 100;
+        }
+      }
+    }
+
+    const recentWins = outcomes.slice(-20).filter(o => o.win).length;
+    const recentTotal = Math.min(outcomes.length, 20);
+    if (recentTotal >= 5) {
+      learning.recent_win_rate = Math.round((recentWins / recentTotal) * 100);
+    }
+
+    learning.last_updated = new Date().toISOString();
+    const json = JSON.stringify(learning).replace(/'/g, "''");
+    await db.prepare(`UPDATE ticker_profiles SET learning_json = ? WHERE ticker = ?`).bind(JSON.stringify(learning), ticker).run();
+    const KV = env?.KV_TIMED;
+    if (KV) await KV.delete(`timed:profile:${ticker}`).catch(() => {});
+    console.log(`[LEARNING_LOOP] ${ticker} profile updated (${direction} ${isWin ? "WIN" : "LOSS"} ${pnlPct.toFixed(1)}%, outcomes=${outcomes.length})`);
+  } catch (e) {
+    console.warn("[LEARNING_LOOP] Failed:", String(e).slice(0, 200));
   }
 }
 
@@ -36049,6 +36319,35 @@ export default {
           });
 
           return sendJSON({ ok: true, history }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      if (routeKey === "GET /timed/system/ticker-profiles") {
+        try {
+          const db = env?.DB;
+          if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
+          const rows = (await db.prepare(
+            `SELECT ticker, learning_json FROM ticker_profiles WHERE learning_json IS NOT NULL ORDER BY ticker`
+          ).all()).results || [];
+
+          const profiles = rows.map(row => {
+            let learning = null;
+            try { learning = JSON.parse(row.learning_json); } catch (_) {}
+            return {
+              ticker: row.ticker,
+              personality: learning?.personality || null,
+              move_count: learning?.move_count || 0,
+              avg_move_pct: learning?.avg_move_pct || null,
+              avg_duration: learning?.avg_duration || null,
+              entry_params: learning?.entry_params || null,
+              long_profile: learning?.long_profile || null,
+              short_profile: learning?.short_profile || null,
+            };
+          });
+
+          return sendJSON({ ok: true, count: profiles.length, profiles }, 200, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
         }

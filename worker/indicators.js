@@ -1834,6 +1834,107 @@ function findSwingPivots(bars, lookback) {
   return { highs, lows };
 }
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// Elliott Wave Impulse Detection
+// Ported from TradingView "Elliot Wave - Impulse" by HeWhoMustNotBeNamed.
+// Detects Wave 1-2 completion via zigzag + Fibonacci retracement validation,
+// then projects Wave 3 targets and invalidation levels.
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Build a zigzag from OHLC bars with strict alternation (H→L→H→L).
+ * Consecutive same-direction pivots are merged (keep the more extreme value).
+ *
+ * @param {Array} bars - sorted ascending, { o, h, l, c, ts }
+ * @param {number} length - lookback for pivot confirmation
+ * @returns {Array<{price:number, idx:number, ts:number, dir:number}>}
+ *          dir: 1 = swing high, -1 = swing low
+ */
+function computeZigzag(bars, length) {
+  if (!bars || bars.length < length * 2 + 1) return [];
+
+  const raw = [];
+  for (let i = length; i < bars.length - length; i++) {
+    let isHigh = true, isLow = true;
+    for (let j = 1; j <= length; j++) {
+      if (bars[i].h <= bars[i - j].h || bars[i].h <= bars[i + j].h) isHigh = false;
+      if (bars[i].l >= bars[i - j].l || bars[i].l >= bars[i + j].l) isLow = false;
+      if (!isHigh && !isLow) break;
+    }
+    if (isHigh) raw.push({ price: bars[i].h, idx: i, ts: bars[i].ts || 0, dir: 1 });
+    if (isLow)  raw.push({ price: bars[i].l, idx: i, ts: bars[i].ts || 0, dir: -1 });
+  }
+
+  raw.sort((a, b) => a.idx - b.idx);
+
+  const zz = [];
+  for (const p of raw) {
+    if (zz.length === 0) { zz.push(p); continue; }
+    const last = zz[zz.length - 1];
+    if (p.dir === last.dir) {
+      if ((p.dir === 1 && p.price > last.price) || (p.dir === -1 && p.price < last.price)) {
+        zz[zz.length - 1] = p;
+      }
+    } else {
+      zz.push(p);
+    }
+  }
+  return zz;
+}
+
+/**
+ * Detect Elliott Wave impulse (Wave 1-2 completion → Wave 3 ready).
+ * Validates Wave 2 retracement against Fibonacci ratios, then projects
+ * Wave 3 targets using Fibonacci extensions of Wave 1 length.
+ *
+ * @param {Array} bars - OHLC bars sorted ascending
+ * @param {number} [zigzagLength=10] - lookback for zigzag pivots
+ * @param {number} [errorPct=5] - tolerance % for Fibonacci matching
+ * @returns {object|null} EW impulse descriptor or null
+ */
+function detectEWImpulse(bars, zigzagLength = 10, errorPct = 5) {
+  const zz = computeZigzag(bars, zigzagLength);
+  if (zz.length < 3) return null;
+
+  const p0 = zz[zz.length - 3]; // Wave 1 start
+  const p1 = zz[zz.length - 2]; // Wave 1 end = Wave 2 start
+  const p2 = zz[zz.length - 1]; // Wave 2 end = Wave 3 start
+
+  const w1Len = Math.abs(p1.price - p0.price);
+  const w2Len = Math.abs(p2.price - p1.price);
+  if (w1Len <= 0) return null;
+
+  const r2 = w2Len / w1Len;
+  const errMin = (100 - errorPct) / 100;
+  const errMax = (100 + errorPct) / 100;
+
+  const fiboLevels = [0.382, 0.50, 0.618, 0.764, 0.854];
+  let matchedFibo = null;
+  for (const fib of fiboLevels) {
+    if (r2 > fib * errMin && r2 < fib * errMax) { matchedFibo = fib; break; }
+  }
+  if (!matchedFibo) return { detected: false };
+
+  // dir: 1 = bullish impulse (W1 went up), -1 = bearish impulse
+  const dir = p1.price > p0.price ? 1 : -1;
+
+  return {
+    detected: true,
+    dir,
+    r2: Math.round(r2 * 1000) / 1000,
+    fiboMatch: matchedFibo,
+    w1: { s: +p0.price.toFixed(2), e: +p1.price.toFixed(2) },
+    w2End: +p2.price.toFixed(2),
+    stop: +p0.price.toFixed(2),
+    targets: {
+      t1: +(p2.price + dir * 1.618 * w1Len).toFixed(2),
+      t2: +(p2.price + dir * 2.0   * w1Len).toFixed(2),
+      t3: +(p2.price + dir * 2.618 * w1Len).toFixed(2),
+      t4: +(p2.price + dir * 3.236 * w1Len).toFixed(2),
+    },
+  };
+}
+
 /**
  * Classify regime from the last N swing pivots.
  * @param {{ highs: Array, lows: Array }} pivots
@@ -2866,6 +2967,8 @@ export function assembleTickerData(ticker, bundles, existingData = null, opts = 
         momentum: Math.round((b.emaMomentum || 0) * 1000) / 1000,
         priceAboveEma21,
       },
+      stDir: Number.isFinite(b.stDir) ? b.stDir : 0,
+      stSlope: b.stSlopeUp ? 1 : b.stSlopeDn ? -1 : 0,
       atr: atrBand ? { ...atrBand, ...(atrCross || {}) } : (atrCross || undefined),
       sq: { s: b.sqOn ? 1 : 0, r: b.sqRelease ? 1 : 0, c: b.compressed ? 1 : 0 },
       rsi: { r5: Number.isFinite(b.rsi) ? Math.round(b.rsi * 10) / 10 : undefined },
@@ -2886,6 +2989,19 @@ export function assembleTickerData(ticker, bundles, existingData = null, opts = 
         bsd: b.liq.nearestBuysideDist, ssd: b.liq.nearestSellsideDist,
       } : undefined,
     };
+  }
+
+  // Elliott Wave impulse detection on HTF (Daily, Weekly)
+  const rawBarsForEW = rawBarsEarly || {};
+  const ewDailyBars = rawBarsForEW.D || rawBarsForEW.daily || [];
+  const ewWeeklyBars = rawBarsForEW.W || rawBarsForEW.weekly || [];
+  if (ewDailyBars.length >= 25 && tfTech.D) {
+    const ewD = detectEWImpulse(ewDailyBars, 10, 5);
+    if (ewD) tfTech.D.ew = ewD;
+  }
+  if (ewWeeklyBars.length >= 25 && tfTech.W) {
+    const ewW = detectEWImpulse(ewWeeklyBars, 10, 5);
+    if (ewW) tfTech.W.ew = ewW;
   }
 
   // Merge: keep existing fields that we don't compute (e.g., Ichimoku, daily EMA cloud)
@@ -4440,6 +4556,31 @@ export async function computeServerSideScores(ticker, getCandles, env, existingD
       trend_persistence: tickerProfile.trendPersistence || tickerProfile.trend_persistence || 0.5,
       ichimoku_responsiveness: tickerProfile.ichimokuResponsiveness || tickerProfile.ichimoku_responsiveness || 0.5,
     };
+
+    // Ticker Learning System: inject learned personality + entry params
+    const learning = tickerProfile.learning_json
+      ? (typeof tickerProfile.learning_json === "string" ? JSON.parse(tickerProfile.learning_json) : tickerProfile.learning_json)
+      : null;
+    if (learning) {
+      tickerData._ticker_profile.learning = {
+        personality: learning.personality,
+        entry_params: learning.entry_params,
+        long_profile: learning.long_profile ? {
+          avg_move_pct: learning.long_profile.avg_move_pct,
+          avg_pullback_pct: learning.long_profile.avg_pullback_pct,
+          ema_aligned_pct: learning.long_profile.ema_precision?.aligned_pct,
+          st_aligned_pct: learning.long_profile.st_precision?.aligned_pct,
+          rsi_best_zone: learning.long_profile.rsi_at_origin?.best_zone,
+        } : null,
+        short_profile: learning.short_profile ? {
+          avg_move_pct: learning.short_profile.avg_move_pct,
+          avg_pullback_pct: learning.short_profile.avg_pullback_pct,
+          ema_aligned_pct: learning.short_profile.ema_precision?.aligned_pct,
+          st_aligned_pct: learning.short_profile.st_precision?.aligned_pct,
+          rsi_best_zone: learning.short_profile.rsi_at_origin?.best_zone,
+        } : null,
+      };
+    }
   }
 
   // ── Compute TD Sequential (D/W/M) and attach ──

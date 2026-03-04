@@ -7,6 +7,7 @@
  *   TIMED_API_KEY=AwesomeSauce node scripts/alpaca-backfill.js [--tf D] [--batch 30]
  *   node scripts/alpaca-backfill.js --provider twelvedata --tf D
  *   node scripts/alpaca-backfill.js --tickers AXON,TSM,ARM --tf D
+ *   node scripts/alpaca-backfill.js --tf D --days-back 2300   # backfill D from ~Jan 2020
  *
  * Environment:
  *   DATA_PROVIDER          - "twelvedata" (default) or "alpaca"
@@ -477,12 +478,14 @@ async function main() {
   let batchSize = 30;
   let tickerFilter = null;
   let provider = process.env.DATA_PROVIDER || "twelvedata";
+  let daysBackOverride = null;
 
   for (let i = 0; i < args.length; i++) {
     if (args[i] === "--tf" && args[i + 1]) tfFilter = args[++i];
     if (args[i] === "--batch" && args[i + 1]) batchSize = parseInt(args[++i]);
     if (args[i] === "--tickers" && args[i + 1]) tickerFilter = args[++i].split(",").map(t => t.trim().toUpperCase());
     if (args[i] === "--provider" && args[i + 1]) provider = args[++i].toLowerCase();
+    if (args[i] === "--days-back" && args[i + 1]) daysBackOverride = parseInt(args[++i]);
   }
 
   const useTD = provider === "twelvedata" || provider === "td";
@@ -510,7 +513,8 @@ async function main() {
 
   for (const tf of tfsToProcess) {
     const cfg = TF_CONFIGS[tf];
-    const start = new Date(Date.now() - cfg.daysBack * 24 * 60 * 60 * 1000).toISOString();
+    const effectiveDaysBack = daysBackOverride || cfg.daysBack;
+    const start = new Date(Date.now() - effectiveDaysBack * 24 * 60 * 60 * 1000).toISOString();
     console.log(`\n== TF: ${tf} (${useTD ? cfg.td : cfg.alpaca}) — fetching from ${start.split("T")[0]} ==`);
 
     for (let i = 0; i < tickers.length; i += effectiveBatch) {

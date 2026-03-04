@@ -822,6 +822,7 @@ export async function loadTickerProfile(env, ticker) {
       entryThresholdAdj: row.entry_threshold_adj || 0,
       calibratedAt: row.calibrated_at,
       calibrationVersion: row.calibration_version,
+      learning_json: row.learning_json || null,
     };
 
     // Re-cache in KV

@@ -902,6 +902,27 @@
                         )}
                       </div>
                     )}
+                    {(() => {
+                      const snap = entrySnap ? (typeof entrySnap === "string" ? (() => { try { return JSON.parse(entrySnap); } catch { return null; } })() : entrySnap) : null;
+                      const lc = snap?.precision?.learningContext || snap?.learningContext;
+                      if (!lc) return null;
+                      const pColor = lc.personality === "VOLATILE_RUNNER" ? "#ef4444" : lc.personality === "PULLBACK_PLAYER" ? "#f59e0b" : lc.personality === "SLOW_GRINDER" ? "#60a5fa" : "#a78bfa";
+                      return (
+                        <div className="tt-card p-3 shrink-0">
+                          <div className="text-[11px] font-semibold text-[#a78bfa] uppercase tracking-wider mb-2">Ticker Learning Profile</div>
+                          <div className="text-[12px] text-[#d1d5db] space-y-1.5">
+                            <div className="flex items-center gap-2">
+                              <span className="text-[#9ca3af]">Personality:</span>
+                              <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold" style={{ background: pColor + "22", color: pColor, border: `1px solid ${pColor}44` }}>{lc.personality?.replace(/_/g, " ")}</span>
+                            </div>
+                            {lc.trail_style && <div><span className="text-[#9ca3af]">Trail style:</span> {lc.trail_style}</div>}
+                            {lc.tp_mult && <div><span className="text-[#9ca3af]">Expected TP:</span> {lc.tp_mult}x ATR</div>}
+                            {lc.sl_mult && <div><span className="text-[#9ca3af]">Expected SL:</span> {lc.sl_mult}x ATR</div>}
+                            {lc.boost != null && lc.boost !== 0 && <div><span className="text-[#9ca3af]">Learning boost:</span> <span className={lc.boost > 0 ? "text-[#22c55e]" : "text-[#ef4444]"}>{lc.boost > 0 ? "+" : ""}{lc.boost}</span></div>}
+                          </div>
+                        </div>
+                      );
+                    })()}
                     {(exitReason != null || Number.isFinite(mfe) || Number.isFinite(mae)) && (
                       <div className="tt-card p-3 shrink-0">
                         <div className="text-[11px] font-semibold text-[#f59e0b] uppercase tracking-wider mb-2">Exit context</div>

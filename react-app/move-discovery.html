@@ -1,0 +1,562 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Timed Trading — Move Discovery</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="auth-gate.js?v=20260220a"></script>
+    <script>
+      tailwind.config = {
+        theme: { extend: { fontFamily: { sans: ["Inter", "system-ui", "sans-serif"] } } },
+      };
+    </script>
+    <style>
+      body { font-family: "Inter", system-ui, sans-serif; background: #0b0e11; color: #e5e7eb; -webkit-font-smoothing: antialiased; letter-spacing: -0.01em; }
+      @keyframes spin { to { transform: rotate(360deg); } }
+      .card { background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.04); border-radius: 12px; }
+      .badge-good { background: rgba(16,185,129,0.15); color: #6ee7b7; }
+      .badge-warn { background: rgba(251,191,36,0.15); color: #fcd34d; }
+      .badge-bad { background: rgba(244,63,94,0.15); color: #fca5a5; }
+      .badge-info { background: rgba(56,189,248,0.12); color: #93c5fd; }
+      .btn { padding: 8px 16px; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; transition: all 0.15s; border: none; }
+      .btn-primary { background: linear-gradient(135deg, #059669, #10b981); color: white; }
+      .btn-primary:hover { background: linear-gradient(135deg, #047857, #059669); }
+      .btn-secondary { background: #334155; color: #94a3b8; border: 1px solid #475569; }
+      .btn-secondary:hover { background: #475569; }
+      .tab-active { border-bottom: 2px solid #10b981; color: #e8eaf0; }
+      .tab-inactive { border-bottom: 2px solid transparent; color: #626b7d; cursor: pointer; }
+      .tab-inactive:hover { color: #9098a8; }
+      .meter-bar { height: 6px; border-radius: 3px; background: rgba(255,255,255,0.06); overflow: hidden; }
+      .meter-fill { height: 100%; border-radius: 3px; transition: width 0.5s ease; }
+      body:not([data-user-role="admin"]) [data-admin-only] { display: none !important; }
+      .tbl { width: 100%; border-collapse: separate; border-spacing: 0; }
+      .tbl th { text-align: left; padding: 8px 12px; font-size: 11px; font-weight: 600; color: #6b7280; text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 1px solid rgba(255,255,255,0.06); cursor: pointer; user-select: none; }
+      .tbl th:hover { color: #a5b4fc; }
+      .tbl td { padding: 6px 12px; font-size: 13px; border-bottom: 1px solid rgba(255,255,255,0.03); }
+      .tbl tbody tr:hover { background: rgba(255,255,255,0.03); }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="text/babel">
+const { useState, useEffect, useCallback, useMemo } = React;
+const API_BASE = "";
+
+function NavHeader() {
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const UserBadge = window.TimedUserBadge;
+  const storedUser = window.TimedAuthHelpers?.getStoredSession();
+  return (
+    <nav className="sticky top-0 z-50 border-b border-white/[0.06]" style={{background:"rgba(10,10,15,0.95)",backdropFilter:"blur(12px)"}}>
+      <div className="flex items-center justify-between px-4 py-2.5">
+        <div className="flex items-center gap-3 md:gap-5 min-w-0">
+          <a href="index-react.html" className="flex items-center gap-2 no-underline shrink-0">
+            <div className="w-[28px] h-[28px] md:w-[32px] md:h-[32px] rounded-[8px] flex items-center justify-center" style={{background:"linear-gradient(135deg, #00c853, #00e676, #69f0ae)"}}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="22 7 13.5 15.5 8.5 10.5 2 17" />
+                <polyline points="16 7 22 7 22 13" />
+              </svg>
+            </div>
+            <span className="text-[14px] md:text-[15px] font-bold text-white hidden sm:inline" style={{letterSpacing:"-0.03em"}}>Timed Trading</span>
+          </a>
+          <div className="hidden md:flex items-center gap-0.5">
+            <a href="index-react.html" className="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Analysis</a>
+            <a href="simulation-dashboard.html" className="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Trades</a>
+            <a href="system-intelligence.html" className="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">System Intelligence</a>
+            <a href="move-discovery.html" className="px-3 py-1 rounded-md text-[13px] text-white bg-white/[0.07] font-medium">Move Discovery</a>
+            <a href="screener.html" data-admin-only="true" className="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Screener</a>
+            <a href="trade-autopsy.html" className="px-3 py-1 rounded-md text-[13px] text-[#14b8a6]/80 hover:text-[#14b8a6] hover:bg-[#14b8a6]/[0.06] transition-all font-medium">Trade Autopsy</a>
+          </div>
+        </div>
+        <div className="flex items-center gap-1.5 md:gap-2 shrink-0">
+          {window.TimedNotificationCenter && <window.TimedNotificationCenter apiBase="" />}
+          {UserBadge && <UserBadge user={storedUser} compact />}
+          <button onClick={() => setMobileMenuOpen(v => !v)} className="md:hidden p-1.5 rounded-md text-[#6b7280] hover:text-white hover:bg-white/[0.06] transition-all" aria-label="Toggle menu">
+            {mobileMenuOpen ? (
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            ) : (
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+            )}
+          </button>
+        </div>
+      </div>
+      {mobileMenuOpen && (
+        <div className="md:hidden border-t border-white/[0.06] px-4 py-2 flex flex-col gap-0.5" style={{background:"rgba(10,10,15,0.98)"}}>
+          <a href="index-react.html" className="px-3 py-2 rounded-md text-[13px] text-[#6b7280]">Analysis</a>
+          <a href="simulation-dashboard.html" className="px-3 py-2 rounded-md text-[13px] text-[#6b7280]">Trades</a>
+          <a href="system-intelligence.html" className="px-3 py-2 rounded-md text-[13px] text-[#6b7280]">System Intelligence</a>
+          <a href="move-discovery.html" className="px-3 py-2 rounded-md text-[13px] text-white font-medium">Move Discovery</a>
+          <a href="trade-autopsy.html" className="px-3 py-2 rounded-md text-[13px] text-[#14b8a6]">Trade Autopsy</a>
+        </div>
+      )}
+    </nav>
+  );
+}
+
+function Badge({ type, children }) {
+  const cls = type === "good" ? "badge-good" : type === "warn" ? "badge-warn" : type === "bad" ? "badge-bad" : "badge-info";
+  return <span className={`${cls} px-2 py-0.5 rounded-full text-[11px] font-semibold inline-flex items-center`}>{children}</span>;
+}
+
+function Stat({ label, value, sub, color }) {
+  return (
+    <div className="card p-4 flex flex-col gap-1">
+      <div className="text-[11px] text-[#6b7280] uppercase tracking-wider font-medium">{label}</div>
+      <div className={`text-[22px] font-bold ${color || "text-white"}`}>{value}</div>
+      {sub && <div className="text-[11px] text-[#6b7280]">{sub}</div>}
+    </div>
+  );
+}
+
+function CaptureDonut({ summary }) {
+  if (!summary) return null;
+  const { full_capture, partial_capture, missed, churned, total_moves } = summary;
+  const segments = [
+    { label: "Full", value: full_capture, color: "#10b981" },
+    { label: "Partial", value: partial_capture, color: "#fbbf24" },
+    { label: "Churned", value: churned, color: "#f97316" },
+    { label: "Missed", value: missed, color: "#ef4444" },
+  ];
+  const r = 54, cx = 64, cy = 64, sw = 12;
+  const circ = 2 * Math.PI * r;
+  let offset = 0;
+  return (
+    <div className="flex items-center gap-4">
+      <svg width="128" height="128" viewBox="0 0 128 128">
+        {segments.map((seg, i) => {
+          const pct = total_moves > 0 ? seg.value / total_moves : 0;
+          const dashLen = circ * pct;
+          const dashOff = circ * offset;
+          offset += pct;
+          return <circle key={i} cx={cx} cy={cy} r={r} fill="none" stroke={seg.color} strokeWidth={sw} strokeDasharray={`${dashLen} ${circ - dashLen}`} strokeDashoffset={-dashOff} strokeLinecap="butt" transform={`rotate(-90 ${cx} ${cy})`} style={{opacity: 0.85}} />;
+        })}
+        <text x={cx} y={cy - 4} textAnchor="middle" fill="white" fontSize="18" fontWeight="700">{total_moves}</text>
+        <text x={cx} y={cy + 12} textAnchor="middle" fill="#6b7280" fontSize="10">moves</text>
+      </svg>
+      <div className="flex flex-col gap-1.5">
+        {segments.map((seg, i) => (
+          <div key={i} className="flex items-center gap-2 text-[12px]">
+            <span className="w-2.5 h-2.5 rounded-sm shrink-0" style={{background: seg.color}} />
+            <span className="text-[#9ca3af]">{seg.label}</span>
+            <span className="font-semibold text-white ml-auto pl-3">{seg.value}</span>
+            <span className="text-[#6b7280] w-12 text-right">{total_moves > 0 ? (seg.value / total_moves * 100).toFixed(1) : 0}%</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function PatternCompare({ patterns }) {
+  if (!patterns?.captured || !patterns?.missed) return null;
+  const rows = [
+    { label: "Avg Move %", cap: patterns.captured.avg_move_pct + "%", miss: patterns.missed.avg_move_pct + "%" },
+    { label: "Avg Move ATR", cap: patterns.captured.avg_move_atr, miss: patterns.missed.avg_move_atr },
+    { label: "EMA Aligned", cap: patterns.captured.ema_aligned_pct + "%", miss: patterns.missed.ema_aligned_pct + "%" },
+    { label: "Avg RSI", cap: patterns.captured.avg_rsi, miss: patterns.missed.avg_rsi },
+    { label: "Avg Pullback", cap: patterns.captured.avg_pullback_pct + "%", miss: patterns.missed.avg_pullback_pct + "%" },
+    { label: "Direction UP", cap: patterns.captured.up_pct + "%", miss: patterns.missed.up_pct + "%" },
+  ];
+  const trailRows = patterns.captured.trail && patterns.missed.trail ? [
+    { label: "HTF Score", cap: patterns.captured.trail.avg_htf, miss: patterns.missed.trail.avg_htf },
+    { label: "LTF Score", cap: patterns.captured.trail.avg_ltf, miss: patterns.missed.trail.avg_ltf },
+    { label: "Rank", cap: patterns.captured.trail.avg_rank, miss: patterns.missed.trail.avg_rank },
+    { label: "Squeeze Release", cap: patterns.captured.trail.squeeze_release_pct + "%", miss: patterns.missed.trail.squeeze_release_pct + "%" },
+    { label: "Momentum Elite", cap: patterns.captured.trail.momentum_elite_pct + "%", miss: patterns.missed.trail.momentum_elite_pct + "%" },
+  ] : [];
+  return (
+    <div className="card p-4">
+      <h3 className="text-sm font-semibold text-white mb-3">Captured vs Missed — Signal Patterns at Move Start</h3>
+      <table className="tbl">
+        <thead><tr><th>Metric</th><th className="text-emerald-400">Captured ({patterns.captured.count})</th><th className="text-red-400">Missed ({patterns.missed.count})</th></tr></thead>
+        <tbody>
+          {rows.map((r, i) => <tr key={i}><td className="text-[#9ca3af]">{r.label}</td><td className="font-medium">{r.cap}</td><td className="font-medium">{r.miss}</td></tr>)}
+          {trailRows.length > 0 && <>
+            <tr><td colSpan={3} className="text-[10px] text-[#6b7280] uppercase tracking-wider pt-3 pb-1 border-none">Trail Indicators at Entry</td></tr>
+            {trailRows.map((r, i) => <tr key={"t"+i}><td className="text-[#9ca3af]">{r.label}</td><td className="font-medium">{r.cap}</td><td className="font-medium">{r.miss}</td></tr>)}
+          </>}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function ChurningTable({ churning }) {
+  const [sortField, setSortField] = useState("missed_upside");
+  const [sortDir, setSortDir] = useState("desc");
+  if (!churning?.length) return <div className="text-[#6b7280] text-sm">No churning detected.</div>;
+
+  const sorted = [...churning].sort((a, b) => {
+    const va = a[sortField], vb = b[sortField];
+    return sortDir === "desc" ? (vb || 0) - (va || 0) : (va || 0) - (vb || 0);
+  });
+
+  function toggleSort(f) {
+    if (sortField === f) setSortDir(d => d === "desc" ? "asc" : "desc");
+    else { setSortField(f); setSortDir("desc"); }
+  }
+
+  const totalMissed = churning.reduce((s, c) => s + (c.missed_upside || 0), 0);
+
+  return (
+    <div>
+      <div className="flex items-center gap-3 mb-3">
+        <h3 className="text-sm font-semibold text-white">Churning Report</h3>
+        <Badge type="bad">{totalMissed.toFixed(1)}% total missed upside</Badge>
+      </div>
+      <div className="overflow-x-auto rounded-lg border border-white/[0.04]">
+        <table className="tbl">
+          <thead>
+            <tr>
+              <th onClick={() => toggleSort("ticker")}>Ticker</th>
+              <th onClick={() => toggleSort("move_pct")}>Move %</th>
+              <th onClick={() => toggleSort("trade_count")}># Trades</th>
+              <th onClick={() => toggleSort("individual_pnl")}>Sum P&L</th>
+              <th onClick={() => toggleSort("hold_pnl")}>Hold P&L</th>
+              <th onClick={() => toggleSort("hold_to_peak_pnl")}>Peak P&L</th>
+              <th onClick={() => toggleSort("missed_upside")}>Missed Upside</th>
+            </tr>
+          </thead>
+          <tbody>
+            {sorted.slice(0, 50).map((ch, i) => (
+              <tr key={i}>
+                <td className="font-semibold text-white">{ch.ticker}</td>
+                <td>{ch.move_pct}%</td>
+                <td>{ch.trade_count}</td>
+                <td className={ch.individual_pnl >= 0 ? "text-emerald-400" : "text-red-400"}>{ch.individual_pnl}%</td>
+                <td className={ch.hold_pnl >= 0 ? "text-emerald-400" : "text-red-400"}>{ch.hold_pnl}%</td>
+                <td className="text-blue-400">{ch.hold_to_peak_pnl}%</td>
+                <td className={ch.missed_upside > 10 ? "text-red-400 font-semibold" : ch.missed_upside > 0 ? "text-amber-400" : "text-emerald-400"}>{ch.missed_upside}%</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div className="text-[11px] text-[#6b7280] mt-2">Showing top 50 of {churning.length} churned moves. "Missed Upside" = what we could have earned by holding vs. the sum of individual in-and-out trades.</div>
+    </div>
+  );
+}
+
+function MoveExplorer({ moves }) {
+  const [captureFilter, setCaptureFilter] = useState("ALL");
+  const [dirFilter, setDirFilter] = useState("ALL");
+  const [tickerSearch, setTickerSearch] = useState("");
+  const [sortField, setSortField] = useState("move_atr");
+  const [sortDir, setSortDir] = useState("desc");
+  const [page, setPage] = useState(0);
+  const [selected, setSelected] = useState(null);
+  const PER_PAGE = 50;
+
+  const filtered = useMemo(() => {
+    let list = moves || [];
+    if (captureFilter !== "ALL") list = list.filter(m => m.capture === captureFilter);
+    if (dirFilter !== "ALL") list = list.filter(m => m.direction === dirFilter);
+    if (tickerSearch) {
+      const q = tickerSearch.toUpperCase();
+      list = list.filter(m => m.ticker.includes(q));
+    }
+    list = [...list].sort((a, b) => {
+      const va = a[sortField], vb = b[sortField];
+      if (typeof va === "string") return sortDir === "desc" ? vb.localeCompare(va) : va.localeCompare(vb);
+      return sortDir === "desc" ? (vb || 0) - (va || 0) : (va || 0) - (vb || 0);
+    });
+    return list;
+  }, [moves, captureFilter, dirFilter, tickerSearch, sortField, sortDir]);
+
+  const pageCount = Math.ceil(filtered.length / PER_PAGE);
+  const pageData = filtered.slice(page * PER_PAGE, (page + 1) * PER_PAGE);
+
+  function toggleSort(f) {
+    if (sortField === f) setSortDir(d => d === "desc" ? "asc" : "desc");
+    else { setSortField(f); setSortDir("desc"); }
+  }
+
+  const captureColor = (c) => c === "FULL" ? "text-emerald-400" : c === "PARTIAL" ? "text-amber-400" : c === "CHURNED" ? "text-orange-400" : "text-red-400";
+
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <input value={tickerSearch} onChange={e => { setTickerSearch(e.target.value); setPage(0); }} placeholder="Search ticker..." className="px-3 py-1.5 bg-white/[0.04] border border-white/[0.08] rounded-lg text-[13px] text-white placeholder-[#6b7280] w-36" />
+        <select value={captureFilter} onChange={e => { setCaptureFilter(e.target.value); setPage(0); }} className="px-3 py-1.5 bg-white/[0.04] border border-white/[0.08] rounded-lg text-[13px] text-white">
+          <option value="ALL">All Captures</option>
+          <option value="FULL">Full</option>
+          <option value="PARTIAL">Partial</option>
+          <option value="CHURNED">Churned</option>
+          <option value="MISSED">Missed</option>
+        </select>
+        <select value={dirFilter} onChange={e => { setDirFilter(e.target.value); setPage(0); }} className="px-3 py-1.5 bg-white/[0.04] border border-white/[0.08] rounded-lg text-[13px] text-white">
+          <option value="ALL">All Directions</option>
+          <option value="UP">UP</option>
+          <option value="DOWN">DOWN</option>
+        </select>
+        <span className="text-[12px] text-[#6b7280] ml-auto">{filtered.length} moves</span>
+      </div>
+
+      <div className="overflow-x-auto rounded-lg border border-white/[0.04]">
+        <table className="tbl">
+          <thead>
+            <tr>
+              <th onClick={() => toggleSort("ticker")}>Ticker {sortField === "ticker" ? (sortDir === "desc" ? "v" : "^") : ""}</th>
+              <th onClick={() => toggleSort("direction")}>Dir</th>
+              <th onClick={() => toggleSort("window")}>Window</th>
+              <th onClick={() => toggleSort("start_date")}>Start</th>
+              <th onClick={() => toggleSort("end_date")}>End</th>
+              <th onClick={() => toggleSort("move_pct")}>Move % {sortField === "move_pct" ? (sortDir === "desc" ? "v" : "^") : ""}</th>
+              <th onClick={() => toggleSort("move_atr")}>ATR x {sortField === "move_atr" ? (sortDir === "desc" ? "v" : "^") : ""}</th>
+              <th onClick={() => toggleSort("max_pullback_pct")}>Pullback</th>
+              <th onClick={() => toggleSort("rsi_at_start")}>RSI</th>
+              <th onClick={() => toggleSort("ema_state")}>EMA</th>
+              <th onClick={() => toggleSort("capture")}>Capture</th>
+            </tr>
+          </thead>
+          <tbody>
+            {pageData.map((m, i) => (
+              <tr key={i} onClick={() => setSelected(selected?.ticker === m.ticker && selected?.start_date === m.start_date ? null : m)} className="cursor-pointer">
+                <td className="font-semibold text-white">{m.ticker}</td>
+                <td><span className={m.direction === "UP" ? "text-emerald-400" : "text-red-400"}>{m.direction}</span></td>
+                <td>{m.window}d</td>
+                <td className="text-[#9ca3af]">{m.start_date}</td>
+                <td className="text-[#9ca3af]">{m.end_date}</td>
+                <td className={m.move_pct > 0 ? "text-emerald-400 font-medium" : "text-red-400 font-medium"}>{m.move_pct}%</td>
+                <td className="font-semibold">{m.move_atr}</td>
+                <td className="text-amber-400">{m.max_pullback_pct}%</td>
+                <td>{m.rsi_at_start}</td>
+                <td className="text-[11px]">{m.ema_state?.replace("_", " ")}</td>
+                <td><span className={`font-semibold ${captureColor(m.capture)}`}>{m.capture}</span></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {pageCount > 1 && (
+        <div className="flex items-center justify-center gap-2 mt-1">
+          <button onClick={() => setPage(Math.max(0, page - 1))} disabled={page === 0} className="btn btn-secondary text-[12px] px-3 py-1">Prev</button>
+          <span className="text-[12px] text-[#6b7280]">Page {page + 1} of {pageCount}</span>
+          <button onClick={() => setPage(Math.min(pageCount - 1, page + 1))} disabled={page >= pageCount - 1} className="btn btn-secondary text-[12px] px-3 py-1">Next</button>
+        </div>
+      )}
+
+      {selected && <MoveDetail move={selected} />}
+    </div>
+  );
+}
+
+function MoveDetail({ move }) {
+  if (!move) return null;
+  const ind = move.indicators || [];
+  return (
+    <div className="card p-4 mt-2">
+      <div className="flex items-center gap-3 mb-3">
+        <h3 className="text-sm font-semibold text-white">{move.ticker} — {move.direction} {move.move_pct}% ({move.window}d)</h3>
+        <Badge type={move.capture === "FULL" ? "good" : move.capture === "PARTIAL" ? "warn" : move.capture === "CHURNED" ? "warn" : "bad"}>{move.capture}</Badge>
+      </div>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4 text-[12px]">
+        <div><span className="text-[#6b7280]">Entry:</span> <span className="text-white ml-1">${move.start_price} ({move.start_date})</span></div>
+        <div><span className="text-[#6b7280]">Exit:</span> <span className="text-white ml-1">${move.end_price} ({move.end_date})</span></div>
+        <div><span className="text-[#6b7280]">Peak:</span> <span className="text-blue-400 ml-1">${move.peak_price} ({move.peak_date})</span></div>
+        <div><span className="text-[#6b7280]">ATR at start:</span> <span className="text-white ml-1">${move.atr_at_start} ({move.atr_pct}%)</span></div>
+        <div><span className="text-[#6b7280]">Max pullback:</span> <span className="text-amber-400 ml-1">{move.max_pullback_pct}%</span></div>
+        <div><span className="text-[#6b7280]">Pullback count:</span> <span className="text-white ml-1">{move.pullback_count}</span></div>
+        <div><span className="text-[#6b7280]">RSI:</span> <span className="text-white ml-1">{move.rsi_at_start}</span></div>
+        <div><span className="text-[#6b7280]">EMA:</span> <span className="text-white ml-1">{move.ema_state?.replace(/_/g, " ")}</span></div>
+      </div>
+
+      {move.trade_match && (
+        <div className="bg-white/[0.02] rounded-lg p-3 mb-3">
+          <div className="text-[11px] text-[#6b7280] uppercase tracking-wider mb-1">Trade Match</div>
+          <div className="flex flex-wrap gap-4 text-[12px]">
+            <span>P&L: <strong className={move.trade_match.pnl >= 0 ? "text-emerald-400" : "text-red-400"}>{move.trade_match.pnl}%</strong></span>
+            <span>Status: <strong>{move.trade_match.status}</strong></span>
+            <span>Entry timing: <strong>{(move.trade_match.entry_timing * 100).toFixed(0)}%</strong> through move</span>
+            <span>Exit timing: <strong>{(move.trade_match.exit_timing * 100).toFixed(0)}%</strong> through move</span>
+            {move.trade_match.exit_reason && <span>Exit: <strong>{move.trade_match.exit_reason}</strong></span>}
+          </div>
+        </div>
+      )}
+
+      {move.churn && (
+        <div className="bg-orange-500/[0.06] rounded-lg p-3 mb-3 border border-orange-500/[0.1]">
+          <div className="text-[11px] text-orange-400 uppercase tracking-wider mb-1">Churning Detected — {move.churn.trade_count} trades</div>
+          <div className="flex flex-wrap gap-4 text-[12px] mb-2">
+            <span>Individual P&L: <strong className={move.churn.individual_pnl >= 0 ? "text-emerald-400" : "text-red-400"}>{move.churn.individual_pnl}%</strong></span>
+            <span>Hold P&L: <strong className="text-blue-400">{move.churn.hold_pnl}%</strong></span>
+            <span>Peak P&L: <strong className="text-blue-400">{move.churn.hold_to_peak_pnl}%</strong></span>
+            <span>Missed upside: <strong className="text-red-400">{move.churn.missed_upside}%</strong></span>
+          </div>
+          <div className="flex flex-col gap-1">
+            {move.churn.trades?.map((t, i) => (
+              <div key={i} className="text-[11px] text-[#9ca3af]">{t.entry} to {t.exit}: <span className={t.pnl >= 0 ? "text-emerald-400" : "text-red-400"}>{t.pnl}%</span> ({t.status})</div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {ind.length > 0 && ind[0]?.htf_score != null && (
+        <div>
+          <div className="text-[11px] text-[#6b7280] uppercase tracking-wider mb-2">Indicator Timeline Through Move</div>
+          <div className="overflow-x-auto">
+            <table className="tbl text-[12px]">
+              <thead>
+                <tr>
+                  <th>Point</th>
+                  <th>Date</th>
+                  <th>HTF</th>
+                  <th>LTF</th>
+                  <th>Rank</th>
+                  <th>State</th>
+                  <th>Completion</th>
+                  <th>Squeeze</th>
+                  <th>EMA Cross</th>
+                  <th>Mom Elite</th>
+                  <th>Regime</th>
+                </tr>
+              </thead>
+              <tbody>
+                {ind.map((snap, i) => (
+                  <tr key={i}>
+                    <td className="font-medium">{snap.pct_through === 0 ? "Start" : snap.pct_through === 1 ? "End" : `${(snap.pct_through * 100).toFixed(0)}%`}</td>
+                    <td className="text-[#9ca3af]">{snap.date}</td>
+                    <td className={snap.htf_score > 40 ? "text-emerald-400" : snap.htf_score < -20 ? "text-red-400" : ""}>{snap.htf_score ?? "—"}</td>
+                    <td className={snap.ltf_score > 20 ? "text-emerald-400" : snap.ltf_score < -20 ? "text-red-400" : ""}>{snap.ltf_score ?? "—"}</td>
+                    <td>{snap.rank ?? "—"}</td>
+                    <td className="text-[11px]">{snap.state || "—"}</td>
+                    <td>{snap.completion ?? "—"}</td>
+                    <td>{snap.squeeze_release ? <Badge type="info">Yes</Badge> : "—"}</td>
+                    <td>{snap.ema_cross ? <Badge type="info">Yes</Badge> : "—"}</td>
+                    <td>{snap.momentum_elite ? <Badge type="good">Yes</Badge> : "—"}</td>
+                    <td>{snap.ema_regime != null ? (snap.ema_regime >= 1 ? <Badge type="good">Bull</Badge> : snap.ema_regime <= -1 ? <Badge type="bad">Bear</Badge> : <Badge type="warn">Neutral</Badge>) : "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function App() {
+  const [report, setReport] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [tab, setTab] = useState("overview");
+
+  useEffect(() => {
+    setLoading(true);
+    fetch(`${API_BASE}/timed/move-discovery?key=${window._ttApiKey || ""}`)
+      .then(r => r.ok ? r.json() : Promise.reject("Failed to load"))
+      .then(data => { setReport(data); setLoading(false); })
+      .catch(err => { setError(String(err)); setLoading(false); });
+  }, []);
+
+  if (loading) return (
+    <div className="flex flex-col items-center justify-center h-screen gap-3">
+      <div className="w-8 h-8 border-2 border-emerald-500 border-t-transparent rounded-full" style={{animation:"spin 1s linear infinite"}} />
+      <div className="text-[#6b7280] text-sm">Loading move discovery data...</div>
+    </div>
+  );
+
+  if (error) return (
+    <div className="flex flex-col items-center justify-center h-screen gap-3">
+      <div className="text-red-400 text-lg font-semibold">Error</div>
+      <div className="text-[#6b7280] text-sm">{error}</div>
+      <div className="text-[#6b7280] text-xs mt-2">Run: <code className="bg-white/[0.06] px-2 py-0.5 rounded">USE_D1=1 node scripts/discover-moves.js --upload</code></div>
+    </div>
+  );
+
+  const s = report?.summary || {};
+  const tabs = [
+    { id: "overview", label: "Overview" },
+    { id: "churning", label: `Churning (${report?.churning?.length || 0})` },
+    { id: "explorer", label: `Move Explorer (${s.total_moves || 0})` },
+  ];
+
+  return (
+    <>
+      <NavHeader />
+      <div className="max-w-7xl mx-auto px-4 py-6">
+        <div className="flex items-center gap-3 mb-6">
+          <h1 className="text-xl font-bold text-white">Move Discovery & Trade Capture Analysis</h1>
+          {report?.generated && <span className="text-[11px] text-[#6b7280]">Generated {new Date(report.generated).toLocaleString()}</span>}
+        </div>
+
+        <div className="flex gap-1 border-b border-white/[0.06] mb-6">
+          {tabs.map(t => (
+            <button key={t.id} onClick={() => setTab(t.id)} className={`px-4 py-2.5 text-[13px] font-medium transition-all ${tab === t.id ? "tab-active" : "tab-inactive"}`}>{t.label}</button>
+          ))}
+        </div>
+
+        {tab === "overview" && (
+          <div className="flex flex-col gap-6">
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+              <Stat label="Total Moves" value={s.total_moves} sub={`${s.unique_tickers} tickers`} />
+              <Stat label="Capture Rate" value={s.capture_rate + "%"} sub={`${s.full_capture} full + ${s.partial_capture} partial`} color="text-emerald-400" />
+              <Stat label="Missed" value={s.missed_rate + "%"} sub={`${s.missed} moves`} color="text-red-400" />
+              <Stat label="Churned" value={s.churn_rate + "%"} sub={`${s.churned} moves`} color="text-orange-400" />
+              <Stat label="Churn Cost" value={s.total_missed_upside_from_churn + "%"} sub="Total missed upside" color="text-red-400" />
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="card p-5">
+                <h3 className="text-sm font-semibold text-white mb-4">Capture Distribution</h3>
+                <CaptureDonut summary={s} />
+              </div>
+              <PatternCompare patterns={report?.patterns} />
+            </div>
+
+            <div className="card p-4">
+              <h3 className="text-sm font-semibold text-white mb-3">Key Insights</h3>
+              <div className="flex flex-col gap-2 text-[13px]">
+                {s.missed_rate > 80 && (
+                  <div className="flex items-start gap-2">
+                    <Badge type="bad">Coverage Gap</Badge>
+                    <span className="text-[#9ca3af]">{s.missed_rate}% of valid moves were missed entirely. Many may be in tickers not in our active universe — filter the explorer to traded tickers to see the real gap.</span>
+                  </div>
+                )}
+                {s.churn_rate > 1 && (
+                  <div className="flex items-start gap-2">
+                    <Badge type="warn">Churning</Badge>
+                    <span className="text-[#9ca3af]">{s.churned} moves had multiple in-and-out trades when holding would have captured more. Total missed upside: <strong className="text-red-400">{s.total_missed_upside_from_churn}%</strong>.</span>
+                  </div>
+                )}
+                {report?.patterns?.captured?.ema_aligned_pct > report?.patterns?.missed?.ema_aligned_pct + 5 && (
+                  <div className="flex items-start gap-2">
+                    <Badge type="good">EMA Edge</Badge>
+                    <span className="text-[#9ca3af]">Captured moves have {report.patterns.captured.ema_aligned_pct}% EMA alignment vs {report.patterns.missed.ema_aligned_pct}% for missed — EMA alignment is a valid entry filter.</span>
+                  </div>
+                )}
+                {report?.patterns?.captured?.trail?.momentum_elite_pct > report?.patterns?.missed?.trail?.momentum_elite_pct + 3 && (
+                  <div className="flex items-start gap-2">
+                    <Badge type="good">Momentum Elite</Badge>
+                    <span className="text-[#9ca3af]">Captured moves show {report.patterns.captured.trail.momentum_elite_pct}% momentum elite rate vs {report.patterns.missed.trail.momentum_elite_pct}% for missed — strong momentum correlates with successful capture.</span>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {tab === "churning" && <ChurningTable churning={report?.churning} />}
+        {tab === "explorer" && <MoveExplorer moves={report?.moves} />}
+
+        <footer className="mt-12 pt-4 border-t border-white/[0.04] text-center text-[10px] text-[#4b5563]">
+          Move Discovery v1.0 — Data since {report?.since} — Min {report?.min_atr_mult}x ATR — Market data powered by Twelve Data
+        </footer>
+      </div>
+    </>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+    </script>
+  </body>
+</html>

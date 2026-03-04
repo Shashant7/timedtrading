@@ -414,7 +414,7 @@ export async function gatherDailyBriefData(env, type, opts = {}) {
   const dayOfWeekLabel = getETWeekdayLabel();
 
   // Parallel data fetching
-  const [
+  let [
     esData, nqData, vixData, spyData, qqqData, iwmData,
     sectorDataArr,
     tradesRaw,
@@ -436,6 +436,13 @@ export async function gatherDailyBriefData(env, type, opts = {}) {
     finnhubEconNews,
     ffToday,
     ffYesterday,
+    esCandlesH4,
+    nqCandlesH4,
+    spyCandlesH4,
+    qqqCandlesH4,
+    esCandlesW,
+    spyCandlesW,
+    priceFeedRaw,
   ] = await Promise.all([
     // Market pulse tickers
     kvGetJSON(KV, "timed:latest:ES1!").catch(() => null),
@@ -510,7 +517,74 @@ export async function gatherDailyBriefData(env, type, opts = {}) {
     fetchForexFactoryCalendar(env, today),
     // ForexFactory economic calendar (yesterday)
     fetchForexFactoryCalendar(env, yesterday),
+    // 4H candles for SMC/ICT analysis (BSL, SSL, FVGs)
+    db && opts.d1GetCandles
+      ? opts.d1GetCandles(env, "ES1!", "240", 40).catch(() => ({ candles: [] }))
+      : Promise.resolve({ candles: [] }),
+    db && opts.d1GetCandles
+      ? opts.d1GetCandles(env, "NQ1!", "240", 40).catch(() => ({ candles: [] }))
+      : Promise.resolve({ candles: [] }),
+    db && opts.d1GetCandles
+      ? opts.d1GetCandles(env, "SPY", "240", 40).catch(() => ({ candles: [] }))
+      : Promise.resolve({ candles: [] }),
+    db && opts.d1GetCandles
+      ? opts.d1GetCandles(env, "QQQ", "240", 40).catch(() => ({ candles: [] }))
+      : Promise.resolve({ candles: [] }),
+    // Weekly candles for higher-timeframe SMC levels
+    db && opts.d1GetCandles
+      ? opts.d1GetCandles(env, "ES1!", "W", 20).catch(() => ({ candles: [] }))
+      : Promise.resolve({ candles: [] }),
+    db && opts.d1GetCandles
+      ? opts.d1GetCandles(env, "SPY", "W", 20).catch(() => ({ candles: [] }))
+      : Promise.resolve({ candles: [] }),
+    // Reliable price feed data (TwelveData via cron) for cross-referencing
+    kvGetJSON(KV, "timed:prices").catch(() => null),
   ]);
+
+  // Cross-reference: use timed:prices (cron-updated) to validate/supplement ES/NQ data
+  const _pf = (priceFeedRaw?.prices || priceFeedRaw) || {};
+
+  // Validate market data — if scoring payload has stale or absurd data, fix using price feed.
+  // ES≠SPY and NQ≠QQQ in price scale, but daily change % IS comparable.
+  function validateMarketData(data, ticker, proxyTicker, pf, sameScale) {
+    if (!data) return data;
+    const price = Number(data.price) || 0;
+    const dayPct = Number(data.day_change_pct) || 0;
+    const pfData = pf[proxyTicker];
+    if (!pfData || !Number(pfData.p)) return data;
+
+    const proxyPct = Number(pfData.dp) || 0;
+    const needsFix = price <= 0 || Math.abs(dayPct) > 5;
+    const ts = Number(data.ts || data.ingest_ts) || 0;
+    const ageH = ts > 0 ? (Date.now() - ts) / 3600000 : 999;
+    const isStale = ageH > 24;
+
+    if (needsFix || isStale) {
+      const reason = needsFix ? `stale (price=${price}, dayPct=${dayPct}%)` : `${ageH.toFixed(0)}h old`;
+      console.log(`[BRIEF] ${ticker} data ${reason}. Using ${proxyTicker} change % from price feed.`);
+
+      // Always safe to copy the daily change percentage (same across ES/SPY, NQ/QQQ)
+      data.day_change_pct = proxyPct;
+      data._proxied_from = proxyTicker;
+
+      if (sameScale) {
+        // SPY→SPY, QQQ→QQQ: price scales match, copy price and dollar change
+        data.price = Number(pfData.p);
+        data.day_change = Number(pfData.dc) || 0;
+      } else {
+        // ES→SPY proxy: keep original price if >0, estimate dollar change from %
+        if (price > 0) {
+          data.day_change = +(price * proxyPct / 100).toFixed(2);
+        }
+      }
+    }
+    return data;
+  }
+
+  esData  = validateMarketData(esData,  "ES1!", "SPY", _pf, false);
+  nqData  = validateMarketData(nqData,  "NQ1!", "QQQ", _pf, false);
+  spyData = validateMarketData(spyData, "SPY",  "SPY", _pf, true);
+  qqqData = validateMarketData(qqqData, "QQQ",  "QQQ", _pf, true);
 
   // Process sector performance
   const sectors = SECTOR_ETFS.map(sym => {
@@ -647,28 +721,26 @@ export async function gatherDailyBriefData(env, type, opts = {}) {
     }
   }
 
-  // ES technical summary from candles (enhanced with 5-min for overnight range)
   const esTechnical = summarizeTechnical(
     esCandles?.candles || [], esCandlesH1?.candles || [],
-    esCandlesM5?.candles || [], esData
+    esCandlesM5?.candles || [], esData, esCandlesH4?.candles || [],
+    esCandlesW?.candles || []
   );
 
-  // NQ technical summary from candles
   const nqTechnical = summarizeTechnical(
     nqCandles?.candles || [], nqCandlesH1?.candles || [],
-    nqCandlesM5?.candles || [], nqData
+    nqCandlesM5?.candles || [], nqData, nqCandlesH4?.candles || [], []
   );
 
-  // SPY technical summary (day trader levels alongside ES; SPX ≈ same scale as ES)
   const spyTechnical = summarizeTechnical(
     spyCandles?.candles || [], spyCandlesH1?.candles || [],
-    spyCandlesM5?.candles || [], spyData
+    spyCandlesM5?.candles || [], spyData, spyCandlesH4?.candles || [],
+    spyCandlesW?.candles || []
   );
 
-  // QQQ technical summary (day trader levels alongside NQ)
   const qqqTechnical = summarizeTechnical(
     qqqCandles?.candles || [], qqqCandlesH1?.candles || [],
-    qqqCandlesM5?.candles || [], qqqData
+    qqqCandlesM5?.candles || [], qqqData, qqqCandlesH4?.candles || [], []
   );
 
   // Build result
@@ -740,11 +812,83 @@ export async function gatherDailyBriefData(env, type, opts = {}) {
     econNews: (finnhubEconNews || []).slice(0, 10),
     morningPrediction: morningBrief?.es_prediction || null,
     morningContent: type === "evening" ? (morningBrief?.content || "").slice(0, 1500) : null,
+    priceFeedCrossRef: buildPriceFeedCrossRef(_pf),
   };
 }
 
+function buildPriceFeedCrossRef(pf) {
+  if (!pf || typeof pf !== "object") return "Price feed unavailable.";
+  const tickers = ["SPY", "QQQ", "IWM", "DIA", "XLE", "XLK", "XLF", "XLU", "GLD", "TLT"];
+  const lines = [];
+  for (const sym of tickers) {
+    const d = pf[sym];
+    if (!d || !Number(d.p)) continue;
+    const price = Number(d.p);
+    const pct = Number(d.dp) || 0;
+    const chg = Number(d.dc) || 0;
+    lines.push(`${sym}: $${price.toFixed(2)} (${pct >= 0 ? "+" : ""}${pct.toFixed(2)}%, ${chg >= 0 ? "+" : ""}$${chg.toFixed(2)})`);
+  }
+  return lines.length > 0 ? lines.join("\n") : "Price feed unavailable.";
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// SMC / ICT Level Detection: Liquidity Sweeps, Fair Value Gaps
+// ═══════════════════════════════════════════════════════════════════════
+
+function detectSwingLevels(candles, lookback = 2) {
+  if (!candles || candles.length < lookback * 2 + 1) return { bsl: [], ssl: [] };
+  const bsl = [], ssl = [];
+  for (let i = lookback; i < candles.length - lookback; i++) {
+    const h = Number(candles[i].h);
+    const l = Number(candles[i].l);
+    if (!Number.isFinite(h) || !Number.isFinite(l)) continue;
+    let isSwingHigh = true, isSwingLow = true;
+    for (let j = 1; j <= lookback; j++) {
+      if (Number(candles[i - j].h) >= h || Number(candles[i + j].h) >= h) isSwingHigh = false;
+      if (Number(candles[i - j].l) <= l || Number(candles[i + j].l) <= l) isSwingLow = false;
+    }
+    const rnd = (v) => Math.round(v * 100) / 100;
+    if (isSwingHigh) bsl.push({ level: rnd(h), idx: i, ts: Number(candles[i].ts || 0) });
+    if (isSwingLow) ssl.push({ level: rnd(l), idx: i, ts: Number(candles[i].ts || 0) });
+  }
+  return { bsl: bsl.slice(-5), ssl: ssl.slice(-5) };
+}
+
+function detectFVGs(candles) {
+  if (!candles || candles.length < 3) return { bullish: [], bearish: [] };
+  const bullish = [], bearish = [];
+  const rnd = (v) => Math.round(v * 100) / 100;
+  for (let i = 2; i < candles.length; i++) {
+    const curLow = Number(candles[i].l);
+    const prevHigh = Number(candles[i - 2].h);
+    const curHigh = Number(candles[i].h);
+    const prevLow = Number(candles[i - 2].l);
+    if (!Number.isFinite(curLow) || !Number.isFinite(prevHigh)) continue;
+    if (curLow > prevHigh) {
+      bullish.push({ top: rnd(curLow), bottom: rnd(prevHigh), midpoint: rnd((curLow + prevHigh) / 2), idx: i });
+    }
+    if (curHigh < prevLow) {
+      bearish.push({ top: rnd(prevLow), bottom: rnd(curHigh), midpoint: rnd((prevLow + curHigh) / 2), idx: i });
+    }
+  }
+  return { bullish: bullish.slice(-3), bearish: bearish.slice(-3) };
+}
+
+function computeSMCLevels(dailyCandles, fourHourCandles, hourlyCandles, weeklyCandles) {
+  const result = {};
+  const tfMap = { weekly: weeklyCandles, daily: dailyCandles, "4h": fourHourCandles, "1h": hourlyCandles };
+  for (const [tf, candles] of Object.entries(tfMap)) {
+    if (!candles || candles.length < 5) continue;
+    const lookback = tf === "weekly" ? 2 : tf === "daily" ? 2 : 3;
+    const swings = detectSwingLevels(candles, lookback);
+    const fvgs = detectFVGs(candles);
+    result[tf] = { ...swings, fvgs };
+  }
+  return result;
+}
+
 /** Summarize technical structure from candles for any instrument (ES, NQ, etc.) */
-function summarizeTechnical(dailyCandles, hourlyCandles, fiveMinCandles, latestData) {
+function summarizeTechnical(dailyCandles, hourlyCandles, fiveMinCandles, latestData, fourHourCandles, weeklyCandles) {
   if (!dailyCandles || dailyCandles.length < 5) return { available: false };
 
   const recent = dailyCandles.slice(-10);
@@ -877,7 +1021,6 @@ function summarizeTechnical(dailyCandles, hourlyCandles, fiveMinCandles, latestD
       atrFibLevels.levels[`-${label}%`] = rnd(anchor - dayAtr * f);
     }
 
-    // Golden Gate detection: has price already crossed the 38.2% level pre-9AM?
     const curPrice = Number(latestData?.price) || 0;
     const upGate = anchor + dayAtr * 0.382;
     const dnGate = anchor - dayAtr * 0.382;
@@ -893,6 +1036,18 @@ function summarizeTechnical(dailyCandles, hourlyCandles, fiveMinCandles, latestD
         atrFibLevels.goldenGateNote = `Price ${rnd(curPrice)} is between the 38.2% gates (${rnd(dnGate)} - ${rnd(upGate)}). Watch for a breakout.`;
       }
     }
+
+    // Pre-validated game plan targets so the AI doesn't produce impossible combos
+    const oHi = overnightRange?.high || curPrice;
+    const oLo = overnightRange?.low || curPrice;
+    const allBullTargets = fibs.map(f => rnd(anchor + dayAtr * f)).filter(t => t > oHi);
+    const allBearTargets = fibs.map(f => rnd(anchor - dayAtr * f)).filter(t => t < oLo);
+    atrFibLevels.gamePlan = {
+      bullTrigger: rnd(oHi),
+      bullTarget: allBullTargets[0] || rnd(anchor + dayAtr * 1.0),
+      bearTrigger: rnd(oLo),
+      bearTarget: allBearTargets[0] || rnd(anchor - dayAtr * 1.0),
+    };
   }
 
   // ── Multi-day Structure Context ──────────────────────────────────────
@@ -939,6 +1094,9 @@ function summarizeTechnical(dailyCandles, hourlyCandles, fiveMinCandles, latestD
     };
   }
 
+  // SMC / ICT Levels: Buyside/Sellside Liquidity + Fair Value Gaps
+  const smcLevels = computeSMCLevels(dailyCandles, fourHourCandles, hourlyCandles, weeklyCandles);
+
   return {
     available: true,
     lastClose: last,
@@ -951,6 +1109,7 @@ function summarizeTechnical(dailyCandles, hourlyCandles, fiveMinCandles, latestD
     overnightRange,
     atrFibLevels,
     structureContext,
+    smcLevels,
     vixPrice: Number(latestData?.price) || null,
     state: latestData?.state || "",
     phaseZone: latestData?.phase_zone || "",
@@ -959,7 +1118,7 @@ function summarizeTechnical(dailyCandles, hourlyCandles, fiveMinCandles, latestD
 
 /** Backward compat wrapper for ES */
 function summarizeES(dailyCandles, hourlyCandles, latestData) {
-  return summarizeTechnical(dailyCandles, hourlyCandles, null, latestData);
+  return summarizeTechnical(dailyCandles, hourlyCandles, null, latestData, null);
 }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -972,8 +1131,10 @@ Your analysis style is:
 - **Structural**: You think in terms of wave counts (Elliott Wave), measured moves, Fibonacci retracements/extensions, and pattern completions. You identify whether moves are impulsive or corrective.
 - **Conditional**: You present "if X, then Y; if not, then Z" scenarios. Always give both the bull case AND the bear case with specific invalidation levels.
 - **Specific**: Every claim has a price level, percentage, or data point attached. Never say "market may go higher" — say "a bounce toward the 6894-6918 resistance zone is likely before a decision point."
+- **SMC/ICT-aware**: You incorporate Smart Money Concepts — Buyside Liquidity (BSL = swing highs where buy stops cluster), Sellside Liquidity (SSL = swing lows where sell stops cluster), and Fair Value Gaps (FVGs = imbalance zones). These are the levels institutions target. In a selloff, price sweeps SSL before reversing. In a rally, price sweeps BSL. FVGs act as magnets that price tends to fill.
 - **Time-aware**: You reference timeframes and durations — "near-term weakness into 2/20 before a rebound into early March" rather than just "weakness expected."
-- **Contextual**: You zoom out to the larger trend before zooming in. "Despite huge micro-volatility, the larger trend since November has been neutral/range-bound between X and Y."
+- **Contextual**: You zoom out to the larger trend before zooming in. "Despite huge micro-volatility, the larger trend since November has been neutral/range-bound between X and Y." If the multi-day structure shows consecutive down days (LOWER_LOWS bias) or a significant 5-day decline, LEAD with that. Don't bury selling pressure under routine ATR analysis — acknowledge the trend first, then provide levels.
+- **Non-redundant**: Do NOT repeat the same ATR fib levels in multiple sections. State them once in the Day Trader Levels section. In the Structure section, focus on swing levels, pattern analysis, and SMC/ICT levels instead. Each section should add unique value.
 
 Writing Guidelines:
 - Write in a professional, authoritative yet accessible style with clear section headers using markdown ##
@@ -982,7 +1143,8 @@ Writing Guidelines:
   - Is this a three-wave corrective move or a five-wave impulse? What does that imply?
   - Where are key support/resistance zones (not just single levels — zones)?
   - What do bulls need to see vs what do bears need to see? State specific prices.
-  - Reference EMAs (21, 48, 200), SuperTrend levels, any visible FVGs (Fair Value Gaps), and VIX context
+  - Reference EMAs (21, 48, 200), SuperTrend levels, and VIX context
+  - Reference SMC/ICT levels: BSL (buyside liquidity — swing highs where buy stops cluster), SSL (sellside liquidity — swing lows where sell stops cluster), and FVGs (Fair Value Gaps — imbalance zones price tends to fill). These are provided in the data.
   - Give a clear directional thesis WITH invalidation: "Bullish above X, targeting Y. Below X, bearish toward Z."
 - For day trading levels: provide SPECIFIC numbers: ATR Fibonacci levels (38.2%, 50%, 61.8% of daily ATR), overnight high/low, previous session high/low/close, and Golden Gate status
 - For earnings: note pre-market/after-hours timing and surprise vs estimate. ALWAYS include the current price (CP) and daily change in parentheses next to the ticker, e.g., "ESNT ($148.52, +1.30%)". When chart setup data is available, add a brief technical assessment.
@@ -995,7 +1157,7 @@ Writing Guidelines:
 - Format percentage changes inline like: AAPL +2.30%, XLK -1.10%
 - CRITICAL: ALL economic data values (CPI, PPI, GDP, etc.) MUST use EXACTLY two decimal places (e.g., 2.40%, 0.30%, not 2.4%, 0.3%). Copy values EXACTLY as provided.
 - Logic and levels: Bearish scenarios (rejection, break below, failure to hold) must target a price LOWER than the key level mentioned. Bullish scenarios (hold, reclaim, break above) must target a price HIGHER than the key level. Never write "break below X" and then give a target "at Y" where Y > X.
-- Keep total length to 1500-2500 words — be thorough, not terse
+- Keep total length to 2000-3000 words — be thorough and substantive, not terse
 - Do NOT use emojis
 - CRITICAL FORMATTING: Use proper markdown with BLANK LINES before every ## and ### header. Each section must be separated by a blank line. Use bullet lists (- item) on separate lines, not inline. The output will be rendered as HTML via a markdown parser — without blank lines before headers, they won't render correctly.
 
@@ -1007,7 +1169,23 @@ Timed Trading Scoring Model Reference (ALWAYS reference these signals):
 - **rank**: Overall ticker rank relative to the universe (higher = stronger)
 - **flags**: Active signal flags — e.g., golden_gate_up/down (ATR breakout), supertrend_flip, ema_cross, rs_new_high, accum_zone
 
-CRITICAL: You MUST explicitly reference our scoring model signals (state, HTF/LTF scores, phase zone) when analyzing market direction and structure. These are the primary quantitative signals that drive our analysis and trading decisions. When the HTF score is strong but LTF is weak (or vice versa), discuss the divergence and what it implies. Always mention the current state and phase zone for ES and NQ.`;
+CRITICAL: You MUST explicitly reference our scoring model signals (state, HTF/LTF scores, phase zone) when analyzing market direction and structure. These are the primary quantitative signals that drive our analysis and trading decisions. When the HTF score is strong but LTF is weak (or vice versa), discuss the divergence and what it implies. Always mention the current state and phase zone for ES and NQ.
+
+## ANTI-HALLUCINATION RULES (ABSOLUTE — NEVER VIOLATE):
+1. **ONLY use numbers from the provided data.** Every price, percentage, and level you cite MUST come from the data sections above. If a field is null, 0, or missing — say "data unavailable" rather than guessing.
+2. **NEVER fabricate percentage changes.** The Market Data section gives you exact dayChangePct values. Use ONLY those. A normal session move for ES/SPX is 0.3-1.5%. If the data shows a move >3%, double-check it against the Price Feed Cross-Reference section — if those disagree, use the Price Feed values and note the discrepancy.
+3. **NEVER invent specific price levels** that aren't derived from the technical data (ATR fibs, EMAs, SMC levels, candle H/L). If you don't have a level from the data, don't make one up.
+4. **NEVER fabricate narratives.** If no news headlines are provided, say "No major market-moving headlines were captured" — do NOT invent geopolitical events, Fed comments, or economic data releases. Only reference events that appear in the News Headlines or Economic Data sections.
+5. **Cross-reference check**: If Market Data shows ES moved -6% but the Price Feed shows SPY moved -1%, the ES data is STALE. Use SPY as the proxy and note it.
+6. **Sanity bounds**: SPX/ES daily moves >3% are rare (happens ~5 times/year). NQ/QQQ >4% is rare. If your data shows a move beyond these bounds, explicitly flag it as unusual OR note the data may be stale.
+
+## Cross-Asset Awareness (inspired by FS Insight):
+Your analysis should connect the dots across asset classes when relevant data is available:
+- **Crude oil**: If energy sector (XLE) is a notable mover, discuss oil's impact on inflation expectations and rate path
+- **Credit markets**: Widening HY spreads signal risk-off; tightening signals risk-on
+- **Gold/USD**: Risk-off flows (GLD up, USD up) vs. risk-on (rotation into equities)
+- **Breadth**: Is the move broad-based or narrow? Sector ETF data reveals this — if only 2 sectors are green while 9 are red, say so
+- **Safe haven vs risk-on**: Compare defensive sectors (XLU, XLP, XLRE) vs cyclicals (XLI, XLF, XLY) to characterize the move`;
 
 function fmtEconValue(val, unit) {
   if (val == null || val === "") return null;
@@ -1040,6 +1218,29 @@ function fmtEconEvent(e) {
   return parts.join(", ");
 }
 
+function formatSMCForPrompt(smcLevels) {
+  if (!smcLevels || Object.keys(smcLevels).length === 0) return "No SMC data available.";
+  const parts = [];
+  for (const [tf, data] of Object.entries(smcLevels)) {
+    const tfLabel = tf === "weekly" ? "Weekly" : tf === "daily" ? "Daily" : tf === "4h" ? "4H" : "1H";
+    const lines = [`${tfLabel}:`];
+    if (data.bsl?.length > 0) {
+      lines.push(`  BSL (swing highs / buy stops): ${data.bsl.map(s => s.level).join(", ")}`);
+    }
+    if (data.ssl?.length > 0) {
+      lines.push(`  SSL (swing lows / sell stops): ${data.ssl.map(s => s.level).join(", ")}`);
+    }
+    if (data.fvgs?.bullish?.length > 0) {
+      lines.push(`  Bullish FVGs (unfilled gaps below): ${data.fvgs.bullish.map(f => `${f.bottom}-${f.top}`).join(", ")}`);
+    }
+    if (data.fvgs?.bearish?.length > 0) {
+      lines.push(`  Bearish FVGs (unfilled gaps above): ${data.fvgs.bearish.map(f => `${f.bottom}-${f.top}`).join(", ")}`);
+    }
+    if (lines.length > 1) parts.push(lines.join("\n"));
+  }
+  return parts.length > 0 ? parts.join("\n") : "No significant levels detected.";
+}
+
 function buildMorningPrompt(data) {
   const cal = data.calendar || {};
   const calNote = cal.isHoliday
@@ -1054,6 +1255,10 @@ ${calNote ? `\n## Calendar context (MUST acknowledge where relevant):\n${calNote
 
 ## Market Data (as of pre-market):
 ${JSON.stringify(data.market, null, 1)}
+
+## Price Feed Cross-Reference (TwelveData cron — GROUND TRUTH for daily changes):
+${data.priceFeedCrossRef || "Unavailable."}
+NOTE: If Market Data and Price Feed disagree on daily change by >1%, trust the Price Feed values. The scoring model payload may be stale from backtesting.
 
 ## Timed Trading Scoring Model Signals (MUST reference in your analysis):
 ${Object.entries(data.market).filter(([, v]) => v).map(([sym, v]) => {
@@ -1073,6 +1278,35 @@ ${JSON.stringify(data.spyTechnical, null, 1)}
 
 ## QQQ Technical Summary (ETF — day trader levels alongside NQ):
 ${JSON.stringify(data.qqqTechnical, null, 1)}
+
+## PRE-VALIDATED Game Plan (USE THESE EXACT TRIGGERS & TARGETS):
+${(() => {
+  const gp = data.esTechnical?.atrFibLevels?.gamePlan;
+  if (!gp) return "No game plan available — use SSL/BSL levels instead.";
+  return `ES Bullish: If price opens above ${gp.bullTrigger} and holds → target ${gp.bullTarget}
+ES Bearish: If price breaks below ${gp.bearTrigger} → target ${gp.bearTarget}`;
+})()}
+${(() => {
+  const gp = data.nqTechnical?.atrFibLevels?.gamePlan;
+  if (!gp) return "";
+  return `NQ Bullish: If price opens above ${gp.bullTrigger} and holds → target ${gp.bullTarget}
+NQ Bearish: If price breaks below ${gp.bearTrigger} → target ${gp.bearTarget}`;
+})()}
+
+## SMC / ICT Levels (Buyside Liquidity, Sellside Liquidity, Fair Value Gaps):
+These are KEY levels where institutional order flow clusters. BSL = swing highs where buy stops rest (target for bears). SSL = swing lows where sell stops rest (target for bulls). FVGs = imbalance zones that price tends to fill.
+
+### ES SMC Levels:
+${formatSMCForPrompt(data.esTechnical?.smcLevels)}
+
+### NQ SMC Levels:
+${formatSMCForPrompt(data.nqTechnical?.smcLevels)}
+
+### SPY SMC Levels:
+${formatSMCForPrompt(data.spyTechnical?.smcLevels)}
+
+### QQQ SMC Levels:
+${formatSMCForPrompt(data.qqqTechnical?.smcLevels)}
 
 ## Sector ETF Performance (sorted by magnitude):
 ${data.sectors.map(s => `${s.sym}: ${s.dayChangePct >= 0 ? "+" : ""}${s.dayChangePct.toFixed(2)}% ($${s.price.toFixed(2)})`).join("\n")}
@@ -1137,13 +1371,17 @@ ${(data.investorPositions || []).length > 0
     : "No investor positions."}
 
 ## Required Sections:
-1. **Market Context & Macro** — Start with the BIG PICTURE. What is the dominant regime right now? (Trending, range-bound, volatile?) What macro forces are driving it? If today has a major economic release (CPI, PPI, NFP, FOMC, GDP, etc.), LEAD with it: explain the numbers vs consensus, what it means for Fed policy / rate cuts, how futures reacted, and sector implications. If yesterday had a major release, discuss lingering impact. Note upcoming releases this week.
+1. **Market Context & Macro** — Start with the BIG PICTURE. What is the dominant regime right now? (Trending, range-bound, volatile?) If the 5-day trend shows LOWER_LOWS or a multi-day selloff, LEAD with that reality — don't soft-pedal selling pressure. State the magnitude clearly: "ES has dropped X% over Y sessions, losing Z key levels." What macro forces are driving it? If today has a major economic release (CPI, PPI, NFP, FOMC, GDP, etc.), LEAD with it: explain the numbers vs consensus, what it means for Fed policy / rate cuts, how futures reacted, and sector implications. If yesterday had a major release, discuss lingering impact. Note upcoming releases this week.
+   - **Cross-Asset Context**: Look at sector ETF data to infer what's happening in other markets. XLE moves = crude oil moves. XLU/XLP outperformance = defensive rotation. XLF leading = rate/yield play. GLD move = risk sentiment. CONNECT these dots.
+   - **Breadth**: Count sectors green vs red. If breadth is narrow or overwhelmingly one-sided, say so explicitly.
+   - REMINDER: ONLY cite data from the provided sections. If no news headlines are available, say "No major market-moving headlines were captured" — do NOT fabricate events.
 
 2. **Structure & Scenario Analysis (ES & NQ)** — This is the MOST IMPORTANT section. Analyze like a CMT-level strategist:
    - **Current Structure**: Is this week's decline (or rally) a three-wave corrective move or a five-wave impulse? What does the pattern imply? Reference the prior swing levels and whether they held/broke.
    - **Key Zones** (not just single levels): e.g., "Resistance zone at 6894-6918" or "Support cluster at 5940-5960 (confluence of 50-day EMA + prior swing low)"
+   - **Liquidity Levels (SMC)**: Reference the BSL and SSL levels from the data. "Sellside liquidity rests at 6742 (daily SSL) — a sweep of this level could trigger a reversal." In a downtrend, call out which SSL levels price is targeting. In an uptrend, which BSL levels. FVGs are magnets — if there's an unfilled bearish FVG above, note it as resistance; bullish FVGs below as support.
    - **Bull Case**: What do bulls need to see? Specify price levels. "Bulls need ES to reclaim 6918 to negate the bearish count. Above there, 6950-6975 becomes the target."
-   - **Bear Case**: What do bears need? "If ES fails to hold 6830, the next leg down targets 6750-6780 zone. A break below 6750 would confirm a five-wave decline."
+   - **Bear Case**: What do bears need? "If ES fails to hold 6830, the next leg down targets the SSL cluster at 6750-6780. A break below 6750 would confirm a five-wave decline."
    - **Base Case / Primary Thesis**: Your most probable scenario with conditional logic: "My base case: a bounce into the 6894-6918 zone before stalling. If this is a three-wave correction, we should see a higher low above 6830 by mid-next-week."
    - **Time Context**: When? "Near-term weakness into Feb 20 before a rebound into early March" — give a timeline, not just direction.
    - Reference VIX (elevated = wider ranges, compressed = breakout pending), EMAs, and any visible pattern setups.
@@ -1154,15 +1392,25 @@ ${(data.investorPositions || []).length > 0
    - **ATR Fib Levels**: For each instrument (ES, SPY, NQ, QQQ), list the 38.2%, 50%, 61.8%, and 100% ATR levels above and below the anchor (prev close). These define the intraday playing field.
    - **Golden Gate Status**: If OPEN_UP or OPEN_DOWN for ES or NQ, highlight prominently — price has crossed the 38.2% ATR level, so target the 50% and 61.8%.
    - **Overnight/pre-market range**: key reference for the opening print (from ES and NQ 5m data).
-   - **Conditional Game Plan**: Write it as a decision tree. CRITICAL — one scenario per sentence, direction must match the target:
-     - Bullish: "If ES opens above [overnight high] and holds [support level], target +38.2% at $XXXX" — the target price MUST be above the reference level.
-     - Bearish: "If ES rejects at [resistance] and breaks below [level], target -38.2% at $XXXX" — the target price MUST be below the break level. Never say "break below" and then give a target price above that level.
-     - Do NOT combine two scenarios in one sentence (e.g. "A rejection at X and a break below Y targets Z" is wrong). Use separate sentences: "Rejection at X targets [level below X]. Alternatively, a break below Y would target [level below Y]."
-   - Note any major data release timing that could cause volatility spikes (e.g., "CPI at 8:30 AM — expect elevated volatility, wait for the first 15-min candle to close before committing")
+   - **Key Liquidity Levels**: Reference BSL and SSL from the SMC data. "Sellside liquidity at [SSL level] — a sweep could trigger a bounce." These are high-value levels that complement ATR fibs.
+   - **Fair Value Gaps**: If unfilled FVGs exist on D/4H/1H, note them as potential magnets. "Bullish FVG at 6780-6810 on the 4H — price may fill this before continuing."
+   - MANDATORY: Use the PRE-VALIDATED Game Plan section above for your triggers and targets. These are guaranteed correct:
+     - bullTrigger / bullTarget — bullTarget is ALWAYS above bullTrigger
+     - bearTrigger / bearTarget — bearTarget is ALWAYS below bearTrigger
+     - Write: "Bullish: If ES opens above [bullTrigger] and holds, target [bullTarget]."
+     - Write: "Bearish: If ES breaks below [bearTrigger], target [bearTarget]."
+   - ABSOLUTE RULE: A bearish target must be LOWER than the bearish trigger. "Breaks below 6800, target 6750" is correct. "Breaks below 6800, target 6850" is IMPOSSIBLE — 6850 > 6800. If you catch yourself writing a target higher than a trigger in a bearish scenario, use the next ATR fib down or the nearest SSL level instead.
+   - Supplement the game plan with SSL levels as downside targets and BSL levels as upside targets when they provide better levels than ATR fibs.
+   - Do NOT combine two scenarios in one sentence. Use separate sentences for each scenario.
+   - Note any major data release timing that could cause volatility spikes
 
 4. **Earnings Watch** — What tickers have earnings today and this week? Pre-market or after-hours? Any pre-market results? Key names to watch.
 
-5. **Sector Spotlight** — Which sectors are leading/lagging? Any notable rotations? What does sector breadth tell us about market health?
+5. **Sector & Cross-Asset Spotlight** — Go beyond just listing sector performance:
+   - Which sectors are leading/lagging and WHY? Map moves to macro drivers (e.g., "XLE up as crude rallies on supply concerns; XLU bid as a defensive rotation signal")
+   - **Rotation signals**: Growth vs value, cyclicals vs defensives — what's the market discounting?
+   - **Breadth assessment**: How many sectors green vs red? Broad or narrow participation?
+   - Note any cross-asset themes: crude/gold/yields/USD direction and implications for equities.
 
 6. **Trader's Almanac** — Seasonal patterns, options expiry effects, historical tendencies for this date/week/month. If it's a notable calendar week (OPEX, month-end, quarter-end), mention how that historically affects price action.
 
@@ -1177,9 +1425,11 @@ ${(data.investorPositions || []).length > 0
    - Note any notable price action on holdings today.
    - Any DCA opportunities based on current levels?
 
-End with TWO clear sections:
-- **Swing Trader Takeaway**: What should position traders be doing today? (Holding, adding, reducing, hedging?)
-- **ES Prediction**: One specific, falsifiable prediction line like: "ES Prediction: Bounce toward 6894-6918 resistance zone before stalling. Bullish above 6918, bearish below 6830. Expected range: 6830-6920."`;
+End with FOUR clear sections:
+- **Swing Trader Takeaway**: What should position traders be doing today? Include SPECIFIC actionable levels: "Looking to buy dips at [X]-[Y] for a rally to [Z]" or "Would fade rallies into [X]-[Y] zone." Include a TIME target: "into end of week", "by Wednesday", etc.
+- **ES Prediction**: One specific, falsifiable prediction line like: "ES Prediction: Bounce toward 6894-6918 resistance zone before stalling. Bullish above 6918, bearish below 6830. Expected range: 6830-6920."
+- **Key Levels to Watch (SPY)**: Translate the key ES levels to SPY for ETF traders. List 3-5 support/resistance levels with what happens at each.
+- **Risk Factors**: 1-2 key risks that could derail your thesis (e.g., "If crude breaks above $X...", "If [economic data] surprises hot...", "Watch credit spreads — if HY widens past X bp...")`;
 }
 
 function buildEveningPrompt(data) {
@@ -1196,6 +1446,10 @@ ${calNote ? `\n## Calendar context (MUST acknowledge where relevant):\n${calNote
 
 ## Market Close Data:
 ${JSON.stringify(data.market, null, 1)}
+
+## Price Feed Cross-Reference (TwelveData cron — GROUND TRUTH for daily changes):
+${data.priceFeedCrossRef || "Unavailable."}
+NOTE: If Market Close Data and Price Feed disagree on daily change by >1%, trust the Price Feed values. The scoring model payload may be stale from backtesting.
 
 ## Timed Trading Scoring Model Signals at Close (MUST reference in your analysis):
 ${Object.entries(data.market).filter(([, v]) => v).map(([sym, v]) => {
@@ -1215,6 +1469,21 @@ ${JSON.stringify(data.spyTechnical, null, 1)}
 
 ## QQQ Technical Summary (ETF — day trader levels alongside NQ):
 ${JSON.stringify(data.qqqTechnical, null, 1)}
+
+## SMC / ICT Levels (Buyside Liquidity, Sellside Liquidity, Fair Value Gaps):
+BSL = swing highs where buy stops rest (target for bears to sweep). SSL = swing lows where sell stops rest (target for bulls to sweep). FVGs = imbalance zones price tends to fill.
+
+### ES SMC Levels:
+${formatSMCForPrompt(data.esTechnical?.smcLevels)}
+
+### NQ SMC Levels:
+${formatSMCForPrompt(data.nqTechnical?.smcLevels)}
+
+### SPY SMC Levels:
+${formatSMCForPrompt(data.spyTechnical?.smcLevels)}
+
+### QQQ SMC Levels:
+${formatSMCForPrompt(data.qqqTechnical?.smcLevels)}
 
 ## Sector ETF Performance (sorted by magnitude):
 ${data.sectors.map(s => `${s.sym}: ${s.dayChangePct >= 0 ? "+" : ""}${s.dayChangePct.toFixed(2)}% ($${s.price.toFixed(2)})`).join("\n")}
@@ -1271,45 +1540,56 @@ ${(data.investorPositions || []).length > 0
     : "No investor positions."}
 
 ## Required Sections:
-1. **Market Recap & Session Narrative** — Tell the STORY of today's session. Don't just list numbers — explain the narrative arc: How did we open? What drove the morning action? Was there a reversal? What triggered it? Lead with the most market-moving event. Reference specific times when key moves occurred.
+1. **Market Recap & Session Narrative** — Tell the STORY of today's session like a veteran strategist dictating to his desk. Don't just list numbers — explain the narrative arc:
+   - How did we open? Gap up/down? What drove pre-market action?
+   - What drove the morning action? Was there a reversal or acceleration? At what time?
+   - What were the key turning points (e.g., "The 10:30 AM reversal came as crude pulled back from session highs")?
+   - What drove the afternoon? Was the close on the highs, lows, or mid-range?
+   - **Cross-Asset Context**: What happened in crude oil, gold, bonds/yields, USD, credit spreads TODAY and how did it influence equities? (Use sector ETF data to infer: XLE surging = crude up; XLU/XLP outperforming = defensive rotation; financials leading = yields rising)
+   - **Breadth Assessment**: Was the move broad-based or narrow? Count how many sectors were green vs red. If only 2 sectors are green while 9 are red, say "breadth was overwhelmingly negative with only [X] sectors higher."
+   - ONLY reference events/data from the News Headlines and Economic Data sections. If no headlines are provided, say so.
 
-2. **ES Prediction Scorecard** — Was our morning prediction correct? Grade it honestly (HIT, PARTIAL, MISS). What was predicted vs what happened? Why did reality differ from the forecast (if it did)? What can we learn from this for future predictions?
+2. **ES Prediction Scorecard** — Was our morning prediction correct? Grade it honestly (HIT, PARTIAL, MISS). What was predicted vs what happened? Why did reality differ from the forecast (if it did)?
 
-3. **Structural Update (ES & NQ)** — Now that today's session is complete, update the structural picture:
+3. **Structural Update (ES & NQ)** — CMT-level analysis:
    - Has the structure changed? Did today confirm or negate our morning thesis?
-   - Where are we in the larger pattern? (e.g., "Today's bounce confirms wave 4 is still developing. Wave 5 lower into the 6750 zone may still be ahead.")
-   - Key levels that were tested — did they hold? "The 6830 support held all day, setting up a potential failed breakdown."
+   - Where are we in the larger pattern? Is this decline/rally wave 3, wave 5, an abc correction?
+   - Key levels tested — did they hold? "The 6830 support held all day" or "broke decisively below 6775, turning it into resistance."
+   - **Liquidity Sweeps**: Did price sweep BSL or SSL levels? Note the reversal (or lack thereof) and what it implies.
+   - **FVG Fill Status**: Were any Fair Value Gaps filled? Which remain open as magnets?
    - Updated bull/bear thresholds for tomorrow.
 
-4. **Day Trader Session Review** — How did the ATR Fibonacci levels perform today? Did price respect the levels? Which levels acted as support/resistance? What was today's range vs expected ATR? Any notable intraday patterns (failed breakdowns, V-reversals, range compression)?
+4. **Day Trader Session Review** — How did ATR Fibonacci levels perform? Which levels acted as S/R? Today's actual range vs expected ATR? Notable intraday patterns (failed breakdowns, V-reversals, range compression)?
 
-5. **Macro & Data Impact** — If any major economic data was released today, deep-dive on the impact: how did markets react in the first 30 minutes? Did the reaction hold or reverse? What does the data mean for the Fed path and rate expectations going forward?
+5. **Macro & Data Impact** — Deep-dive on any major economic data released today. If no data released, note upcoming releases and how positioning may adjust ahead of them.
 
 6. **After-Hours Earnings** — Any after-hours reports and their impact? Key numbers vs estimates.
 
-7. **Sector Analysis** — Which sectors led/lagged today and WHY? Any notable rotation patterns? What does sector breadth tell us (narrow leadership = fragile, broad participation = healthy)?
+7. **Sector & Cross-Asset Analysis** — This section is crucial (inspired by cross-asset research desks):
+   - Which sectors led/lagged and WHY? Map sector moves to the macro story (e.g., "XLE +2.1% as crude surged on Hormuz fears; XLU +0.8% as a defensive play; XLK -1.5% on rotation out of growth into value")
+   - **Rotation signals**: Is money moving from growth to value? From cyclicals to defensives? What does this imply about the market's forward expectation?
+   - **Breadth verdict**: Is this a healthy market or a fragile one?
 
-8. **Looking Ahead: Next Week Setup** — This is the strategic section. Looking at the weekly candle that's forming:
-   - What does this week's price action tell us about next week's probable direction?
-   - Key events next week (economic calendar, earnings, OPEX, etc.)
-   - Specific levels to watch: "If ES starts next week above 6900, the bounce has legs toward 6950-6975. Below 6830 and we're likely heading to test the February lows."
-   - Time-based expectations: "I expect a potential retest of [level] early next week before the next directional move by mid-week."
+8. **Looking Ahead: What Happens Next** — The MOST VALUABLE section. Think like FS Insight's Mark Newton:
+   - **Primary Thesis**: Your most probable scenario for the next 1-3 sessions with conditional logic and TIME targets. "My base case: [X] into [date], then [Y] by [date]."
+   - **Cycle/Seasonal**: Any relevant cycle turns, seasonal tendencies, or calendar effects (OPEX, month-end, quarter-end)?
+   - **Specific Actionable Levels**: Not vague ranges — specific entries. "Looking to buy dips at [X]-[Y] for a rally back to [Z]." or "Would fade rallies into [X]-[Y] zone."
+   - **Key Events**: Upcoming economic releases, earnings, Fed speakers that could catalyze the next move.
+   - **Risk Factors**: What could derail your thesis? "If crude breaks above $X, the inflation narrative accelerates and equities have further downside."
+   - ALWAYS include a TIME DIMENSION: "into end of week", "by mid-next-week", "through the balance of March"
 
-9. **Active Trader Session Report** — Segmented review of our trading book today:
-   - **Entries**: What did we enter today and WHY? Reference the setup quality, rank, R:R, and what signals were active. Was it a good entry in hindsight?
-   - **Exits**: What did we exit and WHY? Hit TP? Hit SL? Signal reversal? Was it a winner or loser? What can we learn?
-   - **Trims/Defends**: What did we trim or defend and WHY? Explain the risk management logic.
-   - **Open Positions EOD**: Brief status update on each open position — is the thesis still intact? P&L status?
+9. **Active Trader Session Report** — Segmented review:
+   - **Entries**: What did we enter and WHY? Setup quality, rank, R:R, signals.
+   - **Exits**: Winners or losers? What can we learn?
+   - **Trims/Defends**: Risk management logic.
+   - **Open Positions EOD**: Brief status — thesis intact? P&L?
 
-10. **Investor Portfolio Update** — If we have investor holdings:
-    - How did each holding perform today?
-    - Is the long-term thesis still intact?
-    - Any DCA opportunities at current levels?
-    - Any notable company news or earnings affecting holdings?
+10. **Investor Portfolio Update** — If holdings exist: performance, thesis intact, DCA opportunities, notable news.
 
-End with TWO sections:
-- **Swing Trader Positioning**: What should position traders do going into tomorrow/next week? (Hold, add, reduce, hedge, wait?)
-- **Key Levels to Watch**: A clean list of the 3-5 most important support and resistance levels for ES going into the next session.`;
+End with THREE sections:
+- **Swing Trader Positioning**: What should position traders do going into tomorrow? (Hold, add, reduce, hedge, wait?)
+- **Key Levels to Watch**: 3-5 most important S/R levels for ES going into the next session, with what happens if they break.
+- **Key Levels to Watch (SPY)**: Same 3-5 levels translated to SPY for ETF traders.`;
 }
 
 /**
@@ -1333,8 +1613,8 @@ async function callOpenAI(env, systemPrompt, userPrompt) {
         { role: "system", content: systemPrompt },
         { role: "user", content: userPrompt },
       ],
-      temperature: 0.65,
-      max_tokens: 5000,
+      temperature: 0.35,
+      max_tokens: 6000,
     }),
     signal: AbortSignal.timeout(90000), // 90s timeout for larger model
   });
@@ -1350,37 +1630,76 @@ async function callOpenAI(env, systemPrompt, userPrompt) {
 }
 
 /**
- * Remove or fix contradictory sentences (e.g. "break below X ... targets at Y" where Y > X).
- * Catches: (1) "break below X" with target "at Y" where Y > X; (2) "rejection at X" with target "at Y" where Y > X.
+ * Remove or fix contradictory game plan sentences.
+ * Catches bearish scenarios where the target price is above the trigger level,
+ * and bullish scenarios where the target is below the trigger.
  */
 function sanitizeBriefContent(text) {
   if (!text || typeof text !== "string") return text;
-  const sentences = text.split(/(?<=[.!?])\s+/);
+
+  // Extract 4-5 digit price-like numbers (e.g. 6850.52, 19400)
+  const extractPrices = (s) => {
+    const nums = [];
+    const re = /\b(\d{3,5}(?:\.\d{1,2})?)\b/g;
+    let m;
+    while ((m = re.exec(s)) !== null) nums.push(parseFloat(m[1]));
+    return nums;
+  };
+
+  // Find the target price, handling patterns like "target -38.2% at 6850.52"
+  const findTargetPrice = (line) => {
+    // Pattern: "target ... at PRICE" (handles "target -38.2% at 6850.52")
+    const atMatch = line.match(/target.*?\bat\s+(\d{3,5}(?:\.\d{1,2})?)\b/i);
+    if (atMatch) return parseFloat(atMatch[1]);
+    // Pattern: "target PRICE" (direct)
+    const directMatch = line.match(/target\s+(\d{3,5}(?:\.\d{1,2})?)\b/i);
+    if (directMatch) return parseFloat(directMatch[1]);
+    // Pattern: "toward PRICE"
+    const towardMatch = line.match(/toward\s+(\d{3,5}(?:\.\d{1,2})?)\b/i);
+    if (towardMatch) return parseFloat(towardMatch[1]);
+    return null;
+  };
+
+  const lines = text.split("\n");
   const out = [];
-  for (const sent of sentences) {
-    const atMatch = sent.match(/targets?\s+[^.]*?\s+at\s+([\d.]+)/i) || sent.match(/(?:^|[,\s])at\s+([\d.]+)\s*[.]?$/i);
-    const atNum = atMatch && parseFloat(atMatch[1]);
-    if (!Number.isFinite(atNum)) { out.push(sent); continue; }
+  for (const line of lines) {
+    const lower = line.toLowerCase();
 
-    const belowMatch = sent.match(/break below\s+([\d.]+)/i);
-    if (belowMatch) {
-      const belowNum = parseFloat(belowMatch[1]);
-      if (Number.isFinite(belowNum) && atNum > belowNum) {
-        continue; // bearish "break below X" but target above X — drop
+    // Detect bearish game plan lines
+    const isBearish = /bear|break(?:s)? below|reject|fails? to hold|loses?|sells? off/i.test(lower)
+      && /target|toward|head|aim/i.test(lower);
+
+    if (isBearish) {
+      const triggerMatch = line.match(/(?:break(?:s)? below|fails? to hold|loses?|rejects?\s+at)\s+([\d,.]+)/i);
+      const target = findTargetPrice(line);
+      if (triggerMatch && target != null) {
+        const trigger = parseFloat(triggerMatch[1].replace(/,/g, ""));
+        if (Number.isFinite(trigger) && Number.isFinite(target) && target > trigger) {
+          console.warn(`[BRIEF SANITIZE] Dropped invalid bearish line: trigger=${trigger}, target=${target}, line="${line.slice(0, 120)}"`);
+          continue;
+        }
       }
     }
 
-    const rejectionMatch = sent.match(/rejection at\s+([\d.]+)/i);
-    if (rejectionMatch) {
-      const rejNum = parseFloat(rejectionMatch[1]);
-      if (Number.isFinite(rejNum) && atNum > rejNum && /target|targets|toward|to\s+\d/i.test(sent)) {
-        continue; // "rejection at X" (bearish) but target above X — drop
+    // Detect bullish game plan lines
+    const isBullish = /bull|break(?:s)? above|reclaim|hold(?:s)? above/i.test(lower)
+      && /target|toward|head|aim/i.test(lower);
+
+    if (isBullish) {
+      const triggerMatch = line.match(/(?:break(?:s)? above|reclaim(?:s)?|hold(?:s)? above|opens? above)\s+([\d,.]+)/i);
+      const target = findTargetPrice(line);
+      if (triggerMatch && target != null) {
+        const trigger = parseFloat(triggerMatch[1].replace(/,/g, ""));
+        if (Number.isFinite(trigger) && Number.isFinite(target) && target < trigger) {
+          console.warn(`[BRIEF SANITIZE] Dropped invalid bullish line: trigger=${trigger}, target=${target}, line="${line.slice(0, 120)}"`);
+          continue;
+        }
       }
     }
 
-    out.push(sent);
+    out.push(line);
   }
-  return out.join(" ").replace(/\s{2,}/g, " ").trim();
+  return out.join("\n").trim();
 }
 
 // ═══════════════════════════════════════════════════════════════════════

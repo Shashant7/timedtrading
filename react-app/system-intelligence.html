@@ -1079,6 +1079,9 @@ function PatternsTab() {
   const [patterns, setPatterns] = useState(null);
   const [predictions, setPredictions] = useState(null);
   const [retro, setRetro] = useState(null);
+  const [tickerProfiles, setTickerProfiles] = useState(null);
+  const [profileFilter, setProfileFilter] = useState("");
+  const [profileSort, setProfileSort] = useState("ticker");
   const [sub, setSub] = useState("patterns");
 
   useEffect(() => {
@@ -1097,10 +1100,23 @@ function PatternsTab() {
     load();
   }, []);
 
+  useEffect(() => {
+    if (sub !== "profiles" || tickerProfiles) return;
+    const load = async () => {
+      try {
+        const res = await fetch(`${API_BASE}/timed/system/ticker-profiles`, { credentials: "include" });
+        const data = await res.json();
+        if (data.ok) setTickerProfiles(data.profiles || []);
+      } catch (_) {}
+    };
+    load();
+  }, [sub]);
+
   const subs = [
     { id: "patterns", label: "Pattern Library" },
     { id: "predictions", label: "Predictions" },
     { id: "learning", label: "Learning Loop" },
+    { id: "profiles", label: "Ticker Profiles" },
   ];
 
   return (
@@ -1190,6 +1206,83 @@ function PatternsTab() {
               </div>
             </div>
           )}
+        </div>
+      )}
+
+      {sub === "profiles" && (
+        <div className="space-y-4">
+          <div className="card p-4">
+            <div className="flex flex-col sm:flex-row sm:items-center gap-3 mb-4">
+              <h3 className="text-sm font-semibold text-white">Ticker Learning Profiles</h3>
+              <input
+                type="text"
+                placeholder="Filter by ticker..."
+                value={profileFilter}
+                onChange={e => setProfileFilter(e.target.value.toUpperCase())}
+                className="px-3 py-1.5 text-xs bg-white/[0.04] border border-white/[0.08] rounded-lg text-white placeholder-slate-500 focus:outline-none focus:border-blue-500/50 w-full sm:w-48"
+              />
+              {tickerProfiles && (
+                <div className="flex gap-3 text-[10px] text-slate-500 ml-auto">
+                  {(() => {
+                    const counts = {};
+                    tickerProfiles.forEach(p => { const k = p.personality || "UNKNOWN"; counts[k] = (counts[k] || 0) + 1; });
+                    return Object.entries(counts).sort((a, b) => b[1] - a[1]).map(([k, v]) => (
+                      <span key={k} className="cursor-pointer hover:text-slate-300" onClick={() => setProfileFilter(profileFilter === k ? "" : k)}>
+                        <span className={`inline-block w-2 h-2 rounded-full mr-1 ${k === "VOLATILE_RUNNER" ? "bg-rose-500" : k === "PULLBACK_PLAYER" ? "bg-amber-500" : k === "SLOW_GRINDER" ? "bg-emerald-500" : k === "TREND_FOLLOWER" ? "bg-violet-500" : "bg-blue-500"}`}></span>
+                        {k.replace(/_/g, " ")} ({v})
+                      </span>
+                    ));
+                  })()}
+                </div>
+              )}
+            </div>
+
+            {!tickerProfiles ? (
+              <p className="text-slate-500 text-xs py-8 text-center">Loading profiles...</p>
+            ) : tickerProfiles.length === 0 ? (
+              <p className="text-slate-500 text-xs py-8 text-center">No ticker profiles yet. Run build-ticker-learning.js and build-ticker-profiles.js first.</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="text-slate-500 border-b border-white/[0.05]">
+                      <th className="text-left py-1.5 font-medium">Ticker</th>
+                      <th className="text-left px-2 font-medium">Personality</th>
+                      <th className="text-right px-2 font-medium">Moves</th>
+                      <th className="text-right px-2 font-medium">SL Mult</th>
+                      <th className="text-right px-2 font-medium">TP Mult</th>
+                      <th className="text-left px-2 font-medium">Trail</th>
+                      <th className="text-right px-2 font-medium">Long RSI Zone</th>
+                      <th className="text-right px-2 font-medium">Short RSI Zone</th>
+                      <th className="text-right pl-2 font-medium">EMA Boost</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {tickerProfiles
+                      .filter(p => !profileFilter || p.ticker?.includes(profileFilter) || (p.personality || "").includes(profileFilter))
+                      .map((p, i) => {
+                        const ep = p.entry_params || {};
+                        const pColors = { VOLATILE_RUNNER: "text-rose-400", PULLBACK_PLAYER: "text-amber-400", SLOW_GRINDER: "text-emerald-400", MODERATE: "text-blue-400", TREND_FOLLOWER: "text-violet-400" };
+                        const pClass = pColors[p.personality] || "text-slate-400";
+                        return (
+                          <tr key={i} className="border-b border-white/[0.03] hover:bg-white/[0.02]">
+                            <td className="py-1.5 font-mono font-bold text-white">{p.ticker}</td>
+                            <td className={`px-2 font-semibold ${pClass}`}>{(p.personality || "—").replace(/_/g, " ")}</td>
+                            <td className="text-right px-2 text-slate-300">{p.move_count ?? "—"}</td>
+                            <td className="text-right px-2 text-slate-300">{ep.sl_atr_mult ? `${ep.sl_atr_mult}x` : (p.sl_mult ? `${p.sl_mult}x` : "—")}</td>
+                            <td className="text-right px-2 text-slate-300">{ep.tp_atr_mult ? `${ep.tp_atr_mult}x` : (p.tp_mult ? `${p.tp_mult}x` : "—")}</td>
+                            <td className="px-2 text-slate-400">{ep.trail_style || "—"}</td>
+                            <td className="text-right px-2 text-slate-300">{ep.long_rsi_sweet_spot || p.long_profile?.rsi_best_zone || "—"}</td>
+                            <td className="text-right px-2 text-slate-300">{ep.short_rsi_sweet_spot || p.short_profile?.rsi_best_zone || "—"}</td>
+                            <td className="text-right pl-2">{ep.ema_alignment_boost ? <span className={Number(ep.ema_alignment_boost) > 1.2 ? "text-emerald-400 font-medium" : "text-slate-400"}>{ep.ema_alignment_boost}x</span> : "—"}</td>
+                          </tr>
+                        );
+                      })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
         </div>
       )}
     </div>
