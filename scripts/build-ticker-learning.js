@@ -320,6 +320,68 @@ async function main() {
     return;
   }
 
+  // ── Step 2b: LTF Signal Enrichment (30m candles, Feb 2024+) ────────────
+
+  const LTF_SINCE = new Date("2024-02-27T00:00:00Z").getTime();
+  const ltfMoves = allMoves.filter(m => m.start_ts >= LTF_SINCE);
+  console.log(`\n${B}═══ Step 2b: LTF Signal Enrichment (30m) ═══${RST}\n`);
+  console.log(`  ${ltfMoves.length}/${allMoves.length} moves within 30m data range (since 2024-02-27)\n`);
+
+  if (ltfMoves.length > 0) {
+    const ltfByTicker = {};
+    for (const m of ltfMoves) (ltfByTicker[m.ticker] = ltfByTicker[m.ticker] || []).push(m);
+    const ltfTickers = Object.keys(ltfByTicker).sort();
+    console.log(`  Processing ${ltfTickers.length} tickers (load → compute → enrich → free per batch)...`);
+
+    let enriched = 0;
+    for (let bi = 0; bi < ltfTickers.length; bi += TICKER_BATCH) {
+      const batch = ltfTickers.slice(bi, bi + TICKER_BATCH);
+      const inClause = batch.map(t => `'${t}'`).join(",");
+      const rows = queryD1(
+        `SELECT ticker, ts, o, h, l, c FROM ticker_candles WHERE tf='30' AND ticker IN (${inClause}) ORDER BY ticker, ts`
+      );
+
+      const batchCandles = {};
+      for (const c of rows) {
+        const t = String(c.ticker).toUpperCase();
+        const tsMs = Number(c.ts) > 1e12 ? Number(c.ts) : Number(c.ts) * 1000;
+        (batchCandles[t] = batchCandles[t] || []).push({ ts: tsMs, o: Number(c.o), h: Number(c.h), l: Number(c.l), c: Number(c.c) });
+      }
+
+      for (const ticker of batch) {
+        const candles30m = batchCandles[ticker];
+        if (!candles30m || candles30m.length < 30) continue;
+        candles30m.sort((a, b) => a.ts - b.ts);
+        const closes30m = candles30m.map(b => b.c);
+        const rsi30m = rsiSeries(closes30m, 14);
+        const st30m = superTrendSeries(candles30m, 3.0, 10);
+
+        for (const move of (ltfByTicker[ticker] || [])) {
+          for (const sig of move.signals) {
+            if (sig.phase !== "origin" && sig.phase !== "completion") continue;
+            const targetTs = sig.ts;
+            let bestIdx = -1, bestDiff = Infinity;
+            for (let j = 0; j < candles30m.length; j++) {
+              const diff = Math.abs(candles30m[j].ts - targetTs);
+              if (diff < bestDiff) { bestDiff = diff; bestIdx = j; }
+              if (candles30m[j].ts > targetTs + 86400000) break;
+            }
+            if (bestIdx >= 14 && bestDiff < 2 * 86400000) {
+              sig.rsi_30m = Number.isFinite(rsi30m[bestIdx]) ? rnd(rsi30m[bestIdx], 1) : null;
+              sig.st_dir_30m = st30m.dir[bestIdx] || null;
+              if (sig.rsi_30m != null || sig.st_dir_30m != null) enriched++;
+            }
+          }
+        }
+      }
+
+      if ((bi / TICKER_BATCH) % 3 === 0) {
+        process.stdout.write(`\r  [${elapsed()}] ${Math.min(bi + TICKER_BATCH, ltfTickers.length)}/${ltfTickers.length} tickers (${enriched} signals enriched)...`);
+      }
+    }
+    console.log(`\n  [${elapsed()}] ${enriched} LTF signals enriched (origin + completion phases)\n`);
+  }
+
   // ── Step 3: Classify ticker personalities ───────────────────────────────
 
   console.log(`${B}═══ Step 3: Classify Ticker Personalities ═══${RST}\n`);
@@ -437,9 +499,10 @@ async function main() {
       const sigJson = JSON.stringify({
         st_dir: s.st_dir_d, rsi: s.rsi_d, atr: s.atr_d,
         ema21: s.ema21_d, ema48: s.ema48_d, ema_cross: s.ema_cross_d,
+        rsi_30m: s.rsi_30m ?? null, st_dir_30m: s.st_dir_30m ?? null,
       }).replace(/'/g, "''");
       allSignalRows.push(
-        `('${sId}','${m.id}','${s.phase}',${s.phase_pct},${s.ts},${s.rsi_d ?? "NULL"},NULL,${s.st_dir_d ?? "NULL"},NULL,NULL,${s.atr_d ?? "NULL"},${s.ema21_d ?? "NULL"},${s.ema48_d ?? "NULL"},${s.ema_cross_d ?? "NULL"},${rnd(s.price, 4)},'${sigJson}')`
+        `('${sId}','${m.id}','${s.phase}',${s.phase_pct},${s.ts},${s.rsi_d ?? "NULL"},${s.rsi_30m ?? "NULL"},${s.st_dir_d ?? "NULL"},${s.st_dir_30m ?? "NULL"},NULL,${s.atr_d ?? "NULL"},${s.ema21_d ?? "NULL"},${s.ema48_d ?? "NULL"},${s.ema_cross_d ?? "NULL"},${rnd(s.price, 4)},'${sigJson}')`
       );
     }
   }

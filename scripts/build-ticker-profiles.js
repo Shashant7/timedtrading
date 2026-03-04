@@ -81,7 +81,11 @@ const movesRaw = queryD1(
           m.rsi_at_start, m.ema_aligned, m.ema_state, m.atr_at_start, m.start_price,
           s.rsi_d as origin_rsi, s.st_dir_d as origin_st_dir,
           s.ema_cross_d as origin_ema_cross, s.atr_d as origin_atr,
-          s.ema21_d as origin_ema21, s.ema48_d as origin_ema48
+          s.ema21_d as origin_ema21, s.ema48_d as origin_ema48,
+          s.rsi_30m as origin_rsi_30m, s.st_dir_30m as origin_st_dir_30m,
+          s.rsi_30m as origin_rsi_30m, s.st_dir_30m as origin_st_dir_30m,
+          s.rsi_30m as origin_rsi_30m, s.st_dir_30m as origin_st_dir_30m,
+          s.rsi_30m as origin_rsi_30m, s.st_dir_30m as origin_st_dir_30m
    FROM ticker_moves m
    LEFT JOIN ticker_move_signals s ON s.move_id = m.id AND s.phase = 'origin'
    WHERE 1=1 ${tickerWhere}
@@ -145,6 +149,14 @@ for (const ticker of tickers) {
       ? subset.filter(m => m.origin_st_dir === -1).length
       : subset.filter(m => m.origin_st_dir === 1).length;
 
+    // LTF (30m) signal analysis at origin
+    const rsi30mValues = subset.map(m => m.origin_rsi_30m).filter(Number.isFinite);
+    const stDir30mTotal = subset.filter(m => m.origin_st_dir_30m != null).length;
+    const st30mAligned = dir === "UP"
+      ? subset.filter(m => m.origin_st_dir_30m === -1).length
+      : subset.filter(m => m.origin_st_dir_30m === 1).length;
+    const ltfEnriched = rsi30mValues.length;
+
     // Optimal RSI entry zone: which zone produces the best moves?
     const bestRsiZone = Object.entries(rsiZonePnl)
       .map(([zone, pnls]) => ({ zone, avg: pnls.length > 0 ? rnd(pnls.reduce((s, v) => s + v, 0) / pnls.length) : 0, count: pnls.length }))
@@ -175,6 +187,11 @@ for (const ticker of tickers) {
       st_precision: {
         aligned_pct: pct(stAligned, subset.length),
       },
+      ltf_30m: ltfEnriched > 0 ? {
+        enriched_count: ltfEnriched,
+        rsi_30m_mean: rnd(rsi30mValues.reduce((s, v) => s + v, 0) / rsi30mValues.length, 0),
+        st_30m_aligned_pct: stDir30mTotal > 0 ? pct(st30mAligned, stDir30mTotal) : null,
+      } : null,
     };
   }
 
@@ -207,6 +224,10 @@ for (const ticker of tickers) {
       : "standard",
     // Expected pullback depth (for re-entry logic)
     typical_pullback_pct: rnd(median(allPullbacks)),
+    // LTF 30m signal context (available for moves since Feb 2024)
+    ltf_30m_rsi_mean_long: upAnalysis?.ltf_30m?.rsi_30m_mean ?? null,
+    ltf_30m_rsi_mean_short: dnAnalysis?.ltf_30m?.rsi_30m_mean ?? null,
+    ltf_30m_st_aligned_pct: upAnalysis?.ltf_30m?.st_30m_aligned_pct ?? null,
   };
 
   profiles[ticker] = {

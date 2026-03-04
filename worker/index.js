@@ -6502,6 +6502,18 @@ function getThreeTierConfig() {
 // Backward-compatible alias used throughout the codebase
 const THREE_TIER_CONFIG = THREE_TIER_DEFAULTS;
 
+// Personality-based trail style multipliers (consumed by Phase 4c pre-trim, 3-tier runner, 3-tier non-runner)
+function _getTrailStyleMults(tickerData) {
+  const style = String(tickerData?.__learning_trail_style || "standard").toLowerCase();
+  const map = {
+    wide:     { preTrim: 1.5,  postTrimBuf: 0.75, runner: 3.5,  style: "wide" },
+    adaptive: { preTrim: 1.0,  postTrimBuf: 0.5,  runner: 2.5,  style: "adaptive" },
+    tight:    { preTrim: 0.75, postTrimBuf: 0.35, runner: 1.75, style: "tight" },
+    standard: { preTrim: 1.0,  postTrimBuf: 0.5,  runner: 2.5,  style: "standard" },
+  };
+  return map[style] || map.standard;
+}
+
 // Helper: Infer ATR from TP levels when not directly available
 function inferAtrFromTPLevels(tickerData, entryPrice) {
   const tpLevels = tickerData?.tp_levels;
@@ -8831,7 +8843,7 @@ async function processTradeSimulation(
       // When pnl > 2%: trigger a trim to lock in profit and activate post-trim protections
       // (Phase 4c skip, DEFEND skip, ATR-buffered SL). This is more robust than hoping
       // the soft fuse or TP-hit trims fire first. After trim, the runner breathes.
-      // When pnl 1-2%: gentle 1x ATR trail to prevent premature Kanban exits.
+      // When pnl 1-2%: personality-scaled ATR trail to prevent premature Kanban exits.
       const _trimmedPctForTrail = clamp(Number(openTrade?.trimmedPct || 0), 0, 1);
       if (!fuseExitFired && _trimmedPctForTrail < 0.01 && Number.isFinite(entryPx) && entryPx > 0) {
         const pnlPct = isLong
@@ -8845,20 +8857,21 @@ async function processTradeSimulation(
         } else if (pnlPct > 1.0) {
           const currentSL = Number(openTrade.sl);
           const atrD = Number(tickerData?.atr_d) || 0;
+          const _tsm = _getTrailStyleMults(tickerData);
 
           if (atrD > 0 && Number.isFinite(currentSL)) {
             let newSL;
             if (isLong) {
-              newSL = Math.round((pxNow - 1.0 * atrD) * 100) / 100;
+              newSL = Math.round((pxNow - _tsm.preTrim * atrD) * 100) / 100;
               if (newSL > currentSL) {
                 openTrade.sl = newSL;
-                console.log(`[TRAILING SL] ${sym} LONG trail: SL ${currentSL.toFixed(2)} → ${newSL.toFixed(2)} (pnl=${pnlPct.toFixed(1)}%)`);
+                console.log(`[TRAILING SL] ${sym} LONG trail: SL ${currentSL.toFixed(2)} → ${newSL.toFixed(2)} (pnl=${pnlPct.toFixed(1)}%, style=${_tsm.style})`);
               }
             } else {
-              newSL = Math.round((pxNow + 1.0 * atrD) * 100) / 100;
+              newSL = Math.round((pxNow + _tsm.preTrim * atrD) * 100) / 100;
               if (newSL < currentSL) {
                 openTrade.sl = newSL;
-                console.log(`[TRAILING SL] ${sym} SHORT trail: SL ${currentSL.toFixed(2)} → ${newSL.toFixed(2)} (pnl=${pnlPct.toFixed(1)}%)`);
+                console.log(`[TRAILING SL] ${sym} SHORT trail: SL ${currentSL.toFixed(2)} → ${newSL.toFixed(2)} (pnl=${pnlPct.toFixed(1)}%, style=${_tsm.style})`);
               }
             }
           }
@@ -10051,8 +10064,9 @@ async function processTradeSimulation(
               atr = entry * 0.02;
             }
 
-            // ATR trailing: 2.5x ATR from current price (was 1.5x — too tight for normal volatility)
-            const atrMultiplier = 2.5;
+            // ATR trailing: personality-scaled ATR from current high/low
+            const _runnerTsm = _getTrailStyleMults(tickerData);
+            const atrMultiplier = _runnerTsm.runner;
             const trailStop = dir === "LONG"
               ? mark - (atr * atrMultiplier)
               : mark + (atr * atrMultiplier);
@@ -10061,11 +10075,11 @@ async function processTradeSimulation(
             if (dir === "LONG" && trailStop > oldSl) {
               candidate = trailStop;
               slReason = "ATR_TRAILING_RUNNER";
-              console.log(`[3-TIER] ${sym} RUNNER ATR trail: $${trailStop.toFixed(2)} (2.5x ATR=$${(atr * atrMultiplier).toFixed(2)})`);
+              console.log(`[3-TIER] ${sym} RUNNER ATR trail: $${trailStop.toFixed(2)} (${atrMultiplier}x ATR=$${(atr * atrMultiplier).toFixed(2)}, style=${_runnerTsm.style})`);
             } else if (dir === "SHORT" && trailStop < oldSl) {
               candidate = trailStop;
               slReason = "ATR_TRAILING_RUNNER";
-              console.log(`[3-TIER] ${sym} RUNNER ATR trail: $${trailStop.toFixed(2)} (2.5x ATR=$${(atr * atrMultiplier).toFixed(2)})`);
+              console.log(`[3-TIER] ${sym} RUNNER ATR trail: $${trailStop.toFixed(2)} (${atrMultiplier}x ATR=$${(atr * atrMultiplier).toFixed(2)}, style=${_runnerTsm.style})`);
             }
           }
 
@@ -10073,12 +10087,13 @@ async function processTradeSimulation(
           // NON-RUNNER: Standard protection logic
           // ─────────────────────────────────────────────────────────────────────
           if (!isRunnerPhase || candidate == null) {
-            // Candidate 1: protect gains with ATR-buffered breakeven
-            // Post-trim: use entry ± 0.5 ATR to match trim SL buffer (gives runner room).
+            // Candidate 1: protect gains with personality-scaled ATR-buffered breakeven
+            // Post-trim: use entry ± scaled ATR to match trim SL buffer (gives runner room).
             // Pre-trim: use exact breakeven at 5%+ pnl.
             if (trimmedPct > 0 && pnlPct >= 2.0) {
               const _protAtr = Number(tickerData?.atr) || 0;
-              const _protBuf = _protAtr > 0 ? _protAtr * 0.5 : entry * 0.005;
+              const _nonRunnerTsm = _getTrailStyleMults(tickerData);
+              const _protBuf = _protAtr > 0 ? _protAtr * _nonRunnerTsm.postTrimBuf : entry * 0.005;
               candidate = dir === "LONG" ? entry - _protBuf : entry + _protBuf;
             } else if (pnlPct >= 5.0) {
               candidate = entry;

@@ -1173,7 +1173,7 @@ CRITICAL: You MUST explicitly reference our scoring model signals (state, HTF/LT
 
 ## ANTI-HALLUCINATION RULES (ABSOLUTE — NEVER VIOLATE):
 1. **ONLY use numbers from the provided data.** Every price, percentage, and level you cite MUST come from the data sections above. If a field is null, 0, or missing — say "data unavailable" rather than guessing.
-2. **NEVER fabricate percentage changes.** The Market Data section gives you exact dayChangePct values. Use ONLY those. A normal session move for ES/SPX is 0.3-1.5%. If the data shows a move >3%, double-check it against the Price Feed Cross-Reference section — if those disagree, use the Price Feed values and note the discrepancy.
+2. **NEVER fabricate percentage changes.** The Multi-Day Change Summary gives you exact Today and 5-day values. For single-day moves, use "Today". For multi-day declines/rallies, use "5-day". NEVER compute percentages yourself — use ONLY the provided numbers. A normal session move for ES/SPX is 0.3-1.5%. If the data shows a move >3%, double-check it against the Price Feed Cross-Reference section — if those disagree, use the Price Feed values and note the discrepancy.
 3. **NEVER invent specific price levels** that aren't derived from the technical data (ATR fibs, EMAs, SMC levels, candle H/L). If you don't have a level from the data, don't make one up.
 4. **NEVER fabricate narratives.** If no news headlines are provided, say "No major market-moving headlines were captured" — do NOT invent geopolitical events, Fed comments, or economic data releases. Only reference events that appear in the News Headlines or Economic Data sections.
 5. **Cross-reference check**: If Market Data shows ES moved -6% but the Price Feed shows SPY moved -1%, the ES data is STALE. Use SPY as the proxy and note it.
@@ -1266,6 +1266,20 @@ ${Object.entries(data.market).filter(([, v]) => v).map(([sym, v]) => {
   if (v.flags && Object.keys(v.flags).length > 0) parts.push(`Flags=[${Object.entries(v.flags).filter(([,f]) => f).map(([k]) => k).join(", ")}]`);
   return parts.join(", ");
 }).join("\n")}
+
+## Multi-Day Change Summary (USE THESE for "dropped X% over Y sessions" statements):
+${(() => {
+  const _summaries = [];
+  for (const [_lbl, _tech] of [["ES", data.esTechnical], ["NQ", data.nqTechnical], ["SPY", data.spyTechnical], ["QQQ", data.qqqTechnical]]) {
+    if (!_tech?.structureContext) continue;
+    const _sc = _tech.structureContext;
+    const _mk = data.market?.[_lbl === "ES" ? "MES" : _lbl === "NQ" ? "MNQ" : _lbl];
+    const _dp = _mk?.dayChangePct;
+    _summaries.push(_lbl + ": Today=" + (typeof _dp === "number" ? (_dp >= 0 ? "+" : "") + _dp.toFixed(2) + "%" : "N/A") + " | 5-day=" + (_sc.fiveDayChangePct != null ? (_sc.fiveDayChangePct >= 0 ? "+" : "") + _sc.fiveDayChangePct.toFixed(2) + "% ($" + (_sc.fiveDayChange ?? "N/A") + ")" : "N/A") + " | Trend=" + (_sc.trendBias || "N/A") + " | 10d-range: $" + (_sc.tenDaySwingLow ?? "?") + "-$" + (_sc.tenDaySwingHigh ?? "?"));
+  }
+  return _summaries.length > 0 ? _summaries.join("\n") : "Unavailable.";
+})()}
+IMPORTANT: When stating "X dropped Y% over Z sessions", use the 5-day values above. For single-day moves, use the Today value. NEVER estimate or calculate percentages yourself.
 
 ## ES Technical Summary (futures; use for ES and approximate SPX — same scale):
 ${JSON.stringify(data.esTechnical, null, 1)}
@@ -1457,6 +1471,20 @@ ${Object.entries(data.market).filter(([, v]) => v).map(([sym, v]) => {
   if (v.flags && Object.keys(v.flags).length > 0) parts.push(`Flags=[${Object.entries(v.flags).filter(([,f]) => f).map(([k]) => k).join(", ")}]`);
   return parts.join(", ");
 }).join("\n")}
+
+## Multi-Day Change Summary (USE THESE for "dropped X% over Y sessions" statements):
+${(() => {
+  const _s2 = [];
+  for (const [_l2, _t2] of [["ES", data.esTechnical], ["NQ", data.nqTechnical], ["SPY", data.spyTechnical], ["QQQ", data.qqqTechnical]]) {
+    if (!_t2?.structureContext) continue;
+    const _c2 = _t2.structureContext;
+    const _m2 = data.market?.[_l2 === "ES" ? "MES" : _l2 === "NQ" ? "MNQ" : _l2];
+    const _d2 = _m2?.dayChangePct;
+    _s2.push(_l2 + ": Today=" + (typeof _d2 === "number" ? (_d2 >= 0 ? "+" : "") + _d2.toFixed(2) + "%" : "N/A") + " | 5-day=" + (_c2.fiveDayChangePct != null ? (_c2.fiveDayChangePct >= 0 ? "+" : "") + _c2.fiveDayChangePct.toFixed(2) + "% ($" + (_c2.fiveDayChange ?? "N/A") + ")" : "N/A") + " | Trend=" + (_c2.trendBias || "N/A"));
+  }
+  return _s2.length > 0 ? _s2.join("\n") : "Unavailable.";
+})()}
+IMPORTANT: When stating "X dropped Y% over Z sessions", use the 5-day values above. For single-day moves, use the Today value. NEVER estimate or calculate percentages yourself.
 
 ## ES Technical Summary (futures; use for ES and approximate SPX — same scale):
 ${JSON.stringify(data.esTechnical, null, 1)}
