@@ -942,7 +942,7 @@
                       entryTs={trade?.entry_ts}
                       exitTs={trade?.exit_ts}
                       trimTs={trade?.trim_ts}
-                      height={typeof window !== "undefined" && window.innerWidth < 768 ? 280 : 500}
+                      height={typeof window !== "undefined" && window.innerWidth < 768 ? 240 : 500}
                     />
                   </div>
                 </div>
@@ -960,8 +960,8 @@
                   </div>
                 </div>
 
-                <div className="shrink-0 order-4">
-                  <div className="grid grid-cols-3 sm:flex sm:flex-wrap gap-1.5 sm:gap-2 mb-2">
+                <div className="shrink-0 order-4 relative z-10 bg-[#0b0e11]/95 rounded-lg border border-white/[0.06] p-2">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:flex md:flex-wrap gap-1.5 sm:gap-2 mb-2">
                     {CLASSIFICATION_OPTIONS.filter(o => o.value).map(opt => {
                       const selected = classification === opt.value;
                       return (
@@ -969,7 +969,7 @@
                           key={opt.value}
                           onClick={() => setClassification(selected ? "" : opt.value)}
                           title={opt.hint}
-                          className="flex items-center justify-center gap-1 sm:gap-1.5 px-1.5 sm:px-3 py-2.5 sm:py-1.5 rounded-lg text-[11px] sm:text-[12px] font-medium transition-all duration-150 min-w-0"
+                          className="flex items-center justify-center gap-1 sm:gap-1.5 px-1.5 sm:px-3 py-2.5 sm:py-1.5 rounded-lg text-[11px] sm:text-[12px] font-medium transition-all duration-150 min-w-0 overflow-hidden"
                           style={{
                             background: selected ? opt.color + "22" : "rgba(255,255,255,0.03)",
                             border: `1.5px solid ${selected ? opt.color + "90" : "rgba(255,255,255,0.06)"}`,
@@ -977,7 +977,7 @@
                           }}
                         >
                           <span className="text-[13px] shrink-0">{opt.icon}</span>
-                          <span className="truncate">{opt.label}</span>
+                          <span className="truncate min-w-0">{opt.label}</span>
                         </button>
                       );
                     })}
@@ -998,6 +998,7 @@
 
       // ── Main App ───────────────────────────────────────────────────────────
       function App({ user }) {
+        const RUN_FILTER_LATEST = "__LATEST__";
         const [trades, setTrades] = useState([]);
         const [annotations, setAnnotations] = useState({});
         const [loading, setLoading] = useState(true);
@@ -1008,6 +1009,30 @@
         const [filterClassification, setFilterClassification] = useState("");
         const [filterDateFrom, setFilterDateFrom] = useState("");
         const [filterDateTo, setFilterDateTo] = useState("");
+        const [filterRunId, setFilterRunId] = useState(RUN_FILTER_LATEST);
+
+        const runMeta = useMemo(() => {
+          const byRun = new Map();
+          for (const t of trades || []) {
+            const rid = String(t?.run_id || "").trim();
+            if (!rid) continue;
+            const ts = Number(t?.entry_ts || 0);
+            const prev = byRun.get(rid);
+            if (!prev || ts > prev.latestTs) byRun.set(rid, { runId: rid, latestTs: ts });
+          }
+          const runs = Array.from(byRun.values()).sort((a, b) => b.latestTs - a.latestTs);
+          return {
+            runs,
+            latestRunId: runs.length ? runs[0].runId : "",
+          };
+        }, [trades]);
+
+        useEffect(() => {
+          if (!runMeta.latestRunId) return;
+          if (filterRunId === RUN_FILTER_LATEST) return;
+          const exists = runMeta.runs.some(r => r.runId === filterRunId);
+          if (!exists) setFilterRunId(RUN_FILTER_LATEST);
+        }, [runMeta, filterRunId]);
 
         const refreshAnnotations = useCallback(async () => {
           try {
@@ -1078,6 +1103,10 @@
 
         const filteredTrades = useMemo(() => {
           let out = trades;
+          const effectiveRunId = filterRunId === RUN_FILTER_LATEST ? runMeta.latestRunId : filterRunId;
+          if (effectiveRunId) {
+            out = out.filter(t => String(t?.run_id || "").trim() === effectiveRunId);
+          }
           if (filterTicker.trim()) {
             const q = filterTicker.trim().toUpperCase();
             out = out.filter(t => String(t.ticker || "").toUpperCase().includes(q));
@@ -1097,7 +1126,7 @@
             out = out.filter(t => (t.entry_ts || 0) <= toMs);
           }
           return out;
-        }, [trades, annotations, filterTicker, filterClassification, filterDateFrom, filterDateTo]);
+        }, [trades, annotations, filterTicker, filterClassification, filterDateFrom, filterDateTo, filterRunId, runMeta]);
 
         const getAnnotation = (t) => {
           const id = t?.trade_id || t?.id || `${t?.ticker}-${t?.entry_ts}`;
@@ -1189,6 +1218,18 @@
                     className="px-3 py-2 sm:py-1.5 rounded-lg bg-white/[0.04] border border-white/[0.06] text-[13px] text-white placeholder-[#4b5563] col-span-1 sm:w-32"
                   />
                   <select
+                    value={filterRunId}
+                    onChange={e => setFilterRunId(e.target.value)}
+                    className="px-3 py-2 sm:py-1.5 rounded-lg bg-white/[0.04] border border-white/[0.06] text-[13px] text-white col-span-1 sm:max-w-[260px]"
+                    title="Filter trades by replay run ID"
+                  >
+                    <option value={RUN_FILTER_LATEST}>Latest run</option>
+                    <option value="">All runs</option>
+                    {runMeta.runs.map(r => (
+                      <option key={r.runId} value={r.runId}>{r.runId}</option>
+                    ))}
+                  </select>
+                  <select
                     value={filterClassification}
                     onChange={e => setFilterClassification(e.target.value)}
                     className="px-3 py-2 sm:py-1.5 rounded-lg bg-white/[0.04] border border-white/[0.06] text-[13px] text-white col-span-1"
@@ -1210,11 +1251,14 @@
                     onChange={e => setFilterDateTo(e.target.value)}
                     className="px-3 py-2 sm:py-1.5 rounded-lg bg-white/[0.04] border border-white/[0.06] text-[13px] text-white col-span-1"
                   />
-                  {(filterTicker || filterClassification || filterDateFrom || filterDateTo) && (
-                    <button onClick={() => { setFilterTicker(""); setFilterClassification(""); setFilterDateFrom(""); setFilterDateTo(""); }} className="px-3 py-2 sm:py-1.5 text-[12px] text-[#6b7280] hover:text-white col-span-2 sm:col-span-1">Clear filters</button>
+                  {(filterTicker || filterClassification || filterDateFrom || filterDateTo || filterRunId !== RUN_FILTER_LATEST) && (
+                    <button onClick={() => { setFilterTicker(""); setFilterClassification(""); setFilterDateFrom(""); setFilterDateTo(""); setFilterRunId(RUN_FILTER_LATEST); }} className="px-3 py-2 sm:py-1.5 text-[12px] text-[#6b7280] hover:text-white col-span-2 sm:col-span-1">Clear filters</button>
                   )}
                   {filteredTrades.length !== trades.length && (
-                    <span className="text-[12px] text-[#6b7280] self-center col-span-2 sm:col-span-1">Showing {filteredTrades.length} of {trades.length}</span>
+                    <span className="text-[12px] text-[#6b7280] self-center col-span-2 sm:col-span-1">
+                      Showing {filteredTrades.length} of {trades.length}
+                      {runMeta.latestRunId ? ` · latest: ${runMeta.latestRunId}` : ""}
+                    </span>
                   )}
                 </div>
               )}
@@ -1249,6 +1293,7 @@
                             <th className="px-4 py-3 text-left font-semibold text-[#6b7280]">Dir</th>
                             <th className="px-4 py-3 text-left font-semibold text-[#6b7280]">Entry</th>
                             <th className="px-4 py-3 text-left font-semibold text-[#6b7280]">Exit</th>
+                            <th className="px-4 py-3 text-left font-semibold text-[#6b7280]">Run</th>
                             <th className="px-4 py-3 text-right font-semibold text-[#6b7280]">P&L</th>
                             <th className="px-4 py-3 text-left font-semibold text-[#6b7280]">Status</th>
                             <th className="px-4 py-3 text-left font-semibold text-[#6b7280]">Classification</th>
@@ -1268,6 +1313,7 @@
                                 <td className="px-4 py-2.5 text-[#9ca3af]">{t.direction || "—"}</td>
                                 <td className="px-4 py-2.5 text-[#9ca3af]">{formatDate(t.entry_ts)}</td>
                                 <td className="px-4 py-2.5 text-[#9ca3af]">{formatDate(t.exit_ts)}</td>
+                                <td className="px-4 py-2.5 text-[#6b7280] max-w-[230px] truncate" title={t.run_id || ""}>{t.run_id || "—"}</td>
                                 <td className={`px-4 py-2.5 text-right font-medium ${Number(t.pnl) >= 0 ? "text-[#22c55e]" : "text-[#ef4444]"}`}>{fmtUsd(t.pnl)}</td>
                                 <td className="px-4 py-2.5 text-[#9ca3af]">{t.status || "—"}</td>
                                 <td className="px-4 py-2.5">
@@ -1307,6 +1353,7 @@
                             <span className="text-[#4b5563]">→</span>
                             <span>{formatDate(t.exit_ts)}</span>
                           </div>
+                          <div className="mt-1 text-[10px] text-[#4b5563] truncate" title={t.run_id || ""}>Run: {t.run_id || "—"}</div>
                           <div className="flex items-center justify-between mt-1.5">
                             <span className="text-[11px] text-[#6b7280]">{t.status || ""}</span>
                             {clsOpt?.value ? (

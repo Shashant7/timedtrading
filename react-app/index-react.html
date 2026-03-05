@@ -611,10 +611,10 @@
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), 60000); // 60s timeout
 
-            // Fetch ticker data, ticker index, AND live prices in parallel
-            // so the initial render never shows stale scoring-snapshot prices.
+            // Fetch ticker data + index first for faster initial render.
+            // Live prices are hydrated by usePriceFeed/WebSocket right after mount.
             const timestamp = Date.now();
-            const [dataRes, tickersRes, pricesRes] = await Promise.all([
+            const [dataRes, tickersRes] = await Promise.all([
               fetch(`${API_BASE}/timed/all?_t=${timestamp}`, {
                 signal: controller.signal,
                 cache: "no-store",
@@ -637,10 +637,6 @@
                   "X-Request-ID": `tickers-${timestamp}`,
                 },
               }),
-              fetch(`${API_BASE}/timed/prices?_t=${timestamp}`, {
-                signal: controller.signal,
-                cache: "no-store",
-              }).catch(() => null),
             ]);
 
             clearTimeout(timeoutId);
@@ -746,40 +742,6 @@
                   };
                 }
               });
-
-              // Merge fresh prices from the parallel /timed/prices fetch so even
-              // the very first setData (when prev is empty) has live prices.
-              try {
-                if (pricesRes && pricesRes.ok) {
-                  const pj = await pricesRes.json();
-                  if (pj.ok && pj.prices) {
-                    const pts = pj.updated_at || Date.now();
-                    for (const [sym, pf] of Object.entries(pj.prices)) {
-                      const ns = normTicker(sym);
-                      const obj = mergedData[ns];
-                      if (!obj || !(Number(pf.p) > 0)) continue;
-                      const curTs = obj._price_updated_at || 0;
-                      if (pts >= curTs) {
-                        obj.price = pf.p;
-                        obj._live_price = pf.p;
-                        obj._price_updated_at = pts;
-                        if (pf.dh) obj._live_daily_high = pf.dh;
-                        if (pf.dl) obj._live_daily_low = pf.dl;
-                        if (pf.dv) obj._live_daily_volume = pf.dv;
-                        const dp = Number(pf.dp);
-                        const dc = Number(pf.dc);
-                        if (Number.isFinite(dp)) { obj.day_change_pct = dp; obj.change_pct = dp; }
-                        if (Number.isFinite(dc)) { obj.day_change = dc; obj.change = dc; }
-                        const feedPc = Number(pf.pc);
-                        if (Number.isFinite(feedPc) && feedPc > 0) { obj._live_prev_close = feedPc; if (!obj.prev_close) obj.prev_close = feedPc; }
-                        if (Number.isFinite(Number(pf.ahp)) && pf.ahp > 0) obj._ah_price = pf.ahp;
-                        if (Number.isFinite(Number(pf.ahdc))) obj._ah_change = pf.ahdc;
-                        if (Number.isFinite(Number(pf.ahdp))) obj._ah_change_pct = pf.ahdp;
-                      }
-                    }
-                  }
-                }
-              } catch (_) { /* prices fetch failed — continue with /timed/all data */ }
 
               // Preserve live price fields from current data so the 3-min
               // full refresh doesn't cause a price flicker back to candle close.
@@ -1046,10 +1008,13 @@
 
         useEffect(() => {
           if (!priceReady) return;
-          // Fetch immediately, then poll every 30 seconds
-          fetchPrices();
+          // Slightly defer first poll so initial render isn't contending with /timed/all.
+          const firstPoll = setTimeout(fetchPrices, 2500);
           const interval = setInterval(fetchPrices, 30000);
-          return () => clearInterval(interval);
+          return () => {
+            clearTimeout(firstPoll);
+            clearInterval(interval);
+          };
         }, [priceReady, fetchPrices]);
 
         return { priceLastUpdated, priceUpdateCount: priceUpdateRef.current };
