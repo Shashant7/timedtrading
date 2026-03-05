@@ -462,7 +462,7 @@
 
       /* Mobile shell spacing for fixed legal footer + iOS safe area. */
       .tt-page-shell {
-        padding-bottom: calc(104px + env(safe-area-inset-bottom));
+        padding-bottom: calc(148px + env(safe-area-inset-bottom));
       }
       @media (min-width: 768px) {
         .tt-page-shell {
@@ -17176,10 +17176,10 @@
 
                   {/* ═══ 4b. MODE SELECTOR — Analysis / Active Trader / Investor ═══ */}
                   <div className="mb-3 flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3" data-coachmark="nav-modes">
-                    <div className="inline-flex items-center bg-white/[0.04] border border-white/[0.10] rounded-xl overflow-x-auto max-w-full shadow-sm scrollbar-hide">
+                    <div className="flex w-full sm:w-auto items-stretch bg-white/[0.04] border border-white/[0.10] rounded-xl overflow-hidden shadow-sm">
                       <button
                         onClick={() => handleDashboardModeChange("analysis")}
-                        className={`flex items-center gap-1.5 px-4 py-2 text-[12px] font-semibold whitespace-nowrap transition-all ${
+                        className={`flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-2.5 sm:px-4 py-2 text-[11px] sm:text-[12px] font-semibold transition-all ${
                           dashboardMode === "analysis"
                             ? "bg-gradient-to-r from-violet-500/20 to-indigo-500/15 text-white"
                             : "text-[#6b7280] hover:text-white hover:bg-white/[0.05]"
@@ -17190,7 +17190,7 @@
                       </button>
                       <button
                         onClick={() => handleDashboardModeChange("trader")}
-                        className={`flex items-center gap-1.5 px-4 py-2 text-[12px] font-semibold whitespace-nowrap transition-all border-l border-white/[0.06] ${
+                        className={`flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-2.5 sm:px-4 py-2 text-[11px] sm:text-[12px] font-semibold transition-all border-l border-white/[0.06] ${
                           dashboardMode === "trader"
                             ? "bg-gradient-to-r from-cyan-500/20 to-teal-500/15 text-white"
                             : "text-[#6b7280] hover:text-white hover:bg-white/[0.05]"
@@ -17201,7 +17201,7 @@
                       </button>
                       <button
                         onClick={() => handleDashboardModeChange("investor")}
-                        className={`flex items-center gap-1.5 px-4 py-2 text-[12px] font-semibold whitespace-nowrap transition-all border-l border-white/[0.06] ${
+                        className={`flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-2.5 sm:px-4 py-2 text-[11px] sm:text-[12px] font-semibold transition-all border-l border-white/[0.06] ${
                           dashboardMode === "investor"
                             ? "bg-gradient-to-r from-emerald-500/20 to-teal-500/15 text-white"
                             : "text-[#6b7280] hover:text-white hover:bg-white/[0.05]"
