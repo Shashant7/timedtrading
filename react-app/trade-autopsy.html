@@ -133,6 +133,13 @@
         return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 }).format(n);
       }
 
+      function shortRunId(runId) {
+        const r = String(runId || "").trim();
+        if (!r) return "—";
+        if (r.length <= 42) return r;
+        return `${r.slice(0, 24)}...${r.slice(-15)}`;
+      }
+
       // ── Indicator helpers (computed from OHLC) ───────────────────────────────
       function computeEMA(data, period) {
         const k = 2 / (period + 1);
@@ -844,6 +851,12 @@
                     </div>
                     {trade?.status && <div className="text-[12px] text-[#9ca3af]">Status: {trade.status}</div>}
                   </div>
+                  <div className="w-full sm:w-auto px-2.5 py-1 rounded-md bg-white/[0.03] border border-white/[0.06]">
+                    <span className="text-[10px] text-[#6b7280] uppercase tracking-wider mr-2">Run</span>
+                    <span className="text-[11px] font-mono text-[#d1d5db] break-all" title={trade?.run_id || ""}>
+                      {trade?.run_id || "—"}
+                    </span>
+                  </div>
                 </div>
                 <div className="text-[11px] text-[#9ca3af] px-1 hidden sm:block">
                   Entry and exit prices are aligned to the 10m bar close at that time.
@@ -1293,7 +1306,7 @@
                             <th className="px-4 py-3 text-left font-semibold text-[#6b7280]">Dir</th>
                             <th className="px-4 py-3 text-left font-semibold text-[#6b7280]">Entry</th>
                             <th className="px-4 py-3 text-left font-semibold text-[#6b7280]">Exit</th>
-                            <th className="px-4 py-3 text-left font-semibold text-[#6b7280]">Run</th>
+                            <th className="px-4 py-3 text-left font-semibold text-[#6b7280]">Run ID</th>
                             <th className="px-4 py-3 text-right font-semibold text-[#6b7280]">P&L</th>
                             <th className="px-4 py-3 text-left font-semibold text-[#6b7280]">Status</th>
                             <th className="px-4 py-3 text-left font-semibold text-[#6b7280]">Classification</th>
@@ -1313,7 +1326,7 @@
                                 <td className="px-4 py-2.5 text-[#9ca3af]">{t.direction || "—"}</td>
                                 <td className="px-4 py-2.5 text-[#9ca3af]">{formatDate(t.entry_ts)}</td>
                                 <td className="px-4 py-2.5 text-[#9ca3af]">{formatDate(t.exit_ts)}</td>
-                                <td className="px-4 py-2.5 text-[#6b7280] max-w-[230px] truncate" title={t.run_id || ""}>{t.run_id || "—"}</td>
+                                <td className="px-4 py-2.5 text-[#9ca3af] font-mono text-[11px]" title={t.run_id || ""}>{shortRunId(t.run_id)}</td>
                                 <td className={`px-4 py-2.5 text-right font-medium ${Number(t.pnl) >= 0 ? "text-[#22c55e]" : "text-[#ef4444]"}`}>{fmtUsd(t.pnl)}</td>
                                 <td className="px-4 py-2.5 text-[#9ca3af]">{t.status || "—"}</td>
                                 <td className="px-4 py-2.5">
@@ -1353,7 +1366,7 @@
                             <span className="text-[#4b5563]">→</span>
                             <span>{formatDate(t.exit_ts)}</span>
                           </div>
-                          <div className="mt-1 text-[10px] text-[#4b5563] truncate" title={t.run_id || ""}>Run: {t.run_id || "—"}</div>
+                          <div className="mt-1 text-[10px] text-[#4b5563] font-mono break-all" title={t.run_id || ""}>Run: {shortRunId(t.run_id)}</div>
                           <div className="flex items-center justify-between mt-1.5">
                             <span className="text-[11px] text-[#6b7280]">{t.status || ""}</span>
                             {clsOpt?.value ? (
