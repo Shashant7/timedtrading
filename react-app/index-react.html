@@ -460,6 +460,16 @@
         display: none; /* Chrome, Safari, Opera */
       }
 
+      /* Mobile shell spacing for fixed legal footer + iOS safe area. */
+      .tt-page-shell {
+        padding-bottom: calc(104px + env(safe-area-inset-bottom));
+      }
+      @media (min-width: 768px) {
+        .tt-page-shell {
+          padding-bottom: 64px;
+        }
+      }
+
       /* Admin-only nav links: hidden for non-admin users */
       body:not([data-user-role="admin"]) a[data-admin-only] {
         display: none !important;
@@ -16617,7 +16627,7 @@
               <TrackerWelcomeModal onClose={handleWelcomeTrackerClose} />
             )}
 
-            <div className="min-h-screen p-0 pt-2 pb-16">
+            <div className="min-h-screen p-0 pt-2 tt-page-shell">
               {/* Light page gutter: avoid edge bleed but keep width for Kanban lanes (14" MBP). */}
               {/* ═══ Unified Nav Bar ═══ */}
               <nav className="sticky top-0 z-50 border-b border-white/[0.06]" style={{background:"rgba(10,10,15,0.95)",backdropFilter:"blur(12px)"}}>
@@ -17165,11 +17175,11 @@
                   </div>
 
                   {/* ═══ 4b. MODE SELECTOR — Analysis / Active Trader / Investor ═══ */}
-                  <div className="mb-3 flex items-center gap-3">
-                    <div className="inline-flex items-center bg-white/[0.04] border border-white/[0.10] rounded-xl overflow-hidden shadow-sm">
+                  <div className="mb-3 flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3" data-coachmark="nav-modes">
+                    <div className="inline-flex items-center bg-white/[0.04] border border-white/[0.10] rounded-xl overflow-x-auto max-w-full shadow-sm scrollbar-hide">
                       <button
                         onClick={() => handleDashboardModeChange("analysis")}
-                        className={`flex items-center gap-1.5 px-4 py-2 text-[12px] font-semibold transition-all ${
+                        className={`flex items-center gap-1.5 px-4 py-2 text-[12px] font-semibold whitespace-nowrap transition-all ${
                           dashboardMode === "analysis"
                             ? "bg-gradient-to-r from-violet-500/20 to-indigo-500/15 text-white"
                             : "text-[#6b7280] hover:text-white hover:bg-white/[0.05]"
@@ -17180,7 +17190,7 @@
                       </button>
                       <button
                         onClick={() => handleDashboardModeChange("trader")}
-                        className={`flex items-center gap-1.5 px-4 py-2 text-[12px] font-semibold transition-all border-l border-white/[0.06] ${
+                        className={`flex items-center gap-1.5 px-4 py-2 text-[12px] font-semibold whitespace-nowrap transition-all border-l border-white/[0.06] ${
                           dashboardMode === "trader"
                             ? "bg-gradient-to-r from-cyan-500/20 to-teal-500/15 text-white"
                             : "text-[#6b7280] hover:text-white hover:bg-white/[0.05]"
@@ -17191,7 +17201,7 @@
                       </button>
                       <button
                         onClick={() => handleDashboardModeChange("investor")}
-                        className={`flex items-center gap-1.5 px-4 py-2 text-[12px] font-semibold transition-all border-l border-white/[0.06] ${
+                        className={`flex items-center gap-1.5 px-4 py-2 text-[12px] font-semibold whitespace-nowrap transition-all border-l border-white/[0.06] ${
                           dashboardMode === "investor"
                             ? "bg-gradient-to-r from-emerald-500/20 to-teal-500/15 text-white"
                             : "text-[#6b7280] hover:text-white hover:bg-white/[0.05]"
@@ -17203,7 +17213,7 @@
                     </div>
                     {/* Time Travel — right of mode selector */}
                     {window._ttIsPro ? (
-                      <div className="min-w-[200px]">
+                      <div className="w-full sm:w-auto min-w-0 sm:min-w-[200px]">
                         <TimeTravelSlider
                           tickers={timeTravelBaseTickers}
                           allTickers={data}
@@ -17215,10 +17225,10 @@
                         />
                       </div>
                     ) : (
-                      <div className="min-w-[140px]">
+                      <div className="w-full sm:w-auto min-w-0 sm:min-w-[140px]">
                         <button
                           onClick={() => window.dispatchEvent(new CustomEvent("tt-go-pro"))}
-                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-amber-500/40 bg-amber-500/5 hover:bg-amber-500/10 hover:border-amber-400/50 transition-colors text-[11px] text-amber-400/90 font-medium"
+                          className="w-full sm:w-auto flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-amber-500/40 bg-amber-500/5 hover:bg-amber-500/10 hover:border-amber-400/50 transition-colors text-[11px] text-amber-400/90 font-medium"
                           title="Replay historical bubble positions — Pro feature"
                         >
                           <svg className="w-3.5 h-3.5 text-amber-400/80" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd"/></svg>
