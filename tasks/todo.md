@@ -71,9 +71,9 @@
 ## Experiment Workflow Phases [2026-03-06]
 - [x] Phase 1: Convert trail facts to rolling baseline + active experiment storage
 - [x] Phase 1: Add Delete Run cleanup semantics for non-protected experiment runs
-- [ ] Phase 2: Preserve the two July candidates as protected baseline save points (in progress)
-- [ ] Phase 3: Re-run and validate official July baseline
-- [ ] Phase 4: Add immutable rule snapshot storage and run detail APIs
+- [x] Phase 2: Preserve the two July candidates as protected baseline save points
+- [ ] Phase 3: Re-run and validate official July baseline (validation run in progress)
+- [x] Phase 4: Add immutable rule snapshot storage and run detail APIs
 - [x] Phase 6: Expand Runs UI with protected/archive/delete controls
 - [ ] Phase 7: Add Create Variant / Review Variant Config flow
 

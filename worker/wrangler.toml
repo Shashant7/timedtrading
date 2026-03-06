@@ -54,6 +54,13 @@ ALPACA_BASE_URL = "https://paper-api.alpaca.markets"
 # ── Data Provider: "twelvedata" or "alpaca" ──
 DATA_PROVIDER = "twelvedata"
 TWELVEDATA_PLAN = "pro"
+# ── Engine Selection (A/B testing) ──
+# ENTRY_ENGINE: legacy | ripster_core
+# MANAGEMENT_ENGINE: legacy | ripster_core
+ENTRY_ENGINE = "ripster_core"
+MANAGEMENT_ENGINE = "ripster_core"
+RIPSTER_TUNE_V2 = "true"
+RIPSTER_EXIT_DEBOUNCE_BARS = "2"
 CF_ACCESS_TEAM_DOMAIN = "timedtrading"
 ADMIN_EMAIL = "shashant@gmail.com"
 EMAIL_ENABLED = "true"
@@ -163,6 +170,11 @@ ALPACA_BASE_URL = "https://paper-api.alpaca.markets"
 # ── Data Provider: "twelvedata" or "alpaca" ──
 DATA_PROVIDER = "twelvedata"
 TWELVEDATA_PLAN = "pro"
+# ── Engine Selection (A/B testing) ──
+ENTRY_ENGINE = "ripster_core"
+MANAGEMENT_ENGINE = "ripster_core"
+RIPSTER_TUNE_V2 = "true"
+RIPSTER_EXIT_DEBOUNCE_BARS = "2"
 # Cloudflare Access — user auth via Google SSO / One-time PIN
 CF_ACCESS_TEAM_DOMAIN = "timedtrading"
 ADMIN_EMAIL = "shashant@gmail.com"

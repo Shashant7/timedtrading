@@ -1757,6 +1757,8 @@ function RunsTab({ isAdmin }) {
   const [finalizingRunId, setFinalizingRunId] = useState("");
   const [archivingRunId, setArchivingRunId] = useState("");
   const [deletingRunId, setDeletingRunId] = useState("");
+  const [detailRunId, setDetailRunId] = useState(null);
+  const [detailData, setDetailData] = useState(null);
   const [message, setMessage] = useState(null);
   const [showOnlyCompleted, setShowOnlyCompleted] = useState(true);
 
@@ -1901,6 +1903,18 @@ function RunsTab({ isAdmin }) {
     }
     setArchivingRunId("");
   };
+  const viewRunDetails = async (runId) => {
+    if (!runId) return;
+    setDetailRunId(runId);
+    setDetailData(null);
+    try {
+      const res = await fetch(`${API_BASE}/timed/admin/runs/detail?run_id=${encodeURIComponent(runId)}`, { credentials: "include" });
+      const data = await res.json();
+      setDetailData(data?.ok ? data : { error: data?.error || "Failed to load run details" });
+    } catch (e) {
+      setDetailData({ error: String(e || "Failed to load") });
+    }
+  };
   const deleteRun = async (run) => {
     if (!isAdmin || !run?.run_id) return;
     if (!confirm(`Delete run ${run.run_id}? This removes the run from the registry and purges the active experiment fact store if this run owns it.`)) return;
@@ -1949,6 +1963,35 @@ function RunsTab({ isAdmin }) {
 
       {message && <div className="p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-xs text-emerald-300">{message}</div>}
       {error && <div className="p-3 rounded-lg bg-rose-500/10 border border-rose-500/20 text-xs text-rose-300">{error}</div>}
+
+      {detailRunId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={() => setDetailRunId(null)}>
+          <div className="card max-w-2xl max-h-[85vh] overflow-hidden flex flex-col" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between p-3 border-b border-white/[0.06]">
+              <h3 className="text-sm font-semibold text-white">Run Details: {detailRunId?.slice(0, 40)}…</h3>
+              <button className="text-slate-400 hover:text-white text-lg" onClick={() => setDetailRunId(null)}>×</button>
+            </div>
+            <div className="p-3 overflow-auto flex-1 text-xs font-mono text-slate-300 bg-slate-900/50 rounded">
+              {detailData ? (
+                detailData.error ? (
+                  <p className="text-rose-400">{detailData.error}</p>
+                ) : (
+                  <pre className="whitespace-pre-wrap break-words">{JSON.stringify({
+                    summary: detailData.summary,
+                    rule_snapshot_meta: detailData.rule_snapshot_meta,
+                    rule_snapshot_type: detailData.rule_snapshot?.snapshot_type,
+                    rule_snapshot_note: detailData.rule_snapshot?.note,
+                    env_flags: detailData.rule_snapshot?.env_flags,
+                    tags: detailData.tags,
+                  }, null, 2)}</pre>
+                )
+              ) : (
+                <p className="text-slate-500">Loading…</p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="card overflow-hidden">
         <div className="px-4 py-3 border-b border-white/[0.06]">
@@ -2038,11 +2081,19 @@ function RunsTab({ isAdmin }) {
                         {classTop.length ? classTop.map(([k, v]) => `${k}:${v}`).join("  ") : "—"}
                       </td>
                       <td className="px-3 py-2">
-                        {autopsyUrl && autopsyUrl !== "#" ? (
-                          <a className="text-cyan-300 hover:text-cyan-200 underline" href={autopsyUrl}>Open</a>
-                        ) : (
-                          <span className="text-slate-500">—</span>
-                        )}
+                        <div className="flex items-center gap-2">
+                          <button
+                            className="text-cyan-300 hover:text-cyan-200 underline text-[11px]"
+                            onClick={() => viewRunDetails(runId)}
+                          >
+                            Details
+                          </button>
+                          {autopsyUrl && autopsyUrl !== "#" ? (
+                            <a className="text-cyan-300 hover:text-cyan-200 underline text-[11px]" href={autopsyUrl}>Autopsy</a>
+                          ) : (
+                            <span className="text-slate-500 text-[11px]">—</span>
+                          )}
+                        </div>
                       </td>
                       <td className="px-3 py-2">
                         {isAdmin ? (
@@ -2054,6 +2105,13 @@ function RunsTab({ isAdmin }) {
                               onClick={() => finalizeRun(r)}
                             >
                               {finalizingRunId === runId ? "Refreshing..." : "Refresh Metrics"}
+                            </button>
+                            <button
+                              className="btn text-[11px]"
+                              style={{ background: "rgba(100,116,139,0.15)", color: "#94a3b8", border: "1px solid rgba(100,116,139,0.3)", padding: "5px 10px" }}
+                              onClick={() => viewRunDetails(runId)}
+                            >
+                              View
                             </button>
                             <button
                               className="btn text-[11px]"
@@ -2092,6 +2150,56 @@ function RunsTab({ isAdmin }) {
           </div>
         )}
       </div>
+
+      {detailRunId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={() => { setDetailRunId(null); setDetailData(null); }}>
+          <div className="bg-slate-800 border border-white/10 rounded-lg shadow-xl max-w-2xl w-full max-h-[85vh] overflow-hidden flex flex-col" onClick={e => e.stopPropagation()}>
+            <div className="px-4 py-3 border-b border-white/10 flex items-center justify-between">
+              <h3 className="text-sm font-semibold text-white">Run details: {shortRunId(detailRunId)}</h3>
+              <button className="text-slate-400 hover:text-white text-lg leading-none" onClick={() => { setDetailRunId(null); setDetailData(null); }}>&times;</button>
+            </div>
+            <div className="p-4 overflow-auto flex-1 text-xs">
+              {loadingDetail ? (
+                <p className="text-slate-500">Loading...</p>
+              ) : detailData ? (
+                <div className="space-y-3">
+                  {detailData.summary && (
+                    <div>
+                      <div className="text-slate-500 mb-1">Summary</div>
+                      <div className="text-slate-300 font-mono bg-slate-900/50 p-3 rounded overflow-x-auto">
+                        {JSON.stringify(detailData.summary, null, 2)}
+                      </div>
+                    </div>
+                  )}
+                  {detailData.rule_snapshot_meta && (
+                    <div>
+                      <div className="text-slate-500 mb-1">Rule snapshot</div>
+                      <div className="text-slate-300 font-mono bg-slate-900/50 p-3 rounded">
+                        Ready: {detailData.rule_snapshot_meta.ready ? "Yes" : "No"}
+                        {detailData.rule_snapshot_meta.source && ` · Source: ${detailData.rule_snapshot_meta.source}`}
+                        {detailData.rule_snapshot_meta.stage && ` · Stage: ${detailData.rule_snapshot_meta.stage}`}
+                        {detailData.rule_snapshot?.note && (
+                          <div className="mt-2 text-amber-300/90">{detailData.rule_snapshot.note}</div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                  {detailData.rule_snapshot && detailData.rule_snapshot.env_flags && (
+                    <div>
+                      <div className="text-slate-500 mb-1">Env flags (at capture)</div>
+                      <div className="text-slate-300 font-mono bg-slate-900/50 p-3 rounded overflow-x-auto">
+                        {JSON.stringify(detailData.rule_snapshot.env_flags, null, 2)}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <p className="text-slate-500">No data</p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

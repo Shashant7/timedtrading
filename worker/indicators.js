@@ -761,6 +761,86 @@ function clusterPivots(pivots, threshold) {
 }
 
 /**
+ * Detect RSI divergence at the most recent bar.
+ *
+ * Bullish divergence: price makes a lower low while RSI makes a higher low.
+ * Bearish divergence: price makes a higher high while RSI makes a lower high.
+ *
+ * Uses simple pivot detection: find the two most recent swing lows (or highs)
+ * within a lookback window, then compare price and RSI at those pivots.
+ *
+ * @param {Array<{h:number,l:number,c:number}>} bars - OHLC bars sorted asc
+ * @param {number[]} rsiArr - RSI(14) series aligned with bars
+ * @param {number} last - index of the latest bar
+ * @returns {{ bullish: boolean, bearish: boolean, strength: number }}
+ *   strength 0-1: how strong the divergence is (RSI delta / 20, capped at 1)
+ */
+function detectRsiDivergence(bars, rsiArr, last) {
+  const result = { bullish: false, bearish: false, strength: 0 };
+  if (last < 20) return result;
+
+  const lookback = Math.min(30, last);
+  const pivotRadius = 3;
+  const start = last - lookback;
+
+  // Find swing lows (for bullish divergence)
+  const swingLows = [];
+  for (let i = start + pivotRadius; i <= last - pivotRadius; i++) {
+    let isLow = true;
+    for (let j = 1; j <= pivotRadius; j++) {
+      if (bars[i].l >= bars[i - j].l || bars[i].l >= bars[i + j].l) { isLow = false; break; }
+    }
+    if (isLow && Number.isFinite(rsiArr[i])) {
+      swingLows.push({ idx: i, price: bars[i].l, rsi: rsiArr[i] });
+    }
+  }
+  if (swingLows.length >= 1) {
+    let recentLowIdx = last;
+    for (let i = last - 2; i <= last; i++) {
+      if (i >= 0 && bars[i].l < bars[recentLowIdx].l) recentLowIdx = i;
+    }
+    if (Number.isFinite(rsiArr[recentLowIdx])) {
+      const prevLow = swingLows[swingLows.length - 1];
+      if (recentLowIdx > prevLow.idx + 3 &&
+          bars[recentLowIdx].l < prevLow.price &&
+          rsiArr[recentLowIdx] > prevLow.rsi) {
+        result.bullish = true;
+        result.strength = Math.min(1, (rsiArr[recentLowIdx] - prevLow.rsi) / 20);
+      }
+    }
+  }
+
+  // Find swing highs (for bearish divergence)
+  const swingHighs = [];
+  for (let i = start + pivotRadius; i <= last - pivotRadius; i++) {
+    let isHigh = true;
+    for (let j = 1; j <= pivotRadius; j++) {
+      if (bars[i].h <= bars[i - j].h || bars[i].h <= bars[i + j].h) { isHigh = false; break; }
+    }
+    if (isHigh && Number.isFinite(rsiArr[i])) {
+      swingHighs.push({ idx: i, price: bars[i].h, rsi: rsiArr[i] });
+    }
+  }
+  if (swingHighs.length >= 1 && !result.bullish) {
+    let recentHighIdx = last;
+    for (let i = last - 2; i <= last; i++) {
+      if (i >= 0 && bars[i].h > bars[recentHighIdx].h) recentHighIdx = i;
+    }
+    if (Number.isFinite(rsiArr[recentHighIdx])) {
+      const prevHigh = swingHighs[swingHighs.length - 1];
+      if (recentHighIdx > prevHigh.idx + 3 &&
+          bars[recentHighIdx].h > prevHigh.price &&
+          rsiArr[recentHighIdx] < prevHigh.rsi) {
+        result.bearish = true;
+        result.strength = Math.min(1, (prevHigh.rsi - rsiArr[recentHighIdx]) / 20);
+      }
+    }
+  }
+
+  return result;
+}
+
+/**
  * Compute the full indicator bundle for a single timeframe.
  * Mirrors Pine's f_tf_bundle() which returns 25 values.
  *
@@ -785,22 +865,32 @@ export function computeTfBundle(bars, anchors = null) {
   const e3s = emaSeries(closes, 3);
   const e5s = emaSeries(closes, 5);
   const e8s = emaSeries(closes, 8);
+  const e9s = emaSeries(closes, 9);
+  const e12s = emaSeries(closes, 12);
   const e13s = emaSeries(closes, 13);
   const e21s = emaSeries(closes, 21);
   const e34s = emaSeries(closes, 34);
   const e48s = emaSeries(closes, 48);
+  const e50s = emaSeries(closes, 50);
+  const e72s = emaSeries(closes, 72);
   const e89s = emaSeries(closes, 89);
+  const e180s = emaSeries(closes, 180);
   const e200s = emaSeries(closes, 200);
   const e233s = emaSeries(closes, 233);
 
   const e3 = e3s[last];
   const e5 = e5s[last];
   const e8 = e8s[last];
+  const e9 = e9s[last];
+  const e12 = e12s[last];
   const e13 = e13s[last]; // eFast (emaFastLen=13)
   const e21 = e21s[last];
   const e34 = e34s[last];
   const e48 = e48s[last]; // eSlow (emaSlowLen=48)
+  const e50 = e50s[last];
+  const e72 = e72s[last];
   const e89 = e89s[last];
+  const e180 = e180s[last];
   const e200 = e200s[last];
   const e233 = e233s[last];
   const eFast = e13; // Pine default emaFastLen=13
@@ -1092,6 +1182,12 @@ export function computeTfBundle(bars, anchors = null) {
     else break;
   }
 
+  // ── RSI Divergence Detection ──
+  // Bullish divergence: price makes lower low, RSI makes higher low
+  // Bearish divergence: price makes higher high, RSI makes lower high
+  // Lookback: scan last 10-30 bars for pivot lows/highs, compare RSI at those pivots
+  const rsiDiv = detectRsiDivergence(bars, rsiArr, last);
+
   // ── SMC: Premium / Discount Zones (PDZ) ──
   const pdz = computePDZ(bars, atr14);
 
@@ -1104,9 +1200,47 @@ export function computeTfBundle(bars, anchors = null) {
   // ── Ichimoku Kinko Hyo (native computation) ──
   const ichimoku = computeIchimoku(bars, atr14);
 
+  // ── Ripster cloud primitives (for feature-flagged engine + diagnostics) ──
+  const cloudState = (fastNow, slowNow, fastPrev, slowPrev) => {
+    if (!Number.isFinite(fastNow) || !Number.isFinite(slowNow)) return null;
+    const lo = Math.min(fastNow, slowNow);
+    const hi = Math.max(fastNow, slowNow);
+    const inCloud = Number.isFinite(px) && px >= lo && px <= hi;
+    const above = Number.isFinite(px) && px > hi;
+    const below = Number.isFinite(px) && px < lo;
+    const spread = Math.abs(fastNow - slowNow);
+    const distToCloudPct = Number.isFinite(px) && px > 0
+      ? Math.max(0, (above ? (px - hi) : below ? (lo - px) : 0) / px)
+      : 0;
+    const fastSlope = Number.isFinite(fastPrev) ? fastNow - fastPrev : 0;
+    const slowSlope = Number.isFinite(slowPrev) ? slowNow - slowPrev : 0;
+    const crossUp = Number.isFinite(fastPrev) && Number.isFinite(slowPrev) && fastPrev <= slowPrev && fastNow > slowNow;
+    const crossDn = Number.isFinite(fastPrev) && Number.isFinite(slowPrev) && fastPrev >= slowPrev && fastNow < slowNow;
+    return {
+      bull: fastNow >= slowNow,
+      bear: fastNow < slowNow,
+      above,
+      below,
+      inCloud,
+      spreadPct: Number.isFinite(px) && px > 0 ? spread / px : 0,
+      distToCloudPct,
+      fastSlope,
+      slowSlope,
+      crossUp,
+      crossDn,
+    };
+  };
+  const ripsterClouds = {
+    c5_12: cloudState(e5, e12, e5s[last - 1], e12s[last - 1]),
+    c8_9: cloudState(e8, e9, e8s[last - 1], e9s[last - 1]),
+    c34_50: cloudState(e34, e50, e34s[last - 1], e50s[last - 1]),
+    c72_89: cloudState(e72, e89, e72s[last - 1], e89s[last - 1]),
+    c180_200: cloudState(e180, e200, e180s[last - 1], e200s[last - 1]),
+  };
+
   return {
     px, lastTs,
-    e3, e5, e8, e13, e21, e34, e48, e89, e200, e233,
+    e3, e5, e8, e9, e12, e13, e21, e34, e48, e50, e72, e89, e180, e200, e233,
     eFast, eSlow,
     emaDepth, emaStructure, emaMomentum, ribbonSpread,
     stLine, stDir, stLinePrev, stSlopeUp, stSlopeDn,
@@ -1124,6 +1258,8 @@ export function computeTfBundle(bars, anchors = null) {
     emaCross13_21_up, emaCross13_21_dn, emaCross13_21_up_ts, emaCross13_21_dn_ts,
     emaCross13_48_up, emaCross13_48_dn, emaCross13_48_up_ts, emaCross13_48_dn_ts,
     ema5above48, ema13above21, ema8above21, emaRegime,
+    rsiDiv,
+    ripsterClouds,
     pdz, fvg, liq,
     ichimoku,
   };
@@ -1781,6 +1917,27 @@ export function computeEntryQualityScore(bundles, side, regime = null) {
   if (sq30Release || sq1HRelease) {
     confirmation = Math.min(30, confirmation + 5);
     confirmDetails.squeeze_release = true;
+  }
+
+  // RSI divergence boost: bullish div on pullback = high-probability reversal signal
+  // Bearish div on LONG entry = reduce confirmation (exhaustion warning)
+  const div10 = b10?.rsiDiv;
+  const div30 = b30?.rsiDiv;
+  const div1H = b1H?.rsiDiv;
+  const hasBullDiv = (isLong && (div10?.bullish || div30?.bullish || div1H?.bullish));
+  const hasBearDiv = (!isLong && (div10?.bearish || div30?.bearish || div1H?.bearish));
+  const hasCounterDiv = (isLong && (div10?.bearish || div30?.bearish)) ||
+                        (!isLong && (div10?.bullish || div30?.bullish));
+  if (hasBullDiv || hasBearDiv) {
+    const bestStrength = Math.max(
+      (hasBullDiv ? (div30?.strength || div10?.strength || div1H?.strength || 0) : 0),
+      (hasBearDiv ? (div30?.strength || div10?.strength || div1H?.strength || 0) : 0)
+    );
+    confirmation = Math.min(30, confirmation + Math.round(5 * bestStrength));
+    confirmDetails.rsi_divergence = hasBullDiv ? "bullish" : "bearish";
+  } else if (hasCounterDiv) {
+    confirmation = Math.max(0, confirmation - 3);
+    confirmDetails.rsi_divergence = "counter";
   }
 
   const total = structure + momentum + confirmation;
@@ -2966,12 +3123,27 @@ export function assembleTickerData(ticker, bundles, existingData = null, opts = 
         structure: Math.round((b.emaStructure || 0) * 1000) / 1000,
         momentum: Math.round((b.emaMomentum || 0) * 1000) / 1000,
         priceAboveEma21,
+        e5: Number.isFinite(b.e5) ? b.e5 : undefined,
+        e8: Number.isFinite(b.e8) ? b.e8 : undefined,
+        e9: Number.isFinite(b.e9) ? b.e9 : undefined,
+        e12: Number.isFinite(b.e12) ? b.e12 : undefined,
+        e13: Number.isFinite(b.e13) ? b.e13 : undefined,
+        e21: Number.isFinite(b.e21) ? b.e21 : undefined,
+        e34: Number.isFinite(b.e34) ? b.e34 : undefined,
+        e48: Number.isFinite(b.e48) ? b.e48 : undefined,
+        e50: Number.isFinite(b.e50) ? b.e50 : undefined,
       },
       stDir: Number.isFinite(b.stDir) ? b.stDir : 0,
       stSlope: b.stSlopeUp ? 1 : b.stSlopeDn ? -1 : 0,
       atr: atrBand ? { ...atrBand, ...(atrCross || {}) } : (atrCross || undefined),
       sq: { s: b.sqOn ? 1 : 0, r: b.sqRelease ? 1 : 0, c: b.compressed ? 1 : 0 },
       rsi: { r5: Number.isFinite(b.rsi) ? Math.round(b.rsi * 10) / 10 : undefined },
+      rsiDiv: b.rsiDiv ? {
+        bullish: !!b.rsiDiv.bullish,
+        bearish: !!b.rsiDiv.bearish,
+        strength: Number.isFinite(b.rsiDiv.strength) ? Math.round(b.rsiDiv.strength * 1000) / 1000 : 0,
+      } : undefined,
+      ripster: b.ripsterClouds || undefined,
       ph: {
         v: Number.isFinite(b.phaseOsc) ? Math.round(b.phaseOsc * 10) / 10 : undefined,
         z: b.phaseZone || undefined,
@@ -2988,8 +3160,17 @@ export function assembleTickerData(ticker, bundles, existingData = null, opts = 
         bs: b.liq.buysideCount, ss: b.liq.sellsideCount,
         bsd: b.liq.nearestBuysideDist, ssd: b.liq.nearestSellsideDist,
       } : undefined,
+      // Backward-compatible aliases for older consumers
+      ema21: Number.isFinite(b.e21) ? b.e21 : undefined,
+      ema48: Number.isFinite(b.e48) ? b.e48 : undefined,
     };
   }
+
+  // Timeframe aliases: support both canonical labels and numeric keys
+  if (tfTech["1H"] && !tfTech["60"]) tfTech["60"] = tfTech["1H"];
+  if (tfTech["4H"] && !tfTech["240"]) tfTech["240"] = tfTech["4H"];
+  if (tfTech["60"] && !tfTech["1H"]) tfTech["1H"] = tfTech["60"];
+  if (tfTech["240"] && !tfTech["4H"]) tfTech["4H"] = tfTech["240"];
 
   // Elliott Wave impulse detection on HTF (Daily, Weekly)
   const rawBarsForEW = rawBarsEarly || {};

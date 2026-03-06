@@ -18,8 +18,9 @@ const WORKER_BASE = process.env.WORKER_BASE || "https://timed-trading-ingest.sha
 
 // US market holidays (NYSE closed)
 const HOLIDAYS = new Set([
-  "2025-09-01", "2025-11-27", "2025-12-25",
+  "2025-07-04", "2025-09-01", "2025-11-27", "2025-12-25",
   "2026-01-01", "2026-01-19", "2026-02-16",
+  "2026-05-25", "2026-07-03", "2026-09-07", "2026-11-26", "2026-12-25",
 ]);
 
 function generateTradingDays(from, to) {
@@ -131,8 +132,8 @@ async function replayOneDay(date, batchSize) {
 async function main() {
   const args = process.argv.slice(2);
   let dates = null;
-  let fromDate = "2025-10-01";
-  let toDate = "2026-02-06";
+  let fromDate = "2025-07-01";
+  let toDate = new Date().toISOString().slice(0, 10);
   let batchSize = 20;
   let chunkSize = 5; // aggregate after every N days
   let resumeFrom = null; // YYYY-MM-DD: skip all dates before this (pick up where you left off)

@@ -550,7 +550,9 @@ export async function gatherDailyBriefData(env, type, opts = {}) {
     if (!data) return data;
     const price = Number(data.price) || 0;
     const dayPct = Number(data.day_change_pct) || 0;
-    const pfData = pf[proxyTicker];
+    const pfExact = pf[ticker];
+    const pfProxy = pf[proxyTicker];
+    const pfData = (pfExact && Number(pfExact.p) > 0) ? pfExact : pfProxy;
     if (!pfData || !Number(pfData.p)) return data;
 
     const proxyPct = Number(pfData.dp) || 0;
@@ -563,12 +565,16 @@ export async function gatherDailyBriefData(env, type, opts = {}) {
       const reason = needsFix ? `stale (price=${price}, dayPct=${dayPct}%)` : `${ageH.toFixed(0)}h old`;
       console.log(`[BRIEF] ${ticker} data ${reason}. Using ${proxyTicker} change % from price feed.`);
 
-      // Always safe to copy the daily change percentage (same across ES/SPY, NQ/QQQ)
+      // Always safe to copy daily change percentage from the chosen feed source.
       data.day_change_pct = proxyPct;
-      data._proxied_from = proxyTicker;
+      data._proxied_from = (pfData === pfExact ? ticker : proxyTicker);
+      if (Number.isFinite(Number(pfData.pc)) && Number(pfData.pc) > 0) {
+        data.prev_close = Number(pfData.pc);
+      }
 
-      if (sameScale) {
+      if (pfData === pfExact || sameScale) {
         // SPY→SPY, QQQ→QQQ: price scales match, copy price and dollar change
+        // Also applies to ES1!/NQ1! when exact futures feed is present.
         data.price = Number(pfData.p);
         data.day_change = Number(pfData.dc) || 0;
       } else {
@@ -818,7 +824,7 @@ export async function gatherDailyBriefData(env, type, opts = {}) {
 
 function buildPriceFeedCrossRef(pf) {
   if (!pf || typeof pf !== "object") return "Price feed unavailable.";
-  const tickers = ["SPY", "QQQ", "IWM", "DIA", "XLE", "XLK", "XLF", "XLU", "GLD", "TLT"];
+  const tickers = ["ES1!", "NQ1!", "SPY", "QQQ", "IWM", "DIA", "XLE", "XLK", "XLF", "XLU", "GLD", "TLT", "VX1!"];
   const lines = [];
   for (const sym of tickers) {
     const d = pf[sym];
@@ -1273,7 +1279,7 @@ ${(() => {
   for (const [_lbl, _tech] of [["ES", data.esTechnical], ["NQ", data.nqTechnical], ["SPY", data.spyTechnical], ["QQQ", data.qqqTechnical]]) {
     if (!_tech?.structureContext) continue;
     const _sc = _tech.structureContext;
-    const _mk = data.market?.[_lbl === "ES" ? "MES" : _lbl === "NQ" ? "MNQ" : _lbl];
+    const _mk = data.market?.[_lbl];
     const _dp = _mk?.dayChangePct;
     _summaries.push(_lbl + ": Today=" + (typeof _dp === "number" ? (_dp >= 0 ? "+" : "") + _dp.toFixed(2) + "%" : "N/A") + " | 5-day=" + (_sc.fiveDayChangePct != null ? (_sc.fiveDayChangePct >= 0 ? "+" : "") + _sc.fiveDayChangePct.toFixed(2) + "% ($" + (_sc.fiveDayChange ?? "N/A") + ")" : "N/A") + " | Trend=" + (_sc.trendBias || "N/A") + " | 10d-range: $" + (_sc.tenDaySwingLow ?? "?") + "-$" + (_sc.tenDaySwingHigh ?? "?"));
   }
@@ -1478,7 +1484,7 @@ ${(() => {
   for (const [_l2, _t2] of [["ES", data.esTechnical], ["NQ", data.nqTechnical], ["SPY", data.spyTechnical], ["QQQ", data.qqqTechnical]]) {
     if (!_t2?.structureContext) continue;
     const _c2 = _t2.structureContext;
-    const _m2 = data.market?.[_l2 === "ES" ? "MES" : _l2 === "NQ" ? "MNQ" : _l2];
+    const _m2 = data.market?.[_l2];
     const _d2 = _m2?.dayChangePct;
     _s2.push(_l2 + ": Today=" + (typeof _d2 === "number" ? (_d2 >= 0 ? "+" : "") + _d2.toFixed(2) + "%" : "N/A") + " | 5-day=" + (_c2.fiveDayChangePct != null ? (_c2.fiveDayChangePct >= 0 ? "+" : "") + _c2.fiveDayChangePct.toFixed(2) + "% ($" + (_c2.fiveDayChange ?? "N/A") + ")" : "N/A") + " | Trend=" + (_c2.trendBias || "N/A"));
   }
