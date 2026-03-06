@@ -1,5 +1,82 @@
 # Current Tasks
 
+## Ripster Tune V2 [2026-03-04]
+- [x] Add `RIPSTER_TUNE_V2` feature flag plumbing and keep legacy-safe fallback
+- [x] Relax Ripster entry gating (bias + trigger) in strong daily regime
+- [x] Tune Ripster exits to reduce early exits (debounce + defend-before-exit)
+- [x] Deploy and run quick validation replay sample
+
+## Variant v2 Hardening [2026-03-04]
+- [ ] Mitigate bad exits and upstream/chasing entries from classified variant trades
+- [ ] Fix Trade Autopsy mobile layout overlap (classification buttons visibility)
+- [ ] Fix Evening Daily Brief ES close-source mismatch bug
+- [ ] Improve Home initial-load latency on first render
+- [ ] Validate with lint + quick replay/UI smoke checks
+
+## Replay Follow-ups [2026-03-04]
+- [ ] Harden 10m entry gates (strict EMA21 + ST direction)
+- [ ] Fix trimmed-trade P&L consistency in replay/autopsy path
+- [ ] Re-run focused replay and verify WMT/H outcomes
+
+## WMT Loss Guard Focused Replay [2026-03-05]
+- [x] Add Ripster momentum anti-chase RSI heat gate (30m/1H)
+- [x] Add Daily ST conflict gate for Ripster momentum LONG entries
+- [ ] Run focused replay (Jul 1-3) and verify WMT blocked while CSX still passes (in progress)
+
+## July Variant Guardrails V3 [2026-03-06]
+- [x] Exclude replay_forced_eod_close trades and analyze loser clusters
+- [x] Implement feature-flagged variant guardrails (entry + early-defend)
+- [x] Enable variant and run July backtest
+- [x] Compare control vs variant and summarize win-rate/PnL impact
+
+## RSI Extreme Guard (Good-Trade Referenced) [2026-03-05]
+- [x] Analyze classified good trades vs bad trades for multi-timeframe RSI extremes
+- [x] Add feature-flagged all-timeframe RSI extreme guard with data-driven exception path
+- [x] Emit explicit autopsy reason codes for new guard decisions
+- [ ] Run focused replay and compare blocked/kept trades vs current baseline
+
+## Backtest Cost Controls [2026-03-05]
+- [x] Add low-write replay mode to skip timed_trail writes during backtests
+- [x] Add `--low-write` flag to full-backtest orchestration and skip lifecycle in that mode
+
+## Squeeze Hold Guard [2026-03-05]
+- [ ] Add management-only squeeze/compression hold guard to reduce premature exits during consolidation
+- [ ] Run July replay with keep-open-at-end and compare win-rate + exit-reason mix
+
+## Overnight Auto-Tune + Re-Backtest [2026-03-06]
+- [x] Analyze completed July run (loss reasons, trim-giveback, chase blocks, open-position mix)
+- [x] Apply targeted calibration/logic adjustments for highest-impact failure modes
+- [x] Deploy updated worker logic
+- [x] Run fresh full backtest with latest patches and collect final metrics
+- [x] Summarize before/after deltas and recommended default settings
+
+## Swing Checklist A/B [2026-03-06]
+- [x] Add feature-flagged swing checklist gate (4H EMA stack + daily EMA5 + phase reset near zero + optional squeeze build)
+- [ ] Run control replay with swing checklist disabled (in progress)
+- [ ] Run variant replay with swing checklist enabled
+- [ ] Compare win rate, realized PnL, loss reasons, and open-trade mix
+
+## Run Registry + Live Baseline [2026-03-06]
+- [x] Add D1 run registry tables and metrics persistence (`backtest_runs`, `backtest_run_metrics`)
+- [x] Add run endpoints (`register`, `finalize`, `mark-live`, `live`, `list`) and summary view payload
+- [x] Add full-backtest orchestration hooks for register/finalize lifecycle
+- [x] Fix JSON body parsing in run endpoints (readBodyAsJSON compatibility)
+- [ ] Validate on fresh control+variant runs and choose baseline `run_id`
+
+## Run Tracking UI + Promotion [2026-03-06]
+- [ ] Add System Intelligence Runs tab (live run + historical summaries)
+- [ ] Add Promote Live action wired to `/timed/admin/runs/mark-live`
+- [ ] Deploy worker + Pages and verify run tracking/promotion flow
+
+## Experiment Workflow Phases [2026-03-06]
+- [ ] Phase 1: Convert trail facts to rolling baseline + active experiment storage
+- [ ] Phase 1: Add Delete Run cleanup semantics for non-protected experiment runs
+- [ ] Phase 2: Preserve the two July candidates as protected baseline save points
+- [ ] Phase 3: Re-run and validate official July baseline
+- [ ] Phase 4: Add immutable rule snapshot storage and run detail APIs
+- [ ] Phase 6: Expand Runs UI with protected/archive/delete controls
+- [ ] Phase 7: Add Create Variant / Review Variant Config flow
+
 ## 22 Losing Trades Fixes [2026-02-27] ✅
 - [x] 1. Stop replay (released lock)
 - [x] 2. Apply entry guards: 21 EMA on 10m (LONG: price above, SHORT: price below)

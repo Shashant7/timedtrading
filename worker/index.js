@@ -534,6 +534,8 @@ const ROUTES = [
   ["POST", "/timed/admin/runs/register", "POST /timed/admin/runs/register"],
   ["POST", "/timed/admin/runs/finalize", "POST /timed/admin/runs/finalize"],
   ["POST", "/timed/admin/runs/mark-live", "POST /timed/admin/runs/mark-live"],
+  ["POST", "/timed/admin/runs/archive", "POST /timed/admin/runs/archive"],
+  ["POST", "/timed/admin/runs/delete", "POST /timed/admin/runs/delete"],
   ["GET", "/timed/admin/runs", "GET /timed/admin/runs"],
   ["GET", "/timed/admin/runs/live", "GET /timed/admin/runs/live"],
   ["POST", "/timed/admin/run-lifecycle", "POST /timed/admin/run-lifecycle"],
@@ -15588,6 +15590,7 @@ async function d1EnsureUserTickersSchema(env) {
 let _learningSchemaReady = false;
 let _tradeRunSchemaReady = false;
 let _backtestRunsSchemaReady = false;
+let _rollingTrailStoreSchemaReady = false;
 async function d1EnsureLearningSchema(env) {
   if (_learningSchemaReady) return;
   const db = env?.DB;
@@ -15799,6 +15802,11 @@ async function d1EnsureBacktestRunsSchema(env) {
         status TEXT DEFAULT 'registered',
         status_note TEXT,
         live_config_slot INTEGER DEFAULT 0,
+        active_experiment_slot INTEGER DEFAULT 0,
+        is_protected_baseline INTEGER DEFAULT 0,
+        archived_at INTEGER,
+        archived_by TEXT,
+        archived_reason TEXT,
         tags_json TEXT,
         params_json TEXT,
         metrics_json TEXT,
@@ -15837,9 +15845,38 @@ async function d1EnsureBacktestRunsSchema(env) {
     try { await db.prepare(`ALTER TABLE backtest_run_metrics ADD COLUMN avg_win_pct REAL DEFAULT 0`).run(); } catch (_) {}
     try { await db.prepare(`ALTER TABLE backtest_run_metrics ADD COLUMN avg_loss_pct REAL DEFAULT 0`).run(); } catch (_) {}
     try { await db.prepare(`ALTER TABLE backtest_runs ADD COLUMN description TEXT`).run(); } catch (_) {}
+    try { await db.prepare(`ALTER TABLE backtest_runs ADD COLUMN active_experiment_slot INTEGER DEFAULT 0`).run(); } catch (_) {}
+    try { await db.prepare(`ALTER TABLE backtest_runs ADD COLUMN is_protected_baseline INTEGER DEFAULT 0`).run(); } catch (_) {}
+    try { await db.prepare(`ALTER TABLE backtest_runs ADD COLUMN archived_at INTEGER`).run(); } catch (_) {}
+    try { await db.prepare(`ALTER TABLE backtest_runs ADD COLUMN archived_by TEXT`).run(); } catch (_) {}
+    try { await db.prepare(`ALTER TABLE backtest_runs ADD COLUMN archived_reason TEXT`).run(); } catch (_) {}
     _backtestRunsSchemaReady = true;
   } catch (e) {
     console.error("[BACKTEST RUNS] Schema migration failed:", String(e).slice(0, 200));
+  }
+}
+
+async function d1EnsureRollingTrailStoreSchema(env) {
+  if (_rollingTrailStoreSchemaReady) return;
+  const db = env?.DB;
+  if (!db) return;
+  try {
+    try {
+      await db.prepare(`CREATE TABLE IF NOT EXISTS trail_5m_facts_baseline AS SELECT * FROM trail_5m_facts WHERE 0`).run();
+    } catch (_) {}
+    try {
+      await db.prepare(`CREATE TABLE IF NOT EXISTS trail_daily_summary_baseline AS SELECT * FROM trail_daily_summary WHERE 0`).run();
+    } catch (_) {}
+    try {
+      await db.batch([
+        db.prepare(`CREATE INDEX IF NOT EXISTS idx_trail_5m_facts_baseline_ts ON trail_5m_facts_baseline (bucket_ts)`),
+        db.prepare(`CREATE INDEX IF NOT EXISTS idx_trail_5m_facts_baseline_ticker_ts ON trail_5m_facts_baseline (ticker, bucket_ts)`),
+        db.prepare(`CREATE INDEX IF NOT EXISTS idx_trail_daily_summary_baseline_date ON trail_daily_summary_baseline (date)`),
+      ]);
+    } catch (_) {}
+    _rollingTrailStoreSchemaReady = true;
+  } catch (e) {
+    console.error("[ROLLING TRAIL STORE] Schema migration failed:", String(e).slice(0, 200));
   }
 }
 
@@ -15854,6 +15891,35 @@ function buildTradeAutopsyRunUrl(runId) {
   return safe ? `trade-autopsy.html?run_id=${safe}` : "trade-autopsy.html";
 }
 
+async function copyCurrentTrailFactsToBaseline(db) {
+  if (!db) return;
+  await db.batch([
+    db.prepare(`DELETE FROM trail_5m_facts_baseline`),
+    db.prepare(`DELETE FROM trail_daily_summary_baseline`),
+  ]);
+  try {
+    await db.prepare(`INSERT OR REPLACE INTO trail_5m_facts_baseline SELECT * FROM trail_5m_facts`).run();
+  } catch (_) {}
+  try {
+    await db.prepare(`INSERT OR REPLACE INTO trail_daily_summary_baseline SELECT * FROM trail_daily_summary`).run();
+  } catch (_) {}
+}
+
+async function purgeActiveExperimentTrailFacts(db) {
+  if (!db) return { facts: 0, daily: 0 };
+  let facts = 0;
+  let daily = 0;
+  try {
+    const delFacts = await db.prepare(`DELETE FROM trail_5m_facts`).run();
+    facts = Number(delFacts?.meta?.changes || 0);
+  } catch (_) {}
+  try {
+    const delDaily = await db.prepare(`DELETE FROM trail_daily_summary`).run();
+    daily = Number(delDaily?.meta?.changes || 0);
+  } catch (_) {}
+  return { facts, daily };
+}
+
 function buildRunSummaryView(row) {
   if (!row) return null;
   let classifications = {};
@@ -15866,6 +15932,12 @@ function buildRunSummaryView(row) {
     description: row.description || null,
     status: row.status || "unknown",
     live_config_slot: Number(row.live_config_slot || 0) === 1,
+    active_experiment_slot: Number(row.active_experiment_slot || 0) === 1,
+    is_protected_baseline: Number(row.is_protected_baseline || 0) === 1,
+    archived: Number(row.archived_at || 0) > 0,
+    archived_at: Number(row.archived_at || 0) || null,
+    archived_by: row.archived_by || null,
+    archived_reason: row.archived_reason || null,
     started_at: Number(row.started_at || 0) || null,
     ended_at: Number(row.ended_at || 0) || null,
     created_at: Number(row.created_at || 0) || null,
@@ -34453,18 +34525,32 @@ export default {
           const endDate = body?.end_date != null ? String(body.end_date) : null;
           const tags = Array.isArray(body?.tags) ? body.tags : [];
           const paramsJson = body?.params && typeof body.params === "object" ? JSON.stringify(body.params) : null;
+          const liveConfigSlot = parseBool01(body?.live_config_slot);
+          const protectedBaseline = parseBool01(body?.is_protected_baseline);
+          const activeExperimentSlot = body?.active_experiment_slot != null
+            ? parseBool01(body?.active_experiment_slot)
+            : ((status === "running" && !liveConfigSlot && !protectedBaseline) ? 1 : 0);
+          if (activeExperimentSlot) {
+            await db.prepare(`UPDATE backtest_runs SET active_experiment_slot = 0 WHERE active_experiment_slot = 1 AND run_id != ?1`).bind(runId).run();
+          }
           await db.prepare(
             `INSERT OR REPLACE INTO backtest_runs (
               run_id, label, description, start_date, end_date, interval_min, ticker_batch, ticker_universe_count,
-              trader_only, keep_open_at_end, low_write, status, status_note, live_config_slot,
+              trader_only, keep_open_at_end, low_write, status, status_note, live_config_slot, active_experiment_slot,
+              is_protected_baseline, archived_at, archived_by, archived_reason,
               tags_json, params_json, metrics_json, created_at, started_at, ended_at, updated_at
             ) VALUES (
               ?1, ?2, COALESCE(?3, (SELECT description FROM backtest_runs WHERE run_id=?1)), ?4, ?5, ?6, ?7, ?8,
-              ?9, ?10, ?11, ?12, ?13, ?14,
-              ?15, ?16, COALESCE((SELECT metrics_json FROM backtest_runs WHERE run_id=?1), NULL),
-              COALESCE((SELECT created_at FROM backtest_runs WHERE run_id=?1), ?17), ?18,
-              CASE WHEN ?12 IN ('completed','failed','cancelled') THEN ?19 ELSE (SELECT ended_at FROM backtest_runs WHERE run_id=?1) END,
-              ?20
+              ?9, ?10, ?11, ?12, ?13, COALESCE((SELECT live_config_slot FROM backtest_runs WHERE run_id=?1), ?14),
+              COALESCE((SELECT active_experiment_slot FROM backtest_runs WHERE run_id=?1), ?15),
+              COALESCE((SELECT is_protected_baseline FROM backtest_runs WHERE run_id=?1), ?16),
+              COALESCE((SELECT archived_at FROM backtest_runs WHERE run_id=?1), NULL),
+              COALESCE((SELECT archived_by FROM backtest_runs WHERE run_id=?1), NULL),
+              COALESCE((SELECT archived_reason FROM backtest_runs WHERE run_id=?1), NULL),
+              ?17, ?18, COALESCE((SELECT metrics_json FROM backtest_runs WHERE run_id=?1), NULL),
+              COALESCE((SELECT created_at FROM backtest_runs WHERE run_id=?1), ?19), ?20,
+              CASE WHEN ?12 IN ('completed','failed','cancelled') THEN ?21 ELSE (SELECT ended_at FROM backtest_runs WHERE run_id=?1) END,
+              ?22
             )`
           ).bind(
             runId,
@@ -34480,7 +34566,9 @@ export default {
             parseBool01(body?.low_write),
             status,
             body?.status_note != null ? String(body.status_note) : null,
-            parseBool01(body?.live_config_slot),
+            liveConfigSlot,
+            activeExperimentSlot,
+            protectedBaseline,
             JSON.stringify(tags),
             paramsJson,
             now,
@@ -34576,7 +34664,8 @@ export default {
             db.prepare(
               `INSERT OR REPLACE INTO backtest_runs (
                 run_id, label, description, start_date, end_date, interval_min, ticker_batch, ticker_universe_count,
-                trader_only, keep_open_at_end, low_write, status, status_note, live_config_slot,
+                trader_only, keep_open_at_end, low_write, status, status_note, live_config_slot, active_experiment_slot,
+                is_protected_baseline, archived_at, archived_by, archived_reason,
                 tags_json, params_json, metrics_json, created_at, started_at, ended_at, updated_at
               ) VALUES (
                 ?1,
@@ -34593,6 +34682,11 @@ export default {
                 ?12,
                 ?13,
                 COALESCE((SELECT live_config_slot FROM backtest_runs WHERE run_id=?1), 0),
+                COALESCE((SELECT active_experiment_slot FROM backtest_runs WHERE run_id=?1), 0),
+                COALESCE((SELECT is_protected_baseline FROM backtest_runs WHERE run_id=?1), 0),
+                COALESCE((SELECT archived_at FROM backtest_runs WHERE run_id=?1), NULL),
+                COALESCE((SELECT archived_by FROM backtest_runs WHERE run_id=?1), NULL),
+                COALESCE((SELECT archived_reason FROM backtest_runs WHERE run_id=?1), NULL),
                 COALESCE((SELECT tags_json FROM backtest_runs WHERE run_id=?1), '[]'),
                 COALESCE((SELECT params_json FROM backtest_runs WHERE run_id=?1), NULL),
                 ?14,
@@ -34635,6 +34729,7 @@ export default {
         const db = env?.DB;
         if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
         await d1EnsureBacktestRunsSchema(env);
+        await d1EnsureRollingTrailStoreSchema(env);
         await d1EnsureLearningSchema(env);
         try {
           const bodyParsed = await readBodyAsJSON(req);
@@ -34644,15 +34739,83 @@ export default {
           const runId = String(body?.run_id || "").trim();
           if (!runId) return sendJSON({ ok: false, error: "run_id_required" }, 400, corsHeaders(env, req));
           const now = Date.now();
+          await copyCurrentTrailFactsToBaseline(db);
           await db.batch([
-            db.prepare(`UPDATE backtest_runs SET live_config_slot = 0 WHERE live_config_slot = 1`),
-            db.prepare(`UPDATE backtest_runs SET live_config_slot = 1, updated_at = ?2 WHERE run_id = ?1`).bind(runId, now),
+            db.prepare(`UPDATE backtest_runs SET live_config_slot = 0 WHERE live_config_slot = 1`).run(),
+            db.prepare(`UPDATE backtest_runs SET live_config_slot = 1, is_protected_baseline = 1, updated_at = ?2 WHERE run_id = ?1`).bind(runId, now),
             db.prepare(
               `INSERT OR REPLACE INTO model_config (config_key, config_value, description, updated_at, updated_by)
                VALUES ('live_config_run_id', ?1, 'Run ID selected as live configuration baseline', ?2, 'admin')`
             ).bind(runId, now),
           ]);
           return sendJSON({ ok: true, run_id: runId, live_config_slot: true }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // POST /timed/admin/runs/archive?key=...
+      if (routeKey === "POST /timed/admin/runs/archive") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const db = env?.DB;
+        if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
+        await d1EnsureBacktestRunsSchema(env);
+        try {
+          const bodyParsed = await readBodyAsJSON(req);
+          const body = (bodyParsed && typeof bodyParsed === "object" && "obj" in bodyParsed)
+            ? (bodyParsed.obj || {})
+            : (bodyParsed || {});
+          const runId = String(body?.run_id || "").trim();
+          if (!runId) return sendJSON({ ok: false, error: "run_id_required" }, 400, corsHeaders(env, req));
+          const now = Date.now();
+          const reason = body?.reason != null ? String(body.reason) : "Archived from Runs UI";
+          await db.prepare(
+            `UPDATE backtest_runs
+             SET archived_at = ?2, archived_by = 'admin', archived_reason = ?3, updated_at = ?2
+             WHERE run_id = ?1`
+          ).bind(runId, now, reason).run();
+          return sendJSON({ ok: true, run_id: runId, archived: true }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // POST /timed/admin/runs/delete?key=...
+      if (routeKey === "POST /timed/admin/runs/delete") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const db = env?.DB;
+        if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
+        await d1EnsureBacktestRunsSchema(env);
+        await d1EnsureRollingTrailStoreSchema(env);
+        await d1EnsureTradeRunSchema(env);
+        try {
+          const bodyParsed = await readBodyAsJSON(req);
+          const body = (bodyParsed && typeof bodyParsed === "object" && "obj" in bodyParsed)
+            ? (bodyParsed.obj || {})
+            : (bodyParsed || {});
+          const runId = String(body?.run_id || "").trim();
+          if (!runId) return sendJSON({ ok: false, error: "run_id_required" }, 400, corsHeaders(env, req));
+          const row = await db.prepare(`SELECT run_id, live_config_slot, active_experiment_slot, is_protected_baseline FROM backtest_runs WHERE run_id = ?1`).bind(runId).first();
+          if (!row) return sendJSON({ ok: false, error: "run_not_found" }, 404, corsHeaders(env, req));
+          if (Number(row.live_config_slot || 0) === 1 || Number(row.is_protected_baseline || 0) === 1) {
+            return sendJSON({ ok: false, error: "protected_run_cannot_be_deleted" }, 400, corsHeaders(env, req));
+          }
+
+          let purgedFacts = { facts: 0, daily: 0 };
+          if (Number(row.active_experiment_slot || 0) === 1) {
+            purgedFacts = await purgeActiveExperimentTrailFacts(db);
+          }
+
+          const batches = [
+            db.prepare(`DELETE FROM trade_autopsy_annotations WHERE trade_id IN (SELECT trade_id FROM trades WHERE run_id = ?1)`).bind(runId),
+            db.prepare(`DELETE FROM trades WHERE run_id = ?1`).bind(runId),
+            db.prepare(`DELETE FROM backtest_run_metrics WHERE run_id = ?1`).bind(runId),
+            db.prepare(`DELETE FROM backtest_runs WHERE run_id = ?1`).bind(runId),
+          ];
+          await db.batch(batches);
+          return sendJSON({ ok: true, run_id: runId, deleted: true, purged_facts: purgedFacts }, 200, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
         }
@@ -34688,16 +34851,21 @@ export default {
         const limit = Math.max(1, Math.min(200, Number(url.searchParams.get("limit")) || 50));
         const offset = Math.max(0, Number(url.searchParams.get("offset")) || 0);
         const status = String(url.searchParams.get("status") || "").trim().toLowerCase();
+        const includeArchived = parseBool01(url.searchParams.get("include_archived"));
         let where = "WHERE 1=1";
         const binds = [];
         if (status) {
           where += " AND r.status = ?1";
           binds.push(status);
         }
+        if (!includeArchived) {
+          where += ` AND COALESCE(r.archived_at, 0) = 0`;
+        }
         const rows = await db.prepare(
           `SELECT
              r.run_id, r.label, r.description, r.start_date, r.end_date, r.interval_min, r.ticker_batch, r.ticker_universe_count,
-             r.trader_only, r.keep_open_at_end, r.low_write, r.status, r.status_note, r.live_config_slot,
+             r.trader_only, r.keep_open_at_end, r.low_write, r.status, r.status_note, r.live_config_slot, r.active_experiment_slot,
+             r.is_protected_baseline, r.archived_at, r.archived_by, r.archived_reason,
              r.tags_json, r.params_json, r.metrics_json, r.created_at, r.started_at, r.ended_at, r.updated_at,
             m.total_tickers_traded, m.total_trades, m.wins, m.losses, m.breakevens, m.open_trades, m.closed_trades,
             m.win_rate, m.realized_pnl, m.realized_pnl_pct, m.avg_win_pct, m.avg_loss_pct,

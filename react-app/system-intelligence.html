@@ -1755,6 +1755,8 @@ function RunsTab({ isAdmin }) {
   const [liveSummary, setLiveSummary] = useState(null);
   const [promotingRunId, setPromotingRunId] = useState("");
   const [finalizingRunId, setFinalizingRunId] = useState("");
+  const [archivingRunId, setArchivingRunId] = useState("");
+  const [deletingRunId, setDeletingRunId] = useState("");
   const [message, setMessage] = useState(null);
   const [showOnlyCompleted, setShowOnlyCompleted] = useState(true);
 
@@ -1876,6 +1878,54 @@ function RunsTab({ isAdmin }) {
     }
     setFinalizingRunId("");
   };
+  const archiveRun = async (run) => {
+    if (!isAdmin || !run?.run_id) return;
+    setArchivingRunId(run.run_id);
+    setMessage(null);
+    setError(null);
+    try {
+      const res = await fetch(`${API_BASE}/timed/admin/runs/archive`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ run_id: run.run_id, reason: "Archived from Runs UI" }),
+        credentials: "include",
+      });
+      const data = await res.json();
+      if (!data?.ok) setError(data?.error || "Failed to archive run");
+      else {
+        setMessage(`Run archived: ${run.run_id}`);
+        await fetchRuns();
+      }
+    } catch (e) {
+      setError(String(e || "Failed to archive run"));
+    }
+    setArchivingRunId("");
+  };
+  const deleteRun = async (run) => {
+    if (!isAdmin || !run?.run_id) return;
+    if (!confirm(`Delete run ${run.run_id}? This removes the run from the registry and purges the active experiment fact store if this run owns it.`)) return;
+    setDeletingRunId(run.run_id);
+    setMessage(null);
+    setError(null);
+    try {
+      const res = await fetch(`${API_BASE}/timed/admin/runs/delete`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ run_id: run.run_id }),
+        credentials: "include",
+      });
+      const data = await res.json();
+      if (!data?.ok) setError(data?.error || "Failed to delete run");
+      else {
+        const pf = data?.purged_facts || {};
+        setMessage(`Run deleted: ${run.run_id}${(pf.facts || pf.daily) ? ` (purged ${pf.facts || 0} facts / ${pf.daily || 0} daily rows)` : ""}`);
+        await fetchRuns();
+      }
+    } catch (e) {
+      setError(String(e || "Failed to delete run"));
+    }
+    setDeletingRunId("");
+  };
   const filteredRuns = showOnlyCompleted ? runs.filter(r => String(r?.status || "").toLowerCase() === "completed") : runs;
 
   return (
@@ -1957,11 +2007,18 @@ function RunsTab({ isAdmin }) {
                   const statusTop = topCounts(byStatus, 3);
                   const classTop = topCounts(classifications, 3);
                   const isLive = !!(r?.live_config_slot);
+                  const isProtected = !!(r?.is_protected_baseline);
+                  const isActiveExperiment = !!(r?.active_experiment_slot);
                   return (
                     <tr key={runId} className="border-t border-white/[0.04] hover:bg-white/[0.02]">
                       <td className="px-3 py-2">
                         <div className="font-mono text-slate-200" title={runId}>{shortRunId(runId)}</div>
-                        <div className="text-[10px] text-slate-500">{r?.label || "—"} {isLive ? <span className="ml-1 text-emerald-400 font-semibold">LIVE</span> : null}</div>
+                        <div className="text-[10px] text-slate-500">
+                          {r?.label || "—"}
+                          {isLive ? <span className="ml-1 text-emerald-400 font-semibold">LIVE</span> : null}
+                          {isProtected ? <span className="ml-1 text-amber-300 font-semibold">PROTECTED</span> : null}
+                          {isActiveExperiment ? <span className="ml-1 text-cyan-300 font-semibold">ACTIVE</span> : null}
+                        </div>
                       </td>
                       <td className="px-3 py-2 text-slate-300">{r?.description || r?.status_note || "—"}</td>
                       <td className="px-3 py-2 text-slate-300">{r?.start_date || "—"} → {r?.end_date || "—"}</td>
@@ -2005,6 +2062,22 @@ function RunsTab({ isAdmin }) {
                               onClick={() => promoteRun(runId)}
                             >
                               {isLive ? "Live" : (promotingRunId === runId ? "Promoting..." : "Promote Live")}
+                            </button>
+                            <button
+                              className="btn text-[11px]"
+                              style={{ background: "rgba(148,163,184,0.12)", color: "#cbd5e1", border: "1px solid rgba(148,163,184,0.22)", padding: "5px 10px" }}
+                              disabled={archivingRunId === runId || isLive}
+                              onClick={() => archiveRun(r)}
+                            >
+                              {archivingRunId === runId ? "Archiving..." : "Archive"}
+                            </button>
+                            <button
+                              className="btn text-[11px]"
+                              style={{ background: "rgba(239,68,68,0.14)", color: "#fca5a5", border: "1px solid rgba(239,68,68,0.22)", padding: "5px 10px" }}
+                              disabled={deletingRunId === runId || isLive || isProtected}
+                              onClick={() => deleteRun(r)}
+                            >
+                              {deletingRunId === runId ? "Deleting..." : "Delete Run"}
                             </button>
                           </div>
                         ) : (
