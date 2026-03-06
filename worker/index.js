@@ -15787,6 +15787,7 @@ async function d1EnsureBacktestRunsSchema(env) {
       db.prepare(`CREATE TABLE IF NOT EXISTS backtest_runs (
         run_id TEXT PRIMARY KEY,
         label TEXT,
+        description TEXT,
         start_date TEXT,
         end_date TEXT,
         interval_min INTEGER,
@@ -15835,6 +15836,7 @@ async function d1EnsureBacktestRunsSchema(env) {
     } catch (_) {}
     try { await db.prepare(`ALTER TABLE backtest_run_metrics ADD COLUMN avg_win_pct REAL DEFAULT 0`).run(); } catch (_) {}
     try { await db.prepare(`ALTER TABLE backtest_run_metrics ADD COLUMN avg_loss_pct REAL DEFAULT 0`).run(); } catch (_) {}
+    try { await db.prepare(`ALTER TABLE backtest_runs ADD COLUMN description TEXT`).run(); } catch (_) {}
     _backtestRunsSchemaReady = true;
   } catch (e) {
     console.error("[BACKTEST RUNS] Schema migration failed:", String(e).slice(0, 200));
@@ -15861,12 +15863,14 @@ function buildRunSummaryView(row) {
   return {
     run_id: row.run_id,
     label: row.label || null,
+    description: row.description || null,
     status: row.status || "unknown",
     live_config_slot: Number(row.live_config_slot || 0) === 1,
     started_at: Number(row.started_at || 0) || null,
     ended_at: Number(row.ended_at || 0) || null,
     created_at: Number(row.created_at || 0) || null,
     updated_at: Number(row.updated_at || 0) || null,
+    metrics_updated_at: Number(row.metrics_updated_at || 0) || null,
     start_date: row.start_date || null,
     end_date: row.end_date || null,
     interval_min: Number(row.interval_min || 0) || null,
@@ -15892,6 +15896,7 @@ function buildRunSummaryView(row) {
     },
     classifications,
     by_status: byStatus,
+    metrics_ready: Number(row.total_trades || 0) > 0 || Number(row.closed_trades || 0) > 0,
     autopsy_url: row.autopsy_url || buildTradeAutopsyRunUrl(row.run_id),
   };
 }
@@ -34443,26 +34448,28 @@ export default {
           const now = Date.now();
           const status = String(body?.status || "running").trim().toLowerCase();
           const label = body?.label != null ? String(body.label).trim() : null;
+          const description = body?.description != null ? String(body.description).trim() : null;
           const startDate = body?.start_date != null ? String(body.start_date) : null;
           const endDate = body?.end_date != null ? String(body.end_date) : null;
           const tags = Array.isArray(body?.tags) ? body.tags : [];
           const paramsJson = body?.params && typeof body.params === "object" ? JSON.stringify(body.params) : null;
           await db.prepare(
             `INSERT OR REPLACE INTO backtest_runs (
-              run_id, label, start_date, end_date, interval_min, ticker_batch, ticker_universe_count,
+              run_id, label, description, start_date, end_date, interval_min, ticker_batch, ticker_universe_count,
               trader_only, keep_open_at_end, low_write, status, status_note, live_config_slot,
               tags_json, params_json, metrics_json, created_at, started_at, ended_at, updated_at
             ) VALUES (
-              ?1, ?2, ?3, ?4, ?5, ?6, ?7,
-              ?8, ?9, ?10, ?11, ?12, ?13,
-              ?14, ?15, COALESCE((SELECT metrics_json FROM backtest_runs WHERE run_id=?1), NULL),
-              COALESCE((SELECT created_at FROM backtest_runs WHERE run_id=?1), ?16), ?17,
-              CASE WHEN ?11 IN ('completed','failed','cancelled') THEN ?18 ELSE (SELECT ended_at FROM backtest_runs WHERE run_id=?1) END,
-              ?19
+              ?1, ?2, COALESCE(?3, (SELECT description FROM backtest_runs WHERE run_id=?1)), ?4, ?5, ?6, ?7, ?8,
+              ?9, ?10, ?11, ?12, ?13, ?14,
+              ?15, ?16, COALESCE((SELECT metrics_json FROM backtest_runs WHERE run_id=?1), NULL),
+              COALESCE((SELECT created_at FROM backtest_runs WHERE run_id=?1), ?17), ?18,
+              CASE WHEN ?12 IN ('completed','failed','cancelled') THEN ?19 ELSE (SELECT ended_at FROM backtest_runs WHERE run_id=?1) END,
+              ?20
             )`
           ).bind(
             runId,
             label,
+            description,
             startDate,
             endDate,
             Number(body?.interval_min) || null,
@@ -34568,34 +34575,36 @@ export default {
             ),
             db.prepare(
               `INSERT OR REPLACE INTO backtest_runs (
-                run_id, label, start_date, end_date, interval_min, ticker_batch, ticker_universe_count,
+                run_id, label, description, start_date, end_date, interval_min, ticker_batch, ticker_universe_count,
                 trader_only, keep_open_at_end, low_write, status, status_note, live_config_slot,
                 tags_json, params_json, metrics_json, created_at, started_at, ended_at, updated_at
               ) VALUES (
                 ?1,
                 COALESCE((SELECT label FROM backtest_runs WHERE run_id=?1), ?2),
-                COALESCE((SELECT start_date FROM backtest_runs WHERE run_id=?1), ?3),
-                COALESCE((SELECT end_date FROM backtest_runs WHERE run_id=?1), ?4),
-                COALESCE((SELECT interval_min FROM backtest_runs WHERE run_id=?1), ?5),
-                COALESCE((SELECT ticker_batch FROM backtest_runs WHERE run_id=?1), ?6),
-                COALESCE((SELECT ticker_universe_count FROM backtest_runs WHERE run_id=?1), ?7),
-                COALESCE((SELECT trader_only FROM backtest_runs WHERE run_id=?1), ?8),
-                COALESCE((SELECT keep_open_at_end FROM backtest_runs WHERE run_id=?1), ?9),
-                COALESCE((SELECT low_write FROM backtest_runs WHERE run_id=?1), ?10),
-                ?11,
+                COALESCE((SELECT description FROM backtest_runs WHERE run_id=?1), ?3),
+                COALESCE((SELECT start_date FROM backtest_runs WHERE run_id=?1), ?4),
+                COALESCE((SELECT end_date FROM backtest_runs WHERE run_id=?1), ?5),
+                COALESCE((SELECT interval_min FROM backtest_runs WHERE run_id=?1), ?6),
+                COALESCE((SELECT ticker_batch FROM backtest_runs WHERE run_id=?1), ?7),
+                COALESCE((SELECT ticker_universe_count FROM backtest_runs WHERE run_id=?1), ?8),
+                COALESCE((SELECT trader_only FROM backtest_runs WHERE run_id=?1), ?9),
+                COALESCE((SELECT keep_open_at_end FROM backtest_runs WHERE run_id=?1), ?10),
+                COALESCE((SELECT low_write FROM backtest_runs WHERE run_id=?1), ?11),
                 ?12,
+                ?13,
                 COALESCE((SELECT live_config_slot FROM backtest_runs WHERE run_id=?1), 0),
                 COALESCE((SELECT tags_json FROM backtest_runs WHERE run_id=?1), '[]'),
                 COALESCE((SELECT params_json FROM backtest_runs WHERE run_id=?1), NULL),
-                ?13,
-                COALESCE((SELECT created_at FROM backtest_runs WHERE run_id=?1), ?14),
-                COALESCE((SELECT started_at FROM backtest_runs WHERE run_id=?1), ?14),
-                ?15,
-                ?16
+                ?14,
+                COALESCE((SELECT created_at FROM backtest_runs WHERE run_id=?1), ?15),
+                COALESCE((SELECT started_at FROM backtest_runs WHERE run_id=?1), ?15),
+                ?16,
+                ?17
               )`
             ).bind(
               runId,
               body?.label != null ? String(body.label) : null,
+              body?.description != null ? String(body.description) : null,
               body?.start_date != null ? String(body.start_date) : null,
               body?.end_date != null ? String(body.end_date) : null,
               Number(body?.interval_min) || null,
@@ -34659,7 +34668,7 @@ export default {
         const row = await db.prepare(
           `SELECT r.*, m.total_tickers_traded, m.total_trades, m.wins, m.losses, m.breakevens, m.open_trades, m.closed_trades,
                   m.win_rate, m.realized_pnl, m.realized_pnl_pct, m.avg_win_pct, m.avg_loss_pct,
-                  m.classifications_json, m.by_status_json, m.autopsy_url
+                  m.classifications_json, m.by_status_json, m.autopsy_url, m.updated_at AS metrics_updated_at
            FROM backtest_runs r
            LEFT JOIN backtest_run_metrics m ON m.run_id = r.run_id
            WHERE r.live_config_slot = 1
@@ -34687,12 +34696,12 @@ export default {
         }
         const rows = await db.prepare(
           `SELECT
-             r.run_id, r.label, r.start_date, r.end_date, r.interval_min, r.ticker_batch, r.ticker_universe_count,
+             r.run_id, r.label, r.description, r.start_date, r.end_date, r.interval_min, r.ticker_batch, r.ticker_universe_count,
              r.trader_only, r.keep_open_at_end, r.low_write, r.status, r.status_note, r.live_config_slot,
              r.tags_json, r.params_json, r.metrics_json, r.created_at, r.started_at, r.ended_at, r.updated_at,
             m.total_tickers_traded, m.total_trades, m.wins, m.losses, m.breakevens, m.open_trades, m.closed_trades,
             m.win_rate, m.realized_pnl, m.realized_pnl_pct, m.avg_win_pct, m.avg_loss_pct,
-            m.classifications_json, m.by_status_json, m.autopsy_url
+            m.classifications_json, m.by_status_json, m.autopsy_url, m.updated_at AS metrics_updated_at
            FROM backtest_runs r
            LEFT JOIN backtest_run_metrics m ON m.run_id = r.run_id
            ${where}

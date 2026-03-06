@@ -32,6 +32,7 @@ SEQUENCE=false
 KEEP_OPEN_AT_END=false
 LOW_WRITE=false
 RUN_LABEL=""
+RUN_DESCRIPTION=""
 SNAPSHOT_BEFORE_RESET=true
 POSARGS=()
 for arg in "$@"; do
@@ -44,6 +45,9 @@ for arg in "$@"; do
   [[ "$arg" == "--no-snapshot-before-reset" ]] && SNAPSHOT_BEFORE_RESET=false
   if [[ "$arg" == --label=* ]]; then
     RUN_LABEL="${arg#--label=}"
+  fi
+  if [[ "$arg" == --desc=* || "$arg" == --description=* ]]; then
+    RUN_DESCRIPTION="${arg#*=}"
   fi
   [[ "$arg" != --* ]] && POSARGS+=("$arg")
 done
@@ -176,6 +180,7 @@ fi
 REGISTER_PAYLOAD=$(jq -nc \
   --arg run_id "$RUN_ID" \
   --arg label "${RUN_LABEL:-backtest-${START_DATE}-to-${END_DATE}}" \
+  --arg description "${RUN_DESCRIPTION:-}" \
   --arg start_date "$START_DATE" \
   --arg end_date "$END_DATE" \
   --argjson interval_min "$INTERVAL_MIN" \
@@ -190,6 +195,7 @@ REGISTER_PAYLOAD=$(jq -nc \
   '{
     run_id: $run_id,
     label: $label,
+    description: ($description | if length > 0 then . else null end),
     start_date: $start_date,
     end_date: $end_date,
     interval_min: $interval_min,
@@ -571,6 +577,7 @@ echo "$TRADES_DATA" | jq '{
 FINALIZE_PAYLOAD=$(jq -nc \
   --arg run_id "$RUN_ID" \
   --arg label "${RUN_LABEL:-backtest-${START_DATE}-to-${END_DATE}}" \
+  --arg description "${RUN_DESCRIPTION:-}" \
   --arg start_date "$START_DATE" \
   --arg end_date "$END_DATE" \
   --argjson interval_min "$INTERVAL_MIN" \
@@ -584,6 +591,7 @@ FINALIZE_PAYLOAD=$(jq -nc \
   '{
     run_id: $run_id,
     label: $label,
+    description: ($description | if length > 0 then . else null end),
     start_date: $start_date,
     end_date: $end_date,
     interval_min: $interval_min,

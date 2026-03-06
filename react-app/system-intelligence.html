@@ -1754,7 +1754,9 @@ function RunsTab({ isAdmin }) {
   const [runs, setRuns] = useState([]);
   const [liveSummary, setLiveSummary] = useState(null);
   const [promotingRunId, setPromotingRunId] = useState("");
+  const [finalizingRunId, setFinalizingRunId] = useState("");
   const [message, setMessage] = useState(null);
+  const [showOnlyCompleted, setShowOnlyCompleted] = useState(true);
 
   const fmtNum = (n) => {
     const v = Number(n);
@@ -1836,6 +1838,45 @@ function RunsTab({ isAdmin }) {
     }
     setPromotingRunId("");
   };
+  const finalizeRun = async (run) => {
+    if (!isAdmin || !run?.run_id) return;
+    setFinalizingRunId(run.run_id);
+    setMessage(null);
+    setError(null);
+    try {
+      const res = await fetch(`${API_BASE}/timed/admin/runs/finalize`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          run_id: run.run_id,
+          label: run.label || null,
+          description: run.description || null,
+          start_date: run.start_date || null,
+          end_date: run.end_date || null,
+          interval_min: run.interval_min || null,
+          ticker_batch: run.ticker_batch || null,
+          ticker_universe_count: run?.tickers?.universe_count ?? run?.ticker_universe_count ?? null,
+          trader_only: !!run.trader_only,
+          keep_open_at_end: !!run.keep_open_at_end,
+          low_write: !!run.low_write,
+          status: run.status || "completed",
+          status_note: "Manual metrics refresh from Runs tab",
+        }),
+        credentials: "include",
+      });
+      const data = await res.json();
+      if (!data?.ok) {
+        setError(data?.error || "Failed to recompute run metrics");
+      } else {
+        setMessage(`Run metrics refreshed: ${run.run_id}`);
+        await fetchRuns();
+      }
+    } catch (e) {
+      setError(String(e || "Failed to recompute run metrics"));
+    }
+    setFinalizingRunId("");
+  };
+  const filteredRuns = showOnlyCompleted ? runs.filter(r => String(r?.status || "").toLowerCase() === "completed") : runs;
 
   return (
     <div className="space-y-4">
@@ -1861,12 +1902,21 @@ function RunsTab({ isAdmin }) {
 
       <div className="card overflow-hidden">
         <div className="px-4 py-3 border-b border-white/[0.06]">
-          <h3 className="text-sm font-semibold text-white">Backtest Runs</h3>
-          <p className="text-[11px] text-slate-500 mt-1">Track run metrics and promote a specific run ID to live baseline.</p>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <h3 className="text-sm font-semibold text-white">Backtest Runs</h3>
+              <p className="text-[11px] text-slate-500 mt-1">Track run metrics and promote a specific run ID to live baseline.</p>
+            </div>
+            <label className="inline-flex items-center gap-2 text-[11px] text-slate-400">
+              <input type="checkbox" checked={showOnlyCompleted} onChange={(e) => setShowOnlyCompleted(e.target.checked)} />
+              Show completed only
+            </label>
+          </div>
+          <p className="text-[10px] text-slate-500 mt-2">Runs with status <span className="text-slate-300 font-semibold">running</span> often show zeros until finalized; use <span className="text-slate-300 font-semibold">Refresh Metrics</span> when needed.</p>
         </div>
         {loading ? (
           <div className="p-5 text-center text-xs text-slate-500">Loading runs...</div>
-        ) : runs.length === 0 ? (
+        ) : filteredRuns.length === 0 ? (
           <div className="p-5 text-center text-xs text-slate-500">No runs found.</div>
         ) : (
           <div className="overflow-auto">
@@ -1874,6 +1924,7 @@ function RunsTab({ isAdmin }) {
               <thead className="bg-white/[0.03] text-slate-500">
                 <tr>
                   <th className="px-3 py-2 text-left font-semibold">Run</th>
+                  <th className="px-3 py-2 text-left font-semibold">Description</th>
                   <th className="px-3 py-2 text-left font-semibold">Range</th>
                   <th className="px-3 py-2 text-right font-semibold">Tickers</th>
                   <th className="px-3 py-2 text-right font-semibold">Trades</th>
@@ -1888,7 +1939,7 @@ function RunsTab({ isAdmin }) {
                 </tr>
               </thead>
               <tbody>
-                {runs.map((r) => {
+                {filteredRuns.map((r) => {
                   const runId = r.run_id || "";
                   const pnl = Number(r?.pnl?.realized ?? r?.realized_pnl ?? 0);
                   const autopsyUrl = r?.autopsy_url || "#";
@@ -1912,6 +1963,7 @@ function RunsTab({ isAdmin }) {
                         <div className="font-mono text-slate-200" title={runId}>{shortRunId(runId)}</div>
                         <div className="text-[10px] text-slate-500">{r?.label || "—"} {isLive ? <span className="ml-1 text-emerald-400 font-semibold">LIVE</span> : null}</div>
                       </td>
+                      <td className="px-3 py-2 text-slate-300">{r?.description || r?.status_note || "—"}</td>
                       <td className="px-3 py-2 text-slate-300">{r?.start_date || "—"} → {r?.end_date || "—"}</td>
                       <td className="px-3 py-2 text-right text-slate-300">{fmtNum(tradedCount)} / {fmtNum(universeCount)}</td>
                       <td className="px-3 py-2 text-right text-slate-300">{fmtNum(totalTrades)}</td>
@@ -1937,14 +1989,24 @@ function RunsTab({ isAdmin }) {
                       </td>
                       <td className="px-3 py-2">
                         {isAdmin ? (
-                          <button
-                            className="btn text-[11px]"
-                            style={{ background: isLive ? "rgba(16,185,129,0.15)" : "rgba(29,78,216,0.2)", color: isLive ? "#6ee7b7" : "#93c5fd", border: "1px solid rgba(147,197,253,0.25)", padding: "5px 10px" }}
-                            disabled={isLive || promotingRunId === runId}
-                            onClick={() => promoteRun(runId)}
-                          >
-                            {isLive ? "Live" : (promotingRunId === runId ? "Promoting..." : "Promote Live")}
-                          </button>
+                          <div className="flex items-center gap-2">
+                            <button
+                              className="btn text-[11px]"
+                              style={{ background: "rgba(251,191,36,0.15)", color: "#fcd34d", border: "1px solid rgba(251,191,36,0.25)", padding: "5px 10px" }}
+                              disabled={finalizingRunId === runId}
+                              onClick={() => finalizeRun(r)}
+                            >
+                              {finalizingRunId === runId ? "Refreshing..." : "Refresh Metrics"}
+                            </button>
+                            <button
+                              className="btn text-[11px]"
+                              style={{ background: isLive ? "rgba(16,185,129,0.15)" : "rgba(29,78,216,0.2)", color: isLive ? "#6ee7b7" : "#93c5fd", border: "1px solid rgba(147,197,253,0.25)", padding: "5px 10px" }}
+                              disabled={isLive || promotingRunId === runId}
+                              onClick={() => promoteRun(runId)}
+                            >
+                              {isLive ? "Live" : (promotingRunId === runId ? "Promoting..." : "Promote Live")}
+                            </button>
+                          </div>
                         ) : (
                           <span className="text-slate-500">Admin only</span>
                         )}
