@@ -35190,7 +35190,7 @@ export default {
           const now = Date.now();
           await copyCurrentTrailFactsToBaseline(db);
           await db.batch([
-            db.prepare(`UPDATE backtest_runs SET live_config_slot = 0 WHERE live_config_slot = 1`).run(),
+            db.prepare(`UPDATE backtest_runs SET live_config_slot = 0 WHERE live_config_slot = 1`),
             db.prepare(`UPDATE backtest_runs SET live_config_slot = 1, is_protected_baseline = 1, updated_at = ?2 WHERE run_id = ?1`).bind(runId, now),
             db.prepare(
               `INSERT OR REPLACE INTO model_config (config_key, config_value, description, updated_at, updated_by)
