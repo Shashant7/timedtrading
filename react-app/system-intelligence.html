@@ -1996,13 +1996,13 @@ function RunsTab({ isAdmin }) {
 
   return (
     <div className="space-y-4">
-      <div className="card p-4">
-        <div className="flex items-center justify-between mb-3">
+      <div className="card p-5">
+        <div className="flex items-center justify-between mb-4">
           <h3 className="text-sm font-semibold text-white">Live Baseline</h3>
           <button className="btn btn-secondary text-xs" onClick={fetchRuns} disabled={loading}>Refresh</button>
         </div>
         {liveSummary ? (
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-xs">
             <div><div className="text-slate-500">Run ID</div><div className="text-slate-200 font-mono break-all">{liveSummary.run_id || "—"}</div></div>
             <div><div className="text-slate-500">Date Range</div><div className="text-slate-200">{liveSummary.start_date || "—"} → {liveSummary.end_date || "—"}</div></div>
             <div><div className="text-slate-500">Trades / Win Rate</div><div className="text-slate-200">{fmtNum(liveSummary?.trades?.total)} / {fmtPct(liveSummary?.trades?.win_rate)}</div></div>
@@ -2046,28 +2046,39 @@ function RunsTab({ isAdmin }) {
       )}
 
       <div className="card overflow-hidden">
-        <div className="px-4 py-3 border-b border-white/[0.06]">
-          <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="px-5 py-4 border-b border-white/[0.06]">
+          <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
               <h3 className="text-sm font-semibold text-white">Backtest Runs</h3>
-              <p className="text-[11px] text-slate-500 mt-1">Track run metrics and promote a specific run ID to live baseline.</p>
+              <p className="text-[11px] text-slate-500 mt-1.5">Track run metrics and promote a run to live baseline. Backtests run locally via <code className="text-[10px] bg-white/[0.06] px-1 rounded">full-backtest.sh</code>.</p>
             </div>
-            <div className="flex flex-wrap items-center gap-4 text-[11px] text-slate-400">
-              <label className="inline-flex items-center gap-2">
-                <input type="checkbox" checked={showOnlyCompleted} onChange={(e) => setShowOnlyCompleted(e.target.checked)} />
+            <div className="flex flex-wrap items-center gap-5 text-[11px] text-slate-400">
+              <label className="inline-flex items-center gap-2 cursor-pointer hover:text-slate-300 transition-colors">
+                <input type="checkbox" checked={showOnlyCompleted} onChange={(e) => setShowOnlyCompleted(e.target.checked)} className="rounded" />
                 Show completed only
               </label>
-              <label className="inline-flex items-center gap-2">
-                <input type="checkbox" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} />
+              <label className="inline-flex items-center gap-2 cursor-pointer hover:text-slate-300 transition-colors">
+                <input type="checkbox" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} className="rounded" />
                 Show archived
               </label>
-              <label className="inline-flex items-center gap-2">
-                <input type="checkbox" checked={hideNoisyPlaceholders} onChange={(e) => setHideNoisyPlaceholders(e.target.checked)} />
+              <label className="inline-flex items-center gap-2 cursor-pointer hover:text-slate-300 transition-colors">
+                <input type="checkbox" checked={hideNoisyPlaceholders} onChange={(e) => setHideNoisyPlaceholders(e.target.checked)} className="rounded" />
                 Hide running (no metrics)
               </label>
             </div>
           </div>
-          <p className="text-[10px] text-slate-500 mt-2">Runs with status <span className="text-slate-300 font-semibold">running</span> often show zeros until finalized; use <span className="text-slate-300 font-semibold">Refresh Metrics</span> when needed.</p>
+          <p className="text-[10px] text-slate-500 mt-3 flex flex-wrap gap-x-3 gap-y-0.5">
+            <span>Running runs show zeros until finalized — use <span className="text-slate-300 font-medium">Refresh Metrics</span> when done.</span>
+            <span className="text-amber-400/90">To see a backtest in progress, uncheck &quot;Show completed only&quot; and &quot;Hide running&quot;.</span>
+          </p>
+          <details className="mt-3 group">
+            <summary className="text-[10px] text-slate-500 cursor-pointer hover:text-slate-400 list-none [&::-webkit-details-marker]:hidden">
+              <span className="inline-flex items-center gap-1">Run July backtest locally <span className="text-slate-600 group-open:rotate-90 transition-transform">▸</span></span>
+            </summary>
+            <code className="block mt-1.5 text-[10px] text-slate-500 bg-white/[0.04] rounded px-2.5 py-1.5 font-mono break-all">
+              ./scripts/full-backtest.sh --trader-only --low-write --keep-open-at-end 2025-07-01 2025-07-31 15 --label=calibration-post --desc=&quot;Post-calibration&quot;
+            </code>
+          </details>
         </div>
         {loading ? (
           <div className="p-5 text-center text-xs text-slate-500">Loading runs...</div>
@@ -2116,7 +2127,7 @@ function RunsTab({ isAdmin }) {
                   const isProtected = !!(r?.is_protected_baseline);
                   const isActiveExperiment = !!(r?.active_experiment_slot);
                   return (
-                    <tr key={runId} className="border-t border-white/[0.04] hover:bg-white/[0.02]">
+                    <tr key={runId} className="border-t border-white/[0.04] hover:bg-white/[0.02] transition-colors">
                       <td className="px-3 py-2">
                         <div className="font-mono text-slate-200" title={runId}>{shortRunId(runId)}</div>
                         <div className="text-[10px] text-slate-500">
@@ -2129,7 +2140,7 @@ function RunsTab({ isAdmin }) {
                       <td className="px-3 py-2 text-slate-400 text-[11px]" title={r?.started_at ? new Date(Number(r.started_at)).toISOString() : ""}>
                         {fmtRunDate(r?.started_at ?? r?.created_at)}
                       </td>
-                      <td className="px-3 py-2 text-slate-300">
+                      <td className="px-3 py-2.5 text-slate-300 max-w-[220px]">
                         {editingDescRunId === runId ? (
                           <div className="flex items-center gap-2">
                             <input
@@ -2147,8 +2158,8 @@ function RunsTab({ isAdmin }) {
                           </div>
                         ) : (
                           <span
-                            className={isAdmin ? "cursor-pointer hover:text-white hover:underline" : ""}
-                            title={isAdmin ? "Click to edit" : ""}
+                            className={`block truncate ${isAdmin ? "cursor-pointer hover:text-white" : ""}`}
+                            title={r?.description || r?.status_note || (isAdmin ? "Click to edit" : "")}
                             onClick={() => isAdmin && (setEditingDescRunId(runId), setEditingDescValue(r?.description || r?.status_note || ""))}
                           >
                             {r?.description || r?.status_note || "—"}
@@ -2589,10 +2600,10 @@ function App() {
     <div className="min-h-screen pb-16">
       <NavHeader />
       <div className="max-w-[1520px] mx-auto px-4 py-6">
-        <div className="flex items-center justify-between mb-5">
+        <div className="flex items-center justify-between mb-6">
           <div>
-            <h1 className="text-xl font-bold text-white">System Intelligence</h1>
-            <p className="text-xs text-slate-400 mt-1">Unified calibration, model performance, and learning loop</p>
+            <h1 className="text-xl font-bold text-white tracking-tight">System Intelligence</h1>
+            <p className="text-xs text-slate-400 mt-1.5">Calibration, model performance, and experiment workflow</p>
           </div>
           {isAdmin && (
             <div className="flex items-center gap-2">
@@ -2607,10 +2618,10 @@ function App() {
         </div>
 
         {isAdmin && (
-          <div className="mb-4 p-3 rounded-lg border text-xs" style={{background:"rgba(99,102,241,0.06)", borderColor:"rgba(99,102,241,0.2)"}}>
-            <p className="text-indigo-300 font-medium mb-1">Local Calibration Pipeline</p>
-            <p className="text-slate-400">Full calibration (harvest + autopsy) runs locally for reliability. Upload data, then click <span className="text-white font-medium">Run Analysis</span> to build profiles.</p>
-            <code className="block mt-1.5 text-[10px] text-slate-500 bg-white/[0.04] rounded px-2 py-1 font-mono">node scripts/calibrate.js</code>
+          <div className="mb-4 p-4 rounded-xl border text-xs" style={{background:"rgba(99,102,241,0.05)", borderColor:"rgba(99,102,241,0.15)"}}>
+            <p className="text-indigo-300/90 font-medium mb-1.5">Local Calibration Pipeline</p>
+            <p className="text-slate-400 leading-relaxed">Full calibration (harvest + autopsy) runs locally. Upload data, then click <span className="text-white font-medium">Run Analysis</span> to build profiles.</p>
+            <code className="inline-block mt-2 text-[11px] text-slate-500 bg-white/[0.06] rounded-md px-2.5 py-1 font-mono">node scripts/calibrate.js</code>
           </div>
         )}
         {error && <div className="mb-4 p-3 rounded-lg bg-rose-500/10 border border-rose-500/20 text-sm text-rose-300">{error}</div>}
