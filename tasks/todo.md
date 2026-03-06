@@ -1,5 +1,7 @@
 # Current Tasks
 
+> **Plan:** See `tasks/PLAN.md` for consolidated status, phases, and clear next steps.
+
 ## Ripster Tune V2 [2026-03-04]
 - [x] Add `RIPSTER_TUNE_V2` feature flag plumbing and keep legacy-safe fallback
 - [x] Relax Ripster entry gating (bias + trigger) in strong daily regime
@@ -72,7 +74,7 @@
 - [x] Phase 1: Convert trail facts to rolling baseline + active experiment storage
 - [x] Phase 1: Add Delete Run cleanup semantics for non-protected experiment runs
 - [x] Phase 2: Preserve the two July candidates as protected baseline save points
-- [ ] Phase 3: Re-run and validate official July baseline (validation run in progress)
+- [ ] Phase 3: Re-run and validate official July baseline — 3 phase3 runs in registry but all `running`/unfinalized; need to finalize or run fresh backtest, then compare to Baseline A (68.75% WR, $1,728) and B (63.16% WR, $3,567)
 - [x] Phase 4: Add immutable rule snapshot storage and run detail APIs
 - [x] Phase 6: Expand Runs UI with protected/archive/delete controls
 - [ ] Phase 7: Add Create Variant / Review Variant Config flow

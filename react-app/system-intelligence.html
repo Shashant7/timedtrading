@@ -1761,6 +1761,14 @@ function RunsTab({ isAdmin }) {
   const [detailData, setDetailData] = useState(null);
   const [message, setMessage] = useState(null);
   const [showOnlyCompleted, setShowOnlyCompleted] = useState(true);
+  const [showArchived, setShowArchived] = useState(false);
+  const [hideNoisyPlaceholders, setHideNoisyPlaceholders] = useState(true);
+  const [editingDescRunId, setEditingDescRunId] = useState(null);
+  const [editingDescValue, setEditingDescValue] = useState("");
+  const [savingDescRunId, setSavingDescRunId] = useState(null);
+  const [compareRuns, setCompareRuns] = useState(null);
+  const [variantRunId, setVariantRunId] = useState(null);
+  const [variantData, setVariantData] = useState(null);
 
   const fmtNum = (n) => {
     const v = Number(n);
@@ -1774,6 +1782,12 @@ function RunsTab({ isAdmin }) {
     const v = Number(n);
     if (!Number.isFinite(v)) return "—";
     return `${v >= 0 ? "+" : "-"}$${Math.abs(v).toFixed(2)}`;
+  };
+  const fmtRunDate = (ms) => {
+    const v = Number(ms);
+    if (!Number.isFinite(v) || v <= 0) return "—";
+    const d = new Date(v);
+    return d.toLocaleString(undefined, { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" });
   };
   const shortRunId = (rid) => {
     const s = String(rid || "");
@@ -1796,8 +1810,9 @@ function RunsTab({ isAdmin }) {
     setLoading(true);
     setError(null);
     try {
+      const includeArchived = showArchived ? "1" : "0";
       const [listRes, liveRes] = await Promise.all([
-        fetch(`${API_BASE}/timed/admin/runs?limit=60`, { credentials: "include" }).then(r => r.json()).catch(() => null),
+        fetch(`${API_BASE}/timed/admin/runs?limit=60&include_archived=${includeArchived}`, { credentials: "include" }).then(r => r.json()).catch(() => null),
         fetch(`${API_BASE}/timed/admin/runs/live`, { credentials: "include" }).then(r => r.json()).catch(() => null),
       ]);
       if (!listRes?.ok) {
@@ -1814,9 +1829,33 @@ function RunsTab({ isAdmin }) {
       setError(String(e || "Failed to load runs"));
     }
     setLoading(false);
-  }, []);
+  }, [showArchived]);
 
   useEffect(() => { fetchRuns(); }, [fetchRuns]);
+
+  const updateRunDescription = async (runId, description) => {
+    if (!isAdmin || !runId) return;
+    setSavingDescRunId(runId);
+    setMessage(null);
+    try {
+      const res = await fetch(`${API_BASE}/timed/admin/runs/update`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ run_id: runId, description }),
+        credentials: "include",
+      });
+      const data = await res.json();
+      if (!data?.ok) setError(data?.error || "Failed to update description");
+      else {
+        setMessage("Description updated");
+        setEditingDescRunId(null);
+        await fetchRuns();
+      }
+    } catch (e) {
+      setError(String(e || "Failed to update"));
+    }
+    setSavingDescRunId(null);
+  };
 
   const promoteRun = async (runId) => {
     if (!isAdmin) return;
@@ -1940,7 +1979,15 @@ function RunsTab({ isAdmin }) {
     }
     setDeletingRunId("");
   };
-  const filteredRuns = showOnlyCompleted ? runs.filter(r => String(r?.status || "").toLowerCase() === "completed") : runs;
+  let filteredRuns = showOnlyCompleted ? runs.filter(r => String(r?.status || "").toLowerCase() === "completed") : runs;
+  if (hideNoisyPlaceholders) {
+    filteredRuns = filteredRuns.filter(r => {
+      const status = String(r?.status || "").toLowerCase();
+      const totalTrades = Number(r?.trades?.total ?? r?.total_trades ?? 0);
+      const isPlaceholder = status === "running" && totalTrades === 0;
+      return !isPlaceholder;
+    });
+  }
 
   return (
     <div className="space-y-4">
@@ -2000,10 +2047,20 @@ function RunsTab({ isAdmin }) {
               <h3 className="text-sm font-semibold text-white">Backtest Runs</h3>
               <p className="text-[11px] text-slate-500 mt-1">Track run metrics and promote a specific run ID to live baseline.</p>
             </div>
-            <label className="inline-flex items-center gap-2 text-[11px] text-slate-400">
-              <input type="checkbox" checked={showOnlyCompleted} onChange={(e) => setShowOnlyCompleted(e.target.checked)} />
-              Show completed only
-            </label>
+            <div className="flex flex-wrap items-center gap-4 text-[11px] text-slate-400">
+              <label className="inline-flex items-center gap-2">
+                <input type="checkbox" checked={showOnlyCompleted} onChange={(e) => setShowOnlyCompleted(e.target.checked)} />
+                Show completed only
+              </label>
+              <label className="inline-flex items-center gap-2">
+                <input type="checkbox" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} />
+                Show archived
+              </label>
+              <label className="inline-flex items-center gap-2">
+                <input type="checkbox" checked={hideNoisyPlaceholders} onChange={(e) => setHideNoisyPlaceholders(e.target.checked)} />
+                Hide running (no metrics)
+              </label>
+            </div>
           </div>
           <p className="text-[10px] text-slate-500 mt-2">Runs with status <span className="text-slate-300 font-semibold">running</span> often show zeros until finalized; use <span className="text-slate-300 font-semibold">Refresh Metrics</span> when needed.</p>
         </div>
@@ -2017,6 +2074,7 @@ function RunsTab({ isAdmin }) {
               <thead className="bg-white/[0.03] text-slate-500">
                 <tr>
                   <th className="px-3 py-2 text-left font-semibold">Run</th>
+                  <th className="px-3 py-2 text-left font-semibold">Run Date</th>
                   <th className="px-3 py-2 text-left font-semibold">Description</th>
                   <th className="px-3 py-2 text-left font-semibold">Range</th>
                   <th className="px-3 py-2 text-right font-semibold">Tickers</th>
@@ -2063,7 +2121,35 @@ function RunsTab({ isAdmin }) {
                           {isActiveExperiment ? <span className="ml-1 text-cyan-300 font-semibold">ACTIVE</span> : null}
                         </div>
                       </td>
-                      <td className="px-3 py-2 text-slate-300">{r?.description || r?.status_note || "—"}</td>
+                      <td className="px-3 py-2 text-slate-400 text-[11px]" title={r?.started_at ? new Date(Number(r.started_at)).toISOString() : ""}>
+                        {fmtRunDate(r?.started_at ?? r?.created_at)}
+                      </td>
+                      <td className="px-3 py-2 text-slate-300">
+                        {editingDescRunId === runId ? (
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="text"
+                              className="flex-1 min-w-[120px] px-2 py-1 text-xs bg-slate-800 border border-white/20 rounded text-slate-200"
+                              value={editingDescValue}
+                              onChange={(e) => setEditingDescValue(e.target.value)}
+                              placeholder="Description"
+                              autoFocus
+                            />
+                            <button className="text-emerald-400 text-[10px] hover:underline" disabled={savingDescRunId === runId} onClick={() => updateRunDescription(runId, editingDescValue)}>
+                              {savingDescRunId === runId ? "Saving…" : "Save"}
+                            </button>
+                            <button className="text-slate-400 text-[10px] hover:underline" onClick={() => { setEditingDescRunId(null); setEditingDescValue(""); }}>Cancel</button>
+                          </div>
+                        ) : (
+                          <span
+                            className={isAdmin ? "cursor-pointer hover:text-white hover:underline" : ""}
+                            title={isAdmin ? "Click to edit" : ""}
+                            onClick={() => isAdmin && (setEditingDescRunId(runId), setEditingDescValue(r?.description || r?.status_note || ""))}
+                          >
+                            {r?.description || r?.status_note || "—"}
+                          </span>
+                        )}
+                      </td>
                       <td className="px-3 py-2 text-slate-300">{r?.start_date || "—"} → {r?.end_date || "—"}</td>
                       <td className="px-3 py-2 text-right text-slate-300">{fmtNum(tradedCount)} / {fmtNum(universeCount)}</td>
                       <td className="px-3 py-2 text-right text-slate-300">{fmtNum(totalTrades)}</td>
@@ -2081,18 +2167,25 @@ function RunsTab({ isAdmin }) {
                         {classTop.length ? classTop.map(([k, v]) => `${k}:${v}`).join("  ") : "—"}
                       </td>
                       <td className="px-3 py-2">
-                        <div className="flex items-center gap-2">
-                          <button
-                            className="text-cyan-300 hover:text-cyan-200 underline text-[11px]"
-                            onClick={() => viewRunDetails(runId)}
-                          >
-                            Details
-                          </button>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <button className="text-cyan-300 hover:text-cyan-200 underline text-[11px]" onClick={() => viewRunDetails(runId)}>Details</button>
                           {autopsyUrl && autopsyUrl !== "#" ? (
                             <a className="text-cyan-300 hover:text-cyan-200 underline text-[11px]" href={autopsyUrl}>Autopsy</a>
                           ) : (
                             <span className="text-slate-500 text-[11px]">—</span>
                           )}
+                          {isAdmin ? (
+                            <button
+                              className="text-cyan-300 hover:text-cyan-200 underline text-[11px]"
+                              onClick={() => {
+                                if (compareRuns?.length === 1 && compareRuns[0]?.run_id === runId) setCompareRuns(null);
+                                else if (compareRuns?.length === 1) setCompareRuns([compareRuns[0], r]);
+                                else setCompareRuns([r]);
+                              }}
+                            >
+                              {compareRuns?.length === 1 && compareRuns[0]?.run_id === runId ? "Cancel" : "Compare"}
+                            </button>
+                          ) : null}
                         </div>
                       </td>
                       <td className="px-3 py-2">
@@ -2113,6 +2206,15 @@ function RunsTab({ isAdmin }) {
                             >
                               View
                             </button>
+                            {isProtected ? (
+                              <button
+                                className="btn text-[11px]"
+                                style={{ background: "rgba(139,92,246,0.15)", color: "#c4b5fd", border: "1px solid rgba(139,92,246,0.3)", padding: "5px 10px" }}
+                                onClick={() => { setVariantRunId(runId); setVariantData(null); fetch(`${API_BASE}/timed/admin/runs/detail?run_id=${encodeURIComponent(runId)}`, { credentials: "include" }).then(x => x.json()).then(d => d?.ok && setVariantData(d)); }}
+                              >
+                                Create Variant
+                              </button>
+                            ) : null}
                             <button
                               className="btn text-[11px]"
                               style={{ background: isLive ? "rgba(16,185,129,0.15)" : "rgba(29,78,216,0.2)", color: isLive ? "#6ee7b7" : "#93c5fd", border: "1px solid rgba(147,197,253,0.25)", padding: "5px 10px" }}
@@ -2150,6 +2252,70 @@ function RunsTab({ isAdmin }) {
           </div>
         )}
       </div>
+
+      {compareRuns?.length === 2 && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={() => setCompareRuns(null)}>
+          <div className="bg-slate-800 border border-white/10 rounded-lg shadow-xl max-w-4xl w-full max-h-[85vh] overflow-hidden flex flex-col" onClick={e => e.stopPropagation()}>
+            <div className="px-4 py-3 border-b border-white/10 flex items-center justify-between">
+              <h3 className="text-sm font-semibold text-white">Compare Runs</h3>
+              <button className="text-slate-400 hover:text-white text-lg leading-none" onClick={() => setCompareRuns(null)}>&times;</button>
+            </div>
+            <div className="p-4 overflow-auto grid grid-cols-2 gap-4 text-xs">
+              {compareRuns.map((run, i) => {
+                const t = run?.trades ?? {};
+                const p = run?.pnl ?? {};
+                return (
+                  <div key={run?.run_id || i} className="bg-slate-900/50 rounded p-3 space-y-2">
+                    <div className="font-mono text-slate-200 truncate" title={run?.run_id}>{shortRunId(run?.run_id)}</div>
+                    <div className="text-slate-500">{run?.label || "—"}</div>
+                    <div className="grid grid-cols-2 gap-2 text-slate-300">
+                      <div>Range</div><div>{run?.start_date || "—"} → {run?.end_date || "—"}</div>
+                      <div>Trades</div><div>{fmtNum(t?.total ?? run?.total_trades)}</div>
+                      <div>W / L / BE</div><div>{fmtNum(t?.wins ?? run?.wins)} / {fmtNum(t?.losses ?? run?.losses)} / {fmtNum(t?.breakevens ?? run?.breakevens)}</div>
+                      <div>Win Rate</div><div>{fmtPct(t?.win_rate ?? run?.win_rate)}</div>
+                      <div>P&L</div><div className={Number(p?.realized ?? run?.realized_pnl ?? 0) >= 0 ? "text-emerald-400" : "text-rose-400"}>{fmtMoney(p?.realized ?? run?.realized_pnl)}</div>
+                      <div>Avg W/L %</div><div><span className="text-emerald-400">{fmtPct(p?.avg_win_pct ?? run?.avg_win_pct)}</span> / <span className="text-rose-400">{fmtPct(p?.avg_loss_pct ?? run?.avg_loss_pct)}</span></div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {variantRunId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={() => { setVariantRunId(null); setVariantData(null); }}>
+          <div className="bg-slate-800 border border-white/10 rounded-lg shadow-xl max-w-2xl w-full max-h-[85vh] overflow-hidden flex flex-col" onClick={e => e.stopPropagation()}>
+            <div className="px-4 py-3 border-b border-white/10 flex items-center justify-between">
+              <h3 className="text-sm font-semibold text-white">Create Variant: {shortRunId(variantRunId)}</h3>
+              <button className="text-slate-400 hover:text-white text-lg leading-none" onClick={() => { setVariantRunId(null); setVariantData(null); }}>&times;</button>
+            </div>
+            <div className="p-4 overflow-auto text-xs space-y-3">
+              <p className="text-slate-400">Review the rule snapshot from this baseline. To launch a variant backtest, run:</p>
+              <pre className="bg-slate-900/50 p-3 rounded font-mono text-slate-300 overflow-x-auto">
+{`./scripts/full-backtest.sh --trader-only --low-write --keep-open-at-end \\
+  2025-07-01 2025-07-31 15 --label=variant-from-baseline`}
+              </pre>
+              {!variantData ? (
+                <p className="text-slate-500">Loading run details…</p>
+              ) : (
+                <>
+                  {variantData?.rule_snapshot?.env_flags && (
+                    <div>
+                      <div className="text-slate-500 mb-1">Env flags (at capture)</div>
+                      <pre className="bg-slate-900/50 p-3 rounded font-mono text-slate-300 overflow-x-auto">{JSON.stringify(variantData.rule_snapshot.env_flags, null, 2)}</pre>
+                    </div>
+                  )}
+                  {variantData?.rule_snapshot_meta && (
+                    <div className="text-slate-500">Snapshot: {variantData.rule_snapshot_meta.ready ? "Ready" : "—"} · {variantData.rule_snapshot_meta.source || "—"}</div>
+                  )}
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {detailRunId && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={() => { setDetailRunId(null); setDetailData(null); }}>

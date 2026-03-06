@@ -538,6 +538,7 @@ const ROUTES = [
   ["POST", "/timed/admin/runs/finalize", "POST /timed/admin/runs/finalize"],
   ["POST", "/timed/admin/runs/mark-live", "POST /timed/admin/runs/mark-live"],
   ["POST", "/timed/admin/runs/archive", "POST /timed/admin/runs/archive"],
+  ["POST", "/timed/admin/runs/update", "POST /timed/admin/runs/update"],
   ["POST", "/timed/admin/runs/delete", "POST /timed/admin/runs/delete"],
   ["GET", "/timed/admin/runs", "GET /timed/admin/runs"],
   ["GET", "/timed/admin/runs/live", "GET /timed/admin/runs/live"],
@@ -35224,6 +35225,42 @@ export default {
              WHERE run_id = ?1`
           ).bind(runId, now, reason).run();
           return sendJSON({ ok: true, run_id: runId, archived: true }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // POST /timed/admin/runs/update?key=...
+      // Update run metadata: description, label.
+      if (routeKey === "POST /timed/admin/runs/update") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const db = env?.DB;
+        if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
+        await d1EnsureBacktestRunsSchema(env);
+        try {
+          const bodyParsed = await readBodyAsJSON(req);
+          const body = (bodyParsed && typeof bodyParsed === "object" && "obj" in bodyParsed)
+            ? (bodyParsed.obj || {})
+            : (bodyParsed || {});
+          const runId = String(body?.run_id || "").trim();
+          if (!runId) return sendJSON({ ok: false, error: "run_id_required" }, 400, corsHeaders(env, req));
+          const updates = [];
+          const binds = [];
+          if (body?.description !== undefined) {
+            updates.push("description = ?");
+            binds.push(String(body.description || "").trim() || null);
+          }
+          if (body?.label !== undefined) {
+            updates.push("label = ?");
+            binds.push(String(body.label || "").trim() || null);
+          }
+          if (updates.length === 0) return sendJSON({ ok: false, error: "no_updates" }, 400, corsHeaders(env, req));
+          binds.push(Date.now(), runId);
+          await db.prepare(
+            `UPDATE backtest_runs SET ${updates.join(", ")}, updated_at = ? WHERE run_id = ?`
+          ).bind(...binds).run();
+          return sendJSON({ ok: true, run_id: runId, updated: true }, 200, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
         }
