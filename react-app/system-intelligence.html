@@ -1775,6 +1775,16 @@ function RunsTab({ isAdmin }) {
     if (s.length <= 42) return s;
     return `${s.slice(0, 26)}...${s.slice(-12)}`;
   };
+  const parseMetricObj = (v) => {
+    if (!v) return {};
+    if (typeof v === "object") return v || {};
+    try { return JSON.parse(v) || {}; } catch (_) { return {}; }
+  };
+  const topCounts = (obj, max = 3) => {
+    const entries = Object.entries(obj || {}).filter(([, val]) => Number(val) > 0);
+    entries.sort((a, b) => Number(b[1]) - Number(a[1]));
+    return entries.slice(0, max);
+  };
 
   const fetchRuns = useCallback(async () => {
     setLoading(true);
@@ -1860,7 +1870,7 @@ function RunsTab({ isAdmin }) {
           <div className="p-5 text-center text-xs text-slate-500">No runs found.</div>
         ) : (
           <div className="overflow-auto">
-            <table className="w-full text-xs min-w-[1180px]">
+            <table className="w-full text-xs min-w-[1540px]">
               <thead className="bg-white/[0.03] text-slate-500">
                 <tr>
                   <th className="px-3 py-2 text-left font-semibold">Run</th>
@@ -1870,6 +1880,9 @@ function RunsTab({ isAdmin }) {
                   <th className="px-3 py-2 text-right font-semibold">W / L / BE</th>
                   <th className="px-3 py-2 text-right font-semibold">Win Rate</th>
                   <th className="px-3 py-2 text-right font-semibold">P&L</th>
+                  <th className="px-3 py-2 text-right font-semibold">Avg W/L %</th>
+                  <th className="px-3 py-2 text-left font-semibold">Status Mix</th>
+                  <th className="px-3 py-2 text-left font-semibold">Top Classifications</th>
                   <th className="px-3 py-2 text-left font-semibold">Autopsy</th>
                   <th className="px-3 py-2 text-left font-semibold">Actions</th>
                 </tr>
@@ -1886,6 +1899,12 @@ function RunsTab({ isAdmin }) {
                   const losses = r?.trades?.losses ?? r?.losses;
                   const be = r?.trades?.breakevens ?? r?.breakevens;
                   const winRate = r?.trades?.win_rate ?? r?.win_rate;
+                  const avgWinPct = r?.pnl?.avg_win_pct ?? r?.avg_win_pct;
+                  const avgLossPct = r?.pnl?.avg_loss_pct ?? r?.avg_loss_pct;
+                  const byStatus = parseMetricObj(r?.by_status ?? r?.by_status_json);
+                  const classifications = parseMetricObj(r?.classifications ?? r?.classifications_json);
+                  const statusTop = topCounts(byStatus, 3);
+                  const classTop = topCounts(classifications, 3);
                   const isLive = !!(r?.live_config_slot);
                   return (
                     <tr key={runId} className="border-t border-white/[0.04] hover:bg-white/[0.02]">
@@ -1899,6 +1918,16 @@ function RunsTab({ isAdmin }) {
                       <td className="px-3 py-2 text-right text-slate-300">{fmtNum(wins)} / {fmtNum(losses)} / {fmtNum(be)}</td>
                       <td className="px-3 py-2 text-right text-slate-300">{fmtPct(winRate)}</td>
                       <td className={`px-3 py-2 text-right font-semibold ${pnl >= 0 ? "text-emerald-400" : "text-rose-400"}`}>{fmtMoney(pnl)}</td>
+                      <td className="px-3 py-2 text-right">
+                        <div className="text-emerald-400">{fmtPct(avgWinPct)}</div>
+                        <div className="text-rose-400">{fmtPct(avgLossPct)}</div>
+                      </td>
+                      <td className="px-3 py-2 text-slate-300">
+                        {statusTop.length ? statusTop.map(([k, v]) => `${k}:${v}`).join("  ") : "—"}
+                      </td>
+                      <td className="px-3 py-2 text-slate-300">
+                        {classTop.length ? classTop.map(([k, v]) => `${k}:${v}`).join("  ") : "—"}
+                      </td>
                       <td className="px-3 py-2">
                         {autopsyUrl && autopsyUrl !== "#" ? (
                           <a className="text-cyan-300 hover:text-cyan-200 underline" href={autopsyUrl}>Open</a>
@@ -2092,7 +2121,7 @@ function App() {
   return (
     <div className="min-h-screen pb-16">
       <NavHeader />
-      <div className="max-w-6xl mx-auto px-4 py-6">
+      <div className="max-w-[1520px] mx-auto px-4 py-6">
         <div className="flex items-center justify-between mb-5">
           <div>
             <h1 className="text-xl font-bold text-white">System Intelligence</h1>
