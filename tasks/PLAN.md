@@ -50,13 +50,42 @@ Single reference for current status and next steps. Read this first each session
 
 ---
 
-### Step 2: Use New Autopsy Tags
-**Goal:** Classify trades to drive calibration decisions.
+### Step 2: Calibrate From Autopsy Tags
+**Goal:** Use Entry Grade + Trade Management tags to tune logic.
 
-**Actions:**
-1. Tag ~20–50 trades with Entry Grade + Trade Management
-2. Summarize: chasing vs move_stretched vs fake_out; SL too tight vs should have held
-3. Decide: 10m weight, confirmation gates, or ticker personality tuning
+**Current summary (11 tagged trades):**
+- Entry Grade: chasing (4), good_entry (4), move_stretched (1)
+- Trade Management: should_have_held (8), should_have_cut_early (1), should_have_trimmed (1)
+
+**Calibration actions:**
+1. **Exits too early** (should_have_held=8) → ✅ Done: MIN_TRIM_AGE 10→15min, PROFIT_PROTECT 2%→2.5%, RIPSTER_EXIT_DEBOUNCE 2→3
+2. **Chasing** (4) → keep/tighten anti-chase gates (RSI heat, ST conflict)
+3. **Good entry** (4) → preserve entry path for these; avoid over-gating
+
+---
+
+### Step 3: Experiment Workflow Remainder
+**From** `~/.cursor/plans/run_experiment_workflow_a459a54d.plan.md`:
+- [ ] variant-review-ui: Review Variant Config modal (rule deltas before launch)
+- [ ] historical-import: Import strong July artifacts as named runs
+- [ ] First structured experiment: **15m vs 10m** `leading_ltf` (baseline=10m, variant=15m)
+
+---
+
+### Step 4: Trade Autopsy Mobile Layout
+- Fix classification buttons visibility / overlap on mobile
+
+---
+
+### Step 5: Variant v2 Hardening
+- Mitigate bad exits and chasing from classified trades
+- **Note:** 15m vs 10m is a separate experiment (leading_ltf); Variant v2 = exit/entry logic fixes from autopsy
+
+---
+
+### Step 6: Mean Reversion TD9
+- Implement primitives per `docs/MEAN_REVERSION_TD9_ALIGNMENT_PLAN.md`
+- Add `mean_revert_td9_aligned` flag (feature-flagged)
 
 ---
 

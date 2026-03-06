@@ -8920,8 +8920,8 @@ async function processTradeSimulation(
     const trimCooldownOk =
       !Number.isFinite(lastTrimMs) || now - lastTrimMs >= 5 * 60 * 1000; // 5m
     // Require position to be open at least N minutes before allowing first/next trim
-    // DATA: Winner median hold = 3min for trims, so 10min gives room without blocking good trims
-    const MIN_MINUTES_SINCE_ENTRY_BEFORE_TRIM = 10;
+    // Calibration (should_have_held=8): 10→15 to give more room before trim; reduces premature cuts
+    const MIN_MINUTES_SINCE_ENTRY_BEFORE_TRIM = 15;
     // Require position to be open at least N minutes before exit
     // Phase 1b: Increased to 240min (4 hours) for swing-trade holds.
     // Swing trades need time to develop — intraday noise should not trigger exits.
@@ -9778,7 +9778,7 @@ async function processTradeSimulation(
       const _posAgeMin = Number.isFinite(entryMsNorm) ? (now - entryMsNorm) / 60000 : 999;
 
       // Phase 4c: DYNAMIC TRAILING — for profitable untrimmed trades
-      // When pnl > 2%: trigger a trim to lock in profit and activate post-trim protections
+      // When pnl > 2.5%: trigger a trim to lock in profit and activate post-trim protections
       // (Phase 4c skip, DEFEND skip, ATR-buffered SL). This is more robust than hoping
       // the soft fuse or TP-hit trims fire first. After trim, the runner breathes.
       // When pnl 1-2%: personality-scaled ATR trail to prevent premature Kanban exits.
@@ -9788,8 +9788,8 @@ async function processTradeSimulation(
           ? ((pxNow - entryPx) / entryPx) * 100
           : ((entryPx - pxNow) / entryPx) * 100;
 
-        if (pnlPct > 2.0 && trimMinAgeOk) {
-          console.log(`[TRAILING TRIM] ${sym} pnl=${pnlPct.toFixed(1)}% > 2%: trimming ${Math.round(THREE_TIER_CONFIG.TRIM.trimPct * 100)}% to activate post-trim protections`);
+        if (pnlPct > 2.5 && trimMinAgeOk) {
+          console.log(`[TRAILING TRIM] ${sym} pnl=${pnlPct.toFixed(1)}% > 2.5%: trimming ${Math.round(THREE_TIER_CONFIG.TRIM.trimPct * 100)}% to activate post-trim protections`);
           await trimTradeToPct(openTrade, THREE_TIER_CONFIG.TRIM.trimPct, pxNow, "PROFIT_PROTECT_TRIM");
           fuseExitFired = true;
         } else if (pnlPct > 1.0) {
@@ -32952,6 +32952,7 @@ export default {
       }
 
       // GET /timed/admin/trade-autopsy/trades — All closed trades with direction_accuracy (entry + exit context)
+      // Optional ?run_id=XXX to filter by run
       if (routeKey === "GET /timed/admin/trade-autopsy/trades") {
         const authFail = await requireKeyOrAdmin(req, env);
         if (authFail) return authFail;
@@ -32959,16 +32960,20 @@ export default {
         if (!db) return sendJSON({ ok: false, error: "d1_not_configured" }, 503, corsHeaders(env, req));
         try {
           await d1EnsureLearningSchema(env);
-          const { results: rows } = await db.prepare(
-            `SELECT t.trade_id, t.run_id, t.ticker, t.direction, t.entry_ts, t.exit_ts, t.trim_ts, t.status,
+          const url = new URL(req.url);
+          const runIdParam = url.searchParams.get("run_id") || url.searchParams.get("runId") || "";
+          const runIdFilter = String(runIdParam || "").trim();
+          const baseSql = `SELECT t.trade_id, t.run_id, t.ticker, t.direction, t.entry_ts, t.exit_ts, t.trim_ts, t.status,
                     t.entry_price, t.exit_price, t.pnl, t.pnl_pct, t.exit_reason,
                     da.signal_snapshot_json, da.entry_path, da.consensus_direction,
                     da.max_favorable_excursion, da.max_adverse_excursion, da.tf_stack_json
              FROM trades t
              LEFT JOIN direction_accuracy da ON da.trade_id = t.trade_id
-             WHERE t.status NOT IN ('OPEN', 'TP_HIT_TRIM')
-             ORDER BY t.entry_ts DESC`
-          ).all();
+             WHERE t.status NOT IN ('OPEN', 'TP_HIT_TRIM')`;
+          const orderBy = " ORDER BY t.entry_ts DESC";
+          const sql = runIdFilter ? `${baseSql} AND t.run_id = ?${orderBy}` : `${baseSql}${orderBy}`;
+          const stmt = runIdFilter ? db.prepare(sql).bind(runIdFilter) : db.prepare(sql);
+          const { results: rows } = await stmt.all();
           const trades = (rows || []).map(r => ({
             trade_id: r.trade_id,
             run_id: r.run_id || null,

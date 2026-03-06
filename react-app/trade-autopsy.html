@@ -1125,7 +1125,7 @@
 
         const refreshTrades = useCallback(async () => {
           try {
-            const r = await fetch(`${API_BASE}/timed/admin/trade-autopsy/trades`, fetchOpts);
+            const r = await fetch(tradesUrl, fetchOpts);
             const d = await r.json();
             if (d.ok && Array.isArray(d.trades)) {
               setTrades(d.trades);
@@ -1135,16 +1135,20 @@
                 const updated = d.trades.find(t => (t.trade_id || t.id || `${t.ticker}-${t.entry_ts}`) === id);
                 return updated || prev;
               });
+            } else if (d?.error === "unauthorized") {
+              setError("Admin access required");
             }
-          } catch (_) {}
-        }, []);
+          } catch (_) {
+            setError("Failed to load trades");
+          }
+        }, [tradesUrl]);
 
         const refreshAll = useCallback(async () => {
           setLoading(true);
           setError(null);
           try {
             const [tradesRes, annRes] = await Promise.all([
-              fetch(`${API_BASE}/timed/admin/trade-autopsy/trades`, fetchOpts).then(r => r.json()),
+              fetch(tradesUrl, fetchOpts).then(r => r.json()),
               fetch(`${API_BASE}/timed/admin/trade-autopsy/annotations?all=1`, fetchOpts).then(r => r.json()),
             ]);
             if (tradesRes.ok && Array.isArray(tradesRes.trades)) setTrades(tradesRes.trades);
@@ -1155,11 +1159,11 @@
           } finally {
             setLoading(false);
           }
-        }, []);
+        }, [tradesUrl]);
 
         useEffect(() => {
           Promise.all([
-            fetch(`${API_BASE}/timed/admin/trade-autopsy/trades`, fetchOpts).then(r => r.json()),
+            fetch(tradesUrl, fetchOpts).then(r => r.json()),
             fetch(`${API_BASE}/timed/admin/trade-autopsy/annotations?all=1`, fetchOpts).then(r => r.json()),
           ]).then(([tradesData, annData]) => {
             if (tradesData.ok && Array.isArray(tradesData.trades)) setTrades(tradesData.trades);
@@ -1176,6 +1180,11 @@
         const runIdFromUrl = (() => {
           const params = new URLSearchParams(window.location.search);
           return params.get("run_id") || params.get("runId") || null;
+        })();
+        const tradesUrl = (() => {
+          const base = `${API_BASE}/timed/admin/trade-autopsy/trades`;
+          if (runIdFromUrl) return `${base}?run_id=${encodeURIComponent(runIdFromUrl)}`;
+          return base;
         })();
         useEffect(() => {
           if (!tradeIdFromUrl || !trades.length) return;

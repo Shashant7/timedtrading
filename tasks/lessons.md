@@ -253,6 +253,7 @@
 - **Loss-aware cooldown prevents churn spiral**: 73% of churned trades start with a LOSS. After a loss on a ticker, the system re-enters too quickly and loses again. Extended cooldown from 4h to 48h after LOSS via `deep_audit_loss_cooldown_hours`. The `allTrades` array in the execution pipeline contains closed trades with status — filter by ticker and sort by exit_ts to find the most recent. [2026-03-02]
 - **trail_5m_facts bucket_ts is in milliseconds**: When querying trail_5m_facts, bucket_ts values are epoch milliseconds (e.g., 1770558300000), not seconds. Always compare with ms timestamps. [2026-03-02]
 - **Missed moves are a scoring limitation, not a config problem**: 90.6% of missed moves on traded tickers had rank 0-19 (avg 5.8). The scoring engine is reactive — it rates tickers based on current signals (squeeze, EMA cross, ST flip). Breakouts that haven't started yet show no signals. Lowering the rank threshold would flood entries with noise. The correct solution is adding breakout-specific entry paths that detect daily level breaks with volume confirmation. [2026-03-02]
+- **should_have_held calibration (8 trades)**: Autopsy tags showed exits too early. Loosened: MIN_MINUTES_SINCE_ENTRY_BEFORE_TRIM 10→15, PROFIT_PROTECT_TRIM threshold 2%→2.5%, RIPSTER_EXIT_DEBOUNCE_BARS 2→3. Gives more room before trim and requires slightly more profit before locking in. [2026-03-06]
 
 ## Breakout Detection & Entry Paths
 

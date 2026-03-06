@@ -1759,6 +1759,7 @@ function RunsTab({ isAdmin }) {
   const [deletingRunId, setDeletingRunId] = useState("");
   const [detailRunId, setDetailRunId] = useState(null);
   const [detailData, setDetailData] = useState(null);
+  const [loadingDetail, setLoadingDetail] = useState(false);
   const [message, setMessage] = useState(null);
   const [showOnlyCompleted, setShowOnlyCompleted] = useState(true);
   const [showArchived, setShowArchived] = useState(false);
@@ -1946,12 +1947,15 @@ function RunsTab({ isAdmin }) {
     if (!runId) return;
     setDetailRunId(runId);
     setDetailData(null);
+    setLoadingDetail(true);
     try {
       const res = await fetch(`${API_BASE}/timed/admin/runs/detail?run_id=${encodeURIComponent(runId)}`, { credentials: "include" });
       const data = await res.json();
       setDetailData(data?.ok ? data : { error: data?.error || "Failed to load run details" });
     } catch (e) {
       setDetailData({ error: String(e || "Failed to load") });
+    } finally {
+      setLoadingDetail(false);
     }
   };
   const deleteRun = async (run) => {
