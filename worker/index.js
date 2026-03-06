@@ -522,6 +522,8 @@ const ROUTES = [
   ["POST", "/timed/admin/trade-autopsy/correct-all-entries", "POST /timed/admin/trade-autopsy/correct-all-entries"],
   ["POST", "/timed/admin/trade-autopsy/correct-exit", "POST /timed/admin/trade-autopsy/correct-exit"],
   ["POST", "/timed/admin/trade-autopsy/correct-all-exits", "POST /timed/admin/trade-autopsy/correct-all-exits"],
+  ["POST", "/timed/admin/trade-autopsy/reconcile-status", "POST /timed/admin/trade-autopsy/reconcile-status"],
+  ["POST", "/timed/admin/trade-autopsy/reconcile-status", "POST /timed/admin/trade-autopsy/reconcile-status"],
   ["POST", "/timed/admin/refresh-prices", "POST /timed/admin/refresh-prices"],
   ["POST", "/timed/admin/seed-ticker", "POST /timed/admin/seed-ticker"],
   ["POST", "/timed/admin/candle-replay", "POST /timed/admin/candle-replay"],
@@ -539,6 +541,7 @@ const ROUTES = [
   ["POST", "/timed/admin/runs/delete", "POST /timed/admin/runs/delete"],
   ["GET", "/timed/admin/runs", "GET /timed/admin/runs"],
   ["GET", "/timed/admin/runs/live", "GET /timed/admin/runs/live"],
+  ["GET", "/timed/admin/runs/detail", "GET /timed/admin/runs/detail"],
   ["POST", "/timed/admin/run-lifecycle", "POST /timed/admin/run-lifecycle"],
   ["POST", "/timed/admin/model-resolve", "POST /timed/admin/model-resolve"],
   ["POST", "/timed/admin/model-retro", "POST /timed/admin/model-retro"],
@@ -15639,6 +15642,12 @@ async function d1EnsureLearningSchema(env) {
     try {
       await db.prepare(`ALTER TABLE direction_accuracy ADD COLUMN signal_snapshot_json TEXT`).run();
     } catch { /* column may already exist */ }
+    try {
+      await db.prepare(`ALTER TABLE trade_autopsy_annotations ADD COLUMN entry_grade TEXT DEFAULT '[]'`).run();
+    } catch { /* column may already exist */ }
+    try {
+      await db.prepare(`ALTER TABLE trade_autopsy_annotations ADD COLUMN trade_management TEXT DEFAULT '[]'`).run();
+    } catch { /* column may already exist */ }
     // Three-tier awareness: ticker + sector profiles
     try {
       await db.batch([
@@ -15835,12 +15844,21 @@ async function d1EnsureBacktestRunsSchema(env) {
         autopsy_url TEXT,
         updated_at INTEGER NOT NULL
       )`),
+      db.prepare(`CREATE TABLE IF NOT EXISTS backtest_run_rule_snapshots (
+        run_id TEXT PRIMARY KEY,
+        snapshot_json TEXT NOT NULL,
+        snapshot_stage TEXT,
+        snapshot_source TEXT,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      )`),
     ]);
     try {
       await db.batch([
         db.prepare(`CREATE INDEX IF NOT EXISTS idx_backtest_runs_created ON backtest_runs(created_at DESC)`),
         db.prepare(`CREATE INDEX IF NOT EXISTS idx_backtest_runs_status ON backtest_runs(status)`),
         db.prepare(`CREATE INDEX IF NOT EXISTS idx_backtest_runs_live ON backtest_runs(live_config_slot, updated_at DESC)`),
+        db.prepare(`CREATE INDEX IF NOT EXISTS idx_backtest_run_rule_snapshots_created ON backtest_run_rule_snapshots(created_at DESC)`),
       ]);
     } catch (_) {}
     try { await db.prepare(`ALTER TABLE backtest_run_metrics ADD COLUMN avg_win_pct REAL DEFAULT 0`).run(); } catch (_) {}
@@ -15921,6 +15939,144 @@ async function purgeActiveExperimentTrailFacts(db) {
   return { facts, daily };
 }
 
+function parseStoredConfigValue(raw) {
+  if (raw == null) return null;
+  const s = String(raw);
+  try { return JSON.parse(s); } catch (_) {}
+  const lower = s.trim().toLowerCase();
+  if (lower === "true") return true;
+  if (lower === "false") return false;
+  if (lower === "null") return null;
+  const n = Number(s);
+  if (s.trim() !== "" && Number.isFinite(n)) return n;
+  return s;
+}
+
+function normalizeRunRuleSnapshotInput(input) {
+  if (!input) return null;
+  if (typeof input === "object") return input;
+  if (typeof input === "string") {
+    try { return JSON.parse(input); } catch (_) { return null; }
+  }
+  return null;
+}
+
+function pickRunSnapshotEnvFlags(env) {
+  const keys = [
+    "ENTRY_ENGINE",
+    "MANAGEMENT_ENGINE",
+    "RIPSTER_TUNE_V2",
+    "RIPSTER_EXIT_DEBOUNCE_BARS",
+    "DATA_PROVIDER",
+    "TWELVEDATA_PLAN",
+    "EXECUTION_MODE",
+    "ALPACA_ENABLED",
+    "ALERT_MIN_RR",
+    "ALERT_MAX_COMPLETION",
+    "ALERT_MAX_PHASE",
+    "ALERT_MIN_RANK",
+  ];
+  const out = {};
+  for (const key of keys) {
+    if (env && env[key] !== undefined) out[key] = env[key];
+  }
+  return out;
+}
+
+async function collectCurrentRunRuleSnapshot(db, env, opts = {}) {
+  const rows = (await db.prepare(
+    `SELECT config_key, config_value, description, updated_at, updated_by
+     FROM model_config
+     ORDER BY config_key ASC`
+  ).all())?.results || [];
+  const modelConfigEntries = rows.map((row) => ({
+    key: row.config_key,
+    raw_value: row.config_value,
+    value: parseStoredConfigValue(row.config_value),
+    description: row.description || null,
+    updated_at: row.updated_at || null,
+    updated_by: row.updated_by || null,
+  }));
+  const effectiveModelConfig = {};
+  for (const row of modelConfigEntries) {
+    effectiveModelConfig[row.key] = row.value;
+  }
+  return {
+    snapshot_version: 1,
+    snapshot_type: "runtime_capture",
+    run_id: String(opts?.run_id || "").trim() || null,
+    captured_at: Date.now(),
+    capture_stage: opts?.capture_stage || null,
+    source: opts?.source || "runtime",
+    env_flags: pickRunSnapshotEnvFlags(env),
+    model_config: effectiveModelConfig,
+    model_config_entries: modelConfigEntries,
+    metadata: opts?.metadata || null,
+  };
+}
+
+async function ensureRunRuleSnapshot(db, env, runId, opts = {}) {
+  const rid = String(runId || "").trim();
+  if (!rid || !db) return null;
+  const existing = await db.prepare(
+    `SELECT run_id, snapshot_json, snapshot_stage, snapshot_source, created_at, updated_at
+     FROM backtest_run_rule_snapshots
+     WHERE run_id = ?1`
+  ).bind(rid).first();
+  if (existing?.snapshot_json) {
+    let parsed = null;
+    try { parsed = JSON.parse(existing.snapshot_json); } catch (_) {}
+    return {
+      run_id: rid,
+      snapshot: parsed,
+      snapshot_stage: existing.snapshot_stage || null,
+      snapshot_source: existing.snapshot_source || null,
+      created_at: Number(existing.created_at || 0) || null,
+      updated_at: Number(existing.updated_at || 0) || null,
+      existed: true,
+    };
+  }
+  const now = Date.now();
+  let snapshot = normalizeRunRuleSnapshotInput(opts?.snapshot);
+  if (!snapshot) {
+    if (opts?.capture_current === false) {
+      snapshot = {
+        snapshot_version: 1,
+        snapshot_type: "historical_import_placeholder",
+        run_id: rid,
+        captured_at: now,
+        capture_stage: opts?.capture_stage || "import",
+        source: opts?.source || "historical_import",
+        note: "No original runtime rule snapshot was available at import time.",
+        metadata: opts?.metadata || null,
+      };
+    } else {
+      snapshot = await collectCurrentRunRuleSnapshot(db, env, { ...opts, run_id: rid });
+    }
+  }
+  await db.prepare(
+    `INSERT INTO backtest_run_rule_snapshots (
+      run_id, snapshot_json, snapshot_stage, snapshot_source, created_at, updated_at
+    ) VALUES (?1, ?2, ?3, ?4, ?5, ?6)`
+  ).bind(
+    rid,
+    JSON.stringify(snapshot),
+    opts?.capture_stage || snapshot?.capture_stage || null,
+    opts?.source || snapshot?.source || null,
+    now,
+    now,
+  ).run();
+  return {
+    run_id: rid,
+    snapshot,
+    snapshot_stage: opts?.capture_stage || snapshot?.capture_stage || null,
+    snapshot_source: opts?.source || snapshot?.source || null,
+    created_at: now,
+    updated_at: now,
+    existed: false,
+  };
+}
+
 function buildRunSummaryView(row) {
   if (!row) return null;
   let classifications = {};
@@ -15971,6 +16127,8 @@ function buildRunSummaryView(row) {
     by_status: byStatus,
     metrics_ready: Number(row.total_trades || 0) > 0 || Number(row.closed_trades || 0) > 0,
     autopsy_url: row.autopsy_url || buildTradeAutopsyRunUrl(row.run_id),
+    rule_snapshot_ready: !!(row.snapshot_json || Number(row.rule_snapshot_created_at || 0)),
+    rule_snapshot_created_at: Number(row.rule_snapshot_created_at || 0) || null,
   };
 }
 
@@ -16238,13 +16396,16 @@ async function autopsyTradesServerSide(env) {
   const annotationMap = {};
   try {
     const { results: annotations } = await db.prepare(
-      `SELECT trade_id, classification, notes FROM trade_autopsy_annotations
-       WHERE (classification IS NOT NULL AND classification != '') OR (notes IS NOT NULL AND trim(notes) != '')`
+      `SELECT trade_id, classification, notes, entry_grade, trade_management FROM trade_autopsy_annotations
+       WHERE (classification IS NOT NULL AND classification != '') OR (notes IS NOT NULL AND trim(notes) != '') OR (entry_grade IS NOT NULL AND entry_grade != '[]') OR (trade_management IS NOT NULL AND trade_management != '[]')`
     ).all();
+    const parseArr = (v) => { try { const a = JSON.parse(v || "[]"); return Array.isArray(a) ? a : []; } catch { return []; } };
     for (const ann of (annotations || [])) {
       annotationMap[ann.trade_id] = {
         classification: ann.classification && String(ann.classification).trim() ? ann.classification : null,
         notes: ann.notes && String(ann.notes).trim() ? ann.notes : null,
+        entry_grade: parseArr(ann.entry_grade),
+        trade_management: parseArr(ann.trade_management),
       };
     }
   } catch (_) {}
@@ -32843,20 +33004,30 @@ export default {
         if (!db) return sendJSON({ ok: false, error: "d1_not_configured" }, 503, corsHeaders(env, req));
         try {
           await d1EnsureLearningSchema(env);
+          const parseJsonArr = (v) => { try { const a = JSON.parse(v || "[]"); return Array.isArray(a) ? a : []; } catch { return []; } };
           const tradeId = url.searchParams.get("trade_id");
           const all = url.searchParams.get("all") === "1";
           if (tradeId) {
             const row = await db.prepare(
-              `SELECT trade_id, classification, notes, updated_at FROM trade_autopsy_annotations WHERE trade_id = ?`
+              `SELECT trade_id, classification, notes, entry_grade, trade_management, updated_at FROM trade_autopsy_annotations WHERE trade_id = ?`
             ).bind(tradeId).first();
-            return sendJSON({ ok: true, annotation: row || null }, 200, corsHeaders(env, req));
+            const ann = row ? { ...row, entry_grade: parseJsonArr(row.entry_grade), trade_management: parseJsonArr(row.trade_management) } : null;
+            return sendJSON({ ok: true, annotation: ann }, 200, corsHeaders(env, req));
           }
           if (all) {
             const { results } = await db.prepare(
-              `SELECT trade_id, classification, notes, updated_at FROM trade_autopsy_annotations`
+              `SELECT trade_id, classification, notes, entry_grade, trade_management, updated_at FROM trade_autopsy_annotations`
             ).all();
             const map = {};
-            for (const r of results || []) map[r.trade_id] = { classification: r.classification, notes: r.notes, updatedAt: r.updated_at };
+            for (const r of results || []) {
+              map[r.trade_id] = {
+                classification: r.classification,
+                notes: r.notes,
+                entry_grade: parseJsonArr(r.entry_grade),
+                trade_management: parseJsonArr(r.trade_management),
+                updatedAt: r.updated_at,
+              };
+            }
             return sendJSON({ ok: true, annotations: map }, 200, corsHeaders(env, req));
           }
           return sendJSON({ ok: false, error: "missing trade_id or all=1" }, 400, corsHeaders(env, req));
@@ -32865,7 +33036,7 @@ export default {
         }
       }
 
-      // POST /timed/admin/trade-autopsy/annotations — body: { trade_id, classification?, notes? }
+      // POST /timed/admin/trade-autopsy/annotations — body: { trade_id, classification?, notes?, entry_grade?, trade_management? }
       if (routeKey === "POST /timed/admin/trade-autopsy/annotations") {
         const authFail = await requireKeyOrAdmin(req, env);
         if (authFail) return authFail;
@@ -32879,17 +33050,22 @@ export default {
           }
           const classification = String(body?.classification ?? "").trim();
           const notes = body?.notes != null ? String(body.notes) : null;
+          const entryGrade = Array.isArray(body?.entry_grade) ? body.entry_grade : (body?.entry_grade ? [body.entry_grade] : []);
+          const tradeMgmt = Array.isArray(body?.trade_management) ? body.trade_management : (body?.trade_management ? [body.trade_management] : []);
+          const entryGradeJson = JSON.stringify(entryGrade.filter(Boolean));
+          const tradeMgmtJson = JSON.stringify(tradeMgmt.filter(Boolean));
           const now = Date.now();
           await d1EnsureLearningSchema(env);
-          if (!classification && !notes) {
+          const hasAny = classification || notes || entryGrade.length > 0 || tradeMgmt.length > 0;
+          if (!hasAny) {
             await db.prepare(`DELETE FROM trade_autopsy_annotations WHERE trade_id = ?`).bind(tradeId).run();
             return sendJSON({ ok: true, deleted: true }, 200, corsHeaders(env, req));
           }
           await db.prepare(
-            `INSERT INTO trade_autopsy_annotations (trade_id, classification, notes, updated_at)
-             VALUES (?, ?, ?, ?)
-             ON CONFLICT(trade_id) DO UPDATE SET classification=excluded.classification, notes=excluded.notes, updated_at=excluded.updated_at`
-          ).bind(tradeId, classification, notes, now).run();
+            `INSERT INTO trade_autopsy_annotations (trade_id, classification, notes, entry_grade, trade_management, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?)
+             ON CONFLICT(trade_id) DO UPDATE SET classification=excluded.classification, notes=excluded.notes, entry_grade=excluded.entry_grade, trade_management=excluded.trade_management, updated_at=excluded.updated_at`
+          ).bind(tradeId, classification, notes, entryGradeJson, tradeMgmtJson, now).run();
           return sendJSON({ ok: true }, 200, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 200) }, 500, corsHeaders(env, req));
@@ -32951,9 +33127,13 @@ export default {
                 : row.pnl_pct;
             }
           }
+          // Status must always follow realized P&L; correct-entry was updating pnl but not status
+          const newStatus = row.status && !["OPEN", "TP_HIT_TRIM"].includes(String(row.status))
+            ? (Number(newPnl) > 0 ? "WIN" : Number(newPnl) < 0 ? "LOSS" : "FLAT")
+            : row.status;
           await db.prepare(
-            `UPDATE trades SET entry_price = ?1, pnl = ?2, pnl_pct = ?3, updated_at = ?4 WHERE trade_id = ?5`
-          ).bind(newEntryPrice, newPnl, newPnlPct, Date.now(), tradeId).run();
+            `UPDATE trades SET entry_price = ?1, pnl = ?2, pnl_pct = ?3, status = ?4, updated_at = ?5 WHERE trade_id = ?6`
+          ).bind(newEntryPrice, newPnl, newPnlPct, newStatus, Date.now(), tradeId).run();
           return sendJSON({
             ok: true,
             corrected: true,
@@ -33015,10 +33195,12 @@ export default {
                   newPnlPct = (((exitPrice - newEntryPrice) * dirSign) / newEntryPrice) * 100;
                 }
               }
+              // Status must always follow realized P&L; correct-all-entries was updating pnl but not status
+              const newStatus = Number(newPnl) > 0 ? "WIN" : Number(newPnl) < 0 ? "LOSS" : "FLAT";
               try {
                 await db.prepare(
-                  `UPDATE trades SET entry_price = ?1, pnl = ?2, pnl_pct = ?3, updated_at = ?4 WHERE trade_id = ?5`
-                ).bind(newEntryPrice, newPnl, newPnlPct, Date.now(), row.trade_id).run();
+                  `UPDATE trades SET entry_price = ?1, pnl = ?2, pnl_pct = ?3, status = ?4, updated_at = ?5 WHERE trade_id = ?6`
+                ).bind(newEntryPrice, newPnl, newPnlPct, newStatus, Date.now(), row.trade_id).run();
               } catch (e) {
                 errors.push({ trade_id: row.trade_id, error: String(e?.message || e).slice(0, 80) });
                 continue;
@@ -33081,7 +33263,23 @@ export default {
             return sendJSON({ ok: false, error: "invalid_candle_close" }, 400, corsHeaders(env, req));
           }
           const oldExitPrice = Number(row.exit_price);
-          if (Math.abs(newExitPrice - oldExitPrice) < 0.001) {
+          const exitPriceUnchanged = Math.abs(newExitPrice - oldExitPrice) < 0.001;
+          if (exitPriceUnchanged) {
+            // Exit price already correct; still reconcile status if it disagrees with pnl
+            const pnl = Number(row.pnl) || 0;
+            const expectedStatus = pnl > 0 ? "WIN" : pnl < 0 ? "LOSS" : "FLAT";
+            if (String(row.status) !== expectedStatus) {
+              await db.prepare(`UPDATE trades SET status = ?1, updated_at = ?2 WHERE trade_id = ?3`)
+                .bind(expectedStatus, Date.now(), tradeId).run();
+              return sendJSON({
+                ok: true,
+                corrected: true,
+                trade_id: tradeId,
+                message: "status_reconciled",
+                old_status: row.status,
+                new_status: expectedStatus,
+              }, 200, corsHeaders(env, req));
+            }
             return sendJSON({ ok: true, corrected: false, message: "exit_price_already_correct" }, 200, corsHeaders(env, req));
           }
           const entryPrice = Number(row.entry_price);
@@ -33095,9 +33293,11 @@ export default {
             newPnl = (newExitPrice - entryPrice) * shares * dirSign;
             newPnlPct = (((newExitPrice - entryPrice) * dirSign) / entryPrice) * 100;
           }
+          // Status must always follow realized P&L; correct-exit was updating pnl but not status
+          const newStatus = Number(newPnl) > 0 ? "WIN" : Number(newPnl) < 0 ? "LOSS" : "FLAT";
           await db.prepare(
-            `UPDATE trades SET exit_price = ?1, pnl = ?2, pnl_pct = ?3, updated_at = ?4 WHERE trade_id = ?5`
-          ).bind(newExitPrice, newPnl, newPnlPct, Date.now(), tradeId).run();
+            `UPDATE trades SET exit_price = ?1, pnl = ?2, pnl_pct = ?3, status = ?4, updated_at = ?5 WHERE trade_id = ?6`
+          ).bind(newExitPrice, newPnl, newPnlPct, newStatus, Date.now(), tradeId).run();
           return sendJSON({
             ok: true,
             corrected: true,
@@ -33156,10 +33356,12 @@ export default {
                 newPnl = (newExitPrice - entryPrice) * shares * dirSign;
                 newPnlPct = (((newExitPrice - entryPrice) * dirSign) / entryPrice) * 100;
               }
+              // Status must always follow realized P&L; correct-all-exits was updating pnl but not status
+              const newStatus = Number(newPnl) > 0 ? "WIN" : Number(newPnl) < 0 ? "LOSS" : "FLAT";
               try {
                 await db.prepare(
-                  `UPDATE trades SET exit_price = ?1, pnl = ?2, pnl_pct = ?3, updated_at = ?4 WHERE trade_id = ?5`
-                ).bind(newExitPrice, newPnl, newPnlPct, Date.now(), row.trade_id).run();
+                  `UPDATE trades SET exit_price = ?1, pnl = ?2, pnl_pct = ?3, status = ?4, updated_at = ?5 WHERE trade_id = ?6`
+                ).bind(newExitPrice, newPnl, newPnlPct, newStatus, Date.now(), row.trade_id).run();
               } catch (e) {
                 errors.push({ trade_id: row.trade_id, error: String(e?.message || e).slice(0, 80) });
                 continue;
@@ -33182,6 +33384,84 @@ export default {
             errors: errors.length,
             details: corrected.slice(0, 50),
             skipped_sample: skipped.slice(0, 10),
+          }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 200) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // POST /timed/admin/trade-autopsy/reconcile-status — Fix status for closed trades where status disagrees with pnl
+      // Params: dryRun=1 (preview only), limit=N (default 500)
+      if (routeKey === "POST /timed/admin/trade-autopsy/reconcile-status") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const db = env?.DB;
+        if (!db) return sendJSON({ ok: false, error: "d1_not_configured" }, 503, corsHeaders(env, req));
+        const dryRun = url.searchParams.get("dryRun") === "1";
+        const limit = Math.min(500, Math.max(1, Number(url.searchParams.get("limit")) || 500));
+        try {
+          const { results: rows } = await db.prepare(
+            `SELECT trade_id, ticker, status, pnl FROM trades
+             WHERE status NOT IN ('OPEN', 'TP_HIT_TRIM') AND pnl IS NOT NULL
+             ORDER BY exit_ts DESC LIMIT ?1`
+          ).bind(limit).all();
+          const fixed = [];
+          for (const row of rows || []) {
+            const pnl = Number(row.pnl) || 0;
+            const expectedStatus = pnl > 0 ? "WIN" : pnl < 0 ? "LOSS" : "FLAT";
+            if (String(row.status) !== expectedStatus) {
+              if (!dryRun) {
+                await db.prepare(`UPDATE trades SET status = ?1, updated_at = ?2 WHERE trade_id = ?3`)
+                  .bind(expectedStatus, Date.now(), row.trade_id).run();
+              }
+              fixed.push({ trade_id: row.trade_id, ticker: row.ticker, old_status: row.status, new_status: expectedStatus, pnl });
+            }
+          }
+          return sendJSON({
+            ok: true,
+            dryRun,
+            processed: (rows || []).length,
+            fixed: fixed.length,
+            details: fixed.slice(0, 50),
+          }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 200) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // POST /timed/admin/trade-autopsy/reconcile-status — Fix status for closed trades where status disagrees with pnl
+      // Params: dryRun=1 (preview only), limit=N (default 500)
+      if (routeKey === "POST /timed/admin/trade-autopsy/reconcile-status") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const db = env?.DB;
+        if (!db) return sendJSON({ ok: false, error: "d1_not_configured" }, 503, corsHeaders(env, req));
+        const dryRun = url.searchParams.get("dryRun") === "1";
+        const limit = Math.min(500, Math.max(1, Number(url.searchParams.get("limit")) || 500));
+        try {
+          const { results: rows } = await db.prepare(
+            `SELECT trade_id, ticker, pnl, status FROM trades
+             WHERE status NOT IN ('OPEN', 'TP_HIT_TRIM') AND exit_ts IS NOT NULL
+             ORDER BY exit_ts DESC LIMIT ?1`
+          ).bind(limit).all();
+          const fixed = [];
+          for (const row of rows || []) {
+            const pnl = Number(row.pnl) || 0;
+            const expectedStatus = pnl > 0 ? "WIN" : pnl < 0 ? "LOSS" : "FLAT";
+            if (String(row.status) !== expectedStatus) {
+              if (!dryRun) {
+                await db.prepare(`UPDATE trades SET status = ?1, updated_at = ?2 WHERE trade_id = ?3`)
+                  .bind(expectedStatus, Date.now(), row.trade_id).run();
+              }
+              fixed.push({ trade_id: row.trade_id, ticker: row.ticker, old_status: row.status, new_status: expectedStatus, pnl });
+            }
+          }
+          return sendJSON({
+            ok: true,
+            dryRun,
+            processed: (rows || []).length,
+            fixed: fixed.length,
+            details: fixed.slice(0, 50),
           }, 200, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 200) }, 500, corsHeaders(env, req));
@@ -34577,7 +34857,19 @@ export default {
             now,
             now,
           ).run();
-          return sendJSON({ ok: true, run_id: runId, status }, 200, corsHeaders(env, req));
+          const snapshotMeta = await ensureRunRuleSnapshot(db, env, runId, {
+            capture_stage: "register",
+            source: "register",
+            metadata: {
+              label,
+              description,
+              start_date: startDate,
+              end_date: endDate,
+              tags,
+              params: body?.params && typeof body.params === "object" ? body.params : null,
+            },
+          });
+          return sendJSON({ ok: true, run_id: runId, status, rule_snapshot_ready: !!snapshotMeta?.snapshot }, 200, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
         }
@@ -34706,7 +34998,22 @@ export default {
               now,
             ),
           ]);
-          return sendJSON({ ok: true, run_id: runId, imported: true, summary: metricsPayload }, 200, corsHeaders(env, req));
+          const snapshotMeta = await ensureRunRuleSnapshot(db, env, runId, {
+            capture_stage: "import",
+            source: "historical_import",
+            capture_current: false,
+            snapshot: body?.rule_snapshot ?? body?.snapshot_json ?? null,
+            metadata: {
+              label: body?.label || null,
+              description: body?.description || null,
+              start_date: body?.start_date || null,
+              end_date: body?.end_date || null,
+              tags: Array.isArray(body?.tags) ? body.tags : [],
+              source_artifact: body?.source_artifact || null,
+              imported_summary: metricsPayload,
+            },
+          });
+          return sendJSON({ ok: true, run_id: runId, imported: true, summary: metricsPayload, rule_snapshot_ready: !!snapshotMeta?.snapshot }, 200, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
         }
@@ -34845,7 +35152,18 @@ export default {
               now,
             ),
           ]);
-          return sendJSON({ ok: true, run_id: runId, status, summary: metricsPayload }, 200, corsHeaders(env, req));
+          const snapshotMeta = await ensureRunRuleSnapshot(db, env, runId, {
+            capture_stage: "finalize",
+            source: "finalize_fallback",
+            metadata: {
+              label: body?.label || null,
+              description: body?.description || null,
+              start_date: body?.start_date || null,
+              end_date: body?.end_date || null,
+              summary: metricsPayload,
+            },
+          });
+          return sendJSON({ ok: true, run_id: runId, status, summary: metricsPayload, rule_snapshot_ready: !!snapshotMeta?.snapshot }, 200, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
         }
@@ -34961,14 +35279,64 @@ export default {
         const row = await db.prepare(
           `SELECT r.*, m.total_tickers_traded, m.total_trades, m.wins, m.losses, m.breakevens, m.open_trades, m.closed_trades,
                   m.win_rate, m.realized_pnl, m.realized_pnl_pct, m.avg_win_pct, m.avg_loss_pct,
-                  m.classifications_json, m.by_status_json, m.autopsy_url, m.updated_at AS metrics_updated_at
+                  m.classifications_json, m.by_status_json, m.autopsy_url, m.updated_at AS metrics_updated_at,
+                  s.snapshot_json, s.created_at AS rule_snapshot_created_at
            FROM backtest_runs r
            LEFT JOIN backtest_run_metrics m ON m.run_id = r.run_id
+           LEFT JOIN backtest_run_rule_snapshots s ON s.run_id = r.run_id
            WHERE r.live_config_slot = 1
            ORDER BY r.updated_at DESC
            LIMIT 1`
         ).first();
         return sendJSON({ ok: true, run: row || null, summary: buildRunSummaryView(row) }, 200, corsHeaders(env, req));
+      }
+
+      // GET /timed/admin/runs/detail?key=...&run_id=...
+      if (routeKey === "GET /timed/admin/runs/detail") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const db = env?.DB;
+        if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
+        await d1EnsureBacktestRunsSchema(env);
+        const runId = String(url.searchParams.get("run_id") || "").trim();
+        if (!runId) return sendJSON({ ok: false, error: "run_id_required" }, 400, corsHeaders(env, req));
+        const row = await db.prepare(
+          `SELECT r.*, m.total_tickers_traded, m.total_trades, m.wins, m.losses, m.breakevens, m.open_trades, m.closed_trades,
+                  m.win_rate, m.realized_pnl, m.realized_pnl_pct, m.avg_win_pct, m.avg_loss_pct,
+                  m.classifications_json, m.by_status_json, m.autopsy_url, m.updated_at AS metrics_updated_at,
+                  s.snapshot_json, s.snapshot_stage, s.snapshot_source,
+                  s.created_at AS rule_snapshot_created_at, s.updated_at AS rule_snapshot_updated_at
+           FROM backtest_runs r
+           LEFT JOIN backtest_run_metrics m ON m.run_id = r.run_id
+           LEFT JOIN backtest_run_rule_snapshots s ON s.run_id = r.run_id
+           WHERE r.run_id = ?1
+           LIMIT 1`
+        ).bind(runId).first();
+        if (!row) return sendJSON({ ok: false, error: "run_not_found" }, 404, corsHeaders(env, req));
+        let tags = [];
+        let params = null;
+        let metrics = null;
+        let ruleSnapshot = null;
+        try { tags = JSON.parse(row.tags_json || "[]") || []; } catch (_) {}
+        try { params = JSON.parse(row.params_json || "null"); } catch (_) {}
+        try { metrics = JSON.parse(row.metrics_json || "null"); } catch (_) {}
+        try { ruleSnapshot = JSON.parse(row.snapshot_json || "null"); } catch (_) {}
+        return sendJSON({
+          ok: true,
+          run: row,
+          summary: buildRunSummaryView(row),
+          tags,
+          params,
+          metrics,
+          rule_snapshot: ruleSnapshot,
+          rule_snapshot_meta: {
+            ready: !!ruleSnapshot,
+            stage: row.snapshot_stage || null,
+            source: row.snapshot_source || null,
+            created_at: Number(row.rule_snapshot_created_at || 0) || null,
+            updated_at: Number(row.rule_snapshot_updated_at || 0) || null,
+          },
+        }, 200, corsHeaders(env, req));
       }
 
       // GET /timed/admin/runs?key=...&limit=...&offset=...&status=...
@@ -34999,9 +35367,11 @@ export default {
              r.tags_json, r.params_json, r.metrics_json, r.created_at, r.started_at, r.ended_at, r.updated_at,
             m.total_tickers_traded, m.total_trades, m.wins, m.losses, m.breakevens, m.open_trades, m.closed_trades,
             m.win_rate, m.realized_pnl, m.realized_pnl_pct, m.avg_win_pct, m.avg_loss_pct,
-            m.classifications_json, m.by_status_json, m.autopsy_url, m.updated_at AS metrics_updated_at
+            m.classifications_json, m.by_status_json, m.autopsy_url, m.updated_at AS metrics_updated_at,
+            s.created_at AS rule_snapshot_created_at
            FROM backtest_runs r
            LEFT JOIN backtest_run_metrics m ON m.run_id = r.run_id
+           LEFT JOIN backtest_run_rule_snapshots s ON s.run_id = r.run_id
            ${where}
            ORDER BY r.created_at DESC
            LIMIT ?${binds.length + 1} OFFSET ?${binds.length + 2}`
