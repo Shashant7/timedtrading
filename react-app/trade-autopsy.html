@@ -57,7 +57,6 @@
   <body>
     <div id="root"></div>
     <script type="text/babel">
-      (function() {
       const { useState, useEffect, useMemo, useCallback, useRef } = React;
 
       const API_BASE = "";
@@ -72,7 +71,7 @@
         { value: "data_error", label: "Bad Data", hint: "Stale price, glitch — excluded from analysis", color: "#6b7280", icon: "⚠" },
       ];
 
-      const ENTRY_GRADE_OPTIONS = [
+      var ENTRY_GRADE_OPTIONS = [
         { value: "chasing", label: "Chasing", hint: "Entered after move stretched — tunes 10m weight" },
         { value: "move_stretched", label: "Move Stretched", hint: "Entry too late in the move" },
         { value: "not_enough_confirmation", label: "Not Enough Confirmation", hint: "Entered before signals aligned" },
@@ -80,7 +79,7 @@
         { value: "good_entry", label: "Good Entry", hint: "Timing and confirmation solid" },
       ];
 
-      const TRADE_MANAGEMENT_OPTIONS = [
+      var TRADE_MANAGEMENT_OPTIONS = [
         { value: "should_have_trimmed", label: "Should Have Trimmed", hint: "Left gains on table" },
         { value: "should_have_held", label: "Should Have Held", hint: "Exited too early" },
         { value: "should_have_cut_early", label: "Should Have Cut Early", hint: "Held loser too long" },
@@ -1503,7 +1502,6 @@
           return;
         }
         ReactDOM.createRoot(root).render(<App user={session} />);
-      })();
       })();
     </script>
   </body>
