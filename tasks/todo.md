@@ -63,18 +63,24 @@
 - [x] Add run endpoints (`register`, `finalize`, `mark-live`, `live`, `list`) and summary view payload
 - [x] Add full-backtest orchestration hooks for register/finalize lifecycle
 - [x] Fix JSON body parsing in run endpoints (readBodyAsJSON compatibility)
-- [ ] Validate on fresh control+variant runs and choose baseline `run_id`
+- [x] Validate on fresh control+variant runs and choose baseline `run_id` — Phase 3 promoted to live
 
 ## Run Tracking UI + Promotion [2026-03-06]
 - [ ] Add System Intelligence Runs tab (live run + historical summaries)
 - [ ] Add Promote Live action wired to `/timed/admin/runs/mark-live`
 - [ ] Deploy worker + Pages and verify run tracking/promotion flow
 
+## Mean Reversion: TD9 Alignment Setup [2026-03-06]
+- [ ] Add primitives: countRecentGapsDown, td9AlignedLong (D+W+60), phaseLeavingDotBullish, isNearPsychLevel
+- [ ] Add mean_revert_td9_aligned flag and wire to entry path (feature-flagged)
+- [ ] Validate on INTU-style setups (gap-down → TD9 alignment → support confluence → RSI extremes)
+- **Plan:** `docs/MEAN_REVERSION_TD9_ALIGNMENT_PLAN.md`
+
 ## Experiment Workflow Phases [2026-03-06]
 - [x] Phase 1: Convert trail facts to rolling baseline + active experiment storage
 - [x] Phase 1: Add Delete Run cleanup semantics for non-protected experiment runs
 - [x] Phase 2: Preserve the two July candidates as protected baseline save points
-- [ ] Phase 3: Re-run and validate official July baseline — 3 phase3 runs in registry but all `running`/unfinalized; need to finalize or run fresh backtest, then compare to Baseline A (68.75% WR, $1,728) and B (63.16% WR, $3,567)
+- [x] Phase 3: Re-run and validate official July baseline — completed; promoted to live (71.43% WR, +$2,481)
 - [x] Phase 4: Add immutable rule snapshot storage and run detail APIs
 - [x] Phase 6: Expand Runs UI with protected/archive/delete controls
 - [ ] Phase 7: Add Create Variant / Review Variant Config flow

@@ -2293,10 +2293,18 @@ function RunsTab({ isAdmin }) {
             </div>
             <div className="p-4 overflow-auto text-xs space-y-3">
               <p className="text-slate-400">Review the rule snapshot from this baseline. To launch a variant backtest, run:</p>
-              <pre className="bg-slate-900/50 p-3 rounded font-mono text-slate-300 overflow-x-auto">
+              <div className="relative">
+                <pre className="bg-slate-900/50 p-3 pr-20 rounded font-mono text-slate-300 overflow-x-auto">
 {`./scripts/full-backtest.sh --trader-only --low-write --keep-open-at-end \\
   2025-07-01 2025-07-31 15 --label=variant-from-baseline`}
-              </pre>
+                </pre>
+                <button
+                  className="absolute top-2 right-2 px-2 py-1 text-[10px] bg-slate-700 hover:bg-slate-600 text-slate-300 rounded border border-white/10"
+                  onClick={() => { navigator.clipboard.writeText('./scripts/full-backtest.sh --trader-only --low-write --keep-open-at-end 2025-07-01 2025-07-31 15 --label=variant-from-baseline'); setMessage('Command copied to clipboard'); setTimeout(() => setMessage(null), 2000); }}
+                >
+                  Copy
+                </button>
+              </div>
               {!variantData ? (
                 <p className="text-slate-500">Loading run details…</p>
               ) : (
