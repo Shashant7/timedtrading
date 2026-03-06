@@ -1770,6 +1770,7 @@ function RunsTab({ isAdmin }) {
   const [compareRuns, setCompareRuns] = useState(null);
   const [variantRunId, setVariantRunId] = useState(null);
   const [variantData, setVariantData] = useState(null);
+  const [liveConfigData, setLiveConfigData] = useState(null);
 
   const fmtNum = (n) => {
     const v = Number(n);
@@ -2214,7 +2215,22 @@ function RunsTab({ isAdmin }) {
                               <button
                                 className="btn text-[11px]"
                                 style={{ background: "rgba(139,92,246,0.15)", color: "#c4b5fd", border: "1px solid rgba(139,92,246,0.3)", padding: "5px 10px" }}
-                                onClick={() => { setVariantRunId(runId); setVariantData(null); fetch(`${API_BASE}/timed/admin/runs/detail?run_id=${encodeURIComponent(runId)}`, { credentials: "include" }).then(x => x.json()).then(d => d?.ok && setVariantData(d)); }}
+                                onClick={() => {
+                                  setVariantRunId(runId);
+                                  setVariantData(null);
+                                  setLiveConfigData(null);
+                                  Promise.all([
+                                    fetch(`${API_BASE}/timed/admin/runs/detail?run_id=${encodeURIComponent(runId)}`, { credentials: "include" }).then(x => x.json()),
+                                    fetch(`${API_BASE}/timed/admin/runs/live`, { credentials: "include" }).then(x => x.json()),
+                                  ]).then(([detailRes, liveRes]) => {
+                                    if (detailRes?.ok) setVariantData(detailRes);
+                                    if (liveRes?.ok && liveRes?.run) {
+                                      let snap = null;
+                                      try { snap = JSON.parse(liveRes.run.snapshot_json || "null"); } catch (_) {}
+                                      setLiveConfigData(snap?.env_flags ? { env_flags: snap.env_flags, run_id: liveRes.run.run_id } : null);
+                                    }
+                                  });
+                                }}
                               >
                                 Create Variant
                               </button>
@@ -2289,11 +2305,11 @@ function RunsTab({ isAdmin }) {
       )}
 
       {variantRunId && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={() => { setVariantRunId(null); setVariantData(null); }}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={() => { setVariantRunId(null); setVariantData(null); setLiveConfigData(null); }}>
           <div className="bg-slate-800 border border-white/10 rounded-lg shadow-xl max-w-2xl w-full max-h-[85vh] overflow-hidden flex flex-col" onClick={e => e.stopPropagation()}>
             <div className="px-4 py-3 border-b border-white/10 flex items-center justify-between">
               <h3 className="text-sm font-semibold text-white">Create Variant: {shortRunId(variantRunId)}</h3>
-              <button className="text-slate-400 hover:text-white text-lg leading-none" onClick={() => { setVariantRunId(null); setVariantData(null); }}>&times;</button>
+              <button className="text-slate-400 hover:text-white text-lg leading-none" onClick={() => { setVariantRunId(null); setVariantData(null); setLiveConfigData(null); }}>&times;</button>
             </div>
             <div className="p-4 overflow-auto text-xs space-y-3">
               <p className="text-slate-400">Review the rule snapshot from this baseline. To launch a variant backtest, run:</p>
@@ -2313,10 +2329,40 @@ function RunsTab({ isAdmin }) {
                 <p className="text-slate-500">Loading run details…</p>
               ) : (
                 <>
+                  {variantData?.rule_snapshot?.env_flags && liveConfigData?.env_flags && (() => {
+                    const v = variantData.rule_snapshot.env_flags || {};
+                    const l = liveConfigData.env_flags || {};
+                    const allKeys = [...new Set([...Object.keys(v), ...Object.keys(l)])].sort();
+                    const diffs = allKeys.filter(k => String(v[k]) !== String(l[k]));
+                    if (diffs.length === 0) return (
+                      <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-lg p-3">
+                        <div className="text-emerald-400 font-medium text-[11px] uppercase tracking-wider mb-1">Config vs Live</div>
+                        <p className="text-slate-300 text-[12px]">No differences — variant matches live baseline.</p>
+                      </div>
+                    );
+                    return (
+                      <div>
+                        <div className="text-amber-400 font-medium text-[11px] uppercase tracking-wider mb-1">Config vs Live (deltas)</div>
+                        <div className="bg-slate-900/50 rounded p-3 space-y-1.5 font-mono text-[11px]">
+                          {diffs.map(k => (
+                            <div key={k} className="flex flex-wrap items-center gap-2">
+                              <span className="text-slate-500 shrink-0">{k}:</span>
+                              <span className="text-rose-400">{JSON.stringify(l[k])}</span>
+                              <span className="text-slate-500">→</span>
+                              <span className="text-emerald-400">{JSON.stringify(v[k])}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })()}
+                  {variantData?.rule_snapshot?.env_flags && !liveConfigData && (
+                    <p className="text-slate-500 text-[11px]">Loading live config for comparison…</p>
+                  )}
                   {variantData?.rule_snapshot?.env_flags && (
                     <div>
                       <div className="text-slate-500 mb-1">Env flags (at capture)</div>
-                      <pre className="bg-slate-900/50 p-3 rounded font-mono text-slate-300 overflow-x-auto">{JSON.stringify(variantData.rule_snapshot.env_flags, null, 2)}</pre>
+                      <pre className="bg-slate-900/50 p-3 rounded font-mono text-slate-300 overflow-x-auto text-[11px]">{JSON.stringify(variantData.rule_snapshot.env_flags, null, 2)}</pre>
                     </div>
                   )}
                   {variantData?.rule_snapshot_meta && (

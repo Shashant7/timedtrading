@@ -8,9 +8,19 @@
 - [x] Tune Ripster exits to reduce early exits (debounce + defend-before-exit)
 - [x] Deploy and run quick validation replay sample
 
+## Next Sprint (Prioritized) [2026-03-06]
+- [x] Calibrate from autopsy tags: loosen exits (should_have_held=8) — done
+- [x] Trade Autopsy mobile layout: fix classification buttons visibility/overlap
+- [ ] Calibrate: keep anti-chase gates (chasing=4)
+- [ ] Variant v2 hardening: mitigate bad exits and chasing from classified trades
+- [ ] Mean reversion TD9: implement primitives per docs/MEAN_REVERSION_TD9_ALIGNMENT_PLAN.md
+- [ ] Experiment: 15m vs 10m leading_ltf (baseline=10m, variant=15m) — first structured A/B
+- [x] Review Variant Config modal (rule deltas before launch)
+- [ ] Historical import: strong July artifacts as named runs
+
 ## Variant v2 Hardening [2026-03-04]
 - [ ] Mitigate bad exits and upstream/chasing entries from classified variant trades
-- [ ] Fix Trade Autopsy mobile layout overlap (classification buttons visibility)
+- [x] Fix Trade Autopsy mobile layout overlap (classification buttons visibility)
 - [ ] Fix Evening Daily Brief ES close-source mismatch bug
 - [ ] Improve Home initial-load latency on first render
 - [ ] Validate with lint + quick replay/UI smoke checks
@@ -83,7 +93,7 @@
 - [x] Phase 3: Re-run and validate official July baseline — completed; promoted to live (71.43% WR, +$2,481)
 - [x] Phase 4: Add immutable rule snapshot storage and run detail APIs
 - [x] Phase 6: Expand Runs UI with protected/archive/delete controls
-- [ ] Phase 7: Add Create Variant / Review Variant Config flow
+- [x] Phase 7: Add Create Variant / Review Variant Config flow (Config vs Live deltas)
 
 ## 22 Losing Trades Fixes [2026-02-27] ✅
 - [x] 1. Stop replay (released lock)

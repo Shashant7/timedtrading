@@ -45,8 +45,8 @@ Single reference for current status and next steps. Read this first each session
 ### Step 1: Phase 7 — Create Variant Flow
 **Goal:** Add "Create Variant" from a baseline run; "Review Variant Config" before launch.
 
-**Done:** Create Variant button + modal (rule snapshot, env flags, backtest command).
-**Remaining:** Copy command button; optionally wire backtest launch (runs locally via full-backtest.sh).
+**Done:** Create Variant button + modal (rule snapshot, env flags, backtest command, Copy button).
+**Done:** Review Variant Config — Config vs Live deltas shown when opening Create Variant (env_flags diff).
 
 ---
 
@@ -66,14 +66,14 @@ Single reference for current status and next steps. Read this first each session
 
 ### Step 3: Experiment Workflow Remainder
 **From** `~/.cursor/plans/run_experiment_workflow_a459a54d.plan.md`:
-- [ ] variant-review-ui: Review Variant Config modal (rule deltas before launch)
+- [x] variant-review-ui: Review Variant Config — Config vs Live deltas in Create Variant modal
 - [ ] historical-import: Import strong July artifacts as named runs
 - [ ] First structured experiment: **15m vs 10m** `leading_ltf` (baseline=10m, variant=15m)
 
 ---
 
 ### Step 4: Trade Autopsy Mobile Layout
-- Fix classification buttons visibility / overlap on mobile
+- ✅ Done: Scrollable classification section (max-h-40vh), shrink-0 on buttons to prevent overlap
 
 ---
 
