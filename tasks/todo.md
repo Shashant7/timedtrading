@@ -69,12 +69,12 @@
 - [ ] Deploy worker + Pages and verify run tracking/promotion flow
 
 ## Experiment Workflow Phases [2026-03-06]
-- [ ] Phase 1: Convert trail facts to rolling baseline + active experiment storage
-- [ ] Phase 1: Add Delete Run cleanup semantics for non-protected experiment runs
-- [ ] Phase 2: Preserve the two July candidates as protected baseline save points
+- [x] Phase 1: Convert trail facts to rolling baseline + active experiment storage
+- [x] Phase 1: Add Delete Run cleanup semantics for non-protected experiment runs
+- [ ] Phase 2: Preserve the two July candidates as protected baseline save points (in progress)
 - [ ] Phase 3: Re-run and validate official July baseline
 - [ ] Phase 4: Add immutable rule snapshot storage and run detail APIs
-- [ ] Phase 6: Expand Runs UI with protected/archive/delete controls
+- [x] Phase 6: Expand Runs UI with protected/archive/delete controls
 - [ ] Phase 7: Add Create Variant / Review Variant Config flow
 
 ## 22 Losing Trades Fixes [2026-02-27] ✅

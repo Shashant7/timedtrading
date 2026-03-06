@@ -532,6 +532,7 @@ const ROUTES = [
   ["POST", "/timed/admin/replay-lock", "POST /timed/admin/replay-lock"],
   ["DELETE", "/timed/admin/replay-lock", "DELETE /timed/admin/replay-lock"],
   ["POST", "/timed/admin/runs/register", "POST /timed/admin/runs/register"],
+  ["POST", "/timed/admin/runs/import", "POST /timed/admin/runs/import"],
   ["POST", "/timed/admin/runs/finalize", "POST /timed/admin/runs/finalize"],
   ["POST", "/timed/admin/runs/mark-live", "POST /timed/admin/runs/mark-live"],
   ["POST", "/timed/admin/runs/archive", "POST /timed/admin/runs/archive"],
@@ -34577,6 +34578,135 @@ export default {
             now,
           ).run();
           return sendJSON({ ok: true, run_id: runId, status }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // POST /timed/admin/runs/import?key=...
+      // Import a historical run summary without relying on current trades table state.
+      if (routeKey === "POST /timed/admin/runs/import") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const db = env?.DB;
+        if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
+        await d1EnsureBacktestRunsSchema(env);
+        try {
+          const bodyParsed = await readBodyAsJSON(req);
+          const body = (bodyParsed && typeof bodyParsed === "object" && "obj" in bodyParsed)
+            ? (bodyParsed.obj || {})
+            : (bodyParsed || {});
+          const runId = String(body?.run_id || "").trim();
+          if (!runId) return sendJSON({ ok: false, error: "run_id_required" }, 400, corsHeaders(env, req));
+          const metrics = body?.metrics && typeof body.metrics === "object" ? body.metrics : {};
+          const trades = metrics?.trades && typeof metrics.trades === "object" ? metrics.trades : {};
+          const pnl = metrics?.pnl && typeof metrics.pnl === "object" ? metrics.pnl : {};
+          const tickers = metrics?.tickers && typeof metrics.tickers === "object" ? metrics.tickers : {};
+          const classifications = metrics?.classifications && typeof metrics.classifications === "object" ? metrics.classifications : {};
+          const byStatus = metrics?.by_status && typeof metrics.by_status === "object" ? metrics.by_status : {};
+          const now = Date.now();
+          const liveConfigSlot = parseBool01(body?.live_config_slot);
+          const activeExperimentSlot = parseBool01(body?.active_experiment_slot);
+          const protectedBaseline = parseBool01(body?.is_protected_baseline);
+          const status = String(body?.status || "completed").trim().toLowerCase();
+          if (activeExperimentSlot) {
+            await db.prepare(`UPDATE backtest_runs SET active_experiment_slot = 0 WHERE active_experiment_slot = 1 AND run_id != ?1`).bind(runId).run();
+          }
+          const metricsPayload = {
+            run_id: runId,
+            period: {
+              start_date: body?.start_date || null,
+              end_date: body?.end_date || null,
+            },
+            tickers: {
+              universe: Number(tickers?.universe ?? body?.ticker_universe_count) || null,
+              traded: Number(tickers?.traded ?? 0) || 0,
+            },
+            trades: {
+              total: Number(trades?.total ?? 0) || 0,
+              wins: Number(trades?.wins ?? 0) || 0,
+              losses: Number(trades?.losses ?? 0) || 0,
+              breakevens: Number(trades?.breakevens ?? 0) || 0,
+              open: Number(trades?.open ?? 0) || 0,
+              closed: Number(trades?.closed ?? 0) || 0,
+              win_rate: Number(trades?.win_rate ?? 0) || 0,
+            },
+            pnl: {
+              realized_pnl: Number(pnl?.realized ?? 0) || 0,
+              realized_pnl_pct: Number(pnl?.realized_pct ?? 0) || 0,
+              avg_win_pct: Number(pnl?.avg_win_pct ?? 0) || 0,
+              avg_loss_pct: Number(pnl?.avg_loss_pct ?? 0) || 0,
+            },
+            classifications,
+            by_status: byStatus,
+            autopsy_url: body?.autopsy_url || null,
+            imported_at: now,
+          };
+          await db.batch([
+            db.prepare(
+              `INSERT OR REPLACE INTO backtest_run_metrics (
+                run_id, total_tickers_traded, total_trades, wins, losses, breakevens, open_trades, closed_trades,
+                win_rate, realized_pnl, realized_pnl_pct, avg_win_pct, avg_loss_pct,
+                classifications_json, by_status_json, autopsy_url, updated_at
+              ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)`
+            ).bind(
+              runId,
+              Number(tickers?.traded ?? 0) || 0,
+              Number(trades?.total ?? 0) || 0,
+              Number(trades?.wins ?? 0) || 0,
+              Number(trades?.losses ?? 0) || 0,
+              Number(trades?.breakevens ?? 0) || 0,
+              Number(trades?.open ?? 0) || 0,
+              Number(trades?.closed ?? 0) || 0,
+              Number(trades?.win_rate ?? 0) || 0,
+              Number(pnl?.realized ?? 0) || 0,
+              Number(pnl?.realized_pct ?? 0) || 0,
+              Number(pnl?.avg_win_pct ?? 0) || 0,
+              Number(pnl?.avg_loss_pct ?? 0) || 0,
+              JSON.stringify(classifications || {}),
+              JSON.stringify(byStatus || {}),
+              body?.autopsy_url || null,
+              now,
+            ),
+            db.prepare(
+              `INSERT OR REPLACE INTO backtest_runs (
+                run_id, label, description, start_date, end_date, interval_min, ticker_batch, ticker_universe_count,
+                trader_only, keep_open_at_end, low_write, status, status_note, live_config_slot, active_experiment_slot,
+                is_protected_baseline, archived_at, archived_by, archived_reason,
+                tags_json, params_json, metrics_json, created_at, started_at, ended_at, updated_at
+              ) VALUES (
+                ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8,
+                ?9, ?10, ?11, ?12, ?13, ?14, ?15,
+                ?16, NULL, NULL, NULL,
+                ?17, ?18, ?19, COALESCE((SELECT created_at FROM backtest_runs WHERE run_id=?1), ?20), ?21, ?22, ?23
+              )`
+            ).bind(
+              runId,
+              body?.label != null ? String(body.label) : null,
+              body?.description != null ? String(body.description) : null,
+              body?.start_date != null ? String(body.start_date) : null,
+              body?.end_date != null ? String(body.end_date) : null,
+              Number(body?.interval_min) || null,
+              Number(body?.ticker_batch) || null,
+              Number(tickers?.universe ?? body?.ticker_universe_count) || null,
+              parseBool01(body?.trader_only),
+              parseBool01(body?.keep_open_at_end),
+              parseBool01(body?.low_write),
+              status,
+              body?.status_note != null ? String(body.status_note) : null,
+              liveConfigSlot,
+              activeExperimentSlot,
+              protectedBaseline,
+              JSON.stringify(Array.isArray(body?.tags) ? body.tags : []),
+              body?.params && typeof body.params === "object" ? JSON.stringify(body.params) : null,
+              JSON.stringify(metricsPayload),
+              now,
+              body?.started_at != null ? Number(body.started_at) || now : now,
+              body?.ended_at != null ? Number(body.ended_at) || now : now,
+              now,
+            ),
+          ]);
+          return sendJSON({ ok: true, run_id: runId, imported: true, summary: metricsPayload }, 200, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
         }
