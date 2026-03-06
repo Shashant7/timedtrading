@@ -58,6 +58,7 @@ export async function fetchAllBars(env, symbols, tfKey, start, end = null, limit
 // TwelveData returns most recent N bars when only start_date is used. Use start+end date chunks.
 const TD_PAGE_SIZE = 5000;
 const CHUNK_DAYS_5MIN = 64;   // ~5000 bars of 5min per chunk
+const CHUNK_DAYS_15MIN = 192; // ~5000 bars of 15min per chunk (26 bars/day)
 const CHUNK_DAYS_30MIN = 225; // 2 chunks for 450 days
 
 async function _tdFetchBarsChunked(env, symbols, interval, start, end, chunkDays) {
@@ -96,6 +97,11 @@ async function _tdFetchBars(env, symbols, tfKey, start, end, limit) {
       bars[sym] = aggregate5mTo10m(barArr);
     }
     return { bars };
+  }
+
+  // 15min: chunked fetch (for 15m vs 10m leading_ltf experiment)
+  if (tfKey === "15") {
+    return _tdFetchBarsChunked(env, symbols, "15min", start, end, CHUNK_DAYS_15MIN);
   }
 
   // 30min: chunked fetch
@@ -428,12 +434,12 @@ export async function cronFetchCrypto(env) {
 // Returns null when provider is Alpaca (caller uses legacy path).
 // ═══════════════════════════════════════════════════════════════════════════════
 
-// Match REPLAY_TFS — 5m used only by live cron (rolling), not backtest
-const BACKFILL_TFS = ["M", "W", "D", "240", "60", "30", "10"];
+// Match REPLAY_TFS — 5m used only by live cron (rolling), not backtest. 15m for leading_ltf experiment.
+const BACKFILL_TFS = ["M", "W", "D", "240", "60", "30", "15", "10"];
 
 const DEEP_START_DAYS = {
   "M": 365 * 10, "W": 365 * 6, "D": 450, "240": 450,
-  "60": 450, "30": 450, "10": 450,
+  "60": 450, "30": 450, "15": 450, "10": 450,
 };
 
 export async function backfill(env, tickers, tfKey = "all", opts = null) {

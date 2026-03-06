@@ -15966,6 +15966,7 @@ function pickRunSnapshotEnvFlags(env) {
   const keys = [
     "ENTRY_ENGINE",
     "MANAGEMENT_ENGINE",
+    "LEADING_LTF",
     "RIPSTER_TUNE_V2",
     "RIPSTER_EXIT_DEBOUNCE_BARS",
     "DATA_PROVIDER",
@@ -32478,9 +32479,9 @@ export default {
         const startTs = new Date(startDateStr + "T00:00:00Z").getTime();
         const endTs = new Date(endDateStr + "T23:59:59Z").getTime();
         const db = env.DB;
-        const REPLAY_TFS_CHECK = ["M", "W", "D", "240", "60", "30", "10"];
+        const REPLAY_TFS_CHECK = ["M", "W", "D", "240", "60", "30", "15", "10"];
         const allTickers = Object.keys(SECTOR_MAP);
-        const MIN_CANDLES = { M: 2, W: 8, D: 40, "240": 20, "60": 40, "30": 40, "10": 40 };
+        const MIN_CANDLES = { M: 2, W: 8, D: 40, "240": 20, "60": 40, "30": 40, "15": 40, "10": 40 };
 
         const { results: rows } = await db.prepare(
           `SELECT ticker, tf, COUNT(*) as cnt
@@ -33588,8 +33589,8 @@ export default {
         // candles up to this date. Without this, d1GetCandlesAllTfs returns the
         // latest 1500 candles (e.g. from Dec 2025+) which are ALL after a Jul 2025
         // replay date, causing ltf_score=0 and zero trades.
-        const REPLAY_TFS = ["M", "W", "D", "240", "60", "30", "10"];
-        const REPLAY_TF_LIMITS = { M: 200, W: 300, D: 600, "240": 600, "60": 600, "30": 600, "10": 500 };
+        const REPLAY_TFS = ["M", "W", "D", "240", "60", "30", "15", "10"];
+        const REPLAY_TF_LIMITS = { M: 200, W: 300, D: 600, "240": 600, "60": 600, "30": 600, "15": 500, "10": 500 };
         const candleCache = {}; // { TICKER: { TF: [candles sorted asc by ts] } }
 
         await Promise.all(
@@ -33756,6 +33757,7 @@ export default {
                 "240": bundles["240"] || null,
                 "60": bundles["60"] || null,
                 "30": bundles["30"] || null,
+                "15": bundles["15"] || null,
                 "10": bundles["10"] || null,
               };
 
@@ -33771,7 +33773,8 @@ export default {
               if (_replayTickerProfileMap[ticker] && !existing._tickerProfile) {
                 existing._tickerProfile = _replayTickerProfileMap[ticker];
               }
-              const result = assembleTickerData(ticker, bundleMap, existing, { rawBars });
+              const leadingLtf = String(replayEnvBase.LEADING_LTF || "10").trim() || "10";
+              const result = assembleTickerData(ticker, bundleMap, existing, { rawBars, leadingLtf });
               if (!result) { skipped++; continue; }
 
               // Inject golden profiles + adaptive gates + three-tier regime for entry parity
@@ -33893,15 +33896,16 @@ export default {
               // instead of result.price (which can be daily/4H from wrong bar).
               const isNewEntry = (finalStage === "enter_now" || finalStage === "enter") && prevStage !== "enter_now" && prevStage !== "enter";
               if (isNewEntry) {
-                const b10 = bundleMap["10"];
-                let price10m = Number(b10?.px);
-                if (!(Number.isFinite(price10m) && price10m > 0)) {
-                  const allCandles10 = candleCache[ticker]?.["10"] || [];
-                  const last10m = allCandles10.filter((c) => c.ts <= intervalTs).pop();
-                  price10m = last10m ? Number(last10m.c) : null;
+                const leadingLtf = String(replayEnvBase.LEADING_LTF || "10").trim() || "10";
+                const bLeading = bundleMap[leadingLtf];
+                let priceLtf = Number(bLeading?.px);
+                if (!(Number.isFinite(priceLtf) && priceLtf > 0)) {
+                  const allCandlesLtf = candleCache[ticker]?.[leadingLtf] || [];
+                  const lastBar = allCandlesLtf.filter((c) => c.ts <= intervalTs).pop();
+                  priceLtf = lastBar ? Number(lastBar.c) : null;
                 }
                 const priceFallback = Number(result?.price);
-                const price = (Number.isFinite(price10m) && price10m > 0) ? price10m : priceFallback;
+                const price = (Number.isFinite(priceLtf) && priceLtf > 0) ? priceLtf : priceFallback;
                 if (Number.isFinite(price) && price > 0) {
                   result.entry_price = price;
                   result.entry_ts = intervalTs;

@@ -2914,7 +2914,8 @@ export function assembleTickerData(ticker, bundles, existingData = null, opts = 
   const b4H = bundles?.["240"];
   const b1H = bundles?.["60"];
   const b30 = bundles?.["30"];
-  const b10 = bundles?.["10"];
+  const leadingLtf = String(opts?.leadingLtf || "10").trim() || "10";
+  const b10 = bundles?.[leadingLtf] || bundles?.["10"];
   const b5 = bundles?.["5"];
 
   // Compute daily anchors for Golden Gate
@@ -3431,11 +3432,16 @@ function isRTHNow() {
  * @param {boolean} [opts.htfBull] - Higher-timeframe bullish bias (for boost calc)
  * @returns {object} td_sequential object matching existing schema
  */
+/**
+ * TD Sequential (matches LuxAlgo Sequencer settings).
+ * Preparation: 9 bars, comparison 4. Lead-up: 13 bars, comparison 2.
+ * Apply Cancellation: on. Suspension: off.
+ */
 export function computeTDSequential(candles, tf, opts = {}) {
-  const PREP_LEN = 9;
-  const PREP_COMP = 4;
-  const LEADUP_LEN = 13;
-  const LEADUP_COMP = 2;
+  const PREP_LEN = 9;      // Preparation Phase Length
+  const PREP_COMP = 4;     // Comparison Period
+  const LEADUP_LEN = 13;   // Lead-Up Phase Length
+  const LEADUP_COMP = 2;   // Lead-Up Comparison Period
 
   const result = {
     tf: tf || "D",
@@ -3455,7 +3461,8 @@ export function computeTDSequential(candles, tf, opts = {}) {
 
   if (!candles || candles.length < PREP_COMP + PREP_LEN) return result;
 
-  // Walk through all candles to build state (stateful counters, just like Pine)
+  // Walk through all candles to build state (matches LuxAlgo Sequencer settings)
+  // Preparation: 9 bars, comparison 4. Lead-up: 13 bars, comparison 2. Cancellation on. Suspension off.
   let bullPrepCount = 0;
   let bearPrepCount = 0;
   let bullLeadupCount = 0;
@@ -3472,30 +3479,26 @@ export function computeTDSequential(candles, tf, opts = {}) {
     const bullPrepComplete = bullPrepCount === PREP_LEN;
     const bearPrepComplete = bearPrepCount === PREP_LEN;
 
-    // ── Lead-up Phase ──
-    // Reset lead-up on opposite prep completion (cancellation)
+    // ── Lead-up Phase (Apply Cancellation: opposite prep resets lead-up) ──
     if (bearPrepComplete) bullLeadupCount = 0;
     if (bullPrepComplete) bearLeadupCount = 0;
 
-    // Bullish lead-up: close < low[2]
+    // Bullish lead-up: start at 1 on prep completion; close < low[2] increments; no reset on failed bar (LuxAlgo)
     if (i >= LEADUP_COMP) {
       const lowComp = candles[i - LEADUP_COMP].l;
       const highComp = candles[i - LEADUP_COMP].h;
 
-      if (bullPrepComplete && c < lowComp) {
-        bullLeadupCount += 1;
+      if (bullPrepComplete) {
+        bullLeadupCount = 1; // Start lead-up on prep completion (LuxAlgo: complete_bullish_preparation ? 1)
       } else if (bullLeadupCount > 0 && c < lowComp) {
         bullLeadupCount += 1;
-      } else if (bullLeadupCount > 0 && c >= lowComp) {
-        bullLeadupCount = 0; // Reset if condition breaks
       }
+      // else: keep count (LuxAlgo does not reset on close >= low[2])
 
-      if (bearPrepComplete && c > highComp) {
-        bearLeadupCount += 1;
+      if (bearPrepComplete) {
+        bearLeadupCount = 1;
       } else if (bearLeadupCount > 0 && c > highComp) {
         bearLeadupCount += 1;
-      } else if (bearLeadupCount > 0 && c <= highComp) {
-        bearLeadupCount = 0; // Reset if condition breaks
       }
     }
   }
@@ -4661,9 +4664,10 @@ export async function computeServerSideScores(ticker, getCandles, env, existingD
   let hasData = false;
 
   // Fetch candles for all scoring timeframes + TD Sequential timeframes in PARALLEL
-  // Scoring TFs: W, D, 240, 60, 30, 10, 5
-  // TD Sequential TFs: all 9 TFs (1, 5, 10, 30, 60, 240, D, W, M)
-  const allTfsToFetch = [...new Set([...ALL_TFS, ...TD_SEQ_TFS])]; // union of scoring + TD TFs
+  // Scoring TFs: W, D, 240, 60, 30, 10, 5. Add 15 when LEADING_LTF=15 for 15m experiment.
+  const leadingLtf = String(env?.LEADING_LTF || "10").trim();
+  const extraTfs = leadingLtf === "15" ? ["15"] : [];
+  const allTfsToFetch = [...new Set([...ALL_TFS, ...TD_SEQ_TFS, ...extraTfs])];
   const tfResults = await Promise.all(
     allTfsToFetch.map(async (tf) => {
       try {
@@ -4688,8 +4692,8 @@ export async function computeServerSideScores(ticker, getCandles, env, existingD
       // from multiple Alpaca backfill runs that store two entries per date)
       const deduped = deduplicateCandles(result.candles, tf);
 
-      // Scoring bundles (need 50+ candles for indicator computation)
-      if (ALL_TFS.includes(tf) && deduped.length >= 50) {
+      // Scoring bundles (need 50+ candles for indicator computation). Include 15 when LEADING_LTF=15.
+      if ((ALL_TFS.includes(tf) || tf === "15") && deduped.length >= 50) {
         bundles[tf] = computeTfBundle(deduped);
         if (bundles[tf]) hasData = true;
       }
@@ -4706,7 +4710,7 @@ export async function computeServerSideScores(ticker, getCandles, env, existingD
 
   if (!hasData) return null;
 
-  // Map to the key format used by assembleTickerData
+  // Map to the key format used by assembleTickerData (include 15 for leading_ltf experiment)
   const bundleMap = {
     M: bundles.M || null,
     W: bundles.W || null,
@@ -4714,11 +4718,13 @@ export async function computeServerSideScores(ticker, getCandles, env, existingD
     "240": bundles["240"] || null,
     "60": bundles["60"] || null,
     "30": bundles["30"] || null,
+    "15": bundles["15"] || null,
     "10": bundles["10"] || null,
   };
 
-  // Pass raw bars + optional learned weights so assembleTickerData uses them
+  // Pass raw bars + optional learned weights + leadingLtf so assembleTickerData uses them
   const assembleOpts = { rawBars };
+  if (env?.LEADING_LTF) assembleOpts.leadingLtf = String(env.LEADING_LTF).trim();
   if (existingData?._tfWeights) assembleOpts.tfWeights = existingData._tfWeights;
   if (existingData?._signalWeights) assembleOpts.signalWeights = existingData._signalWeights;
   if (existingData?._scoreWeights) assembleOpts.scoreWeights = existingData._scoreWeights;

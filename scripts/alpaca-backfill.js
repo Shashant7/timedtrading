@@ -48,11 +48,12 @@ const TF_CONFIGS = {
   "240": { alpaca: "4Hour",  td: "4h",     daysBack: 450,       limit: 10000, tdSize: 5000 },
   "60":  { alpaca: "1Hour",  td: "1h",     daysBack: 450,       limit: 10000, tdSize: 5000 },
   "30":  { alpaca: "30Min",  td: "30min",  daysBack: 450,       limit: 10000, tdSize: 5000 },
+  "15":  { alpaca: "15Min",  td: "15min",  daysBack: 450,       limit: 10000, tdSize: 5000 },
   "10":  { alpaca: "10Min",  td: "5min",   daysBack: 450,       limit: 10000, tdSize: 5000, aggregate10m: true },
 };
 
-// Replay uses M,W,D,240,60,30,10 only. 5m is for live cron (rolling fetch). 1m not used.
-const TF_ORDER = ["M", "W", "D", "240", "60", "30", "10"];
+// Replay uses M,W,D,240,60,30,15,10. 5m is for live cron (rolling fetch). 1m not used.
+const TF_ORDER = ["M", "W", "D", "240", "60", "30", "15", "10"];
 
 // ═══════════════════════════════════════════════════════════════════════
 // TwelveData helpers
@@ -177,6 +178,8 @@ async function fetchTwelveData10mPaginated(symbols, startISO) {
   return allBars;
 }
 
+// 15min: 5000 bars ≈ 192 days. Use 3 chunks for 450.
+const CHUNK_DAYS_15MIN = 192;
 // 30min: 5000 bars ≈ 385 days. Use 2 chunks of 225 days for 450.
 const CHUNK_DAYS_30MIN = 225;
 
@@ -243,6 +246,7 @@ async function fetchTwelveDataBars(symbols, tfKey, startISO) {
   if (!TD_KEY) throw new Error("TWELVEDATA_API_KEY not set");
 
   if (tfKey === "10") return fetchTwelveData10mPaginated(symbols, startISO);
+  if (tfKey === "15") return fetchTwelveDataPaginated(symbols, startISO, "15min", CHUNK_DAYS_15MIN);
   if (tfKey === "30") return fetchTwelveDataPaginated(symbols, startISO, "30min", CHUNK_DAYS_30MIN);
 
   const filtered = symbols.filter(s => !TD_SKIP.has(s));

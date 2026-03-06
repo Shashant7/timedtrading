@@ -36,21 +36,13 @@ Single reference for current status and next steps. Read this first each session
 | 4 | ✅ Done | Rule snapshot storage + run detail APIs |
 | 5 | — | (Not in scope) |
 | 6 | ✅ Done | Runs UI with protected/archive/delete |
-| 7 | ⏳ Next | Create Variant / Review Variant Config flow |
+| 7 | ✅ Done | Create Variant + rule levers + env override backtest |
 
 ---
 
 ## Clear Next Steps (In Order)
 
-### Step 1: Phase 7 — Create Variant Flow
-**Goal:** Add "Create Variant" from a baseline run; "Review Variant Config" before launch.
-
-**Done:** Create Variant button + modal (rule snapshot, env flags, backtest command, Copy button).
-**Done:** Review Variant Config — Config vs Live deltas shown when opening Create Variant (env_flags diff).
-
----
-
-### Step 2: Calibrate From Autopsy Tags
+### Step 1: Calibrate From Autopsy Tags
 **Goal:** Use Entry Grade + Trade Management tags to tune logic.
 
 **Current summary (11 tagged trades):**
@@ -67,25 +59,39 @@ Single reference for current status and next steps. Read this first each session
 ### Step 3: Experiment Workflow Remainder
 **From** `~/.cursor/plans/run_experiment_workflow_a459a54d.plan.md`:
 - [x] variant-review-ui: Review Variant Config — Config vs Live deltas in Create Variant modal
-- [ ] historical-import: Import strong July artifacts as named runs
+- [ ] historical-import: Import strong July artifacts as named runs (register pre-registry backtest JSONs into run registry so they appear in Runs UI)
 - [ ] First structured experiment: **15m vs 10m** `leading_ltf` (baseline=10m, variant=15m)
 
 ---
 
-### Step 4: Trade Autopsy Mobile Layout
+### Step 4: 15m vs 10m leading_ltf Experiment (Prep)
+**Goal:** First structured A/B — baseline=10m, variant=15m for leading LTF.
+
+**Prep (can do now):**
+- Backfill 15m TF for all tickers (TwelveData supports 15min natively)
+- Add "15" to BACKFILL_TFS and REPLAY_TFS in worker
+- Add `leading_ltf` env override (10 vs 15) for Create Variant flow
+
+---
+
+### Step 5: Trade Autopsy Mobile Layout
 - ✅ Done: Scrollable classification section (max-h-40vh), shrink-0 on buttons to prevent overlap
 
 ---
 
-### Step 5: Variant v2 Hardening
+### Step 6: Variant v2 Hardening
 - Mitigate bad exits and chasing from classified trades
 - **Note:** 15m vs 10m is a separate experiment (leading_ltf); Variant v2 = exit/entry logic fixes from autopsy
 
 ---
 
-### Step 6: Mean Reversion TD9
-- Implement primitives per `docs/MEAN_REVERSION_TD9_ALIGNMENT_PLAN.md`
+### Step 7: Mean Reversion TD9 + Squeeze Hold (Backlog Prep)
+**Mean Reversion TD9** (`docs/MEAN_REVERSION_TD9_ALIGNMENT_PLAN.md`):
+- Primitives: `countRecentGapsDown`, `td9AlignedLong`, `phaseLeavingDotBullish`, `isNearPsychLevel`
 - Add `mean_revert_td9_aligned` flag (feature-flagged)
+
+**Squeeze Hold Guard:**
+- Management-only squeeze/compression hold guard to reduce premature exits during consolidation
 
 ---
 
@@ -118,4 +124,7 @@ TIMED_API_KEY=AwesomeSauce node scripts/reconcile-status.js
 
 # Full backtest (July)
 ./scripts/full-backtest.sh --trader-only --low-write --keep-open-at-end 2025-07-01 2025-07-31 15 --label=phase3-july-validation
+
+# Backfill 15m TF (for 15m vs 10m experiment) — run once before experiment
+./scripts/backfill-history.sh --force   # or: alpaca-backfill with tf=15
 ```
