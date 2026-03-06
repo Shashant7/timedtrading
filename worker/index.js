@@ -33510,6 +33510,13 @@ export default {
         const skipTrailWrite = lowWrite || url.searchParams.get("skipTrailWrite") === "1";
         const skipInvestor = url.searchParams.get("skipInvestor") === "1" || url.searchParams.get("traderOnly") === "1";
         const tickerFilter = url.searchParams.get("tickers"); // comma-separated filter
+        // Env overrides from query params (e.g. RIPSTER_EXIT_DEBOUNCE_BARS=4) for variant backtests
+        const REPLAY_PARAMS = new Set(["date", "tickerOffset", "tickerBatch", "intervalMinutes", "cleanSlate", "fullDay", "trailOnly", "lowWrite", "skipTrailWrite", "skipInvestor", "tickers", "key"]);
+        const envOverrides = {};
+        for (const [k, v] of url.searchParams) {
+          if (!REPLAY_PARAMS.has(k) && /^[A-Z][A-Z0-9_]*$/.test(k)) envOverrides[k] = v;
+        }
+        const replayEnvBase = { ...env, ...envOverrides };
         const replayRunLock = await KV.get("timed:replay:lock");
         const replayRunId = String(replayRunLock || `candle_replay@${dateParam}`);
 
@@ -33785,12 +33792,12 @@ export default {
                   _adaptiveRegimeGates: _replayAdaptiveRegimeGates,
                   _marketRegime: _rMktRegime,
                   _sectorRegime: _rSecRegime,
-                  _deepAuditConfig: env._deepAuditConfig || null,
-                  _calibratedRankMin: env._calibratedRankMin || 0,
-                  _entryEngine: resolveEngineMode(env.ENTRY_ENGINE),
-                  _managementEngine: resolveEngineMode(env.MANAGEMENT_ENGINE),
-                  _ripsterTuneV2: parseBoolFlag(env.RIPSTER_TUNE_V2, false),
-                  _ripsterExitDebounceBars: Math.max(1, Number(env.RIPSTER_EXIT_DEBOUNCE_BARS) || 2),
+                  _deepAuditConfig: (replayEnvBase._deepAuditConfig ?? env._deepAuditConfig) || null,
+                  _calibratedRankMin: (replayEnvBase._calibratedRankMin ?? env._calibratedRankMin) || 0,
+                  _entryEngine: resolveEngineMode(replayEnvBase.ENTRY_ENGINE),
+                  _managementEngine: resolveEngineMode(replayEnvBase.MANAGEMENT_ENGINE),
+                  _ripsterTuneV2: parseBoolFlag(replayEnvBase.RIPSTER_TUNE_V2, false),
+                  _ripsterExitDebounceBars: Math.max(1, Number(replayEnvBase.RIPSTER_EXIT_DEBOUNCE_BARS) || 2),
                   _runId: replayRunId,
                 };
               }
@@ -33926,7 +33933,7 @@ export default {
 
               if (!trailOnly) {
                 // Run trade simulation (with Discord + email disabled, no D1 writes)
-                const replayEnv = { ...env, DISCORD_ENABLE: "false", DISCORD_WEBHOOK_URL: null, EMAIL_ENABLED: "false", SENDGRID_API_KEY: null };
+                const replayEnv = { ...replayEnvBase, DISCORD_ENABLE: "false", DISCORD_WEBHOOK_URL: null, EMAIL_ENABLED: "false", SENDGRID_API_KEY: null };
                 const countBefore = replayCtx.allTrades.filter(x => String(x?.ticker).toUpperCase() === ticker).length;
                 await processTradeSimulation(KV, ticker, result, existing, replayEnv, {
                   forceUseIngestTs: true,

@@ -1771,6 +1771,7 @@ function RunsTab({ isAdmin }) {
   const [variantRunId, setVariantRunId] = useState(null);
   const [variantData, setVariantData] = useState(null);
   const [liveConfigData, setLiveConfigData] = useState(null);
+  const [variantOverrides, setVariantOverrides] = useState({});
 
   const fmtNum = (n) => {
     const v = Number(n);
@@ -2086,7 +2087,7 @@ function RunsTab({ isAdmin }) {
           <div className="p-5 text-center text-xs text-slate-500">No runs found.</div>
         ) : (
           <div className="overflow-auto max-h-[55vh]">
-            <table className="w-full text-xs min-w-[1540px]">
+            <table className="w-full text-xs min-w-[1400px]">
               <thead className="bg-white/[0.03] text-slate-500">
                 <tr>
                   <th className="px-3 py-2 text-left font-semibold">Run</th>
@@ -2101,7 +2102,6 @@ function RunsTab({ isAdmin }) {
                   <th className="px-3 py-2 text-right font-semibold">Avg W/L %</th>
                   <th className="px-3 py-2 text-left font-semibold">Status Mix</th>
                   <th className="px-3 py-2 text-left font-semibold">Top Classifications</th>
-                  <th className="px-3 py-2 text-left font-semibold">Autopsy</th>
                   <th className="px-3 py-2 text-left font-semibold sticky right-0 bg-white/[0.03] shadow-[-4px_0_8px_rgba(0,0,0,0.3)] z-10">Actions</th>
                 </tr>
               </thead>
@@ -2182,28 +2182,6 @@ function RunsTab({ isAdmin }) {
                       <td className="px-3 py-2 text-slate-300">
                         {classTop.length ? classTop.map(([k, v]) => `${k}:${v}`).join("  ") : "—"}
                       </td>
-                      <td className="px-3 py-2">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <button className="text-cyan-300 hover:text-cyan-200 underline text-[11px]" onClick={() => viewRunDetails(runId)}>Details</button>
-                          {autopsyUrl && autopsyUrl !== "#" ? (
-                            <a className="text-cyan-300 hover:text-cyan-200 underline text-[11px]" href={autopsyUrl}>Autopsy</a>
-                          ) : (
-                            <span className="text-slate-500 text-[11px]">—</span>
-                          )}
-                          {isAdmin ? (
-                            <button
-                              className="text-cyan-300 hover:text-cyan-200 underline text-[11px]"
-                              onClick={() => {
-                                if (compareRuns?.length === 1 && compareRuns[0]?.run_id === runId) setCompareRuns(null);
-                                else if (compareRuns?.length === 1) setCompareRuns([compareRuns[0], r]);
-                                else setCompareRuns([r]);
-                              }}
-                            >
-                              {compareRuns?.length === 1 && compareRuns[0]?.run_id === runId ? "Cancel" : "Compare"}
-                            </button>
-                          ) : null}
-                        </div>
-                      </td>
                       <td className="px-3 py-2 sticky right-0 bg-[rgba(11,14,17,0.98)] shadow-[-4px_0_8px_rgba(0,0,0,0.3)] z-10">
                         {isAdmin ? (
                           <div className="flex flex-wrap items-center gap-2">
@@ -2220,7 +2198,27 @@ function RunsTab({ isAdmin }) {
                               style={{ background: "rgba(100,116,139,0.15)", color: "#94a3b8", border: "1px solid rgba(100,116,139,0.3)", padding: "5px 10px" }}
                               onClick={() => viewRunDetails(runId)}
                             >
-                              View
+                              Details
+                            </button>
+                            {autopsyUrl && autopsyUrl !== "#" ? (
+                              <a
+                                className="btn text-[11px]"
+                                style={{ background: "rgba(20,184,166,0.15)", color: "#5eead4", border: "1px solid rgba(20,184,166,0.3)", padding: "5px 10px", textDecoration: "none" }}
+                                href={autopsyUrl}
+                              >
+                                Autopsy
+                              </a>
+                            ) : null}
+                            <button
+                              className="btn text-[11px]"
+                              style={{ background: "rgba(100,116,139,0.15)", color: "#94a3b8", border: "1px solid rgba(100,116,139,0.3)", padding: "5px 10px" }}
+                              onClick={() => {
+                                if (compareRuns?.length === 1 && compareRuns[0]?.run_id === runId) setCompareRuns(null);
+                                else if (compareRuns?.length === 1) setCompareRuns([compareRuns[0], r]);
+                                else setCompareRuns([r]);
+                              }}
+                            >
+                              {compareRuns?.length === 1 && compareRuns[0]?.run_id === runId ? "Cancel Compare" : "Compare"}
                             </button>
                             {isProtected ? (
                               <button
@@ -2234,7 +2232,10 @@ function RunsTab({ isAdmin }) {
                                     fetch(`${API_BASE}/timed/admin/runs/detail?run_id=${encodeURIComponent(runId)}`, { credentials: "include" }).then(x => x.json()),
                                     fetch(`${API_BASE}/timed/admin/runs/live`, { credentials: "include" }).then(x => x.json()),
                                   ]).then(([detailRes, liveRes]) => {
-                                    if (detailRes?.ok) setVariantData(detailRes);
+                                    if (detailRes?.ok) {
+                                      setVariantData(detailRes);
+                                      setVariantOverrides({ ...(detailRes?.rule_snapshot?.env_flags || {}) });
+                                    }
                                     if (liveRes?.ok && liveRes?.run) {
                                       let snap = null;
                                       try { snap = JSON.parse(liveRes.run.snapshot_json || "null"); } catch (_) {}
@@ -2316,32 +2317,61 @@ function RunsTab({ isAdmin }) {
       )}
 
       {variantRunId && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={() => { setVariantRunId(null); setVariantData(null); setLiveConfigData(null); }}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={() => { setVariantRunId(null); setVariantData(null); setLiveConfigData(null); setVariantOverrides({}); }}>
           <div className="bg-slate-800 border border-white/10 rounded-lg shadow-xl max-w-2xl w-full max-h-[85vh] overflow-hidden flex flex-col" onClick={e => e.stopPropagation()}>
             <div className="px-4 py-3 border-b border-white/10 flex items-center justify-between">
               <h3 className="text-sm font-semibold text-white">Create Variant: {shortRunId(variantRunId)}</h3>
-              <button className="text-slate-400 hover:text-white text-lg leading-none" onClick={() => { setVariantRunId(null); setVariantData(null); setLiveConfigData(null); }}>&times;</button>
+              <button className="text-slate-400 hover:text-white text-lg leading-none" onClick={() => { setVariantRunId(null); setVariantData(null); setLiveConfigData(null); setVariantOverrides({}); }}>&times;</button>
             </div>
-            <div className="p-4 overflow-auto text-xs space-y-3">
-              <p className="text-slate-400">Review the rule snapshot from this baseline. To launch a variant backtest, run:</p>
-              <div className="relative">
-                <pre className="bg-slate-900/50 p-3 pr-20 rounded font-mono text-slate-300 overflow-x-auto">
-{`./scripts/full-backtest.sh --trader-only --low-write --keep-open-at-end \\
-  2025-07-01 2025-07-31 15 --label=variant-from-baseline`}
-                </pre>
-                <button
-                  className="absolute top-2 right-2 px-2 py-1 text-[10px] bg-slate-700 hover:bg-slate-600 text-slate-300 rounded border border-white/10"
-                  onClick={() => { navigator.clipboard.writeText('./scripts/full-backtest.sh --trader-only --low-write --keep-open-at-end 2025-07-01 2025-07-31 15 --label=variant-from-baseline'); setMessage('Command copied to clipboard'); setTimeout(() => setMessage(null), 2000); }}
-                >
-                  Copy
-                </button>
-              </div>
+            <div className="p-4 overflow-auto text-xs space-y-4">
               {!variantData ? (
                 <p className="text-slate-500">Loading run details…</p>
               ) : (
                 <>
+                  <div>
+                    <div className="text-slate-300 font-medium mb-2">Rule levers</div>
+                    <p className="text-slate-500 text-[11px] mb-3">Adjust values below, then copy and run the command to backtest with these overrides.</p>
+                    <div className="space-y-2.5">
+                      {Object.keys(variantData?.rule_snapshot?.env_flags || {}).sort().map(k => {
+                        const base = variantData.rule_snapshot.env_flags[k];
+                        const val = variantOverrides[k] !== undefined ? variantOverrides[k] : base;
+                        const isBool = val === "true" || val === "false" || typeof base === "boolean";
+                        const isNum = /^-?\d+(\.\d+)?$/.test(String(val)) || (typeof base === "number");
+                        return (
+                          <div key={k} className="flex items-center gap-3">
+                            <label className="text-slate-400 shrink-0 w-[200px] truncate" title={k}>{k}</label>
+                            {isBool ? (
+                              <input
+                                type="checkbox"
+                                checked={val === "true" || val === true}
+                                onChange={e => setVariantOverrides(prev => ({ ...prev, [k]: e.target.checked ? "true" : "false" }))}
+                                className="rounded bg-slate-700 border-slate-600"
+                              />
+                            ) : isNum ? (
+                              <input
+                                type="number"
+                                value={val}
+                                onChange={e => setVariantOverrides(prev => ({ ...prev, [k]: e.target.value }))}
+                                className="w-20 px-2 py-1 rounded bg-slate-800 border border-white/10 text-slate-200 text-[11px]"
+                              />
+                            ) : (
+                              <input
+                                type="text"
+                                value={val}
+                                onChange={e => setVariantOverrides(prev => ({ ...prev, [k]: e.target.value }))}
+                                className="flex-1 min-w-[80px] max-w-[180px] px-2 py-1 rounded bg-slate-800 border border-white/10 text-slate-200 text-[11px]"
+                              />
+                            )}
+                            {String(val) !== String(base) && (
+                              <span className="text-amber-400 text-[10px]">modified</span>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
                   {variantData?.rule_snapshot?.env_flags && liveConfigData?.env_flags && (() => {
-                    const v = variantData.rule_snapshot.env_flags || {};
+                    const v = variantOverrides && Object.keys(variantOverrides).length ? variantOverrides : (variantData.rule_snapshot.env_flags || {});
                     const l = liveConfigData.env_flags || {};
                     const allKeys = [...new Set([...Object.keys(v), ...Object.keys(l)])].sort();
                     const diffs = allKeys.filter(k => String(v[k]) !== String(l[k]));
@@ -2367,15 +2397,36 @@ function RunsTab({ isAdmin }) {
                       </div>
                     );
                   })()}
-                  {variantData?.rule_snapshot?.env_flags && !liveConfigData && (
-                    <p className="text-slate-500 text-[11px]">Loading live config for comparison…</p>
-                  )}
-                  {variantData?.rule_snapshot?.env_flags && (
-                    <div>
-                      <div className="text-slate-500 mb-1">Env flags (at capture)</div>
-                      <pre className="bg-slate-900/50 p-3 rounded font-mono text-slate-300 overflow-x-auto text-[11px]">{JSON.stringify(variantData.rule_snapshot.env_flags, null, 2)}</pre>
+                  <div>
+                    <div className="text-slate-300 font-medium mb-1">Run backtest</div>
+                    <div className="relative">
+                      <pre className="bg-slate-900/50 p-3 pr-20 rounded font-mono text-slate-300 overflow-x-auto text-[11px] whitespace-pre-wrap break-all">
+                        {(() => {
+                          const start = variantData?.start_date || "2025-07-01";
+                          const end = variantData?.end_date || "2025-07-31";
+                          const base = `./scripts/full-backtest.sh --trader-only --low-write --keep-open-at-end ${start} ${end} 15 --label=variant-from-baseline`;
+                          const overrides = Object.entries(variantOverrides || {}).filter(([, v]) => v != null && String(v).trim() !== "");
+                          const envPart = overrides.length ? " \\\n  " + overrides.map(([k, v]) => `--env-override ${k}=${v}`).join(" \\\n  ") : "";
+                          return base + envPart;
+                        })()}
+                      </pre>
+                      <button
+                        className="absolute top-2 right-2 px-2 py-1 text-[10px] bg-slate-700 hover:bg-slate-600 text-slate-300 rounded border border-white/10"
+                        onClick={() => {
+                          const start = variantData?.start_date || "2025-07-01";
+                          const end = variantData?.end_date || "2025-07-31";
+                          const base = `./scripts/full-backtest.sh --trader-only --low-write --keep-open-at-end ${start} ${end} 15 --label=variant-from-baseline`;
+                          const overrides = Object.entries(variantOverrides || {}).filter(([, v]) => v != null && String(v).trim() !== "");
+                          const envPart = overrides.length ? " " + overrides.map(([k, v]) => `--env-override ${k}=${v}`).join(" ") : "";
+                          navigator.clipboard.writeText(base + envPart);
+                          setMessage("Command copied to clipboard");
+                          setTimeout(() => setMessage(null), 2000);
+                        }}
+                      >
+                        Copy
+                      </button>
                     </div>
-                  )}
+                  </div>
                   {variantData?.rule_snapshot_meta && (
                     <div className="text-slate-500">Snapshot: {variantData.rule_snapshot_meta.ready ? "Ready" : "—"} · {variantData.rule_snapshot_meta.source || "—"}</div>
                   )}

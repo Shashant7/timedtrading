@@ -34,22 +34,29 @@ LOW_WRITE=false
 RUN_LABEL=""
 RUN_DESCRIPTION=""
 SNAPSHOT_BEFORE_RESET=true
+ENV_OVERRIDES=()
 POSARGS=()
-for arg in "$@"; do
-  [[ "$arg" == "--resume" ]] && RESUME=true
-  [[ "$arg" == "--trader-only" ]] && TRADER_ONLY=true
-  [[ "$arg" == "--investor-only" ]] && INVESTOR_ONLY=true
-  [[ "$arg" == "--sequence" ]] && SEQUENCE=true
-  [[ "$arg" == "--keep-open-at-end" ]] && KEEP_OPEN_AT_END=true
-  [[ "$arg" == "--low-write" ]] && LOW_WRITE=true
-  [[ "$arg" == "--no-snapshot-before-reset" ]] && SNAPSHOT_BEFORE_RESET=false
-  if [[ "$arg" == --label=* ]]; then
-    RUN_LABEL="${arg#--label=}"
-  fi
-  if [[ "$arg" == --desc=* || "$arg" == --description=* ]]; then
-    RUN_DESCRIPTION="${arg#*=}"
-  fi
-  [[ "$arg" != --* ]] && POSARGS+=("$arg")
+while [[ $# -gt 0 ]]; do
+  arg="$1"
+  shift
+  case "$arg" in
+    --resume) RESUME=true ;;
+    --trader-only) TRADER_ONLY=true ;;
+    --investor-only) INVESTOR_ONLY=true ;;
+    --sequence) SEQUENCE=true ;;
+    --keep-open-at-end) KEEP_OPEN_AT_END=true ;;
+    --low-write) LOW_WRITE=true ;;
+    --no-snapshot-before-reset) SNAPSHOT_BEFORE_RESET=false ;;
+    --label=*) RUN_LABEL="${arg#--label=}" ;;
+    --desc=*|--description=*) RUN_DESCRIPTION="${arg#*=}" ;;
+    --env-override=*) ENV_OVERRIDES+=("${arg#--env-override=}") ;;
+    --env-override)
+      [[ -n "$1" && "$1" != --* ]] && ENV_OVERRIDES+=("$1") && shift
+      ;;
+    *)
+      [[ "$arg" != --* ]] && POSARGS+=("$arg")
+      ;;
+  esac
 done
 if $SEQUENCE; then TRADER_ONLY=true; fi
 
@@ -413,13 +420,19 @@ while [[ "$CURRENT_DATE" < "$END_DATE" ]] || [[ "$CURRENT_DATE" == "$END_DATE" ]
   $TRADER_ONLY && SKIP_INV="&skipInvestor=1"
   LOW_WRITE_PARAM=""
   $LOW_WRITE && LOW_WRITE_PARAM="&lowWrite=1&skipTrailWrite=1"
+  ENV_OVERRIDE_PARAM=""
+  for ov in "${ENV_OVERRIDES[@]}"; do
+    key="${ov%%=*}"
+    val="${ov#*=}"
+    ENV_OVERRIDE_PARAM="${ENV_OVERRIDE_PARAM}&${key}=${val}"
+  done
 
   # Process day in batches (avoids Cloudflare Worker CPU/wall-time limits on large DBs)
   BATCH_OFFSET=0
   BATCH_NUM=0
   while true; do
     BATCH_NUM=$((BATCH_NUM + 1))
-    REPLAY_URL="$API_BASE/timed/admin/candle-replay?date=$CURRENT_DATE&tickerOffset=$BATCH_OFFSET&tickerBatch=$TICKER_BATCH&intervalMinutes=$INTERVAL_MIN&key=$API_KEY${CLEAN_PARAM}${SKIP_INV}${LOW_WRITE_PARAM}"
+    REPLAY_URL="$API_BASE/timed/admin/candle-replay?date=$CURRENT_DATE&tickerOffset=$BATCH_OFFSET&tickerBatch=$TICKER_BATCH&intervalMinutes=$INTERVAL_MIN&key=$API_KEY${CLEAN_PARAM}${SKIP_INV}${LOW_WRITE_PARAM}${ENV_OVERRIDE_PARAM}"
     CLEAN_PARAM=""
 
     RESULT=""
