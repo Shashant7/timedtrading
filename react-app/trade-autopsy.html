@@ -57,6 +57,7 @@
   <body>
     <div id="root"></div>
     <script type="text/babel">
+      (function() {
       const { useState, useEffect, useMemo, useCallback, useRef } = React;
 
       const API_BASE = "";
@@ -84,23 +85,6 @@
         { value: "should_have_held", label: "Should Have Held", hint: "Exited too early" },
         { value: "should_have_cut_early", label: "Should Have Cut Early", hint: "Held loser too long" },
         { value: "should_protect_gains", label: "Should Protect Gains Better", hint: "Gave back profit" },
-        { value: "sl_too_tight", label: "SL Too Tight", hint: "Stopped out by noise" },
-        { value: "sl_too_loose", label: "SL Too Loose", hint: "Risked more than needed" },
-      ];
-
-      const ENTRY_GRADE_OPTIONS = [
-        { value: "chasing", label: "Chasing", hint: "Entered after move stretched — tunes 10m weight" },
-        { value: "move_stretched", label: "Move Stretched", hint: "Entry too late in the move" },
-        { value: "not_enough_confirmation", label: "Not Enough Confirmation", hint: "Entered before signals aligned" },
-        { value: "fake_out", label: "Fake Out", hint: "Signal reversed — ticker personality" },
-        { value: "good_entry", label: "Good Entry", hint: "Solid timing and confirmation" },
-      ];
-
-      const TRADE_MANAGEMENT_OPTIONS = [
-        { value: "should_have_trimmed", label: "Should Have Trimmed", hint: "Left money on table" },
-        { value: "should_have_held", label: "Should Have Held", hint: "Exited too early" },
-        { value: "should_have_cut_losses_early", label: "Should Have Cut Losses Early", hint: "Held loser too long" },
-        { value: "should_have_protected_gains", label: "Should Have Protected Gains", hint: "Gave back profit" },
         { value: "sl_too_tight", label: "SL Too Tight", hint: "Stopped out by noise" },
         { value: "sl_too_loose", label: "SL Too Loose", hint: "Risked more than needed" },
       ];
@@ -1519,6 +1503,7 @@
           return;
         }
         ReactDOM.createRoot(root).render(<App user={session} />);
+      })();
       })();
     </script>
   </body>
