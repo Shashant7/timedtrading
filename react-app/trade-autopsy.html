@@ -745,8 +745,6 @@
         const [classification, setClassification] = useState(annotations?.classification ?? "");
         const [entryGrade, setEntryGrade] = useState(Array.isArray(annotations?.entry_grade) ? annotations.entry_grade : []);
         const [tradeManagement, setTradeManagement] = useState(Array.isArray(annotations?.trade_management) ? annotations.trade_management : []);
-        const [entryGrade, setEntryGrade] = useState(Array.isArray(annotations?.entry_grade) ? annotations.entry_grade : []);
-        const [tradeManagement, setTradeManagement] = useState(Array.isArray(annotations?.trade_management) ? annotations.trade_management : []);
         const [saving, setSaving] = useState(false);
         useEffect(() => {
           setEntryGrade(Array.isArray(annotations?.entry_grade) ? annotations.entry_grade : []);
