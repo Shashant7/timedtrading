@@ -1746,6 +1746,193 @@ function UnifiedAnalysisTab({ report, recs, reportId, onApply, applying, applied
 }
 
 // ═══════════════════════════════════════════════════════════════
+// TAB: Backtest Runs
+// ═══════════════════════════════════════════════════════════════
+function RunsTab({ isAdmin }) {
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [runs, setRuns] = useState([]);
+  const [liveSummary, setLiveSummary] = useState(null);
+  const [promotingRunId, setPromotingRunId] = useState("");
+  const [message, setMessage] = useState(null);
+
+  const fmtNum = (n) => {
+    const v = Number(n);
+    return Number.isFinite(v) ? v.toLocaleString() : "—";
+  };
+  const fmtPct = (n) => {
+    const v = Number(n);
+    return Number.isFinite(v) ? `${v.toFixed(2)}%` : "—";
+  };
+  const fmtMoney = (n) => {
+    const v = Number(n);
+    if (!Number.isFinite(v)) return "—";
+    return `${v >= 0 ? "+" : "-"}$${Math.abs(v).toFixed(2)}`;
+  };
+  const shortRunId = (rid) => {
+    const s = String(rid || "");
+    if (!s) return "—";
+    if (s.length <= 42) return s;
+    return `${s.slice(0, 26)}...${s.slice(-12)}`;
+  };
+
+  const fetchRuns = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const [listRes, liveRes] = await Promise.all([
+        fetch(`${API_BASE}/timed/admin/runs?limit=60`, { credentials: "include" }).then(r => r.json()).catch(() => null),
+        fetch(`${API_BASE}/timed/admin/runs/live`, { credentials: "include" }).then(r => r.json()).catch(() => null),
+      ]);
+      if (!listRes?.ok) {
+        setError(listRes?.error || "Failed to load backtest runs");
+        setRuns([]);
+      } else {
+        const rows = Array.isArray(listRes.summaries) && listRes.summaries.length
+          ? listRes.summaries
+          : (Array.isArray(listRes.runs) ? listRes.runs : []);
+        setRuns(rows);
+      }
+      if (liveRes?.ok) setLiveSummary(liveRes.summary || null);
+    } catch (e) {
+      setError(String(e || "Failed to load runs"));
+    }
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { fetchRuns(); }, [fetchRuns]);
+
+  const promoteRun = async (runId) => {
+    if (!isAdmin) return;
+    if (!runId) return;
+    setPromotingRunId(runId);
+    setMessage(null);
+    try {
+      const res = await fetch(`${API_BASE}/timed/admin/runs/mark-live`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ run_id: runId }),
+        credentials: "include",
+      });
+      const data = await res.json();
+      if (!data?.ok) {
+        setError(data?.error || "Failed to promote run");
+      } else {
+        setMessage(`Live baseline updated: ${runId}`);
+        await fetchRuns();
+      }
+    } catch (e) {
+      setError(String(e || "Failed to promote run"));
+    }
+    setPromotingRunId("");
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="card p-4">
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-sm font-semibold text-white">Live Baseline</h3>
+          <button className="btn btn-secondary text-xs" onClick={fetchRuns} disabled={loading}>Refresh</button>
+        </div>
+        {liveSummary ? (
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
+            <div><div className="text-slate-500">Run ID</div><div className="text-slate-200 font-mono break-all">{liveSummary.run_id || "—"}</div></div>
+            <div><div className="text-slate-500">Date Range</div><div className="text-slate-200">{liveSummary.start_date || "—"} → {liveSummary.end_date || "—"}</div></div>
+            <div><div className="text-slate-500">Trades / Win Rate</div><div className="text-slate-200">{fmtNum(liveSummary?.trades?.total)} / {fmtPct(liveSummary?.trades?.win_rate)}</div></div>
+            <div><div className="text-slate-500">Realized P&L</div><div className={`${Number(liveSummary?.pnl?.realized || 0) >= 0 ? "text-emerald-400" : "text-rose-400"} font-semibold`}>{fmtMoney(liveSummary?.pnl?.realized)}</div></div>
+          </div>
+        ) : (
+          <p className="text-xs text-slate-500">No live baseline selected yet.</p>
+        )}
+      </div>
+
+      {message && <div className="p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-xs text-emerald-300">{message}</div>}
+      {error && <div className="p-3 rounded-lg bg-rose-500/10 border border-rose-500/20 text-xs text-rose-300">{error}</div>}
+
+      <div className="card overflow-hidden">
+        <div className="px-4 py-3 border-b border-white/[0.06]">
+          <h3 className="text-sm font-semibold text-white">Backtest Runs</h3>
+          <p className="text-[11px] text-slate-500 mt-1">Track run metrics and promote a specific run ID to live baseline.</p>
+        </div>
+        {loading ? (
+          <div className="p-5 text-center text-xs text-slate-500">Loading runs...</div>
+        ) : runs.length === 0 ? (
+          <div className="p-5 text-center text-xs text-slate-500">No runs found.</div>
+        ) : (
+          <div className="overflow-auto">
+            <table className="w-full text-xs min-w-[1180px]">
+              <thead className="bg-white/[0.03] text-slate-500">
+                <tr>
+                  <th className="px-3 py-2 text-left font-semibold">Run</th>
+                  <th className="px-3 py-2 text-left font-semibold">Range</th>
+                  <th className="px-3 py-2 text-right font-semibold">Tickers</th>
+                  <th className="px-3 py-2 text-right font-semibold">Trades</th>
+                  <th className="px-3 py-2 text-right font-semibold">W / L / BE</th>
+                  <th className="px-3 py-2 text-right font-semibold">Win Rate</th>
+                  <th className="px-3 py-2 text-right font-semibold">P&L</th>
+                  <th className="px-3 py-2 text-left font-semibold">Autopsy</th>
+                  <th className="px-3 py-2 text-left font-semibold">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {runs.map((r) => {
+                  const runId = r.run_id || "";
+                  const pnl = Number(r?.pnl?.realized ?? r?.realized_pnl ?? 0);
+                  const autopsyUrl = r?.autopsy_url || "#";
+                  const tradedCount = r?.tickers?.traded_count ?? r?.total_tickers_traded;
+                  const universeCount = r?.tickers?.universe_count ?? r?.ticker_universe_count;
+                  const totalTrades = r?.trades?.total ?? r?.total_trades;
+                  const wins = r?.trades?.wins ?? r?.wins;
+                  const losses = r?.trades?.losses ?? r?.losses;
+                  const be = r?.trades?.breakevens ?? r?.breakevens;
+                  const winRate = r?.trades?.win_rate ?? r?.win_rate;
+                  const isLive = !!(r?.live_config_slot);
+                  return (
+                    <tr key={runId} className="border-t border-white/[0.04] hover:bg-white/[0.02]">
+                      <td className="px-3 py-2">
+                        <div className="font-mono text-slate-200" title={runId}>{shortRunId(runId)}</div>
+                        <div className="text-[10px] text-slate-500">{r?.label || "—"} {isLive ? <span className="ml-1 text-emerald-400 font-semibold">LIVE</span> : null}</div>
+                      </td>
+                      <td className="px-3 py-2 text-slate-300">{r?.start_date || "—"} → {r?.end_date || "—"}</td>
+                      <td className="px-3 py-2 text-right text-slate-300">{fmtNum(tradedCount)} / {fmtNum(universeCount)}</td>
+                      <td className="px-3 py-2 text-right text-slate-300">{fmtNum(totalTrades)}</td>
+                      <td className="px-3 py-2 text-right text-slate-300">{fmtNum(wins)} / {fmtNum(losses)} / {fmtNum(be)}</td>
+                      <td className="px-3 py-2 text-right text-slate-300">{fmtPct(winRate)}</td>
+                      <td className={`px-3 py-2 text-right font-semibold ${pnl >= 0 ? "text-emerald-400" : "text-rose-400"}`}>{fmtMoney(pnl)}</td>
+                      <td className="px-3 py-2">
+                        {autopsyUrl && autopsyUrl !== "#" ? (
+                          <a className="text-cyan-300 hover:text-cyan-200 underline" href={autopsyUrl}>Open</a>
+                        ) : (
+                          <span className="text-slate-500">—</span>
+                        )}
+                      </td>
+                      <td className="px-3 py-2">
+                        {isAdmin ? (
+                          <button
+                            className="btn text-[11px]"
+                            style={{ background: isLive ? "rgba(16,185,129,0.15)" : "rgba(29,78,216,0.2)", color: isLive ? "#6ee7b7" : "#93c5fd", border: "1px solid rgba(147,197,253,0.25)", padding: "5px 10px" }}
+                            disabled={isLive || promotingRunId === runId}
+                            onClick={() => promoteRun(runId)}
+                          >
+                            {isLive ? "Live" : (promotingRunId === runId ? "Promoting..." : "Promote Live")}
+                          </button>
+                        ) : (
+                          <span className="text-slate-500">Admin only</span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
 // MAIN APP
 // ═══════════════════════════════════════════════════════════════
 function App() {
@@ -1897,6 +2084,7 @@ function App() {
   const tabs = [
     { id: "dashboard", label: "Dashboard" },
     { id: "analysis", label: "Analysis" },
+    ...(isAdmin ? [{ id: "runs", label: "Runs" }] : []),
     { id: "patterns", label: "Patterns & Learning" },
     { id: "history", label: "History" },
   ];
@@ -1947,6 +2135,7 @@ function App() {
           <>
             {tab === "dashboard" && <DashboardTab dashboard={dashboard} />}
             {tab === "analysis" && <UnifiedAnalysisTab report={report} recs={recs} reportId={reportId} onApply={handleApply} applying={applying} appliedMsg={appliedMsg} />}
+            {tab === "runs" && <RunsTab isAdmin={isAdmin} />}
             {tab === "patterns" && <PatternsTab />}
             {tab === "history" && <HistoryTab onViewReport={handleViewReport} />}
           </>

@@ -531,6 +531,11 @@ const ROUTES = [
   ["POST", "/timed/admin/reconcile-replay", "POST /timed/admin/reconcile-replay"],
   ["POST", "/timed/admin/replay-lock", "POST /timed/admin/replay-lock"],
   ["DELETE", "/timed/admin/replay-lock", "DELETE /timed/admin/replay-lock"],
+  ["POST", "/timed/admin/runs/register", "POST /timed/admin/runs/register"],
+  ["POST", "/timed/admin/runs/finalize", "POST /timed/admin/runs/finalize"],
+  ["POST", "/timed/admin/runs/mark-live", "POST /timed/admin/runs/mark-live"],
+  ["GET", "/timed/admin/runs", "GET /timed/admin/runs"],
+  ["GET", "/timed/admin/runs/live", "GET /timed/admin/runs/live"],
   ["POST", "/timed/admin/run-lifecycle", "POST /timed/admin/run-lifecycle"],
   ["POST", "/timed/admin/model-resolve", "POST /timed/admin/model-resolve"],
   ["POST", "/timed/admin/model-retro", "POST /timed/admin/model-retro"],
@@ -1604,6 +1609,82 @@ function computeDataCompleteness(tickerData) {
   };
 }
 
+function tfTechRow(tickerData, key) {
+  const tfTech = tickerData?.tf_tech;
+  if (!tfTech || typeof tfTech !== "object") return null;
+  if (tfTech[key]) return tfTech[key];
+  if (key === "1H") return tfTech["60"] || null;
+  if (key === "60") return tfTech["1H"] || null;
+  if (key === "4H") return tfTech["240"] || null;
+  if (key === "240") return tfTech["4H"] || null;
+  return null;
+}
+
+function resolveEngineMode(raw) {
+  const m = String(raw || "").trim().toLowerCase();
+  if (m === "ripster_core") return "ripster_core";
+  return "legacy";
+}
+
+function getTradeTrimmedPct(trade) {
+  return clamp(Number(trade?.trimmedPct ?? trade?.trimmed_pct ?? 0), 0, 1);
+}
+
+function capSlToPostTrimAnchor(trade, slCandidate) {
+  const candidate = Number(slCandidate);
+  if (!Number.isFinite(candidate) || candidate <= 0) return slCandidate;
+  const anchor = Number(trade?.post_trim_anchor_sl);
+  if (!Number.isFinite(anchor) || anchor <= 0) return candidate;
+  const dir = String(trade?.direction || "").toUpperCase();
+  if (dir === "LONG") return Math.min(candidate, anchor);
+  if (dir === "SHORT") return Math.max(candidate, anchor);
+  return candidate;
+}
+
+function resolvePostTrimAnchorSl({
+  direction,
+  atrVal,
+  demandZoneLow,
+  supplyZoneHigh,
+  ema1h_48,
+  trailStyleMults,
+  hasHtfFvgAnchor,
+}) {
+  const dir = String(direction || "").toUpperCase();
+  const isLong = dir === "LONG";
+  const atr = Number.isFinite(atrVal) && atrVal > 0 ? atrVal : 0;
+  const baseBuf = Math.max(0.15, Number(trailStyleMults?.postTrimBuf) || 0.5);
+
+  if (isLong) {
+    if (hasHtfFvgAnchor && Number.isFinite(demandZoneLow) && demandZoneLow > 0) {
+      return { anchorSl: demandZoneLow - atr * 0.03, source: "htf_fvg_demand" };
+    }
+    if (Number.isFinite(ema1h_48) && ema1h_48 > 0) {
+      return { anchorSl: ema1h_48 - atr * Math.max(0.5, baseBuf), source: "ema1h48_fallback" };
+    }
+    if (Number.isFinite(demandZoneLow) && demandZoneLow > 0) {
+      return { anchorSl: demandZoneLow - atr * 0.05, source: "ltf_or_pdz_demand" };
+    }
+  } else if (dir === "SHORT") {
+    if (hasHtfFvgAnchor && Number.isFinite(supplyZoneHigh) && supplyZoneHigh > 0) {
+      return { anchorSl: supplyZoneHigh + atr * 0.03, source: "htf_fvg_supply" };
+    }
+    if (Number.isFinite(ema1h_48) && ema1h_48 > 0) {
+      return { anchorSl: ema1h_48 + atr * Math.max(0.5, baseBuf), source: "ema1h48_fallback" };
+    }
+    if (Number.isFinite(supplyZoneHigh) && supplyZoneHigh > 0) {
+      return { anchorSl: supplyZoneHigh + atr * 0.05, source: "ltf_or_pdz_supply" };
+    }
+  }
+  return { anchorSl: null, source: null };
+}
+
+function parseBoolFlag(raw, defaultValue = false) {
+  if (raw == null || raw === "") return !!defaultValue;
+  const v = String(raw).trim().toLowerCase();
+  return v === "1" || v === "true" || v === "yes" || v === "on";
+}
+
 function tfTechAlignmentSummary(tickerData) {
   const tfTech = tickerData?.tf_tech;
   if (!tfTech || typeof tfTech !== "object") return null;
@@ -1620,7 +1701,7 @@ function tfTechAlignmentSummary(tickerData) {
   const stacks = {};
 
   for (const k of TF_ORDER) {
-    const row = tfTech[k];
+    const row = tfTechRow(tickerData, k);
     const stack = Number(row?.ema?.stack);
     if (!Number.isFinite(stack)) continue;
     presentW += WEIGHTS[k] || 1.0;
@@ -1637,8 +1718,8 @@ function tfTechAlignmentSummary(tickerData) {
   const raw = alignedW - opposedW;
   const score = Math.max(-8, Math.min(10, raw * 2));
 
-  const sq30 = tfTech["30"]?.sq;
-  const sq10 = tfTech["10"]?.sq;
+  const sq30 = tfTechRow(tickerData, "30")?.sq;
+  const sq10 = tfTechRow(tickerData, "10")?.sq;
   const squeezeOn = !!(sq30?.s === 1 || sq10?.s === 1);
   const squeezeRel = !!(sq30?.r === 1 || sq10?.r === 1);
 
@@ -2163,6 +2244,14 @@ function qualifiesForEnter(d, asOfTs = null) {
   const completion = Number(d?.completion) || 0;
   const phase = Number(d?.phase_pct) || 0;
   const rr = Number(d?.rr) || 0;
+  const tf10 = tfTechRow(d, "10");
+  const tf30 = tfTechRow(d, "30");
+  const tf1H = tfTechRow(d, "1H");
+  const tf4H = tfTechRow(d, "4H");
+  const tfD = tfTechRow(d, "D");
+  const entryEngine = resolveEngineMode(d?._env?._entryEngine);
+  const ripsterTuneV2 = parseBoolFlag(d?._env?._ripsterTuneV2, false);
+  let ewContext = "none";
   
   // ── PRECISION SCORING ENGINE v2 fields ──
   const stSupportScore = d?.st_support?.supportScore ?? 0.5; // 0.0–1.0, 0.5 = neutral
@@ -2195,6 +2284,11 @@ function qualifiesForEnter(d, asOfTs = null) {
   const rvol1H = d?.rvol_map?.["60"]?.vr ?? 1.0;
   const rvolBest = Math.max(rvol30, rvol1H);
   const inferredSide = sideFromStateOrScores(d);
+  const ripsterTrendConfirmed = entryEngine === "ripster_core" && ripsterTuneV2 && (
+    (inferredSide === "LONG" && (Number(d?.ema_regime_daily) || 0) >= 2) ||
+    // Slightly looser for shorts: allow early bearish regime as "trend confirmed"
+    (inferredSide === "SHORT" && (Number(d?.ema_regime_daily) || 0) <= -1)
+  );
 
   // RVOL Dead Zone: volume too thin for any reliable signal
   const rvolDeadZone = rParams.rvolDeadZone ?? 0.4;
@@ -2207,13 +2301,27 @@ function qualifiesForEnter(d, asOfTs = null) {
   // Keys stored in model_config, loaded into d._env
   // ═══════════════════════════════════════════════════════════════════════════
   const _daConfig = d?._env?._deepAuditConfig || {};
+  const daVariantGuardrailsV3 = parseBoolFlag(_daConfig.deep_audit_variant_guardrails_v3, false);
+  const daVariantMinRank = Number(_daConfig.deep_audit_variant_min_rank) || 60;
+  const daVariantMinRR = Number(_daConfig.deep_audit_variant_min_rr) || 2.0;
+  const daSwingChecklistV1 = parseBoolFlag(_daConfig.deep_audit_swing_checklist_v1, false);
+  const daSwingPhaseNearZeroAbs = Number(_daConfig.deep_audit_swing_phase_near_zero_abs) || 18;
+  const daSwingPhaseEarlyMax = Number(_daConfig.deep_audit_swing_phase_early_max) || 0.35;
+  const daSwingRequireSqueezeBuild = parseBoolFlag(_daConfig.deep_audit_swing_require_squeeze_build, false);
+  const daRsiAllTfExtremeGuard = parseBoolFlag(_daConfig.deep_audit_rsi_all_tf_extreme_guard, true);
+  const daRsiAllTfHigh = Number(_daConfig.deep_audit_rsi_all_tf_high) || 70;
+  const daRsiAllTfLow = Number(_daConfig.deep_audit_rsi_all_tf_low) || 30;
+  const daRsiExtremeProfileMinPct = Number(_daConfig.deep_audit_rsi_extreme_profile_min_pct) || 40;
 
   // DA-1: SHORT minimum rank gate
   const daShortMinRank = Number(_daConfig.deep_audit_short_min_rank) || 0;
-  if (daShortMinRank > 0 && inferredSide === "SHORT" && score < daShortMinRank) {
+  const daShortMinRankEff = (entryEngine === "ripster_core" && ripsterTuneV2 && inferredSide === "SHORT")
+    ? Math.max(55, daShortMinRank - 7)
+    : daShortMinRank;
+  if (daShortMinRankEff > 0 && inferredSide === "SHORT" && score < daShortMinRankEff) {
     const isBearConfirmed = state.includes("BEAR") && state.includes("BEAR");
     if (!isBearConfirmed) {
-      return { qualifies: false, reason: "da_short_rank_too_low", rank: score, required: daShortMinRank };
+      return { qualifies: false, reason: "da_short_rank_too_low", rank: score, required: daShortMinRankEff };
     }
   }
 
@@ -2231,8 +2339,7 @@ function qualifiesForEnter(d, asOfTs = null) {
   if (daAvoidHours != null) {
     const avoidArr = Array.isArray(daAvoidHours) ? daAvoidHours : [daAvoidHours];
     const nowMs = asOfTs > 0 ? asOfTs : Date.now();
-    const entryHour = new Date(nowMs).getUTCHours();
-    const nyHour = ((entryHour - 5 + 24) % 24);
+    const nyHour = Number(getEasternParts(new Date(nowMs)).hour) || 0;
     if (avoidArr.includes(nyHour)) {
       return { qualifies: false, reason: "da_toxic_hour", hour: nyHour };
     }
@@ -2243,7 +2350,20 @@ function qualifiesForEnter(d, asOfTs = null) {
   // Filtering out low-HTF entries reduces noise trades.
   const daMinHtf = Number(_daConfig.deep_audit_min_htf_score) || 0;
   if (daMinHtf > 0 && htf < daMinHtf) {
-    return { qualifies: false, reason: "da_htf_too_low", htf, required: daMinHtf };
+    if (!ripsterTrendConfirmed) {
+      return { qualifies: false, reason: "da_htf_too_low", htf, required: daMinHtf };
+    }
+  }
+
+  // DA-V3: Experimental guardrails variant
+  // Tighten entry quality to reduce loser clusters from low-conviction setups.
+  if (daVariantGuardrailsV3) {
+    if (score < daVariantMinRank && !ripsterTrendConfirmed) {
+      return { qualifies: false, reason: "da_v3_rank_too_low", rank: score, required: daVariantMinRank };
+    }
+    if (Number.isFinite(rr) && rr > 0 && rr < daVariantMinRR) {
+      return { qualifies: false, reason: "da_v3_rr_too_low", rr, required: daVariantMinRR };
+    }
   }
 
   // DA-5: Momentum elite rank boost
@@ -2261,8 +2381,67 @@ function qualifiesForEnter(d, asOfTs = null) {
 
   // SHORT volume gate: SHORTs need elevated RVOL (institutional selling must be visible)
   const shortRvolMin = rParams.shortRvolMin ?? 1.0;
-  if (inferredSide === "SHORT" && rvolBest < shortRvolMin) {
-    return { qualifies: false, reason: "short_rvol_too_low", rvol: rvolBest, required: shortRvolMin, regime: regimeClass };
+  const shortRvolMinEff = (entryEngine === "ripster_core" && ripsterTuneV2 && inferredSide === "SHORT")
+    ? Math.max(0.85, shortRvolMin - 0.1)
+    : shortRvolMin;
+  if (inferredSide === "SHORT" && rvolBest < shortRvolMinEff) {
+    return { qualifies: false, reason: "short_rvol_too_low", rvol: rvolBest, required: shortRvolMinEff, regime: regimeClass };
+  }
+
+  // DA-SWING-V1: codify discretionary swing checklist.
+  // LONG focus:
+  //  - Price above 4H EMA 5/13/21 and Daily EMA5
+  //  - Phase reset behavior: near 0-line with recent reset context
+  //  - Optional squeeze-building confirmation
+  if (daSwingChecklistV1 && inferredSide === "LONG") {
+    const px = Number(d?.price);
+    const ema5_4h = Number(tf4H?.ema?.e5 ?? tf4H?.ema5);
+    const ema13_4h = Number(tf4H?.ema?.e13 ?? tf4H?.ema13);
+    const ema21_4h = Number(tf4H?.ema?.e21 ?? tf4H?.ema21);
+    const ema5_d = Number(tfD?.ema?.e5 ?? tfD?.ema5);
+    const phase4h = Number(tf4H?.ph?.v);
+    const phaseNearZero = Number.isFinite(phase4h) && Math.abs(phase4h) <= daSwingPhaseNearZeroAbs;
+    const phaseResetContext = !!flags.phase_zone_change || (Number.isFinite(phase) && phase <= daSwingPhaseEarlyMax);
+    const sq10On = tf10?.sq?.s === 1;
+    const sq30On = tf30?.sq?.s === 1;
+    const squeezeBuilding = !!(flags.sq10_on || flags.sq30_on || sq10On || sq30On);
+    const emaStackReady =
+      Number.isFinite(px) &&
+      Number.isFinite(ema5_4h) &&
+      Number.isFinite(ema13_4h) &&
+      Number.isFinite(ema21_4h) &&
+      Number.isFinite(ema5_d) &&
+      px > ema5_4h &&
+      px > ema13_4h &&
+      px > ema21_4h &&
+      px > ema5_d;
+
+    if (!emaStackReady) {
+      return {
+        qualifies: false,
+        reason: "da_swing_v1_ema_stack_not_ready",
+        px,
+        ema5_4h,
+        ema13_4h,
+        ema21_4h,
+        ema5_d,
+      };
+    }
+    if (!(phaseNearZero && phaseResetContext)) {
+      return {
+        qualifies: false,
+        reason: "da_swing_v1_phase_reset_missing",
+        phase4h,
+        phasePct: phase,
+        phaseZoneChange: !!flags.phase_zone_change,
+      };
+    }
+    if (daSwingRequireSqueezeBuild && !squeezeBuilding) {
+      return {
+        qualifies: false,
+        reason: "da_swing_v1_squeeze_not_building",
+      };
+    }
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -2283,22 +2462,38 @@ function qualifiesForEnter(d, asOfTs = null) {
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // 10m PRICE vs 21 EMA GATE: Never enter LONG if price below 21 EMA on 10m;
-  // never enter SHORT if price above 21 EMA on 10m. (User feedback: GE/BABA bad trades)
-  // EXCEPTION: Daily regime confirmed (ema_regime_daily ±2) — we're buying/selling
-  // a pullback in a strong trend; price can be below/above 21 EMA at the pullback.
+  // 10m LEADING TF GATES (strict): require both
+  //   1) price location vs 10m EMA21
+  //   2) 10m SuperTrend direction alignment
+  // LONG  => price above 10m EMA21 AND 10m ST bullish
+  // SHORT => price below 10m EMA21 AND 10m ST bearish
   // ═══════════════════════════════════════════════════════════════════════════
   const emaRegimeDaily = Number(d?.ema_regime_daily) || 0;
-  const isRegimeConfirmedLong = emaRegimeDaily >= 2 && inferredSide === "LONG";
-  const isRegimeConfirmedShort = emaRegimeDaily <= -2 && inferredSide === "SHORT";
-  if (!isRegimeConfirmedLong && !isRegimeConfirmedShort) {
-    const priceAboveEma21_10m = d?.tf_tech?.["10"]?.ema?.priceAboveEma21;
-    if (priceAboveEma21_10m === false && inferredSide === "LONG") {
-      return { qualifies: false, reason: "price_below_21ema_10m" };
-    }
-    if (priceAboveEma21_10m === true && inferredSide === "SHORT") {
-      return { qualifies: false, reason: "price_above_21ema_10m" };
-    }
+  const priceAboveEma21_10m = tf10?.ema?.priceAboveEma21;
+  if (inferredSide === "LONG" && priceAboveEma21_10m !== true) {
+    return { qualifies: false, reason: "price_not_above_21ema_10m" };
+  }
+  if (inferredSide === "SHORT" && priceAboveEma21_10m !== false) {
+    return { qualifies: false, reason: "price_not_below_21ema_10m" };
+  }
+  const stDir10mGate = Number(tf10?.stDir);
+  if (inferredSide === "LONG" && stDir10mGate !== -1) {
+    return { qualifies: false, reason: "st_10m_not_bullish_long", stDir10m: stDir10mGate };
+  }
+  if (inferredSide === "SHORT" && stDir10mGate !== 1) {
+    return { qualifies: false, reason: "st_10m_not_bearish_short", stDir10m: stDir10mGate };
+  }
+  const rsi10mGate = Number(
+    tf10?.rsi?.r5 ??
+    d?.entry_quality?.details?.rsi10m ??
+    d?.entry_quality?.details?.rsi_10m ??
+    NaN,
+  );
+  if (!Number.isFinite(rsi10mGate)) {
+    return { qualifies: false, reason: "rsi_10m_unavailable_for_gate" };
+  }
+  if (rsi10mGate >= 78) {
+    return { qualifies: false, reason: "rsi_10m_chase_block", rsi10m: rsi10mGate, maxRsi10m: 77.99 };
   }
 
   // Ticker profile entry threshold adjustment: raise the bar for mean-revert / extreme-vol tickers
@@ -2328,9 +2523,11 @@ function qualifiesForEnter(d, asOfTs = null) {
       // EMA alignment boost: if historical data shows EMA alignment matters
       // for this ticker, boost when aligned
       const emaBoost = Number(ep.ema_alignment_boost) || 1;
+      const dEma21 = Number(tfD?.ema?.e21 ?? tfD?.ema21);
+      const dEma48 = Number(tfD?.ema?.e48 ?? tfD?.ema48);
       const currentEmaAligned = inferredSide === "LONG"
-        ? (d?.tf_tech?.D?.ema21 > d?.tf_tech?.D?.ema48)
-        : (d?.tf_tech?.D?.ema21 < d?.tf_tech?.D?.ema48);
+        ? (Number.isFinite(dEma21) && Number.isFinite(dEma48) && dEma21 > dEma48)
+        : (Number.isFinite(dEma21) && Number.isFinite(dEma48) && dEma21 < dEma48);
       if (currentEmaAligned && emaBoost > 1.2) learningBoost += 2;
       if (!currentEmaAligned && emaBoost > 1.5) learningBoost -= 2;
     }
@@ -2429,7 +2626,9 @@ function qualifiesForEnter(d, asOfTs = null) {
   const _calibRankMin = Number(d?._env?._calibratedRankMin) || 0;
   const effectiveRankMin = stateGate?.min_rank > 0 ? stateGate.min_rank : (_calibRankMin > 0 ? _calibRankMin : 0);
   if (effectiveRankMin > 0 && score < effectiveRankMin) {
-    return { qualifies: false, reason: "adaptive_rank_below_min", rank: score, required: effectiveRankMin, state };
+    if (!ripsterTrendConfirmed) {
+      return { qualifies: false, reason: "adaptive_rank_below_min", rank: score, required: effectiveRankMin, state };
+    }
   }
 
   // Golden Profile gates: enforce HTF/LTF score floors from hindsight oracle
@@ -2440,7 +2639,9 @@ function qualifiesForEnter(d, asOfTs = null) {
       const gpHtfFloor = Number(gpState.htf_score_median) || 0;
       const gpLtfFloor = Number(gpState.ltf_score_median) || 0;
       if (gpHtfFloor > 0 && htf < gpHtfFloor * 0.75) {
-        return { qualifies: false, reason: "golden_htf_below_floor", htf, floor: gpHtfFloor * 0.75, state };
+        if (!ripsterTrendConfirmed) {
+          return { qualifies: false, reason: "golden_htf_below_floor", htf, floor: gpHtfFloor * 0.75, state };
+        }
       }
       if (gpLtfFloor > 0 && ltf < gpLtfFloor * 0.75) {
         return { qualifies: false, reason: "golden_ltf_below_floor", ltf, floor: gpLtfFloor * 0.75, state };
@@ -2461,7 +2662,13 @@ function qualifiesForEnter(d, asOfTs = null) {
 
   // Completion gate: room to run — regime-adaptive + calibration
   const isPullback = state === "HTF_BULL_LTF_PULLBACK" || state === "HTF_BEAR_LTF_PULLBACK";
-  const defaultMaxCompletion = isPullback ? 0.60 : 0.40;
+  // Regime-confirmed trends (ema_regime ±1+) get a higher ceiling — valid re-entries
+  // after a pullback often show 40-55% completion but still have room to run.
+  const _regimeForComp = Number(d?.ema_regime_daily) || 0;
+  const compRegimeConfirmed = (Math.abs(_regimeForComp) >= 1 && (
+    (_regimeForComp >= 1 && inferredSide === "LONG") || (_regimeForComp <= -1 && inferredSide === "SHORT")
+  ));
+  const defaultMaxCompletion = isPullback ? 0.60 : (compRegimeConfirmed ? 0.55 : 0.40);
   // v3: Regime tightens completion cap in chop (less room = don't chase)
   const regimeMaxCompletion = rParams.maxCompletion ?? defaultMaxCompletion;
   const maxCompletion = Math.min(
@@ -2609,6 +2816,9 @@ function qualifiesForEnter(d, asOfTs = null) {
                         flagFresh(flags.st_flip_1h, flags.st_flip_1h_ts, "structural") ||
                         flagFresh(flags.st_flip_10m, flags.st_flip_10m_ts, "momentum") ||
                         flagFresh(flags.st_flip_3m, flags.st_flip_3m_ts, "momentum");
+  const hasStFlipBear = triggerSet.has("ST_FLIP_30M_BEAR") || triggerSet.has("ST_FLIP_1H_BEAR") ||
+                        triggerSet.has("ST_FLIP_10M_BEAR") || triggerSet.has("ST_FLIP_3M_BEAR") ||
+                        flagFresh(flags.st_flip_bear, flags.st_flip_bear_ts, "momentum");
   
   // EMA cross signals (confirmation of momentum)
   const hasEmaCrossBull = triggerSet.has("EMA_CROSS_1H_13_48_BULL") || triggerSet.has("EMA_CROSS_30M_13_48_BULL") ||
@@ -2623,9 +2833,22 @@ function qualifiesForEnter(d, asOfTs = null) {
                        flagFresh(flags.sq30_release, flags.sq30_release_ts, "momentum") ||
                        flagFresh(flags.sq1h_release, flags.sq1h_release_ts, "entry");
   
+  // RSI Divergence: price making new low while RSI making higher low = bullish reversal
+  // Strong pullback confirmation signal — one of the most reliable reversal patterns in CMT methodology
+  const _div10 = tf10?.rsiDiv;
+  const _div30 = tf30?.rsiDiv;
+  const _div1H = tf1H?.rsiDiv;
+  const hasRsiDivBull = !!(_div10?.bullish || _div30?.bullish || _div1H?.bullish);
+  const hasRsiDivBear = !!(_div10?.bearish || _div30?.bearish || _div1H?.bearish);
+
   // LTF momentum confirmation: LTF score should be turning (not deeply negative for LONG)
   // For pullback entries, we want to see LTF recovering (ltf > -10) or momentum signals
-  const ltfRecovering = ltf > -10 || hasStFlipBull || hasEmaCrossBull || hasSqRelease;
+  // RSI bullish divergence is a strong pullback confirmation — adds to recovery signals
+  const ltfRecovering = ltf > -10 || hasStFlipBull || hasEmaCrossBull || hasSqRelease ||
+    (inferredSide === "LONG" && hasRsiDivBull) || (inferredSide === "SHORT" && hasRsiDivBear);
+  const ripsterLtfConfirm = inferredSide === "LONG"
+    ? ltfRecovering
+    : (ltf < 10 || hasStFlipBear || hasEmaCrossBear || hasSqRelease || hasRsiDivBear);
   
   // ── PRECISION ENRICHMENT HELPER ──
   // Wraps entry path results with precision scoring context.
@@ -2633,6 +2856,11 @@ function qualifiesForEnter(d, asOfTs = null) {
   // Golden Gate active → confidence upgrade. Multi-horizon gate → highest conviction.
   const enrichResult = (result) => {
     if (!result.qualifies) return result;
+    result.engine = entryEngine;
+    result.engine_version = entryEngine;
+    if (!result.trigger_family) {
+      result.trigger_family = result.path?.startsWith("ripster_") ? "ripster_cloud" : "legacy_mtf";
+    }
 
     // Learning loop: check if this entry path is auto-disabled due to poor performance
     if (result.path && _pathPerfCache.size > 0) {
@@ -2684,11 +2912,17 @@ function qualifiesForEnter(d, asOfTs = null) {
       return { qualifies: false, reason: "entry_quality_too_low", eqScore, minQuality, sectorAdj: sectorForEntry };
     }
 
-    // Golden Gate confidence boost
+    // RSI divergence confidence boost for pullback entries
     const isLong = !result.path?.includes("short");
+    const divAligned = (isLong && hasRsiDivBull) || (!isLong && hasRsiDivBear);
+    if (divAligned && isGoldPath) {
+      if (result.confidence === "low") result.confidence = "medium";
+      result.rsi_divergence_boost = true;
+    }
+
+    // Golden Gate confidence boost
     const gateMatch = isLong ? hasActiveBullGate : hasActiveBearGate;
     if (gateMatch) {
-      // Upgrade confidence: low → medium, medium → high
       if (result.confidence === "low") result.confidence = "medium";
       else if (result.confidence === "medium" && multiHorizonGate) result.confidence = "high";
       result.gate_boost = true;
@@ -2729,6 +2963,216 @@ function qualifiesForEnter(d, asOfTs = null) {
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
+  // FEATURE-FLAGGED ENTRY ENGINE: Ripster-Core
+  // Bias: D+1H+10m 34/50 cloud alignment
+  // Trigger: 10m 5/12 reclaim/cross
+  // Pullback add: 10m 8/9 bounce while 34/50 bias holds
+  // ═══════════════════════════════════════════════════════════════════════════
+  if (entryEngine === "ripster_core") {
+    const c10_34 = tf10?.ripster?.c34_50;
+    const c1h_34 = tf1H?.ripster?.c34_50;
+    const cD_34 = tfD?.ripster?.c34_50;
+    const c10_5 = tf10?.ripster?.c5_12;
+    const c10_8 = tf10?.ripster?.c8_9;
+
+    const dAligned = inferredSide === "LONG" ? !!cD_34?.bull : !!cD_34?.bear;
+    const h1Aligned = inferredSide === "LONG" ? !!c1h_34?.bull : !!c1h_34?.bear;
+    const m10Aligned = inferredSide === "LONG" ? !!c10_34?.bull : !!c10_34?.bear;
+    const alignedCount = [dAligned, h1Aligned, m10Aligned].filter(Boolean).length;
+    const strongDailyTrend = (inferredSide === "LONG" && emaRegimeDaily >= 2) || (inferredSide === "SHORT" && emaRegimeDaily <= -2);
+    const biasAligned = ripsterTuneV2
+      ? (dAligned && h1Aligned && (strongDailyTrend ? alignedCount >= 2 : m10Aligned))
+      : (dAligned && h1Aligned && m10Aligned);
+    if (!biasAligned) {
+      return {
+        qualifies: false,
+        reason: "ripster_bias_not_aligned",
+        engine: entryEngine,
+        ripster_bias: {
+          c10_34: c10_34?.bull ? "bull" : c10_34?.bear ? "bear" : "na",
+          c1h_34: c1h_34?.bull ? "bull" : c1h_34?.bear ? "bear" : "na",
+          cD_34: cD_34?.bull ? "bull" : cD_34?.bear ? "bear" : "na",
+          aligned_count: alignedCount,
+          strong_daily_trend: strongDailyTrend,
+        },
+      };
+    }
+
+    const momentumTrigger = inferredSide === "LONG"
+      ? !!(c10_5?.crossUp || (c10_5?.bull && c10_5?.above && c10_5?.fastSlope >= 0))
+      : !!(c10_5?.crossDn || (c10_5?.bear && c10_5?.below && c10_5?.fastSlope <= 0));
+
+    const pullbackTrigger = inferredSide === "LONG"
+      ? !!((c10_8?.inCloud || c10_8?.above) && c10_8?.fastSlope >= 0 && ripsterLtfConfirm)
+      : !!((c10_8?.inCloud || c10_8?.below) && c10_8?.fastSlope <= 0 && ripsterLtfConfirm);
+    const reclaimTrigger = ripsterTuneV2 && inferredSide === "LONG"
+      ? !!((c10_8?.crossUp || (c10_8?.bull && c10_8?.above)) && hasStFlipBull && ltfRecovering && c10_8?.fastSlope >= 0)
+      : ripsterTuneV2
+        ? !!((c10_8?.crossDn || (c10_8?.bear && c10_8?.below)) && hasStFlipBear && ripsterLtfConfirm && c10_8?.fastSlope <= 0)
+        : false;
+    const nowMsRip = asOfTs > 0 ? asOfTs : Date.now();
+    const nowEtRip = getEasternParts(new Date(nowMsRip));
+    const nyHourRip = Number(nowEtRip.hour) || 0;
+    const nyMinRip = Number(nowEtRip.minute) || 0;
+    const inOpeningNoiseWindow = nyHourRip === 9 && nyMinRip < 45;
+    const stDir10m = Number(tf10?.stDir) || 0;
+    const stDir30m = Number(tf30?.stDir) || 0;
+    const rsi10m = Number(tf10?.rsi?.r5) || 50;
+    const rsi30m = Number(tf30?.rsi?.r5) || 50;
+    const rsi1h = Number(tf1H?.rsi?.r5) || 50;
+    const rsi4h = Number(tf4H?.rsi?.r5) || 50;
+    const rsiD = Number(tfD?.rsi?.r5) || 50;
+    const stDirD = Number(tfD?.stDir) || 0;
+    const trendExtensionPct = Number(c10_5?.distToCloudPct) || 0;
+    const chasingLong = inferredSide === "LONG" && rsi10m >= 74 && rsi30m >= 68 && trendExtensionPct >= 0.0045;
+    const chasingShort = inferredSide === "SHORT" && rsi10m <= 26 && rsi30m <= 32 && trendExtensionPct >= 0.0045;
+    // CRS-style anti-chase guard: when micro (10m) and macro (Daily) are both very hot,
+    // momentum entries tend to be late and vulnerable to pullbacks.
+    const rsi10mDailyHeatLong = inferredSide === "LONG" && rsi10m >= 77 && rsiD >= 80;
+    const rsi10mDailyHeatShort = inferredSide === "SHORT" && rsi10m <= 23 && rsiD <= 20;
+    const momentumRsiHeatLong = inferredSide === "LONG" && rsi30m >= 70 && rsi1h >= 70;
+    const momentumRsiHeatShort = inferredSide === "SHORT" && rsi30m <= 30 && rsi1h <= 30;
+    const dailyStConflictLong = inferredSide === "LONG" && stDirD === 1;
+    const dailyStConflictShort = inferredSide === "SHORT" && stDirD === -1;
+    const htfRsiExtremeLong = inferredSide === "LONG" && (rsi4h >= 80 || rsiD >= 82);
+    const htfRsiExtremeShort = inferredSide === "SHORT" && (rsi4h <= 20 || rsiD <= 18);
+    const allTfRsiExtremeLong = inferredSide === "LONG" && [rsi10m, rsi30m, rsi1h, rsi4h, rsiD].every((v) => Number(v) >= daRsiAllTfHigh);
+    const allTfRsiExtremeShort = inferredSide === "SHORT" && [rsi10m, rsi30m, rsi1h, rsi4h, rsiD].every((v) => Number(v) <= daRsiAllTfLow);
+    const _dirProfile = inferredSide === "LONG" ? _learn?.long_profile : _learn?.short_profile;
+    const _entryParams = _learn?.entry_params || {};
+    const _rsiAtOrigin = _dirProfile?.rsi_at_origin || {};
+    const _learnedExtremeFriendly = inferredSide === "LONG"
+      ? (String(_entryParams.long_rsi_sweet_spot || "").toLowerCase() === "high" && Number(_rsiAtOrigin.high_zone_pct) >= daRsiExtremeProfileMinPct)
+      : (String(_entryParams.short_rsi_sweet_spot || "").toLowerCase() === "low" && Number(_rsiAtOrigin.low_zone_pct) >= daRsiExtremeProfileMinPct);
+    const ltfOpposedLong = inferredSide === "LONG" && stDir10m === 1 && stDir30m === 1;
+    const ltfOpposedShort = inferredSide === "SHORT" && stDir10m === -1 && stDir30m === -1;
+
+    if (ripsterTuneV2 && (chasingLong || chasingShort) && momentumTrigger && !pullbackTrigger && !reclaimTrigger) {
+      return {
+        qualifies: false,
+        reason: "ripster_chasing_extension",
+        engine: entryEngine,
+        rsi10m,
+        rsi30m,
+        distToCloudPct: trendExtensionPct,
+      };
+    }
+    if (ripsterTuneV2 && (rsi10mDailyHeatLong || rsi10mDailyHeatShort) && momentumTrigger && !pullbackTrigger && !reclaimTrigger) {
+      return {
+        qualifies: false,
+        reason: inferredSide === "LONG" ? "ripster_rsi_10m_daily_heat_long" : "ripster_rsi_10m_daily_heat_short",
+        engine: entryEngine,
+        rsi10m,
+        rsiD,
+      };
+    }
+    if (ripsterTuneV2 && (momentumRsiHeatLong || momentumRsiHeatShort) && momentumTrigger && !pullbackTrigger && !reclaimTrigger) {
+      return {
+        qualifies: false,
+        reason: inferredSide === "LONG" ? "ripster_rsi_heat_block_long" : "ripster_rsi_heat_block_short",
+        engine: entryEngine,
+        rsi10m,
+        rsi30m,
+        rsi1h,
+      };
+    }
+    if (ripsterTuneV2 && (dailyStConflictLong || dailyStConflictShort) && momentumTrigger && !pullbackTrigger && !reclaimTrigger) {
+      return {
+        qualifies: false,
+        reason: inferredSide === "LONG" ? "ripster_daily_st_conflict_long" : "ripster_daily_st_conflict_short",
+        engine: entryEngine,
+        stDirD,
+      };
+    }
+    if (ripsterTuneV2 && (ltfOpposedLong || ltfOpposedShort) && momentumTrigger && !pullbackTrigger && !reclaimTrigger) {
+      return {
+        qualifies: false,
+        reason: inferredSide === "LONG" ? "ripster_ltf_st_opposed_long" : "ripster_ltf_st_opposed_short",
+        engine: entryEngine,
+        stDir10m,
+        stDir30m,
+      };
+    }
+    if (ripsterTuneV2 && inOpeningNoiseWindow && momentumTrigger && !pullbackTrigger && !reclaimTrigger) {
+      return {
+        qualifies: false,
+        reason: "ripster_opening_chase_guard",
+        engine: entryEngine,
+        nyHour: nyHourRip,
+        nyMinute: nyMinRip,
+      };
+    }
+    if (ripsterTuneV2 && (htfRsiExtremeLong || htfRsiExtremeShort) && momentumTrigger && !pullbackTrigger && !reclaimTrigger) {
+      return {
+        qualifies: false,
+        reason: inferredSide === "LONG" ? "ripster_htf_rsi_extreme_long" : "ripster_htf_rsi_extreme_short",
+        engine: entryEngine,
+        rsi4h,
+        rsiD,
+      };
+    }
+    if (
+      ripsterTuneV2 &&
+      daRsiAllTfExtremeGuard &&
+      (allTfRsiExtremeLong || allTfRsiExtremeShort) &&
+      momentumTrigger &&
+      !pullbackTrigger &&
+      !reclaimTrigger &&
+      !_learnedExtremeFriendly
+    ) {
+      return {
+        qualifies: false,
+        reason: inferredSide === "LONG" ? "ripster_all_tf_rsi_extreme_long" : "ripster_all_tf_rsi_extreme_short",
+        engine: entryEngine,
+        rsi10m,
+        rsi30m,
+        rsi1h,
+        rsi4h,
+        rsiD,
+        profileExtremeAllowed: _learnedExtremeFriendly,
+      };
+    }
+
+    if (momentumTrigger) {
+      return enrichResult({
+        qualifies: true,
+        path: "ripster_momentum",
+        confidence: "medium",
+        reason: "ripster_5_12_trend_trigger",
+        engine: entryEngine,
+        ripster_bias_state: "aligned_34_50_d_1h_10m",
+      });
+    }
+    if (pullbackTrigger) {
+      return enrichResult({
+        qualifies: true,
+        path: "ripster_pullback",
+        confidence: "medium",
+        reason: "ripster_8_9_bounce",
+        engine: entryEngine,
+        ripster_bias_state: "aligned_34_50_d_1h_10m",
+      });
+    }
+    if (reclaimTrigger) {
+      return enrichResult({
+        qualifies: true,
+        path: "ripster_reclaim",
+        confidence: "medium",
+        reason: "ripster_8_9_reclaim_st_flip",
+        engine: entryEngine,
+        ripster_bias_state: "aligned_34_50_d_1h_10m",
+      });
+    }
+
+    return {
+      qualifies: false,
+      reason: "ripster_no_trigger",
+      engine: entryEngine,
+      ripster_bias_state: "aligned_34_50_d_1h_10m",
+    };
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
   // PRIMARY ENTRY: EMA REGIME (Daily timeframe)
   // The EMA regime captures the cascading cross sequence:
   //   +2 = confirmed bull (5>48 AND 13>21), -2 = confirmed bear
@@ -2748,20 +3192,20 @@ function qualifiesForEnter(d, asOfTs = null) {
   // LTF alignment gate: don't enter when intraday momentum is actively opposing.
   // Two checks: (1) deep EMA trend against you, (2) both 10m+30m RSI in bearish/bullish zone.
   // The RSI check catches "entering upstream" — e.g., going LONG when both LTFs are selling.
-  const ltf10mDepth = d?.tf_tech?.["10"]?.ema?.depth ?? 5;
-  const ltf10mStruct = d?.tf_tech?.["10"]?.ema?.structure ?? 0;
-  const ltf10mRsi = d?.tf_tech?.["10"]?.rsi?.r5 ?? 50;
-  const ltf30mRsi = d?.tf_tech?.["30"]?.rsi?.r5 ?? 50;
+  const ltf10mDepth = tf10?.ema?.depth ?? 5;
+  const ltf10mStruct = tf10?.ema?.structure ?? 0;
+  const ltf10mRsi = tf10?.rsi?.r5 ?? 50;
+  const ltf30mRsi = tf30?.rsi?.r5 ?? 50;
   const ltfStrongBull = (ltf10mDepth >= 8 && ltf10mStruct >= 0.5) || (ltf10mRsi > 60 && ltf30mRsi > 55);
   const ltfStrongBear = (ltf10mDepth >= 8 && ltf10mStruct <= -0.5) || (ltf10mRsi < 40 && ltf30mRsi < 45);
 
   // Overbought/oversold gate: block entries at RSI exhaustion across multiple timeframes.
   // When 2+ of (30m, 1H, 4H, D) show RSI > 68, a LONG is chasing at the top.
   // When 2+ show RSI < 32, a SHORT is chasing at the bottom.
-  const _rsi30m = d?.tf_tech?.["30"]?.rsi?.r5 ?? 50;
-  const _rsi1H = d?.tf_tech?.["1H"]?.rsi?.r5 ?? 50;
-  const _rsi4H = d?.tf_tech?.["4H"]?.rsi?.r5 ?? 50;
-  const _rsiD = d?.tf_tech?.D?.rsi?.r5 ?? 50;
+  const _rsi30m = tf30?.rsi?.r5 ?? 50;
+  const _rsi1H = tf1H?.rsi?.r5 ?? 50;
+  const _rsi4H = tf4H?.rsi?.r5 ?? 50;
+  const _rsiD = tfD?.rsi?.r5 ?? 50;
   const _obCount = (_rsi30m > 68 ? 1 : 0) + (_rsi1H > 68 ? 1 : 0) + (_rsi4H > 68 ? 1 : 0) + (_rsiD > 68 ? 1 : 0);
   const _osCount = (_rsi30m < 32 ? 1 : 0) + (_rsi1H < 32 ? 1 : 0) + (_rsi4H < 32 ? 1 : 0) + (_rsiD < 32 ? 1 : 0);
   if (inferredSide !== "SHORT" && _obCount >= 2) {
@@ -2773,8 +3217,8 @@ function qualifiesForEnter(d, asOfTs = null) {
 
   // LTF SuperTrend alignment: block when BOTH 10m+30m ST oppose trade direction.
   // Pullbacks: still require at least one LTF ST aligned (full opposition = breakdown, not dip).
-  const stDir10m = d?.tf_tech?.["10"]?.stDir ?? 0;
-  const stDir30m = d?.tf_tech?.["30"]?.stDir ?? 0;
+  const stDir10m = tf10?.stDir ?? 0;
+  const stDir30m = tf30?.stDir ?? 0;
   if (inferredSide === "LONG" && stDir10m === 1 && stDir30m === 1) {
     return { qualifies: false, reason: isPullback ? "ltf_st_both_bearish_pullback" : "ltf_st_both_bearish", stDir10m, stDir30m };
   }
@@ -2785,9 +3229,8 @@ function qualifiesForEnter(d, asOfTs = null) {
   // Elliott Wave context (soft annotation, not a gate).
   // When HTF impulse aligns with trade direction, it confirms the thesis.
   // When it opposes, it's useful context for targets/expectations.
-  const ewD = d?.tf_tech?.D?.ew;
-  const ewW = d?.tf_tech?.W?.ew;
-  let ewContext = "none";
+  const ewD = tfD?.ew;
+  const ewW = tfTechRow(d, "W")?.ew;
   if (ewD?.detected) {
     const ewAligns = (inferredSide === "LONG" && ewD.dir === 1)
                   || (inferredSide === "SHORT" && ewD.dir === -1);
@@ -2864,7 +3307,7 @@ function qualifiesForEnter(d, asOfTs = null) {
     if (ltfStrongBull) {
       return { qualifies: false, reason: "ltf_opposing_short", ltf10mDepth, ltf10mStruct, regime: regimeClass };
     }
-    const hasConf = stBearConfirms || regime4H <= -2 || hasStFlipBull || hasEmaCrossBear || hasSqRelease;
+    const hasConf = stBearConfirms || regime4H <= -2 || hasStFlipBear || hasEmaCrossBear || hasSqRelease;
     if (htf <= -8 && hasConf) {
       return enrichResult({
         qualifies: true,
@@ -3062,6 +3505,10 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
     const rsi5_30m = Number(tickerData?.tf_tech?.["30"]?.rsi?.r5) || 50;
     const phase_10m = Number(tickerData?.tf_tech?.["10"]?.ph?.v) || 0;
     const phase_30m = Number(tickerData?.tf_tech?.["30"]?.ph?.v) || 0;
+    const managementEngine = resolveEngineMode(tickerData?._env?._managementEngine);
+    const ripsterTuneV2 = parseBoolFlag(tickerData?._env?._ripsterTuneV2, false);
+    const _daConfig = tickerData?._env?._deepAuditConfig || {};
+    const daVariantGuardrailsV3 = parseBoolFlag(_daConfig.deep_audit_variant_guardrails_v3, false);
     
     // ─────────────────────────────────────────────────────────────────────────
     // SMC / PDZ CONTEXT: Where is price in the swing range?
@@ -3095,8 +3542,126 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
 
     // EMA regime is now ONE SIGNAL among many — not a master override
     const _regimeConfirms = (direction === "LONG" && _regimeForExit >= 1) || (direction === "SHORT" && _regimeForExit <= -1);
-    const _daMinHoldRegimeH = Number(tickerData?._env?._deepAuditConfig?.deep_audit_min_hold_regime_exit_hours) || 0;
-    const _regimeExitMinAge = positionAgeMin >= Math.max(240, _daMinHoldRegimeH * 60);
+    const _daMinHoldRegimeH = Number(_daConfig.deep_audit_min_hold_regime_exit_hours) || 0;
+    const daVariantRegimeExitMinAgeMin = Number(_daConfig.deep_audit_variant_regime_exit_min_age_min) || 120;
+    const _regimeExitMinAge = daVariantGuardrailsV3
+      ? positionAgeMin >= Math.max(daVariantRegimeExitMinAgeMin, _daMinHoldRegimeH * 60)
+      : positionAgeMin >= Math.max(240, _daMinHoldRegimeH * 60);
+
+    // Ripster-Core management exits (feature-flagged)
+    if (managementEngine === "ripster_core") {
+      const rt10 = tfTechRow(tickerData, "10")?.ripster;
+      const rt30 = tfTechRow(tickerData, "30")?.ripster;
+      const rt1H = tfTechRow(tickerData, "1H")?.ripster;
+      const c5_12_10 = rt10?.c5_12;
+      const c34_50_10 = rt10?.c34_50;
+      const c72_89_10 = rt10?.c72_89;
+      const c180_200_10 = rt10?.c180_200;
+      const c34_50_1H = rt1H?.c34_50;
+      const c180_200_1H = rt1H?.c180_200;
+      const ema10 = tfTechRow(tickerData, "10")?.ema || {};
+      const ema30 = tfTechRow(tickerData, "30")?.ema || {};
+      const ema1H = tfTechRow(tickerData, "1H")?.ema || {};
+      const above10m21 = Number.isFinite(ema10?.e21) ? currentPrice >= Number(ema10.e21) : true;
+      const below10m21 = Number.isFinite(ema10?.e21) ? currentPrice <= Number(ema10.e21) : true;
+      const above30m21 = Number.isFinite(ema30?.e21) ? currentPrice >= Number(ema30.e21) : true;
+      const below30m21 = Number.isFinite(ema30?.e21) ? currentPrice <= Number(ema30.e21) : true;
+      const above1h48 = Number.isFinite(ema1H?.e48) ? currentPrice >= Number(ema1H.e48) : true;
+      const below1h48 = Number.isFinite(ema1H?.e48) ? currentPrice <= Number(ema1H.e48) : true;
+      const lost72_89 = direction === "LONG"
+        ? !!(c72_89_10?.bear || c72_89_10?.below)
+        : !!(c72_89_10?.bull || c72_89_10?.above);
+      const farFrom180_200 = Number(c180_200_10?.distToCloudPct) >= 0.01 || Number(c180_200_1H?.distToCloudPct) >= 0.01;
+      const cloudCompression = Number(c72_89_10?.spreadPct) <= 0.003 && Number(c180_200_10?.spreadPct) <= 0.0035;
+      const holdPivotLong = above10m21 && above30m21 && above1h48;
+      const holdPivotShort = below10m21 && below30m21 && below1h48;
+      const exitDebounceBars = ripsterTuneV2 ? Math.max(1, Number(tickerData?._env?._ripsterExitDebounceBars) || 2) : 1;
+
+      const ripsterLose5_12 = direction === "LONG"
+        ? !!(c5_12_10?.crossDn || (c5_12_10?.bear && c5_12_10?.below))
+        : !!(c5_12_10?.crossUp || (c5_12_10?.bull && c5_12_10?.above));
+
+      const ripsterLose34_50 = direction === "LONG"
+        ? !!((c34_50_10?.bear || c34_50_10?.below) && (c34_50_1H?.bear || c34_50_1H?.below))
+        : !!((c34_50_10?.bull || c34_50_10?.above) && (c34_50_1H?.bull || c34_50_1H?.above));
+
+      const prevPending5 = Math.max(
+        Number(openPosition?.ripster_pending_5_12) || 0,
+        Number(tickerData?.__ripster_pending_5_12) || 0,
+      );
+      const prevPending34 = Math.max(
+        Number(openPosition?.ripster_pending_34_50) || 0,
+        Number(tickerData?.__ripster_pending_34_50) || 0,
+      );
+      const pending5 = ripsterLose5_12 ? prevPending5 + 1 : 0;
+      const pending34 = ripsterLose34_50 ? prevPending34 + 1 : 0;
+      openPosition.ripster_pending_5_12 = pending5;
+      openPosition.ripster_pending_34_50 = pending34;
+      tickerData.__ripster_pending_5_12 = pending5;
+      tickerData.__ripster_pending_34_50 = pending34;
+      if (openPosition?.__tradeRef && typeof openPosition.__tradeRef === "object") {
+        openPosition.__tradeRef.ripster_pending_5_12 = pending5;
+        openPosition.__tradeRef.ripster_pending_34_50 = pending34;
+      }
+
+      if (positionAgeMin >= 30 && ripsterLose5_12) {
+        if (ripsterTuneV2 && pending5 < exitDebounceBars) {
+          tickerData.__exit_reason = "ripster_5_12_pending";
+          tickerData.__exit_family = "ripster_cloud";
+          return "defend";
+        }
+        if (ripsterTuneV2) {
+          const trimmedPct = Number(openPosition?.trimmedPct ?? openPosition?.trimmed_pct) || 0;
+          if (pnlPct > 0.4 && trimmedPct < 0.33) {
+            tickerData.__exit_reason = "ripster_5_12_defend_trim";
+            tickerData.__exit_family = "ripster_cloud";
+            return "trim";
+          }
+          tickerData.__exit_reason = "ripster_5_12_lost_confirmed";
+          tickerData.__exit_family = "ripster_cloud";
+          return "defend";
+        }
+        tickerData.__exit_reason = "ripster_5_12_lost";
+        tickerData.__exit_family = "ripster_cloud";
+        return "exit";
+      }
+      if (positionAgeMin >= 60 && ripsterLose34_50) {
+        if (ripsterTuneV2 && pending34 < Math.max(2, exitDebounceBars)) {
+          tickerData.__exit_reason = "ripster_34_50_pending";
+          tickerData.__exit_family = "ripster_cloud";
+          return "defend";
+        }
+        if (ripsterTuneV2) {
+          const trimmedPct = Number(openPosition?.trimmedPct ?? openPosition?.trimmed_pct) || 0;
+          if (direction === "LONG" && (holdPivotLong || (lost72_89 && farFrom180_200) || cloudCompression)) {
+            if (pnlPct > 0.5 && trimmedPct < 0.33) {
+              tickerData.__exit_reason = "ripster_34_50_trim_then_hold";
+              tickerData.__exit_family = "ripster_cloud";
+              return "trim";
+            }
+            tickerData.__exit_reason = "ripster_34_50_defer_to_72_89";
+            tickerData.__exit_family = "ripster_cloud";
+            return "defend";
+          }
+          if (direction === "SHORT" && holdPivotShort) {
+            tickerData.__exit_reason = "ripster_34_50_short_pivot_hold";
+            tickerData.__exit_family = "ripster_cloud";
+            return "defend";
+          }
+        }
+        tickerData.__exit_reason = "ripster_34_50_lost_mtf";
+        tickerData.__exit_family = "ripster_cloud";
+        return "exit";
+      }
+      if (ripsterTuneV2 && direction === "SHORT" && positionAgeMin >= 20) {
+        const shortReclaimedPivot = !holdPivotShort && (c5_12_10?.bull || c5_12_10?.above || c34_50_10?.bull || c34_50_10?.above || rt30?.c5_12?.bull);
+        if (shortReclaimedPivot) {
+          tickerData.__exit_reason = "ripster_short_pivot_reclaimed";
+          tickerData.__exit_family = "ripster_cloud";
+          return "exit";
+        }
+      }
+    }
 
     // ─────────────────────────────────────────────────────────────────────────
     // HIGHEST PRIORITY: EMA REGIME EXIT
@@ -3143,10 +3708,14 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
     // Hard exit: capital protection
     // PDZ-aware: wider tolerance in favorable zone with regime, tighter when extended
     // Deep Audit override: if configured, use tighter thresholds
-    const _daMaxLoss = tickerData?._env?._deepAuditConfig?.deep_audit_max_loss_pct;
-    const maxLossPct = _daMaxLoss
+    const _daMaxLoss = _daConfig.deep_audit_max_loss_pct;
+    let maxLossPct = _daMaxLoss
       ? ((_inFavorableZone && _regimeConfirms) ? Number(_daMaxLoss.pdz || -5) : _inExtendedZone ? Number(_daMaxLoss.normal || -2) : Number(_daMaxLoss.normal || -2) - 1)
       : ((_inFavorableZone && _regimeConfirms) ? -8 : _inExtendedZone ? -3 : -4);
+    if (daVariantGuardrailsV3) {
+      const daVariantMaxLossPct = Number(_daConfig.deep_audit_variant_max_loss_pct) || -2.5;
+      maxLossPct = Math.max(maxLossPct, daVariantMaxLossPct);
+    }
     if (pnlPct <= maxLossPct) {
       tickerData.__exit_reason = "max_loss";
       return "exit";
@@ -3158,7 +3727,7 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
     // in chop, the more it bleeds (mean-reverting environment).
     const tradeRegime = String(tickerData?.regime_class || "TRANSITIONAL");
     const maxHoldDaysLosing = tradeRegime === "CHOPPY" ? 7
-      : tradeRegime === "TRANSITIONAL" ? 12 : 20;
+      : tradeRegime === "TRANSITIONAL" ? 16 : 20;
     const positionAgeDays = positionAgeMin / (60 * 24);
     if (pnlPct < 0 && positionAgeDays >= maxHoldDaysLosing) {
       tickerData.__exit_reason = `time_exit_loser_${tradeRegime.toLowerCase()}`;
@@ -3177,9 +3746,124 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
     const moveStatus = computeMoveStatus(tickerDataWithPositionSL);
     const reasons = moveStatus?.reasons || [];
     const severity = String(moveStatus?.severity || "").toUpperCase();
+    const sq10 = tfTechRow(tickerData, "10")?.sq;
+    const sq30 = tfTechRow(tickerData, "30")?.sq;
+    const squeezeOnMgmt = !!(
+      tickerData?.flags?.sq30_on
+      || tickerData?.flags?.sq10_on
+      || sq10?.s === 1
+      || sq30?.s === 1
+    );
 
     // Critical invalidation: always honor, but give regime+favorable zone a small buffer
+    // RIPSTER_TUNE_V2: avoid hard exits on one-bar trigger noise while cloud trend still holds.
+    const rt10ForCritical = managementEngine === "ripster_core" ? tfTechRow(tickerData, "10")?.ripster : null;
+    const rt1HForCritical = managementEngine === "ripster_core" ? tfTechRow(tickerData, "1H")?.ripster : null;
+    const c34_50_10_critical = rt10ForCritical?.c34_50;
+    const c34_50_1H_critical = rt1HForCritical?.c34_50;
+    const ripsterTrendStillAligned = direction === "LONG"
+      ? !!((c34_50_10_critical?.bull || c34_50_10_critical?.above) && (c34_50_1H_critical?.bull || c34_50_1H_critical?.above))
+      : !!((c34_50_10_critical?.bear || c34_50_10_critical?.below) && (c34_50_1H_critical?.bear || c34_50_1H_critical?.below));
+    const entryPathHint = String(
+      tickerData?.__entry_path || tickerData?.entry_path || openPosition?.entryPath || "",
+    ).toLowerCase();
+    const isRipsterPullbackLike = entryPathHint.includes("ripster_pullback") || entryPathHint.includes("ripster_reclaim");
+    const triggerNoiseCandidate = reasons.includes("trigger_breached_5pct")
+      && !reasons.includes("sl_breached")
+      && pnlPct > -0.8
+      && positionAgeMin >= 45
+      && positionAgeMin <= (18 * 60)
+      && ripsterTuneV2
+      && managementEngine === "ripster_core"
+      && ripsterTrendStillAligned;
+    const pullbackNoiseCandidate = (reasons.includes("trigger_breached_5pct") || reasons.includes("below_trigger"))
+      && !reasons.includes("sl_breached")
+      && isRipsterPullbackLike
+      && pnlPct > -1.2
+      && positionAgeMin >= 30
+      && positionAgeMin <= (6 * 60)
+      && ripsterTuneV2
+      && managementEngine === "ripster_core"
+      && ripsterTrendStillAligned;
+
     if (reasons.includes("sl_breached") || severity === "CRITICAL" || reasons.includes("trigger_breached_5pct")) {
+      const trimmedPct = Number(openPosition?.trimmedPct ?? openPosition?.trimmed_pct) || 0;
+      const isPostTrimRunner = trimmedPct > 0.01;
+      const triggerOnlyCritical = reasons.includes("trigger_breached_5pct")
+        && !reasons.includes("sl_breached")
+        && !reasons.includes("large_adverse_move");
+      const triggerPlusWarningCritical = reasons.includes("trigger_breached_5pct")
+        && !reasons.includes("sl_breached")
+        && !reasons.includes("large_adverse_move")
+        && reasons.every(r =>
+          r === "below_trigger"
+          || r === "above_trigger"
+          || r === "trigger_breached_5pct"
+          || r === "adverse_move_warning"
+        );
+      const postTrimNearBreakeven = isPostTrimRunner
+        && pnlPct <= 0.2
+        && pnlPct > -0.8
+        && !reasons.includes("sl_breached")
+        && (
+          triggerOnlyCritical
+          || triggerPlusWarningCritical
+          || reasons.includes("below_trigger")
+          || reasons.includes("above_trigger")
+        );
+      // Protect trimmed winners from turning into clear losers due to repeated trigger noise.
+      if (
+        ripsterTuneV2
+        && managementEngine === "ripster_core"
+        && postTrimNearBreakeven
+      ) {
+        tickerData.__exit_reason = "post_trim_breakeven_protect";
+        return "exit";
+      }
+      // During active compression with trend still aligned, hold through trigger noise.
+      // This reduces premature exits before potential squeeze expansion.
+      if (
+        ripsterTuneV2
+        && managementEngine === "ripster_core"
+        && squeezeOnMgmt
+        && ripsterTrendStillAligned
+        && !reasons.includes("sl_breached")
+        && !reasons.includes("large_adverse_move")
+        && pnlPct > -1.2
+      ) {
+        tickerData.__exit_reason = "ripster_squeeze_hold_defend";
+        return "defend";
+      }
+      // After a TRIM, do not hard-exit runners on entry-trigger invalidation alone.
+      // The post-trim runner should be governed by structural/cloud breaks and SL.
+      if (
+        ripsterTuneV2
+        && managementEngine === "ripster_core"
+        && isPostTrimRunner
+        && (triggerOnlyCritical || triggerPlusWarningCritical)
+      ) {
+        tickerData.__exit_reason = "post_trim_runner_trigger_pullback_defend";
+        tickerData.__defend_reason = "below_trigger";
+        return "defend";
+      }
+      if (triggerNoiseCandidate) {
+        tickerData.__exit_reason = "critical_trigger_noise_defend";
+        return "defend";
+      }
+      if (pullbackNoiseCandidate) {
+        tickerData.__exit_reason = "ripster_pullback_trigger_noise_defend";
+        return "defend";
+      }
+      if (
+        ripsterTuneV2
+        && managementEngine === "ripster_core"
+        && !reasons.includes("sl_breached")
+        && pnlPct > 0.6
+        && trimmedPct < 0.33
+      ) {
+        tickerData.__exit_reason = "critical_trim_before_exit";
+        return "trim";
+      }
       // In favorable zone with regime: downgrade to defend instead of hard exit
       if (_inFavorableZone && _regimeConfirms && !reasons.includes("sl_breached")) {
         tickerData.__exit_reason = "critical_downgraded_to_defend";
@@ -3407,6 +4091,10 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
     tickerData.__entry_confidence = entry.confidence;
     tickerData.__entry_reason = entry.reason;
     tickerData.__entry_quality = entry.entryQuality || 0;
+    tickerData.__entry_engine = entry.engine || "legacy";
+    tickerData.__entry_engine_version = entry.engine_version || tickerData.__entry_engine;
+    tickerData.__entry_trigger_family = entry.trigger_family || null;
+    tickerData.__entry_cloud_bias_state = entry.cloud_bias_state || null;
     // PATTERN BOOST: Upgrade entry confidence when patterns strongly match
     const pm = tickerData?.pattern_match;
     if (pm && pm.direction === "BULLISH" && pm.bestBull?.conf > 0.6) {
@@ -5996,7 +6684,7 @@ function computeTradePnlComponents(trade, tickerData) {
   const currentPrice = Number(tickerData?.price ?? trade?.currentPrice);
   const shares = Number(trade?.shares);
   const pointValue = Number(trade?.pointValue) || 1;
-  const trimmedPct = clamp(Number(trade?.trimmedPct || 0), 0, 1);
+  const trimmedPct = getTradeTrimmedPct(trade);
   const remainingPct = Math.max(0, 1 - trimmedPct);
   if (
     !Number.isFinite(entryPrice) ||
@@ -6509,6 +7197,110 @@ function _getTrailStyleMults(tickerData) {
     standard: { preTrim: 1.0,  postTrimBuf: 0.5,  runner: 2.5,  style: "standard" },
   };
   return map[style] || map.standard;
+}
+
+function computeLearningTrailStop({
+  direction,
+  tier,
+  entryPrice,
+  currentPrice,
+  oldSl,
+  atrVal,
+  ema10_21,
+  ema30_21,
+  ema1h_48,
+  trailStyleMults,
+  demandZoneLow,
+  supplyZoneHigh,
+  hasHtfFvgAnchor,
+}) {
+  const dir = String(direction || "").toUpperCase();
+  const isLong = dir === "LONG";
+  if (!Number.isFinite(entryPrice) || entryPrice <= 0 || !Number.isFinite(currentPrice) || currentPrice <= 0) {
+    return { newSl: null, reason: null };
+  }
+  const atr = Number.isFinite(atrVal) && atrVal > 0 ? atrVal : entryPrice * 0.01;
+  const tsm = trailStyleMults || { postTrimBuf: 0.5 };
+  const baseBuf = Math.max(0.15, Number(tsm.postTrimBuf) || 0.5);
+  const emaWeight = tier === "EXIT" ? 0.25 : 0.4;
+  const hasZoneAnchor = isLong
+    ? (Number.isFinite(demandZoneLow) && demandZoneLow > 0 && demandZoneLow < currentPrice)
+    : (Number.isFinite(supplyZoneHigh) && supplyZoneHigh > 0 && supplyZoneHigh > currentPrice);
+  const hasWideFallbackAnchor = Number.isFinite(ema1h_48) && ema1h_48 > 0;
+  const allowStructuralWiden = tier === "TRIM" && (hasZoneAnchor || hasWideFallbackAnchor);
+
+  const candidates = [];
+  // Structural zone anchors from 10m PDZ:
+  // LONG -> demand zone low (support), SHORT -> supply zone high (resistance).
+  if (isLong && Number.isFinite(demandZoneLow) && demandZoneLow > 0 && demandZoneLow < currentPrice) {
+    candidates.push(demandZoneLow - atr * 0.05);
+  }
+  if (!isLong && Number.isFinite(supplyZoneHigh) && supplyZoneHigh > 0 && supplyZoneHigh > currentPrice) {
+    candidates.push(supplyZoneHigh + atr * 0.05);
+  }
+  if (Number.isFinite(ema10_21) && ema10_21 > 0) candidates.push(isLong ? (ema10_21 - atr * emaWeight) : (ema10_21 + atr * emaWeight));
+  if (Number.isFinite(ema30_21) && ema30_21 > 0) candidates.push(isLong ? (ema30_21 - atr * (emaWeight + 0.1)) : (ema30_21 + atr * (emaWeight + 0.1)));
+  if (Number.isFinite(ema1h_48) && ema1h_48 > 0) candidates.push(isLong ? (ema1h_48 - atr * (emaWeight + 0.15)) : (ema1h_48 + atr * (emaWeight + 0.15)));
+
+  // Progress lock: protect principal after first trim, lock more after second trim.
+  const progressLock = tier === "EXIT" ? 0.35 : 0.05;
+  const floorByProgress = isLong
+    ? entryPrice + atr * progressLock
+    : entryPrice - atr * progressLock;
+  candidates.push(floorByProgress);
+
+  const structural = candidates.length
+    ? (isLong ? Math.min(...candidates) : Math.max(...candidates))
+    : floorByProgress;
+
+  const maxTightness = isLong
+    ? (currentPrice - atr * Math.max(0.2, baseBuf * 0.6))
+    : (currentPrice + atr * Math.max(0.2, baseBuf * 0.6));
+
+  let candidate = structural;
+  if (isLong) {
+    candidate = Math.min(candidate, maxTightness);
+    if (!allowStructuralWiden && Number.isFinite(oldSl)) candidate = Math.max(candidate, oldSl);
+  } else {
+    candidate = Math.max(candidate, maxTightness);
+    if (!allowStructuralWiden && Number.isFinite(oldSl)) candidate = Math.min(candidate, oldSl);
+  }
+
+  // Deterministic post-trim anchor behavior:
+  // - If HTF FVG anchor exists, do not tighten beyond that zone boundary.
+  // - If HTF FVG anchor is unavailable, use a wider 1H EMA48 structural fallback.
+  if (tier === "TRIM") {
+    if (isLong) {
+      if (hasHtfFvgAnchor && Number.isFinite(demandZoneLow) && demandZoneLow > 0) {
+        const hardDemandAnchor = demandZoneLow - atr * 0.03;
+        candidate = Math.min(candidate, hardDemandAnchor);
+      } else if (Number.isFinite(ema1h_48) && ema1h_48 > 0) {
+        const wideFallback = ema1h_48 - atr * Math.max(0.5, baseBuf);
+        candidate = Math.min(candidate, wideFallback);
+      }
+    } else {
+      if (hasHtfFvgAnchor && Number.isFinite(supplyZoneHigh) && supplyZoneHigh > 0) {
+        const hardSupplyAnchor = supplyZoneHigh + atr * 0.03;
+        candidate = Math.max(candidate, hardSupplyAnchor);
+      } else if (Number.isFinite(ema1h_48) && ema1h_48 > 0) {
+        const wideFallback = ema1h_48 + atr * Math.max(0.5, baseBuf);
+        candidate = Math.max(candidate, wideFallback);
+      }
+    }
+  }
+
+  const tightened = allowStructuralWiden
+    ? Number.isFinite(candidate) && candidate > 0
+    : Number.isFinite(oldSl)
+    ? (isLong ? candidate > oldSl : candidate < oldSl)
+    : true;
+  if (!tightened || !Number.isFinite(candidate) || candidate <= 0) return { newSl: null, reason: null };
+  return {
+    newSl: candidate,
+    reason: tier === "EXIT"
+      ? "EXIT_TP_HIT_SL_STRUCTURAL"
+      : (allowStructuralWiden ? "TRIM_TP_HIT_SL_DEMAND_ZONE" : "TRIM_TP_HIT_SL_STRUCTURAL"),
+  };
 }
 
 // Helper: Infer ATR from TP levels when not directly available
@@ -7419,7 +8211,7 @@ function calculateTradePnl(tickerData, entryPrice, existingTrade = null) {
     tpArray = [{ price: fallbackTP, trimPct: 0.5, label: "TP (50%)" }];
   }
 
-  const trimmedPct = existingTrade ? existingTrade.trimmedPct || 0 : 0;
+  const trimmedPct = existingTrade ? getTradeTrimmedPct(existingTrade) : 0;
 
   // Check which TP levels have been hit (sorted by trim percentage)
   const hitTPLevels = [];
@@ -7915,6 +8707,9 @@ async function processTradeSimulation(
           entryPrice: Number(openTrade.entryPrice),
           avgEntry: Number(openTrade.entryPrice),
           entry_ts: Number(openTrade.entry_ts) || Number(openTrade.created_at) || 0,
+          trimmedPct: Number(openTrade.trimmedPct ?? openTrade.trimmed_pct) || 0,
+          ripster_pending_5_12: Number(openTrade.ripster_pending_5_12) || 0,
+          ripster_pending_34_50: Number(openTrade.ripster_pending_34_50) || 0,
         };
       }
     } else if (env?.DB) {
@@ -7953,9 +8748,15 @@ async function processTradeSimulation(
       }
       return false;
     }) || null;
+
+    if (openTrade) {
+      const normTrim = getTradeTrimmedPct(openTrade);
+      openTrade.trimmedPct = normTrim;
+      openTrade.trimmed_pct = normTrim;
+    }
     
     // ZOMBIE FIX: If trade is 100% trimmed but not formally closed, close it now.
-    if (openTrade && clamp(Number(openTrade.trimmedPct || 0), 0, 1) >= 0.9999 && isOpenTradeStatus(openTrade.status)) {
+    if (openTrade && getTradeTrimmedPct(openTrade) >= 0.9999 && isOpenTradeStatus(openTrade.status)) {
       const zombiePnl = Number(openTrade.realizedPnl || openTrade.pnl || 0);
       openTrade.status = zombiePnl > 0 ? "WIN" : zombiePnl < 0 ? "LOSS" : "FLAT";
       openTrade.exitPrice = Number(openTrade.trim_price || openTrade.trimPrice || pxNow) || 0;
@@ -7983,7 +8784,13 @@ async function processTradeSimulation(
         sl: openTrade.sl,
         entryPrice: openTrade.entryPrice,
         avgEntry: openTrade.entryPrice,
+        trimmedPct: Number(openTrade.trimmedPct ?? openTrade.trimmed_pct) || 0,
+        ripster_pending_5_12: Number(openTrade.ripster_pending_5_12) || 0,
+        ripster_pending_34_50: Number(openTrade.ripster_pending_34_50) || 0,
       };
+    }
+    if (openTrade && openPositionContext && typeof openPositionContext === "object") {
+      openPositionContext.__tradeRef = openTrade;
     }
     
     // ─────────────────────────────────────────────────────────────────────────
@@ -8215,7 +9022,7 @@ async function processTradeSimulation(
     const closeTradeAtPrice = async (trade, closePrice, closeReason) => {
       const p = Number(closePrice);
       if (!Number.isFinite(p) || p <= 0) return;
-      const trimmed = clamp(Number(trade.trimmedPct || 0), 0, 1);
+      const trimmed = getTradeTrimmedPct(trade);
       const remainingPct = Math.max(0, 1 - trimmed);
       const shares = Number(trade.shares);
       if (!Number.isFinite(shares)) return;
@@ -8432,7 +9239,7 @@ async function processTradeSimulation(
     ) => {
       const p = Number(trimPrice);
       if (!Number.isFinite(p) || p <= 0) return;
-      const oldTrim = clamp(Number(trade.trimmedPct || 0), 0, 1);
+      const oldTrim = getTradeTrimmedPct(trade);
       if (oldTrim >= 0.9999) return;
       const tgt = clamp(Number(targetTrimPct), 0, 1);
       if (tgt <= oldTrim + 1e-6) return;
@@ -8504,44 +9311,132 @@ async function processTradeSimulation(
         }
       }
 
-      // Tier 1: TRIM TP hit (33%) -> Move SL to entry minus 0.5 ATR buffer
-      // Exact breakeven is too tight — normal pullbacks wick through entry and shake out runners.
-      // 0.5 ATR gives breathing room while still protecting from full reversals.
+      const tf10Now = tfTechRow(tickerData, "10");
+      const tf30Now = tfTechRow(tickerData, "30");
+      const tf1HNow = tfTechRow(tickerData, "1H");
+      const tfDNow = tfTechRow(tickerData, "D");
+      const pdz10Now = tf10Now?.pdz || {};
+      const fvg10Now = tf10Now?.fvg || {};
+      const fvg1HNow = tf1HNow?.fvg || {};
+      const fvgDNow = tfDNow?.fvg || {};
+      const ema10_21 = Number(tf10Now?.ema?.e21);
+      const ema30_21 = Number(tf30Now?.ema?.e21);
+      const ema1h_48 = Number(tf1HNow?.ema?.e48);
+
+      // FVG anchor selection (HTF-first):
+      // LONG  -> demand-zone low from nearest active bull FVG below price
+      // SHORT -> supply-zone high from nearest active bear FVG above price
+      // Priority: 1H -> D -> 10m, then fallback to 10m PDZ swing bounds.
+      const nearestBullDemandLow = (fvgObj, pxNow) => {
+        const list = Array.isArray(fvgObj?.fvgs) ? fvgObj.fvgs : [];
+        const below = list
+          .filter(g => g && g.type === "bull")
+          .map(g => ({ top: Number(g.top), bottom: Number(g.bottom) }))
+          .filter(g => Number.isFinite(g.top) && Number.isFinite(g.bottom) && g.bottom > 0 && g.top <= pxNow)
+          .sort((a, b) => (pxNow - a.top) - (pxNow - b.top));
+        return below.length ? below[0].bottom : null;
+      };
+      const nearestBearSupplyHigh = (fvgObj, pxNow) => {
+        const list = Array.isArray(fvgObj?.fvgs) ? fvgObj.fvgs : [];
+        const above = list
+          .filter(g => g && g.type === "bear")
+          .map(g => ({ top: Number(g.top), bottom: Number(g.bottom) }))
+          .filter(g => Number.isFinite(g.top) && Number.isFinite(g.bottom) && g.top > 0 && g.bottom >= pxNow)
+          .sort((a, b) => (a.bottom - pxNow) - (b.bottom - pxNow));
+        return above.length ? above[0].top : null;
+      };
+
+      let demandZoneLow = Number(pdz10Now?.swingLow);
+      let hasHtfFvgAnchor = false;
+      if (dir === "LONG") {
+        const htfDemand = nearestBullDemandLow(fvg1HNow, p)
+          ?? nearestBullDemandLow(fvgDNow, p);
+        if (Number.isFinite(htfDemand) && htfDemand > 0) {
+          demandZoneLow = htfDemand;
+          hasHtfFvgAnchor = true;
+        } else {
+          const ltfDemand = nearestBullDemandLow(fvg10Now, p);
+          if (Number.isFinite(ltfDemand) && ltfDemand > 0) demandZoneLow = ltfDemand;
+        }
+      }
+      let supplyZoneHigh = Number(pdz10Now?.swingHigh);
+      if (dir === "SHORT") {
+        const htfSupply = nearestBearSupplyHigh(fvg1HNow, p)
+          ?? nearestBearSupplyHigh(fvgDNow, p);
+        if (Number.isFinite(htfSupply) && htfSupply > 0) {
+          supplyZoneHigh = htfSupply;
+          hasHtfFvgAnchor = true;
+        } else {
+          const ltfSupply = nearestBearSupplyHigh(fvg10Now, p);
+          if (Number.isFinite(ltfSupply) && ltfSupply > 0) supplyZoneHigh = ltfSupply;
+        }
+      }
+      const atrVal = Number(tickerData?.atr) || Number(tf10Now?.atr?.v) || Number(tf30Now?.atr?.v) || 0;
+      const trailStyleMults = _getTrailStyleMults(tickerData);
+      const postTrimAnchor = resolvePostTrimAnchorSl({
+        direction: dir,
+        atrVal,
+        demandZoneLow,
+        supplyZoneHigh,
+        ema1h_48,
+        trailStyleMults,
+        hasHtfFvgAnchor,
+      });
+
+      // Tier 1: TRIM TP hit (33%) -> move SL to structural trail anchor
+      // based on learned trail style + EMA supports/resistances, not fixed BE/TP spots.
       if (tgt >= THREE_TIER_CONFIG.TRIM.trimPct && oldTrim < THREE_TIER_CONFIG.TRIM.trimPct) {
-        if (Number.isFinite(entryPrice) && entryPrice > 0) {
-          const atrVal = Number(tickerData?.atr) || 0;
-          const buffer = atrVal > 0 ? atrVal * 0.5 : entryPrice * 0.005;
-          const beStop = dir === "LONG"
-            ? entryPrice - buffer
-            : entryPrice + buffer;
-          const shouldTighten = dir === "LONG"
-            ? beStop > oldSl || !Number.isFinite(oldSl)
-            : beStop < oldSl || !Number.isFinite(oldSl);
-          if (shouldTighten) {
-            trade.sl = beStop;
-            slAdjusted = true;
-            slAdjustReason = "TRIM_TP_HIT_SL_NEAR_BE";
-            console.log(`[3-TIER] ${sym} TRIM TP hit: SL moved to BE-buffer at $${beStop.toFixed(2)} (entry=$${entryPrice.toFixed(2)}, buffer=$${buffer.toFixed(2)})`);
-          }
+        if (Number.isFinite(postTrimAnchor.anchorSl) && postTrimAnchor.anchorSl > 0) {
+          trade.post_trim_anchor_sl = postTrimAnchor.anchorSl;
+          trade.post_trim_anchor_source = postTrimAnchor.source || "unknown";
+        }
+        const { newSl, reason } = computeLearningTrailStop({
+          direction: dir,
+          tier: "TRIM",
+          entryPrice,
+          currentPrice: p,
+          oldSl,
+          atrVal,
+          ema10_21,
+          ema30_21,
+          ema1h_48,
+          trailStyleMults,
+          demandZoneLow,
+          supplyZoneHigh,
+          hasHtfFvgAnchor,
+        });
+        if (Number.isFinite(newSl) && newSl > 0) {
+          trade.sl = capSlToPostTrimAnchor(trade, newSl);
+          slAdjusted = true;
+          slAdjustReason = reason || "TRIM_TP_HIT_SL_STRUCTURAL";
+          console.log(`[3-TIER] ${sym} TRIM TP hit: SL moved to structural trail at $${newSl.toFixed(2)} (style=${trailStyleMults.style}, atr=${atrVal.toFixed(3)})`);
         }
       }
 
-      // Tier 2: EXIT TP hit (80%) -> Move SL to TRIM TP price
+      // Tier 2: EXIT TP hit (66%) -> tighten SL using structural trail anchors.
+      // This replaces fixed "SL = trim TP" with adaptive trailing based on move context.
       if (tgt >= THREE_TIER_CONFIG.EXIT.trimPct && oldTrim < THREE_TIER_CONFIG.EXIT.trimPct) {
-        const trimTpItem = tpArray.find(tp => tp.tier === "TRIM");
-        const trimTpPrice = trimTpItem?.price;
-        if (Number.isFinite(trimTpPrice) && trimTpPrice > 0) {
-          // For LONG: only tighten if new SL is higher; for SHORT: only if lower
-          const currentSl = Number(trade.sl);
-          const shouldTighten = dir === "LONG"
-            ? trimTpPrice > currentSl || !Number.isFinite(currentSl)
-            : trimTpPrice < currentSl || !Number.isFinite(currentSl);
-          if (shouldTighten) {
-            trade.sl = trimTpPrice;
-            slAdjusted = true;
-            slAdjustReason = "EXIT_TP_HIT_SL_TO_TRIM_TP";
-            console.log(`[3-TIER] ${sym} EXIT TP hit: SL moved to TRIM TP at $${trimTpPrice.toFixed(2)}`);
-          }
+        const currentSl = Number(trade.sl);
+        const { newSl, reason } = computeLearningTrailStop({
+          direction: dir,
+          tier: "EXIT",
+          entryPrice,
+          currentPrice: p,
+          oldSl: Number.isFinite(currentSl) ? currentSl : oldSl,
+          atrVal,
+          ema10_21,
+          ema30_21,
+          ema1h_48,
+          trailStyleMults,
+          demandZoneLow,
+          supplyZoneHigh,
+          hasHtfFvgAnchor,
+        });
+        if (Number.isFinite(newSl) && newSl > 0) {
+          trade.sl = capSlToPostTrimAnchor(trade, newSl);
+          slAdjusted = true;
+          slAdjustReason = reason || "EXIT_TP_HIT_SL_STRUCTURAL";
+          console.log(`[3-TIER] ${sym} EXIT TP hit: SL moved to structural trail at $${newSl.toFixed(2)} (style=${trailStyleMults.style}, atr=${atrVal.toFixed(3)})`);
         }
       }
 
@@ -8564,6 +9459,8 @@ async function processTradeSimulation(
         sl_adjusted: slAdjusted,
         sl_adjust_reason: slAdjustReason,
         new_sl: slAdjusted ? trade.sl : null,
+        post_trim_anchor_sl: Number.isFinite(Number(trade.post_trim_anchor_sl)) ? Number(trade.post_trim_anchor_sl) : null,
+        post_trim_anchor_source: trade.post_trim_anchor_source || null,
         note: `Trimmed ${Math.round(delta * 100)}% at $${p.toFixed(2)} (${trimReason})${slAdjusted ? ` - SL moved to $${trade.sl.toFixed(2)}` : ""}`,
       };
       trade.history = Array.isArray(trade.history)
@@ -8774,9 +9671,12 @@ async function processTradeSimulation(
       const isLong = tradeDir === "LONG";
       const entryPx = Number(openTrade.entryPrice);
 
-      // Extract RSI values from tf_tech
-      const rsi1H = tickerData?.tf_tech?.["1H"]?.rsi?.r5 ?? 50;
-      const rsi4H = tickerData?.tf_tech?.["4H"]?.rsi?.r5 ?? 50;
+      // Extract RSI values from tf_tech (alias-safe 1H/60, 4H/240)
+      const tf1HNow = tfTechRow(tickerData, "1H");
+      const tf4HNow = tfTechRow(tickerData, "4H");
+      const tfDNow = tfTechRow(tickerData, "D");
+      const rsi1H = tf1HNow?.rsi?.r5 ?? 50;
+      const rsi4H = tf4HNow?.rsi?.r5 ?? 50;
 
       // Phase 4a: HARD FUSE — double confirmation extreme RSI
       const hardFuseLong = isLong && rsi1H >= 85 && rsi4H >= 80;
@@ -8800,18 +9700,41 @@ async function processTradeSimulation(
         const softArmShort = !isLong && rsi1H <= 25;
 
         if (softArmLong || softArmShort) {
-          const dailyEma21 = tickerData?.tf_tech?.D?.ema?.depth ?? 5;
-          const st4HFlip = tickerData?.tf_tech?.["4H"]?.atr;
+          const tf10Now = tfTechRow(tickerData, "10");
+          const tf30Now = tfTechRow(tickerData, "30");
+          const dailyEma21 = tfDNow?.ema?.depth ?? 5;
+          const st4HFlip = tf4HNow?.atr;
           const st4HBear = st4HFlip?.x === "bear" || st4HFlip?.xs === 1;
           const st4HBull = st4HFlip?.x === "bull" || st4HFlip?.xs === -1;
-          const phaseOsc4H = tickerData?.tf_tech?.["4H"]?.ph?.v ?? 0;
+          const phaseOsc4H = tf4HNow?.ph?.v ?? 0;
           const phaseDot4H = Math.abs(phaseOsc4H) > 61.8;
+          const ema10 = tf10Now?.ema || {};
+          const ema30 = tf30Now?.ema || {};
+          const ema1H = tf1HNow?.ema || {};
+          const rip10 = tf10Now?.ripster || {};
+          const rip1H = tf1HNow?.ripster || {};
+          const holdByPivotLong = Number.isFinite(ema10?.e21) && Number.isFinite(ema30?.e21) && Number.isFinite(ema1H?.e48)
+            ? pxNow >= Number(ema10.e21) && pxNow >= Number(ema30.e21) && pxNow >= Number(ema1H.e48)
+            : false;
+          const holdByPivotShort = Number.isFinite(ema10?.e21) && Number.isFinite(ema30?.e21) && Number.isFinite(ema1H?.e48)
+            ? pxNow <= Number(ema10.e21) && pxNow <= Number(ema30.e21) && pxNow <= Number(ema1H.e48)
+            : false;
+          const longStructuralDefense = !!(
+            (rip10?.c72_89?.bull || rip10?.c72_89?.above)
+            && (rip1H?.c72_89?.bull || rip1H?.c72_89?.above)
+            && (rip10?.c180_200?.bull || rip10?.c180_200?.above || Number(rip10?.c180_200?.distToCloudPct) > 0.01)
+          );
+          const shortStructuralDefense = !!(
+            (rip10?.c72_89?.bear || rip10?.c72_89?.below)
+            && (rip1H?.c72_89?.bear || rip1H?.c72_89?.below)
+            && (rip10?.c180_200?.bear || rip10?.c180_200?.below || Number(rip10?.c180_200?.distToCloudPct) > 0.01)
+          );
 
           const dEma21Break = isLong ? (dailyEma21 < 4) : (dailyEma21 > 6);
           const stConfirm = isLong ? st4HBear : st4HBull;
 
           if (dEma21Break || stConfirm || phaseDot4H) {
-            const currentTrimPct = clamp(Number(openTrade.trimmedPct || 0), 0, 1);
+            const currentTrimPct = getTradeTrimmedPct(openTrade);
 
             if (currentTrimPct < THREE_TIER_CONFIG.TRIM.trimPct - 0.01) {
               // Not yet trimmed — trim first instead of full exit
@@ -8824,13 +9747,21 @@ async function processTradeSimulation(
               fuseExitFired = true;
             } else {
               // Already trimmed — now close the remaining runner
-              console.log(`[FUSE EXIT] ${sym} SOFT FUSE: closing runner (rsi1H=${rsi1H} dEma21Break=${dEma21Break} stConfirm=${stConfirm} trimmedPct=${(currentTrimPct * 100).toFixed(0)}%)`);
-              tickerData.__exit_reason = `soft_fuse_rsi_confirmed`;
-              await closeTradeAtPrice(openTrade, pxNow, "SOFT_FUSE_RSI_CONFIRMED");
-              const fuseExecUpdate = { ...execState, lastExitMs: now };
-              if (isReplay && replayCtx?.execStates) replayCtx.execStates.set(sym, fuseExecUpdate);
-              else if (!isReplay) await kvPutJSON(KV, execKey, fuseExecUpdate);
-              fuseExitFired = true;
+              const deferRunnerExit = isLong
+                ? (holdByPivotLong || longStructuralDefense)
+                : (holdByPivotShort || shortStructuralDefense);
+              if (parseBoolFlag(tickerData?._env?._ripsterTuneV2, false) && deferRunnerExit) {
+                tickerData.__exit_reason = "soft_fuse_runner_hold_structural";
+                fuseExitFired = true;
+              } else {
+                console.log(`[FUSE EXIT] ${sym} SOFT FUSE: closing runner (rsi1H=${rsi1H} dEma21Break=${dEma21Break} stConfirm=${stConfirm} trimmedPct=${(currentTrimPct * 100).toFixed(0)}%)`);
+                tickerData.__exit_reason = `soft_fuse_rsi_confirmed`;
+                await closeTradeAtPrice(openTrade, pxNow, "SOFT_FUSE_RSI_CONFIRMED");
+                const fuseExecUpdate = { ...execState, lastExitMs: now };
+                if (isReplay && replayCtx?.execStates) replayCtx.execStates.set(sym, fuseExecUpdate);
+                else if (!isReplay) await kvPutJSON(KV, execKey, fuseExecUpdate);
+                fuseExitFired = true;
+              }
             }
           }
         }
@@ -8844,7 +9775,7 @@ async function processTradeSimulation(
       // (Phase 4c skip, DEFEND skip, ATR-buffered SL). This is more robust than hoping
       // the soft fuse or TP-hit trims fire first. After trim, the runner breathes.
       // When pnl 1-2%: personality-scaled ATR trail to prevent premature Kanban exits.
-      const _trimmedPctForTrail = clamp(Number(openTrade?.trimmedPct || 0), 0, 1);
+      const _trimmedPctForTrail = getTradeTrimmedPct(openTrade);
       if (!fuseExitFired && _trimmedPctForTrail < 0.01 && Number.isFinite(entryPx) && entryPx > 0 && _posAgeMin >= 15) {
         const pnlPct = isLong
           ? ((pxNow - entryPx) / entryPx) * 100
@@ -8879,8 +9810,8 @@ async function processTradeSimulation(
       }
     } else if (openTrade && isOpenTradeStatus(openTrade.status) && !weekendNow && outsideRTH) {
       // Log when fuse checks would have run but were blocked by RTH
-      const rsi1H = tickerData?.tf_tech?.["1H"]?.rsi?.r5 ?? 50;
-      const rsi4H = tickerData?.tf_tech?.["4H"]?.rsi?.r5 ?? 50;
+      const rsi1H = tfTechRow(tickerData, "1H")?.rsi?.r5 ?? 50;
+      const rsi4H = tfTechRow(tickerData, "4H")?.rsi?.r5 ?? 50;
       if (rsi1H >= 75 || rsi1H <= 25 || rsi4H >= 80 || rsi4H <= 20) {
         console.log(`[FUSE EXIT] ${sym} fuse check blocked: outside RTH (rsi1H=${rsi1H} rsi4H=${rsi4H}), signal-based exits wait for market open`);
         if (!isReplay && env?.DB) {
@@ -8902,7 +9833,7 @@ async function processTradeSimulation(
     const isSLExit = /\bSL\b|stop.?loss|max.?loss/i.test(String(exitReasonRaw));
     // Outside RTH: only allow price-driven exits (SL breach, max loss). Signal-based exits wait for RTH.
     const exitAllowedOutsideRTH = isSLExit;
-    if (isExit && !weekendNow && (!outsideRTH || exitAllowedOutsideRTH) && exitCooldownOk && exitMinAgeOk && !fuseExitFired && openTrade && isOpenTradeStatus(openTrade.status) && clamp(Number(openTrade.trimmedPct || 0), 0, 1) < 0.9999) {
+    if (isExit && !weekendNow && (!outsideRTH || exitAllowedOutsideRTH) && exitCooldownOk && exitMinAgeOk && !fuseExitFired && openTrade && isOpenTradeStatus(openTrade.status) && getTradeTrimmedPct(openTrade) < 0.9999) {
       if (flatPriceExit && !isSLExit) {
         // Price hasn't moved — keep holding instead of closing at $0 P&L
         console.log(`[TRADE SIM] ${sym} exit skipped: flat price (entry=$${Number(openTrade.entryPrice).toFixed(2)} exit=$${pxNow.toFixed(2)}), holding`);
@@ -8945,7 +9876,7 @@ async function processTradeSimulation(
     // Skip DEFEND for trimmed trades: the 3-tier system manages SL post-trim.
     // DEFEND's breakeven/breakeven+ overrides the more generous post-trim SL buffer,
     // defeating the purpose of giving runners room to breathe after locking in trim profit.
-    const _defendTrimPct = clamp(Number(openTrade?.trimmedPct || 0), 0, 1);
+    const _defendTrimPct = getTradeTrimmedPct(openTrade);
     const _defendAgeMin = Number.isFinite(entryMsNorm) ? (now - entryMsNorm) / 60000 : 999;
     if (isDefend && !weekendNow && defendCooldownOk && _defendAgeMin >= 30 && openTrade && Number.isFinite(pxNow) && _defendTrimPct < 0.01) {
       const entryPx = Number(openTrade.entryPrice);
@@ -9048,7 +9979,7 @@ async function processTradeSimulation(
     // Trim targets are based on which TP level price has reached
     // ─────────────────────────────────────────────────────────────────────────
     // CRITICAL: Verify trade is actually still open before trimming (prevents ghost events on closed trades)
-    if (isTrim && !weekendNow && trimCooldownOk && trimMinAgeOk && openTrade && isOpenTradeStatus(openTrade.status) && Number.isFinite(pxNow) && clamp(Number(openTrade.trimmedPct || 0), 0, 1) < 0.9999) {
+    if (isTrim && !weekendNow && trimCooldownOk && trimMinAgeOk && openTrade && isOpenTradeStatus(openTrade.status) && Number.isFinite(pxNow) && getTradeTrimmedPct(openTrade) < 0.9999) {
       const tpArray = Array.isArray(openTrade.tpArray) ? openTrade.tpArray : [];
       const entryPx = Number(openTrade.entryPrice);
       const dir = String(openTrade.direction || "").toUpperCase();
@@ -9735,6 +10666,12 @@ async function processTradeSimulation(
             const tradeId = `${sym}-${now}-${Math.random().toString(36).substr(2, 9)}`;
             const entryTime = eventTs();
             const entryTsMs = Number.isFinite(asOfMs) ? asOfMs : (entryTime ? new Date(entryTime).getTime() : null);
+            const runId = String(
+              tickerData?._env?._runId ||
+              (Number.isFinite(asOfMs)
+                ? `replay@${new Date(asOfMs).toISOString().slice(0, 10)}`
+                : `live@${new Date().toISOString().slice(0, 10)}`),
+            );
             const ev = {
               type: "ENTRY",
               timestamp: entryTime,
@@ -9754,6 +10691,7 @@ async function processTradeSimulation(
               entryTime,
               entry_ts: entryTsMs || undefined,
               triggerTimestamp: Number(tickerData?.trigger_ts) || null,
+              run_id: runId,
               sl: finalSL,
               sl_original: slCandidate,
               sl_gs_adjusted: slAdjustment.adjusted,
@@ -10022,7 +10960,7 @@ async function processTradeSimulation(
         const entry = Number(openTrade.entryPrice);
         const mark = Number(openTrade.currentPrice);
         const oldSl = Number(openTrade.sl);
-        const trimmedPct = clamp(Number(openTrade.trimmedPct || 0), 0, 1);
+        const trimmedPct = getTradeTrimmedPct(openTrade);
         const completion = Number(tickerData?.completion);
         const tpArray = Array.isArray(openTrade.tpArray) ? openTrade.tpArray : [];
 
@@ -10133,6 +11071,15 @@ async function processTradeSimulation(
               if (Number.isFinite(oldSl) && oldSl > 0) {
                 if (newSl >= oldSl - entry * 0.0005) newSl = null;
               }
+            }
+          }
+
+          if (newSl != null && Number.isFinite(newSl) && newSl > 0) {
+            const cappedSl = capSlToPostTrimAnchor(openTrade, newSl);
+            if (!Number.isFinite(cappedSl) || cappedSl <= 0) {
+              newSl = null;
+            } else {
+              newSl = cappedSl;
             }
           }
 
@@ -10640,7 +11587,7 @@ async function processTradeSimulation(
           pnlPct,
           status: tdSeqStatus,
           currentPrice,
-          trimmedPct: existingOpenTrade.trimmedPct || 0,
+          trimmedPct: getTradeTrimmedPct(existingOpenTrade),
           exitPrice: currentPrice,
           exitReason: "TDSEQ",
           exitCategory: "INVALIDATION",
@@ -10747,7 +11694,7 @@ async function processTradeSimulation(
         }
 
         const oldStatus = existingOpenTrade.status || "OPEN";
-        const oldTrimmedPct = Number(existingOpenTrade.trimmedPct || 0);
+        const oldTrimmedPct = getTradeTrimmedPct(existingOpenTrade);
         const newTrimmedPct = Number(
           tradeCalc.trimmedPct != null ? tradeCalc.trimmedPct : oldTrimmedPct,
         );
@@ -10863,7 +11810,7 @@ async function processTradeSimulation(
             correctedEntryPrice !== existingOpenTrade.entryPrice ||
             entryPriceCorrected, // Mark as corrected
           status: newStatus,
-          trimmedPct: tradeCalc.trimmedPct || existingOpenTrade.trimmedPct || 0,
+          trimmedPct: tradeCalc.trimmedPct ?? getTradeTrimmedPct(existingOpenTrade),
           lastUpdate: eventTs(),
           // Prefer the trade's current SL (may be tightened defensively)
           sl: Number.isFinite(Number(existingOpenTrade.sl))
@@ -11752,6 +12699,12 @@ async function processTradeSimulation(
             console.log(`[3-TIER] ${ticker} ${direction} TP array:`, tpArray.map(tp => 
               `${tp.tier} $${tp.price.toFixed(2)} (${Math.round(tp.trimPct * 100)}%)`
             ).join(", "));
+            const runId = String(
+              tickerData?._env?._runId ||
+              (Number.isFinite(entryTsMs)
+                ? `replay@${new Date(entryTsMs).toISOString().slice(0, 10)}`
+                : `live@${new Date().toISOString().slice(0, 10)}`),
+            );
 
             const trade = {
               id: `${ticker}-${now}-${Math.random().toString(36).substr(2, 9)}`,
@@ -11762,6 +12715,7 @@ async function processTradeSimulation(
               entryTime, // When trade was actually created (ingest time in replay)
               entry_ts: entryTsMs, // Numeric ms for D1/display (ingest time, not replay run time)
               triggerTimestamp: triggerTimestamp, // When signal was generated (for reference)
+              run_id: runId,
               sl: finalSL,
               sl_original: baseSL,
               sl_gs_adjusted: slAdjustment.adjusted,
@@ -12542,16 +13496,22 @@ function computeRank(d) {
     score -= 2; // Moderate bearish bias (43.9% UP)
   }
 
-  // RSI Divergence boost/penalty
-  const rsi = d.rsi;
-  if (rsi && rsi.divergence) {
-    const divType = String(rsi.divergence.type || "none");
-    const divStrength = Number(rsi.divergence.strength || 0);
-    if (divType === "bullish") {
-      score += 3 + Math.min(2, divStrength * 0.1); // Boost for bullish divergence
-    } else if (divType === "bearish") {
-      score -= 3 - Math.min(2, divStrength * 0.1); // Penalty for bearish divergence
-    }
+  // RSI Divergence boost/penalty (from tf_tech bundle rsiDiv)
+  // Bullish divergence on 30m/1H = strong pullback reversal signal → rank boost
+  // Bearish divergence on 30m/1H = exhaustion warning → rank penalty
+  const _rkDiv30 = tfTechRow(d, "30")?.rsiDiv;
+  const _rkDiv1H = tfTechRow(d, "1H")?.rsiDiv;
+  const _rkSide = sideFromStateOrScores(d);
+  if ((_rkDiv30?.bullish || _rkDiv1H?.bullish) && _rkSide === "LONG") {
+    const s = Math.max(_rkDiv30?.strength || 0, _rkDiv1H?.strength || 0);
+    score += 3 + Math.round(s * 4);
+  } else if ((_rkDiv30?.bearish || _rkDiv1H?.bearish) && _rkSide === "SHORT") {
+    const s = Math.max(_rkDiv30?.strength || 0, _rkDiv1H?.strength || 0);
+    score += 3 + Math.round(s * 4);
+  } else if ((_rkDiv30?.bearish || _rkDiv1H?.bearish) && _rkSide === "LONG") {
+    score -= 3;
+  } else if ((_rkDiv30?.bullish || _rkDiv1H?.bullish) && _rkSide === "SHORT") {
+    score -= 3;
   }
 
   // TD Sequential boost/penalty — only relevant on Daily/Weekly/Monthly timeframes.
@@ -14626,6 +15586,8 @@ async function d1EnsureUserTickersSchema(env) {
 // ═══════════════════════════════════════════════════════════════════════
 
 let _learningSchemaReady = false;
+let _tradeRunSchemaReady = false;
+let _backtestRunsSchemaReady = false;
 async function d1EnsureLearningSchema(env) {
   if (_learningSchemaReady) return;
   const db = env?.DB;
@@ -14797,6 +15759,216 @@ async function d1EnsureLearningSchema(env) {
   } catch (e) {
     console.error("[LEARNING] Schema migration failed:", String(e).slice(0, 200));
   }
+}
+
+async function d1EnsureTradeRunSchema(env) {
+  if (_tradeRunSchemaReady) return;
+  const db = env?.DB;
+  if (!db) return;
+  try {
+    try {
+      await db.prepare(`ALTER TABLE trades ADD COLUMN run_id TEXT`).run();
+    } catch (_) {}
+    try {
+      await db.prepare(`CREATE INDEX IF NOT EXISTS idx_trades_run_id ON trades (run_id)`).run();
+    } catch (_) {}
+    _tradeRunSchemaReady = true;
+  } catch (e) {
+    console.error("[D1 LEDGER] trade run_id schema migration failed:", String(e).slice(0, 200));
+  }
+}
+
+async function d1EnsureBacktestRunsSchema(env) {
+  if (_backtestRunsSchemaReady) return;
+  const db = env?.DB;
+  if (!db) return;
+  try {
+    await db.batch([
+      db.prepare(`CREATE TABLE IF NOT EXISTS backtest_runs (
+        run_id TEXT PRIMARY KEY,
+        label TEXT,
+        start_date TEXT,
+        end_date TEXT,
+        interval_min INTEGER,
+        ticker_batch INTEGER,
+        ticker_universe_count INTEGER,
+        trader_only INTEGER DEFAULT 0,
+        keep_open_at_end INTEGER DEFAULT 0,
+        low_write INTEGER DEFAULT 0,
+        status TEXT DEFAULT 'registered',
+        status_note TEXT,
+        live_config_slot INTEGER DEFAULT 0,
+        tags_json TEXT,
+        params_json TEXT,
+        metrics_json TEXT,
+        created_at INTEGER NOT NULL,
+        started_at INTEGER,
+        ended_at INTEGER,
+        updated_at INTEGER NOT NULL
+      )`),
+      db.prepare(`CREATE TABLE IF NOT EXISTS backtest_run_metrics (
+        run_id TEXT PRIMARY KEY,
+        total_tickers_traded INTEGER DEFAULT 0,
+        total_trades INTEGER DEFAULT 0,
+        wins INTEGER DEFAULT 0,
+        losses INTEGER DEFAULT 0,
+        breakevens INTEGER DEFAULT 0,
+        open_trades INTEGER DEFAULT 0,
+        closed_trades INTEGER DEFAULT 0,
+        win_rate REAL DEFAULT 0,
+        realized_pnl REAL DEFAULT 0,
+        realized_pnl_pct REAL DEFAULT 0,
+        avg_win_pct REAL DEFAULT 0,
+        avg_loss_pct REAL DEFAULT 0,
+        classifications_json TEXT,
+        by_status_json TEXT,
+        autopsy_url TEXT,
+        updated_at INTEGER NOT NULL
+      )`),
+    ]);
+    try {
+      await db.batch([
+        db.prepare(`CREATE INDEX IF NOT EXISTS idx_backtest_runs_created ON backtest_runs(created_at DESC)`),
+        db.prepare(`CREATE INDEX IF NOT EXISTS idx_backtest_runs_status ON backtest_runs(status)`),
+        db.prepare(`CREATE INDEX IF NOT EXISTS idx_backtest_runs_live ON backtest_runs(live_config_slot, updated_at DESC)`),
+      ]);
+    } catch (_) {}
+    try { await db.prepare(`ALTER TABLE backtest_run_metrics ADD COLUMN avg_win_pct REAL DEFAULT 0`).run(); } catch (_) {}
+    try { await db.prepare(`ALTER TABLE backtest_run_metrics ADD COLUMN avg_loss_pct REAL DEFAULT 0`).run(); } catch (_) {}
+    _backtestRunsSchemaReady = true;
+  } catch (e) {
+    console.error("[BACKTEST RUNS] Schema migration failed:", String(e).slice(0, 200));
+  }
+}
+
+function parseBool01(v) {
+  if (typeof v === "boolean") return v ? 1 : 0;
+  const s = String(v ?? "").trim().toLowerCase();
+  return (s === "1" || s === "true" || s === "yes" || s === "y" || s === "on") ? 1 : 0;
+}
+
+function buildTradeAutopsyRunUrl(runId) {
+  const safe = encodeURIComponent(String(runId || "").trim());
+  return safe ? `trade-autopsy.html?run_id=${safe}` : "trade-autopsy.html";
+}
+
+function buildRunSummaryView(row) {
+  if (!row) return null;
+  let classifications = {};
+  let byStatus = {};
+  try { classifications = JSON.parse(row.classifications_json || "{}") || {}; } catch (_) {}
+  try { byStatus = JSON.parse(row.by_status_json || "{}") || {}; } catch (_) {}
+  return {
+    run_id: row.run_id,
+    label: row.label || null,
+    status: row.status || "unknown",
+    live_config_slot: Number(row.live_config_slot || 0) === 1,
+    started_at: Number(row.started_at || 0) || null,
+    ended_at: Number(row.ended_at || 0) || null,
+    created_at: Number(row.created_at || 0) || null,
+    updated_at: Number(row.updated_at || 0) || null,
+    start_date: row.start_date || null,
+    end_date: row.end_date || null,
+    interval_min: Number(row.interval_min || 0) || null,
+    ticker_batch: Number(row.ticker_batch || 0) || null,
+    tickers: {
+      universe_count: Number(row.ticker_universe_count || 0) || null,
+      traded_count: Number(row.total_tickers_traded || 0),
+    },
+    trades: {
+      total: Number(row.total_trades || 0),
+      wins: Number(row.wins || 0),
+      losses: Number(row.losses || 0),
+      breakevens: Number(row.breakevens || 0),
+      open: Number(row.open_trades || 0),
+      closed: Number(row.closed_trades || 0),
+      win_rate: Number(row.win_rate || 0),
+    },
+    pnl: {
+      realized: Number(row.realized_pnl || 0),
+      realized_pct: Number(row.realized_pnl_pct || 0),
+      avg_win_pct: Number(row.avg_win_pct || 0),
+      avg_loss_pct: Number(row.avg_loss_pct || 0),
+    },
+    classifications,
+    by_status: byStatus,
+    autopsy_url: row.autopsy_url || buildTradeAutopsyRunUrl(row.run_id),
+  };
+}
+
+async function summarizeRunMetrics(db, runId) {
+  const rid = String(runId || "").trim();
+  if (!rid) return null;
+  const totals = await db.prepare(
+    `SELECT
+      COUNT(*) AS total_trades,
+      COUNT(DISTINCT ticker) AS total_tickers_traded,
+      SUM(CASE WHEN status='WIN' THEN 1 ELSE 0 END) AS wins,
+      SUM(CASE WHEN status='LOSS' THEN 1 ELSE 0 END) AS losses,
+      SUM(CASE WHEN status='FLAT' THEN 1 ELSE 0 END) AS breakevens,
+      SUM(CASE WHEN status='OPEN' OR status='TP_HIT_TRIM' THEN 1 ELSE 0 END) AS open_trades,
+      SUM(CASE WHEN status IN ('WIN','LOSS','FLAT') THEN 1 ELSE 0 END) AS closed_trades,
+      SUM(CASE WHEN status IN ('WIN','LOSS','FLAT') THEN COALESCE(pnl,0) ELSE 0 END) AS realized_pnl,
+      SUM(CASE WHEN status IN ('WIN','LOSS','FLAT') THEN COALESCE(pnl_pct,0) ELSE 0 END) AS realized_pnl_pct,
+      AVG(CASE WHEN status='WIN' THEN COALESCE(pnl_pct,0) ELSE NULL END) AS avg_win_pct,
+      AVG(CASE WHEN status='LOSS' THEN COALESCE(pnl_pct,0) ELSE NULL END) AS avg_loss_pct
+     FROM trades
+     WHERE run_id = ?1`
+  ).bind(rid).first();
+
+  const classificationRows = await db.prepare(
+    `SELECT
+      COALESCE(NULLIF(a.classification,''), 'unclassified') AS classification,
+      COUNT(*) AS count
+     FROM trades t
+     LEFT JOIN trade_autopsy_annotations a ON a.trade_id = t.trade_id
+     WHERE t.run_id = ?1
+     GROUP BY classification
+     ORDER BY count DESC`
+  ).bind(rid).all();
+
+  const byStatusRows = await db.prepare(
+    `SELECT COALESCE(status,'UNKNOWN') AS status, COUNT(*) AS count
+     FROM trades
+     WHERE run_id = ?1
+     GROUP BY status
+     ORDER BY count DESC`
+  ).bind(rid).all();
+
+  const wins = Number(totals?.wins || 0);
+  const losses = Number(totals?.losses || 0);
+  const breakevens = Number(totals?.breakevens || 0);
+  const closedTrades = Number(totals?.closed_trades || 0);
+  const winRate = closedTrades > 0 ? (wins / closedTrades) * 100 : 0;
+
+  const classifications = {};
+  for (const r of (classificationRows?.results || [])) {
+    classifications[String(r.classification || "unclassified")] = Number(r.count || 0);
+  }
+  const byStatus = {};
+  for (const r of (byStatusRows?.results || [])) {
+    byStatus[String(r.status || "UNKNOWN")] = Number(r.count || 0);
+  }
+
+  return {
+    run_id: rid,
+    total_tickers_traded: Number(totals?.total_tickers_traded || 0),
+    total_trades: Number(totals?.total_trades || 0),
+    wins,
+    losses,
+    breakevens,
+    open_trades: Number(totals?.open_trades || 0),
+    closed_trades: closedTrades,
+    win_rate: winRate,
+    realized_pnl: Number(totals?.realized_pnl || 0),
+    realized_pnl_pct: Number(totals?.realized_pnl_pct || 0),
+    avg_win_pct: Number(totals?.avg_win_pct || 0),
+    avg_loss_pct: Number(totals?.avg_loss_pct || 0),
+    classifications_json: JSON.stringify(classifications),
+    by_status_json: JSON.stringify(byStatus),
+    autopsy_url: buildTradeAutopsyRunUrl(rid),
+    updated_at: Date.now(),
+  };
 }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -14974,7 +16146,7 @@ async function autopsyTradesServerSide(env) {
   const db = env?.DB;
 
   const { results: rawTrades } = await db.prepare(
-    `SELECT t.trade_id, t.ticker, t.direction, t.entry_ts, t.exit_ts, t.entry_price, t.exit_price,
+    `SELECT t.trade_id, t.run_id, t.ticker, t.direction, t.entry_ts, t.exit_ts, t.entry_price, t.exit_price,
             t.pnl_pct, t.rank, t.rr, t.status,
             da.signal_snapshot_json, da.regime_daily, da.regime_weekly, da.regime_combined,
             da.entry_path AS da_entry_path
@@ -17567,6 +18739,7 @@ async function d1UpsertTrade(env, trade) {
   const db = env?.DB;
   if (!db) return { ok: false, skipped: true, reason: "no_db_binding" };
   if (!trade) return { ok: false, skipped: true, reason: "missing_trade" };
+  await d1EnsureTradeRunSchema(env);
 
   const tradeId = String(trade.id || trade.trade_id || "").trim();
   if (!tradeId) return { ok: false, skipped: true, reason: "missing_trade_id" };
@@ -17636,15 +18809,15 @@ async function d1UpsertTrade(env, trade) {
   const insertWithTrimPrice = `INSERT OR IGNORE INTO trades
           (trade_id, ticker, direction, entry_ts, entry_price, rank, rr, status,
            exit_ts, exit_price, exit_reason, trimmed_pct, pnl, pnl_pct, script_version,
-           created_at, updated_at, trim_ts, trim_price)
+           run_id, created_at, updated_at, trim_ts, trim_price)
          VALUES
-          (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)`;
+          (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20)`;
   const insertWithoutTrimPrice = `INSERT OR IGNORE INTO trades
           (trade_id, ticker, direction, entry_ts, entry_price, rank, rr, status,
            exit_ts, exit_price, exit_reason, trimmed_pct, pnl, pnl_pct, script_version,
-           created_at, updated_at, trim_ts)
+           run_id, created_at, updated_at, trim_ts)
          VALUES
-          (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)`;
+          (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)`;
 
   const resolvedEntryPrice = trade.entryPrice != null ? Number(trade.entryPrice)
     : trade.entry_price != null ? Number(trade.entry_price) : null;
@@ -17653,6 +18826,11 @@ async function d1UpsertTrade(env, trade) {
   const resolvedExitPrice = Number.isFinite(derivedExitPrice) ? derivedExitPrice
     : trade.exitPrice != null ? Number(trade.exitPrice)
     : trade.exit_price != null ? Number(trade.exit_price) : null;
+  const resolvedRunId = trade.run_id != null
+    ? String(trade.run_id)
+    : trade.runId != null
+      ? String(trade.runId)
+      : null;
 
   try {
     // Preserve created_at by inserting once.
@@ -17678,6 +18856,7 @@ async function d1UpsertTrade(env, trade) {
           : trade.script_version != null
             ? String(trade.script_version)
             : null,
+        resolvedRunId,
         createdAt,
         updatedAt,
         Number.isFinite(trimTs) ? trimTs : null,
@@ -17691,7 +18870,7 @@ async function d1UpsertTrade(env, trade) {
           ticker=?2, direction=?3, entry_ts=?4, entry_price=?5, rank=?6, rr=?7, status=?8,
           exit_ts=?9, exit_price=?10, exit_reason=?11,
           trimmed_pct=?12, pnl=?13, pnl_pct=?14, script_version=?15,
-          updated_at=?16, trim_ts=?17, trim_price=?18
+          run_id=?16, updated_at=?17, trim_ts=?18, trim_price=?19
          WHERE trade_id=?1`,
       )
       .bind(
@@ -17714,6 +18893,7 @@ async function d1UpsertTrade(env, trade) {
           : trade.script_version != null
             ? String(trade.script_version)
             : null,
+        resolvedRunId,
         updatedAt,
         Number.isFinite(trimTs) ? trimTs : null,
         Number.isFinite(trimPrice) ? trimPrice : null,
@@ -18809,7 +19989,7 @@ async function d1LoadTradesForSimulation(env) {
     let rows;
     try {
       const tradesRes = await db.prepare(
-        `SELECT t.trade_id, t.ticker, t.direction, t.entry_ts, t.entry_price, t.rank, t.rr, t.status,
+        `SELECT t.trade_id, t.run_id, t.ticker, t.direction, t.entry_ts, t.entry_price, t.rank, t.rr, t.status,
           t.exit_ts, t.exit_price, t.exit_reason, t.trimmed_pct, t.pnl, t.pnl_pct,
           t.script_version, t.created_at, t.updated_at, t.trim_ts, t.trim_price,
           COALESCE(p.total_qty, 0) AS pos_qty
@@ -18821,7 +20001,7 @@ async function d1LoadTradesForSimulation(env) {
     } catch (joinErr) {
       if ((joinErr?.message || "").includes("no such table") && (joinErr?.message || "").includes("positions")) {
         const tradesRes = await db.prepare(
-          `SELECT trade_id, ticker, direction, entry_ts, entry_price, rank, rr, status,
+          `SELECT trade_id, run_id, ticker, direction, entry_ts, entry_price, rank, rr, status,
             exit_ts, exit_price, exit_reason, trimmed_pct, pnl, pnl_pct,
             script_version, created_at, updated_at, trim_ts, trim_price
            FROM trades ORDER BY entry_ts DESC`
@@ -18866,6 +20046,8 @@ async function d1LoadTradesForSimulation(env) {
       return {
         id: r.trade_id,
         trade_id: r.trade_id,
+        run_id: r.run_id || null,
+        runId: r.run_id || null,
         ticker: String(r.ticker || "").toUpperCase(),
         direction: r.direction,
         entryPrice: r.entry_price != null ? Number(r.entry_price) : undefined,
@@ -29639,7 +30821,7 @@ export default {
         }
 
         const sqlFull = `SELECT
-            trade_id, ticker, direction, entry_ts, entry_price, rank, rr, status,
+            trade_id, run_id, ticker, direction, entry_ts, entry_price, rank, rr, status,
             exit_ts, exit_price, exit_reason, trimmed_pct, pnl, pnl_pct,
             script_version, created_at, updated_at, trim_ts, trim_price
           FROM trades
@@ -29647,7 +30829,7 @@ export default {
           ORDER BY entry_ts DESC, trade_id DESC
           LIMIT ?`;
         const sqlWithoutTrimPrice = `SELECT
-            trade_id, ticker, direction, entry_ts, entry_price, rank, rr, status,
+            trade_id, run_id, ticker, direction, entry_ts, entry_price, rank, rr, status,
             exit_ts, exit_price, exit_reason, trimmed_pct, pnl, pnl_pct,
             script_version, created_at, updated_at, trim_ts
           FROM trades
@@ -29655,7 +30837,7 @@ export default {
           ORDER BY entry_ts DESC, trade_id DESC
           LIMIT ?`;
         const sqlWithoutTrimTs = `SELECT
-            trade_id, ticker, direction, entry_ts, entry_price, rank, rr, status,
+            trade_id, run_id, ticker, direction, entry_ts, entry_price, rank, rr, status,
             exit_ts, exit_price, exit_reason, trimmed_pct, pnl, pnl_pct,
             script_version, created_at, updated_at
           FROM trades
@@ -29809,7 +30991,7 @@ export default {
         const tradeRow = await db
           .prepare(
             `SELECT
-              trade_id, ticker, direction, entry_ts, entry_price, rank, rr, status,
+              trade_id, run_id, ticker, direction, entry_ts, entry_price, rank, rr, status,
               exit_ts, exit_price, exit_reason, trimmed_pct, pnl, pnl_pct,
               script_version, created_at, updated_at
              FROM trades WHERE trade_id = ?1 LIMIT 1`,
@@ -30004,7 +31186,7 @@ export default {
         const tradeRow = await db
           .prepare(
             `SELECT
-              trade_id, ticker, direction, entry_ts, entry_price, rank, rr, status,
+              trade_id, run_id, ticker, direction, entry_ts, entry_price, rank, rr, status,
               exit_ts, exit_price, exit_reason, trimmed_pct, pnl, pnl_pct,
               script_version, created_at, updated_at
              FROM trades WHERE trade_id = ?1 LIMIT 1`,
@@ -30530,7 +31712,7 @@ export default {
 
         let tradeRows = [];
         try {
-          let sql = `SELECT trade_id, ticker, direction, entry_ts, entry_price, status, trimmed_pct, pnl, script_version, created_at, updated_at, exit_ts
+          let sql = `SELECT trade_id, run_id, ticker, direction, entry_ts, entry_price, status, trimmed_pct, pnl, script_version, created_at, updated_at, exit_ts
             FROM trades WHERE 1=1`;
           const binds = [];
           if (tickerFilter) {
@@ -30982,7 +32164,8 @@ export default {
         const authFail = await requireKeyOrAdmin(req, env);
         if (authFail) return authFail;
 
-        const useTD = _usesTwelveData(env);
+        const providerOverride = (url.searchParams.get("provider") || "").toLowerCase();
+        const useTD = providerOverride === "alpaca" ? false : providerOverride === "twelvedata" ? true : _usesTwelveData(env);
         if (useTD && !env.TWELVEDATA_API_KEY) {
           return sendJSON(
             { ok: false, error: "data_provider_not_configured", hint: "Set TWELVEDATA_API_KEY for TwelveData backfill" },
@@ -31498,7 +32681,7 @@ export default {
         if (!db) return sendJSON({ ok: false, error: "d1_not_configured" }, 503, corsHeaders(env, req));
         try {
           const { results: rows } = await db.prepare(
-            `SELECT t.trade_id, t.ticker, t.direction, t.entry_ts, t.exit_ts,
+            `SELECT t.trade_id, t.run_id, t.ticker, t.direction, t.entry_ts, t.exit_ts,
                     t.entry_price, t.exit_price, t.pnl, t.pnl_pct, t.exit_reason,
                     da.signal_snapshot_json, da.entry_path, da.consensus_direction
              FROM trades t
@@ -31508,6 +32691,7 @@ export default {
           ).all();
           const trades = (rows || []).map(r => ({
             trade_id: r.trade_id,
+            run_id: r.run_id || null,
             ticker: r.ticker,
             direction: r.direction,
             entry_ts: r.entry_ts,
@@ -31536,7 +32720,7 @@ export default {
         try {
           await d1EnsureLearningSchema(env);
           const { results: rows } = await db.prepare(
-            `SELECT t.trade_id, t.ticker, t.direction, t.entry_ts, t.exit_ts, t.trim_ts,
+            `SELECT t.trade_id, t.run_id, t.ticker, t.direction, t.entry_ts, t.exit_ts, t.trim_ts, t.status,
                     t.entry_price, t.exit_price, t.pnl, t.pnl_pct, t.exit_reason,
                     da.signal_snapshot_json, da.entry_path, da.consensus_direction,
                     da.max_favorable_excursion, da.max_adverse_excursion, da.tf_stack_json
@@ -31547,8 +32731,11 @@ export default {
           ).all();
           const trades = (rows || []).map(r => ({
             trade_id: r.trade_id,
+            run_id: r.run_id || null,
+            runId: r.run_id || null,
             ticker: r.ticker,
             direction: r.direction,
+            status: r.status || null,
             entry_ts: r.entry_ts,
             exit_ts: r.exit_ts,
             trim_ts: r.trim_ts,
@@ -31934,6 +33121,8 @@ export default {
       //   tickerBatch=15        tickers per invocation
       //   intervalMinutes=5     interval between scoring snapshots
       //   cleanSlate=1          purge all trades first (only on first batch of first day)
+      //   skipTrailWrite=1      skip timed_trail writes (lower D1 write usage)
+      //   lowWrite=1            alias for skipTrailWrite=1
       // ═══════════════════════════════════════════════════════════════════════════
       if (routeKey === "POST /timed/admin/candle-replay") {
         const authFail = requireKeyOr401(req, env);
@@ -31953,8 +33142,12 @@ export default {
         const intervalMinutes = Math.max(1, Math.min(30, Number(url.searchParams.get("intervalMinutes")) || 10));
         const cleanSlate = url.searchParams.get("cleanSlate") === "1";
         const trailOnly = url.searchParams.get("trailOnly") === "1";
+        const lowWrite = url.searchParams.get("lowWrite") === "1";
+        const skipTrailWrite = lowWrite || url.searchParams.get("skipTrailWrite") === "1";
         const skipInvestor = url.searchParams.get("skipInvestor") === "1" || url.searchParams.get("traderOnly") === "1";
         const tickerFilter = url.searchParams.get("tickers"); // comma-separated filter
+        const replayRunLock = await KV.get("timed:replay:lock");
+        const replayRunId = String(replayRunLock || `candle_replay@${dateParam}`);
 
         let allTickers;
         if (tickerFilter) {
@@ -32099,7 +33292,7 @@ export default {
         } catch {}
         // Load deep audit config for replay parity with live
         try {
-          const daKeys = ["deep_audit_short_min_rank", "deep_audit_ticker_blacklist", "deep_audit_max_loss_pct", "deep_audit_sl_cap_mult", "deep_audit_sl_floor_mult", "deep_audit_rsi_tp_delay", "deep_audit_avoid_hours", "deep_audit_block_regime", "deep_audit_min_hold_regime_exit_hours", "deep_audit_loss_cooldown_hours", "deep_audit_min_htf_score", "deep_audit_momentum_elite_rank_boost", "deep_audit_breakout_daily_level_enabled", "deep_audit_breakout_atr_breakout_enabled", "deep_audit_breakout_ema_stack_enabled", "deep_audit_breakout_min_rr", "deep_audit_breakout_min_entry_quality"];
+          const daKeys = ["deep_audit_short_min_rank", "deep_audit_ticker_blacklist", "deep_audit_max_loss_pct", "deep_audit_sl_cap_mult", "deep_audit_sl_floor_mult", "deep_audit_rsi_tp_delay", "deep_audit_avoid_hours", "deep_audit_block_regime", "deep_audit_min_hold_regime_exit_hours", "deep_audit_loss_cooldown_hours", "deep_audit_min_htf_score", "deep_audit_momentum_elite_rank_boost", "deep_audit_breakout_daily_level_enabled", "deep_audit_breakout_atr_breakout_enabled", "deep_audit_breakout_ema_stack_enabled", "deep_audit_breakout_min_rr", "deep_audit_breakout_min_entry_quality", "deep_audit_variant_guardrails_v3", "deep_audit_variant_min_rank", "deep_audit_variant_min_rr", "deep_audit_variant_max_loss_pct", "deep_audit_variant_regime_exit_min_age_min", "deep_audit_rsi_all_tf_extreme_guard", "deep_audit_rsi_all_tf_high", "deep_audit_rsi_all_tf_low", "deep_audit_rsi_extreme_profile_min_pct", "deep_audit_swing_checklist_v1", "deep_audit_swing_phase_near_zero_abs", "deep_audit_swing_phase_early_max", "deep_audit_swing_require_squeeze_build"];
           const daRows = (await db.prepare(
             `SELECT config_key, config_value FROM model_config WHERE config_key IN (${daKeys.map((_, i) => `?${i + 1}`).join(",")})`
           ).bind(...daKeys).all())?.results || [];
@@ -32117,6 +33310,29 @@ export default {
           const vixData = await kvGetJSON(KV, "timed:latest:VIX");
           if (vixData?.price) _replayCurrentVix = Number(vixData.price);
         } catch {}
+
+        // Load ticker profiles from D1 for personality-based SL/TP and trail style parity with live
+        const _replayTickerProfileMap = {};
+        try {
+          const { results: profRows } = await db.prepare(
+            `SELECT ticker, learning_json, behavior_type, sl_mult, tp_mult, entry_threshold_adj, atr_pct_p50, trend_persistence, ichimoku_responsiveness FROM ticker_profiles WHERE learning_json IS NOT NULL`
+          ).all();
+          for (const row of (profRows || [])) {
+            _replayTickerProfileMap[String(row.ticker).toUpperCase()] = {
+              behavior_type: row.behavior_type,
+              sl_mult: Number(row.sl_mult) || 1.0,
+              tp_mult: Number(row.tp_mult) || 1.0,
+              entry_threshold_adj: Number(row.entry_threshold_adj) || 0,
+              atr_pct_p50: Number(row.atr_pct_p50) || 0,
+              trend_persistence: Number(row.trend_persistence) || 0.5,
+              ichimoku_responsiveness: Number(row.ichimoku_responsiveness) || 0.5,
+              learning_json: row.learning_json,
+            };
+          }
+          console.log(`[REPLAY] Loaded ${Object.keys(_replayTickerProfileMap).length} ticker profiles from D1`);
+        } catch (profErr) {
+          console.warn(`[REPLAY] ticker_profiles load failed:`, String(profErr?.message || profErr).slice(0, 200));
+        }
 
         let processed = 0;
         let tradesCreated = 0;
@@ -32181,6 +33397,9 @@ export default {
               }
 
               const existing = stateMap[ticker] || {};
+              if (_replayTickerProfileMap[ticker] && !existing._tickerProfile) {
+                existing._tickerProfile = _replayTickerProfileMap[ticker];
+              }
               const result = assembleTickerData(ticker, bundleMap, existing, { rawBars });
               if (!result) { skipped++; continue; }
 
@@ -32204,6 +33423,11 @@ export default {
                   _sectorRegime: _rSecRegime,
                   _deepAuditConfig: env._deepAuditConfig || null,
                   _calibratedRankMin: env._calibratedRankMin || 0,
+                  _entryEngine: resolveEngineMode(env.ENTRY_ENGINE),
+                  _managementEngine: resolveEngineMode(env.MANAGEMENT_ENGINE),
+                  _ripsterTuneV2: parseBoolFlag(env.RIPSTER_TUNE_V2, false),
+                  _ripsterExitDebounceBars: Math.max(1, Number(env.RIPSTER_EXIT_DEBOUNCE_BARS) || 2),
+                  _runId: replayRunId,
                 };
               }
               if (_replayCurrentVix != null) result._vix = _replayCurrentVix;
@@ -32267,11 +33491,13 @@ export default {
                 if (!diagEntry.qualifies) {
                   result.__entry_block_reason = diagEntry.reason;
                   if (diagEntry.fuelPct != null) result.__entry_block_fuel_pct = diagEntry.fuelPct;
+      result.__entry_block_engine = diagEntry.engine || "legacy";
                   blockReasons[diagEntry.reason] = (blockReasons[diagEntry.reason] || 0) + 1;
                 } else {
                   // Clear stale block reasons carried from previous interval via assembleTickerData spread
                   delete result.__entry_block_reason;
                   delete result.__entry_block_fuel_pct;
+      delete result.__entry_block_engine;
                 }
               }
 
@@ -32328,8 +33554,11 @@ export default {
               // Track stage distribution
               stageCounts[finalStage || "null"] = (stageCounts[finalStage || "null"] || 0) + 1;
 
-              // Collect trail point for batch write at end (avoids 1000+ individual D1 calls)
-              pendingTrail.push({ ticker, result: { ...result } });
+              // Collect trail point for batch write at end (avoids 1000+ individual D1 calls).
+              // In low-write mode we intentionally skip timed_trail persistence to reduce D1 write cost.
+              if (!skipTrailWrite) {
+                pendingTrail.push({ ticker, result: { ...result } });
+              }
 
               if (!trailOnly) {
                 // Run trade simulation (with Discord + email disabled, no D1 writes)
@@ -32355,7 +33584,7 @@ export default {
 
         // Batch-write all trail points to D1 (D1 allows max 100 stmts per batch)
         let trailWritten = 0;
-        if (pendingTrail.length > 0 && db) {
+        if (!skipTrailWrite && pendingTrail.length > 0 && db) {
           try {
             const trailStmts = [];
             for (const { ticker: t, result: r } of pendingTrail) {
@@ -32562,6 +33791,7 @@ export default {
           blockReasons: fullDay ? mergedBlockReasons : blockReasons,
           d1StateWritten: fullDay ? dayD1State : d1StateWritten,
           trailWritten: fullDay ? dayTrailWritten : trailWritten,
+          skipTrailWrite: !!skipTrailWrite,
           lastSnapshot,
           processDebug: replayCtx?.processDebug?.slice(0, 30) || [],
           fullDay: !!fullDay,
@@ -32674,7 +33904,11 @@ export default {
 
         try {
           const openRows = (await db.prepare(
-            `SELECT trade_id, ticker, direction, entry_price, entry_ts, pnl FROM trades WHERE status NOT IN ('WIN','LOSS','FLAT') OR status IS NULL`
+            `SELECT t.trade_id, t.ticker, t.direction, t.entry_price, t.entry_ts, t.pnl, t.trimmed_pct,
+                    COALESCE(p.total_qty, 0) AS pos_qty
+             FROM trades t
+             LEFT JOIN positions p ON p.position_id = t.trade_id
+             WHERE t.status NOT IN ('WIN','LOSS','FLAT') OR t.status IS NULL`
           ).all())?.results || [];
 
           if (openRows.length === 0) {
@@ -32712,21 +33946,40 @@ export default {
           const stmts = [];
           let closed = 0;
           const details = [];
+          const kvTradesForClose = KV ? (await kvGetJSON(KV, "timed:trades:all") || []) : [];
+          const kvTradeById = new Map(
+            (Array.isArray(kvTradesForClose) ? kvTradesForClose : []).map(t => [String(t?.trade_id || t?.id || ""), t]),
+          );
           for (const row of openRows) {
             const sym = String(row.ticker).toUpperCase();
             const entryPx = Number(row.entry_price);
             // Priority: D1 trail_5m_facts close → KV latest → entry price (last resort)
             const lastPx = replayPrices.get(sym) || (KV ? Number((await kvGetJSON(KV, `timed:latest:${sym}`))?.price) || 0 : 0) || entryPx;
             const dir = String(row.direction).toUpperCase() === "SHORT" ? -1 : 1;
-            const shares = entryPx > 0 ? TRADE_SIZE / entryPx : 0;
-            const pnl = (lastPx - entryPx) * shares * dir;
-            const pnlPct = entryPx > 0 && shares > 0 ? (pnl / (entryPx * shares)) * 100 : 0;
-            const status = pnl > 0 ? "WIN" : pnl < 0 ? "LOSS" : "FLAT";
+            const kvTrade = kvTradeById.get(String(row.trade_id || ""));
+            const trimPct = getTradeTrimmedPct(kvTrade) > 0
+              ? getTradeTrimmedPct(kvTrade)
+              : clamp(Number(row.trimmed_pct) || 0, 0, 1);
+            const posQty = Number(row.pos_qty) || 0;
+            const kvShares = Number(kvTrade?.shares);
+            const fullShares = Number.isFinite(kvShares) && kvShares > 0
+              ? kvShares
+              : (trimPct > 0 && trimPct < 1 && posQty > 0
+                ? (posQty / (1 - trimPct))
+                : (posQty > 0 ? posQty : (entryPx > 0 ? TRADE_SIZE / entryPx : 0)));
+            const remainingShares = fullShares * (1 - trimPct);
+            const priorRealized = Number(
+              kvTrade?.realizedPnl ?? kvTrade?.pnl ?? row.pnl ?? 0,
+            ) || 0;
+            const remainingPnl = (lastPx - entryPx) * remainingShares * dir;
+            const totalPnl = priorRealized + remainingPnl;
+            const pnlPct = entryPx > 0 && fullShares > 0 ? (totalPnl / (entryPx * fullShares)) * 100 : 0;
+            const status = totalPnl > 0 ? "WIN" : totalPnl < 0 ? "LOSS" : "FLAT";
 
             stmts.push(db.prepare(
               `UPDATE trades SET status = ?1, exit_ts = ?2, exit_price = ?3, exit_reason = ?4, pnl = ?5, pnl_pct = ?6, updated_at = ?7 WHERE trade_id = ?8`
-            ).bind(status, exitMs, lastPx, "replay_end_close", pnl, pnlPct, exitMs, row.trade_id));
-            details.push({ ticker: sym, dir: dir === 1 ? "LONG" : "SHORT", entryPx, exitPx: lastPx, pnl: Math.round(pnl * 100) / 100, status });
+            ).bind(status, exitMs, lastPx, "replay_forced_eod_close", totalPnl, pnlPct, exitMs, row.trade_id));
+            details.push({ ticker: sym, dir: dir === 1 ? "LONG" : "SHORT", entryPx, exitPx: lastPx, pnl: Math.round(totalPnl * 100) / 100, status });
             closed++;
           }
 
@@ -32745,14 +33998,18 @@ export default {
                 const lastPx = replayPrices.get(sym) || entryPx;
                 const dir = String(t.direction).toUpperCase() === "SHORT" ? -1 : 1;
                 const shares = Number(t.shares) || (entryPx > 0 ? TRADE_SIZE / entryPx : 0);
-                const pnl = (lastPx - entryPx) * shares * dir;
-                t.status = pnl > 0 ? "WIN" : pnl < 0 ? "LOSS" : "FLAT";
+                const trimPct = getTradeTrimmedPct(t);
+                const remainingShares = shares * (1 - trimPct);
+                const priorRealized = Number(t.realizedPnl ?? t.pnl ?? 0) || 0;
+                const remainingPnl = (lastPx - entryPx) * remainingShares * dir;
+                const totalPnl = priorRealized + remainingPnl;
+                t.status = totalPnl > 0 ? "WIN" : totalPnl < 0 ? "LOSS" : "FLAT";
                 t.exitPrice = lastPx;
                 t.exit_ts = exitMs;
-                t.exitReason = "replay_end_close";
-                t.pnl = pnl;
-                t.realizedPnl = pnl;
-                t.pnlPct = entryPx > 0 ? (pnl / (entryPx * shares)) * 100 : 0;
+                t.exitReason = "replay_forced_eod_close";
+                t.pnl = totalPnl;
+                t.realizedPnl = totalPnl;
+                t.pnlPct = entryPx > 0 && shares > 0 ? (totalPnl / (entryPx * shares)) * 100 : 0;
               }
             }
             await kvPutJSON(KV, "timed:trades:all", kvTrades);
@@ -33030,7 +34287,10 @@ export default {
 
           // ── 2. Revert trades closed by live cron after replay end ──
           const contaminated = (await db.prepare(
-            `SELECT trade_id FROM trades WHERE exit_ts > ?1 AND exit_reason != 'replay_end_close' AND status IN ('WIN','LOSS','FLAT')`
+            `SELECT trade_id FROM trades
+             WHERE exit_ts > ?1
+               AND COALESCE(exit_reason, '') NOT IN ('replay_end_close', 'replay_forced_eod_close')
+               AND status IN ('WIN','LOSS','FLAT')`
           ).bind(exitMs).all())?.results || [];
 
           if (contaminated.length > 0) {
@@ -33163,6 +34423,294 @@ export default {
         if (!KV) return sendJSON({ ok: false, error: "no_kv" }, 500, corsHeaders(env, req));
         await KV.delete("timed:replay:lock");
         return sendJSON({ ok: true, released: true }, 200, corsHeaders(env, req));
+      }
+
+      // POST /timed/admin/runs/register?key=...
+      // Register a backtest run and attach metadata for later summary/finalization.
+      if (routeKey === "POST /timed/admin/runs/register") {
+        const authFail = requireKeyOr401(req, env);
+        if (authFail) return authFail;
+        const db = env?.DB;
+        if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
+        await d1EnsureBacktestRunsSchema(env);
+        try {
+          const bodyParsed = await readBodyAsJSON(req);
+          const body = (bodyParsed && typeof bodyParsed === "object" && "obj" in bodyParsed)
+            ? (bodyParsed.obj || {})
+            : (bodyParsed || {});
+          const runId = String(body?.run_id || "").trim();
+          if (!runId) return sendJSON({ ok: false, error: "run_id_required" }, 400, corsHeaders(env, req));
+          const now = Date.now();
+          const status = String(body?.status || "running").trim().toLowerCase();
+          const label = body?.label != null ? String(body.label).trim() : null;
+          const startDate = body?.start_date != null ? String(body.start_date) : null;
+          const endDate = body?.end_date != null ? String(body.end_date) : null;
+          const tags = Array.isArray(body?.tags) ? body.tags : [];
+          const paramsJson = body?.params && typeof body.params === "object" ? JSON.stringify(body.params) : null;
+          await db.prepare(
+            `INSERT OR REPLACE INTO backtest_runs (
+              run_id, label, start_date, end_date, interval_min, ticker_batch, ticker_universe_count,
+              trader_only, keep_open_at_end, low_write, status, status_note, live_config_slot,
+              tags_json, params_json, metrics_json, created_at, started_at, ended_at, updated_at
+            ) VALUES (
+              ?1, ?2, ?3, ?4, ?5, ?6, ?7,
+              ?8, ?9, ?10, ?11, ?12, ?13,
+              ?14, ?15, COALESCE((SELECT metrics_json FROM backtest_runs WHERE run_id=?1), NULL),
+              COALESCE((SELECT created_at FROM backtest_runs WHERE run_id=?1), ?16), ?17,
+              CASE WHEN ?11 IN ('completed','failed','cancelled') THEN ?18 ELSE (SELECT ended_at FROM backtest_runs WHERE run_id=?1) END,
+              ?19
+            )`
+          ).bind(
+            runId,
+            label,
+            startDate,
+            endDate,
+            Number(body?.interval_min) || null,
+            Number(body?.ticker_batch) || null,
+            Number(body?.ticker_universe_count) || null,
+            parseBool01(body?.trader_only),
+            parseBool01(body?.keep_open_at_end),
+            parseBool01(body?.low_write),
+            status,
+            body?.status_note != null ? String(body.status_note) : null,
+            parseBool01(body?.live_config_slot),
+            JSON.stringify(tags),
+            paramsJson,
+            now,
+            now,
+            now,
+            now,
+          ).run();
+          return sendJSON({ ok: true, run_id: runId, status }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // POST /timed/admin/runs/finalize?key=...
+      // Compute and store summary metrics for a run_id after replay completion.
+      if (routeKey === "POST /timed/admin/runs/finalize") {
+        const authFail = requireKeyOr401(req, env);
+        if (authFail) return authFail;
+        const db = env?.DB;
+        if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
+        await d1EnsureBacktestRunsSchema(env);
+        await d1EnsureLearningSchema(env);
+        await d1EnsureTradeRunSchema(env);
+        try {
+          const bodyParsed = await readBodyAsJSON(req);
+          const body = (bodyParsed && typeof bodyParsed === "object" && "obj" in bodyParsed)
+            ? (bodyParsed.obj || {})
+            : (bodyParsed || {});
+          const runId = String(body?.run_id || "").trim();
+          if (!runId) return sendJSON({ ok: false, error: "run_id_required" }, 400, corsHeaders(env, req));
+          const summary = await summarizeRunMetrics(db, runId);
+          if (!summary) return sendJSON({ ok: false, error: "summary_failed" }, 500, corsHeaders(env, req));
+          const now = Date.now();
+          const status = String(body?.status || "completed").trim().toLowerCase();
+          const metricsPayload = {
+            run_id: summary.run_id,
+            period: {
+              start_date: body?.start_date || null,
+              end_date: body?.end_date || null,
+            },
+            tickers: {
+              universe: Number(body?.ticker_universe_count) || null,
+              traded: summary.total_tickers_traded,
+            },
+            trades: {
+              total: summary.total_trades,
+              wins: summary.wins,
+              losses: summary.losses,
+              breakevens: summary.breakevens,
+              open: summary.open_trades,
+              closed: summary.closed_trades,
+              win_rate: summary.win_rate,
+            },
+            pnl: {
+              realized_pnl: summary.realized_pnl,
+              realized_pnl_pct: summary.realized_pnl_pct,
+              avg_win_pct: summary.avg_win_pct,
+              avg_loss_pct: summary.avg_loss_pct,
+            },
+            classifications: (() => {
+              try { return JSON.parse(summary.classifications_json || "{}"); } catch { return {}; }
+            })(),
+            autopsy_url: summary.autopsy_url,
+            finalized_at: now,
+          };
+
+          await db.batch([
+            db.prepare(
+              `INSERT OR REPLACE INTO backtest_run_metrics (
+                run_id, total_tickers_traded, total_trades, wins, losses, breakevens, open_trades, closed_trades,
+                win_rate, realized_pnl, realized_pnl_pct, avg_win_pct, avg_loss_pct,
+                classifications_json, by_status_json, autopsy_url, updated_at
+              ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)`
+            ).bind(
+              summary.run_id,
+              summary.total_tickers_traded,
+              summary.total_trades,
+              summary.wins,
+              summary.losses,
+              summary.breakevens,
+              summary.open_trades,
+              summary.closed_trades,
+              summary.win_rate,
+              summary.realized_pnl,
+              summary.realized_pnl_pct,
+              summary.avg_win_pct,
+              summary.avg_loss_pct,
+              summary.classifications_json,
+              summary.by_status_json,
+              summary.autopsy_url,
+              now,
+            ),
+            db.prepare(
+              `INSERT OR REPLACE INTO backtest_runs (
+                run_id, label, start_date, end_date, interval_min, ticker_batch, ticker_universe_count,
+                trader_only, keep_open_at_end, low_write, status, status_note, live_config_slot,
+                tags_json, params_json, metrics_json, created_at, started_at, ended_at, updated_at
+              ) VALUES (
+                ?1,
+                COALESCE((SELECT label FROM backtest_runs WHERE run_id=?1), ?2),
+                COALESCE((SELECT start_date FROM backtest_runs WHERE run_id=?1), ?3),
+                COALESCE((SELECT end_date FROM backtest_runs WHERE run_id=?1), ?4),
+                COALESCE((SELECT interval_min FROM backtest_runs WHERE run_id=?1), ?5),
+                COALESCE((SELECT ticker_batch FROM backtest_runs WHERE run_id=?1), ?6),
+                COALESCE((SELECT ticker_universe_count FROM backtest_runs WHERE run_id=?1), ?7),
+                COALESCE((SELECT trader_only FROM backtest_runs WHERE run_id=?1), ?8),
+                COALESCE((SELECT keep_open_at_end FROM backtest_runs WHERE run_id=?1), ?9),
+                COALESCE((SELECT low_write FROM backtest_runs WHERE run_id=?1), ?10),
+                ?11,
+                ?12,
+                COALESCE((SELECT live_config_slot FROM backtest_runs WHERE run_id=?1), 0),
+                COALESCE((SELECT tags_json FROM backtest_runs WHERE run_id=?1), '[]'),
+                COALESCE((SELECT params_json FROM backtest_runs WHERE run_id=?1), NULL),
+                ?13,
+                COALESCE((SELECT created_at FROM backtest_runs WHERE run_id=?1), ?14),
+                COALESCE((SELECT started_at FROM backtest_runs WHERE run_id=?1), ?14),
+                ?15,
+                ?16
+              )`
+            ).bind(
+              runId,
+              body?.label != null ? String(body.label) : null,
+              body?.start_date != null ? String(body.start_date) : null,
+              body?.end_date != null ? String(body.end_date) : null,
+              Number(body?.interval_min) || null,
+              Number(body?.ticker_batch) || null,
+              Number(body?.ticker_universe_count) || null,
+              parseBool01(body?.trader_only),
+              parseBool01(body?.keep_open_at_end),
+              parseBool01(body?.low_write),
+              status,
+              body?.status_note != null ? String(body.status_note) : null,
+              JSON.stringify(metricsPayload),
+              now,
+              now,
+              now,
+            ),
+          ]);
+          return sendJSON({ ok: true, run_id: runId, status, summary: metricsPayload }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // POST /timed/admin/runs/mark-live?key=...
+      // Marks a run_id as current live rules/config baseline.
+      if (routeKey === "POST /timed/admin/runs/mark-live") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const db = env?.DB;
+        if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
+        await d1EnsureBacktestRunsSchema(env);
+        await d1EnsureLearningSchema(env);
+        try {
+          const bodyParsed = await readBodyAsJSON(req);
+          const body = (bodyParsed && typeof bodyParsed === "object" && "obj" in bodyParsed)
+            ? (bodyParsed.obj || {})
+            : (bodyParsed || {});
+          const runId = String(body?.run_id || "").trim();
+          if (!runId) return sendJSON({ ok: false, error: "run_id_required" }, 400, corsHeaders(env, req));
+          const now = Date.now();
+          await db.batch([
+            db.prepare(`UPDATE backtest_runs SET live_config_slot = 0 WHERE live_config_slot = 1`),
+            db.prepare(`UPDATE backtest_runs SET live_config_slot = 1, updated_at = ?2 WHERE run_id = ?1`).bind(runId, now),
+            db.prepare(
+              `INSERT OR REPLACE INTO model_config (config_key, config_value, description, updated_at, updated_by)
+               VALUES ('live_config_run_id', ?1, 'Run ID selected as live configuration baseline', ?2, 'admin')`
+            ).bind(runId, now),
+          ]);
+          return sendJSON({ ok: true, run_id: runId, live_config_slot: true }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // GET /timed/admin/runs/live?key=...
+      if (routeKey === "GET /timed/admin/runs/live") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const db = env?.DB;
+        if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
+        await d1EnsureBacktestRunsSchema(env);
+        const row = await db.prepare(
+          `SELECT r.*, m.total_tickers_traded, m.total_trades, m.wins, m.losses, m.breakevens, m.open_trades, m.closed_trades,
+                  m.win_rate, m.realized_pnl, m.realized_pnl_pct, m.avg_win_pct, m.avg_loss_pct,
+                  m.classifications_json, m.by_status_json, m.autopsy_url
+           FROM backtest_runs r
+           LEFT JOIN backtest_run_metrics m ON m.run_id = r.run_id
+           WHERE r.live_config_slot = 1
+           ORDER BY r.updated_at DESC
+           LIMIT 1`
+        ).first();
+        return sendJSON({ ok: true, run: row || null, summary: buildRunSummaryView(row) }, 200, corsHeaders(env, req));
+      }
+
+      // GET /timed/admin/runs?key=...&limit=...&offset=...&status=...
+      if (routeKey === "GET /timed/admin/runs") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const db = env?.DB;
+        if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
+        await d1EnsureBacktestRunsSchema(env);
+        const limit = Math.max(1, Math.min(200, Number(url.searchParams.get("limit")) || 50));
+        const offset = Math.max(0, Number(url.searchParams.get("offset")) || 0);
+        const status = String(url.searchParams.get("status") || "").trim().toLowerCase();
+        let where = "WHERE 1=1";
+        const binds = [];
+        if (status) {
+          where += " AND r.status = ?1";
+          binds.push(status);
+        }
+        const rows = await db.prepare(
+          `SELECT
+             r.run_id, r.label, r.start_date, r.end_date, r.interval_min, r.ticker_batch, r.ticker_universe_count,
+             r.trader_only, r.keep_open_at_end, r.low_write, r.status, r.status_note, r.live_config_slot,
+             r.tags_json, r.params_json, r.metrics_json, r.created_at, r.started_at, r.ended_at, r.updated_at,
+            m.total_tickers_traded, m.total_trades, m.wins, m.losses, m.breakevens, m.open_trades, m.closed_trades,
+            m.win_rate, m.realized_pnl, m.realized_pnl_pct, m.avg_win_pct, m.avg_loss_pct,
+            m.classifications_json, m.by_status_json, m.autopsy_url
+           FROM backtest_runs r
+           LEFT JOIN backtest_run_metrics m ON m.run_id = r.run_id
+           ${where}
+           ORDER BY r.created_at DESC
+           LIMIT ?${binds.length + 1} OFFSET ?${binds.length + 2}`
+        ).bind(...binds, limit, offset).all();
+        const countRow = await db.prepare(
+          `SELECT COUNT(*) AS total FROM backtest_runs r ${where}`
+        ).bind(...binds).first();
+        const runRows = rows?.results || [];
+        return sendJSON({
+          ok: true,
+          total: Number(countRow?.total || 0),
+          limit,
+          offset,
+          runs: runRows,
+          summaries: runRows.map(buildRunSummaryView),
+        }, 200, corsHeaders(env, req));
       }
 
       // POST /timed/admin/run-lifecycle?key=...
@@ -45396,7 +46944,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
         try {
           const db2 = env?.DB;
           if (db2) {
-            const daKeys = ["deep_audit_short_min_rank", "deep_audit_ticker_blacklist", "deep_audit_max_loss_pct", "deep_audit_sl_cap_mult", "deep_audit_sl_floor_mult", "deep_audit_rsi_tp_delay", "deep_audit_avoid_hours", "deep_audit_block_regime", "deep_audit_min_hold_regime_exit_hours", "deep_audit_loss_cooldown_hours", "deep_audit_min_htf_score", "deep_audit_momentum_elite_rank_boost", "deep_audit_breakout_daily_level_enabled", "deep_audit_breakout_atr_breakout_enabled", "deep_audit_breakout_ema_stack_enabled", "deep_audit_breakout_min_rr", "deep_audit_breakout_min_entry_quality"];
+            const daKeys = ["deep_audit_short_min_rank", "deep_audit_ticker_blacklist", "deep_audit_max_loss_pct", "deep_audit_sl_cap_mult", "deep_audit_sl_floor_mult", "deep_audit_rsi_tp_delay", "deep_audit_avoid_hours", "deep_audit_block_regime", "deep_audit_min_hold_regime_exit_hours", "deep_audit_loss_cooldown_hours", "deep_audit_min_htf_score", "deep_audit_momentum_elite_rank_boost", "deep_audit_breakout_daily_level_enabled", "deep_audit_breakout_atr_breakout_enabled", "deep_audit_breakout_ema_stack_enabled", "deep_audit_breakout_min_rr", "deep_audit_breakout_min_entry_quality", "deep_audit_variant_guardrails_v3", "deep_audit_variant_min_rank", "deep_audit_variant_min_rr", "deep_audit_variant_max_loss_pct", "deep_audit_variant_regime_exit_min_age_min", "deep_audit_rsi_all_tf_extreme_guard", "deep_audit_rsi_all_tf_high", "deep_audit_rsi_all_tf_low", "deep_audit_rsi_extreme_profile_min_pct", "deep_audit_swing_checklist_v1", "deep_audit_swing_phase_near_zero_abs", "deep_audit_swing_phase_early_max", "deep_audit_swing_require_squeeze_build"];
             const daRows = (await db2.prepare(
               `SELECT config_key, config_value FROM model_config WHERE config_key IN (${daKeys.map((_, i) => `?${i + 1}`).join(",")})`
             ).bind(...daKeys).all())?.results || [];
@@ -45555,6 +47103,11 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
               _sectorRegime: env._sectorRegimeCache?.[tickerSector] || null,
               _deepAuditConfig: env._deepAuditConfig || null,
               _calibratedRankMin: env._calibratedRankMin || 0,
+              _entryEngine: resolveEngineMode(env.ENTRY_ENGINE),
+              _managementEngine: resolveEngineMode(env.MANAGEMENT_ENGINE),
+              _ripsterTuneV2: parseBoolFlag(env.RIPSTER_TUNE_V2, false),
+              _ripsterExitDebounceBars: Math.max(1, Number(env.RIPSTER_EXIT_DEBOUNCE_BARS) || 2),
+              _runId: `live@${new Date().toISOString().slice(0, 10)}`,
             };
             if (env._currentVix != null) result._vix = env._currentVix;
 

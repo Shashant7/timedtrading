@@ -2,12 +2,14 @@
 # Full Candle-Based Backtest Script
 # Usage: ./scripts/full-backtest.sh [start_date] [end_date] [ticker_batch_size]
 #        ./scripts/full-backtest.sh --resume [--trader-only]
-#        ./scripts/full-backtest.sh --trader-only 2025-07-01 2026-02-23 20
-# Example: ./scripts/full-backtest.sh 2025-07-01 2026-02-23 15
+#        ./scripts/full-backtest.sh --trader-only 2025-07-01 2026-03-04 20
+#        ./scripts/full-backtest.sh --trader-only --keep-open-at-end 2025-07-01 2026-03-04 20
+#        ./scripts/full-backtest.sh --trader-only --low-write 2025-07-01 2026-03-04 20
+# Example: ./scripts/full-backtest.sh 2025-07-01 2026-03-04 15
 # Resume: ./scripts/full-backtest.sh --resume
 # Trader-only (faster, no investor/snapshots): add --trader-only
-# Investor-only backfill (after trader-only): ./scripts/full-backtest.sh --investor-only 2025-07-01 2026-02-23
-# Sequence (trader-only then investor-only): ./scripts/full-backtest.sh --sequence 2025-07-01 2026-02-23 20
+# Investor-only backfill (after trader-only): ./scripts/full-backtest.sh --investor-only 2025-07-01 2026-03-04
+# Sequence (trader-only then investor-only): ./scripts/full-backtest.sh --sequence 2025-07-01 2026-03-04 20
 # Interval: 4th arg defaults to 5 (minutes). We use 5 min for replay fidelity; 10 is optional for faster runs.
 # Each day is processed in batch-by-batch requests (tickerBatch tickers per request) to stay
 # within Cloudflare Worker CPU/wall-time limits. Investor replay runs on the last batch.
@@ -18,21 +20,76 @@ set -e
 API_BASE="https://timed-trading-ingest.shashant.workers.dev"
 API_KEY="AwesomeSauce"
 CHECKPOINT_FILE="data/replay-checkpoint.txt"
-HOLIDAYS="2025-07-04 2025-09-01 2025-11-27 2025-12-25 2026-01-01 2026-01-19 2026-02-16 2026-05-26 2026-07-03 2026-09-07 2026-11-26 2026-12-25"
+HOLIDAYS="2025-07-04 2025-09-01 2025-11-27 2025-12-25 2026-01-01 2026-01-19 2026-02-16 2026-05-25 2026-07-03 2026-09-07 2026-11-26 2026-12-25"
+# Symbols known to be unavailable in our current Alpaca backfill route.
+# Keep them in trading universe, but skip repeated backfill attempts.
+UNSUPPORTED_BACKFILL_TICKERS=" CL1! ES1! GC1! NQ1! SI1! VX1! SPX "
 
 RESUME=false
 TRADER_ONLY=false
 INVESTOR_ONLY=false
 SEQUENCE=false
+KEEP_OPEN_AT_END=false
+LOW_WRITE=false
+RUN_LABEL=""
+SNAPSHOT_BEFORE_RESET=true
 POSARGS=()
 for arg in "$@"; do
   [[ "$arg" == "--resume" ]] && RESUME=true
   [[ "$arg" == "--trader-only" ]] && TRADER_ONLY=true
   [[ "$arg" == "--investor-only" ]] && INVESTOR_ONLY=true
   [[ "$arg" == "--sequence" ]] && SEQUENCE=true
+  [[ "$arg" == "--keep-open-at-end" ]] && KEEP_OPEN_AT_END=true
+  [[ "$arg" == "--low-write" ]] && LOW_WRITE=true
+  [[ "$arg" == "--no-snapshot-before-reset" ]] && SNAPSHOT_BEFORE_RESET=false
+  if [[ "$arg" == --label=* ]]; then
+    RUN_LABEL="${arg#--label=}"
+  fi
   [[ "$arg" != --* ]] && POSARGS+=("$arg")
 done
 if $SEQUENCE; then TRADER_ONLY=true; fi
+
+sanitize_tag() {
+  echo "$1" | tr -cs '[:alnum:]_.-' '-'
+}
+
+is_backfill_supported_ticker() {
+  local t="$1"
+  [[ " $UNSUPPORTED_BACKFILL_TICKERS " == *" $t "* ]] && return 1
+  return 0
+}
+
+snapshot_replay_artifacts() {
+  local label="$1"
+  local snapshot_ts
+  snapshot_ts=$(date "+%Y%m%d-%H%M%S")
+  local safe_label
+  safe_label=$(sanitize_tag "$label")
+  local out_dir="data/backtest-artifacts/${safe_label}-${snapshot_ts}"
+  mkdir -p "$out_dir"
+
+  echo "Saving pre-reset replay artifacts → $out_dir"
+
+  curl -s "$API_BASE/timed/trades?source=d1&key=$API_KEY" > "$out_dir/trades.json" || true
+  curl -s "$API_BASE/timed/ledger/trades?key=$API_KEY&limit=5000" > "$out_dir/ledger-trades.json" || true
+  curl -s "$API_BASE/timed/ledger/summary?key=$API_KEY" > "$out_dir/ledger-summary.json" || true
+  curl -s "$API_BASE/timed/account-summary?key=$API_KEY" > "$out_dir/account-summary.json" || true
+  curl -s "$API_BASE/timed/admin/trade-autopsy/trades?key=$API_KEY" > "$out_dir/trade-autopsy-trades.json" || true
+  curl -s "$API_BASE/timed/admin/losing-trades-report?key=$API_KEY" > "$out_dir/losing-trades-report.json" || true
+
+  cat > "$out_dir/manifest.json" <<EOF
+{
+  "ok": true,
+  "label": "$safe_label",
+  "captured_at": "$snapshot_ts",
+  "start_date": "${START_DATE:-unknown}",
+  "end_date": "${END_DATE:-unknown}",
+  "trader_only": ${TRADER_ONLY},
+  "sequence": ${SEQUENCE},
+  "note": "Captured automatically before reset for A/B comparison."
+}
+EOF
+}
 
 if $RESUME; then
   if [[ -f "$CHECKPOINT_FILE" ]]; then
@@ -48,11 +105,12 @@ if $RESUME; then
     echo "║  RESUMING Backtest from $START_DATE → $END_DATE"
     echo "║  Ticker batch: $TICKER_BATCH | Interval: ${INTERVAL_MIN}m"
     $TRADER_ONLY && echo "║  Mode: trader-only (investor/snapshots skipped)"
+    $LOW_WRITE && echo "║  Mode: low-write (skip timed_trail writes + lifecycle)"
     echo "╚══════════════════════════════════════════════════════╝"
     echo ""
   else
     echo "ERROR: No checkpoint file found at $CHECKPOINT_FILE"
-    echo "Run a fresh backtest first: ./scripts/full-backtest.sh 2025-07-01 2026-02-23 15"
+    echo "Run a fresh backtest first: ./scripts/full-backtest.sh 2025-07-01 \$(date '+%Y-%m-%d') 15"
     exit 1
   fi
 else
@@ -64,6 +122,7 @@ else
   echo "║  Candle-Based Backtest: $START_DATE → $END_DATE"
   echo "║  Ticker batch: $TICKER_BATCH | Interval: ${INTERVAL_MIN}m"
   $TRADER_ONLY && echo "║  Mode: trader-only (investor/snapshots skipped)"
+  $LOW_WRITE && echo "║  Mode: low-write (skip timed_trail writes + lifecycle)"
   $SEQUENCE && echo "║  Mode: sequence (trader-only then investor-only)"
   echo "╚══════════════════════════════════════════════════════╝"
   echo ""
@@ -72,7 +131,7 @@ fi
 # ─── Investor-only only: no lock/reset/backfill/replay, just investor-replay per day ─
 if $INVESTOR_ONLY && ! $SEQUENCE; then
   START_DATE="${POSARGS[0]:-2025-07-01}"
-  END_DATE="${POSARGS[1]:-2026-02-23}"
+  END_DATE="${POSARGS[1]:-$(date '+%Y-%m-%d')}"
   echo "╔══════════════════════════════════════════════════════╗"
   echo "║  Investor-only backfill: $START_DATE → $END_DATE"
   echo "╚══════════════════════════════════════════════════════╝"
@@ -109,6 +168,43 @@ echo "Step 0: Acquiring replay lock..."
 LOCK_RESULT=$(curl -s -m 30 -X POST "$API_BASE/timed/admin/replay-lock?reason=backtest_${START_DATE}_${END_DATE}&key=$API_KEY")
 echo "Lock: $(echo "$LOCK_RESULT" | jq -c '{ok, lock}' 2>/dev/null || echo "$LOCK_RESULT")"
 echo ""
+RUN_ID=$(echo "$LOCK_RESULT" | jq -r '.lock // ""' 2>/dev/null || echo "")
+if [[ -z "$RUN_ID" || "$RUN_ID" == "null" ]]; then
+  RUN_ID="backtest_${START_DATE}_${END_DATE}@$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+fi
+
+REGISTER_PAYLOAD=$(jq -nc \
+  --arg run_id "$RUN_ID" \
+  --arg label "${RUN_LABEL:-backtest-${START_DATE}-to-${END_DATE}}" \
+  --arg start_date "$START_DATE" \
+  --arg end_date "$END_DATE" \
+  --argjson interval_min "$INTERVAL_MIN" \
+  --argjson ticker_batch "$TICKER_BATCH" \
+  --argjson ticker_universe_count 0 \
+  --argjson trader_only "$($TRADER_ONLY && echo true || echo false)" \
+  --argjson keep_open_at_end "$($KEEP_OPEN_AT_END && echo true || echo false)" \
+  --argjson low_write "$($LOW_WRITE && echo true || echo false)" \
+  --arg status "running" \
+  --arg status_note "Replay started" \
+  --argjson tags "$(jq -nc --arg label "${RUN_LABEL:-}" '[($label | select(length>0)), "backtest"] | map(select(. != null))')" \
+  '{
+    run_id: $run_id,
+    label: $label,
+    start_date: $start_date,
+    end_date: $end_date,
+    interval_min: $interval_min,
+    ticker_batch: $ticker_batch,
+    ticker_universe_count: $ticker_universe_count,
+    trader_only: $trader_only,
+    keep_open_at_end: $keep_open_at_end,
+    low_write: $low_write,
+    status: $status,
+    status_note: $status_note,
+    tags: $tags
+  }')
+curl -s -m 30 -X POST "$API_BASE/timed/admin/runs/register?key=$API_KEY" \
+  -H "Content-Type: application/json" \
+  -d "$REGISTER_PAYLOAD" >/dev/null || true
 
 if $RESUME; then
   echo "Step 1: SKIPPED (resuming from checkpoint $START_DATE)"
@@ -117,6 +213,18 @@ if $RESUME; then
   echo ""
 else
   # ─── Step 1: Full reset ────────────────────────────────────────────────────
+  if $SNAPSHOT_BEFORE_RESET; then
+    CURRENT_TRADE_COUNT=$(curl -s "$API_BASE/timed/trades?source=d1&key=$API_KEY" | jq -r '.count // 0' 2>/dev/null || echo "0")
+    if [[ "$CURRENT_TRADE_COUNT" != "0" ]]; then
+      SNAP_LABEL="${RUN_LABEL:-pre-reset-${START_DATE}-to-${END_DATE}}"
+      snapshot_replay_artifacts "$SNAP_LABEL"
+      echo ""
+    else
+      echo "Pre-reset snapshot: skipped (no trades present)."
+      echo ""
+    fi
+  fi
+
   echo "Step 1: Resetting all trade state (D1 + KV)..."
   RESET_RESULT=$(curl -s -m 300 -X POST "$API_BASE/timed/admin/reset?resetLedger=1&key=$API_KEY")
   echo "Reset: $(echo "$RESET_RESULT" | jq -c '{ok, kvCleared}' 2>/dev/null || echo "$RESET_RESULT")"
@@ -125,6 +233,10 @@ else
   TOTAL_TICKERS=$(curl -s "$API_BASE/timed/admin/alpaca-status?key=$API_KEY" | jq -r '.total_tickers // 200' 2>/dev/null || echo "200")
   echo "Total tickers in universe: $TOTAL_TICKERS"
   echo ""
+  REGISTER_PAYLOAD=$(echo "$REGISTER_PAYLOAD" | jq --argjson ticker_universe_count "$TOTAL_TICKERS" '.ticker_universe_count = $ticker_universe_count')
+  curl -s -m 30 -X POST "$API_BASE/timed/admin/runs/register?key=$API_KEY" \
+    -H "Content-Type: application/json" \
+    -d "$REGISTER_PAYLOAD" >/dev/null || true
 
   # ─── Step 1.5: Backfill candle data ─────────────────────────────────────────
   # Backfill from 60 days before start (EMA/indicator warm-up) through end date
@@ -164,9 +276,24 @@ else
     if [[ -n "$BACKFILL_TICKERS" ]]; then
       # Targeted backfill: only tickers with gaps, 3 at a time
       TICKER_ARRAY=()
+      SKIPPED_UNSUPPORTED=()
       while IFS= read -r t; do
-        [[ -n "$t" ]] && TICKER_ARRAY+=("$t")
+        if [[ -n "$t" ]]; then
+          if is_backfill_supported_ticker "$t"; then
+            TICKER_ARRAY+=("$t")
+          else
+            SKIPPED_UNSUPPORTED+=("$t")
+          fi
+        fi
       done <<< "$BACKFILL_TICKERS"
+
+      if [ "${#SKIPPED_UNSUPPORTED[@]}" -gt 0 ]; then
+        echo "  Skipping unsupported backfill symbols: ${SKIPPED_UNSUPPORTED[*]}"
+      fi
+
+      if [ "${#TICKER_ARRAY[@]}" -eq 0 ]; then
+        echo "  No backfillable symbols remain after unsupported filter."
+      fi
 
       BF_IDX=0
       while [ "$BF_IDX" -lt "${#TICKER_ARRAY[@]}" ]; do
@@ -278,13 +405,15 @@ while [[ "$CURRENT_DATE" < "$END_DATE" ]] || [[ "$CURRENT_DATE" == "$END_DATE" ]
   fi
   SKIP_INV=""
   $TRADER_ONLY && SKIP_INV="&skipInvestor=1"
+  LOW_WRITE_PARAM=""
+  $LOW_WRITE && LOW_WRITE_PARAM="&lowWrite=1&skipTrailWrite=1"
 
   # Process day in batches (avoids Cloudflare Worker CPU/wall-time limits on large DBs)
   BATCH_OFFSET=0
   BATCH_NUM=0
   while true; do
     BATCH_NUM=$((BATCH_NUM + 1))
-    REPLAY_URL="$API_BASE/timed/admin/candle-replay?date=$CURRENT_DATE&tickerOffset=$BATCH_OFFSET&tickerBatch=$TICKER_BATCH&intervalMinutes=$INTERVAL_MIN&key=$API_KEY${CLEAN_PARAM}${SKIP_INV}"
+    REPLAY_URL="$API_BASE/timed/admin/candle-replay?date=$CURRENT_DATE&tickerOffset=$BATCH_OFFSET&tickerBatch=$TICKER_BATCH&intervalMinutes=$INTERVAL_MIN&key=$API_KEY${CLEAN_PARAM}${SKIP_INV}${LOW_WRITE_PARAM}"
     CLEAN_PARAM=""
 
     RESULT=""
@@ -332,6 +461,18 @@ while [[ "$CURRENT_DATE" < "$END_DATE" ]] || [[ "$CURRENT_DATE" == "$END_DATE" ]
   echo "  Day complete: scored=$DAY_SCORED trades=$DAY_TRADES total=$DAY_TOTAL_TR errors=$DAY_ERRS ($BATCH_NUM batches)"
   echo ""
 
+  # Periodic lifecycle: aggregate timed_trail → trail_5m_facts every 5 replayed days
+  if (( DAY_COUNT % 5 == 0 )) && ! $LOW_WRITE; then
+    echo -n "  ⚡ Lifecycle aggregation (day $DAY_COUNT)... "
+    LC_RESULT=$(curl -s -m 120 -X POST "$API_BASE/timed/admin/run-lifecycle?key=$API_KEY&cutoff_hours=0" 2>&1)
+    LC_OK=$(echo "$LC_RESULT" | jq -r '.ok // false' 2>/dev/null || echo "false")
+    if [[ "$LC_OK" == "true" ]]; then
+      echo "done"
+    else
+      echo "warn: $(echo "$LC_RESULT" | jq -r '.error // "unknown"' 2>/dev/null | head -c 100)"
+    fi
+  fi
+
   NEXT_DATE=$(date -j -v+1d -f "%Y-%m-%d" "$CURRENT_DATE" "+%Y-%m-%d" 2>/dev/null || date -d "$CURRENT_DATE + 1 day" "+%Y-%m-%d")
   mkdir -p "$(dirname "$CHECKPOINT_FILE")"
   printf '%s\n%s\n%s\n%s\n' "$NEXT_DATE" "$END_DATE" "$TICKER_BATCH" "$INTERVAL_MIN" > "$CHECKPOINT_FILE"
@@ -368,6 +509,21 @@ if $SEQUENCE; then
   echo ""
 fi
 
+# ─── Final lifecycle: flush remaining timed_trail → trail_5m_facts ───────────
+if $LOW_WRITE; then
+  echo "Final lifecycle aggregation skipped (--low-write enabled)"
+else
+  echo -n "Final lifecycle aggregation... "
+  LC_FINAL=$(curl -s -m 120 -X POST "$API_BASE/timed/admin/run-lifecycle?key=$API_KEY&cutoff_hours=0" 2>&1)
+  LC_FINAL_OK=$(echo "$LC_FINAL" | jq -r '.ok // false' 2>/dev/null || echo "false")
+  if [[ "$LC_FINAL_OK" == "true" ]]; then
+    echo "done"
+  else
+    echo "warn: $(echo "$LC_FINAL" | jq -r '.error // "unknown"' 2>/dev/null | head -c 100)"
+  fi
+fi
+echo ""
+
 echo "╔══════════════════════════════════════════════════════╗"
 echo "║  Backtest Complete"
 echo "║  Days processed: $DAY_COUNT (skipped $SKIP_COUNT holidays)"
@@ -376,9 +532,11 @@ echo "║  Total trades: $TOTAL_TRADES"
 echo "╚══════════════════════════════════════════════════════╝"
 echo ""
 
-# ─── Step 2b: Close open positions if end date is in the past ────────────────
+# ─── Step 2b: Close open positions at replay end (optional) ─────────────────
 TODAY_KEY=$(date "+%Y-%m-%d")
-if [[ "$END_DATE" < "$TODAY_KEY" ]]; then
+if $KEEP_OPEN_AT_END; then
+  echo "=== Keeping open positions at replay end (--keep-open-at-end enabled) ==="
+elif [[ "$END_DATE" < "$TODAY_KEY" ]]; then
   echo "=== Closing open positions at replay end ($END_DATE) ==="
   CLOSE_RESULT=$(curl -s -m 120 -X POST "$API_BASE/timed/admin/close-replay-positions?date=$END_DATE&key=$API_KEY" 2>&1)
   CLOSED_COUNT=$(echo "$CLOSE_RESULT" | jq -r '.closed // 0' 2>/dev/null || echo "0")
@@ -408,6 +566,41 @@ echo "$TRADES_DATA" | jq '{
   avgLossPct: (([.trades[] | select(.status == "LOSS") | .pnlPct] | if length > 0 then (add / length) else 0 end) | . * 100 | floor / 100),
   totalRealizedPnlPct: (([.trades[] | select(.status == "WIN" or .status == "LOSS") | .pnlPct] | add) // 0 | . * 100 | floor / 100)
 }' 2>/dev/null || echo "Could not parse P&L data"
+
+# ─── Step 3.5: Persist run summary for run registry ───────────────────────────
+FINALIZE_PAYLOAD=$(jq -nc \
+  --arg run_id "$RUN_ID" \
+  --arg label "${RUN_LABEL:-backtest-${START_DATE}-to-${END_DATE}}" \
+  --arg start_date "$START_DATE" \
+  --arg end_date "$END_DATE" \
+  --argjson interval_min "$INTERVAL_MIN" \
+  --argjson ticker_batch "$TICKER_BATCH" \
+  --argjson ticker_universe_count "${TOTAL_TICKERS:-0}" \
+  --argjson trader_only "$($TRADER_ONLY && echo true || echo false)" \
+  --argjson keep_open_at_end "$($KEEP_OPEN_AT_END && echo true || echo false)" \
+  --argjson low_write "$($LOW_WRITE && echo true || echo false)" \
+  --arg status "completed" \
+  --arg status_note "Replay completed" \
+  '{
+    run_id: $run_id,
+    label: $label,
+    start_date: $start_date,
+    end_date: $end_date,
+    interval_min: $interval_min,
+    ticker_batch: $ticker_batch,
+    ticker_universe_count: $ticker_universe_count,
+    trader_only: $trader_only,
+    keep_open_at_end: $keep_open_at_end,
+    low_write: $low_write,
+    status: $status,
+    status_note: $status_note
+  }')
+echo ""
+echo "=== Recording run summary ==="
+FINALIZE_RESULT=$(curl -s -m 45 -X POST "$API_BASE/timed/admin/runs/finalize?key=$API_KEY" \
+  -H "Content-Type: application/json" \
+  -d "$FINALIZE_PAYLOAD" 2>&1 || true)
+echo "Run summary: $(echo "$FINALIZE_RESULT" | jq -c '{ok, run_id, status}' 2>/dev/null || echo "$FINALIZE_RESULT")"
 
 # ─── Step 4: Release replay lock ─────────────────────────────────────────────
 echo ""

@@ -108,12 +108,22 @@
       }
       function signalValueLabel(key, value) {
         if (value == null || !Number.isFinite(value)) return null;
-        if (key === "ema_cross" || key === "supertrend") return value === 1 ? "Bullish" : "Bearish";
+        if (key === "ema_cross") return value === 1 ? "Bullish" : "Bearish";
+        if (key === "supertrend") {
+          if (value === 1) return "⬆️ Bullish";
+          if (value === -1) return "⬇️ Bearish";
+          return "⏸️ Flat";
+        }
         if (key === "rsi") return String(value);
         return String(value);
       }
       function signalValueColor(key, value) {
-        if (key === "ema_cross" || key === "supertrend") return value === 1 ? "text-[#22c55e]" : "text-[#ef4444]";
+        if (key === "ema_cross") return value === 1 ? "text-[#22c55e]" : "text-[#ef4444]";
+        if (key === "supertrend") {
+          if (value === 1) return "text-[#22c55e]";
+          if (value === -1) return "text-[#ef4444]";
+          return "text-[#9ca3af]";
+        }
         if (key === "rsi") {
           if (value >= 70) return "text-[#ef4444]";
           if (value <= 30) return "text-[#22c55e]";
@@ -1105,6 +1115,10 @@
           const params = new URLSearchParams(window.location.search);
           return params.get("trade_id") || params.get("tradeId") || null;
         })();
+        const runIdFromUrl = (() => {
+          const params = new URLSearchParams(window.location.search);
+          return params.get("run_id") || params.get("runId") || null;
+        })();
         useEffect(() => {
           if (!tradeIdFromUrl || !trades.length) return;
           const match = trades.find(t => (t.trade_id || t.id || "") === tradeIdFromUrl);
@@ -1113,6 +1127,11 @@
             try { window.history.replaceState(null, "", `${window.location.pathname}?trade_id=${encodeURIComponent(tradeIdFromUrl)}`); } catch (_) {}
           }
         }, [tradeIdFromUrl, trades]);
+        useEffect(() => {
+          if (!runIdFromUrl || !trades.length) return;
+          const exists = trades.some(t => String(t?.run_id || "").trim() === String(runIdFromUrl).trim());
+          if (exists) setFilterRunId(String(runIdFromUrl).trim());
+        }, [runIdFromUrl, trades]);
 
         const filteredTrades = useMemo(() => {
           let out = trades;
