@@ -38,6 +38,34 @@
       .tab-inactive:hover { color: #9098a8; }
       .meter-bar { height: 6px; border-radius: 3px; background: rgba(255,255,255,0.06); overflow: hidden; }
       .meter-fill { height: 100%; border-radius: 3px; transition: width 0.5s ease; }
+      .runs-shell { background: linear-gradient(180deg, rgba(255,255,255,0.018), rgba(255,255,255,0.008)); }
+      .runs-metric-card { background: rgba(255,255,255,0.015); border: 1px solid rgba(255,255,255,0.05); border-radius: 12px; padding: 12px 14px; }
+      .runs-metric-label { font-size: 10px; color: #7b8698; text-transform: uppercase; letter-spacing: 0.08em; }
+      .runs-metric-value { font-size: 13px; color: #e5e7eb; font-weight: 600; margin-top: 4px; line-height: 1.35; }
+      .runs-control { display: inline-flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 999px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.05); color: #a8b1bf; }
+      .runs-table-wrap { border-top: 1px solid rgba(255,255,255,0.05); background: linear-gradient(180deg, rgba(255,255,255,0.012), rgba(255,255,255,0.006)); }
+      .runs-table { width: 100%; min-width: 1280px; border-collapse: separate; border-spacing: 0; font-size: 12px; }
+      .runs-table thead th { font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: #7b8698; font-weight: 700; padding-top: 11px; padding-bottom: 11px; border-bottom: 1px solid rgba(255,255,255,0.06); }
+      .runs-table tbody td { border-top: 1px solid rgba(255,255,255,0.04); vertical-align: top; }
+      .runs-row:hover { background: rgba(255,255,255,0.024); }
+      .run-id { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; font-size: 11px; color: #d7dde7; line-height: 1.4; }
+      .run-subtle { font-size: 10px; color: #7b8698; line-height: 1.35; }
+      .run-pill { display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px; border-radius: 999px; font-size: 10px; font-weight: 700; letter-spacing: 0.03em; border: 1px solid transparent; }
+      .run-pill-live { color: #6ee7b7; background: rgba(16,185,129,0.12); border-color: rgba(16,185,129,0.18); }
+      .run-pill-protected { color: #fcd34d; background: rgba(251,191,36,0.12); border-color: rgba(251,191,36,0.18); }
+      .run-pill-active { color: #7dd3fc; background: rgba(14,165,233,0.12); border-color: rgba(14,165,233,0.2); }
+      .run-pill-archived { color: #cbd5e1; background: rgba(148,163,184,0.12); border-color: rgba(148,163,184,0.18); }
+      .run-pill-status { color: #d8dee8; background: rgba(255,255,255,0.04); border-color: rgba(255,255,255,0.07); }
+      .run-token { display: inline-flex; align-items: center; padding: 2px 7px; margin: 2px 6px 2px 0; border-radius: 999px; font-size: 10px; line-height: 1.3; color: #cbd5e1; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.05); white-space: nowrap; }
+      .run-action-btn { padding: 6px 10px; border-radius: 9px; font-size: 11px; font-weight: 700; line-height: 1; cursor: pointer; transition: all 0.15s ease; border: 1px solid rgba(255,255,255,0.1); background: rgba(255,255,255,0.035); color: #d6dbe4; }
+      .run-action-btn:hover { transform: translateY(-1px); background: rgba(255,255,255,0.06); }
+      .run-action-btn:disabled { opacity: 0.45; cursor: not-allowed; transform: none; }
+      .run-action-btn-primary { background: rgba(29,78,216,0.18); color: #bfdbfe; border-color: rgba(96,165,250,0.24); }
+      .run-action-btn-success { background: rgba(16,185,129,0.14); color: #86efac; border-color: rgba(16,185,129,0.22); }
+      .run-action-btn-warn { background: rgba(251,191,36,0.14); color: #fcd34d; border-color: rgba(251,191,36,0.24); }
+      .run-action-btn-info { background: rgba(20,184,166,0.14); color: #99f6e4; border-color: rgba(20,184,166,0.22); }
+      .run-action-btn-muted { background: rgba(100,116,139,0.15); color: #cbd5e1; border-color: rgba(100,116,139,0.28); }
+      .run-action-btn-danger { background: rgba(239,68,68,0.12); color: #fca5a5; border-color: rgba(239,68,68,0.2); }
       body:not([data-user-role="admin"]) [data-admin-only] { display: none !important; }
     </style>
   </head>
@@ -1808,6 +1836,49 @@ function RunsTab({ isAdmin }) {
     entries.sort((a, b) => Number(b[1]) - Number(a[1]));
     return entries.slice(0, max);
   };
+  const cleanText = (value) => {
+    const text = value == null ? "" : String(value).trim();
+    return text || "";
+  };
+  const getRunDescriptionMeta = (run) => {
+    const description = cleanText(run?.description);
+    const statusNote = cleanText(run?.status_note);
+    const label = cleanText(run?.label);
+    const hasManualDescription = !!description;
+    const displayDescription = hasManualDescription
+      ? description
+      : (label || "No description");
+    return {
+      description,
+      statusNote,
+      label,
+      hasManualDescription,
+      displayDescription,
+      title: [description, statusNote].filter(Boolean).join("\n"),
+    };
+  };
+  const getRunStateBadges = (run) => {
+    const items = [];
+    if (run?.live_config_slot) items.push({ label: "Live", cls: "run-pill-live" });
+    if (run?.is_protected_baseline) items.push({ label: "Protected", cls: "run-pill-protected" });
+    if (run?.active_experiment_slot) items.push({ label: "Active", cls: "run-pill-active" });
+    if (Number(run?.archived_at || 0) > 0) items.push({ label: "Archived", cls: "run-pill-archived" });
+    const status = cleanText(run?.status);
+    if (status && status !== "completed") {
+      items.push({ label: status.replace(/_/g, " "), cls: "run-pill-status" });
+    }
+    return items;
+  };
+  const renderTokens = (entries, emptyLabel = "—") => {
+    if (!entries || entries.length === 0) return <span className="text-slate-500">{emptyLabel}</span>;
+    return (
+      <div className="flex flex-wrap">
+        {entries.map(([k, v]) => (
+          <span key={`${k}-${v}`} className="run-token">{k}:{v}</span>
+        ))}
+      </div>
+    );
+  };
 
   const fetchRuns = useCallback(async () => {
     setLoading(true);
@@ -1997,17 +2068,32 @@ function RunsTab({ isAdmin }) {
 
   return (
     <div className="space-y-4">
-      <div className="card p-5">
+      <div className="card runs-shell p-5">
         <div className="flex items-center justify-between mb-4">
-          <h3 className="text-sm font-semibold text-white">Live Baseline</h3>
-          <button className="btn btn-secondary text-xs" onClick={fetchRuns} disabled={loading}>Refresh</button>
+          <div>
+            <div className="text-[10px] uppercase tracking-[0.18em] text-slate-500 mb-1">Current Baseline</div>
+            <h3 className="text-base font-semibold text-white">Live Baseline</h3>
+          </div>
+          <button className="run-action-btn run-action-btn-muted" onClick={fetchRuns} disabled={loading}>Refresh</button>
         </div>
         {liveSummary ? (
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-xs">
-            <div><div className="text-slate-500">Run ID</div><div className="text-slate-200 font-mono break-all">{liveSummary.run_id || "—"}</div></div>
-            <div><div className="text-slate-500">Date Range</div><div className="text-slate-200">{liveSummary.start_date || "—"} → {liveSummary.end_date || "—"}</div></div>
-            <div><div className="text-slate-500">Trades / Win Rate</div><div className="text-slate-200">{fmtNum(liveSummary?.trades?.total)} / {fmtPct(liveSummary?.trades?.win_rate)}</div></div>
-            <div><div className="text-slate-500">Realized P&L</div><div className={`${Number(liveSummary?.pnl?.realized || 0) >= 0 ? "text-emerald-400" : "text-rose-400"} font-semibold`}>{fmtMoney(liveSummary?.pnl?.realized)}</div></div>
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+            <div className="runs-metric-card">
+              <div className="runs-metric-label">Run ID</div>
+              <div className="runs-metric-value font-mono break-all">{liveSummary.run_id || "—"}</div>
+            </div>
+            <div className="runs-metric-card">
+              <div className="runs-metric-label">Date Range</div>
+              <div className="runs-metric-value">{liveSummary.start_date || "—"} → {liveSummary.end_date || "—"}</div>
+            </div>
+            <div className="runs-metric-card">
+              <div className="runs-metric-label">Trades / Win Rate</div>
+              <div className="runs-metric-value">{fmtNum(liveSummary?.trades?.total)} / {fmtPct(liveSummary?.trades?.win_rate)}</div>
+            </div>
+            <div className="runs-metric-card">
+              <div className="runs-metric-label">Realized P&amp;L</div>
+              <div className={`runs-metric-value ${Number(liveSummary?.pnl?.realized || 0) >= 0 ? "text-emerald-400" : "text-rose-400"}`}>{fmtMoney(liveSummary?.pnl?.realized)}</div>
+            </div>
           </div>
         ) : (
           <p className="text-xs text-slate-500">No live baseline selected yet.</p>
@@ -2046,23 +2132,24 @@ function RunsTab({ isAdmin }) {
         </div>
       )}
 
-      <div className="card overflow-hidden">
+      <div className="card runs-shell overflow-hidden">
         <div className="px-5 py-4 border-b border-white/[0.06]">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
-              <h3 className="text-sm font-semibold text-white">Backtest Runs</h3>
-              <p className="text-[11px] text-slate-500 mt-1.5">Track run metrics and promote a run to live baseline. Backtests run locally via <code className="text-[10px] bg-white/[0.06] px-1 rounded">full-backtest.sh</code>.</p>
+              <div className="text-[10px] uppercase tracking-[0.18em] text-slate-500 mb-1">Run Registry</div>
+              <h3 className="text-base font-semibold text-white">Backtest Runs</h3>
+              <p className="text-[11px] text-slate-500 mt-1.5 max-w-3xl">Track run metrics, compare candidates, and promote a run to live baseline. Backtests run locally via <code className="text-[10px] bg-white/[0.06] px-1 rounded">full-backtest.sh</code>.</p>
             </div>
             <div className="flex flex-wrap items-center gap-5 text-[11px] text-slate-400">
-              <label className="inline-flex items-center gap-2 cursor-pointer hover:text-slate-300 transition-colors">
+              <label className="runs-control cursor-pointer hover:text-slate-200 transition-colors">
                 <input type="checkbox" checked={showOnlyCompleted} onChange={(e) => setShowOnlyCompleted(e.target.checked)} className="rounded" />
                 Show completed only
               </label>
-              <label className="inline-flex items-center gap-2 cursor-pointer hover:text-slate-300 transition-colors">
+              <label className="runs-control cursor-pointer hover:text-slate-200 transition-colors">
                 <input type="checkbox" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} className="rounded" />
                 Show archived
               </label>
-              <label className="inline-flex items-center gap-2 cursor-pointer hover:text-slate-300 transition-colors">
+              <label className="runs-control cursor-pointer hover:text-slate-200 transition-colors">
                 <input type="checkbox" checked={hideNoisyPlaceholders} onChange={(e) => setHideNoisyPlaceholders(e.target.checked)} className="rounded" />
                 Hide running (no metrics)
               </label>
@@ -2086,9 +2173,9 @@ function RunsTab({ isAdmin }) {
         ) : filteredRuns.length === 0 ? (
           <div className="p-5 text-center text-xs text-slate-500">No runs found.</div>
         ) : (
-          <div className="overflow-auto max-h-[55vh]">
-            <table className="w-full text-xs min-w-[1400px]">
-              <thead className="bg-white/[0.03] text-slate-500">
+          <div className="runs-table-wrap overflow-auto max-h-[60vh]">
+            <table className="runs-table">
+              <thead className="sticky top-0 z-20 bg-[rgba(15,17,23,0.98)] text-slate-500 backdrop-blur">
                 <tr>
                   <th className="px-3 py-2 text-left font-semibold">Run</th>
                   <th className="px-3 py-2 text-left font-semibold">Run Date</th>
@@ -2102,7 +2189,7 @@ function RunsTab({ isAdmin }) {
                   <th className="px-3 py-2 text-right font-semibold">Avg W/L %</th>
                   <th className="px-3 py-2 text-left font-semibold">Status Mix</th>
                   <th className="px-3 py-2 text-left font-semibold">Top Classifications</th>
-                  <th className="px-3 py-2 text-left font-semibold sticky right-0 bg-white/[0.03] shadow-[-4px_0_8px_rgba(0,0,0,0.3)] z-10">Actions</th>
+                  <th className="px-3 py-2 text-left font-semibold sticky top-0 right-0 bg-[rgba(15,17,23,0.98)] shadow-[-4px_0_8px_rgba(0,0,0,0.3)] z-30">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -2126,21 +2213,24 @@ function RunsTab({ isAdmin }) {
                   const isLive = !!(r?.live_config_slot);
                   const isProtected = !!(r?.is_protected_baseline);
                   const isActiveExperiment = !!(r?.active_experiment_slot);
+                  const descMeta = getRunDescriptionMeta(r);
+                  const stateBadges = getRunStateBadges(r);
                   return (
-                    <tr key={runId} className="border-t border-white/[0.04] hover:bg-white/[0.02] transition-colors">
-                      <td className="px-3 py-2">
-                        <div className="font-mono text-slate-200" title={runId}>{shortRunId(runId)}</div>
-                        <div className="text-[10px] text-slate-500">
-                          {r?.label || "—"}
-                          {isLive ? <span className="ml-1 text-emerald-400 font-semibold">LIVE</span> : null}
-                          {isProtected ? <span className="ml-1 text-amber-300 font-semibold">PROTECTED</span> : null}
-                          {isActiveExperiment ? <span className="ml-1 text-cyan-300 font-semibold">ACTIVE</span> : null}
+                    <tr key={runId} className="runs-row transition-colors">
+                      <td className="px-3 py-3">
+                        <div className="run-id" title={runId}>{shortRunId(runId)}</div>
+                        <div className="run-subtle mt-1">{r?.label || "—"}</div>
+                        <div className="flex flex-wrap gap-1.5 mt-2">
+                          {stateBadges.map((badge) => (
+                            <span key={badge.label} className={`run-pill ${badge.cls}`}>{badge.label}</span>
+                          ))}
                         </div>
                       </td>
-                      <td className="px-3 py-2 text-slate-400 text-[11px]" title={r?.started_at ? new Date(Number(r.started_at)).toISOString() : ""}>
-                        {fmtRunDate(r?.started_at ?? r?.created_at)}
+                      <td className="px-3 py-3 text-slate-300 text-[11px]" title={r?.started_at ? new Date(Number(r.started_at)).toISOString() : ""}>
+                        <div className="font-medium text-slate-200">{fmtRunDate(r?.started_at ?? r?.created_at)}</div>
+                        <div className="run-subtle mt-1">{r?.started_at ? "Started" : "Created"} timestamp</div>
                       </td>
-                      <td className="px-3 py-2.5 text-slate-300 max-w-[220px]">
+                      <td className="px-3 py-3 text-slate-300 max-w-[280px]">
                         {editingDescRunId === runId ? (
                           <div className="flex items-center gap-2">
                             <input
@@ -2148,7 +2238,7 @@ function RunsTab({ isAdmin }) {
                               className="flex-1 min-w-[120px] px-2 py-1 text-xs bg-slate-800 border border-white/20 rounded text-slate-200"
                               value={editingDescValue}
                               onChange={(e) => setEditingDescValue(e.target.value)}
-                              placeholder="Description"
+                              placeholder={descMeta.label || "Description"}
                               autoFocus
                             />
                             <button className="text-emerald-400 text-[10px] hover:underline" disabled={savingDescRunId === runId} onClick={() => updateRunDescription(runId, editingDescValue)}>
@@ -2157,61 +2247,83 @@ function RunsTab({ isAdmin }) {
                             <button className="text-slate-400 text-[10px] hover:underline" onClick={() => { setEditingDescRunId(null); setEditingDescValue(""); }}>Cancel</button>
                           </div>
                         ) : (
-                          <span
-                            className={`block truncate ${isAdmin ? "cursor-pointer hover:text-white" : ""}`}
-                            title={r?.description || r?.status_note || (isAdmin ? "Click to edit" : "")}
-                            onClick={() => isAdmin && (setEditingDescRunId(runId), setEditingDescValue(r?.description || r?.status_note || ""))}
+                          <div
+                            className={`${isAdmin ? "cursor-pointer" : ""}`}
+                            title={descMeta.title || (isAdmin ? "Click to edit" : "")}
+                            onClick={() => isAdmin && (setEditingDescRunId(runId), setEditingDescValue(descMeta.description))}
                           >
-                            {r?.description || r?.status_note || "—"}
-                          </span>
+                            <div className={`block leading-5 ${isAdmin ? "hover:text-white" : ""} ${descMeta.hasManualDescription ? "text-slate-200" : "text-slate-500 italic"}`}>
+                              {descMeta.displayDescription}
+                            </div>
+                            {descMeta.statusNote ? (
+                              <div className="mt-1.5 text-[10px] text-slate-500 leading-4">
+                                Status: {descMeta.statusNote}
+                              </div>
+                            ) : null}
+                          </div>
                         )}
                       </td>
-                      <td className="px-3 py-2 text-slate-300">{r?.start_date || "—"} → {r?.end_date || "—"}</td>
-                      <td className="px-3 py-2 text-right text-slate-300">{fmtNum(tradedCount)} / {fmtNum(universeCount)}</td>
-                      <td className="px-3 py-2 text-right text-slate-300">{fmtNum(totalTrades)}</td>
-                      <td className="px-3 py-2 text-right text-slate-300">{fmtNum(wins)} / {fmtNum(losses)} / {fmtNum(be)}</td>
-                      <td className="px-3 py-2 text-right text-slate-300">{fmtPct(winRate)}</td>
-                      <td className={`px-3 py-2 text-right font-semibold ${pnl >= 0 ? "text-emerald-400" : "text-rose-400"}`}>{fmtMoney(pnl)}</td>
-                      <td className="px-3 py-2 text-right">
-                        <div className="text-emerald-400">{fmtPct(avgWinPct)}</div>
-                        <div className="text-rose-400">{fmtPct(avgLossPct)}</div>
+                      <td className="px-3 py-3 text-slate-300">
+                        <div className="font-medium text-slate-200">{r?.start_date || "—"} → {r?.end_date || "—"}</div>
+                        <div className="run-subtle mt-1">Analysis window</div>
                       </td>
-                      <td className="px-3 py-2 text-slate-300">
-                        {statusTop.length ? statusTop.map(([k, v]) => `${k}:${v}`).join("  ") : "—"}
+                      <td className="px-3 py-3 text-right text-slate-300">
+                        <div className="font-semibold text-slate-200">{fmtNum(tradedCount)} / {fmtNum(universeCount)}</div>
+                        <div className="run-subtle mt-1">Traded / universe</div>
                       </td>
-                      <td className="px-3 py-2 text-slate-300">
-                        {classTop.length ? classTop.map(([k, v]) => `${k}:${v}`).join("  ") : "—"}
+                      <td className="px-3 py-3 text-right text-slate-300">
+                        <div className="font-semibold text-slate-200">{fmtNum(totalTrades)}</div>
+                        <div className="run-subtle mt-1">Total trades</div>
                       </td>
-                      <td className="px-3 py-2 sticky right-0 bg-[rgba(11,14,17,0.98)] shadow-[-4px_0_8px_rgba(0,0,0,0.3)] z-10">
+                      <td className="px-3 py-3 text-right text-slate-300">
+                        <div className="font-semibold text-slate-200">{fmtNum(wins)} / {fmtNum(losses)} / {fmtNum(be)}</div>
+                        <div className="run-subtle mt-1">W / L / BE</div>
+                      </td>
+                      <td className="px-3 py-3 text-right text-slate-300">
+                        <div className="font-semibold text-slate-200">{fmtPct(winRate)}</div>
+                        <div className="run-subtle mt-1">Closed trades</div>
+                      </td>
+                      <td className={`px-3 py-3 text-right font-semibold ${pnl >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
+                        <div>{fmtMoney(pnl)}</div>
+                        <div className="run-subtle mt-1">Realized</div>
+                      </td>
+                      <td className="px-3 py-3 text-right">
+                        <div className="text-emerald-400 font-semibold">{fmtPct(avgWinPct)}</div>
+                        <div className="text-rose-400 font-semibold mt-1">{fmtPct(avgLossPct)}</div>
+                      </td>
+                      <td className="px-3 py-3 text-slate-300 min-w-[170px]">
+                        {renderTokens(statusTop)}
+                      </td>
+                      <td className="px-3 py-3 text-slate-300 min-w-[170px]">
+                        {renderTokens(classTop)}
+                      </td>
+                      <td className="px-3 py-3 sticky right-0 bg-[rgba(11,14,17,0.985)] shadow-[-6px_0_12px_rgba(0,0,0,0.28)] z-10 min-w-[220px]">
                         {isAdmin ? (
                           <div className="flex flex-wrap items-center gap-2">
                             <button
-                              className="btn text-[11px]"
-                              style={{ background: "rgba(251,191,36,0.15)", color: "#fcd34d", border: "1px solid rgba(251,191,36,0.25)", padding: "5px 10px" }}
+                              className="run-action-btn run-action-btn-warn"
                               disabled={finalizingRunId === runId}
                               onClick={() => finalizeRun(r)}
                             >
                               {finalizingRunId === runId ? "Refreshing..." : "Refresh Metrics"}
                             </button>
                             <button
-                              className="btn text-[11px]"
-                              style={{ background: "rgba(100,116,139,0.15)", color: "#94a3b8", border: "1px solid rgba(100,116,139,0.3)", padding: "5px 10px" }}
+                              className="run-action-btn run-action-btn-muted"
                               onClick={() => viewRunDetails(runId)}
                             >
                               Details
                             </button>
                             {autopsyUrl && autopsyUrl !== "#" ? (
                               <a
-                                className="btn text-[11px]"
-                                style={{ background: "rgba(20,184,166,0.15)", color: "#5eead4", border: "1px solid rgba(20,184,166,0.3)", padding: "5px 10px", textDecoration: "none" }}
+                                className="run-action-btn run-action-btn-info"
+                                style={{ textDecoration: "none" }}
                                 href={autopsyUrl}
                               >
                                 Autopsy
                               </a>
                             ) : null}
                             <button
-                              className="btn text-[11px]"
-                              style={{ background: "rgba(100,116,139,0.15)", color: "#94a3b8", border: "1px solid rgba(100,116,139,0.3)", padding: "5px 10px" }}
+                              className="run-action-btn run-action-btn-muted"
                               onClick={() => {
                                 if (compareRuns?.length === 1 && compareRuns[0]?.run_id === runId) setCompareRuns(null);
                                 else if (compareRuns?.length === 1) setCompareRuns([compareRuns[0], r]);
@@ -2222,8 +2334,7 @@ function RunsTab({ isAdmin }) {
                             </button>
                             {isProtected ? (
                               <button
-                                className="btn text-[11px]"
-                                style={{ background: "rgba(139,92,246,0.15)", color: "#c4b5fd", border: "1px solid rgba(139,92,246,0.3)", padding: "5px 10px" }}
+                                className="run-action-btn run-action-btn-primary"
                                 onClick={() => {
                                   setVariantRunId(runId);
                                   setVariantData(null);
@@ -2248,24 +2359,21 @@ function RunsTab({ isAdmin }) {
                               </button>
                             ) : null}
                             <button
-                              className="btn text-[11px]"
-                              style={{ background: isLive ? "rgba(16,185,129,0.15)" : "rgba(29,78,216,0.2)", color: isLive ? "#6ee7b7" : "#93c5fd", border: "1px solid rgba(147,197,253,0.25)", padding: "5px 10px" }}
+                              className={`run-action-btn ${isLive ? "run-action-btn-success" : "run-action-btn-primary"}`}
                               disabled={isLive || promotingRunId === runId}
                               onClick={() => promoteRun(runId)}
                             >
                               {isLive ? "Live" : (promotingRunId === runId ? "Promoting..." : "Promote Live")}
                             </button>
                             <button
-                              className="btn text-[11px]"
-                              style={{ background: "rgba(148,163,184,0.12)", color: "#cbd5e1", border: "1px solid rgba(148,163,184,0.22)", padding: "5px 10px" }}
+                              className="run-action-btn run-action-btn-muted"
                               disabled={archivingRunId === runId || isLive}
                               onClick={() => archiveRun(r)}
                             >
                               {archivingRunId === runId ? "Archiving..." : "Archive"}
                             </button>
                             <button
-                              className="btn text-[11px]"
-                              style={{ background: "rgba(239,68,68,0.14)", color: "#fca5a5", border: "1px solid rgba(239,68,68,0.22)", padding: "5px 10px" }}
+                              className="run-action-btn run-action-btn-danger"
                               disabled={deletingRunId === runId || isLive || isProtected}
                               onClick={() => deleteRun(r)}
                             >

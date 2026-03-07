@@ -1391,6 +1391,56 @@
               Array.isArray(hist) && hist.some((e) => e && e.type === "TRIM")
             );
           };
+          const historyHasRealizedPnl = (trade, type = null) => {
+            const hist = Array.isArray(trade?.history) ? trade.history : [];
+            return hist.some((e) => {
+              if (!e) return false;
+              if (type && String(e.type || "").toUpperCase() !== type) return false;
+              return Number.isFinite(Number(e.pnl_realized));
+            });
+          };
+          const sumHistoryRealizedPnl = (trade, type = null) => {
+            const hist = Array.isArray(trade?.history) ? trade.history : [];
+            return hist.reduce((sum, e) => {
+              if (!e) return sum;
+              if (type && String(e.type || "").toUpperCase() !== type) return sum;
+              const pnl = Number(e.pnl_realized);
+              return Number.isFinite(pnl) ? sum + pnl : sum;
+            }, 0);
+          };
+          const getTrimRealizedPnl = (trade) => {
+            if (!trade) return 0;
+            if (historyHasRealizedPnl(trade, "TRIM")) {
+              return sumHistoryRealizedPnl(trade, "TRIM");
+            }
+            const realized = Number(trade.realizedPnl ?? trade.realized_pnl);
+            if (Number.isFinite(realized) && hasTrimEvent(trade)) {
+              return realized;
+            }
+            const tickerSym = String(trade.ticker || "").toUpperCase();
+            const isFut = FUTURES_SPECS[tickerSym] || tickerSym.endsWith("1!");
+            const pointVal =
+              isFut && FUTURES_SPECS[tickerSym]
+                ? FUTURES_SPECS[tickerSym].pointValue
+                : 1;
+            const shares =
+              trade.shares ||
+              (isFut && FUTURES_SPECS[tickerSym]
+                ? 1
+                : TRADE_SIZE / (trade.entryPrice || 1));
+            const trimmedPct = Number(trade.trimmedPct ?? trade.trimmed_pct ?? 0);
+            const trimmedShares = shares * trimmedPct;
+            const entryPrice = Number(trade.entryPrice) || 0;
+            const trimPrice = Number(trade.trimPrice ?? trade.trim_price ?? trade.tp) || entryPrice;
+            if (trimmedShares > 0 && entryPrice > 0) {
+              const direction = trade.direction || "LONG";
+              const priceDiff = direction === "LONG"
+                ? trimPrice - entryPrice
+                : entryPrice - trimPrice;
+              return priceDiff * trimmedShares * pointVal;
+            }
+            return 0;
+          };
 
           const horizonKeyForTrade = (trade) => {
             if (!trade) return "UNKNOWN";
@@ -1487,37 +1537,7 @@
           const closedPnl = closed.reduce((sum, t) => sum + (t.pnl || 0), 0);
 
           // Calculate realized P&L from trimmed positions
-          const trimmedRealizedPnl = trimmed.reduce((sum, t) => {
-            const tickerSym = String(t.ticker || "").toUpperCase();
-            const isFut = FUTURES_SPECS[tickerSym] || tickerSym.endsWith("1!");
-            const pointVal =
-              isFut && FUTURES_SPECS[tickerSym]
-                ? FUTURES_SPECS[tickerSym].pointValue
-                : 1;
-            const shares =
-              t.shares ||
-              (isFut && FUTURES_SPECS[tickerSym]
-                ? 1
-                : TRADE_SIZE / (t.entryPrice || 1));
-            const trimmedPct = t.trimmedPct || 0;
-            const trimmedShares = shares * trimmedPct;
-            const entryPrice = t.entryPrice || 0;
-            const tp = t.tp || entryPrice; // Use TP price where trimmed occurred
-
-            if (trimmedShares > 0 && entryPrice > 0) {
-              const direction = t.direction || "LONG";
-              if (direction === "LONG") {
-                // LONG: profit = (TP - Entry) * trimmed shares * point value
-                const priceDiff = tp - entryPrice;
-                return sum + priceDiff * trimmedShares * pointVal;
-              } else {
-                // SHORT: profit = (Entry - TP) * trimmed shares * point value
-                const priceDiff = entryPrice - tp;
-                return sum + priceDiff * trimmedShares * pointVal;
-              }
-            }
-            return sum;
-          }, 0);
+          const trimmedRealizedPnl = trimmed.reduce((sum, t) => sum + getTrimRealizedPnl(t), 0);
 
           // Total Closed P&L = fully closed + trimmed realized
           const totalPnl = closedPnl + trimmedRealizedPnl;

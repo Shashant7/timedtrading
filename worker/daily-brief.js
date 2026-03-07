@@ -762,6 +762,11 @@ export async function gatherDailyBriefData(env, type, opts = {}) {
     flags: d.flags || {},
   } : null;
 
+  const extractedEs = extract(esData);
+  const esSessionClose = type === "evening"
+    ? pickCanonicalSessionClose(today, esCandles?.candles || [], esCandlesM5?.candles || [])
+    : { price: null, source: null };
+
   return {
     today,
     type,
@@ -773,7 +778,11 @@ export async function gatherDailyBriefData(env, type, opts = {}) {
       isEarlyClose,
     },
     market: {
-      ES: extract(esData),
+      ES: extractedEs ? {
+        ...extractedEs,
+        sessionClose: esSessionClose.price,
+        sessionCloseSource: esSessionClose.source,
+      } : null,
       NQ: extract(nqData),
       VIX: extract(vixData),
       SPY: extract(spyData),
@@ -835,6 +844,96 @@ function buildPriceFeedCrossRef(pf) {
     lines.push(`${sym}: $${price.toFixed(2)} (${pct >= 0 ? "+" : ""}${pct.toFixed(2)}%, ${chg >= 0 ? "+" : ""}$${chg.toFixed(2)})`);
   }
   return lines.length > 0 ? lines.join("\n") : "Price feed unavailable.";
+}
+
+function dailyBriefTsMs(value) {
+  if (value == null) return null;
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value > 1e12 ? value : value * 1000;
+  }
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+    if (/^\d+$/.test(trimmed)) {
+      const numeric = Number(trimmed);
+      return Number.isFinite(numeric) ? (numeric > 1e12 ? numeric : numeric * 1000) : null;
+    }
+    const parsed = Date.parse(trimmed.includes("T") ? trimmed : `${trimmed}T00:00:00Z`);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
+
+function nyDateKeyFromMs(ms) {
+  if (!Number.isFinite(ms)) return null;
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/New_York",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(ms);
+  const get = (type) => parts.find((p) => p.type === type)?.value || "";
+  const year = get("year");
+  const month = get("month");
+  const day = get("day");
+  return year && month && day ? `${year}-${month}-${day}` : null;
+}
+
+function nyMinutesFromMs(ms) {
+  if (!Number.isFinite(ms)) return null;
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    hour12: false,
+    hour: "2-digit",
+    minute: "2-digit",
+  }).formatToParts(ms);
+  const get = (type) => parts.find((p) => p.type === type)?.value || "";
+  const hour = Number(get("hour"));
+  const minute = Number(get("minute"));
+  return Number.isFinite(hour) && Number.isFinite(minute) ? hour * 60 + minute : null;
+}
+
+function pickCanonicalSessionClose(targetDate, dailyCandles, intradayCandles) {
+  const daily = Array.isArray(dailyCandles) ? dailyCandles : [];
+  const intraday = Array.isArray(intradayCandles) ? intradayCandles : [];
+
+  const matchedDaily = daily
+    .map((candle) => {
+      const tsMs = dailyBriefTsMs(candle?.ts ?? candle?.t ?? candle?.time ?? candle?.date);
+      return { candle, tsMs, dateKey: nyDateKeyFromMs(tsMs) };
+    })
+    .filter((row) => row.dateKey === targetDate)
+    .sort((a, b) => (a.tsMs || 0) - (b.tsMs || 0));
+
+  const dailyClose = Number(matchedDaily[matchedDaily.length - 1]?.candle?.c);
+  if (Number.isFinite(dailyClose) && dailyClose > 0) {
+    return { price: dailyClose, source: "daily_candle_close" };
+  }
+
+  const intradayRows = intraday
+    .map((candle) => {
+      const tsMs = dailyBriefTsMs(candle?.ts ?? candle?.t ?? candle?.time ?? candle?.date);
+      return {
+        candle,
+        tsMs,
+        dateKey: nyDateKeyFromMs(tsMs),
+        nyMinutes: nyMinutesFromMs(tsMs),
+      };
+    })
+    .filter((row) => row.dateKey === targetDate)
+    .sort((a, b) => (a.tsMs || 0) - (b.tsMs || 0));
+
+  const beforeCloseRows = intradayRows.filter((row) => Number.isFinite(row.nyMinutes) && row.nyMinutes <= 16 * 60);
+  const canonicalRow = beforeCloseRows[beforeCloseRows.length - 1] || intradayRows[intradayRows.length - 1];
+  const intradayClose = Number(canonicalRow?.candle?.c);
+  if (Number.isFinite(intradayClose) && intradayClose > 0) {
+    return {
+      price: intradayClose,
+      source: beforeCloseRows.length ? "intraday_rth_close" : "intraday_last_close",
+    };
+  }
+
+  return { price: null, source: null };
 }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -1856,7 +1955,10 @@ export async function generateDailyBrief(env, type, opts = {}) {
     // 4. For evening brief, get ES close and score morning prediction
     let esClose = null;
     if (type === "evening" && data.market.ES) {
-      esClose = data.market.ES.price;
+      esClose = Number(data.market.ES.sessionClose);
+      if (!Number.isFinite(esClose) || esClose <= 0) {
+        esClose = Number(data.market.ES.price);
+      }
     }
 
     const now = Date.now();

@@ -531,6 +531,7 @@
       const LONG_CORRIDOR = { ltfMin: -8, ltfMax: 12 };
       const SHORT_CORRIDOR = { ltfMin: -12, ltfMax: 8 };
       const API_BASE = "";
+      const ENABLE_UI_DIAGNOSTICS = false;
       const TRADE_SIZE = 1000; // $1000 per trade (used by Right Rail)
       const FUTURES_SPECS = {
         "ES1!": { pointValue: 50, name: "E-mini S&P 500" },
@@ -613,6 +614,45 @@
         // Local fallback for Kanban prev-lane tracking (covers cases where the backend doesn't stamp prev_kanban_stage).
         const kanbanPrevLocalRef = React.useRef({});
 
+        const mergeUniversePlaceholders = useCallback((allTickers) => {
+          if (!Array.isArray(allTickers) || allTickers.length === 0) return;
+          setData((prev) => {
+            if (!prev || typeof prev !== "object") return prev;
+            let changed = false;
+            const next = { ...prev };
+            allTickers.forEach((ticker) => {
+              const normalizedTicker = normTicker(ticker);
+              if (!normalizedTicker || next[normalizedTicker]) return;
+              next[normalizedTicker] = { ticker: normalizedTicker };
+              changed = true;
+            });
+            return changed ? next : prev;
+          });
+        }, []);
+
+        const refreshTickerUniverse = useCallback(async (timestamp) => {
+          try {
+            const tickersRes = await fetch(`${API_BASE}/timed/tickers?_t=${timestamp || Date.now()}`, {
+              cache: "no-store",
+              headers: {
+                Accept: "application/json",
+                "Cache-Control": "no-cache, no-store, must-revalidate",
+                Pragma: "no-cache",
+                Expires: "0",
+                "X-Request-ID": `tickers-${timestamp || Date.now()}`,
+              },
+            });
+            if (!tickersRes.ok) return;
+            const tickersJson = await tickersRes.json();
+            const allTickers = tickersJson.ok && Array.isArray(tickersJson.tickers)
+              ? tickersJson.tickers
+              : [];
+            mergeUniversePlaceholders(allTickers);
+          } catch (e) {
+            console.warn("[UI] Ticker index hydration skipped:", e?.message || e);
+          }
+        }, [mergeUniversePlaceholders]);
+
         const fetchData = useCallback(async () => {
           try {
             setLoading(true);
@@ -621,33 +661,21 @@
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), 60000); // 60s timeout
 
-            // Fetch ticker data + index first for faster initial render.
-            // Live prices are hydrated by usePriceFeed/WebSocket right after mount.
+            // Fetch the main snapshot first so first paint is not blocked by the
+            // secondary ticker-index request. Missing placeholders are merged in
+            // immediately afterwards in the background.
             const timestamp = Date.now();
-            const [dataRes, tickersRes] = await Promise.all([
-              fetch(`${API_BASE}/timed/all?_t=${timestamp}`, {
-                signal: controller.signal,
-                cache: "no-store",
-                headers: {
-                  Accept: "application/json",
-                  "Cache-Control": "no-cache, no-store, must-revalidate",
-                  Pragma: "no-cache",
-                  Expires: "0",
-                  "X-Request-ID": `data-${timestamp}`,
-                },
-              }),
-              fetch(`${API_BASE}/timed/tickers?_t=${timestamp}`, {
-                signal: controller.signal,
-                cache: "no-store",
-                headers: {
-                  Accept: "application/json",
-                  "Cache-Control": "no-cache, no-store, must-revalidate",
-                  Pragma: "no-cache",
-                  Expires: "0",
-                  "X-Request-ID": `tickers-${timestamp}`,
-                },
-              }),
-            ]);
+            const dataRes = await fetch(`${API_BASE}/timed/all?_t=${timestamp}`, {
+              signal: controller.signal,
+              cache: "no-store",
+              headers: {
+                Accept: "application/json",
+                "Cache-Control": "no-cache, no-store, must-revalidate",
+                Pragma: "no-cache",
+                Expires: "0",
+                "X-Request-ID": `data-${timestamp}`,
+              },
+            });
 
             clearTimeout(timeoutId);
 
@@ -659,15 +687,11 @@
             }
 
             const dataJson = await dataRes.json();
-            const tickersJson = await tickersRes.json();
 
             if (dataJson.ok) {
               setSocialAdditions(Array.isArray(dataJson.socialAdditions) ? dataJson.socialAdditions : []);
               const tickerData = dataJson.data || {};
-              const allTickers =
-                tickersJson.ok && tickersJson.tickers
-                  ? tickersJson.tickers
-                  : [];
+              const allTickers = Object.keys(tickerData);
 
               // Local prev-lane fallback (so transition marker/glow always works).
               // Only stamps when backend didn't provide prev_kanban_stage.
@@ -714,16 +738,18 @@
                 currentDataVersion: currentDataVersion,
               });
 
-              console.log(`[UI] Data Version Info:`, {
-                storedVersion: dataVersion,
-                currentDataVersion: currentDataVersion,
-                versionsSeen: versionsSeen,
-                acceptedVersions: acceptedVersions,
-                versionFiltered: versionFiltered,
-                versionBreakdown: versionBreakdown,
-                tickersReturned: Object.keys(tickerData).length,
-                totalTickersInIndex: allTickers.length,
-              });
+              if (ENABLE_UI_DIAGNOSTICS) {
+                console.log(`[UI] Data Version Info:`, {
+                  storedVersion: dataVersion,
+                  currentDataVersion: currentDataVersion,
+                  versionsSeen: versionsSeen,
+                  acceptedVersions: acceptedVersions,
+                  versionFiltered: versionFiltered,
+                  versionBreakdown: versionBreakdown,
+                  tickersReturned: Object.keys(tickerData).length,
+                  totalTickersInIndex: allTickers.length,
+                });
+              }
 
               // Normalize ticker keys: BRK.B -> BRK-B
               const normalizedData = {};
@@ -817,22 +843,26 @@
                 }
               });
 
-              console.log(
-                `[UI] Loaded ${tickersWithData.length} tickers with scores, ${allTickers.length} total in index`,
-              );
-              console.log(`[UI] Tickers by version:`, tickersByVersion);
-              if (tickersWithoutScores.length > 0) {
-                console.warn(
-                  `[UI] ⚠️ ${tickersWithoutScores.length} tickers without scores:`,
-                  tickersWithoutScores.slice(0, 10),
+              if (ENABLE_UI_DIAGNOSTICS) {
+                console.log(
+                  `[UI] Loaded ${tickersWithData.length} tickers with scores, ${allTickers.length} total in index`,
                 );
+                console.log(`[UI] Tickers by version:`, tickersByVersion);
+              }
+              if (tickersWithoutScores.length > 0) {
+                if (ENABLE_UI_DIAGNOSTICS) {
+                  console.warn(
+                    `[UI] ⚠️ ${tickersWithoutScores.length} tickers without scores:`,
+                    tickersWithoutScores.slice(0, 10),
+                  );
+                }
                 // Store in state for UI display
                 setTickersWithoutScores(tickersWithoutScores);
               } else {
                 setTickersWithoutScores([]);
               }
 
-              if (versionFiltered > 0) {
+              if (versionFiltered > 0 && ENABLE_UI_DIAGNOSTICS) {
                 console.warn(
                   `[UI] ⚠️ ${versionFiltered} tickers filtered out due to version mismatch.`,
                   {
@@ -846,41 +876,43 @@
               }
 
               // Log sample tickers to see what we're getting
-              const sampleTickers = Object.keys(tickerData).slice(0, 10);
-              console.log(
-                `[UI] Sample tickers:`,
-                sampleTickers.map((t) => ({
-                  ticker: t,
-                  version: tickerData[t]?.script_version || "unknown",
-                  hasScores: !!(
-                    tickerData[t]?.htf_score !== undefined &&
-                    tickerData[t]?.ltf_score !== undefined
-                  ),
-                  htf_score: tickerData[t]?.htf_score,
-                  ltf_score: tickerData[t]?.ltf_score,
-                  dynamicScore: tickerData[t]?.dynamicScore, // Check if API provides this
-                  rank: tickerData[t]?.rank,
-                })),
-              );
+              if (ENABLE_UI_DIAGNOSTICS) {
+                const sampleTickers = Object.keys(tickerData).slice(0, 10);
+                console.log(
+                  `[UI] Sample tickers:`,
+                  sampleTickers.map((t) => ({
+                    ticker: t,
+                    version: tickerData[t]?.script_version || "unknown",
+                    hasScores: !!(
+                      tickerData[t]?.htf_score !== undefined &&
+                      tickerData[t]?.ltf_score !== undefined
+                    ),
+                    htf_score: tickerData[t]?.htf_score,
+                    ltf_score: tickerData[t]?.ltf_score,
+                    dynamicScore: tickerData[t]?.dynamicScore,
+                    rank: tickerData[t]?.rank,
+                  })),
+                );
 
-              // Check if dynamicScore is coming from API
-              const hasDynamicScore = Object.values(tickerData).some(
-                (t) => t?.dynamicScore !== undefined,
-              );
-              console.log(
-                `[UI] API provides dynamicScore: ${
-                  hasDynamicScore
-                    ? "YES ✅"
-                    : "NO ❌ (will use fallback calculation)"
-                }`,
-              );
+                const hasDynamicScore = Object.values(tickerData).some(
+                  (t) => t?.dynamicScore !== undefined,
+                );
+                console.log(
+                  `[UI] API provides dynamicScore: ${
+                    hasDynamicScore
+                      ? "YES ✅"
+                      : "NO ❌ (will use fallback calculation)"
+                  }`,
+                );
 
-              // Check order of tickers from API
-              const apiTickerOrder = Object.keys(tickerData).slice(0, 10);
-              console.log(
-                `[UI] First 10 tickers from API (order):`,
-                apiTickerOrder,
-              );
+                const apiTickerOrder = Object.keys(tickerData).slice(0, 10);
+                console.log(
+                  `[UI] First 10 tickers from API (order):`,
+                  apiTickerOrder,
+                );
+              }
+
+              refreshTickerUniverse(timestamp);
             } else {
               setError(
                 `API Error: ${dataJson.error || "Failed to fetch data"}`,
@@ -914,7 +946,7 @@
           } finally {
             setLoading(false);
           }
-        }, []);
+        }, [refreshTickerUniverse]);
 
         useEffect(() => {
           fetchData();

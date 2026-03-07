@@ -14,6 +14,7 @@
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="auth-gate.js?v=20260219a"></script>
+    <script src="shared-price-utils.js?v=20260304a"></script>
     <style>
       :root {
         --tt-bg-base: #0b0e11;
@@ -105,6 +106,12 @@
         const v = Number(n);
         return `${v >= 0 ? "+" : ""}${v.toFixed(1)}%`;
       };
+      const getCandidateChangePct = (candidate) => {
+        const daily = window.getDailyChange ? window.getDailyChange(candidate) : null;
+        if (daily && Number.isFinite(Number(daily.dayPct))) return Number(daily.dayPct);
+        const raw = Number(candidate?.change_pct ?? candidate?.day_change_pct ?? candidate?.week_change_pct);
+        return Number.isFinite(raw) ? raw : null;
+      };
 
       // ── Scan Type Definitions ──────────────────────────────────────────────
       const SCAN_TYPES = [
@@ -116,8 +123,8 @@
       ];
 
       const SORT_OPTIONS = [
-        { id: "change_desc", label: "Change % ↓", fn: (a, b) => Math.abs(b.change_pct || 0) - Math.abs(a.change_pct || 0) },
-        { id: "change_asc", label: "Change % ↑", fn: (a, b) => Math.abs(a.change_pct || 0) - Math.abs(b.change_pct || 0) },
+        { id: "change_desc", label: "Change % ↓", fn: (a, b) => Math.abs(getCandidateChangePct(b) || 0) - Math.abs(getCandidateChangePct(a) || 0) },
+        { id: "change_asc", label: "Change % ↑", fn: (a, b) => Math.abs(getCandidateChangePct(a) || 0) - Math.abs(getCandidateChangePct(b) || 0) },
         { id: "mcap_desc", label: "Market Cap ↓", fn: (a, b) => (b.market_cap || 0) - (a.market_cap || 0) },
         { id: "volume_desc", label: "Volume ↓", fn: (a, b) => (b.volume || 0) - (a.volume || 0) },
         { id: "ticker_asc", label: "Ticker A-Z", fn: (a, b) => (a.ticker || "").localeCompare(b.ticker || "") },
@@ -537,7 +544,7 @@
                       const justAdded = addedTickers.has(ticker);
                       const isAdding = addingTickers.has(ticker);
                       const isSelected = selectedTickers.has(ticker);
-                      const changePct = c.change_pct ?? c.week_change_pct;
+                      const changePct = getCandidateChangePct(c);
                       const isPositive = Number(changePct) >= 0;
 
                       return (
