@@ -44,11 +44,11 @@
       .runs-metric-value { font-size: 13px; color: #e5e7eb; font-weight: 600; margin-top: 4px; line-height: 1.35; }
       .runs-control { display: inline-flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 999px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.05); color: #a8b1bf; }
       .runs-table-wrap { border-top: 1px solid rgba(255,255,255,0.05); background: linear-gradient(180deg, rgba(255,255,255,0.012), rgba(255,255,255,0.006)); }
-      .runs-table { width: 100%; min-width: 1280px; border-collapse: separate; border-spacing: 0; font-size: 12px; }
+      .runs-table { width: 100%; min-width: 1180px; border-collapse: separate; border-spacing: 0; font-size: 12px; }
       .runs-table thead th { font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: #7b8698; font-weight: 700; padding-top: 11px; padding-bottom: 11px; border-bottom: 1px solid rgba(255,255,255,0.06); }
       .runs-table tbody td { border-top: 1px solid rgba(255,255,255,0.04); vertical-align: top; }
       .runs-row:hover { background: rgba(255,255,255,0.024); }
-      .run-id { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; font-size: 11px; color: #d7dde7; line-height: 1.4; }
+      .run-id { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; font-size: 11px; color: #d7dde7; line-height: 1.4; white-space: normal; overflow-wrap: anywhere; word-break: break-word; }
       .run-subtle { font-size: 10px; color: #7b8698; line-height: 1.35; }
       .run-pill { display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px; border-radius: 999px; font-size: 10px; font-weight: 700; letter-spacing: 0.03em; border: 1px solid transparent; }
       .run-pill-live { color: #6ee7b7; background: rgba(16,185,129,0.12); border-color: rgba(16,185,129,0.18); }
@@ -2181,13 +2181,12 @@ function RunsTab({ isAdmin }) {
                   <th className="px-3 py-2 text-left font-semibold">Run Date</th>
                   <th className="px-3 py-2 text-left font-semibold">Description</th>
                   <th className="px-3 py-2 text-left font-semibold">Range</th>
+                  <th className="px-3 py-2 text-right font-semibold">W / L / BE</th>
                   <th className="px-3 py-2 text-right font-semibold">Tickers</th>
                   <th className="px-3 py-2 text-right font-semibold">Trades</th>
-                  <th className="px-3 py-2 text-right font-semibold">W / L / BE</th>
                   <th className="px-3 py-2 text-right font-semibold">Win Rate</th>
                   <th className="px-3 py-2 text-right font-semibold">P&L</th>
                   <th className="px-3 py-2 text-right font-semibold">Avg W/L %</th>
-                  <th className="px-3 py-2 text-left font-semibold">Status Mix</th>
                   <th className="px-3 py-2 text-left font-semibold">Top Classifications</th>
                   <th className="px-3 py-2 text-left font-semibold sticky top-0 right-0 bg-[rgba(15,17,23,0.98)] shadow-[-4px_0_8px_rgba(0,0,0,0.3)] z-30">Actions</th>
                 </tr>
@@ -2206,9 +2205,7 @@ function RunsTab({ isAdmin }) {
                   const winRate = r?.trades?.win_rate ?? r?.win_rate;
                   const avgWinPct = r?.pnl?.avg_win_pct ?? r?.avg_win_pct;
                   const avgLossPct = r?.pnl?.avg_loss_pct ?? r?.avg_loss_pct;
-                  const byStatus = parseMetricObj(r?.by_status ?? r?.by_status_json);
                   const classifications = parseMetricObj(r?.classifications ?? r?.classifications_json);
-                  const statusTop = topCounts(byStatus, 3);
                   const classTop = topCounts(classifications, 3);
                   const isLive = !!(r?.live_config_slot);
                   const isProtected = !!(r?.is_protected_baseline);
@@ -2217,7 +2214,7 @@ function RunsTab({ isAdmin }) {
                   const stateBadges = getRunStateBadges(r);
                   return (
                     <tr key={runId} className="runs-row transition-colors">
-                      <td className="px-3 py-3">
+                      <td className="px-3 py-3 max-w-[180px] w-[180px]">
                         <div className="run-id" title={runId}>{shortRunId(runId)}</div>
                         <div className="run-subtle mt-1">{r?.label || "—"}</div>
                         <div className="flex flex-wrap gap-1.5 mt-2">
@@ -2267,6 +2264,10 @@ function RunsTab({ isAdmin }) {
                         <div className="font-medium text-slate-200">{r?.start_date || "—"} → {r?.end_date || "—"}</div>
                         <div className="run-subtle mt-1">Analysis window</div>
                       </td>
+                      <td className="px-3 py-3 text-right text-slate-300 min-w-[100px]">
+                        <div className="font-semibold text-slate-200">{fmtNum(wins)} / {fmtNum(losses)} / {fmtNum(be)}</div>
+                        <div className="run-subtle mt-1">W / L / BE</div>
+                      </td>
                       <td className="px-3 py-3 text-right text-slate-300">
                         <div className="font-semibold text-slate-200">{fmtNum(tradedCount)} / {fmtNum(universeCount)}</div>
                         <div className="run-subtle mt-1">Traded / universe</div>
@@ -2274,10 +2275,6 @@ function RunsTab({ isAdmin }) {
                       <td className="px-3 py-3 text-right text-slate-300">
                         <div className="font-semibold text-slate-200">{fmtNum(totalTrades)}</div>
                         <div className="run-subtle mt-1">Total trades</div>
-                      </td>
-                      <td className="px-3 py-3 text-right text-slate-300">
-                        <div className="font-semibold text-slate-200">{fmtNum(wins)} / {fmtNum(losses)} / {fmtNum(be)}</div>
-                        <div className="run-subtle mt-1">W / L / BE</div>
                       </td>
                       <td className="px-3 py-3 text-right text-slate-300">
                         <div className="font-semibold text-slate-200">{fmtPct(winRate)}</div>
@@ -2290,9 +2287,6 @@ function RunsTab({ isAdmin }) {
                       <td className="px-3 py-3 text-right">
                         <div className="text-emerald-400 font-semibold">{fmtPct(avgWinPct)}</div>
                         <div className="text-rose-400 font-semibold mt-1">{fmtPct(avgLossPct)}</div>
-                      </td>
-                      <td className="px-3 py-3 text-slate-300 min-w-[170px]">
-                        {renderTokens(statusTop)}
                       </td>
                       <td className="px-3 py-3 text-slate-300 min-w-[170px]">
                         {renderTokens(classTop)}
