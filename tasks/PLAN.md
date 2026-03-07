@@ -1,6 +1,6 @@
 # Timed Trading — Consolidated Plan
 
-**Last updated:** 2026-03-06
+**Last updated:** 2026-03-07
 
 Single reference for current status and next steps. Read this first each session.
 
@@ -15,14 +15,13 @@ Single reference for current status and next steps. Read this first each session
 
 ---
 
-## What We Just Completed
+## What Is Live
 
-1. **H LONG bug** — Status now derived from P&L; correct-exit/correct-all-exits/reconcile-status fixed
-2. **Trade Autopsy** — Entry Grade + Trade Management multi-select (chasing, move_stretched, SL too tight, etc.)
-3. **Trade Autopsy** — Fixed redeclaration errors (var for options, removed duplicate state hooks)
-4. **Runs UI** — Run Date column, Show archived, Hide running (no metrics), description editing, Compare modal, Create Variant flow
-5. **Phase 3** — July validation completed (71.43% WR, +$2,481); promoted to live baseline; deleted 6 old unfinalized runs
-6. **Mark-live fix** — Removed erroneous .run() from D1 batch in mark-live endpoint
+1. **Runs UI + promotion flow** — Run Date, Show archived, Hide running, description editing, Compare modal, Create Variant, Promote Live
+2. **Phase 3 July baseline** — completed, promoted to live, and pushed/deployed
+3. **15m `LEADING_LTF` experiment infrastructure** — 15m replay/backfill support, variant env overrides, and rerun completed
+4. **Run-scoped trade retention** — completed runs now snapshot into archive tables so future resets do not destroy trade-by-run analysis
+5. **Historical import** — archived July artifacts imported into the run registry/run archive store so older runs remain reviewable
 
 ---
 
@@ -37,55 +36,51 @@ Single reference for current status and next steps. Read this first each session
 | 5 | — | (Not in scope) |
 | 6 | ✅ Done | Runs UI with protected/archive/delete |
 | 7 | ✅ Done | Create Variant + rule levers + env override backtest |
+| 8 | ✅ Done | Run-scoped trade archive retention + historical artifact import |
 
 ---
 
-## Clear Next Steps (In Order)
+## Clear Next Steps (Pending Review)
 
-### Step 1: Calibrate From Autopsy Tags
+### Step 1: Review 15m vs 10m Decision
+**Goal:** Decide whether `LEADING_LTF=15` should stay experimental or become a stronger candidate.
+
+**Current state:**
+- 15m infrastructure is live
+- rerun completed
+- run-scoped archives preserve both the 15m rerun and baseline trade sets for analysis
+
+**Review work:**
+1. Compare 15m vs live baseline trade-by-trade and by day
+2. Decide whether the extra open trades are genuine upside or risk masking
+3. Optionally run a forced-EOM-close apples-to-apples comparison before promotion
+
+---
+
+### Step 2: Calibrate From Autopsy Tags
 **Goal:** Use Entry Grade + Trade Management tags to tune logic.
 
-**Current summary (11 tagged trades):**
-- Entry Grade: chasing (4), good_entry (4), move_stretched (1)
-- Trade Management: should_have_held (8), should_have_cut_early (1), should_have_trimmed (1)
-
-**Calibration actions:**
-1. **Exits too early** (should_have_held=8) → ✅ Done: MIN_TRIM_AGE 10→15min, PROFIT_PROTECT 2%→2.5%, RIPSTER_EXIT_DEBOUNCE 2→3
-2. **Chasing** (4) → keep/tighten anti-chase gates (RSI heat, ST conflict)
-3. **Good entry** (4) → preserve entry path for these; avoid over-gating
+**Current summary:**
+- Exits too early (`should_have_held`) → ✅ already loosened and deployed
+- Chasing (`chasing`) → still pending review/tightening
+- Good entry preservation → still pending as part of Variant v2 hardening
 
 ---
 
-### Step 3: Experiment Workflow Remainder
-**From** `~/.cursor/plans/run_experiment_workflow_a459a54d.plan.md`:
-- [x] variant-review-ui: Review Variant Config — Config vs Live deltas in Create Variant modal
-- [ ] historical-import: Import strong July artifacts as named runs (register pre-registry backtest JSONs into run registry so they appear in Runs UI)
-- [ ] First structured experiment: **15m vs 10m** `leading_ltf` (baseline=10m, variant=15m)
-
----
-
-### Step 4: 15m vs 10m leading_ltf Experiment (Prep)
-**Goal:** First structured A/B — baseline=10m, variant=15m for leading LTF.
-
-**Prep (can do now):**
-- Backfill 15m TF for all tickers (TwelveData supports 15min natively)
-- Add "15" to BACKFILL_TFS and REPLAY_TFS in worker
-- Add `leading_ltf` env override (10 vs 15) for Create Variant flow
-
----
-
-### Step 5: Trade Autopsy Mobile Layout
-- ✅ Done: Scrollable classification section (max-h-40vh), shrink-0 on buttons to prevent overlap
-
----
-
-### Step 6: Variant v2 Hardening
+### Step 3: Variant v2 Hardening
 - Mitigate bad exits and chasing from classified trades
-- **Note:** 15m vs 10m is a separate experiment (leading_ltf); Variant v2 = exit/entry logic fixes from autopsy
+- Keep this separate from the `leading_ltf` experiment so entry/exit logic changes stay attributable
 
 ---
 
-### Step 7: Mean Reversion TD9 + Squeeze Hold (Backlog Prep)
+### Step 4: Focused Replay Validations
+- WMT loss guard replay: verify WMT blocked while CSX still passes
+- RSI extreme guard replay: compare blocked vs kept trades against baseline
+- Swing Checklist A/B: run control + variant and compare outcome mix
+
+---
+
+### Step 5: Mean Reversion TD9 + Squeeze Hold
 **Mean Reversion TD9** (`docs/MEAN_REVERSION_TD9_ALIGNMENT_PLAN.md`):
 - Primitives: `countRecentGapsDown`, `td9AlignedLong`, `phaseLeavingDotBullish`, `isNearPsychLevel`
 - Add `mean_revert_td9_aligned` flag (feature-flagged)
@@ -105,11 +100,11 @@ Single reference for current status and next steps. Read this first each session
 
 ---
 
-## Files to Edit First
+## Files To Edit First
 
 - `tasks/todo.md` — current tasks, phase checkboxes
-- `react-app/system-intelligence.html` — Runs tab, Create Variant
-- `worker/index.js` — run endpoints, variant launch logic
+- `react-app/system-intelligence.html` — Runs tab, experiment review UX
+- `worker/index.js` — replay logic, run endpoints, archive-backed analysis
 
 ---
 
@@ -122,9 +117,12 @@ curl -s "https://timed-trading-ingest.shashant.workers.dev/timed/admin/runs?key=
 # Reconcile status (batch fix)
 TIMED_API_KEY=AwesomeSauce node scripts/reconcile-status.js
 
-# Full backtest (July)
+# Full backtest (July baseline)
 ./scripts/full-backtest.sh --trader-only --low-write --keep-open-at-end 2025-07-01 2025-07-31 15 --label=phase3-july-validation
 
-# Backfill 15m TF (for 15m vs 10m experiment) — run once before experiment
-./scripts/backfill-history.sh --force   # or: alpaca-backfill with tf=15
+# 15m variant rerun
+./scripts/full-backtest.sh --trader-only --low-write --keep-open-at-end 2025-07-01 2025-07-31 15 --label=15m-leading-ltf-rerun --env-override LEADING_LTF=15
+
+# Run archive-backed ledger lookup
+curl -s "https://timed-trading-ingest.shashant.workers.dev/timed/ledger/trades?run_id=<RUN_ID>&key=AwesomeSauce" | jq .
 ```

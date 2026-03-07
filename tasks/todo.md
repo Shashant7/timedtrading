@@ -11,17 +11,20 @@
 ## Next Sprint (Prioritized) [2026-03-06]
 - [x] Calibrate from autopsy tags: loosen exits (should_have_held=8) — done
 - [x] Trade Autopsy mobile layout: fix classification buttons visibility/overlap
+- [x] Review Variant Config modal (rule deltas before launch)
+- [x] Historical import: strong July artifacts as named runs
+- [x] Experiment infra: 15m vs 10m `leading_ltf` support, rerun, and archive retention
+- [ ] Review 15m vs 10m `leading_ltf` results and decide promote/reject
 - [ ] Calibrate: keep anti-chase gates (chasing=4)
 - [ ] Variant v2 hardening: mitigate bad exits and chasing from classified trades
 - [ ] Mean reversion TD9: implement primitives per docs/MEAN_REVERSION_TD9_ALIGNMENT_PLAN.md
-- [ ] Experiment: 15m vs 10m leading_ltf (baseline=10m, variant=15m) — first structured A/B
-- [x] Review Variant Config modal (rule deltas before launch)
-- [ ] Historical import: strong July artifacts as named runs
 
 ## Run-Scoped Trade Retention [2026-03-07]
-- [ ] Preserve completed backtest trades per `run_id` even after replay reset clears live tables
-- [ ] Archive Trade Autopsy rows by run so historical run analysis remains available
-- [ ] Re-snapshot the current `15m-leading-ltf-rerun` trades into the new per-run store
+- [x] Preserve completed backtest trades per `run_id` even after replay reset clears live tables
+- [x] Archive Trade Autopsy rows by run so historical run analysis remains available
+- [x] Re-snapshot the current `15m-leading-ltf-rerun` trades into the new per-run store
+- [x] Add archive-backed ledger lookup for historical `run_id` analysis
+- [x] Import saved July artifacts into the run archive store
 
 ## Variant v2 Hardening [2026-03-04]
 - [ ] Mitigate bad exits and upstream/chasing entries from classified variant trades
@@ -38,7 +41,7 @@
 ## WMT Loss Guard Focused Replay [2026-03-05]
 - [x] Add Ripster momentum anti-chase RSI heat gate (30m/1H)
 - [x] Add Daily ST conflict gate for Ripster momentum LONG entries
-- [ ] Run focused replay (Jul 1-3) and verify WMT blocked while CSX still passes (in progress)
+- [ ] Run focused replay (Jul 1-3) and verify WMT blocked while CSX still passes
 
 ## July Variant Guardrails V3 [2026-03-06]
 - [x] Exclude replay_forced_eod_close trades and analyze loser clusters
@@ -69,7 +72,7 @@
 
 ## Swing Checklist A/B [2026-03-06]
 - [x] Add feature-flagged swing checklist gate (4H EMA stack + daily EMA5 + phase reset near zero + optional squeeze build)
-- [ ] Run control replay with swing checklist disabled (in progress)
+- [ ] Run control replay with swing checklist disabled
 - [ ] Run variant replay with swing checklist enabled
 - [ ] Compare win rate, realized PnL, loss reasons, and open-trade mix
 
@@ -81,9 +84,9 @@
 - [x] Validate on fresh control+variant runs and choose baseline `run_id` — Phase 3 promoted to live
 
 ## Run Tracking UI + Promotion [2026-03-06]
-- [ ] Add System Intelligence Runs tab (live run + historical summaries)
-- [ ] Add Promote Live action wired to `/timed/admin/runs/mark-live`
-- [ ] Deploy worker + Pages and verify run tracking/promotion flow
+- [x] Add System Intelligence Runs tab (live run + historical summaries)
+- [x] Add Promote Live action wired to `/timed/admin/runs/mark-live`
+- [x] Deploy worker + Pages and verify run tracking/promotion flow
 
 ## Mean Reversion: TD9 Alignment Setup [2026-03-06]
 - [ ] Add primitives: countRecentGapsDown, td9AlignedLong (D+W+60), phaseLeavingDotBullish, isNearPsychLevel
@@ -97,6 +100,7 @@
 - [x] Phase 2: Preserve the two July candidates as protected baseline save points
 - [x] Phase 3: Re-run and validate official July baseline — completed; promoted to live (71.43% WR, +$2,481)
 - [x] Phase 4: Add immutable rule snapshot storage and run detail APIs
+- [x] Phase 5: Historical run import + run-scoped trade retention
 - [x] Phase 6: Expand Runs UI with protected/archive/delete controls
 - [x] Phase 7: Add Create Variant / Review Variant Config flow (Config vs Live deltas)
 
