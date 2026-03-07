@@ -18,6 +18,11 @@
 - [x] Review Variant Config modal (rule deltas before launch)
 - [ ] Historical import: strong July artifacts as named runs
 
+## Run-Scoped Trade Retention [2026-03-07]
+- [ ] Preserve completed backtest trades per `run_id` even after replay reset clears live tables
+- [ ] Archive Trade Autopsy rows by run so historical run analysis remains available
+- [ ] Re-snapshot the current `15m-leading-ltf-rerun` trades into the new per-run store
+
 ## Variant v2 Hardening [2026-03-04]
 - [ ] Mitigate bad exits and upstream/chasing entries from classified variant trades
 - [x] Fix Trade Autopsy mobile layout overlap (classification buttons visibility)

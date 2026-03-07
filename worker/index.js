@@ -535,6 +535,7 @@ const ROUTES = [
   ["DELETE", "/timed/admin/replay-lock", "DELETE /timed/admin/replay-lock"],
   ["POST", "/timed/admin/runs/register", "POST /timed/admin/runs/register"],
   ["POST", "/timed/admin/runs/import", "POST /timed/admin/runs/import"],
+  ["POST", "/timed/admin/runs/import-trades", "POST /timed/admin/runs/import-trades"],
   ["POST", "/timed/admin/runs/finalize", "POST /timed/admin/runs/finalize"],
   ["POST", "/timed/admin/runs/mark-live", "POST /timed/admin/runs/mark-live"],
   ["POST", "/timed/admin/runs/archive", "POST /timed/admin/runs/archive"],
@@ -15853,6 +15854,51 @@ async function d1EnsureBacktestRunsSchema(env) {
         created_at INTEGER NOT NULL,
         updated_at INTEGER NOT NULL
       )`),
+      db.prepare(`CREATE TABLE IF NOT EXISTS backtest_run_trades (
+        trade_id TEXT NOT NULL,
+        run_id TEXT NOT NULL,
+        ticker TEXT NOT NULL,
+        direction TEXT NOT NULL,
+        entry_ts INTEGER NOT NULL,
+        entry_price REAL,
+        rank INTEGER,
+        rr REAL,
+        status TEXT,
+        exit_ts INTEGER,
+        exit_price REAL,
+        exit_reason TEXT,
+        trimmed_pct REAL,
+        pnl REAL,
+        pnl_pct REAL,
+        script_version TEXT,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        trim_ts INTEGER,
+        trim_price REAL,
+        PRIMARY KEY (run_id, trade_id)
+      )`),
+      db.prepare(`CREATE TABLE IF NOT EXISTS backtest_run_trade_autopsy (
+        trade_id TEXT NOT NULL,
+        run_id TEXT NOT NULL,
+        ticker TEXT NOT NULL,
+        direction TEXT,
+        status TEXT,
+        entry_ts INTEGER,
+        exit_ts INTEGER,
+        trim_ts INTEGER,
+        entry_price REAL,
+        exit_price REAL,
+        pnl REAL,
+        pnl_pct REAL,
+        exit_reason TEXT,
+        signal_snapshot_json TEXT,
+        entry_path TEXT,
+        consensus_direction TEXT,
+        max_favorable_excursion REAL,
+        max_adverse_excursion REAL,
+        tf_stack_json TEXT,
+        PRIMARY KEY (run_id, trade_id)
+      )`),
     ]);
     try {
       await db.batch([
@@ -15860,6 +15906,9 @@ async function d1EnsureBacktestRunsSchema(env) {
         db.prepare(`CREATE INDEX IF NOT EXISTS idx_backtest_runs_status ON backtest_runs(status)`),
         db.prepare(`CREATE INDEX IF NOT EXISTS idx_backtest_runs_live ON backtest_runs(live_config_slot, updated_at DESC)`),
         db.prepare(`CREATE INDEX IF NOT EXISTS idx_backtest_run_rule_snapshots_created ON backtest_run_rule_snapshots(created_at DESC)`),
+        db.prepare(`CREATE INDEX IF NOT EXISTS idx_backtest_run_trades_run_entry ON backtest_run_trades(run_id, entry_ts DESC)`),
+        db.prepare(`CREATE INDEX IF NOT EXISTS idx_backtest_run_trades_run_status ON backtest_run_trades(run_id, status)`),
+        db.prepare(`CREATE INDEX IF NOT EXISTS idx_backtest_run_autopsy_run_entry ON backtest_run_trade_autopsy(run_id, entry_ts DESC)`),
       ]);
     } catch (_) {}
     try { await db.prepare(`ALTER TABLE backtest_run_metrics ADD COLUMN avg_win_pct REAL DEFAULT 0`).run(); } catch (_) {}
@@ -15909,6 +15958,218 @@ function parseBool01(v) {
 function buildTradeAutopsyRunUrl(runId) {
   const safe = encodeURIComponent(String(runId || "").trim());
   return safe ? `trade-autopsy.html?run_id=${safe}` : "trade-autopsy.html";
+}
+
+async function resolveBacktestRunTradeSnapshotScope(db, runId) {
+  const rid = String(runId || "").trim();
+  if (!db || !rid) return { liveTradeCount: 0, includeNullRunTrades: false };
+  try {
+    const [totalRow, exactRow, nullRow, distinctRowsRes] = await db.batch([
+      db.prepare(`SELECT COUNT(*) AS cnt FROM trades`).bind(),
+      db.prepare(`SELECT COUNT(*) AS cnt FROM trades WHERE run_id = ?1`).bind(rid),
+      db.prepare(`SELECT COUNT(*) AS cnt FROM trades WHERE run_id IS NULL`).bind(),
+      db.prepare(`SELECT DISTINCT run_id FROM trades WHERE run_id IS NOT NULL LIMIT 4`).bind(),
+    ]);
+    const totalTrades = Number(totalRow?.results?.[0]?.cnt || 0);
+    const exactMatches = Number(exactRow?.results?.[0]?.cnt || 0);
+    const nullRunTrades = Number(nullRow?.results?.[0]?.cnt || 0);
+    const distinctRunIds = (distinctRowsRes?.results || [])
+      .map((r) => String(r.run_id || "").trim())
+      .filter(Boolean);
+    const includeNullRunTrades =
+      nullRunTrades > 0 &&
+      totalTrades > 0 &&
+      distinctRunIds.every((v) => v === rid);
+    return {
+      liveTradeCount: includeNullRunTrades ? exactMatches + nullRunTrades : exactMatches,
+      includeNullRunTrades,
+    };
+  } catch (_) {
+    return { liveTradeCount: 0, includeNullRunTrades: false };
+  }
+}
+
+async function snapshotBacktestRunTrades(db, runId) {
+  const rid = String(runId || "").trim();
+  if (!db || !rid) return { ok: false, archivedTrades: 0, archivedAutopsyTrades: 0, skipped: true, reason: "missing_run_id" };
+
+  const scope = await resolveBacktestRunTradeSnapshotScope(db, rid);
+  if (!Number.isFinite(scope.liveTradeCount) || scope.liveTradeCount <= 0) {
+    const archivedRow = await db.prepare(
+      `SELECT COUNT(*) AS cnt FROM backtest_run_trades WHERE run_id = ?1`
+    ).bind(rid).first().catch(() => null);
+    return {
+      ok: true,
+      archivedTrades: Number(archivedRow?.cnt || 0),
+      archivedAutopsyTrades: 0,
+      skipped: true,
+      reason: "no_live_trades_for_run",
+    };
+  }
+
+  const tradeWhereSql = scope.includeNullRunTrades
+    ? `(run_id = ?1 OR run_id IS NULL)`
+    : `run_id = ?1`;
+  const tradeAliasWhereSql = scope.includeNullRunTrades
+    ? `(t.run_id = ?1 OR t.run_id IS NULL)`
+    : `t.run_id = ?1`;
+
+  await db.batch([
+    db.prepare(`DELETE FROM backtest_run_trade_autopsy WHERE run_id = ?1`).bind(rid),
+    db.prepare(`DELETE FROM backtest_run_trades WHERE run_id = ?1`).bind(rid),
+  ]);
+
+  const tradeInsert = await db.prepare(
+    `INSERT INTO backtest_run_trades (
+      trade_id, run_id, ticker, direction, entry_ts, entry_price, rank, rr, status,
+      exit_ts, exit_price, exit_reason, trimmed_pct, pnl, pnl_pct, script_version,
+      created_at, updated_at, trim_ts, trim_price
+    )
+    SELECT
+      trade_id, ?1 AS run_id, ticker, direction, entry_ts, entry_price, rank, rr, status,
+      exit_ts, exit_price, exit_reason, trimmed_pct, pnl, pnl_pct, script_version,
+      created_at, updated_at, trim_ts, trim_price
+    FROM trades
+    WHERE ${tradeWhereSql}`
+  ).bind(rid).run();
+
+  const autopsyInsert = await db.prepare(
+    `INSERT INTO backtest_run_trade_autopsy (
+      trade_id, run_id, ticker, direction, status, entry_ts, exit_ts, trim_ts,
+      entry_price, exit_price, pnl, pnl_pct, exit_reason, signal_snapshot_json,
+      entry_path, consensus_direction, max_favorable_excursion, max_adverse_excursion,
+      tf_stack_json
+    )
+    SELECT
+      t.trade_id, ?1 AS run_id, t.ticker, t.direction, t.status, t.entry_ts, t.exit_ts, t.trim_ts,
+      t.entry_price, t.exit_price, t.pnl, t.pnl_pct, t.exit_reason, da.signal_snapshot_json,
+      da.entry_path, da.consensus_direction, da.max_favorable_excursion, da.max_adverse_excursion,
+      da.tf_stack_json
+    FROM trades t
+    LEFT JOIN direction_accuracy da ON da.trade_id = t.trade_id
+    WHERE ${tradeAliasWhereSql}`
+  ).bind(rid).run();
+
+  return {
+    ok: true,
+    archivedTrades: Number(tradeInsert?.meta?.changes || 0),
+    archivedAutopsyTrades: Number(autopsyInsert?.meta?.changes || 0),
+    includeNullRunTrades: !!scope.includeNullRunTrades,
+    skipped: false,
+  };
+}
+
+function archiveNumberOrNull(v) {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
+function normalizeArchivedRunTradeRow(runId, row = {}) {
+  const rid = String(runId || row?.run_id || row?.runId || "").trim();
+  const tradeId = String(row?.trade_id || row?.id || "").trim();
+  if (!rid || !tradeId) return null;
+  const entryTs = archiveNumberOrNull(
+    row.entry_ts ?? (row.entryTime ? isoToMs(row.entryTime) : null)
+  );
+  const createdAt = archiveNumberOrNull(row.created_at) || entryTs || Date.now();
+  const updatedAt = archiveNumberOrNull(row.updated_at) || createdAt;
+  return {
+    trade_id: tradeId,
+    run_id: rid,
+    ticker: String(row.ticker || "").trim().toUpperCase(),
+    direction: String(row.direction || "").trim().toUpperCase() || null,
+    entry_ts: entryTs,
+    entry_price: archiveNumberOrNull(row.entry_price ?? row.entryPrice),
+    rank: archiveNumberOrNull(row.rank),
+    rr: archiveNumberOrNull(row.rr),
+    status: row.status != null ? String(row.status).trim().toUpperCase() : null,
+    exit_ts: archiveNumberOrNull(row.exit_ts),
+    exit_price: archiveNumberOrNull(row.exit_price ?? row.exitPrice),
+    exit_reason: row.exit_reason != null ? String(row.exit_reason) : (row.exitReason != null ? String(row.exitReason) : null),
+    trimmed_pct: archiveNumberOrNull(row.trimmed_pct ?? row.trimmedPct),
+    pnl: archiveNumberOrNull(row.pnl),
+    pnl_pct: archiveNumberOrNull(row.pnl_pct ?? row.pnlPct),
+    script_version: row.script_version != null ? String(row.script_version) : (row.scriptVersion != null ? String(row.scriptVersion) : null),
+    created_at: createdAt,
+    updated_at: updatedAt,
+    trim_ts: archiveNumberOrNull(row.trim_ts),
+    trim_price: archiveNumberOrNull(row.trim_price ?? row.trimPrice),
+  };
+}
+
+function normalizeArchivedRunAutopsyRow(runId, row = {}) {
+  const base = normalizeArchivedRunTradeRow(runId, row);
+  if (!base) return null;
+  return {
+    ...base,
+    signal_snapshot_json: row.signal_snapshot_json != null ? String(row.signal_snapshot_json) : null,
+    entry_path: row.entry_path != null ? String(row.entry_path) : (row.entryPath != null ? String(row.entryPath) : null),
+    consensus_direction: row.consensus_direction != null ? String(row.consensus_direction) : null,
+    max_favorable_excursion: archiveNumberOrNull(row.max_favorable_excursion),
+    max_adverse_excursion: archiveNumberOrNull(row.max_adverse_excursion),
+    tf_stack_json: row.tf_stack_json != null ? String(row.tf_stack_json) : null,
+  };
+}
+
+async function importBacktestRunTradeSnapshot(db, runId, trades = [], autopsyTrades = []) {
+  const rid = String(runId || "").trim();
+  if (!db || !rid) return { ok: false, skipped: true, reason: "missing_run_id" };
+
+  const normalizedTrades = (Array.isArray(trades) ? trades : [])
+    .map((row) => normalizeArchivedRunTradeRow(rid, row))
+    .filter((row) => row && row.trade_id && row.ticker && row.entry_ts);
+
+  const autopsySource = Array.isArray(autopsyTrades) && autopsyTrades.length
+    ? autopsyTrades
+    : normalizedTrades;
+  const normalizedAutopsy = autopsySource
+    .map((row) => normalizeArchivedRunAutopsyRow(rid, row))
+    .filter((row) => row && row.trade_id && row.ticker && row.entry_ts);
+
+  await db.batch([
+    db.prepare(`DELETE FROM backtest_run_trade_autopsy WHERE run_id = ?1`).bind(rid),
+    db.prepare(`DELETE FROM backtest_run_trades WHERE run_id = ?1`).bind(rid),
+  ]);
+
+  const tradeStatements = normalizedTrades.map((row) =>
+    db.prepare(
+      `INSERT INTO backtest_run_trades (
+        trade_id, run_id, ticker, direction, entry_ts, entry_price, rank, rr, status,
+        exit_ts, exit_price, exit_reason, trimmed_pct, pnl, pnl_pct, script_version,
+        created_at, updated_at, trim_ts, trim_price
+      ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20)`
+    ).bind(
+      row.trade_id, row.run_id, row.ticker, row.direction, row.entry_ts, row.entry_price, row.rank, row.rr, row.status,
+      row.exit_ts, row.exit_price, row.exit_reason, row.trimmed_pct, row.pnl, row.pnl_pct, row.script_version,
+      row.created_at, row.updated_at, row.trim_ts, row.trim_price,
+    )
+  );
+  for (let i = 0; i < tradeStatements.length; i += 100) {
+    if (tradeStatements.slice(i, i + 100).length) await db.batch(tradeStatements.slice(i, i + 100));
+  }
+
+  const autopsyStatements = normalizedAutopsy.map((row) =>
+    db.prepare(
+      `INSERT INTO backtest_run_trade_autopsy (
+        trade_id, run_id, ticker, direction, status, entry_ts, exit_ts, trim_ts,
+        entry_price, exit_price, pnl, pnl_pct, exit_reason, signal_snapshot_json,
+        entry_path, consensus_direction, max_favorable_excursion, max_adverse_excursion, tf_stack_json
+      ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)`
+    ).bind(
+      row.trade_id, row.run_id, row.ticker, row.direction, row.status, row.entry_ts, row.exit_ts, row.trim_ts,
+      row.entry_price, row.exit_price, row.pnl, row.pnl_pct, row.exit_reason, row.signal_snapshot_json,
+      row.entry_path, row.consensus_direction, row.max_favorable_excursion, row.max_adverse_excursion, row.tf_stack_json,
+    )
+  );
+  for (let i = 0; i < autopsyStatements.length; i += 100) {
+    if (autopsyStatements.slice(i, i + 100).length) await db.batch(autopsyStatements.slice(i, i + 100));
+  }
+
+  return {
+    ok: true,
+    archivedTrades: normalizedTrades.length,
+    archivedAutopsyTrades: normalizedAutopsy.length,
+  };
 }
 
 async function copyCurrentTrailFactsToBaseline(db) {
@@ -16137,6 +16398,13 @@ function buildRunSummaryView(row) {
 async function summarizeRunMetrics(db, runId) {
   const rid = String(runId || "").trim();
   if (!rid) return null;
+  let tradeTable = "trades";
+  try {
+    const archivedRow = await db.prepare(
+      `SELECT COUNT(*) AS cnt FROM backtest_run_trades WHERE run_id = ?1`
+    ).bind(rid).first();
+    if (Number(archivedRow?.cnt || 0) > 0) tradeTable = "backtest_run_trades";
+  } catch (_) {}
   const totals = await db.prepare(
     `SELECT
       COUNT(*) AS total_trades,
@@ -16150,7 +16418,7 @@ async function summarizeRunMetrics(db, runId) {
       SUM(CASE WHEN status IN ('WIN','LOSS','FLAT') THEN COALESCE(pnl_pct,0) ELSE 0 END) AS realized_pnl_pct,
       AVG(CASE WHEN status='WIN' THEN COALESCE(pnl_pct,0) ELSE NULL END) AS avg_win_pct,
       AVG(CASE WHEN status='LOSS' THEN COALESCE(pnl_pct,0) ELSE NULL END) AS avg_loss_pct
-     FROM trades
+     FROM ${tradeTable}
      WHERE run_id = ?1`
   ).bind(rid).first();
 
@@ -16158,7 +16426,7 @@ async function summarizeRunMetrics(db, runId) {
     `SELECT
       COALESCE(NULLIF(a.classification,''), 'unclassified') AS classification,
       COUNT(*) AS count
-     FROM trades t
+     FROM ${tradeTable} t
      LEFT JOIN trade_autopsy_annotations a ON a.trade_id = t.trade_id
      WHERE t.run_id = ?1
      GROUP BY classification
@@ -16167,7 +16435,7 @@ async function summarizeRunMetrics(db, runId) {
 
   const byStatusRows = await db.prepare(
     `SELECT COALESCE(status,'UNKNOWN') AS status, COUNT(*) AS count
-     FROM trades
+     FROM ${tradeTable}
      WHERE run_id = ?1
      GROUP BY status
      ORDER BY count DESC`
@@ -19111,7 +19379,7 @@ async function d1UpsertTrade(env, trade) {
           ticker=?2, direction=?3, entry_ts=?4, entry_price=?5, rank=?6, rr=?7, status=?8,
           exit_ts=?9, exit_price=?10, exit_reason=?11,
           trimmed_pct=?12, pnl=?13, pnl_pct=?14, script_version=?15,
-          run_id=?16, updated_at=?17, trim_ts=?18, trim_price=?19
+          run_id=COALESCE(?16, run_id), updated_at=?17, trim_ts=?18, trim_price=?19
          WHERE trade_id=?1`,
       )
       .bind(
@@ -31005,6 +31273,7 @@ export default {
         }
 
         const ticker = normTicker(url.searchParams.get("ticker")) || null;
+        const runIdFilter = String(url.searchParams.get("run_id") || url.searchParams.get("runId") || "").trim();
         const statusRaw = url.searchParams.get("status");
         const sinceRaw = url.searchParams.get("since");
         const untilRaw = url.searchParams.get("until");
@@ -31017,9 +31286,23 @@ export default {
           untilRaw != null && untilRaw !== "" ? Number(untilRaw) : null;
         const limit = Math.max(1, Math.min(1000, Number(limitRaw) || 200));
         const cursor = decodeCursor(cursorRaw);
+        let tradeSourceTable = "trades";
+        if (runIdFilter) {
+          await d1EnsureBacktestRunsSchema(env);
+          try {
+            const archivedRow = await db.prepare(
+              `SELECT COUNT(*) AS cnt FROM backtest_run_trades WHERE run_id = ?1`
+            ).bind(runIdFilter).first();
+            if (Number(archivedRow?.cnt || 0) > 0) tradeSourceTable = "backtest_run_trades";
+          } catch (_) {}
+        }
 
         let where = "WHERE 1=1";
         const binds = [];
+        if (runIdFilter) {
+          where += " AND run_id = ?";
+          binds.push(runIdFilter);
+        }
         if (ticker) {
           where += " AND ticker = ?";
           binds.push(String(ticker).toUpperCase());
@@ -31065,7 +31348,7 @@ export default {
             trade_id, run_id, ticker, direction, entry_ts, entry_price, rank, rr, status,
             exit_ts, exit_price, exit_reason, trimmed_pct, pnl, pnl_pct,
             script_version, created_at, updated_at, trim_ts, trim_price
-          FROM trades
+          FROM ${tradeSourceTable}
           ${where}
           ORDER BY entry_ts DESC, trade_id DESC
           LIMIT ?`;
@@ -31073,7 +31356,7 @@ export default {
             trade_id, run_id, ticker, direction, entry_ts, entry_price, rank, rr, status,
             exit_ts, exit_price, exit_reason, trimmed_pct, pnl, pnl_pct,
             script_version, created_at, updated_at, trim_ts
-          FROM trades
+          FROM ${tradeSourceTable}
           ${where}
           ORDER BY entry_ts DESC, trade_id DESC
           LIMIT ?`;
@@ -31081,7 +31364,7 @@ export default {
             trade_id, run_id, ticker, direction, entry_ts, entry_price, rank, rr, status,
             exit_ts, exit_price, exit_reason, trimmed_pct, pnl, pnl_pct,
             script_version, created_at, updated_at
-          FROM trades
+          FROM ${tradeSourceTable}
           ${where}
           ORDER BY entry_ts DESC, trade_id DESC
           LIMIT ?`;
@@ -31140,7 +31423,7 @@ export default {
 
         // Enrich with quantity from positions (remaining qty) for Holdings display
         try {
-          const ids = page.map((r) => r.trade_id).filter(Boolean);
+          const ids = tradeSourceTable === "trades" ? page.map((r) => r.trade_id).filter(Boolean) : [];
           if (ids.length > 0) {
             const placeholders = ids.map(() => "?").join(",");
             const posRows = await db
@@ -31172,7 +31455,7 @@ export default {
         }
 
         return sendJSON(
-          { ok: true, count: page.length, hasMore, nextCursor, trades: page },
+          { ok: true, count: page.length, hasMore, nextCursor, source: tradeSourceTable === "trades" ? "live" : "run_archive", trades: page },
           200,
           corsHeaders(env, req),
         );
@@ -31228,8 +31511,9 @@ export default {
 
         const tsParam = url.searchParams.get("ts");
         const ts = tsParam != null && tsParam !== "" ? Number(tsParam) : null;
+        const runIdFilter = String(url.searchParams.get("run_id") || url.searchParams.get("runId") || "").trim();
 
-        const tradeRow = await db
+        let tradeRow = await db
           .prepare(
             `SELECT
               trade_id, run_id, ticker, direction, entry_ts, entry_price, rank, rr, status,
@@ -31239,6 +31523,27 @@ export default {
           )
           .bind(tradeId)
           .first();
+        if (!tradeRow) {
+          const archivedSql = runIdFilter
+            ? `SELECT
+                 trade_id, run_id, ticker, direction, entry_ts, entry_price, rank, rr, status,
+                 exit_ts, exit_price, exit_reason, trimmed_pct, pnl, pnl_pct,
+                 script_version, created_at, updated_at
+               FROM backtest_run_trades
+               WHERE trade_id = ?1 AND run_id = ?2
+               LIMIT 1`
+            : `SELECT
+                 trade_id, run_id, ticker, direction, entry_ts, entry_price, rank, rr, status,
+                 exit_ts, exit_price, exit_reason, trimmed_pct, pnl, pnl_pct,
+                 script_version, created_at, updated_at
+               FROM backtest_run_trades
+               WHERE trade_id = ?1
+               ORDER BY updated_at DESC
+               LIMIT 1`;
+          tradeRow = runIdFilter
+            ? await db.prepare(archivedSql).bind(tradeId, runIdFilter).first().catch(() => null)
+            : await db.prepare(archivedSql).bind(tradeId).first().catch(() => null);
+        }
 
         if (!tradeRow) {
           return sendJSON(
@@ -31423,8 +31728,9 @@ export default {
 
         const includeEvidence =
           (url.searchParams.get("includeEvidence") || "") === "1";
+        const runIdFilter = String(url.searchParams.get("run_id") || url.searchParams.get("runId") || "").trim();
 
-        const tradeRow = await db
+        let tradeRow = await db
           .prepare(
             `SELECT
               trade_id, run_id, ticker, direction, entry_ts, entry_price, rank, rr, status,
@@ -31434,6 +31740,27 @@ export default {
           )
           .bind(tradeId)
           .first();
+        if (!tradeRow) {
+          const archivedSql = runIdFilter
+            ? `SELECT
+                 trade_id, run_id, ticker, direction, entry_ts, entry_price, rank, rr, status,
+                 exit_ts, exit_price, exit_reason, trimmed_pct, pnl, pnl_pct,
+                 script_version, created_at, updated_at
+               FROM backtest_run_trades
+               WHERE trade_id = ?1 AND run_id = ?2
+               LIMIT 1`
+            : `SELECT
+                 trade_id, run_id, ticker, direction, entry_ts, entry_price, rank, rr, status,
+                 exit_ts, exit_price, exit_reason, trimmed_pct, pnl, pnl_pct,
+                 script_version, created_at, updated_at
+               FROM backtest_run_trades
+               WHERE trade_id = ?1
+               ORDER BY updated_at DESC
+               LIMIT 1`;
+          tradeRow = runIdFilter
+            ? await db.prepare(archivedSql).bind(tradeId, runIdFilter).first().catch(() => null)
+            : await db.prepare(archivedSql).bind(tradeId).first().catch(() => null);
+        }
 
         if (!tradeRow) {
           return sendJSON(
@@ -32961,20 +33288,37 @@ export default {
         if (!db) return sendJSON({ ok: false, error: "d1_not_configured" }, 503, corsHeaders(env, req));
         try {
           await d1EnsureLearningSchema(env);
+          await d1EnsureBacktestRunsSchema(env);
           const url = new URL(req.url);
           const runIdParam = url.searchParams.get("run_id") || url.searchParams.get("runId") || "";
           const runIdFilter = String(runIdParam || "").trim();
-          const baseSql = `SELECT t.trade_id, t.run_id, t.ticker, t.direction, t.entry_ts, t.exit_ts, t.trim_ts, t.status,
-                    t.entry_price, t.exit_price, t.pnl, t.pnl_pct, t.exit_reason,
-                    da.signal_snapshot_json, da.entry_path, da.consensus_direction,
-                    da.max_favorable_excursion, da.max_adverse_excursion, da.tf_stack_json
-             FROM trades t
-             LEFT JOIN direction_accuracy da ON da.trade_id = t.trade_id
-             WHERE t.status NOT IN ('OPEN', 'TP_HIT_TRIM')`;
-          const orderBy = " ORDER BY t.entry_ts DESC";
-          const sql = runIdFilter ? `${baseSql} AND t.run_id = ?${orderBy}` : `${baseSql}${orderBy}`;
-          const stmt = runIdFilter ? db.prepare(sql).bind(runIdFilter) : db.prepare(sql);
-          const { results: rows } = await stmt.all();
+          let rows = [];
+          if (runIdFilter) {
+            const archived = await db.prepare(
+              `SELECT trade_id, run_id, ticker, direction, entry_ts, exit_ts, trim_ts, status,
+                      entry_price, exit_price, pnl, pnl_pct, exit_reason,
+                      signal_snapshot_json, entry_path, consensus_direction,
+                      max_favorable_excursion, max_adverse_excursion, tf_stack_json
+               FROM backtest_run_trade_autopsy
+               WHERE run_id = ?1
+                 AND status NOT IN ('OPEN', 'TP_HIT_TRIM')
+               ORDER BY entry_ts DESC`
+            ).bind(runIdFilter).all().catch(() => ({ results: [] }));
+            rows = archived?.results || [];
+          }
+          if (!runIdFilter || rows.length === 0) {
+            const baseSql = `SELECT t.trade_id, t.run_id, t.ticker, t.direction, t.entry_ts, t.exit_ts, t.trim_ts, t.status,
+                      t.entry_price, t.exit_price, t.pnl, t.pnl_pct, t.exit_reason,
+                      da.signal_snapshot_json, da.entry_path, da.consensus_direction,
+                      da.max_favorable_excursion, da.max_adverse_excursion, da.tf_stack_json
+               FROM trades t
+               LEFT JOIN direction_accuracy da ON da.trade_id = t.trade_id
+               WHERE t.status NOT IN ('OPEN', 'TP_HIT_TRIM')`;
+            const orderBy = " ORDER BY t.entry_ts DESC";
+            const sql = runIdFilter ? `${baseSql} AND t.run_id = ?${orderBy}` : `${baseSql}${orderBy}`;
+            const stmt = runIdFilter ? db.prepare(sql).bind(runIdFilter) : db.prepare(sql);
+            rows = (await stmt.all())?.results || [];
+          }
           const trades = (rows || []).map(r => ({
             trade_id: r.trade_id,
             run_id: r.run_id || null,
@@ -35036,6 +35380,119 @@ export default {
         }
       }
 
+      // POST /timed/admin/runs/import-trades?key=...
+      // Import archived trade rows/autopsy rows for a run from saved artifact payloads.
+      if (routeKey === "POST /timed/admin/runs/import-trades") {
+        const authFail = requireKeyOr401(req, env);
+        if (authFail) return authFail;
+        const db = env?.DB;
+        if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
+        await d1EnsureBacktestRunsSchema(env);
+        try {
+          const bodyParsed = await readBodyAsJSON(req);
+          const body = (bodyParsed && typeof bodyParsed === "object" && "obj" in bodyParsed)
+            ? (bodyParsed.obj || {})
+            : (bodyParsed || {});
+          const runId = String(body?.run_id || "").trim();
+          if (!runId) return sendJSON({ ok: false, error: "run_id_required" }, 400, corsHeaders(env, req));
+          const now = Date.now();
+          await db.prepare(
+            `INSERT OR IGNORE INTO backtest_runs (
+              run_id, label, description, start_date, end_date, interval_min, ticker_batch, ticker_universe_count,
+              trader_only, keep_open_at_end, low_write, status, status_note, live_config_slot, active_experiment_slot,
+              is_protected_baseline, archived_at, archived_by, archived_reason, tags_json, params_json, metrics_json,
+              created_at, started_at, ended_at, updated_at
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 0, 0, 0, 'completed', ?9, 0, 0, 0, NULL, NULL, NULL, '[]', NULL, NULL, ?10, ?10, ?10, ?10)`
+          ).bind(
+            runId,
+            body?.label != null ? String(body.label) : runId,
+            body?.description != null ? String(body.description) : null,
+            body?.start_date != null ? String(body.start_date) : null,
+            body?.end_date != null ? String(body.end_date) : null,
+            Number(body?.interval_min) || null,
+            Number(body?.ticker_batch) || null,
+            Number(body?.ticker_universe_count) || null,
+            body?.status_note != null ? String(body.status_note) : "Imported archived run trades",
+            now,
+          ).run();
+
+          const archiveSnapshot = await importBacktestRunTradeSnapshot(
+            db,
+            runId,
+            Array.isArray(body?.trades) ? body.trades : [],
+            Array.isArray(body?.autopsy_trades) ? body.autopsy_trades : [],
+          );
+          const summary = await summarizeRunMetrics(db, runId);
+          if (!summary) {
+            return sendJSON({ ok: false, error: "summary_failed_after_import", archive_snapshot: archiveSnapshot }, 500, corsHeaders(env, req));
+          }
+          await db.batch([
+            db.prepare(
+              `INSERT OR REPLACE INTO backtest_run_metrics (
+                run_id, total_tickers_traded, total_trades, wins, losses, breakevens, open_trades, closed_trades,
+                win_rate, realized_pnl, realized_pnl_pct, avg_win_pct, avg_loss_pct,
+                classifications_json, by_status_json, autopsy_url, updated_at
+              ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)`
+            ).bind(
+              summary.run_id,
+              summary.total_tickers_traded,
+              summary.total_trades,
+              summary.wins,
+              summary.losses,
+              summary.breakevens,
+              summary.open_trades,
+              summary.closed_trades,
+              summary.win_rate,
+              summary.realized_pnl,
+              summary.realized_pnl_pct,
+              summary.avg_win_pct,
+              summary.avg_loss_pct,
+              summary.classifications_json,
+              summary.by_status_json,
+              summary.autopsy_url,
+              now,
+            ),
+            db.prepare(
+              `UPDATE backtest_runs
+               SET metrics_json = ?2,
+                   status = COALESCE(status, 'completed'),
+                   status_note = COALESCE(status_note, 'Imported archived run trades'),
+                   updated_at = ?3
+               WHERE run_id = ?1`
+            ).bind(
+              runId,
+              JSON.stringify({
+                run_id: summary.run_id,
+                tickers: { traded: summary.total_tickers_traded },
+                trades: {
+                  total: summary.total_trades,
+                  wins: summary.wins,
+                  losses: summary.losses,
+                  breakevens: summary.breakevens,
+                  open: summary.open_trades,
+                  closed: summary.closed_trades,
+                  win_rate: summary.win_rate,
+                },
+                pnl: {
+                  realized_pnl: summary.realized_pnl,
+                  realized_pnl_pct: summary.realized_pnl_pct,
+                  avg_win_pct: summary.avg_win_pct,
+                  avg_loss_pct: summary.avg_loss_pct,
+                },
+                classifications: (() => { try { return JSON.parse(summary.classifications_json || "{}"); } catch { return {}; } })(),
+                by_status: (() => { try { return JSON.parse(summary.by_status_json || "{}"); } catch { return {}; } })(),
+                autopsy_url: summary.autopsy_url,
+                imported_at: now,
+              }),
+              now,
+            ),
+          ]);
+          return sendJSON({ ok: true, run_id: runId, archive_snapshot: archiveSnapshot, summary }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
+        }
+      }
+
       // POST /timed/admin/runs/finalize?key=...
       // Compute and store summary metrics for a run_id after replay completion.
       if (routeKey === "POST /timed/admin/runs/finalize") {
@@ -35053,6 +35510,7 @@ export default {
             : (bodyParsed || {});
           const runId = String(body?.run_id || "").trim();
           if (!runId) return sendJSON({ ok: false, error: "run_id_required" }, 400, corsHeaders(env, req));
+          const archiveSnapshot = await snapshotBacktestRunTrades(db, runId);
           const summary = await summarizeRunMetrics(db, runId);
           if (!summary) return sendJSON({ ok: false, error: "summary_failed" }, 500, corsHeaders(env, req));
           const now = Date.now();
@@ -35180,7 +35638,14 @@ export default {
               summary: metricsPayload,
             },
           });
-          return sendJSON({ ok: true, run_id: runId, status, summary: metricsPayload, rule_snapshot_ready: !!snapshotMeta?.snapshot }, 200, corsHeaders(env, req));
+          return sendJSON({
+            ok: true,
+            run_id: runId,
+            status,
+            summary: metricsPayload,
+            archive_snapshot: archiveSnapshot,
+            rule_snapshot_ready: !!snapshotMeta?.snapshot,
+          }, 200, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
         }
@@ -35310,8 +35775,15 @@ export default {
           }
 
           const batches = [
-            db.prepare(`DELETE FROM trade_autopsy_annotations WHERE trade_id IN (SELECT trade_id FROM trades WHERE run_id = ?1)`).bind(runId),
+            db.prepare(`DELETE FROM trade_autopsy_annotations WHERE trade_id IN (
+              SELECT trade_id FROM trades WHERE run_id = ?1
+              UNION
+              SELECT trade_id FROM backtest_run_trades WHERE run_id = ?1
+            )`).bind(runId),
+            db.prepare(`DELETE FROM backtest_run_trade_autopsy WHERE run_id = ?1`).bind(runId),
+            db.prepare(`DELETE FROM backtest_run_trades WHERE run_id = ?1`).bind(runId),
             db.prepare(`DELETE FROM trades WHERE run_id = ?1`).bind(runId),
+            db.prepare(`DELETE FROM backtest_run_rule_snapshots WHERE run_id = ?1`).bind(runId),
             db.prepare(`DELETE FROM backtest_run_metrics WHERE run_id = ?1`).bind(runId),
             db.prepare(`DELETE FROM backtest_runs WHERE run_id = ?1`).bind(runId),
           ];
