@@ -34027,6 +34027,7 @@ export default {
           const report = [];
           let totalComplete = 0, totalExpected = 0;
           const nowMs = Date.now();
+          const marketOpen = isNyRegularMarketOpen();
 
           for (const t of allTickersSorted) {
             const tfData = {};
@@ -34054,11 +34055,17 @@ export default {
               // freshness_score: 0-30 points (is data current?)
               // gap_score: 0-30 points (is data contiguous for intraday TFs?)
               const countScore = Math.min(40, Math.round((cnt / exp) * 40));
-              const freshScore = freshnessHours == null ? 30
-                : freshnessHours <= 1 ? 30
-                : freshnessHours <= 24 ? 20
-                : freshnessHours <= 72 ? 10
-                : 0;
+              const freshScore = freshnessHours == null
+                ? 30
+                : !marketOpen
+                  ? 30
+                  : freshnessHours <= 1
+                    ? 30
+                    : freshnessHours <= 24
+                      ? 20
+                      : freshnessHours <= 72
+                        ? 10
+                        : 0;
               let gapScore = 30; // default full marks for D/W/M
               if (INTRADAY_TFS.has(tf) && recentDates > 0) {
                 gapScore = Math.min(30, Math.round((recentDates / EXPECTED_TRADING_DAYS) * 30));

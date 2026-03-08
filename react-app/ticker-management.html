@@ -83,6 +83,34 @@
         ADBE:"Adobe",LIN:"Linde",APD:"Air Products",FDX:"FedEx",CMCSA:"Comcast",
         CRM:"Salesforce",ECL:"Ecolab",SHW:"Sherwin-Williams",
       };
+      const CONTEXT_FALLBACKS = {
+        AA: { name: "Alcoa", industry: "Aluminum" },
+        ABT: { name: "Abbott Laboratories", industry: "Medical Devices" },
+        ACN: { name: "Accenture", industry: "IT Consulting" },
+        AGYS: { name: "Agilysys", industry: "Software" },
+        ARM: { name: "Arm Holdings", industry: "Semiconductors" },
+        "BRK-B": { name: "Berkshire Hathaway", industry: "Insurance - Diversified" },
+        CELH: { name: "Celsius Holdings", industry: "Beverages - Non-Alcoholic" },
+        CVNA: { name: "Carvana", industry: "Auto & Truck Dealerships" },
+        DKNG: { name: "DraftKings", industry: "Gambling" },
+        FBL: { name: "GraniteShares 2x Long META Daily ETF", industry: "Leveraged ETF" },
+        HUBS: { name: "HubSpot", industry: "Software" },
+        JD: { name: "JD.com", industry: "Internet Retail" },
+        KWEB: { name: "KraneShares CSI China Internet ETF", industry: "China Internet ETF" },
+        LLY: { name: "Eli Lilly", industry: "Drug Manufacturers - General" },
+        LMND: { name: "Lemonade", industry: "Insurance" },
+        LULU: { name: "Lululemon", industry: "Apparel Retail" },
+        RTX: { name: "RTX", industry: "Aerospace & Defense" },
+        SNDK: { name: "Sandisk", industry: "Computer Hardware" },
+        SPOT: { name: "Spotify", industry: "Internet Content & Information" },
+        TEM: { name: "Tempus AI", industry: "Health Information Services" },
+        U: { name: "Unity Software", industry: "Software" },
+        WDC: { name: "Western Digital", industry: "Computer Hardware" },
+        WM: { name: "Waste Management", industry: "Waste Management" },
+        XHB: { name: "SPDR S&P Homebuilders ETF", industry: "Homebuilders ETF" },
+        "RTY1!": { name: "E-mini Russell 2000 Futures", industry: "Equity Index Futures" },
+        "YM1!": { name: "E-mini Dow Futures", industry: "Equity Index Futures" },
+      };
 
       // ── Groups (GRNY/GRNI/GRNJ loaded dynamically from ETF sync) ──
       const GROUPS = {
@@ -547,11 +575,12 @@
         const getTickerName = useCallback((ticker) => {
           const ctx = contextData[ticker];
           if (ctx?.name) return ctx.name;
+          if (CONTEXT_FALLBACKS[ticker]?.name) return CONTEXT_FALLBACKS[ticker].name;
           return COMPANY_NAMES[ticker] || "—";
         }, [contextData]);
         const getTickerIndustry = useCallback((ticker) => {
           const ctx = contextData[ticker];
-          return ctx?.industry || "";
+          return ctx?.industry || CONTEXT_FALLBACKS[ticker]?.industry || "";
         }, [contextData]);
         const getTickerMCap = useCallback((ticker) => {
           const ctx = contextData[ticker];
