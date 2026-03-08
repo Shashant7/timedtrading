@@ -97,9 +97,8 @@ Single reference for current status and next steps. Read this first each session
 - System Intelligence and Trade Autopsy already expose the diagnostic layer
 
 **Remaining profile work:**
-1. formalize the runtime `profile evidence` contract
-2. validate current API/UI profile surfaces with smoke checks
-3. keep override activation disabled until evidence quality is proven
+1. validate current API/UI profile surfaces with smoke checks
+2. keep override activation disabled until evidence quality is proven
 
 ---
 

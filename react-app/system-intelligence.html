@@ -2807,7 +2807,12 @@ function MoveDiscoveryTab({ report, loading, error }) {
     .map(([key, count]) => ({ key, count: Number(count) || 0 }))
     .filter(item => item.count > 0)
     .sort((a, b) => b.count - a.count);
+  const coverageEntries = Object.entries(diagnosis?.coverage_breakdown || {})
+    .map(([key, count]) => ({ key, count: Number(count) || 0 }))
+    .filter(item => item.count > 0)
+    .sort((a, b) => b.count - a.count);
   const totalDiagnosed = Number(diagnosis?.total_diagnosed) || breakdownEntries.reduce((sum, item) => sum + item.count, 0);
+  const totalNoTrail = Number(diagnosis?.breakdown?.no_trail_data) || 0;
   const shouldHaveEntered = Array.isArray(diagnosis?.should_have_entered) ? diagnosis.should_have_entered : [];
   const filteredMoves = useMemo(() => {
     let rows = Array.isArray(report?.moves) ? report.moves : [];
@@ -2890,7 +2895,7 @@ function MoveDiscoveryTab({ report, loading, error }) {
             <div className="flex flex-col gap-2 text-sm text-slate-300">
               <div><span className="text-rose-300 font-medium">Miss drivers:</span> {breakdownEntries.slice(0, 3).map((item) => item.key).join(", ") || "None yet"}</div>
               <div><span className="text-amber-300 font-medium">Churn cost:</span> {summary.total_missed_upside_from_churn || 0}% missed upside</div>
-              <div><span className="text-sky-300 font-medium">Primary action:</span> Fix coverage/reporting first when `NO_TRAIL_DATA` dominates; only loosen entries if `LOW_RANK` remains after coverage is cleaned up.</div>
+              <div><span className="text-sky-300 font-medium">Primary action:</span> {totalNoTrail > 0 ? `Fix trail coverage first. Current NO_TRAIL_DATA is mostly ${coverageEntries[0]?.key || "coverage drift"}, so backfill or mask uncovered move windows before tuning entries.` : "Coverage is not the main blocker right now; focus on the highest stable miss bucket first."}</div>
             </div>
           </div>
         </div>
@@ -2918,40 +2923,65 @@ function MoveDiscoveryTab({ report, loading, error }) {
               {breakdownEntries.length === 0 && <div className="text-sm text-slate-500">No diagnosis uploaded yet.</div>}
             </div>
           </div>
-          <div className="card p-4">
-            <h3 className="text-sm font-semibold text-white mb-3">Should Have Entered</h3>
-            {shouldHaveEntered.length === 0 ? (
-              <div className="text-sm text-slate-500">No clear unexplained misses in the latest diagnosis.</div>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="runs-table min-w-[720px]">
-                  <thead>
-                    <tr>
-                      <th className="text-left px-3">Ticker</th>
-                      <th className="text-left px-3">Dir</th>
-                      <th className="text-left px-3">Move ATR</th>
-                      <th className="text-left px-3">Rank</th>
-                      <th className="text-left px-3">HTF</th>
-                      <th className="text-left px-3">Comp%</th>
-                      <th className="text-left px-3">Signals</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {shouldHaveEntered.slice(0, 20).map((row, idx) => (
-                      <tr key={`${row.ticker}-${row.start_date}-${idx}`} className="runs-row">
-                        <td className="px-3 py-2 text-white font-medium">{row.ticker}</td>
-                        <td className="px-3 py-2 text-slate-300">{row.direction}</td>
-                        <td className="px-3 py-2 text-slate-300">{row.move_atr}</td>
-                        <td className="px-3 py-2 text-slate-300">{row.avg_rank}</td>
-                        <td className="px-3 py-2 text-slate-300">{row.avg_htf}</td>
-                        <td className="px-3 py-2 text-slate-300">{row.avg_completion}</td>
-                        <td className="px-3 py-2 text-slate-300">{row.signal_count}</td>
+          <div className="flex flex-col gap-5">
+            <div className="card p-4">
+              <h3 className="text-sm font-semibold text-white mb-3">NO_TRAIL_DATA Breakdown</h3>
+              {coverageEntries.length === 0 ? (
+                <div className="text-sm text-slate-500">The latest diagnosis did not include a trail coverage split.</div>
+              ) : (
+                <div className="space-y-3">
+                  {coverageEntries.map((item) => {
+                    const pct = totalNoTrail > 0 ? Math.round((item.count / totalNoTrail) * 1000) / 10 : 0;
+                    return (
+                      <div key={item.key}>
+                        <div className="flex items-center justify-between text-sm">
+                          <span className="text-white font-medium">{item.key}</span>
+                          <span className="text-slate-400">{item.count} ({pct}%)</span>
+                        </div>
+                        <div className="meter-bar mt-2">
+                          <div className="meter-fill" style={{ width: `${pct}%`, background: item.key === "gap_inside_coverage" ? "#f87171" : "#f59e0b" }} />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+            <div className="card p-4">
+              <h3 className="text-sm font-semibold text-white mb-3">Should Have Entered</h3>
+              {shouldHaveEntered.length === 0 ? (
+                <div className="text-sm text-slate-500">No clear unexplained misses in the latest diagnosis.</div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="runs-table min-w-[720px]">
+                    <thead>
+                      <tr>
+                        <th className="text-left px-3">Ticker</th>
+                        <th className="text-left px-3">Dir</th>
+                        <th className="text-left px-3">Move ATR</th>
+                        <th className="text-left px-3">Rank</th>
+                        <th className="text-left px-3">HTF</th>
+                        <th className="text-left px-3">Comp%</th>
+                        <th className="text-left px-3">Signals</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
+                    </thead>
+                    <tbody>
+                      {shouldHaveEntered.slice(0, 20).map((row, idx) => (
+                        <tr key={`${row.ticker}-${row.start_date}-${idx}`} className="runs-row">
+                          <td className="px-3 py-2 text-white font-medium">{row.ticker}</td>
+                          <td className="px-3 py-2 text-slate-300">{row.direction}</td>
+                          <td className="px-3 py-2 text-slate-300">{row.move_atr}</td>
+                          <td className="px-3 py-2 text-slate-300">{row.avg_rank}</td>
+                          <td className="px-3 py-2 text-slate-300">{row.avg_htf}</td>
+                          <td className="px-3 py-2 text-slate-300">{row.avg_completion}</td>
+                          <td className="px-3 py-2 text-slate-300">{row.signal_count}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}

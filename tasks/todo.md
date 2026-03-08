@@ -32,6 +32,10 @@
 - [x] Add context-aware ticker profile diagnostics segmented by VIX/regime/side/path
 - [x] Persist durable market and sector context history for future ticker/regime joins
 - [x] Add a first regime-profile mapping endpoint using completed runs and existing regime infrastructure
+- [x] Group surviving useful runs into candidate market profiles using dynamic VIX and regime signals
+- [x] Define the smaller next-cycle backtest matrix from the regime/profile learnings
+- [x] Define the runtime `profile evidence` contract for future adaptive overrides
+- [x] Define the first named regime-linked profiles: `trend_riding`, `correction_transition`, `choppy_selective`
 - [x] Surface stored market/sector context history in System Intelligence
 - [x] Surface richer ticker profiles and regime-profile mapping in System Intelligence
 - [x] Surface canonical ticker context evidence inside Trade Autopsy

@@ -63,7 +63,8 @@ function queryD1(sql, retries = 3) {
   for (let attempt = 1; attempt <= retries; attempt++) {
     try {
       const raw = execSync(cmd, { maxBuffer: 100 * 1024 * 1024, encoding: "utf-8" });
-      const parsed = JSON.parse(raw);
+      const lines = raw.split("\n").filter(l => !l.startsWith("npm warn"));
+      const parsed = JSON.parse(lines.join("\n"));
       if (parsed?.error) { if (attempt < retries) continue; return []; }
       if (Array.isArray(parsed) && parsed[0]?.results) return parsed[0].results;
       if (parsed?.results) return parsed.results;
@@ -78,6 +79,10 @@ function queryD1(sql, retries = 3) {
 
 function rnd(v, dp = 1) { return Math.round(v * Math.pow(10, dp)) / Math.pow(10, dp); }
 function pct(n, d) { return d > 0 ? rnd(n / d * 100) : 0; }
+function dateStr(ts) {
+  if (!Number.isFinite(ts) || ts <= 0) return null;
+  return new Date(ts).toISOString().slice(0, 10);
+}
 
 const B = "\x1b[1m", G = "\x1b[32m", R = "\x1b[31m", Y = "\x1b[33m", C = "\x1b[36m", RST = "\x1b[0m";
 const t0 = Date.now();
@@ -148,6 +153,19 @@ const diagnosis = {
   should_have_entered: 0, // everything looks good
 };
 
+const coverageBreakdown = {
+  no_rows_for_ticker: 0,
+  move_before_coverage: 0,
+  move_after_coverage: 0,
+  gap_inside_coverage: 0,
+};
+const coverageExamples = {
+  no_rows_for_ticker: [],
+  move_before_coverage: [],
+  move_after_coverage: [],
+  gap_inside_coverage: [],
+};
+
 const tickerDiagnosis = {};
 let processed = 0;
 
@@ -155,9 +173,6 @@ for (const ticker of tickers) {
   const moves = byTicker[ticker];
   const earliestTs = Math.min(...moves.map(m => new Date(m.start_date + "T00:00:00Z").getTime()));
   const latestTs = Math.max(...moves.map(m => new Date(m.end_date + "T23:59:59Z").getTime()));
-
-  const startSec = Math.floor(earliestTs / 1000);
-  const endSec = Math.ceil(latestTs / 1000);
 
   const trailRows = queryChunked(
     `SELECT bucket_ts, htf_score_avg, ltf_score_avg, state, rank,
@@ -168,6 +183,15 @@ for (const ticker of tickers) {
      WHERE ticker='${ticker}' AND bucket_ts >= ${earliestTs} AND bucket_ts <= ${latestTs}
      ORDER BY bucket_ts`
   );
+  const coverageRows = query(
+    `SELECT MIN(bucket_ts) AS min_ts, MAX(bucket_ts) AS max_ts, COUNT(*) AS total_rows
+     FROM trail_5m_facts
+     WHERE ticker='${ticker}'`
+  );
+  const coverageRow = coverageRows[0] || {};
+  const tickerTrailRows = Number(coverageRow.total_rows) || 0;
+  const coverageStart = Number(coverageRow.min_ts) || null;
+  const coverageEnd = Number(coverageRow.max_ts) || null;
 
   const tickerResults = [];
 
@@ -183,7 +207,45 @@ for (const ticker of tickers) {
 
     if (during.length === 0) {
       diagnosis.no_trail_data++;
-      tickerResults.push({ move, reason: "NO_TRAIL_DATA", detail: "No trail_5m_facts during move window" });
+      let coverageReason = "gap_inside_coverage";
+      let detail = "No trail_5m_facts during move window";
+      if (tickerTrailRows === 0 || !coverageStart || !coverageEnd) {
+        coverageReason = "no_rows_for_ticker";
+        detail = "Ticker has no trail_5m_facts rows at all";
+      } else if (moveEndMs < coverageStart) {
+        coverageReason = "move_before_coverage";
+        detail = `Move ended before trail coverage begins (${dateStr(coverageStart)})`;
+      } else if (moveStartMs > coverageEnd) {
+        coverageReason = "move_after_coverage";
+        detail = `Move started after trail coverage ends (${dateStr(coverageEnd)})`;
+      } else {
+        detail = `No trail rows inside move window despite ticker coverage ${dateStr(coverageStart)} → ${dateStr(coverageEnd)}`;
+      }
+      coverageBreakdown[coverageReason]++;
+      if (coverageExamples[coverageReason].length < 5) {
+        coverageExamples[coverageReason].push({
+          ticker: move.ticker,
+          direction: move.direction,
+          start_date: move.start_date,
+          end_date: move.end_date,
+          move_atr: move.move_atr,
+          coverage_start: dateStr(coverageStart),
+          coverage_end: dateStr(coverageEnd),
+          ticker_trail_rows: tickerTrailRows,
+        });
+      }
+      tickerResults.push({
+        move,
+        reason: "NO_TRAIL_DATA",
+        detail,
+        metrics: {
+          coverage_reason: coverageReason,
+          coverage_start: dateStr(coverageStart),
+          coverage_end: dateStr(coverageEnd),
+          ticker_trail_rows: tickerTrailRows,
+          trail_rows: 0,
+        },
+      });
       continue;
     }
 
@@ -289,6 +351,15 @@ console.log(`  ${R}NO_TRAIL_DATA${RST}       ${diagnosis.no_trail_data.toString(
 console.log(`  ${G}SHOULD_HAVE_ENTERED${RST} ${diagnosis.should_have_entered.toString().padStart(4)} (${pct(diagnosis.should_have_entered, total)}%)  — Everything looked good, unclear why no entry`);
 console.log();
 
+if (diagnosis.no_trail_data > 0) {
+  console.log(`${B}═══ NO_TRAIL_DATA: COVERAGE BREAKDOWN ═══${RST}\n`);
+  console.log(`  ${R}NO_ROWS_FOR_TICKER${RST}    ${coverageBreakdown.no_rows_for_ticker.toString().padStart(4)} (${pct(coverageBreakdown.no_rows_for_ticker, diagnosis.no_trail_data)}%)  — Ticker has no trail rows at all`);
+  console.log(`  ${Y}MOVE_BEFORE_COVERAGE${RST} ${coverageBreakdown.move_before_coverage.toString().padStart(4)} (${pct(coverageBreakdown.move_before_coverage, diagnosis.no_trail_data)}%)  — Move happened before available trail history`);
+  console.log(`  ${Y}MOVE_AFTER_COVERAGE${RST}  ${coverageBreakdown.move_after_coverage.toString().padStart(4)} (${pct(coverageBreakdown.move_after_coverage, diagnosis.no_trail_data)}%)  — Move happened after available trail history`);
+  console.log(`  ${R}GAP_INSIDE_COVERAGE${RST}   ${coverageBreakdown.gap_inside_coverage.toString().padStart(4)} (${pct(coverageBreakdown.gap_inside_coverage, diagnosis.no_trail_data)}%)  — Coverage window exists but rows are missing inside it`);
+  console.log();
+}
+
 // Show the "should have entered" cases — these are the real mystery
 const shouldHave = [];
 for (const [ticker, results] of Object.entries(tickerDiagnosis)) {
@@ -330,6 +401,8 @@ const reportPayload = {
   total_diagnosed: total,
   limit_applied: Number.isFinite(LIMIT) ? LIMIT : null,
   breakdown: diagnosis,
+  coverage_breakdown: coverageBreakdown,
+  coverage_examples: coverageExamples,
   kanban_distribution: kanbanDist,
   should_have_entered: shouldHave.map(r => ({
     ticker: r.move.ticker, direction: r.move.direction,
