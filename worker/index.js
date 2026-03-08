@@ -27638,7 +27638,50 @@ export default {
           }
         } catch (_) { /* fall through to D1 */ }
 
-        // Read from D1 (single query) — fallback when KV snapshot is stale or missing
+        // Rebuild a lightweight response from per-ticker KV when the hot snapshot is
+        // missing. This avoids sending routine page loads down the expensive D1 path.
+        try {
+          const removedSet = new Set((await kvGetJSON(KV, "timed:removed")) || []);
+          const userAddedLatest = await d1GetActiveUserTickersCached(env);
+          const activeSyms = [...new Set([...Object.keys(SECTOR_MAP), ...userAddedLatest, ...MARKET_PULSE_SYMS])]
+            .filter((sym) => !removedSet.has(sym));
+          const kvPayloads = await Promise.all(
+            activeSyms.map((sym) => kvGetJSON(KV, `timed:latest:${sym}`).catch(() => null))
+          );
+          const data = {};
+          for (let i = 0; i < activeSyms.length; i++) {
+            const payload = kvPayloads[i];
+            if (payload && typeof payload === "object") data[activeSyms[i]] = payload;
+          }
+          for (const sym of MARKET_PULSE_SYMS) {
+            if (!data[sym]) data[sym] = { ticker: sym };
+          }
+          if (Object.keys(data).length >= Math.max(40, Math.floor(activeSyms.length * 0.5))) {
+            const builtAt = Date.now();
+            ctx.waitUntil((async () => {
+              try {
+                await kvPutJSON(KV, "timed:all:snapshot", {
+                  data,
+                  count: Object.keys(data).length,
+                  built_at: builtAt,
+                });
+              } catch (_) {}
+            })());
+            return sendJSON(
+              {
+                ok: true,
+                data,
+                count: Object.keys(data).length,
+                source: "kv_latest_fallback",
+                built_at: builtAt,
+              },
+              200,
+              { ...corsHeaders(env, req), "Cache-Control": "public, max-age=15" },
+            );
+          }
+        } catch (_) { /* fall through to D1 */ }
+
+        // Read from D1 (single query) — fallback when KV snapshot and KV latest data are unavailable
         try {
           if (!env?.DB) {
             return sendJSON(
