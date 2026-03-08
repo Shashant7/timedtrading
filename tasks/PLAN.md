@@ -1,6 +1,6 @@
 # Timed Trading — Consolidated Plan
 
-**Last updated:** 2026-03-07
+**Last updated:** 2026-03-08
 
 Single reference for current status and next steps. Read this first each session.
 
@@ -42,22 +42,31 @@ Single reference for current status and next steps. Read this first each session
 
 ## Clear Next Steps (Pending Review)
 
-### Step 1: Review 15m vs 10m Decision
-**Goal:** Decide whether `LEADING_LTF=15` should stay experimental or become a stronger candidate.
+### Step 1: Finish APP-Fix 15m Compare
+**Goal:** Finish the current APP-fix rerun and compare it against the classified 15m baseline.
 
 **Current state:**
-- 15m infrastructure is live
-- rerun completed
-- run-scoped archives preserve both the 15m rerun and baseline trade sets for analysis
-- next run should use the March 7 calibrated stack as the reproducible candidate base
+- the long-window 15m run is already complete and became the practical baseline
+- the first 15m vs 10m comparison was already completed and 15m looked better
+- the current open run is the APP-fix rerun, meant to validate the Sep 30 APP long fix against the classified 15m baseline
+- run-scoped archives preserve both the challenger and baseline trade sets for analysis
 
-**Review work:**
-1. Run the Jul 1, 2025 to Mar 4, 2026 15m best-foot-forward candidate with explicit snapshot capture
-2. Compare 15m vs long-window 10m baseline trade-by-trade and by day
-3. Decide whether the extra open trades are genuine upside or risk masking
-4. Optionally run a forced-EOM-close apples-to-apples comparison before promotion
+**Compare anchor:**
+- baseline: `backtest_2025-07-01_2026-03-04@2026-03-07T17:28:03.147Z`
+- challenger: `15m-app-narrow-fix-jul1-mar4`
 
-**Best-foot-forward candidate settings:**
+**Compare work:**
+1. Wait for the APP-fix rerun to finalize cleanly
+2. Compare headline metrics vs the classified 15m baseline
+3. Review APP Sep 30 and any collateral trade deltas
+4. Decide whether the APP-fix variant replaces the current 15m baseline or remains a selective branch
+
+**Historical note:**
+- the earlier 10m comparison baseline remains useful as reference:
+  - `backtest_2025-07-01_2026-03-04@2026-03-05T05:04:37.588Z`
+- but it is no longer the primary open comparison question
+
+**Classified 15m baseline settings:**
 - `LEADING_LTF=15`
 - `RIPSTER_TUNE_V2=true`
 - `RIPSTER_EXIT_DEBOUNCE_BARS=3`
@@ -70,41 +79,79 @@ Single reference for current status and next steps. Read this first each session
 - `calibrated_tp_tiers={ trim: 0.62, exit: 1.29, runner: 7.75 }`
 - latest March 7 `consensus_signal_weights` and `consensus_tf_weights`
 
-**Baseline comparison target:**
-- `backtest_2025-07-01_2026-03-04@2026-03-05T05:04:37.588Z` (long-window 10m baseline)
+---
+
+### Step 2: Regime-Linked Profile Framework
+**Goal:** Turn the run evidence into a first diagnostic profile system before enabling adaptive overrides.
+
+**Now defined:**
+- `trend_riding`
+- `correction_transition`
+- `choppy_selective`
+
+**Current implementation status:**
+- canonical ticker profile contract is live
+- context-aware ticker diagnostics are live
+- durable market / sector context history is live
+- first regime-profile mapping endpoint is live
+- System Intelligence and Trade Autopsy already expose the diagnostic layer
+
+**Remaining profile work:**
+1. formalize the runtime `profile evidence` contract
+2. validate current API/UI profile surfaces with smoke checks
+3. keep override activation disabled until evidence quality is proven
 
 ---
 
-### Step 2: Calibrate From Autopsy Tags
-**Goal:** Use Entry Grade + Trade Management tags to tune logic.
+### Step 3: Smaller Next-Cycle Matrix
+**Goal:** Replace broad exploratory reruns with a short, interpretable matrix.
 
-**Current summary:**
-- Exits too early (`should_have_held`) → ✅ already loosened and deployed
-- Chasing (`chasing`) → still pending review/tightening
-- Good entry preservation → still pending as part of Variant v2 hardening
+**Proposed matrix:**
+1. `trend_riding-control`
+   - classified 15m baseline as control
+2. `correction_transition-app-fix`
+   - APP-fix rerun vs classified 15m baseline
+3. `choppy_selective-guardrails`
+   - strict guardrail candidate on a choppy / high-VIX window
+4. `override-evidence-ablation`
+   - diagnostic-only evidence surfacing, no live adaptive rule activation
 
----
-
-### Step 3: Variant v2 Hardening
-- Mitigate bad exits and chasing from classified trades
-- Keep this separate from the `leading_ltf` experiment so entry/exit logic changes stay attributable
-
----
-
-### Step 4: Focused Replay Validations
-- WMT loss guard replay: verify WMT blocked while CSX still passes
-- RSI extreme guard replay: compare blocked vs kept trades against baseline
-- Swing Checklist A/B: run control + variant and compare outcome mix
+**Rule:** every run must state:
+- control or challenger
+- intended regime
+- whether calibration changes are included
+- whether it is diagnostic-only or promotion-eligible
 
 ---
 
-### Step 5: Mean Reversion TD9 + Squeeze Hold
-**Mean Reversion TD9** (`docs/MEAN_REVERSION_TD9_ALIGNMENT_PLAN.md`):
-- Primitives: `countRecentGapsDown`, `td9AlignedLong`, `phaseLeavingDotBullish`, `isNearPsychLevel`
-- Add `mean_revert_td9_aligned` flag (feature-flagged)
+### Step 4: Performance Enhancements
+**Goal:** Reduce first meaningful paint time on Analysis and Tickers without changing behavior.
 
-**Squeeze Hold Guard:**
-- Management-only squeeze/compression hold guard to reduce premature exits during consolidation
+**Analysis / Home Page**
+1. Split `/timed/all` into a slim first-paint payload and deferred detail hydration.
+2. Precompute/cache the rank+kanban snapshot server-side so page load does not rebuild everything on demand.
+3. Defer non-critical enrichments and secondary surfaces until after the first render.
+4. Avoid full-object client merges on first paint where a smaller delta payload is sufficient.
+
+**Tickers Page**
+1. Stop using a full `/timed/all` sweep just to build context on page load.
+2. Create a narrow ticker-context payload or include the needed fields in `ingestion-status`.
+3. Precompute/cache the expensive ingestion-status summary so the page is not waiting on a cold full rebuild.
+4. Keep prices/context enrichment secondary to the canonical ticker list and coverage table.
+
+**Priority order**
+- P0: Tickers backend summary caching
+- P0: Analysis slim first-paint payload
+- P1: Tickers narrow context endpoint
+- P1: Analysis deferred enrichment / lazy secondary modules
+
+---
+
+### Step 5: Remaining Strategy Hardening
+- Variant v2 hardening
+- focused replay validations
+- mean reversion TD9
+- squeeze hold guard
 
 ---
 

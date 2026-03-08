@@ -610,20 +610,6 @@
                 }
               })
               .catch(() => {});
-            const contextPromise = fetch(`${API_BASE}/timed/all?_t=${Date.now()}`)
-              .then(r => r.json())
-              .then(allJson => {
-                if (allJson?.ok && allJson.data) {
-                  const ctx = {};
-                  for (const [sym, obj] of Object.entries(allJson.data)) {
-                    if (obj?.context && typeof obj.context === "object") {
-                      ctx[sym] = obj.context;
-                    }
-                  }
-                  setContextData(ctx);
-                }
-              })
-              .catch(() => {});
             const [statusRes, tickersRes] = await Promise.all([
               fetch(`${API_BASE}/timed/admin/ingestion-status?_t=${Date.now()}`, { credentials: "include" }),
               fetch(`${API_BASE}/timed/tickers?_t=${Date.now()}`),
@@ -631,6 +617,15 @@
             const json = await statusRes.json();
             if (!json.ok) throw new Error(json.error || "Failed to fetch");
             setData(json);
+            if (Array.isArray(json.tickers)) {
+              const ctx = {};
+              json.tickers.forEach((row) => {
+                if (row?.ticker && row?.context && typeof row.context === "object") {
+                  ctx[normalizeTicker(row.ticker)] = row.context;
+                }
+              });
+              setContextData(ctx);
+            }
             if (clearPendingFromResponse && json.tickers && json.tickers.length) {
               setPendingTickers(prev => {
                 const next = new Set(prev);
@@ -651,7 +646,7 @@
               setLoading(false);
               loadingCleared = true;
             }
-            void Promise.allSettled([pricePromise, contextPromise]);
+            void Promise.allSettled([pricePromise]);
           } catch (e) {
             setError(e.message);
           } finally {

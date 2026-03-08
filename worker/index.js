@@ -34111,9 +34111,13 @@ export default {
         const authFail = await requireKeyOrAdmin(req, env);
         if (authFail) return authFail;
         const db = env?.DB;
+        const KV = env?.KV_TIMED;
         if (!db) return sendJSON({ ok: false, error: "no_db_binding" }, 500, corsHeaders(env, req));
 
         const tickerFilter = normTicker(url.searchParams.get("ticker")) || null;
+        const cacheKey = tickerFilter
+          ? null
+          : "timed:cache:ingestion-status:v1";
 
         // Expected minimums per TF (approximate for good chart + scoring coverage)
         // Includes 15m for LEADING_LTF=15 experiment
@@ -34129,6 +34133,13 @@ export default {
         const INTRADAY_TFS = new Set(["1", "10", "15", "30", "60", "240"]);
 
         try {
+          if (cacheKey && KV) {
+            const cached = await kvGetJSON(KV, cacheKey);
+            if (cached?.ok && Array.isArray(cached?.tickers)) {
+              return sendJSON(cached, 200, corsHeaders(env, req));
+            }
+          }
+
           // Run two queries in parallel via db.batch():
           // 1. Count + min/max per ticker+TF (existing)
           // 2. Distinct trading-date count in last 30 days per ticker+TF (new — for gap detection)
@@ -34177,6 +34188,24 @@ export default {
             .filter(Boolean)
             .filter((t) => !normalizedRemovedSet.has(t))
             .sort();
+          const contextMap = {};
+          if (KV && allTickersSorted.length > 0) {
+            for (let i = 0; i < allTickersSorted.length; i += 25) {
+              const batch = allTickersSorted.slice(i, i + 25);
+              const batchResults = await Promise.all(
+                batch.map(async (sym) => [sym, await kvGetJSON(KV, `timed:context:${sym}`)])
+              );
+              for (const [sym, ctx] of batchResults) {
+                if (ctx && typeof ctx === "object" && !Array.isArray(ctx)) {
+                  contextMap[sym] = {
+                    name: typeof ctx.name === "string" ? ctx.name : null,
+                    industry: typeof ctx.industry === "string" ? ctx.industry : null,
+                    market_cap: Number.isFinite(Number(ctx.market_cap)) ? Number(ctx.market_cap) : null,
+                  };
+                }
+              }
+            }
+          }
           const report = [];
           let totalComplete = 0, totalExpected = 0;
           const nowMs = Date.now();
@@ -34246,6 +34275,7 @@ export default {
             report.push({
               ticker: t,
               sector: normalizedSectorMap[t] || "Unknown",
+              context: contextMap[t] || null,
               pct: avgPct,
               quality: avgQuality,
               missing: missingTfs,
@@ -34260,7 +34290,7 @@ export default {
           const tickersWithData = new Set(report.filter(r => (r.tfs && Object.values(r.tfs).some(tf => tf && tf.count > 0))).map(r => r.ticker));
           const tickersNoData = allTickersSorted.filter(t => !tickersWithData.has(t));
 
-          return sendJSON({
+          const response = {
             ok: true,
             summary: {
               total_tickers_in_system: allTickersSorted.length,
@@ -34271,7 +34301,12 @@ export default {
             },
             tickers: report,
             worst_10: report.slice(0, 10).map(r => ({ ticker: r.ticker, pct: r.pct, quality: r.quality, missing: r.missing })),
-          }, 200, corsHeaders(env, req));
+            cache_built_at: Date.now(),
+          };
+          if (cacheKey && KV) {
+            await kvPutJSON(KV, cacheKey, response, 15);
+          }
+          return sendJSON(response, 200, corsHeaders(env, req));
         } catch (err) {
           return sendJSON({ ok: false, error: String(err) }, 500, corsHeaders(env, req));
         }

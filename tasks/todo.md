@@ -41,8 +41,15 @@
 - [x] Persist worker-side ticker context from shared enrichment sources
 - [x] Add background onboarding progress for custom ticker adds
 - [x] Add Analysis-page processing modal and subtle post-add loading state
-- [ ] Deploy worker + Pages changes
-- [ ] Browser-test custom ticker add flow end to end in production
+- [x] Deploy worker + Pages changes
+- [x] Browser-test custom ticker add flow end to end in production
+
+## Performance Enhancements [2026-03-08]
+- [ ] Analysis page: split `/timed/all` into slim first-paint payload + deferred hydration
+- [ ] Analysis page: precompute/cache rank + kanban snapshot server-side
+- [ ] Tickers page: stop using full `/timed/all` sweep for context on first load
+- [ ] Tickers page: add narrow context payload or include context in `ingestion-status`
+- [ ] Tickers page: precompute/cache expensive ingestion-status summary
 
 ## Tickers Candle Gap Audit [2026-03-08]
 - [x] Run production D1 completeness audit for `ticker_candles`
