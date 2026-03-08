@@ -43316,7 +43316,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
 
       if (routeKey === "GET /timed/etf/holdings/:symbol") {
         try {
-          const symbol = pathname.replace("/timed/etf/holdings/", "").toUpperCase();
+          const symbol = url.pathname.replace("/timed/etf/holdings/", "").toUpperCase();
           const result = await handleGetETFHoldings(env, symbol);
           return sendJSON(result, 200, corsHeaders(env, req));
         } catch (e) {
