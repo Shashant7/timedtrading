@@ -25,6 +25,17 @@
 - [x] Re-snapshot the current `15m-leading-ltf-rerun` trades into the new per-run store
 - [x] Add archive-backed ledger lookup for historical `run_id` analysis
 - [x] Import saved July artifacts into the run archive store
+- [x] Fix Trade Autopsy run picker to default to the latest completed archived run and compare the newest 15m rerun vs the March 7 reference
+
+## Ticker Profile V2 [2026-03-08]
+- [x] Unify ticker profile output into a canonical merged contract (legacy profile + learning_json + context stats)
+- [x] Add context-aware ticker profile diagnostics segmented by VIX/regime/side/path
+- [x] Persist durable market and sector context history for future ticker/regime joins
+- [x] Add a first regime-profile mapping endpoint using completed runs and existing regime infrastructure
+- [x] Surface stored market/sector context history in System Intelligence
+- [x] Surface richer ticker profiles and regime-profile mapping in System Intelligence
+- [x] Surface canonical ticker context evidence inside Trade Autopsy
+- [ ] Validate with lint and API/UI smoke checks
 
 ## Variant v2 Hardening [2026-03-04]
 - [ ] Mitigate bad exits and upstream/chasing entries from classified variant trades

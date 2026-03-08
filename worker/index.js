@@ -63,6 +63,8 @@ import {
   computeOvernightSignals,
   computeTDSequential,
   computeTDSequentialMultiTF,
+  classifyMarketRegime,
+  getRegimeParams,
 } from "./indicators.js";
 import { createExecutionAdapter } from "./execution.js";
 import * as DataProvider from "./data-provider.js";
@@ -623,6 +625,8 @@ const ROUTES = [
   ["GET", "/timed/system/dashboard", "GET /timed/system/dashboard"],
   ["GET", "/timed/system/history", "GET /timed/system/history"],
   ["GET", "/timed/system/ticker-profiles", "GET /timed/system/ticker-profiles"],
+  ["GET", "/timed/system/regime-profiles", "GET /timed/system/regime-profiles"],
+  ["GET", "/timed/system/context-history", "GET /timed/system/context-history"],
   // ── Move Discovery ──
   ["GET", "/timed/move-discovery", "GET /timed/move-discovery"],
   ["POST", "/timed/move-discovery", "POST /timed/move-discovery"],
@@ -2320,6 +2324,14 @@ function qualifiesForEnter(d, asOfTs = null) {
   const daRsiAllTfHigh = Number(_daConfig.deep_audit_rsi_all_tf_high) || 70;
   const daRsiAllTfLow = Number(_daConfig.deep_audit_rsi_all_tf_low) || 30;
   const daRsiExtremeProfileMinPct = Number(_daConfig.deep_audit_rsi_extreme_profile_min_pct) || 40;
+  const daRipsterChaseRsi10Long = Number(_daConfig.deep_audit_ripster_chase_rsi10_long) || 74;
+  const daRipsterChaseRsi30Long = Number(_daConfig.deep_audit_ripster_chase_rsi30_long) || 68;
+  const daRipsterChaseRsi10Short = Number(_daConfig.deep_audit_ripster_chase_rsi10_short) || 26;
+  const daRipsterChaseRsi30Short = Number(_daConfig.deep_audit_ripster_chase_rsi30_short) || 32;
+  const daRipsterChaseCloudDistPct = Number(_daConfig.deep_audit_ripster_chase_dist_to_cloud_pct) || 0.0045;
+  const daRipsterMomentumHeatRsi30 = Number(_daConfig.deep_audit_ripster_momentum_heat_rsi30) || 70;
+  const daRipsterMomentumHeatRsi1H = Number(_daConfig.deep_audit_ripster_momentum_heat_rsi1h) || 70;
+  const daRipsterOpeningNoiseEndMinute = Number(_daConfig.deep_audit_ripster_opening_noise_end_minute);
 
   // DA-1: SHORT minimum rank gate
   const daShortMinRank = Number(_daConfig.deep_audit_short_min_rank) || 0;
@@ -3022,7 +3034,8 @@ function qualifiesForEnter(d, asOfTs = null) {
     const nowEtRip = getEasternParts(new Date(nowMsRip));
     const nyHourRip = Number(nowEtRip.hour) || 0;
     const nyMinRip = Number(nowEtRip.minute) || 0;
-    const inOpeningNoiseWindow = nyHourRip === 9 && nyMinRip < 45;
+    const openingNoiseEndMinute = Number.isFinite(daRipsterOpeningNoiseEndMinute) ? daRipsterOpeningNoiseEndMinute : 45;
+    const inOpeningNoiseWindow = nyHourRip === 9 && nyMinRip < openingNoiseEndMinute;
     const stDir10m = Number(tf10?.stDir) || 0;
     const stDir30m = Number(tf30?.stDir) || 0;
     const rsi10m = Number(tf10?.rsi?.r5) || 50;
@@ -3032,14 +3045,20 @@ function qualifiesForEnter(d, asOfTs = null) {
     const rsiD = Number(tfD?.rsi?.r5) || 50;
     const stDirD = Number(tfD?.stDir) || 0;
     const trendExtensionPct = Number(c10_5?.distToCloudPct) || 0;
-    const chasingLong = inferredSide === "LONG" && rsi10m >= 74 && rsi30m >= 68 && trendExtensionPct >= 0.0045;
-    const chasingShort = inferredSide === "SHORT" && rsi10m <= 26 && rsi30m <= 32 && trendExtensionPct >= 0.0045;
+    const chasingLong = inferredSide === "LONG"
+      && rsi10m >= daRipsterChaseRsi10Long
+      && rsi30m >= daRipsterChaseRsi30Long
+      && trendExtensionPct >= daRipsterChaseCloudDistPct;
+    const chasingShort = inferredSide === "SHORT"
+      && rsi10m <= daRipsterChaseRsi10Short
+      && rsi30m <= daRipsterChaseRsi30Short
+      && trendExtensionPct >= daRipsterChaseCloudDistPct;
     // CRS-style anti-chase guard: when micro (10m) and macro (Daily) are both very hot,
     // momentum entries tend to be late and vulnerable to pullbacks.
     const rsi10mDailyHeatLong = inferredSide === "LONG" && rsi10m >= 77 && rsiD >= 80;
     const rsi10mDailyHeatShort = inferredSide === "SHORT" && rsi10m <= 23 && rsiD <= 20;
-    const momentumRsiHeatLong = inferredSide === "LONG" && rsi30m >= 70 && rsi1h >= 70;
-    const momentumRsiHeatShort = inferredSide === "SHORT" && rsi30m <= 30 && rsi1h <= 30;
+    const momentumRsiHeatLong = inferredSide === "LONG" && rsi30m >= daRipsterMomentumHeatRsi30 && rsi1h >= daRipsterMomentumHeatRsi1H;
+    const momentumRsiHeatShort = inferredSide === "SHORT" && rsi30m <= (100 - daRipsterMomentumHeatRsi30) && rsi1h <= (100 - daRipsterMomentumHeatRsi1H);
     const dailyStConflictLong = inferredSide === "LONG" && stDirD === 1;
     const dailyStConflictShort = inferredSide === "SHORT" && stDirD === -1;
     const htfRsiExtremeLong = inferredSide === "LONG" && (rsi4h >= 80 || rsiD >= 82);
@@ -3138,6 +3157,27 @@ function qualifiesForEnter(d, asOfTs = null) {
         rsi4h,
         rsiD,
         profileExtremeAllowed: _learnedExtremeFriendly,
+      };
+    }
+    // Narrow APP-style exhaustion block:
+    // very stretched Daily/4H trend + pullback-style long, but without a fresh 10m EMA reclaim.
+    // This avoids bluntly suppressing all hot-trend pullbacks while catching late stretched adds.
+    if (
+      ripsterTuneV2 &&
+      inferredSide === "LONG" &&
+      pullbackTrigger &&
+      !reclaimTrigger &&
+      rsiD >= 85 &&
+      rsi4h >= 75 &&
+      !hasEmaCrossBull
+    ) {
+      return {
+        qualifies: false,
+        reason: "ripster_pullback_daily_rsi_exhausted",
+        engine: entryEngine,
+        rsi4h,
+        rsiD,
+        hasEmaCrossBull,
       };
     }
 
@@ -3778,7 +3818,7 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
     const isRipsterPullbackLike = entryPathHint.includes("ripster_pullback") || entryPathHint.includes("ripster_reclaim");
     const triggerNoiseCandidate = reasons.includes("trigger_breached_5pct")
       && !reasons.includes("sl_breached")
-      && pnlPct > -0.8
+      && pnlPct > (Number(_daConfig.deep_audit_ripster_trigger_noise_max_loss_pct) || -0.8)
       && positionAgeMin >= 45
       && positionAgeMin <= (18 * 60)
       && ripsterTuneV2
@@ -3787,7 +3827,7 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
     const pullbackNoiseCandidate = (reasons.includes("trigger_breached_5pct") || reasons.includes("below_trigger"))
       && !reasons.includes("sl_breached")
       && isRipsterPullbackLike
-      && pnlPct > -1.2
+      && pnlPct > (Number(_daConfig.deep_audit_ripster_pullback_trigger_noise_max_loss_pct) || -1.2)
       && positionAgeMin >= 30
       && positionAgeMin <= (6 * 60)
       && ripsterTuneV2
@@ -15768,8 +15808,43 @@ async function d1EnsureLearningSchema(env) {
           ticker_count INTEGER DEFAULT 0,
           updated_at INTEGER
         )`),
+        db.prepare(`CREATE TABLE IF NOT EXISTS market_context_history (
+          context_date TEXT PRIMARY KEY,
+          snapshot_ts INTEGER NOT NULL,
+          market_health_score REAL,
+          market_health_regime TEXT,
+          market_regime_class TEXT,
+          market_regime_score REAL,
+          spy_regime_combined TEXT,
+          qqq_regime_combined TEXT,
+          breadth_pct_above_w200 REAL,
+          breadth_pct_above_d50 REAL,
+          vix_close REAL,
+          vix_bucket TEXT,
+          context_json TEXT
+        )`),
+        db.prepare(`CREATE TABLE IF NOT EXISTS sector_context_history (
+          context_date TEXT NOT NULL,
+          sector TEXT NOT NULL,
+          snapshot_ts INTEGER NOT NULL,
+          regime_class TEXT,
+          regime_score REAL,
+          bullish_member_pct REAL,
+          avg_weekly_structure REAL,
+          avg_daily_structure REAL,
+          member_count INTEGER,
+          context_json TEXT,
+          PRIMARY KEY (context_date, sector)
+        )`),
       ]);
     } catch { /* tables may already exist */ }
+    try {
+      await db.batch([
+        db.prepare(`CREATE INDEX IF NOT EXISTS idx_market_context_snapshot_ts ON market_context_history (snapshot_ts DESC)`),
+        db.prepare(`CREATE INDEX IF NOT EXISTS idx_sector_context_date ON sector_context_history (context_date DESC)`),
+        db.prepare(`CREATE INDEX IF NOT EXISTS idx_sector_context_sector_date ON sector_context_history (sector, context_date DESC)`),
+      ]);
+    } catch { /* indexes may already exist */ }
     _learningSchemaReady = true;
   } catch (e) {
     console.error("[LEARNING] Schema migration failed:", String(e).slice(0, 200));
@@ -15897,6 +15972,11 @@ async function d1EnsureBacktestRunsSchema(env) {
         max_favorable_excursion REAL,
         max_adverse_excursion REAL,
         tf_stack_json TEXT,
+        classification TEXT,
+        notes TEXT,
+        entry_grade TEXT,
+        trade_management TEXT,
+        annotation_updated_at INTEGER,
         PRIMARY KEY (run_id, trade_id)
       )`),
     ]);
@@ -15911,6 +15991,11 @@ async function d1EnsureBacktestRunsSchema(env) {
         db.prepare(`CREATE INDEX IF NOT EXISTS idx_backtest_run_autopsy_run_entry ON backtest_run_trade_autopsy(run_id, entry_ts DESC)`),
       ]);
     } catch (_) {}
+    try { await db.prepare(`ALTER TABLE backtest_run_trade_autopsy ADD COLUMN classification TEXT`).run(); } catch (_) {}
+    try { await db.prepare(`ALTER TABLE backtest_run_trade_autopsy ADD COLUMN notes TEXT`).run(); } catch (_) {}
+    try { await db.prepare(`ALTER TABLE backtest_run_trade_autopsy ADD COLUMN entry_grade TEXT`).run(); } catch (_) {}
+    try { await db.prepare(`ALTER TABLE backtest_run_trade_autopsy ADD COLUMN trade_management TEXT`).run(); } catch (_) {}
+    try { await db.prepare(`ALTER TABLE backtest_run_trade_autopsy ADD COLUMN annotation_updated_at INTEGER`).run(); } catch (_) {}
     try { await db.prepare(`ALTER TABLE backtest_run_metrics ADD COLUMN avg_win_pct REAL DEFAULT 0`).run(); } catch (_) {}
     try { await db.prepare(`ALTER TABLE backtest_run_metrics ADD COLUMN avg_loss_pct REAL DEFAULT 0`).run(); } catch (_) {}
     try { await db.prepare(`ALTER TABLE backtest_runs ADD COLUMN description TEXT`).run(); } catch (_) {}
@@ -16038,15 +16123,16 @@ async function snapshotBacktestRunTrades(db, runId) {
       trade_id, run_id, ticker, direction, status, entry_ts, exit_ts, trim_ts,
       entry_price, exit_price, pnl, pnl_pct, exit_reason, signal_snapshot_json,
       entry_path, consensus_direction, max_favorable_excursion, max_adverse_excursion,
-      tf_stack_json
+      tf_stack_json, classification, notes, entry_grade, trade_management, annotation_updated_at
     )
     SELECT
       t.trade_id, ?1 AS run_id, t.ticker, t.direction, t.status, t.entry_ts, t.exit_ts, t.trim_ts,
       t.entry_price, t.exit_price, t.pnl, t.pnl_pct, t.exit_reason, da.signal_snapshot_json,
       da.entry_path, da.consensus_direction, da.max_favorable_excursion, da.max_adverse_excursion,
-      da.tf_stack_json
+      da.tf_stack_json, ann.classification, ann.notes, ann.entry_grade, ann.trade_management, ann.updated_at
     FROM trades t
     LEFT JOIN direction_accuracy da ON da.trade_id = t.trade_id
+    LEFT JOIN trade_autopsy_annotations ann ON ann.trade_id = t.trade_id
     WHERE ${tradeAliasWhereSql}`
   ).bind(rid).run();
 
@@ -16108,6 +16194,11 @@ function normalizeArchivedRunAutopsyRow(runId, row = {}) {
     max_favorable_excursion: archiveNumberOrNull(row.max_favorable_excursion),
     max_adverse_excursion: archiveNumberOrNull(row.max_adverse_excursion),
     tf_stack_json: row.tf_stack_json != null ? String(row.tf_stack_json) : null,
+    classification: row.classification != null ? String(row.classification) : null,
+    notes: row.notes != null ? String(row.notes) : null,
+    entry_grade: row.entry_grade != null ? String(row.entry_grade) : "[]",
+    trade_management: row.trade_management != null ? String(row.trade_management) : "[]",
+    annotation_updated_at: archiveNumberOrNull(row.annotation_updated_at ?? row.updated_at),
   };
 }
 
@@ -16153,12 +16244,14 @@ async function importBacktestRunTradeSnapshot(db, runId, trades = [], autopsyTra
       `INSERT INTO backtest_run_trade_autopsy (
         trade_id, run_id, ticker, direction, status, entry_ts, exit_ts, trim_ts,
         entry_price, exit_price, pnl, pnl_pct, exit_reason, signal_snapshot_json,
-        entry_path, consensus_direction, max_favorable_excursion, max_adverse_excursion, tf_stack_json
-      ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)`
+        entry_path, consensus_direction, max_favorable_excursion, max_adverse_excursion, tf_stack_json,
+        classification, notes, entry_grade, trade_management, annotation_updated_at
+      ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24)`
     ).bind(
       row.trade_id, row.run_id, row.ticker, row.direction, row.status, row.entry_ts, row.exit_ts, row.trim_ts,
       row.entry_price, row.exit_price, row.pnl, row.pnl_pct, row.exit_reason, row.signal_snapshot_json,
       row.entry_path, row.consensus_direction, row.max_favorable_excursion, row.max_adverse_excursion, row.tf_stack_json,
+      row.classification, row.notes, row.entry_grade, row.trade_management, row.annotation_updated_at,
     )
   );
   for (let i = 0; i < autopsyStatements.length; i += 100) {
@@ -16223,6 +16316,17 @@ function normalizeRunRuleSnapshotInput(input) {
   return null;
 }
 
+function normalizeRunEnvOverrides(input) {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return {};
+  const out = {};
+  for (const [rawKey, rawValue] of Object.entries(input)) {
+    const key = String(rawKey || "").trim();
+    if (!key || !/^[A-Z][A-Z0-9_]*$/.test(key) || rawValue == null) continue;
+    out[key] = typeof rawValue === "string" ? rawValue : String(rawValue);
+  }
+  return out;
+}
+
 function pickRunSnapshotEnvFlags(env) {
   const keys = [
     "ENTRY_ENGINE",
@@ -16247,6 +16351,8 @@ function pickRunSnapshotEnvFlags(env) {
 }
 
 async function collectCurrentRunRuleSnapshot(db, env, opts = {}) {
+  const envOverrides = normalizeRunEnvOverrides(opts?.env_overrides);
+  const effectiveEnv = Object.keys(envOverrides).length ? { ...(env || {}), ...envOverrides } : env;
   const rows = (await db.prepare(
     `SELECT config_key, config_value, description, updated_at, updated_by
      FROM model_config
@@ -16264,6 +16370,11 @@ async function collectCurrentRunRuleSnapshot(db, env, opts = {}) {
   for (const row of modelConfigEntries) {
     effectiveModelConfig[row.key] = row.value;
   }
+  const metadataBase = (opts?.metadata && typeof opts.metadata === "object" && !Array.isArray(opts.metadata))
+    ? { ...opts.metadata }
+    : null;
+  const metadata = metadataBase || {};
+  if (Object.keys(envOverrides).length) metadata.run_env_overrides = envOverrides;
   return {
     snapshot_version: 1,
     snapshot_type: "runtime_capture",
@@ -16271,22 +16382,23 @@ async function collectCurrentRunRuleSnapshot(db, env, opts = {}) {
     captured_at: Date.now(),
     capture_stage: opts?.capture_stage || null,
     source: opts?.source || "runtime",
-    env_flags: pickRunSnapshotEnvFlags(env),
+    env_flags: pickRunSnapshotEnvFlags(effectiveEnv),
     model_config: effectiveModelConfig,
     model_config_entries: modelConfigEntries,
-    metadata: opts?.metadata || null,
+    metadata: Object.keys(metadata).length ? metadata : null,
   };
 }
 
 async function ensureRunRuleSnapshot(db, env, runId, opts = {}) {
   const rid = String(runId || "").trim();
   if (!rid || !db) return null;
+  const forceRefresh = opts?.force_refresh === true;
   const existing = await db.prepare(
     `SELECT run_id, snapshot_json, snapshot_stage, snapshot_source, created_at, updated_at
      FROM backtest_run_rule_snapshots
      WHERE run_id = ?1`
   ).bind(rid).first();
-  if (existing?.snapshot_json) {
+  if (existing?.snapshot_json && !forceRefresh) {
     let parsed = null;
     try { parsed = JSON.parse(existing.snapshot_json); } catch (_) {}
     return {
@@ -16316,6 +16428,32 @@ async function ensureRunRuleSnapshot(db, env, runId, opts = {}) {
     } else {
       snapshot = await collectCurrentRunRuleSnapshot(db, env, { ...opts, run_id: rid });
     }
+  }
+  if (existing?.run_id) {
+    await db.prepare(
+      `UPDATE backtest_run_rule_snapshots
+       SET snapshot_json = ?2,
+           snapshot_stage = ?3,
+           snapshot_source = ?4,
+           updated_at = ?5
+       WHERE run_id = ?1`
+    ).bind(
+      rid,
+      JSON.stringify(snapshot),
+      opts?.capture_stage || snapshot?.capture_stage || null,
+      opts?.source || snapshot?.source || null,
+      now,
+    ).run();
+    return {
+      run_id: rid,
+      snapshot,
+      snapshot_stage: opts?.capture_stage || snapshot?.capture_stage || null,
+      snapshot_source: opts?.source || snapshot?.source || null,
+      created_at: Number(existing.created_at || 0) || null,
+      updated_at: now,
+      existed: true,
+      refreshed: true,
+    };
   }
   await db.prepare(
     `INSERT INTO backtest_run_rule_snapshots (
@@ -16393,6 +16531,743 @@ function buildRunSummaryView(row) {
     rule_snapshot_ready: !!(row.snapshot_json || Number(row.rule_snapshot_created_at || 0)),
     rule_snapshot_created_at: Number(row.rule_snapshot_created_at || 0) || null,
   };
+}
+
+function safeJsonParse(raw, fallback = null) {
+  if (raw == null) return fallback;
+  if (typeof raw === "object") return raw;
+  try {
+    return JSON.parse(raw);
+  } catch (_) {
+    return fallback;
+  }
+}
+
+function roundMetric(value, digits = 2) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return null;
+  const factor = 10 ** digits;
+  return Math.round(n * factor) / factor;
+}
+
+function bucketVix(value) {
+  const v = Number(value);
+  if (!Number.isFinite(v)) return "unknown";
+  if (v < 15) return "calm";
+  if (v < 20) return "constructive";
+  if (v < 25) return "elevated";
+  return "high_stress";
+}
+
+function summarizeMetricRows(rows, key, { minCount = 2, limit = 4 } = {}) {
+  const items = [];
+  for (const [name, stats] of Object.entries(rows || {})) {
+    if (!stats || Number(stats.count || 0) < minCount) continue;
+    items.push({
+      [key]: name,
+      count: Number(stats.count || 0),
+      win_rate: roundMetric((Number(stats.wins || 0) / Math.max(1, Number(stats.count || 0))) * 100, 1),
+      avg_pnl_pct: roundMetric(Number(stats.pnl_sum || 0) / Math.max(1, Number(stats.count || 0)), 2),
+      avg_mae_pct: roundMetric(Number(stats.mae_sum || 0) / Math.max(1, Number(stats.count || 0)), 2),
+    });
+  }
+  items.sort((a, b) => {
+    if (Number(b.count || 0) !== Number(a.count || 0)) return Number(b.count || 0) - Number(a.count || 0);
+    return Number(b.avg_pnl_pct || 0) - Number(a.avg_pnl_pct || 0);
+  });
+  return items.slice(0, limit);
+}
+
+function buildTickerContextStats(contextRows = [], directionStats = null) {
+  const summary = {
+    sample_count: contextRows.length,
+    win_rate: null,
+    avg_pnl_pct: null,
+    avg_mae_pct: null,
+    avg_mfe_pct: null,
+    avg_htf_score: null,
+    avg_ltf_score: null,
+    counter_consensus_rate: directionStats?.counter_consensus_rate ?? null,
+    favored_vix_bucket: null,
+    favored_regime: null,
+    favored_entry_path: null,
+    by_vix_bucket: [],
+    by_regime: [],
+    by_side: [],
+    by_entry_path: [],
+  };
+  if (!Array.isArray(contextRows) || contextRows.length === 0) return summary;
+
+  const acc = {
+    wins: 0,
+    pnl_sum: 0,
+    mae_sum: 0,
+    mfe_sum: 0,
+    htf_sum: 0,
+    htf_count: 0,
+    ltf_sum: 0,
+    ltf_count: 0,
+    vix: {},
+    regime: {},
+    side: {},
+    path: {},
+  };
+  const touchBucket = (group, name, row) => {
+    if (!name) return;
+    if (!group[name]) group[name] = { count: 0, wins: 0, pnl_sum: 0, mae_sum: 0 };
+    group[name].count += 1;
+    if (Number(row.pnl_pct || 0) > 0) group[name].wins += 1;
+    group[name].pnl_sum += Number(row.pnl_pct || 0);
+    group[name].mae_sum += Number(row.mae_pct || 0);
+  };
+
+  for (const row of contextRows) {
+    const pnlPct = Number(row.pnl_pct || 0);
+    if (pnlPct > 0) acc.wins += 1;
+    acc.pnl_sum += pnlPct;
+    acc.mae_sum += Number(row.mae_pct || 0);
+    acc.mfe_sum += Number(row.mfe_pct || 0);
+    if (Number.isFinite(Number(row.htf_score_at_entry))) {
+      acc.htf_sum += Number(row.htf_score_at_entry);
+      acc.htf_count += 1;
+    }
+    if (Number.isFinite(Number(row.ltf_score_at_entry))) {
+      acc.ltf_sum += Number(row.ltf_score_at_entry);
+      acc.ltf_count += 1;
+    }
+    touchBucket(acc.vix, bucketVix(row.vix_at_entry), row);
+    touchBucket(acc.regime, String(row.regime_at_entry || "unknown").toUpperCase(), row);
+    touchBucket(acc.side, String(row.direction || "unknown").toUpperCase(), row);
+    touchBucket(acc.path, String(row.entry_path || "unknown"), row);
+  }
+
+  summary.win_rate = roundMetric((acc.wins / Math.max(1, contextRows.length)) * 100, 1);
+  summary.avg_pnl_pct = roundMetric(acc.pnl_sum / Math.max(1, contextRows.length), 2);
+  summary.avg_mae_pct = roundMetric(acc.mae_sum / Math.max(1, contextRows.length), 2);
+  summary.avg_mfe_pct = roundMetric(acc.mfe_sum / Math.max(1, contextRows.length), 2);
+  summary.avg_htf_score = acc.htf_count ? roundMetric(acc.htf_sum / acc.htf_count, 1) : null;
+  summary.avg_ltf_score = acc.ltf_count ? roundMetric(acc.ltf_sum / acc.ltf_count, 1) : null;
+  summary.by_vix_bucket = summarizeMetricRows(acc.vix, "bucket");
+  summary.by_regime = summarizeMetricRows(acc.regime, "regime");
+  summary.by_side = summarizeMetricRows(acc.side, "side");
+  summary.by_entry_path = summarizeMetricRows(acc.path, "entry_path");
+  summary.favored_vix_bucket = summary.by_vix_bucket[0]?.bucket || null;
+  summary.favored_regime = summary.by_regime[0]?.regime || null;
+  summary.favored_entry_path = summary.by_entry_path[0]?.entry_path || null;
+  return summary;
+}
+
+function normalizeTickerProfileContract(ticker, profile, sectorProfile, contextStats, directionStats = null) {
+  const learning = safeJsonParse(profile?.learning_json, {}) || {};
+  const merged = mergeProfileWeights(null, sectorProfile, profile);
+  return {
+    ticker,
+    sector: profile?.sector || SECTOR_MAP[ticker] || "Unknown",
+    behavior_type: profile?.behaviorType || null,
+    personality: learning?.personality || null,
+    move_count: Number(learning?.move_count || profile?.moveCount2yr || 0),
+    avg_move_pct: roundMetric(learning?.avg_move_pct, 2),
+    avg_duration: roundMetric(learning?.avg_duration, 1),
+    sl_mult: roundMetric(profile?.slMult, 2),
+    tp_mult: roundMetric(profile?.tpMult, 2),
+    entry_threshold_adj: roundMetric(profile?.entryThresholdAdj, 2),
+    merged,
+    entry_params: learning?.entry_params || null,
+    long_profile: learning?.long_profile || null,
+    short_profile: learning?.short_profile || null,
+    contract: {
+      behavior: {
+        behavior_type: profile?.behaviorType || null,
+        personality: learning?.personality || null,
+        atr_pct_p50: roundMetric(profile?.atrPctP50, 3),
+        atr_pct_p90: roundMetric(profile?.atrPctP90, 3),
+        daily_range_pct: roundMetric(profile?.dailyRangePct, 3),
+        gap_frequency: roundMetric(profile?.gapFrequency, 3),
+        trend_persistence: roundMetric(profile?.trendPersistence, 3),
+        mean_reversion_speed: roundMetric(profile?.meanReversionSpeed, 3),
+        avg_move_atr: roundMetric(profile?.avgMoveAtr, 2),
+        avg_move_duration_bars: roundMetric(profile?.avgMoveDurationBars, 1),
+        avg_move_duration_days: roundMetric(profile?.avgMoveDurationDays, 1),
+        move_count_2yr: Number(profile?.moveCount2yr || 0),
+        ichimoku_responsiveness: roundMetric(profile?.ichimokuResponsiveness, 2),
+        supertrend_flip_accuracy: roundMetric(profile?.supertrendFlipAccuracy, 2),
+        ema_cross_accuracy: roundMetric(profile?.emaCrossAccuracy, 2),
+      },
+      learning: {
+        move_count: Number(learning?.move_count || 0),
+        avg_move_pct: roundMetric(learning?.avg_move_pct, 2),
+        avg_duration: roundMetric(learning?.avg_duration, 1),
+        entry_params: learning?.entry_params || null,
+        long_profile: learning?.long_profile || null,
+        short_profile: learning?.short_profile || null,
+      },
+      execution: {
+        sl_mult: roundMetric(profile?.slMult, 2),
+        tp_mult: roundMetric(profile?.tpMult, 2),
+        entry_threshold_adj: roundMetric(profile?.entryThresholdAdj, 2),
+        sector_sl_mult_adj: roundMetric(sectorProfile?.slMultAdj, 2),
+        sector_tp_mult_adj: roundMetric(sectorProfile?.tpMultAdj, 2),
+        merged_sl_mult: roundMetric(merged?.slMult, 2),
+        merged_tp_mult: roundMetric(merged?.tpMult, 2),
+        merged_entry_threshold_adj: roundMetric(merged?.entryThresholdAdj, 2),
+      },
+      scoring: {
+        tf_weights: profile?.tfWeights || null,
+        signal_weights: profile?.signalWeights || null,
+        best_timeframes: profile?.bestTimeframes || null,
+        merged_weights: merged || null,
+      },
+      context: {
+        ...contextStats,
+        counter_consensus_rate: directionStats?.counter_consensus_rate ?? contextStats?.counter_consensus_rate ?? null,
+        counter_consensus_samples: directionStats?.sample_count ?? null,
+      },
+    },
+  };
+}
+
+async function loadTickerContextData(db, ticker = null) {
+  if (!db) return { contextRows: [], directionRows: [] };
+  const contextSql = ticker
+    ? `SELECT ticker, direction, entry_path, regime_at_entry, vix_at_entry, pnl_pct, mfe_pct, mae_pct, htf_score_at_entry, ltf_score_at_entry
+       FROM calibration_trade_autopsy
+       WHERE ticker = ?1`
+    : `SELECT ticker, direction, entry_path, regime_at_entry, vix_at_entry, pnl_pct, mfe_pct, mae_pct, htf_score_at_entry, ltf_score_at_entry
+       FROM calibration_trade_autopsy`;
+  const directionSql = ticker
+    ? `SELECT ticker, consensus_direction, traded_direction
+       FROM direction_accuracy
+       WHERE ticker = ?1 AND status != 'OPEN' AND consensus_direction IS NOT NULL`
+    : `SELECT ticker, consensus_direction, traded_direction
+       FROM direction_accuracy
+       WHERE status != 'OPEN' AND consensus_direction IS NOT NULL`;
+  const [contextRes, directionRes] = await Promise.all([
+    ticker ? db.prepare(contextSql).bind(ticker).all() : db.prepare(contextSql).all(),
+    ticker ? db.prepare(directionSql).bind(ticker).all() : db.prepare(directionSql).all(),
+  ]);
+  return {
+    contextRows: contextRes?.results || [],
+    directionRows: directionRes?.results || [],
+  };
+}
+
+function buildDirectionStatsMap(directionRows = []) {
+  const map = new Map();
+  for (const row of directionRows || []) {
+    const ticker = String(row?.ticker || "").toUpperCase();
+    if (!ticker) continue;
+    let item = map.get(ticker);
+    if (!item) {
+      item = { sample_count: 0, counter_count: 0, counter_consensus_rate: null };
+      map.set(ticker, item);
+    }
+    item.sample_count += 1;
+    if (String(row?.consensus_direction || "").toUpperCase() !== String(row?.traded_direction || "").toUpperCase()) {
+      item.counter_count += 1;
+    }
+  }
+  for (const item of map.values()) {
+    item.counter_consensus_rate = item.sample_count
+      ? roundMetric((item.counter_count / item.sample_count) * 100, 1)
+      : null;
+  }
+  return map;
+}
+
+function groupContextRowsByTicker(contextRows = []) {
+  const map = new Map();
+  for (const row of contextRows || []) {
+    const ticker = String(row?.ticker || "").toUpperCase();
+    if (!ticker) continue;
+    if (!map.has(ticker)) map.set(ticker, []);
+    map.get(ticker).push(row);
+  }
+  return map;
+}
+
+async function buildSystemTickerProfiles(env, ticker = null) {
+  const db = env?.DB;
+  if (!db) throw new Error("no_db");
+  let rows = ticker
+    ? ((await db.prepare(`SELECT * FROM ticker_profiles WHERE ticker = ?1`).bind(ticker).all())?.results || [])
+    : ((await db.prepare(`SELECT * FROM ticker_profiles ORDER BY ticker`).all())?.results || []);
+  if (ticker && !rows.length) {
+    const cachedProfile = await loadTickerProfile(env, ticker);
+    if (!cachedProfile) return null;
+    rows = [{
+      ticker: cachedProfile.ticker,
+      sector: cachedProfile.sector,
+      behavior_type: cachedProfile.behaviorType,
+      atr_pct_p50: cachedProfile.atrPctP50,
+      atr_pct_p90: cachedProfile.atrPctP90,
+      daily_range_pct: cachedProfile.dailyRangePct,
+      gap_frequency: cachedProfile.gapFrequency,
+      trend_persistence: cachedProfile.trendPersistence,
+      mean_reversion_speed: cachedProfile.meanReversionSpeed,
+      avg_move_atr: cachedProfile.avgMoveAtr,
+      avg_move_duration_bars: cachedProfile.avgMoveDurationBars,
+      avg_move_duration_days: cachedProfile.avgMoveDurationDays,
+      move_count_2yr: cachedProfile.moveCount2yr,
+      ichimoku_responsiveness: cachedProfile.ichimokuResponsiveness,
+      supertrend_flip_accuracy: cachedProfile.supertrendFlipAccuracy,
+      ema_cross_accuracy: cachedProfile.emaCrossAccuracy,
+      tf_weights_json: JSON.stringify(cachedProfile.tfWeights || null),
+      signal_weights_json: JSON.stringify(cachedProfile.signalWeights || null),
+      best_timeframes_json: JSON.stringify(cachedProfile.bestTimeframes || null),
+      sl_mult: cachedProfile.slMult || 1,
+      tp_mult: cachedProfile.tpMult || 1,
+      entry_threshold_adj: cachedProfile.entryThresholdAdj || 0,
+      learning_json: typeof cachedProfile.learning_json === "string"
+        ? cachedProfile.learning_json
+        : JSON.stringify(cachedProfile.learning_json || null),
+    }];
+  }
+  if (!rows.length) return ticker ? null : [];
+
+  const { contextRows, directionRows } = await loadTickerContextData(db, ticker);
+  const contextByTicker = groupContextRowsByTicker(contextRows);
+  const directionByTicker = buildDirectionStatsMap(directionRows);
+  const sectorProfileCache = new Map();
+
+  const profiles = [];
+  for (const row of rows) {
+    const sym = String(row?.ticker || "").toUpperCase();
+    const profile = {
+      ticker: sym,
+      sector: row.sector,
+      behaviorType: row.behavior_type,
+      atrPctP50: row.atr_pct_p50,
+      atrPctP90: row.atr_pct_p90,
+      dailyRangePct: row.daily_range_pct,
+      gapFrequency: row.gap_frequency,
+      trendPersistence: row.trend_persistence,
+      meanReversionSpeed: row.mean_reversion_speed,
+      avgMoveAtr: row.avg_move_atr,
+      avgMoveDurationBars: row.avg_move_duration_bars,
+      avgMoveDurationDays: row.avg_move_duration_days,
+      moveCount2yr: row.move_count_2yr,
+      ichimokuResponsiveness: row.ichimoku_responsiveness,
+      supertrendFlipAccuracy: row.supertrend_flip_accuracy,
+      emaCrossAccuracy: row.ema_cross_accuracy,
+      tfWeights: safeJsonParse(row.tf_weights_json, null),
+      signalWeights: safeJsonParse(row.signal_weights_json, null),
+      bestTimeframes: safeJsonParse(row.best_timeframes_json, null),
+      slMult: row.sl_mult || 1,
+      tpMult: row.tp_mult || 1,
+      entryThresholdAdj: row.entry_threshold_adj || 0,
+      learning_json: row.learning_json || null,
+    };
+    const sectorName = profile.sector || SECTOR_MAP[sym] || "Unknown";
+    if (!sectorProfileCache.has(sectorName)) {
+      sectorProfileCache.set(sectorName, await loadSectorProfile(env, sectorName));
+    }
+    const sectorProfile = sectorProfileCache.get(sectorName);
+    const contextStats = buildTickerContextStats(contextByTicker.get(sym) || [], directionByTicker.get(sym) || null);
+    profiles.push(normalizeTickerProfileContract(sym, profile, sectorProfile, contextStats, directionByTicker.get(sym) || null));
+  }
+  return ticker ? (profiles[0] || null) : profiles;
+}
+
+function inferSectorContextFromMembers(rows = []) {
+  const members = Array.isArray(rows) ? rows.filter(Boolean) : [];
+  if (!members.length) {
+    return {
+      regime_class: "UNKNOWN",
+      regime_score: null,
+      bullish_member_pct: null,
+      avg_weekly_structure: null,
+      avg_daily_structure: null,
+      member_count: 0,
+    };
+  }
+  let weeklySum = 0;
+  let weeklyCount = 0;
+  let dailySum = 0;
+  let dailyCount = 0;
+  let bullishMembers = 0;
+  for (const row of members) {
+    const weeklyStruct = Number(row?.ema_map?.W?.structure);
+    const dailyStruct = Number(row?.ema_map?.D?.structure);
+    if (Number.isFinite(weeklyStruct)) {
+      weeklySum += weeklyStruct;
+      weeklyCount += 1;
+      if (weeklyStruct > 0.3) bullishMembers += 1;
+    }
+    if (Number.isFinite(dailyStruct)) {
+      dailySum += dailyStruct;
+      dailyCount += 1;
+    }
+  }
+  const avgWeekly = weeklyCount ? weeklySum / weeklyCount : 0;
+  const avgDaily = dailyCount ? dailySum / dailyCount : 0;
+  const bullishPct = weeklyCount ? (bullishMembers / weeklyCount) * 100 : 0;
+  const trendStrength = Math.abs(avgWeekly) * 0.7 + Math.abs(avgDaily) * 0.3;
+  let regimeClass = "TRANSITIONAL";
+  if (trendStrength >= 0.4 && (bullishPct >= 65 || bullishPct <= 35)) regimeClass = "TRENDING";
+  else if (trendStrength < 0.18 || (bullishPct > 40 && bullishPct < 60)) regimeClass = "CHOPPY";
+  return {
+    regime_class: regimeClass,
+    regime_score: roundMetric(avgWeekly * 10, 2),
+    bullish_member_pct: roundMetric(bullishPct, 1),
+    avg_weekly_structure: roundMetric(avgWeekly, 3),
+    avg_daily_structure: roundMetric(avgDaily, 3),
+    member_count: members.length,
+  };
+}
+
+async function loadVixCloseAtOrBefore(db, ts) {
+  if (!db) return null;
+  try {
+    const row = await db.prepare(
+      `SELECT c
+       FROM ticker_candles
+       WHERE ticker IN ('VIX', '$VIX', 'VIX.X')
+         AND tf = 'D'
+         AND ts <= ?1
+       ORDER BY ts DESC
+       LIMIT 1`
+    ).bind(Number(ts || Date.now())).first();
+    const v = Number(row?.c);
+    return Number.isFinite(v) ? v : null;
+  } catch (_) {
+    return null;
+  }
+}
+
+async function persistMarketContextHistory(env, { allTickerData = [], marketHealth = null, spyData = null, qqqData = null } = {}) {
+  await d1EnsureLearningSchema(env);
+  const db = env?.DB;
+  if (!db) return { ok: false, error: "no_db" };
+  const now = Date.now();
+  const contextDate = _calGetETDateStr();
+  const vixClose = await loadVixCloseAtOrBefore(db, now);
+  const bySector = {};
+  for (const td of allTickerData || []) {
+    const sector = String(td?._sector || "").trim();
+    if (!sector) continue;
+    if (!bySector[sector]) bySector[sector] = [];
+    bySector[sector].push(td);
+  }
+
+  const marketRow = {
+    context_date: contextDate,
+    snapshot_ts: now,
+    market_health_score: roundMetric(marketHealth?.score, 2),
+    market_health_regime: marketHealth?.regime || null,
+    market_regime_class: spyData?.regime_class || null,
+    market_regime_score: roundMetric(spyData?.regime_score, 2),
+    spy_regime_combined: spyData?.regime?.combined || null,
+    qqq_regime_combined: qqqData?.regime?.combined || null,
+    breadth_pct_above_w200: roundMetric(marketHealth?.breadth?.pctAboveW200, 1),
+    breadth_pct_above_d50: roundMetric(marketHealth?.breadth?.pctAboveD50, 1),
+    vix_close: roundMetric(vixClose, 2),
+    vix_bucket: bucketVix(vixClose),
+  };
+  await db.prepare(
+    `INSERT INTO market_context_history (
+      context_date, snapshot_ts, market_health_score, market_health_regime,
+      market_regime_class, market_regime_score, spy_regime_combined, qqq_regime_combined,
+      breadth_pct_above_w200, breadth_pct_above_d50, vix_close, vix_bucket, context_json
+    ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
+    ON CONFLICT(context_date) DO UPDATE SET
+      snapshot_ts=excluded.snapshot_ts,
+      market_health_score=excluded.market_health_score,
+      market_health_regime=excluded.market_health_regime,
+      market_regime_class=excluded.market_regime_class,
+      market_regime_score=excluded.market_regime_score,
+      spy_regime_combined=excluded.spy_regime_combined,
+      qqq_regime_combined=excluded.qqq_regime_combined,
+      breadth_pct_above_w200=excluded.breadth_pct_above_w200,
+      breadth_pct_above_d50=excluded.breadth_pct_above_d50,
+      vix_close=excluded.vix_close,
+      vix_bucket=excluded.vix_bucket,
+      context_json=excluded.context_json`
+  ).bind(
+    marketRow.context_date,
+    marketRow.snapshot_ts,
+    marketRow.market_health_score,
+    marketRow.market_health_regime,
+    marketRow.market_regime_class,
+    marketRow.market_regime_score,
+    marketRow.spy_regime_combined,
+    marketRow.qqq_regime_combined,
+    marketRow.breadth_pct_above_w200,
+    marketRow.breadth_pct_above_d50,
+    marketRow.vix_close,
+    marketRow.vix_bucket,
+    JSON.stringify({
+      market_health: marketHealth || null,
+      spy_regime: spyData?.regime || null,
+      qqq_regime: qqqData?.regime || null,
+    }),
+  ).run();
+
+  const sectorRows = [];
+  for (const [sector, rows] of Object.entries(bySector)) {
+    const inferred = inferSectorContextFromMembers(rows);
+    sectorRows.push({
+      context_date: contextDate,
+      sector,
+      snapshot_ts: now,
+      ...inferred,
+      context_json: JSON.stringify({
+        member_count: rows.length,
+        tickers: rows.slice(0, 20).map(r => r?.ticker).filter(Boolean),
+      }),
+    });
+  }
+  for (const row of sectorRows) {
+    await db.prepare(
+      `INSERT INTO sector_context_history (
+        context_date, sector, snapshot_ts, regime_class, regime_score,
+        bullish_member_pct, avg_weekly_structure, avg_daily_structure, member_count, context_json
+      ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+      ON CONFLICT(context_date, sector) DO UPDATE SET
+        snapshot_ts=excluded.snapshot_ts,
+        regime_class=excluded.regime_class,
+        regime_score=excluded.regime_score,
+        bullish_member_pct=excluded.bullish_member_pct,
+        avg_weekly_structure=excluded.avg_weekly_structure,
+        avg_daily_structure=excluded.avg_daily_structure,
+        member_count=excluded.member_count,
+        context_json=excluded.context_json`
+    ).bind(
+      row.context_date,
+      row.sector,
+      row.snapshot_ts,
+      row.regime_class,
+      row.regime_score,
+      row.bullish_member_pct,
+      row.avg_weekly_structure,
+      row.avg_daily_structure,
+      row.member_count,
+      row.context_json,
+    ).run();
+  }
+
+  return {
+    ok: true,
+    context_date: contextDate,
+    market: marketRow,
+    sectors: sectorRows.length,
+  };
+}
+
+function buildProfileRecommendation(runSummary, contextSummary) {
+  const regimeMix = contextSummary?.by_regime || [];
+  const vixMix = contextSummary?.by_vix_bucket || [];
+  const topRegime = regimeMix[0]?.regime || "UNKNOWN";
+  const topVix = vixMix[0]?.bucket || "unknown";
+  if (topRegime === "TRENDING" && (topVix === "calm" || topVix === "constructive")) {
+    return {
+      profile_key: "trend_riding",
+      title: "Trend Riding",
+      why: "Best fit came in constructive trend conditions with lower volatility.",
+    };
+  }
+  if (topRegime === "CHOPPY" || topVix === "high_stress") {
+    return {
+      profile_key: "choppy_selective",
+      title: "Choppy Selective",
+      why: "Best fit leaned toward higher-volatility or choppy conditions that require tighter selectivity.",
+    };
+  }
+  return {
+    profile_key: "correction_transition",
+    title: "Correction / Transition",
+    why: "Best fit sat between clean trend and chop, matching transitional tape.",
+  };
+}
+
+async function buildRegimeProfileMappings(env, limit = 24) {
+  const db = env?.DB;
+  if (!db) throw new Error("no_db");
+  const runRows = (await db.prepare(
+    `SELECT r.*, m.total_trades, m.closed_trades, m.realized_pnl, m.win_rate
+     FROM backtest_runs r
+     LEFT JOIN backtest_run_metrics m ON m.run_id = r.run_id
+     WHERE LOWER(COALESCE(r.status, '')) = 'completed'
+       AND COALESCE(m.total_trades, 0) > 0
+     ORDER BY COALESCE(r.ended_at, r.updated_at, r.created_at) DESC
+     LIMIT ?1`
+  ).bind(Math.max(1, Math.min(60, Number(limit) || 24))).all())?.results || [];
+  if (!runRows.length) return { runs: [], profiles: [] };
+
+  const runIds = runRows.map(r => String(r.run_id));
+  const placeholders = runIds.map((_, idx) => `?${idx + 1}`).join(",");
+  const tradeRows = (await db.prepare(
+    `SELECT run_id, entry_ts, pnl, pnl_pct, status
+     FROM backtest_run_trades
+     WHERE run_id IN (${placeholders})
+       AND entry_ts IS NOT NULL`
+  ).bind(...runIds).all())?.results || [];
+  if (!tradeRows.length) {
+    return {
+      runs: runRows.map(r => ({
+        run_id: r.run_id,
+        label: r.label || null,
+        description: r.description || null,
+        trades: Number(r.total_trades || 0),
+        win_rate: roundMetric(r.win_rate, 2),
+        realized_pnl: roundMetric(r.realized_pnl, 2),
+        context: { by_regime: [], by_vix_bucket: [] },
+        recommendation: buildProfileRecommendation(buildRunSummaryView(r), { by_regime: [], by_vix_bucket: [] }),
+      })),
+      profiles: [],
+    };
+  }
+
+  const entryTsValues = tradeRows.map(r => Number(r.entry_ts || 0)).filter(Boolean);
+  const minTs = Math.min(...entryTsValues) - (420 * 86400000);
+  const maxTs = Math.max(...entryTsValues) + 86400000;
+  const historyRows = (await db.prepare(
+    `SELECT context_date, market_regime_class, market_regime_score, vix_close, vix_bucket
+     FROM market_context_history
+     WHERE snapshot_ts BETWEEN ?1 AND ?2
+     ORDER BY snapshot_ts ASC`
+  ).bind(minTs, maxTs).all())?.results || [];
+  const historyByDate = new Map(historyRows.map(r => [String(r.context_date || ""), r]));
+  const [spyDailyRows, spyWeeklyRows, vixRows] = await Promise.all([
+    db.prepare(
+      `SELECT ts, o, h, l, c, v
+       FROM ticker_candles
+       WHERE ticker = 'SPY' AND tf = 'D' AND ts BETWEEN ?1 AND ?2
+       ORDER BY ts ASC`
+    ).bind(minTs, maxTs).all(),
+    db.prepare(
+      `SELECT ts, o, h, l, c, v
+       FROM ticker_candles
+       WHERE ticker = 'SPY' AND tf = 'W' AND ts BETWEEN ?1 AND ?2
+       ORDER BY ts ASC`
+    ).bind(minTs, maxTs).all(),
+    db.prepare(
+      `SELECT ts, c
+       FROM ticker_candles
+       WHERE ticker IN ('VIX', '$VIX', 'VIX.X') AND tf = 'D' AND ts BETWEEN ?1 AND ?2
+       ORDER BY ts ASC`
+    ).bind(minTs, maxTs).all(),
+  ]);
+  const spyDaily = spyDailyRows?.results || [];
+  const spyWeekly = spyWeeklyRows?.results || [];
+  const vixDaily = vixRows?.results || [];
+
+  const latestVixAt = (ts) => {
+    let match = null;
+    for (const row of vixDaily) {
+      if (Number(row.ts || 0) <= ts) match = row;
+      else break;
+    }
+    return match ? Number(match.c || 0) : null;
+  };
+  const contextCache = new Map();
+  const resolveContext = (entryTs) => {
+    const dayKey = _calGetETDateStr(new Date(Number(entryTs || 0)));
+    if (contextCache.has(dayKey)) return contextCache.get(dayKey);
+    const stored = historyByDate.get(dayKey);
+    if (stored) {
+      const context = {
+        regime: stored.market_regime_class || "UNKNOWN",
+        regime_params: getRegimeParams(stored.market_regime_class || "TRANSITIONAL"),
+        vix: roundMetric(stored.vix_close, 2),
+        vix_bucket: stored.vix_bucket || bucketVix(stored.vix_close),
+      };
+      contextCache.set(dayKey, context);
+      return context;
+    }
+    const dailySlice = spyDaily.filter(r => Number(r.ts || 0) <= entryTs).slice(-260);
+    const weeklySlice = spyWeekly.filter(r => Number(r.ts || 0) <= entryTs).slice(-104);
+    const dailyBundle = dailySlice.length >= 40 ? computeTfBundle(dailySlice) : null;
+    const weeklyBundle = weeklySlice.length >= 20 ? computeTfBundle(weeklySlice) : null;
+    const marketRegime = classifyMarketRegime(dailyBundle, weeklyBundle);
+    const regimeName = marketRegime?.regime || "UNKNOWN";
+    const vix = latestVixAt(entryTs);
+    const context = {
+      regime: regimeName,
+      regime_params: getRegimeParams(regimeName),
+      vix: roundMetric(vix, 2),
+      vix_bucket: bucketVix(vix),
+    };
+    contextCache.set(dayKey, context);
+    return context;
+  };
+
+  const perRun = new Map();
+  for (const run of runRows) {
+    perRun.set(String(run.run_id), {
+      row: run,
+      regime: {},
+      vix: {},
+    });
+  }
+  const touchRunBucket = (group, name, trade) => {
+    if (!group[name]) group[name] = { count: 0, wins: 0, pnl_sum: 0 };
+    group[name].count += 1;
+    if (Number(trade.pnl || trade.pnl_pct || 0) > 0) group[name].wins += 1;
+    group[name].pnl_sum += Number(trade.pnl_pct || 0);
+  };
+  for (const trade of tradeRows) {
+    const run = perRun.get(String(trade.run_id));
+    if (!run) continue;
+    const context = resolveContext(Number(trade.entry_ts || 0));
+    touchRunBucket(run.regime, context.regime, trade);
+    touchRunBucket(run.vix, context.vix_bucket, trade);
+  }
+
+  const runs = [];
+  const groupedProfiles = new Map();
+  for (const item of perRun.values()) {
+    const row = item.row;
+    const context = {
+      by_regime: summarizeMetricRows(item.regime, "regime", { minCount: 1, limit: 3 }),
+      by_vix_bucket: summarizeMetricRows(item.vix, "bucket", { minCount: 1, limit: 3 }),
+    };
+    const summary = buildRunSummaryView(row);
+    const recommendation = buildProfileRecommendation(summary, context);
+    const mapped = {
+      run_id: row.run_id,
+      label: row.label || null,
+      description: row.description || null,
+      start_date: row.start_date || null,
+      end_date: row.end_date || null,
+      trades: Number(row.total_trades || 0),
+      win_rate: roundMetric(row.win_rate, 2),
+      realized_pnl: roundMetric(row.realized_pnl, 2),
+      context,
+      recommendation,
+    };
+    runs.push(mapped);
+
+    const key = recommendation.profile_key;
+    if (!groupedProfiles.has(key)) {
+      groupedProfiles.set(key, {
+        profile_key: key,
+        title: recommendation.title,
+        why: recommendation.why,
+        candidate_runs: [],
+      });
+    }
+    groupedProfiles.get(key).candidate_runs.push({
+      run_id: row.run_id,
+      label: row.label || null,
+      trades: Number(row.total_trades || 0),
+      win_rate: roundMetric(row.win_rate, 2),
+      realized_pnl: roundMetric(row.realized_pnl, 2),
+      top_regime: context.by_regime[0]?.regime || null,
+      top_vix_bucket: context.by_vix_bucket[0]?.bucket || null,
+    });
+  }
+
+  const profiles = Array.from(groupedProfiles.values()).map(item => ({
+    ...item,
+    candidate_runs: item.candidate_runs
+      .sort((a, b) => {
+        if (Number(b.realized_pnl || 0) !== Number(a.realized_pnl || 0)) return Number(b.realized_pnl || 0) - Number(a.realized_pnl || 0);
+        return Number(b.win_rate || 0) - Number(a.win_rate || 0);
+      })
+      .slice(0, 4),
+  }));
+
+  return { runs, profiles };
 }
 
 async function summarizeRunMetrics(db, runId) {
@@ -33298,7 +34173,8 @@ export default {
               `SELECT trade_id, run_id, ticker, direction, entry_ts, exit_ts, trim_ts, status,
                       entry_price, exit_price, pnl, pnl_pct, exit_reason,
                       signal_snapshot_json, entry_path, consensus_direction,
-                      max_favorable_excursion, max_adverse_excursion, tf_stack_json
+                      max_favorable_excursion, max_adverse_excursion, tf_stack_json,
+                      classification, notes, entry_grade, trade_management, annotation_updated_at
                FROM backtest_run_trade_autopsy
                WHERE run_id = ?1
                  AND status NOT IN ('OPEN', 'TP_HIT_TRIM')
@@ -33340,6 +34216,11 @@ export default {
             max_favorable_excursion: r.max_favorable_excursion,
             max_adverse_excursion: r.max_adverse_excursion,
             tf_stack_json: r.tf_stack_json,
+            annotation_classification: r.classification || null,
+            annotation_notes: r.notes || null,
+            annotation_entry_grade: r.entry_grade || null,
+            annotation_trade_management: r.trade_management || null,
+            annotation_updated_at: r.annotation_updated_at || null,
           }));
           return sendJSON({ ok: true, count: trades.length, trades }, 200, corsHeaders(env, req));
         } catch (e) {
@@ -33355,29 +34236,64 @@ export default {
         if (!db) return sendJSON({ ok: false, error: "d1_not_configured" }, 503, corsHeaders(env, req));
         try {
           await d1EnsureLearningSchema(env);
+          await d1EnsureBacktestRunsSchema(env);
           const parseJsonArr = (v) => { try { const a = JSON.parse(v || "[]"); return Array.isArray(a) ? a : []; } catch { return []; } };
+          const url = new URL(req.url);
           const tradeId = url.searchParams.get("trade_id");
           const all = url.searchParams.get("all") === "1";
+          const runId = String(url.searchParams.get("run_id") || url.searchParams.get("runId") || "").trim();
+          const mapArchivedAnnotation = (row) => row ? {
+            classification: row.classification || "",
+            notes: row.notes ?? null,
+            entry_grade: parseJsonArr(row.entry_grade),
+            trade_management: parseJsonArr(row.trade_management),
+            updatedAt: row.annotation_updated_at || null,
+          } : null;
           if (tradeId) {
-            const row = await db.prepare(
-              `SELECT trade_id, classification, notes, entry_grade, trade_management, updated_at FROM trade_autopsy_annotations WHERE trade_id = ?`
-            ).bind(tradeId).first();
-            const ann = row ? { ...row, entry_grade: parseJsonArr(row.entry_grade), trade_management: parseJsonArr(row.trade_management) } : null;
+            let ann = null;
+            if (runId) {
+              const archivedRow = await db.prepare(
+                `SELECT trade_id, classification, notes, entry_grade, trade_management, annotation_updated_at
+                 FROM backtest_run_trade_autopsy
+                 WHERE run_id = ?1 AND trade_id = ?2
+                 LIMIT 1`
+              ).bind(runId, tradeId).first().catch(() => null);
+              ann = mapArchivedAnnotation(archivedRow);
+              if (ann) ann.trade_id = tradeId;
+            }
+            if (!ann) {
+              const row = await db.prepare(
+                `SELECT trade_id, classification, notes, entry_grade, trade_management, updated_at FROM trade_autopsy_annotations WHERE trade_id = ?`
+              ).bind(tradeId).first();
+              ann = row ? { ...row, entry_grade: parseJsonArr(row.entry_grade), trade_management: parseJsonArr(row.trade_management) } : null;
+            }
             return sendJSON({ ok: true, annotation: ann }, 200, corsHeaders(env, req));
           }
           if (all) {
-            const { results } = await db.prepare(
-              `SELECT trade_id, classification, notes, entry_grade, trade_management, updated_at FROM trade_autopsy_annotations`
-            ).all();
             const map = {};
-            for (const r of results || []) {
-              map[r.trade_id] = {
-                classification: r.classification,
-                notes: r.notes,
-                entry_grade: parseJsonArr(r.entry_grade),
-                trade_management: parseJsonArr(r.trade_management),
-                updatedAt: r.updated_at,
-              };
+            if (runId) {
+              const { results } = await db.prepare(
+                `SELECT trade_id, classification, notes, entry_grade, trade_management, annotation_updated_at
+                 FROM backtest_run_trade_autopsy
+                 WHERE run_id = ?1`
+              ).bind(runId).all();
+              for (const r of results || []) {
+                if (!r.trade_id) continue;
+                map[r.trade_id] = mapArchivedAnnotation(r);
+              }
+            } else {
+              const { results } = await db.prepare(
+                `SELECT trade_id, classification, notes, entry_grade, trade_management, updated_at FROM trade_autopsy_annotations`
+              ).all();
+              for (const r of results || []) {
+                map[r.trade_id] = {
+                  classification: r.classification,
+                  notes: r.notes,
+                  entry_grade: parseJsonArr(r.entry_grade),
+                  trade_management: parseJsonArr(r.trade_management),
+                  updatedAt: r.updated_at,
+                };
+              }
             }
             return sendJSON({ ok: true, annotations: map }, 200, corsHeaders(env, req));
           }
@@ -34008,7 +34924,7 @@ export default {
         } catch {}
         // Load deep audit config for replay parity with live
         try {
-          const daKeys = ["deep_audit_short_min_rank", "deep_audit_ticker_blacklist", "deep_audit_max_loss_pct", "deep_audit_sl_cap_mult", "deep_audit_sl_floor_mult", "deep_audit_rsi_tp_delay", "deep_audit_avoid_hours", "deep_audit_block_regime", "deep_audit_min_hold_regime_exit_hours", "deep_audit_loss_cooldown_hours", "deep_audit_min_htf_score", "deep_audit_momentum_elite_rank_boost", "deep_audit_breakout_daily_level_enabled", "deep_audit_breakout_atr_breakout_enabled", "deep_audit_breakout_ema_stack_enabled", "deep_audit_breakout_min_rr", "deep_audit_breakout_min_entry_quality", "deep_audit_variant_guardrails_v3", "deep_audit_variant_min_rank", "deep_audit_variant_min_rr", "deep_audit_variant_max_loss_pct", "deep_audit_variant_regime_exit_min_age_min", "deep_audit_rsi_all_tf_extreme_guard", "deep_audit_rsi_all_tf_high", "deep_audit_rsi_all_tf_low", "deep_audit_rsi_extreme_profile_min_pct", "deep_audit_swing_checklist_v1", "deep_audit_swing_phase_near_zero_abs", "deep_audit_swing_phase_early_max", "deep_audit_swing_require_squeeze_build"];
+    const daKeys = ["deep_audit_short_min_rank", "deep_audit_ticker_blacklist", "deep_audit_max_loss_pct", "deep_audit_sl_cap_mult", "deep_audit_sl_floor_mult", "deep_audit_rsi_tp_delay", "deep_audit_avoid_hours", "deep_audit_block_regime", "deep_audit_min_hold_regime_exit_hours", "deep_audit_loss_cooldown_hours", "deep_audit_min_htf_score", "deep_audit_momentum_elite_rank_boost", "deep_audit_breakout_daily_level_enabled", "deep_audit_breakout_atr_breakout_enabled", "deep_audit_breakout_ema_stack_enabled", "deep_audit_breakout_min_rr", "deep_audit_breakout_min_entry_quality", "deep_audit_variant_guardrails_v3", "deep_audit_variant_min_rank", "deep_audit_variant_min_rr", "deep_audit_variant_max_loss_pct", "deep_audit_variant_regime_exit_min_age_min", "deep_audit_rsi_all_tf_extreme_guard", "deep_audit_rsi_all_tf_high", "deep_audit_rsi_all_tf_low", "deep_audit_rsi_extreme_profile_min_pct", "deep_audit_swing_checklist_v1", "deep_audit_swing_phase_near_zero_abs", "deep_audit_swing_phase_early_max", "deep_audit_swing_require_squeeze_build", "deep_audit_ripster_chase_rsi10_long", "deep_audit_ripster_chase_rsi30_long", "deep_audit_ripster_chase_rsi10_short", "deep_audit_ripster_chase_rsi30_short", "deep_audit_ripster_chase_dist_to_cloud_pct", "deep_audit_ripster_momentum_heat_rsi30", "deep_audit_ripster_momentum_heat_rsi1h", "deep_audit_ripster_opening_noise_end_minute", "deep_audit_ripster_trigger_noise_max_loss_pct", "deep_audit_ripster_pullback_trigger_noise_max_loss_pct"];
           const daRows = (await db.prepare(
             `SELECT config_key, config_value FROM model_config WHERE config_key IN (${daKeys.map((_, i) => `?${i + 1}`).join(",")})`
           ).bind(...daKeys).all())?.results || [];
@@ -34799,17 +35715,16 @@ export default {
         const tickerParam = normTicker(pathParts[2]);
         if (!tickerParam) return sendJSON({ ok: false, error: "ticker required" }, 400, corsHeaders(env, req));
 
-        const profile = await loadTickerProfile(env, tickerParam);
-        if (!profile) return sendJSON({ ok: false, error: "no_profile", ticker: tickerParam }, 404, corsHeaders(env, req));
-
-        const sector = profile.sector || SECTOR_MAP[tickerParam] || "Unknown";
-        const sectorProfile = await loadSectorProfile(env, sector);
+        const contract = await buildSystemTickerProfiles(env, tickerParam);
+        if (!contract) return sendJSON({ ok: false, error: "no_profile", ticker: tickerParam }, 404, corsHeaders(env, req));
 
         return sendJSON({
           ok: true,
           ticker: tickerParam,
-          profile,
-          sector_profile: sectorProfile || null,
+          profile: contract,
+          sector_profile: contract?.sector ? await loadSectorProfile(env, contract.sector) : null,
+          merged: contract?.merged || null,
+          contract: contract?.contract || null,
         }, 200, corsHeaders(env, req));
       }
 
@@ -35166,7 +36081,8 @@ export default {
           const startDate = body?.start_date != null ? String(body.start_date) : null;
           const endDate = body?.end_date != null ? String(body.end_date) : null;
           const tags = Array.isArray(body?.tags) ? body.tags : [];
-          const paramsJson = body?.params && typeof body.params === "object" ? JSON.stringify(body.params) : null;
+          const params = body?.params && typeof body.params === "object" ? body.params : null;
+          const paramsJson = params ? JSON.stringify(params) : null;
           const liveConfigSlot = parseBool01(body?.live_config_slot);
           const protectedBaseline = parseBool01(body?.is_protected_baseline);
           const activeExperimentSlot = body?.active_experiment_slot != null
@@ -35227,8 +36143,9 @@ export default {
               start_date: startDate,
               end_date: endDate,
               tags,
-              params: body?.params && typeof body.params === "object" ? body.params : null,
+              params,
             },
+            env_overrides: params?.env_overrides,
           });
           return sendJSON({ ok: true, run_id: runId, status, rule_snapshot_ready: !!snapshotMeta?.snapshot }, 200, corsHeaders(env, req));
         } catch (e) {
@@ -35627,16 +36544,29 @@ export default {
               now,
             ),
           ]);
+          let runParams = body?.params && typeof body.params === "object" ? body.params : null;
+          if (!runParams) {
+            const runRow = await db.prepare(
+              `SELECT params_json
+               FROM backtest_runs
+               WHERE run_id = ?1
+               LIMIT 1`
+            ).bind(runId).first();
+            try { runParams = JSON.parse(runRow?.params_json || "null"); } catch (_) {}
+          }
           const snapshotMeta = await ensureRunRuleSnapshot(db, env, runId, {
             capture_stage: "finalize",
-            source: "finalize_fallback",
+            source: "finalize_effective",
+            force_refresh: true,
             metadata: {
               label: body?.label || null,
               description: body?.description || null,
               start_date: body?.start_date || null,
               end_date: body?.end_date || null,
+              params: runParams,
               summary: metricsPayload,
             },
+            env_overrides: runParams?.env_overrides,
           });
           return sendJSON({
             ok: true,
@@ -39092,28 +40022,70 @@ export default {
 
       if (routeKey === "GET /timed/system/ticker-profiles") {
         try {
+          const profiles = await buildSystemTickerProfiles(env);
+          return sendJSON({ ok: true, count: profiles.length, profiles }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      if (routeKey === "GET /timed/system/regime-profiles") {
+        try {
+          const limit = Math.max(1, Math.min(60, Number(url.searchParams.get("limit")) || 24));
+          const data = await buildRegimeProfileMappings(env, limit);
+          return sendJSON({
+            ok: true,
+            count: data.runs.length,
+            runs: data.runs,
+            profiles: data.profiles,
+          }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      if (routeKey === "GET /timed/system/context-history") {
+        try {
+          await d1EnsureLearningSchema(env);
           const db = env?.DB;
           if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
-          const rows = (await db.prepare(
-            `SELECT ticker, learning_json FROM ticker_profiles WHERE learning_json IS NOT NULL ORDER BY ticker`
-          ).all()).results || [];
-
-          const profiles = rows.map(row => {
-            let learning = null;
-            try { learning = JSON.parse(row.learning_json); } catch (_) {}
-            return {
-              ticker: row.ticker,
-              personality: learning?.personality || null,
-              move_count: learning?.move_count || 0,
-              avg_move_pct: learning?.avg_move_pct || null,
-              avg_duration: learning?.avg_duration || null,
-              entry_params: learning?.entry_params || null,
-              long_profile: learning?.long_profile || null,
-              short_profile: learning?.short_profile || null,
-            };
-          });
-
-          return sendJSON({ ok: true, count: profiles.length, profiles }, 200, corsHeaders(env, req));
+          const limit = Math.max(1, Math.min(120, Number(url.searchParams.get("limit")) || 30));
+          const fromDate = String(url.searchParams.get("from") || "").trim();
+          const toDate = String(url.searchParams.get("to") || "").trim();
+          const sector = String(url.searchParams.get("sector") || "").trim();
+          let marketSql = `SELECT * FROM market_context_history WHERE 1=1`;
+          let sectorSql = `SELECT * FROM sector_context_history WHERE 1=1`;
+          const marketBinds = [];
+          const sectorBinds = [];
+          if (fromDate) {
+            marketBinds.push(fromDate);
+            sectorBinds.push(fromDate);
+            marketSql += ` AND context_date >= ?${marketBinds.length}`;
+            sectorSql += ` AND context_date >= ?${sectorBinds.length}`;
+          }
+          if (toDate) {
+            marketBinds.push(toDate);
+            sectorBinds.push(toDate);
+            marketSql += ` AND context_date <= ?${marketBinds.length}`;
+            sectorSql += ` AND context_date <= ?${sectorBinds.length}`;
+          }
+          if (sector) {
+            sectorBinds.push(sector);
+            sectorSql += ` AND sector = ?${sectorBinds.length}`;
+          }
+          marketBinds.push(limit);
+          sectorBinds.push(Math.max(limit * 4, 40));
+          marketSql += ` ORDER BY context_date DESC LIMIT ?${marketBinds.length}`;
+          sectorSql += ` ORDER BY context_date DESC, sector ASC LIMIT ?${sectorBinds.length}`;
+          const [marketRows, sectorRows] = await Promise.all([
+            db.prepare(marketSql).bind(...marketBinds).all(),
+            db.prepare(sectorSql).bind(...sectorBinds).all(),
+          ]);
+          return sendJSON({
+            ok: true,
+            market: marketRows?.results || [],
+            sectors: sectorRows?.results || [],
+          }, 200, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
         }
@@ -42081,6 +43053,16 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           await kvPutJSON(env.KV_TIMED, "timed:investor:stages", allStages);
           await kvPutJSON(env.KV_TIMED, "timed:investor:rs-ranks", rsRanks);
           await kvPutJSON(env.KV_TIMED, "timed:investor:computed-at", Date.now());
+          try {
+            await persistMarketContextHistory(env, {
+              allTickerData,
+              marketHealth,
+              spyData,
+              qqqData,
+            });
+          } catch (e) {
+            console.warn("[MARKET_CONTEXT_HISTORY]", String(e?.message || e).slice(0, 200));
+          }
 
           return sendJSON({
             ok: true,
@@ -48146,7 +49128,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
         try {
           const db2 = env?.DB;
           if (db2) {
-            const daKeys = ["deep_audit_short_min_rank", "deep_audit_ticker_blacklist", "deep_audit_max_loss_pct", "deep_audit_sl_cap_mult", "deep_audit_sl_floor_mult", "deep_audit_rsi_tp_delay", "deep_audit_avoid_hours", "deep_audit_block_regime", "deep_audit_min_hold_regime_exit_hours", "deep_audit_loss_cooldown_hours", "deep_audit_min_htf_score", "deep_audit_momentum_elite_rank_boost", "deep_audit_breakout_daily_level_enabled", "deep_audit_breakout_atr_breakout_enabled", "deep_audit_breakout_ema_stack_enabled", "deep_audit_breakout_min_rr", "deep_audit_breakout_min_entry_quality", "deep_audit_variant_guardrails_v3", "deep_audit_variant_min_rank", "deep_audit_variant_min_rr", "deep_audit_variant_max_loss_pct", "deep_audit_variant_regime_exit_min_age_min", "deep_audit_rsi_all_tf_extreme_guard", "deep_audit_rsi_all_tf_high", "deep_audit_rsi_all_tf_low", "deep_audit_rsi_extreme_profile_min_pct", "deep_audit_swing_checklist_v1", "deep_audit_swing_phase_near_zero_abs", "deep_audit_swing_phase_early_max", "deep_audit_swing_require_squeeze_build"];
+            const daKeys = ["deep_audit_short_min_rank", "deep_audit_ticker_blacklist", "deep_audit_max_loss_pct", "deep_audit_sl_cap_mult", "deep_audit_sl_floor_mult", "deep_audit_rsi_tp_delay", "deep_audit_avoid_hours", "deep_audit_block_regime", "deep_audit_min_hold_regime_exit_hours", "deep_audit_loss_cooldown_hours", "deep_audit_min_htf_score", "deep_audit_momentum_elite_rank_boost", "deep_audit_breakout_daily_level_enabled", "deep_audit_breakout_atr_breakout_enabled", "deep_audit_breakout_ema_stack_enabled", "deep_audit_breakout_min_rr", "deep_audit_breakout_min_entry_quality", "deep_audit_variant_guardrails_v3", "deep_audit_variant_min_rank", "deep_audit_variant_min_rr", "deep_audit_variant_max_loss_pct", "deep_audit_variant_regime_exit_min_age_min", "deep_audit_rsi_all_tf_extreme_guard", "deep_audit_rsi_all_tf_high", "deep_audit_rsi_all_tf_low", "deep_audit_rsi_extreme_profile_min_pct", "deep_audit_swing_checklist_v1", "deep_audit_swing_phase_near_zero_abs", "deep_audit_swing_phase_early_max", "deep_audit_swing_require_squeeze_build", "deep_audit_ripster_chase_rsi10_long", "deep_audit_ripster_chase_rsi30_long", "deep_audit_ripster_chase_rsi10_short", "deep_audit_ripster_chase_rsi30_short", "deep_audit_ripster_chase_dist_to_cloud_pct", "deep_audit_ripster_momentum_heat_rsi30", "deep_audit_ripster_momentum_heat_rsi1h", "deep_audit_ripster_opening_noise_end_minute", "deep_audit_ripster_trigger_noise_max_loss_pct", "deep_audit_ripster_pullback_trigger_noise_max_loss_pct"];
             const daRows = (await db2.prepare(
               `SELECT config_key, config_value FROM model_config WHERE config_key IN (${daKeys.map((_, i) => `?${i + 1}`).join(",")})`
             ).bind(...daKeys).all())?.results || [];

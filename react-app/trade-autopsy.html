@@ -160,6 +160,11 @@
         return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 }).format(n);
       }
 
+      function fmtPct(n, digits = 1) {
+        if (!Number.isFinite(Number(n))) return "—";
+        return `${Number(n).toFixed(digits)}%`;
+      }
+
       function shortRunId(runId) {
         const r = String(runId || "").trim();
         if (!r) return "—";
@@ -746,6 +751,8 @@
         const [entryGrade, setEntryGrade] = useState(Array.isArray(annotations?.entry_grade) ? annotations.entry_grade : []);
         const [tradeManagement, setTradeManagement] = useState(Array.isArray(annotations?.trade_management) ? annotations.trade_management : []);
         const [saving, setSaving] = useState(false);
+        const [tickerProfile, setTickerProfile] = useState(null);
+        const [tickerProfileLoading, setTickerProfileLoading] = useState(false);
         useEffect(() => {
           setEntryGrade(Array.isArray(annotations?.entry_grade) ? annotations.entry_grade : []);
           setTradeManagement(Array.isArray(annotations?.trade_management) ? annotations.trade_management : []);
@@ -796,6 +803,29 @@
             }
           }
         }, [trade?.ticker, trade?.entry_ts, trade?.exit_ts]);
+
+        useEffect(() => {
+          let cancelled = false;
+          const ticker = String(trade?.ticker || "").trim().toUpperCase();
+          if (!ticker) {
+            setTickerProfile(null);
+            return;
+          }
+          setTickerProfileLoading(true);
+          fetch(`${API_BASE}/timed/profile/${encodeURIComponent(ticker)}`, fetchOpts)
+            .then(r => r.json())
+            .then(data => {
+              if (cancelled) return;
+              setTickerProfile(data?.ok ? (data.profile || null) : null);
+            })
+            .catch(() => {
+              if (!cancelled) setTickerProfile(null);
+            })
+            .finally(() => {
+              if (!cancelled) setTickerProfileLoading(false);
+            });
+          return () => { cancelled = true; };
+        }, [trade?.ticker]);
 
         // Auto-apply entry/exit price correction so displayed prices match 10m bar closes
         useEffect(() => {
@@ -857,6 +887,15 @@
         const mfe = trade?.max_favorable_excursion;
         const mae = trade?.max_adverse_excursion;
         const exitReason = trade?.exit_reason;
+        const contextProfile = tickerProfile?.contract?.context || null;
+        const executionProfile = tickerProfile?.contract?.execution || null;
+        const learningProfile = tickerProfile?.contract?.learning || null;
+        const favoredRegime = contextProfile?.favored_regime || null;
+        const favoredVix = contextProfile?.favored_vix_bucket || null;
+        const favoredPath = contextProfile?.favored_entry_path || null;
+        const topRegimeRow = contextProfile?.by_regime?.[0] || null;
+        const topVixRow = contextProfile?.by_vix_bucket?.[0] || null;
+        const topPathRow = contextProfile?.by_entry_path?.[0] || null;
 
         return (
           <div className="fixed inset-0 z-[100] flex items-center justify-center md:p-4" style={{ background: "rgba(0,0,0,0.7)", backdropFilter: "blur(4px)" }} onClick={onClose}>
@@ -969,6 +1008,71 @@
                         </div>
                       );
                     })()}
+                    {(tickerProfileLoading || tickerProfile?.contract) && (
+                      <div className="tt-card p-3 shrink-0">
+                        <div className="text-[11px] font-semibold text-[#60a5fa] uppercase tracking-wider mb-2">Canonical ticker context</div>
+                        {tickerProfileLoading ? (
+                          <div className="text-[12px] text-[#6b7280]">Loading profile evidence…</div>
+                        ) : (
+                          <div className="space-y-3">
+                            <div className="grid grid-cols-2 gap-2 text-[12px]">
+                              <div className="px-2.5 py-2 rounded-lg bg-white/[0.03] border border-white/[0.06]">
+                                <div className="text-[10px] text-[#6b7280] uppercase tracking-wider">Personality</div>
+                                <div className="text-white font-semibold mt-0.5">{(tickerProfile?.personality || "—").replace(/_/g, " ")}</div>
+                                <div className="text-[10px] text-[#6b7280] mt-1">{(tickerProfile?.behavior_type || "—").replace(/_/g, " ")}</div>
+                              </div>
+                              <div className="px-2.5 py-2 rounded-lg bg-white/[0.03] border border-white/[0.06]">
+                                <div className="text-[10px] text-[#6b7280] uppercase tracking-wider">Context sample</div>
+                                <div className="text-white font-semibold mt-0.5">{contextProfile?.sample_count ?? "—"} trades</div>
+                                <div className="text-[10px] text-[#6b7280] mt-1">{fmtPct(contextProfile?.win_rate)} WR</div>
+                              </div>
+                              <div className="px-2.5 py-2 rounded-lg bg-white/[0.03] border border-white/[0.06]">
+                                <div className="text-[10px] text-[#6b7280] uppercase tracking-wider">Avg outcome</div>
+                                <div className={Number(contextProfile?.avg_pnl_pct || 0) >= 0 ? "text-[#22c55e] font-semibold mt-0.5" : "text-[#ef4444] font-semibold mt-0.5"}>{fmtPct(contextProfile?.avg_pnl_pct, 2)}</div>
+                                <div className="text-[10px] text-[#6b7280] mt-1">MAE {fmtPct(contextProfile?.avg_mae_pct, 2)}</div>
+                              </div>
+                              <div className="px-2.5 py-2 rounded-lg bg-white/[0.03] border border-white/[0.06]">
+                                <div className="text-[10px] text-[#6b7280] uppercase tracking-wider">Merged risk</div>
+                                <div className="text-white font-semibold mt-0.5">{executionProfile?.merged_sl_mult ? `${executionProfile.merged_sl_mult}x` : "—"} / {executionProfile?.merged_tp_mult ? `${executionProfile.merged_tp_mult}x` : "—"}</div>
+                                <div className="text-[10px] text-[#6b7280] mt-1">SL / TP ATR</div>
+                              </div>
+                            </div>
+                            <div className="space-y-2 text-[12px] text-[#d1d5db]">
+                              <div className="flex flex-wrap gap-2">
+                                <span className="px-2 py-1 rounded-md bg-[#22c55e]/10 border border-[#22c55e]/20 text-[#86efac] text-[11px]">
+                                  Regime: {favoredRegime || "—"}
+                                </span>
+                                <span className="px-2 py-1 rounded-md bg-[#a78bfa]/10 border border-[#a78bfa]/20 text-[#c4b5fd] text-[11px]">
+                                  VIX: {favoredVix || "—"}
+                                </span>
+                                <span className="px-2 py-1 rounded-md bg-[#14b8a6]/10 border border-[#14b8a6]/20 text-[#5eead4] text-[11px]">
+                                  Path: {formatPath(favoredPath) || "—"}
+                                </span>
+                              </div>
+                              <div className="text-[11px] text-[#9ca3af] leading-relaxed">
+                                Counter-consensus rate: <span className="text-white">{fmtPct(contextProfile?.counter_consensus_rate)}</span>
+                                {learningProfile?.entry_params?.trail_style ? <> • Trail style: <span className="text-white">{learningProfile.entry_params.trail_style}</span></> : null}
+                                {learningProfile?.entry_params?.long_rsi_sweet_spot ? <> • Long RSI: <span className="text-white">{learningProfile.entry_params.long_rsi_sweet_spot}</span></> : null}
+                              </div>
+                              <div className="grid grid-cols-1 gap-2 text-[11px]">
+                                <div className="px-2.5 py-2 rounded-md bg-white/[0.025] border border-white/[0.05]">
+                                  <div className="text-[#6b7280] uppercase tracking-wider text-[10px] mb-1">Best regime bucket</div>
+                                  <div className="text-white">{topRegimeRow?.regime || "—"} {topRegimeRow ? `• ${fmtPct(topRegimeRow.win_rate)} WR • ${fmtPct(topRegimeRow.avg_pnl_pct, 2)} avg` : ""}</div>
+                                </div>
+                                <div className="px-2.5 py-2 rounded-md bg-white/[0.025] border border-white/[0.05]">
+                                  <div className="text-[#6b7280] uppercase tracking-wider text-[10px] mb-1">Best VIX bucket</div>
+                                  <div className="text-white">{topVixRow?.bucket || "—"} {topVixRow ? `• ${fmtPct(topVixRow.win_rate)} WR • ${fmtPct(topVixRow.avg_pnl_pct, 2)} avg` : ""}</div>
+                                </div>
+                                <div className="px-2.5 py-2 rounded-md bg-white/[0.025] border border-white/[0.05]">
+                                  <div className="text-[#6b7280] uppercase tracking-wider text-[10px] mb-1">Best entry path</div>
+                                  <div className="text-white">{formatPath(topPathRow?.entry_path) || "—"} {topPathRow ? `• ${fmtPct(topPathRow.win_rate)} WR • ${fmtPct(topPathRow.avg_pnl_pct, 2)} avg` : ""}</div>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
                     {(exitReason != null || Number.isFinite(mfe) || Number.isFinite(mae)) && (
                       <div className="tt-card p-3 shrink-0">
                         <div className="text-[11px] font-semibold text-[#f59e0b] uppercase tracking-wider mb-2">Exit context</div>
@@ -1082,6 +1186,7 @@
         const RUN_FILTER_LATEST = "__LATEST__";
         const [trades, setTrades] = useState([]);
         const [annotations, setAnnotations] = useState({});
+        const [availableRuns, setAvailableRuns] = useState([]);
         const [loading, setLoading] = useState(true);
         const [error, setError] = useState(null);
         const [selectedTrade, setSelectedTrade] = useState(null);
@@ -1092,36 +1197,83 @@
         const [filterDateTo, setFilterDateTo] = useState("");
         const [filterRunId, setFilterRunId] = useState(RUN_FILTER_LATEST);
 
-        const runMeta = useMemo(() => {
-          const byRun = new Map();
-          for (const t of trades || []) {
-            const rid = String(t?.run_id || "").trim();
-            if (!rid) continue;
-            const ts = Number(t?.entry_ts || 0);
-            const prev = byRun.get(rid);
-            if (!prev || ts > prev.latestTs) byRun.set(rid, { runId: rid, latestTs: ts });
-          }
-          const runs = Array.from(byRun.values()).sort((a, b) => b.latestTs - a.latestTs);
-          return {
-            runs,
-            latestRunId: runs.length ? runs[0].runId : "",
-          };
-        }, [trades]);
+        const tradeIdFromUrl = (() => {
+          const params = new URLSearchParams(window.location.search);
+          return params.get("trade_id") || params.get("tradeId") || null;
+        })();
+        const runIdFromUrl = (() => {
+          const params = new URLSearchParams(window.location.search);
+          return params.get("run_id") || params.get("runId") || null;
+        })();
+        const reviewableRuns = useMemo(
+          () => (availableRuns || []).filter(r => String(r?.status || "").trim().toLowerCase() === "completed" && Number(r?.total_trades || 0) > 0),
+          [availableRuns]
+        );
+        const runMeta = useMemo(() => ({
+          runs: reviewableRuns.map(r => ({ runId: String(r.run_id || "").trim(), label: r.label || null, startDate: r.start_date || null, endDate: r.end_date || null })),
+          latestRunId: reviewableRuns.length ? String(reviewableRuns[0].run_id || "").trim() : "",
+        }), [reviewableRuns]);
+        const effectiveRunId = useMemo(() => {
+          const fromUrl = String(runIdFromUrl || "").trim();
+          if (fromUrl) return fromUrl;
+          if (filterRunId === RUN_FILTER_LATEST) return runMeta.latestRunId;
+          return String(filterRunId || "").trim();
+        }, [runIdFromUrl, filterRunId, runMeta.latestRunId]);
+        const annotationsUrl = (() => {
+          const base = `${API_BASE}/timed/admin/trade-autopsy/annotations?all=1`;
+          if (effectiveRunId) return `${base}&run_id=${encodeURIComponent(effectiveRunId)}`;
+          return base;
+        })();
+        const tradesUrl = (() => {
+          const base = `${API_BASE}/timed/admin/trade-autopsy/trades`;
+          if (effectiveRunId) return `${base}?run_id=${encodeURIComponent(effectiveRunId)}`;
+          return base;
+        })();
 
         useEffect(() => {
           if (!runMeta.latestRunId) return;
+          if (runIdFromUrl) return;
           if (filterRunId === RUN_FILTER_LATEST) return;
           const exists = runMeta.runs.some(r => r.runId === filterRunId);
           if (!exists) setFilterRunId(RUN_FILTER_LATEST);
-        }, [runMeta, filterRunId]);
+        }, [runMeta, filterRunId, runIdFromUrl]);
+
+        const buildTradesUrl = useCallback((runId) => {
+          const base = `${API_BASE}/timed/admin/trade-autopsy/trades`;
+          return runId ? `${base}?run_id=${encodeURIComponent(runId)}` : base;
+        }, []);
+        const buildAnnotationsUrl = useCallback((runId) => {
+          const base = `${API_BASE}/timed/admin/trade-autopsy/annotations?all=1`;
+          return runId ? `${base}&run_id=${encodeURIComponent(runId)}` : base;
+        }, []);
+        const resolveLatestCompletedRunId = useCallback((runs) => {
+          const list = Array.isArray(runs) ? runs : [];
+          const match = list.find(r => String(r?.status || "").trim().toLowerCase() === "completed" && Number(r?.total_trades || 0) > 0);
+          return match ? String(match.run_id || "").trim() : "";
+        }, []);
+        const refreshRuns = useCallback(async () => {
+          try {
+            const r = await fetch(`${API_BASE}/timed/admin/runs?limit=100&include_archived=1`, fetchOpts);
+            const d = await r.json();
+            if (d.ok && Array.isArray(d.runs)) {
+              setAvailableRuns(d.runs);
+              return d.runs;
+            } else if (d?.error === "unauthorized") {
+              setError("Admin access required");
+            }
+          } catch (_) {
+            setError("Failed to load runs");
+          }
+          return [];
+        }, []);
 
         const refreshAnnotations = useCallback(async () => {
           try {
-            const r = await fetch(`${API_BASE}/timed/admin/trade-autopsy/annotations?all=1`, fetchOpts);
+            const r = await fetch(annotationsUrl, fetchOpts);
             const d = await r.json();
             if (d.ok && d.annotations) setAnnotations(d.annotations);
           } catch (_) {}
-        }, []);
+        }, [annotationsUrl]);
 
         const refreshTrades = useCallback(async () => {
           try {
@@ -1147,9 +1299,11 @@
           setLoading(true);
           setError(null);
           try {
+            const runs = await refreshRuns();
+            const resolvedRunId = String(runIdFromUrl || "").trim() || (filterRunId === RUN_FILTER_LATEST ? resolveLatestCompletedRunId(runs) : String(filterRunId || "").trim());
             const [tradesRes, annRes] = await Promise.all([
-              fetch(tradesUrl, fetchOpts).then(r => r.json()),
-              fetch(`${API_BASE}/timed/admin/trade-autopsy/annotations?all=1`, fetchOpts).then(r => r.json()),
+              fetch(buildTradesUrl(resolvedRunId), fetchOpts).then(r => r.json()),
+              fetch(buildAnnotationsUrl(resolvedRunId), fetchOpts).then(r => r.json()),
             ]);
             if (tradesRes.ok && Array.isArray(tradesRes.trades)) setTrades(tradesRes.trades);
             else setError(tradesRes?.error === "unauthorized" ? "Admin access required" : "Failed to load trades");
@@ -1159,33 +1313,41 @@
           } finally {
             setLoading(false);
           }
-        }, [tradesUrl]);
+        }, [buildAnnotationsUrl, buildTradesUrl, filterRunId, refreshRuns, resolveLatestCompletedRunId, runIdFromUrl]);
 
         useEffect(() => {
-          Promise.all([
-            fetch(tradesUrl, fetchOpts).then(r => r.json()),
-            fetch(`${API_BASE}/timed/admin/trade-autopsy/annotations?all=1`, fetchOpts).then(r => r.json()),
-          ]).then(([tradesData, annData]) => {
-            if (tradesData.ok && Array.isArray(tradesData.trades)) setTrades(tradesData.trades);
-            else setError(tradesData?.error === "unauthorized" ? "Admin access required" : "Failed to load trades");
-            if (annData.ok && annData.annotations) setAnnotations(annData.annotations);
-          }).catch(() => setError("Failed to load trades")).finally(() => setLoading(false));
-        }, []);
+          let cancelled = false;
+          setLoading(true);
+          setError(null);
+          (async () => {
+            try {
+              const runsRes = await fetch(`${API_BASE}/timed/admin/runs?limit=100&include_archived=1`, fetchOpts).then(r => r.json());
+              if (cancelled) return;
+              const runs = runsRes.ok && Array.isArray(runsRes.runs) ? runsRes.runs : [];
+              if (runsRes.ok && Array.isArray(runsRes.runs)) setAvailableRuns(runsRes.runs);
+              else if (runsRes?.error === "unauthorized") {
+                setError("Admin access required");
+                return;
+              }
+              const resolvedRunId = String(runIdFromUrl || "").trim() || (filterRunId === RUN_FILTER_LATEST ? resolveLatestCompletedRunId(runs) : String(filterRunId || "").trim());
+              const [tradesData, annData] = await Promise.all([
+                fetch(buildTradesUrl(resolvedRunId), fetchOpts).then(r => r.json()),
+                fetch(buildAnnotationsUrl(resolvedRunId), fetchOpts).then(r => r.json()),
+              ]);
+              if (cancelled) return;
+              if (tradesData.ok && Array.isArray(tradesData.trades)) setTrades(tradesData.trades);
+              else setError(tradesData?.error === "unauthorized" ? "Admin access required" : "Failed to load trades");
+              if (annData.ok && annData.annotations) setAnnotations(annData.annotations);
+            } catch (_) {
+              if (!cancelled) setError("Failed to load trades");
+            } finally {
+              if (!cancelled) setLoading(false);
+            }
+          })();
+          return () => { cancelled = true; };
+        }, [buildAnnotationsUrl, buildTradesUrl, filterRunId, resolveLatestCompletedRunId, runIdFromUrl]);
 
         // Deep link: ?trade_id=XXX — open that trade's autopsy modal when trades are loaded
-        const tradeIdFromUrl = (() => {
-          const params = new URLSearchParams(window.location.search);
-          return params.get("trade_id") || params.get("tradeId") || null;
-        })();
-        const runIdFromUrl = (() => {
-          const params = new URLSearchParams(window.location.search);
-          return params.get("run_id") || params.get("runId") || null;
-        })();
-        const tradesUrl = (() => {
-          const base = `${API_BASE}/timed/admin/trade-autopsy/trades`;
-          if (runIdFromUrl) return `${base}?run_id=${encodeURIComponent(runIdFromUrl)}`;
-          return base;
-        })();
         useEffect(() => {
           if (!tradeIdFromUrl || !trades.length) return;
           const match = trades.find(t => (t.trade_id || t.id || "") === tradeIdFromUrl);

@@ -1108,6 +1108,8 @@ function PatternsTab() {
   const [predictions, setPredictions] = useState(null);
   const [retro, setRetro] = useState(null);
   const [tickerProfiles, setTickerProfiles] = useState(null);
+  const [regimeProfiles, setRegimeProfiles] = useState(null);
+  const [contextHistory, setContextHistory] = useState(null);
   const [profileFilter, setProfileFilter] = useState("");
   const [profileSort, setProfileSort] = useState("ticker");
   const [sub, setSub] = useState("patterns");
@@ -1132,9 +1134,14 @@ function PatternsTab() {
     if (sub !== "profiles" || tickerProfiles) return;
     const load = async () => {
       try {
-        const res = await fetch(`${API_BASE}/timed/system/ticker-profiles`, { credentials: "include" });
-        const data = await res.json();
-        if (data.ok) setTickerProfiles(data.profiles || []);
+        const [profileRes, regimeRes, contextRes] = await Promise.all([
+          fetch(`${API_BASE}/timed/system/ticker-profiles`, { credentials: "include" }).then(r => r.json()),
+          fetch(`${API_BASE}/timed/system/regime-profiles?limit=24`, { credentials: "include" }).then(r => r.json()),
+          fetch(`${API_BASE}/timed/system/context-history?limit=20`, { credentials: "include" }).then(r => r.json()),
+        ]);
+        if (profileRes.ok) setTickerProfiles(profileRes.profiles || []);
+        if (regimeRes.ok) setRegimeProfiles(regimeRes);
+        if (contextRes.ok) setContextHistory(contextRes);
       } catch (_) {}
     };
     load();
@@ -1146,6 +1153,19 @@ function PatternsTab() {
     { id: "learning", label: "Learning Loop" },
     { id: "profiles", label: "Ticker Profiles" },
   ];
+  const fmtPctValue = (value) => value == null || Number.isNaN(Number(value)) ? "—" : `${Number(value).toFixed(1)}%`;
+  const fmtNum = (value, digits = 2) => value == null || Number.isNaN(Number(value)) ? "—" : Number(value).toFixed(digits);
+  const marketRows = Array.isArray(contextHistory?.market) ? contextHistory.market : [];
+  const sectorRows = Array.isArray(contextHistory?.sectors) ? contextHistory.sectors : [];
+  const latestSectorRows = sectorRows.slice(0, 12);
+  const filteredProfiles = !tickerProfiles ? [] : tickerProfiles
+    .filter(p => !profileFilter || p.ticker?.includes(profileFilter) || (p.personality || "").includes(profileFilter) || (p.behavior_type || "").includes(profileFilter))
+    .sort((a, b) => {
+      if (profileSort === "wr") return Number(b.contract?.context?.win_rate || -999) - Number(a.contract?.context?.win_rate || -999);
+      if (profileSort === "avg_pnl") return Number(b.contract?.context?.avg_pnl_pct || -999) - Number(a.contract?.context?.avg_pnl_pct || -999);
+      if (profileSort === "samples") return Number(b.contract?.context?.sample_count || -999) - Number(a.contract?.context?.sample_count || -999);
+      return String(a.ticker || "").localeCompare(String(b.ticker || ""));
+    });
 
   return (
     <div>
@@ -1239,16 +1259,185 @@ function PatternsTab() {
 
       {sub === "profiles" && (
         <div className="space-y-4">
+          {contextHistory && (
+            <div className="card p-4 space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+                <div>
+                  <h3 className="text-sm font-semibold text-white">Market / Sector Context History</h3>
+                  <p className="text-[11px] text-slate-500 mt-1">Stored daily snapshots used to anchor future ticker-profile and regime joins to actual market context, not only reconstructed candles.</p>
+                </div>
+                <div className="text-[10px] text-slate-500 sm:ml-auto">{marketRows.length || 0} market snapshots</div>
+              </div>
+              {marketRows.length > 0 && (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="text-slate-500 border-b border-white/[0.05]">
+                        <th className="text-left py-1.5 font-medium">Date</th>
+                        <th className="text-left px-2 font-medium">Market Regime</th>
+                        <th className="text-left px-2 font-medium">Health</th>
+                        <th className="text-right px-2 font-medium">Breadth W200</th>
+                        <th className="text-right px-2 font-medium">Breadth D50</th>
+                        <th className="text-right pl-2 font-medium">VIX</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {marketRows.slice(0, 10).map((row, idx) => (
+                        <tr key={idx} className="border-b border-white/[0.03] hover:bg-white/[0.02]">
+                          <td className="py-1.5 font-mono text-slate-300">{row.context_date || "—"}</td>
+                          <td className="px-2">
+                            <div className="text-white">{row.market_regime_class || "—"}</div>
+                            <div className="text-[10px] text-slate-500">{row.spy_regime_combined || "—"} / {row.qqq_regime_combined || "—"}</div>
+                          </td>
+                          <td className="px-2">
+                            <div className="text-slate-200">{row.market_health_regime || "—"}</div>
+                            <div className="text-[10px] text-slate-500">{fmtNum(row.market_health_score, 0)} score</div>
+                          </td>
+                          <td className="text-right px-2 text-slate-300">{fmtPctValue(row.breadth_pct_above_w200)}</td>
+                          <td className="text-right px-2 text-slate-300">{fmtPctValue(row.breadth_pct_above_d50)}</td>
+                          <td className="text-right pl-2">
+                            <div className="text-slate-200">{fmtNum(row.vix_close, 2)}</div>
+                            <div className="text-[10px] text-slate-500">{row.vix_bucket || "—"}</div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+              {latestSectorRows.length > 0 && (
+                <div>
+                  <div className="text-[11px] font-semibold text-slate-300 mb-2">Latest sector context rows</div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+                    {latestSectorRows.map((row, idx) => (
+                      <div key={idx} className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-4">
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="text-sm font-semibold text-white">{row.sector || "—"}</div>
+                          <div className="text-[10px] text-slate-500 font-mono">{row.context_date || "—"}</div>
+                        </div>
+                        <div className="mt-2 text-[11px] text-slate-400 flex flex-wrap gap-2">
+                          <span className="px-2 py-1 rounded-md bg-[#22c55e]/10 border border-[#22c55e]/20 text-[#86efac]">{row.regime_class || "—"}</span>
+                          <span className="px-2 py-1 rounded-md bg-white/[0.04] border border-white/[0.06] text-slate-300">{fmtNum(row.regime_score, 2)} score</span>
+                        </div>
+                        <div className="mt-3 grid grid-cols-2 gap-2 text-[11px]">
+                          <div className="rounded-md bg-black/20 border border-white/[0.05] px-2.5 py-2">
+                            <div className="text-slate-500 uppercase tracking-wide text-[10px]">Bullish breadth</div>
+                            <div className="text-white mt-1">{fmtPctValue(row.bullish_member_pct)}</div>
+                          </div>
+                          <div className="rounded-md bg-black/20 border border-white/[0.05] px-2.5 py-2">
+                            <div className="text-slate-500 uppercase tracking-wide text-[10px]">Members</div>
+                            <div className="text-white mt-1">{row.member_count || 0}</div>
+                          </div>
+                          <div className="rounded-md bg-black/20 border border-white/[0.05] px-2.5 py-2">
+                            <div className="text-slate-500 uppercase tracking-wide text-[10px]">Avg weekly struct</div>
+                            <div className="text-white mt-1">{fmtNum(row.avg_weekly_structure, 3)}</div>
+                          </div>
+                          <div className="rounded-md bg-black/20 border border-white/[0.05] px-2.5 py-2">
+                            <div className="text-slate-500 uppercase tracking-wide text-[10px]">Avg daily struct</div>
+                            <div className="text-white mt-1">{fmtNum(row.avg_daily_structure, 3)}</div>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+          {regimeProfiles && (
+            <div className="card p-4 space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+                <div>
+                  <h3 className="text-sm font-semibold text-white">Regime Profile Mapping</h3>
+                  <p className="text-[11px] text-slate-500 mt-1">Completed runs grouped into reviewable profile buckets from historical SPY regime and VIX context at trade entry.</p>
+                </div>
+                <div className="text-[10px] text-slate-500 sm:ml-auto">{regimeProfiles.count || 0} mapped runs</div>
+              </div>
+              {Array.isArray(regimeProfiles.profiles) && regimeProfiles.profiles.length > 0 && (
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
+                  {regimeProfiles.profiles.map((profile, idx) => (
+                    <div key={idx} className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-4">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="text-sm font-semibold text-white">{profile.title}</div>
+                        <div className="text-[10px] uppercase tracking-wide text-slate-500">{profile.profile_key.replace(/_/g, " ")}</div>
+                      </div>
+                      <p className="text-[11px] text-slate-400 mt-2 leading-relaxed">{profile.why}</p>
+                      <div className="mt-3 space-y-2">
+                        {(profile.candidate_runs || []).map((run) => (
+                          <div key={run.run_id} className="rounded-lg bg-black/20 border border-white/[0.04] px-3 py-2">
+                            <div className="flex items-center justify-between gap-3 text-[11px]">
+                              <span className="font-mono text-slate-300 truncate">{run.label || run.run_id}</span>
+                              <span className={`${Number(run.realized_pnl || 0) >= 0 ? "text-emerald-400" : "text-rose-400"}`}>${fmtNum(run.realized_pnl, 0)}</span>
+                            </div>
+                            <div className="mt-1 text-[10px] text-slate-500 flex flex-wrap gap-3">
+                              <span>{run.top_regime || "—"}</span>
+                              <span>{run.top_vix_bucket || "—"}</span>
+                              <span>{fmtPctValue(run.win_rate)} WR</span>
+                              <span>{run.trades || 0} trades</span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {Array.isArray(regimeProfiles.runs) && regimeProfiles.runs.length > 0 && (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="text-slate-500 border-b border-white/[0.05]">
+                        <th className="text-left py-1.5 font-medium">Run</th>
+                        <th className="text-left px-2 font-medium">Recommended Profile</th>
+                        <th className="text-left px-2 font-medium">Best Regime</th>
+                        <th className="text-left px-2 font-medium">Best VIX</th>
+                        <th className="text-right px-2 font-medium">WR</th>
+                        <th className="text-right pl-2 font-medium">P&amp;L</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {regimeProfiles.runs.slice(0, 12).map((run) => (
+                        <tr key={run.run_id} className="border-b border-white/[0.03] hover:bg-white/[0.02]">
+                          <td className="py-1.5">
+                            <div className="font-mono text-white">{run.label || run.run_id}</div>
+                            <div className="text-[10px] text-slate-500">{run.start_date || "—"} to {run.end_date || "—"}</div>
+                          </td>
+                          <td className="px-2">
+                            <div className="text-slate-200">{run.recommendation?.title || "—"}</div>
+                            <div className="text-[10px] text-slate-500">{run.recommendation?.why || ""}</div>
+                          </td>
+                          <td className="px-2 text-slate-300">{run.context?.by_regime?.[0]?.regime || "—"}</td>
+                          <td className="px-2 text-slate-300">{run.context?.by_vix_bucket?.[0]?.bucket || "—"}</td>
+                          <td className="text-right px-2 text-slate-300">{fmtPctValue(run.win_rate)}</td>
+                          <td className={`text-right pl-2 ${Number(run.realized_pnl || 0) >= 0 ? "text-emerald-400" : "text-rose-400"}`}>${fmtNum(run.realized_pnl, 0)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
           <div className="card p-4">
             <div className="flex flex-col sm:flex-row sm:items-center gap-3 mb-4">
-              <h3 className="text-sm font-semibold text-white">Ticker Learning Profiles</h3>
+              <h3 className="text-sm font-semibold text-white">Ticker Context Profiles</h3>
               <input
                 type="text"
-                placeholder="Filter by ticker..."
+                placeholder="Filter by ticker / profile..."
                 value={profileFilter}
                 onChange={e => setProfileFilter(e.target.value.toUpperCase())}
                 className="px-3 py-1.5 text-xs bg-white/[0.04] border border-white/[0.08] rounded-lg text-white placeholder-slate-500 focus:outline-none focus:border-blue-500/50 w-full sm:w-48"
               />
+              <select
+                value={profileSort}
+                onChange={e => setProfileSort(e.target.value)}
+                className="px-3 py-1.5 text-xs bg-white/[0.04] border border-white/[0.08] rounded-lg text-white focus:outline-none focus:border-blue-500/50"
+              >
+                <option value="ticker">Sort: Ticker</option>
+                <option value="samples">Sort: Samples</option>
+                <option value="wr">Sort: Win Rate</option>
+                <option value="avg_pnl">Sort: Avg P&amp;L</option>
+              </select>
               {tickerProfiles && (
                 <div className="flex gap-3 text-[10px] text-slate-500 ml-auto">
                   {(() => {
@@ -1275,34 +1464,50 @@ function PatternsTab() {
                   <thead>
                     <tr className="text-slate-500 border-b border-white/[0.05]">
                       <th className="text-left py-1.5 font-medium">Ticker</th>
-                      <th className="text-left px-2 font-medium">Personality</th>
+                      <th className="text-left px-2 font-medium">Personality / Type</th>
                       <th className="text-right px-2 font-medium">Moves</th>
-                      <th className="text-right px-2 font-medium">SL Mult</th>
-                      <th className="text-right px-2 font-medium">TP Mult</th>
-                      <th className="text-left px-2 font-medium">Trail</th>
-                      <th className="text-right px-2 font-medium">Long RSI Zone</th>
-                      <th className="text-right px-2 font-medium">Short RSI Zone</th>
-                      <th className="text-right pl-2 font-medium">EMA Boost</th>
+                      <th className="text-right px-2 font-medium">Context Samples</th>
+                      <th className="text-right px-2 font-medium">WR / Avg P&amp;L</th>
+                      <th className="text-left px-2 font-medium">Favored Regime</th>
+                      <th className="text-left px-2 font-medium">Favored VIX</th>
+                      <th className="text-left px-2 font-medium">Best Path</th>
+                      <th className="text-right px-2 font-medium">Counter-Consensus</th>
+                      <th className="text-right pl-2 font-medium">Merged SL / TP</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {tickerProfiles
-                      .filter(p => !profileFilter || p.ticker?.includes(profileFilter) || (p.personality || "").includes(profileFilter))
-                      .map((p, i) => {
+                    {filteredProfiles.map((p, i) => {
                         const ep = p.entry_params || {};
+                        const ctx = p.contract?.context || {};
                         const pColors = { VOLATILE_RUNNER: "text-rose-400", PULLBACK_PLAYER: "text-amber-400", SLOW_GRINDER: "text-emerald-400", MODERATE: "text-blue-400", TREND_FOLLOWER: "text-violet-400" };
                         const pClass = pColors[p.personality] || "text-slate-400";
                         return (
                           <tr key={i} className="border-b border-white/[0.03] hover:bg-white/[0.02]">
-                            <td className="py-1.5 font-mono font-bold text-white">{p.ticker}</td>
-                            <td className={`px-2 font-semibold ${pClass}`}>{(p.personality || "—").replace(/_/g, " ")}</td>
+                            <td className="py-1.5 font-mono font-bold text-white">
+                              <div>{p.ticker}</div>
+                              <div className="text-[10px] font-normal text-slate-500">{p.sector || "—"}</div>
+                            </td>
+                            <td className="px-2">
+                              <div className={`font-semibold ${pClass}`}>{(p.personality || "—").replace(/_/g, " ")}</div>
+                              <div className="text-[10px] text-slate-500">{(p.behavior_type || "—").replace(/_/g, " ")}</div>
+                            </td>
                             <td className="text-right px-2 text-slate-300">{p.move_count ?? "—"}</td>
-                            <td className="text-right px-2 text-slate-300">{ep.sl_atr_mult ? `${ep.sl_atr_mult}x` : (p.sl_mult ? `${p.sl_mult}x` : "—")}</td>
-                            <td className="text-right px-2 text-slate-300">{ep.tp_atr_mult ? `${ep.tp_atr_mult}x` : (p.tp_mult ? `${p.tp_mult}x` : "—")}</td>
-                            <td className="px-2 text-slate-400">{ep.trail_style || "—"}</td>
-                            <td className="text-right px-2 text-slate-300">{ep.long_rsi_sweet_spot || p.long_profile?.rsi_best_zone || "—"}</td>
-                            <td className="text-right px-2 text-slate-300">{ep.short_rsi_sweet_spot || p.short_profile?.rsi_best_zone || "—"}</td>
-                            <td className="text-right pl-2">{ep.ema_alignment_boost ? <span className={Number(ep.ema_alignment_boost) > 1.2 ? "text-emerald-400 font-medium" : "text-slate-400"}>{ep.ema_alignment_boost}x</span> : "—"}</td>
+                            <td className="text-right px-2 text-slate-300">{ctx.sample_count ?? "—"}</td>
+                            <td className="text-right px-2">
+                              <div className="text-slate-200">{fmtPctValue(ctx.win_rate)}</div>
+                              <div className={`${Number(ctx.avg_pnl_pct || 0) >= 0 ? "text-emerald-400" : "text-rose-400"} text-[10px]`}>{fmtPctValue(ctx.avg_pnl_pct)}</div>
+                            </td>
+                            <td className="px-2 text-slate-300">{ctx.favored_regime || "—"}</td>
+                            <td className="px-2 text-slate-300">{ctx.favored_vix_bucket || "—"}</td>
+                            <td className="px-2">
+                              <div className="text-slate-300">{ctx.favored_entry_path || "—"}</div>
+                              <div className="text-[10px] text-slate-500">{ep.trail_style || "—"} trail</div>
+                            </td>
+                            <td className="text-right px-2 text-slate-300">{fmtPctValue(ctx.counter_consensus_rate)}</td>
+                            <td className="text-right pl-2">
+                              <div className="text-slate-200">{p.merged?.slMult ? `${fmtNum(p.merged.slMult)}x` : "—"}</div>
+                              <div className="text-[10px] text-slate-500">{p.merged?.tpMult ? `${fmtNum(p.merged.tpMult)}x` : "—"}</div>
+                            </td>
                           </tr>
                         );
                       })}
