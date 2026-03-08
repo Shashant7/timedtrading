@@ -790,22 +790,34 @@
                 const result = { ...mergedData };
                 for (const sym of Object.keys(result)) {
                   const old = prev[sym];
-                  if (!old || !(old._live_price > 0)) continue;
-                  const newPx = Number(result[sym]?.price) || 0;
-                  const oldLivePx = old._live_price;
-                  const divergence = newPx > 0 ? Math.abs(newPx - oldLivePx) / oldLivePx : 0;
-                  // If the incoming price diverges >2% from our live price,
-                  // it's likely a stale candle close — keep the live price.
-                  // Also preserve if old is simply more recent.
-                  const oldTs = old._price_updated_at || 0;
-                  const newTs = result[sym]?._price_updated_at || 0;
-                  if (divergence > 0.02 || oldTs >= newTs || !newTs) {
-                    const merged = { ...result[sym] };
-                    for (const k of LIVE_KEYS) {
-                      if (old[k] != null) merged[k] = old[k];
+                  if (old && old._live_price > 0) {
+                    const newPx = Number(result[sym]?.price) || 0;
+                    const oldLivePx = old._live_price;
+                    const divergence = newPx > 0 ? Math.abs(newPx - oldLivePx) / oldLivePx : 0;
+                    // If the incoming price diverges >2% from our live price,
+                    // it's likely a stale candle close — keep the live price.
+                    // Also preserve if old is simply more recent.
+                    const oldTs = old._price_updated_at || 0;
+                    const newTs = result[sym]?._price_updated_at || 0;
+                    if (divergence > 0.02 || oldTs >= newTs || !newTs) {
+                      const merged = { ...result[sym] };
+                      for (const k of LIVE_KEYS) {
+                        if (old[k] != null) merged[k] = old[k];
+                      }
+                      merged.price = oldLivePx;
+                      result[sym] = merged;
                     }
-                    merged.price = oldLivePx;
-                    result[sym] = merged;
+                  }
+
+                  // Keep the last known sparkline if a refresh comes back partial.
+                  if (Array.isArray(old?._sparkline) && old._sparkline.length >= 3) {
+                    const nextSparkline = result[sym]?._sparkline;
+                    if (!Array.isArray(nextSparkline) || nextSparkline.length < 3) {
+                      result[sym] = {
+                        ...result[sym],
+                        _sparkline: old._sparkline,
+                      };
+                    }
                   }
                 }
                 return result;

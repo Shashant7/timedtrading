@@ -292,6 +292,45 @@ async function dataFetchSnapshots(env, symbols) {
   return alpacaFetchSnapshots(env, symbols);
 }
 
+async function hydrateMissingSparklines(env, data, targetSyms = null) {
+  if (!env?.DB || !data || typeof data !== "object") return {};
+  const syms = Array.isArray(targetSyms) && targetSyms.length > 0
+    ? targetSyms
+    : Object.keys(data);
+  const missingSparkSyms = syms.filter((sym) => {
+    const entry = data[sym];
+    return entry
+      && typeof entry === "object"
+      && (!Array.isArray(entry._sparkline) || entry._sparkline.length < 3);
+  });
+  if (missingSparkSyms.length === 0) return {};
+
+  const enriched = {};
+  const BATCH_SIZE = 100;
+  for (let i = 0; i < missingSparkSyms.length; i += BATCH_SIZE) {
+    const batchSyms = missingSparkSyms.slice(i, i + BATCH_SIZE);
+    const batchResults = await env.DB.batch(batchSyms.map((sym) =>
+      env.DB.prepare(
+        `SELECT ts, c FROM ticker_candles WHERE ticker=?1 AND tf='D' ORDER BY ts DESC LIMIT 60`
+      ).bind(sym)
+    ));
+    for (let j = 0; j < batchSyms.length; j++) {
+      const sym = batchSyms[j];
+      const rows = batchResults[j]?.results || [];
+      const closes = rows
+        .slice()
+        .reverse()
+        .map((row) => Number(row.c))
+        .filter((close) => Number.isFinite(close) && close > 0);
+      if (closes.length >= 3 && data[sym]) {
+        data[sym]._sparkline = closes;
+        enriched[sym] = closes;
+      }
+    }
+  }
+  return enriched;
+}
+
 // ─── Pattern Library Cache (for Kanban integration) ────────────────────────
 // Avoids hitting D1 on every ingest. Refreshes every 5 minutes.
 let _patternCache = { patterns: [], ts: 0 };
@@ -27553,32 +27592,22 @@ export default {
             } catch (_) { /* weekly change enrichment non-critical */ }
 
             // ── Sparkline enrichment at serve time ──
-            // If the snapshot was built before sparklines were added, or if the
-            // scoring cron hasn't run since deploy, enrich inline from D1 daily candles.
+            // Always backfill the symbols that are missing sparklines so a partial
+            // snapshot never leaks blank cards until the next scoring cycle.
             try {
-              const totalTickers = Object.keys(data).length;
-              const withSparkline = Object.values(data).filter(d => Array.isArray(d?._sparkline) && d._sparkline.length >= 30).length;
-              if (totalTickers > 0 && withSparkline < totalTickers * 0.5 && env?.DB) {
-                const spkLower = Date.now() - 90 * 86400000;
-                const sparkRows = await env.DB.prepare(
-                  `SELECT ticker, ts, c FROM ticker_candles WHERE tf='D' AND ts > ?1 ORDER BY ticker, ts ASC`
-                ).bind(spkLower).all();
-                const sparkMap = {};
-                for (const r of (sparkRows?.results || [])) {
-                  const sym = String(r.ticker).toUpperCase();
-                  if (!sparkMap[sym]) sparkMap[sym] = [];
-                  sparkMap[sym].push(Number(r.c));
-                }
-                for (const [sym, closes] of Object.entries(sparkMap)) {
-                  if (data[sym]) data[sym]._sparkline = closes;
-                }
-                // Async-update KV snapshot so subsequent requests skip the D1 query
+              const sparkMap = await hydrateMissingSparklines(env, data);
+              if (Object.keys(sparkMap).length > 0) {
                 ctx.waitUntil((async () => {
                   try {
                     const enrichedSnapshot = {};
-                    for (const [sym, payload] of Object.entries(snapshot.data)) {
+                    for (const [sym, payload] of Object.entries(snapshot.data || {})) {
                       enrichedSnapshot[sym] = { ...payload };
-                      if (sparkMap[sym]) enrichedSnapshot[sym]._sparkline = sparkMap[sym];
+                    }
+                    for (const [sym, closes] of Object.entries(sparkMap)) {
+                      enrichedSnapshot[sym] = {
+                        ...(enrichedSnapshot[sym] || data[sym] || { ticker: sym }),
+                        _sparkline: closes,
+                      };
                     }
                     await kvPutJSON(KV, "timed:all:snapshot", {
                       data: enrichedSnapshot,
@@ -28356,30 +28385,7 @@ export default {
 
           // ── Sparkline enrichment (D1 fallback path) ──
           try {
-            const withSpark = Object.values(data).filter(d => Array.isArray(d?._sparkline) && d._sparkline.length >= 30).length;
-            if (Object.keys(data).length > 0 && withSpark < Object.keys(data).length * 0.5 && env?.DB) {
-              const sparkRows = await env.DB.prepare(
-                `WITH deduped AS (
-                  SELECT ticker, ts, c,
-                    ROW_NUMBER() OVER (PARTITION BY ticker, CAST(ts / 86400000 AS INTEGER) ORDER BY ts DESC) as day_rn
-                  FROM ticker_candles WHERE tf = 'D'
-                )
-                SELECT ticker, ts, c FROM (
-                  SELECT ticker, ts, c, ROW_NUMBER() OVER (PARTITION BY ticker ORDER BY ts DESC) as rn
-                  FROM deduped WHERE day_rn = 1
-                ) WHERE rn <= 60
-                ORDER BY ticker, ts ASC`
-              ).all();
-              const sparkMap = {};
-              for (const r of (sparkRows?.results || [])) {
-                const sym = String(r.ticker).toUpperCase();
-                if (!sparkMap[sym]) sparkMap[sym] = [];
-                sparkMap[sym].push(Number(r.c));
-              }
-              for (const [sym, closes] of Object.entries(sparkMap)) {
-                if (data[sym]) data[sym]._sparkline = closes;
-              }
-            }
+            await hydrateMissingSparklines(env, data);
           } catch (_) { /* sparkline enrichment non-critical */ }
 
           return sendJSON(
