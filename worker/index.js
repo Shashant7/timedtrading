@@ -27247,13 +27247,18 @@ export default {
             corsHeaders(env, req),
           );
         }
-        // KV snapshot fast-path: serve pre-assembled snapshot if fresh (<300s old)
-        // Scoring cron rebuilds the snapshot every 5 min, so 300s TTL matches the cycle.
-        // Falls through to D1 if snapshot is missing or stale
+        // KV snapshot fast-path: serve the pre-assembled snapshot whenever it is still
+        // reasonably recent. Live prices are overlaid at read time, so routine page loads
+        // should not fall back to the expensive D1 assembly path just because the scoring
+        // cron is a few minutes behind.
         try {
           const snapshot = await kvGetJSON(KV, "timed:all:snapshot");
-          const SNAPSHOT_MAX_AGE = isWithinOperatingHours() ? 300000 : 86400000;
-          if (snapshot?.data && snapshot?.built_at && (Date.now() - snapshot.built_at) < SNAPSHOT_MAX_AGE) {
+          const snapshotAgeMs = snapshot?.built_at ? (Date.now() - snapshot.built_at) : Infinity;
+          const SNAPSHOT_FRESH_MS = 5 * 60 * 1000;
+          const SNAPSHOT_MAX_AGE = isWithinOperatingHours()
+            ? 6 * 60 * 60 * 1000
+            : 24 * 60 * 60 * 1000;
+          if (snapshot?.data && snapshot?.built_at && snapshotAgeMs < SNAPSHOT_MAX_AGE) {
             const _rawRemoved = (await kvGetJSON(KV, "timed:removed")) || [];
             const removedSet = new Set(Array.isArray(_rawRemoved) ? _rawRemoved : []);
             const userAdded = await d1GetActiveUserTickersCached(env);
@@ -27620,7 +27625,13 @@ export default {
             } catch (_) { /* sparkline enrichment non-critical */ }
 
             return sendJSON(
-              { ok: true, data, count: Object.keys(data).length, source: "kv_snapshot", built_at: snapshot.built_at },
+              {
+                ok: true,
+                data,
+                count: Object.keys(data).length,
+                source: snapshotAgeMs <= SNAPSHOT_FRESH_MS ? "kv_snapshot" : "kv_snapshot_stale",
+                built_at: snapshot.built_at,
+              },
               200,
               { ...corsHeaders(env, req), "Cache-Control": "public, max-age=15" },
             );
