@@ -1184,6 +1184,7 @@
       // ── Main App ───────────────────────────────────────────────────────────
       function App({ user }) {
         const RUN_FILTER_LATEST = "__LATEST__";
+        const RUN_FILTER_LIVE = "__LIVE__";
         const [trades, setTrades] = useState([]);
         const [annotations, setAnnotations] = useState({});
         const [availableRuns, setAvailableRuns] = useState([]);
@@ -1209,16 +1210,29 @@
           () => (availableRuns || []).filter(r => String(r?.status || "").trim().toLowerCase() === "completed" && Number(r?.total_trades || 0) > 0),
           [availableRuns]
         );
+        const liveRun = useMemo(
+          () => (availableRuns || []).find(r => {
+            const status = String(r?.status || "").trim().toLowerCase();
+            return status === "running" || status === "queued";
+          }) || null,
+          [availableRuns]
+        );
         const runMeta = useMemo(() => ({
           runs: reviewableRuns.map(r => ({ runId: String(r.run_id || "").trim(), label: r.label || null, startDate: r.start_date || null, endDate: r.end_date || null })),
           latestRunId: reviewableRuns.length ? String(reviewableRuns[0].run_id || "").trim() : "",
-        }), [reviewableRuns]);
+          liveRunId: liveRun ? String(liveRun.run_id || "").trim() : "",
+          liveRunLabel: liveRun?.label || null,
+        }), [reviewableRuns, liveRun]);
+        const resolveSelectedRunId = useCallback((selectedValue, latestRunId) => {
+          if (selectedValue === RUN_FILTER_LATEST) return String(latestRunId || "").trim();
+          if (selectedValue === RUN_FILTER_LIVE) return "";
+          return String(selectedValue || "").trim();
+        }, []);
         const effectiveRunId = useMemo(() => {
           const fromUrl = String(runIdFromUrl || "").trim();
           if (fromUrl) return fromUrl;
-          if (filterRunId === RUN_FILTER_LATEST) return runMeta.latestRunId;
-          return String(filterRunId || "").trim();
-        }, [runIdFromUrl, filterRunId, runMeta.latestRunId]);
+          return resolveSelectedRunId(filterRunId, runMeta.latestRunId);
+        }, [runIdFromUrl, filterRunId, runMeta.latestRunId, resolveSelectedRunId]);
         const annotationsUrl = (() => {
           const base = `${API_BASE}/timed/admin/trade-autopsy/annotations?all=1`;
           if (effectiveRunId) return `${base}&run_id=${encodeURIComponent(effectiveRunId)}`;
@@ -1234,6 +1248,7 @@
           if (!runMeta.latestRunId) return;
           if (runIdFromUrl) return;
           if (filterRunId === RUN_FILTER_LATEST) return;
+          if (filterRunId === RUN_FILTER_LIVE || filterRunId === "") return;
           const exists = runMeta.runs.some(r => r.runId === filterRunId);
           if (!exists) setFilterRunId(RUN_FILTER_LATEST);
         }, [runMeta, filterRunId, runIdFromUrl]);
@@ -1300,7 +1315,7 @@
           setError(null);
           try {
             const runs = await refreshRuns();
-            const resolvedRunId = String(runIdFromUrl || "").trim() || (filterRunId === RUN_FILTER_LATEST ? resolveLatestCompletedRunId(runs) : String(filterRunId || "").trim());
+            const resolvedRunId = String(runIdFromUrl || "").trim() || resolveSelectedRunId(filterRunId, resolveLatestCompletedRunId(runs));
             const [tradesRes, annRes] = await Promise.all([
               fetch(buildTradesUrl(resolvedRunId), fetchOpts).then(r => r.json()),
               fetch(buildAnnotationsUrl(resolvedRunId), fetchOpts).then(r => r.json()),
@@ -1313,7 +1328,7 @@
           } finally {
             setLoading(false);
           }
-        }, [buildAnnotationsUrl, buildTradesUrl, filterRunId, refreshRuns, resolveLatestCompletedRunId, runIdFromUrl]);
+        }, [buildAnnotationsUrl, buildTradesUrl, filterRunId, refreshRuns, resolveLatestCompletedRunId, resolveSelectedRunId, runIdFromUrl]);
 
         useEffect(() => {
           let cancelled = false;
@@ -1329,7 +1344,7 @@
                 setError("Admin access required");
                 return;
               }
-              const resolvedRunId = String(runIdFromUrl || "").trim() || (filterRunId === RUN_FILTER_LATEST ? resolveLatestCompletedRunId(runs) : String(filterRunId || "").trim());
+              const resolvedRunId = String(runIdFromUrl || "").trim() || resolveSelectedRunId(filterRunId, resolveLatestCompletedRunId(runs));
               const [tradesData, annData] = await Promise.all([
                 fetch(buildTradesUrl(resolvedRunId), fetchOpts).then(r => r.json()),
                 fetch(buildAnnotationsUrl(resolvedRunId), fetchOpts).then(r => r.json()),
@@ -1345,7 +1360,7 @@
             }
           })();
           return () => { cancelled = true; };
-        }, [buildAnnotationsUrl, buildTradesUrl, filterRunId, resolveLatestCompletedRunId, runIdFromUrl]);
+        }, [buildAnnotationsUrl, buildTradesUrl, filterRunId, resolveLatestCompletedRunId, resolveSelectedRunId, runIdFromUrl]);
 
         // Deep link: ?trade_id=XXX — open that trade's autopsy modal when trades are loaded
         useEffect(() => {
@@ -1364,7 +1379,7 @@
 
         const filteredTrades = useMemo(() => {
           let out = trades;
-          const effectiveRunId = filterRunId === RUN_FILTER_LATEST ? runMeta.latestRunId : filterRunId;
+          const effectiveRunId = resolveSelectedRunId(filterRunId, runMeta.latestRunId);
           if (effectiveRunId) {
             out = out.filter(t => String(t?.run_id || "").trim() === effectiveRunId);
           }
@@ -1387,7 +1402,7 @@
             out = out.filter(t => (t.entry_ts || 0) <= toMs);
           }
           return out;
-        }, [trades, annotations, filterTicker, filterClassification, filterDateFrom, filterDateTo, filterRunId, runMeta]);
+        }, [trades, annotations, filterTicker, filterClassification, filterDateFrom, filterDateTo, filterRunId, runMeta, resolveSelectedRunId]);
 
         const getAnnotation = (t) => {
           const id = t?.trade_id || t?.id || `${t?.ticker}-${t?.entry_ts}`;
@@ -1485,6 +1500,7 @@
                     title="Filter trades by replay run ID"
                   >
                     <option value={RUN_FILTER_LATEST}>Latest run</option>
+                    <option value={RUN_FILTER_LIVE}>Live replay{runMeta.liveRunId ? ` · ${runMeta.liveRunLabel || runMeta.liveRunId}` : ""}</option>
                     <option value="">All runs</option>
                     {runMeta.runs.map(r => (
                       <option key={r.runId} value={r.runId}>{r.runId}</option>
@@ -1518,7 +1534,8 @@
                   {filteredTrades.length !== trades.length && (
                     <span className="text-[12px] text-[#6b7280] self-center col-span-2 sm:col-span-1">
                       Showing {filteredTrades.length} of {trades.length}
-                      {runMeta.latestRunId ? ` · latest: ${runMeta.latestRunId}` : ""}
+                      {filterRunId === RUN_FILTER_LATEST && runMeta.latestRunId ? ` · latest completed: ${runMeta.latestRunId}` : ""}
+                      {filterRunId === RUN_FILTER_LIVE ? ` · live replay${runMeta.liveRunId ? `: ${runMeta.liveRunId}` : ""}` : ""}
                     </span>
                   )}
                 </div>
