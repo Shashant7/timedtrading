@@ -488,7 +488,7 @@
     <script src="shared-price-utils.js?v=20260211a"></script>
     <script src="investor-panel.js?v=20260226a"></script>
     <script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
-    <script src="shared-right-rail.compiled.js?v=20260226k" type="text/babel"></script>
+    <script src="shared-right-rail.compiled.js?v=20260226k"></script>
     <script type="text/babel">
       const { useState, useEffect, useMemo, useCallback, useRef, memo } = React;
 
@@ -1326,7 +1326,7 @@
       }
 
       // Queued Actions hook (pending + recently resolved)
-      function useQueuedActions() {
+      function useQueuedActions(enabled = true) {
         const [actions, setActions] = useState([]);
         const [pendingCount, setPendingCount] = useState(0);
         const fetchActions = useCallback(async () => {
@@ -1339,16 +1339,17 @@
           } catch { /* best-effort */ }
         }, []);
         useEffect(() => {
+          if (!enabled) return undefined;
           fetchActions();
           const iv = setInterval(fetchActions, 60000);
           return () => clearInterval(iv);
-        }, [fetchActions]);
+        }, [enabled, fetchActions]);
         const pending = actions.filter(a => a.status === "PENDING");
         return { actions, pending, pendingCount, refetch: fetchActions };
       }
 
       // User-Added Tickers hook (Phase 5)
-      function useUserTickers() {
+      function useUserTickers(enabled = true) {
         const [slots, setSlots] = useState([]);
         const [slotsUsed, setSlotsUsed] = useState(0);
         const [slotsMax, setSlotsMax] = useState(3);
@@ -1373,10 +1374,11 @@
         }, []);
 
         useEffect(() => {
+          if (!enabled) return undefined;
           fetchSlots();
           const iv = setInterval(fetchSlots, 120000);
           return () => clearInterval(iv);
-        }, [fetchSlots]);
+        }, [enabled, fetchSlots]);
 
         const processingTickerKeys = useMemo(
           () => Object.keys(processingTickers).sort().join(","),
@@ -1384,6 +1386,7 @@
         );
 
         useEffect(() => {
+          if (!enabled) return undefined;
           const activeTickers = Object.keys(processingTickers);
           if (activeTickers.length === 0) return;
 
@@ -1445,7 +1448,7 @@
             cancelled = true;
             clearInterval(iv);
           };
-        }, [processingTickerKeys, fetchSlots]);
+        }, [enabled, processingTickerKeys, fetchSlots]);
 
         const addTicker = useCallback(async (ticker) => {
           setError(null);
@@ -1523,7 +1526,7 @@
       }
 
       // Account Summary hook — single source of truth from account_ledger (GET /timed/account-summary)
-      function useAccountSummary(mode = "trader") {
+      function useAccountSummary(mode = "trader", enabled = true) {
         const [summary, setSummary] = useState(null);
         const [loading, setLoading] = useState(true);
 
@@ -1538,16 +1541,17 @@
         }, [mode]);
 
         useEffect(() => {
+          if (!enabled) return undefined;
           fetchSummary();
           const interval = setInterval(fetchSummary, 60000);
           return () => clearInterval(interval);
-        }, [fetchSummary]);
+        }, [enabled, fetchSummary]);
 
         return { summary, loading, refetch: fetchSummary };
       }
 
       // Hook to fetch sector ratings
-      function useSectors() {
+      function useSectors(enabled = true) {
         const [sectors, setSectors] = useState([]);
         const [loading, setLoading] = useState(true);
         const [error, setError] = useState(null);
@@ -1574,16 +1578,17 @@
         }, []);
 
         useEffect(() => {
+          if (!enabled) return undefined;
           fetchSectors();
           // Refresh sectors every 5 minutes
           const interval = setInterval(fetchSectors, 300000);
           return () => clearInterval(interval);
-        }, [fetchSectors]);
+        }, [enabled, fetchSectors]);
 
         return { sectors, loading, error, refetch: fetchSectors };
       }
 
-      function useEarningsEvents() {
+      function useEarningsEvents(enabled = true) {
         const [events, setEvents] = useState([]);
         const [updatedAt, setUpdatedAt] = useState(0);
 
@@ -1619,10 +1624,11 @@
         }, []);
 
         useEffect(() => {
+          if (!enabled) return undefined;
           fetchEvents();
           const interval = setInterval(fetchEvents, 300000);
           return () => clearInterval(interval);
-        }, [fetchEvents]);
+        }, [enabled, fetchEvents]);
 
         return { events, updatedAt };
       }
@@ -16204,48 +16210,16 @@
           fetch(`${API_BASE}/timed/usage`, { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ feature: "active_trader_view" }) }).catch(() => {});
         }, []);
 
-        // Real-time price feed: WS push (primary) + HTTP poll fallback (every 30s)
-        const { wsConnected, wsLastMessage } = useWebSocket(data, setTickerData);
-        const { priceLastUpdated } = usePriceFeed(data, setTickerData);
-        const { trades } = useTrades();
-        const accountMode = dashboardMode === "investor" ? "investor" : "trader";
-        const { summary: accountSummary } = useAccountSummary(accountMode);
-        const { pending: queuedPending, pendingCount: queuedPendingCount } = useQueuedActions();
-        const userTickers = useUserTickers();
-        const { sectors } = useSectors();
-        const { events: earningsEvents } = useEarningsEvents();
-
+        const [secondaryDataReady, setSecondaryDataReady] = useState(false);
         useEffect(() => {
-          const handler = () => {
-            refetch();
-          };
-          window.addEventListener("tt-user-ticker-ready", handler);
-          return () => window.removeEventListener("tt-user-ticker-ready", handler);
-        }, [refetch]);
-
-        // Build earnings lookup: symbol -> nearest upcoming (or most recent past) event
-        // Uses NY calendar day comparison to avoid timezone-offset errors
-        const earningsMap = useMemo(() => {
-          const map = {};
-          if (!earningsEvents || earningsEvents.length === 0) return map;
-          const todayNy = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
-          const todayParts = todayNy.split("-").map(Number);
-          const todayDayNum = todayParts[0] * 10000 + todayParts[1] * 100 + todayParts[2];
-          for (const e of earningsEvents) {
-            const sym = String(e.symbol || "").toUpperCase();
-            if (!sym || !e.date) continue;
-            const eParts = e.date.split("-").map(Number);
-            const eDayNum = eParts[0] * 10000 + eParts[1] * 100 + eParts[2];
-            const calDays = eDayNum - todayDayNum;
-            // Only show: yesterday (-1), today (0), or next 7 days (1–7). Exclude older events (stale/wrong data).
-            if (calDays < -1 || calDays > 7) continue;
-            if (!map[sym] || Math.abs(calDays) < Math.abs(map[sym]._daysAway)) {
-              map[sym] = { ...e, _daysAway: calDays };
-            }
+          const activate = () => setSecondaryDataReady(true);
+          if (typeof window.requestIdleCallback === "function") {
+            const id = window.requestIdleCallback(activate, { timeout: 1500 });
+            return () => window.cancelIdleCallback(id);
           }
-          return map;
-        }, [earningsEvents]);
-        window._ttEarningsMap = earningsMap;
+          const id = window.setTimeout(activate, 300);
+          return () => window.clearTimeout(id);
+        }, []);
 
         const [filters, setFilters] = useState(() => {
           // Safety check: reset to defaults if localStorage was cleared
@@ -16295,6 +16269,45 @@
           setDashboardMode(mode);
           try { localStorage.setItem("timedTrading_dashboardMode", mode); } catch {}
         }, []);
+        // Real-time price feed: WS push (primary) + HTTP poll fallback (every 30s)
+        const { wsConnected, wsLastMessage } = useWebSocket(data, setTickerData);
+        const { priceLastUpdated } = usePriceFeed(data, setTickerData);
+        const { trades } = useTrades();
+        const accountMode = dashboardMode === "investor" ? "investor" : "trader";
+        const { summary: accountSummary } = useAccountSummary(accountMode, secondaryDataReady);
+        const { pending: queuedPending, pendingCount: queuedPendingCount } = useQueuedActions(secondaryDataReady);
+        const userTickers = useUserTickers(secondaryDataReady);
+        const { sectors } = useSectors(secondaryDataReady);
+        const { events: earningsEvents } = useEarningsEvents(secondaryDataReady);
+        useEffect(() => {
+          const handler = () => {
+            refetch();
+          };
+          window.addEventListener("tt-user-ticker-ready", handler);
+          return () => window.removeEventListener("tt-user-ticker-ready", handler);
+        }, [refetch]);
+        // Build earnings lookup: symbol -> nearest upcoming (or most recent past) event
+        // Uses NY calendar day comparison to avoid timezone-offset errors
+        const earningsMap = useMemo(() => {
+          const map = {};
+          if (!earningsEvents || earningsEvents.length === 0) return map;
+          const todayNy = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+          const todayParts = todayNy.split("-").map(Number);
+          const todayDayNum = todayParts[0] * 10000 + todayParts[1] * 100 + todayParts[2];
+          for (const e of earningsEvents) {
+            const sym = String(e.symbol || "").toUpperCase();
+            if (!sym || !e.date) continue;
+            const eParts = e.date.split("-").map(Number);
+            const eDayNum = eParts[0] * 10000 + eParts[1] * 100 + eParts[2];
+            const calDays = eDayNum - todayDayNum;
+            if (calDays < -1 || calDays > 7) continue;
+            if (!map[sym] || Math.abs(calDays) < Math.abs(map[sym]._daysAway)) {
+              map[sym] = { ...e, _daysAway: calDays };
+            }
+          }
+          return map;
+        }, [earningsEvents]);
+        window._ttEarningsMap = earningsMap;
         const [viewSwitching, setViewSwitching] = useState(false);
         const toggleViewMode = useCallback((mode) => {
           if (mode === dashboardViewMode) return;
@@ -16343,22 +16356,22 @@
         const [ingestAuditOpen, setIngestAuditOpen] = useState(false);
 
         // ── Saved Tickers (per-user) ──────────────────────────────────
-        const [savedTickers, setSavedTickers] = useState(new Set());
-        const savedTickersLoadedRef = useRef(false);
+        const [savedTickers, setSavedTickers] = useState(() => {
+          const bootstrap = window.TimedAuthHelpers?.getStoredBootstrap?.();
+          return new Set(Array.isArray(bootstrap?.saved_tickers) ? bootstrap.saved_tickers : []);
+        });
 
-        // Load saved tickers on mount (from /timed/me which includes saved_tickers)
         useEffect(() => {
-          if (savedTickersLoadedRef.current) return;
-          savedTickersLoadedRef.current = true;
-          (async () => {
-            try {
-              const res = await fetch(`${API_BASE}/timed/saved`, { cache: "no-store", credentials: "include" });
-              const json = await res.json();
-              if (json.ok && Array.isArray(json.saved_tickers)) {
-                setSavedTickers(new Set(json.saved_tickers));
-              }
-            } catch (_) { /* silent */ }
-          })();
+          const applyBootstrap = (detail) => {
+            if (!Array.isArray(detail?.saved_tickers)) return;
+            setSavedTickers(new Set(detail.saved_tickers.map((ticker) => String(ticker).toUpperCase())));
+          };
+          const handler = (event) => applyBootstrap(event?.detail);
+          try {
+            applyBootstrap(window.TimedAuthHelpers?.getStoredBootstrap?.());
+          } catch (_) {}
+          window.addEventListener("tt-auth-bootstrap-updated", handler);
+          return () => window.removeEventListener("tt-auth-bootstrap-updated", handler);
         }, []);
 
         const toggleSavedTicker = useCallback(async (ticker) => {
@@ -16366,6 +16379,13 @@
           setSavedTickers(prev => {
             const next = new Set(prev);
             if (next.has(t)) next.delete(t); else next.add(t);
+            try {
+              const bootstrap = window.TimedAuthHelpers?.getStoredBootstrap?.() || {};
+              window.TimedAuthHelpers?.storeBootstrap?.({
+                ...bootstrap,
+                saved_tickers: Array.from(next),
+              });
+            } catch (_) {}
             return next;
           });
           try {
@@ -16798,7 +16818,7 @@
                       <a href="system-intelligence.html" className="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">System Intelligence</a>
                       <a href="screener.html" data-admin-only="true" className="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Screener</a>
                       <a href="ticker-management.html" data-admin-only="true" className="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Tickers</a>
-                      <a href="trade-autopsy.html" className="px-3 py-1 rounded-md text-[13px] text-[#14b8a6]/80 hover:text-[#14b8a6] hover:bg-[#14b8a6]/[0.06] transition-all font-medium">Trade Autopsy</a>
+                      <a href="trade-autopsy.html" data-admin-only="true" className="px-3 py-1 rounded-md text-[13px] text-[#14b8a6]/80 hover:text-[#14b8a6] hover:bg-[#14b8a6]/[0.06] transition-all font-medium">Trade Autopsy</a>
                       {(window.TimedAuthHelpers?.getStoredSession()?.role === "admin" || window.TimedAuthHelpers?.getStoredSession()?.tier === "admin") && (
                         <a href="admin-clients.html" data-admin-only="true" className="px-3 py-1 rounded-md text-[13px] text-[#a78bfa]/80 hover:text-[#a78bfa] hover:bg-[#a78bfa]/[0.06] transition-all font-medium">Admin</a>
                       )}
@@ -16834,7 +16854,7 @@
                     <a href="system-intelligence.html" className="px-3 py-2 rounded-md text-[13px] text-[#9ca3af] hover:text-white hover:bg-white/[0.04] transition-all" onClick={() => setMobileMenuOpen(false)}>System Intelligence</a>
                     <a href="screener.html" data-admin-only="true" className="px-3 py-2 rounded-md text-[13px] text-[#9ca3af] hover:text-white hover:bg-white/[0.04] transition-all" onClick={() => setMobileMenuOpen(false)}>Screener</a>
                     <a href="ticker-management.html" data-admin-only="true" className="px-3 py-2 rounded-md text-[13px] text-[#9ca3af] hover:text-white hover:bg-white/[0.04] transition-all" onClick={() => setMobileMenuOpen(false)}>Tickers</a>
-                    <a href="trade-autopsy.html" className="px-3 py-2 rounded-md text-[13px] text-[#14b8a6]/80 hover:text-[#14b8a6] font-medium" onClick={() => setMobileMenuOpen(false)}>Trade Autopsy</a>
+                    <a href="trade-autopsy.html" data-admin-only="true" className="px-3 py-2 rounded-md text-[13px] text-[#14b8a6]/80 hover:text-[#14b8a6] font-medium" onClick={() => setMobileMenuOpen(false)}>Trade Autopsy</a>
                     {(window.TimedAuthHelpers?.getStoredSession()?.role === "admin" || window.TimedAuthHelpers?.getStoredSession()?.tier === "admin") && (
                       <a href="admin-clients.html" data-admin-only="true" className="px-3 py-2 rounded-md text-[13px] text-[#a78bfa]/80 hover:text-[#a78bfa] hover:bg-[#a78bfa]/[0.06] transition-all font-medium" onClick={() => setMobileMenuOpen(false)}>Admin</a>
                     )}

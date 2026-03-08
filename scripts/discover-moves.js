@@ -583,6 +583,7 @@ const report = {
     start_date: m.start_date, end_date: m.end_date, peak_date: m.peak_date,
     move_pct: m.move_pct, move_atr: m.move_atr,
     start_price: m.start_price, end_price: m.end_price, peak_price: m.peak_price,
+    atr_at_start: m.atr_at_start,
     atr_pct: m.atr_pct, max_pullback_pct: m.max_pullback_pct, pullback_count: m.pullback_count,
     rsi_at_start: m.rsi_at_start, ema_aligned: m.ema_aligned, ema_state: m.ema_state,
     capture: m.capture,

@@ -630,6 +630,8 @@ const ROUTES = [
   // ── Move Discovery ──
   ["GET", "/timed/move-discovery", "GET /timed/move-discovery"],
   ["POST", "/timed/move-discovery", "POST /timed/move-discovery"],
+  ["GET", "/timed/missed-move-diagnosis", "GET /timed/missed-move-diagnosis"],
+  ["POST", "/timed/missed-move-diagnosis", "POST /timed/missed-move-diagnosis"],
 ];
 
 function getRouteKey(method, pathname) {
@@ -17975,10 +17977,15 @@ async function runCalibrationAnalysis(env) {
   // H. Missed Opportunity Analysis
   let missedMoves = 0, missedSignals = {};
   if (moves.length) {
-    const tradeTickers = new Set(trades.map(t => `${t.ticker}:${t.direction}`));
+    const normalizeTradeDirection = (value) => {
+      const dir = String(value || "").toUpperCase();
+      if (dir === "LONG" || dir === "BUY" || dir === "UP") return "UP";
+      if (dir === "SHORT" || dir === "SELL" || dir === "DOWN") return "DOWN";
+      return dir;
+    };
     for (const m of moves) {
-      const key = `${m.ticker}:${m.direction}`;
-      const tradeNearby = trades.some(t => t.ticker === m.ticker && t.direction === m.direction &&
+      const moveDir = normalizeTradeDirection(m.direction);
+      const tradeNearby = trades.some(t => t.ticker === m.ticker && normalizeTradeDirection(t.direction) === moveDir &&
         Math.abs((t.entry_ts || 0) - m.start_ts) < 5 * 86400000);
       if (!tradeNearby) {
         missedMoves++;
@@ -17986,7 +17993,15 @@ async function runCalibrationAnalysis(env) {
           try {
             const sigs = JSON.parse(m.signals_json);
             for (const [k, v] of Object.entries(sigs)) {
-              missedSignals[k] = (missedSignals[k] || 0) + 1;
+              const numeric = Number(v);
+              const active = typeof v === "boolean"
+                ? v
+                : Number.isFinite(numeric)
+                  ? numeric > 0
+                  : !!v;
+              if (active) {
+                missedSignals[k] = (missedSignals[k] || 0) + 1;
+              }
             }
           } catch {}
         }
@@ -34117,7 +34132,8 @@ export default {
         const tickerFilter = normTicker(url.searchParams.get("ticker")) || null;
         const cacheKey = tickerFilter
           ? null
-          : "timed:cache:ingestion-status:v1";
+          : "timed:cache:ingestion-status:v2";
+        const cacheFreshMs = 15 * 1000;
 
         // Expected minimums per TF (approximate for good chart + scoring coverage)
         // Includes 15m for LEADING_LTF=15 experiment
@@ -34135,7 +34151,13 @@ export default {
         try {
           if (cacheKey && KV) {
             const cached = await kvGetJSON(KV, cacheKey);
-            if (cached?.ok && Array.isArray(cached?.tickers)) {
+            const cachedBuiltAt = Number(cached?.cache_built_at || 0);
+            if (
+              cached?.ok &&
+              Array.isArray(cached?.tickers) &&
+              cachedBuiltAt > 0 &&
+              (Date.now() - cachedBuiltAt) <= cacheFreshMs
+            ) {
               return sendJSON(cached, 200, corsHeaders(env, req));
             }
           }
@@ -34304,7 +34326,7 @@ export default {
             cache_built_at: Date.now(),
           };
           if (cacheKey && KV) {
-            await kvPutJSON(KV, cacheKey, response, 15);
+            await kvPutJSON(KV, cacheKey, response, 60);
           }
           return sendJSON(response, 200, corsHeaders(env, req));
         } catch (err) {
@@ -37699,12 +37721,36 @@ export default {
           const DEFAULT_MEMBER_TICKERS = ["AAPL","TSLA","NVDA","JPM","NFLX","MSFT","GOOGL","AMZN","META","XOM"];
           let memberTickers = DEFAULT_MEMBER_TICKERS;
           try {
-            const DB = env?.DB;
-            if (DB) {
-              const row = await DB.prepare(`SELECT config_value FROM model_config WHERE config_key = 'member_ticker_list'`).first();
-              if (row?.config_value) memberTickers = JSON.parse(row.config_value);
+            const KV = env?.KV_TIMED;
+            const cacheKey = "timed:member-tickers:cache:v1";
+            const cached = KV ? await kvGetJSON(KV, cacheKey) : null;
+            if (Array.isArray(cached?.tickers) && cached.tickers.length > 0) {
+              memberTickers = cached.tickers;
+            } else {
+              const DB = env?.DB;
+              if (DB) {
+                const row = await DB.prepare(`SELECT config_value FROM model_config WHERE config_key = 'member_ticker_list'`).first();
+                if (row?.config_value) memberTickers = JSON.parse(row.config_value);
+              }
+              if (KV && Array.isArray(memberTickers) && memberTickers.length > 0) {
+                await kvPutJSON(KV, cacheKey, { tickers: memberTickers }, 300);
+              }
             }
           } catch (_) { /* use default */ }
+
+          let unreadTradeAlertCount = 0;
+          try {
+            const DB = env?.DB;
+            if (DB && user.email) {
+              await d1EnsureNotificationSchema(env);
+              const row = await DB.prepare(`
+                SELECT COUNT(*) as cnt FROM user_notifications
+                WHERE (email = ?1 OR email IS NULL) AND read_at IS NULL
+                AND type IN ('trade_entry','trade_exit','trade_trim')
+              `).bind(user.email.toLowerCase()).first();
+              unreadTradeAlertCount = Number(row?.cnt) || 0;
+            }
+          } catch (_) { /* ignore */ }
 
           return sendJSON({
             ok: true,
@@ -37721,6 +37767,7 @@ export default {
             },
             saved_tickers: savedTickers,
             member_tickers: memberTickers,
+            unread_trade_alert_count: unreadTradeAlertCount,
           }, 200, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e?.message || e) }, 500, corsHeaders(env, req));
@@ -40404,7 +40451,17 @@ export default {
           if (!KV) return sendJSON({ ok: false, error: "no_kv" }, 500, corsHeaders(env, req));
           const raw = await KV.get("timed:move-discovery", "text");
           if (!raw) return sendJSON({ ok: false, error: "no_data", hint: "Run: USE_D1=1 node scripts/discover-moves.js --upload" }, 404, corsHeaders(env, req));
-          return new Response(raw, { status: 200, headers: { ...corsHeaders(env, req), "Content-Type": "application/json", "Cache-Control": "public, max-age=300" } });
+          const report = JSON.parse(raw);
+          try {
+            const diagRaw = await KV.get("timed:missed-move-diagnosis", "text");
+            if (diagRaw) {
+              const diagnosis = JSON.parse(diagRaw);
+              if (diagnosis && typeof diagnosis === "object") {
+                report.diagnosis = diagnosis;
+              }
+            }
+          } catch (_) {}
+          return sendJSON(report, 200, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
         }
@@ -40418,6 +40475,32 @@ export default {
           if (!body?.report) return sendJSON({ ok: false, error: "missing report" }, 400, corsHeaders(env, req));
           const reportStr = typeof body.report === "string" ? body.report : JSON.stringify(body.report);
           await KV.put("timed:move-discovery", reportStr, { expirationTtl: 86400 * 90 });
+          return sendJSON({ ok: true, size: reportStr.length }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      if (routeKey === "GET /timed/missed-move-diagnosis") {
+        try {
+          const KV = env?.KV_TIMED;
+          if (!KV) return sendJSON({ ok: false, error: "no_kv" }, 500, corsHeaders(env, req));
+          const raw = await KV.get("timed:missed-move-diagnosis", "text");
+          if (!raw) return sendJSON({ ok: false, error: "no_data", hint: "Run: USE_D1=1 node scripts/diagnose-missed-moves.js --upload" }, 404, corsHeaders(env, req));
+          return new Response(raw, { status: 200, headers: { ...corsHeaders(env, req), "Content-Type": "application/json", "Cache-Control": "public, max-age=300" } });
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      if (routeKey === "POST /timed/missed-move-diagnosis") {
+        try {
+          const KV = env?.KV_TIMED;
+          if (!KV) return sendJSON({ ok: false, error: "no_kv" }, 500, corsHeaders(env, req));
+          const body = await req.json();
+          if (!body?.report) return sendJSON({ ok: false, error: "missing report" }, 400, corsHeaders(env, req));
+          const reportStr = typeof body.report === "string" ? body.report : JSON.stringify(body.report);
+          await KV.put("timed:missed-move-diagnosis", reportStr, { expirationTtl: 86400 * 90 });
           return sendJSON({ ok: true, size: reportStr.length }, 200, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));

@@ -6,7 +6,7 @@
  * to determine what the scoring engine was showing during those periods.
  *
  * Usage:
- *   USE_D1=1 node scripts/diagnose-missed-moves.js [--ticker AMZN] [--limit 200]
+ *   USE_D1=1 node scripts/diagnose-missed-moves.js [--ticker AMZN] [--limit 200] [--upload]
  */
 
 const { execSync } = require("child_process");
@@ -20,7 +20,11 @@ const getArg = (name, dflt) => {
 };
 
 const TICKER_FILTER = getArg("ticker", null);
-const LIMIT = Number(getArg("limit", "200"));
+const LIMIT_ARG = getArg("limit", null);
+const LIMIT = LIMIT_ARG == null ? Number.POSITIVE_INFINITY : Number(LIMIT_ARG);
+const UPLOAD = args.includes("--upload");
+const API_BASE = process.env.API_BASE || "https://timedtrading.pages.dev/api";
+const API_KEY = process.env.API_KEY || process.env.TIMED_API_KEY || "";
 
 const WORKER_DIR = path.join(__dirname, "../worker");
 const USE_D1 = process.env.USE_D1 === "1" || process.env.USE_D1 === "true";
@@ -112,11 +116,15 @@ if (TICKER_FILTER) {
   missedMoves = missedMoves.filter(m => m.ticker === TICKER_FILTER.toUpperCase());
 }
 
+const totalCandidateMissed = missedMoves.length;
+
 // Sort by move_atr desc and limit
 missedMoves.sort((a, b) => b.move_atr - a.move_atr);
-missedMoves = missedMoves.slice(0, LIMIT);
+if (Number.isFinite(LIMIT)) {
+  missedMoves = missedMoves.slice(0, LIMIT);
+}
 
-console.log(`  Missed moves to diagnose: ${missedMoves.length} (of ${(report.moves || []).filter(m => m.capture === "MISSED" && tradedTickers.has(m.ticker)).length} total)`);
+console.log(`  Missed moves to diagnose: ${missedMoves.length} (of ${totalCandidateMissed} total)`);
 
 // Group by ticker for batch querying
 const byTicker = {};
@@ -316,10 +324,11 @@ Object.entries(kanbanDist).sort((a, b) => b[1] - a[1]).forEach(([stage, n]) => {
 console.log();
 
 // Save report
-const outPath = path.join(__dirname, "..", "data", "missed-move-diagnosis.json");
-fs.writeFileSync(outPath, JSON.stringify({
+const reportPayload = {
   generated: new Date().toISOString(),
+  total_candidates: totalCandidateMissed,
   total_diagnosed: total,
+  limit_applied: Number.isFinite(LIMIT) ? LIMIT : null,
   breakdown: diagnosis,
   kanban_distribution: kanbanDist,
   should_have_entered: shouldHave.map(r => ({
@@ -328,6 +337,31 @@ fs.writeFileSync(outPath, JSON.stringify({
     start_date: r.move.start_date, end_date: r.move.end_date,
     ...r.metrics,
   })),
-}, null, 2));
+};
+const outPath = path.join(__dirname, "..", "data", "missed-move-diagnosis.json");
+fs.writeFileSync(outPath, JSON.stringify(reportPayload, null, 2));
 console.log(`  ${G}Report saved:${RST} ${outPath}`);
+
+if (UPLOAD) {
+  if (!API_KEY) {
+    console.log(`  ${Y}Skipping upload:${RST} missing API_KEY or TIMED_API_KEY`);
+  } else {
+    console.log(`  Uploading diagnosis to worker...`);
+    const uploadFn = async () => {
+      try {
+        const resp = await fetch(`${API_BASE}/timed/missed-move-diagnosis?key=${API_KEY}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ report: reportPayload }),
+        });
+        const data = await resp.json();
+        if (data.ok) console.log(`  ${G}Uploaded diagnosis (${(data.size / 1024).toFixed(1)} KB)${RST}`);
+        else console.log(`  ${R}Upload failed: ${data.error}${RST}`);
+      } catch (e) {
+        console.log(`  ${R}Upload error: ${e.message}${RST}`);
+      }
+    };
+    uploadFn();
+  }
+}
 console.log(`  Done in ${elapsed()}\n`);

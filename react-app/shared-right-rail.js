@@ -997,6 +997,7 @@
 
         // Model signal data (ticker + sector + market level)
         const [modelSignal, setModelSignal] = useState(null);
+        const modelSignalCacheRef = useRef({ data: null, ts: 0 });
         const [chartOverlays, setChartOverlays] = useState({ ema21: true, ema48: true, ema200: false, supertrend: false, tdSequential: false });
         const [chartExpanded, setChartExpanded] = useState(false);
 
@@ -1173,7 +1174,18 @@
           const sym = String(tickerSymbol || "")
             .trim()
             .toUpperCase();
+          const contextReady = !!(
+            ticker?.context &&
+            typeof ticker.context === "object" &&
+            (ticker.context.name || ticker.context.industry || ticker.context.sector || ticker.context.description)
+          );
           if (!sym) {
+            setLatestTicker(null);
+            setLatestTickerError(null);
+            setLatestTickerLoading(false);
+            return;
+          }
+          if (contextReady) {
             setLatestTicker(null);
             setLatestTickerError(null);
             setLatestTickerLoading(false);
@@ -1214,7 +1226,7 @@
           return () => {
             cancelled = true;
           };
-        }, [tickerSymbol]);
+        }, [tickerSymbol, ticker]);
 
         // Fetch model signals (ticker + sector + market level)
         useEffect(() => {
@@ -1223,9 +1235,14 @@
           let cancelled = false;
           (async () => {
             try {
-              const res = await fetch(`${API_BASE}/timed/model/signals`, { cache: "no-store" });
-              if (!res.ok) return;
-              const json = await res.json();
+              let json = modelSignalCacheRef.current.data;
+              if (!json || (Date.now() - modelSignalCacheRef.current.ts) > 60000) {
+                const res = await fetch(`${API_BASE}/timed/model/signals`, { cache: "no-store" });
+                if (!res.ok) return;
+                json = await res.json();
+                if (!json?.ok) return;
+                modelSignalCacheRef.current = { data: json, ts: Date.now() };
+              }
               if (!json.ok || cancelled) return;
               const tickerSig = (json.ticker || []).find(t => t.ticker === sym);
               const src = latestTicker || ticker;
@@ -1240,13 +1257,13 @@
             } catch { /* model signals are a boost, not a gate */ }
           })();
           return () => { cancelled = true; };
-        }, [tickerSymbol, latestTicker]);
+        }, [tickerSymbol, latestTicker, ticker]);
 
         useEffect(() => {
           const sym = String(tickerSymbol || "")
             .trim()
             .toUpperCase();
-          if (!sym) {
+          if (!sym || railTab !== "TRADE_HISTORY") {
             setLedgerTrades([]);
             setLedgerTradesError(null);
             setLedgerTradesLoading(false);
@@ -1292,7 +1309,7 @@
           return () => {
             cancelled = true;
           };
-        }, [tickerSymbol]);
+        }, [tickerSymbol, railTab]);
 
         // Default Trade History chart to first trade when tab has trades and no selection
         useEffect(() => {
@@ -1305,10 +1322,12 @@
           const sym = String(tickerSymbol || "")
             .trim()
             .toUpperCase();
-          if (!sym) {
+          if (!sym || railTab !== "JOURNEY") {
             setBubbleJourney([]);
             setBubbleJourneyError(null);
             setBubbleJourneyLoading(false);
+            setCandlePerf(null);
+            setCandlePerfLoading(false);
             return;
           }
 
@@ -1392,7 +1411,7 @@
           return () => {
             cancelled = true;
           };
-        }, [tickerSymbol]);
+        }, [tickerSymbol, railTab]);
 
         const safeTicker =
           ticker && typeof ticker === "object" ? ticker : null;

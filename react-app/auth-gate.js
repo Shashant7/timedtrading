@@ -21,7 +21,22 @@
   const { useState, useEffect, useCallback } = React;
 
   const STORAGE_KEY = "timed_auth_session";
+  const BOOTSTRAP_KEY = "timed_auth_bootstrap";
   const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+
+  function scheduleIdleWork(fn, timeout = 1200) {
+    if (typeof fn !== "function") return () => {};
+    if (typeof window.requestIdleCallback === "function") {
+      const id = window.requestIdleCallback(() => fn(), { timeout });
+      return () => {
+        try {
+          window.cancelIdleCallback(id);
+        } catch (_) {}
+      };
+    }
+    const id = window.setTimeout(fn, Math.min(timeout, 400));
+    return () => window.clearTimeout(id);
+  }
 
   function getStoredSession() {
     try {
@@ -57,6 +72,45 @@
   function clearSession() {
     try {
       localStorage.removeItem(STORAGE_KEY);
+    } catch {
+      // ignore
+    }
+  }
+
+  function getStoredBootstrap() {
+    try {
+      const raw = localStorage.getItem(BOOTSTRAP_KEY);
+      if (!raw) return null;
+      const data = JSON.parse(raw);
+      if (!data || !data.cachedAt) return null;
+      if (Date.now() - data.cachedAt > SESSION_TTL_MS) {
+        localStorage.removeItem(BOOTSTRAP_KEY);
+        return null;
+      }
+      return data;
+    } catch {
+      return null;
+    }
+  }
+
+  function storeBootstrap(data) {
+    try {
+      const bootstrap = {
+        saved_tickers: Array.isArray(data?.saved_tickers) ? data.saved_tickers : [],
+        member_tickers: Array.isArray(data?.member_tickers) ? data.member_tickers : [],
+        unread_trade_alert_count: Number(data?.unread_trade_alert_count) || 0,
+        cachedAt: Date.now(),
+      };
+      localStorage.setItem(BOOTSTRAP_KEY, JSON.stringify(bootstrap));
+      return bootstrap;
+    } catch {
+      return null;
+    }
+  }
+
+  function clearBootstrap() {
+    try {
+      localStorage.removeItem(BOOTSTRAP_KEY);
     } catch {
       // ignore
     }
@@ -609,15 +663,30 @@
             const json = await res.json();
             if (json.ok && json.authenticated && json.user) {
               const session = storeSession(json.user);
+              const bootstrap = storeBootstrap({
+                saved_tickers: json.saved_tickers,
+                member_tickers: json.member_tickers,
+                unread_trade_alert_count: json.unread_trade_alert_count,
+              });
               setUser(session);
               setState("authenticated");
               setServerVerified(true);
               if (Array.isArray(json.member_tickers)) setMemberTickers(json.member_tickers);
+              try {
+                window.dispatchEvent(new CustomEvent("tt-auth-bootstrap-updated", {
+                  detail: bootstrap || {
+                    saved_tickers: Array.isArray(json.saved_tickers) ? json.saved_tickers : [],
+                    member_tickers: Array.isArray(json.member_tickers) ? json.member_tickers : [],
+                    unread_trade_alert_count: Number(json.unread_trade_alert_count) || 0,
+                  },
+                }));
+              } catch (_) {}
               return;
             }
           }
           // Not authenticated
           clearSession();
+          clearBootstrap();
           setServerVerified(false);
           if (showError) {
             setError(
@@ -634,6 +703,7 @@
             setUser(cached);
             setState("authenticated");
           } else {
+            clearBootstrap();
             if (showError) {
               setError("Unable to connect. Please check your network and retry.");
             }
@@ -659,8 +729,12 @@
       if (cached) {
         setUser(cached);
         setState("authenticated");
-        // Background refresh to update last_login_at on backend + sync tier
-        verifyAuth(false).catch(() => {});
+        // Background refresh to update last_login_at on backend + sync tier,
+        // but defer it so the first page paint is not blocked on auth extras.
+        const cancel = scheduleIdleWork(() => {
+          verifyAuth(false).catch(() => {});
+        }, 1600);
+        return cancel;
       } else {
         verifyAuth(false);
       }
@@ -790,7 +864,10 @@
     // Fully wrapped in catch — must never crash the app.
     useEffect(() => {
       if (user && serverVerified) {
-        try { registerPushNotifications(apiBase).catch(() => {}); } catch (_) {}
+        const cancel = scheduleIdleWork(() => {
+          try { registerPushNotifications(apiBase).catch(() => {}); } catch (_) {}
+        }, 2500);
+        return cancel;
       }
     }, [user, serverVerified, apiBase]);
 
@@ -1252,7 +1329,10 @@
     const h = React.createElement;
     const [open, setOpen] = React.useState(false);
     const [notifications, setNotifications] = React.useState([]);
-    const [unreadCount, setUnreadCount] = React.useState(0);
+    const [unreadCount, setUnreadCount] = React.useState(() => {
+      const cached = getStoredBootstrap();
+      return Number(cached?.unread_trade_alert_count) || 0;
+    });
     const [loading, setLoading] = React.useState(false);
     const [selectedNotification, setSelectedNotification] = React.useState(null); // modal
     const [filter, setFilter] = React.useState("all"); // "all" | "trade_alerts"
@@ -1263,6 +1343,15 @@
       ? notifications.filter(n => TRADE_ALERT_TYPES.includes(n.type))
       : notifications;
     const tradeAlertsCount = notifications.filter(n => TRADE_ALERT_TYPES.includes(n.type)).length;
+
+    React.useEffect(() => {
+      const handler = (event) => {
+        const next = Number(event?.detail?.unread_trade_alert_count);
+        if (Number.isFinite(next)) setUnreadCount(next);
+      };
+      window.addEventListener("tt-auth-bootstrap-updated", handler);
+      return () => window.removeEventListener("tt-auth-bootstrap-updated", handler);
+    }, []);
 
     // Type-to-icon color mapping
     const typeColors = {
@@ -1296,12 +1385,12 @@
       } catch {}
     }, [apiBase]);
 
-    // Poll every 60s for new notifications
     React.useEffect(() => {
+      if (!open) return undefined;
       fetchNotifications();
       const iv = setInterval(fetchNotifications, 60000);
       return () => clearInterval(iv);
-    }, [fetchNotifications]);
+    }, [fetchNotifications, open]);
 
     // Close dropdown on outside click (but not when modal is open)
     React.useEffect(() => {
@@ -1865,6 +1954,13 @@
   window.TimedUserBadge = UserBadge;
   window.TimedNotificationCenter = NotificationCenter;
   window.TimedVIPAdminPanel = VIPAdminPanel;
-  window.TimedAuthHelpers = { getStoredSession, storeSession, clearSession };
+  window.TimedAuthHelpers = {
+    getStoredSession,
+    storeSession,
+    clearSession,
+    getStoredBootstrap,
+    storeBootstrap,
+    clearBootstrap,
+  };
   window.TimedPushRegister = registerPushNotifications;
 })();
