@@ -22,6 +22,7 @@ export function normalizeTfKey(tf) {
   if (raw === "3" || raw === "3M") return "3";
   if (raw === "5" || raw === "5M") return "5";
   if (raw === "10" || raw === "10M") return "10";
+  if (raw === "15" || raw === "15M") return "15";
   if (raw === "30" || raw === "30M") return "30";
   if (raw === "60" || raw === "1H" || raw === "1HR") return "60";
   if (raw === "240" || raw === "4H" || raw === "4HR") return "240";

@@ -12,7 +12,7 @@ indicator("TimedTrading Capture Candles (Multi-TF)", overlay=false, max_labels_c
 // - Webhook URL: https://YOUR-WORKER.workers.dev/timed/ingest-candles?key=YOUR_API_KEY
 
 groupCapture = "Capture Settings"
-scriptVersion = input.string("candles_1.0.0", "Script Version", group=groupCapture)
+scriptVersion = input.string("candles_1.1.0", "Script Version", group=groupCapture)
 sendEveryBars = input.int(1, "Send every N bars", minval=1, maxval=24, group=groupCapture)
 
 // Fetch OHLCV + bar close timestamp for a given timeframe.
@@ -27,6 +27,7 @@ f_candle(tf) =>
     [o, h, l, c, v, tc]
 
 [o10, h10, l10, c10, v10, t10] = f_candle("10")
+[o15, h15, l15, c15, v15, t15] = f_candle("15")
 [o30, h30, l30, c30, v30, t30] = f_candle("30")
 [o60, h60, l60, c60, v60, t60] = f_candle("60")
 [o240, h240, l240, c240, v240, t240] = f_candle("240")
@@ -38,33 +39,7 @@ f_num(x) => na(x) ? "null" : str.tostring(x)
 // Build JSON payload.
 // Notes:
 // - `ts` is this script's bar time; per-TF bars use their own `time_close`.
-payload =
-    "{" +
-      "\"script_version\":\"" + scriptVersion + "\"," +
-      "\"ts\":" + str.tostring(time) + "," +
-      "\"ticker\":\"" + syminfo.ticker + "\"," +
-      "\"tf_candles\":{" +
-        "\"10\":{" +
-          "\"ts\":" + f_num(t10) + ",\"o\":" + f_num(o10) + ",\"h\":" + f_num(h10) + ",\"l\":" + f_num(l10) + ",\"c\":" + f_num(c10) + ",\"v\":" + f_num(v10) +
-        "}," +
-        "\"30\":{" +
-          "\"ts\":" + f_num(t30) + ",\"o\":" + f_num(o30) + ",\"h\":" + f_num(h30) + ",\"l\":" + f_num(l30) + ",\"c\":" + f_num(c30) + ",\"v\":" + f_num(v30) +
-        "}," +
-        "\"60\":{" +
-          "\"ts\":" + f_num(t60) + ",\"o\":" + f_num(o60) + ",\"h\":" + f_num(h60) + ",\"l\":" + f_num(l60) + ",\"c\":" + f_num(c60) + ",\"v\":" + f_num(v60) +
-        "}," +
-        "\"240\":{" +
-          "\"ts\":" + f_num(t240) + ",\"o\":" + f_num(o240) + ",\"h\":" + f_num(h240) + ",\"l\":" + f_num(l240) + ",\"c\":" + f_num(c240) + ",\"v\":" + f_num(v240) +
-        "}," +
-        "\"D\":{" +
-          "\"ts\":" + f_num(tD) + ",\"o\":" + f_num(oD) + ",\"h\":" + f_num(hD) + ",\"l\":" + f_num(lD) + ",\"c\":" + f_num(cD) + ",\"v\":" + f_num(vD) +
-        "}," +
-        "\"W\":{" +
-          "\"ts\":" + f_num(tW) + ",\"o\":" + f_num(oW) + ",\"h\":" + f_num(hW) + ",\"l\":" + f_num(lW) + ",\"c\":" + f_num(cW) + ",\"v\":" + f_num(vW) +
-        "}" +
-      "}," +
-      "\"ingest_kind\":\"candles\"" +
-    "}"
+payload = "{" + "\"script_version\":\"" + scriptVersion + "\"," + "\"ts\":" + str.tostring(time) + "," + "\"ticker\":\"" + syminfo.ticker + "\"," + "\"tf_candles\":{" + "\"10\":{" + "\"ts\":" + f_num(t10) + ",\"o\":" + f_num(o10) + ",\"h\":" + f_num(h10) + ",\"l\":" + f_num(l10) + ",\"c\":" + f_num(c10) + ",\"v\":" + f_num(v10) + "}," + "\"15\":{" + "\"ts\":" + f_num(t15) + ",\"o\":" + f_num(o15) + ",\"h\":" + f_num(h15) + ",\"l\":" + f_num(l15) + ",\"c\":" + f_num(c15) + ",\"v\":" + f_num(v15) + "}," + "\"30\":{" + "\"ts\":" + f_num(t30) + ",\"o\":" + f_num(o30) + ",\"h\":" + f_num(h30) + ",\"l\":" + f_num(l30) + ",\"c\":" + f_num(c30) + ",\"v\":" + f_num(v30) + "}," + "\"60\":{" + "\"ts\":" + f_num(t60) + ",\"o\":" + f_num(o60) + ",\"h\":" + f_num(h60) + ",\"l\":" + f_num(l60) + ",\"c\":" + f_num(c60) + ",\"v\":" + f_num(v60) + "}," + "\"240\":{" + "\"ts\":" + f_num(t240) + ",\"o\":" + f_num(o240) + ",\"h\":" + f_num(h240) + ",\"l\":" + f_num(l240) + ",\"c\":" + f_num(c240) + ",\"v\":" + f_num(v240) + "}," + "\"D\":{" + "\"ts\":" + f_num(tD) + ",\"o\":" + f_num(oD) + ",\"h\":" + f_num(hD) + ",\"l\":" + f_num(lD) + ",\"c\":" + f_num(cD) + ",\"v\":" + f_num(vD) + "}," + "\"W\":{" + "\"ts\":" + f_num(tW) + ",\"o\":" + f_num(oW) + ",\"h\":" + f_num(hW) + ",\"l\":" + f_num(lW) + ",\"c\":" + f_num(cW) + ",\"v\":" + f_num(vW) + "}" + "}," + "\"ingest_kind\":\"candles\"" + "}"
 
 // Emit at the chosen cadence on confirmed bars.
 var int barCount = 0

@@ -23,7 +23,7 @@ CHECKPOINT_FILE="data/replay-checkpoint.txt"
 HOLIDAYS="2025-07-04 2025-09-01 2025-11-27 2025-12-25 2026-01-01 2026-01-19 2026-02-16 2026-05-25 2026-07-03 2026-09-07 2026-11-26 2026-12-25"
 # Symbols known to be unavailable in our current Alpaca backfill route.
 # Keep them in trading universe, but skip repeated backfill attempts.
-UNSUPPORTED_BACKFILL_TICKERS=" CL1! ES1! GC1! NQ1! SI1! VX1! SPX "
+UNSUPPORTED_BACKFILL_TICKERS=" BRK-B CL1! ES1! GC1! NQ1! SI1! VX1! SPX "
 
 RESUME=false
 TRADER_ONLY=false
@@ -184,6 +184,17 @@ if [[ -z "$RUN_ID" || "$RUN_ID" == "null" ]]; then
   RUN_ID="backtest_${START_DATE}_${END_DATE}@$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
 fi
 
+ENV_OVERRIDES_JSON=$(printf '%s\n' "${ENV_OVERRIDES[@]}" | jq -Rn '
+  [inputs | select(length > 0)] |
+  reduce .[] as $item ({};
+    ($item | capture("^(?<key>[^=]+)=(?<value>.*)$")?) as $pair |
+    if $pair == null then . else . + { ($pair.key): $pair.value } end
+  )
+')
+RUN_PARAMS_JSON=$(jq -nc --argjson env_overrides "$ENV_OVERRIDES_JSON" '
+  if ($env_overrides | length) == 0 then null else { env_overrides: $env_overrides } end
+')
+
 REGISTER_PAYLOAD=$(jq -nc \
   --arg run_id "$RUN_ID" \
   --arg label "${RUN_LABEL:-backtest-${START_DATE}-to-${END_DATE}}" \
@@ -198,6 +209,7 @@ REGISTER_PAYLOAD=$(jq -nc \
   --argjson low_write "$($LOW_WRITE && echo true || echo false)" \
   --arg status "running" \
   --arg status_note "Replay started" \
+  --argjson params "$RUN_PARAMS_JSON" \
   --argjson tags "$(jq -nc --arg label "${RUN_LABEL:-}" '[($label | select(length>0)), "backtest"] | map(select(. != null))')" \
   '{
     run_id: $run_id,
@@ -213,6 +225,7 @@ REGISTER_PAYLOAD=$(jq -nc \
     low_write: $low_write,
     status: $status,
     status_note: $status_note,
+    params: $params,
     tags: $tags
   }')
 curl -s -m 30 -X POST "$API_BASE/timed/admin/runs/register?key=$API_KEY" \
@@ -601,6 +614,7 @@ FINALIZE_PAYLOAD=$(jq -nc \
   --argjson low_write "$($LOW_WRITE && echo true || echo false)" \
   --arg status "completed" \
   --arg status_note "Replay completed" \
+  --argjson params "$RUN_PARAMS_JSON" \
   '{
     run_id: $run_id,
     label: $label,
@@ -614,7 +628,8 @@ FINALIZE_PAYLOAD=$(jq -nc \
     keep_open_at_end: $keep_open_at_end,
     low_write: $low_write,
     status: $status,
-    status_note: $status_note
+    status_note: $status_note,
+    params: $params
   }')
 echo ""
 echo "=== Recording run summary ==="

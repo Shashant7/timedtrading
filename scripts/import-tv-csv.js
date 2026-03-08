@@ -152,9 +152,13 @@ async function uploadCandles(ticker, tf, candles) {
 const TV_TICKER_MAP = {
   "CME_MINI_ES1!": "ES1!",
   "CME_MINI_NQ1!": "NQ1!",
+  "CME_MINI_RTY1!": "RTY1!",
   "CME_MINI_MES1!": "ES1!",   // Micro E-mini → same as ES1!
   "CME_MINI_MNQ1!": "NQ1!",   // Micro E-mini NQ → same as NQ1!
+  "CBOT_MINI_YM1!": "YM1!",
+  "NYMEX_CL1!": "CL1!",
   "CAPITALCOM_US500": "US500",
+  "SP_SPX": "SPX",
   "TVC_VIX": "VIX",
   "CBOE_VX1!": "VX1!",
   "TVC_GOLD": "GC1!",

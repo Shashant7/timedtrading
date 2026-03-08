@@ -36,8 +36,8 @@
 
       const API_BASE = "";  // same-origin — proxied by Pages Function
       // Auth via CF Access JWT cookie (sent automatically with credentials: "include")
-      const TFS = ["M", "W", "D", "240", "60", "30", "10", "5"];
-      const TF_LABELS = { M: "M", W: "W", D: "D", "240": "4H", "60": "1H", "30": "30m", "10": "10m", "5": "5m" };
+      const TFS = ["M", "W", "D", "240", "60", "30", "15", "10", "5"];
+      const TF_LABELS = { M: "M", W: "W", D: "D", "240": "4H", "60": "1H", "30": "30m", "15": "15m", "10": "10m", "5": "5m" };
       const TV_TICKERS = new Set(["ES1!", "NQ1!", "GOLD", "SILVER", "US500", "VX1!", "GC1!", "SI1!"]);
 
       // ── Company Names ──
@@ -103,17 +103,24 @@
       let _etfWeightMap = {};
       const GROUP_ORDER = ["SP_Sectors","Futures","UPTICKS","GRNI","GRNJ","GRNY"];
 
-      // Load ETF groups dynamically from backend
+      // Load ETF groups and UPTICKS dynamically from backend
       async function loadETFGroups() {
         try {
-          const resp = await fetch("/timed/etf/groups");
-          const data = await resp.json();
+          const [etfRes, upticksRes] = await Promise.all([
+            fetch("/timed/etf/groups"),
+            fetch(`${API_BASE}/timed/admin/upticks`, { credentials: "include" }),
+          ]);
+          const data = await etfRes.json();
           if (data.ok && data.groups) {
             for (const [etf, tickers] of Object.entries(data.groups)) {
               if (GROUPS[etf]) {
                 GROUPS[etf] = new Set(tickers.map(t => String(t).toUpperCase()));
               }
             }
+          }
+          const upticksData = await upticksRes.json();
+          if (upticksData.ok && Array.isArray(upticksData.tickers)) {
+            GROUPS.UPTICKS = new Set(upticksData.tickers.map(t => String(t).toUpperCase()));
           }
           // Also load weight map for badges
           const wResp = await fetch("/timed/etf/holdings/GRNY");
@@ -194,7 +201,12 @@
         useEffect(() => {
           fetch(`${API_BASE}/timed/admin/upticks`, { credentials: "include" })
             .then(r => r.json())
-            .then(d => { if (d.ok && d.tickers?.length) setTickers(d.tickers); })
+            .then(d => {
+              if (d.ok && Array.isArray(d.tickers)) {
+                setTickers(d.tickers);
+                GROUPS.UPTICKS = new Set(d.tickers.map(t => String(t).toUpperCase()));
+              }
+            })
             .catch(() => {});
         }, []);
 
@@ -520,6 +532,7 @@
         const [priceData, setPriceData] = useState({});
         const [contextData, setContextData] = useState({}); // ticker -> {name, sector, industry, market_cap}
         const [pendingTickers, setPendingTickers] = useState(new Set()); // Optimistic: tickers just added, show until they appear from API
+        const [watchlistLoaded, setWatchlistLoaded] = useState(false);
         const pollUntilRef = useRef(null); // When to stop polling after add
         const addRef = useRef(null);
 
@@ -527,6 +540,7 @@
         // that are in the watchlist but missing from ingestion-status (e.g. eventual consistency)
         // still show until the next refresh.
         const [watchlistTickers, setWatchlistTickers] = useState([]);
+        const normalizeTicker = useCallback((ticker) => String(ticker || "").toUpperCase().trim(), []);
 
         // Helper: get ticker context from enrichment data, fallback to hardcoded
         const getTickerName = useCallback((ticker) => {
@@ -569,14 +583,19 @@
             if (clearPendingFromResponse && json.tickers && json.tickers.length) {
               setPendingTickers(prev => {
                 const next = new Set(prev);
-                json.tickers.forEach(t => next.delete(t.ticker));
+                json.tickers.forEach(t => next.delete(normalizeTicker(t.ticker)));
                 return next;
               });
             }
             try {
               const tJson = await tickersRes.json();
-              if (tJson.ok && Array.isArray(tJson.tickers)) setWatchlistTickers(tJson.tickers);
-            } catch (_) {}
+              if (tJson.ok && Array.isArray(tJson.tickers)) {
+                setWatchlistTickers(tJson.tickers.map(normalizeTicker).filter(Boolean));
+                setWatchlistLoaded(true);
+              }
+            } catch (_) {
+              // Keep the last-known canonical list if this read fails.
+            }
             try {
               const pJson = await priceRes.json();
               if (pJson.ok && pJson.prices) {
@@ -601,7 +620,7 @@
           } finally {
             if (!skipLoading) setLoading(false);
           }
-        }, []);
+        }, [normalizeTicker]);
 
         useEffect(() => { loadETFGroups().then(() => fetchData()); }, [fetchData]);
 
@@ -623,11 +642,20 @@
         // still show and persist when navigating away and back.
         const tickers = useMemo(() => {
           const fromApi = data?.tickers || [];
-          const fromApiSet = new Set(fromApi.map(t => t.ticker));
-          const missingFromApi = new Set([
-            ...pendingTickers,
-            ...(watchlistTickers || []).filter(t => !fromApiSet.has(t)),
+          const activeUniverse = new Set([
+            ...(watchlistTickers || []).map(normalizeTicker).filter(Boolean),
+            ...Array.from(pendingTickers).map(normalizeTicker).filter(Boolean),
           ]);
+          const filteredFromApi = watchlistLoaded
+            ? fromApi.filter(t => activeUniverse.has(normalizeTicker(t.ticker)))
+            : fromApi;
+          const fromApiSet = new Set(filteredFromApi.map(t => normalizeTicker(t.ticker)));
+          const missingFromApi = watchlistLoaded
+            ? [...activeUniverse].filter(t => !fromApiSet.has(t))
+            : [...new Set([
+                ...Array.from(pendingTickers).map(normalizeTicker).filter(Boolean),
+                ...(watchlistTickers || []).map(normalizeTicker).filter(t => t && !fromApiSet.has(t)),
+              ])];
           const placeholders = [...missingFromApi]
             .filter(t => t && !fromApiSet.has(t))
             .map(t => ({
@@ -639,16 +667,31 @@
               tfs: {},
               backfilling: true,
             }));
-          const combined = [...fromApi, ...placeholders];
+          const combined = [...filteredFromApi, ...placeholders];
           const seen = new Set();
           const deduped = combined.filter(r => {
-            const k = (r.ticker || "").toUpperCase();
+            const k = normalizeTicker(r.ticker);
             if (seen.has(k)) return false;
             seen.add(k);
             return true;
           });
           return deduped.sort((a, b) => (a.ticker || "").localeCompare(b.ticker || ""));
-        }, [data, pendingTickers, watchlistTickers]);
+        }, [data, pendingTickers, watchlistLoaded, watchlistTickers, normalizeTicker]);
+
+        const summaryStats = useMemo(() => {
+          const total = watchlistLoaded
+            ? new Set([
+                ...(watchlistTickers || []).map(normalizeTicker).filter(Boolean),
+                ...Array.from(pendingTickers).map(normalizeTicker).filter(Boolean),
+              ]).size
+            : (data?.summary?.total_tickers_in_system || tickers.length);
+          const withData = tickers.filter(t => Object.values(t.tfs || {}).some(tf => tf && tf.count > 0)).length;
+          return {
+            total,
+            withData,
+            noData: Math.max(0, total - withData),
+          };
+        }, [data, pendingTickers, tickers, watchlistLoaded, watchlistTickers, normalizeTicker]);
 
         const sectors = useMemo(() => {
           const s = new Set(tickers.map(t => t.sector).filter(Boolean));
@@ -749,7 +792,10 @@
             if (json.ok) {
               const addedList = Array.isArray(json.addedTickers) ? json.addedTickers : (json.added > 0 ? toAdd : []);
               if (addedList.length > 0) {
-                setPendingTickers(prev => new Set([...prev, ...addedList]));
+                const normalizedAdded = addedList.map(normalizeTicker).filter(Boolean);
+                setPendingTickers(prev => new Set([...prev, ...normalizedAdded]));
+                setWatchlistTickers(prev => Array.from(new Set([...(prev || []), ...normalizedAdded])).sort());
+                setWatchlistLoaded(true);
                 pollUntilRef.current = Date.now() + 120000; // Poll for 2 min so coverage updates
               }
               const parts = [];
@@ -788,6 +834,17 @@
             });
             const json = await res.json();
             if (json.ok) {
+              const removedList = (Array.isArray(json.removedTickers) ? json.removedTickers : tickerList)
+                .map(normalizeTicker)
+                .filter(Boolean);
+              const removedSet = new Set(removedList);
+              setWatchlistTickers(prev => (prev || []).filter(t => !removedSet.has(normalizeTicker(t))));
+              setPendingTickers(prev => {
+                const next = new Set(prev);
+                removedList.forEach(t => next.delete(t));
+                return next;
+              });
+              setWatchlistLoaded(true);
               setActionStatus({ type: "success", msg: `Removed ${json.removed} ticker(s).` });
               setSelected(new Set());
               fetchData();
@@ -1038,9 +1095,9 @@
                   <a href="index-react.html" className="hidden md:inline-flex px-2 py-1 rounded-md text-[11px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all" title="Restart tour">Tour</a>
                   <a href="/faq.html" className="hidden md:inline-flex px-2 py-1 rounded-md text-[11px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">FAQ</a>
                   <a href="index-react.html" className="hidden md:inline-flex px-2 py-1 rounded-md text-[11px] text-[#60a5fa] hover:text-[#93bbfc] hover:bg-[#60a5fa]/[0.06] transition-all font-medium">Ask AI</a>
-                  {data?.summary && (
+                  {(summaryStats.total > 0 || data?.summary) && (
                     <span className="hidden sm:inline text-[11px] text-[#6b7280]">
-                      {data.summary.tickers_with_candle_data} with data / {data.summary.total_tickers_in_system} total
+                      {summaryStats.withData} with data / {summaryStats.total} total
                     </span>
                   )}
                   <button
@@ -1087,6 +1144,9 @@
             <div className="max-w-[1800px] mx-auto px-4 py-4 space-y-4">
               {/* Action bar */}
               <div className="flex flex-wrap items-center gap-3">
+                <div className="w-full text-[11px] text-[#6b7280]">
+                  This page is the source of truth for the active ticker universe. Add or remove tickers here to update the live system list used across the app.
+                </div>
                 {/* Add ticker */}
                 <div className="flex items-center gap-1.5">
                   <input
@@ -1192,20 +1252,20 @@
               )}
 
               {/* Summary stats */}
-              {data?.summary && (
+              {(summaryStats.total > 0 || data?.summary) && (
                 <div className="flex gap-4 text-xs">
                   <div className="bg-white/[0.03] border border-white/5 rounded px-4 py-2">
                     <div className="text-gray-500">In System</div>
-                    <div className="text-white font-semibold text-lg">{data.summary.total_tickers_in_system}</div>
+                    <div className="text-white font-semibold text-lg">{summaryStats.total}</div>
                   </div>
                   <div className="bg-white/[0.03] border border-white/5 rounded px-4 py-2">
                     <div className="text-gray-500">With Data</div>
-                    <div className="text-white font-semibold text-lg">{data.summary.tickers_with_candle_data}</div>
+                    <div className="text-white font-semibold text-lg">{summaryStats.withData}</div>
                   </div>
                   <div className="bg-white/[0.03] border border-white/5 rounded px-4 py-2">
                     <div className="text-gray-500">No Data</div>
-                    <div className={`font-semibold text-lg ${data.summary.tickers_no_data > 0 ? "text-red-400" : "text-green-400"}`}>
-                      {data.summary.tickers_no_data}
+                    <div className={`font-semibold text-lg ${summaryStats.noData > 0 ? "text-red-400" : "text-green-400"}`}>
+                      {summaryStats.noData}
                     </div>
                   </div>
                   <div className="bg-white/[0.03] border border-white/5 rounded px-4 py-2">

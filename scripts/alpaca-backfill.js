@@ -295,7 +295,9 @@ async function fetchTwelveDataBars(symbols, tfKey, startISO) {
     function parseBars(values) {
       return values.map(v => {
         const dt = v.datetime || "";
-        const ts = dt.includes("T") ? dt : dt + "T00:00:00Z";
+        const ts = dt.includes("T")
+          ? dt
+          : (dt.includes(" ") ? dt.replace(" ", "T") : dt + "T00:00:00");
         return {
           t: ts.endsWith("Z") ? ts : ts + "Z",
           o: Number(v.open), h: Number(v.high),

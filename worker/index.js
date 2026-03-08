@@ -19839,6 +19839,44 @@ async function d1SyncLatestBatchFromKV(env, ctx, batchSize = 50) {
   };
 }
 
+async function getActiveTickerUniverse(env) {
+  const KV = env?.KV_TIMED;
+  const db = env?.DB;
+  const removedSet = new Set(
+    ((await kvGetJSON(KV, "timed:removed")) || []).map((t) =>
+      String(t || "").toUpperCase().trim(),
+    ),
+  );
+
+  let d1Tickers = [];
+  if (db) {
+    try {
+      await d1EnsureLatestSchema(env);
+      const rows = await db.prepare(
+        `SELECT ticker FROM ticker_index ORDER BY ticker ASC`,
+      ).all();
+      d1Tickers = (rows?.results || [])
+        .map((r) => String(r?.ticker || "").toUpperCase().trim())
+        .filter(Boolean);
+    } catch (e) {
+      console.error(`[ACTIVE UNIVERSE] D1 read failed:`, String(e));
+    }
+  }
+
+  const kvTickersRaw = (await kvGetJSON(KV, "timed:tickers")) || [];
+  const kvTickers = Array.isArray(kvTickersRaw)
+    ? kvTickersRaw
+        .map((t) => String(t || "").toUpperCase().trim())
+        .filter(Boolean)
+    : [];
+
+  const tickers = [...new Set([...d1Tickers, ...kvTickers])]
+    .filter((t) => !removedSet.has(t))
+    .sort();
+
+  return { tickers, d1Tickers, kvTickers, removedSet };
+}
+
 async function d1CleanupOldTrail(env, ttlDays = 35) {
   const db = env?.DB;
   if (!db) return { ok: false, skipped: true, reason: "no_db_binding" };
@@ -27109,43 +27147,20 @@ export default {
           );
         }
 
-        // Prefer D1 for reads (fast index table). Merge with KV watchlist so tickers
-        // in timed:tickers (and not in timed:removed) always appear even if D1 is out of sync.
-        let tickers = [];
-        try {
-          if (env?.DB) {
-            await d1EnsureLatestSchema(env);
-            const rows = await env.DB.prepare(
-              `SELECT ticker FROM ticker_index ORDER BY ticker ASC`,
-            ).all();
-            const list = rows?.results || [];
-            tickers = list
-              .map((r) => String(r.ticker || "").toUpperCase())
-              .filter(Boolean);
-          }
-        } catch (e) {
-          console.error(`[D1 LATEST] /timed/tickers read failed:`, String(e));
-        }
-        const kvTickers = (await kvGetJSON(KV, "timed:tickers")) || [];
-        const removedSet = new Set((await kvGetJSON(KV, "timed:removed")) || []);
+        // Canonical active universe = D1 ticker_index + KV watchlist - persistent removals.
+        // This keeps read paths aligned with the add/remove flow even if one store lags.
+        const { tickers, d1Tickers, kvTickers, removedSet } = await getActiveTickerUniverse(env);
         _removedTickersCache = removedSet;
-        tickers = tickers.filter((t) => !removedSet.has(t));
-        const kvActive = Array.isArray(kvTickers)
-          ? kvTickers.map((t) => String(t).toUpperCase()).filter((t) => t && !removedSet.has(t))
-          : [];
-        const merged = [...new Set([...tickers, ...kvActive])].sort();
-        if (merged.length > (tickers.length || 0)) {
-          tickers = merged;
+        const d1ActiveCount = d1Tickers.filter((t) => !removedSet.has(t)).length;
+        if (tickers.length > d1ActiveCount) {
           try {
             ctx.waitUntil(d1SyncLatestBatchFromKV(env, ctx, 50));
           } catch {
             // ignore
           }
-        } else if (
-          !Array.isArray(tickers) ||
-          tickers.length === 0
-        ) {
-          tickers = kvActive.length > 0 ? kvActive : (Array.isArray(kvTickers) ? kvTickers : []);
+        } else if (!Array.isArray(tickers) || tickers.length === 0) {
+          const kvActive = kvTickers.filter((t) => !removedSet.has(t));
+          tickers.push(...kvActive);
           try {
             ctx.waitUntil(d1SyncLatestBatchFromKV(env, ctx, 50));
           } catch {
@@ -28912,6 +28927,12 @@ export default {
               let filtered = rawFinnhub
                 .filter(e => e.symbol && universeSet.has(e.symbol.toUpperCase()))
                 .map(e => ({ ...e, symbol: e.symbol.toUpperCase() }));
+              // Exclude events more than 7 days in the past (stale cache / wrong provider data)
+              const cutoffNy = new Date(Date.now() - 7 * 86400000).toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+              filtered = filtered.filter(e => {
+                const d = (e.date || "").slice(0, 10);
+                return d >= cutoffNy; // keep: 7 days ago through all future
+              });
               // TwelveData gate: only show earnings when TwelveData confirms (avoids Finnhub false positives)
               try {
                 const tdRes = await tdFetchEarningsCalendar(env, today, future);
@@ -28936,11 +28957,14 @@ export default {
               console.warn("[EARNINGS] On-demand fetch failed:", String(fetchErr?.message || fetchErr).slice(0, 150));
             }
           }
-          const payload = { ok: true, events: cached?.events || [], updated_at: cached?.updated_at || 0 };
+          // Filter out events >7 days in the past (even from cache — avoids stale RDDT-style false positives)
+          const cutoffNy = new Date(Date.now() - 7 * 86400000).toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+          const eventsOut = (cached?.events || []).filter(e => ((e.date || "").slice(0, 10)) >= cutoffNy);
+          const payload = { ok: true, events: eventsOut, updated_at: cached?.updated_at || 0 };
           if (debug && rawFinnhub) {
             const today = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
             const future = new Date(Date.now() + 5 * 86400000).toLocaleDateString("en-CA", { timeZone: "America/New_York" });
-            const checkTickers = ["NFLX", "TSLA", "AAPL"];
+            const checkTickers = ["NFLX", "TSLA", "AAPL", "RDDT"];
             const debugObj = {
               finnhub_range: { today, future },
               finnhub_total: rawFinnhub.length,
@@ -29460,11 +29484,20 @@ export default {
         );
       }
 
-      // GET /timed/sectors - Get all sectors and their ratings
+      // GET /timed/sectors - Get all sectors and their ratings (merge KV overrides from Tickers page)
       if (routeKey === "GET /timed/sectors") {
+        let mergedRatings = { ...SECTOR_RATINGS };
+        try {
+          const stored = await kvGetJSON(KV, "timed:admin:sector_ratings");
+          const ratings = (stored && typeof stored === "object") ? stored : {};
+          for (const [sector, val] of Object.entries(ratings)) {
+            if (mergedRatings[sector] && typeof val === "object") Object.assign(mergedRatings[sector], val);
+            else if (val && typeof val === "object") mergedRatings[sector] = { ...val };
+          }
+        } catch (_) {}
         const sectors = getAllSectors().map((sector) => ({
           sector,
-          ...getSectorRating(sector),
+          ...(mergedRatings[sector] || { rating: "neutral", boost: 0 }),
           tickerCount: getTickersInSector(sector).length,
         }));
 
@@ -33930,18 +33963,17 @@ export default {
         const tickerFilter = normTicker(url.searchParams.get("ticker")) || null;
 
         // Expected minimums per TF (approximate for good chart + scoring coverage)
-        // Canonical 9 TFs (3m dropped)
-        const expected = { "10": 500, "30": 300, "60": 300, "240": 300, "D": 250, "W": 200, "M": 60 };
-        const tfs = ["M", "W", "D", "240", "60", "30", "10"];
+        // Includes 15m for LEADING_LTF=15 experiment
+        const expected = { "10": 500, "15": 450, "30": 300, "60": 300, "240": 300, "D": 250, "W": 200, "M": 60 };
+        const tfs = ["M", "W", "D", "240", "60", "30", "15", "10"];
 
         // Expected trading days in the last N calendar days (for gap detection)
         // Intraday TFs: check last 30 calendar days (~21 trading days)
-        // D/W/M: check longer windows
         const GAP_WINDOW_MS = 30 * 24 * 60 * 60 * 1000; // 30 calendar days
         const gapSinceTs = Date.now() - GAP_WINDOW_MS;
         const EXPECTED_TRADING_DAYS = 21; // ~21 trading days in 30 calendar days
         // Which TFs should have daily coverage (intraday TFs)
-        const INTRADAY_TFS = new Set(["1", "10", "30", "60", "240"]);
+        const INTRADAY_TFS = new Set(["1", "10", "15", "30", "60", "240"]);
 
         try {
           // Run two queries in parallel via db.batch():
@@ -33977,14 +34009,21 @@ export default {
             gapData[r.ticker][r.tf] = r.date_count;
           }
 
-          // Build report from canonical watchlist (KV timed:tickers) so newly added
-          // tickers appear immediately even before they have candle data or sector mapping.
-          const removedSet = new Set((await kvGetJSON(KV, "timed:removed")) || []);
-          const kvTickers = (await kvGetJSON(KV, "timed:tickers")) || [];
+          // Build report from the active universe used by the Tickers page and add/remove flow.
+          const { tickers: activeTickers, removedSet } = await getActiveTickerUniverse(env);
+          const normalizedRemovedSet = new Set(
+            [...removedSet].map((t) => normTicker(t)),
+          );
+          const normalizedSectorMap = Object.fromEntries(
+            Object.entries(SECTOR_MAP).map(([ticker, sector]) => [normTicker(ticker), sector]),
+          );
           const allTickersSorted = [...new Set([
-            ...kvTickers.filter(t => !removedSet.has(String(t).toUpperCase())),
-            ...Object.keys(SECTOR_MAP).filter(t => !removedSet.has(t)),
-          ])].map(t => String(t).toUpperCase()).filter(Boolean).sort();
+            ...activeTickers.map((t) => normTicker(t)),
+            ...Object.keys(SECTOR_MAP).map((t) => normTicker(t)),
+          ])]
+            .filter(Boolean)
+            .filter((t) => !normalizedRemovedSet.has(t))
+            .sort();
           const report = [];
           let totalComplete = 0, totalExpected = 0;
           const nowMs = Date.now();
@@ -34044,7 +34083,14 @@ export default {
             const avgPct = Math.round(tickerPct / tfs.length);
             const avgQuality = Math.round(tickerQualitySum / tfs.length);
             const missingTfs = tfs.filter(tf => !tfData[tf] || tfData[tf].count === 0);
-            report.push({ ticker: t, sector: SECTOR_MAP[t] || "Unknown", pct: avgPct, quality: avgQuality, missing: missingTfs, tfs: tfData });
+            report.push({
+              ticker: t,
+              sector: normalizedSectorMap[t] || "Unknown",
+              pct: avgPct,
+              quality: avgQuality,
+              missing: missingTfs,
+              tfs: tfData,
+            });
           }
 
           // Sort by quality ascending (worst first)

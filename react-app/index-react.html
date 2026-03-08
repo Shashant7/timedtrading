@@ -10172,7 +10172,7 @@
                           });
                         }
                       }}
-                      className={`px-2 py-1 rounded-lg border text-xs font-semibold transition-all ${
+                      className={`px-1.5 py-0.5 rounded-md border text-[11px] font-semibold transition-all ${
                         isActive
                           ? "border-teal-500 bg-teal-500/20 text-teal-400 shadow-lg"
                           : "border-white/[0.06] bg-white/[0.03] hover:bg-white/5 hover:border-[#3a4aa0] text-[#6b7280]"
@@ -10525,14 +10525,14 @@
             <div className="relative group">
               <button
                 onClick={onClick}
-                className={`px-3 py-1.5 rounded-lg border text-xs font-semibold transition-all ${btnClass}`}
+                className={`px-2 py-1 rounded-md border text-[11px] font-semibold transition-all ${btnClass}`}
               >
                 <span className="inline-flex items-center gap-2">
                   {isTTSelected ? <span style={{fontSize:"11px"}}>✦</span> : null}
                   <span>{baseLabel}</span>
                   {Number.isFinite(count) ? (
                     <span
-                      className={`px-1.5 py-0.5 rounded-md text-[10px] font-bold border ${countClass}`}
+                      className={`px-1 py-0.5 rounded text-[9px] font-bold border ${countClass}`}
                       title={`${count} tickers`}
                     >
                       {count}
@@ -16132,7 +16132,8 @@
             const eParts = e.date.split("-").map(Number);
             const eDayNum = eParts[0] * 10000 + eParts[1] * 100 + eParts[2];
             const calDays = eDayNum - todayDayNum;
-            if (calDays < -2 || calDays > 7) continue;
+            // Only show: yesterday (-1), today (0), or next 7 days (1–7). Exclude older events (stale/wrong data).
+            if (calDays < -1 || calDays > 7) continue;
             if (!map[sym] || Math.abs(calDays) < Math.abs(map[sym]._daysAway)) {
               map[sym] = { ...e, _daysAway: calDays };
             }

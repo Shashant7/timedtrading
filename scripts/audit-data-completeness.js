@@ -52,9 +52,23 @@ function queryD1(sql, retries = 3) {
 const B = "\x1b[1m", G = "\x1b[32m", R = "\x1b[31m", Y = "\x1b[33m", C = "\x1b[36m", RST = "\x1b[0m";
 const t0 = Date.now();
 function elapsed() { return `${((Date.now() - t0) / 1000).toFixed(1)}s`; }
+function normalizeTicker(t) {
+  const s = String(t || "").trim().toUpperCase();
+  return (s === "BRK.B" || s === "BRK-B") ? "BRK-B" : s;
+}
+function normalizeEpochMs(ts) {
+  const n = Number(ts);
+  if (!Number.isFinite(n) || n <= 0) return 0;
+  // Distinguish seconds vs milliseconds without misclassifying older ms epochs
+  // like 2001 monthly GOLD candles (~9.8e11).
+  if (n >= 1e14) return Math.round(n / 1000);
+  if (n >= 1e11) return Math.round(n);
+  return Math.round(n * 1000);
+}
 
-const TFS = ["M", "W", "D", "240", "60", "30", "10"];
-const MIN_BARS = { M: 6, W: 30, D: 150, "240": 500, "60": 1000, "30": 1000, "10": 1000 };
+const TFS = ["M", "W", "D", "240", "60", "30", "15", "10"];
+const MIN_BARS = { M: 6, W: 30, D: 150, "240": 500, "60": 1000, "30": 1000, "15": 800, "10": 1000 };
+const LATE_START_EXEMPT = new Set(["BTCUSD", "ETHUSD"]);
 
 console.log(`\n${B}╔══════════════════════════════════════════════════════════════╗${RST}`);
 console.log(`${B}║   Full Universe Data Completeness Audit                       ║${RST}`);
@@ -78,7 +92,12 @@ if (Object.keys(SECTOR_MAP).length === 0) {
   }
 }
 
-const allTickers = Object.keys(SECTOR_MAP).filter(t => /^[A-Z]/.test(t));
+const allTickers = [...new Set(
+  Object.keys(SECTOR_MAP)
+    .filter(t => /^[A-Z]/.test(t))
+    .map(normalizeTicker)
+    .filter(Boolean)
+)].sort();
 console.log(`  Universe: ${allTickers.length} tickers in SECTOR_MAP\n`);
 
 // Step 2: Query candle coverage per ticker/TF (batch by TF)
@@ -91,16 +110,18 @@ for (const tf of TFS) {
     `SELECT ticker, COUNT(*) as cnt, MIN(ts) as min_ts, MAX(ts) as max_ts FROM ticker_candles WHERE tf='${tf}' GROUP BY ticker`
   );
   for (const r of rows) {
-    const t = String(r.ticker).toUpperCase();
+    const t = normalizeTicker(r.ticker);
     if (!candleAudit[t]) candleAudit[t] = {};
     const minTs = Number(r.min_ts);
     const maxTs = Number(r.max_ts);
+    const minTsMs = normalizeEpochMs(minTs);
+    const maxTsMs = normalizeEpochMs(maxTs);
     candleAudit[t][tf] = {
       count: r.cnt,
-      min_ts: minTs,
-      max_ts: maxTs,
-      min_date: new Date(minTs > 1e12 ? minTs : minTs * 1000).toISOString().slice(0, 10),
-      max_date: new Date(maxTs > 1e12 ? maxTs : maxTs * 1000).toISOString().slice(0, 10),
+      min_ts: minTsMs,
+      max_ts: maxTsMs,
+      min_date: minTsMs > 0 ? new Date(minTsMs).toISOString().slice(0, 10) : null,
+      max_date: maxTsMs > 0 ? new Date(maxTsMs).toISOString().slice(0, 10) : null,
     };
   }
   console.log(` ${rows.length} tickers`);
@@ -119,15 +140,15 @@ for (let i = 0; i < tickerList.length; i += TRAIL_BATCH) {
     `SELECT ticker, COUNT(*) as cnt, MIN(bucket_ts) as min_ts, MAX(bucket_ts) as max_ts FROM trail_5m_facts WHERE ticker IN (${inClause}) GROUP BY ticker`
   );
   for (const r of rows) {
-    const t = String(r.ticker).toUpperCase();
-    const minTs = Number(r.min_ts);
-    const maxTs = Number(r.max_ts);
+    const t = normalizeTicker(r.ticker);
+    const minTs = normalizeEpochMs(r.min_ts);
+    const maxTs = normalizeEpochMs(r.max_ts);
     trailAudit[t] = {
       count: r.cnt,
       min_ts: minTs,
       max_ts: maxTs,
-      min_date: new Date(minTs).toISOString().slice(0, 10),
-      max_date: new Date(maxTs).toISOString().slice(0, 10),
+      min_date: minTs > 0 ? new Date(minTs).toISOString().slice(0, 10) : null,
+      max_date: maxTs > 0 ? new Date(maxTs).toISOString().slice(0, 10) : null,
     };
   }
   process.stdout.write(`\r    trail: ${Math.min(i + TRAIL_BATCH, tickerList.length)}/${tickerList.length} tickers...`);
@@ -161,9 +182,9 @@ for (const ticker of allTickers) {
       missingTfs.push({ tf, reason: "insufficient", count: ca[tf].count, need: MIN_BARS[tf], earliest: ca[tf].min_date });
     } else {
       // Check if earliest data is close enough to SINCE date (within 30 days for D and higher TFs)
-      const earliestMs = ca[tf].min_ts > 1e12 ? ca[tf].min_ts : ca[tf].min_ts * 1000;
+      const earliestMs = ca[tf].min_ts;
       const allowedLateMs = tf === "M" ? 60 * 86400000 : tf === "W" ? 30 * 86400000 : 14 * 86400000;
-      if (earliestMs > SINCE_MS + allowedLateMs) {
+      if (!LATE_START_EXEMPT.has(ticker) && earliestMs > SINCE_MS + allowedLateMs) {
         lateTfs.push({ tf, earliest: ca[tf].min_date, needed: SINCE });
       }
     }
