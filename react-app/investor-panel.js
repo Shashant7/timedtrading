@@ -79,6 +79,10 @@
               title: "Timed Trading Investor",
             }, "TT"),
             React.createElement("span", { className: `inline-flex items-center px-1.5 py-px rounded text-[8px] font-bold shrink-0 tracking-wide border`, style: { background: `${accentColor}30`, color: accentColor, borderColor: `${accentColor}60` } }, stageLabels[stage] || stage),
+            t._optimistic_pending && React.createElement("span", { className: "inline-flex items-center gap-1 px-1.5 py-px rounded text-[8px] font-bold shrink-0 tracking-wide border border-cyan-500/40 bg-cyan-500/10 text-cyan-300" },
+              React.createElement("span", { className: "inline-block w-1.5 h-1.5 rounded-full bg-cyan-300 animate-pulse" }),
+              "Loading",
+            ),
           ),
           React.createElement("div", { className: "flex flex-col items-end shrink-0 ml-1" },
             price != null && React.createElement("span", { className: "text-white font-bold text-[13px] tabular-nums leading-tight", style: { textShadow: "0 1px 3px rgba(0,0,0,0.8)" } }, `$${price.toFixed(2)}`),
@@ -257,7 +261,7 @@
     );
   }
 
-  function InvestorPanel({ apiBase, onSelectTicker, savedTickers, toggleSavedTicker, selectedTicker, tickerData, searchQuery, filterGroup }) {
+  function InvestorPanel({ apiBase, onSelectTicker, savedTickers, toggleSavedTicker, selectedTicker, tickerData, searchQuery, filterGroup, allowedTickerSet, pendingTickerSymbols = [] }) {
     const [scores, setScores] = useState(null);
     const [health, setHealth] = useState(null);
     const [loading, setLoading] = useState(true);
@@ -354,15 +358,38 @@
           list = list.filter(t => allowed.has(t.ticker));
         } else list = [];
       }
-      if (searchQuery && searchQuery.trim()) {
-        const q = searchQuery.trim().toUpperCase();
+      const q = searchQuery && searchQuery.trim()
+        ? searchQuery.trim().toUpperCase()
+        : "";
+      if (q) {
         list = list.filter(t => t.ticker.includes(q));
       }
       if (filterGroup === "SAVED" && savedTickers && savedTickers.size > 0) {
         list = list.filter(t => savedTickers.has(t.ticker));
       }
+      if (allowedTickerSet instanceof Set) {
+        list = list.filter(t => allowedTickerSet.has(t.ticker));
+      }
+      const existing = new Set(list.map(t => t.ticker));
+      pendingTickerSymbols.forEach((ticker) => {
+        const sym = String(ticker || "").toUpperCase().trim();
+        if (!sym || existing.has(sym)) return;
+        if (allowedTickerSet instanceof Set && !allowedTickerSet.has(sym)) return;
+        if (q && !sym.includes(q)) return;
+        if (filterGroup === "SAVED" && savedTickers && savedTickers.size > 0 && !savedTickers.has(sym)) return;
+        const mainData = tickerData?.[sym] || {};
+        list.unshift({
+          ticker: sym,
+          companyName: mainData.companyName || mainData.name || `${sym} loading…`,
+          price: mainData.price ?? mainData.close ?? mainData.c ?? mainData.last ?? null,
+          _sparkline: mainData._sparkline,
+          stage: "research_on_watch",
+          score: 0,
+          _optimistic_pending: true,
+        });
+      });
       return list;
-    }, [scores, memberTickers, memberTickersLoaded, tickerData, searchQuery, filterGroup, savedTickers]);
+    }, [scores, memberTickers, memberTickersLoaded, tickerData, searchQuery, filterGroup, savedTickers, allowedTickerSet, pendingTickerSymbols]);
 
     const actionCount = useMemo(() => allTickers.filter(t => t.stage && !t.stage.startsWith("research_")).length, [allTickers]);
 

@@ -34195,22 +34195,33 @@ export default {
             }
           }
 
-          // Limit the expensive aggregation queries to the active ticker universe
-          // instead of scanning every symbol in ticker_candles for every page load.
-          const tickerPlaceholders = allTickersSorted.map((_, idx) => `?${idx + 1}`).join(", ");
-          const gapSinceBindIdx = allTickersSorted.length + 1;
+          // D1 only supports bind placeholders up to ?100, so query the active
+          // universe in safe chunks instead of building a single large IN (...) list.
+          const MAX_TICKERS_PER_QUERY = 90;
+          const tickerChunks = [];
+          for (let i = 0; i < allTickersSorted.length; i += MAX_TICKERS_PER_QUERY) {
+            tickerChunks.push(allTickersSorted.slice(i, i + MAX_TICKERS_PER_QUERY));
+          }
 
-          // Run two queries in parallel via db.batch():
-          // 1. Count + min/max per ticker+TF
-          // 2. Distinct trading-date count in last 30 days per ticker+TF
-          const stmts = [];
-          stmts.push(
-            db.prepare(`SELECT ticker, tf, COUNT(*) as cnt, MIN(ts) as min_ts, MAX(ts) as max_ts FROM ticker_candles WHERE ticker IN (${tickerPlaceholders}) GROUP BY ticker, tf ORDER BY ticker, tf`).bind(...allTickersSorted),
-            db.prepare(`SELECT ticker, tf, COUNT(DISTINCT date(ts/1000, 'unixepoch', '-5 hours')) as date_count FROM ticker_candles WHERE ticker IN (${tickerPlaceholders}) AND ts >= ?${gapSinceBindIdx} GROUP BY ticker, tf`).bind(...allTickersSorted, gapSinceTs),
-          );
-          const batchRes = await db.batch(stmts);
-          const rows = batchRes[0]?.results || [];
-          const gapRows = batchRes[1]?.results || [];
+          const countStmts = [];
+          const gapStmts = [];
+          for (const tickerChunk of tickerChunks) {
+            const tickerPlaceholders = tickerChunk.map((_, idx) => `?${idx + 1}`).join(", ");
+            const gapSinceBindIdx = tickerChunk.length + 1;
+            countStmts.push(
+              db.prepare(
+                `SELECT ticker, tf, COUNT(*) as cnt, MIN(ts) as min_ts, MAX(ts) as max_ts FROM ticker_candles WHERE ticker IN (${tickerPlaceholders}) GROUP BY ticker, tf ORDER BY ticker, tf`
+              ).bind(...tickerChunk)
+            );
+            gapStmts.push(
+              db.prepare(
+                `SELECT ticker, tf, COUNT(DISTINCT date(ts/1000, 'unixepoch', '-5 hours')) as date_count FROM ticker_candles WHERE ticker IN (${tickerPlaceholders}) AND ts >= ?${gapSinceBindIdx} GROUP BY ticker, tf`
+              ).bind(...tickerChunk, gapSinceTs)
+            );
+          }
+          const batchRes = await db.batch([...countStmts, ...gapStmts]);
+          const rows = countStmts.flatMap((_, idx) => batchRes[idx]?.results || []);
+          const gapRows = gapStmts.flatMap((_, idx) => batchRes[countStmts.length + idx]?.results || []);
 
           // Build per-ticker summary
           const byTicker = {};

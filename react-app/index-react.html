@@ -15,12 +15,12 @@
     <!-- React & ReactDOM via CDN -->
     <script
       crossorigin
-      src="https://unpkg.com/react@18/umd/react.development.js"
+      src="https://unpkg.com/react@18/umd/react.production.min.js"
       onerror="console.error('Failed to load React')"
     ></script>
     <script
       crossorigin
-      src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"
+      src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"
       onerror="console.error('Failed to load ReactDOM')"
     ></script>
 
@@ -16184,6 +16184,27 @@
         );
       }
 
+      const DEFAULT_DASHBOARD_QUADRANTS = [
+        "HTF_BULL_LTF_PULLBACK",
+        "HTF_BULL_LTF_BULL",
+        "HTF_BEAR_LTF_BEAR",
+        "HTF_BEAR_LTF_PULLBACK",
+      ];
+
+      function createDefaultDashboardFilters() {
+        return {
+          search: "",
+          tickerFilter: "",
+          quadrants: [...DEFAULT_DASHBOARD_QUADRANTS],
+          minRank: 0,
+          minRR: 0,
+          maxCompletion: 1.01,
+          group: "ALL",
+          sector: null,
+          td9Setup: null,
+        };
+      }
+
       function App() {
         const isAdmin = window._ttIsAdmin;
 
@@ -16224,22 +16245,7 @@
 
         const [filters, setFilters] = useState(() => {
           // Safety check: reset to defaults if localStorage was cleared
-          return {
-            search: "",
-            tickerFilter: "", // Comma-separated ticker symbols for filtering specific tickers
-            quadrants: [
-              "HTF_BULL_LTF_PULLBACK",
-              "HTF_BULL_LTF_BULL",
-              "HTF_BEAR_LTF_BEAR",
-              "HTF_BEAR_LTF_PULLBACK",
-            ],
-            minRank: 0,
-            minRR: 0,
-            maxCompletion: 1.01,
-            group: "ALL",
-            sector: null, // Filter by sector name
-            td9Setup: null, // Filter by TD9 setup: "bullish", "bearish", or null for all
-          };
+          return createDefaultDashboardFilters();
         });
         const thesisAppliedRef = useRef(false);
         const [selectedTicker, setSelectedTicker] = useState(() => {
@@ -16399,6 +16405,59 @@
             });
           } catch (_) { /* optimistic, ignore failures */ }
         }, []);
+
+        const buildPendingTickerCard = useCallback((ticker, seedData = null) => {
+          const sym = String(ticker || "").toUpperCase().trim();
+          if (!sym) return null;
+          return {
+            ticker: sym,
+            name: `${sym} loading`,
+            companyName: seedData?.companyName || seedData?.name || `${sym} loading…`,
+            state: "NEUTRAL",
+            flags: {},
+            rr: 0,
+            rank: 0,
+            dynamicScore: 0,
+            dynamicRank: 0,
+            kanban_stage: null,
+            _optimistic_pending: true,
+            ...(seedData || {}),
+            ticker: sym,
+            companyName: seedData?.companyName || seedData?.name || `${sym} loading…`,
+            _optimistic_pending: true,
+          };
+        }, []);
+
+        const upsertPendingTickerCard = useCallback((ticker, seedData = null) => {
+          const sym = String(ticker || "").toUpperCase().trim();
+          if (!sym) return;
+          setTickerData((prev) => {
+            const current = prev?.[sym] || null;
+            const nextTicker = {
+              ...(current || buildPendingTickerCard(sym)),
+              ...(seedData || {}),
+              ticker: sym,
+              companyName:
+                seedData?.companyName ||
+                seedData?.name ||
+                current?.companyName ||
+                `${sym} loading…`,
+              _optimistic_pending: true,
+            };
+            return { ...(prev || {}), [sym]: nextTicker };
+          });
+        }, [buildPendingTickerCard, setTickerData]);
+
+        const removePendingTickerCard = useCallback((ticker) => {
+          const sym = String(ticker || "").toUpperCase().trim();
+          if (!sym) return;
+          setTickerData((prev) => {
+            if (!prev?.[sym]?._optimistic_pending) return prev;
+            const next = { ...(prev || {}) };
+            delete next[sym];
+            return next;
+          });
+        }, [setTickerData]);
 
         const fetchMissingIngest = useCallback(async () => {
           try {
@@ -16563,15 +16622,6 @@
           }
         }, [selectedTicker]);
 
-        // Debug: Log when selectedTicker changes
-        React.useEffect(() => {
-          console.log(`[SELECTED TICKER STATE] Changed to:`, selectedTicker, {
-            isTruthy: !!selectedTicker,
-            type: typeof selectedTicker,
-            value: selectedTicker,
-          });
-        }, [selectedTicker]);
-
         // Safe setter for selectedTicker to prevent infinite loops
         const handleTickerSelect = useCallback((ticker) => {
           try {
@@ -16586,6 +16636,22 @@
             console.error("Error setting selected ticker:", error);
           }
         }, []);
+
+        const handleOptimisticAddTicker = useCallback(async (ticker) => {
+          const sym = String(ticker || "").toUpperCase().trim();
+          if (!sym) return null;
+          const hadExistingTicker = !!data?.[sym];
+          if (!hadExistingTicker) upsertPendingTickerCard(sym);
+          const result = await userTickers.addTicker(sym);
+          if (result) {
+            if (result.seed_data) upsertPendingTickerCard(sym, result.seed_data);
+            handleTickerSelect(sym);
+            refetch();
+            return result;
+          }
+          if (!hadExistingTicker) removePendingTickerCard(sym);
+          return null;
+        }, [data, handleTickerSelect, refetch, removePendingTickerCard, upsertPendingTickerCard, userTickers]);
 
         // Listen for ticker selection from embedded Investor iframe (postMessage)
         useEffect(() => {
@@ -16606,18 +16672,9 @@
         const tickers = useMemo(() => {
           // If time travel is active, use time travel tickers, otherwise use filtered tickers
           if (timeTravelTickers !== null) {
-            console.log('[TICKERS MEMO] Using timeTravelTickers:', timeTravelTickers.length);
             return timeTravelTickers;
           }
-          
-          const dataKeys = Object.keys(data || {});
-          console.log('[TICKERS MEMO] Input data:', {
-            inputDataKeys: dataKeys.length,
-            firstKeys: dataKeys.slice(0, 5),
-            dataType: typeof data,
-            isObject: data && typeof data === 'object'
-          });
-          
+
           let filtered = applyFilters(data, effectiveFilters, trades, socialAdditions, savedTickers);
           if (!window._ttIsPro && window._ttMemberTickerSet) {
             filtered = filtered.filter(t => window._ttMemberTickerSet.has(String(t?.ticker || "").toUpperCase()));
@@ -16713,6 +16770,38 @@
           () => tickersWithRanks.filter(isPrimeBubble),
           [tickersWithRanks],
         );
+        const searchValue = String(filters.search || "").trim();
+        const normalizedSearchTicker = searchValue.toUpperCase();
+        const searchLooksLikeTicker = /^[A-Z][A-Z0-9.!-]{0,9}$/.test(normalizedSearchTicker);
+        const alreadyInCustomSlots = userTickers.slots.some(
+          (slot) => slot.ticker === normalizedSearchTicker && (slot.active || slot.held),
+        );
+        const alreadyInUniverse = !!data?.[normalizedSearchTicker];
+        const noTickerResults = !loading && tickers.length === 0;
+        const showSearchEmptyPopover =
+          noTickerResults &&
+          (searchValue.length >= 2 || searchLooksLikeTicker);
+        const canOfferAddTicker =
+          searchLooksLikeTicker &&
+          normalizedSearchTicker &&
+          !alreadyInUniverse &&
+          !alreadyInCustomSlots;
+        const pendingCustomTickerSymbols = useMemo(() => {
+          const symbols = [
+            userTickers.addingTicker,
+            ...userTickers.processingList.map((item) => item?.ticker),
+          ]
+            .map((ticker) => String(ticker || "").toUpperCase().trim())
+            .filter(Boolean);
+          return [...new Set(symbols)];
+        }, [userTickers.addingTicker, userTickers.processingList]);
+        const investorAllowedTickerSet = useMemo(() => {
+          return new Set(
+            (timeTravelBaseTickers || [])
+              .map((ticker) => String(ticker?.ticker || "").toUpperCase())
+              .filter(Boolean),
+          );
+        }, [timeTravelBaseTickers]);
 
         const handleFilterChange = useCallback((newFilters) => {
           setFilters((prev) => {
@@ -16730,6 +16819,11 @@
             return updated;
           });
         }, []);
+        const resetDashboardFilters = useCallback((preserveSearch = false) => {
+          const next = createDefaultDashboardFilters();
+          if (preserveSearch) next.search = filters.search;
+          setFilters(next);
+        }, [filters.search]);
 
         const [showAdvancedFilters, setShowAdvancedFilters] = useState(() => {
           try {
@@ -17075,11 +17169,13 @@
                     />
                   </div>}
 
-                  {/* ═══ 4. SEARCH (left) + FILTERS + PILLS & REFRESH (right) ═══ */}
-                  <div className="mb-3 flex flex-wrap items-center justify-between gap-3" data-coachmark="search-filter">
-                    {/* Left: Search */}
-                    <div className="flex items-center gap-2">
-                      <div className="w-[320px] relative">
+                  {/* ═══ 4. SEARCH + ACTIONS ═══ */}
+                  <div className="mb-4 rounded-2xl border border-white/[0.08] bg-white/[0.025] p-3 shadow-[0_12px_32px_rgba(0,0,0,0.2)]" data-coachmark="search-filter">
+                    <div className="flex flex-col gap-3">
+                      <div className="flex flex-col xl:flex-row xl:items-center xl:justify-between gap-3">
+                        <div className="flex-1 min-w-0">
+                          <div className="text-[10px] uppercase tracking-[0.18em] text-[#4b5563] mb-2">Search And Curate Your View</div>
+                          <div className="relative max-w-[720px]">
                         <svg className="absolute left-3 top-1/2 pointer-events-none" style={{transform:"translateY(-50%)"}} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#6b7280" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
                         <input
                           type="text"
@@ -17096,52 +17192,31 @@
                           }}
                           className="w-full pl-9 pr-3 py-1.5 bg-white/[0.03] border border-white/[0.08] rounded-2xl text-white text-sm placeholder-[#6b7280] focus:border-white/[0.15] focus:outline-none transition-colors"
                         />
-                        {filters.search && filters.search.trim().length >= 2 && tickers.length === 0 && !loading && (() => {
-                          const sym = filters.search.toUpperCase().trim();
-                          const symValid = /^[A-Z]{1,5}$/.test(sym);
-                          const alreadyInSlots = userTickers.slots.some(s => s.ticker === sym && (s.active || s.held));
+                        {showSearchEmptyPopover && (() => {
+                          const sym = normalizedSearchTicker;
                           return (
                             <div className="absolute top-full left-0 mt-1 z-50 w-full bg-[#1a1e2e] border border-white/[0.12] rounded-lg shadow-xl p-2.5">
-                              <div className="text-[11px] text-[#6b7280] mb-1.5">No tickers found for "{filters.search.trim()}"</div>
-                              {symValid && (
-                                <button
-                                  onClick={async () => {
-                                    try {
-                                      const res = await fetch(`${API_BASE}/timed/latest?ticker=${encodeURIComponent(sym)}`, { cache: "no-store" });
-                                      const json = await res.json();
-                                      if (json?.ok && json?.latestData) {
-                                        setTickerData(prev => ({ ...prev, [sym]: json.latestData }));
-                                        handleTickerSelect(sym);
-                                      }
-                                    } catch (e) { console.warn("Load ticker failed:", e); }
-                                  }}
-                                  className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-blue-600/10 border border-blue-500/20 text-blue-300 text-xs font-medium hover:bg-blue-600/20 transition-colors mb-1.5"
-                                >
-                                  <span className="text-sm">↻</span>
-                                  <span>Load <span className="font-bold">{sym}</span> from API</span>
-                                </button>
-                              )}
-                              {alreadyInSlots ? (
+                              <div className="text-[11px] text-[#6b7280] mb-1.5">No tickers found for "{searchValue}"</div>
+                              {alreadyInCustomSlots ? (
                                 <div className="flex items-center justify-between gap-2 px-1">
                                   <div className="text-[10px] text-amber-400/70">
                                     {sym} is in your custom tickers{userTickers.slots.find(s => s.ticker === sym)?.held ? " (held)" : ""}.
                                   </div>
-                                  {!userTickers.slots.find(s => s.ticker === sym)?.held && (
-                                    <button
-                                      onClick={async () => {
-                                        const result = await userTickers.addTicker(sym);
-                                        if (result) {
-                                          if (result.seed_data) setTickerData(prev => ({ ...prev, [sym]: result.seed_data }));
-                                          refetch();
-                                        }
-                                      }}
-                                      disabled={userTickers.adding}
-                                      className="shrink-0 px-2 py-0.5 rounded bg-amber-600/20 border border-amber-500/30 text-amber-300 text-[10px] font-medium hover:bg-amber-600/30 transition-colors disabled:opacity-40"
-                                    >
-                                      {userTickers.adding ? "…" : "Retry"}
-                                    </button>
-                                  )}
+                                  <button
+                                    onClick={() => resetDashboardFilters(true)}
+                                    className="shrink-0 px-2 py-0.5 rounded bg-white/[0.04] border border-white/[0.10] text-white text-[10px] font-medium hover:bg-white/[0.08] transition-colors"
+                                  >
+                                    Show It
+                                  </button>
                                 </div>
+                              ) : alreadyInUniverse ? (
+                                <button
+                                  onClick={() => resetDashboardFilters(true)}
+                                  className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-white/[0.04] border border-white/[0.10] text-white text-xs font-medium hover:bg-white/[0.08] transition-colors"
+                                >
+                                  <span className="text-sm">↺</span>
+                                  <span>Show <span className="font-bold">{sym}</span> by clearing the other filters</span>
+                                </button>
                               ) : !window._ttIsPro ? (
                                 <button
                                   onClick={() => window.dispatchEvent(new CustomEvent("tt-go-pro"))}
@@ -17150,164 +17225,166 @@
                                   <svg className="w-3.5 h-3.5 text-amber-400" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd"/></svg>
                                   <span>Go Pro to add <span className="font-bold">{sym}</span></span>
                                 </button>
-                              ) : (
+                              ) : canOfferAddTicker ? (
                                 <button
-                                  onClick={() => { setAddTickerInput(sym); setShowAddTicker(true); }}
-                                  className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-cyan-600/10 border border-cyan-500/20 text-cyan-300 text-xs font-medium hover:bg-cyan-600/20 transition-colors"
+                                  onClick={() => handleOptimisticAddTicker(sym)}
+                                  disabled={userTickers.adding}
+                                  className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-cyan-600/10 border border-cyan-500/20 text-cyan-300 text-xs font-medium hover:bg-cyan-600/20 transition-colors disabled:opacity-40"
                                 >
-                                  <span className="text-sm">+</span>
-                                  <span>Add <span className="font-bold">{sym}</span> as a custom ticker</span>
+                                  <span className="text-sm">{userTickers.addingTicker === sym ? "…" : "+"}</span>
+                                  <span>Add <span className="font-bold">{sym}</span> and start scoring it</span>
                                 </button>
+                              ) : (
+                                <div className="px-1 py-1 text-[10px] text-[#94a3b8]">
+                                  Try a broader search or clear the current filters.
+                                </div>
                               )}
                             </div>
                           );
                         })()}
-                      </div>
-                    </div>
-                    {/* Filters | Saved | Add Ticker — right of Search */}
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <button
-                        onClick={toggleAdvancedFilters}
-                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-semibold transition-colors whitespace-nowrap ${
-                          showAdvancedFilters
-                            ? "bg-blue-500/20 border-blue-500/40 text-blue-300"
-                            : "bg-white/[0.02] border-white/[0.06] text-[#6b7280] hover:text-white hover:bg-[#16224a]"
-                        }`}
-                        title="Show/hide filter groups"
-                      >
-                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                          <line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="18" x2="20" y2="18"/>
-                          <circle cx="8" cy="6" r="2" fill="currentColor"/><circle cx="16" cy="12" r="2" fill="currentColor"/><circle cx="10" cy="18" r="2" fill="currentColor"/>
-                        </svg>
-                        Filters {showAdvancedFilters ? "▾" : "▸"}
-                      </button>
-                      <button
-                        onClick={() => handleFilterChange({ group: effectiveFilters.group === "SAVED" ? "ALL" : "SAVED" })}
-                        className={`px-3 py-1.5 rounded-lg border text-xs font-semibold transition-colors ${
-                          effectiveFilters.group === "SAVED"
-                            ? "bg-amber-500/20 border-amber-500/40 text-amber-300"
-                            : "bg-white/[0.02] border-white/[0.06] text-[#6b7280] hover:text-amber-300 hover:bg-amber-500/10"
-                        }`}
-                        title={`Show only saved tickers (${savedTickers.size} saved)`}
-                      >
-                        ⭐ Saved{savedTickers.size > 0 ? ` (${savedTickers.size})` : ""}
-                      </button>
-                      <div className="relative" ref={addTickerRef}>
-                        {!window._ttIsPro ? (
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2 flex-wrap xl:justify-end">
                           <button
-                            onClick={() => window.dispatchEvent(new CustomEvent("tt-go-pro"))}
-                            className="px-3 py-1.5 rounded-lg border border-amber-500/30 bg-amber-500/10 text-xs font-semibold text-amber-300 hover:bg-amber-500/20 hover:border-amber-400/40 transition-colors flex items-center gap-1"
-                            title="Upgrade to Pro to add custom tickers"
-                          >
-                            <svg className="w-3 h-3 text-amber-400" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd"/></svg>
-                            Go Pro to Add Tickers
-                          </button>
-                        ) : (
-                          <button
-                            onClick={() => setShowAddTicker(!showAddTicker)}
-                            className={`px-3 py-1.5 rounded-lg border text-xs font-semibold transition-colors ${
-                              showAddTicker
-                                ? "bg-cyan-500/20 border-cyan-500/40 text-cyan-300"
-                                : "bg-white/[0.02] border-white/[0.06] text-[#6b7280] hover:text-cyan-300 hover:bg-cyan-500/10"
+                            onClick={toggleAdvancedFilters}
+                            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-semibold transition-colors whitespace-nowrap ${
+                              showAdvancedFilters
+                                ? "bg-blue-500/20 border-blue-500/40 text-blue-300"
+                                : "bg-white/[0.02] border-white/[0.06] text-[#6b7280] hover:text-white hover:bg-[#16224a]"
                             }`}
-                            title={`Add custom tickers (${userTickers.slotsUsed}/${userTickers.slotsMax} slots)`}
+                            title="Show/hide filter groups"
                           >
-                            + Add Ticker{userTickers.slotsUsed > 0 ? ` (${userTickers.slotsUsed}/${userTickers.slotsMax})` : ""}
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                              <line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="18" x2="20" y2="18"/>
+                              <circle cx="8" cy="6" r="2" fill="currentColor"/><circle cx="16" cy="12" r="2" fill="currentColor"/><circle cx="10" cy="18" r="2" fill="currentColor"/>
+                            </svg>
+                            Filters {showAdvancedFilters ? "▾" : "▸"}
                           </button>
-                        )}
-                        {showAddTicker && (
-                          <div className="absolute top-full left-0 mt-1.5 z-50 w-[360px] bg-[#1a1e2e] border border-white/[0.12] rounded-xl shadow-2xl p-4" onClick={e => e.stopPropagation()}>
-                            <div className="text-[11px] text-[#6b7280] mb-1">
-                              Custom Tickers — <span className="text-white font-medium">{userTickers.slotsUsed}/{userTickers.slotsMax}</span> slots
-                            </div>
-                            <div className="text-[9px] text-[#4b5563] mb-3">
-                              Add tickers not in the Timed Trading universe. Each slot is held for 7 days after removal.
-                            </div>
-                            <form onSubmit={async (e) => {
-                              e.preventDefault();
-                              const val = addTickerInput.toUpperCase().trim();
-                              if (!val) return;
-                              const result = await userTickers.addTicker(val);
-                              if (result) {
-                                if (result.seed_data) setTickerData(prev => ({ ...prev, [val]: result.seed_data }));
-                                setAddTickerInput("");
-                                refetch();
-                              }
-                            }} className="flex gap-1.5 mb-2">
-                              <input
-                                type="text"
-                                value={addTickerInput}
-                                onChange={e => { setAddTickerInput(e.target.value.toUpperCase()); userTickers.setError(null); }}
-                                placeholder="e.g. IONQ, SMCI"
-                                maxLength={6}
-                                disabled={userTickers.adding}
-                                className="flex-1 px-2.5 py-1.5 rounded-lg bg-white/[0.06] border border-white/[0.10] text-white text-xs placeholder:text-[#4b5563] focus:outline-none focus:border-cyan-500/50 disabled:opacity-50"
-                                autoFocus
-                              />
+                          <button
+                            onClick={() => handleFilterChange({ group: effectiveFilters.group === "SAVED" ? "ALL" : "SAVED" })}
+                            className={`px-3 py-1.5 rounded-lg border text-xs font-semibold transition-colors ${
+                              effectiveFilters.group === "SAVED"
+                                ? "bg-amber-500/20 border-amber-500/40 text-amber-300"
+                                : "bg-white/[0.02] border-white/[0.06] text-[#6b7280] hover:text-amber-300 hover:bg-amber-500/10"
+                            }`}
+                            title={`Show only saved tickers (${savedTickers.size} saved)`}
+                          >
+                            ⭐ Saved{savedTickers.size > 0 ? ` (${savedTickers.size})` : ""}
+                          </button>
+                          <div className="relative" ref={addTickerRef}>
+                            {!window._ttIsPro ? (
                               <button
-                                type="submit"
-                                disabled={userTickers.adding || !addTickerInput.trim()}
-                                className="px-3 py-1.5 rounded-lg bg-cyan-600/80 hover:bg-cyan-500/80 text-white text-xs font-semibold disabled:opacity-40 disabled:cursor-not-allowed transition-colors min-w-[48px]"
+                                onClick={() => window.dispatchEvent(new CustomEvent("tt-go-pro"))}
+                                className="px-3 py-1.5 rounded-lg border border-amber-500/30 bg-amber-500/10 text-xs font-semibold text-amber-300 hover:bg-amber-500/20 hover:border-amber-400/40 transition-colors flex items-center gap-1"
+                                title="Upgrade to Pro to add custom tickers"
                               >
-                                {userTickers.adding ? (
-                                  <span className="inline-flex items-center gap-1"><span className="loading-spinner loading-spinner-sm" style={{width:"12px",height:"12px",borderWidth:"1.5px"}}></span></span>
-                                ) : "Add"}
+                                <svg className="w-3 h-3 text-amber-400" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd"/></svg>
+                                Go Pro to Add Tickers
                               </button>
-                            </form>
-                            {userTickers.adding && userTickers.addingTicker && (
-                              <div className="flex items-center gap-2 px-2 py-2 mb-2 rounded-lg bg-cyan-500/[0.08] border border-cyan-500/20 text-xs">
-                                <span className="loading-spinner loading-spinner-sm" style={{width:"14px",height:"14px",borderWidth:"1.5px",borderColor:"rgba(6,182,212,0.3)",borderTopColor:"rgb(6,182,212)"}}></span>
-                                <span className="text-cyan-300">Scoring <span className="font-bold">{userTickers.addingTicker}</span>...</span>
-                              </div>
-                            )}
-                            {userTickers.error && (
-                              <div className="text-[10px] text-rose-400 mb-2 px-1 flex items-start gap-1">
-                                <span className="shrink-0">⚠</span>
-                                <span>{userTickers.error}</span>
-                              </div>
-                            )}
-                            {userTickers.slots.length > 0 ? (
-                              <div className="max-h-[200px] overflow-y-auto space-y-1">
-                                {userTickers.slots.filter(s => s.active).map(s => (
-                                  <div key={s.ticker} className="flex items-center gap-2 px-2 py-1.5 rounded bg-white/[0.03] border border-white/[0.06] text-xs group">
-                                    <span className="text-white font-medium">{s.ticker}</span>
-                                    <div className="flex items-center gap-2">
-                                      <span className="text-[10px] text-[#4b5563]">{new Date(s.added_at).toLocaleDateString()}</span>
-                                      <button
-                                        onClick={async () => {
-                                          if (confirm(`Remove ${s.ticker}?\n\nThis slot will be held for 7 days and cannot be reused until then.`)) {
-                                            await userTickers.removeTicker(s.ticker);
-                                          }
-                                        }}
-                                        className="text-[#4b5563] hover:text-rose-400 transition-colors opacity-0 group-hover:opacity-100"
-                                        title={`Remove ${s.ticker} (7-day hold)`}
-                                      >
-                                        ✕
-                                      </button>
-                                    </div>
-                                  </div>
-                                ))}
-                                {userTickers.slots.filter(s => s.held && !s.active).map(s => (
-                                  <div key={`held-${s.ticker}`} className="flex items-center gap-2 px-2 py-1.5 rounded bg-white/[0.02] border border-white/[0.04] text-xs opacity-50">
-                                    <span className="text-[#6b7280]">{s.ticker}</span>
-                                    <span className="text-[10px] text-[#4b5563]">held until {new Date(s.held_until).toLocaleDateString()}</span>
-                                  </div>
-                                ))}
-                              </div>
                             ) : (
-                              <div className="text-[11px] text-[#4b5563] text-center py-3">No custom tickers added yet</div>
+                              <button
+                                onClick={() => setShowAddTicker(!showAddTicker)}
+                                className={`px-3 py-1.5 rounded-lg border text-xs font-semibold transition-colors ${
+                                  showAddTicker
+                                    ? "bg-cyan-500/20 border-cyan-500/40 text-cyan-300"
+                                    : "bg-white/[0.02] border-white/[0.06] text-[#6b7280] hover:text-cyan-300 hover:bg-cyan-500/10"
+                                }`}
+                                title={`Add custom tickers (${userTickers.slotsUsed}/${userTickers.slotsMax} slots)`}
+                              >
+                                + Add Ticker{userTickers.slotsUsed > 0 ? ` (${userTickers.slotsUsed}/${userTickers.slotsMax})` : ""}
+                              </button>
                             )}
-                            {userTickers.slotsUsed >= userTickers.slotsMax && (
-                              <div className="text-[10px] text-amber-400/70 mt-2 text-center">
-                                All slots used. Upgrade for more slots.
+                            {showAddTicker && (
+                              <div className="absolute top-full right-0 xl:right-0 left-0 xl:left-auto mt-1.5 z-50 w-[360px] max-w-[calc(100vw-32px)] bg-[#1a1e2e] border border-white/[0.12] rounded-xl shadow-2xl p-4" onClick={e => e.stopPropagation()}>
+                                <div className="text-[11px] text-[#6b7280] mb-1">
+                                  Custom Tickers — <span className="text-white font-medium">{userTickers.slotsUsed}/{userTickers.slotsMax}</span> slots
+                                </div>
+                                <div className="text-[9px] text-[#4b5563] mb-3">
+                                  Add tickers not in the Timed Trading universe. Each slot is held for 7 days after removal.
+                                </div>
+                                <form onSubmit={async (e) => {
+                                  e.preventDefault();
+                                  const val = addTickerInput.toUpperCase().trim();
+                                  if (!val) return;
+                                  const result = await handleOptimisticAddTicker(val);
+                                  if (result) {
+                                    setAddTickerInput("");
+                                  }
+                                }} className="flex gap-1.5 mb-2">
+                                  <input
+                                    type="text"
+                                    value={addTickerInput}
+                                    onChange={e => { setAddTickerInput(e.target.value.toUpperCase()); userTickers.setError(null); }}
+                                    placeholder="e.g. IONQ, SMCI"
+                                    maxLength={6}
+                                    disabled={userTickers.adding}
+                                    className="flex-1 px-2.5 py-1.5 rounded-lg bg-white/[0.06] border border-white/[0.10] text-white text-xs placeholder:text-[#4b5563] focus:outline-none focus:border-cyan-500/50 disabled:opacity-50"
+                                    autoFocus
+                                  />
+                                  <button
+                                    type="submit"
+                                    disabled={userTickers.adding || !addTickerInput.trim()}
+                                    className="px-3 py-1.5 rounded-lg bg-cyan-600/80 hover:bg-cyan-500/80 text-white text-xs font-semibold disabled:opacity-40 disabled:cursor-not-allowed transition-colors min-w-[48px]"
+                                  >
+                                    {userTickers.adding ? (
+                                      <span className="inline-flex items-center gap-1"><span className="loading-spinner loading-spinner-sm" style={{width:"12px",height:"12px",borderWidth:"1.5px"}}></span></span>
+                                    ) : "Add"}
+                                  </button>
+                                </form>
+                                {userTickers.adding && userTickers.addingTicker && (
+                                  <div className="flex items-center gap-2 px-2 py-2 mb-2 rounded-lg bg-cyan-500/[0.08] border border-cyan-500/20 text-xs">
+                                    <span className="loading-spinner loading-spinner-sm" style={{width:"14px",height:"14px",borderWidth:"1.5px",borderColor:"rgba(6,182,212,0.3)",borderTopColor:"rgb(6,182,212)"}}></span>
+                                    <span className="text-cyan-300">Scoring <span className="font-bold">{userTickers.addingTicker}</span>...</span>
+                                  </div>
+                                )}
+                                {userTickers.error && (
+                                  <div className="text-[10px] text-rose-400 mb-2 px-1 flex items-start gap-1">
+                                    <span className="shrink-0">⚠</span>
+                                    <span>{userTickers.error}</span>
+                                  </div>
+                                )}
+                                {userTickers.slots.length > 0 ? (
+                                  <div className="max-h-[200px] overflow-y-auto space-y-1">
+                                    {userTickers.slots.filter(s => s.active).map(s => (
+                                      <div key={s.ticker} className="flex items-center gap-2 px-2 py-1.5 rounded bg-white/[0.03] border border-white/[0.06] text-xs group">
+                                        <span className="text-white font-medium">{s.ticker}</span>
+                                        <div className="flex items-center gap-2">
+                                          <span className="text-[10px] text-[#4b5563]">{new Date(s.added_at).toLocaleDateString()}</span>
+                                          <button
+                                            onClick={async () => {
+                                              if (confirm(`Remove ${s.ticker}?\n\nThis slot will be held for 7 days and cannot be reused until then.`)) {
+                                                await userTickers.removeTicker(s.ticker);
+                                              }
+                                            }}
+                                            className="text-[#4b5563] hover:text-rose-400 transition-colors opacity-0 group-hover:opacity-100"
+                                            title={`Remove ${s.ticker} (7-day hold)`}
+                                          >
+                                            ✕
+                                          </button>
+                                        </div>
+                                      </div>
+                                    ))}
+                                    {userTickers.slots.filter(s => s.held && !s.active).map(s => (
+                                      <div key={`held-${s.ticker}`} className="flex items-center gap-2 px-2 py-1.5 rounded bg-white/[0.02] border border-white/[0.04] text-xs opacity-50">
+                                        <span className="text-[#6b7280]">{s.ticker}</span>
+                                        <span className="text-[10px] text-[#4b5563]">held until {new Date(s.held_until).toLocaleDateString()}</span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                ) : (
+                                  <div className="text-[11px] text-[#4b5563] text-center py-3">No custom tickers added yet</div>
+                                )}
+                                {userTickers.slotsUsed >= userTickers.slotsMax && (
+                                  <div className="text-[10px] text-amber-400/70 mt-2 text-center">
+                                    All slots used. Upgrade for more slots.
+                                  </div>
+                                )}
                               </div>
                             )}
                           </div>
-                        )}
+                        </div>
                       </div>
-                    </div>
-                    {/* Right: Pills + Refresh */}
-                    <div className="flex items-center gap-2 flex-wrap">
+                      <div className="flex flex-wrap items-center justify-between gap-2 border-t border-white/[0.06] pt-3">
                       <div className="flex gap-1.5 text-[12px] items-center flex-wrap">
                         <div className="px-2.5 py-1 rounded-full bg-white/5 border border-white/5">
                           <span className="text-[#6b7280]">Tickers </span>
@@ -17335,7 +17412,12 @@
                   </div>
 
                   {/* ═══ 4b. MODE SELECTOR — Analysis / Active Trader / Investor ═══ */}
-                  <div className="mb-3 flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3" data-coachmark="nav-modes">
+                  <div className="mb-4 flex flex-col items-center gap-2" data-coachmark="nav-modes">
+                    <div className="text-center">
+                      <div className="text-[10px] uppercase tracking-[0.22em] text-[#4b5563]">Choose The View Below</div>
+                      <div className="text-[12px] text-[#94a3b8] mt-1">This controller changes the dashboard section underneath.</div>
+                    </div>
+                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-center gap-2 sm:gap-3 w-full">
                     <div className="flex w-full sm:w-auto items-stretch bg-white/[0.04] border border-white/[0.10] rounded-xl overflow-hidden shadow-sm">
                       <button
                         onClick={() => handleDashboardModeChange("analysis")}
@@ -17397,6 +17479,7 @@
                         </button>
                       </div>
                     )}
+                    </div>
                   </div>
 
                   {/* Filter Groups (collapsible) */}
@@ -17443,7 +17526,60 @@
                   <div className="space-y-4">
 
                     {/* ═══ ANALYSIS MODE: Viewport + Bubble Chart ═══ */}
-                    {dashboardMode === "analysis" && (
+                    {noTickerResults ? (
+                      <div className="rounded-2xl border border-white/[0.08] bg-white/[0.025] px-6 py-12 text-center">
+                        <div className="max-w-[540px] mx-auto">
+                          <div className="text-[11px] uppercase tracking-[0.18em] text-[#4b5563] mb-3">Nothing To Show Yet</div>
+                          <h3 className="text-xl font-semibold text-white mb-2">
+                            {effectiveFilters.group === "SAVED" && savedTickers.size === 0
+                              ? "No saved tickers yet"
+                              : searchValue
+                                ? `No results for "${searchValue}"`
+                                : "No tickers match the current filters"}
+                          </h3>
+                          <p className="text-sm text-[#94a3b8] leading-6 mb-5">
+                            {effectiveFilters.group === "SAVED" && savedTickers.size === 0
+                              ? "Save a few names to make this view feel instant and personalized."
+                              : canOfferAddTicker
+                                ? `${normalizedSearchTicker} is not in the current universe yet. Add it now and we will create its first card while onboarding runs.`
+                                : "Broaden the current search or clear the active filters to repopulate this view."}
+                          </p>
+                          <div className="flex flex-wrap items-center justify-center gap-2">
+                            {canOfferAddTicker && window._ttIsPro && (
+                              <button
+                                onClick={() => handleOptimisticAddTicker(normalizedSearchTicker)}
+                                disabled={userTickers.adding}
+                                className="px-4 py-2 rounded-xl bg-cyan-600/80 hover:bg-cyan-500/80 text-white text-sm font-semibold disabled:opacity-40 transition-colors"
+                              >
+                                {userTickers.addingTicker === normalizedSearchTicker ? `Adding ${normalizedSearchTicker}…` : `Add ${normalizedSearchTicker}`}
+                              </button>
+                            )}
+                            {canOfferAddTicker && !window._ttIsPro && (
+                              <button
+                                onClick={() => window.dispatchEvent(new CustomEvent("tt-go-pro"))}
+                                className="px-4 py-2 rounded-xl bg-amber-500/15 border border-amber-500/30 text-amber-300 text-sm font-semibold hover:bg-amber-500/20 transition-colors"
+                              >
+                                Go Pro To Add {normalizedSearchTicker}
+                              </button>
+                            )}
+                            <button
+                              onClick={() => resetDashboardFilters(!!searchValue)}
+                              className="px-4 py-2 rounded-xl border border-white/[0.10] text-sm text-white hover:bg-white/[0.05] transition-colors"
+                            >
+                              {searchValue ? "Clear Other Filters" : "Reset Filters"}
+                            </button>
+                            {searchValue && (
+                              <button
+                                onClick={() => handleFilterChange({ search: "", tickerFilter: "" })}
+                                className="px-4 py-2 rounded-xl border border-white/[0.10] text-sm text-[#94a3b8] hover:text-white hover:bg-white/[0.05] transition-colors"
+                              >
+                                Clear Search
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    ) : dashboardMode === "analysis" && (
                     <div className="flex flex-col lg:flex-row gap-4 items-stretch">
                       {/* Viewport - Left side */}
                       <div className="w-full lg:w-[320px] lg:flex-shrink-0 h-[600px] sm:h-[700px] md:h-[800px] lg:h-[900px]" data-coachmark="viewport">
@@ -17537,7 +17673,7 @@
                     )}
 
                     {/* Cards / Table View controller — Active Trader only */}
-                    {dashboardMode === "trader" && (
+                    {dashboardMode === "trader" && !noTickerResults && (
                       <div className="flex flex-wrap items-center gap-3">
                         <div className="flex items-center bg-white/[0.04] border border-white/[0.10] rounded-xl overflow-hidden shadow-sm">
                           <button
@@ -17607,7 +17743,7 @@
                       </>
                     )}
                     {/* ═══ ACTIVE TRADER MODE: Kanban Lanes ═══ */}
-                    {dashboardMode === "trader" && (
+                    {dashboardMode === "trader" && !noTickerResults && (
                       <div className="relative" data-coachmark="kanban-lanes">
                         {viewSwitching && (
                           <div className="absolute inset-0 z-30 flex items-center justify-center bg-[#0d1117]/80 backdrop-blur-sm rounded-xl" style={{ minHeight: 200 }}>
@@ -17646,7 +17782,7 @@
                     )}
 
                     {/* ═══ INVESTOR MODE: Market Health + Investor Kanban ═══ */}
-                    {dashboardMode === "investor" && (
+                    {dashboardMode === "investor" && !noTickerResults && (
                       <div className="rounded-xl border border-white/[0.06] overflow-hidden p-4" style={{ minHeight: 600, background: "#0b0e11" }}>
                         {typeof window.InvestorPanel === "function" ? (
                           React.createElement(window.InvestorPanel, {
@@ -17658,6 +17794,8 @@
                             tickerData: data,
                             searchQuery: filters.search || "",
                             filterGroup: effectiveFilters.group || "ALL",
+                            allowedTickerSet: investorAllowedTickerSet,
+                            pendingTickerSymbols: pendingCustomTickerSymbols,
                           })
                         ) : (
                           <div className="flex items-center justify-center h-64 text-[#6b7280]">
