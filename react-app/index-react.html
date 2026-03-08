@@ -603,16 +603,128 @@
           .filter(Boolean);
       }
 
+      const ANALYSIS_SNAPSHOT_CACHE_KEY = "timedTrading_analysisSnapshot_v1";
+      const ANALYSIS_SNAPSHOT_HOT_MS = 60 * 1000;
+      const ANALYSIS_SNAPSHOT_MAX_AGE_MS = 30 * 60 * 1000;
+
+      function readAnalysisSnapshotCache() {
+        try {
+          const raw = sessionStorage.getItem(ANALYSIS_SNAPSHOT_CACHE_KEY);
+          if (!raw) return null;
+          const parsed = JSON.parse(raw);
+          if (!parsed || typeof parsed !== "object") return null;
+          const cachedAt = Number(parsed.cachedAt) || 0;
+          const data = parsed.data && typeof parsed.data === "object" ? parsed.data : null;
+          if (!cachedAt || !data || Object.keys(data).length === 0) return null;
+          if ((Date.now() - cachedAt) > ANALYSIS_SNAPSHOT_MAX_AGE_MS) {
+            sessionStorage.removeItem(ANALYSIS_SNAPSHOT_CACHE_KEY);
+            return null;
+          }
+          return parsed;
+        } catch {
+          return null;
+        }
+      }
+
+      function writeAnalysisSnapshotCache(payload) {
+        try {
+          sessionStorage.setItem(
+            ANALYSIS_SNAPSHOT_CACHE_KEY,
+            JSON.stringify({
+              cachedAt: Date.now(),
+              data: payload?.data || {},
+              socialAdditions: Array.isArray(payload?.socialAdditions) ? payload.socialAdditions : [],
+              versionInfo: payload?.versionInfo && typeof payload.versionInfo === "object" ? payload.versionInfo : null,
+              tickersWithoutScores: Array.isArray(payload?.tickersWithoutScores) ? payload.tickersWithoutScores : [],
+            }),
+          );
+        } catch {
+          // Ignore quota or serialization failures. Cache is opportunistic.
+        }
+      }
+
+      function collectTickersWithoutScores(dataObj) {
+        if (!dataObj || typeof dataObj !== "object") return [];
+        const rows = [];
+        Object.keys(dataObj).forEach((ticker) => {
+          const item = dataObj[ticker];
+          if (!item || typeof item !== "object") return;
+          if (item.htf_score === undefined && item.ltf_score === undefined) {
+            rows.push({
+              ticker,
+              version: item.script_version || "unknown",
+              hasPrice: !!item.price,
+            });
+          }
+        });
+        return rows;
+      }
+
+      function mergeTickerSnapshot(prevData, incomingData) {
+        if (!prevData || typeof prevData !== "object" || Object.keys(prevData).length === 0) {
+          return incomingData;
+        }
+        const LIVE_KEYS = ["_live_price", "_live_prev_close", "_live_daily_high", "_live_daily_low", "_live_daily_volume", "_price_updated_at", "day_change_pct", "change_pct", "day_change", "change", "_ah_price", "_ah_change", "_ah_change_pct"];
+        const result = { ...incomingData };
+        for (const sym of Object.keys(result)) {
+          const old = prevData[sym];
+          if (old && old._live_price > 0) {
+            const newPx = Number(result[sym]?.price) || 0;
+            const oldLivePx = old._live_price;
+            const divergence = newPx > 0 ? Math.abs(newPx - oldLivePx) / oldLivePx : 0;
+            const oldTs = old._price_updated_at || 0;
+            const newTs = result[sym]?._price_updated_at || 0;
+            if (divergence > 0.02 || oldTs >= newTs || !newTs) {
+              const merged = { ...result[sym] };
+              for (const k of LIVE_KEYS) {
+                if (old[k] != null) merged[k] = old[k];
+              }
+              merged.price = oldLivePx;
+              result[sym] = merged;
+            }
+          }
+
+          if (Array.isArray(old?._sparkline) && old._sparkline.length >= 3) {
+            const nextSparkline = result[sym]?._sparkline;
+            if (!Array.isArray(nextSparkline) || nextSparkline.length < 3) {
+              result[sym] = {
+                ...result[sym],
+                _sparkline: old._sparkline,
+              };
+            }
+          }
+        }
+        return result;
+      }
+
       function useTickerData() {
-        const [data, setData] = useState({});
-        const [socialAdditions, setSocialAdditions] = useState([]);
-        const [loading, setLoading] = useState(true);
+        const initialSnapshot = React.useMemo(() => readAnalysisSnapshotCache(), []);
+        const initialData = initialSnapshot?.data && typeof initialSnapshot.data === "object"
+          ? initialSnapshot.data
+          : {};
+        const [data, setData] = useState(initialData);
+        const [socialAdditions, setSocialAdditions] = useState(
+          Array.isArray(initialSnapshot?.socialAdditions) ? initialSnapshot.socialAdditions : [],
+        );
+        const [loading, setLoading] = useState(Object.keys(initialData).length === 0);
         const [error, setError] = useState(null);
-        const [lastUpdate, setLastUpdate] = useState(null);
-        const [versionInfo, setVersionInfo] = useState(null);
-        const [tickersWithoutScores, setTickersWithoutScores] = useState([]);
+        const [lastUpdate, setLastUpdate] = useState(
+          initialSnapshot?.cachedAt ? new Date(initialSnapshot.cachedAt) : null,
+        );
+        const [versionInfo, setVersionInfo] = useState(
+          initialSnapshot?.versionInfo && typeof initialSnapshot.versionInfo === "object"
+            ? initialSnapshot.versionInfo
+            : null,
+        );
+        const [tickersWithoutScores, setTickersWithoutScores] = useState(
+          Array.isArray(initialSnapshot?.tickersWithoutScores)
+            ? initialSnapshot.tickersWithoutScores
+            : collectTickersWithoutScores(initialData),
+        );
         // Local fallback for Kanban prev-lane tracking (covers cases where the backend doesn't stamp prev_kanban_stage).
         const kanbanPrevLocalRef = React.useRef({});
+        const dataRef = React.useRef(initialData);
+        dataRef.current = data;
 
         const mergeUniversePlaceholders = useCallback((allTickers) => {
           if (!Array.isArray(allTickers) || allTickers.length === 0) return;
@@ -626,6 +738,7 @@
               next[normalizedTicker] = { ticker: normalizedTicker };
               changed = true;
             });
+            dataRef.current = changed ? next : prev;
             return changed ? next : prev;
           });
         }, []);
@@ -653,10 +766,12 @@
           }
         }, [mergeUniversePlaceholders]);
 
-        const fetchData = useCallback(async () => {
+        const fetchData = useCallback(async (options = {}) => {
+          const hasRenderableData = !!(dataRef.current && Object.keys(dataRef.current).length > 0);
+          const background = options.background ?? hasRenderableData;
           try {
-            setLoading(true);
-            setError(null); // Clear any previous errors
+            if (!background) setLoading(true);
+            setError(null);
             // Add timeout to prevent hanging - 60s for cold start + D1 + rank computation
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), 60000); // 60s timeout
@@ -689,7 +804,8 @@
             const dataJson = await dataRes.json();
 
             if (dataJson.ok) {
-              setSocialAdditions(Array.isArray(dataJson.socialAdditions) ? dataJson.socialAdditions : []);
+              const nextSocialAdditions = Array.isArray(dataJson.socialAdditions) ? dataJson.socialAdditions : [];
+              setSocialAdditions(nextSocialAdditions);
               const tickerData = dataJson.data || {};
               const allTickers = Object.keys(tickerData);
 
@@ -729,14 +845,15 @@
                 dataJson.currentDataVersion || "unknown";
 
               // Store version info for UI display
-              setVersionInfo({
+              const nextVersionInfo = {
                 storedVersion: dataVersion,
                 versionsSeen: versionsSeen,
                 versionFiltered: versionFiltered,
                 versionBreakdown: versionBreakdown,
                 acceptedVersions: acceptedVersions,
                 currentDataVersion: currentDataVersion,
-              });
+              };
+              setVersionInfo(nextVersionInfo);
 
               if (ENABLE_UI_DIAGNOSTICS) {
                 console.log(`[UI] Data Version Info:`, {
@@ -779,50 +896,11 @@
                 }
               });
 
-              // Preserve live price fields from current data so the 3-min
-              // full refresh doesn't cause a price flicker back to candle close.
-              // Key rule: if prev has a _live_price that's significantly different
-              // from the incoming price, keep prev's price (the incoming snapshot
-              // may contain a stale candle close due to KV eventual consistency).
-              setData(prev => {
-                if (!prev || typeof prev !== "object" || Object.keys(prev).length === 0) return mergedData;
-                const LIVE_KEYS = ["_live_price", "_live_prev_close", "_live_daily_high", "_live_daily_low", "_live_daily_volume", "_price_updated_at", "day_change_pct", "change_pct", "day_change", "change", "_ah_price", "_ah_change", "_ah_change_pct"];
-                const result = { ...mergedData };
-                for (const sym of Object.keys(result)) {
-                  const old = prev[sym];
-                  if (old && old._live_price > 0) {
-                    const newPx = Number(result[sym]?.price) || 0;
-                    const oldLivePx = old._live_price;
-                    const divergence = newPx > 0 ? Math.abs(newPx - oldLivePx) / oldLivePx : 0;
-                    // If the incoming price diverges >2% from our live price,
-                    // it's likely a stale candle close — keep the live price.
-                    // Also preserve if old is simply more recent.
-                    const oldTs = old._price_updated_at || 0;
-                    const newTs = result[sym]?._price_updated_at || 0;
-                    if (divergence > 0.02 || oldTs >= newTs || !newTs) {
-                      const merged = { ...result[sym] };
-                      for (const k of LIVE_KEYS) {
-                        if (old[k] != null) merged[k] = old[k];
-                      }
-                      merged.price = oldLivePx;
-                      result[sym] = merged;
-                    }
-                  }
-
-                  // Keep the last known sparkline if a refresh comes back partial.
-                  if (Array.isArray(old?._sparkline) && old._sparkline.length >= 3) {
-                    const nextSparkline = result[sym]?._sparkline;
-                    if (!Array.isArray(nextSparkline) || nextSparkline.length < 3) {
-                      result[sym] = {
-                        ...result[sym],
-                        _sparkline: old._sparkline,
-                      };
-                    }
-                  }
-                }
-                return result;
-              });
-              setLastUpdate(new Date());
+              const nextData = mergeTickerSnapshot(dataRef.current, mergedData);
+              setData(nextData);
+              dataRef.current = nextData;
+              const nextLastUpdate = new Date();
+              setLastUpdate(nextLastUpdate);
               setError(null);
               sessionStorage.removeItem("fetchData_abortRetry");
 
@@ -835,7 +913,7 @@
               });
               // Log detailed breakdown
               const tickersByVersion = {};
-              const tickersWithoutScores = [];
+              const nextTickersWithoutScores = [];
               Object.keys(mergedData).forEach((t) => {
                 const d = mergedData[t];
                 if (d) {
@@ -846,7 +924,7 @@
                   tickersByVersion[version].push(t);
 
                   if (d.htf_score === undefined && d.ltf_score === undefined) {
-                    tickersWithoutScores.push({
+                    nextTickersWithoutScores.push({
                       ticker: t,
                       version: version,
                       hasPrice: !!d.price,
@@ -861,18 +939,25 @@
                 );
                 console.log(`[UI] Tickers by version:`, tickersByVersion);
               }
-              if (tickersWithoutScores.length > 0) {
+              if (nextTickersWithoutScores.length > 0) {
                 if (ENABLE_UI_DIAGNOSTICS) {
                   console.warn(
-                    `[UI] ⚠️ ${tickersWithoutScores.length} tickers without scores:`,
-                    tickersWithoutScores.slice(0, 10),
+                    `[UI] ⚠️ ${nextTickersWithoutScores.length} tickers without scores:`,
+                    nextTickersWithoutScores.slice(0, 10),
                   );
                 }
                 // Store in state for UI display
-                setTickersWithoutScores(tickersWithoutScores);
+                setTickersWithoutScores(nextTickersWithoutScores);
               } else {
                 setTickersWithoutScores([]);
               }
+
+              writeAnalysisSnapshotCache({
+                data: nextData,
+                socialAdditions: nextSocialAdditions,
+                versionInfo: nextVersionInfo,
+                tickersWithoutScores: nextTickersWithoutScores,
+              });
 
               if (versionFiltered > 0 && ENABLE_UI_DIAGNOSTICS) {
                 console.warn(
@@ -926,16 +1011,18 @@
 
               refreshTickerUniverse(timestamp);
             } else {
-              setError(
-                `API Error: ${dataJson.error || "Failed to fetch data"}`,
-              );
+              if (!background) {
+                setError(
+                  `API Error: ${dataJson.error || "Failed to fetch data"}`,
+                );
+              }
             }
           } catch (e) {
             if (e.name === "AbortError") {
-              setError("Request timeout - please try again");
+              if (!background) setError("Request timeout - please try again");
               // Retry once after 2s (helps with worker cold start)
               const retryKey = "fetchData_abortRetry";
-              if (!sessionStorage.getItem(retryKey)) {
+              if (!background && !sessionStorage.getItem(retryKey)) {
                 sessionStorage.setItem(retryKey, "1");
                 setTimeout(() => fetchData(), 2000);
               }
@@ -943,11 +1030,13 @@
               e.message.includes("Failed to fetch") ||
               e.message.includes("Load failed")
             ) {
-              setError(
-                "Network error - check console for details. API may be temporarily unavailable.",
-              );
+              if (!background) {
+                setError(
+                  "Network error - check console for details. API may be temporarily unavailable.",
+                );
+              }
             } else {
-              setError(e.message);
+              if (!background) setError(e.message);
             }
             console.error("Fetch error:", e);
             console.error("Error details:", {
@@ -956,14 +1045,30 @@
               stack: e.stack,
             });
           } finally {
-            setLoading(false);
+            if (!background) setLoading(false);
           }
         }, [refreshTickerUniverse]);
 
         useEffect(() => {
-          fetchData();
-          const interval = setInterval(fetchData, 180000); // 3 minutes auto-refresh
-          return () => clearInterval(interval);
+          const cached = readAnalysisSnapshotCache();
+          const cacheAge = cached?.cachedAt ? (Date.now() - Number(cached.cachedAt)) : Infinity;
+          let warmRefreshTimer = null;
+
+          if (!cached) {
+            fetchData({ background: false });
+          } else if (cacheAge >= ANALYSIS_SNAPSHOT_HOT_MS) {
+            fetchData({ background: true });
+          } else {
+            warmRefreshTimer = setTimeout(() => {
+              fetchData({ background: true });
+            }, Math.max(1000, ANALYSIS_SNAPSHOT_HOT_MS - cacheAge));
+          }
+
+          const interval = setInterval(() => fetchData({ background: true }), 180000); // 3 minutes auto-refresh
+          return () => {
+            clearInterval(interval);
+            if (warmRefreshTimer) clearTimeout(warmRefreshTimer);
+          };
         }, [fetchData]);
 
         return {
