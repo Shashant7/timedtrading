@@ -610,10 +610,17 @@
                 }
               })
               .catch(() => {});
-            const [statusRes, tickersRes] = await Promise.all([
-              fetch(`${API_BASE}/timed/admin/ingestion-status?_t=${Date.now()}`, { credentials: "include" }),
-              fetch(`${API_BASE}/timed/tickers?_t=${Date.now()}`),
-            ]);
+            const requestTs = Date.now();
+            const watchlistPromise = fetch(`${API_BASE}/timed/tickers?_t=${requestTs}`)
+              .then(r => r.json())
+              .then(tJson => {
+                if (tJson.ok && Array.isArray(tJson.tickers)) {
+                  setWatchlistTickers(tJson.tickers.map(normalizeTicker).filter(Boolean));
+                  setWatchlistLoaded(true);
+                }
+              })
+              .catch(() => {});
+            const statusRes = await fetch(`${API_BASE}/timed/admin/ingestion-status?_t=${requestTs}`, { credentials: "include" });
             const json = await statusRes.json();
             if (!json.ok) throw new Error(json.error || "Failed to fetch");
             setData(json);
@@ -633,20 +640,11 @@
                 return next;
               });
             }
-            try {
-              const tJson = await tickersRes.json();
-              if (tJson.ok && Array.isArray(tJson.tickers)) {
-                setWatchlistTickers(tJson.tickers.map(normalizeTicker).filter(Boolean));
-                setWatchlistLoaded(true);
-              }
-            } catch (_) {
-              // Keep the last-known canonical list if this read fails.
-            }
             if (!skipLoading) {
               setLoading(false);
               loadingCleared = true;
             }
-            void Promise.allSettled([pricePromise]);
+            void Promise.allSettled([pricePromise, watchlistPromise]);
           } catch (e) {
             setError(e.message);
           } finally {

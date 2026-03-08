@@ -1290,7 +1290,7 @@
         return debouncedValue;
       }
 
-      function useTrades() {
+      function useTrades(enabled = true) {
         const [trades, setTrades] = useState([]);
         const [loading, setLoading] = useState(true);
         const [error, setError] = useState(null);
@@ -1317,10 +1317,11 @@
         }, []);
 
         useEffect(() => {
+          if (!enabled) return undefined;
           fetchTrades();
           const interval = setInterval(fetchTrades, 180000); // Refresh every 3 minutes
           return () => clearInterval(interval);
-        }, [fetchTrades]);
+        }, [enabled, fetchTrades]);
 
         return { trades, loading, error, refetch: fetchTrades };
       }
@@ -16272,7 +16273,8 @@
         // Real-time price feed: WS push (primary) + HTTP poll fallback (every 30s)
         const { wsConnected, wsLastMessage } = useWebSocket(data, setTickerData);
         const { priceLastUpdated } = usePriceFeed(data, setTickerData);
-        const { trades } = useTrades();
+        const tradeDataReady = secondaryDataReady && dashboardMode !== "analysis";
+        const { trades } = useTrades(tradeDataReady);
         const accountMode = dashboardMode === "investor" ? "investor" : "trader";
         const { summary: accountSummary } = useAccountSummary(accountMode, secondaryDataReady);
         const { pending: queuedPending, pendingCount: queuedPendingCount } = useQueuedActions(secondaryDataReady);

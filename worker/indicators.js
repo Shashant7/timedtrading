@@ -4485,11 +4485,11 @@ export async function alpacaBackfill(env, tickers, _unused, tfKey = "all", opts 
   if (startDateStr && endDateStr) {
     const start = new Date(startDateStr + "T00:00:00Z").toISOString();
     const end = new Date(endDateStr + "T23:59:59Z").toISOString();
-    startDates = { "M": start, "W": start, "D": start, "240": start, "60": start, "30": start, "10": start };
-    endDates = { "M": end, "W": end, "D": end, "240": end, "60": end, "30": end, "10": end };
+    startDates = { "M": start, "W": start, "D": start, "240": start, "60": start, "30": start, "15": start, "10": start };
+    endDates = { "M": end, "W": end, "D": end, "240": end, "60": end, "30": end, "15": end, "10": end };
   } else if (typeof sinceDays === "number" && sinceDays > 0) {
     const start = new Date(now.getTime() - sinceDays * DAY_MS).toISOString();
-    startDates = { "M": start, "W": start, "D": start, "240": start, "60": start, "30": start, "10": start };
+    startDates = { "M": start, "W": start, "D": start, "240": start, "60": start, "30": start, "15": start, "10": start };
   } else {
     startDates = {
       "M": new Date(now.getTime() - 365 * 10 * DAY_MS).toISOString(),
@@ -4498,6 +4498,7 @@ export async function alpacaBackfill(env, tickers, _unused, tfKey = "all", opts 
       "240": new Date(now.getTime() - tradingCalDays(1000, 240) * DAY_MS).toISOString(),
       "60": new Date(now.getTime() - tradingCalDays(1000, 60) * DAY_MS).toISOString(),
       "30": new Date(now.getTime() - tradingCalDays(1000, 30) * DAY_MS).toISOString(),
+      "15": new Date(now.getTime() - tradingCalDays(3000, 15) * DAY_MS).toISOString(),
       "10": new Date(now.getTime() - tradingCalDays(3000, 10) * DAY_MS).toISOString(),
     };
   }

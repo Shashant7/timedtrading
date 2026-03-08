@@ -34132,7 +34132,7 @@ export default {
         const tickerFilter = normTicker(url.searchParams.get("ticker")) || null;
         const cacheKey = tickerFilter
           ? null
-          : "timed:cache:ingestion-status:v2";
+          : "timed:cache:ingestion-status:v3";
         const cacheFreshMs = 15 * 1000;
 
         // Expected minimums per TF (approximate for good chart + scoring coverage)
@@ -34149,6 +34149,39 @@ export default {
         const INTRADAY_TFS = new Set(["1", "10", "15", "30", "60", "240"]);
 
         try {
+          const { tickers: activeTickers, removedSet } = await getActiveTickerUniverse(env);
+          const normalizedRemovedSet = new Set(
+            [...removedSet].map((t) => normTicker(t)),
+          );
+          const normalizedSectorMap = Object.fromEntries(
+            Object.entries(SECTOR_MAP).map(([ticker, sector]) => [normTicker(ticker), sector]),
+          );
+          const allTickersSorted = (tickerFilter
+            ? [tickerFilter]
+            : [...new Set([
+                ...activeTickers.map((t) => normTicker(t)),
+                ...Object.keys(SECTOR_MAP).map((t) => normTicker(t)),
+              ])]
+          )
+            .filter(Boolean)
+            .filter((t) => !normalizedRemovedSet.has(t))
+            .sort();
+          if (allTickersSorted.length === 0) {
+            return sendJSON({
+              ok: true,
+              summary: {
+                total_tickers_in_system: 0,
+                tickers_with_candle_data: 0,
+                tickers_no_data: 0,
+                tickers_no_data_list: [],
+                overall_pct: 0,
+              },
+              tickers: [],
+              worst_10: [],
+              cache_built_at: Date.now(),
+            }, 200, corsHeaders(env, req));
+          }
+
           if (cacheKey && KV) {
             const cached = await kvGetJSON(KV, cacheKey);
             const cachedBuiltAt = Number(cached?.cache_built_at || 0);
@@ -34162,21 +34195,19 @@ export default {
             }
           }
 
+          // Limit the expensive aggregation queries to the active ticker universe
+          // instead of scanning every symbol in ticker_candles for every page load.
+          const tickerPlaceholders = allTickersSorted.map((_, idx) => `?${idx + 1}`).join(", ");
+          const gapSinceBindIdx = allTickersSorted.length + 1;
+
           // Run two queries in parallel via db.batch():
-          // 1. Count + min/max per ticker+TF (existing)
-          // 2. Distinct trading-date count in last 30 days per ticker+TF (new — for gap detection)
+          // 1. Count + min/max per ticker+TF
+          // 2. Distinct trading-date count in last 30 days per ticker+TF
           const stmts = [];
-          if (tickerFilter) {
-            stmts.push(
-              db.prepare("SELECT ticker, tf, COUNT(*) as cnt, MIN(ts) as min_ts, MAX(ts) as max_ts FROM ticker_candles WHERE ticker = ?1 GROUP BY ticker, tf ORDER BY ticker, tf").bind(tickerFilter),
-              db.prepare("SELECT ticker, tf, COUNT(DISTINCT date(ts/1000, 'unixepoch', '-5 hours')) as date_count FROM ticker_candles WHERE ticker = ?1 AND ts >= ?2 GROUP BY ticker, tf").bind(tickerFilter, gapSinceTs),
-            );
-          } else {
-            stmts.push(
-              db.prepare("SELECT ticker, tf, COUNT(*) as cnt, MIN(ts) as min_ts, MAX(ts) as max_ts FROM ticker_candles GROUP BY ticker, tf ORDER BY ticker, tf"),
-              db.prepare("SELECT ticker, tf, COUNT(DISTINCT date(ts/1000, 'unixepoch', '-5 hours')) as date_count FROM ticker_candles WHERE ts >= ?1 GROUP BY ticker, tf").bind(gapSinceTs),
-            );
-          }
+          stmts.push(
+            db.prepare(`SELECT ticker, tf, COUNT(*) as cnt, MIN(ts) as min_ts, MAX(ts) as max_ts FROM ticker_candles WHERE ticker IN (${tickerPlaceholders}) GROUP BY ticker, tf ORDER BY ticker, tf`).bind(...allTickersSorted),
+            db.prepare(`SELECT ticker, tf, COUNT(DISTINCT date(ts/1000, 'unixepoch', '-5 hours')) as date_count FROM ticker_candles WHERE ticker IN (${tickerPlaceholders}) AND ts >= ?${gapSinceBindIdx} GROUP BY ticker, tf`).bind(...allTickersSorted, gapSinceTs),
+          );
           const batchRes = await db.batch(stmts);
           const rows = batchRes[0]?.results || [];
           const gapRows = batchRes[1]?.results || [];
@@ -34195,21 +34226,6 @@ export default {
             gapData[r.ticker][r.tf] = r.date_count;
           }
 
-          // Build report from the active universe used by the Tickers page and add/remove flow.
-          const { tickers: activeTickers, removedSet } = await getActiveTickerUniverse(env);
-          const normalizedRemovedSet = new Set(
-            [...removedSet].map((t) => normTicker(t)),
-          );
-          const normalizedSectorMap = Object.fromEntries(
-            Object.entries(SECTOR_MAP).map(([ticker, sector]) => [normTicker(ticker), sector]),
-          );
-          const allTickersSorted = [...new Set([
-            ...activeTickers.map((t) => normTicker(t)),
-            ...Object.keys(SECTOR_MAP).map((t) => normTicker(t)),
-          ])]
-            .filter(Boolean)
-            .filter((t) => !normalizedRemovedSet.has(t))
-            .sort();
           const contextMap = {};
           if (KV && allTickersSorted.length > 0) {
             for (let i = 0; i < allTickersSorted.length; i += 25) {
