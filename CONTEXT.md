@@ -41,6 +41,10 @@ npm run deploy:worker   # worker only (skip right-rail)
 | Data     | D1 (ticker_candles, trades, positions), KV (timed:latest, timed:prices) |
 | External | TwelveData (primary), Alpaca (execution, backfill) |
 
+## Plan
+
+- **`tasks/PLAN.md`** — Consolidated status, phases, and next steps. Read first each session.
+
 ## Key Paths
 
 - `worker/index.js` — routes, cron, trade logic

@@ -49,11 +49,29 @@ Single reference for current status and next steps. Read this first each session
 - 15m infrastructure is live
 - rerun completed
 - run-scoped archives preserve both the 15m rerun and baseline trade sets for analysis
+- next run should use the March 7 calibrated stack as the reproducible candidate base
 
 **Review work:**
-1. Compare 15m vs live baseline trade-by-trade and by day
-2. Decide whether the extra open trades are genuine upside or risk masking
-3. Optionally run a forced-EOM-close apples-to-apples comparison before promotion
+1. Run the Jul 1, 2025 to Mar 4, 2026 15m best-foot-forward candidate with explicit snapshot capture
+2. Compare 15m vs long-window 10m baseline trade-by-trade and by day
+3. Decide whether the extra open trades are genuine upside or risk masking
+4. Optionally run a forced-EOM-close apples-to-apples comparison before promotion
+
+**Best-foot-forward candidate settings:**
+- `LEADING_LTF=15`
+- `RIPSTER_TUNE_V2=true`
+- `RIPSTER_EXIT_DEBOUNCE_BARS=3`
+- `deep_audit_short_min_rank=65`
+- `deep_audit_swing_checklist_v1=false`
+- `deep_audit_swing_require_squeeze_build=false`
+- `deep_audit_variant_guardrails_v3=false`
+- `calibrated_rank_min=70`
+- `calibrated_sl_atr=0.57`
+- `calibrated_tp_tiers={ trim: 0.62, exit: 1.29, runner: 7.75 }`
+- latest March 7 `consensus_signal_weights` and `consensus_tf_weights`
+
+**Baseline comparison target:**
+- `backtest_2025-07-01_2026-03-04@2026-03-05T05:04:37.588Z` (long-window 10m baseline)
 
 ---
 
@@ -122,6 +140,9 @@ TIMED_API_KEY=AwesomeSauce node scripts/reconcile-status.js
 
 # 15m variant rerun
 ./scripts/full-backtest.sh --trader-only --low-write --keep-open-at-end 2025-07-01 2025-07-31 15 --label=15m-leading-ltf-rerun --env-override LEADING_LTF=15
+
+# 15m best-foot-forward long-window candidate
+./scripts/full-backtest.sh --trader-only --low-write --keep-open-at-end 2025-07-01 2026-03-04 15 --label=15m-best-foot-forward-jul1-mar4 --desc="Best-foot-forward Jul-Mar 15m candidate with March 7 calibrated stack and explicit env override capture" --env-override LEADING_LTF=15
 
 # Run archive-backed ledger lookup
 curl -s "https://timed-trading-ingest.shashant.workers.dev/timed/ledger/trades?run_id=<RUN_ID>&key=AwesomeSauce" | jq .

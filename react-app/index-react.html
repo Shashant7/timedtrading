@@ -1356,6 +1356,7 @@
         const [adding, setAdding] = useState(false);
         const [addingTicker, setAddingTicker] = useState(null);
         const [error, setError] = useState(null);
+        const [processingTickers, setProcessingTickers] = useState({});
 
         const fetchSlots = useCallback(async () => {
           try {
@@ -1377,6 +1378,75 @@
           return () => clearInterval(iv);
         }, [fetchSlots]);
 
+        const processingTickerKeys = useMemo(
+          () => Object.keys(processingTickers).sort().join(","),
+          [processingTickers],
+        );
+
+        useEffect(() => {
+          const activeTickers = Object.keys(processingTickers);
+          if (activeTickers.length === 0) return;
+
+          let cancelled = false;
+          const pollStatuses = async () => {
+            const results = await Promise.all(activeTickers.map(async (ticker) => {
+              try {
+                const res = await fetch(`${API_BASE}/timed/onboard-status/${encodeURIComponent(ticker)}?_t=${Date.now()}`, {
+                  cache: "no-store",
+                });
+                if (!res.ok) return { ticker, failed: true };
+                const json = await res.json();
+                return {
+                  ticker,
+                  status: json?.onboarding || json?.status || null,
+                };
+              } catch {
+                return { ticker, failed: true };
+              }
+            }));
+            if (cancelled) return;
+
+            const completed = [];
+            const errored = [];
+            setProcessingTickers((prev) => {
+              const next = { ...prev };
+              for (const result of results) {
+                if (result?.failed || !result?.ticker) continue;
+                const status = result.status || {};
+                const step = String(status.step || "").toLowerCase();
+                if (step === "complete") {
+                  delete next[result.ticker];
+                  completed.push({ ticker: result.ticker, status });
+                } else if (step === "error") {
+                  delete next[result.ticker];
+                  errored.push({ ticker: result.ticker, status });
+                } else {
+                  next[result.ticker] = { ticker: result.ticker, ...(status || {}) };
+                }
+              }
+              return next;
+            });
+
+            if (completed.length > 0) {
+              await fetchSlots();
+              completed.forEach(({ ticker, status }) => {
+                window.dispatchEvent(new CustomEvent("tt-user-ticker-ready", { detail: { ticker, status } }));
+              });
+            }
+            if (errored.length > 0) {
+              const first = errored[0];
+              setError(first?.status?.message || `Failed to finish onboarding ${first?.ticker || "ticker"}`);
+            }
+          };
+
+          pollStatuses();
+          const iv = setInterval(pollStatuses, 3000);
+          return () => {
+            cancelled = true;
+            clearInterval(iv);
+          };
+        }, [processingTickerKeys, fetchSlots]);
+
         const addTicker = useCallback(async (ticker) => {
           setError(null);
           setAdding(true);
@@ -1391,6 +1461,27 @@
             if (!json.ok) {
               setError(json.detail || json.error || "Failed to add ticker");
               return null;
+            }
+            if (json.onboarding_started && json.ticker) {
+              setProcessingTickers((prev) => ({
+                ...prev,
+                [json.ticker]: {
+                  ticker: json.ticker,
+                  ...(json.onboarding || {
+                    step: "queued",
+                    progress: json.scored ? 0.55 : 0.15,
+                    message: json.scored
+                      ? "Finishing context, history, and ticker profile..."
+                      : "Preparing ticker data...",
+                  }),
+                },
+              }));
+            } else if (json.ticker) {
+              setProcessingTickers((prev) => {
+                const next = { ...prev };
+                delete next[json.ticker];
+                return next;
+              });
             }
             await fetchSlots();
             return json;
@@ -1414,6 +1505,11 @@
               setError(json.detail || json.error || "Failed to remove ticker");
               return false;
             }
+            setProcessingTickers((prev) => {
+              const next = { ...prev };
+              delete next[ticker.toUpperCase()];
+              return next;
+            });
             await fetchSlots();
             return true;
           } catch (e) {
@@ -1422,7 +1518,8 @@
           }
         }, [fetchSlots]);
 
-        return { slots, slotsUsed, slotsMax, tier, adding, addingTicker, error, addTicker, removeTicker, refetch: fetchSlots, setError };
+        const processingList = Object.values(processingTickers);
+        return { slots, slotsUsed, slotsMax, tier, adding, addingTicker, error, processingTickers, processingList, addTicker, removeTicker, refetch: fetchSlots, setError };
       }
 
       // Account Summary hook — single source of truth from account_ledger (GET /timed/account-summary)
@@ -16118,6 +16215,14 @@
         const { sectors } = useSectors();
         const { events: earningsEvents } = useEarningsEvents();
 
+        useEffect(() => {
+          const handler = () => {
+            refetch();
+          };
+          window.addEventListener("tt-user-ticker-ready", handler);
+          return () => window.removeEventListener("tt-user-ticker-ready", handler);
+        }, [refetch]);
+
         // Build earnings lookup: symbol -> nearest upcoming (or most recent past) event
         // Uses NY calendar day comparison to avoid timezone-offset errors
         const earningsMap = useMemo(() => {
@@ -17543,6 +17648,46 @@
                 )}
               </div>
             </div>
+            {userTickers.adding && userTickers.addingTicker && (
+              <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/60 backdrop-blur-sm">
+                <div className="w-[min(92vw,420px)] rounded-2xl border border-cyan-500/20 bg-[#0f1420] shadow-2xl px-6 py-5">
+                  <div className="flex items-center justify-center mb-4">
+                    <span className="loading-spinner" style={{ width: "30px", height: "30px", borderWidth: "3px", borderColor: "rgba(6,182,212,0.25)", borderTopColor: "rgb(6,182,212)" }}></span>
+                  </div>
+                  <div className="text-center">
+                    <div className="text-white text-sm font-semibold mb-1">
+                      Adding {userTickers.addingTicker}
+                    </div>
+                    <div className="text-[#94a3b8] text-xs leading-5">
+                      Validating the symbol, generating the first ticker card, and loading enough data to score it.
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+            {userTickers.processingList.length > 0 && (
+              <div className="fixed bottom-4 right-4 z-[115] w-[min(92vw,360px)] rounded-2xl border border-cyan-500/15 bg-[#0f1420]/95 backdrop-blur-xl shadow-2xl px-4 py-3">
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="loading-spinner loading-spinner-sm" style={{ width: "12px", height: "12px", borderWidth: "1.5px", borderColor: "rgba(6,182,212,0.25)", borderTopColor: "rgb(6,182,212)" }}></span>
+                  <div className="text-cyan-300 text-xs font-semibold">
+                    Ticker data is still loading
+                  </div>
+                </div>
+                <div className="space-y-1.5">
+                  {userTickers.processingList.slice(0, 3).map((item) => (
+                    <div key={item.ticker} className="flex items-start justify-between gap-3 text-[11px]">
+                      <div className="min-w-0">
+                        <div className="text-white font-medium">{item.ticker}</div>
+                        <div className="text-[#94a3b8] truncate">{item.message || "Finishing context, profile, and scoring..."}</div>
+                      </div>
+                      <div className="text-cyan-300 font-semibold tabular-nums shrink-0">
+                        {Number.isFinite(Number(item.progress)) ? `${Math.round(Number(item.progress) * 100)}%` : ""}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
             <Coachmarks />
             <GoProModal open={goProOpen} onClose={() => setGoProOpen(false)} />
           </>

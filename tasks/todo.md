@@ -37,6 +37,25 @@
 - [x] Surface canonical ticker context evidence inside Trade Autopsy
 - [ ] Validate with lint and API/UI smoke checks
 
+## Custom Ticker Add Flow Hardening [2026-03-08]
+- [x] Persist worker-side ticker context from shared enrichment sources
+- [x] Add background onboarding progress for custom ticker adds
+- [x] Add Analysis-page processing modal and subtle post-add loading state
+- [ ] Deploy worker + Pages changes
+- [ ] Browser-test custom ticker add flow end to end in production
+
+## Tickers Candle Gap Audit [2026-03-08]
+- [x] Run production D1 completeness audit for `ticker_candles`
+- [x] Compare audit output vs `/timed/admin/ingestion-status` gap reporting
+- [x] Determine whether gaps are real missing data or a reporting/calculation issue
+- [x] Summarize impact on backtests and define corrective action
+
+## TradingView 15m Export Import [2026-03-08]
+- [ ] Verify new `TV Exports` 15m CSV files and import path
+- [ ] Update CSV auto-detection for new futures/index export prefixes
+- [ ] Import the new TradingView `15m` CSV exports
+- [ ] Verify `15m` candle coverage for the imported symbols
+
 ## Variant v2 Hardening [2026-03-04]
 - [ ] Mitigate bad exits and upstream/chasing entries from classified variant trades
 - [x] Fix Trade Autopsy mobile layout overlap (classification buttons visibility)

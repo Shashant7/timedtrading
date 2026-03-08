@@ -29917,6 +29917,158 @@ export default {
         return { enriched, skipped };
       }
 
+      function hasContextValue(value) {
+        if (typeof value === "string") return value.trim().length > 0;
+        return Number.isFinite(Number(value));
+      }
+
+      function isTickerContextReady(ctx) {
+        if (!ctx || typeof ctx !== "object" || Array.isArray(ctx)) return false;
+        return hasContextValue(ctx.name) && (hasContextValue(ctx.industry) || hasContextValue(ctx.sector));
+      }
+
+      async function fetchYahooTickerContext(ticker) {
+        const sym = normTicker(ticker);
+        if (!sym) return null;
+        try {
+          const params = new URLSearchParams({
+            modules: "price,summaryProfile,assetProfile",
+          });
+          const resp = await fetch(
+            `https://query1.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(sym)}?${params.toString()}`,
+            {
+              headers: {
+                Accept: "application/json",
+                "User-Agent": "TimedTrading/1.0",
+              },
+            },
+          );
+          if (!resp.ok) return null;
+          const payload = await resp.json();
+          const root = payload?.quoteSummary?.result?.[0] || {};
+          const price = root?.price && typeof root.price === "object" ? root.price : {};
+          const assetProfile =
+            root?.assetProfile && typeof root.assetProfile === "object"
+              ? root.assetProfile
+              : root?.summaryProfile && typeof root.summaryProfile === "object"
+                ? root.summaryProfile
+                : {};
+          const out = {};
+          const name =
+            price?.longName ||
+            price?.shortName ||
+            "";
+          if (typeof name === "string" && name.trim()) out.name = name.trim();
+          if (typeof assetProfile?.sector === "string" && assetProfile.sector.trim()) out.sector = assetProfile.sector.trim();
+          if (typeof assetProfile?.industry === "string" && assetProfile.industry.trim()) out.industry = assetProfile.industry.trim();
+          if (typeof assetProfile?.website === "string" && assetProfile.website.trim()) out.website = assetProfile.website.trim();
+          if (typeof assetProfile?.longBusinessSummary === "string" && assetProfile.longBusinessSummary.trim()) {
+            out.description = assetProfile.longBusinessSummary.trim();
+          }
+          if (typeof assetProfile?.country === "string" && assetProfile.country.trim()) out.country = assetProfile.country.trim();
+          if (typeof price?.exchangeName === "string" && price.exchangeName.trim()) out.exchange = price.exchangeName.trim();
+          const marketCap = Number(price?.marketCap?.raw);
+          if (Number.isFinite(marketCap) && marketCap > 0) out.market_cap = marketCap;
+          return Object.keys(out).length > 0 ? out : null;
+        } catch (e) {
+          console.warn(`[CTX ENRICH] Yahoo context failed for ${sym}:`, String(e?.message || e).slice(0, 150));
+          return null;
+        }
+      }
+
+      async function enrichAndPersistTickerContext(env, ticker, opts = {}) {
+        const KV = env?.KV_TIMED;
+        const sym = normTicker(ticker);
+        if (!KV || !sym) return null;
+
+        const existing = await kvGetJSON(KV, `timed:context:${sym}`);
+        if (isTickerContextReady(existing) && !opts.forceRefresh) return existing;
+
+        let merged =
+          existing && typeof existing === "object" && !Array.isArray(existing)
+            ? { ...existing }
+            : {};
+
+        const applyIncoming = (incoming, source) => {
+          if (!incoming || typeof incoming !== "object" || Array.isArray(incoming)) return;
+          const candidate = { ...incoming };
+          if (source) candidate._source = source;
+          candidate._enriched_at = Date.now();
+          merged = mergeTickerContext(merged, candidate) || merged;
+        };
+
+        try {
+          const providerInfo = await DataProvider.enrichSymbols(env, [sym]);
+          const match = providerInfo?.[sym];
+          if (match) {
+            applyIncoming(
+              {
+                name: match.name,
+                exchange: match.exchange,
+                currency: match.currency,
+                type: match.type,
+              },
+              "twelvedata_directory",
+            );
+          }
+        } catch (e) {
+          console.warn(`[CTX ENRICH] TwelveData context failed for ${sym}:`, String(e?.message || e).slice(0, 150));
+        }
+
+        const yahooCtx = await fetchYahooTickerContext(sym);
+        if (yahooCtx) applyIncoming(yahooCtx, "yahoo_finance");
+
+        if (!hasContextValue(merged.name) && env?.ALPACA_API_KEY_ID && env?.ALPACA_API_SECRET_KEY) {
+          try {
+            const base = env.ALPACA_API_BASE || "https://paper-api.alpaca.markets";
+            const resp = await fetch(`${base}/v2/assets/${encodeURIComponent(sym)}`, {
+              headers: {
+                "APCA-API-KEY-ID": env.ALPACA_API_KEY_ID,
+                "APCA-API-SECRET-KEY": env.ALPACA_API_SECRET_KEY,
+                Accept: "application/json",
+              },
+            });
+            if (resp.ok) {
+              const asset = await resp.json();
+              if (asset?.name) {
+                applyIncoming(
+                  {
+                    name: asset.name,
+                    exchange: asset.exchange,
+                    type: asset.class,
+                  },
+                  "alpaca_asset",
+                );
+              }
+            }
+          } catch (e) {
+            console.warn(`[CTX ENRICH] Alpaca context failed for ${sym}:`, String(e?.message || e).slice(0, 150));
+          }
+        }
+
+        const cleaned = sanitizeTickerContext(merged, merged) || merged;
+        if (!cleaned || Object.keys(cleaned).length === 0) return existing || null;
+
+        cleaned._enriched_at = Date.now();
+        await kvPutJSON(KV, `timed:context:${sym}`, cleaned, 90 * 24 * 60 * 60);
+
+        const latest = await kvGetJSON(KV, `timed:latest:${sym}`);
+        if (latest && typeof latest === "object") {
+          const patched = {
+            ...latest,
+            context: mergeTickerContext(latest.context, cleaned) || cleaned,
+          };
+          await kvPutJSON(KV, `timed:latest:${sym}`, patched);
+          try {
+            await d1UpsertTickerLatest(env, sym, patched);
+          } catch {
+            /* non-critical */
+          }
+        }
+
+        return cleaned;
+      }
+
       // POST /timed/watchlist/add?key=... - Add tickers to watchlist
       // Validates equity symbols against data provider before adding. Then triggers backfill (prev 30 days).
       // Supports both API key and CF Access JWT (admin) authentication.
@@ -30054,6 +30206,7 @@ export default {
               ctx.waitUntil((async () => {
                 for (const tk of tickersToOnboard) {
                   try {
+                    await enrichAndPersistTickerContext(env, tk);
                     const result = await onboardTicker(env, tk, { getCandles: d1GetCandles, sinceDays: 730 });
                     console.log(`[WATCHLIST ADD] Onboarded ${tk}: ${JSON.stringify({ ok: result.ok, moves: result.moveCount, profile: result.profile?.behaviorType })}`);
                     if (result.ok) {
@@ -37773,6 +37926,13 @@ export default {
             }
           }
 
+          let enrichedContext = null;
+          try {
+            enrichedContext = await enrichAndPersistTickerContext(env, rawTicker);
+          } catch (e) {
+            console.warn(`[USER_TICKERS] Context enrichment failed for ${rawTicker}:`, String(e?.message || e).slice(0, 150));
+          }
+
           // Upsert: re-activate if soft-deleted, or insert new
           const now = Date.now();
           if (wasDeleted) {
@@ -37831,6 +37991,7 @@ export default {
                   htf_score: 0,
                   ltf_score: 0,
                 };
+                if (enrichedContext) seedPayload.context = enrichedContext;
                 await kvPutJSON(KV, `timed:latest:${rawTicker}`, seedPayload);
                 seeded = true;
                 console.log(`[USER_TICKERS] Seeded timed:latest:${rawTicker} (price=$${price})`);
@@ -37846,6 +38007,7 @@ export default {
           let scoredData = null;
           let backfillTriggered = false;
           const needsBackfill = !isInCore && !(await d1TickerHasCandles(env, rawTicker));
+          const existingProfile = !isInCore ? await loadTickerProfile(env, rawTicker).catch(() => null) : null;
           if (needsBackfill) {
             backfillTriggered = true;
             const scoringStart = Date.now();
@@ -37875,6 +38037,14 @@ export default {
                 if (existing?.prev_close) result.prev_close = existing.prev_close;
                 if (existing?.day_change) result.day_change = existing.day_change;
                 if (existing?.day_change_pct) result.day_change_pct = existing.day_change_pct;
+                if (enrichedContext) result.context = mergeTickerContext(result.context, enrichedContext) || enrichedContext;
+                if (existingProfile && !result._tickerProfile) {
+                  result._tickerProfile = {
+                    behavior_type: existingProfile.behaviorType,
+                    sl_mult: existingProfile.slMult,
+                    tp_mult: existingProfile.tpMult,
+                  };
+                }
                 await kvPutJSON(KV, `timed:latest:${rawTicker}`, result);
                 ctx.waitUntil(d1UpsertTickerLatest(env, rawTicker, result));
                 scoredData = result;
@@ -37915,6 +38085,14 @@ export default {
                 if (existing?.prev_close) result.prev_close = existing.prev_close;
                 if (existing?.day_change) result.day_change = existing.day_change;
                 if (existing?.day_change_pct) result.day_change_pct = existing.day_change_pct;
+                if (enrichedContext) result.context = mergeTickerContext(result.context, enrichedContext) || enrichedContext;
+                if (existingProfile && !result._tickerProfile) {
+                  result._tickerProfile = {
+                    behavior_type: existingProfile.behaviorType,
+                    sl_mult: existingProfile.slMult,
+                    tp_mult: existingProfile.tpMult,
+                  };
+                }
                 await kvPutJSON(KV, `timed:latest:${rawTicker}`, result);
                 ctx.waitUntil(d1UpsertTickerLatest(env, rawTicker, result));
                 scoredData = result;
@@ -37922,6 +38100,38 @@ export default {
             } catch (scoreErr) {
               console.warn(`[USER_TICKERS] Score-only failed for ${rawTicker}:`, String(scoreErr?.message || scoreErr).slice(0, 150));
             }
+          }
+
+          const contextReady = isTickerContextReady(enrichedContext);
+          const profileReady = !!existingProfile;
+          const ready = !!scoredData && contextReady && profileReady;
+          let onboardingStatus = null;
+          let onboardingStarted = false;
+          if (!isInCore && !ready) {
+            onboardingStarted = true;
+            onboardingStatus = {
+              ticker: rawTicker,
+              step: "queued",
+              progress: scoredData ? 0.55 : 0.15,
+              message: scoredData
+                ? "Finishing context, history, and ticker profile..."
+                : "Preparing ticker data...",
+              ts: Date.now(),
+            };
+            await kvPutJSON(KV, `timed:onboard:${rawTicker}`, onboardingStatus, 60 * 60);
+            ctx.waitUntil((async () => {
+              try {
+                await enrichAndPersistTickerContext(env, rawTicker, { forceRefresh: !contextReady });
+                const onboardResult = await onboardTicker(env, rawTicker, {
+                  getCandles: d1GetCandles,
+                  sinceDays: 730,
+                  skipBackfill: !needsBackfill,
+                });
+                console.log(`[USER_TICKERS] Full onboard ${rawTicker}: ${JSON.stringify({ ok: onboardResult?.ok, moves: onboardResult?.moveCount, scored: onboardResult?.scored })}`);
+              } catch (e) {
+                console.warn(`[USER_TICKERS] Full onboard failed for ${rawTicker}:`, String(e?.message || e).slice(0, 200));
+              }
+            })());
           }
 
           console.log(`[USER_TICKERS] ${user.email} ${isReseed ? "re-seeded" : "added"} ${rawTicker} (core: ${isInCore}, backfill: ${backfillTriggered}, scored: ${!!scoredData}, seeded: ${seeded})`);
@@ -37935,6 +38145,11 @@ export default {
             reseeded: isReseed,
             slots_used: isReseed ? activeOrHeld.length : activeOrHeld.length + 1,
             slots_max: limit,
+            context_ready: contextReady,
+            profile_ready: profileReady,
+            ready,
+            onboarding_started: onboardingStarted,
+            onboarding: onboardingStatus,
             seed_data: scoredData || seedPayload || undefined,
           }, 200, corsHeaders(env, req));
         } catch (e) {
