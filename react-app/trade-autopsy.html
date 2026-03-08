@@ -1681,15 +1681,28 @@
         );
       }
 
-      // Bootstrap
+      // Bootstrap through the shared auth gate so admin-only nav links and
+      // page access use the same source of truth as the rest of the app.
       (function () {
-        const session = window.TimedAuthHelpers?.getStoredSession?.();
+        const AuthGate = window.TimedAuthGate;
         const root = document.getElementById("root");
-        if (!session) {
-          root.innerHTML = '<div class="flex items-center justify-center min-h-screen bg-[#0b0e11] text-[#6b7280] font-[Inter]"><p>Please <a href="index-react.html" class="text-[#00c853]">sign in</a> to view Trade Autopsy.</p></div>';
+        if (typeof AuthGate !== "function") {
+          const session = window.TimedAuthHelpers?.getStoredSession?.();
+          if (!session) {
+            root.innerHTML = '<div class="flex items-center justify-center min-h-screen bg-[#0b0e11] text-[#6b7280] font-[Inter]"><p>Please <a href="index-react.html" class="text-[#00c853]">sign in</a> to view Trade Autopsy.</p></div>';
+            return;
+          }
+          const isAdmin = session.role === "admin" || session.tier === "admin";
+          document.body.dataset.userRole = isAdmin ? "admin" : (session.role || "member");
+          document.body.dataset.userTier = session.tier || "free";
+          ReactDOM.createRoot(root).render(<App user={session} />);
           return;
         }
-        ReactDOM.createRoot(root).render(<App user={session} />);
+        ReactDOM.createRoot(root).render(
+          <AuthGate apiBase={API_BASE} requiredTier="admin">
+            {(user) => <App user={user} />}
+          </AuthGate>
+        );
       })();
     </script>
   </body>
