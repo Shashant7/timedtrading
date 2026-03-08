@@ -1014,8 +1014,6 @@
         const [tpExpanded, setTpExpanded] = useState(true);
         // Trade History: which trade's chart is shown (for embedded entry/exit/SL/TP chart)
         const [tradeChartSelection, setTradeChartSelection] = useState(null);
-        // Trade History: which trade's chart to show (for embedded entry/exit/SL/TP chart)
-        const [tradeChartSelection, setTradeChartSelection] = useState(null);
 
         // Price source: always use the ticker prop (same object the Card renders)
         // for price/change display. latestTicker is only for context/scoring data.
