@@ -123,20 +123,21 @@
             GROUPS.UPTICKS = new Set(upticksData.tickers.map(t => String(t).toUpperCase()));
           }
           // Also load weight map for badges
-          const wResp = await fetch("/timed/etf/holdings/GRNY");
-          const wData = await wResp.json();
-          // Build weight map from all ETF holdings
-          for (const etf of ["GRNY","GRNJ","GRNI"]) {
-            try {
+          const holdingResults = await Promise.allSettled(
+            ["GRNY", "GRNJ", "GRNI"].map(async (etf) => {
               const r = await fetch(`/timed/etf/holdings/${etf}`);
               const d = await r.json();
-              if (d.ok && d.holdings) {
-                for (const h of d.holdings) {
-                  if (!_etfWeightMap[h.ticker]) _etfWeightMap[h.ticker] = {};
-                  _etfWeightMap[h.ticker][etf] = h.weight;
-                }
-              }
-            } catch {}
+              return { etf, data: d };
+            })
+          );
+          for (const result of holdingResults) {
+            if (result.status !== "fulfilled") continue;
+            const { etf, data: d } = result.value;
+            if (!d?.ok || !Array.isArray(d.holdings)) continue;
+            for (const h of d.holdings) {
+              if (!_etfWeightMap[h.ticker]) _etfWeightMap[h.ticker] = {};
+              _etfWeightMap[h.ticker][etf] = h.weight;
+            }
           }
         } catch (e) {
           console.warn("[ETF GROUPS] Failed to load dynamic groups:", e);
@@ -570,12 +571,33 @@
         const fetchData = useCallback(async (clearPendingFromResponse = true, skipLoading = false) => {
           if (!skipLoading) setLoading(true);
           setError(null);
+          let loadingCleared = false;
           try {
-            const [statusRes, priceRes, tickersRes, allRes] = await Promise.all([
+            const pricePromise = fetch(`${API_BASE}/timed/prices?_t=${Date.now()}`)
+              .then(r => r.json())
+              .then(pJson => {
+                if (pJson?.ok && pJson.prices) {
+                  setPriceData({ prices: pJson.prices, updated_at: pJson.updated_at });
+                }
+              })
+              .catch(() => {});
+            const contextPromise = fetch(`${API_BASE}/timed/all?_t=${Date.now()}`)
+              .then(r => r.json())
+              .then(allJson => {
+                if (allJson?.ok && allJson.data) {
+                  const ctx = {};
+                  for (const [sym, obj] of Object.entries(allJson.data)) {
+                    if (obj?.context && typeof obj.context === "object") {
+                      ctx[sym] = obj.context;
+                    }
+                  }
+                  setContextData(ctx);
+                }
+              })
+              .catch(() => {});
+            const [statusRes, tickersRes] = await Promise.all([
               fetch(`${API_BASE}/timed/admin/ingestion-status?_t=${Date.now()}`, { credentials: "include" }),
-              fetch(`${API_BASE}/timed/prices?_t=${Date.now()}`),
               fetch(`${API_BASE}/timed/tickers?_t=${Date.now()}`),
-              fetch(`${API_BASE}/timed/all?_t=${Date.now()}`),
             ]);
             const json = await statusRes.json();
             if (!json.ok) throw new Error(json.error || "Failed to fetch");
@@ -596,33 +618,22 @@
             } catch (_) {
               // Keep the last-known canonical list if this read fails.
             }
-            try {
-              const pJson = await priceRes.json();
-              if (pJson.ok && pJson.prices) {
-                setPriceData({ prices: pJson.prices, updated_at: pJson.updated_at });
-              }
-            } catch (_) {}
-            // Extract context (name, sector, industry, market_cap) from /timed/all
-            try {
-              const allJson = await allRes.json();
-              if (allJson.ok && allJson.data) {
-                const ctx = {};
-                for (const [sym, obj] of Object.entries(allJson.data)) {
-                  if (obj?.context && typeof obj.context === "object") {
-                    ctx[sym] = obj.context;
-                  }
-                }
-                setContextData(ctx);
-              }
-            } catch (_) {}
+            if (!skipLoading) {
+              setLoading(false);
+              loadingCleared = true;
+            }
+            void Promise.allSettled([pricePromise, contextPromise]);
           } catch (e) {
             setError(e.message);
           } finally {
-            if (!skipLoading) setLoading(false);
+            if (!skipLoading && !loadingCleared) setLoading(false);
           }
         }, [normalizeTicker]);
 
-        useEffect(() => { loadETFGroups().then(() => fetchData()); }, [fetchData]);
+        useEffect(() => {
+          loadETFGroups();
+          fetchData();
+        }, [fetchData]);
 
         // After adding tickers: poll ingestion-status every 4s for ~2 min so coverage updates in real time
         useEffect(() => {
