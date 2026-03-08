@@ -37797,6 +37797,7 @@ export default {
               trial_end: user.trial_end || null,
               last_login_at: user.last_login_at,
               terms_accepted_at: user.terms_accepted_at || null,
+              auth_d1_unavailable: !!user.auth_d1_unavailable,
             },
             saved_tickers: savedTickers,
             member_tickers: memberTickers,

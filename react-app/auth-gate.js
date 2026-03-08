@@ -662,6 +662,15 @@
           if (res.ok) {
             const json = await res.json();
             if (json.ok && json.authenticated && json.user) {
+              if (json.user.auth_d1_unavailable) {
+                const cached = getStoredSession();
+                if (cached) {
+                  setUser(cached);
+                  setState("authenticated");
+                  setServerVerified(false);
+                  return;
+                }
+              }
               const session = storeSession(json.user);
               const bootstrap = storeBootstrap({
                 saved_tickers: json.saved_tickers,
@@ -973,7 +982,7 @@
     }
 
     // Terms acceptance gate: user must accept Terms of Use before accessing the platform
-    if (user && !user.terms_accepted_at) {
+    if (serverVerified && user && !user.terms_accepted_at) {
       return React.createElement(TermsGateScreen, {
         user: user,
         apiBase: apiBase,

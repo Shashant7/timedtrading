@@ -420,8 +420,16 @@ export async function authenticateUser(req, env) {
       "[AUTH] D1 user lookup failed:",
       String(e?.message || e).slice(0, 200),
     );
-    // Return basic identity even if D1 fails
-    return { email, display_name: name, role: "member", tier: "free" };
+    // Return basic identity even if D1 fails, but mark the profile as degraded so
+    // the frontend does not mistake the missing DB-backed fields for real state.
+    return {
+      email,
+      display_name: name,
+      role: "member",
+      tier: "free",
+      auth_d1_unavailable: true,
+      terms_accepted_at: null,
+    };
   }
 }
 
