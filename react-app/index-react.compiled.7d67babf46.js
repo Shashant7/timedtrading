@@ -2177,6 +2177,29 @@ function splitTrailByGaps(trail, gapMs = 30 * 60 * 1000) {
   if (cur.length > 0) segments.push(cur);
   return segments;
 }
+const JOURNEY_LOOKBACK_MS = 7 * 24 * 60 * 60 * 1000;
+function downsampleTrailToDaily(trail) {
+  if (!Array.isArray(trail) || trail.length === 0) return [];
+  const cutoffMs = Date.now() - JOURNEY_LOOKBACK_MS;
+  const fmt = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    month: "numeric",
+    day: "numeric"
+  });
+  const byDate = new Map();
+  for (const p of trail) {
+    const tsRaw = Number(p?.ts);
+    if (!Number.isFinite(tsRaw) || tsRaw <= 0) continue;
+    const tsMs = tsRaw < 1e12 ? tsRaw * 1000 : tsRaw;
+    if (tsMs < cutoffMs) continue;
+    const dateKey = fmt.format(new Date(tsMs));
+    byDate.set(dateKey, {
+      ...p,
+      _dateLabel: dateKey
+    });
+  }
+  return Array.from(byDate.values());
+}
 function catmullRomPath(points) {
   if (!Array.isArray(points) || points.length < 2) return "";
   const pts = points.map(p => ({
@@ -2779,7 +2802,8 @@ const SVGBubble = memo(({
   layoutY = null,
   showLabels,
   isTopRanked = false,
-  thesisMode = false
+  thesisMode = false,
+  insightDimmed = false
 }) => {
   if (!window._svgBubbleCallCount) {
     window._svgBubbleCallCount = 0;
@@ -2800,97 +2824,77 @@ const SVGBubble = memo(({
     });
     return null;
   }
-  const comp = ticker.completion != null ? Number(ticker.completion) : ticker.completion_pct != null ? Number(ticker.completion_pct) : 0;
-  const phasePct = ticker.phase_pct != null ? Number(ticker.phase_pct) : ticker.phase != null ? Number(ticker.phase) : 0;
-  const rr = ticker.rr != null ? Number(ticker.rr) : ticker.risk_reward != null ? Number(ticker.risk_reward) : 0;
   const waitingForData = ticker.waitingForData === true;
-  const validComp = Number.isFinite(comp) ? Math.max(0, Math.min(1, comp)) : 0;
-  let validPhasePct = Number.isFinite(phasePct) ? Math.max(0, Math.min(1, phasePct)) : null;
-  if (validPhasePct === null) {
-    if (validComp > 0) {
-      validPhasePct = validComp;
-    } else if (ticker.state) {
-      const state = String(ticker.state).toUpperCase();
-      if (state.includes("PREP") || state.includes("PULLBACK")) {
-        validPhasePct = 0.2;
-      } else if (state.includes("BULL") || state.includes("BEAR")) {
-        validPhasePct = 0.5;
-      } else {
-        validPhasePct = 0.1;
-      }
-    } else {
-      validPhasePct = 0.1;
-    }
-  }
-  const fallbackRR = ticker.dynamicRank ? Math.max(0.5, Math.min(5, (Number(ticker.dynamicRank) || 0) / 50)) : ticker.rank ? Math.max(0.5, Math.min(5, (Number(ticker.rank) || 0) / 50)) : 0.5;
-  const validRR = Number.isFinite(rr) && rr > 0 ? rr : fallbackRR;
-  const cappedRR = Math.min(validRR, 5);
-  const completionPenalty = 1 - validComp;
-  const baseSize = 4;
-  const rrMultiplier = 2;
-  const size = waitingForData ? baseSize * 0.7 : baseSize + cappedRR * rrMultiplier * completionPenalty;
-  const tickerHash = (ticker.ticker || "").split("").reduce((acc, char) => acc + char.charCodeAt(0), 0);
-  const sizeVariation = tickerHash % 5 * 0.8;
-  const finalSize = Math.max(baseSize, size + sizeVariation);
-  const prime = isPrimeBubble(ticker);
-  const winnerSig = isWinnerSignature(ticker);
-  const flags = ticker.flags || {};
-  const ent = entryType(ticker);
+  const MIN_R = 6;
+  const MAX_R = 28;
+  const rawRR = Math.max(0, Number(ticker?.rr || ticker?.risk_reward || 0));
+  const clampedRR = Math.min(rawRR, 6);
+  const baseBubbleR = waitingForData ? MIN_R * 0.7 : MIN_R + clampedRR / 6 * (MAX_R - MIN_R);
+  const ks = String(ticker?.kanban_stage || "").toLowerCase();
+  const isActionable = ["enter", "enter_now", "just_entered", "just_flipped"].includes(ks);
+  const finalSize = isActionable ? baseBubbleR + 2 : baseBubbleR;
   const move = getMoveStatusInfo(ticker);
-  const flipWatch = !!flags.flip_watch;
-  const dir = getDirectionFromState(ticker);
-  let color;
-  if (waitingForData) {
-    color = "#5c6475";
-  } else if (dir === "LONG") {
-    const p = Number.isFinite(validPhasePct) ? Math.max(0, Math.min(1, validPhasePct)) : 0.1;
-    color = p < 0.3 ? "#22d3ee" : p < 0.6 ? "#06b6d4" : "#0891b2";
-  } else if (dir === "SHORT") {
-    const p = Number.isFinite(validPhasePct) ? Math.max(0, Math.min(1, validPhasePct)) : 0.1;
-    color = p < 0.3 ? "#fb7185" : p < 0.6 ? "#e11d48" : "#be123c";
-  } else {
-    const p = Number.isFinite(validPhasePct) ? Math.max(0, Math.min(1, validPhasePct)) : 0.1;
-    color = p < 0.3 ? "#14b8a6" : p < 0.6 ? "#eab308" : "#e11d48";
-  }
-  if (!color || typeof color !== "string" || !color.startsWith("#")) {
-    color = "#14b8a6";
-  }
-  const baseOpacity = waitingForData ? 0.55 : isHovered ? 1 : dir ? 0.92 : prime || winnerSig ? 0.9 : 0.8;
+  const dayPct = Number(ticker?.day_change_pct || ticker?.dailyChgPct || ticker?.dp || 0);
+  const absDay = Math.abs(dayPct);
+  let tintAlpha;
+  if (absDay <= 1) tintAlpha = 0.15 + absDay * 0.15;else if (absDay <= 3) tintAlpha = 0.30 + (absDay - 1) / 2 * 0.25;else if (absDay <= 6) tintAlpha = 0.55 + (absDay - 3) / 3 * 0.20;else if (absDay <= 12) tintAlpha = 0.75 + (absDay - 6) / 6 * 0.10;else tintAlpha = 0.85;
+  const isUp = dayPct >= 0;
+  const hasDayData = ticker?.day_change_pct != null || ticker?.dailyChgPct != null || ticker?.dp != null;
+  const fillColor = waitingForData ? "rgba(55,65,81,0.4)" : !hasDayData ? "rgba(100,116,139,0.3)" : isUp ? `rgba(34,197,94,${tintAlpha})` : `rgba(239,68,68,${tintAlpha})`;
+  const baseOpacity = waitingForData ? 0.55 : isHovered ? 1 : 0.92;
   const moveOpacityMult = waitingForData || isHovered ? 1 : move.status === "INVALIDATED" ? 0.25 : move.status === "COMPLETED" ? 0.6 : 1;
   const opacity = Math.max(0.12, baseOpacity * moveOpacityMult);
-  const borderWidth = waitingForData ? 1.5 : dir ? 2.5 : flipWatch ? 3.5 : prime ? 3 : winnerSig ? 3 : flags.sq30_release ? 2 : flags.sq30_on ? 2 : 1.5;
-  let borderColor = waitingForData ? "#8b92a0" : dir === "LONG" ? "#22d3ee" : dir === "SHORT" ? "#e11d48" : flipWatch ? "#fbbf24" : prime ? "#14b8a6" : winnerSig ? "#a855f7" : flags.sq30_release ? "#00ffff" : flags.sq30_on ? "#ffd700" : "rgba(255,255,255,0.25)";
-  if (!waitingForData && move.status !== "ACTIVE" && !dir) {
-    borderColor = move.stroke;
-  }
-  let finalBorderColor = borderColor;
-  const bRegime = String(ticker.regime_class || "");
-  const regimeDash = bRegime === "CHOPPY" ? "3,2" : bRegime === "TRANSITIONAL" ? "6,3" : undefined;
-  const bubbleSize = isHovered ? finalSize * 1.2 : finalSize;
+  const borderWidth = waitingForData ? 1 : isActionable ? 2 : 1.2;
+  const borderColor = waitingForData ? "rgba(139,146,160,0.5)" : isActionable ? "rgba(255,255,255,0.85)" : isUp ? "rgba(34,197,94,0.6)" : "rgba(239,68,68,0.5)";
+  const bubbleSize = isHovered ? finalSize * 1.15 : finalSize;
   const ltfScore = Number(ticker.ltf_score) || 0;
   const htfScore = Number(ticker.htf_score) || 0;
   const x = Number.isFinite(Number(layoutX)) ? Number(layoutX) : ltfScore * scaleX + offsetX;
   const y = Number.isFinite(Number(layoutY)) ? Number(layoutY) : htfScore * scaleY + offsetY;
-  const isInSqueeze = !!flags.sq30_on && !flags.sq30_release;
-  const emojis = [];
-  if (isTopRanked) emojis.push("👑");
-  if (waitingForData) emojis.push("⏳");
-  if (!waitingForData) {
-    if (prime) emojis.push("💎");
-    if (flipWatch) emojis.push("🎯");
-    if (!!flags.momentum_elite) emojis.push("🔥");
-    if (flags.sq30_release) emojis.push("⚡");
-    if (isInSqueeze) emojis.push("🧨");
-  }
-  const emojiText = emojis.join("");
-  const labelY = y - bubbleSize - (emojiText ? isTopRanked ? 20 : 12 : 8);
-  const finalColor = color && typeof color === "string" && color.startsWith("#") ? color : "#14b8a6";
-  const finalOpacity = typeof opacity === "number" && opacity >= 0 && opacity <= 1 ? opacity : 0.85;
+  const hasEarnings = !!window._ttEarningsMap?.[ticker.ticker];
+  const stageIconData = (() => {
+    if (ks === "enter_now" || ks === "enter") return {
+      icon: "▶",
+      fill: "#00e676",
+      bg: "rgba(0,230,118,0.25)",
+      border: "#00e676",
+      label: "ENTER"
+    };
+    if (ks === "just_entered" || ks === "just_flipped") return {
+      icon: "★",
+      fill: "#60a5fa",
+      bg: "rgba(96,165,250,0.2)",
+      border: "#60a5fa",
+      label: "NEW"
+    };
+    if (ks === "trim") return {
+      icon: "✂",
+      fill: "#facc15",
+      bg: "rgba(250,204,21,0.2)",
+      border: "#facc15",
+      label: "TRIM"
+    };
+    if (ks === "exit") return {
+      icon: "✕",
+      fill: "#f87171",
+      bg: "rgba(248,113,113,0.25)",
+      border: "#f87171",
+      label: "EXIT"
+    };
+    if (ks === "defend") return {
+      icon: "🛡",
+      fill: "#fb923c",
+      bg: "rgba(251,146,60,0.2)",
+      border: "#fb923c",
+      label: "DEFEND"
+    };
+    return null;
+  })();
+  const showGlow = !waitingForData && isActionable;
   const renderedSize = Math.max(3, Math.min(50, bubbleSize));
-  const finalBorderWidth = typeof borderWidth === "number" && borderWidth > 0 ? borderWidth : 1.5;
+  const labelY = y - renderedSize - 8;
   const decisionSummary = summarizeEntryDecision(ticker);
   const decisionTooltip = decisionSummary ? `System ${decisionSummary.status}: ${decisionSummary.detail}` : null;
-  const gradId = `bg-${ticker.ticker}`;
   return React.createElement("g", {
     onClick: () => onClick(ticker.ticker),
     onMouseEnter: () => onHover(ticker.ticker),
@@ -2906,208 +2910,81 @@ const SVGBubble = memo(({
     },
     style: {
       cursor: "pointer",
-      transition: "all 0.2s ease-out",
-      touchAction: "manipulation"
+      transition: "opacity 0.3s ease-out",
+      touchAction: "manipulation",
+      opacity: insightDimmed && !isHovered ? 0.12 : 1
     }
-  }, decisionTooltip && React.createElement("title", null, decisionTooltip), React.createElement("defs", null, React.createElement("radialGradient", {
-    id: gradId,
-    cx: "35%",
-    cy: "35%"
-  }, React.createElement("stop", {
-    offset: "0%",
-    stopColor: "#ffffff",
-    stopOpacity: "0.18"
-  }), React.createElement("stop", {
-    offset: "50%",
-    stopColor: finalColor,
-    stopOpacity: finalOpacity
-  }), React.createElement("stop", {
-    offset: "100%",
-    stopColor: finalColor,
-    stopOpacity: finalOpacity * 0.7
-  }))), (() => {
-    const eEvt = window._ttEarningsMap?.[ticker.ticker];
-    if (!eEvt) return null;
-    const isToday = eEvt._daysAway === 0 || eEvt._daysAway === 1;
-    return React.createElement("circle", {
-      cx: x,
-      cy: y,
-      r: renderedSize + (isToday ? 6 : 4),
-      fill: "none",
-      stroke: "#f59e0b",
-      strokeWidth: isToday ? 2 : 1.5,
-      strokeDasharray: isToday ? "none" : "4 3",
-      opacity: isToday ? 0.8 : 0.55,
-      style: {
-        pointerEvents: "none"
-      }
-    }, isToday && React.createElement("animate", {
-      attributeName: "opacity",
-      values: "0.5;0.9;0.5",
-      dur: "2s",
-      repeatCount: "indefinite"
-    }));
-  })(), (dir || flipWatch || prime || winnerSig) && React.createElement("circle", {
+  }, decisionTooltip && React.createElement("title", null, decisionTooltip), showGlow && React.createElement("circle", {
     cx: x,
     cy: y,
     r: renderedSize + 3,
     fill: "none",
-    stroke: finalBorderColor,
-    strokeWidth: flipWatch ? 2 : 1,
-    opacity: flipWatch ? 0.5 : 0.2
-  }, flipWatch && React.createElement(React.Fragment, null, React.createElement("animate", {
-    attributeName: "r",
-    values: `${renderedSize + 3};${renderedSize + 6};${renderedSize + 3}`,
-    dur: "2s",
-    repeatCount: "indefinite"
-  }), React.createElement("animate", {
-    attributeName: "opacity",
-    values: "0.3;0.7;0.3",
-    dur: "2s",
-    repeatCount: "indefinite"
-  }))), !waitingForData && (() => {
-    const ks = String(ticker.kanban_stage || "").toLowerCase();
-    const actionable = ["enter", "enter_now", "just_entered", "just_flipped", "hold", "defend", "trim", "exit"].includes(ks);
-    if (!actionable) return null;
-    const glowColor = dir === "SHORT" ? "#f43f5e" : "#22d3ee";
-    return React.createElement("circle", {
-      cx: x,
-      cy: y,
-      r: renderedSize + 5,
-      fill: "none",
-      stroke: glowColor,
-      strokeWidth: "1.5",
-      opacity: "0.5"
-    }, React.createElement("animate", {
-      attributeName: "r",
-      values: `${renderedSize + 4};${renderedSize + 8};${renderedSize + 4}`,
-      dur: "2.5s",
-      repeatCount: "indefinite"
-    }), React.createElement("animate", {
-      attributeName: "opacity",
-      values: "0.3;0.65;0.3",
-      dur: "2.5s",
-      repeatCount: "indefinite"
-    }));
-  })(), React.createElement("circle", {
-    cx: x,
-    cy: y,
-    r: renderedSize,
-    fill: `url(#${gradId})`,
-    stroke: finalBorderColor,
-    strokeWidth: finalBorderWidth,
-    strokeDasharray: regimeDash
-  }), renderedSize > 5 && React.createElement("circle", {
-    cx: x - renderedSize * 0.2,
-    cy: y - renderedSize * 0.2,
-    r: renderedSize * 0.45,
-    fill: "#ffffff",
-    fillOpacity: "0.08",
-    style: {
-      pointerEvents: "none"
-    }
-  }), emojiText && React.createElement("g", {
-    style: {
-      pointerEvents: "none"
-    }
-  }, isTopRanked && React.createElement("circle", {
-    cx: x,
-    cy: labelY - 5,
-    r: "18",
-    fill: "#ffd700",
-    fillOpacity: "0.3"
-  }, React.createElement("animate", {
-    attributeName: "fillOpacity",
-    values: "0.2;0.5;0.2",
-    dur: "1.5s",
-    repeatCount: "indefinite"
-  })), isTopRanked && React.createElement(React.Fragment, null, React.createElement("circle", {
-    cx: x,
-    cy: labelY - 5,
-    r: "22",
-    fill: "none",
-    stroke: "#ffd700",
-    strokeWidth: "2",
-    opacity: "0.6"
-  }, React.createElement("animate", {
-    attributeName: "r",
-    values: "20;24;20",
-    dur: "2s",
-    repeatCount: "indefinite"
-  }), React.createElement("animate", {
-    attributeName: "opacity",
-    values: "0.4;0.8;0.4",
-    dur: "2s",
-    repeatCount: "indefinite"
-  }))), React.createElement("text", {
-    x: x,
-    y: labelY,
-    textAnchor: "middle",
-    dominantBaseline: "middle",
-    fontSize: isTopRanked ? "24" : waitingForData ? "10" : prime ? "14" : "12",
-    fill: isTopRanked ? "#ffd700" : waitingForData ? "#8b92a0" : prime ? "#14b8a6" : winnerSig ? "#a855f7" : flags.sq30_release ? "#00ffff" : flags.momentum_elite ? "#a855f7" : "#ffd700",
-    fontWeight: "bold",
-    style: {
-      textShadow: isTopRanked ? "0 0 20px rgba(255, 215, 0, 1), 0 0 40px rgba(255, 215, 0, 0.8), 0 0 60px rgba(255, 215, 0, 0.6)" : "0 0 3px rgba(0,0,0,0.8)",
-      filter: isTopRanked ? "drop-shadow(0 0 15px rgba(255, 215, 0, 1)) drop-shadow(0 0 30px rgba(255, 215, 0, 0.9)) drop-shadow(0 0 45px rgba(255, 215, 0, 0.7))" : "none",
-      pointerEvents: "none"
-    }
-  }, emojiText), isTopRanked && React.createElement(React.Fragment, null, React.createElement("text", {
-    x: x - 15,
-    y: labelY - 10,
-    textAnchor: "middle",
-    dominantBaseline: "middle",
-    fontSize: "12",
-    fill: "#ffd700",
-    opacity: "0.9",
-    style: {
-      pointerEvents: "none"
-    }
-  }, "\u2728"), React.createElement("text", {
-    x: x + 15,
-    y: labelY - 10,
-    textAnchor: "middle",
-    dominantBaseline: "middle",
-    fontSize: "12",
-    fill: "#ffd700",
-    opacity: "0.9",
-    style: {
-      pointerEvents: "none"
-    }
-  }, "\u2728"))), isTopRanked && React.createElement(React.Fragment, null, React.createElement("circle", {
-    cx: x,
-    cy: y,
-    r: bubbleSize + 4,
-    fill: "none",
-    stroke: "#ffd700",
-    strokeWidth: "2",
-    opacity: "0.6"
+    stroke: "rgba(255,255,255,0.3)",
+    strokeWidth: "1"
   }, React.createElement("animate", {
     attributeName: "opacity",
-    values: "0.3;0.9;0.3",
-    dur: "2s",
-    repeatCount: "indefinite"
-  }), React.createElement("animate", {
-    attributeName: "r",
-    values: `${bubbleSize + 3};${bubbleSize + 6};${bubbleSize + 3}`,
-    dur: "2s",
+    values: "0.15;0.4;0.15",
+    dur: "2.5s",
     repeatCount: "indefinite"
   })), React.createElement("circle", {
     cx: x,
     cy: y,
-    r: bubbleSize + 6,
-    fill: "none",
-    stroke: "#ffd700",
-    strokeWidth: "1.5",
-    opacity: "0.3"
-  }, React.createElement("animate", {
-    attributeName: "opacity",
-    values: "0.1;0.5;0.1",
-    dur: "2s",
-    repeatCount: "indefinite"
-  }))), (showLabels || isHovered) && React.createElement("text", {
+    r: renderedSize,
+    fill: fillColor,
+    stroke: borderColor,
+    strokeWidth: borderWidth,
+    opacity: opacity
+  }), hasEarnings && React.createElement("g", {
+    style: {
+      pointerEvents: "none"
+    }
+  }, React.createElement("circle", {
+    cx: x + renderedSize * 0.7,
+    cy: y - renderedSize * 0.7,
+    r: 6,
+    fill: "rgba(245,158,11,0.3)",
+    stroke: "#f59e0b",
+    strokeWidth: "0.8"
+  }), React.createElement("text", {
+    x: x + renderedSize * 0.7,
+    y: y - renderedSize * 0.7 + 0.5,
+    fontSize: "7",
+    textAnchor: "middle",
+    dominantBaseline: "middle"
+  }, "\uD83D\uDCC5")), stageIconData && React.createElement("g", {
+    style: {
+      pointerEvents: "none"
+    }
+  }, React.createElement("rect", {
+    x: x - 14,
+    y: y + renderedSize + 2,
+    width: "28",
+    height: "12",
+    rx: "6",
+    fill: stageIconData.bg,
+    stroke: stageIconData.border,
+    strokeWidth: "0.8"
+  }), React.createElement("text", {
     x: x,
-    y: labelY - (emojiText ? 14 : 8),
+    y: y + renderedSize + 8.5,
+    fontSize: "7",
+    fontWeight: "bold",
+    textAnchor: "middle",
+    dominantBaseline: "middle",
+    fill: stageIconData.fill,
+    letterSpacing: "0.5"
+  }, stageIconData.label)), waitingForData && React.createElement("text", {
+    x: x,
+    y: y - renderedSize - 10,
+    textAnchor: "middle",
+    fontSize: "10",
+    fill: "#8b92a0",
+    style: {
+      pointerEvents: "none"
+    }
+  }, "\u23F3"), (showLabels || isHovered) && React.createElement("text", {
+    x: x,
+    y: labelY,
     textAnchor: "middle",
     fontSize: "10",
     fill: waitingForData ? "#8b92a0" : "#f0f2f5",
@@ -3247,7 +3124,9 @@ function BubbleChart({
   allData,
   rankedTickers,
   rankedTickerPositions,
-  thesisMode = false
+  thesisMode = false,
+  forwardReturns = null,
+  activeInsightTickers = null
 }) {
   React.useEffect(() => {
     console.log(`[BUBBLE CHART] Props received:`, {
@@ -3264,6 +3143,11 @@ function BubbleChart({
     const solo = list.filter(t => String(t?.ticker || "").toUpperCase() === sym);
     return solo.length > 0 ? solo : list;
   }, [tickers, selectedTicker]);
+  const displayTrail = React.useMemo(() => {
+    if (!selectedTicker || !Array.isArray(selectedTrail) || selectedTrail.length === 0) return selectedTrail;
+    if (isTimeTravelActive) return selectedTrail;
+    return downsampleTrailToDaily(selectedTrail);
+  }, [selectedTrail, selectedTicker, isTimeTravelActive]);
   React.useEffect(() => {
     if (!window._bubbleChartPropsLogged) {
       window._bubbleChartPropsLogged = true;
@@ -3652,51 +3536,111 @@ function BubbleChart({
       }, Math.round(val)));
     }), React.createElement("text", {
       x: offsetX + plotWidth * 0.12,
-      y: offsetY + 20,
-      fill: "#8b92a0",
-      fontSize: "12",
-      fontWeight: "600",
-      textAnchor: "middle"
-    }, "Q1 Prep"), React.createElement("text", {
-      x: offsetX + plotWidth * 0.88,
-      y: offsetY + 20,
-      fill: "#8b92a0",
-      fontSize: "12",
-      fontWeight: "600",
-      textAnchor: "middle"
-    }, "Q2 Bull"), React.createElement("text", {
+      y: offsetY + 18,
+      fill: "#f59e0b",
+      fontSize: "11",
+      fontWeight: "700",
+      textAnchor: "middle",
+      opacity: "0.18"
+    }, "PULLBACK"), React.createElement("text", {
       x: offsetX + plotWidth * 0.12,
-      y: offsetY + plotHeight - 5,
-      fill: "#8b92a0",
-      fontSize: "12",
-      fontWeight: "600",
-      textAnchor: "middle"
-    }, "Q3 Bear"), React.createElement("text", {
+      y: offsetY + 30,
+      fill: "#f59e0b",
+      fontSize: "7",
+      textAnchor: "middle",
+      opacity: "0.15"
+    }, "HTF Bullish, LTF Weak"), React.createElement("text", {
       x: offsetX + plotWidth * 0.88,
-      y: offsetY + plotHeight - 5,
-      fill: "#8b92a0",
-      fontSize: "12",
-      fontWeight: "600",
-      textAnchor: "middle"
-    }, "Q4 Pullback"), React.createElement("rect", {
-      x: offsetX + (LONG_CORRIDOR.ltfMin + domainXMax) * scaleX,
-      y: offsetY,
-      width: (LONG_CORRIDOR.ltfMax - LONG_CORRIDOR.ltfMin) * scaleX,
-      height: plotHeight / 2,
-      fill: "rgba(46,204,113,0.25)",
-      stroke: "rgba(46,204,113,0.6)",
-      strokeWidth: "2",
-      strokeDasharray: "4 4"
-    }), React.createElement("rect", {
-      x: offsetX + (SHORT_CORRIDOR.ltfMin + domainXMax) * scaleX,
-      y: offsetY + plotHeight / 2,
-      width: (SHORT_CORRIDOR.ltfMax - SHORT_CORRIDOR.ltfMin) * scaleX,
-      height: plotHeight / 2,
-      fill: "rgba(231,76,60,0.25)",
-      stroke: "rgba(231,76,60,0.6)",
-      strokeWidth: "2",
-      strokeDasharray: "4 4"
-    }), crosshairPos && crosshairPos.chartX >= 0 && crosshairPos.chartX <= plotWidth && React.createElement("line", {
+      y: offsetY + 18,
+      fill: "#22c55e",
+      fontSize: "11",
+      fontWeight: "700",
+      textAnchor: "middle",
+      opacity: "0.18"
+    }, "BULLISH MOMENTUM"), React.createElement("text", {
+      x: offsetX + plotWidth * 0.88,
+      y: offsetY + 30,
+      fill: "#22c55e",
+      fontSize: "7",
+      textAnchor: "middle",
+      opacity: "0.15"
+    }, "All Timeframes Aligned"), React.createElement("text", {
+      x: offsetX + plotWidth * 0.12,
+      y: offsetY + plotHeight - 14,
+      fill: "#ef4444",
+      fontSize: "11",
+      fontWeight: "700",
+      textAnchor: "middle",
+      opacity: "0.18"
+    }, "BEARISH MOMENTUM"), React.createElement("text", {
+      x: offsetX + plotWidth * 0.12,
+      y: offsetY + plotHeight - 3,
+      fill: "#ef4444",
+      fontSize: "7",
+      textAnchor: "middle",
+      opacity: "0.15"
+    }, "All Timeframes Aligned"), React.createElement("text", {
+      x: offsetX + plotWidth * 0.88,
+      y: offsetY + plotHeight - 14,
+      fill: "#f59e0b",
+      fontSize: "11",
+      fontWeight: "700",
+      textAnchor: "middle",
+      opacity: "0.18"
+    }, "BOUNCE / REVERSAL"), React.createElement("text", {
+      x: offsetX + plotWidth * 0.88,
+      y: offsetY + plotHeight - 3,
+      fill: "#f59e0b",
+      fontSize: "7",
+      textAnchor: "middle",
+      opacity: "0.15"
+    }, "HTF Bearish, LTF Strong"), (() => {
+      const longX = offsetX + (LONG_CORRIDOR.ltfMin + domainXMax) * scaleX;
+      const longW = (LONG_CORRIDOR.ltfMax - LONG_CORRIDOR.ltfMin) * scaleX;
+      const shortX = offsetX + (SHORT_CORRIDOR.ltfMin + domainXMax) * scaleX;
+      const shortW = (SHORT_CORRIDOR.ltfMax - SHORT_CORRIDOR.ltfMin) * scaleX;
+      return React.createElement(React.Fragment, null, React.createElement("rect", {
+        x: longX,
+        y: offsetY,
+        width: longW,
+        height: plotHeight / 2,
+        fill: "rgba(34,197,94,0.06)",
+        stroke: "rgba(34,197,94,0.25)",
+        strokeWidth: "1",
+        strokeDasharray: "6 4"
+      }), React.createElement("text", {
+        x: longX + longW / 2,
+        y: offsetY + plotHeight * 0.25,
+        fill: "rgba(34,197,94,0.25)",
+        fontSize: "10",
+        fontWeight: "600",
+        textAnchor: "middle",
+        dominantBaseline: "middle",
+        style: {
+          pointerEvents: "none"
+        }
+      }, "LONG ENTRY ZONE"), React.createElement("rect", {
+        x: shortX,
+        y: offsetY + plotHeight / 2,
+        width: shortW,
+        height: plotHeight / 2,
+        fill: "rgba(239,68,68,0.06)",
+        stroke: "rgba(239,68,68,0.25)",
+        strokeWidth: "1",
+        strokeDasharray: "6 4"
+      }), React.createElement("text", {
+        x: shortX + shortW / 2,
+        y: offsetY + plotHeight * 0.75,
+        fill: "rgba(239,68,68,0.25)",
+        fontSize: "10",
+        fontWeight: "600",
+        textAnchor: "middle",
+        dominantBaseline: "middle",
+        style: {
+          pointerEvents: "none"
+        }
+      }, "SHORT ENTRY ZONE"));
+    })(), crosshairPos && crosshairPos.chartX >= 0 && crosshairPos.chartX <= plotWidth && React.createElement("line", {
       x1: offsetX + crosshairPos.chartX,
       y1: offsetY,
       x2: offsetX + crosshairPos.chartX,
@@ -3750,9 +3694,9 @@ function BubbleChart({
       textAnchor: "middle",
       fontSize: "12",
       fontWeight: "700"
-    }, "HTF: ", crosshairPos.htfValue.toFixed(1)))), selectedTicker && selectedTrail && selectedTrail.length > 1 && React.createElement(React.Fragment, null, (() => {
-      const GAP_MS = 30 * 60 * 1000;
-      const segments = splitTrailByGaps(selectedTrail, GAP_MS);
+    }, "HTF: ", crosshairPos.htfValue.toFixed(1)))), selectedTicker && displayTrail && displayTrail.length > 1 && React.createElement(React.Fragment, null, (() => {
+      const GAP_MS = 4 * 24 * 60 * 60 * 1000;
+      const segments = splitTrailByGaps(displayTrail, GAP_MS);
       return segments.filter(seg => Array.isArray(seg) && seg.length > 1).map((seg, segIdx) => {
         const pts = seg.map(p => ({
           x: (Number(p?.ltf_score) || 0) * scaleX + offsetX + domainXMax * scaleX,
@@ -3761,36 +3705,56 @@ function BubbleChart({
         const d = catmullRomPath(pts);
         if (!d) return null;
         const isLast = segIdx === segments.length - 1;
-        const opacity = 0.35 + segIdx / Math.max(1, segments.length - 1) * 0.25;
+        const opacity = 0.45 + segIdx / Math.max(1, segments.length - 1) * 0.35;
         return React.createElement("path", {
           key: `trail-path-${segIdx}`,
           d: d,
           fill: "none",
           stroke: "#00ffff",
-          strokeWidth: "2.25",
+          strokeWidth: "2.5",
           opacity: opacity,
           className: "trail-path",
+          strokeDasharray: "6 3",
           markerEnd: isLast ? "url(#trailArrow)" : undefined,
           pointerEvents: "none"
         });
       });
-    })(), selectedTrail.slice(0, -1).map((point, idx) => {
+    })(), displayTrail.slice(0, -1).map((point, idx) => {
       const x = (Number(point?.ltf_score) || 0) * scaleX + offsetX + domainXMax * scaleX;
       const y = (Number(point?.htf_score) || 0) * -scaleY + offsetY + plotHeight - domainYMax * scaleY;
       const visual = bubbleVisualForTrailPoint(point, selectedTicker);
-      const size = visual.radius;
-      const opacity = 0.3 + idx / selectedTrail.length * 0.4;
-      return React.createElement("circle", {
+      const size = Math.max(4.5, visual.radius);
+      const opacity = 0.45 + idx / displayTrail.length * 0.45;
+      const dateLabel = point._dateLabel || (() => {
+        const tsMs = Number(point?.ts);
+        if (!Number.isFinite(tsMs) || tsMs <= 0) return null;
+        const d = new Date(tsMs < 1e12 ? tsMs * 1000 : tsMs);
+        return `${d.getMonth() + 1}/${d.getDate()}`;
+      })();
+      return React.createElement("g", {
         key: `trail-point-${idx}`,
+        pointerEvents: "none"
+      }, React.createElement("circle", {
         cx: x,
         cy: y,
         r: size,
         fill: visual.color,
         fillOpacity: opacity,
-        stroke: visual.color,
-        strokeWidth: "1",
-        strokeOpacity: opacity * 0.5
-      });
+        stroke: "#fff",
+        strokeWidth: "1.2",
+        strokeOpacity: opacity * 0.6
+      }), dateLabel && React.createElement("text", {
+        x: x,
+        y: y - size - 3,
+        fill: "#d1d5db",
+        textAnchor: "middle",
+        fontSize: "8",
+        fontWeight: "600",
+        opacity: opacity,
+        style: {
+          pointerEvents: "none"
+        }
+      }, dateLabel));
     }), highlightTrailPoint && Number.isFinite(Number(highlightTrailPoint?.ltf_score)) && Number.isFinite(Number(highlightTrailPoint?.htf_score)) && (() => {
       const hx = (Number(highlightTrailPoint.ltf_score) || 0) * scaleX + offsetX + domainXMax * scaleX;
       const hy = (Number(highlightTrailPoint.htf_score) || 0) * -scaleY + offsetY + plotHeight - domainYMax * scaleY;
@@ -3843,7 +3807,8 @@ function BubbleChart({
       layoutY: layoutPositions?.[ticker.ticker]?.y,
       showLabels: showLabels,
       isTopRanked: topRankedTicker === ticker.ticker,
-      thesisMode: thesisMode
+      thesisMode: thesisMode,
+      insightDimmed: activeInsightTickers ? !activeInsightTickers.has(String(ticker.ticker).toUpperCase()) : false
     })), isTimeTravelActive && selectedTicker && (() => {
       const sym = String(selectedTicker || "").trim().toUpperCase();
       if (!sym) return null;
@@ -3910,7 +3875,43 @@ function BubbleChart({
         fontSize: "11",
         fontWeight: "700"
       }, labelText));
-    })()), tooltip && (() => {
+    })(), isTimeTravelActive && forwardReturns && !selectedTicker && displayTickers.map(ticker => {
+      const sym = ticker?.ticker;
+      const fr = forwardReturns?.[sym];
+      if (!fr || fr.return_1d_pct == null && fr.return_1w_pct == null) return null;
+      const ltf = Number(ticker?.ltf_score) || 0;
+      const htf = Number(ticker?.htf_score) || 0;
+      const lx = layoutPositions?.[sym]?.x;
+      const ly = layoutPositions?.[sym]?.y;
+      const ox = offsetX + domainXMax * scaleX;
+      const oy = offsetY + plotHeight - domainYMax * scaleY;
+      const bx = Number.isFinite(Number(lx)) ? Number(lx) : ltf * scaleX + ox;
+      const by = Number.isFinite(Number(ly)) ? Number(ly) : htf * -scaleY + oy;
+      const r1d = fr.return_1d_pct;
+      const r1w = fr.return_1w_pct;
+      const fmt = v => (v > 0 ? "+" : "") + v.toFixed(1) + "%";
+      const col = v => v > 0 ? "#22c55e" : v < 0 ? "#ef4444" : "#9ca3af";
+      return React.createElement("g", {
+        key: `fr-${sym}`,
+        pointerEvents: "none"
+      }, r1d != null && React.createElement("text", {
+        x: bx,
+        y: by + 18,
+        fill: col(r1d),
+        textAnchor: "middle",
+        fontSize: "8",
+        fontWeight: "700",
+        opacity: "0.85"
+      }, "1D: ", fmt(r1d)), r1w != null && React.createElement("text", {
+        x: bx,
+        y: by + 27,
+        fill: col(r1w),
+        textAnchor: "middle",
+        fontSize: "8",
+        fontWeight: "700",
+        opacity: "0.85"
+      }, "1W: ", fmt(r1w)));
+    })), tooltip && (() => {
       let rankPosition = null;
       let totalTickers = 0;
       const sortedByRank = rankedTickers && rankedTickers.length > 0 ? rankedTickers : getRankedTickers(allData);
@@ -4637,7 +4638,7 @@ function BubbleChart({
   }), React.createElement(Scatter, {
     data: data,
     shape: BubbleShape
-  }))), selectedTicker && selectedTrail && Array.isArray(selectedTrail) && selectedTrail.length > 1 && React.createElement("svg", {
+  }))), selectedTicker && displayTrail && Array.isArray(displayTrail) && displayTrail.length > 1 && React.createElement("svg", {
     className: "absolute inset-0 pointer-events-none z-10",
     style: {
       width: "100%",
@@ -4675,8 +4676,8 @@ function BubbleChart({
     const margin = 20;
     const plotWidth = chartWidth - 2 * margin;
     const plotHeight = chartHeight - 2 * margin;
-    const GAP_MS = 30 * 60 * 1000;
-    const segments = splitTrailByGaps(selectedTrail, GAP_MS);
+    const GAP_MS = 4 * 24 * 60 * 60 * 1000;
+    const segments = splitTrailByGaps(displayTrail, GAP_MS);
     return segments.filter(seg => Array.isArray(seg) && seg.length > 1).map((seg, segIdx) => {
       const pts = seg.map(p => ({
         x: ((Number(p?.ltf_score) || 0) + 50) / 100 * plotWidth + margin,
@@ -4697,7 +4698,7 @@ function BubbleChart({
         markerEnd: isLast ? "url(#trailArrowRecharts)" : undefined
       });
     });
-  })(), selectedTrail.slice(0, -1).map((point, idx) => {
+  })(), displayTrail.slice(0, -1).map((point, idx) => {
     const chartWidth = chartContainerRef.current?.clientWidth || 1200;
     const chartHeight = chartContainerRef.current?.clientHeight || 800;
     const margin = 20;
@@ -4706,20 +4707,38 @@ function BubbleChart({
     const cx = ((Number(point.ltf_score) || 0) + 50) / 100 * plotWidth + margin;
     const cy = (50 - (Number(point.htf_score) || 0)) / 100 * plotHeight + margin;
     const visual = bubbleVisualForTrailPoint(point, selectedTicker);
-    const size = visual.radius;
-    const opacity = 0.3 + idx / selectedTrail.length * 0.4;
+    const size = Math.max(4.5, visual.radius);
+    const opacity = 0.3 + idx / displayTrail.length * 0.4;
     const color = visual.color;
-    return React.createElement("circle", {
-      key: `trail-point-${idx}`,
+    const dateLabel = point._dateLabel || (() => {
+      const tsMs = Number(point?.ts);
+      if (!Number.isFinite(tsMs) || tsMs <= 0) return null;
+      const d = new Date(tsMs < 1e12 ? tsMs * 1000 : tsMs);
+      return `${d.getMonth() + 1}/${d.getDate()}`;
+    })();
+    return React.createElement("g", {
+      key: `trail-point-${idx}`
+    }, React.createElement("circle", {
       cx: cx,
       cy: cy,
       r: size,
       fill: color,
       fillOpacity: opacity,
-      stroke: color,
-      strokeWidth: "1",
-      strokeOpacity: opacity * 0.5
-    });
+      stroke: "#fff",
+      strokeWidth: "1.2",
+      strokeOpacity: opacity * 0.6
+    }), dateLabel && React.createElement("text", {
+      x: cx,
+      y: cy - size - 3,
+      fill: "#d1d5db",
+      textAnchor: "middle",
+      fontSize: "8",
+      fontWeight: "600",
+      opacity: opacity,
+      style: {
+        pointerEvents: "none"
+      }
+    }, dateLabel));
   }), highlightTrailPoint && Number.isFinite(Number(highlightTrailPoint?.ltf_score)) && Number.isFinite(Number(highlightTrailPoint?.htf_score)) && (() => {
     const chartWidth = chartContainerRef.current?.clientWidth || 1200;
     const chartHeight = chartContainerRef.current?.clientHeight || 800;
@@ -6262,7 +6281,9 @@ function TimeTravelSlider({
   onTimeChange,
   tickerFilter,
   selectedTicker,
-  compact = false
+  compact = false,
+  trades = [],
+  onForwardReturns
 }) {
   const [isActive, setIsActive] = useState(false);
   const [selectedTimestamp, setSelectedTimestamp] = useState(null);
@@ -6276,6 +6297,10 @@ function TimeTravelSlider({
   const [playSpeedMs, setPlaySpeedMs] = useState(600);
   const [loopPlayback, setLoopPlayback] = useState(true);
   const [loadCancelled, setLoadCancelled] = useState(false);
+  const [timelineEvents, setTimelineEvents] = useState([]);
+  const [regimeStrip, setRegimeStrip] = useState([]);
+  const [forwardReturns, setForwardReturns] = useState(null);
+  const [autoSpeed, setAutoSpeed] = useState(true);
   const STEP_OPTIONS = React.useMemo(() => [{
     label: "5m",
     ms: 5 * 60 * 1000
@@ -6298,7 +6323,7 @@ function TimeTravelSlider({
     label: "1W",
     ms: 7 * 24 * 60 * 60 * 1000
   }], []);
-  const [stepMs, setStepMs] = useState(5 * 60 * 1000);
+  const [stepMs, setStepMs] = useState(60 * 60 * 1000);
   const onTimeChangeRef = React.useRef(onTimeChange);
   useEffect(() => {
     onTimeChangeRef.current = onTimeChange;
@@ -6544,6 +6569,79 @@ function TimeTravelSlider({
     onTimeChangeRef.current?.(snapshot);
   }, [isActive, selectedTimestamp, trailData, tickerSymbols, buildSnapshotTickers, roundToStep]);
   useEffect(() => {
+    if (!isActive || !minTimestamp || !maxTimestamp) return;
+    const fetchContext = async () => {
+      try {
+        const [evRes, spyRes] = await Promise.all([fetch(`${API_BASE}/timed/time-travel/events?from=${minTimestamp}&to=${maxTimestamp}`).then(r => r.json()).catch(() => null), fetch(`${API_BASE}/timed/candles?ticker=SPY&tf=D&limit=500`).then(r => r.json()).catch(() => null)]);
+        if (evRes?.ok) setTimelineEvents(evRes.events || []);
+        if (spyRes?.ok && Array.isArray(spyRes.candles)) {
+          const candles = spyRes.candles.filter(c => c.ts >= minTimestamp && c.ts <= maxTimestamp);
+          const strip = [];
+          for (let i = 0; i < candles.length; i++) {
+            const smaWindow = candles.slice(Math.max(0, i - 19), i + 1);
+            const sma20 = smaWindow.reduce((s, c) => s + c.c, 0) / smaWindow.length;
+            const priceAboveSma = candles[i].c > sma20;
+            const smaSlope = smaWindow.length >= 5 ? smaWindow[smaWindow.length - 1].c - smaWindow[Math.max(0, smaWindow.length - 6)].c : 0;
+            let regime = "neutral";
+            if (priceAboveSma && smaSlope > 0) regime = "risk-on";else if (!priceAboveSma && smaSlope < 0) regime = "risk-off";
+            strip.push({
+              ts: candles[i].ts,
+              regime
+            });
+          }
+          setRegimeStrip(strip);
+        }
+      } catch (e) {
+        console.warn("[Time Travel] context fetch failed:", e);
+      }
+    };
+    fetchContext();
+  }, [isActive, minTimestamp, maxTimestamp]);
+  const forwardReturnTimerRef = React.useRef(null);
+  useEffect(() => {
+    if (forwardReturnTimerRef.current) clearTimeout(forwardReturnTimerRef.current);
+    if (!isActive || isPlaying || !selectedTimestamp) {
+      setForwardReturns(null);
+      onForwardReturns?.(null);
+      return;
+    }
+    forwardReturnTimerRef.current = setTimeout(async () => {
+      try {
+        const syms = (tickersRef.current || []).map(t => t.ticker).filter(Boolean).slice(0, 60);
+        if (syms.length === 0) return;
+        const res = await fetch(`${API_BASE}/timed/time-travel/forward-returns?ts=${selectedTimestamp}&tickers=${syms.join(",")}`);
+        const json = await res.json();
+        if (json.ok) {
+          setForwardReturns(json.returns);
+          onForwardReturns?.(json.returns);
+        }
+      } catch (e) {
+        console.warn("[Time Travel] forward returns fetch failed:", e);
+      }
+    }, 800);
+    return () => {
+      if (forwardReturnTimerRef.current) clearTimeout(forwardReturnTimerRef.current);
+    };
+  }, [isActive, isPlaying, selectedTimestamp]);
+  const prevSnapshotRef = React.useRef(null);
+  useEffect(() => {
+    if (!isActive || !isPlaying || !autoSpeed) return;
+    const snapshot = buildSnapshotTickers(tickersRef.current, trailData, roundToStep(selectedTimestamp || maxTimestamp));
+    const prev = prevSnapshotRef.current;
+    if (prev && prev.length > 0 && snapshot.length > 0) {
+      let totalDelta = 0;
+      for (const cur of snapshot) {
+        const old = prev.find(p => p.ticker === cur.ticker);
+        if (old) {
+          totalDelta += Math.abs((cur.htf_score || 0) - (old.htf_score || 0)) + Math.abs((cur.ltf_score || 0) - (old.ltf_score || 0));
+        }
+      }
+      const avgDelta = totalDelta / snapshot.length;
+      if (avgDelta > 8) setPlaySpeedMs(1200);else if (avgDelta > 3) setPlaySpeedMs(600);else setPlaySpeedMs(300);
+    }
+    prevSnapshotRef.current = snapshot;
+  }, [isActive, isPlaying, autoSpeed, selectedTimestamp, trailData, buildSnapshotTickers, roundToStep, maxTimestamp]);
+  useEffect(() => {
     if (!isActive || !isPlaying) return;
     const id = setInterval(() => {
       setSelectedTimestamp(prev => {
@@ -6573,12 +6671,63 @@ function TimeTravelSlider({
     return date.toLocaleString("en-US", {
       month: "short",
       day: "numeric",
-      year: "numeric",
       hour: "numeric",
-      minute: "2-digit",
       hour12: true
     });
   };
+  const tsPct = React.useCallback(ts => {
+    if (!maxTimestamp || maxTimestamp <= minTimestamp) return -1;
+    const pct = (ts - minTimestamp) / (maxTimestamp - minTimestamp) * 100;
+    return Math.max(0, Math.min(100, pct));
+  }, [minTimestamp, maxTimestamp]);
+  const tradeMarkers = useMemo(() => {
+    if (!Array.isArray(trades) || !minTimestamp || !maxTimestamp) return [];
+    const markers = [];
+    for (const t of trades) {
+      const ets = Number(t.entry_ts);
+      if (Number.isFinite(ets) && ets > 0) {
+        const ms = ets < 1e12 ? ets * 1000 : ets;
+        if (ms >= minTimestamp && ms <= maxTimestamp) {
+          markers.push({
+            ts: ms,
+            type: "entry",
+            ticker: t.ticker,
+            pct: tsPct(ms)
+          });
+        }
+      }
+      const xts = Number(t.exit_ts);
+      if (Number.isFinite(xts) && xts > 0) {
+        const ms = xts < 1e12 ? xts * 1000 : xts;
+        if (ms >= minTimestamp && ms <= maxTimestamp) {
+          const won = t.status === "WIN" || Number(t.pnl) > 0;
+          markers.push({
+            ts: ms,
+            type: "exit",
+            ticker: t.ticker,
+            won,
+            pct: tsPct(ms)
+          });
+        }
+      }
+    }
+    return markers;
+  }, [trades, minTimestamp, maxTimestamp, tsPct]);
+  const eventMarkers = useMemo(() => {
+    return timelineEvents.map(ev => ({
+      ...ev,
+      pct: tsPct(ev.ts)
+    })).filter(m => m.pct >= 0);
+  }, [timelineEvents, tsPct]);
+  const regimeGradient = useMemo(() => {
+    if (regimeStrip.length < 2) return null;
+    const stops = regimeStrip.map(r => {
+      const pct = tsPct(r.ts);
+      const color = r.regime === "risk-on" ? "rgba(34,197,94,0.25)" : r.regime === "risk-off" ? "rgba(239,68,68,0.25)" : "rgba(100,116,139,0.15)";
+      return `${color} ${pct}%`;
+    });
+    return `linear-gradient(to right, ${stops.join(", ")})`;
+  }, [regimeStrip, tsPct]);
   const currentValue = selectedTimestamp ? roundToStep(selectedTimestamp) : roundToStep(maxTimestamp);
   const progress = maxTimestamp > minTimestamp ? (currentValue - minTimestamp) / (maxTimestamp - minTimestamp) * 100 : 100;
   const trackedTickers = useMemo(() => {
@@ -6659,36 +6808,61 @@ function TimeTravelSlider({
         }
         setIsPlaying(p => !p);
       },
-      className: "px-2 py-1 bg-white/[0.04] hover:bg-white/[0.06] rounded text-[10px] text-white",
+      className: "px-3 py-1.5 bg-[#00ffff]/10 hover:bg-[#00ffff]/20 border border-[#00ffff]/30 rounded-md text-sm text-white font-semibold",
       title: "Play / Pause"
-    }, isPlaying ? "⏸" : "▶️"), React.createElement("select", {
-      value: String(stepMs),
-      onChange: e => {
-        const next = Number(e.target.value);
-        if (!Number.isFinite(next) || next <= 0) return;
-        setStepMs(next);
-        setIsPlaying(false);
-        setSelectedTimestamp(prev => prev != null ? Math.floor(Number(prev) / next) * next : Math.floor(Number(maxTimestamp) / next) * next);
+    }, isPlaying ? "⏸" : "▶️"), React.createElement("div", {
+      className: "flex-1 min-w-[120px] relative",
+      style: {
+        height: "24px"
+      }
+    }, regimeGradient && React.createElement("div", {
+      className: "absolute inset-x-0 top-[9px] h-[6px] rounded-full pointer-events-none",
+      style: {
+        background: regimeGradient
+      }
+    }), tradeMarkers.map((m, i) => React.createElement("div", {
+      key: `tm-${i}`,
+      className: "absolute pointer-events-none",
+      style: {
+        left: `${m.pct}%`,
+        top: m.type === "entry" ? "0px" : "18px"
       },
-      className: "bg-white/[0.03] border border-white/[0.06] rounded px-1.5 py-0.5 text-[10px] text-[#d1d5db]",
-      title: "Time step"
-    }, STEP_OPTIONS.map(opt => React.createElement("option", {
-      key: opt.label,
-      value: opt.ms
-    }, opt.label))), React.createElement("input", {
+      title: `${m.type === "entry" ? "Entry" : "Exit"}: ${m.ticker}`
+    }, React.createElement("span", {
+      style: {
+        fontSize: "7px",
+        color: m.type === "entry" ? "#22c55e" : m.won ? "#22c55e" : "#ef4444"
+      }
+    }, m.type === "entry" ? "▲" : "▼"))), eventMarkers.map((ev, i) => React.createElement("div", {
+      key: `ev-${i}`,
+      className: "absolute pointer-events-none",
+      style: {
+        left: `${ev.pct}%`,
+        top: "0px"
+      },
+      title: `${ev.type}: ${ev.label} (${ev.date})`
+    }, React.createElement("span", {
+      style: {
+        fontSize: "6px",
+        color: ev.type === "FOMC" ? "#f59e0b" : ev.type === "CPI" ? "#a78bfa" : "#60a5fa"
+      }
+    }, "\u25C6"))), React.createElement("input", {
       type: "range",
       min: minTimestamp,
       max: maxTimestamp,
       step: STEP_MS,
       value: currentValue,
       onChange: handleTimestampChange,
-      className: "flex-1 min-w-[120px] h-1.5 bg-white/[0.03] rounded-lg appearance-none cursor-pointer",
+      className: "w-full h-1.5 bg-white/[0.03] rounded-lg appearance-none cursor-pointer absolute top-[9px]",
       style: {
         background: `linear-gradient(to right, #00ffff 0%, #00ffff ${progress}%, #252b36 ${progress}%, #252b36 100%)`
       }
-    }), React.createElement("span", {
+    })), React.createElement("span", {
       className: "text-[10px] text-[#00ffff] font-semibold whitespace-nowrap"
-    }, formatTimestamp(currentValue)), loadCancelled && React.createElement("span", {
+    }, formatTimestamp(currentValue)), !isPlaying && forwardReturns && React.createElement("span", {
+      className: "text-[8px] text-[#6b7280] whitespace-nowrap",
+      title: "Forward returns loaded"
+    }, "\uD83D\uDCCA"), loadCancelled && React.createElement("span", {
       className: "text-[10px] text-[#ff6b6b]"
     }, "Cancelled"))));
   }
@@ -6735,34 +6909,16 @@ function TimeTravelSlider({
       }
       setIsPlaying(p => !p);
     },
-    className: "px-2 py-1 bg-white/[0.04] hover:bg-white/[0.06] rounded text-xs text-white",
+    className: "px-4 py-1.5 bg-[#00ffff]/10 hover:bg-[#00ffff]/20 border border-[#00ffff]/30 rounded-md text-sm text-white font-semibold",
     title: "Play / Pause"
-  }, isPlaying ? "⏸ Pause" : "▶️ Play"), React.createElement("select", {
-    value: String(stepMs),
-    onChange: e => {
-      const next = Number(e.target.value);
-      if (!Number.isFinite(next) || next <= 0) return;
-      setStepMs(next);
-      setIsPlaying(false);
-      setSelectedTimestamp(prev => prev != null ? Math.floor(Number(prev) / next) * next : Math.floor(Number(maxTimestamp) / next) * next);
-    },
-    className: "bg-white/[0.03] border border-white/[0.06] rounded px-2 py-1 text-xs text-[#d1d5db]",
-    title: "Time step"
-  }, STEP_OPTIONS.map(opt => React.createElement("option", {
-    key: opt.label,
-    value: opt.ms
-  }, opt.label))), React.createElement("select", {
-    value: playSpeedMs,
-    onChange: e => setPlaySpeedMs(Number(e.target.value)),
-    className: "bg-white/[0.03] border border-white/[0.06] rounded px-2 py-1 text-xs text-[#d1d5db]",
-    title: "Playback speed"
-  }, React.createElement("option", {
-    value: 300
-  }, "Fast"), React.createElement("option", {
-    value: 600
-  }, "Normal"), React.createElement("option", {
-    value: 1200
-  }, "Slow")), React.createElement("label", {
+  }, isPlaying ? "⏸ Pause" : "▶️ Play"), React.createElement("label", {
+    className: "flex items-center gap-1 text-xs text-[#6b7280]",
+    title: "Auto-adjust playback speed based on market volatility"
+  }, React.createElement("input", {
+    type: "checkbox",
+    checked: autoSpeed,
+    onChange: e => setAutoSpeed(e.target.checked)
+  }), "Auto-speed"), React.createElement("label", {
     className: "flex items-center gap-1 text-xs text-[#6b7280]"
   }, React.createElement("input", {
     type: "checkbox",
@@ -6793,20 +6949,112 @@ function TimeTravelSlider({
     className: "text-[#4b5563]"
   }, ` (data @ ${formatTimestamp(selectedSnapshotInfo.ts)})`)))), isActive && React.createElement("div", {
     className: "space-y-2"
-  }, React.createElement("input", {
+  }, regimeStrip.length > 0 && React.createElement("div", {
+    className: "flex items-center gap-3 text-[9px] text-[#6b7280]"
+  }, React.createElement("span", {
+    className: "flex items-center gap-1"
+  }, React.createElement("span", {
+    className: "inline-block w-2 h-2 rounded-sm",
+    style: {
+      background: "rgba(34,197,94,0.5)"
+    }
+  }), "Risk-On"), React.createElement("span", {
+    className: "flex items-center gap-1"
+  }, React.createElement("span", {
+    className: "inline-block w-2 h-2 rounded-sm",
+    style: {
+      background: "rgba(239,68,68,0.5)"
+    }
+  }), "Risk-Off"), React.createElement("span", {
+    className: "flex items-center gap-1"
+  }, React.createElement("span", {
+    className: "inline-block w-2 h-2 rounded-sm",
+    style: {
+      background: "rgba(100,116,139,0.35)"
+    }
+  }), "Neutral"), eventMarkers.some(e => e.type === "FOMC") && React.createElement("span", {
+    className: "flex items-center gap-1"
+  }, React.createElement("span", {
+    style: {
+      color: "#f59e0b",
+      fontSize: "8px"
+    }
+  }, "\u25C6"), "FOMC"), eventMarkers.some(e => e.type === "CPI") && React.createElement("span", {
+    className: "flex items-center gap-1"
+  }, React.createElement("span", {
+    style: {
+      color: "#a78bfa",
+      fontSize: "8px"
+    }
+  }, "\u25C6"), "CPI"), tradeMarkers.length > 0 && React.createElement("span", {
+    className: "flex items-center gap-1"
+  }, React.createElement("span", {
+    style: {
+      color: "#22c55e",
+      fontSize: "8px"
+    }
+  }, "\u25B2"), "Entry ", React.createElement("span", {
+    style: {
+      color: "#ef4444",
+      fontSize: "8px"
+    }
+  }, "\u25BC"), "Exit")), React.createElement("div", {
+    className: "relative",
+    style: {
+      height: "36px"
+    }
+  }, regimeGradient && React.createElement("div", {
+    className: "absolute inset-x-0 top-[13px] h-[10px] rounded-full pointer-events-none",
+    style: {
+      background: regimeGradient,
+      opacity: 0.7
+    }
+  }), eventMarkers.map((ev, i) => React.createElement("div", {
+    key: `ev-${i}`,
+    className: "absolute pointer-events-none",
+    style: {
+      left: `${ev.pct}%`,
+      top: "0px",
+      transform: "translateX(-50%)"
+    },
+    title: `${ev.type}: ${ev.label} (${ev.date})`
+  }, React.createElement("span", {
+    style: {
+      fontSize: "8px",
+      color: ev.type === "FOMC" ? "#f59e0b" : ev.type === "CPI" ? "#a78bfa" : "#60a5fa",
+      lineHeight: 1
+    }
+  }, "\u25C6"))), tradeMarkers.map((m, i) => React.createElement("div", {
+    key: `tm-${i}`,
+    className: "absolute",
+    style: {
+      left: `${m.pct}%`,
+      top: m.type === "entry" ? "2px" : "28px",
+      transform: "translateX(-50%)"
+    },
+    title: `${m.type === "entry" ? "Entry" : "Exit"}: ${m.ticker}`
+  }, React.createElement("span", {
+    style: {
+      fontSize: "8px",
+      color: m.type === "entry" ? "#22c55e" : m.won ? "#22c55e" : "#ef4444",
+      lineHeight: 1
+    }
+  }, m.type === "entry" ? "▲" : "▼"))), React.createElement("input", {
     type: "range",
     min: minTimestamp,
     max: maxTimestamp,
     step: STEP_MS,
     value: currentValue,
     onChange: handleTimestampChange,
-    className: "w-full h-2 bg-white/[0.03] rounded-lg appearance-none cursor-pointer slider-thumb",
+    className: "w-full h-2 bg-transparent rounded-lg appearance-none cursor-pointer slider-thumb absolute top-[13px]",
     style: {
-      background: `linear-gradient(to right, #00ffff 0%, #00ffff ${progress}%, #252b36 ${progress}%, #252b36 100%)`
+      background: `linear-gradient(to right, rgba(0,255,255,0.4) 0%, rgba(0,255,255,0.4) ${progress}%, rgba(37,43,54,0.6) ${progress}%, rgba(37,43,54,0.6) 100%)`
     }
-  }), React.createElement("div", {
+  })), React.createElement("div", {
     className: "flex justify-between text-xs text-[#6b7280]"
-  }, React.createElement("span", null, formatTimestamp(minTimestamp)), React.createElement("span", null, formatTimestamp(maxTimestamp))), loadingTrails && React.createElement("div", {
+  }, React.createElement("span", null, formatTimestamp(minTimestamp)), !isPlaying && forwardReturns && React.createElement("span", {
+    className: "text-[9px] text-[#00ffff]/70"
+  }, "\uD83D\uDCCA Forward returns loaded (", Object.keys(forwardReturns).length, " tickers)"), React.createElement("span", null, formatTimestamp(maxTimestamp))), loadingTrails && React.createElement("div", {
     className: "text-xs text-[#6b7280]"
   }, React.createElement("div", {
     className: "flex items-center justify-between mb-1"
@@ -7636,36 +7884,71 @@ function ViewportFilterTags({
   })))), React.createElement("div", {
     className: "space-y-1"
   }, React.createElement("div", {
+    className: "flex items-center gap-3"
+  }, React.createElement("div", {
     className: "text-[10px] text-[#4b5563] font-semibold"
   }, "S&P Sectors"), React.createElement("div", {
+    className: "flex items-center gap-2 text-[9px] text-[#6b7280]"
+  }, React.createElement("span", {
+    className: "flex items-center gap-1"
+  }, React.createElement("span", {
+    className: "text-[8px] font-bold text-amber-400/90 bg-amber-400/10 px-1 rounded"
+  }, "OW"), "Overweight"), React.createElement("span", {
+    className: "flex items-center gap-1"
+  }, React.createElement("span", {
+    className: "text-[8px] font-bold text-[#9ca3af] bg-white/[0.04] px-1 rounded"
+  }, "N"), "Neutral"), React.createElement("span", {
+    className: "flex items-center gap-1"
+  }, React.createElement("span", {
+    className: "text-[8px] font-bold text-violet-400/90 bg-violet-400/10 px-1 rounded"
+  }, "UW"), "Underweight"))), React.createElement("div", {
     className: "flex gap-2 flex-wrap items-center"
   }, pill(pillLabelWithCount("All", pillCounts?.sectors?.ALL), sector === "ALL", () => onChange({
     sector: undefined
   })), pill(pillLabelWithCount("S&P Sectors", pillCounts?.sectors?.SP_Sectors), group === "SP_Sectors", () => onChange({
     group: group === "SP_Sectors" ? "ALL" : "SP_Sectors"
-  })), pill(pillLabelWithCount(`${sectorEmoji("Communication Services")} Comm`, pillCounts?.sectors?.["Communication Services"]), sector === "Communication Services", () => onChange({
-    sector: "Communication Services"
-  })), pill(pillLabelWithCount(`${sectorEmoji("Consumer Discretionary")} Cons Disc`, pillCounts?.sectors?.["Consumer Discretionary"]), sector === "Consumer Discretionary", () => onChange({
-    sector: "Consumer Discretionary"
-  })), pill(pillLabelWithCount(`${sectorEmoji("Consumer Staples")} Cons Staples`, pillCounts?.sectors?.["Consumer Staples"]), sector === "Consumer Staples", () => onChange({
-    sector: "Consumer Staples"
-  })), pill(pillLabelWithCount(`${sectorEmoji("Energy")} Energy`, pillCounts?.sectors?.Energy), sector === "Energy", () => onChange({
-    sector: "Energy"
-  })), pill(pillLabelWithCount(`${sectorEmoji("Financials")} Financials`, pillCounts?.sectors?.Financials), sector === "Financials", () => onChange({
-    sector: "Financials"
-  })), pill(pillLabelWithCount(`${sectorEmoji("Healthcare")} Health`, pillCounts?.sectors?.Healthcare), sector === "Healthcare", () => onChange({
-    sector: "Healthcare"
-  })), pill(pillLabelWithCount(`${sectorEmoji("Industrials")} Industrials`, pillCounts?.sectors?.Industrials), sector === "Industrials", () => onChange({
-    sector: "Industrials"
-  })), pill(pillLabelWithCount(`${sectorEmoji("Information Technology")} Tech`, pillCounts?.sectors?.["Information Technology"]), sector === "Information Technology", () => onChange({
-    sector: "Information Technology"
-  })), pill(pillLabelWithCount(`${sectorEmoji("Basic Materials")} Materials`, pillCounts?.sectors?.["Basic Materials"]), sector === "Basic Materials", () => onChange({
-    sector: "Basic Materials"
-  })), pill(pillLabelWithCount(`${sectorEmoji("Real Estate")} Real Estate`, pillCounts?.sectors?.["Real Estate"]), sector === "Real Estate", () => onChange({
-    sector: "Real Estate"
-  })), pill(pillLabelWithCount(`${sectorEmoji("Utilities")} Utilities`, pillCounts?.sectors?.Utilities), sector === "Utilities", () => onChange({
-    sector: "Utilities"
-  }))))));
+  })), (() => {
+    const sectorPills = [["Communication Services", "Comm"], ["Consumer Discretionary", "Cons Disc"], ["Consumer Staples", "Cons Staples"], ["Energy", "Energy"], ["Financials", "Financials"], ["Healthcare", "Healthcare"], ["Industrials", "Industrials"], ["Information Technology", "Tech"], ["Basic Materials", "Materials"], ["Real Estate", "Real Estate"], ["Utilities", "Utilities"]];
+    const ratingTag = name => {
+      const r = sectorRatingMap[normalizeSectorKey(name)] || "neutral";
+      if (r === "overweight") return {
+        text: "OW",
+        cls: "text-amber-400/90 bg-amber-400/10"
+      };
+      if (r === "underweight") return {
+        text: "UW",
+        cls: "text-violet-400/90 bg-violet-400/10"
+      };
+      return {
+        text: "N",
+        cls: "text-[#9ca3af] bg-white/[0.04]"
+      };
+    };
+    const ratingBorder = name => {
+      const r = sectorRatingMap[normalizeSectorKey(name)] || "neutral";
+      return r === "overweight" ? "border-amber-500/25" : r === "underweight" ? "border-violet-500/25" : "border-white/[0.06]";
+    };
+    return sectorPills.map(([key, label]) => {
+      const count = pillCounts?.sectors?.[key];
+      const isActive = sector === key;
+      const tag = ratingTag(key);
+      const bdr = ratingBorder(key);
+      const activeClass = isActive ? "border-blue-400 bg-blue-500/20 text-blue-200" : `bg-white/[0.03] hover:text-white text-[#9ca3af] ${bdr}`;
+      return React.createElement("button", {
+        key: key,
+        onClick: () => onChange({
+          sector: key
+        }),
+        className: `px-2 py-1 rounded-md border text-[11px] font-semibold transition-all ${activeClass}`
+      }, React.createElement("span", {
+        className: "inline-flex items-center gap-1.5"
+      }, React.createElement("span", {
+        className: `text-[8px] font-bold px-1 rounded leading-tight shrink-0 ${isActive ? "text-blue-200 bg-blue-400/15" : tag.cls}`
+      }, tag.text), React.createElement("span", null, label), Number.isFinite(count) ? React.createElement("span", {
+        className: `px-1 py-0.5 rounded text-[9px] font-bold border ${isActive ? "border-blue-400/40 bg-blue-400/10 text-blue-100" : "border-white/[0.06] bg-white/[0.02] text-[#c8d2ff]"}`
+      }, count) : null));
+    });
+  })()))));
 }
 function ActiveMovesSnapshotPanel({
   tickers = [],
@@ -9394,7 +9677,7 @@ function SimpleKanbanTable({
   }, React.createElement("table", {
     className: "text-sm w-full",
     style: {
-      minWidth: 1600
+      minWidth: 1000
     }
   }, React.createElement("thead", null, React.createElement("tr", {
     className: "bg-white/[0.03] border-b border-white/[0.05]"
@@ -9429,15 +9712,12 @@ function SimpleKanbanTable({
     className: "px-1 py-2 text-center text-[11px] font-medium text-gray-400"
   }, "R:R"), React.createElement("th", {
     className: "px-1 py-2 text-center text-[11px] font-medium text-gray-400"
-  }, "Flags"), STAGE_KEYS.map(sk => {
-    const m = STAGE_META[sk];
-    return React.createElement("th", {
-      key: sk,
-      className: "px-1 py-2 text-center text-[10px] font-medium text-gray-500 cursor-pointer hover:text-white select-none whitespace-nowrap",
-      onClick: () => handleSort("stage"),
-      title: `${m.label} (${stageCounts[sk] || 0})`
-    }, m.icon, " ", m.label);
-  }))), React.createElement("tbody", null, filtered.map((t, idx) => {
+  }, "Flags"), React.createElement("th", {
+    className: "px-2 py-2 text-center text-[10px] font-medium text-gray-500 whitespace-nowrap cursor-pointer hover:text-white select-none",
+    onClick: () => handleSort("stage")
+  }, "Active Trader", sortArrow("stage")), React.createElement("th", {
+    className: "px-2 py-2 text-center text-[10px] font-medium text-gray-500 whitespace-nowrap"
+  }, "Investor"))), React.createElement("tbody", null, filtered.map((t, idx) => {
     const sym = String(t?.ticker || "").toUpperCase();
     const trade = tradeByTicker.get(sym);
     const stg = t._stage;
@@ -9555,22 +9835,73 @@ function SimpleKanbanTable({
       className: "px-1 py-1.5 text-center text-[11px]"
     }, badges.length > 0 ? badges.join("") : React.createElement("span", {
       className: "text-gray-600"
-    }, "\u2014")), STAGE_KEYS.map(sk => {
-      const isActive = sk === stg;
-      const isCritical = isActive && ["enter", "defend", "trim"].includes(sk);
-      const pulseStyle = isCritical ? {
-        animation: "stage-dot-pulse 1.8s ease-in-out infinite",
-        boxShadow: sk === "enter" ? "0 0 6px rgba(45,212,191,0.5)" : sk === "defend" ? "0 0 6px rgba(251,146,60,0.5)" : "0 0 6px rgba(250,204,21,0.5)"
-      } : {};
-      return React.createElement("td", {
-        key: sk,
-        className: "px-1 py-1 text-center"
-      }, isActive ? React.createElement("span", {
-        className: `inline-block w-3 h-3 rounded-full border ${STAGE_META[sk].cls}`,
-        style: pulseStyle,
-        title: STAGE_META[sk].label
-      }) : null);
-    }));
+    }, "\u2014")), React.createElement("td", {
+      className: "px-1 py-1 text-center"
+    }, React.createElement("span", {
+      className: `inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold border ${STAGE_META[stg]?.cls || "bg-gray-700/60 text-gray-300 border-gray-500/40"}`
+    }, STAGE_META[stg]?.icon, " ", STAGE_META[stg]?.label || stg)), React.createElement("td", {
+      className: "px-1 py-1 text-center"
+    }, (() => {
+      const inv = t?.investor_action || t?.investor_stage;
+      if (inv) {
+        const invMeta = {
+          accumulate: {
+            label: "Accumulate",
+            cls: "bg-emerald-900/40 text-emerald-400 border-emerald-500/40"
+          },
+          core_hold: {
+            label: "Core Hold",
+            cls: "bg-cyan-900/40 text-cyan-400 border-cyan-500/40"
+          },
+          watch: {
+            label: "Watch",
+            cls: "bg-gray-700/60 text-gray-300 border-gray-500/40"
+          },
+          reduce: {
+            label: "Reduce",
+            cls: "bg-orange-900/40 text-orange-400 border-orange-500/40"
+          },
+          exit: {
+            label: "Exit",
+            cls: "bg-rose-900/40 text-rose-400 border-rose-500/40"
+          },
+          research: {
+            label: "Research",
+            cls: "bg-purple-900/40 text-purple-400 border-purple-500/40"
+          }
+        };
+        const key = String(inv).toLowerCase().replace(/\s+/g, "_");
+        const m = invMeta[key] || {
+          label: inv,
+          cls: "bg-gray-700/60 text-gray-300 border-gray-500/40"
+        };
+        return React.createElement("span", {
+          className: `inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold border ${m.cls}`
+        }, m.label);
+      }
+      const htf = Number(t?.htf_score || 0);
+      const score = Number(t?.dynamicScore || t?.rank || 0);
+      let invLabel, invCls;
+      if (htf > 10 && score > 60) {
+        invLabel = "Accumulate";
+        invCls = "bg-emerald-900/40 text-emerald-400 border-emerald-500/40";
+      } else if (htf > 0 && score > 40) {
+        invLabel = "Core Hold";
+        invCls = "bg-cyan-900/40 text-cyan-400 border-cyan-500/40";
+      } else if (htf > -5 && htf <= 0) {
+        invLabel = "Watch";
+        invCls = "bg-gray-700/60 text-gray-300 border-gray-500/40";
+      } else if (htf <= -5) {
+        invLabel = "Reduce";
+        invCls = "bg-orange-900/40 text-orange-400 border-orange-500/40";
+      } else {
+        invLabel = "Watch";
+        invCls = "bg-gray-700/60 text-gray-300 border-gray-500/40";
+      }
+      return React.createElement("span", {
+        className: `inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold border ${invCls}`
+      }, invLabel);
+    })()));
   })))), React.createElement("div", {
     className: "mt-2 text-[10px] text-[#6b7280] flex items-center justify-between"
   }, React.createElement("span", null, "Showing ", filtered.length, " of ", tickersWithStage.length, " tickers"), React.createElement("span", {
@@ -9827,7 +10158,22 @@ function EarlyMoversPanel({
         className: "w-[280px] h-[134px] shrink-0 skeleton-card"
       }))))));
     }
-    return null;
+    return React.createElement("div", {
+      className: "mt-2"
+    }, React.createElement("div", {
+      className: "mb-3 px-3 py-2.5 rounded-lg border border-white/[0.06] bg-white/[0.02] flex items-center gap-2.5"
+    }, React.createElement("span", {
+      className: "text-[15px]"
+    }, "\u2615"), React.createElement("div", null, React.createElement("div", {
+      className: "text-[12px] font-medium text-[#9ca3af]"
+    }, "Nothing Actionable"), React.createElement("div", {
+      className: "text-[10px] text-[#6b7280]"
+    }, tickers.length === 1 ? `${tickers[0]?.ticker || "This ticker"} is on the watchlist but doesn\u2019t have an active signal right now.` : `${tickers.length} tickers matched but none have active signals right now.`, " ", "Check back when the market opens or broaden your filters."))), React.createElement("div", {
+      className: "flex flex-wrap gap-1.5"
+    }, tickers.slice(0, 40).map(t => React.createElement("div", {
+      key: t.ticker || t.symbol,
+      className: "w-[280px] shrink-0 opacity-80"
+    }, renderCompactCard(t)))));
   }
   return React.createElement("div", null, React.createElement("div", {
     className: "mb-2 space-y-1.5"
@@ -12181,7 +12527,7 @@ function App() {
   const [dashboardMode, setDashboardMode] = useState(() => {
     try {
       const stored = localStorage.getItem("timedTrading_dashboardMode");
-      if (stored === "trader" || stored === "investor" || stored === "analysis") return stored;
+      if (stored === "trader" || stored === "investor" || stored === "analysis" || stored === "all") return stored;
       return "analysis";
     } catch {
       return "analysis";
@@ -12452,6 +12798,7 @@ function App() {
       const fetchSelectedTrail = async () => {
         const qs = new URLSearchParams();
         qs.set("ticker", String(selectedTicker || "").toUpperCase());
+        qs.set("since", String(Date.now() - 7 * 24 * 60 * 60 * 1000));
         qs.set("limit", "250");
         const url = `${API_BASE}/timed/trail?${qs.toString()}`;
         for (let attempt = 0; attempt < 2; attempt++) {
@@ -12477,16 +12824,16 @@ function App() {
             const data = await res.json();
             if (data.ok && Array.isArray(data.trail)) {
               const normalized = normalizeTrailPoints(data.trail);
-              const last20 = normalized.length > 20 ? normalized.slice(-20) : normalized;
+              const capped = normalized.length > 250 ? normalized.slice(-250) : normalized;
               if (!window._trailSampleLogged) {
                 window._trailSampleLogged = true;
                 console.log(`[TRAIL SAMPLE] ${selectedTicker}`, {
-                  first: last20[0],
+                  first: capped[0],
                   rawFirst: Array.isArray(data.trail) ? data.trail[0] : null,
                   rawKeys: data.trail && data.trail[0] ? Object.keys(data.trail[0]) : []
                 });
               }
-              setSelectedTrail(last20);
+              setSelectedTrail(capped);
               return;
             }
             setSelectedTrail([]);
@@ -12551,6 +12898,155 @@ function App() {
     search: debouncedSearch
   };
   const [timeTravelTickers, setTimeTravelTickers] = useState(null);
+  const [timeTravelForwardReturns, setTimeTravelForwardReturns] = useState(null);
+  const [activeInsight, setActiveInsight] = useState(null);
+  const insightChips = useMemo(() => {
+    const all = Object.values(data || {}).filter(t => t && Number.isFinite(Number(t.ltf_score)));
+    if (all.length === 0) return [];
+    const ENTRY_STAGES = new Set(["setup", "setup_watch", "enter", "enter_now", "flip_watch", "just_flipped"]);
+    const chips = [];
+    const sectorBull = {};
+    const sectorTotal = {};
+    for (const t of all) {
+      const sec = t.sector || t.fundamentals?.sector || "";
+      if (!sec) continue;
+      sectorTotal[sec] = (sectorTotal[sec] || 0) + 1;
+      if (Number(t.htf_score) > 0) sectorBull[sec] = (sectorBull[sec] || 0) + 1;
+    }
+    let bestSec = null,
+      bestPct = -1,
+      worstSec = null,
+      worstPct = 101;
+    for (const sec of Object.keys(sectorTotal)) {
+      if (sectorTotal[sec] < 2) continue;
+      const bullPct = (sectorBull[sec] || 0) / sectorTotal[sec] * 100;
+      if (bullPct > bestPct) {
+        bestPct = bullPct;
+        bestSec = sec;
+      }
+      if (bullPct < worstPct) {
+        worstPct = bullPct;
+        worstSec = sec;
+      }
+    }
+    if (bestSec && worstSec && bestSec !== worstSec) {
+      const short = s => s.length > 12 ? s.slice(0, 10) + "…" : s;
+      const rotTickers = all.filter(t => {
+        const sec = t.sector || t.fundamentals?.sector || "";
+        return sec === bestSec || sec === worstSec;
+      }).map(t => t.ticker);
+      chips.push({
+        id: "sector_rotation",
+        icon: "🔄",
+        label: `${short(bestSec)} ↑ ${short(worstSec)} ↓`,
+        count: null,
+        color: "purple",
+        tickers: rotTickers,
+        tooltip: `Rotating in: ${bestSec} (${Math.round(bestPct)}% bull)\nRotating out: ${worstSec} (${Math.round(worstPct)}% bull)`
+      });
+    }
+    const earlyLong = all.filter(t => {
+      const htf = Number(t.htf_score),
+        ltf = Number(t.ltf_score);
+      const ks = String(t.kanban_stage || "").toLowerCase();
+      return htf > 0 && ltf >= -8 && ltf <= 12 && ENTRY_STAGES.has(ks);
+    });
+    chips.push({
+      id: "early_long",
+      icon: "📈",
+      label: "Early LONG",
+      count: earlyLong.length,
+      color: "green",
+      tickers: earlyLong.map(t => t.ticker),
+      tooltip: earlyLong.slice(0, 5).map(t => t.ticker).join(", ") || "—"
+    });
+    const earlyShort = all.filter(t => {
+      const htf = Number(t.htf_score),
+        ltf = Number(t.ltf_score);
+      const ks = String(t.kanban_stage || "").toLowerCase();
+      return htf < 0 && ltf >= -12 && ltf <= 8 && ENTRY_STAGES.has(ks);
+    });
+    chips.push({
+      id: "early_short",
+      icon: "📉",
+      label: "Early SHORT",
+      count: earlyShort.length,
+      color: "red",
+      tickers: earlyShort.map(t => t.ticker),
+      tooltip: earlyShort.slice(0, 5).map(t => t.ticker).join(", ") || "—"
+    });
+    const squeeze = all.filter(t => t.flags?.sq30_on === true);
+    chips.push({
+      id: "squeeze",
+      icon: "🔋",
+      label: "Squeeze",
+      count: squeeze.length,
+      color: "amber",
+      tickers: squeeze.map(t => t.ticker),
+      tooltip: squeeze.slice(0, 5).map(t => t.ticker).join(", ") || "—"
+    });
+    const breakout = all.filter(t => {
+      const ks = String(t.kanban_stage || "").toLowerCase();
+      return t.flags?.sq30_release === true || ks === "just_entered" || ks === "just_flipped";
+    });
+    chips.push({
+      id: "breakout",
+      icon: "💥",
+      label: "Breakout",
+      count: breakout.length,
+      color: "cyan",
+      tickers: breakout.map(t => t.ticker),
+      tooltip: breakout.slice(0, 5).map(t => t.ticker).join(", ") || "—"
+    });
+    const corridor = all.filter(t => {
+      const htf = Number(t.htf_score),
+        ltf = Number(t.ltf_score);
+      return htf > 0 && ltf >= -8 && ltf <= 12 || htf < 0 && ltf >= -12 && ltf <= 8;
+    });
+    chips.push({
+      id: "corridor",
+      icon: "🎯",
+      label: "In Corridor",
+      count: corridor.length,
+      color: "blue",
+      tickers: corridor.map(t => t.ticker),
+      tooltip: corridor.slice(0, 5).map(t => t.ticker).join(", ") || "—"
+    });
+    const accel = all.filter(t => {
+      const d = t.deltas && typeof t.deltas === "object" ? t.deltas : {};
+      const ltf4h = Number(d.ltf_4h),
+        htf4h = Number(d.htf_4h);
+      const ltf = Number(t.ltf_score),
+        htf = Number(t.htf_score);
+      return ltf4h > 5 || htf4h > 3 || ltf > 15 && htf > 15;
+    });
+    chips.push({
+      id: "accelerating",
+      icon: "⚡",
+      label: "Accelerating",
+      count: accel.length,
+      color: "emerald",
+      tickers: accel.map(t => t.ticker),
+      tooltip: accel.slice(0, 5).map(t => t.ticker).join(", ") || "—"
+    });
+    const moElite = all.filter(t => t.flags?.momentum_elite === true);
+    chips.push({
+      id: "momentum_elite",
+      icon: "🏆",
+      label: "Mo Elite",
+      count: moElite.length,
+      color: "gold",
+      tickers: moElite.map(t => t.ticker),
+      tooltip: moElite.slice(0, 5).map(t => t.ticker).join(", ") || "—"
+    });
+    return chips;
+  }, [data]);
+  const activeInsightTickers = useMemo(() => {
+    if (!activeInsight) return null;
+    const chip = insightChips.find(c => c.id === activeInsight);
+    if (!chip || !chip.tickers || chip.tickers.length === 0) return null;
+    return new Set(chip.tickers.map(t => String(t).toUpperCase()));
+  }, [activeInsight, insightChips]);
   const tickers = useMemo(() => {
     if (timeTravelTickers !== null) {
       return timeTravelTickers;
@@ -13490,7 +13986,20 @@ function App() {
     strokeLinecap: "round",
     strokeLinejoin: "round",
     d: "M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-  })), "Investor")), window._ttIsPro ? React.createElement("div", {
+  })), "Investor"), React.createElement("button", {
+    onClick: () => handleDashboardModeChange("all"),
+    className: `flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-2.5 sm:px-4 py-2 text-[11px] sm:text-[12px] font-semibold transition-all border-l border-white/[0.06] ${dashboardMode === "all" ? "bg-gradient-to-r from-blue-500/20 to-indigo-500/15 text-white" : "text-[#6b7280] hover:text-white hover:bg-white/[0.05]"}`
+  }, React.createElement("svg", {
+    className: "w-4 h-4",
+    fill: "none",
+    stroke: "currentColor",
+    viewBox: "0 0 24 24",
+    strokeWidth: "2"
+  }, React.createElement("path", {
+    strokeLinecap: "round",
+    strokeLinejoin: "round",
+    d: "M3 10h18M3 6h18M3 14h18M3 18h18"
+  })), "All")), window._ttIsPro ? React.createElement("div", {
     className: "w-full sm:w-auto min-w-0 sm:min-w-[200px]"
   }, React.createElement(TimeTravelSlider, {
     tickers: timeTravelBaseTickers,
@@ -13499,7 +14008,9 @@ function App() {
     onTimeChange: setTimeTravelTickers,
     tickerFilter: filters.tickerFilter,
     selectedTicker: selectedTicker,
-    compact: true
+    compact: true,
+    trades: trades,
+    onForwardReturns: setTimeTravelForwardReturns
   })) : React.createElement("div", {
     className: "w-full sm:w-auto min-w-0 sm:min-w-[140px]"
   }, React.createElement("button", {
@@ -13704,7 +14215,91 @@ function App() {
     className: "text-[#4b5563] shrink-0"
   }, "|"), React.createElement("span", {
     className: "shrink-0 text-[#8b95a5]"
-  }, "Upper-right = best longs \xB7 Lower-left = best shorts"))), React.createElement("div", {
+  }, "Upper-right = best longs \xB7 Lower-left = best shorts"))), insightChips.length > 0 && React.createElement("div", {
+    className: "flex gap-1.5 overflow-x-auto pb-1 px-1 mb-1 scrollbar-hide"
+  }, insightChips.filter(c => c.count === null || c.count > 0).map(chip => {
+    const isActive = activeInsight === chip.id;
+    const colorMap = {
+      purple: {
+        bg: "bg-purple-500/15",
+        border: "border-purple-500/30",
+        text: "text-purple-300",
+        activeBg: "bg-purple-500/30",
+        activeBorder: "border-purple-400/60",
+        glow: "shadow-purple-500/30"
+      },
+      green: {
+        bg: "bg-emerald-500/15",
+        border: "border-emerald-500/30",
+        text: "text-emerald-300",
+        activeBg: "bg-emerald-500/30",
+        activeBorder: "border-emerald-400/60",
+        glow: "shadow-emerald-500/30"
+      },
+      red: {
+        bg: "bg-rose-500/15",
+        border: "border-rose-500/30",
+        text: "text-rose-300",
+        activeBg: "bg-rose-500/30",
+        activeBorder: "border-rose-400/60",
+        glow: "shadow-rose-500/30"
+      },
+      amber: {
+        bg: "bg-amber-500/15",
+        border: "border-amber-500/30",
+        text: "text-amber-300",
+        activeBg: "bg-amber-500/30",
+        activeBorder: "border-amber-400/60",
+        glow: "shadow-amber-500/30"
+      },
+      cyan: {
+        bg: "bg-cyan-500/15",
+        border: "border-cyan-500/30",
+        text: "text-cyan-300",
+        activeBg: "bg-cyan-500/30",
+        activeBorder: "border-cyan-400/60",
+        glow: "shadow-cyan-500/30"
+      },
+      blue: {
+        bg: "bg-blue-500/15",
+        border: "border-blue-500/30",
+        text: "text-blue-300",
+        activeBg: "bg-blue-500/30",
+        activeBorder: "border-blue-400/60",
+        glow: "shadow-blue-500/30"
+      },
+      emerald: {
+        bg: "bg-emerald-500/15",
+        border: "border-emerald-500/30",
+        text: "text-emerald-300",
+        activeBg: "bg-emerald-500/30",
+        activeBorder: "border-emerald-400/60",
+        glow: "shadow-emerald-500/30"
+      },
+      gold: {
+        bg: "bg-yellow-500/15",
+        border: "border-yellow-500/30",
+        text: "text-yellow-300",
+        activeBg: "bg-yellow-500/30",
+        activeBorder: "border-yellow-400/60",
+        glow: "shadow-yellow-500/30"
+      }
+    };
+    const c = colorMap[chip.color] || colorMap.blue;
+    return React.createElement("button", {
+      key: chip.id,
+      title: chip.tooltip,
+      onClick: () => setActiveInsight(prev => prev === chip.id ? null : chip.id),
+      className: `group relative flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium border whitespace-nowrap transition-all duration-200 shrink-0 ${isActive ? `${c.activeBg} ${c.activeBorder} ${c.text} shadow-sm ${c.glow}` : `${c.bg} ${c.border} ${c.text} hover:brightness-125`}`
+    }, React.createElement("span", null, chip.icon), React.createElement("span", null, chip.label), chip.count !== null && React.createElement("span", {
+      className: "font-bold opacity-80"
+    }, chip.count), React.createElement("span", {
+      className: "pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 px-2 py-1 rounded-md bg-[#1a1f2e] border border-white/10 text-[9px] text-gray-300 whitespace-pre-line opacity-0 group-hover:opacity-100 transition-opacity z-50 max-w-[200px]"
+    }, chip.tooltip));
+  }), activeInsight && React.createElement("button", {
+    onClick: () => setActiveInsight(null),
+    className: "flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium border border-white/10 bg-white/5 text-gray-400 hover:text-white transition-colors shrink-0"
+  }, "\u2715 Clear")), React.createElement("div", {
     className: "h-[600px] sm:h-[700px] md:h-[800px] lg:h-[870px]"
   }, loading && tickers.length === 0 ? React.createElement("div", {
     className: "w-full h-full bg-white/[0.02] rounded-xl border border-white/[0.06] flex items-center justify-center",
@@ -13729,7 +14324,9 @@ function App() {
     allData: data,
     rankedTickers: rankedTickers,
     rankedTickerPositions: rankedTickerPositions,
-    thesisMode: isThesisModeActive(filters)
+    thesisMode: isThesisModeActive(filters),
+    forwardReturns: timeTravelForwardReturns,
+    activeInsightTickers: activeInsightTickers
   }), !window._ttIsPro && React.createElement("div", {
     className: "absolute bottom-3 left-1/2 -translate-x-1/2 z-10"
   }, React.createElement("button", {
@@ -13749,76 +14346,7 @@ function App() {
     className: "text-[9px] text-gray-400 mx-0.5"
   }, "\u2014"), React.createElement("span", {
     className: "text-[10px] font-bold text-amber-400"
-  }, "Go Pro for all")))))), dashboardMode === "trader" && !noTickerResults && React.createElement("div", {
-    className: "flex flex-wrap items-center gap-3"
-  }, React.createElement("div", {
-    className: "flex items-center bg-white/[0.04] border border-white/[0.10] rounded-xl overflow-hidden shadow-sm"
-  }, React.createElement("button", {
-    onClick: () => toggleViewMode("advanced"),
-    className: `flex items-center gap-1.5 px-4 py-2 text-[12px] font-semibold transition-all ${dashboardViewMode === "advanced" ? "bg-gradient-to-r from-cyan-500/20 to-teal-500/15 text-white border-r border-white/10" : "text-[#6b7280] hover:text-white hover:bg-white/[0.05] border-r border-white/[0.06]"}`,
-    title: "Kanban card view"
-  }, React.createElement("svg", {
-    width: "14",
-    height: "14",
-    viewBox: "0 0 24 24",
-    fill: "none",
-    stroke: "currentColor",
-    strokeWidth: "2",
-    strokeLinecap: "round",
-    strokeLinejoin: "round"
-  }, React.createElement("rect", {
-    x: "3",
-    y: "3",
-    width: "7",
-    height: "7",
-    rx: "1"
-  }), React.createElement("rect", {
-    x: "14",
-    y: "3",
-    width: "7",
-    height: "7",
-    rx: "1"
-  }), React.createElement("rect", {
-    x: "3",
-    y: "14",
-    width: "7",
-    height: "7",
-    rx: "1"
-  }), React.createElement("rect", {
-    x: "14",
-    y: "14",
-    width: "7",
-    height: "7",
-    rx: "1"
-  })), "Cards"), React.createElement("button", {
-    onClick: () => toggleViewMode("simple"),
-    className: `flex items-center gap-1.5 px-4 py-2 text-[12px] font-semibold transition-all ${dashboardViewMode === "simple" ? "bg-gradient-to-r from-blue-500/20 to-indigo-500/15 text-white" : "text-[#6b7280] hover:text-white hover:bg-white/[0.05]"}`,
-    title: "Table view"
-  }, React.createElement("svg", {
-    width: "14",
-    height: "14",
-    viewBox: "0 0 24 24",
-    fill: "none",
-    stroke: "currentColor",
-    strokeWidth: "2",
-    strokeLinecap: "round",
-    strokeLinejoin: "round"
-  }, React.createElement("line", {
-    x1: "3",
-    y1: "6",
-    x2: "21",
-    y2: "6"
-  }), React.createElement("line", {
-    x1: "3",
-    y1: "12",
-    x2: "21",
-    y2: "12"
-  }), React.createElement("line", {
-    x1: "3",
-    y1: "18",
-    x2: "21",
-    y2: "18"
-  })), "Table"))), selectedTicker && React.createElement(React.Fragment, null, React.createElement("div", {
+  }, "Go Pro for all")))))), selectedTicker && React.createElement(React.Fragment, null, React.createElement("div", {
     className: "fixed inset-0 z-30",
     onMouseDown: () => handleTickerSelect(null)
   }), React.createElement("div", {
@@ -13870,15 +14398,7 @@ function App() {
     d: "M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
   })), React.createElement("span", {
     className: "text-[11px] text-gray-400 font-medium"
-  }, "Switching view\u2026"))), dashboardViewMode === "simple" ? React.createElement(SimpleKanbanTable, {
-    tickers: tickers,
-    trades: trades,
-    onSelectTicker: handleTickerSelect,
-    rankPositions: rankedTickerPositions,
-    savedTickers: savedTickers,
-    toggleSavedTicker: toggleSavedTicker,
-    contextData: data
-  }) : React.createElement(EarlyMoversPanel, {
+  }, "Switching view\u2026"))), React.createElement(EarlyMoversPanel, {
     tickers: tickers,
     trades: trades,
     onSelectTicker: handleTickerSelect,
@@ -13906,7 +14426,20 @@ function App() {
     pendingTickerSymbols: pendingCustomTickerSymbols
   }) : React.createElement("div", {
     className: "flex items-center justify-center h-64 text-[#6b7280]"
-  }, React.createElement("span", null, "Loading Investor panel\u2026")))))), userTickers.adding && userTickers.addingTicker && React.createElement("div", {
+  }, React.createElement("span", null, "Loading Investor panel\u2026"))), dashboardMode === "all" && !noTickerResults && React.createElement("div", {
+    className: "rounded-xl border border-white/[0.06] overflow-hidden",
+    style: {
+      background: "#0b0e11"
+    }
+  }, React.createElement(SimpleKanbanTable, {
+    tickers: tickers,
+    trades: trades,
+    onSelectTicker: handleTickerSelect,
+    rankPositions: rankedTickerPositions,
+    savedTickers: savedTickers,
+    toggleSavedTicker: toggleSavedTicker,
+    contextData: data
+  }))))), userTickers.adding && userTickers.addingTicker && React.createElement("div", {
     className: "fixed inset-0 z-[120] flex items-center justify-center bg-black/60 backdrop-blur-sm"
   }, React.createElement("div", {
     className: "w-[min(92vw,420px)] rounded-2xl border border-cyan-500/20 bg-[#0f1420] shadow-2xl px-6 py-5"

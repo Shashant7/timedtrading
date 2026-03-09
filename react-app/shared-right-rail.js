@@ -62,7 +62,7 @@
     // ═══════════════════════════════════════════════════════════════════════
     // TradingView Lightweight Charts Sub-Component for Right Rail
     // ═══════════════════════════════════════════════════════════════════════
-    function LWChart({ candles: rawCandles, chartTf, overlays, onCrosshair, height: propHeight }) {
+    function LWChart({ candles: rawCandles, chartTf, overlays, onCrosshair, height: propHeight, priceLines: propPriceLines, markers: propMarkers }) {
       const containerRef = useRef(null);
       const chartInstanceRef = useRef(null);
       const candleSeriesRef = useRef(null);
@@ -282,11 +282,31 @@
           s.setData(indicatorData.stBear);
           addedSeries.stBear = s;
         }
-        // TD Sequential markers
-        if (indicatorData.tdMarkers?.length > 0) {
-          candleSeries.setMarkers(indicatorData.tdMarkers);
+        // TD Sequential markers + external markers
+        const allMarkers = [
+          ...(indicatorData.tdMarkers || []),
+          ...(Array.isArray(propMarkers) ? propMarkers : []),
+        ].sort((a, b) => a.time - b.time);
+        if (allMarkers.length > 0) {
+          candleSeries.setMarkers(allMarkers);
         }
         overlaySeriesRef.current = addedSeries;
+
+        // External price lines (SL, TP, Entry)
+        if (Array.isArray(propPriceLines)) {
+          for (const pl of propPriceLines) {
+            if (pl && Number.isFinite(pl.price) && pl.price > 0) {
+              candleSeries.createPriceLine({
+                price: pl.price,
+                color: pl.color || '#ffffff',
+                lineWidth: pl.lineWidth || 1,
+                lineStyle: pl.lineStyle != null ? pl.lineStyle : 2,
+                axisLabelVisible: pl.axisLabelVisible !== false,
+                title: pl.title || '',
+              });
+            }
+          }
+        }
 
         // Crosshair move → OHLC header
         chart.subscribeCrosshairMove(param => {
@@ -543,7 +563,7 @@
               setLoading(false);
               return;
             }
-            const mapped = mapCandles(data.candles, "10");
+            const mapped = mapCandles(data.candles, "15");
             candleSeries.setData(mapped);
 
             for (const pl of priceLinesRef.current) {
@@ -743,7 +763,7 @@
               setLoading(false);
               return;
             }
-            const mapped = mapCandles(data.candles, "10");
+            const mapped = mapCandles(data.candles, "15");
             if (mapped.length < 2) {
               setError("Insufficient data");
               setLoading(false);
@@ -935,7 +955,7 @@
         const [investorError, setInvestorError] = useState(null);
 
         // Right Rail: multi-timeframe candles chart (fetched on-demand)
-        const [chartTf, setChartTf] = useState("10"); // Default to 10m
+        const [chartTf, setChartTf] = useState("15"); // Default to 15m
         const [chartCandles, setChartCandles] = useState([]);
         const [chartLoading, setChartLoading] = useState(false);
         const [chartError, setChartError] = useState(null);
@@ -1000,6 +1020,9 @@
         const modelSignalCacheRef = useRef({ data: null, ts: 0 });
         const [chartOverlays, setChartOverlays] = useState({ ema21: true, ema48: true, ema200: false, supertrend: false, tdSequential: false });
         const [chartExpanded, setChartExpanded] = useState(false);
+        const [modalTf, setModalTf] = useState("15");
+        const [modalCandles, setModalCandles] = useState([]);
+        const [modalLoading, setModalLoading] = useState(false);
 
         // Close expanded chart on Escape
         useEffect(() => {
@@ -1008,6 +1031,40 @@
           window.addEventListener("keydown", onKey);
           return () => window.removeEventListener("keydown", onKey);
         }, [chartExpanded]);
+
+        // Sync modal TF with mini-chart TF when modal opens
+        useEffect(() => {
+          if (chartExpanded) {
+            setModalTf(chartTf);
+            setModalCandles([]);
+          }
+        }, [chartExpanded]);
+
+        // Fetch candles for expanded chart modal
+        useEffect(() => {
+          if (!chartExpanded || !tickerSymbol) return;
+          let cancelled = false;
+          const run = async () => {
+            try {
+              setModalLoading(true);
+              const qs = new URLSearchParams();
+              qs.set("ticker", tickerSymbol.toUpperCase());
+              qs.set("tf", modalTf);
+              qs.set("limit", "500");
+              const res = await fetch(`${API_BASE}/timed/candles?${qs.toString()}`, { cache: "no-store" });
+              if (!res.ok) throw new Error(`HTTP ${res.status}`);
+              const json = await res.json();
+              if (!json.ok) throw new Error(json.error || "candles_failed");
+              if (!cancelled) setModalCandles(Array.isArray(json.candles) ? json.candles : []);
+            } catch (e) {
+              if (!cancelled) setModalCandles([]);
+            } finally {
+              if (!cancelled) setModalLoading(false);
+            }
+          };
+          run();
+          return () => { cancelled = true; };
+        }, [chartExpanded, tickerSymbol, modalTf]);
         
         // Accordion states (MUST be at component level, not inside IIFE blocks)
         const [scoreExpanded, setScoreExpanded] = useState(true);
@@ -1349,7 +1406,8 @@
               setBubbleJourneyError(null);
               const qs = new URLSearchParams();
               qs.set("ticker", sym);
-              // Server may return oldest->newest; grab a reasonable window and sort client-side.
+              // Last 7 days only — matches user preference for recent journey
+              qs.set("since", String(Date.now() - 7 * 24 * 60 * 60 * 1000));
               qs.set("limit", "500");
               const res = await fetch(
                 `${API_BASE}/timed/trail?${qs.toString()}`,
@@ -1362,12 +1420,13 @@
               if (!json.ok) throw new Error(json.error || "trail_failed");
               const raw = Array.isArray(json.trail) ? json.trail : [];
               const normalized = normalizeTrailPoints(raw);
+              const cutoff7d = Date.now() - 7 * 24 * 60 * 60 * 1000;
               const withTs = normalized
                 .map((p) => {
                   const ts = toMs(
                     p.ts ?? p.timestamp ?? p.ingest_ts ?? p.ingest_time,
                   );
-                  if (!Number.isFinite(ts)) return null;
+                  if (!Number.isFinite(ts) || ts < cutoff7d) return null;
                   return { ...p, __ts_ms: ts };
                 })
                 .filter(Boolean)
@@ -1508,7 +1567,7 @@
           { k: "4H", label: "4H" },
           { k: "1H", label: "1H" },
           { k: "30", label: "30m" },
-          { k: "10", label: "10m" },
+          { k: "15", label: "15m" },
           { k: "5", label: "5m" },
         ];
         const emaLevels = [5, 13, 21, 48, 89, 200, 233];
@@ -2218,113 +2277,6 @@
                       })()}
 
                       {/* ═══════════════════════════════════════════════════════════ */}
-                      {/* 1b. REGIME CONTEXT (v3)                                    */}
-                      {/* ═══════════════════════════════════════════════════════════ */}
-                      {(() => {
-                        const rc = String(ticker?.regime_class || "");
-                        if (!rc) return null;
-                        const rs = Number(ticker?.regime_score) || 0;
-                        const rf = ticker?.regime_factors || {};
-                        const rp = ticker?.regime_params || {};
-                        const rvolMap = ticker?.rvol_map || {};
-                        const rv30 = Number(rvolMap?.["30"]?.vr) || 0;
-                        const rv1h = Number(rvolMap?.["60"]?.vr) || 0;
-                        const rvBest = Math.max(rv30, rv1h);
-                        const regBg = rc === "TRENDING" ? "bg-emerald-500/10 border-emerald-500/30" : rc === "CHOPPY" ? "bg-rose-500/10 border-rose-500/30" : "bg-amber-500/10 border-amber-500/30";
-                        const regTxt = rc === "TRENDING" ? "text-emerald-300" : rc === "CHOPPY" ? "text-rose-300" : "text-amber-300";
-                        const factorKeys = Object.keys(rf);
-                        return (
-                          <div className={`mb-3 px-2.5 py-2 rounded-lg border ${regBg}`}>
-                            <div className="flex items-center justify-between mb-1.5">
-                              <div className="flex items-center gap-1.5">
-                                <span className={`text-[11px] font-bold ${regTxt}`}>{rc}</span>
-                                <span className="text-[10px] text-slate-400">Regime</span>
-                              </div>
-                              <span className={`text-[11px] font-bold tabular-nums ${regTxt}`}>{rs >= 0 ? "+" : ""}{rs}</span>
-                            </div>
-                            <div className="grid grid-cols-3 gap-1.5 text-[9px] mb-1.5">
-                              <div className="p-1 bg-white/[0.03] rounded text-center">
-                                <div className="text-[8px] text-slate-500">RVOL</div>
-                                <div className={`font-bold tabular-nums ${rvBest >= 1.5 ? "text-emerald-400" : rvBest >= 0.8 ? "text-white" : "text-rose-400"}`}>{rvBest.toFixed(2)}x</div>
-                              </div>
-                              <div className="p-1 bg-white/[0.03] rounded text-center">
-                                <div className="text-[8px] text-slate-500">Min HTF</div>
-                                <div className="font-bold text-white tabular-nums">{rp.minHTFScore ?? "—"}</div>
-                              </div>
-                              <div className="p-1 bg-white/[0.03] rounded text-center">
-                                <div className="text-[8px] text-slate-500">Size</div>
-                                <div className="font-bold text-white tabular-nums">{rp.positionSizeMultiplier != null ? `${rp.positionSizeMultiplier}x` : "—"}</div>
-                              </div>
-                            </div>
-                            {factorKeys.length > 0 && (
-                              <div className="flex flex-wrap gap-x-2 gap-y-0.5 text-[8px] text-slate-400">
-                                {factorKeys.slice(0, 6).map(k => (
-                                  <span key={k} title={rf[k]}>{k.replace(/_/g," ")}: <span className={`font-semibold ${String(rf[k]).startsWith("+") ? "text-emerald-400" : String(rf[k]).startsWith("-") ? "text-rose-400" : "text-white"}`}>{String(rf[k]).split(" ")[0]}</span></span>
-                                ))}
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })()}
-
-                      {/* ═══════════════════════════════════════════════════════════ */}
-                      {/* 1c. TICKER PROFILE (Three-Tier Awareness)                  */}
-                      {/* ═══════════════════════════════════════════════════════════ */}
-                      {(() => {
-                        const tp = ticker?._ticker_profile;
-                        if (!tp || !tp.behavior_type) return null;
-                        const bt = String(tp.behavior_type);
-                        const btColor = bt === "MOMENTUM" ? "text-blue-300" : bt === "MEAN_REVERT" ? "text-purple-300" : "text-slate-300";
-                        const btBg = bt === "MOMENTUM" ? "bg-blue-500/10 border-blue-500/30" : bt === "MEAN_REVERT" ? "bg-purple-500/10 border-purple-500/30" : "bg-slate-500/10 border-slate-500/30";
-                        const slM = Number(tp.sl_mult) || 1;
-                        const tpM = Number(tp.tp_mult) || 1;
-                        const ethAdj = Number(tp.entry_threshold_adj) || 0;
-                        const atrPct = Number(tp.atr_pct_p50) || 0;
-                        const trendP = Number(tp.trend_persistence) || 0;
-                        const ichResp = Number(tp.ichimoku_responsiveness) || 0;
-                        return (
-                          <div className={`mb-3 px-2.5 py-2 rounded-lg border ${btBg}`}>
-                            <div className="flex items-center justify-between mb-1.5">
-                              <div className="flex items-center gap-1.5">
-                                <span className={`text-[11px] font-bold ${btColor}`}>{bt.replace("_", " ")}</span>
-                                <span className="text-[10px] text-slate-400">Profile</span>
-                              </div>
-                            </div>
-                            <div className="grid grid-cols-3 gap-1.5 text-[9px] mb-1.5">
-                              <div className="p-1 bg-white/[0.03] rounded text-center">
-                                <div className="text-[8px] text-slate-500">ATR%</div>
-                                <div className="font-bold text-white tabular-nums">{atrPct > 0 ? `${(atrPct * 100).toFixed(1)}%` : "—"}</div>
-                              </div>
-                              <div className="p-1 bg-white/[0.03] rounded text-center">
-                                <div className="text-[8px] text-slate-500">SL Mult</div>
-                                <div className={`font-bold tabular-nums ${slM > 1.05 ? "text-amber-300" : slM < 0.95 ? "text-emerald-300" : "text-white"}`}>{slM.toFixed(2)}x</div>
-                              </div>
-                              <div className="p-1 bg-white/[0.03] rounded text-center">
-                                <div className="text-[8px] text-slate-500">TP Mult</div>
-                                <div className={`font-bold tabular-nums ${tpM > 1.05 ? "text-emerald-300" : tpM < 0.95 ? "text-amber-300" : "text-white"}`}>{tpM.toFixed(2)}x</div>
-                              </div>
-                            </div>
-                            <div className="grid grid-cols-3 gap-1.5 text-[9px]">
-                              <div className="p-1 bg-white/[0.03] rounded text-center">
-                                <div className="text-[8px] text-slate-500">Trend Persist</div>
-                                <div className={`font-bold tabular-nums ${trendP >= 0.6 ? "text-emerald-400" : trendP <= 0.35 ? "text-rose-400" : "text-white"}`}>{(trendP * 100).toFixed(0)}%</div>
-                              </div>
-                              <div className="p-1 bg-white/[0.03] rounded text-center">
-                                <div className="text-[8px] text-slate-500">Ichi Resp</div>
-                                <div className={`font-bold tabular-nums ${ichResp >= 0.6 ? "text-emerald-400" : ichResp <= 0.35 ? "text-rose-400" : "text-white"}`}>{(ichResp * 100).toFixed(0)}%</div>
-                              </div>
-                              {ethAdj !== 0 && (
-                                <div className="p-1 bg-white/[0.03] rounded text-center">
-                                  <div className="text-[8px] text-slate-500">Entry Adj</div>
-                                  <div className={`font-bold tabular-nums ${ethAdj > 0 ? "text-amber-300" : "text-emerald-300"}`}>{ethAdj > 0 ? "+" : ""}{ethAdj}</div>
-                                </div>
-                              )}
-                            </div>
-                          </div>
-                        );
-                      })()}
-
-                      {/* ═══════════════════════════════════════════════════════════ */}
                       {/* 2. PRIME SETUP BANNER                                      */}
                       {/* ═══════════════════════════════════════════════════════════ */}
                       {prime && (
@@ -2457,6 +2409,391 @@
                           );
                         })()}
                       </div>
+
+                      {/* ═══════════════════════════════════════════════════════════ */}
+                      {/* 5. RISK / REWARD LEVELS                                    */}
+                      {/* ═══════════════════════════════════════════════════════════ */}
+                      {(() => {
+                        // Use position SL/TP when available (correct for SHORT trades)
+                        const posSlRaw = ticker?.has_open_position ? Number(ticker?.position_sl) : NaN;
+                        const posTpRaw = ticker?.has_open_position ? Number(ticker?.position_tp) : NaN;
+                        const price = Number(ticker?.price);
+                        const kijunSL = resolvedDir === "LONG" ? Number(ticker?.ichimoku_d?.kijunSL_long) : Number(ticker?.ichimoku_d?.kijunSL_short);
+                        const slRaw = Number.isFinite(posSlRaw) && posSlRaw > 0 ? posSlRaw : (ticker?.sl ?? ticker?.sl_price ?? ticker?.stop_loss) ? Number(ticker?.sl ?? ticker?.sl_price ?? ticker?.stop_loss) : (Number.isFinite(kijunSL) && kijunSL > 0 ? kijunSL : null);
+                        // Direction-aware SL sanity: LONG → SL below price; SHORT → SL above price.
+                        // Stale ingest data can have LONG-style SL when state flipped to SHORT.
+                        const slSane = (raw) => {
+                          if (!Number.isFinite(raw) || raw <= 0) return null;
+                          if (!resolvedDir || !Number.isFinite(price) || price <= 0) return raw;
+                          if (resolvedDir === "LONG" && raw >= price) return null;
+                          if (resolvedDir === "SHORT" && raw <= price) return null;
+                          return raw;
+                        };
+                        const sl = slSane(slRaw);
+                        // Original SL at trade creation — used to determine if TSL is active
+                        const slOrigRaw = Number(trade?.sl_original ?? ticker?.position_sl_original ?? 0);
+                        const slOrig = (Number.isFinite(slOrigRaw) && slOrigRaw > 0 ? slSane(slOrigRaw) : null);
+                        const rr = ticker.rr ? Number(ticker.rr) : null;
+                        const hasSl = sl != null && sl > 0;
+                        // TSL is active when current SL has moved > 0.5% from original
+                        const tslActive = hasSl && slOrig && Math.abs(sl - slOrig) / slOrig > 0.005;
+
+                        // Prefer trade-level tpArray (direction-aware) over ticker-level (may be LONG-only)
+                        const tradeTpArr = Array.isArray(trade?.tpArray) && trade.tpArray.length > 0
+                          ? trade.tpArray
+                          : (Array.isArray(ticker?.tpArray) ? ticker.tpArray : []);
+                        const tpTrimRaw = tradeTpArr.length > 0
+                          ? Number(tradeTpArr[0]?.price)
+                          : Number(ticker?.tp_trim);
+                        const tpExitRaw = tradeTpArr.length > 1
+                          ? Number(tradeTpArr[1]?.price)
+                          : Number(ticker?.tp_exit);
+                        const tpRunnerRaw = tradeTpArr.length > 2
+                          ? Number(tradeTpArr[2]?.price)
+                          : Number(ticker?.tp_runner);
+                        // Direction-aware TP sanity: filter out wrong-side TPs.
+                        // For SHORT, TPs must be BELOW entry/price. For LONG, ABOVE.
+                        const entryPxForTp = Number(ticker?.position_entry || trade?.entry_price || trade?.entryPrice || ticker?.entry_price || ticker?.entry_ref || ticker?.trigger_price) || 0;
+                        const tpSane = (raw) => {
+                          if (!Number.isFinite(raw) || raw <= 0) return NaN;
+                          if (!resolvedDir) return raw;
+                          // Check against entry price if available
+                          if (entryPxForTp > 0) {
+                            if (resolvedDir === "LONG" && raw <= entryPxForTp) return NaN;
+                            if (resolvedDir === "SHORT" && raw >= entryPxForTp) return NaN;
+                          }
+                          // Also check against current price — TP must not already be passed
+                          if (Number.isFinite(price) && price > 0) {
+                            if (resolvedDir === "LONG" && raw <= price) return NaN;
+                            if (resolvedDir === "SHORT" && raw >= price) return NaN;
+                          }
+                          return raw;
+                        };
+                        const tpTrim = tpSane(tpTrimRaw);
+                        const tpExit = tpSane(tpExitRaw);
+                        const tpRunner = tpSane(tpRunnerRaw);
+                        const has3Tier = (Number.isFinite(tpTrim) && tpTrim > 0) || (Number.isFinite(tpExit) && tpExit > 0);
+
+                        const legacyTargetRaw = computeTpTargetPrice(ticker);
+                        const legacyMaxRaw = computeTpMaxPrice(ticker);
+                        // Direction sanity: for LONG, TP must be above price; for SHORT, below
+                        const legacyTarget = (() => {
+                          if (!Number.isFinite(legacyTargetRaw) || legacyTargetRaw <= 0) return null;
+                          if (!resolvedDir || !Number.isFinite(price) || price <= 0) return legacyTargetRaw;
+                          if (resolvedDir === "LONG" && legacyTargetRaw <= price) return null;
+                          if (resolvedDir === "SHORT" && legacyTargetRaw >= price) return null;
+                          return legacyTargetRaw;
+                        })();
+                        const legacyMax = (() => {
+                          if (!Number.isFinite(legacyMaxRaw) || legacyMaxRaw <= 0) return null;
+                          if (!resolvedDir || !Number.isFinite(price) || price <= 0) return legacyMaxRaw;
+                          if (resolvedDir === "LONG" && legacyMaxRaw <= price) return null;
+                          if (resolvedDir === "SHORT" && legacyMaxRaw >= price) return null;
+                          return legacyMaxRaw;
+                        })();
+                        const hasLegacy = !has3Tier && (Number.isFinite(legacyTarget) || Number.isFinite(legacyMax));
+
+                        if (!hasSl && !has3Tier && !hasLegacy && !Number.isFinite(rr)) return null;
+
+                        const dir = resolvedDir; // unified direction from top of component
+                        // SL% = absolute risk distance from current price
+                        const slDistPct = hasSl && Number.isFinite(price) && price > 0
+                          ? Math.abs((sl - price) / price) * 100
+                          : null;
+
+                        // Compute per-target R:R from current price (requires known direction)
+                        const computeTargetRR = (tpVal) => {
+                          if (!dir || !hasSl || !Number.isFinite(price) || price <= 0 || !Number.isFinite(tpVal) || tpVal <= 0) return null;
+                          const risk = dir === "LONG" ? price - sl : sl - price;
+                          const gain = dir === "LONG" ? tpVal - price : price - tpVal;
+                          if (risk <= 0 || gain <= 0) return null;
+                          return gain / risk;
+                        };
+
+                        // Per-target % distance from current price
+                        const tpPct = (tpVal) => {
+                          if (!Number.isFinite(price) || price <= 0 || !Number.isFinite(tpVal) || tpVal <= 0) return null;
+                          return Math.abs((tpVal - price) / price) * 100;
+                        };
+
+                        const rrTrim = has3Tier ? computeTargetRR(tpTrim) : null;
+                        const rrExit = has3Tier ? computeTargetRR(tpExit) : null;
+                        const rrRunner = has3Tier ? computeTargetRR(tpRunner) : null;
+
+                        const getProgressToTp = (tpVal) => {
+                          if (!dir || !Number.isFinite(price) || price <= 0 || !Number.isFinite(tpVal)) return 0;
+                          const slVal = hasSl ? sl : price;
+                          const totalMove = Math.abs(tpVal - slVal);
+                          if (totalMove <= 0) return 0;
+                          const currentMove = dir === "LONG" ? price - slVal : slVal - price;
+                          return Math.max(0, Math.min(1, currentMove / totalMove));
+                        };
+                        const tierCards = [
+                          { tp: tpTrim, rr: rrTrim, label: "Take Profit 1", sub: "Trim 60%", icon: "🎯", bg: "bg-yellow-500/10", border: "border-yellow-500/30", text: "text-yellow-400" },
+                          { tp: tpExit, rr: rrExit, label: "Take Profit 2", sub: "Exit 85%", icon: "💰", bg: "bg-orange-500/10", border: "border-orange-500/30", text: "text-orange-400" },
+                          { tp: tpRunner, rr: rrRunner, label: "Take Profit 3", sub: "Runner", icon: "🚀", bg: "bg-teal-500/10", border: "border-teal-500/30", text: "text-teal-400" },
+                        ];
+                        return (
+                          <div className="mb-4 space-y-2">
+                            <div className="text-[10px] text-[#6b7280] font-semibold uppercase tracking-wider">Risk / Reward Levels</div>
+                            {hasSl && (
+                              <div className="space-y-1.5">
+                                {/* Original SL — always shown when SL exists */}
+                                {(() => { const slFromKijun = Number.isFinite(kijunSL) && kijunSL > 0 && slRaw === kijunSL; return (
+                                <div className={`p-2.5 rounded border flex items-center justify-between ${tslActive ? "bg-white/[0.02] border-white/[0.08]" : "bg-red-500/10 border-red-500/30"}`} title={slFromKijun ? "Kijun-Sen (Ichimoku Cloud) reference" : undefined}>
+                                  <span className={`text-xs font-semibold ${tslActive ? "text-[#6b7280]" : "text-red-400"}`}>Stop Loss{slFromKijun ? " (Kijun)" : ""}</span>
+                                  <span className={`text-xs font-bold ${tslActive ? "text-[#6b7280]" : "text-red-400"}`}>{tslActive && slOrig ? `$${slOrig.toFixed(2)}` : `$${sl.toFixed(2)}`}</span>
+                                  {!tslActive && Number.isFinite(slDistPct) && <span className="text-[9px] text-red-300/70">{slDistPct.toFixed(1)}% risk</span>}
+                                  {tslActive && <span className="text-[9px] text-[#4b5563]">original</span>}
+                                </div>
+                                ); })()}
+                                {/* TSL — only shown when stop has been trailed */}
+                                {tslActive && (
+                                  <div className="p-2.5 rounded border bg-red-500/10 border-red-500/30 flex items-center justify-between">
+                                    <span className="text-xs font-semibold text-red-400" title="Trailing Stop Loss">TSL</span>
+                                    <span className="text-xs font-bold text-red-400">${sl.toFixed(2)}</span>
+                                    {Number.isFinite(slDistPct) && <span className="text-[9px] text-red-300/70">{slDistPct.toFixed(1)}% risk</span>}
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                            <div className="space-y-2">
+                              {has3Tier ? (
+                                tierCards.filter(t => Number.isFinite(t.tp) && t.tp > 0).map((tier, idx) => {
+                                  const progress = getProgressToTp(tier.tp);
+                                  return (
+                                    <div key={idx} className={`p-2.5 rounded border ${tier.bg} ${tier.border}`}>
+                                      <div className="flex justify-between items-center mb-1.5">
+                                        <div className="flex items-center gap-2">
+                                          <span className="text-sm">{tier.icon}</span>
+                                          <span className={`text-xs font-semibold ${tier.text}`}>{tier.label}</span>
+                                          <span className="text-[10px] text-[#6b7280]">({tier.sub})</span>
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                          <span className={`text-xs font-bold ${tier.text}`}>${tier.tp.toFixed(2)}</span>
+                                          {window._ttIsPro && Number.isFinite(tier.rr) && <span className="text-[10px] font-semibold text-blue-400">{tier.rr.toFixed(2)}:1</span>}
+                                        </div>
+                                      </div>
+                                      {window._ttIsPro && (
+                                        <div className="h-1.5 bg-white/[0.06] rounded-full overflow-hidden">
+                                          <div className={`h-full ${tier.label.includes("1") ? "bg-yellow-500" : tier.label.includes("2") ? "bg-orange-500" : "bg-teal-500"} transition-all`} style={{ width: `${Math.round(progress * 100)}%` }} />
+                                        </div>
+                                      )}
+                                    </div>
+                                  );
+                                })
+                              ) : hasLegacy ? (
+                                <>
+                                  {Number.isFinite(legacyTarget) && (
+                                    <div className="flex items-center justify-between gap-2 text-xs">
+                                      <div className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-teal-500/10 border border-teal-500/25">
+                                        <span className="text-[10px] text-teal-300">Target</span>
+                                        <span className="font-bold text-teal-400">${legacyTarget.toFixed(2)}</span>
+                                      </div>
+                                      {Number.isFinite(tpPct(legacyTarget)) && <span className="text-[9px] text-[#6b7280]">{tpPct(legacyTarget).toFixed(1)}%</span>}
+                                    </div>
+                                  )}
+                                  {Number.isFinite(legacyMax) && Math.abs(legacyMax - (legacyTarget || 0)) > 0.01 && (
+                                    <div className="flex items-center justify-between gap-2 text-xs">
+                                      <div className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-teal-500/10 border border-teal-500/25">
+                                        <span className="text-[10px] text-teal-300">Stretch</span>
+                                        <span className="font-bold text-teal-400">${legacyMax.toFixed(2)}</span>
+                                      </div>
+                                      {Number.isFinite(tpPct(legacyMax)) && <span className="text-[9px] text-[#6b7280]">{tpPct(legacyMax).toFixed(1)}%</span>}
+                                    </div>
+                                  )}
+                                </>
+                              ) : null}
+                            </div>
+                          </div>
+                        );
+                      })()}
+
+                      {/* ═══════════════════════════════════════════════════════════ */}
+                      {/* 5b. MINI PRICE CHART (SL / TP1 / Entry overlay)            */}
+                      {/* ═══════════════════════════════════════════════════════════ */}
+                      {(() => {
+                        if (!Array.isArray(chartCandles) || chartCandles.length < 2 || chartLoading) return null;
+
+                        const price = Number(ticker?.price);
+                        const posSlRaw = ticker?.has_open_position ? Number(ticker?.position_sl) : NaN;
+                        const kijunSL2 = resolvedDir === "LONG" ? Number(ticker?.ichimoku_d?.kijunSL_long) : Number(ticker?.ichimoku_d?.kijunSL_short);
+                        const slRaw = Number.isFinite(posSlRaw) && posSlRaw > 0 ? posSlRaw : (ticker?.sl ?? ticker?.sl_price ?? ticker?.stop_loss) ? Number(ticker?.sl ?? ticker?.sl_price ?? ticker?.stop_loss) : (Number.isFinite(kijunSL2) && kijunSL2 > 0 ? kijunSL2 : null);
+                        const slVal = (() => {
+                          if (!Number.isFinite(slRaw) || slRaw <= 0) return null;
+                          if (!resolvedDir || !Number.isFinite(price) || price <= 0) return slRaw;
+                          if (resolvedDir === "LONG" && slRaw >= price) return null;
+                          if (resolvedDir === "SHORT" && slRaw <= price) return null;
+                          return slRaw;
+                        })();
+
+                        const tradeTpArr = Array.isArray(trade?.tpArray) && trade.tpArray.length > 0
+                          ? trade.tpArray
+                          : (Array.isArray(ticker?.tpArray) ? ticker.tpArray : []);
+                        const tp1Raw = tradeTpArr.length > 0
+                          ? Number(tradeTpArr[0]?.price)
+                          : Number(ticker?.tp_trim);
+                        const tp1Val = Number.isFinite(tp1Raw) && tp1Raw > 0 ? tp1Raw : null;
+
+                        const entryPx = Number(
+                          ticker?.position_entry || trade?.entry_price || trade?.entryPrice || ticker?.entry_price
+                        ) || 0;
+                        const hasPosition = !!ticker?.has_open_position;
+
+                        const miniPriceLines = [];
+                        if (slVal != null && slVal > 0) {
+                          miniPriceLines.push({ price: slVal, color: '#ef4444', lineWidth: 1, lineStyle: 2, title: 'SL' });
+                        }
+                        if (tp1Val != null && tp1Val > 0) {
+                          miniPriceLines.push({ price: tp1Val, color: '#22c55e', lineWidth: 1, lineStyle: 2, title: 'TP1' });
+                        }
+                        if (hasPosition && entryPx > 0) {
+                          miniPriceLines.push({ price: entryPx, color: '#3b82f6', lineWidth: 2, lineStyle: 0, title: 'Entry' });
+                        }
+
+                        const miniMarkers = [];
+                        if (hasPosition && entryPx > 0) {
+                          const entryTs = Number(trade?.entry_ts || ticker?.position_entry_ts || 0);
+                          if (entryTs > 0) {
+                            const ts = entryTs > 1e12 ? Math.floor(entryTs / 1000) : entryTs;
+                            miniMarkers.push({
+                              time: ts,
+                              position: resolvedDir === "SHORT" ? "aboveBar" : "belowBar",
+                              color: '#3b82f6',
+                              shape: resolvedDir === "SHORT" ? "arrowDown" : "arrowUp",
+                              text: 'Entry',
+                            });
+                          }
+                        }
+
+                        return React.createElement("div", { className: "mb-4" },
+                          React.createElement("div", { className: "flex items-center justify-between mb-2" },
+                            React.createElement("div", {
+                              className: "text-[10px] text-[#6b7280] font-semibold uppercase tracking-wider"
+                            }, "Mini Chart"),
+                            React.createElement("button", {
+                              onClick: () => setChartExpanded(true),
+                              className: "text-[9px] text-blue-400 hover:text-blue-300 transition-colors px-1.5 py-0.5 rounded border border-blue-400/20 hover:border-blue-400/40",
+                            }, "Expand")
+                          ),
+                          React.createElement(LWChart, {
+                            candles: chartCandles,
+                            chartTf: chartTf,
+                            overlays: chartOverlays,
+                            onCrosshair: (key) => setChartOverlays(prev => ({ ...prev, [key]: !prev[key] })),
+                            height: 200,
+                            priceLines: miniPriceLines,
+                            markers: miniMarkers,
+                          })
+                        );
+                      })()}
+
+                      {/* ═══════════════════════════════════════════════════════════ */}
+                      {/* 1b. REGIME CONTEXT (v3)                                    */}
+                      {/* ═══════════════════════════════════════════════════════════ */}
+                      {(() => {
+                        const rc = String(ticker?.regime_class || "");
+                        if (!rc) return null;
+                        const rs = Number(ticker?.regime_score) || 0;
+                        const rf = ticker?.regime_factors || {};
+                        const rp = ticker?.regime_params || {};
+                        const rvolMap = ticker?.rvol_map || {};
+                        const rv30 = Number(rvolMap?.["30"]?.vr) || 0;
+                        const rv1h = Number(rvolMap?.["60"]?.vr) || 0;
+                        const rvBest = Math.max(rv30, rv1h);
+                        const regBg = rc === "TRENDING" ? "bg-emerald-500/10 border-emerald-500/30" : rc === "CHOPPY" ? "bg-rose-500/10 border-rose-500/30" : "bg-amber-500/10 border-amber-500/30";
+                        const regTxt = rc === "TRENDING" ? "text-emerald-300" : rc === "CHOPPY" ? "text-rose-300" : "text-amber-300";
+                        const factorKeys = Object.keys(rf);
+                        return (
+                          <div className={`mb-3 px-2.5 py-2 rounded-lg border ${regBg}`}>
+                            <div className="flex items-center justify-between mb-1.5">
+                              <div className="flex items-center gap-1.5">
+                                <span className={`text-[11px] font-bold ${regTxt}`}>{rc}</span>
+                                <span className="text-[10px] text-slate-400">Regime</span>
+                              </div>
+                              <span className={`text-[11px] font-bold tabular-nums ${regTxt}`}>{rs >= 0 ? "+" : ""}{rs}</span>
+                            </div>
+                            <div className="grid grid-cols-3 gap-1.5 text-[9px] mb-1.5">
+                              <div className="p-1 bg-white/[0.03] rounded text-center">
+                                <div className="text-[8px] text-slate-500">RVOL</div>
+                                <div className={`font-bold tabular-nums ${rvBest >= 1.5 ? "text-emerald-400" : rvBest >= 0.8 ? "text-white" : "text-rose-400"}`}>{rvBest.toFixed(2)}x</div>
+                              </div>
+                              <div className="p-1 bg-white/[0.03] rounded text-center">
+                                <div className="text-[8px] text-slate-500">Min HTF</div>
+                                <div className="font-bold text-white tabular-nums">{rp.minHTFScore ?? "—"}</div>
+                              </div>
+                              <div className="p-1 bg-white/[0.03] rounded text-center">
+                                <div className="text-[8px] text-slate-500">Size</div>
+                                <div className="font-bold text-white tabular-nums">{rp.positionSizeMultiplier != null ? `${rp.positionSizeMultiplier}x` : "—"}</div>
+                              </div>
+                            </div>
+                            {factorKeys.length > 0 && (
+                              <div className="flex flex-wrap gap-x-2 gap-y-0.5 text-[8px] text-slate-400">
+                                {factorKeys.slice(0, 6).map(k => (
+                                  <span key={k} title={rf[k]}>{k.replace(/_/g," ")}: <span className={`font-semibold ${String(rf[k]).startsWith("+") ? "text-emerald-400" : String(rf[k]).startsWith("-") ? "text-rose-400" : "text-white"}`}>{String(rf[k]).split(" ")[0]}</span></span>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })()}
+
+                      {/* ═══════════════════════════════════════════════════════════ */}
+                      {/* 1c. TICKER PROFILE (Three-Tier Awareness)                  */}
+                      {/* ═══════════════════════════════════════════════════════════ */}
+                      {(() => {
+                        const tp = ticker?._ticker_profile;
+                        if (!tp || !tp.behavior_type) return null;
+                        const bt = String(tp.behavior_type);
+                        const btColor = bt === "MOMENTUM" ? "text-blue-300" : bt === "MEAN_REVERT" ? "text-purple-300" : "text-slate-300";
+                        const btBg = bt === "MOMENTUM" ? "bg-blue-500/10 border-blue-500/30" : bt === "MEAN_REVERT" ? "bg-purple-500/10 border-purple-500/30" : "bg-slate-500/10 border-slate-500/30";
+                        const slM = Number(tp.sl_mult) || 1;
+                        const tpM = Number(tp.tp_mult) || 1;
+                        const ethAdj = Number(tp.entry_threshold_adj) || 0;
+                        const atrPct = Number(tp.atr_pct_p50) || 0;
+                        const trendP = Number(tp.trend_persistence) || 0;
+                        const ichResp = Number(tp.ichimoku_responsiveness) || 0;
+                        return (
+                          <div className={`mb-3 px-2.5 py-2 rounded-lg border ${btBg}`}>
+                            <div className="flex items-center justify-between mb-1.5">
+                              <div className="flex items-center gap-1.5">
+                                <span className={`text-[11px] font-bold ${btColor}`}>{bt.replace("_", " ")}</span>
+                                <span className="text-[10px] text-slate-400">Profile</span>
+                              </div>
+                            </div>
+                            <div className="grid grid-cols-3 gap-1.5 text-[9px] mb-1.5">
+                              <div className="p-1 bg-white/[0.03] rounded text-center">
+                                <div className="text-[8px] text-slate-500">ATR%</div>
+                                <div className="font-bold text-white tabular-nums">{atrPct > 0 ? `${(atrPct * 100).toFixed(1)}%` : "—"}</div>
+                              </div>
+                              <div className="p-1 bg-white/[0.03] rounded text-center">
+                                <div className="text-[8px] text-slate-500">SL Mult</div>
+                                <div className={`font-bold tabular-nums ${slM > 1.05 ? "text-amber-300" : slM < 0.95 ? "text-emerald-300" : "text-white"}`}>{slM.toFixed(2)}x</div>
+                              </div>
+                              <div className="p-1 bg-white/[0.03] rounded text-center">
+                                <div className="text-[8px] text-slate-500">TP Mult</div>
+                                <div className={`font-bold tabular-nums ${tpM > 1.05 ? "text-emerald-300" : tpM < 0.95 ? "text-amber-300" : "text-white"}`}>{tpM.toFixed(2)}x</div>
+                              </div>
+                            </div>
+                            <div className="grid grid-cols-3 gap-1.5 text-[9px]">
+                              <div className="p-1 bg-white/[0.03] rounded text-center">
+                                <div className="text-[8px] text-slate-500">Trend Persist</div>
+                                <div className={`font-bold tabular-nums ${trendP >= 0.6 ? "text-emerald-400" : trendP <= 0.35 ? "text-rose-400" : "text-white"}`}>{(trendP * 100).toFixed(0)}%</div>
+                              </div>
+                              <div className="p-1 bg-white/[0.03] rounded text-center">
+                                <div className="text-[8px] text-slate-500">Ichi Resp</div>
+                                <div className={`font-bold tabular-nums ${ichResp >= 0.6 ? "text-emerald-400" : ichResp <= 0.35 ? "text-rose-400" : "text-white"}`}>{(ichResp * 100).toFixed(0)}%</div>
+                              </div>
+                              {ethAdj !== 0 && (
+                                <div className="p-1 bg-white/[0.03] rounded text-center">
+                                  <div className="text-[8px] text-slate-500">Entry Adj</div>
+                                  <div className={`font-bold tabular-nums ${ethAdj > 0 ? "text-amber-300" : "text-emerald-300"}`}>{ethAdj > 0 ? "+" : ""}{ethAdj}</div>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })()}
 
                       {/* ═══════════════════════════════════════════════════════════ */}
                       {/* 3b. SYSTEM ALIGNMENT (calibration-derived)                  */}
@@ -2625,210 +2962,14 @@
                         );
                       })()}
 
-                      {/* ═══════════════════════════════════════════════════════════ */}
-                      {/* 5. RISK / REWARD LEVELS                                    */}
-                      {/* ═══════════════════════════════════════════════════════════ */}
-                      {(() => {
-                        // Use position SL/TP when available (correct for SHORT trades)
-                        const posSlRaw = ticker?.has_open_position ? Number(ticker?.position_sl) : NaN;
-                        const posTpRaw = ticker?.has_open_position ? Number(ticker?.position_tp) : NaN;
-                        const price = Number(ticker?.price);
-                        const slRaw = Number.isFinite(posSlRaw) && posSlRaw > 0 ? posSlRaw : (ticker.sl ? Number(ticker.sl) : null);
-                        // Direction-aware SL sanity: LONG → SL below price; SHORT → SL above price.
-                        // Stale ingest data can have LONG-style SL when state flipped to SHORT.
-                        const slSane = (raw) => {
-                          if (!Number.isFinite(raw) || raw <= 0) return null;
-                          if (!resolvedDir || !Number.isFinite(price) || price <= 0) return raw;
-                          if (resolvedDir === "LONG" && raw >= price) return null;
-                          if (resolvedDir === "SHORT" && raw <= price) return null;
-                          return raw;
-                        };
-                        const sl = slSane(slRaw);
-                        // Original SL at trade creation — used to determine if TSL is active
-                        const slOrigRaw = Number(trade?.sl_original ?? ticker?.position_sl_original ?? 0);
-                        const slOrig = (Number.isFinite(slOrigRaw) && slOrigRaw > 0 ? slSane(slOrigRaw) : null);
-                        const rr = ticker.rr ? Number(ticker.rr) : null;
-                        const hasSl = sl != null && sl > 0;
-                        // TSL is active when current SL has moved > 0.5% from original
-                        const tslActive = hasSl && slOrig && Math.abs(sl - slOrig) / slOrig > 0.005;
-
-                        // Prefer trade-level tpArray (direction-aware) over ticker-level (may be LONG-only)
-                        const tradeTpArr = Array.isArray(trade?.tpArray) && trade.tpArray.length > 0
-                          ? trade.tpArray
-                          : (Array.isArray(ticker?.tpArray) ? ticker.tpArray : []);
-                        const tpTrimRaw = tradeTpArr.length > 0
-                          ? Number(tradeTpArr[0]?.price)
-                          : Number(ticker?.tp_trim);
-                        const tpExitRaw = tradeTpArr.length > 1
-                          ? Number(tradeTpArr[1]?.price)
-                          : Number(ticker?.tp_exit);
-                        const tpRunnerRaw = tradeTpArr.length > 2
-                          ? Number(tradeTpArr[2]?.price)
-                          : Number(ticker?.tp_runner);
-                        // Direction-aware TP sanity: filter out wrong-side TPs.
-                        // For SHORT, TPs must be BELOW entry/price. For LONG, ABOVE.
-                        const entryPxForTp = Number(ticker?.position_entry || trade?.entry_price || trade?.entryPrice || ticker?.entry_price || ticker?.entry_ref || ticker?.trigger_price) || 0;
-                        const tpSane = (raw) => {
-                          if (!Number.isFinite(raw) || raw <= 0) return NaN;
-                          if (!resolvedDir) return raw;
-                          // Check against entry price if available
-                          if (entryPxForTp > 0) {
-                            if (resolvedDir === "LONG" && raw <= entryPxForTp) return NaN;
-                            if (resolvedDir === "SHORT" && raw >= entryPxForTp) return NaN;
-                          }
-                          // Also check against current price — TP must not already be passed
-                          if (Number.isFinite(price) && price > 0) {
-                            if (resolvedDir === "LONG" && raw <= price) return NaN;
-                            if (resolvedDir === "SHORT" && raw >= price) return NaN;
-                          }
-                          return raw;
-                        };
-                        const tpTrim = tpSane(tpTrimRaw);
-                        const tpExit = tpSane(tpExitRaw);
-                        const tpRunner = tpSane(tpRunnerRaw);
-                        const has3Tier = (Number.isFinite(tpTrim) && tpTrim > 0) || (Number.isFinite(tpExit) && tpExit > 0);
-
-                        const legacyTargetRaw = computeTpTargetPrice(ticker);
-                        const legacyMaxRaw = computeTpMaxPrice(ticker);
-                        // Direction sanity: for LONG, TP must be above price; for SHORT, below
-                        const legacyTarget = (() => {
-                          if (!Number.isFinite(legacyTargetRaw) || legacyTargetRaw <= 0) return null;
-                          if (!resolvedDir || !Number.isFinite(price) || price <= 0) return legacyTargetRaw;
-                          if (resolvedDir === "LONG" && legacyTargetRaw <= price) return null;
-                          if (resolvedDir === "SHORT" && legacyTargetRaw >= price) return null;
-                          return legacyTargetRaw;
-                        })();
-                        const legacyMax = (() => {
-                          if (!Number.isFinite(legacyMaxRaw) || legacyMaxRaw <= 0) return null;
-                          if (!resolvedDir || !Number.isFinite(price) || price <= 0) return legacyMaxRaw;
-                          if (resolvedDir === "LONG" && legacyMaxRaw <= price) return null;
-                          if (resolvedDir === "SHORT" && legacyMaxRaw >= price) return null;
-                          return legacyMaxRaw;
-                        })();
-                        const hasLegacy = !has3Tier && (Number.isFinite(legacyTarget) || Number.isFinite(legacyMax));
-
-                        if (!hasSl && !has3Tier && !hasLegacy && !Number.isFinite(rr)) return null;
-
-                        const dir = resolvedDir; // unified direction from top of component
-                        // SL% = absolute risk distance from current price
-                        const slDistPct = hasSl && Number.isFinite(price) && price > 0
-                          ? Math.abs((sl - price) / price) * 100
-                          : null;
-
-                        // Compute per-target R:R from current price (requires known direction)
-                        const computeTargetRR = (tpVal) => {
-                          if (!dir || !hasSl || !Number.isFinite(price) || price <= 0 || !Number.isFinite(tpVal) || tpVal <= 0) return null;
-                          const risk = dir === "LONG" ? price - sl : sl - price;
-                          const gain = dir === "LONG" ? tpVal - price : price - tpVal;
-                          if (risk <= 0 || gain <= 0) return null;
-                          return gain / risk;
-                        };
-
-                        // Per-target % distance from current price
-                        const tpPct = (tpVal) => {
-                          if (!Number.isFinite(price) || price <= 0 || !Number.isFinite(tpVal) || tpVal <= 0) return null;
-                          return Math.abs((tpVal - price) / price) * 100;
-                        };
-
-                        const rrTrim = has3Tier ? computeTargetRR(tpTrim) : null;
-                        const rrExit = has3Tier ? computeTargetRR(tpExit) : null;
-                        const rrRunner = has3Tier ? computeTargetRR(tpRunner) : null;
-
-                        const getProgressToTp = (tpVal) => {
-                          if (!dir || !Number.isFinite(price) || price <= 0 || !Number.isFinite(tpVal)) return 0;
-                          const slVal = hasSl ? sl : price;
-                          const totalMove = Math.abs(tpVal - slVal);
-                          if (totalMove <= 0) return 0;
-                          const currentMove = dir === "LONG" ? price - slVal : slVal - price;
-                          return Math.max(0, Math.min(1, currentMove / totalMove));
-                        };
-                        const tierCards = [
-                          { tp: tpTrim, rr: rrTrim, label: "Take Profit 1", sub: "Trim 60%", icon: "🎯", bg: "bg-yellow-500/10", border: "border-yellow-500/30", text: "text-yellow-400" },
-                          { tp: tpExit, rr: rrExit, label: "Take Profit 2", sub: "Exit 85%", icon: "💰", bg: "bg-orange-500/10", border: "border-orange-500/30", text: "text-orange-400" },
-                          { tp: tpRunner, rr: rrRunner, label: "Take Profit 3", sub: "Runner", icon: "🚀", bg: "bg-teal-500/10", border: "border-teal-500/30", text: "text-teal-400" },
-                        ];
-                        return (
-                          <div className="mb-4 space-y-2">
-                            <div className="text-[10px] text-[#6b7280] font-semibold uppercase tracking-wider">Risk / Reward Levels</div>
-                            {hasSl && (
-                              <div className="space-y-1.5">
-                                {/* Original SL — always shown when SL exists */}
-                                <div className={`p-2.5 rounded border flex items-center justify-between ${tslActive ? "bg-white/[0.02] border-white/[0.08]" : "bg-red-500/10 border-red-500/30"}`}>
-                                  <span className={`text-xs font-semibold ${tslActive ? "text-[#6b7280]" : "text-red-400"}`}>Stop Loss</span>
-                                  <span className={`text-xs font-bold ${tslActive ? "text-[#6b7280]" : "text-red-400"}`}>{tslActive && slOrig ? `$${slOrig.toFixed(2)}` : `$${sl.toFixed(2)}`}</span>
-                                  {!tslActive && Number.isFinite(slDistPct) && <span className="text-[9px] text-red-300/70">{slDistPct.toFixed(1)}% risk</span>}
-                                  {tslActive && <span className="text-[9px] text-[#4b5563]">original</span>}
-                                </div>
-                                {/* TSL — only shown when stop has been trailed */}
-                                {tslActive && (
-                                  <div className="p-2.5 rounded border bg-red-500/10 border-red-500/30 flex items-center justify-between">
-                                    <span className="text-xs font-semibold text-red-400" title="Trailing Stop Loss">TSL</span>
-                                    <span className="text-xs font-bold text-red-400">${sl.toFixed(2)}</span>
-                                    {Number.isFinite(slDistPct) && <span className="text-[9px] text-red-300/70">{slDistPct.toFixed(1)}% risk</span>}
-                                  </div>
-                                )}
-                              </div>
-                            )}
-                            <div className="space-y-2">
-                              {has3Tier ? (
-                                tierCards.filter(t => Number.isFinite(t.tp) && t.tp > 0).map((tier, idx) => {
-                                  const progress = getProgressToTp(tier.tp);
-                                  return (
-                                    <div key={idx} className={`p-2.5 rounded border ${tier.bg} ${tier.border}`}>
-                                      <div className="flex justify-between items-center mb-1.5">
-                                        <div className="flex items-center gap-2">
-                                          <span className="text-sm">{tier.icon}</span>
-                                          <span className={`text-xs font-semibold ${tier.text}`}>{tier.label}</span>
-                                          <span className="text-[10px] text-[#6b7280]">({tier.sub})</span>
-                                        </div>
-                                        <div className="flex items-center gap-2">
-                                          <span className={`text-xs font-bold ${tier.text}`}>${tier.tp.toFixed(2)}</span>
-                                          {window._ttIsPro && Number.isFinite(tier.rr) && <span className="text-[10px] font-semibold text-blue-400">{tier.rr.toFixed(2)}:1</span>}
-                                        </div>
-                                      </div>
-                                      {window._ttIsPro && (
-                                        <div className="h-1.5 bg-white/[0.06] rounded-full overflow-hidden">
-                                          <div className={`h-full ${tier.label.includes("1") ? "bg-yellow-500" : tier.label.includes("2") ? "bg-orange-500" : "bg-teal-500"} transition-all`} style={{ width: `${Math.round(progress * 100)}%` }} />
-                                        </div>
-                                      )}
-                                    </div>
-                                  );
-                                })
-                              ) : hasLegacy ? (
-                                <>
-                                  {Number.isFinite(legacyTarget) && (
-                                    <div className="flex items-center justify-between gap-2 text-xs">
-                                      <div className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-teal-500/10 border border-teal-500/25">
-                                        <span className="text-[10px] text-teal-300">Target</span>
-                                        <span className="font-bold text-teal-400">${legacyTarget.toFixed(2)}</span>
-                                      </div>
-                                      {Number.isFinite(tpPct(legacyTarget)) && <span className="text-[9px] text-[#6b7280]">{tpPct(legacyTarget).toFixed(1)}%</span>}
-                                    </div>
-                                  )}
-                                  {Number.isFinite(legacyMax) && Math.abs(legacyMax - (legacyTarget || 0)) > 0.01 && (
-                                    <div className="flex items-center justify-between gap-2 text-xs">
-                                      <div className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-teal-500/10 border border-teal-500/25">
-                                        <span className="text-[10px] text-teal-300">Stretch</span>
-                                        <span className="font-bold text-teal-400">${legacyMax.toFixed(2)}</span>
-                                      </div>
-                                      {Number.isFinite(tpPct(legacyMax)) && <span className="text-[9px] text-[#6b7280]">{tpPct(legacyMax).toFixed(1)}%</span>}
-                                    </div>
-                                  )}
-                                </>
-                              ) : null}
-                            </div>
-                          </div>
-                        );
-                      })()}
-
                       {/* 6-10. Trend Alignment, Swing Analysis, Momentum Elite, Rank, Score + Breakdown */}
                       <div className="space-y-2.5 text-sm">
                         {/* Trend Alignment — moved up under Chart */}
                         {(() => {
                           const emaMap = ticker?.ema_map;
                           if (!emaMap || typeof emaMap !== 'object') return null;
-                          const tfDisplayOrder = ['D', '240', '60', '30', '10', '3'];
-                          const tfLabels = { 'W': 'Weekly', 'D': 'Daily', '240': '4H', '60': '1H', '30': '30m', '10': '10m', '3': '3m' };
+                          const tfDisplayOrder = ['D', '240', '60', '30', '15', '3'];
+                          const tfLabels = { 'W': 'Weekly', 'D': 'Daily', '240': '4H', '60': '1H', '30': '30m', '15': '15m', '3': '3m' };
                           const entries = tfDisplayOrder.map(tf => emaMap[tf] ? { tf, ...emaMap[tf] } : null).filter(Boolean);
                           if (entries.length === 0) return null;
                           const depthLabel = (d) => d >= 9 ? 'Strong Uptrend' : d >= 7 ? 'Uptrend' : d >= 5 ? 'Leaning Up' : d >= 4 ? 'Leaning Down' : d >= 2 ? 'Downtrend' : 'Strong Downtrend';
@@ -4251,7 +4392,7 @@
                           <div className="flex items-center gap-1 flex-wrap">
                             {[
                               { tf: "5", label: "5m" },
-                              { tf: "10", label: "10m" },
+                              { tf: "15", label: "15m" },
                               { tf: "30", label: "30m" },
                               { tf: "60", label: "1H" },
                               { tf: "240", label: "4H" },
@@ -5485,13 +5626,7 @@
                               const fmtShortDate = (ms) => {
                                 if (!Number.isFinite(ms)) return "—";
                                 const d = new Date(ms);
-                                const mo = d.toLocaleString("en-US", { month: "short" });
-                                const day = d.getDate();
-                                const h = d.getHours();
-                                const m = String(d.getMinutes()).padStart(2, "0");
-                                const ampm = h >= 12 ? "PM" : "AM";
-                                const h12 = h % 12 || 12;
-                                return `${mo} ${day}, ${h12}:${m} ${ampm}`;
+                                return `${d.getMonth() + 1}/${d.getDate()}`;
                               };
                               const fmtDuration = (ms) => {
                                 if (!Number.isFinite(ms) || ms <= 0) return "";
@@ -5505,22 +5640,16 @@
                                 return rh > 0 ? `${days}d ${rh}h` : `${days}d`;
                               };
 
-                              const sampled = downsampleByInterval(bubbleJourney, 15 * 60 * 1000).slice().reverse().slice(0, 80);
-                              const deduped = [];
-                              let prev = null;
-                              for (const p of sampled) {
-                                if (!prev) { deduped.push(p); prev = p; continue; }
-                                const stateChanged = (p.state || '') !== (prev.state || '');
-                                const kanbanChanged = (p.kanban_stage || '') !== (prev.kanban_stage || '');
-                                const htfDelta = Math.abs((Number(p.htf_score) || 0) - (Number(prev.htf_score) || 0));
-                                const ltfDelta = Math.abs((Number(p.ltf_score) || 0) - (Number(prev.ltf_score) || 0));
-                                const priceDelta = Math.abs((Number(p.price) || 0) - (Number(prev.price) || 0)) / Math.max(Number(prev.price) || 1, 1);
-                                if (stateChanged || kanbanChanged || htfDelta >= 1.0 || ltfDelta >= 1.0 || priceDelta >= 0.003) {
-                                  deduped.push(p);
-                                  prev = p;
-                                }
+                              // Daily snapshots: keep last point per calendar day
+                              const dailyMap = new Map();
+                              for (const p of bubbleJourney) {
+                                const ts = Number(p.__ts_ms);
+                                if (!Number.isFinite(ts)) continue;
+                                const d = new Date(ts);
+                                const dayKey = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+                                dailyMap.set(dayKey, p);
                               }
-                              const allPoints = deduped.slice(0, 60);
+                              const allPoints = Array.from(dailyMap.values()).reverse().slice(0, 90);
 
                               const groups = [];
                               for (const p of allPoints) {
@@ -5681,6 +5810,146 @@
                 </a>
               </div>
             </div>
+
+            {/* ═══════════════════════════════════════════════════════════════════════ */}
+            {/* EXPANDED CHART MODAL                                                   */}
+            {/* ═══════════════════════════════════════════════════════════════════════ */}
+            {chartExpanded && (() => {
+              const price = Number(ticker?.price);
+              const posSlRaw = ticker?.has_open_position ? Number(ticker?.position_sl) : NaN;
+              const kijunSL3 = resolvedDir === "LONG" ? Number(ticker?.ichimoku_d?.kijunSL_long) : Number(ticker?.ichimoku_d?.kijunSL_short);
+              const slRaw = Number.isFinite(posSlRaw) && posSlRaw > 0 ? posSlRaw : (ticker?.sl ?? ticker?.sl_price ?? ticker?.stop_loss) ? Number(ticker?.sl ?? ticker?.sl_price ?? ticker?.stop_loss) : (Number.isFinite(kijunSL3) && kijunSL3 > 0 ? kijunSL3 : null);
+              const slVal = (() => {
+                if (!Number.isFinite(slRaw) || slRaw <= 0) return null;
+                if (!resolvedDir || !Number.isFinite(price) || price <= 0) return slRaw;
+                if (resolvedDir === "LONG" && slRaw >= price) return null;
+                if (resolvedDir === "SHORT" && slRaw <= price) return null;
+                return slRaw;
+              })();
+              const tradeTpArr = Array.isArray(trade?.tpArray) && trade.tpArray.length > 0
+                ? trade.tpArray
+                : (Array.isArray(ticker?.tpArray) ? ticker.tpArray : []);
+              const tp1Raw = tradeTpArr.length > 0
+                ? Number(tradeTpArr[0]?.price)
+                : Number(ticker?.tp_trim);
+              const tp1Val = Number.isFinite(tp1Raw) && tp1Raw > 0 ? tp1Raw : null;
+              const entryPx = Number(
+                ticker?.position_entry || trade?.entry_price || trade?.entryPrice || ticker?.entry_price
+              ) || 0;
+              const hasPosition = !!ticker?.has_open_position;
+
+              const modalPriceLines = [];
+              if (slVal != null && slVal > 0)
+                modalPriceLines.push({ price: slVal, color: '#ef4444', lineWidth: 1, lineStyle: 2, title: 'SL' });
+              if (tp1Val != null && tp1Val > 0)
+                modalPriceLines.push({ price: tp1Val, color: '#22c55e', lineWidth: 1, lineStyle: 2, title: 'TP1' });
+              if (hasPosition && entryPx > 0)
+                modalPriceLines.push({ price: entryPx, color: '#3b82f6', lineWidth: 2, lineStyle: 0, title: 'Entry' });
+
+              const modalMarkers = [];
+              if (hasPosition && entryPx > 0) {
+                const entryTs = Number(trade?.entry_ts || ticker?.position_entry_ts || 0);
+                if (entryTs > 0) {
+                  const ts = entryTs > 1e12 ? Math.floor(entryTs / 1000) : entryTs;
+                  modalMarkers.push({
+                    time: ts,
+                    position: resolvedDir === "SHORT" ? "aboveBar" : "belowBar",
+                    color: '#3b82f6',
+                    shape: resolvedDir === "SHORT" ? "arrowDown" : "arrowUp",
+                    text: 'Entry',
+                  });
+                }
+              }
+
+              const tfOptions = [
+                { label: "15m", tf: "15" },
+                { label: "1H", tf: "60" },
+                { label: "4H", tf: "240" },
+                { label: "D", tf: "D" },
+                { label: "W", tf: "W" },
+              ];
+
+              const chartH = Math.max(300, Math.floor(window.innerHeight * 0.8 - 120));
+
+              return (
+                <div
+                  style={{ position: 'fixed', inset: 0, zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                  onClick={() => setChartExpanded(false)}
+                >
+                  <div style={{ position: 'absolute', inset: 0, backgroundColor: 'rgba(0,0,0,0.85)' }} />
+                  <div
+                    style={{ position: 'relative', width: '90vw', maxWidth: 1400, borderRadius: 12, overflow: 'hidden' }}
+                    className="bg-[#0b0e11] border border-white/[0.08] shadow-2xl"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    {/* Header */}
+                    <div className="flex items-center justify-between px-5 py-3 border-b border-white/[0.06]">
+                      <div className="flex items-center gap-3">
+                        <span className="text-lg font-bold text-white">{tickerSymbol}</span>
+                        {resolvedDir && (
+                          <span className={`px-1.5 py-px rounded text-[9px] font-black tracking-wide ${resolvedDir === "LONG" ? "bg-cyan-500/80 text-white" : "bg-rose-600/80 text-white"}`}>
+                            {resolvedDir}
+                          </span>
+                        )}
+                        {Number.isFinite(price) && price > 0 && (
+                          <span className="text-sm text-white/70 font-mono">${price.toFixed(2)}</span>
+                        )}
+                      </div>
+                      <button
+                        onClick={() => setChartExpanded(false)}
+                        className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-white/10 text-white/60 hover:text-white transition-colors text-lg"
+                      >
+                        ✕
+                      </button>
+                    </div>
+
+                    {/* TF Selector */}
+                    <div className="flex items-center gap-1.5 px-5 py-2 border-b border-white/[0.04]">
+                      {tfOptions.map(t => {
+                        const active = String(modalTf) === String(t.tf);
+                        return (
+                          <button
+                            key={t.tf}
+                            onClick={() => setModalTf(t.tf)}
+                            className={`px-3 py-1 rounded text-xs font-semibold transition-all ${
+                              active
+                                ? "bg-blue-500/30 text-blue-300 border border-blue-400/50"
+                                : "text-white/40 hover:text-white/70 border border-transparent hover:border-white/10"
+                            }`}
+                          >
+                            {t.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    {/* Chart Area */}
+                    <div style={{ padding: '12px 20px 20px' }}>
+                      {modalLoading ? (
+                        <div style={{ height: chartH }} className="w-full flex items-center justify-center text-white/40 text-sm">
+                          Loading chart...
+                        </div>
+                      ) : !Array.isArray(modalCandles) || modalCandles.length < 2 ? (
+                        <div style={{ height: chartH }} className="w-full flex items-center justify-center text-white/30 text-sm">
+                          No candle data
+                        </div>
+                      ) : (
+                        <LWChart
+                          candles={modalCandles}
+                          chartTf={modalTf}
+                          overlays={chartOverlays}
+                          onCrosshair={(key) => setChartOverlays(prev => ({ ...prev, [key]: !prev[key] }))}
+                          height={chartH}
+                          priceLines={modalPriceLines}
+                          markers={modalMarkers}
+                        />
+                      )}
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
+
           </div>
         );
       }

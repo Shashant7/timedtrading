@@ -292,94 +292,71 @@ async function dataFetchSnapshots(env, symbols) {
   return alpacaFetchSnapshots(env, symbols);
 }
 
-// ── Market-pulse futures/index: dedicated TwelveData fetch ──────────────
-// These symbols are in SKIP_TICKERS because their TradingView notation
-// (ES1!) differs from TwelveData's continuous-contract format.
-// Grouped by exchange so the API resolves futures (not stocks with the
-// same ticker, e.g. ES=Eversource, SI=Silvergate, CL=Colgate).
-const MARKET_PULSE_TD_GROUPS = [
-  { exchange: "CME",   syms: [["ES1!", "ES"], ["NQ1!", "NQ"], ["RTY1!", "RTY"]] },
-  { exchange: "CBOT",  syms: [["YM1!", "YM"]] },
-  { exchange: "COMEX", syms: [["GC1!", "GC"], ["SI1!", "SI"]] },
-  { exchange: "NYMEX", syms: [["CL1!", "CL"]] },
-  { exchange: null,    syms: [["VX1!", "VIX"], ["SPX", "SPX"]] },
-];
+// ── TV Heartbeat overlay for futures/index symbols ──────────────────────
+// These symbols (ES1!, NQ1!, etc.) come exclusively from TradingView
+// heartbeats. They are NOT available from TwelveData.
+const TV_HEARTBEAT_SYMS = ["ES1!", "NQ1!", "YM1!", "RTY1!", "GC1!", "SI1!", "CL1!", "VX1!", "US500", "SPX"];
 
-function _parseMPQuote(q) {
-  const price = Number(q.close) || 0;
-  const ts = q.timestamp ? Number(q.timestamp) * 1000 : Date.now();
-  const pc = Number(q.previous_close) || 0;
-  const nativeDc = Number(q.change);
-  const nativeDp = Number(q.percent_change);
-  return {
-    p: Math.round(price * 100) / 100,
-    pc: pc > 0 ? Math.round(pc * 100) / 100 : 0,
-    dc: Number.isFinite(nativeDc) && nativeDc !== 0
-      ? Math.round(nativeDc * 100) / 100
-      : (pc > 0 ? Math.round((price - pc) * 100) / 100 : null),
-    dp: Number.isFinite(nativeDp) && nativeDp !== 0
-      ? Math.round(nativeDp * 100) / 100
-      : (pc > 0 ? Math.round(((price - pc) / pc) * 10000) / 100 : null),
-    dh: Math.round((Number(q.high) || 0) * 100) / 100,
-    dl: Math.round((Number(q.low) || 0) * 100) / 100,
-    dv: Number(q.volume) || 0,
-    t: ts,
-  };
-}
-
-async function fetchMarketPulseFromTD(env) {
-  const apiKey = env?.TWELVEDATA_API_KEY;
-  if (!apiKey) return {};
-
-  const results = {};
-
-  for (const group of MARKET_PULSE_TD_GROUPS) {
-    const { exchange, syms } = group;
-    const tdSyms = syms.map(([, td]) => td);
+async function overlayTVHeartbeats(KV, target) {
+  let updated = 0;
+  let stale = 0;
+  for (const sym of TV_HEARTBEAT_SYMS) {
     try {
-      const params = new URLSearchParams({
-        symbol: tdSyms.join(","),
-        apikey: apiKey,
-        prepost: "true",
-      });
-      if (exchange) params.set("exchange", exchange);
-      const url = `https://api.twelvedata.com/quote?${params}`;
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 15000);
-      const resp = await fetch(url, { signal: controller.signal });
-      clearTimeout(timer);
-      if (!resp.ok) {
-        console.warn(`[MARKET PULSE TD] HTTP ${resp.status} for exchange=${exchange || "none"}`);
+      const [captureData, hbData, latestData] = await Promise.all([
+        kvGetJSON(KV, `timed:capture:latest:${sym}`),
+        kvGetJSON(KV, `timed:heartbeat:${sym}`),
+        kvGetJSON(KV, `timed:latest:${sym}`),
+      ]);
+      const sources = [captureData, hbData, latestData].filter(d => d && typeof d === "object");
+      const withPrice = sources.filter(d => d.price > 0);
+      if (withPrice.length === 0) {
+        stale++;
         continue;
       }
-      const data = await resp.json();
-
-      if (tdSyms.length === 1) {
-        const [ourSym] = syms[0];
-        if (data?.close && Number(data.close) > 0) {
-          results[ourSym] = _parseMPQuote(data);
-        } else if (data?.status === "error" || data?.code) {
-          console.warn(`[MARKET PULSE TD] ${ourSym}→${tdSyms[0]} (${exchange}): ${data?.message || "unsupported"}`);
+      const freshest = withPrice.reduce((best, c) => {
+        const bestTs = Number(best.ingest_ts || best.ts || 0);
+        const cTs = Number(c.ingest_ts || c.ts || 0);
+        return cTs > bestTs ? c : best;
+      });
+      const incomingTs = Number(freshest.ingest_ts || freshest.ts || 0) || 0;
+      const prev = target[sym] || {};
+      const price = Number(freshest.price);
+      let prevClose = 0;
+      let nativeDc = null;
+      let nativeDp = null;
+      for (const src of sources) {
+        if (!(prevClose > 0)) {
+          const pc = Number(src.prev_close || src.previous_close || 0);
+          if (pc > 0) prevClose = pc;
         }
-      } else {
-        for (const [ourSym, tdSym] of syms) {
-          const q = data?.[tdSym];
-          if (q?.close && Number(q.close) > 0) {
-            results[ourSym] = _parseMPQuote(q);
-          } else if (q?.status === "error" || q?.code) {
-            console.warn(`[MARKET PULSE TD] ${ourSym}→${tdSym} (${exchange}): ${q?.message || "unsupported"}`);
-          }
-        }
+        if (nativeDc == null && src.day_change != null && Number.isFinite(Number(src.day_change)))
+          nativeDc = Number(src.day_change);
+        if (nativeDp == null && src.day_change_pct != null && Number.isFinite(Number(src.day_change_pct)))
+          nativeDp = Number(src.day_change_pct);
       }
-    } catch (e) {
-      console.warn(`[MARKET PULSE TD] error (exchange=${exchange || "none"}):`, String(e?.message || e).slice(0, 200));
-    }
+      if (!(prevClose > 0) && prev.pc > 0) prevClose = prev.pc;
+      const dc = Number.isFinite(nativeDc) ? Math.round(nativeDc * 100) / 100
+        : prevClose > 0 ? Math.round((price - prevClose) * 100) / 100 : null;
+      const dp = Number.isFinite(nativeDp) ? Math.round(nativeDp * 100) / 100
+        : prevClose > 0 ? Math.round(((price - prevClose) / prevClose) * 10000) / 100 : null;
+      target[sym] = {
+        ...prev,
+        p: Math.round(price * 100) / 100,
+        pc: prevClose > 0 ? Math.round(prevClose * 100) / 100 : (prev.pc || 0),
+        dc: dc ?? prev.dc,
+        dp: dp ?? prev.dp,
+        dh: Math.round(Number(freshest.high || freshest.dailyHigh || 0) * 100) / 100 || prev.dh,
+        dl: Math.round(Number(freshest.low || freshest.dailyLow || 0) * 100) / 100 || prev.dl,
+        dv: Number(freshest.volume || 0) || prev.dv,
+        t: incomingTs || Date.now(),
+      };
+      updated++;
+    } catch (_) {}
   }
-
-  if (Object.keys(results).length > 0) {
-    console.log(`[MARKET PULSE TD] refreshed ${Object.keys(results).length}: ${Object.keys(results).join(",")}`);
+  if (stale > 0) {
+    console.warn(`[TV HEARTBEAT] ${stale}/${TV_HEARTBEAT_SYMS.length} symbols have no heartbeat or latest data`);
   }
-  return results;
+  return { updated, stale };
 }
 
 async function hydrateMissingSparklines(env, data, targetSyms = null) {
@@ -522,6 +499,8 @@ const ROUTES = [
   ["GET", "/timed/prices", "GET /timed/prices"],
   ["GET", "/timed/earnings/upcoming", "GET /timed/earnings/upcoming"],
   ["GET", "/timed/candles", "GET /timed/candles"],
+  ["GET", "/timed/time-travel/forward-returns", "GET /timed/time-travel/forward-returns"],
+  ["GET", "/timed/time-travel/events", "GET /timed/time-travel/events"],
   ["GET", "/timed/market-calendar", "GET /timed/market-calendar"],
   ["GET", "/timed/trail/performance", "GET /timed/trail/performance"],
   ["GET", "/timed/trail", "GET /timed/trail"],
@@ -676,6 +655,7 @@ const ROUTES = [
   ["GET", "/timed/admin/runs/live", "GET /timed/admin/runs/live"],
   ["GET", "/timed/admin/runs/detail", "GET /timed/admin/runs/detail"],
   ["POST", "/timed/admin/run-lifecycle", "POST /timed/admin/run-lifecycle"],
+  ["POST", "/timed/admin/aggregate-facts", "POST /timed/admin/aggregate-facts"],
   ["POST", "/timed/admin/model-resolve", "POST /timed/admin/model-resolve"],
   ["POST", "/timed/admin/model-retro", "POST /timed/admin/model-retro"],
   ["POST", "/timed/admin/model-approve", "POST /timed/admin/model-approve"],
@@ -2393,7 +2373,7 @@ function qualifiesForEnter(d, asOfTs = null) {
   const tf4H = tfTechRow(d, "4H");
   const tfD = tfTechRow(d, "D");
   const entryEngine = resolveEngineMode(d?._env?._entryEngine);
-  const ripsterTuneV2 = parseBoolFlag(d?._env?._ripsterTuneV2, false);
+  const ripsterTuneV2 = parseBoolFlag(d?._env?._ttTuneV2, false);
   let ewContext = "none";
   
   // ── PRECISION SCORING ENGINE v2 fields ──
@@ -3114,7 +3094,7 @@ function qualifiesForEnter(d, asOfTs = null) {
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // FEATURE-FLAGGED ENTRY ENGINE: Ripster-Core
+  // FEATURE-FLAGGED ENTRY ENGINE: TT-Core
   // Bias: D+1H+10m 34/50 cloud alignment
   // Trigger: 10m 5/12 reclaim/cross
   // Pullback add: 10m 8/9 bounce while 34/50 bias holds
@@ -3685,7 +3665,7 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
     const phase_10m = Number(tickerData?.tf_tech?.["10"]?.ph?.v) || 0;
     const phase_30m = Number(tickerData?.tf_tech?.["30"]?.ph?.v) || 0;
     const managementEngine = resolveEngineMode(tickerData?._env?._managementEngine);
-    const ripsterTuneV2 = parseBoolFlag(tickerData?._env?._ripsterTuneV2, false);
+    const ripsterTuneV2 = parseBoolFlag(tickerData?._env?._ttTuneV2, false);
     const _daConfig = tickerData?._env?._deepAuditConfig || {};
     const daVariantGuardrailsV3 = parseBoolFlag(_daConfig.deep_audit_variant_guardrails_v3, false);
     
@@ -3727,7 +3707,7 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
       ? positionAgeMin >= Math.max(daVariantRegimeExitMinAgeMin, _daMinHoldRegimeH * 60)
       : positionAgeMin >= Math.max(240, _daMinHoldRegimeH * 60);
 
-    // Ripster-Core management exits (feature-flagged)
+    // TT-Core management exits (feature-flagged)
     if (managementEngine === "ripster_core") {
       const rt10 = tfTechRow(tickerData, "10")?.ripster;
       const rt30 = tfTechRow(tickerData, "30")?.ripster;
@@ -3754,7 +3734,7 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
       const cloudCompression = Number(c72_89_10?.spreadPct) <= 0.003 && Number(c180_200_10?.spreadPct) <= 0.0035;
       const holdPivotLong = above10m21 && above30m21 && above1h48;
       const holdPivotShort = below10m21 && below30m21 && below1h48;
-      const exitDebounceBars = ripsterTuneV2 ? Math.max(1, Number(tickerData?._env?._ripsterExitDebounceBars) || 2) : 1;
+      const exitDebounceBars = ripsterTuneV2 ? Math.max(1, Number(tickerData?._env?._ttExitDebounceBars) || 2) : 1;
 
       const ripsterLose5_12 = direction === "LONG"
         ? !!(c5_12_10?.crossDn || (c5_12_10?.bear && c5_12_10?.below))
@@ -3935,7 +3915,7 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
     );
 
     // Critical invalidation: always honor, but give regime+favorable zone a small buffer
-    // RIPSTER_TUNE_V2: avoid hard exits on one-bar trigger noise while cloud trend still holds.
+    // TT_TUNE_V2: avoid hard exits on one-bar trigger noise while cloud trend still holds.
     const rt10ForCritical = managementEngine === "ripster_core" ? tfTechRow(tickerData, "10")?.ripster : null;
     const rt1HForCritical = managementEngine === "ripster_core" ? tfTechRow(tickerData, "1H")?.ripster : null;
     const c34_50_10_critical = rt10ForCritical?.c34_50;
@@ -9929,7 +9909,7 @@ async function processTradeSimulation(
               const deferRunnerExit = isLong
                 ? (holdByPivotLong || longStructuralDefense)
                 : (holdByPivotShort || shortStructuralDefense);
-              if (parseBoolFlag(tickerData?._env?._ripsterTuneV2, false) && deferRunnerExit) {
+              if (parseBoolFlag(tickerData?._env?._ttTuneV2, false) && deferRunnerExit) {
                 tickerData.__exit_reason = "soft_fuse_runner_hold_structural";
                 fuseExitFired = true;
               } else {
@@ -14177,10 +14157,10 @@ async function runDataLifecycle(env, opts = {}) {
           COUNT(*),
           (strftime('%s', 'now') * 1000)
          FROM timed_trail t
-         WHERE t.ts < ?1
+         WHERE t.ts < ?1 ${opts.ticker ? "AND t.ticker = ?2" : ""}
          GROUP BY t.ticker, (t.ts / 300000) * 300000`,
       )
-      .bind(cutoff48h)
+      .bind(...(opts.ticker ? [cutoff48h, opts.ticker] : [cutoff48h]))
       .run();
     console.log("[DATA LIFECYCLE] Aggregated trail → 5m facts:", agg?.meta?.changes ?? "ok");
 
@@ -14189,9 +14169,9 @@ async function runDataLifecycle(env, opts = {}) {
     for (;;) {
       const del = await db
         .prepare(
-          `DELETE FROM timed_trail WHERE rowid IN (SELECT rowid FROM timed_trail WHERE ts < ?1 LIMIT ?2)`,
+          `DELETE FROM timed_trail WHERE rowid IN (SELECT rowid FROM timed_trail WHERE ts < ?1 ${opts.ticker ? "AND ticker = ?2" : ""} LIMIT ${opts.ticker ? "?3" : "?2"})`,
         )
-        .bind(cutoff48h, PURGE_BATCH)
+        .bind(...(opts.ticker ? [cutoff48h, opts.ticker, PURGE_BATCH] : [cutoff48h, PURGE_BATCH]))
         .run();
       const n = del?.meta?.changes ?? 0;
       trailDeleted += n;
@@ -16463,8 +16443,8 @@ function pickRunSnapshotEnvFlags(env) {
     "ENTRY_ENGINE",
     "MANAGEMENT_ENGINE",
     "LEADING_LTF",
-    "RIPSTER_TUNE_V2",
-    "RIPSTER_EXIT_DEBOUNCE_BARS",
+    "TT_TUNE_V2",
+    "TT_EXIT_DEBOUNCE_BARS",
     "DATA_PROVIDER",
     "TWELVEDATA_PLAN",
     "EXECUTION_MODE",
@@ -26177,6 +26157,43 @@ export default {
           }
 
           await kvPutJSON(KV, `timed:capture:latest:${ticker}`, payload);
+          // For TV-sourced futures/index symbols, also write timed:heartbeat so the
+          // price-feed overlay can find the data through the standard path.
+          if (TV_HEARTBEAT_SYMS.includes(ticker)) {
+            try {
+              let bridgePrevClose = payload.prev_close;
+              let bridgeDayChange = payload.day_change;
+              let bridgeDayChangePct = payload.day_change_pct;
+              if (bridgePrevClose == null || !(Number(bridgePrevClose) > 0)) {
+                const prevHb = await kvGetJSON(KV, `timed:heartbeat:${ticker}`);
+                if (prevHb && Number(prevHb.prev_close) > 0) {
+                  bridgePrevClose = prevHb.prev_close;
+                  const price = Number(payload.price);
+                  const pc = Number(bridgePrevClose);
+                  if (price > 0 && pc > 0) {
+                    bridgeDayChange = Math.round((price - pc) * 100) / 100;
+                    bridgeDayChangePct = Math.round(((price - pc) / pc) * 10000) / 100;
+                  }
+                }
+              }
+              await kvPutJSON(KV, `timed:heartbeat:${ticker}`, {
+                ticker,
+                ts: payload.ts,
+                price: payload.price,
+                prev_close: bridgePrevClose,
+                day_change: bridgeDayChange,
+                day_change_pct: bridgeDayChangePct,
+                change: payload.change ?? bridgeDayChange,
+                change_pct: payload.change_pct ?? bridgeDayChangePct,
+                session: payload.session,
+                is_rth: payload.is_rth,
+                ingest_ts: payload.ingest_ts,
+                ingest_kind: "capture_bridge",
+              }, 7 * 24 * 60 * 60);
+            } catch (hbErr) {
+              console.error(`[CAPTURE→HB] Bridge write failed for ${ticker}:`, String(hbErr));
+            }
+          }
           // Best-effort: persist the heartbeat daily-change fields into D1 ticker_latest so /timed/all stays KV-free.
           try {
             ctx.waitUntil(
@@ -26820,6 +26837,9 @@ export default {
         }
         const capture = await kvGetJSON(KV, `timed:capture:latest:${ticker}`);
         const heartbeat = await kvGetJSON(KV, `timed:heartbeat:${ticker}`);
+        if (!data && capture && capture.price > 0) {
+          data = { ticker, price: capture.price, ts: capture.ts, ingest_ts: capture.ingest_ts, ingest_kind: capture.ingest_kind };
+        }
         if (data) {
           // Overlay lightweight heartbeat (KV, 2d TTL) for fresh price/daily change
           if (heartbeat && typeof heartbeat === "object") {
@@ -28199,43 +28219,51 @@ export default {
             if (!data[sym]) data[sym] = { ticker: sym };
           }
 
-          // Overlay lightweight heartbeat (KV, 2d TTL) for fresh price/daily change
+          // Overlay heartbeat + capture:latest for fresh price/daily change
           try {
             const syms = Object.keys(data);
             const heartbeats = await Promise.all(
               syms.map((s) => kvGetJSON(KV, `timed:heartbeat:${s}`)),
             );
+            const tvSymSet = new Set(TV_HEARTBEAT_SYMS);
+            const tvSymsInData = syms.filter(s => tvSymSet.has(s));
+            const captureMap = {};
+            if (tvSymsInData.length > 0) {
+              const captures = await Promise.all(tvSymsInData.map(s => kvGetJSON(KV, `timed:capture:latest:${s}`)));
+              for (let ci = 0; ci < tvSymsInData.length; ci++) captureMap[tvSymsInData[ci]] = captures[ci];
+            }
             const tickersWithPriceUpdate = new Set();
             for (let i = 0; i < syms.length; i++) {
+              const sym = syms[i];
               const hb = heartbeats[i];
-              if (hb && typeof hb === "object") {
-                const obj = data[syms[i]];
-                if (!obj) continue;
-                if (Number.isFinite(Number(hb.price))) {
-                  obj.price = hb.price;
-                  tickersWithPriceUpdate.add(syms[i]);
+              const cap = captureMap[sym];
+              const allSources = [hb, cap].filter(s => s && typeof s === "object");
+              const priceSrc = allSources.find(s => s.price > 0);
+              if (!priceSrc) continue;
+              const obj = data[sym];
+              if (!obj) continue;
+              obj.price = priceSrc.price;
+              tickersWithPriceUpdate.add(sym);
+              for (const src of allSources) {
+                if (obj.prev_close == null && src.prev_close != null) obj.prev_close = src.prev_close;
+                if (obj.day_change == null && src.day_change != null) {
+                  obj.day_change = src.day_change;
+                  obj.change = src.day_change;
                 }
-                if (hb.prev_close != null) obj.prev_close = hb.prev_close;
-                if (hb.day_change != null) {
-                  obj.day_change = hb.day_change;
-                  obj.change = hb.day_change;
+                if (obj.day_change_pct == null && src.day_change_pct != null) {
+                  obj.day_change_pct = src.day_change_pct;
+                  obj.change_pct = src.day_change_pct;
                 }
-                if (hb.day_change_pct != null) {
-                  obj.day_change_pct = hb.day_change_pct;
-                  obj.change_pct = hb.day_change_pct;
+                if (src.session != null && obj.session == null) obj.session = src.session;
+                if (src.is_rth != null && obj.is_rth == null) obj.is_rth = src.is_rth;
+              }
+              const bestTs = allSources.reduce((best, s) => Math.max(best, Number(s.ingest_ts || s.ts || 0)), 0);
+              if (bestTs > 0) {
+                const objMs = Number(obj.ingest_ts) || Number(obj.ts) || 0;
+                const objMsNorm = objMs > 0 && objMs < 1e12 ? objMs * 1000 : objMs;
+                if (objMsNorm <= 0 || bestTs > objMsNorm) {
+                  obj.ingest_ts = bestTs;
                 }
-                // Only overlay ingest_ts if heartbeat is NEWER — never overwrite fresh scoring with stale TradingView data
-                if (hb.ingest_ts != null) {
-                  const hbMs = typeof hb.ingest_ts === "number" ? hb.ingest_ts : (hb.ingest_ts < 1e12 ? hb.ingest_ts * 1000 : new Date(String(hb.ingest_ts)).getTime());
-                  const objMs = Number(obj.ingest_ts) || Number(obj.ts) || 0;
-                  const objMsNorm = objMs > 0 && objMs < 1e12 ? objMs * 1000 : objMs;
-                  if (Number.isFinite(hbMs) && hbMs > 0 && (objMsNorm <= 0 || hbMs > objMsNorm)) {
-                    obj.ingest_ts = hb.ingest_ts;
-                    if (hb.ingest_time != null) obj.ingest_time = hb.ingest_time;
-                  }
-                }
-                if (hb.session != null) obj.session = hb.session;
-                if (hb.is_rth != null) obj.is_rth = hb.is_rth;
               }
             }
             
@@ -28617,6 +28645,9 @@ export default {
             if (!useLightweightMode) {
               try {
                 const capture = await kvGetJSON(KV, `timed:capture:latest:${t}`);
+                if (!value && capture && capture.price > 0) {
+                  value = { ticker: t, price: capture.price, ts: capture.ts, ingest_ts: capture.ingest_ts, ingest_kind: capture.ingest_kind };
+                }
                 if (value && capture && typeof capture === "object") {
                 // Prefer capture for daily-change fields (more reliable for UI/analysis).
                 for (const k of ["prev_close", "day_change", "day_change_pct"]) {
@@ -28755,6 +28786,11 @@ export default {
               if (!useLightweightMode) {
                 // Always recompute RR to ensure it uses the latest max TP from tp_levels
                 value.rr = computeRR(value);
+              }
+
+              // Normalize SL from alternate field names (Pine/candle may send sl_price, stop_loss)
+              if (value.sl == null && (value.sl_price != null || value.stop_loss != null)) {
+                value.sl = Number(value.sl_price ?? value.stop_loss);
               }
 
               // Back-compat: compute completeness + summaries if missing (older KV entries)
@@ -29098,13 +29134,13 @@ export default {
               let filtered = rawFinnhub
                 .filter(e => e.symbol && universeSet.has(e.symbol.toUpperCase()))
                 .map(e => ({ ...e, symbol: e.symbol.toUpperCase() }));
-              // Exclude events more than 7 days in the past (stale cache / wrong provider data)
-              const cutoffNy = new Date(Date.now() - 7 * 86400000).toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+              // Exclude events more than 1 day in the past (matches frontend -1 day window)
+              const cutoffNy = new Date(Date.now() - 1 * 86400000).toLocaleDateString("en-CA", { timeZone: "America/New_York" });
               filtered = filtered.filter(e => {
                 const d = (e.date || "").slice(0, 10);
-                return d >= cutoffNy; // keep: 7 days ago through all future
+                return d >= cutoffNy;
               });
-              // TwelveData gate: only show earnings when TwelveData confirms (avoids Finnhub false positives)
+              // TwelveData soft gate: only apply filter when TwelveData has good coverage (>30% match)
               try {
                 const tdRes = await tdFetchEarningsCalendar(env, today, future);
                 if (!tdRes._error && tdRes.earnings && typeof tdRes.earnings === "object") {
@@ -29115,9 +29151,22 @@ export default {
                       if (sym) tdConfirmed.add(`${sym}|${(date || "").slice(0, 10)}`);
                     }
                   }
-                  if (tdConfirmed.size > 0) filtered = filtered.filter(e => tdConfirmed.has(`${e.symbol}|${(e.date || "").slice(0, 10)}`));
+                  if (tdConfirmed.size > 0) {
+                    const matchCount = filtered.filter(e => tdConfirmed.has(`${e.symbol}|${(e.date || "").slice(0, 10)}`)).length;
+                    if (filtered.length > 0 && matchCount / filtered.length >= 0.3) {
+                      filtered = filtered.filter(e => tdConfirmed.has(`${e.symbol}|${(e.date || "").slice(0, 10)}`));
+                    } else {
+                      console.warn(`[EARNINGS] TwelveData coverage too low (${matchCount}/${filtered.length}) — Finnhub results unfiltered`);
+                    }
+                  } else {
+                    console.warn("[EARNINGS] TwelveData returned 0 confirmed events — Finnhub results unfiltered");
+                  }
+                } else {
+                  console.warn("[EARNINGS] TwelveData gate skipped — no earnings data returned", tdRes?._error || "");
                 }
-              } catch (_) {}
+              } catch (tdErr) {
+                console.warn("[EARNINGS] TwelveData gate error:", String(tdErr?.message || tdErr).slice(0, 100));
+              }
               if (!debug) {
                 cached = { events: filtered, updated_at: Date.now() };
                 ctx.waitUntil(kvPutJSON(KV, "timed:earnings:upcoming", cached, 86400).catch(() => {}));
@@ -29128,9 +29177,15 @@ export default {
               console.warn("[EARNINGS] On-demand fetch failed:", String(fetchErr?.message || fetchErr).slice(0, 150));
             }
           }
-          // Filter out events >7 days in the past (even from cache — avoids stale RDDT-style false positives)
-          const cutoffNy = new Date(Date.now() - 7 * 86400000).toLocaleDateString("en-CA", { timeZone: "America/New_York" });
-          const eventsOut = (cached?.events || []).filter(e => ((e.date || "").slice(0, 10)) >= cutoffNy);
+          // Filter out events >1 day in the past (matches frontend -1 day window)
+          const cutoffNy = new Date(Date.now() - 1 * 86400000).toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+          const eventsOut = (cached?.events || []).filter(e => {
+            const d = (e.date || "").slice(0, 10);
+            if (d < cutoffNy) return false;
+            // Drop already-reported earnings that slipped into cache
+            if (e.epsActual != null) return false;
+            return true;
+          });
           const payload = { ok: true, events: eventsOut, updated_at: cached?.updated_at || 0 };
           if (debug && rawFinnhub) {
             const today = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
@@ -29233,6 +29288,120 @@ export default {
             500,
             corsHeaders(env, req),
           );
+        }
+      }
+
+      // GET /timed/time-travel/forward-returns?ts=<ms>&tickers=AAPL,MSFT,...
+      // Batch-fetch 1D and 1W forward returns for multiple tickers at a given timestamp.
+      if (routeKey === "GET /timed/time-travel/forward-returns") {
+        try {
+          const tsParam = Number(url.searchParams.get("ts"));
+          const tickersParam = url.searchParams.get("tickers") || "";
+          if (!Number.isFinite(tsParam) || tsParam <= 0 || !tickersParam) {
+            return sendJSON({ ok: false, error: "missing ts or tickers" }, 400, corsHeaders(env, req));
+          }
+          const db = env?.DB;
+          if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
+
+          const tickers = tickersParam.split(",").map(t => t.trim().toUpperCase()).filter(Boolean).slice(0, 80);
+          const tsMs = tsParam < 1e12 ? tsParam * 1000 : tsParam;
+          const dayMs = 24 * 60 * 60 * 1000;
+          const fromTs = tsMs - dayMs;
+          const toTs = tsMs + 10 * dayMs;
+
+          const placeholders = tickers.map(() => "?").join(",");
+          const rows = await db.prepare(
+            `SELECT ticker, ts, c FROM ticker_candles
+             WHERE ticker IN (${placeholders}) AND tf = 'D' AND ts >= ? AND ts <= ?
+             ORDER BY ticker, ts`
+          ).bind(...tickers, fromTs, toTs).all();
+
+          const byTicker = {};
+          for (const r of (rows?.results || [])) {
+            const sym = r.ticker;
+            if (!byTicker[sym]) byTicker[sym] = [];
+            byTicker[sym].push({ ts: Number(r.ts), c: Number(r.c) });
+          }
+
+          const result = {};
+          for (const sym of tickers) {
+            const candles = byTicker[sym] || [];
+            if (candles.length === 0) continue;
+            const base = candles.reduce((best, c) =>
+              Math.abs(c.ts - tsMs) < Math.abs(best.ts - tsMs) ? c : best
+            );
+            const oneDay = candles.find(c => c.ts > base.ts + dayMs * 0.5);
+            const oneWeek = candles.filter(c => c.ts > base.ts + dayMs * 0.5);
+            const fiveDay = oneWeek.length >= 5 ? oneWeek[4] : oneWeek[oneWeek.length - 1];
+            result[sym] = {
+              price_at: base.c,
+              ts_at: base.ts,
+              return_1d_pct: oneDay ? +((oneDay.c / base.c - 1) * 100).toFixed(2) : null,
+              return_1w_pct: fiveDay && fiveDay.ts > base.ts + dayMs * 2
+                ? +((fiveDay.c / base.c - 1) * 100).toFixed(2) : null,
+            };
+          }
+          return sendJSON({ ok: true, ts: tsMs, returns: result }, 200, corsHeaders(env, req));
+        } catch (e) {
+          console.error("[TIME-TRAVEL] forward-returns failed:", String(e));
+          return sendJSON({ ok: false, error: "internal_error" }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // GET /timed/time-travel/events?from=<ms>&to=<ms>
+      // Returns earnings + major economic events in a date range for timeline markers.
+      if (routeKey === "GET /timed/time-travel/events") {
+        try {
+          const fromMs = Number(url.searchParams.get("from"));
+          const toMs = Number(url.searchParams.get("to"));
+          if (!Number.isFinite(fromMs) || !Number.isFinite(toMs)) {
+            return sendJSON({ ok: false, error: "missing from/to" }, 400, corsHeaders(env, req));
+          }
+
+          const db = env?.DB;
+          const events = [];
+
+          // FOMC meeting dates (announcement day, 2pm ET)
+          const FOMC_DATES = [
+            "2025-01-29","2025-03-19","2025-05-07","2025-06-18","2025-07-30","2025-09-17","2025-10-29","2025-12-10",
+            "2026-01-28","2026-03-18","2026-04-29","2026-06-17","2026-07-29","2026-09-16","2026-10-28","2026-12-09",
+          ];
+          // CPI release dates (8:30am ET)
+          const CPI_DATES = [
+            "2025-01-15","2025-02-12","2025-03-12","2025-04-10","2025-05-13","2025-06-11",
+            "2025-07-10","2025-08-12","2025-09-10","2025-10-14","2025-11-12","2025-12-10",
+            "2026-01-14","2026-02-11","2026-03-11","2026-04-14","2026-05-12","2026-06-10",
+            "2026-07-14","2026-08-12","2026-09-09","2026-10-13","2026-11-10","2026-12-09",
+          ];
+
+          for (const d of FOMC_DATES) {
+            const ts = new Date(d + "T18:00:00Z").getTime();
+            if (ts >= fromMs && ts <= toMs) events.push({ type: "FOMC", ts, label: "FOMC", date: d });
+          }
+          for (const d of CPI_DATES) {
+            const ts = new Date(d + "T12:30:00Z").getTime();
+            if (ts >= fromMs && ts <= toMs) events.push({ type: "CPI", ts, label: "CPI", date: d });
+          }
+
+          // Earnings: query D1 for trades table to find earnings-related events,
+          // or use the cached earnings data. For now, try to read from KV cache.
+          try {
+            const earningsRaw = await kvGetJSON(KV, "timed:earnings:upcoming");
+            if (earningsRaw?.events && Array.isArray(earningsRaw.events)) {
+              for (const ev of earningsRaw.events) {
+                const ts = new Date(ev.date + "T12:00:00Z").getTime();
+                if (ts >= fromMs && ts <= toMs) {
+                  events.push({ type: "EARNINGS", ts, label: ev.symbol, date: ev.date, hour: ev.hour });
+                }
+              }
+            }
+          } catch (_) { /* earnings data optional */ }
+
+          events.sort((a, b) => a.ts - b.ts);
+          return sendJSON({ ok: true, events }, 200, corsHeaders(env, req));
+        } catch (e) {
+          console.error("[TIME-TRAVEL] events failed:", String(e));
+          return sendJSON({ ok: false, error: "internal_error" }, 500, corsHeaders(env, req));
         }
       }
 
@@ -34220,16 +34389,13 @@ export default {
               } catch (_) { /* best-effort */ }
             }
           }
-          // Market-pulse futures/index via dedicated TD fetcher
+          // Market-pulse futures/index via TV heartbeat overlay
           let mpCount = 0;
           try {
-            const mpData = await fetchMarketPulseFromTD(env);
-            for (const [sym, pd] of Object.entries(mpData)) {
-              prices[sym] = { ...(prices[sym] || existingPrices[sym] || {}), ...pd };
-              mpCount++;
-            }
+            const { updated } = await overlayTVHeartbeats(env.KV_TIMED, prices);
+            mpCount = updated;
           } catch (e) {
-            console.warn("[REFRESH-PRICES] market-pulse TD error:", String(e?.message || e).slice(0, 200));
+            console.warn("[REFRESH-PRICES] TV heartbeat overlay error:", String(e?.message || e).slice(0, 200));
           }
 
           // Store in KV
@@ -35229,7 +35395,7 @@ export default {
         const skipTrailWrite = lowWrite || url.searchParams.get("skipTrailWrite") === "1";
         const skipInvestor = url.searchParams.get("skipInvestor") === "1" || url.searchParams.get("traderOnly") === "1";
         const tickerFilter = url.searchParams.get("tickers"); // comma-separated filter
-        // Env overrides from query params (e.g. RIPSTER_EXIT_DEBOUNCE_BARS=4) for variant backtests
+        // Env overrides from query params (e.g. TT_EXIT_DEBOUNCE_BARS=4) for variant backtests
         const REPLAY_PARAMS = new Set(["date", "tickerOffset", "tickerBatch", "intervalMinutes", "cleanSlate", "fullDay", "trailOnly", "lowWrite", "skipTrailWrite", "skipInvestor", "tickers", "key"]);
         const envOverrides = {};
         for (const [k, v] of url.searchParams) {
@@ -35517,8 +35683,8 @@ export default {
                   _calibratedRankMin: (replayEnvBase._calibratedRankMin ?? env._calibratedRankMin) || 0,
                   _entryEngine: resolveEngineMode(replayEnvBase.ENTRY_ENGINE),
                   _managementEngine: resolveEngineMode(replayEnvBase.MANAGEMENT_ENGINE),
-                  _ripsterTuneV2: parseBoolFlag(replayEnvBase.RIPSTER_TUNE_V2, false),
-                  _ripsterExitDebounceBars: Math.max(1, Number(replayEnvBase.RIPSTER_EXIT_DEBOUNCE_BARS) || 2),
+                  _ttTuneV2: parseBoolFlag(replayEnvBase.TT_TUNE_V2, false),
+                  _ttExitDebounceBars: Math.max(1, Number(replayEnvBase.TT_EXIT_DEBOUNCE_BARS) || 2),
                   _runId: replayRunId,
                 };
               }
@@ -37312,6 +37478,7 @@ export default {
         try {
           // Optional: ?cutoff_hours=N to override the 48h window (e.g., cutoff_hours=0 forces all)
           const cutoffHoursRaw = url.searchParams.get("cutoff_hours");
+          const tickerParam = url.searchParams.get("ticker");
           const opts = {};
           if (cutoffHoursRaw != null && cutoffHoursRaw !== "") {
             const h = Number(cutoffHoursRaw);
@@ -37319,9 +37486,104 @@ export default {
               opts.cutoffMs = Date.now() - h * 60 * 60 * 1000;
             }
           }
+          if (tickerParam) opts.ticker = tickerParam.toUpperCase();
           await runDataLifecycle(env, opts);
-          return sendJSON({ ok: true, message: "data_lifecycle_complete" }, 200, corsHeaders(env, req));
+          return sendJSON({ ok: true, message: "data_lifecycle_complete", ticker: opts.ticker || "all" }, 200, corsHeaders(env, req));
         } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // POST /timed/admin/aggregate-facts?key=...&ticker=SATS
+      // Fast in-worker aggregation: reads timed_trail for one ticker, groups into
+      // 5-min buckets in JS, batch-inserts into trail_5m_facts, deletes processed rows.
+      if (routeKey === "POST /timed/admin/aggregate-facts") {
+        const authFail = requireKeyOr401(req, env);
+        if (authFail) return authFail;
+        const db = env?.DB;
+        if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
+        const tickerParam = (url.searchParams.get("ticker") || "").toUpperCase();
+        if (!tickerParam) return sendJSON({ ok: false, error: "missing ticker" }, 400, corsHeaders(env, req));
+
+        try {
+          // Read all trail rows
+          const rows = await db.prepare(
+            `SELECT ts, price, htf_score, ltf_score, state, rank, completion, phase_pct, flags_json, kanban_stage
+             FROM timed_trail WHERE ticker = ?1 ORDER BY ts`
+          ).bind(tickerParam).all();
+          const allRows = rows?.results || [];
+          if (allRows.length === 0) return sendJSON({ ok: true, ticker: tickerParam, rows: 0, buckets: 0 }, 200, corsHeaders(env, req));
+
+          // Group into 5-min buckets
+          const bucketMap = new Map();
+          for (const r of allRows) {
+            const ts = Number(r.ts);
+            const b = Math.floor(ts / 300000) * 300000;
+            if (!bucketMap.has(b)) bucketMap.set(b, []);
+            bucketMap.get(b).push(r);
+          }
+
+          // Build batch statements
+          const stmts = [];
+          for (const [bucket, bRows] of bucketMap) {
+            const prices = bRows.map(r => Number(r.price)).filter(Number.isFinite);
+            const htfs = bRows.map(r => Number(r.htf_score)).filter(Number.isFinite);
+            const ltfs = bRows.map(r => Number(r.ltf_score)).filter(Number.isFinite);
+            const avg = arr => arr.length ? +(arr.reduce((s, v) => s + v, 0) / arr.length).toFixed(2) : 0;
+            const first = bRows[0], last = bRows[bRows.length - 1];
+            const fj = bRows.map(r => r.flags_json || "").join(" ");
+            let emaR = 0, pdz = "unknown", pdzP = 50;
+            try { const f = JSON.parse(last.flags_json || "{}"); emaR = Number(f.ema_regime_D) || 0; pdz = f.pdz_zone_D || "unknown"; pdzP = Number(f.pdz_pct_D) || 50; } catch (_) {}
+
+            stmts.push(db.prepare(
+              `INSERT OR REPLACE INTO trail_5m_facts
+               (ticker,bucket_ts,price_open,price_high,price_low,price_close,
+                htf_score_avg,htf_score_min,htf_score_max,ltf_score_avg,ltf_score_min,ltf_score_max,
+                state,rank,completion,phase_pct,
+                had_squeeze_release,had_ema_cross,had_st_flip,had_momentum_elite,had_flip_watch,
+                ema_regime_D,had_ema_cross_5_48,had_ema_cross_13_21,
+                pdz_zone,pdz_pct,fvg_bull_count,fvg_bear_count,liq_bs_count,liq_ss_count,
+                kanban_stage_start,kanban_stage_end,kanban_changed,sample_count,created_at)
+               VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,?25,?26,?27,?28,?29,?30,?31,?32,?33,?34,?35)`
+            ).bind(
+              tickerParam, bucket,
+              prices[0] || 0, prices.length ? Math.max(...prices) : 0, prices.length ? Math.min(...prices) : 0, prices[prices.length - 1] || 0,
+              avg(htfs), htfs.length ? Math.min(...htfs) : 0, htfs.length ? Math.max(...htfs) : 0,
+              avg(ltfs), ltfs.length ? Math.min(...ltfs) : 0, ltfs.length ? Math.max(...ltfs) : 0,
+              last.state || "unknown", Math.max(...bRows.map(r => Number(r.rank) || 0)),
+              Math.max(...bRows.map(r => Number(r.completion) || 0)), Math.max(...bRows.map(r => Number(r.phase_pct) || 0)),
+              fj.includes("squeeze_release") || fj.includes("sq30_release") ? 1 : 0,
+              fj.includes("ema_cross") ? 1 : 0, fj.includes("st_flip") ? 1 : 0,
+              fj.includes("momentum_elite") ? 1 : 0, fj.includes("flip_watch") ? 1 : 0,
+              emaR, 0, 0, pdz, pdzP, 0, 0, 0, 0,
+              first.kanban_stage || "unknown", last.kanban_stage || "unknown",
+              (first.kanban_stage || "") !== (last.kanban_stage || "") ? 1 : 0,
+              bRows.length, Date.now()
+            ));
+          }
+
+          // Execute in batches of 50 (D1 batch limit)
+          let inserted = 0;
+          for (let i = 0; i < stmts.length; i += 50) {
+            const batch = stmts.slice(i, i + 50);
+            await db.batch(batch);
+            inserted += batch.length;
+          }
+
+          // Delete processed trail rows
+          let deleted = 0;
+          for (;;) {
+            const del = await db.prepare(
+              `DELETE FROM timed_trail WHERE rowid IN (SELECT rowid FROM timed_trail WHERE ticker = ?1 LIMIT 5000)`
+            ).bind(tickerParam).run();
+            const n = del?.meta?.changes ?? 0;
+            deleted += n;
+            if (n < 5000) break;
+          }
+
+          return sendJSON({ ok: true, ticker: tickerParam, trail_rows: allRows.length, buckets: bucketMap.size, facts_inserted: inserted, trail_deleted: deleted }, 200, corsHeaders(env, req));
+        } catch (e) {
+          console.error(`[AGGREGATE-FACTS] ${tickerParam} failed:`, String(e));
           return sendJSON({ ok: false, error: String(e?.message || e) }, 500, corsHeaders(env, req));
         }
       }
@@ -49169,49 +49431,8 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             console.warn("[PRICE FEED LIGHT] D1 fallback error:", String(e?.message || e).slice(0, 200));
           }
 
-          // 1. Refresh market-pulse futures/index from TwelveData (proper symbol mapping).
-          let marketPulseRestCount = 0;
-          try {
-            const mpData = await fetchMarketPulseFromTD(env);
-            for (const [sym, pd] of Object.entries(mpData)) {
-              existing[sym] = { ...(existing[sym] || {}), ...pd };
-              marketPulseRestCount++;
-            }
-          } catch (e) {
-            console.warn("[PRICE FEED LIGHT] market-pulse TD error:", String(e?.message || e).slice(0, 200));
-          }
-
-          // 2. Overlay TV heartbeat / timed:latest for symbols not covered by TD
-          //    (e.g. US500) or when the heartbeat is fresher than the snapshot.
-          const TV_OVERLAY_SYMS = ["ES1!", "NQ1!", "GC1!", "SI1!", "VX1!", "US500", "CL1!", "YM1!", "RTY1!"];
-          let tvUpdated = 0;
-          for (const tvSym of TV_OVERLAY_SYMS) {
-            try {
-              const hbData = await kvGetJSON(KV, `timed:heartbeat:${tvSym}`);
-              const latestData = await kvGetJSON(KV, `timed:latest:${tvSym}`);
-              const tvData = (hbData && hbData.price > 0) ? hbData : latestData;
-              if (tvData && tvData.price > 0) {
-                const incomingTs = Number(tvData.ts || tvData.ingest_ts || 0) || 0;
-                const prev = existing[tvSym] || {};
-                const prevTs = Number(prev.t || 0) || 0;
-                if (prevTs && incomingTs && incomingTs < prevTs) continue;
-                const prevClose = Number(tvData.prev_close || tvData.previous_close || 0);
-                const price = Number(tvData.price);
-                const dc = prevClose > 0 ? Math.round((price - prevClose) * 100) / 100 : null;
-                const dp = prevClose > 0 ? Math.round(((price - prevClose) / prevClose) * 10000) / 100 : null;
-                existing[tvSym] = {
-                  ...prev,
-                  p: Math.round(price * 100) / 100,
-                  pc: prevClose > 0 ? Math.round(prevClose * 100) / 100 : (prev.pc || 0),
-                  dc: dc ?? prev.dc, dp: dp ?? prev.dp,
-                  dh: Math.round(Number(tvData.high || tvData.dailyHigh || 0) * 100) / 100 || prev.dh,
-                  dl: Math.round(Number(tvData.low || tvData.dailyLow || 0) * 100) / 100 || prev.dl,
-                  t: incomingTs || Date.now(),
-                };
-                tvUpdated++;
-              }
-            } catch (_) {}
-          }
+          // 1. Overlay TV heartbeat / timed:latest for futures/index symbols
+          const { updated: tvUpdated } = await overlayTVHeartbeats(KV, existing);
 
           // 2. Overlay crypto from Alpaca snapshots
           let cryptoUpdated = 0;
@@ -49405,50 +49626,8 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           console.warn("[PRICE FEED] D1 fallback error:", String(e?.message || e).slice(0, 200));
         }
 
-        // Refresh market-pulse futures/index from TwelveData (proper symbol mapping).
-        let marketPulseRestCount = 0;
-        try {
-          const mpData = await fetchMarketPulseFromTD(env);
-          for (const [sym, pd] of Object.entries(mpData)) {
-            prices[sym] = { ...(prices[sym] || {}), ...pd };
-            marketPulseRestCount++;
-          }
-        } catch (e) {
-          console.warn("[PRICE FEED] market-pulse TD error:", String(e?.message || e).slice(0, 200));
-        }
-
-        // Overlay TV heartbeat / timed:latest for symbols not covered by TD
-        // (e.g. US500) or when the heartbeat is fresher.
-        const TV_OVERLAY_SYMS_ACTIVE = ["ES1!", "NQ1!", "GC1!", "SI1!", "VX1!", "US500", "CL1!", "YM1!", "RTY1!"];
-        let tvOverlayCount = 0;
-        for (const tvSym of TV_OVERLAY_SYMS_ACTIVE) {
-          try {
-            const hbData = await kvGetJSON(KV, `timed:heartbeat:${tvSym}`);
-            const latestData = await kvGetJSON(KV, `timed:latest:${tvSym}`);
-            const tvData = (hbData && hbData.price > 0) ? hbData : latestData;
-            if (tvData && tvData.price > 0) {
-              const incomingTs = Number(tvData.ts || tvData.ingest_ts || 0) || 0;
-              const prev = prices[tvSym] || {};
-              const prevTs = Number(prev.t || 0) || 0;
-              if (prevTs && incomingTs && incomingTs < prevTs) continue;
-              const prevClose = Number(tvData.prev_close || tvData.previous_close || 0);
-              const price = Number(tvData.price);
-              const dc = prevClose > 0 ? Math.round((price - prevClose) * 100) / 100 : null;
-              const dp = prevClose > 0 ? Math.round(((price - prevClose) / prevClose) * 10000) / 100 : null;
-              prices[tvSym] = {
-                ...prev,
-                p: Math.round(price * 100) / 100,
-                pc: prevClose > 0 ? Math.round(prevClose * 100) / 100 : (prev.pc || 0),
-                dc: dc ?? prev.dc, dp: dp ?? prev.dp,
-                dh: Math.round(Number(tvData.high || tvData.dailyHigh || 0) * 100) / 100 || prev.dh,
-                dl: Math.round(Number(tvData.low || tvData.dailyLow || 0) * 100) / 100 || prev.dl,
-                dv: Number(tvData.volume || 0) || prev.dv,
-                t: incomingTs || Date.now(),
-              };
-              tvOverlayCount++;
-            }
-          } catch (_) {}
-        }
+        // Overlay TV heartbeat / timed:latest for futures/index symbols
+        const { updated: tvOverlayCount } = await overlayTVHeartbeats(KV, prices);
 
         const priceUpdateTs = Date.now();
         await kvPutJSON(KV, "timed:prices", {
@@ -49553,8 +49732,10 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           const future = new Date(Date.now() + 5 * 86400000).toLocaleDateString("en-CA", { timeZone: "America/New_York" });
           const raw = await fetchFinnhubEarnings(env, today, future);
           const universeSet = new Set(Object.keys(SECTOR_MAP));
-          const filtered = raw
+          const cutoffNy = new Date(Date.now() - 1 * 86400000).toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+          let filtered = raw
             .filter(e => universeSet.has(String(e.symbol).toUpperCase()))
+            .filter(e => (e.date || "").slice(0, 10) >= cutoffNy)
             .map(e => ({
               symbol: String(e.symbol).toUpperCase(),
               date: e.date,
@@ -49564,6 +49745,29 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
               revenueEstimate: e.revenueEstimate ?? null,
               revenueActual: e.revenueActual ?? null,
             }));
+          // TwelveData soft gate (same as GET endpoint) — only filter when coverage >30%
+          try {
+            const tdRes = await tdFetchEarningsCalendar(env, today, future);
+            if (!tdRes._error && tdRes.earnings && typeof tdRes.earnings === "object") {
+              const tdConfirmed = new Set();
+              for (const [date, arr] of Object.entries(tdRes.earnings)) {
+                if (Array.isArray(arr)) for (const e of arr) {
+                  const sym = String(e.symbol || "").toUpperCase();
+                  if (sym) tdConfirmed.add(`${sym}|${(date || "").slice(0, 10)}`);
+                }
+              }
+              if (tdConfirmed.size > 0) {
+                const matchCount = filtered.filter(e => tdConfirmed.has(`${e.symbol}|${(e.date || "").slice(0, 10)}`)).length;
+                if (filtered.length > 0 && matchCount / filtered.length >= 0.3) {
+                  filtered = filtered.filter(e => tdConfirmed.has(`${e.symbol}|${(e.date || "").slice(0, 10)}`));
+                } else {
+                  console.warn(`[EARNINGS CRON] TwelveData coverage too low (${matchCount}/${filtered.length}) — Finnhub results unfiltered`);
+                }
+              } else {
+                console.warn("[EARNINGS CRON] TwelveData returned 0 confirmed events — Finnhub results unfiltered");
+              }
+            }
+          } catch (_) {}
           await kvPutJSON(KV, "timed:earnings:upcoming", {
             events: filtered,
             updated_at: Date.now(),
@@ -49903,8 +50107,8 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
               _calibratedRankMin: env._calibratedRankMin || 0,
               _entryEngine: resolveEngineMode(env.ENTRY_ENGINE),
               _managementEngine: resolveEngineMode(env.MANAGEMENT_ENGINE),
-              _ripsterTuneV2: parseBoolFlag(env.RIPSTER_TUNE_V2, false),
-              _ripsterExitDebounceBars: Math.max(1, Number(env.RIPSTER_EXIT_DEBOUNCE_BARS) || 2),
+              _ttTuneV2: parseBoolFlag(env.TT_TUNE_V2, false),
+              _ttExitDebounceBars: Math.max(1, Number(env.TT_EXIT_DEBOUNCE_BARS) || 2),
               _runId: `live@${new Date().toISOString().slice(0, 10)}`,
             };
             if (env._currentVix != null) result._vix = env._currentVix;
