@@ -294,20 +294,16 @@ async function dataFetchSnapshots(env, symbols) {
 
 // ── Market-pulse futures/index: dedicated TwelveData fetch ──────────────
 // These symbols are in SKIP_TICKERS because their TradingView notation
-// (ES1!) differs from TwelveData's continuous-contract symbol (ES).
-// This function maps them, calls /quote directly, and returns timed:prices
-// format objects keyed by our internal symbols.
-const MARKET_PULSE_TD_MAP = {
-  "ES1!": "ES",
-  "NQ1!": "NQ",
-  "YM1!": "YM",
-  "RTY1!": "RTY",
-  "GC1!": "GC",
-  "SI1!": "SI",
-  "CL1!": "CL",
-  "VX1!": "VX",
-  "SPX":  "SPX",
-};
+// (ES1!) differs from TwelveData's continuous-contract format.
+// Grouped by exchange so the API resolves futures (not stocks with the
+// same ticker, e.g. ES=Eversource, SI=Silvergate, CL=Colgate).
+const MARKET_PULSE_TD_GROUPS = [
+  { exchange: "CME",   syms: [["ES1!", "ES"], ["NQ1!", "NQ"], ["RTY1!", "RTY"]] },
+  { exchange: "CBOT",  syms: [["YM1!", "YM"]] },
+  { exchange: "COMEX", syms: [["GC1!", "GC"], ["SI1!", "SI"]] },
+  { exchange: "NYMEX", syms: [["CL1!", "CL"]] },
+  { exchange: null,    syms: [["VX1!", "VIX"], ["SPX", "SPX"]] },
+];
 
 function _parseMPQuote(q) {
   const price = Number(q.close) || 0;
@@ -336,46 +332,47 @@ async function fetchMarketPulseFromTD(env) {
   if (!apiKey) return {};
 
   const results = {};
-  const entries = Object.entries(MARKET_PULSE_TD_MAP);
-  const BATCH = 8;
 
-  for (let i = 0; i < entries.length; i += BATCH) {
-    const batch = entries.slice(i, i + BATCH);
-    const tdSyms = batch.map(([, td]) => td);
+  for (const group of MARKET_PULSE_TD_GROUPS) {
+    const { exchange, syms } = group;
+    const tdSyms = syms.map(([, td]) => td);
     try {
       const params = new URLSearchParams({
         symbol: tdSyms.join(","),
         apikey: apiKey,
         prepost: "true",
       });
+      if (exchange) params.set("exchange", exchange);
       const url = `https://api.twelvedata.com/quote?${params}`;
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), 15000);
       const resp = await fetch(url, { signal: controller.signal });
       clearTimeout(timer);
       if (!resp.ok) {
-        console.warn(`[MARKET PULSE TD] HTTP ${resp.status}`);
+        console.warn(`[MARKET PULSE TD] HTTP ${resp.status} for exchange=${exchange || "none"}`);
         continue;
       }
       const data = await resp.json();
 
       if (tdSyms.length === 1) {
-        const [ourSym] = batch[0];
+        const [ourSym] = syms[0];
         if (data?.close && Number(data.close) > 0) {
           results[ourSym] = _parseMPQuote(data);
+        } else if (data?.status === "error" || data?.code) {
+          console.warn(`[MARKET PULSE TD] ${ourSym}→${tdSyms[0]} (${exchange}): ${data?.message || "unsupported"}`);
         }
       } else {
-        for (const [ourSym, tdSym] of batch) {
+        for (const [ourSym, tdSym] of syms) {
           const q = data?.[tdSym];
           if (q?.close && Number(q.close) > 0) {
             results[ourSym] = _parseMPQuote(q);
-          } else if (q?.code === 400 || q?.status === "error") {
-            console.warn(`[MARKET PULSE TD] ${ourSym}→${tdSym}: ${q?.message || "unsupported"}`);
+          } else if (q?.status === "error" || q?.code) {
+            console.warn(`[MARKET PULSE TD] ${ourSym}→${tdSym} (${exchange}): ${q?.message || "unsupported"}`);
           }
         }
       }
     } catch (e) {
-      console.warn("[MARKET PULSE TD] error:", String(e?.message || e).slice(0, 200));
+      console.warn(`[MARKET PULSE TD] error (exchange=${exchange || "none"}):`, String(e?.message || e).slice(0, 200));
     }
   }
 
