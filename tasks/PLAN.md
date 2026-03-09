@@ -68,8 +68,8 @@ Single reference for current status and next steps. Read this first each session
 
 **Classified 15m baseline settings:**
 - `LEADING_LTF=15`
-- `RIPSTER_TUNE_V2=true`
-- `RIPSTER_EXIT_DEBOUNCE_BARS=3`
+- `TT_TUNE_V2=true`
+- `TT_EXIT_DEBOUNCE_BARS=3`
 - `deep_audit_short_min_rank=65`
 - `deep_audit_swing_checklist_v1=false`
 - `deep_audit_swing_require_squeeze_build=false`

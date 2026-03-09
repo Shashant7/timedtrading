@@ -220,6 +220,8 @@
         0% { transform: rotate(0deg); }
         100% { transform: rotate(360deg); }
       }
+      .bubble-g { transition: filter 0.15s ease-out; }
+      .bubble-g:hover { filter: brightness(1.3) drop-shadow(0 0 6px rgba(255,255,255,0.2)); }
       @keyframes pulse-badge {
         0%, 100% { opacity: 1; transform: scale(1); }
         50% { opacity: 0.7; transform: scale(1.15); }
@@ -482,7 +484,7 @@
     <script src="investor-panel.js?v=20260226a"></script>
     <script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
     <script src="shared-right-rail.compiled.js?v=20260309a"></script>
-    <script src="./index-react.compiled.726809aa92.js"></script>
+    <script src="./index-react.compiled.699b5f52ff.js"></script>
 
     <!-- Initialize app - separate script to avoid Babel parsing issues -->
     <script>

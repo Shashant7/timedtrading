@@ -68,7 +68,7 @@
               onClick: (e) => { e.stopPropagation(); toggleSavedTicker(sym); },
               className: `shrink-0 text-[13px] hover:scale-110 transition-transform ${savedTickers?.has(sym) ? "text-amber-400" : "text-[#4b5563] hover:text-amber-300"}`,
               title: savedTickers?.has(sym) ? "Remove from Saved" : "Add to Saved",
-            }, savedTickers?.has(sym) ? "\u2733" : "\u2606"),
+            }, savedTickers?.has(sym) ? "\u2605" : "\u2606"),
             React.createElement("div", { className: "flex flex-col min-w-0 shrink" },
               React.createElement("span", { className: "text-[13px] font-bold text-white shrink-0", style: { textShadow: "0 1px 3px rgba(0,0,0,0.8)" } }, sym),
               t.companyName && React.createElement("span", { className: "text-[9px] text-[#9ca3af] truncate", title: t.companyName }, t.companyName),

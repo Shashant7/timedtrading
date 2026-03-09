@@ -72,7 +72,7 @@
       ];
 
       var ENTRY_GRADE_OPTIONS = [
-        { value: "chasing", label: "Chasing", hint: "Entered after move stretched — tunes 10m weight" },
+        { value: "chasing", label: "Chasing", hint: "Entered after move stretched — tunes 15m weight" },
         { value: "move_stretched", label: "Move Stretched", hint: "Entry too late in the move" },
         { value: "not_enough_confirmation", label: "Not Enough Confirmation", hint: "Entered before signals aligned" },
         { value: "fake_out", label: "Fake Out", hint: "Signal reversed quickly — ticker personality" },
@@ -90,7 +90,7 @@
 
       const fetchOpts = { cache: "no-store", credentials: "include" };
 
-      const TF_ORDER = ["10m", "30m", "1H", "4H", "D"];
+      const TF_ORDER = ["15m", "30m", "1H", "4H", "D"];
       const SIGNAL_LABELS = {
         ema_cross: "EMA cross",
         supertrend: "SuperTrend",
@@ -318,7 +318,7 @@
         const indicatorDataRef = useRef(null);
         const [loading, setLoading] = useState(true);
         const [error, setError] = useState(null);
-        const [tf, setTf] = useState("10");
+        const [tf, setTf] = useState("15");
         const [showIndicators, setShowIndicators] = useState({ ema9: false, ema21: false, ema48: false, ema200: false, superTrend: false });
 
         const mapCandles = useCallback((candles, timeframe) => {
@@ -371,7 +371,7 @@
           const asOfMs = exitMs
             ? exitMs + threeDaysMs
             : (entryMs || Date.now());
-          const limit = 3000; // Max supported by API; covers ~77 trading days of 10m bars
+          const limit = 3000; // Max supported by API; covers ~77 trading days of 15m bars
           const container = containerRef.current;
           const initialWidth = Math.max(container.clientWidth || 400, 200);
 
@@ -704,7 +704,7 @@
             <div className="px-3 py-2 flex items-center justify-between border-b border-white/[0.04]">
               <span className="text-[13px] font-semibold text-[#14b8a6]">{ticker}</span>
               <div className="flex items-center gap-0.5 sm:gap-1">
-                {["5", "10", "60", "D"].map(t => (
+                {["5", "15", "60", "D"].map(t => (
                   <button
                     key={t}
                     onClick={() => setTf(t)}
@@ -766,7 +766,7 @@
         const storedEntry = Number(trade?.entry_price || trade?.entryPrice);
         const storedExit = Number(trade?.exit_price || trade?.exitPrice);
 
-        // Fetch 10m candle at entry and exit to align stored prices with bar closes
+        // Fetch 15m candle at entry and exit to align stored prices with bar closes
         useEffect(() => {
           if (!trade?.ticker || !trade?.entry_ts) return;
           const asOfMs = (ts) => {
@@ -776,7 +776,7 @@
           };
           const entryMs = asOfMs(trade.entry_ts);
           if (entryMs) {
-            fetch(`${API_BASE}/timed/candles?ticker=${encodeURIComponent(trade.ticker)}&tf=10&limit=5&asOfTs=${entryMs}`, fetchOpts)
+            fetch(`${API_BASE}/timed/candles?ticker=${encodeURIComponent(trade.ticker)}&tf=15&limit=5&asOfTs=${entryMs}`, fetchOpts)
               .then(r => r.json())
               .then(data => {
                 const candles = data?.candles;
@@ -790,7 +790,7 @@
           if (trade?.exit_ts) {
             const exitMs = asOfMs(trade.exit_ts);
             if (exitMs) {
-              fetch(`${API_BASE}/timed/candles?ticker=${encodeURIComponent(trade.ticker)}&tf=10&limit=5&asOfTs=${exitMs}`, fetchOpts)
+              fetch(`${API_BASE}/timed/candles?ticker=${encodeURIComponent(trade.ticker)}&tf=15&limit=5&asOfTs=${exitMs}`, fetchOpts)
                 .then(r => r.json())
                 .then(data => {
                   const candles = data?.candles;
@@ -827,7 +827,7 @@
           return () => { cancelled = true; };
         }, [trade?.ticker]);
 
-        // Auto-apply entry/exit price correction so displayed prices match 10m bar closes
+        // Auto-apply entry/exit price correction so displayed prices match 15m bar closes
         useEffect(() => {
           if (!tradeId || !onRefreshTrades) return;
           const run = async () => {
@@ -931,7 +931,7 @@
                   </div>
                 </div>
                 <div className="text-[11px] text-[#9ca3af] px-1 hidden sm:block">
-                  Entry and exit prices are aligned to the 10m bar close at that time.
+                  Entry and exit prices are aligned to the 15m bar close at that time.
                 </div>
 
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 md:gap-4 lg:flex-1 lg:min-h-0">

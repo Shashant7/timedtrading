@@ -375,7 +375,7 @@
       ];
       const TF_OPTIONS = [
         { value: "5", label: "5m", limit: 250 },
-        { value: "10", label: "10m", limit: 180 },
+        { value: "15", label: "15m", limit: 180 },
         { value: "60", label: "1H", limit: 100 },
         { value: "D", label: "D", limit: 60 },
       ];
@@ -519,7 +519,7 @@
           const loadWithRetry = async (retriesLeft = 2) => {
             let raw = await fetchCandles(limit);
             // If selected TF has very few candles, cascade through fallback TFs
-            if (raw.length < 5 && (tf === "5" || tf === "10" || tf === "30" || tf === "60")) {
+            if (raw.length < 5 && (tf === "5" || tf === "15" || tf === "30" || tf === "60")) {
               // Try 1m with more data
               const fallback1mRes = await fetch(
                 `${API_BASE}/timed/candles?ticker=${encodeURIComponent(sym)}&tf=1&limit=500`,
@@ -610,7 +610,7 @@
 
             // Async: fetch daily ATR levels and overlay on intraday charts
             // Use cancelled flag to prevent stale fetches from adding duplicate levels
-            if (tf === "5" || tf === "10" || tf === "60") {
+            if (tf === "5" || tf === "15" || tf === "60") {
               const applyAtrLevels = (fibData) => {
                 if (cancelled || !fibData?.levels || !seriesRef.current) return;
                 // Remove any existing price lines first
@@ -844,7 +844,7 @@
       }
 
       function MarketCharts() {
-        const [tf, setTf] = useState("10");
+        const [tf, setTf] = useState("15");
         const tfConfig = TF_OPTIONS.find(t => t.value === tf) || TF_OPTIONS[0];
 
         return (

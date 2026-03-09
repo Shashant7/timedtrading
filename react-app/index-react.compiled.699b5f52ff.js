@@ -702,6 +702,15 @@ function useWebSocket(tickerData, setTickerData) {
               const bestPc = feedPcUsable ? feedPc : existing._live_prev_close || existing.prev_close || undefined;
               const feedDc = Number(priceInfo.dc);
               const feedDp = Number(priceInfo.dp);
+              const _impulse = (() => {
+                if (!(curPrice > 0) || !(priceInfo.p > 0)) return {};
+                const chg = (priceInfo.p - curPrice) / curPrice * 100;
+                const clampV = (v, mx) => Math.sign(v) * Math.min(Math.abs(v), mx);
+                return {
+                  _price_impulse_y: clampV(-chg * 80, 8),
+                  _price_impulse_x: clampV(chg * 35, 4)
+                };
+              })();
               queueWsUpdate(normalizedSym, {
                 price: priceInfo.p,
                 _live_price: priceInfo.p,
@@ -728,7 +737,8 @@ function useWebSocket(tickerData, setTickerData) {
                 } : {}),
                 ...(Number.isFinite(Number(priceInfo.ahdp)) ? {
                   _ah_change_pct: priceInfo.ahdp
-                } : {})
+                } : {}),
+                ..._impulse
               });
             }
           }
@@ -744,6 +754,15 @@ function useWebSocket(tickerData, setTickerData) {
               if (existing._live_price === u.last) continue;
               const curPrice = Number(existing._live_price || existing.price || 0);
               if (curPrice > 0 && Math.abs(u.last - curPrice) / curPrice * 100 < MIN_PRICE_CHANGE_PCT) continue;
+              const _impulse2 = (() => {
+                if (!(curPrice > 0) || !(u.last > 0)) return {};
+                const chg = (u.last - curPrice) / curPrice * 100;
+                const clampV = (v, mx) => Math.sign(v) * Math.min(Math.abs(v), mx);
+                return {
+                  _price_impulse_y: clampV(-chg * 80, 8),
+                  _price_impulse_x: clampV(chg * 35, 4)
+                };
+              })();
               queueWsUpdate(normalizedSym, {
                 price: u.last,
                 _live_price: u.last,
@@ -762,7 +781,8 @@ function useWebSocket(tickerData, setTickerData) {
                 } : {}),
                 ...(Number.isFinite(u.ahChgPct) ? {
                   _ah_change_pct: u.ahChgPct
-                } : {})
+                } : {}),
+                ..._impulse2
               });
             }
           }
@@ -2869,7 +2889,7 @@ const SVGBubble = memo(({
   const clampedRR = Math.min(rawRR, 6);
   const baseBubbleR = waitingForData ? MIN_R * 0.7 : MIN_R + clampedRR / 6 * (MAX_R - MIN_R);
   const ks = String(ticker?.kanban_stage || "").toLowerCase();
-  const isActionable = ["enter", "enter_now", "just_entered", "just_flipped"].includes(ks);
+  const isActionable = ["enter", "enter_now", "just_entered", "just_flipped", "flip_watch", "trim", "defend", "exit"].includes(ks);
   const finalSize = isActionable ? baseBubbleR + 2 : baseBubbleR;
   const move = getMoveStatusInfo(ticker);
   const dayPct = Number(ticker?.day_change_pct || ticker?.dailyChgPct || ticker?.dp || 0);
@@ -2933,7 +2953,63 @@ const SVGBubble = memo(({
   const labelY = y - renderedSize - 8;
   const decisionSummary = summarizeEntryDecision(ticker);
   const decisionTooltip = decisionSummary ? `System ${decisionSummary.status}: ${decisionSummary.detail}` : null;
+  const relLabelY = -renderedSize - 8;
+  const clampPx = (v, mx) => Math.sign(v) * Math.min(Math.abs(v), mx);
+  const baseDriftY = clampPx(-dayPct * 1.5, 8);
+  const baseDriftX = clampPx(dayPct * 0.6, 4);
+  const impulseX = Number(ticker._price_impulse_x) || 0;
+  const impulseY = Number(ticker._price_impulse_y) || 0;
+  const targetX = x + baseDriftX + impulseX;
+  const targetY = y + baseDriftY + impulseY;
+  const gRef = useRef(null);
+  const animRef = useRef({
+    cx: targetX,
+    cy: targetY,
+    rafId: null,
+    init: false
+  });
+  useEffect(() => {
+    const a = animRef.current;
+    if (!a.init) {
+      a.cx = targetX;
+      a.cy = targetY;
+      a.init = true;
+      if (gRef.current) gRef.current.setAttribute("transform", `translate(${targetX.toFixed(1)}, ${targetY.toFixed(1)})`);
+      return;
+    }
+    const sx = a.cx,
+      sy = a.cy;
+    const dx = targetX - sx,
+      dy = targetY - sy;
+    if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) {
+      a.cx = targetX;
+      a.cy = targetY;
+      if (gRef.current) gRef.current.setAttribute("transform", `translate(${targetX.toFixed(1)}, ${targetY.toFixed(1)})`);
+      return;
+    }
+    if (a.rafId) cancelAnimationFrame(a.rafId);
+    const t0 = performance.now();
+    const dur = 700;
+    const step = now => {
+      const p = Math.min(1, (now - t0) / dur);
+      const e = p < 0.5 ? 2 * p * p : 1 - Math.pow(-2 * p + 2, 2) / 2;
+      a.cx = sx + dx * e;
+      a.cy = sy + dy * e;
+      if (gRef.current) gRef.current.setAttribute("transform", `translate(${a.cx.toFixed(1)}, ${a.cy.toFixed(1)})`);
+      if (p < 1) {
+        a.rafId = requestAnimationFrame(step);
+      } else {
+        a.rafId = null;
+      }
+    };
+    a.rafId = requestAnimationFrame(step);
+    return () => {
+      if (a.rafId) cancelAnimationFrame(a.rafId);
+    };
+  }, [targetX, targetY]);
   return React.createElement("g", {
+    ref: gRef,
+    className: "bubble-g",
     onClick: () => onClick(ticker.ticker),
     onMouseEnter: () => onHover(ticker.ticker),
     onMouseLeave: () => onHover(null),
@@ -2946,27 +3022,45 @@ const SVGBubble = memo(({
       e.preventDefault();
       onHover(null);
     },
+    transform: `translate(${targetX.toFixed(1)}, ${targetY.toFixed(1)})`,
     style: {
       cursor: "pointer",
-      transition: "opacity 0.3s ease-out",
       touchAction: "manipulation",
       opacity: insightDimmed && !isHovered ? 0.12 : 1
     }
-  }, decisionTooltip && React.createElement("title", null, decisionTooltip), showGlow && React.createElement("circle", {
-    cx: x,
-    cy: y,
-    r: renderedSize + 3,
+  }, decisionTooltip && React.createElement("title", null, decisionTooltip), showGlow && React.createElement(React.Fragment, null, React.createElement("circle", {
+    cx: 0,
+    cy: 0,
+    r: renderedSize + 6,
     fill: "none",
-    stroke: "rgba(255,255,255,0.3)",
+    stroke: borderColor,
+    strokeWidth: "1.5",
+    opacity: "0.4"
+  }, React.createElement("animate", {
+    attributeName: "r",
+    values: `${renderedSize + 3};${renderedSize + 8};${renderedSize + 3}`,
+    dur: "2s",
+    repeatCount: "indefinite"
+  }), React.createElement("animate", {
+    attributeName: "opacity",
+    values: "0.5;0.15;0.5",
+    dur: "2s",
+    repeatCount: "indefinite"
+  })), React.createElement("circle", {
+    cx: 0,
+    cy: 0,
+    r: renderedSize + 2,
+    fill: "none",
+    stroke: "rgba(255,255,255,0.5)",
     strokeWidth: "1"
   }, React.createElement("animate", {
     attributeName: "opacity",
-    values: "0.15;0.4;0.15",
-    dur: "2.5s",
+    values: "0.2;0.6;0.2",
+    dur: "1.8s",
     repeatCount: "indefinite"
-  })), React.createElement("circle", {
-    cx: x,
-    cy: y,
+  }))), React.createElement("circle", {
+    cx: 0,
+    cy: 0,
     r: renderedSize,
     fill: fillColor,
     stroke: borderColor,
@@ -2977,43 +3071,46 @@ const SVGBubble = memo(({
       pointerEvents: "none"
     }
   }, React.createElement("circle", {
-    cx: x + renderedSize * 0.7,
-    cy: y - renderedSize * 0.7,
+    cx: renderedSize * 0.7,
+    cy: -renderedSize * 0.7,
     r: 6,
     fill: "rgba(245,158,11,0.3)",
     stroke: "#f59e0b",
     strokeWidth: "0.8"
   }), React.createElement("text", {
-    x: x + renderedSize * 0.7,
-    y: y - renderedSize * 0.7 + 0.5,
+    x: renderedSize * 0.7,
+    y: -renderedSize * 0.7 + 0.5,
     fontSize: "7",
     textAnchor: "middle",
     dominantBaseline: "middle"
-  }, "\uD83D\uDCC5")), stageIconData && React.createElement("g", {
-    style: {
-      pointerEvents: "none"
-    }
-  }, React.createElement("rect", {
-    x: x - 14,
-    y: y + renderedSize + 2,
-    width: "28",
-    height: "12",
-    rx: "6",
-    fill: stageIconData.bg,
-    stroke: stageIconData.border,
-    strokeWidth: "0.8"
-  }), React.createElement("text", {
-    x: x,
-    y: y + renderedSize + 8.5,
-    fontSize: "7",
-    fontWeight: "bold",
-    textAnchor: "middle",
-    dominantBaseline: "middle",
-    fill: stageIconData.fill,
-    letterSpacing: "0.5"
-  }, stageIconData.label)), waitingForData && React.createElement("text", {
-    x: x,
-    y: y - renderedSize - 10,
+  }, "\uD83D\uDCC5")), stageIconData && (() => {
+    const pillW = stageIconData.label.length > 4 ? 36 : 28;
+    return React.createElement("g", {
+      style: {
+        pointerEvents: "none"
+      }
+    }, React.createElement("rect", {
+      x: -pillW / 2,
+      y: renderedSize + 2,
+      width: pillW,
+      height: "12",
+      rx: "6",
+      fill: stageIconData.bg,
+      stroke: stageIconData.border,
+      strokeWidth: "0.8"
+    }), React.createElement("text", {
+      x: 0,
+      y: renderedSize + 8.5,
+      fontSize: "7",
+      fontWeight: "bold",
+      textAnchor: "middle",
+      dominantBaseline: "middle",
+      fill: stageIconData.fill,
+      letterSpacing: "0.5"
+    }, stageIconData.label));
+  })(), waitingForData && React.createElement("text", {
+    x: 0,
+    y: -renderedSize - 10,
     textAnchor: "middle",
     fontSize: "10",
     fill: "#8b92a0",
@@ -3021,8 +3118,8 @@ const SVGBubble = memo(({
       pointerEvents: "none"
     }
   }, "\u23F3"), (showLabels || isHovered) && React.createElement("text", {
-    x: x,
-    y: labelY,
+    x: 0,
+    y: relLabelY,
     textAnchor: "middle",
     fontSize: "10",
     fill: waitingForData ? "#8b92a0" : "#f0f2f5",
@@ -3213,6 +3310,10 @@ function BubbleChart({
   const [showLabels, setShowLabels] = useState(true);
   const [crosshairPos, setCrosshairPos] = useState(null);
   const containerRef = React.useRef(null);
+  const hoveredTickerRef = React.useRef(hoveredTicker);
+  React.useEffect(() => {
+    hoveredTickerRef.current = hoveredTicker;
+  }, [hoveredTicker]);
   const topRankedTicker = React.useMemo(() => {
     if (rankedTickers && rankedTickers.length > 0) {
       return rankedTickers[0].ticker;
@@ -3969,10 +4070,18 @@ function BubbleChart({
           boxShadow: "0 8px 32px rgba(0,0,0,0.45), inset 0 0.5px 0 rgba(255,255,255,0.08)"
         }
       }, React.createElement("div", {
-        className: "font-bold text-base mb-2"
-      }, tooltip.ticker, tooltip.price && React.createElement("span", {
-        className: "ml-2 text-sm font-normal text-white"
-      }, "$", Number(tooltip.price).toFixed(2))), (() => {
+        className: "font-bold text-base mb-2 flex items-center gap-2"
+      }, React.createElement("span", null, tooltip.ticker), tooltip.price && React.createElement("span", {
+        className: "text-sm font-normal text-white"
+      }, "$", Number(tooltip.price).toFixed(2)), (() => {
+        const b = tooltip.bias_direction || getDirectionFromState(tooltip);
+        if (!b) return null;
+        const l = String(b).toUpperCase() === "LONG";
+        const s = String(b).toUpperCase() === "SHORT";
+        return React.createElement("span", {
+          className: `px-1.5 py-0.5 rounded text-[9px] font-semibold ${l ? "bg-teal-500/20 text-teal-400" : s ? "bg-rose-500/20 text-rose-400" : "bg-white/[0.04] text-[#6b7280]"}`
+        }, l ? "LONG" : s ? "SHORT" : "NEUTRAL");
+      })()), (() => {
         const ingestTime = tooltip.ingest_ts || tooltip.ingest_time || tooltip.ts;
         if (ingestTime) {
           try {
@@ -4078,19 +4187,7 @@ function BubbleChart({
         className: "text-[#6b7280]"
       }, "State"), React.createElement("span", {
         className: "font-semibold"
-      }, tooltip.state || "—")), (() => {
-        const bias = tooltip.bias_direction || getDirectionFromState(tooltip);
-        if (!bias) return null;
-        const isLong = String(bias).toUpperCase() === "LONG";
-        const isShort = String(bias).toUpperCase() === "SHORT";
-        return React.createElement("div", {
-          className: "flex justify-between"
-        }, React.createElement("span", {
-          className: "text-[#6b7280]"
-        }, "Bias"), React.createElement("span", {
-          className: `font-semibold ${isLong ? "text-cyan-400" : isShort ? "text-rose-400" : "text-yellow-400"}`
-        }, isLong ? "LONG" : isShort ? "SHORT" : "NEUTRAL"));
-      })(), window._ttIsPro ? React.createElement(React.Fragment, null, React.createElement("div", {
+      }, tooltip.state || "—")), window._ttIsPro ? React.createElement(React.Fragment, null, React.createElement("div", {
         className: "flex justify-between"
       }, React.createElement("span", {
         className: "text-[#6b7280]"
@@ -4188,7 +4285,7 @@ function BubbleChart({
     const dir = getDirectionFromState(ticker);
     const flipWatch = !!flags.flip_watch;
     const isTopRanked = topRankedTicker === ticker.ticker;
-    const isBubbleHovered = hoveredTicker === ticker.ticker;
+    const isBubbleHovered = hoveredTickerRef.current === ticker.ticker;
     const isInSqueeze = !!flags.sq30_on && !flags.sq30_release;
     let color;
     if (waitingForData) {
@@ -4212,18 +4309,24 @@ function BubbleChart({
     }
     const emojiText = emojis.join("");
     let borderColor = waitingForData ? "#8b92a0" : dir === "LONG" ? "#22d3ee" : dir === "SHORT" ? "#e11d48" : flipWatch ? "#fbbf24" : prime ? "#14b8a6" : winnerSig ? "#a855f7" : flags.sq30_release ? "#00ffff" : flags.sq30_on ? "#ffd700" : "rgba(255,255,255,0.25)";
-    const baseOpacity = waitingForData ? 0.55 : isBubbleHovered ? 1 : dir ? 0.92 : prime || winnerSig ? 0.9 : 0.8;
-    const moveOpacityMult = waitingForData || isBubbleHovered ? 1 : move.status === "INVALIDATED" ? 0.25 : move.status === "COMPLETED" ? 0.6 : 1;
+    const baseOpacity = waitingForData ? 0.55 : dir ? 0.92 : prime || winnerSig ? 0.9 : 0.8;
+    const moveOpacityMult = waitingForData ? 1 : move.status === "INVALIDATED" ? 0.25 : move.status === "COMPLETED" ? 0.6 : 1;
     const opacity = Math.max(0.12, baseOpacity * moveOpacityMult);
     if (!waitingForData && move.status !== "ACTIVE" && !dir) {
       borderColor = move.stroke;
     }
     const borderWidth = waitingForData ? 1.5 : dir ? 2.5 : flipWatch ? 3.5 : prime || winnerSig ? 3 : flags.sq30_release || flags.sq30_on ? 2 : 1.5;
-    const bubbleSize = isBubbleHovered ? finalSize * 1.2 : finalSize;
+    const bubbleSize = finalSize;
     const labelY = cy - bubbleSize - (emojiText ? isTopRanked ? 20 : 12 : 8);
     const rcGradId = `rc-bg-${ticker.ticker}`;
     const rcRenderedSize = Math.max(3, bubbleSize);
+    const ks = String(ticker.kanban_stage || "").toLowerCase();
+    const isActionable = ["enter", "enter_now", "just_entered", "just_flipped", "flip_watch"].includes(ks);
     return React.createElement("g", {
+      className: "bubble-g",
+      "data-dir": dir || "NEUTRAL",
+      "data-seed": tickerHash,
+      "data-actionable": isActionable ? "1" : "0",
       onClick: () => onBubbleClick(ticker.ticker),
       onMouseEnter: () => onHover(ticker.ticker),
       onMouseLeave: () => onHover(null),
@@ -4238,7 +4341,6 @@ function BubbleChart({
       },
       style: {
         cursor: "pointer",
-        transition: "all 0.2s ease-out",
         touchAction: "manipulation"
       }
     }, React.createElement("defs", null, React.createElement("radialGradient", {
@@ -4404,7 +4506,7 @@ function BubbleChart({
         pointerEvents: "none"
       }
     }, ticker.ticker));
-  }, [onBubbleClick, onHover, hoveredTicker, topRankedTicker, showLabels]);
+  }, [onBubbleClick, onHover, topRankedTicker, showLabels]);
   const handleRechartsMouseMove = e => {
     if (e && e.activeCoordinate && e.chartX !== undefined && e.chartY !== undefined) {
       const chart = e.chart;
@@ -4966,12 +5068,15 @@ function SetupCard({
   const tpLevels = ticker.tp_levels || [];
   const comp = completionForSize(ticker);
   const decision = summarizeEntryDecision(ticker);
-  const borderAccent = isSelected ? "border-blue-500/60" : momentumElite ? "border-purple-500/40" : prime ? "border-teal-500/30" : "border-white/[0.06]";
+  const isLong = dir.text === "LONG";
+  const isShort = dir.text === "SHORT";
+  const borderAccent = isSelected ? "border-blue-500/60" : momentumElite ? "border-purple-500/40" : isLong ? "border-cyan-500/30" : isShort ? "border-rose-500/30" : "border-white/[0.06]";
+  const cardBg = isLong ? "rgba(6,182,212,0.06)" : isShort ? "rgba(225,29,72,0.06)" : "rgba(255,255,255,0.03)";
   return React.createElement("div", {
     className: `p-2 rounded-lg border cursor-pointer transition-colors ${borderAccent} hover:border-white/[0.12]`,
     onClick: onClick,
     style: {
-      background: "rgba(255,255,255,0.03)"
+      background: cardBg
     }
   }, React.createElement("div", {
     className: "flex items-center justify-between mb-1.5"
@@ -6764,17 +6869,42 @@ function TimeTravelSlider({
     const n = Number(p);
     return Number.isFinite(n) ? `$${n.toFixed(2)}` : "—";
   };
+  const dayTicks = useMemo(() => {
+    if (!minTimestamp || !maxTimestamp || maxTimestamp <= minTimestamp) return [];
+    const span = maxTimestamp - minTimestamp;
+    const ticks = [];
+    const dayMs = 24 * 60 * 60 * 1000;
+    const startDate = new Date(minTimestamp);
+    const daysUntilMon = (8 - startDate.getUTCDay()) % 7 || 7;
+    let ts = Math.ceil(minTimestamp / dayMs) * dayMs + daysUntilMon * dayMs;
+    if (ts < minTimestamp + dayMs) ts += 7 * dayMs;
+    for (; ts <= maxTimestamp; ts += 7 * dayMs) {
+      const pct = (ts - minTimestamp) / span * 100;
+      if (pct >= 2 && pct <= 98) {
+        const d = new Date(ts);
+        const label = d.toLocaleDateString("en-US", {
+          month: "short",
+          day: "numeric"
+        });
+        ticks.push({
+          ts,
+          pct,
+          label
+        });
+      }
+    }
+    return ticks;
+  }, [minTimestamp, maxTimestamp]);
   if (compact) {
     return React.createElement("div", {
-      className: "flex items-center gap-2 flex-wrap"
-    }, React.createElement("label", {
-      className: "flex items-center gap-1.5 cursor-pointer"
-    }, React.createElement("input", {
-      type: "checkbox",
-      checked: isActive,
-      onChange: e => {
-        setIsActive(e.target.checked);
-        if (!e.target.checked) {
+      className: "w-full rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-2"
+    }, React.createElement("div", {
+      className: "flex items-center gap-3"
+    }, React.createElement("button", {
+      onClick: () => {
+        const next = !isActive;
+        setIsActive(next);
+        if (!next) {
           setIsPlaying(false);
           setSelectedTimestamp(null);
           onTimeChangeRef.current?.(null);
@@ -6782,82 +6912,158 @@ function TimeTravelSlider({
           setSelectedTimestamp(roundToStep(maxTimestamp));
         }
       },
-      className: "w-3.5 h-3.5"
-    }), React.createElement("span", {
-      className: "text-xs font-semibold text-white whitespace-nowrap"
-    }, "\u23F1\uFE0F Time Travel")), isActive && React.createElement(React.Fragment, null, loadingTrails && React.createElement("div", {
-      className: "flex items-center gap-2 px-3 py-1 bg-white/[0.03] border border-[#3a4aa0] rounded-lg"
+      className: `flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-all shrink-0 ${isActive ? "bg-cyan-500/15 border border-cyan-500/40 text-cyan-400" : "bg-white/[0.04] border border-white/[0.08] text-[#6b7280] hover:text-white hover:border-white/[0.15]"}`
+    }, React.createElement("svg", {
+      className: "w-3.5 h-3.5",
+      fill: "none",
+      stroke: "currentColor",
+      viewBox: "0 0 24 24",
+      strokeWidth: "2"
+    }, React.createElement("path", {
+      strokeLinecap: "round",
+      strokeLinejoin: "round",
+      d: "M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+    })), "Time Travel"), !isActive && React.createElement("span", {
+      className: "text-[10px] text-[#4b5563]"
+    }, "Replay historical bubble positions"), isActive && loadingTrails && React.createElement("div", {
+      className: "flex items-center gap-2 flex-1"
     }, React.createElement("div", {
-      className: "w-4 h-4 border-2 border-[#00ffff] border-t-transparent rounded-full animate-spin"
-    }), React.createElement("span", {
-      className: "text-[11px] text-[#00ffff] font-semibold"
-    }, "Loading ", trailLoadProgress.done, "/", trailLoadProgress.total || '...'), React.createElement("button", {
+      className: "w-3.5 h-3.5 border-2 border-cyan-400 border-t-transparent rounded-full animate-spin shrink-0"
+    }), React.createElement("div", {
+      className: "flex-1 h-1.5 rounded-full bg-white/[0.06] overflow-hidden"
+    }, React.createElement("div", {
+      className: "h-full rounded-full bg-cyan-500/60 transition-all",
+      style: {
+        width: `${trailLoadProgress.total > 0 ? trailLoadProgress.done / trailLoadProgress.total * 100 : 0}%`
+      }
+    })), React.createElement("span", {
+      className: "text-[10px] text-cyan-400/80 tabular-nums shrink-0"
+    }, trailLoadProgress.done, "/", trailLoadProgress.total || "..."), React.createElement("button", {
       onClick: handleCancelLoad,
-      className: "px-2 py-0.5 bg-[#3a1a1a] hover:bg-[#5a2a2a] text-[#ff6b6b] rounded text-[10px] font-medium",
-      title: "Cancel loading"
-    }, "Cancel")), !loadingTrails && React.createElement(React.Fragment, null, React.createElement("button", {
+      className: "text-[9px] text-rose-400 hover:text-rose-300 shrink-0"
+    }, "Cancel")), isActive && !loadingTrails && React.createElement(React.Fragment, null, React.createElement("button", {
       onClick: () => {
         if (!isPlaying) {
           setSelectedTimestamp(prev => prev !== null && prev !== undefined ? prev : maxTimestamp);
         }
         setIsPlaying(p => !p);
       },
-      className: "px-3 py-1.5 bg-[#00ffff]/10 hover:bg-[#00ffff]/20 border border-[#00ffff]/30 rounded-md text-sm text-white font-semibold",
-      title: "Play / Pause"
-    }, isPlaying ? "⏸" : "▶️"), React.createElement("div", {
-      className: "flex-1 min-w-[120px] relative",
+      className: `w-7 h-7 flex items-center justify-center rounded-lg border transition-all shrink-0 ${isPlaying ? "bg-cyan-500/20 border-cyan-500/40 text-cyan-400" : "bg-white/[0.04] border-white/[0.10] text-white hover:bg-white/[0.08]"}`,
+      title: isPlaying ? "Pause" : "Play"
+    }, isPlaying ? React.createElement("svg", {
+      className: "w-3.5 h-3.5",
+      fill: "currentColor",
+      viewBox: "0 0 24 24"
+    }, React.createElement("rect", {
+      x: "6",
+      y: "4",
+      width: "4",
+      height: "16",
+      rx: "1"
+    }), React.createElement("rect", {
+      x: "14",
+      y: "4",
+      width: "4",
+      height: "16",
+      rx: "1"
+    })) : React.createElement("svg", {
+      className: "w-3.5 h-3.5",
+      fill: "currentColor",
+      viewBox: "0 0 24 24"
+    }, React.createElement("path", {
+      d: "M8 5v14l11-7z"
+    }))), React.createElement("div", {
+      className: "flex-1 min-w-0 relative",
       style: {
-        height: "24px"
+        height: "36px"
       }
     }, regimeGradient && React.createElement("div", {
-      className: "absolute inset-x-0 top-[9px] h-[6px] rounded-full pointer-events-none",
+      className: "absolute inset-x-0 top-[14px] h-[8px] rounded-full pointer-events-none opacity-60",
       style: {
         background: regimeGradient
       }
-    }), tradeMarkers.map((m, i) => React.createElement("div", {
-      key: `tm-${i}`,
+    }), React.createElement("div", {
+      className: "absolute inset-x-0 top-[14px] h-[8px] rounded-full bg-white/[0.04] border border-white/[0.06]"
+    }), React.createElement("div", {
+      className: "absolute left-0 top-[14px] h-[8px] rounded-full",
+      style: {
+        width: `${progress}%`,
+        background: "linear-gradient(90deg, rgba(6,182,212,0.3), rgba(6,182,212,0.5))"
+      }
+    }), React.createElement("div", {
+      className: "absolute top-[10px] w-3 h-4 rounded-sm pointer-events-none",
+      style: {
+        left: `calc(${progress}% - 6px)`,
+        background: "rgba(6,182,212,0.9)",
+        boxShadow: "0 0 8px rgba(6,182,212,0.4)"
+      }
+    }), dayTicks.map((tick, i) => React.createElement("div", {
+      key: `dtk-${i}`,
       className: "absolute pointer-events-none",
       style: {
-        left: `${m.pct}%`,
-        top: m.type === "entry" ? "0px" : "18px"
-      },
-      title: `${m.type === "entry" ? "Entry" : "Exit"}: ${m.ticker}`
-    }, React.createElement("span", {
-      style: {
-        fontSize: "7px",
-        color: m.type === "entry" ? "#22c55e" : m.won ? "#22c55e" : "#ef4444"
+        left: `${tick.pct}%`
       }
-    }, m.type === "entry" ? "▲" : "▼"))), eventMarkers.map((ev, i) => React.createElement("div", {
-      key: `ev-${i}`,
+    }, React.createElement("div", {
+      className: "absolute top-[12px] w-px h-3",
+      style: {
+        background: "rgba(255,255,255,0.15)"
+      }
+    }), React.createElement("div", {
+      className: "absolute top-[27px] text-[8px] text-[#4b5563] whitespace-nowrap",
+      style: {
+        transform: "translateX(-50%)"
+      }
+    }, tick.label))), eventMarkers.map((ev, i) => React.createElement("div", {
+      key: `evm-${i}`,
       className: "absolute pointer-events-none",
       style: {
         left: `${ev.pct}%`,
-        top: "0px"
+        top: "4px"
       },
       title: `${ev.type}: ${ev.label} (${ev.date})`
-    }, React.createElement("span", {
+    }, React.createElement("div", {
+      className: "w-1.5 h-1.5 rounded-full",
       style: {
-        fontSize: "6px",
-        color: ev.type === "FOMC" ? "#f59e0b" : ev.type === "CPI" ? "#a78bfa" : "#60a5fa"
+        background: ev.type === "FOMC" ? "#f59e0b" : ev.type === "CPI" ? "#a78bfa" : "#60a5fa"
       }
-    }, "\u25C6"))), React.createElement("input", {
+    }))), tradeMarkers.map((m, i) => React.createElement("div", {
+      key: `tmk-${i}`,
+      className: "absolute pointer-events-none",
+      style: {
+        left: `${m.pct}%`,
+        top: m.type === "entry" ? "4px" : "24px"
+      },
+      title: `${m.type === "entry" ? "Entry" : "Exit"}: ${m.ticker}`
+    }, React.createElement("div", {
+      className: "w-0 h-0",
+      style: {
+        borderLeft: "3px solid transparent",
+        borderRight: "3px solid transparent",
+        ...(m.type === "entry" ? {
+          borderBottom: "4px solid #22c55e"
+        } : {
+          borderTop: "4px solid " + (m.won ? "#22c55e" : "#ef4444")
+        })
+      }
+    }))), React.createElement("input", {
       type: "range",
       min: minTimestamp,
       max: maxTimestamp,
       step: STEP_MS,
       value: currentValue,
       onChange: handleTimestampChange,
-      className: "w-full h-1.5 bg-white/[0.03] rounded-lg appearance-none cursor-pointer absolute top-[9px]",
+      className: "absolute inset-x-0 top-[10px] h-4 opacity-0 cursor-pointer",
       style: {
-        background: `linear-gradient(to right, #00ffff 0%, #00ffff ${progress}%, #252b36 ${progress}%, #252b36 100%)`
+        zIndex: 10
       }
-    })), React.createElement("span", {
-      className: "text-[10px] text-[#00ffff] font-semibold whitespace-nowrap"
+    })), React.createElement("div", {
+      className: "flex flex-col items-end shrink-0"
+    }, React.createElement("span", {
+      className: "text-[11px] text-cyan-400 font-semibold tabular-nums whitespace-nowrap"
     }, formatTimestamp(currentValue)), !isPlaying && forwardReturns && React.createElement("span", {
-      className: "text-[8px] text-[#6b7280] whitespace-nowrap",
-      title: "Forward returns loaded"
-    }, "\uD83D\uDCCA"), loadCancelled && React.createElement("span", {
-      className: "text-[10px] text-[#ff6b6b]"
+      className: "text-[8px] text-[#4b5563]"
+    }, "\uD83D\uDCCA Returns loaded")), loadCancelled && React.createElement("span", {
+      className: "text-[9px] text-rose-400 shrink-0"
     }, "Cancelled"))));
   }
   return React.createElement("div", {
@@ -7875,74 +8081,7 @@ function ViewportFilterTags({
     group: group === "Futures" ? "ALL" : "Futures"
   })), pill("➕ Added By Me", group === "USER_ADDED", () => onChange({
     group: group === "USER_ADDED" ? "ALL" : "USER_ADDED"
-  })))), React.createElement("div", {
-    className: "space-y-1"
-  }, React.createElement("div", {
-    className: "flex items-center gap-3"
-  }, React.createElement("div", {
-    className: "text-[10px] text-[#4b5563] font-semibold"
-  }, "S&P Sectors"), React.createElement("div", {
-    className: "flex items-center gap-2 text-[9px] text-[#6b7280]"
-  }, React.createElement("span", {
-    className: "flex items-center gap-1"
-  }, React.createElement("span", {
-    className: "text-[8px] font-bold text-amber-400/90 bg-amber-400/10 px-1 rounded"
-  }, "OW"), "Overweight"), React.createElement("span", {
-    className: "flex items-center gap-1"
-  }, React.createElement("span", {
-    className: "text-[8px] font-bold text-[#9ca3af] bg-white/[0.04] px-1 rounded"
-  }, "N"), "Neutral"), React.createElement("span", {
-    className: "flex items-center gap-1"
-  }, React.createElement("span", {
-    className: "text-[8px] font-bold text-violet-400/90 bg-violet-400/10 px-1 rounded"
-  }, "UW"), "Underweight"))), React.createElement("div", {
-    className: "flex gap-2 flex-wrap items-center"
-  }, pill(pillLabelWithCount("All", pillCounts?.sectors?.ALL), sector === "ALL", () => onChange({
-    sector: undefined
-  })), pill(pillLabelWithCount("S&P Sectors", pillCounts?.sectors?.SP_Sectors), group === "SP_Sectors", () => onChange({
-    group: group === "SP_Sectors" ? "ALL" : "SP_Sectors"
-  })), (() => {
-    const sectorPills = [["Communication Services", "Comm"], ["Consumer Discretionary", "Cons Disc"], ["Consumer Staples", "Cons Staples"], ["Energy", "Energy"], ["Financials", "Financials"], ["Healthcare", "Healthcare"], ["Industrials", "Industrials"], ["Information Technology", "Tech"], ["Basic Materials", "Materials"], ["Real Estate", "Real Estate"], ["Utilities", "Utilities"]];
-    const ratingTag = name => {
-      const r = sectorRatingMap[normalizeSectorKey(name)] || "neutral";
-      if (r === "overweight") return {
-        text: "OW",
-        cls: "text-amber-400/90 bg-amber-400/10"
-      };
-      if (r === "underweight") return {
-        text: "UW",
-        cls: "text-violet-400/90 bg-violet-400/10"
-      };
-      return {
-        text: "N",
-        cls: "text-[#9ca3af] bg-white/[0.04]"
-      };
-    };
-    const ratingBorder = name => {
-      const r = sectorRatingMap[normalizeSectorKey(name)] || "neutral";
-      return r === "overweight" ? "border-amber-500/25" : r === "underweight" ? "border-violet-500/25" : "border-white/[0.06]";
-    };
-    return sectorPills.map(([key, label]) => {
-      const count = pillCounts?.sectors?.[key];
-      const isActive = sector === key;
-      const tag = ratingTag(key);
-      const bdr = ratingBorder(key);
-      const activeClass = isActive ? "border-blue-400 bg-blue-500/20 text-blue-200" : `bg-white/[0.03] hover:text-white text-[#9ca3af] ${bdr}`;
-      return React.createElement("button", {
-        key: key,
-        onClick: () => onChange({
-          sector: key
-        }),
-        className: `px-2 py-1 rounded-md border text-[11px] font-semibold transition-all ${activeClass}`
-      }, React.createElement("span", {
-        className: "inline-flex items-center gap-1.5"
-      }, React.createElement("span", {
-        className: `text-[8px] font-bold px-1 rounded leading-tight shrink-0 ${isActive ? "text-blue-200 bg-blue-400/15" : tag.cls}`
-      }, tag.text), React.createElement("span", null, label), Number.isFinite(count) ? React.createElement("span", {
-        className: `px-1 py-0.5 rounded text-[9px] font-bold border ${isActive ? "border-blue-400/40 bg-blue-400/10 text-blue-100" : "border-white/[0.06] bg-white/[0.02] text-[#c8d2ff]"}`
-      }, count) : null));
-    });
-  })()))));
+  }))))));
 }
 function ActiveMovesSnapshotPanel({
   tickers = [],
@@ -8357,8 +8496,9 @@ const CompactCard = React.memo(function CompactCard({
   const glassBg = "rgba(10,16,28,0.45)";
   const cardBgImage = [skin?.bgImage || null, "linear-gradient(170deg, rgba(255,255,255,0.07) 0%, rgba(255,255,255,0.02) 25%, transparent 55%)", "linear-gradient(to bottom, rgba(120,160,255,0.04) 0%, transparent 40%, rgba(0,0,0,0.15) 100%)", `linear-gradient(0deg, ${glassBg}, ${glassBg})`].filter(Boolean).join(", ");
   const primeEntryCls = _isPrimeEntry ? "prime-entry-card " : "";
-  const primeEntryBorder = _isPrimeEntry ? "border-amber-400/60 " : dir === "LONG" ? "border-cyan-400/20 " : "border-rose-400/20 ";
-  const primeEntryShadow = _isPrimeEntry ? "0 0 12px rgba(251,191,36,0.25), 0 4px 12px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.12), inset 0 -1px 2px rgba(0,0,0,0.3)" : "0 4px 12px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.12), inset 0 -1px 2px rgba(0,0,0,0.3)";
+  const _isTTSelected = isTickerTTSelected(sym);
+  const primeEntryBorder = _isPrimeEntry ? "border-amber-400/60 " : _isTTSelected ? "border-emerald-400/50 " : dir === "LONG" ? "border-cyan-400/20 " : "border-rose-400/20 ";
+  const primeEntryShadow = _isPrimeEntry ? "0 0 12px rgba(251,191,36,0.25), 0 4px 12px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.12), inset 0 -1px 2px rgba(0,0,0,0.3)" : _isTTSelected ? "0 0 10px rgba(16,185,129,0.20), 0 4px 12px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.12), inset 0 -1px 2px rgba(0,0,0,0.3)" : "0 4px 12px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.12), inset 0 -1px 2px rgba(0,0,0,0.3)";
   const _isCrypto = sym === "BTCUSD" || sym === "ETHUSD";
   const _mktOpen = isNyRegularMarketOpen();
   const ahPct = _isCrypto || _mktOpen ? null : Number(t?._ah_change_pct);
@@ -8498,7 +8638,9 @@ const CompactCard = React.memo(function CompactCard({
     title: "TT Selected"
   }, "TT"), React.createElement("span", {
     className: `inline-flex items-center justify-center px-1.5 py-px rounded text-[9px] font-black shrink-0 tracking-wide ${dir === "LONG" ? "bg-cyan-500/80 text-white ring-1 ring-cyan-300/60" : "bg-rose-600/80 text-white ring-1 ring-rose-400/60"}`
-  }, dir)), window._ttIsPro && React.createElement("div", {
+  }, dir), badgesText && React.createElement("span", {
+    className: "text-[10px] shrink-0"
+  }, badgesText)), window._ttIsPro && React.createElement("div", {
     className: "flex flex-col items-end shrink-0 ml-1"
   }, React.createElement("span", {
     className: "text-white font-bold text-[13px] tabular-nums leading-tight",
@@ -8511,32 +8653,7 @@ const CompactCard = React.memo(function CompactCard({
       color: dayPct >= 0 ? Math.abs(dayPct) >= 3 ? "#4ade80" : "#00e676" : Math.abs(dayPct) >= 3 ? "#fb7185" : "#f87171",
       textShadow: "0 1px 4px rgba(0,0,0,0.7)"
     }
-  }, dayPct >= 0 ? "+" : "", dayPct.toFixed(2), "%", Number.isFinite(dayChg) ? ` (${dayChg >= 0 ? "+" : "-"}$${Math.abs(dayChg).toFixed(2)})` : ""))), React.createElement("div", {
-    className: "relative flex items-center justify-between px-2 py-0.5",
-    style: {
-      zIndex: 1
-    }
-  }, React.createElement("div", {
-    className: "flex items-center gap-1 min-w-0"
-  }, badgesText && React.createElement("span", {
-    className: "text-[10px] shrink-0"
-  }, badgesText), React.createElement("span", {
-    className: `px-1 py-px rounded border text-[9px] font-extrabold tracking-wide shrink-0 ${dirPillCls}`,
-    title: state
-  }, biasLabelDisplay), v3Regime && React.createElement("span", {
-    className: `px-1 py-px rounded text-[8px] font-bold tracking-wide shrink-0 ${v3Regime === "TRENDING" ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/40" : v3Regime === "CHOPPY" ? "bg-rose-500/20 text-rose-300 border border-rose-500/40" : "bg-amber-500/20 text-amber-300 border border-amber-500/40"}`,
-    title: `Regime: ${v3Regime} (score ${v3RegimeScore})`
-  }, v3Regime === "TRENDING" ? "TRD" : v3Regime === "CHOPPY" ? "CHP" : "TRN"), v3RvolBest > 0 && React.createElement("span", {
-    className: `text-[8px] font-bold tabular-nums shrink-0 ${v3RvolBest >= 1.5 ? "text-emerald-400" : v3RvolBest >= 0.8 ? "text-gray-400" : "text-rose-400"}`,
-    title: `RVOL: ${v3RvolBest.toFixed(2)}x (30m: ${v3Rvol30.toFixed(2)}, 1H: ${v3Rvol1H.toFixed(2)})`
-  }, "V", v3RvolBest.toFixed(1)), v3BehaviorType && React.createElement("span", {
-    className: `px-1 py-px rounded text-[7px] font-bold tracking-wide shrink-0 ${v3BehaviorType === "MOMENTUM" ? "bg-blue-500/20 text-blue-300 border border-blue-500/30" : v3BehaviorType === "MEAN_REVERT" ? "bg-purple-500/20 text-purple-300 border border-purple-500/30" : "bg-gray-500/20 text-gray-400 border border-gray-500/30"}`,
-    title: `Behavior: ${v3BehaviorType}${v3SlMult ? ` | SL×${v3SlMult}` : ""}${v3TpMult ? ` TP×${v3TpMult}` : ""}`
-  }, v3BehaviorType === "MOMENTUM" ? "MOM" : v3BehaviorType === "MEAN_REVERT" ? "MR" : "MIX")), window._ttIsPro && hasAH && React.createElement("span", {
-    className: `text-[9px] font-medium tabular-nums leading-tight shrink-0 ml-1 ${ahPct >= 0 ? "text-[#00e676]" : "text-rose-400"}`
-  }, React.createElement("span", {
-    className: "text-[8px] text-gray-400 mr-0.5"
-  }, "EXT"), ahPct >= 0 ? "+" : "", ahPct.toFixed(2), "%")), !window._ttIsPro ? React.createElement("div", {
+  }, dayPct >= 0 ? "+" : "", dayPct.toFixed(2), "%", Number.isFinite(dayChg) ? ` (${dayChg >= 0 ? "+" : "-"}$${Math.abs(dayChg).toFixed(2)})` : ""))), !window._ttIsPro ? React.createElement("div", {
     className: "relative flex items-center justify-center px-2 py-1",
     style: {
       zIndex: 1
@@ -8594,10 +8711,12 @@ const CompactCard = React.memo(function CompactCard({
   }), React.createElement("span", {
     className: "text-cyan-400 font-medium"
   }, t?.ingest_kind === "user_ticker_seed" || t?.ingest_kind === "admin_seed" ? "Onboarding..." : "Scoring...")) : React.createElement("div", {
-    className: "relative flex items-center justify-between px-2 py-0.5 text-[10px] font-medium",
+    className: "relative px-2 py-0.5 text-[10px] font-medium",
     style: {
       zIndex: 1
     }
+  }, React.createElement("div", {
+    className: "flex items-center justify-between"
   }, React.createElement("div", {
     className: "flex items-center gap-2 text-[#8b95a5]"
   }, React.createElement("span", null, "Score ", React.createElement("span", {
@@ -8614,18 +8733,13 @@ const CompactCard = React.memo(function CompactCard({
       className: `${cls} font-bold tabular-nums`,
       title: `Entry path historical win rate: ${wrNum.toFixed(0)}%`
     }, wrNum.toFixed(0), "%");
-  })()), React.createElement("div", {
-    className: "flex items-center gap-2"
+  })())), React.createElement("div", {
+    className: "flex items-center gap-3 mt-0.5"
   }, React.createElement("span", {
     className: "text-rose-400"
   }, "SL ", React.createElement("span", {
     className: "font-bold tabular-nums"
-  }, sl != null ? `$${sl.toFixed(2)}` : "—")), v3KijunSL != null && React.createElement("span", {
-    className: "text-orange-300/70",
-    title: "Kijun-Sen reference SL"
-  }, "K", React.createElement("span", {
-    className: "font-bold tabular-nums"
-  }, v3KijunSL.toFixed(0))), React.createElement("span", {
+  }, sl != null ? `$${sl.toFixed(2)}` : v3KijunSL != null ? `$${v3KijunSL.toFixed(2)}` : "—")), React.createElement("span", {
     className: "text-teal-400"
   }, "TP ", React.createElement("span", {
     className: "font-bold tabular-nums"
@@ -12894,23 +13008,13 @@ function App() {
   const [timeTravelTickers, setTimeTravelTickers] = useState(null);
   const [timeTravelForwardReturns, setTimeTravelForwardReturns] = useState(null);
   const [activeInsight, setActiveInsight] = useState(null);
+  const [activeSubInsight, setActiveSubInsight] = useState(null);
   const insightChips = useMemo(() => {
     const all = Object.values(data || {}).filter(t => t && Number.isFinite(Number(t.ltf_score)));
+    const allTickers = Object.values(data || {});
     if (all.length === 0) return [];
     const ENTRY_STAGES = new Set(["setup", "setup_watch", "enter", "enter_now", "flip_watch", "just_flipped"]);
     const chips = [];
-    const saved = all.filter(t => savedTickers.has(String(t.ticker).toUpperCase()));
-    if (saved.length > 0) {
-      chips.push({
-        id: "saved",
-        icon: "⭐",
-        label: "Saved",
-        count: saved.length,
-        color: "amber",
-        tickers: saved.map(t => t.ticker),
-        tooltip: `Your saved tickers\n${saved.slice(0, 8).map(t => t.ticker).join(", ")}`
-      });
-    }
     const conviction = all.filter(t => {
       const htf = Number(t.htf_score),
         ltf = Number(t.ltf_score);
@@ -13075,6 +13179,43 @@ function App() {
       tickers: volSurge.map(t => t.ticker),
       tooltip: `Relative volume ≥ 1.5x on 30m or 60m — unusual activity.\nInstitutional interest likely.\n${volSurge.slice(0, 5).map(t => t.ticker).join(", ") || "—"}`
     });
+    const INDEX_SYMS = ["SPY", "QQQ", "IWM"];
+    const idxTickers = allTickers.filter(t => INDEX_SYMS.includes(String(t.ticker).toUpperCase()));
+    chips.push({
+      id: "indexes",
+      icon: "📈",
+      label: "Indexes",
+      count: idxTickers.length,
+      color: "blue",
+      tickers: idxTickers.map(t => t.ticker),
+      tooltip: `Major index ETFs\n${INDEX_SYMS.join(", ")}`,
+      row: 2
+    });
+    const FUTURES_SYMS = ["ES1!", "NQ1!", "RTY1!", "YM1!", "VX1!", "CL1!", "GC1!", "SI1!", "BTCUSD", "ETHUSD"];
+    const futTickers = allTickers.filter(t => FUTURES_SYMS.includes(String(t.ticker).toUpperCase()));
+    chips.push({
+      id: "futures",
+      icon: "⚡",
+      label: "Futures",
+      count: futTickers.length,
+      color: "amber",
+      tickers: futTickers.map(t => t.ticker),
+      tooltip: `Futures & crypto\n${FUTURES_SYMS.join(", ")}`,
+      row: 2
+    });
+    const SP_ETF_SYMS = ["XLK", "XLF", "XLY", "XLP", "XLC", "XLI", "XLB", "XLE", "XLRE", "XLU", "XLV"];
+    const spEtfTickers = allTickers.filter(t => SP_ETF_SYMS.includes(String(t.ticker).toUpperCase()));
+    chips.push({
+      id: "sp_sectors",
+      icon: "🏛️",
+      label: "S&P Sectors",
+      count: spEtfTickers.length,
+      color: "purple",
+      tickers: spEtfTickers.map(t => t.ticker),
+      tooltip: `S&P Sector ETFs\n${SP_ETF_SYMS.join(", ")}`,
+      row: 2,
+      hasSub: true
+    });
     const SP_SECTORS = ["Information Technology", "Financials", "Healthcare", "Consumer Discretionary", "Industrials", "Communication Services", "Energy", "Consumer Staples", "Utilities", "Real Estate", "Basic Materials"];
     const SHORT_SECTOR = {
       "Information Technology": "Tech",
@@ -13114,8 +13255,15 @@ function App() {
     if (!activeInsight) return null;
     const chip = insightChips.find(c => c.id === activeInsight);
     if (!chip || !chip.tickers || chip.tickers.length === 0) return null;
-    return new Set(chip.tickers.map(t => String(t).toUpperCase()));
-  }, [activeInsight, insightChips]);
+    const base = chip.tickers.map(t => String(t).toUpperCase());
+    if (activeSubInsight) {
+      const subChip = insightChips.find(c => c.id === activeSubInsight);
+      if (subChip?.tickers?.length > 0) {
+        return new Set([...base, ...subChip.tickers.map(t => String(t).toUpperCase())]);
+      }
+    }
+    return new Set(base);
+  }, [activeInsight, activeSubInsight, insightChips]);
   const tickers = useMemo(() => {
     if (timeTravelTickers !== null) {
       return timeTravelTickers;
@@ -13568,6 +13716,21 @@ function App() {
     })));
   })(), window._ttIsPro && (() => {
     const allData = data && typeof data === "object" ? data : {};
+    const intensityAlpha = absPct => {
+      if (absPct <= 0.1) return 0.06;
+      if (absPct <= 1) return 0.10 + absPct * 0.10;
+      if (absPct <= 3) return 0.20 + (absPct - 1) / 2 * 0.20;
+      if (absPct <= 6) return 0.40 + (absPct - 3) / 3 * 0.20;
+      if (absPct <= 12) return 0.60 + (absPct - 6) / 6 * 0.15;
+      return 0.75;
+    };
+    const intensityBorder = absPct => {
+      if (absPct <= 1) return 0.25;
+      if (absPct <= 3) return 0.40;
+      if (absPct <= 6) return 0.55;
+      if (absPct <= 12) return 0.70;
+      return 0.85;
+    };
     const renderPulseChip = sym => {
       const td = allData[sym];
       const price = Number(td?.price ?? td?.close ?? 0);
@@ -13579,7 +13742,12 @@ function App() {
       }
       if (pct === null) pct = 0;
       const up = pct >= 0;
-      const borderCls = up ? "border-[#00c853]/20" : "border-rose-500/20";
+      const absPct = Math.abs(pct);
+      const alpha = intensityAlpha(absPct);
+      const bAlpha = intensityBorder(absPct);
+      const rgb = up ? "34,197,94" : "239,68,68";
+      const pillBg = `rgba(${rgb},${alpha.toFixed(3)})`;
+      const borderStyle = `1px solid rgba(${rgb},${bAlpha.toFixed(2)})`;
       const chg = (() => {
         if (!td) return null;
         const dc = getDailyChange(td);
@@ -13588,7 +13756,11 @@ function App() {
       return React.createElement("button", {
         key: `mp2-${sym}`,
         onClick: () => handleTickerSelect(sym),
-        className: `flex items-center gap-1.5 px-2 py-1 rounded-lg border ${borderCls} bg-white/[0.03] hover:bg-white/[0.06] flex-shrink-0`
+        className: "flex items-center gap-1.5 px-2 py-1 rounded-lg hover:brightness-125 flex-shrink-0 transition-all",
+        style: {
+          background: pillBg,
+          border: borderStyle
+        }
       }, React.createElement("span", {
         className: "text-[10px] text-white font-bold"
       }, sym), React.createElement("span", {
@@ -13633,18 +13805,56 @@ function App() {
   })(), (() => {
     const allArr = data && typeof data === 'object' ? Object.values(data) : [];
     const CRYPTO_24H = new Set(["BTCUSD", "ETHUSD"]);
+    const chipIntensity = absPct => {
+      if (absPct <= 0.1) return {
+        a: 0.06,
+        b: 0.15
+      };
+      if (absPct <= 1) return {
+        a: 0.10 + absPct * 0.10,
+        b: 0.25
+      };
+      if (absPct <= 3) return {
+        a: 0.20 + (absPct - 1) / 2 * 0.20,
+        b: 0.40
+      };
+      if (absPct <= 6) return {
+        a: 0.40 + (absPct - 3) / 3 * 0.20,
+        b: 0.55
+      };
+      if (absPct <= 12) return {
+        a: 0.60 + (absPct - 6) / 6 * 0.15,
+        b: 0.70
+      };
+      return {
+        a: 0.75,
+        b: 0.85
+      };
+    };
     const chip = (t, isGain, pctKey = "_pct", priceKey = "_price") => {
       const sym = t?.ticker || t?.symbol || "?";
       const pct = t[pctKey];
       const price = t[priceKey];
       const name = t?.context?.name || t?.companyName || "";
       const title = name ? `${sym} — ${name}` : sym;
-      const cls = isGain ? "text-[#00e676] border-[#00c853]/30 bg-[#00c853]/10" : "text-rose-400 border-rose-500/30 bg-rose-500/10";
+      const absPct = Math.abs(pct || 0);
+      const {
+        a,
+        b
+      } = chipIntensity(absPct);
+      const rgb = isGain ? "34,197,94" : "239,68,68";
+      const chipBg = `rgba(${rgb},${a.toFixed(3)})`;
+      const borderStyle = `1px solid rgba(${rgb},${b.toFixed(2)})`;
+      const textCls = isGain ? "text-[#00e676]" : "text-rose-400";
       return React.createElement("button", {
         key: sym,
         onClick: () => handleTickerSelect(sym),
         title: title,
-        className: `px-2 py-0.5 rounded-lg border text-[10px] font-semibold flex items-center gap-1 hover:opacity-80 transition-opacity ${cls}`
+        className: `px-2 py-0.5 rounded-lg text-[10px] font-semibold flex items-center gap-1 hover:brightness-125 transition-all ${textCls}`,
+        style: {
+          background: chipBg,
+          border: borderStyle
+        }
       }, React.createElement("span", {
         className: "text-white font-bold"
       }, sym), Number.isFinite(price) && price > 0 && React.createElement("span", null, "$", Number(price).toFixed(2)), React.createElement("span", null, pct >= 0 ? "+" : "", pct.toFixed(2), "%"));
@@ -13725,7 +13935,7 @@ function App() {
   }, React.createElement("div", {
     className: "text-[10px] uppercase tracking-[0.18em] text-[#4b5563] mb-2"
   }, "Search And Curate Your View"), React.createElement("div", {
-    className: "relative max-w-[720px]"
+    className: "relative max-w-[480px]"
   }, React.createElement("svg", {
     className: "absolute left-3 top-1/2 pointer-events-none",
     style: {
@@ -13815,55 +14025,18 @@ function App() {
   })())), React.createElement("div", {
     className: "flex items-center gap-2 flex-wrap xl:justify-end"
   }, React.createElement("button", {
-    onClick: toggleAdvancedFilters,
-    className: `flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-semibold transition-colors whitespace-nowrap ${showAdvancedFilters ? "bg-blue-500/20 border-blue-500/40 text-blue-300" : "bg-white/[0.02] border-white/[0.06] text-[#6b7280] hover:text-white hover:bg-[#16224a]"}`,
-    title: "Show/hide filter groups"
-  }, React.createElement("svg", {
-    width: "13",
-    height: "13",
-    viewBox: "0 0 24 24",
-    fill: "none",
-    stroke: "currentColor",
-    strokeWidth: "2",
-    strokeLinecap: "round",
-    strokeLinejoin: "round"
-  }, React.createElement("line", {
-    x1: "4",
-    y1: "6",
-    x2: "20",
-    y2: "6"
-  }), React.createElement("line", {
-    x1: "4",
-    y1: "12",
-    x2: "20",
-    y2: "12"
-  }), React.createElement("line", {
-    x1: "4",
-    y1: "18",
-    x2: "20",
-    y2: "18"
-  }), React.createElement("circle", {
-    cx: "8",
-    cy: "6",
-    r: "2",
-    fill: "currentColor"
-  }), React.createElement("circle", {
-    cx: "16",
-    cy: "12",
-    r: "2",
-    fill: "currentColor"
-  }), React.createElement("circle", {
-    cx: "10",
-    cy: "18",
-    r: "2",
-    fill: "currentColor"
-  })), "Filters ", showAdvancedFilters ? "▾" : "▸"), React.createElement("button", {
     onClick: () => handleFilterChange({
       group: effectiveFilters.group === "SAVED" ? "ALL" : "SAVED"
     }),
     className: `px-3 py-1.5 rounded-lg border text-xs font-semibold transition-colors ${effectiveFilters.group === "SAVED" ? "bg-amber-500/20 border-amber-500/40 text-amber-300" : "bg-white/[0.02] border-white/[0.06] text-[#6b7280] hover:text-amber-300 hover:bg-amber-500/10"}`,
     title: `Show only saved tickers (${savedTickers.size} saved)`
-  }, "\u2B50 Saved", savedTickers.size > 0 ? ` (${savedTickers.size})` : ""), React.createElement("div", {
+  }, "\u2B50 Saved", savedTickers.size > 0 ? ` (${savedTickers.size})` : ""), React.createElement("button", {
+    onClick: () => handleFilterChange({
+      group: effectiveFilters.group === "TT_SELECTED" ? "ALL" : "TT_SELECTED"
+    }),
+    className: `px-3 py-1.5 rounded-lg border text-xs font-semibold transition-colors whitespace-nowrap ${effectiveFilters.group === "TT_SELECTED" ? "bg-violet-500/20 border-violet-500/40 text-violet-300" : "bg-white/[0.02] border-white/[0.06] text-[#6b7280] hover:text-violet-300 hover:bg-violet-500/10"}`,
+    title: "Show TT Selected tickers"
+  }, "TT Selected"), React.createElement("div", {
     className: "relative",
     ref: addTickerRef
   }, !window._ttIsPro ? React.createElement("button", {
@@ -13976,34 +14149,35 @@ function App() {
     className: "text-[11px] text-[#4b5563] text-center py-3"
   }, "No custom tickers added yet"), userTickers.slotsUsed >= userTickers.slotsMax && React.createElement("div", {
     className: "text-[10px] text-amber-400/70 mt-2 text-center"
-  }, "All slots used. Upgrade for more slots."))))), React.createElement("div", {
-    className: "flex flex-wrap items-center justify-between gap-2 border-t border-white/[0.06] pt-3"
+  }, "All slots used. Upgrade for more slots."))), React.createElement("span", {
+    className: "text-[#3a3f4b] mx-0.5 hidden xl:inline"
+  }, "|"), React.createElement("div", {
+    className: "flex items-center gap-1.5 text-[11px]"
   }, React.createElement("div", {
-    className: "flex gap-1.5 text-[12px] items-center flex-wrap"
-  }, React.createElement("div", {
-    className: "px-2.5 py-1 rounded-full bg-white/5 border border-white/5"
+    className: "px-2 py-0.5 rounded-full bg-white/5 border border-white/5"
   }, React.createElement("span", {
     className: "text-[#6b7280]"
   }, "Tickers "), React.createElement("span", {
     className: "font-semibold text-white"
   }, tickers.length)), React.createElement("div", {
-    className: "px-2.5 py-1 rounded-full bg-[#00c853]/8 border border-[#00c853]/15"
+    className: "px-2 py-0.5 rounded-full bg-[#00c853]/8 border border-[#00c853]/15"
   }, React.createElement("span", {
     className: "text-[#00e676]/80"
   }, "Prime "), React.createElement("span", {
     className: "font-semibold text-[#00e676]"
   }, primeTickers.length)), tickers.length > 0 && React.createElement("div", {
-    className: "px-2.5 py-1 rounded-full bg-white/5 border border-white/5"
+    className: "px-2 py-0.5 rounded-full bg-white/5 border border-white/5"
   }, React.createElement("span", {
     className: "text-[#6b7280]"
-  }, "In Corridor "), React.createElement("span", {
+  }, "Corridor "), React.createElement("span", {
     className: "font-semibold text-white"
-  }, tickers.filter(t => entryType(t).corridor).length))), React.createElement("button", {
+  }, tickers.filter(t => entryType(t).corridor).length)), React.createElement("button", {
     onClick: refetch,
-    className: "px-3 py-1 rounded-md text-[12px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] border border-white/[0.06] transition-all"
-  }, "\u21BB Refresh"), lastUpdate && React.createElement("span", {
-    className: "text-[11px] text-[#4b5563]"
-  }, lastUpdate.toLocaleTimeString())))), React.createElement("div", {
+    className: "px-2 py-0.5 rounded-md text-[#6b7280] hover:text-white hover:bg-white/[0.04] border border-white/[0.06] transition-all",
+    title: "Refresh data"
+  }, "\u21BB"), lastUpdate && React.createElement("span", {
+    className: "text-[10px] text-[#4b5563]"
+  }, lastUpdate.toLocaleTimeString())))))), React.createElement("div", {
     className: "mb-4 flex flex-col items-center gap-2",
     "data-coachmark": "nav-modes"
   }, React.createElement("div", {
@@ -14013,7 +14187,7 @@ function App() {
   }, "Choose The View Below"), React.createElement("div", {
     className: "text-[12px] text-[#94a3b8] mt-1"
   }, "This controller changes the dashboard section underneath.")), React.createElement("div", {
-    className: "flex flex-col sm:flex-row sm:items-center sm:justify-center gap-2 sm:gap-3 w-full"
+    className: "flex justify-center w-full"
   }, React.createElement("div", {
     className: "flex w-full sm:w-auto items-stretch bg-white/[0.04] border border-white/[0.10] rounded-xl overflow-hidden shadow-sm"
   }, React.createElement("button", {
@@ -14068,9 +14242,9 @@ function App() {
     strokeLinecap: "round",
     strokeLinejoin: "round",
     d: "M3 10h18M3 6h18M3 14h18M3 18h18"
-  })), "All")), window._ttIsPro ? React.createElement("div", {
-    className: "w-full sm:w-auto min-w-0 sm:min-w-[200px]"
-  }, React.createElement(TimeTravelSlider, {
+  })), "All"))), React.createElement("div", {
+    className: "w-full"
+  }, window._ttIsPro ? React.createElement(TimeTravelSlider, {
     tickers: timeTravelBaseTickers,
     allTickers: data,
     data: data,
@@ -14080,11 +14254,11 @@ function App() {
     compact: true,
     trades: trades,
     onForwardReturns: setTimeTravelForwardReturns
-  })) : React.createElement("div", {
-    className: "w-full sm:w-auto min-w-0 sm:min-w-[140px]"
+  }) : React.createElement("div", {
+    className: "flex justify-center"
   }, React.createElement("button", {
     onClick: () => window.dispatchEvent(new CustomEvent("tt-go-pro")),
-    className: "w-full sm:w-auto flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-amber-500/40 bg-amber-500/5 hover:bg-amber-500/10 hover:border-amber-400/50 transition-colors text-[11px] text-amber-400/90 font-medium",
+    className: "flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-amber-500/40 bg-amber-500/5 hover:bg-amber-500/10 hover:border-amber-400/50 transition-colors text-[11px] text-amber-400/90 font-medium",
     title: "Replay historical bubble positions \u2014 Pro feature"
   }, React.createElement("svg", {
     className: "w-3.5 h-3.5 text-amber-400/80",
@@ -14096,16 +14270,7 @@ function App() {
     clipRule: "evenodd"
   })), React.createElement("span", null, "\u23F1\uFE0F Time Travel"), React.createElement("span", {
     className: "text-[10px] text-amber-300/70"
-  }, "Pro"))))), showAdvancedFilters && React.createElement("div", {
-    className: "mb-3 rounded-xl border border-white/[0.06] bg-white/[0.03] p-2"
-  }, React.createElement(ViewportFilterTags, {
-    filters: filters,
-    onChange: handleFilterChange,
-    sectors: sectors,
-    allData: data,
-    trades: trades,
-    socialAdditions: socialAdditions
-  }))), error && React.createElement("div", {
+  }, "Pro")))))), error && React.createElement("div", {
     className: "mb-4 p-4 bg-rose-500/20 border-2 border-rose-500 rounded-xl"
   }, React.createElement("div", {
     className: "flex items-center justify-between"
@@ -14147,9 +14312,13 @@ function App() {
     }),
     className: "px-4 py-2 rounded-xl border border-white/[0.10] text-sm text-[#94a3b8] hover:text-white hover:bg-white/[0.05] transition-colors"
   }, "Clear Search")))) : dashboardMode === "analysis" && React.createElement("div", {
-    className: "flex flex-col lg:flex-row gap-4 items-stretch"
+    className: "flex flex-col lg:flex-row gap-4",
+    style: {
+      height: "calc(100vh - 160px)",
+      minHeight: "600px"
+    }
   }, React.createElement("div", {
-    className: "w-full lg:w-[320px] lg:flex-shrink-0 h-[600px] sm:h-[700px] md:h-[800px] lg:h-[900px]",
+    className: "w-full lg:w-[320px] lg:flex-shrink-0 lg:h-full min-h-[400px] lg:min-h-0",
     "data-coachmark": "viewport"
   }, React.createElement(OpportunitiesPanel, {
     tickers: tickersWithRanks,
@@ -14157,7 +14326,7 @@ function App() {
     onSelectTicker: handleTickerSelect,
     trades: trades,
     title: "\uD83D\uDD2D Viewport",
-    maxHeightClass: "max-h-[900px]",
+    maxHeightClass: "max-h-[calc(100vh-220px)]",
     fillHeight: true,
     showControls: false,
     thesisMode: isThesisModeActive(filters),
@@ -14165,7 +14334,7 @@ function App() {
     toggleSavedTicker: toggleSavedTicker,
     addingTicker: userTickers.addingTicker
   })), React.createElement("div", {
-    className: `relative w-full lg:flex-1 lg:min-w-0 transition-[margin] duration-300 ${selectedTicker ? "lg:mr-[470px]" : ""}`
+    className: `relative w-full lg:flex-1 lg:min-w-0 lg:h-full flex flex-col transition-[margin] duration-300 ${selectedTicker ? "lg:mr-[470px]" : ""}`
   }, React.createElement("div", {
     className: "px-3 py-2 mb-1 rounded-lg border border-white/[0.06] bg-white/[0.02]",
     "data-coachmark": "bubble-chart"
@@ -14272,12 +14441,11 @@ function App() {
     strokeWidth: "1",
     strokeDasharray: "2 1.5",
     opacity: "0.6"
-  }))))), insightChips.length > 0 && React.createElement("div", {
-    className: "flex gap-1.5 overflow-x-auto pb-1 px-1 mb-1 scrollbar-hide"
-  }, (() => {
+  }))))), insightChips.length > 0 && (() => {
     const visible = insightChips.filter(c => c.count === null || c.count > 0);
-    const signalChips = visible.filter(c => !c.isSector);
-    const sectorChips = visible.filter(c => c.isSector);
+    const row1 = visible.filter(c => !c.isSector && !c.row);
+    const row2 = visible.filter(c => c.row === 2);
+    const sectorSubs = visible.filter(c => c.isSector);
     const colorMap = {
       purple: {
         bg: "bg-purple-500/15",
@@ -14344,13 +14512,20 @@ function App() {
         glow: "shadow-yellow-500/30"
       }
     };
-    const renderChip = chip => {
-      const isActive = activeInsight === chip.id;
+    const renderChip = (chip, isSub) => {
+      const isActive = isSub ? activeSubInsight === chip.id : activeInsight === chip.id;
       const c = colorMap[chip.color] || colorMap.blue;
       return React.createElement("button", {
         key: chip.id,
         title: chip.tooltip,
-        onClick: () => setActiveInsight(prev => prev === chip.id ? null : chip.id),
+        onClick: () => {
+          if (isSub) {
+            setActiveSubInsight(prev => prev === chip.id ? null : chip.id);
+          } else {
+            setActiveInsight(prev => prev === chip.id ? null : chip.id);
+            if (chip.id !== "sp_sectors") setActiveSubInsight(null);
+          }
+        },
         className: `group relative flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium border whitespace-nowrap transition-all duration-200 shrink-0 ${isActive ? `${c.activeBg} ${c.activeBorder} ${c.text} shadow-sm ${c.glow}` : `${c.bg} ${c.border} ${c.text} hover:brightness-125`}`
       }, chip.icon && React.createElement("span", null, chip.icon), React.createElement("span", null, chip.label), chip.count !== null && React.createElement("span", {
         className: "font-bold opacity-80"
@@ -14358,19 +14533,28 @@ function App() {
         className: "pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 px-2.5 py-1.5 rounded-lg bg-[#141820] border border-white/10 text-[9px] text-gray-300 whitespace-pre-line opacity-0 group-hover:opacity-100 transition-opacity z-50 max-w-[240px] shadow-xl"
       }, chip.tooltip));
     };
-    return React.createElement(React.Fragment, null, signalChips.map(renderChip), sectorChips.length > 0 && React.createElement(React.Fragment, null, React.createElement("span", {
-      className: "text-[#3a3f4b] shrink-0 mx-0.5"
-    }, "|"), React.createElement("span", {
+    return React.createElement("div", {
+      className: "space-y-1 px-1 mb-1"
+    }, React.createElement("div", {
+      className: "flex gap-1.5 overflow-x-auto scrollbar-hide items-center"
+    }, row1.map(c => renderChip(c, false)), activeInsight && React.createElement("button", {
+      onClick: () => {
+        setActiveInsight(null);
+        setActiveSubInsight(null);
+      },
+      className: "flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium border border-white/10 bg-white/5 text-gray-400 hover:text-white transition-colors shrink-0"
+    }, "\u2715 Clear")), row2.length > 0 && React.createElement("div", {
+      className: "flex gap-1.5 overflow-x-auto scrollbar-hide items-center"
+    }, row2.map(c => renderChip(c, false))), activeInsight === "sp_sectors" && sectorSubs.length > 0 && React.createElement("div", {
+      className: "flex gap-1.5 overflow-x-auto scrollbar-hide items-center"
+    }, React.createElement("span", {
       className: "text-[9px] text-[#6b7280] shrink-0"
-    }, "Sectors"), sectorChips.map(renderChip)));
-  })(), activeInsight && React.createElement("button", {
-    onClick: () => setActiveInsight(null),
-    className: "flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium border border-white/10 bg-white/5 text-gray-400 hover:text-white transition-colors shrink-0"
-  }, "\u2715 Clear")), React.createElement("div", {
-    style: {
-      height: "calc(100vh - 220px)",
-      minHeight: "500px"
-    }
+    }, "Drill into:"), sectorSubs.map(c => renderChip(c, true)), activeSubInsight && React.createElement("button", {
+      onClick: () => setActiveSubInsight(null),
+      className: "flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9px] font-medium border border-white/10 bg-white/5 text-gray-400 hover:text-white transition-colors shrink-0"
+    }, "\u2715")));
+  })(), React.createElement("div", {
+    className: "flex-1 min-h-0"
   }, loading && tickers.length === 0 ? React.createElement("div", {
     className: "w-full h-full bg-white/[0.02] rounded-xl border border-white/[0.06] flex items-center justify-center",
     style: {

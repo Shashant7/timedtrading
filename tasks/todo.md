@@ -2,10 +2,10 @@
 
 > **Plan:** See `tasks/PLAN.md` for consolidated status, phases, and clear next steps.
 
-## Ripster Tune V2 [2026-03-04]
-- [x] Add `RIPSTER_TUNE_V2` feature flag plumbing and keep legacy-safe fallback
-- [x] Relax Ripster entry gating (bias + trigger) in strong daily regime
-- [x] Tune Ripster exits to reduce early exits (debounce + defend-before-exit)
+## TT Tune V2 [2026-03-04]
+- [x] Add `TT_TUNE_V2` feature flag plumbing and keep legacy-safe fallback
+- [x] Relax TT entry gating (bias + trigger) in strong daily regime
+- [x] Tune TT exits to reduce early exits (debounce + defend-before-exit)
 - [x] Deploy and run quick validation replay sample
 
 ## Next Sprint (Prioritized) [2026-03-06]
@@ -49,6 +49,8 @@
 - [x] Browser-test custom ticker add flow end to end in production
 
 ## Performance Enhancements [2026-03-08]
+- [x] Analysis page: reuse cached snapshot across same-tab page navigations and revalidate in background
+- [ ] Fix stale market-pulse futures/index updates (`ES1!`, `NQ1!`, `SI1!`) when heartbeat data lags
 - [ ] Analysis page: split `/timed/all` into slim first-paint payload + deferred hydration
 - [ ] Analysis page: precompute/cache rank + kanban snapshot server-side
 - [ ] Tickers page: stop using full `/timed/all` sweep for context on first load
@@ -67,6 +69,19 @@
 - [ ] Import the new TradingView `15m` CSV exports
 - [ ] Verify `15m` candle coverage for the imported symbols
 
+## Trail Coverage Repair [2026-03-08]
+- [ ] Confirm the current `trail_5m_facts` repair path and narrow it to only missing coverage windows/tickers
+- [ ] Backfill missing trail history for the recoverable ticker/date ranges
+- [ ] Rebuild / flush `trail_5m_facts` from repaired trail history
+- [ ] Re-run missed-move diagnosis and verify `NO_TRAIL_DATA` drops materially
+- [ ] Pause the resumed 15m backtest before running trail repair so replay state does not collide
+- [ ] Resume the 15m backtest after trail repair completes
+
+## Sparkline Hardening [2026-03-08]
+- [ ] Harden `/timed/all` so missing card sparklines are backfilled symbol-by-symbol instead of only when most are absent
+- [ ] Preserve prior card sparklines in the Analysis UI when a refresh returns partial ticker payloads
+- [ ] Validate the Analysis cards keep sparklines across refresh/poll cycles
+
 ## Variant v2 Hardening [2026-03-04]
 - [ ] Mitigate bad exits and upstream/chasing entries from classified variant trades
 - [x] Fix Trade Autopsy mobile layout overlap (classification buttons visibility)
@@ -80,8 +95,8 @@
 - [ ] Re-run focused replay and verify WMT/H outcomes
 
 ## WMT Loss Guard Focused Replay [2026-03-05]
-- [x] Add Ripster momentum anti-chase RSI heat gate (30m/1H)
-- [x] Add Daily ST conflict gate for Ripster momentum LONG entries
+- [x] Add TT momentum anti-chase RSI heat gate (30m/1H)
+- [x] Add Daily ST conflict gate for TT momentum LONG entries
 - [ ] Run focused replay (Jul 1-3) and verify WMT blocked while CSX still passes
 
 ## July Variant Guardrails V3 [2026-03-06]

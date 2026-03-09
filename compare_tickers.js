@@ -2,7 +2,7 @@
 // GRNY/GRNI/GRNJ are loaded dynamically from the ETF sync API.
 
 const groups = {
-  UPTICKS: ["TSLA", "STX", "AU", "CLS", "CRS", "VST", "FSLR", "JCI", "ORCL", "AMZN", "BRK-B", "BABA", "WMT", "PH", "GEV", "HII", "CSX", "PWR", "SPGI", "APP", "PANW", "RDDT", "TT", "GLXY", "ETHA", "KO", "GILD", "MTB", "AMGN"],
+  UPTICKS: ["TSLA", "STX", "AU", "CLS", "CRS", "VST", "FSLR", "JCI", "ORCL", "AMZN", "BRK-B", "BABA", "WMT", "PH", "GEV", "HII", "CSX", "PWR", "PANW", "RDDT", "TT", "ETHA", "KO", "GILD", "MTB", "AMGN", "BG", "MRK", "QXO", "AXP"],
   SuperGranny: ["META", "NVDA", "AMD", "ANET", "GS"],
   GRNI: [],
   GRNJ: [],

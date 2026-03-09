@@ -11,6 +11,7 @@
  *   TIMED_API_KEY=AwesomeSauce node scripts/backfill-trail-facts.js --from 2025-10-01 --to 2026-02-06
  *   TIMED_API_KEY=AwesomeSauce node scripts/backfill-trail-facts.js --batch 20 --chunk 5
  *   TIMED_API_KEY=AwesomeSauce node scripts/backfill-trail-facts.js --from 2025-07-01 --to 2026-02-27 --resume-from 2026-01-23  # skip days before 2026-01-23
+ *   TIMED_API_KEY=AwesomeSauce node scripts/backfill-trail-facts.js --from 2025-07-01 --to 2026-02-27 --tickers ALB,ANET,SMCI
  */
 
 const TIMED_KEY = process.env.TIMED_API_KEY || "AwesomeSauce";
@@ -41,7 +42,7 @@ function generateTradingDays(from, to) {
 // Timeout per batch so backfill doesn't hang indefinitely (Worker can be slow under load)
 const REPLAY_TIMEOUT_MS = 3 * 60 * 1000; // 3 minutes per batch
 
-async function runCandleReplay(date, tickerOffset, tickerBatch) {
+async function runCandleReplay(date, tickerOffset, tickerBatch, tickersCsv = null) {
   const params = new URLSearchParams({
     key: TIMED_KEY,
     date,
@@ -50,6 +51,7 @@ async function runCandleReplay(date, tickerOffset, tickerBatch) {
     intervalMinutes: "5",
     trailOnly: "1",
   });
+  if (tickersCsv) params.set("tickers", tickersCsv);
 
   const url = `${WORKER_BASE}/timed/admin/candle-replay?${params}`;
   const controller = new AbortController();
@@ -76,7 +78,7 @@ async function triggerLifecycle() {
   return resp.json();
 }
 
-async function replayOneDay(date, batchSize) {
+async function replayOneDay(date, batchSize, tickersCsv = null) {
   let offset = 0;
   let hasMore = true;
   let dayScored = 0;
@@ -91,7 +93,7 @@ async function replayOneDay(date, batchSize) {
     let lastErr = null;
     for (let attempt = 1; attempt <= 2; attempt++) {
       try {
-        result = await runCandleReplay(date, offset, batchSize);
+        result = await runCandleReplay(date, offset, batchSize, tickersCsv);
         break;
       } catch (e) {
         lastErr = e;
@@ -137,6 +139,7 @@ async function main() {
   let batchSize = 20;
   let chunkSize = 5; // aggregate after every N days
   let resumeFrom = null; // YYYY-MM-DD: skip all dates before this (pick up where you left off)
+  let tickersCsv = null;
 
   for (let i = 0; i < args.length; i++) {
     if (args[i] === "--dates" && args[i + 1]) {
@@ -147,6 +150,13 @@ async function main() {
     if (args[i] === "--resume-from" && args[i + 1]) resumeFrom = args[++i].trim();
     if (args[i] === "--batch" && args[i + 1]) batchSize = parseInt(args[++i]);
     if (args[i] === "--chunk" && args[i + 1]) chunkSize = parseInt(args[++i]);
+    if (args[i] === "--tickers" && args[i + 1]) {
+      tickersCsv = args[++i]
+        .split(",")
+        .map(t => t.trim().toUpperCase())
+        .filter(Boolean)
+        .join(",");
+    }
   }
 
   if (!dates) {
@@ -171,6 +181,7 @@ async function main() {
   console.log(`╚══════════════════════════════════════════════╝`);
   console.log(`  Dates: ${dates[0]} → ${dates[dates.length - 1]} (${dates.length} trading days)${resumeFrom ? ` [resumed from ${resumeFrom}]` : ""}`);
   console.log(`  Batch: ${batchSize} tickers/request, Chunk: ${chunkSize} days before aggregation`);
+  if (tickersCsv) console.log(`  Tickers: ${tickersCsv.split(",").length} targeted`);
   console.log(`  Worker: ${WORKER_BASE}`);
   console.log();
 
@@ -186,7 +197,7 @@ async function main() {
 
     process.stdout.write(`  [${dayNum}/${dates.length}] ${date} (${elapsed}m elapsed, ~${eta}m left): `);
 
-    const { scored, skipped } = await replayOneDay(date, batchSize);
+    const { scored, skipped } = await replayOneDay(date, batchSize, tickersCsv);
     totalScored += scored;
     totalDays++;
 
