@@ -49067,7 +49067,39 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             console.warn("[PRICE FEED LIGHT] D1 fallback error:", String(e?.message || e).slice(0, 200));
           }
 
-          // 1. Overlay TV futures heartbeats
+          // 1. Refresh market-pulse futures/index symbols from Twelve Data quotes.
+          // These symbols are not handled by the stock stream, and TradingView heartbeats
+          // can lag. Refreshing a small fixed set here keeps Analysis market pulse current.
+          const MARKET_PULSE_REST_SYMBOLS = ["SPX", "US500", "ES1!", "NQ1!", "YM1!", "RTY1!", "GC1!", "SI1!", "VX1!", "CL1!"];
+          let marketPulseRestCount = 0;
+          try {
+            const snapResult = await dataFetchSnapshots(env, MARKET_PULSE_REST_SYMBOLS);
+            const snapshots = snapResult.snapshots || {};
+            for (const [sym, snap] of Object.entries(snapshots)) {
+              const prev = existing[sym] || {};
+              const displayPrice = Number(snap.price || snap.dailyClose || 0);
+              const prevClose = Number(snap.prevDailyClose || 0);
+              if (!(displayPrice > 0)) continue;
+              const nativeDc = Number(snap.change);
+              const nativeDp = Number(snap.percentChange);
+              existing[sym] = {
+                ...prev,
+                p: Math.round(displayPrice * 100) / 100,
+                pc: prevClose > 0 ? Math.round(prevClose * 100) / 100 : (prev.pc || 0),
+                dc: Number.isFinite(nativeDc) ? Math.round(nativeDc * 100) / 100 : prev.dc,
+                dp: Number.isFinite(nativeDp) ? Math.round(nativeDp * 100) / 100 : prev.dp,
+                dh: snap.dailyHigh > 0 ? Math.round(snap.dailyHigh * 100) / 100 : (prev.dh || 0),
+                dl: snap.dailyLow > 0 ? Math.round(snap.dailyLow * 100) / 100 : (prev.dl || 0),
+                dv: snap.dailyVolume || prev.dv || 0,
+                t: snap.trade_ts || Date.now(),
+              };
+              marketPulseRestCount++;
+            }
+          } catch (e) {
+            console.warn("[PRICE FEED LIGHT] market-pulse snapshot refresh error:", String(e?.message || e).slice(0, 200));
+          }
+
+          // 2. Overlay TV futures heartbeats when they are at least as fresh as the snapshot.
           const TV_FUTURES_LIGHT = ["ES1!", "NQ1!", "GC1!", "SI1!", "VX1!", "US500", "CL1!"];
           let tvUpdated = 0;
           for (const tvSym of TV_FUTURES_LIGHT) {
@@ -49081,6 +49113,9 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                 const dc = prevClose > 0 ? Math.round((price - prevClose) * 100) / 100 : null;
                 const dp = prevClose > 0 ? Math.round(((price - prevClose) / prevClose) * 10000) / 100 : null;
                 const prev = existing[tvSym] || {};
+                const incomingTs = Number(tvData.ts || tvData.ingest_ts || 0) || 0;
+                const prevTs = Number(prev.t || 0) || 0;
+                if (incomingTs && prevTs && incomingTs < prevTs) continue;
                 existing[tvSym] = {
                   ...prev,
                   p: Math.round(price * 100) / 100,
@@ -49088,7 +49123,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                   dc: dc ?? prev.dc, dp: dp ?? prev.dp,
                   dh: Math.round(Number(tvData.high || tvData.dailyHigh || 0) * 100) / 100 || prev.dh,
                   dl: Math.round(Number(tvData.low || tvData.dailyLow || 0) * 100) / 100 || prev.dl,
-                  t: Number(tvData.ts || tvData.ingest_ts || 0) || Date.now(),
+                  t: incomingTs || Date.now(),
                 };
                 tvUpdated++;
               }
@@ -49148,7 +49183,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             data: existing,
             updated_at: lightUpdateTs,
           }));
-          console.log(`[PRICE FEED LIGHT] TV futures: ${tvUpdated}, crypto: ${cryptoUpdated}, total: ${Object.keys(existing).length}`);
+          console.log(`[PRICE FEED LIGHT] marketPulseRest=${marketPulseRestCount}, TV futures: ${tvUpdated}, crypto: ${cryptoUpdated}, total: ${Object.keys(existing).length}`);
           ctx.waitUntil(mergeFreshnessIntoLatest(KV, existing).catch(e => console.warn("[FRESHNESS LIGHT]", e?.message)));
           // Skip the rest of the heavy pipeline
         } else {
@@ -49287,7 +49322,39 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           console.warn("[PRICE FEED] D1 fallback error:", String(e?.message || e).slice(0, 200));
         }
 
-        // Overlay TV heartbeat prices for futures/macro tickers not handled by the DO
+        // Refresh market-pulse futures/index symbols from Twelve Data quotes every run.
+        // The stock stream can be healthy while these symbols are stale, so don't tie them
+        // to the broader DO freshness gate.
+        const MARKET_PULSE_REST_SYMBOLS = ["SPX", "US500", "ES1!", "NQ1!", "YM1!", "RTY1!", "GC1!", "SI1!", "VX1!", "CL1!"];
+        let marketPulseRestCount = 0;
+        try {
+          const snapResult = await dataFetchSnapshots(env, MARKET_PULSE_REST_SYMBOLS);
+          const snapshots = snapResult.snapshots || {};
+          for (const [sym, snap] of Object.entries(snapshots)) {
+            const prev = prices[sym] || {};
+            const displayPrice = Number(snap.price || snap.dailyClose || 0);
+            const prevClose = Number(snap.prevDailyClose || 0);
+            if (!(displayPrice > 0)) continue;
+            const nativeDc = Number(snap.change);
+            const nativeDp = Number(snap.percentChange);
+            prices[sym] = {
+              ...prev,
+              p: Math.round(displayPrice * 100) / 100,
+              pc: prevClose > 0 ? Math.round(prevClose * 100) / 100 : (prev.pc || 0),
+              dc: Number.isFinite(nativeDc) ? Math.round(nativeDc * 100) / 100 : prev.dc,
+              dp: Number.isFinite(nativeDp) ? Math.round(nativeDp * 100) / 100 : prev.dp,
+              dh: snap.dailyHigh > 0 ? Math.round(snap.dailyHigh * 100) / 100 : (prev.dh || 0),
+              dl: snap.dailyLow > 0 ? Math.round(snap.dailyLow * 100) / 100 : (prev.dl || 0),
+              dv: snap.dailyVolume || prev.dv || 0,
+              t: snap.trade_ts || Date.now(),
+            };
+            marketPulseRestCount++;
+          }
+        } catch (e) {
+          console.warn("[PRICE FEED] market-pulse snapshot refresh error:", String(e?.message || e).slice(0, 200));
+        }
+
+        // Overlay TV heartbeat prices for futures/macro tickers when they are fresher.
         const TV_FUTURES_ACTIVE = ["ES1!", "NQ1!", "GC1!", "SI1!", "VX1!", "US500", "CL1!"];
         let tvOverlayCount = 0;
         for (const tvSym of TV_FUTURES_ACTIVE) {
@@ -49301,6 +49368,9 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
               const dc = prevClose > 0 ? Math.round((price - prevClose) * 100) / 100 : null;
               const dp = prevClose > 0 ? Math.round(((price - prevClose) / prevClose) * 10000) / 100 : null;
               const prev = prices[tvSym] || {};
+              const incomingTs = Number(tvData.ts || tvData.ingest_ts || 0) || 0;
+              const prevTs = Number(prev.t || 0) || 0;
+              if (incomingTs && prevTs && incomingTs < prevTs) continue;
               prices[tvSym] = {
                 ...prev,
                 p: Math.round(price * 100) / 100,
@@ -49309,7 +49379,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                 dh: Math.round(Number(tvData.high || tvData.dailyHigh || 0) * 100) / 100 || prev.dh,
                 dl: Math.round(Number(tvData.low || tvData.dailyLow || 0) * 100) / 100 || prev.dl,
                 dv: Number(tvData.volume || 0) || prev.dv,
-                t: Number(tvData.ts || tvData.ingest_ts || 0) || Date.now(),
+                t: incomingTs || Date.now(),
               };
               tvOverlayCount++;
             }
@@ -49325,7 +49395,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
         });
         ctx.waitUntil(notifyPriceHub(env, { type: "prices", data: prices, updated_at: priceUpdateTs }));
 
-        console.log(`[PRICE FEED] source=${pricesSource}, doFresh=${doFresh}, restFallback=${restFallbackCount}, tvOverlay=${tvOverlayCount}, total=${Object.keys(prices).length}`);
+        console.log(`[PRICE FEED] source=${pricesSource}, doFresh=${doFresh}, restFallback=${restFallbackCount}, marketPulseRest=${marketPulseRestCount}, tvOverlay=${tvOverlayCount}, total=${Object.keys(prices).length}`);
 
         // ── SL/TP Exit Checking on price loop ──
         // Check open positions against current prices for fast SL/TP reaction
