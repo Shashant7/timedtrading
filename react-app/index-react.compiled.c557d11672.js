@@ -707,8 +707,8 @@ function useWebSocket(tickerData, setTickerData) {
                 const chg = (priceInfo.p - curPrice) / curPrice * 100;
                 const clampV = (v, mx) => Math.sign(v) * Math.min(Math.abs(v), mx);
                 return {
-                  _price_impulse_y: clampV(-chg * 80, 8),
-                  _price_impulse_x: clampV(chg * 35, 4)
+                  _price_impulse_y: clampV(-chg * 150, 15),
+                  _price_impulse_x: clampV(chg * 60, 8)
                 };
               })();
               queueWsUpdate(normalizedSym, {
@@ -759,8 +759,8 @@ function useWebSocket(tickerData, setTickerData) {
                 const chg = (u.last - curPrice) / curPrice * 100;
                 const clampV = (v, mx) => Math.sign(v) * Math.min(Math.abs(v), mx);
                 return {
-                  _price_impulse_y: clampV(-chg * 80, 8),
-                  _price_impulse_x: clampV(chg * 35, 4)
+                  _price_impulse_y: clampV(-chg * 150, 15),
+                  _price_impulse_x: clampV(chg * 60, 8)
                 };
               })();
               queueWsUpdate(normalizedSym, {
@@ -2955,8 +2955,8 @@ const SVGBubble = memo(({
   const decisionTooltip = decisionSummary ? `System ${decisionSummary.status}: ${decisionSummary.detail}` : null;
   const relLabelY = -renderedSize - 8;
   const clampPx = (v, mx) => Math.sign(v) * Math.min(Math.abs(v), mx);
-  const baseDriftY = clampPx(-dayPct * 1.5, 8);
-  const baseDriftX = clampPx(dayPct * 0.6, 4);
+  const baseDriftY = clampPx(-dayPct * 3, 15);
+  const baseDriftX = clampPx(dayPct * 1.2, 8);
   const impulseX = Number(ticker._price_impulse_x) || 0;
   const impulseY = Number(ticker._price_impulse_y) || 0;
   const targetX = x + baseDriftX + impulseX;
