@@ -34223,9 +34223,21 @@ export default {
               } catch (_) { /* best-effort */ }
             }
           }
+          // Market-pulse futures/index via dedicated TD fetcher
+          let mpCount = 0;
+          try {
+            const mpData = await fetchMarketPulseFromTD(env);
+            for (const [sym, pd] of Object.entries(mpData)) {
+              prices[sym] = { ...(prices[sym] || existingPrices[sym] || {}), ...pd };
+              mpCount++;
+            }
+          } catch (e) {
+            console.warn("[REFRESH-PRICES] market-pulse TD error:", String(e?.message || e).slice(0, 200));
+          }
+
           // Store in KV
           await kvPutJSON(env.KV_TIMED, "timed:prices", { prices, updated_at: Date.now(), ticker_count: Object.keys(prices).length });
-          return sendJSON({ ok: true, ticker_count: Object.keys(prices).length, snapshot_count: Object.keys(snapshots).length, input_count: allTickers.length }, 200, corsHeaders(env, req));
+          return sendJSON({ ok: true, ticker_count: Object.keys(prices).length, snapshot_count: Object.keys(snapshots).length, market_pulse_count: mpCount, input_count: allTickers.length }, 200, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e?.message || e), stack: String(e?.stack || "").slice(0, 500) }, 500, corsHeaders(env, req));
         }
