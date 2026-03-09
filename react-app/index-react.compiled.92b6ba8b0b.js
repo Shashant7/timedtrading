@@ -113,6 +113,46 @@ function normalizeTrailPoints(trail) {
 const ANALYSIS_SNAPSHOT_CACHE_KEY = "timedTrading_analysisSnapshot_v1";
 const ANALYSIS_SNAPSHOT_HOT_MS = 60 * 1000;
 const ANALYSIS_SNAPSHOT_MAX_AGE_MS = 30 * 60 * 1000;
+const SCORING_INTERVAL_MS = 5 * 60 * 1000;
+function getETNow() {
+  const now = new Date();
+  const etStr = now.toLocaleString("en-US", {
+    timeZone: "America/New_York"
+  });
+  const et = new Date(etStr);
+  return {
+    et,
+    weekday: et.getDay(),
+    hour: et.getHours(),
+    minute: et.getMinutes(),
+    mins: et.getHours() * 60 + et.getMinutes()
+  };
+}
+function isScoringSessionActive() {
+  const {
+    weekday,
+    mins
+  } = getETNow();
+  const isSat = weekday === 6,
+    isSun = weekday === 0,
+    isFri = weekday === 5;
+  const stockActive = !isSat && !isSun && mins >= 240 && mins < 1200;
+  const futActive = isSat ? false : isSun ? mins >= 1080 : isFri ? mins < 1020 : true;
+  return {
+    stockActive,
+    futActive,
+    anyActive: stockActive || futActive
+  };
+}
+function isSnapshotFresh(builtAt) {
+  if (!builtAt) return false;
+  const age = Date.now() - Number(builtAt);
+  const {
+    anyActive
+  } = isScoringSessionActive();
+  if (!anyActive) return age < 24 * 60 * 60 * 1000;
+  return age < SCORING_INTERVAL_MS + 90 * 1000;
+}
 function readAnalysisSnapshotCache() {
   try {
     const raw = sessionStorage.getItem(ANALYSIS_SNAPSHOT_CACHE_KEY);
@@ -135,6 +175,7 @@ function writeAnalysisSnapshotCache(payload) {
   try {
     sessionStorage.setItem(ANALYSIS_SNAPSHOT_CACHE_KEY, JSON.stringify({
       cachedAt: Date.now(),
+      builtAt: payload?.builtAt || Date.now(),
       data: payload?.data || {},
       socialAdditions: Array.isArray(payload?.socialAdditions) ? payload.socialAdditions : [],
       versionInfo: payload?.versionInfo && typeof payload.versionInfo === "object" ? payload.versionInfo : null,
@@ -397,7 +438,8 @@ function useTickerData() {
           data: nextData,
           socialAdditions: nextSocialAdditions,
           versionInfo: nextVersionInfo,
-          tickersWithoutScores: nextTickersWithoutScores
+          tickersWithoutScores: nextTickersWithoutScores,
+          builtAt: dataJson.built_at || Date.now()
         });
         if (versionFiltered > 0 && ENABLE_UI_DIAGNOSTICS) {
           console.warn(`[UI] ⚠️ ${versionFiltered} tickers filtered out due to version mismatch.`, {
@@ -458,10 +500,20 @@ function useTickerData() {
   useEffect(() => {
     const cached = readAnalysisSnapshotCache();
     const cacheAge = cached?.cachedAt ? Date.now() - Number(cached.cachedAt) : Infinity;
+    const builtAt = cached?.builtAt || cached?.cachedAt || 0;
+    const snapshotCurrent = isSnapshotFresh(builtAt);
     let warmRefreshTimer = null;
-    if (!cached) {
+    const sess = isScoringSessionActive();
+    console.log("[Snapshot freshness]", {
+      hasCached: !!cached,
+      cacheAgeS: Math.round(cacheAge / 1000),
+      builtAtAgeS: builtAt ? Math.round((Date.now() - builtAt) / 1000) : "none",
+      snapshotCurrent,
+      session: sess
+    });
+    if (!cached || !snapshotCurrent) {
       fetchData({
-        background: false
+        background: !!cached
       });
     } else if (cacheAge >= ANALYSIS_SNAPSHOT_HOT_MS) {
       fetchData({
