@@ -18,6 +18,8 @@ import {
   deduplicateCandles,
 } from "./indicators.js";
 
+import { backfill as tdBackfill } from "./data-provider.js";
+
 import { SECTOR_MAP, SECTOR_ETF_MAP, getSector } from "./sector-mapping.js";
 
 // ─── KV helpers ──────────────────────────────────────────────────────────────
@@ -623,8 +625,12 @@ export async function onboardTicker(env, ticker, opts = {}) {
 
     if (!opts.skipBackfill) {
       try {
-        const backfillResult = await alpacaBackfill(env, [sym], null, "all", sinceDays);
-        console.log(`[ONBOARD] ${sym} backfill: ${JSON.stringify(backfillResult?.perTfStats || {})}`);
+        let backfillResult = await tdBackfill(env, [sym], "all", { sinceDays });
+        if (!backfillResult) {
+          backfillResult = await alpacaBackfill(env, [sym], null, "all", sinceDays);
+        }
+        const stats = backfillResult?.perTf || backfillResult?.perTfStats || {};
+        console.log(`[ONBOARD] ${sym} backfill: ${JSON.stringify(stats)}`);
       } catch (e) {
         console.warn(`[ONBOARD] ${sym} backfill error (continuing):`, String(e).slice(0, 200));
       }

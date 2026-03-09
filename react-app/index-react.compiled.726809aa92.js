@@ -163,7 +163,8 @@ function mergeTickerSnapshot(prevData, incomingData) {
     return incomingData;
   }
   const LIVE_KEYS = ["_live_price", "_live_prev_close", "_live_daily_high", "_live_daily_low", "_live_daily_volume", "_price_updated_at", "day_change_pct", "change_pct", "day_change", "change", "_ah_price", "_ah_change", "_ah_change_pct"];
-  const LIVE_MAX_AGE_MS = 10 * 60 * 1000;
+  const LIVE_MAX_AGE_MS = 15 * 60 * 1000;
+  const now = Date.now();
   const result = {
     ...incomingData
   };
@@ -171,7 +172,7 @@ function mergeTickerSnapshot(prevData, incomingData) {
     const old = prevData[sym];
     if (old && old._live_price > 0) {
       const oldTs = old._price_updated_at || 0;
-      if (Date.now() - oldTs > LIVE_MAX_AGE_MS) continue;
+      if (now - oldTs > LIVE_MAX_AGE_MS) continue;
       const newTs = result[sym]?._price_updated_at || 0;
       if (!newTs || oldTs >= newTs) {
         const merged = {
@@ -601,6 +602,7 @@ function useWebSocket(tickerData, setTickerData) {
   const wsPendingRef = useRef({});
   const wsFlushTimerRef = useRef(null);
   const WS_THROTTLE_MS = 2000;
+  const PRICE_FIELD_SET = new Set(["price", "_live_price", "_live_prev_close", "_live_daily_high", "_live_daily_low", "_live_daily_volume", "_price_updated_at", "day_change_pct", "change_pct", "day_change", "change", "_ah_price", "_ah_change", "_ah_change_pct"]);
   const flushWsPending = useCallback(() => {
     const pending = wsPendingRef.current;
     if (!pending || Object.keys(pending).length === 0) return;
@@ -616,20 +618,50 @@ function useWebSocket(tickerData, setTickerData) {
       for (const [sym, updates] of Object.entries(pending)) {
         const existing = result[sym];
         if (!existing) continue;
-        result[sym] = {
-          ...existing,
-          ...updates
-        };
-        changed = true;
+        const existingTs = existing._price_updated_at || 0;
+        const updateTs = updates._price_updated_at || 0;
+        if (existingTs > 0 && updateTs > 0 && existingTs > updateTs) {
+          const nonPrice = {};
+          for (const k of Object.keys(updates)) {
+            if (!PRICE_FIELD_SET.has(k)) nonPrice[k] = updates[k];
+          }
+          if (Object.keys(nonPrice).length > 0) {
+            result[sym] = {
+              ...existing,
+              ...nonPrice
+            };
+            changed = true;
+          }
+        } else {
+          result[sym] = {
+            ...existing,
+            ...updates
+          };
+          changed = true;
+        }
       }
       return changed ? result : prev;
     });
   }, []);
   const queueWsUpdate = useCallback((sym, updates) => {
-    wsPendingRef.current[sym] = {
-      ...(wsPendingRef.current[sym] || {}),
-      ...updates
-    };
+    const pending = wsPendingRef.current[sym];
+    if (pending?._price_updated_at && updates._price_updated_at && updates._price_updated_at < pending._price_updated_at) {
+      const nonPrice = {};
+      for (const k of Object.keys(updates)) {
+        if (!PRICE_FIELD_SET.has(k)) nonPrice[k] = updates[k];
+      }
+      if (Object.keys(nonPrice).length > 0) {
+        wsPendingRef.current[sym] = {
+          ...pending,
+          ...nonPrice
+        };
+      }
+    } else {
+      wsPendingRef.current[sym] = {
+        ...(pending || {}),
+        ...updates
+      };
+    }
     if (!wsFlushTimerRef.current) {
       wsFlushTimerRef.current = setTimeout(() => {
         wsFlushTimerRef.current = null;
@@ -1433,7 +1465,7 @@ function sectorKeyToCanonicalName(key) {
   return CANON[K] || key;
 }
 const GROUPS = {
-  UPTICKS: new Set(["RDDT", "AMZN", "BABA", "TSLA", "KO", "WMT", "ETHA", "BRK-B", "GLXY", "MTB", "SPGI", "AMGN", "GILD", "CSX", "GEV", "HII", "JCI", "PH", "PWR", "TT", "APP", "CLS", "FSLR", "PANW", "CRS", "VST"]),
+  UPTICKS: new Set(["RDDT", "AMZN", "BABA", "TSLA", "KO", "WMT", "ETHA", "BRK-B", "MTB", "AMGN", "GILD", "CSX", "GEV", "HII", "JCI", "PH", "PWR", "TT", "CLS", "FSLR", "PANW", "CRS", "VST", "BG", "MRK", "QXO", "AXP"]),
   GRNI: new Set(),
   GRNJ: new Set(),
   GRNY: new Set(),
@@ -4046,7 +4078,19 @@ function BubbleChart({
         className: "text-[#6b7280]"
       }, "State"), React.createElement("span", {
         className: "font-semibold"
-      }, tooltip.state || "—")), window._ttIsPro ? React.createElement(React.Fragment, null, React.createElement("div", {
+      }, tooltip.state || "—")), (() => {
+        const bias = tooltip.bias_direction || getDirectionFromState(tooltip);
+        if (!bias) return null;
+        const isLong = String(bias).toUpperCase() === "LONG";
+        const isShort = String(bias).toUpperCase() === "SHORT";
+        return React.createElement("div", {
+          className: "flex justify-between"
+        }, React.createElement("span", {
+          className: "text-[#6b7280]"
+        }, "Bias"), React.createElement("span", {
+          className: `font-semibold ${isLong ? "text-cyan-400" : isShort ? "text-rose-400" : "text-yellow-400"}`
+        }, isLong ? "LONG" : isShort ? "SHORT" : "NEUTRAL"));
+      })(), window._ttIsPro ? React.createElement(React.Fragment, null, React.createElement("div", {
         className: "flex justify-between"
       }, React.createElement("span", {
         className: "text-[#6b7280]"
@@ -4922,150 +4966,104 @@ function SetupCard({
   const tpLevels = ticker.tp_levels || [];
   const comp = completionForSize(ticker);
   const decision = summarizeEntryDecision(ticker);
-  const skin = getCardSkin(ticker);
+  const borderAccent = isSelected ? "border-blue-500/60" : momentumElite ? "border-purple-500/40" : prime ? "border-teal-500/30" : "border-white/[0.06]";
   return React.createElement("div", {
-    className: `p-1.5 rounded-lg border cursor-pointer transition-all ${isSelected ? "border-blue-500 bg-blue-500/10 shadow-lg" : momentumElite ? "border-purple-500 bg-purple-500/15 momentum-elite-glow border-2" : prime ? "border-teal-500 bg-teal-500/10 prime-glow" : "border-white/[0.06] bg-white/[0.03] hover:brightness-[1.06] hover:border-[#3a4aa0]"}`,
+    className: `p-2 rounded-lg border cursor-pointer transition-colors ${borderAccent} hover:border-white/[0.12]`,
     onClick: onClick,
     style: {
-      backgroundColor: "#1a1f28",
-      backgroundImage: skin?.bgImage || undefined
+      background: "rgba(255,255,255,0.03)"
     }
   }, React.createElement("div", {
-    className: "flex items-center justify-between mb-1"
+    className: "flex items-center justify-between mb-1.5"
   }, React.createElement("div", {
     className: "flex items-center gap-1.5"
   }, React.createElement("span", {
-    className: "font-bold text-sm"
-  }, ticker.ticker), momentumElite && React.createElement("span", {
-    className: "text-purple-400 text-xs font-bold",
+    className: "font-bold text-[13px]"
+  }, ticker.ticker), React.createElement("span", {
+    className: `px-1.5 py-0.5 rounded text-[9px] font-semibold ${dir.bg} ${dir.color}`
+  }, dir.text), momentumElite && React.createElement("span", {
+    className: "text-purple-400 text-[10px]",
     title: "Momentum Elite"
   }, "\uD83D\uDD25"), prime && React.createElement("span", {
-    className: "text-teal-500 text-xs"
+    className: "text-teal-400 text-[10px]",
+    title: "Prime Setup"
   }, "\uD83D\uDC8E"), flags.sq30_release && React.createElement("span", {
-    className: "text-cyan-400 text-xs"
-  }, "\u26A1"), flags.sq30_on && React.createElement("span", {
-    className: "text-yellow-400 text-xs"
-  }, "\uD83E\uDDE8")), React.createElement("div", {
-    className: "flex items-center gap-1.5"
-  }, ticker.price && React.createElement("div", {
-    className: "text-right"
-  }, React.createElement("span", {
-    className: "text-xs font-semibold text-white"
-  }, "$", Number(ticker.price).toFixed(2)), (() => {
-    const {
-      dayChg,
-      dayPct,
-      stale,
-      marketOpen
-    } = getDailyChange(ticker);
-    if (!Number.isFinite(dayChg) && !Number.isFinite(dayPct)) return null;
-    const val = Number(dayChg || dayPct || 0);
-    const sign = val >= 0 ? "+" : "-";
-    const absP = Math.abs(Number(dayPct || 0));
-    const bright = Math.min(1, 0.5 + absP / 4);
-    const chgColor = val >= 0 ? `rgba(74,222,128,${bright.toFixed(2)})` : `rgba(248,113,113,${bright.toFixed(2)})`;
+    className: "text-cyan-400 text-[10px]",
+    title: "Squeeze Release"
+  }, "\u26A1")), (() => {
+    const displayPrice = Number(ticker._live_price || ticker.price);
+    if (!(displayPrice > 0)) return null;
+    const dc = getDailyChange(ticker);
+    const pct = dc.dayPct;
+    const sign = Number(pct || 0) >= 0 ? "+" : "";
+    const chgColor = Number(pct || 0) >= 0 ? "#4ade80" : "#f87171";
     return React.createElement("div", {
-      className: "text-[10px]",
+      className: "text-right"
+    }, React.createElement("span", {
+      className: "text-[12px] font-semibold text-white"
+    }, "$", displayPrice.toFixed(2)), Number.isFinite(pct) && React.createElement("div", {
+      className: "text-[10px] font-medium",
       style: {
         color: chgColor
       }
-    }, Number.isFinite(dayPct) ? `${sign}${Math.abs(dayPct).toFixed(2)}%` : "—", " ", Number.isFinite(dayChg) ? `(${sign}${fmtUsdAbs(dayChg)})` : "", !marketOpen && React.createElement("span", {
-      className: "ml-2 text-[10px] text-[#6b7280]"
-    }, "AH", stale?.ageLabel ? ` • as of ${stale.ageLabel}` : ""));
-  })(), (() => {
-    const ingestTime = ticker.ingest_ts || ticker.ingest_time || ticker.ts;
-    if (ingestTime) {
-      try {
-        const timeValue = typeof ingestTime === "string" ? new Date(ingestTime) : new Date(Number(ingestTime));
-        if (!isNaN(timeValue.getTime())) {
-          const ageMs = Date.now() - timeValue.getTime();
-          const ageMinutes = Math.floor(ageMs / 60000);
-          const ageHours = Math.floor(ageMinutes / 60);
-          const isStale = ageMinutes > 30;
-          const displayTime = timeValue.toLocaleTimeString("en-US", {
-            hour: "numeric",
-            minute: "2-digit",
-            hour12: true
-          });
-          const displayDate = timeValue.toLocaleDateString("en-US", {
-            month: "short",
-            day: "numeric"
-          });
-          return React.createElement("div", {
-            className: `text-[9px] mt-0.5 ${isStale ? "text-yellow-400" : "text-[#6b7280]"}`
-          }, displayDate, " ", displayTime, isStale && React.createElement("span", {
-            className: "ml-0.5",
-            title: `Data is ${ageHours > 0 ? `${ageHours}h ` : ""}${ageMinutes % 60}m old`
-          }, "\u26A0\uFE0F"));
-        }
-      } catch (e) {}
-    }
-    return null;
+    }, sign, pct.toFixed(2), "%"));
   })()), React.createElement("div", {
-    className: `px-1.5 py-0.5 rounded font-bold text-[10px] ${dir.bg} ${dir.color}`
-  }, dir.text))), React.createElement("div", {
-    className: "mb-1"
-  }, React.createElement("div", {
-    className: "text-[8px] text-[#6b7280] mb-0.5"
-  }, "Why:", " ", React.createElement("span", {
-    className: "text-white font-semibold text-[9px]"
-  }, why)), (() => {
-    const actionInfo = getActionDescription(ticker);
-    return React.createElement("div", {
-      className: `text-[8px] ${actionInfo.color} font-semibold`
-    }, actionInfo.action);
-  })()), React.createElement("div", {
-    className: "grid grid-cols-3 gap-1 mb-1 text-[8px]"
-  }, ticker.price && React.createElement("div", null, React.createElement("div", {
-    className: "text-[8px] text-[#6b7280]"
-  }, "Price"), React.createElement("div", {
-    className: "font-semibold text-white"
-  }, "$", Number(ticker.price).toFixed(2))), React.createElement("div", null, React.createElement("div", {
-    className: "text-[8px] text-[#6b7280]"
-  }, "SL"), React.createElement("div", {
-    className: "font-semibold text-rose-400"
-  }, ticker.sl ? `$${Number(ticker.sl).toFixed(2)}` : "—")), React.createElement("div", null, React.createElement("div", {
-    className: "text-[8px] text-[#6b7280]"
-  }, "TP"), React.createElement("div", {
-    className: "font-semibold text-teal-400"
-  }, ticker.tp ? `$${Number(ticker.tp).toFixed(2)}` : "—"))), ticker.trigger_price && React.createElement("div", {
-    className: "mb-1 text-[8px]"
+    className: "mb-1.5 text-[10px]"
   }, React.createElement("span", {
     className: "text-[#6b7280]"
-  }, "Trigger: "), React.createElement("span", {
-    className: "text-white font-semibold"
-  }, "$", Number(ticker.trigger_price).toFixed(2)), ticker.trigger_ts && React.createElement(React.Fragment, null, React.createElement("span", {
-    className: "text-[#6b7280] ml-1.5"
-  }, "@ "), React.createElement("span", {
-    className: "text-white text-[7px]"
-  }, triggerDT.date, " ", triggerDT.time))), React.createElement("div", {
-    className: "grid grid-cols-2 gap-1 mb-1"
-  }, React.createElement("div", null, React.createElement("div", {
-    className: "text-[8px] text-[#6b7280] mb-0.5"
+  }, "Why: "), React.createElement("span", {
+    className: "text-[#d1d5db] font-medium"
+  }, why), (() => {
+    const actionInfo = getActionDescription(ticker);
+    return React.createElement("span", {
+      className: `ml-1.5 font-semibold ${actionInfo.color}`
+    }, actionInfo.action);
+  })()), React.createElement("div", {
+    className: "flex items-center gap-3 mb-1.5 text-[10px]"
+  }, React.createElement("span", {
+    className: "text-[#6b7280]"
+  }, "SL ", React.createElement("span", {
+    className: "text-rose-400 font-medium"
+  }, ticker.sl ? `$${Number(ticker.sl).toFixed(2)}` : "—")), React.createElement("span", {
+    className: "text-[#6b7280]"
+  }, "TP ", React.createElement("span", {
+    className: "text-teal-400 font-medium"
+  }, ticker.tp ? `$${Number(ticker.tp).toFixed(2)}` : "—")), ticker.trigger_price && React.createElement("span", {
+    className: "text-[#6b7280]"
+  }, "Trigger ", React.createElement("span", {
+    className: "text-white font-medium"
+  }, "$", Number(ticker.trigger_price).toFixed(2)))), React.createElement("div", {
+    className: "flex items-center gap-3 mb-1.5 text-[10px]"
+  }, React.createElement("div", {
+    className: "flex items-center gap-1.5 flex-1"
+  }, React.createElement("span", {
+    className: "text-[#6b7280] shrink-0"
   }, "Phase"), React.createElement("div", {
-    className: "h-1.5 bg-white/[0.04] rounded-full overflow-hidden"
+    className: "flex-1 h-1 bg-white/[0.04] rounded-full overflow-hidden"
   }, React.createElement("div", {
     className: "h-full rounded-full transition-all",
     style: {
       width: `${phase * 100}%`,
       backgroundColor: phaseColor
     }
-  })), React.createElement("div", {
-    className: "text-[9px] mt-0.5",
+  })), React.createElement("span", {
+    className: "text-[10px] font-medium shrink-0",
     style: {
       color: phaseColor
     }
-  }, Math.round(phase * 100), "%")), React.createElement("div", null, React.createElement("div", {
-    className: "text-[8px] text-[#6b7280] mb-0.5"
-  }, "Complete"), React.createElement("div", {
-    className: "h-1.5 bg-white/[0.04] rounded-full overflow-hidden"
+  }, Math.round(phase * 100), "%")), React.createElement("div", {
+    className: "flex items-center gap-1.5 flex-1"
+  }, React.createElement("span", {
+    className: "text-[#6b7280] shrink-0"
+  }, "Comp"), React.createElement("div", {
+    className: "flex-1 h-1 bg-white/[0.04] rounded-full overflow-hidden"
   }, React.createElement("div", {
-    className: "h-full rounded-full bg-blue-500 transition-all",
+    className: "h-full rounded-full bg-blue-500/70 transition-all",
     style: {
       width: `${comp * 100}%`
     }
-  })), React.createElement("div", {
-    className: "text-[9px] mt-0.5 text-blue-400"
+  })), React.createElement("span", {
+    className: "text-[10px] font-medium text-blue-400 shrink-0"
   }, Math.round(comp * 100), "%"))), ticker._sparkline && ticker._sparkline.length >= 3 && React.createElement("div", {
     className: "mb-1 w-full"
   }, React.createElement(Sparkline, {
@@ -5087,25 +5085,15 @@ function SetupCard({
   }, "TP", idx + 1, ": $", Number(tp).toFixed(2))), tpLevels.length > 2 && React.createElement("span", {
     className: "px-0.5 py-0 rounded bg-white/[0.04] text-[#6b7280] text-[7px]"
   }, "+", tpLevels.length - 2))), React.createElement("div", {
-    className: "flex items-center justify-between text-[8px] pt-0.5 border-t border-white/[0.06]/50"
+    className: "flex items-center justify-between text-[10px] pt-1 border-t border-white/[0.04]"
   }, React.createElement("div", {
-    className: "flex gap-1"
-  }, React.createElement("span", {
-    className: "px-1 py-0.5 rounded bg-white/[0.04]"
-  }, "R", ticker.rank || "—"), ticker.rr && React.createElement("span", {
-    className: "px-1 py-0.5 rounded bg-white/[0.04]"
-  }, "RR", Number(ticker.rr).toFixed(1))), ent.corridor && React.createElement("span", {
-    className: `px-1 py-0.5 rounded text-[8px] font-semibold ${dir.bg} ${dir.color}`
-  }, ent.side)), decision && React.createElement("div", {
-    className: "mt-1 text-[8px] text-[#6b7280]"
-  }, React.createElement("span", {
-    className: `px-1 py-0.5 rounded ${decision.bg} ${decision.tone}`,
-    title: decision.blockers && decision.blockers.length > 0 ? `Blocked: ${decision.blockers.join(", ")}` : decision.warnings && decision.warnings.length > 0 ? `Warnings: ${decision.warnings.join(", ")}` : ""
-  }, decision.status), React.createElement("span", {
-    className: "ml-1"
-  }, decision.detail), decision.warnings && decision.warnings.length > 0 && React.createElement("span", {
-    className: "ml-1 text-yellow-300"
-  }, "\u2022 ", decision.warnings[0])));
+    className: "flex items-center gap-2 text-[#6b7280]"
+  }, React.createElement("span", null, "R", ticker.rank || "—"), ticker.rr && React.createElement("span", null, "RR ", Number(ticker.rr).toFixed(1)), ent.corridor && React.createElement("span", {
+    className: `font-semibold ${dir.color}`
+  }, ent.side)), decision && React.createElement("span", {
+    className: `px-1.5 py-0.5 rounded text-[9px] font-medium ${decision.bg} ${decision.tone}`,
+    title: decision.blockers?.length > 0 ? `Blocked: ${decision.blockers.join(", ")}` : decision.warnings?.length > 0 ? `Warnings: ${decision.warnings.join(", ")}` : ""
+  }, decision.status)));
 }
 function getActionDescription(ticker, trade) {
   const stage = String(ticker?.kanban_stage || "").trim().toLowerCase();
@@ -12911,45 +12899,73 @@ function App() {
     if (all.length === 0) return [];
     const ENTRY_STAGES = new Set(["setup", "setup_watch", "enter", "enter_now", "flip_watch", "just_flipped"]);
     const chips = [];
-    const sectorBull = {};
-    const sectorTotal = {};
+    const saved = all.filter(t => savedTickers.has(String(t.ticker).toUpperCase()));
+    if (saved.length > 0) {
+      chips.push({
+        id: "saved",
+        icon: "⭐",
+        label: "Saved",
+        count: saved.length,
+        color: "amber",
+        tickers: saved.map(t => t.ticker),
+        tooltip: `Your saved tickers\n${saved.slice(0, 8).map(t => t.ticker).join(", ")}`
+      });
+    }
+    const conviction = all.filter(t => {
+      const htf = Number(t.htf_score),
+        ltf = Number(t.ltf_score);
+      const aligned = htf > 0 && ltf > 0 || htf < 0 && ltf < 0;
+      const score = Number(t.eqScore || t.eq_score || 0);
+      const rr = Number(t.rr || 0);
+      const inCorridor = htf > 0 && ltf >= -8 && ltf <= 12 || htf < 0 && ltf >= -12 && ltf <= 8;
+      return aligned && score >= 65 && rr >= 2 && inCorridor;
+    });
+    chips.push({
+      id: "high_conviction",
+      icon: "🎖️",
+      label: "High Conviction",
+      count: conviction.length,
+      color: "emerald",
+      tickers: conviction.map(t => t.ticker),
+      tooltip: `Aligned trend + Score ≥ 65 + R:R ≥ 2 + In Corridor\n${conviction.slice(0, 5).map(t => t.ticker).join(", ") || "None right now"}`
+    });
+    const sectorBull = {},
+      sectorTotal = {},
+      sectorAvgHtf = {};
     for (const t of all) {
-      const sec = t.sector || t.fundamentals?.sector || "";
+      const sec = getTickerSector(t.ticker) || t.sector || t.fundamentals?.sector || "";
       if (!sec) continue;
       sectorTotal[sec] = (sectorTotal[sec] || 0) + 1;
-      if (Number(t.htf_score) > 0) sectorBull[sec] = (sectorBull[sec] || 0) + 1;
+      const htf = Number(t.htf_score) || 0;
+      sectorAvgHtf[sec] = (sectorAvgHtf[sec] || 0) + htf;
+      if (htf > 0) sectorBull[sec] = (sectorBull[sec] || 0) + 1;
     }
-    let bestSec = null,
-      bestPct = -1,
-      worstSec = null,
-      worstPct = 101;
-    for (const sec of Object.keys(sectorTotal)) {
-      if (sectorTotal[sec] < 2) continue;
-      const bullPct = (sectorBull[sec] || 0) / sectorTotal[sec] * 100;
-      if (bullPct > bestPct) {
-        bestPct = bullPct;
-        bestSec = sec;
+    const sectorRanking = Object.keys(sectorTotal).filter(s => sectorTotal[s] >= 2).map(s => ({
+      sector: s,
+      bullPct: (sectorBull[s] || 0) / sectorTotal[s] * 100,
+      avgHtf: sectorAvgHtf[s] / sectorTotal[s],
+      count: sectorTotal[s]
+    })).sort((a, b) => b.bullPct - a.bullPct);
+    if (sectorRanking.length >= 2) {
+      const best = sectorRanking[0],
+        worst = sectorRanking[sectorRanking.length - 1];
+      if (best.sector !== worst.sector) {
+        const short = s => s.length > 12 ? s.slice(0, 10) + "…" : s;
+        const rotTickers = all.filter(t => {
+          const sec = getTickerSector(t.ticker) || t.sector || t.fundamentals?.sector || "";
+          return sec === best.sector || sec === worst.sector;
+        }).map(t => t.ticker);
+        const rankLines = sectorRanking.slice(0, 5).map((s, i) => `${i + 1}. ${s.sector} (${Math.round(s.bullPct)}% bull)`).join("\n");
+        chips.push({
+          id: "sector_rotation",
+          icon: "🔄",
+          label: `${short(best.sector)} ↑ ${short(worst.sector)} ↓`,
+          count: null,
+          color: "purple",
+          tickers: rotTickers,
+          tooltip: `Sector Strength Ranking:\n${rankLines}\n\nMoney rotating into ${best.sector}, out of ${worst.sector}.\nBased on HTF trend alignment across tickers per sector.`
+        });
       }
-      if (bullPct < worstPct) {
-        worstPct = bullPct;
-        worstSec = sec;
-      }
-    }
-    if (bestSec && worstSec && bestSec !== worstSec) {
-      const short = s => s.length > 12 ? s.slice(0, 10) + "…" : s;
-      const rotTickers = all.filter(t => {
-        const sec = t.sector || t.fundamentals?.sector || "";
-        return sec === bestSec || sec === worstSec;
-      }).map(t => t.ticker);
-      chips.push({
-        id: "sector_rotation",
-        icon: "🔄",
-        label: `${short(bestSec)} ↑ ${short(worstSec)} ↓`,
-        count: null,
-        color: "purple",
-        tickers: rotTickers,
-        tooltip: `Rotating in: ${bestSec} (${Math.round(bestPct)}% bull)\nRotating out: ${worstSec} (${Math.round(worstPct)}% bull)`
-      });
     }
     const earlyLong = all.filter(t => {
       const htf = Number(t.htf_score),
@@ -12964,7 +12980,7 @@ function App() {
       count: earlyLong.length,
       color: "green",
       tickers: earlyLong.map(t => t.ticker),
-      tooltip: earlyLong.slice(0, 5).map(t => t.ticker).join(", ") || "—"
+      tooltip: `HTF bullish + LTF approaching entry corridor\n${earlyLong.slice(0, 5).map(t => t.ticker).join(", ") || "—"}`
     });
     const earlyShort = all.filter(t => {
       const htf = Number(t.htf_score),
@@ -12979,7 +12995,7 @@ function App() {
       count: earlyShort.length,
       color: "red",
       tickers: earlyShort.map(t => t.ticker),
-      tooltip: earlyShort.slice(0, 5).map(t => t.ticker).join(", ") || "—"
+      tooltip: `HTF bearish + LTF approaching entry corridor\n${earlyShort.slice(0, 5).map(t => t.ticker).join(", ") || "—"}`
     });
     const squeeze = all.filter(t => t.flags?.sq30_on === true);
     chips.push({
@@ -12989,7 +13005,7 @@ function App() {
       count: squeeze.length,
       color: "amber",
       tickers: squeeze.map(t => t.ticker),
-      tooltip: squeeze.slice(0, 5).map(t => t.ticker).join(", ") || "—"
+      tooltip: `Bollinger Bands inside Keltner Channels on 30m — volatility contracting.\nExpect expansion soon.\n${squeeze.slice(0, 5).map(t => t.ticker).join(", ") || "—"}`
     });
     const breakout = all.filter(t => {
       const ks = String(t.kanban_stage || "").toLowerCase();
@@ -13002,7 +13018,7 @@ function App() {
       count: breakout.length,
       color: "cyan",
       tickers: breakout.map(t => t.ticker),
-      tooltip: breakout.slice(0, 5).map(t => t.ticker).join(", ") || "—"
+      tooltip: `Squeeze released or fresh stage transition — move in progress.\n${breakout.slice(0, 5).map(t => t.ticker).join(", ") || "—"}`
     });
     const corridor = all.filter(t => {
       const htf = Number(t.htf_score),
@@ -13016,7 +13032,7 @@ function App() {
       count: corridor.length,
       color: "blue",
       tickers: corridor.map(t => t.ticker),
-      tooltip: corridor.slice(0, 5).map(t => t.ticker).join(", ") || "—"
+      tooltip: `LTF score in optimal entry zone for the HTF trend direction.\n${corridor.slice(0, 5).map(t => t.ticker).join(", ") || "—"}`
     });
     const accel = all.filter(t => {
       const d = t.deltas && typeof t.deltas === "object" ? t.deltas : {};
@@ -13033,20 +13049,67 @@ function App() {
       count: accel.length,
       color: "emerald",
       tickers: accel.map(t => t.ticker),
-      tooltip: accel.slice(0, 5).map(t => t.ticker).join(", ") || "—"
+      tooltip: `Momentum accelerating — score delta >5 (LTF) or >3 (HTF) in last 4h.\n${accel.slice(0, 5).map(t => t.ticker).join(", ") || "—"}`
     });
     const moElite = all.filter(t => t.flags?.momentum_elite === true);
     chips.push({
       id: "momentum_elite",
-      icon: "🏆",
+      icon: "🔥",
       label: "Mo Elite",
       count: moElite.length,
       color: "gold",
       tickers: moElite.map(t => t.ticker),
-      tooltip: moElite.slice(0, 5).map(t => t.ticker).join(", ") || "—"
+      tooltip: `Momentum Elite — confirmed strong momentum (|mom/σ| > 1.0) across 2+ timeframes (30m, 10m, 5m).\nVolume + price aligned. These are the strongest movers right now.\n${moElite.slice(0, 5).map(t => t.ticker).join(", ") || "—"}`
     });
+    const volSurge = all.filter(t => {
+      const rm = t.rvol_map || {};
+      const rv = Math.max(Number(rm?.["30"]?.vr) || 0, Number(rm?.["60"]?.vr) || 0);
+      return rv >= 1.5;
+    });
+    chips.push({
+      id: "volume_surge",
+      icon: "📊",
+      label: "Vol Surge",
+      count: volSurge.length,
+      color: "cyan",
+      tickers: volSurge.map(t => t.ticker),
+      tooltip: `Relative volume ≥ 1.5x on 30m or 60m — unusual activity.\nInstitutional interest likely.\n${volSurge.slice(0, 5).map(t => t.ticker).join(", ") || "—"}`
+    });
+    const SP_SECTORS = ["Information Technology", "Financials", "Healthcare", "Consumer Discretionary", "Industrials", "Communication Services", "Energy", "Consumer Staples", "Utilities", "Real Estate", "Basic Materials"];
+    const SHORT_SECTOR = {
+      "Information Technology": "Tech",
+      "Financials": "Fins",
+      "Healthcare": "Health",
+      "Consumer Discretionary": "Disc",
+      "Industrials": "Indust",
+      "Communication Services": "Comms",
+      "Energy": "Energy",
+      "Consumer Staples": "Staples",
+      "Utilities": "Utils",
+      "Real Estate": "RE",
+      "Basic Materials": "Matls"
+    };
+    for (const sec of SP_SECTORS) {
+      const secTickers = all.filter(t => {
+        const ts = getTickerSector(t.ticker) || t.sector || t.fundamentals?.sector || "";
+        return normalizeSectorKey(ts) === normalizeSectorKey(sec);
+      });
+      if (secTickers.length === 0) continue;
+      const bullCount = secTickers.filter(t => Number(t.htf_score) > 0).length;
+      const bullPct = Math.round(bullCount / secTickers.length * 100);
+      chips.push({
+        id: `sector_${normalizeSectorKey(sec).replace(/\s+/g, "_")}`,
+        icon: "",
+        label: SHORT_SECTOR[sec] || sec,
+        count: secTickers.length,
+        color: bullPct >= 60 ? "green" : bullPct <= 40 ? "red" : "blue",
+        tickers: secTickers.map(t => t.ticker),
+        tooltip: `${sec}\n${bullCount}/${secTickers.length} bullish (${bullPct}%)\n${secTickers.slice(0, 8).map(t => t.ticker).join(", ")}`,
+        isSector: true
+      });
+    }
     return chips;
-  }, [data]);
+  }, [data, savedTickers]);
   const activeInsightTickers = useMemo(() => {
     if (!activeInsight) return null;
     const chip = insightChips.find(c => c.id === activeInsight);
@@ -14104,127 +14167,117 @@ function App() {
   })), React.createElement("div", {
     className: `relative w-full lg:flex-1 lg:min-w-0 transition-[margin] duration-300 ${selectedTicker ? "lg:mr-[470px]" : ""}`
   }, React.createElement("div", {
-    className: "px-3 py-2 mb-1 rounded-lg border border-white/[0.06] bg-white/[0.02] space-y-1.5",
+    className: "px-3 py-2 mb-1 rounded-lg border border-white/[0.06] bg-white/[0.02]",
     "data-coachmark": "bubble-chart"
   }, React.createElement("div", {
-    className: "flex items-center gap-3 text-[10px] text-[#9ca3af] overflow-x-auto flex-nowrap"
+    className: "flex items-center gap-3 text-[10px] text-[#8b95a5] overflow-x-auto flex-nowrap"
   }, React.createElement("span", {
     className: "font-semibold text-white text-[11px] shrink-0"
-  }, "Bubble Chart"), React.createElement("span", {
+  }, "Bubble Map"), React.createElement("span", {
+    className: "text-[#4b5563] shrink-0"
+  }, "|"), React.createElement("span", {
     className: "flex items-center gap-1 shrink-0",
-    title: "Bullish trend \u2014 system bias is long"
+    title: "HTF bullish trend \u2014 system bias is long"
   }, React.createElement("svg", {
-    width: "10",
-    height: "10",
-    viewBox: "0 0 10 10"
+    width: "8",
+    height: "8",
+    viewBox: "0 0 8 8"
   }, React.createElement("circle", {
-    cx: "5",
-    cy: "5",
-    r: "4",
-    fill: "rgba(34,211,238,0.5)",
-    stroke: "#22d3ee",
-    strokeWidth: "0.8"
-  })), " Long"), React.createElement("span", {
+    cx: "4",
+    cy: "4",
+    r: "3.5",
+    fill: "rgba(34,211,238,0.45)"
+  })), " ", React.createElement("span", {
+    className: "text-cyan-400"
+  }, "Long bias")), React.createElement("span", {
     className: "flex items-center gap-1 shrink-0",
-    title: "Bearish trend \u2014 system bias is short"
+    title: "HTF bearish trend \u2014 system bias is short"
   }, React.createElement("svg", {
-    width: "10",
-    height: "10",
-    viewBox: "0 0 10 10"
+    width: "8",
+    height: "8",
+    viewBox: "0 0 8 8"
   }, React.createElement("circle", {
-    cx: "5",
-    cy: "5",
-    r: "4",
-    fill: "rgba(225,29,72,0.5)",
-    stroke: "#e11d48",
-    strokeWidth: "0.8"
-  })), " Short"), React.createElement("span", {
+    cx: "4",
+    cy: "4",
+    r: "3.5",
+    fill: "rgba(225,29,72,0.45)"
+  })), " ", React.createElement("span", {
+    className: "text-rose-400"
+  }, "Short bias")), React.createElement("span", {
     className: "flex items-center gap-1 shrink-0",
-    title: "No clear directional bias"
+    title: "No directional edge \u2014 mixed or transitional"
   }, React.createElement("svg", {
-    width: "10",
-    height: "10",
-    viewBox: "0 0 10 10"
+    width: "8",
+    height: "8",
+    viewBox: "0 0 8 8"
   }, React.createElement("circle", {
-    cx: "5",
-    cy: "5",
-    r: "4",
-    fill: "rgba(234,179,8,0.4)",
-    stroke: "#eab308",
-    strokeWidth: "0.8"
-  })), " Neutral"), React.createElement("span", {
+    cx: "4",
+    cy: "4",
+    r: "3.5",
+    fill: "rgba(234,179,8,0.35)"
+  })), " ", React.createElement("span", {
+    className: "text-yellow-400"
+  }, "Neutral")), React.createElement("span", {
     className: "text-[#4b5563] shrink-0"
   }, "|"), React.createElement("span", {
     className: "shrink-0",
-    title: "Right = bullish short-term momentum; Up = bullish long-term trend"
-  }, "X: LTF momentum \xB7 Y: HTF trend"), React.createElement("span", {
+    title: "X-axis: LTF score (short-term momentum). Y-axis: HTF score (long-term trend strength)"
+  }, "X: momentum \xB7 Y: trend"), React.createElement("span", {
     className: "shrink-0",
-    title: "Green = long entry zone (top half); Red = short entry zone (bottom half)"
-  }, "Green/Red zones = entry corridors"), React.createElement("span", {
+    title: "Bigger bubble = higher R:R with more upside remaining"
+  }, "Size = R:R \xD7 upside"), React.createElement("span", {
     className: "shrink-0",
-    title: "Bigger = higher R:R with more upside left"
-  }, "Size \u221D R:R \xD7 upside"), React.createElement("span", {
-    className: "shrink-0",
-    title: "Solid = scored; Dashed = awaiting data"
-  }, "Filled = scored")), React.createElement("div", {
-    className: "flex items-center gap-3 text-[10px] text-[#9ca3af] overflow-x-auto flex-nowrap"
-  }, React.createElement("span", {
-    className: "text-[#6b7280] shrink-0"
-  }, "Badges:"), React.createElement("span", {
+    title: "Upper-right quadrant: aligned longs. Lower-left: aligned shorts. Hover for system bias."
+  }, "\u2197 longs \xB7 \u2199 shorts"), React.createElement("span", {
+    className: "text-[#4b5563] shrink-0"
+  }, "|"), React.createElement("span", {
     className: "flex items-center gap-1 shrink-0",
-    title: "System highlighting for entry or active management"
+    title: "Pulsing ring = system is highlighting for entry or management"
   }, React.createElement("svg", {
-    width: "10",
-    height: "10",
-    viewBox: "0 0 10 10"
+    width: "8",
+    height: "8",
+    viewBox: "0 0 8 8"
   }, React.createElement("circle", {
-    cx: "5",
-    cy: "5",
-    r: "3.5",
+    cx: "4",
+    cy: "4",
+    r: "3",
     fill: "none",
     stroke: "#22d3ee",
-    strokeWidth: "1",
+    strokeWidth: "0.8",
     opacity: "0.6"
   }, React.createElement("animate", {
     attributeName: "r",
-    values: "3;4.5;3",
-    dur: "2s",
-    repeatCount: "indefinite"
-  }), React.createElement("animate", {
-    attributeName: "opacity",
-    values: "0.3;0.7;0.3",
+    values: "2.5;3.5;2.5",
     dur: "2s",
     repeatCount: "indefinite"
   }))), " Actionable"), React.createElement("span", {
     className: "shrink-0",
-    title: "Momentum elite \u2014 strong volume + price confirmation"
-  }, "\uD83D\uDD25 MoElite"), React.createElement("span", {
+    title: "Momentum Elite \u2014 volume + price confirmation aligned"
+  }, "\uD83D\uDD25"), React.createElement("span", {
     className: "shrink-0",
-    title: "Price near optimal entry \u2014 actionable window"
-  }, "\uD83C\uDFAF Flip Watch"), React.createElement("span", {
+    title: "Price at optimal entry level"
+  }, "\uD83C\uDFAF"), React.createElement("span", {
     className: "flex items-center gap-1 shrink-0",
-    title: "Earnings within 7 days \u2014 consider timing"
+    title: "Earnings within 7 days"
   }, React.createElement("svg", {
-    width: "12",
-    height: "12",
-    viewBox: "0 0 12 12"
+    width: "8",
+    height: "8",
+    viewBox: "0 0 8 8"
   }, React.createElement("circle", {
-    cx: "6",
-    cy: "6",
-    r: "4.5",
+    cx: "4",
+    cy: "4",
+    r: "3",
     fill: "none",
     stroke: "#f59e0b",
-    strokeWidth: "1.5",
-    strokeDasharray: "3 2",
-    opacity: "0.7"
-  })), " Earnings"), React.createElement("span", {
-    className: "text-[#4b5563] shrink-0"
-  }, "|"), React.createElement("span", {
-    className: "shrink-0 text-[#8b95a5]"
-  }, "Upper-right = best longs \xB7 Lower-left = best shorts"))), insightChips.length > 0 && React.createElement("div", {
+    strokeWidth: "1",
+    strokeDasharray: "2 1.5",
+    opacity: "0.6"
+  }))))), insightChips.length > 0 && React.createElement("div", {
     className: "flex gap-1.5 overflow-x-auto pb-1 px-1 mb-1 scrollbar-hide"
-  }, insightChips.filter(c => c.count === null || c.count > 0).map(chip => {
-    const isActive = activeInsight === chip.id;
+  }, (() => {
+    const visible = insightChips.filter(c => c.count === null || c.count > 0);
+    const signalChips = visible.filter(c => !c.isSector);
+    const sectorChips = visible.filter(c => c.isSector);
     const colorMap = {
       purple: {
         bg: "bg-purple-500/15",
@@ -14291,22 +14344,33 @@ function App() {
         glow: "shadow-yellow-500/30"
       }
     };
-    const c = colorMap[chip.color] || colorMap.blue;
-    return React.createElement("button", {
-      key: chip.id,
-      title: chip.tooltip,
-      onClick: () => setActiveInsight(prev => prev === chip.id ? null : chip.id),
-      className: `group relative flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium border whitespace-nowrap transition-all duration-200 shrink-0 ${isActive ? `${c.activeBg} ${c.activeBorder} ${c.text} shadow-sm ${c.glow}` : `${c.bg} ${c.border} ${c.text} hover:brightness-125`}`
-    }, React.createElement("span", null, chip.icon), React.createElement("span", null, chip.label), chip.count !== null && React.createElement("span", {
-      className: "font-bold opacity-80"
-    }, chip.count), React.createElement("span", {
-      className: "pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 px-2 py-1 rounded-md bg-[#1a1f2e] border border-white/10 text-[9px] text-gray-300 whitespace-pre-line opacity-0 group-hover:opacity-100 transition-opacity z-50 max-w-[200px]"
-    }, chip.tooltip));
-  }), activeInsight && React.createElement("button", {
+    const renderChip = chip => {
+      const isActive = activeInsight === chip.id;
+      const c = colorMap[chip.color] || colorMap.blue;
+      return React.createElement("button", {
+        key: chip.id,
+        title: chip.tooltip,
+        onClick: () => setActiveInsight(prev => prev === chip.id ? null : chip.id),
+        className: `group relative flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium border whitespace-nowrap transition-all duration-200 shrink-0 ${isActive ? `${c.activeBg} ${c.activeBorder} ${c.text} shadow-sm ${c.glow}` : `${c.bg} ${c.border} ${c.text} hover:brightness-125`}`
+      }, chip.icon && React.createElement("span", null, chip.icon), React.createElement("span", null, chip.label), chip.count !== null && React.createElement("span", {
+        className: "font-bold opacity-80"
+      }, chip.count), React.createElement("span", {
+        className: "pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 px-2.5 py-1.5 rounded-lg bg-[#141820] border border-white/10 text-[9px] text-gray-300 whitespace-pre-line opacity-0 group-hover:opacity-100 transition-opacity z-50 max-w-[240px] shadow-xl"
+      }, chip.tooltip));
+    };
+    return React.createElement(React.Fragment, null, signalChips.map(renderChip), sectorChips.length > 0 && React.createElement(React.Fragment, null, React.createElement("span", {
+      className: "text-[#3a3f4b] shrink-0 mx-0.5"
+    }, "|"), React.createElement("span", {
+      className: "text-[9px] text-[#6b7280] shrink-0"
+    }, "Sectors"), sectorChips.map(renderChip)));
+  })(), activeInsight && React.createElement("button", {
     onClick: () => setActiveInsight(null),
     className: "flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium border border-white/10 bg-white/5 text-gray-400 hover:text-white transition-colors shrink-0"
   }, "\u2715 Clear")), React.createElement("div", {
-    className: "h-[600px] sm:h-[700px] md:h-[800px] lg:h-[870px]"
+    style: {
+      height: "calc(100vh - 220px)",
+      minHeight: "500px"
+    }
   }, loading && tickers.length === 0 ? React.createElement("div", {
     className: "w-full h-full bg-white/[0.02] rounded-xl border border-white/[0.06] flex items-center justify-center",
     style: {

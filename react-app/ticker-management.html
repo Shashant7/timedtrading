@@ -36,8 +36,8 @@
 
       const API_BASE = "";  // same-origin — proxied by Pages Function
       // Auth via CF Access JWT cookie (sent automatically with credentials: "include")
-      const TFS = ["M", "W", "D", "240", "60", "30", "15", "10", "5"];
-      const TF_LABELS = { M: "M", W: "W", D: "D", "240": "4H", "60": "1H", "30": "30m", "15": "15m", "10": "10m", "5": "5m" };
+      const TFS = ["M", "W", "D", "240", "60", "30", "15", "5"];
+      const TF_LABELS = { M: "M", W: "W", D: "D", "240": "4H", "60": "1H", "30": "30m", "15": "15m", "5": "5m" };
       const TV_TICKERS = new Set(["ES1!", "NQ1!", "GOLD", "SILVER", "US500", "VX1!", "GC1!", "SI1!"]);
 
       // ── Company Names ──
@@ -115,9 +115,9 @@
       // ── Groups (GRNY/GRNI/GRNJ loaded dynamically from ETF sync) ──
       const GROUPS = {
         UPTICKS: new Set([
-          "RDDT","AMZN","BABA","TSLA","KO","WMT","ETHA","BRK-B","GLXY","MTB",
-          "SPGI","AMGN","GILD","CSX","GEV","HII","JCI","PH","PWR","TT",
-          "APP","CLS","FSLR","PANW","CRS","VST",
+          "RDDT","AMZN","BABA","TSLA","KO","WMT","ETHA","BRK-B","MTB",
+          "AMGN","GILD","CSX","GEV","HII","JCI","PH","PWR","TT",
+          "CLS","FSLR","PANW","CRS","VST","BG","MRK","QXO","AXP",
         ]),
         GRNI: new Set(),
         GRNJ: new Set(),
@@ -656,6 +656,21 @@
           loadETFGroups();
           fetchData();
         }, [fetchData]);
+
+        // Periodic price refresh (every 45s) so Chg%/As of stays current
+        useEffect(() => {
+          const interval = setInterval(() => {
+            fetch(`${API_BASE}/timed/prices?_t=${Date.now()}`)
+              .then(r => r.json())
+              .then(pJson => {
+                if (pJson?.ok && pJson.prices) {
+                  setPriceData({ prices: pJson.prices, updated_at: pJson.updated_at });
+                }
+              })
+              .catch(() => {});
+          }, 45_000);
+          return () => clearInterval(interval);
+        }, []);
 
         // After adding tickers: poll ingestion-status every 4s for ~2 min so coverage updates in real time
         useEffect(() => {

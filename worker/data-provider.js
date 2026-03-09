@@ -287,6 +287,7 @@ export async function getMarketState(env) {
 const CRON_TF_LOOKBACK_MS = {
   "5":   2 * 60 * 60 * 1000,
   "10":  3 * 60 * 60 * 1000,
+  "15":  4 * 60 * 60 * 1000,
   "30":  6 * 60 * 60 * 1000,
   "60":  24 * 60 * 60 * 1000,
   "240": 48 * 60 * 60 * 1000,
@@ -298,6 +299,7 @@ const CRON_TF_LOOKBACK_MS = {
 const CRYPTO_TF_LOOKBACK_MS = {
   "5":   4 * 60 * 60 * 1000,
   "10":  6 * 60 * 60 * 1000,
+  "15":  8 * 60 * 60 * 1000,
   "30":  12 * 60 * 60 * 1000,
   "60":  48 * 60 * 60 * 1000,
   "240": 96 * 60 * 60 * 1000,
@@ -363,8 +365,8 @@ export async function cronFetchLatest(env, allTickers) {
   const isTopOfHour = minuteOfHour < 5;
 
   const tfsThisCycle = isTopOfHour
-    ? ["5", "10", "30", "60", "240", "D", "W", "M"]
-    : ["5", "10", "30", "60", "240"];
+    ? ["5", "10", "15", "30", "60", "240", "D", "W", "M"]
+    : ["5", "10", "15", "30", "60", "240"];
 
   const halfIdx = slotIdx % 2;
   const mid = Math.ceil(allTickers.length / 2);
@@ -403,8 +405,8 @@ export async function cronFetchCrypto(env) {
   const minuteOfHour = new Date().getUTCMinutes();
   const isTopOfHour = minuteOfHour < 5;
   const tfsThisCycle = isTopOfHour
-    ? ["5", "10", "30", "60", "240", "D", "W", "M"]
-    : ["5", "10", "30", "60", "240"];
+    ? ["5", "10", "15", "30", "60", "240", "D", "W", "M"]
+    : ["5", "10", "15", "30", "60", "240"];
 
   let totalUpserted = 0, totalErrors = 0;
 

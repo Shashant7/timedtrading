@@ -22571,6 +22571,7 @@ const SECTOR_MAP = {
   COST: "Consumer Staples",          // GRNY
   MNST: "Consumer Staples",          // GRNY
   ELF: "Consumer Staples",           // GRNJ (e.l.f. Beauty)
+  BG: "Consumer Staples",            // Upticks (Bunge)
   // ── Industrials ──
   CAT: "Industrials",                // GRNY
   GE: "Industrials",                 // GRNY
@@ -22606,6 +22607,7 @@ const SECTOR_MAP = {
   VMI: "Industrials",                // GRNJ (Valmont)
   UNP: "Industrials",                // GRNY
   ARRY: "Industrials",               // GRNJ (Array Technologies)
+  QXO: "Industrials",                // Upticks (QXO Inc - building products)
   // ── Information Technology ──
   AAPL: "Information Technology",     // GRNY
   MSFT: "Information Technology",     // GRNY
@@ -22665,7 +22667,7 @@ const SECTOR_MAP = {
   // ── Financials ──
   JPM: "Financials",                  // GRNY
   GS: "Financials",                   // GRNY
-  AXP: "Financials",                  // GRNY
+  AXP: "Financials",                  // GRNY + Upticks
   SPGI: "Financials",                 // TT Selected
   PNC: "Financials",                  // GRNY
   BK: "Financials",                   // GRNY
@@ -22687,6 +22689,7 @@ const SECTOR_MAP = {
   UHS: "Health Care",                 // GRNJ (Universal Health)
   VRTX: "Health Care",                // Upticks (Vertex Pharma)
   ISRG: "Health Care",                // Upticks (Intuitive Surgical)
+  MRK: "Health Care",                 // Upticks (Merck)
   // ── Aerospace & Defense ──
   RKLB: "Aerospace & Defense",        // GRNJ
   NOC: "Aerospace & Defense",         // GRNY (Northrop Grumman)
@@ -22734,8 +22737,8 @@ const WATCH_ONLY = new Set([
 // Current Newton Upticks — priority picks tagged as "TT Selected"
 const TT_SELECTED = new Set([
   "RDDT", "AMZN", "BABA", "TSLA", "KO", "WMT", "ETHA", "BRK-B",
-  "GLXY", "MTB", "SPGI", "AMGN", "GILD", "CSX", "GEV", "HII",
-  "JCI", "PWR", "TT", "APP", "CLS", "FSLR", "ORCL", "PANW", "CRS", "VST",
+  "MTB", "AMGN", "GILD", "CSX", "GEV", "HII", "JCI", "PWR", "TT",
+  "CLS", "FSLR", "ORCL", "PANW", "CRS", "VST", "BG", "MRK", "QXO", "AXP",
 ]);
 
 // Canonical universe: snapshot of hardcoded SECTOR_MAP before runtime KV expansion
@@ -30560,6 +30563,25 @@ export default {
               })());
               backfillTriggered.push(...tickersToOnboard);
             }
+          }
+
+          // Hot-add to live WS stream so new tickers get prices immediately
+          if (added.length > 0) {
+            ctx.waitUntil((async () => {
+              try {
+                const streamStatus = await dataStreamStatus(env);
+                if (streamStatus?.isRunning) {
+                  const streamBlocklist = new Set(["ES1!","NQ1!","YM1!","RTY1!","CL1!","GC1!","SI1!","HG1!","NG1!","BTCUSD","ETHUSD","US500","VX1!","SPX"]);
+                  const userAddedForStream = await d1GetActiveUserTickersCached(env);
+                  const symbols = [...new Set([...Object.keys(SECTOR_MAP), ...userAddedForStream, ...added])]
+                    .filter(t => !streamBlocklist.has(t) && /^[A-Z]{1,5}(-[A-Z]{1,2})?$/.test(t));
+                  await dataStreamStart(env, symbols);
+                  console.log(`[WATCHLIST ADD] Restarted stream with ${symbols.length} symbols (+${added.length} new)`);
+                }
+              } catch (streamErr) {
+                console.warn("[WATCHLIST ADD] Stream restart failed:", String(streamErr).slice(0, 200));
+              }
+            })());
           }
 
           return sendJSON(
@@ -48889,6 +48911,9 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
       if (_isWeekday && _utcM % 15 === 0)                          vc.add("*/15 * * * 1-5");
       if (_utcH % 6 === 0 && _utcM === 0)                          vc.add("0 */6 * * *");
       if (_isWeekday && _utcH === 14 && _utcM === 45)              vc.add("45 14 * * 1-5");
+      // Daily Brief morning: 8:45 AM ET (12:45 UTC EDT / 13:45 UTC EST)
+      if (_isWeekday && _utcH === 12 && _utcM === 45)              vc.add("45 12 * * 1-5");
+      if (_isWeekday && _utcH === 13 && _utcM === 45)              vc.add("45 13 * * 1-5");
       if (_isWeekday && _utcH === 17 && _utcM === 0)               vc.add("0 17 * * 1-5");
       if (_isWeekday && _utcH === 20 && _utcM === 30)              vc.add("30 20 * * 1-5");
       if (_utcDay === 5 && _utcH === 21 && _utcM === 15)           vc.add("15 21 * * 5");
@@ -48897,7 +48922,6 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
     if (_isHourly) {
       if (_isWeekday && _utcH >= 14 && _utcH <= 21)                vc.add("0 14-21 * * 1-5");
       if (_utcDay === 6 && _utcH === 15)                           vc.add("0 15 * * 6");
-      if (_isWeekday && _utcH === 14)                               vc.add("0 14 * * 1-5");
       if (_isWeekday && _utcH === 22)                               vc.add("0 22 * * 1-5");
       if (_isWeekday && _utcH === 8)                                vc.add("0 8 * * 1-5");
       if (_isWeekday && _utcH === 12)                               vc.add("0 12 * * 1-5");
@@ -49082,12 +49106,12 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
       })());
     }
 
-    // ── Daily Brief: Morning (9 AM ET = 14:00 UTC) ──
-    if (vc.has("0 14 * * 1-5")) {
-      // Check if it's actually morning in ET (handles EST vs EDT)
-      const etHour = new Date().toLocaleString("en-US", { timeZone: "America/New_York", hour: "numeric", hour12: false });
-      const h = parseInt(etHour, 10);
-      if (h >= 8 && h <= 10) {
+    // ── Daily Brief: Morning (8:45 AM ET) ──
+    // Uses America/New_York so DST is correct: 12:45 UTC = 8:45 EDT, 13:45 UTC = 8:45 EST
+    if (vc.has("45 12 * * 1-5") || vc.has("45 13 * * 1-5")) {
+      const { hour: etH, minute: etM } = getEasternParts(new Date());
+      const etMins = etH * 60 + etM;
+      if (etMins >= 8 * 60 + 40 && etMins <= 8 * 60 + 50) {
         ctx.waitUntil((async () => {
           try {
             console.log("[DAILY BRIEF CRON] Generating morning brief...");

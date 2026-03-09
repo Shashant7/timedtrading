@@ -143,7 +143,11 @@ export async function tdFetchTimeSeries(env, symbols, interval, start, end = nul
 // Convert TwelveData bar to Alpaca-compatible shape { t, o, h, l, c, v }
 function tdBarToAlpacaBar(tdBar) {
   const dt = tdBar.datetime || "";
-  const ts = dt.includes("T") ? dt : dt + "T00:00:00Z";
+  const ts = dt.includes("T")
+    ? dt
+    : dt.includes(" ")
+      ? dt.replace(" ", "T") + "Z"
+      : dt + "T00:00:00Z";
   return {
     t: ts.endsWith("Z") ? ts : ts + "Z",
     o: Number(tdBar.open),

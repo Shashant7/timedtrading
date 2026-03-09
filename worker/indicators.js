@@ -1200,7 +1200,7 @@ export function computeTfBundle(bars, anchors = null) {
   // ── Ichimoku Kinko Hyo (native computation) ──
   const ichimoku = computeIchimoku(bars, atr14);
 
-  // ── Ripster cloud primitives (for feature-flagged engine + diagnostics) ──
+  // ── TT cloud primitives (for feature-flagged engine + diagnostics) ──
   const cloudState = (fastNow, slowNow, fastPrev, slowPrev) => {
     if (!Number.isFinite(fastNow) || !Number.isFinite(slowNow)) return null;
     const lo = Math.min(fastNow, slowNow);
@@ -2529,7 +2529,7 @@ export function buildSTSupportMap(bundles) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// LAYER 3: ATR FIBONACCI LEVEL MAPS (Saty ATR Levels)
+// LAYER 3: ATR FIBONACCI LEVEL MAPS (TT ATR Levels)
 // ═══════════════════════════════════════════════════════════════════════════════
 
 const FIB_RATIOS = [0.236, 0.382, 0.500, 0.618, 0.786, 1.000, 1.236, 1.618, 2.000, 2.618, 3.000];
@@ -3720,6 +3720,7 @@ const TF_TO_ALPACA = {
   "1": "1Min",
   "5": "5Min",
   "10": "10Min",
+  "15": "15Min",
   "30": "30Min",
   "60": "1Hour",
   "240": "4Hour",
@@ -3736,7 +3737,7 @@ const TF_TO_ALPACA = {
 const ALL_TFS = ["M", "W", "D", "240", "60", "30", "10"];
 
 // All timeframes we fetch from Alpaca for candle storage (5m dropped — swing focus)
-const CRON_FETCH_TFS = ["M", "W", "D", "240", "60", "30", "10"];
+const CRON_FETCH_TFS = ["M", "W", "D", "240", "60", "30", "15", "10"];
 
 // TD Sequential timeframes — computed on 7 TFs for chart overlays (5m dropped)
 const TD_SEQ_TFS = ["10", "30", "60", "240", "D", "W", "M"];
