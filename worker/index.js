@@ -292,6 +292,99 @@ async function dataFetchSnapshots(env, symbols) {
   return alpacaFetchSnapshots(env, symbols);
 }
 
+// ── Market-pulse futures/index: dedicated TwelveData fetch ──────────────
+// These symbols are in SKIP_TICKERS because their TradingView notation
+// (ES1!) differs from TwelveData's continuous-contract symbol (ES).
+// This function maps them, calls /quote directly, and returns timed:prices
+// format objects keyed by our internal symbols.
+const MARKET_PULSE_TD_MAP = {
+  "ES1!": "ES",
+  "NQ1!": "NQ",
+  "YM1!": "YM",
+  "RTY1!": "RTY",
+  "GC1!": "GC",
+  "SI1!": "SI",
+  "CL1!": "CL",
+  "VX1!": "VX",
+  "SPX":  "SPX",
+};
+
+function _parseMPQuote(q) {
+  const price = Number(q.close) || 0;
+  const ts = q.timestamp ? Number(q.timestamp) * 1000 : Date.now();
+  const pc = Number(q.previous_close) || 0;
+  const nativeDc = Number(q.change);
+  const nativeDp = Number(q.percent_change);
+  return {
+    p: Math.round(price * 100) / 100,
+    pc: pc > 0 ? Math.round(pc * 100) / 100 : 0,
+    dc: Number.isFinite(nativeDc) && nativeDc !== 0
+      ? Math.round(nativeDc * 100) / 100
+      : (pc > 0 ? Math.round((price - pc) * 100) / 100 : null),
+    dp: Number.isFinite(nativeDp) && nativeDp !== 0
+      ? Math.round(nativeDp * 100) / 100
+      : (pc > 0 ? Math.round(((price - pc) / pc) * 10000) / 100 : null),
+    dh: Math.round((Number(q.high) || 0) * 100) / 100,
+    dl: Math.round((Number(q.low) || 0) * 100) / 100,
+    dv: Number(q.volume) || 0,
+    t: ts,
+  };
+}
+
+async function fetchMarketPulseFromTD(env) {
+  const apiKey = env?.TWELVEDATA_API_KEY;
+  if (!apiKey) return {};
+
+  const results = {};
+  const entries = Object.entries(MARKET_PULSE_TD_MAP);
+  const BATCH = 8;
+
+  for (let i = 0; i < entries.length; i += BATCH) {
+    const batch = entries.slice(i, i + BATCH);
+    const tdSyms = batch.map(([, td]) => td);
+    try {
+      const params = new URLSearchParams({
+        symbol: tdSyms.join(","),
+        apikey: apiKey,
+        prepost: "true",
+      });
+      const url = `https://api.twelvedata.com/quote?${params}`;
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 15000);
+      const resp = await fetch(url, { signal: controller.signal });
+      clearTimeout(timer);
+      if (!resp.ok) {
+        console.warn(`[MARKET PULSE TD] HTTP ${resp.status}`);
+        continue;
+      }
+      const data = await resp.json();
+
+      if (tdSyms.length === 1) {
+        const [ourSym] = batch[0];
+        if (data?.close && Number(data.close) > 0) {
+          results[ourSym] = _parseMPQuote(data);
+        }
+      } else {
+        for (const [ourSym, tdSym] of batch) {
+          const q = data?.[tdSym];
+          if (q?.close && Number(q.close) > 0) {
+            results[ourSym] = _parseMPQuote(q);
+          } else if (q?.code === 400 || q?.status === "error") {
+            console.warn(`[MARKET PULSE TD] ${ourSym}→${tdSym}: ${q?.message || "unsupported"}`);
+          }
+        }
+      }
+    } catch (e) {
+      console.warn("[MARKET PULSE TD] error:", String(e?.message || e).slice(0, 200));
+    }
+  }
+
+  if (Object.keys(results).length > 0) {
+    console.log(`[MARKET PULSE TD] refreshed ${Object.keys(results).length}: ${Object.keys(results).join(",")}`);
+  }
+  return results;
+}
+
 async function hydrateMissingSparklines(env, data, targetSyms = null) {
   if (!env?.DB || !data || typeof data !== "object") return {};
   const syms = Array.isArray(targetSyms) && targetSyms.length > 0
@@ -49067,55 +49160,36 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             console.warn("[PRICE FEED LIGHT] D1 fallback error:", String(e?.message || e).slice(0, 200));
           }
 
-          // 1. Refresh market-pulse futures/index symbols from Twelve Data quotes.
-          // These symbols are not handled by the stock stream, and TradingView heartbeats
-          // can lag. Refreshing a small fixed set here keeps Analysis market pulse current.
-          const MARKET_PULSE_REST_SYMBOLS = ["SPX", "US500", "ES1!", "NQ1!", "YM1!", "RTY1!", "GC1!", "SI1!", "VX1!", "CL1!"];
+          // 1. Refresh market-pulse futures/index from TwelveData (proper symbol mapping).
           let marketPulseRestCount = 0;
           try {
-            const snapResult = await dataFetchSnapshots(env, MARKET_PULSE_REST_SYMBOLS);
-            const snapshots = snapResult.snapshots || {};
-            for (const [sym, snap] of Object.entries(snapshots)) {
-              const prev = existing[sym] || {};
-              const displayPrice = Number(snap.price || snap.dailyClose || 0);
-              const prevClose = Number(snap.prevDailyClose || 0);
-              if (!(displayPrice > 0)) continue;
-              const nativeDc = Number(snap.change);
-              const nativeDp = Number(snap.percentChange);
-              existing[sym] = {
-                ...prev,
-                p: Math.round(displayPrice * 100) / 100,
-                pc: prevClose > 0 ? Math.round(prevClose * 100) / 100 : (prev.pc || 0),
-                dc: Number.isFinite(nativeDc) ? Math.round(nativeDc * 100) / 100 : prev.dc,
-                dp: Number.isFinite(nativeDp) ? Math.round(nativeDp * 100) / 100 : prev.dp,
-                dh: snap.dailyHigh > 0 ? Math.round(snap.dailyHigh * 100) / 100 : (prev.dh || 0),
-                dl: snap.dailyLow > 0 ? Math.round(snap.dailyLow * 100) / 100 : (prev.dl || 0),
-                dv: snap.dailyVolume || prev.dv || 0,
-                t: snap.trade_ts || Date.now(),
-              };
+            const mpData = await fetchMarketPulseFromTD(env);
+            for (const [sym, pd] of Object.entries(mpData)) {
+              existing[sym] = { ...(existing[sym] || {}), ...pd };
               marketPulseRestCount++;
             }
           } catch (e) {
-            console.warn("[PRICE FEED LIGHT] market-pulse snapshot refresh error:", String(e?.message || e).slice(0, 200));
+            console.warn("[PRICE FEED LIGHT] market-pulse TD error:", String(e?.message || e).slice(0, 200));
           }
 
-          // 2. Overlay TV futures heartbeats when they are at least as fresh as the snapshot.
-          const TV_FUTURES_LIGHT = ["ES1!", "NQ1!", "GC1!", "SI1!", "VX1!", "US500", "CL1!"];
+          // 2. Overlay TV heartbeat / timed:latest for symbols not covered by TD
+          //    (e.g. US500) or when the heartbeat is fresher than the snapshot.
+          const TV_OVERLAY_SYMS = ["ES1!", "NQ1!", "GC1!", "SI1!", "VX1!", "US500", "CL1!", "YM1!", "RTY1!"];
           let tvUpdated = 0;
-          for (const tvSym of TV_FUTURES_LIGHT) {
+          for (const tvSym of TV_OVERLAY_SYMS) {
             try {
               const hbData = await kvGetJSON(KV, `timed:heartbeat:${tvSym}`);
               const latestData = await kvGetJSON(KV, `timed:latest:${tvSym}`);
               const tvData = (hbData && hbData.price > 0) ? hbData : latestData;
               if (tvData && tvData.price > 0) {
+                const incomingTs = Number(tvData.ts || tvData.ingest_ts || 0) || 0;
+                const prev = existing[tvSym] || {};
+                const prevTs = Number(prev.t || 0) || 0;
+                if (prevTs && incomingTs && incomingTs < prevTs) continue;
                 const prevClose = Number(tvData.prev_close || tvData.previous_close || 0);
                 const price = Number(tvData.price);
                 const dc = prevClose > 0 ? Math.round((price - prevClose) * 100) / 100 : null;
                 const dp = prevClose > 0 ? Math.round(((price - prevClose) / prevClose) * 10000) / 100 : null;
-                const prev = existing[tvSym] || {};
-                const incomingTs = Number(tvData.ts || tvData.ingest_ts || 0) || 0;
-                const prevTs = Number(prev.t || 0) || 0;
-                if (incomingTs && prevTs && incomingTs < prevTs) continue;
                 existing[tvSym] = {
                   ...prev,
                   p: Math.round(price * 100) / 100,
@@ -49322,55 +49396,36 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           console.warn("[PRICE FEED] D1 fallback error:", String(e?.message || e).slice(0, 200));
         }
 
-        // Refresh market-pulse futures/index symbols from Twelve Data quotes every run.
-        // The stock stream can be healthy while these symbols are stale, so don't tie them
-        // to the broader DO freshness gate.
-        const MARKET_PULSE_REST_SYMBOLS = ["SPX", "US500", "ES1!", "NQ1!", "YM1!", "RTY1!", "GC1!", "SI1!", "VX1!", "CL1!"];
+        // Refresh market-pulse futures/index from TwelveData (proper symbol mapping).
         let marketPulseRestCount = 0;
         try {
-          const snapResult = await dataFetchSnapshots(env, MARKET_PULSE_REST_SYMBOLS);
-          const snapshots = snapResult.snapshots || {};
-          for (const [sym, snap] of Object.entries(snapshots)) {
-            const prev = prices[sym] || {};
-            const displayPrice = Number(snap.price || snap.dailyClose || 0);
-            const prevClose = Number(snap.prevDailyClose || 0);
-            if (!(displayPrice > 0)) continue;
-            const nativeDc = Number(snap.change);
-            const nativeDp = Number(snap.percentChange);
-            prices[sym] = {
-              ...prev,
-              p: Math.round(displayPrice * 100) / 100,
-              pc: prevClose > 0 ? Math.round(prevClose * 100) / 100 : (prev.pc || 0),
-              dc: Number.isFinite(nativeDc) ? Math.round(nativeDc * 100) / 100 : prev.dc,
-              dp: Number.isFinite(nativeDp) ? Math.round(nativeDp * 100) / 100 : prev.dp,
-              dh: snap.dailyHigh > 0 ? Math.round(snap.dailyHigh * 100) / 100 : (prev.dh || 0),
-              dl: snap.dailyLow > 0 ? Math.round(snap.dailyLow * 100) / 100 : (prev.dl || 0),
-              dv: snap.dailyVolume || prev.dv || 0,
-              t: snap.trade_ts || Date.now(),
-            };
+          const mpData = await fetchMarketPulseFromTD(env);
+          for (const [sym, pd] of Object.entries(mpData)) {
+            prices[sym] = { ...(prices[sym] || {}), ...pd };
             marketPulseRestCount++;
           }
         } catch (e) {
-          console.warn("[PRICE FEED] market-pulse snapshot refresh error:", String(e?.message || e).slice(0, 200));
+          console.warn("[PRICE FEED] market-pulse TD error:", String(e?.message || e).slice(0, 200));
         }
 
-        // Overlay TV heartbeat prices for futures/macro tickers when they are fresher.
-        const TV_FUTURES_ACTIVE = ["ES1!", "NQ1!", "GC1!", "SI1!", "VX1!", "US500", "CL1!"];
+        // Overlay TV heartbeat / timed:latest for symbols not covered by TD
+        // (e.g. US500) or when the heartbeat is fresher.
+        const TV_OVERLAY_SYMS_ACTIVE = ["ES1!", "NQ1!", "GC1!", "SI1!", "VX1!", "US500", "CL1!", "YM1!", "RTY1!"];
         let tvOverlayCount = 0;
-        for (const tvSym of TV_FUTURES_ACTIVE) {
+        for (const tvSym of TV_OVERLAY_SYMS_ACTIVE) {
           try {
             const hbData = await kvGetJSON(KV, `timed:heartbeat:${tvSym}`);
             const latestData = await kvGetJSON(KV, `timed:latest:${tvSym}`);
             const tvData = (hbData && hbData.price > 0) ? hbData : latestData;
             if (tvData && tvData.price > 0) {
+              const incomingTs = Number(tvData.ts || tvData.ingest_ts || 0) || 0;
+              const prev = prices[tvSym] || {};
+              const prevTs = Number(prev.t || 0) || 0;
+              if (prevTs && incomingTs && incomingTs < prevTs) continue;
               const prevClose = Number(tvData.prev_close || tvData.previous_close || 0);
               const price = Number(tvData.price);
               const dc = prevClose > 0 ? Math.round((price - prevClose) * 100) / 100 : null;
               const dp = prevClose > 0 ? Math.round(((price - prevClose) / prevClose) * 10000) / 100 : null;
-              const prev = prices[tvSym] || {};
-              const incomingTs = Number(tvData.ts || tvData.ingest_ts || 0) || 0;
-              const prevTs = Number(prev.t || 0) || 0;
-              if (incomingTs && prevTs && incomingTs < prevTs) continue;
               prices[tvSym] = {
                 ...prev,
                 p: Math.round(price * 100) / 100,
