@@ -8976,11 +8976,12 @@ async function processTradeSimulation(
       openPositionContext || null,
       isReplay && Number.isFinite(asOfMs) ? asOfMs : null,
     );
-    const stage = String(recomputedStage || storedStage || "").trim().toLowerCase();
-    
     const prevStage = String(prevData?.kanban_stage || "")
       .trim()
       .toLowerCase();
+    const stage = String(
+      enforceStageMonotonicity(recomputedStage || storedStage || "", prevStage, !!openPositionContext) || ""
+    ).trim().toLowerCase();
     
     const openTradeDir =
       openTrade && String(openTrade.direction || "").toUpperCase();
@@ -27259,7 +27260,8 @@ export default {
                 }
               } catch { /* non-critical */ }
             }
-            const stage = classifyKanbanStage(data, readTimePosition);
+            const rawStage = classifyKanbanStage(data, readTimePosition);
+            const stage = enforceStageMonotonicity(rawStage, prevStage, !!readTimePosition);
             data.kanban_stage = stage;
             data.kanban_meta = deriveKanbanMeta(data, stage);
             // Track lane transitions even on read-time recompute (so UI can show prev lane + highlight).
@@ -28053,6 +28055,7 @@ export default {
                 if (openPosition) {
                   // Position tickers: always re-classify (need real-time SL/phase)
                   stage = classifyKanbanStage(obj, openPosition);
+                  stage = enforceStageMonotonicity(stage, prevStage, true);
                 } else if (marketClosed && prevStage && !mgmtStages.has(prevStage)) {
                   // Market closed + valid discovery stage → pin to prevent flicker.
                   stage = prevStage;
@@ -28282,7 +28285,8 @@ export default {
                 if (!openPosition) continue; // trust stored stage for discovery tickers
                 try {
                   const prevStage = obj.kanban_stage;
-                  const newStage = classifyKanbanStage(obj, openPosition);
+                  const rawStage = classifyKanbanStage(obj, openPosition);
+                  const newStage = enforceStageMonotonicity(rawStage, prevStage, true);
                   if (newStage !== prevStage) {
                     obj.kanban_stage = newStage;
                     obj.kanban_meta = deriveKanbanMeta(obj, newStage);
@@ -35761,7 +35765,7 @@ export default {
               ) || null;
               const prevStage = existing?.kanban_stage;
               const stage = classifyKanbanStage(result, openTrade, intervalTs);
-              let finalStage = stage;
+              let finalStage = enforceStageMonotonicity(stage, prevStage, !!openTrade);
 
               // Diagnostic: track why qualifiesForEnter rejected (for debugging)
               // Include enter/enter_now so we capture fuel_exhausted etc when stage=enter but QFE fails
@@ -50198,13 +50202,15 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             // if no position exists, force reclassification to prevent stale replay stages.
             try {
               const openPos = openTradesCheck.find(t => String(t.ticker || "").toUpperCase() === ticker) || null;
+              const prevStageForRatchet = existing?.kanban_stage;
               if (openPos) {
                 result.kanban_stage = classifyKanbanStage(result, openPos);
+                result.kanban_stage = enforceStageMonotonicity(result.kanban_stage, prevStageForRatchet, true);
               } else if (stdCronMarketOpen) {
                 result.kanban_stage = classifyKanbanStage(result);
               } else {
                 // Market closed: pin discovery stages but NOT management stages without a position
-                const prev = existing?.kanban_stage;
+                const prev = prevStageForRatchet;
                 const mgmtStages = new Set(["active", "hold", "just_entered", "defend", "trim", "exit"]);
                 if (prev && mgmtStages.has(prev)) {
                   // No open position + management stage = stale from replay. Reclassify.
