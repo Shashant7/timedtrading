@@ -163,16 +163,18 @@ function mergeTickerSnapshot(prevData, incomingData) {
     return incomingData;
   }
   const LIVE_KEYS = ["_live_price", "_live_prev_close", "_live_daily_high", "_live_daily_low", "_live_daily_volume", "_price_updated_at", "day_change_pct", "change_pct", "day_change", "change", "_ah_price", "_ah_change", "_ah_change_pct"];
+  const LIVE_MAX_AGE_MS = 10 * 60 * 1000;
   const result = {
     ...incomingData
   };
   for (const sym of Object.keys(result)) {
     const old = prevData[sym];
     if (old && old._live_price > 0) {
+      const oldTs = old._price_updated_at || 0;
+      if (Date.now() - oldTs > LIVE_MAX_AGE_MS) continue;
       const newPx = Number(result[sym]?.price) || 0;
       const oldLivePx = old._live_price;
       const divergence = newPx > 0 ? Math.abs(newPx - oldLivePx) / oldLivePx : 0;
-      const oldTs = old._price_updated_at || 0;
       const newTs = result[sym]?._price_updated_at || 0;
       if (divergence > 0.02 || oldTs >= newTs || !newTs) {
         const merged = {
@@ -344,8 +346,15 @@ function useTickerData() {
             };
           }
         });
-        const nextData = mergeTickerSnapshot(dataRef.current, mergedData);
-        setData(nextData);
+        const mergeResultRef = {
+          current: null
+        };
+        setData(prev => {
+          const nextData = mergeTickerSnapshot(prev, mergedData);
+          mergeResultRef.current = nextData;
+          return nextData;
+        });
+        const nextData = mergeResultRef.current ?? mergeTickerSnapshot(dataRef.current, mergedData);
         dataRef.current = nextData;
         const nextLastUpdate = new Date();
         setLastUpdate(nextLastUpdate);
