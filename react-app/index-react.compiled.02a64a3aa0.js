@@ -704,11 +704,12 @@ function useWebSocket(tickerData, setTickerData) {
               const feedDp = Number(priceInfo.dp);
               const _impulse = (() => {
                 if (!(curPrice > 0) || !(priceInfo.p > 0)) return {};
-                const chg = (priceInfo.p - curPrice) / curPrice * 100;
+                const pts = priceInfo.p - curPrice;
                 const clampV = (v, mx) => Math.sign(v) * Math.min(Math.abs(v), mx);
                 return {
-                  _price_impulse_y: clampV(-chg * 150, 15),
-                  _price_impulse_x: clampV(chg * 60, 8)
+                  _price_impulse_y: clampV(-pts * 3, 15),
+                  _price_impulse_x: clampV(pts * 1.5, 8),
+                  _price_impulse_pts: pts
                 };
               })();
               queueWsUpdate(normalizedSym, {
@@ -756,11 +757,12 @@ function useWebSocket(tickerData, setTickerData) {
               if (curPrice > 0 && Math.abs(u.last - curPrice) / curPrice * 100 < MIN_PRICE_CHANGE_PCT) continue;
               const _impulse2 = (() => {
                 if (!(curPrice > 0) || !(u.last > 0)) return {};
-                const chg = (u.last - curPrice) / curPrice * 100;
+                const pts = u.last - curPrice;
                 const clampV = (v, mx) => Math.sign(v) * Math.min(Math.abs(v), mx);
                 return {
-                  _price_impulse_y: clampV(-chg * 150, 15),
-                  _price_impulse_x: clampV(chg * 60, 8)
+                  _price_impulse_y: clampV(-pts * 3, 15),
+                  _price_impulse_x: clampV(pts * 1.5, 8),
+                  _price_impulse_pts: pts
                 };
               })();
               queueWsUpdate(normalizedSym, {
@@ -2955,8 +2957,9 @@ const SVGBubble = memo(({
   const decisionTooltip = decisionSummary ? `System ${decisionSummary.status}: ${decisionSummary.detail}` : null;
   const relLabelY = -renderedSize - 8;
   const clampPx = (v, mx) => Math.sign(v) * Math.min(Math.abs(v), mx);
-  const baseDriftY = clampPx(-dayPct * 3, 15);
-  const baseDriftX = clampPx(dayPct * 1.2, 8);
+  const dayChgPts = Number(ticker?.day_change || ticker?.change || 0);
+  const baseDriftY = clampPx(-dayChgPts * 2, 15);
+  const baseDriftX = clampPx(dayChgPts * 1, 8);
   const impulseX = Number(ticker._price_impulse_x) || 0;
   const impulseY = Number(ticker._price_impulse_y) || 0;
   const targetX = x + baseDriftX + impulseX;
