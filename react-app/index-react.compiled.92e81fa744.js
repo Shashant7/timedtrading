@@ -172,18 +172,15 @@ function mergeTickerSnapshot(prevData, incomingData) {
     if (old && old._live_price > 0) {
       const oldTs = old._price_updated_at || 0;
       if (Date.now() - oldTs > LIVE_MAX_AGE_MS) continue;
-      const newPx = Number(result[sym]?.price) || 0;
-      const oldLivePx = old._live_price;
-      const divergence = newPx > 0 ? Math.abs(newPx - oldLivePx) / oldLivePx : 0;
       const newTs = result[sym]?._price_updated_at || 0;
-      if (divergence > 0.02 || oldTs >= newTs || !newTs) {
+      if (!newTs || oldTs >= newTs) {
         const merged = {
           ...result[sym]
         };
         for (const k of LIVE_KEYS) {
           if (old[k] != null) merged[k] = old[k];
         }
-        merged.price = oldLivePx;
+        merged.price = old._live_price;
         result[sym] = merged;
       }
     }
