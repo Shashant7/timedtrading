@@ -27319,6 +27319,7 @@ export default {
             // every minute by the price feed. This overlay ensures the frontend always sees
             // the freshest prices and daily-change values even between scoring runs.
             try {
+              const nativeDailyChangeSyms = new Set();
               const livePrices = await kvGetJSON(KV, "timed:prices");
               if (livePrices?.prices) {
                 const pricesUpdatedAt = livePrices.updated_at || Date.now();
@@ -27396,6 +27397,7 @@ export default {
                   const pfDp = Number(pf.dp);
                   if (sym === "MSFT") data._debug_msft = { pfDp, pfDc, pfPc: Number(pf.pc), pfPcUsable, bestPc, dailyCandlePc: pcCache[sym] || 0 };
                   if (Number.isFinite(pfDp) && pfDp !== 0) {
+                    nativeDailyChangeSyms.add(sym);
                     obj.day_change_pct = pfDp;
                     obj.change_pct = pfDp;
                     if (Number.isFinite(pfDc) && pfDc !== 0) {
@@ -27546,6 +27548,7 @@ export default {
                 }
                 for (const sym of Object.keys(data)) {
                   const obj = data[sym];
+                  if (nativeDailyChangeSyms.has(sym)) continue;
                   const todayClose = latestByTicker[sym];
                   const pc = prevCloseByTicker[sym];
                   if (todayClose > 0) {
@@ -28220,6 +28223,7 @@ export default {
             const livePrices = await kvGetJSON(KV, "timed:prices");
             if (livePrices && livePrices.prices && typeof livePrices.prices === "object") {
               const pricesUpdatedAt = livePrices.updated_at || 0;
+              const nativeDailyChangeSyms = new Set();
               for (const sym of Object.keys(data)) {
                 const pf = livePrices.prices[sym];
                 if (!pf || !(Number(pf.p) > 0)) continue;
@@ -28250,6 +28254,7 @@ export default {
                 const pfDc = Number(pf.dc);
                 const pfDp = Number(pf.dp);
                 if (Number.isFinite(pfDp) && pfDp !== 0) {
+                  nativeDailyChangeSyms.add(sym);
                   obj.day_change_pct = pfDp;
                   obj.change_pct = pfDp;
                   if (Number.isFinite(pfDc) && pfDc !== 0) {
@@ -28378,6 +28383,7 @@ export default {
               }
               for (const [sym, candles] of Object.entries(candleMap)) {
                 if (!data[sym]) continue;
+                if (nativeDailyChangeSyms.has(sym)) continue;
                 const obj = data[sym];
                 const todayCandle = candles[0];
                 const prevCandle = candles[1];
