@@ -1,0 +1,28 @@
+{
+  "ok": true,
+  "count": 1,
+  "trades": [
+    {
+      "trade_id": "AMGN-1772808060683-tvyamlhxr",
+      "run_id": "live@2026-03-06",
+      "runId": "live@2026-03-06",
+      "ticker": "AMGN",
+      "direction": "LONG",
+      "status": "FLAT",
+      "entry_ts": 1772808062595,
+      "exit_ts": 1772808063844,
+      "trim_ts": null,
+      "entry_price": 363.24,
+      "exit_price": null,
+      "pnl": null,
+      "pnl_pct": null,
+      "exit_reason": "unknown",
+      "signal_snapshot_json": "{\"avg_bias\":0.734,\"tf\":{\"10m\":{\"bias\":0.769,\"signals\":{\"ema_cross\":1,\"supertrend\":1,\"ema_structure\":1,\"ema_depth\":8,\"rsi\":57.1}},\"30m\":{\"bias\":0.774,\"signals\":{\"ema_cross\":1,\"supertrend\":1,\"ema_structure\":1,\"ema_depth\":8,\"rsi\":62.5}},\"1H\":{\"bias\":0.562,\"signals\":{\"ema_cross\":1,\"supertrend\":1,\"ema_structure\":1,\"ema_depth\":6,\"rsi\":60.9}},\"4H\":{\"bias\":0.985,\"signals\":{\"ema_cross\":1,\"supertrend\":1,\"ema_structure\":1,\"ema_depth\":10,\"rsi\":62.7}},\"D\":{\"bias\":0.573,\"signals\":{\"ema5_48\":1,\"ema_cross\":1,\"supertrend\":1,\"ema_structure\":1,\"ema_depth\":4,\"rsi\":57.4}}}}",
+      "entry_path": "ripster_momentum",
+      "consensus_direction": "LONG",
+      "max_favorable_excursion": null,
+      "max_adverse_excursion": null,
+      "tf_stack_json": "[{\"tf\":\"10m\",\"bias\":\"bullish\",\"biasScore\":0.769,\"weight\":1.04,\"signals\":{\"ema_cross\":1,\"supertrend\":1,\"ema_structure\":1,\"ema_depth\":8,\"rsi\":57.1},\"crossDir\":null,\"crossAge\":null},{\"tf\":\"30m\",\"bias\":\"bullish\",\"biasScore\":0.774,\"weight\":1.15,\"signals\":{\"ema_cross\":1,\"supertrend\":1,\"ema_structure\":1,\"ema_depth\":8,\"rsi\":62.5},\"crossDir\":null,\"crossAge\":null},{\"tf\":\"1H\",\"bias\":\"bullish\",\"biasScore\":0.562,\"weight\":1.06,\"signals\":{\"ema_cross\":1,\"supertrend\":1,\"ema_structure\":1,\"ema_depth\":6,\"rsi\":60.9},\"crossDir\":null,\"crossAge\":null},{\"tf\":\"4H\",\"bias\":\"bullish\",\"biasScore\":0.985,\"weight\":0.94,\"signals\":{\"ema_cross\":1,\"supertrend\":1,\"ema_structure\":1,\"ema_depth\":10,\"rsi\":62.7},\"crossDir\":null,\"crossAge\":null},{\"tf\":\"D\",\"bias\":\"bullish\",\"biasScore\":0.573,\"weight\":0.83,\"signals\":{\"ema5_48\":1,\"ema_cross\":1,\"supertrend\":1,\"ema_structure\":1,\"ema_depth\":4,\"rsi\":57.4},\"crossDir\":null,\"crossAge\":null}]"
+    }
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "ok": true,
+  "mode": "trader",
+  "startCash": 100000,
+  "cash": 105317.37,
+  "totalRealized": -193.98,
+  "unrealized": 18582.43,
+  "costBasis": 50000,
+  "markToMarket": 68582.43,
+  "accountValue": 118388.45,
+  "generated_at": "2026-03-06T18:49:59.665Z"
+}

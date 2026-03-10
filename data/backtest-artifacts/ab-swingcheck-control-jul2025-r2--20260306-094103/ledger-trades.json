@@ -1,0 +1,32 @@
+{
+  "ok": true,
+  "count": 1,
+  "hasMore": false,
+  "nextCursor": null,
+  "trades": [
+    {
+      "trade_id": "AMGN-1772808060683-tvyamlhxr",
+      "run_id": "live@2026-03-06",
+      "ticker": "AMGN",
+      "direction": "LONG",
+      "entry_ts": 1772808062595,
+      "entry_price": 363.24,
+      "rank": 74,
+      "rr": 24.74860335195503,
+      "status": "FLAT",
+      "exit_ts": 1772808063844,
+      "exit_price": null,
+      "exit_reason": "unknown",
+      "trimmed_pct": 0,
+      "pnl": null,
+      "pnl_pct": null,
+      "script_version": "alpaca_server_v2.0",
+      "created_at": 1772808062595,
+      "updated_at": "2026-03-06 14:41:03",
+      "trim_ts": null,
+      "trim_price": null,
+      "quantity": 22.024006166721726,
+      "shares": 22.024006166721726
+    }
+  ]
+}

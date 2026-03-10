@@ -1,0 +1,344 @@
+{
+  "walk_forward_report": {
+    "test_start": "2025-07-01",
+    "test_end": "2026-02-26",
+    "calibration_report_id": "none",
+    "pipeline_seconds": 2,
+    "calibration": {
+      "wfo_summary": null,
+      "system_health": null,
+      "v3_regime_analysis": null,
+      "profile_impact": null
+    },
+    "profile_impact": {
+      "ok": true,
+      "overall": {
+        "n": 531,
+        "win_rate": 53.9,
+        "expectancy": 0.29,
+        "avg_pnl_pct": 0.29,
+        "sqn": 0.63
+      },
+      "profiled_tickers": 224,
+      "total_trades": 531,
+      "by_behavior_type": {
+        "MIXED": {
+          "ticker_count": 50,
+          "n": 419,
+          "win_rate": 54.9,
+          "expectancy": 0.24,
+          "avg_pnl_pct": 0.24,
+          "sqn": 0.52
+        },
+        "MEAN_REVERT": {
+          "ticker_count": 11,
+          "n": 86,
+          "win_rate": 52.3,
+          "expectancy": 0.56,
+          "avg_pnl_pct": 0.56,
+          "sqn": 1.56
+        },
+        "MOMENTUM": {
+          "ticker_count": 2,
+          "n": 26,
+          "win_rate": 42.3,
+          "expectancy": 0.12,
+          "avg_pnl_pct": 0.12,
+          "sqn": 0.1
+        }
+      },
+      "sl_impact": {
+        "wide_sl": {
+          "n": 168,
+          "win_rate": 47.6,
+          "expectancy": 0.22,
+          "avg_pnl_pct": 0.22,
+          "sqn": 0.32
+        },
+        "normal_sl": {
+          "n": 363,
+          "win_rate": 56.7,
+          "expectancy": 0.32,
+          "avg_pnl_pct": 0.32,
+          "sqn": 1.01
+        }
+      },
+      "tp_impact": {
+        "extended_tp": {
+          "n": 152,
+          "win_rate": 48,
+          "expectancy": 0.32,
+          "avg_pnl_pct": 0.32,
+          "sqn": 0.45
+        },
+        "normal_tp": {
+          "n": 379,
+          "win_rate": 56.2,
+          "expectancy": 0.28,
+          "avg_pnl_pct": 0.28,
+          "sqn": 0.88
+        }
+      },
+      "entry_threshold_impact": {
+        "raised_bar": {
+          "n": 141,
+          "win_rate": 48.9,
+          "expectancy": 0.41,
+          "avg_pnl_pct": 0.41,
+          "sqn": 0.86
+        },
+        "normal_bar": {
+          "n": 390,
+          "win_rate": 55.6,
+          "expectancy": 0.24,
+          "avg_pnl_pct": 0.24,
+          "sqn": 0.54
+        }
+      },
+      "top_10": [
+        {
+          "ticker": "LITE",
+          "n": 2,
+          "win_rate": 100,
+          "expectancy": 9.24,
+          "avg_pnl_pct": 9.24,
+          "sqn": 8.1,
+          "behavior_type": "MIXED",
+          "sl_mult": 1.4,
+          "tp_mult": 1.43,
+          "atr_pct": 4.61
+        },
+        {
+          "ticker": "ISRG",
+          "n": 2,
+          "win_rate": 100,
+          "expectancy": 4.06,
+          "avg_pnl_pct": 4.06,
+          "sqn": 1.73,
+          "behavior_type": "MIXED",
+          "sl_mult": 1,
+          "tp_mult": 1.1,
+          "atr_pct": 2.37
+        },
+        {
+          "ticker": "AR",
+          "n": 2,
+          "win_rate": 100,
+          "expectancy": 2.92,
+          "avg_pnl_pct": 2.92,
+          "sqn": 1.69,
+          "behavior_type": "MIXED",
+          "sl_mult": 1.2,
+          "tp_mult": 1.26,
+          "atr_pct": 3.42
+        },
+        {
+          "ticker": "STRL",
+          "n": 4,
+          "win_rate": 50,
+          "expectancy": 2.49,
+          "avg_pnl_pct": 2.49,
+          "sqn": 1.19,
+          "behavior_type": "MIXED",
+          "sl_mult": 1.4,
+          "tp_mult": 1.43,
+          "atr_pct": 4.65
+        },
+        {
+          "ticker": "GEV",
+          "n": 10,
+          "win_rate": 50,
+          "expectancy": 2.23,
+          "avg_pnl_pct": 2.23,
+          "sqn": 1.46,
+          "behavior_type": "MEAN_REVERT",
+          "sl_mult": 1.54,
+          "tp_mult": 1.22,
+          "atr_pct": 4.18
+        },
+        {
+          "ticker": "PPG",
+          "n": 2,
+          "win_rate": 100,
+          "expectancy": 2.18,
+          "avg_pnl_pct": 2.18,
+          "sqn": 2.01,
+          "behavior_type": "MIXED",
+          "sl_mult": 1,
+          "tp_mult": 1.1,
+          "atr_pct": 1.99
+        },
+        {
+          "ticker": "ETN",
+          "n": 9,
+          "win_rate": 44.4,
+          "expectancy": 1.78,
+          "avg_pnl_pct": 1.78,
+          "sqn": 1.31,
+          "behavior_type": "MIXED",
+          "sl_mult": 1,
+          "tp_mult": 1.1,
+          "atr_pct": 2.59
+        },
+        {
+          "ticker": "HII",
+          "n": 10,
+          "win_rate": 70,
+          "expectancy": 1.6,
+          "avg_pnl_pct": 1.6,
+          "sqn": 1.73,
+          "behavior_type": "MIXED",
+          "sl_mult": 1,
+          "tp_mult": 1.1,
+          "atr_pct": 2.48
+        },
+        {
+          "ticker": "MSFT",
+          "n": 4,
+          "win_rate": 75,
+          "expectancy": 1.52,
+          "avg_pnl_pct": 1.52,
+          "sqn": 1.77,
+          "behavior_type": "MIXED",
+          "sl_mult": 1,
+          "tp_mult": 1.1,
+          "atr_pct": 1.85
+        },
+        {
+          "ticker": "CDNS",
+          "n": 4,
+          "win_rate": 50,
+          "expectancy": 1.52,
+          "avg_pnl_pct": 1.52,
+          "sqn": 0.71,
+          "behavior_type": "MEAN_REVERT",
+          "sl_mult": 1.1,
+          "tp_mult": 0.94,
+          "atr_pct": 2.86
+        }
+      ],
+      "bottom_10": [
+        {
+          "ticker": "BABA",
+          "n": 4,
+          "win_rate": 25,
+          "expectancy": -14.97,
+          "avg_pnl_pct": -14.97,
+          "sqn": -1.37,
+          "behavior_type": "MIXED",
+          "sl_mult": 1.2,
+          "tp_mult": 1.26,
+          "atr_pct": 3.12
+        },
+        {
+          "ticker": "PSTG",
+          "n": 2,
+          "win_rate": 0,
+          "expectancy": -3.29,
+          "avg_pnl_pct": -3.29,
+          "sqn": -89.46,
+          "behavior_type": "MEAN_REVERT",
+          "sl_mult": 1.32,
+          "tp_mult": 1.08,
+          "atr_pct": 3.91
+        },
+        {
+          "ticker": "BE",
+          "n": 2,
+          "win_rate": 0,
+          "expectancy": -2.84,
+          "avg_pnl_pct": -2.84,
+          "sqn": -4.82,
+          "behavior_type": "MIXED",
+          "sl_mult": 1.4,
+          "tp_mult": 1.43,
+          "atr_pct": 7.11
+        },
+        {
+          "ticker": "TPL",
+          "n": 4,
+          "win_rate": 0,
+          "expectancy": -1.84,
+          "avg_pnl_pct": -1.84,
+          "sqn": -2.88,
+          "behavior_type": "MIXED",
+          "sl_mult": 1.2,
+          "tp_mult": 1.26,
+          "atr_pct": 3.69
+        },
+        {
+          "ticker": "TT",
+          "n": 5,
+          "win_rate": 20,
+          "expectancy": -1.44,
+          "avg_pnl_pct": -1.44,
+          "sqn": -1.25,
+          "behavior_type": "MIXED",
+          "sl_mult": 1,
+          "tp_mult": 1.1,
+          "atr_pct": 2.27
+        },
+        {
+          "ticker": "PLTR",
+          "n": 3,
+          "win_rate": 33.3,
+          "expectancy": -1.31,
+          "avg_pnl_pct": -1.31,
+          "sqn": -0.79,
+          "behavior_type": "MIXED",
+          "sl_mult": 1.4,
+          "tp_mult": 1.43,
+          "atr_pct": 4.57
+        },
+        {
+          "ticker": "ON",
+          "n": 2,
+          "win_rate": 0,
+          "expectancy": -1.11,
+          "avg_pnl_pct": -1.11,
+          "sqn": -2.61,
+          "behavior_type": "MEAN_REVERT",
+          "sl_mult": 1.54,
+          "tp_mult": 1.11,
+          "atr_pct": 4.21
+        },
+        {
+          "ticker": "AMD",
+          "n": 4,
+          "win_rate": 50,
+          "expectancy": -1.1,
+          "avg_pnl_pct": -1.1,
+          "sqn": -1.02,
+          "behavior_type": "MIXED",
+          "sl_mult": 1.4,
+          "tp_mult": 1.43,
+          "atr_pct": 4.12
+        },
+        {
+          "ticker": "DE",
+          "n": 7,
+          "win_rate": 42.9,
+          "expectancy": -0.99,
+          "avg_pnl_pct": -0.99,
+          "sqn": -0.92,
+          "behavior_type": "MIXED",
+          "sl_mult": 1,
+          "tp_mult": 1.1,
+          "atr_pct": 2.2
+        },
+        {
+          "ticker": "DPZ",
+          "n": 5,
+          "win_rate": 40,
+          "expectancy": -0.93,
+          "avg_pnl_pct": -0.93,
+          "sqn": -1.11,
+          "behavior_type": "MIXED",
+          "sl_mult": 1,
+          "tp_mult": 1,
+          "atr_pct": 2.38
+        }
+      ]
+    }
+  }
+}

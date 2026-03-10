@@ -363,15 +363,16 @@
 
       // ── Mini Chart Component (TradingView Lightweight Charts) ────────────
       // Paired layout: Futures | ETF (2 columns)
-      const CHART_SYMBOLS = [
-        { sym: "ES1!", label: "ES", color: "#f59e0b" },
+      // Primary: SPY, QQQ, VX1! (what most users trade and always need)
+      // Advanced: ES1!, NQ1! (futures proxies for experienced users)
+      const CHART_SYMBOLS_PRIMARY = [
         { sym: "SPY", label: "SPY", color: "#00c853" },
-        { sym: "NQ1!", label: "NQ", color: "#6366f1" },
         { sym: "QQQ", label: "QQQ", color: "#2196f3" },
-        { sym: "RTY1!", label: "RTY", color: "#ec4899" },
-        { sym: "IWM", label: "IWM", color: "#e91e63" },
-        { sym: "YM1!", label: "YM", color: "#14b8a6" },
-        { sym: "DIA", label: "DIA", color: "#06b6d4" },
+        { sym: "VX1!", label: "VIX Futures", color: "#f59e0b" },
+      ];
+      const CHART_SYMBOLS_ADVANCED = [
+        { sym: "ES1!", label: "ES (S&P Futures)", color: "#a78bfa" },
+        { sym: "NQ1!", label: "NQ (Nasdaq Futures)", color: "#6366f1" },
       ];
       const TF_OPTIONS = [
         { value: "5", label: "5m", limit: 250 },
@@ -845,6 +846,7 @@
 
       function MarketCharts() {
         const [tf, setTf] = useState("15");
+        const [showAdvanced, setShowAdvanced] = useState(false);
         const tfConfig = TF_OPTIONS.find(t => t.value === tf) || TF_OPTIONS[0];
 
         return (
@@ -854,24 +856,37 @@
                 Market Overview
                 <span className="text-[10px] text-[#4b5563] font-normal">Live Charts</span>
               </h2>
-              <div className="flex items-center gap-1 bg-white/[0.02] rounded-lg p-0.5 border border-white/[0.04]">
-                {TF_OPTIONS.map(opt => (
-                  <button
-                    key={opt.value}
-                    onClick={() => setTf(opt.value)}
-                    className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition-all ${
-                      tf === opt.value
-                        ? "bg-white/[0.08] text-white"
-                        : "text-[#6b7280] hover:text-white hover:bg-white/[0.04]"
-                    }`}
-                  >
-                    {opt.label}
-                  </button>
-                ))}
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => setShowAdvanced(!showAdvanced)}
+                  className={`px-2 py-1 rounded-md text-[10px] font-medium transition-all border ${
+                    showAdvanced
+                      ? "bg-violet-500/15 border-violet-500/30 text-violet-300"
+                      : "bg-white/[0.02] border-white/[0.06] text-[#4b5563] hover:text-[#9ca3af]"
+                  }`}
+                >
+                  {showAdvanced ? "Hide" : "Show"} Futures
+                </button>
+                <div className="flex items-center gap-1 bg-white/[0.02] rounded-lg p-0.5 border border-white/[0.04]">
+                  {TF_OPTIONS.map(opt => (
+                    <button
+                      key={opt.value}
+                      onClick={() => setTf(opt.value)}
+                      className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition-all ${
+                        tf === opt.value
+                          ? "bg-white/[0.08] text-white"
+                          : "text-[#6b7280] hover:text-white hover:bg-white/[0.04]"
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              {CHART_SYMBOLS.map(({ sym, label, color }) => (
+            {/* Primary row: SPY, QQQ, VIX */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              {CHART_SYMBOLS_PRIMARY.map(({ sym, label, color }) => (
                 <MiniChart
                   key={`${sym}-${tf}`}
                   sym={sym}
@@ -882,6 +897,21 @@
                 />
               ))}
             </div>
+            {/* Advanced row: ES, NQ futures (collapsed by default) */}
+            {showAdvanced && (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3">
+                {CHART_SYMBOLS_ADVANCED.map(({ sym, label, color }) => (
+                  <MiniChart
+                    key={`${sym}-${tf}`}
+                    sym={sym}
+                    label={label}
+                    accentColor={color}
+                    tf={tfConfig.value}
+                    limit={tfConfig.limit}
+                  />
+                ))}
+              </div>
+            )}
           </div>
         );
       }

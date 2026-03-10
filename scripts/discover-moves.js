@@ -191,10 +191,18 @@ const BATCH_SZ = 15;
 for (let b = 0; b < tickers.length; b += BATCH_SZ) {
   const batch = tickers.slice(b, b + BATCH_SZ);
   const inClause = batch.map(t => `'${t}'`).join(",");
+  const hasCol = (col) => {
+    try { query(`SELECT ${col} FROM trail_5m_facts LIMIT 1`); return true; } catch { return false; }
+  };
+  const extraCols = [
+    hasCol("ema_regime_D") ? "ema_regime_D" : "NULL AS ema_regime_D",
+    hasCol("pdz_zone") ? "pdz_zone" : "NULL AS pdz_zone",
+    hasCol("pdz_pct") ? "pdz_pct" : "NULL AS pdz_pct",
+  ].join(", ");
   const rows = queryChunked(
     `SELECT ticker, bucket_ts, htf_score_avg, ltf_score_avg, state, rank,
             completion, phase_pct, had_squeeze_release, had_ema_cross,
-            had_st_flip, had_momentum_elite, ema_regime_D, pdz_zone, pdz_pct,
+            had_st_flip, had_momentum_elite, ${extraCols},
             kanban_stage_end
      FROM trail_5m_facts WHERE ticker IN (${inClause}) ORDER BY ticker, bucket_ts`
   );

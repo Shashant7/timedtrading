@@ -1,0 +1,22 @@
+{
+  "ok": true,
+  "count": 1,
+  "trades": [
+    {
+      "trade_id": "WMT-1751377200000-0uhvta59b",
+      "run_id": "backtest_2025-07-01_2025-07-01@2026-03-05T01:42:03.583Z",
+      "ticker": "WMT",
+      "direction": "LONG",
+      "entry_ts": 1751377200000,
+      "exit_ts": 1751400000000,
+      "entry_price": 98.54,
+      "exit_price": 98.24,
+      "pnl": -36.53338745687169,
+      "pnl_pct": -0.6088897909478614,
+      "exit_reason": "replay_forced_eod_close",
+      "signal_snapshot_json": "{\"avg_bias\":0.827,\"tf\":{\"10m\":{\"bias\":0.949,\"signals\":{\"ema_cross\":1,\"st_slope\":1,\"supertrend\":1,\"ema_structure\":1,\"ema_depth\":10,\"rsi\":68.9}},\"30m\":{\"bias\":0.964,\"signals\":{\"ema_cross\":1,\"st_slope\":1,\"supertrend\":1,\"ema_structure\":1,\"ema_depth\":10,\"rsi\":72.2}},\"1H\":{\"bias\":0.956,\"signals\":{\"ema_cross\":1,\"st_slope\":1,\"supertrend\":1,\"ema_structure\":1,\"ema_depth\":10,\"rsi\":70.5}},\"4H\":{\"bias\":0.91,\"signals\":{\"ema_cross\":1,\"supertrend\":1,\"ema_structure\":1,\"ema_depth\":10,\"rsi\":62}},\"D\":{\"bias\":0.513,\"signals\":{\"ema5_48\":1,\"ema_cross\":1,\"supertrend\":-1,\"ema_structure\":1,\"ema_depth\":10,\"rsi\":63.2}}}}",
+      "entry_path": "ripster_momentum",
+      "consensus_direction": "LONG"
+    }
+  ]
+}

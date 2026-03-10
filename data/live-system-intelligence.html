@@ -1,0 +1,2151 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Timed Trading — System Intelligence</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="auth-gate.js?v=20260220a"></script>
+    <script>
+      tailwind.config = {
+        theme: { extend: { fontFamily: { sans: ["Inter", "system-ui", "sans-serif"] } } },
+      };
+    </script>
+    <style>
+      body { font-family: "Inter", system-ui, sans-serif; background: #0b0e11; color: #e5e7eb; -webkit-font-smoothing: antialiased; letter-spacing: -0.01em; }
+      @keyframes spin { to { transform: rotate(360deg); } }
+      .card { background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.04); border-radius: 12px; }
+      .badge-good { background: rgba(16,185,129,0.15); color: #6ee7b7; }
+      .badge-warn { background: rgba(251,191,36,0.15); color: #fcd34d; }
+      .badge-bad { background: rgba(244,63,94,0.15); color: #fca5a5; }
+      .badge-info { background: rgba(56,189,248,0.12); color: #93c5fd; }
+      .btn { padding: 8px 16px; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; transition: all 0.15s; border: none; }
+      .btn-primary { background: linear-gradient(135deg, #059669, #10b981); color: white; }
+      .btn-primary:hover { background: linear-gradient(135deg, #047857, #059669); }
+      .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+      .btn-apply { background: #1d4ed8; color: white; }
+      .btn-apply:hover { background: #2563eb; }
+      .btn-secondary { background: #334155; color: #94a3b8; border: 1px solid #475569; }
+      .btn-secondary:hover { background: #475569; }
+      .tab-active { border-bottom: 2px solid #10b981; color: #e8eaf0; }
+      .tab-inactive { border-bottom: 2px solid transparent; color: #626b7d; cursor: pointer; }
+      .tab-inactive:hover { color: #9098a8; }
+      .meter-bar { height: 6px; border-radius: 3px; background: rgba(255,255,255,0.06); overflow: hidden; }
+      .meter-fill { height: 100%; border-radius: 3px; transition: width 0.5s ease; }
+      body:not([data-user-role="admin"]) [data-admin-only] { display: none !important; }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="text/babel">
+const { useState, useEffect, useCallback } = React;
+const API_BASE = "";
+
+function NavHeader() {
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const UserBadge = window.TimedUserBadge;
+  const storedUser = window.TimedAuthHelpers?.getStoredSession();
+  return (
+    <nav className="sticky top-0 z-50 border-b border-white/[0.06]" style={{background:"rgba(10,10,15,0.95)",backdropFilter:"blur(12px)"}}>
+      <div className="flex items-center justify-between px-4 py-2.5">
+        <div className="flex items-center gap-3 md:gap-5 min-w-0">
+          <a href="index-react.html" className="flex items-center gap-2 no-underline shrink-0">
+            <div className="w-[28px] h-[28px] md:w-[32px] md:h-[32px] rounded-[8px] flex items-center justify-center" style={{background:"linear-gradient(135deg, #00c853, #00e676, #69f0ae)"}}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="22 7 13.5 15.5 8.5 10.5 2 17" />
+                <polyline points="16 7 22 7 22 13" />
+              </svg>
+            </div>
+            <span className="text-[14px] md:text-[15px] font-bold text-white hidden sm:inline" style={{letterSpacing:"-0.03em"}}>Timed Trading</span>
+          </a>
+          <div className="hidden md:flex items-center gap-0.5">
+            <a href="index-react.html" className="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Analysis</a>
+            <a href="simulation-dashboard.html" className="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Trades</a>
+            <a href="system-intelligence.html" className="px-3 py-1 rounded-md text-[13px] text-white bg-white/[0.07] font-medium">System Intelligence</a>
+            <a href="move-discovery.html" data-admin-only="true" className="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Move Discovery</a>
+            <a href="screener.html" data-admin-only="true" className="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Screener</a>
+            <a href="ticker-management.html" data-admin-only="true" className="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Tickers</a>
+            <a href="trade-autopsy.html" className="px-3 py-1 rounded-md text-[13px] text-[#14b8a6]/80 hover:text-[#14b8a6] hover:bg-[#14b8a6]/[0.06] transition-all font-medium">Trade Autopsy</a>
+            {(storedUser?.role === 'admin' || storedUser?.tier === 'admin') && (
+              <a href="admin-clients.html" data-admin-only="true" className="px-3 py-1 rounded-md text-[13px] text-[#a78bfa]/80 hover:text-[#a78bfa] hover:bg-[#a78bfa]/[0.06] transition-all font-medium">Admin</a>
+            )}
+            <a href="daily-brief.html" id="nav-daily-brief" className="relative px-3 py-1 rounded-md text-[13px] text-[#f59e0b]/80 hover:text-[#f59e0b] hover:bg-[#f59e0b]/[0.06] transition-all font-medium">
+              Daily Brief
+              <span id="brief-badge" className="hidden absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-[#f59e0b]" style={{animation: "pulse-badge 2s ease-in-out infinite"}} />
+            </a>
+          </div>
+        </div>
+        <div className="flex items-center gap-1.5 md:gap-2 shrink-0">
+          <a href="/faq.html" className="hidden md:inline-flex px-2 py-1 rounded-md text-[11px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Guide</a>
+          <a href="index-react.html" className="hidden md:inline-flex px-2 py-1 rounded-md text-[11px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all" title="Restart tour">Tour</a>
+          <a href="/faq.html" className="hidden md:inline-flex px-2 py-1 rounded-md text-[11px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">FAQ</a>
+          <a href="index-react.html" className="hidden md:inline-flex px-2 py-1 rounded-md text-[11px] text-[#60a5fa] hover:text-[#93bbfc] hover:bg-[#60a5fa]/[0.06] transition-all font-medium">Ask AI</a>
+          {window.TimedNotificationCenter && <window.TimedNotificationCenter apiBase="" />}
+          {UserBadge && <UserBadge user={storedUser} compact />}
+          <button onClick={() => setMobileMenuOpen(v => !v)} className="md:hidden p-1.5 rounded-md text-[#6b7280] hover:text-white hover:bg-white/[0.06] transition-all" aria-label="Toggle menu">
+            {mobileMenuOpen ? (
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            ) : (
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+            )}
+          </button>
+        </div>
+      </div>
+      {mobileMenuOpen && (
+        <div className="md:hidden border-t border-white/[0.06] px-4 py-2 flex flex-col gap-0.5" style={{background:"rgba(10,10,15,0.98)"}}>
+          <a href="index-react.html" className="px-3 py-2 rounded-md text-[13px] text-[#9ca3af] hover:text-white hover:bg-white/[0.04] transition-all" onClick={() => setMobileMenuOpen(false)}>Analysis</a>
+          <a href="simulation-dashboard.html" className="px-3 py-2 rounded-md text-[13px] text-[#9ca3af] hover:text-white hover:bg-white/[0.04] transition-all" onClick={() => setMobileMenuOpen(false)}>Trades</a>
+          <a href="system-intelligence.html" className="px-3 py-2 rounded-md text-[13px] text-white bg-white/[0.07] font-medium" onClick={() => setMobileMenuOpen(false)}>System Intelligence</a>
+          <a href="move-discovery.html" data-admin-only="true" className="px-3 py-2 rounded-md text-[13px] text-[#9ca3af] hover:text-white hover:bg-white/[0.04] transition-all" onClick={() => setMobileMenuOpen(false)}>Move Discovery</a>
+          <a href="screener.html" data-admin-only="true" className="px-3 py-2 rounded-md text-[13px] text-[#9ca3af] hover:text-white hover:bg-white/[0.04] transition-all" onClick={() => setMobileMenuOpen(false)}>Screener</a>
+          <a href="ticker-management.html" data-admin-only="true" className="px-3 py-2 rounded-md text-[13px] text-[#9ca3af] hover:text-white hover:bg-white/[0.04] transition-all" onClick={() => setMobileMenuOpen(false)}>Tickers</a>
+          <a href="trade-autopsy.html" className="px-3 py-2 rounded-md text-[13px] text-[#14b8a6]/80 hover:text-[#14b8a6] font-medium" onClick={() => setMobileMenuOpen(false)}>Trade Autopsy</a>
+          {(storedUser?.role === 'admin' || storedUser?.tier === 'admin') && (
+            <a href="admin-clients.html" data-admin-only="true" className="px-3 py-2 rounded-md text-[13px] text-[#a78bfa]/80 hover:text-[#a78bfa] font-medium" onClick={() => setMobileMenuOpen(false)}>Admin</a>
+          )}
+          <a href="daily-brief.html" className="px-3 py-2 rounded-md text-[13px] text-[#f59e0b]/80 hover:text-[#f59e0b] hover:bg-[#f59e0b]/[0.06] transition-all font-medium" onClick={() => setMobileMenuOpen(false)}>Daily Brief</a>
+          <div className="border-t border-white/[0.06] mt-1 pt-1 flex items-center gap-2">
+            <a href="/faq.html" className="px-3 py-2 rounded-md text-[12px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Guide</a>
+            <a href="index-react.html" className="px-3 py-2 rounded-md text-[12px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all" title="Restart tour">Tour</a>
+            <a href="/faq.html" className="px-3 py-2 rounded-md text-[12px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">FAQ</a>
+            <a href="index-react.html" className="px-3 py-2 rounded-md text-[12px] text-[#60a5fa] hover:text-white hover:bg-white/[0.04] transition-all">Ask AI</a>
+            <a href="mailto:support@timed-trading.com" className="px-3 py-2 rounded-md text-[12px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Contact</a>
+          </div>
+        </div>
+      )}
+    </nav>
+  );
+}
+
+// ── Shared helpers ──
+function SQNBadge({ sqn }) {
+  if (sqn == null) return null;
+  const cls = sqn >= 3 ? "badge-good" : sqn >= 2 ? "badge-info" : sqn >= 1 ? "badge-warn" : "badge-bad";
+  const label = sqn >= 3 ? "Excellent" : sqn >= 2 ? "Good" : sqn >= 1 ? "Needs Work" : "Broken";
+  return <span className={`inline-block px-2 py-0.5 rounded-full text-[11px] font-semibold ${cls}`}>{sqn.toFixed(2)} — {label}</span>;
+}
+function DeltaBadge({ value, suffix = "", invert = false }) {
+  if (value == null || value === 0) return null;
+  const positive = invert ? value < 0 : value > 0;
+  return <span className={`text-[10px] font-semibold ml-1.5 ${positive ? "text-emerald-400" : "text-rose-400"}`}>{value > 0 ? "+" : ""}{value}{suffix}</span>;
+}
+function MetricBox({ label, value, delta, suffix = "", color }) {
+  return (
+    <div className="card p-3">
+      <div className="text-[10px] text-slate-500 uppercase tracking-wide mb-1">{label}</div>
+      <div className="flex items-baseline gap-1">
+        <span className={`text-lg font-bold ${color || "text-white"}`}>{value ?? "—"}{suffix && <span className="text-xs text-slate-400 ml-0.5">{suffix}</span>}</span>
+        <DeltaBadge value={delta} />
+      </div>
+    </div>
+  );
+}
+function BarChart({ data, maxVal, colorFn }) {
+  if (!data || !data.length) return null;
+  const max = maxVal || Math.max(...data.map(d => Math.abs(d.value)), 1);
+  return (
+    <div className="space-y-1">
+      {data.map((d, i) => (
+        <div key={i} className="flex items-center gap-2">
+          <span className="text-[10px] text-slate-400 w-16 shrink-0 text-right">{d.label}</span>
+          <div className="flex-1 meter-bar">
+            <div className="meter-fill" style={{width:`${Math.min(100, Math.abs(d.value)/max*100)}%`, background: colorFn ? colorFn(d.value) : (d.value >= 0 ? "#10b981" : "#f43f5e")}} />
+          </div>
+          <span className="text-[10px] text-slate-300 w-10 text-right">{d.value}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
+// TAB: Dashboard
+// ═══════════════════════════════════════════════════════════════
+function DashboardTab({ dashboard }) {
+  if (!dashboard) return <div className="text-slate-500 text-sm py-8 text-center">Loading dashboard...</div>;
+  const s = dashboard.summary || {};
+  const d = dashboard.delta || {};
+  const mh = dashboard.model_health || {};
+  const da = dashboard.direction_accuracy || {};
+  return (
+    <div className="space-y-5">
+      {s.generation && (
+        <div className="flex items-center gap-3 mb-2">
+          <span className="text-xs text-slate-400">Generation <span className="text-white font-bold">#{s.generation}</span></span>
+          {s.run_ts && <span className="text-[10px] text-slate-500">{new Date(s.run_ts).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}</span>}
+          {s.applied && <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold badge-good">Applied</span>}
+          <SQNBadge sqn={s.sqn} />
+        </div>
+      )}
+
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+        <MetricBox label="SQN" value={s.sqn} delta={d.sqn} color={s.sqn >= 2 ? "text-emerald-400" : s.sqn >= 1 ? "text-amber-400" : "text-rose-400"} />
+        <MetricBox label="Win Rate" value={s.win_rate} delta={d.win_rate} suffix="%" />
+        <MetricBox label="Expectancy" value={s.expectancy} delta={d.expectancy} color={s.expectancy >= 0 ? "text-emerald-400" : "text-rose-400"} />
+        <MetricBox label="Avg R" value={s.avg_r} delta={d.avg_r} color={s.avg_r >= 0 ? "text-emerald-400" : "text-rose-400"} />
+        <MetricBox label="Trades" value={s.n || s.trade_count} delta={d.trade_count} />
+        <MetricBox label="Profit Factor" value={s.profit_factor} />
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {/* Model Health */}
+        <div className="card p-4">
+          <h3 className="text-sm font-semibold text-white mb-3">Model Health</h3>
+          <div className="space-y-2 text-xs">
+            <div className="flex justify-between"><span className="text-slate-400">Predictions (total)</span><span className="text-white font-medium">{mh.predictions?.total ?? "—"}</span></div>
+            <div className="flex justify-between"><span className="text-slate-400">Open predictions</span><span className="text-white font-medium">{mh.predictions?.open ?? "—"}</span></div>
+            <div className="flex justify-between"><span className="text-slate-400">Hit rate</span><span className="text-white font-medium">{mh.outcomes?.hitRate ?? "—"}</span></div>
+            <div className="flex justify-between"><span className="text-slate-400">Active patterns</span><span className="text-white font-medium">{mh.patterns?.active ?? "—"}</span></div>
+            <div className="flex justify-between"><span className="text-slate-400">Degraded patterns</span><span className={`font-medium ${(mh.patterns?.degraded || 0) > 0 ? "text-rose-400" : "text-white"}`}>{mh.patterns?.degraded ?? "—"}</span></div>
+          </div>
+        </div>
+
+        {/* Direction Accuracy */}
+        <div className="card p-4">
+          <h3 className="text-sm font-semibold text-white mb-3">Direction Accuracy</h3>
+          <div className="space-y-2 text-xs">
+            <div className="flex justify-between"><span className="text-slate-400">Total resolved</span><span className="text-white font-medium">{da.total ?? "—"}</span></div>
+            <div className="flex justify-between"><span className="text-slate-400">Correct</span><span className="text-emerald-400 font-medium">{da.correct ?? "—"}</span></div>
+            <div className="flex justify-between"><span className="text-slate-400">Accuracy</span><span className="text-white font-bold">{da.accuracy != null ? da.accuracy + "%" : "—"}</span></div>
+            <div className="flex justify-between"><span className="text-slate-400">Wins / Losses</span><span className="text-white font-medium">{da.wins ?? "—"} / {da.losses ?? "—"}</span></div>
+          </div>
+        </div>
+      </div>
+
+      {/* What's working / Proceed with caution */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="card p-4">
+          <h3 className="text-sm font-semibold text-emerald-400 mb-3">What's Working</h3>
+          {(dashboard.whats_working || []).length === 0 ? (
+            <p className="text-xs text-slate-500">No data yet — run a calibration first.</p>
+          ) : (
+            <div className="space-y-2">
+              {dashboard.whats_working[0]?.source === "moves" && (
+                <p className="text-[10px] text-slate-500 mb-1">Based on {dashboard.whats_working.reduce((s,p) => s + (p.n||0), 0).toLocaleString()} historical winning moves</p>
+              )}
+              {dashboard.whats_working.map((p, i) => (
+                <div key={i} className="flex items-center justify-between text-xs">
+                  <span className="font-mono text-slate-300">{p.path}</span>
+                  <div className="flex items-center gap-3">
+                    <span className="text-slate-400">{(p.n || 0).toLocaleString()} {p.source === "moves" ? "moves" : "trades"}</span>
+                    {p.source === "moves" ? (
+                      <span className="text-emerald-400 font-medium">{p.avg_atr ? `${p.avg_atr.toFixed(1)}x ATR` : ""}</span>
+                    ) : (
+                      <span className="text-emerald-400 font-medium">{p.win_rate}% WR</span>
+                    )}
+                    <span className="text-white font-medium">{typeof p.expectancy === "number" ? p.expectancy.toFixed(2) : p.expectancy} exp</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+        <div className="card p-4">
+          <h3 className="text-sm font-semibold text-amber-400 mb-3">Proceed with Caution</h3>
+          {(dashboard.proceed_with_caution || []).length === 0 ? (
+            <p className="text-xs text-slate-500">No concerning paths identified.</p>
+          ) : (
+            <div className="space-y-2">
+              {dashboard.proceed_with_caution.map((p, i) => (
+                <div key={i} className="flex items-center justify-between text-xs">
+                  <span className="font-mono text-slate-300">{p.path}</span>
+                  <div className="flex items-center gap-3">
+                    <span className="text-slate-400">{(p.n || 0).toLocaleString()} {p.source === "trades" ? "trades" : "trades"}</span>
+                    <span className="text-rose-400 font-medium">{p.win_rate}% WR</span>
+                    {p.action && <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${p.action === "DISABLE" ? "badge-bad" : "badge-warn"}`}>{p.action}</span>}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* What the Data Shows — winner profiles */}
+      {dashboard.profiles && dashboard.profiles.length > 0 && (() => {
+        const winners = dashboard.profiles.filter(p => p.profile_type === "winner_move" && p.entry_state !== "ALL").sort((a, b) => (b.sample_count || 0) - (a.sample_count || 0)).slice(0, 5);
+        if (!winners.length) return null;
+        return (
+          <div className="card p-4">
+            <h3 className="text-sm font-semibold text-blue-400 mb-1">What the Data Shows</h3>
+            <p className="text-[10px] text-slate-500 mb-3">Top winning profiles from historical moves — the conditions present when big moves started</p>
+            <div className="space-y-3">
+              {winners.map((w, i) => {
+                const stateLabel = (w.entry_state || "").replace(/HTF_/g, "").replace(/LTF_/g, "").replace(/_/g, " ");
+                return (
+                  <div key={i} className="p-3 rounded-lg bg-white/[0.02] border border-white/[0.04]">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-xs font-semibold text-white">{stateLabel}</span>
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] text-slate-400">{w.sample_count} moves</span>
+                        <span className="text-[10px] font-semibold text-emerald-400">{w.avg_move_atr}x ATR avg</span>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[10px]">
+                      {w.rank_p50 > 0 && <div><span className="text-slate-500">Rank </span><span className="text-white font-medium">{Math.round(w.rank_p25)}–{Math.round(w.rank_p75)}</span></div>}
+                      {w.htf_score_p50 !== 0 && <div><span className="text-slate-500">HTF </span><span className="text-white font-medium">{Math.round(w.htf_score_p25)} to {Math.round(w.htf_score_p75)}</span></div>}
+                      {w.completion_p75 > 0 && <div><span className="text-slate-500">Completion </span><span className="text-white font-medium">≤{Math.round(w.completion_p75 * 100)}%</span></div>}
+                      {w.vix_p50 > 0 && <div><span className="text-slate-500">VIX </span><span className="text-white font-medium">{w.vix_p25?.toFixed(0)}–{w.vix_p75?.toFixed(0)}</span></div>}
+                    </div>
+                    {w.top_signals_json && (() => {
+                      try {
+                        const sigs = typeof w.top_signals_json === "string" ? JSON.parse(w.top_signals_json) : w.top_signals_json;
+                        const sigEntries = Object.entries(sigs).filter(([_, v]) => v > 0).sort((a, b) => b[1] - a[1]);
+                        if (!sigEntries.length) return null;
+                        return <div className="mt-1.5 flex gap-1.5 flex-wrap">{sigEntries.map(([sig, count]) => <span key={sig} className="px-1.5 py-0.5 rounded text-[9px] bg-blue-500/10 text-blue-300">{sig.replace(/_/g, " ")} ({count})</span>)}</div>;
+                      } catch { return null; }
+                    })()}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Applied Adaptations */}
+      {dashboard.applied_adaptations && (
+        <div className="card p-4">
+          <h3 className="text-sm font-semibold text-purple-400 mb-1">Applied Adaptations</h3>
+          <p className="text-[10px] text-slate-500 mb-3">Active learned parameters influencing the scoring and entry engine</p>
+          <div className="space-y-3">
+            {dashboard.applied_adaptations.adaptive_entry_gates && (() => {
+              const gates = dashboard.applied_adaptations.adaptive_entry_gates.value;
+              const entries = Object.entries(gates).filter(([k]) => k !== "_default").slice(0, 6);
+              if (!entries.length) return null;
+              return (
+                <div>
+                  <div className="text-[11px] font-medium text-slate-300 mb-1.5">Per-State Entry Gates</div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    {entries.map(([state, g]) => (
+                      <div key={state} className="text-[10px] p-2 rounded bg-white/[0.02] border border-white/[0.04]">
+                        <span className="text-slate-400">{state.replace(/HTF_/g, "").replace(/LTF_/g, "").replace(/_/g, " ")}</span>
+                        <div className="flex gap-3 mt-1 text-white">
+                          <span>Rank ≥{Math.round(g.min_rank)}</span>
+                          <span>Comp ≤{Math.round(g.max_completion * 100)}%</span>
+                          {g.min_htf_score > 0 && <span>HTF ≥{g.min_htf_score}</span>}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })()}
+            {dashboard.applied_adaptations.adaptive_regime_gates && (() => {
+              const rg = dashboard.applied_adaptations.adaptive_regime_gates.value;
+              const entries = Object.entries(rg);
+              if (!entries.length) return null;
+              return (
+                <div>
+                  <div className="text-[11px] font-medium text-slate-300 mb-1.5">VIX Regime Gates</div>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                    {entries.map(([bucket, g]) => (
+                      <div key={bucket} className="text-[10px] p-2 rounded bg-white/[0.02] border border-white/[0.04]">
+                        <div className="text-slate-400 capitalize mb-1">VIX {bucket} ({g.vix_range?.[0]}–{g.vix_range?.[1]})</div>
+                        <div className="text-white">{g.sample_count}t · {g.win_rate}% WR</div>
+                        {g.block_long && <div className="text-rose-400 font-medium mt-0.5">LONG blocked</div>}
+                        {g.restrict_to_short_only && <div className="text-rose-400 font-medium mt-0.5">SHORT only</div>}
+                        {g.require_rank_boost > 0 && <div className="text-amber-400 mt-0.5">Rank +{g.require_rank_boost}</div>}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })()}
+            {dashboard.applied_adaptations.adaptive_sl_tp && (() => {
+              const sltp = dashboard.applied_adaptations.adaptive_sl_tp.value;
+              const entries = Object.entries(sltp).filter(([k]) => k !== "_default").slice(0, 4);
+              if (!entries.length) return null;
+              return (
+                <div>
+                  <div className="text-[11px] font-medium text-slate-300 mb-1.5">SL/TP per State (ATR)</div>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                    {entries.map(([state, v]) => (
+                      <div key={state} className="text-[10px] p-2 rounded bg-white/[0.02] border border-white/[0.04]">
+                        <div className="text-slate-400 mb-1">{state.replace(/HTF_/g, "").replace(/LTF_/g, "").replace(/_/g, " ")}</div>
+                        <div className="text-white">SL {v.sl_atr} · TP {v.tp_trim_atr}/{v.tp_exit_atr}/{v.tp_runner_atr}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })()}
+            {!dashboard.applied_adaptations.adaptive_entry_gates && !dashboard.applied_adaptations.adaptive_regime_gates && (
+              <p className="text-xs text-slate-500">No adaptive parameters applied yet. Run calibration and click Apply.</p>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Hindsight Oracle: What great entries look like + recommendations */}
+      {dashboard.hindsight_oracle && (dashboard.hindsight_oracle.golden_profiles || dashboard.hindsight_oracle.recommendations?.length) && (
+        <div className="card p-4">
+          <h3 className="text-sm font-semibold text-amber-200/90 mb-2">What Great Entries Look Like (5m)</h3>
+          <p className="text-[10px] text-slate-500 mb-3">Ideal signal profiles from qualifying moves (≥2 ATR, ≥3 days). Compare to your trades to calibrate.</p>
+          {dashboard.hindsight_oracle.golden_profiles && Object.keys(dashboard.hindsight_oracle.golden_profiles).length > 0 && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
+              {Object.entries(dashboard.hindsight_oracle.golden_profiles).slice(0, 6).map(([state, g]) => (
+                <div key={state} className="p-3 rounded-lg bg-white/[0.02] border border-white/[0.04] text-xs">
+                  <div className="font-mono text-slate-300 mb-1">{state.replace(/HTF_|LTF_/g, "").replace(/_/g, " ")}</div>
+                  <div className="text-slate-500 text-[10px]">n={g.sample_count} · squeeze {g.squeeze_release_pct}% · ema {g.ema_cross_pct}% · st_flip {g.st_flip_pct}%</div>
+                  <div className="text-slate-400 mt-1">HTF med {g.htf_score_median} · LTF med {g.ltf_score_median} · avg move {g.avg_move_atr} ATR</div>
+                </div>
+              ))}
+            </div>
+          )}
+          {dashboard.hindsight_oracle.recommendations && dashboard.hindsight_oracle.recommendations.length > 0 && (
+            <div>
+              <h4 className="text-xs font-semibold text-slate-400 mb-2">Top Recommendations</h4>
+              <ul className="space-y-1.5">
+                {dashboard.hindsight_oracle.recommendations.slice(0, 5).map((rec, i) => (
+                  <li key={i} className="text-xs text-slate-300 pl-2 border-l-2 border-amber-500/30">{rec.message}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* VIX Regime Performance */}
+      {dashboard.vix_buckets && Object.keys(dashboard.vix_buckets).length > 0 && (
+        <div className="card p-4">
+          <h3 className="text-sm font-semibold text-slate-300 mb-3">Performance by VIX Regime</h3>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            {Object.entries(dashboard.vix_buckets).map(([bucket, m]) => (
+              <div key={bucket} className="p-3 rounded-lg bg-white/[0.02] border border-white/[0.04] text-center">
+                <div className="text-[10px] text-slate-500 uppercase mb-1">{bucket}</div>
+                <div className="text-lg font-bold">{m.n || 0}</div>
+                <div className="text-[10px] text-slate-400">trades</div>
+                <div className={`text-xs font-semibold mt-1 ${(m.win_rate || 0) >= 50 ? "text-emerald-400" : "text-rose-400"}`}>{m.win_rate || 0}% WR</div>
+                <div className={`text-[10px] ${(m.expectancy || 0) >= 0 ? "text-emerald-400/70" : "text-rose-400/70"}`}>{m.expectancy || 0} exp</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
+// TAB: Calibration (all analysis sub-tabs)
+// ═══════════════════════════════════════════════════════════════
+function SystemHealthCard({ health }) {
+  if (!health) return null;
+  const o = health.overall;
+  return (
+    <div className="card p-5">
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="text-sm font-semibold text-white">System Health (SQN)</h3>
+        <SQNBadge sqn={o.sqn} />
+      </div>
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-4">
+        <div><div className="text-[10px] text-slate-500 uppercase">Trades</div><div className="text-lg font-bold">{o.n}</div></div>
+        <div><div className="text-[10px] text-slate-500 uppercase">Win Rate</div><div className="text-lg font-bold">{o.win_rate}%</div></div>
+        <div><div className="text-[10px] text-slate-500 uppercase">Expectancy</div><div className={`text-lg font-bold ${o.expectancy >= 0 ? "text-emerald-400" : "text-rose-400"}`}>{o.expectancy}</div></div>
+        <div><div className="text-[10px] text-slate-500 uppercase">Avg R</div><div className={`text-lg font-bold ${o.avg_r >= 0 ? "text-emerald-400" : "text-rose-400"}`}>{o.avg_r}</div></div>
+        <div><div className="text-[10px] text-slate-500 uppercase">Profit Factor</div><div className="text-lg font-bold">{o.profit_factor}</div></div>
+        <div><div className="text-[10px] text-slate-500 uppercase">SQN</div><div className="text-lg font-bold">{o.sqn}</div></div>
+      </div>
+      {health.by_regime && Object.keys(health.by_regime).length > 0 && (
+        <div>
+          <div className="text-xs text-slate-400 mb-2 font-medium">By Regime</div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs"><thead><tr className="text-slate-500 border-b border-white/[0.05]">
+              <th className="text-left py-1.5 pr-3 font-medium">Regime</th><th className="text-right px-2 font-medium">N</th><th className="text-right px-2 font-medium">Win%</th><th className="text-right px-2 font-medium">Exp</th><th className="text-right pl-2 font-medium">SQN</th>
+            </tr></thead><tbody>
+              {Object.entries(health.by_regime).map(([r, d]) => (
+                <tr key={r} className="border-b border-white/[0.03]">
+                  <td className="py-1.5 pr-3 text-slate-300">{r}</td><td className="text-right px-2">{d.n}</td><td className="text-right px-2">{d.win_rate}%</td>
+                  <td className={`text-right px-2 ${d.expectancy >= 0 ? "text-emerald-400" : "text-rose-400"}`}>{d.expectancy}</td>
+                  <td className="text-right pl-2"><SQNBadge sqn={d.sqn} /></td>
+                </tr>
+              ))}
+            </tbody></table>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+function EntryPathsCard({ paths }) {
+  if (!paths) return null;
+  const sorted = Object.entries(paths).sort((a, b) => (b[1].n || 0) - (a[1].n || 0));
+  return (
+    <div className="card p-5">
+      <h3 className="text-sm font-semibold text-white mb-3">Entry Path Performance</h3>
+      <div className="overflow-x-auto">
+        <table className="w-full text-xs"><thead><tr className="text-slate-500 border-b border-white/[0.05]">
+          <th className="text-left py-1.5 font-medium">Path</th><th className="text-right px-2 font-medium">N</th><th className="text-right px-2 font-medium">Win%</th>
+          <th className="text-right px-2 font-medium">Exp</th><th className="text-right px-2 font-medium">SQN</th><th className="text-right px-2 font-medium">MFE(ATR)</th>
+          <th className="text-right px-2 font-medium">Kelly%</th><th className="text-right pl-2 font-medium">Action</th>
+        </tr></thead><tbody>
+          {sorted.map(([path, d]) => (
+            <tr key={path} className="border-b border-white/[0.03]">
+              <td className="py-1.5 font-mono text-slate-300">{path}</td><td className="text-right px-2">{d.n}</td><td className="text-right px-2">{d.win_rate}%</td>
+              <td className={`text-right px-2 ${d.expectancy >= 0 ? "text-emerald-400" : "text-rose-400"}`}>{d.expectancy}</td>
+              <td className="text-right px-2">{d.sqn?.toFixed(2)}</td><td className="text-right px-2">{d.avg_mfe_atr?.toFixed(2)}</td>
+              <td className="text-right px-2">{d.half_kelly_pct?.toFixed(1)}%</td>
+              <td className="text-right pl-2"><span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${d.action === "BOOST" ? "badge-good" : d.action === "DISABLE" ? "badge-bad" : d.action === "RESTRICT" ? "badge-warn" : "badge-info"}`}>{d.action}</span></td>
+            </tr>
+          ))}
+        </tbody></table>
+      </div>
+    </div>
+  );
+}
+function SignalICCard({ ic }) {
+  if (!ic) return null;
+  const data = Object.entries(ic).map(([k, v]) => ({ label: k, value: v.ic != null ? Number(v.ic.toFixed(3)) : 0 })).sort((a, b) => Math.abs(b.value) - Math.abs(a.value));
+  return (
+    <div className="card p-5">
+      <h3 className="text-sm font-semibold text-white mb-3">Signal Information Coefficient</h3>
+      <BarChart data={data} colorFn={v => Math.abs(v) > 0.10 ? "#10b981" : Math.abs(v) > 0.05 ? "#fbbf24" : "#6b7280"} />
+      <div className="mt-3 text-[10px] text-slate-500">|IC| &gt; 0.10 = strong, &gt; 0.05 = useful, near 0 = noise</div>
+    </div>
+  );
+}
+function SLTPCard({ sltp }) {
+  if (!sltp) return null;
+  return (
+    <div className="card p-5">
+      <h3 className="text-sm font-semibold text-white mb-3">SL/TP Calibration</h3>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div>
+          <div className="text-xs text-slate-400 font-medium mb-2">Stop Loss (Winner MAE in ATR)</div>
+          <div className="space-y-1 text-xs">
+            <div className="flex justify-between"><span className="text-slate-400">P50</span><span>{sltp.winner_mae?.p50?.toFixed(2)}</span></div>
+            <div className="flex justify-between font-medium"><span className="text-amber-400">P75 (recommended)</span><span>{sltp.winner_mae?.p75?.toFixed(2)}</span></div>
+            <div className="flex justify-between"><span className="text-slate-400">P90</span><span>{sltp.winner_mae?.p90?.toFixed(2)}</span></div>
+          </div>
+        </div>
+        <div>
+          <div className="text-xs text-slate-400 font-medium mb-2">Take Profit (Trade MFE in ATR)</div>
+          <div className="space-y-1 text-xs">
+            <div className="flex justify-between"><span className="text-slate-400">Trim (P50)</span><span>{sltp.trade_mfe?.p50?.toFixed(2)}</span></div>
+            <div className="flex justify-between"><span className="text-slate-400">Exit (P75)</span><span>{sltp.trade_mfe?.p75?.toFixed(2)}</span></div>
+            <div className="flex justify-between"><span className="text-slate-400">Runner (P90)</span><span>{sltp.trade_mfe?.p90?.toFixed(2)}</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+function RankCard({ rank }) {
+  if (!rank) return null;
+  const deciles = rank.deciles || {};
+  const data = Object.entries(deciles).map(([k, v]) => ({ label: k, value: v.sqn || 0 }));
+  return (
+    <div className="card p-5">
+      <h3 className="text-sm font-semibold text-white mb-3">Rank Threshold Optimization</h3>
+      <BarChart data={data} />
+      <div className="mt-3 text-xs text-slate-400">Best cutoff: <span className="text-white font-semibold">{rank.best_cutoff}</span> (SQN {rank.best_sqn?.toFixed(2)})</div>
+    </div>
+  );
+}
+function WFOCard({ wfo }) {
+  if (!wfo) return null;
+  const pass = wfo.verdict === "PASS";
+  return (
+    <div className="card p-5">
+      <h3 className="text-sm font-semibold text-white mb-3">Walk-Forward Validation</h3>
+      <div className="grid grid-cols-3 gap-4 text-center mb-3">
+        <div><div className="text-[10px] text-slate-500 uppercase">In-Sample SQN</div><div className="text-lg font-bold">{wfo.in_sample_sqn?.toFixed(2)}</div></div>
+        <div><div className="text-[10px] text-slate-500 uppercase">Out-Sample SQN</div><div className="text-lg font-bold">{wfo.out_sample_sqn?.toFixed(2)}</div></div>
+        <div><div className="text-[10px] text-slate-500 uppercase">Degradation</div><div className="text-lg font-bold">{wfo.degradation_pct?.toFixed(1)}%</div></div>
+      </div>
+      <div className="text-center"><span className={`px-3 py-1 rounded-full text-xs font-semibold ${pass ? "badge-good" : "badge-warn"}`}>{wfo.verdict}</span></div>
+    </div>
+  );
+}
+function MissedOpCard({ missed }) {
+  if (!missed) return null;
+  return (
+    <div className="card p-5">
+      <h3 className="text-sm font-semibold text-white mb-3">Missed Opportunities</h3>
+      <div className="text-xs text-slate-400 mb-3">{missed.count} missed out of {missed.total_moves} total moves</div>
+      {missed.common_signals && Object.keys(missed.common_signals).length > 0 && (
+        <div>
+          <div className="text-xs text-slate-400 font-medium mb-2">Common signals at missed moves</div>
+          <div className="space-y-1">
+            {Object.entries(missed.common_signals).sort((a,b) => b[1] - a[1]).slice(0,8).map(([sig, count]) => (
+              <div key={sig} className="flex items-center justify-between text-xs">
+                <span className="text-slate-300">{sig}</span><span className="text-slate-400">{count}x</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+function SameTickerRepeatsCard({ data }) {
+  if (!data || data.cluster_count === 0) {
+    return (
+      <div className="card p-5">
+        <h3 className="text-sm font-semibold text-amber-200/90 mb-2">Same-ticker repeat trades</h3>
+        <p className="text-xs text-slate-500">No clusters of same ticker, same direction, re-entered within {data?.window_days ?? 10} days. Either no repeat trades in the sample or re-entries are spaced farther apart.</p>
+      </div>
+    );
+  }
+  const clusters = data.clusters || [];
+  return (
+    <div className="card p-5">
+      <h3 className="text-sm font-semibold text-amber-200/90 mb-2">Same-ticker repeat trades (within {data.window_days} days)</h3>
+      <p className="text-xs text-slate-400 mb-3">
+        Trades on the same ticker in the same direction, re-entered within a short window. This can indicate: aligning with oscillation (good), getting faked out and re-entering (bad), or exiting too early and leaving money on the table.
+      </p>
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4 text-center">
+        <div className="p-2 rounded bg-white/[0.03] border border-white/[0.06]">
+          <div className="text-[10px] text-slate-500 uppercase">Clusters</div>
+          <div className="text-lg font-bold text-white">{data.cluster_count}</div>
+        </div>
+        <div className="p-2 rounded bg-white/[0.03] border border-white/[0.06]">
+          <div className="text-[10px] text-slate-500 uppercase">Trades in clusters</div>
+          <div className="text-lg font-bold text-white">{data.total_trades_in_clusters}</div>
+        </div>
+        <div className="p-2 rounded bg-white/[0.03] border border-white/[0.06]">
+          <div className="text-[10px] text-slate-500 uppercase">Total P&amp;L (repeats)</div>
+          <div className={`text-lg font-bold ${data.total_pnl_pct_from_repeats >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
+            {data.total_pnl_pct_from_repeats >= 0 ? "+" : ""}{data.total_pnl_pct_from_repeats}%
+          </div>
+        </div>
+        <div className="p-2 rounded bg-white/[0.03] border border-white/[0.06]">
+          <div className="text-[10px] text-slate-500 uppercase">Avg capture vs MFE</div>
+          <div className="text-lg font-bold text-slate-300">{data.avg_capture_ratio != null ? (data.avg_capture_ratio * 100).toFixed(0) + "%" : "—"}</div>
+        </div>
+      </div>
+      {data.interpretation && data.interpretation.length > 0 && (
+        <div className="mb-4 p-3 rounded bg-amber-500/10 border border-amber-500/20">
+          <div className="text-xs font-medium text-amber-300 mb-1">What we can learn</div>
+          <ul className="list-disc list-inside text-xs text-slate-400 space-y-0.5">
+            {data.interpretation.map((line, i) => <li key={i}>{line}</li>)}
+          </ul>
+        </div>
+      )}
+      {data.recommendation && <p className="text-xs text-slate-400 mb-3 pl-2 border-l-2 border-amber-500/30">{data.recommendation}</p>}
+      <div className="overflow-x-auto">
+        <table className="w-full text-xs">
+          <thead><tr className="text-slate-500 border-b border-white/[0.05]">
+            <th className="text-left py-1.5 font-medium">Ticker</th>
+            <th className="text-left py-1.5 font-medium">Dir</th>
+            <th className="text-right px-2 font-medium">N</th>
+            <th className="text-right px-2 font-medium">Total P&amp;L%</th>
+            <th className="text-right px-2 font-medium">Win%</th>
+            <th className="text-right px-2 font-medium">Pattern</th>
+            <th className="text-right px-2 font-medium">Avg gap (d)</th>
+            <th className="text-right px-2 font-medium">MFE vs realized</th>
+            <th className="text-right pl-2 font-medium">SL before MFE</th>
+          </tr></thead>
+          <tbody>
+            {clusters.map((c, i) => (
+              <tr key={i} className="border-b border-white/[0.03]">
+                <td className="py-1.5 font-mono text-slate-300">{c.ticker}</td>
+                <td className="py-1.5 text-slate-400">{c.direction}</td>
+                <td className="text-right px-2">{c.n_trades}</td>
+                <td className={`text-right px-2 font-medium ${(c.total_pnl_pct || 0) >= 0 ? "text-emerald-400" : "text-rose-400"}`}>{c.total_pnl_pct != null ? (c.total_pnl_pct >= 0 ? "+" : "") + c.total_pnl_pct + "%" : "—"}</td>
+                <td className="text-right px-2">{c.win_rate_pct != null ? c.win_rate_pct + "%" : "—"}</td>
+                <td className="text-right px-2 font-mono text-[10px] text-slate-500">{c.pattern || "—"}</td>
+                <td className="text-right px-2">{c.avg_gap_days != null ? c.avg_gap_days : "—"}</td>
+                <td className="text-right px-2">{c.mfe_vs_realized != null ? (c.mfe_vs_realized * 100).toFixed(0) + "%" : "—"}</td>
+                <td className="text-right pl-2">{c.sl_hit_before_mfe_count ?? "—"}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+function PositionSizingCard({ sizing }) {
+  if (!sizing) return null;
+  return (
+    <div className="card p-5">
+      <h3 className="text-sm font-semibold text-white mb-3">Position Sizing (Kelly)</h3>
+      <div className="grid grid-cols-3 gap-4 text-center">
+        <div><div className="text-[10px] text-slate-500 uppercase">Full Kelly</div><div className="text-lg font-bold">{sizing.kelly_full_pct?.toFixed(1)}%</div></div>
+        <div><div className="text-[10px] text-slate-500 uppercase">Half Kelly</div><div className="text-lg font-bold text-emerald-400">{sizing.half_kelly_pct?.toFixed(1)}%</div></div>
+        <div><div className="text-[10px] text-slate-500 uppercase">Current</div><div className="text-lg font-bold">{sizing.current_sizing_pct || "5-7%"}</div></div>
+      </div>
+    </div>
+  );
+}
+
+function ProfilesCard({ profiles }) {
+  if (!profiles) return <div className="card p-5 text-center text-slate-500 text-xs">No profile data. Run calibration to generate winner/loser profiles.</div>;
+  const types = ["winner_move", "winner_trade", "loser_trade"];
+  const typeLabels = { winner_move: "Winner Moves (Historical)", winner_trade: "Winner Trades", loser_trade: "Loser Trades" };
+  const typeColors = { winner_move: "text-blue-400", winner_trade: "text-emerald-400", loser_trade: "text-rose-400" };
+  return (
+    <div className="space-y-5">
+      {types.map(type => {
+        const items = (profiles.winner_move && Array.isArray(profiles[type === "winner_move" ? "winner_move" : type === "winner_trade" ? "winner_trade" : "loser_trade"])) 
+          ? profiles[type === "winner_move" ? "winner_move" : type === "winner_trade" ? "winner_trade" : "loser_trade"]
+          : (Array.isArray(profiles) ? profiles : []).filter(p => p.profile_type === type);
+        const filtered = items.filter(p => p.entry_state !== "ALL");
+        if (!filtered.length) return null;
+        return (
+          <div key={type} className="card p-5">
+            <h3 className={`text-sm font-semibold mb-3 ${typeColors[type]}`}>{typeLabels[type]}</h3>
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs"><thead><tr className="text-slate-500 border-b border-white/[0.05]">
+                <th className="text-left py-1.5 font-medium">State</th><th className="text-right px-2 font-medium">N</th>
+                <th className="text-right px-2 font-medium">Win%</th><th className="text-right px-2 font-medium">Exp</th>
+                <th className="text-right px-2 font-medium">Avg R</th><th className="text-right px-2 font-medium">Rank(p50)</th>
+                <th className="text-right px-2 font-medium">HTF(p50)</th><th className="text-right px-2 font-medium">Comp(p75)</th>
+                <th className="text-right px-2 font-medium">VIX(p50)</th><th className="text-right px-2 font-medium">ATR</th>
+                <th className="text-right pl-2 font-medium">Days</th>
+              </tr></thead><tbody>
+                {filtered.map((p, i) => (
+                  <tr key={i} className="border-b border-white/[0.03]">
+                    <td className="py-1.5 font-mono text-slate-300 text-[10px]">{(p.entry_state || "").replace(/HTF_/g, "").replace(/LTF_/g, "")}</td>
+                    <td className="text-right px-2">{p.sample_count}</td>
+                    <td className={`text-right px-2 ${p.win_rate >= 50 ? "text-emerald-400" : "text-rose-400"}`}>{p.win_rate}%</td>
+                    <td className={`text-right px-2 ${(p.expectancy || 0) >= 0 ? "text-emerald-400" : "text-rose-400"}`}>{p.expectancy}</td>
+                    <td className="text-right px-2">{p.avg_r}</td>
+                    <td className="text-right px-2">{p.rank_p50 > 0 ? Math.round(p.rank_p50) : "—"}</td>
+                    <td className="text-right px-2">{p.htf_score_p50 ? Math.round(p.htf_score_p50) : "—"}</td>
+                    <td className="text-right px-2">{p.completion_p75 > 0 ? Math.round(p.completion_p75 * 100) + "%" : "—"}</td>
+                    <td className="text-right px-2">{p.vix_p50 > 0 ? p.vix_p50.toFixed(0) : "—"}</td>
+                    <td className="text-right px-2">{p.avg_move_atr || "—"}</td>
+                    <td className="text-right pl-2">{p.avg_duration_days || "—"}</td>
+                  </tr>
+                ))}
+              </tbody></table>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+function VIXRegimeCard({ vixBuckets }) {
+  if (!vixBuckets || !Object.keys(vixBuckets).length) return <div className="card p-5 text-center text-slate-500 text-xs">No VIX regime data. Run calibration with VIX candle data available.</div>;
+  const order = ["low", "medium", "high", "extreme"];
+  const labels = { low: "Low (<15)", medium: "Medium (15–22)", high: "High (22–30)", extreme: "Extreme (30+)" };
+  const colors = { low: "border-emerald-500/30", medium: "border-blue-500/30", high: "border-amber-500/30", extreme: "border-rose-500/30" };
+  return (
+    <div className="card p-5">
+      <h3 className="text-sm font-semibold text-white mb-3">Performance by VIX Regime</h3>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+        {order.filter(b => vixBuckets[b]).map(bucket => {
+          const m = vixBuckets[bucket];
+          return (
+            <div key={bucket} className={`p-4 rounded-lg bg-white/[0.02] border ${colors[bucket]}`}>
+              <div className="text-xs font-semibold text-white mb-2">{labels[bucket]}</div>
+              <div className="space-y-1 text-xs">
+                <div className="flex justify-between"><span className="text-slate-400">Trades</span><span className="text-white font-medium">{m.n || 0}</span></div>
+                <div className="flex justify-between"><span className="text-slate-400">Win Rate</span><span className={`font-medium ${(m.win_rate || 0) >= 50 ? "text-emerald-400" : "text-rose-400"}`}>{m.win_rate || 0}%</span></div>
+                <div className="flex justify-between"><span className="text-slate-400">Expectancy</span><span className={`font-medium ${(m.expectancy || 0) >= 0 ? "text-emerald-400" : "text-rose-400"}`}>{m.expectancy || 0}</span></div>
+                <div className="flex justify-between"><span className="text-slate-400">SQN</span><span className="text-white font-medium">{m.sqn?.toFixed(2) || "—"}</span></div>
+                <div className="flex justify-between"><span className="text-slate-400">Avg R</span><span className={`font-medium ${(m.avg_r || 0) >= 0 ? "text-emerald-400" : "text-rose-400"}`}>{m.avg_r || "—"}</span></div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function AnalysisSummary({ report, recs }) {
+  if (!report) return null;
+  const o = report.system_health?.overall || {};
+  const paths = report.entry_paths || {};
+  const sltp = report.sl_tp_calibration || {};
+  const wfo = report.wfo_summary || {};
+
+  const sqnGrade = o.sqn >= 7 ? "Holy Grail" : o.sqn >= 5 ? "Excellent" : o.sqn >= 3 ? "Good" : o.sqn >= 1.5 ? "Average" : o.sqn >= 0 ? "Poor" : "Broken";
+  const sqnColor = o.sqn >= 3 ? "text-emerald-400" : o.sqn >= 1.5 ? "text-amber-400" : "text-rose-400";
+
+  const sortedPaths = Object.entries(paths).filter(([, v]) => v.n >= 3).sort((a, b) => (b[1].sqn || 0) - (a[1].sqn || 0));
+  const bestPaths = sortedPaths.filter(([, v]) => v.profit_factor > 1.2 && v.sqn > 0);
+  const worstPaths = sortedPaths.filter(([, v]) => v.profit_factor < 0.8 || v.sqn < -0.5).reverse();
+
+  const classifications = {};
+  if (report.trade_classifications) for (const [k, v] of Object.entries(report.trade_classifications)) classifications[k] = v;
+  const manualNotes = report.trade_classifications?.manual_notes_for_learning || [];
+  const manualNotesCount = manualNotes.length;
+
+  const moveMfe = sltp.move_mfe?.p50;
+  const tpTrim = sltp.recommended_tp_trim_atr;
+  const slAtr = sltp.recommended_sl_atr;
+  const captureRatio = moveMfe && tpTrim ? Math.round((tpTrim / moveMfe) * 100) : null;
+
+  return (
+    <div className="card p-5 mb-4 border-l-4 border-blue-500/40">
+      <h3 className="text-sm font-semibold text-blue-300 mb-3">Analysis Summary</h3>
+      <div className="space-y-3 text-xs text-slate-300 leading-relaxed">
+        {/* Overall Grade */}
+        <div className="p-3 rounded-lg bg-white/[0.02] border border-white/[0.04]">
+          <div className="flex items-center gap-2 mb-1">
+            <span className="text-slate-400 font-medium">System Grade:</span>
+            <span className={`font-bold ${sqnColor}`}>{sqnGrade} (SQN {o.sqn})</span>
+          </div>
+          <p className="text-slate-400">
+            {o.n} trades analyzed. Win rate {o.win_rate}%, profit factor {o.profit_factor}, expectancy {o.expectancy >= 0 ? "+" : ""}{o.expectancy} per trade.
+            {o.sqn < 0 && " The system is currently losing money overall."}
+            {o.sqn >= 0 && o.sqn < 1.5 && " The system is near break-even but has no reliable edge yet."}
+            {o.sqn >= 1.5 && o.sqn < 3 && " The system has a modest edge but needs improvement for consistency."}
+            {o.sqn >= 3 && " The system has a solid, consistent edge."}
+            {o.n < 100 && ` Sample size is small (${o.n} trades) — run a full backtest for statistical confidence.`}
+          </p>
+        </div>
+
+        {/* Walk-Forward */}
+        {wfo?.verdict && (
+          <div className={`p-3 rounded-lg border ${wfo.verdict === "WARNING" ? "bg-amber-500/5 border-amber-500/20" : wfo.verdict === "FAIL" ? "bg-rose-500/5 border-rose-500/20" : "bg-emerald-500/5 border-emerald-500/20"}`}>
+            <span className="font-medium text-slate-400">Walk-Forward Test: </span>
+            <span className={wfo.verdict === "PASS" ? "text-emerald-400" : wfo.verdict === "WARNING" ? "text-amber-400" : "text-rose-400"}>{wfo.verdict}</span>
+            {wfo.in_sample_sqn != null && wfo.out_sample_sqn != null && (
+              <span className="text-slate-400"> — In-sample SQN {wfo.in_sample_sqn}, out-of-sample SQN {wfo.out_sample_sqn}.</span>
+            )}
+            {wfo.verdict === "WARNING" && <p className="text-slate-400 mt-1">The system performed worse on recent trades than older ones. This suggests the model may not be adapting to current market conditions.</p>}
+          </div>
+        )}
+
+        {/* Best / Worst Entry States */}
+        {(bestPaths.length > 0 || worstPaths.length > 0) && (
+          <div className="p-3 rounded-lg bg-white/[0.02] border border-white/[0.04]">
+            <div className="font-medium text-slate-400 mb-2">Entry State Performance</div>
+            {bestPaths.length > 0 && (
+              <div className="mb-2">
+                <span className="text-emerald-400 font-medium">Working: </span>
+                {bestPaths.map(([state, v]) => (
+                  <span key={state} className="inline-block mr-2">
+                    <span className="text-slate-300">{state.replace(/HTF_|LTF_/g, "").replace(/_/g, " ")}</span>
+                    <span className="text-emerald-400/70 ml-1">({v.n}t, {v.win_rate}% WR, PF {v.profit_factor})</span>
+                  </span>
+                ))}
+              </div>
+            )}
+            {worstPaths.length > 0 && (
+              <div>
+                <span className="text-rose-400 font-medium">Losing money: </span>
+                {worstPaths.map(([state, v]) => (
+                  <span key={state} className="inline-block mr-2">
+                    <span className="text-slate-300">{state.replace(/HTF_|LTF_/g, "").replace(/_/g, " ")}</span>
+                    <span className="text-rose-400/70 ml-1">({v.n}t, {v.win_rate}% WR, PF {v.profit_factor})</span>
+                  </span>
+                ))}
+                <p className="text-slate-400 mt-1">Consider disabling or heavily filtering entries in these states.</p>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Manual feedback (Trade Autopsy) */}
+        {(classifications.manual_bad_trade_count > 0 || manualNotesCount > 0) && (
+          <div className="p-3 rounded-lg bg-teal-500/5 border border-teal-500/20">
+            <div className="font-medium text-teal-300 mb-1">Manual feedback (Trade Autopsy)</div>
+            <p className="text-slate-400">
+              {classifications.manual_bad_trade_count > 0 && <span>{classifications.manual_bad_trade_count} trades tagged as Bad Trade (excluded from metrics). </span>}
+              {manualNotesCount > 0 && <span>{manualNotesCount} trades include notes — used alongside classifications for learning and calibration.</span>}
+            </p>
+            {manualNotesCount > 0 && manualNotes.slice(0, 5).map((row, i) => (
+              <div key={row.trade_id || i} className="mt-1.5 pl-2 border-l-2 border-teal-500/30 text-slate-400 text-[11px]">
+                <span className="text-slate-300 font-medium">{row.ticker}</span>
+                {row.classification && <span className="ml-1 text-teal-400/80">{row.classification}</span>}
+                <span className="block text-slate-500 truncate max-w-md" title={row.notes}>{row.notes}</span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Same-ticker repeat trades (re-entries within short window) */}
+        {report.same_ticker_repeat_analysis && report.same_ticker_repeat_analysis.cluster_count > 0 && (
+          <div className="p-3 rounded-lg bg-amber-500/5 border border-amber-500/20">
+            <div className="font-medium text-amber-300 mb-1">Same-ticker repeat trades (within {report.same_ticker_repeat_analysis.window_days} days)</div>
+            <p className="text-slate-400 mb-1">
+              {report.same_ticker_repeat_analysis.cluster_count} clusters ({report.same_ticker_repeat_analysis.total_trades_in_clusters} trades) — same ticker, same direction, re-entered within a short window. Total P&amp;L from repeats:{" "}
+              <span className={report.same_ticker_repeat_analysis.total_pnl_pct_from_repeats >= 0 ? "text-emerald-400" : "text-rose-400"}>
+                {report.same_ticker_repeat_analysis.total_pnl_pct_from_repeats >= 0 ? "+" : ""}{report.same_ticker_repeat_analysis.total_pnl_pct_from_repeats}%
+              </span>
+              {report.same_ticker_repeat_analysis.avg_capture_ratio != null && (
+                <span className="text-slate-500"> · Avg capture vs MFE: {(report.same_ticker_repeat_analysis.avg_capture_ratio * 100).toFixed(0)}%</span>
+              )}
+              {report.same_ticker_repeat_analysis.sl_before_mfe_count > 0 && (
+                <span className="text-slate-500"> · SL hit before MFE: {report.same_ticker_repeat_analysis.sl_before_mfe_count} times</span>
+              )}
+            </p>
+            {report.same_ticker_repeat_analysis.interpretation && report.same_ticker_repeat_analysis.interpretation.length > 0 && (
+              <ul className="list-disc list-inside text-slate-400 text-[11px] space-y-0.5 mt-1">
+                {report.same_ticker_repeat_analysis.interpretation.map((line, i) => (
+                  <li key={i}>{line}</li>
+                ))}
+              </ul>
+            )}
+            {report.same_ticker_repeat_analysis.clusters && report.same_ticker_repeat_analysis.clusters.length > 0 && (
+              <div className="mt-2 text-[10px] text-slate-500">
+                Sample: {report.same_ticker_repeat_analysis.clusters.slice(0, 5).map(c => (
+                  <span key={`${c.ticker}-${c.direction}-${c.trade_ids?.[0]}`} className="inline-block mr-2">
+                    <span className="text-slate-300">{c.ticker}</span> {c.direction} {c.n_trades}t <span className={c.total_pnl_pct >= 0 ? "text-emerald-500" : "text-rose-500"}>{c.total_pnl_pct}%</span> [{c.pattern}]
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* SL/TP Diagnosis */}
+        {slAtr != null && moveMfe != null && (
+          <div className="p-3 rounded-lg bg-white/[0.02] border border-white/[0.04]">
+            <div className="font-medium text-slate-400 mb-1">Stop Loss &amp; Take Profit</div>
+            <p className="text-slate-400">
+              Current SL recommendation: <span className="text-white font-medium">{slAtr} ATR</span>.
+              Median market move: <span className="text-white font-medium">{moveMfe} ATR</span>.
+              {captureRatio && <> TP trim at {tpTrim} ATR captures only <span className={captureRatio < 30 ? "text-rose-400 font-medium" : "text-white"}>{captureRatio}%</span> of the average move.</>}
+              {slAtr < 0.5 && " Stops may be too tight — normal price noise is likely triggering exits before the trade has time to work."}
+            </p>
+          </div>
+        )}
+
+        {/* Key Actions */}
+        {recs && (
+          <div className="p-3 rounded-lg bg-purple-500/5 border border-purple-500/20">
+            <div className="font-medium text-purple-300 mb-2">Recommended Actions</div>
+            <ul className="space-y-1 text-slate-400">
+              {recs.path_adjustments && Object.entries(recs.path_adjustments).filter(([, v]) => v.action === "DISABLE").map(([state]) => (
+                <li key={state}>Disable entries in <span className="text-white">{state.replace(/HTF_|LTF_/g, "").replace(/_/g, " ")}</span> — negative expectancy</li>
+              ))}
+              {Object.entries(paths).filter(([, v]) => v.action === "BOOST" && v.n >= 3).map(([state]) => (
+                <li key={state}>Increase allocation to <span className="text-emerald-400">{state.replace(/HTF_|LTF_/g, "").replace(/_/g, " ")}</span> — positive edge</li>
+              ))}
+              {recs.sl_atr != null && <li>Set stop loss to <span className="text-white">{recs.sl_atr} ATR</span></li>}
+              {recs.tp_tiers && <li>TP tiers: trim at <span className="text-white">{recs.tp_tiers.trim}</span>, exit at <span className="text-white">{recs.tp_tiers.exit}</span>, runner at <span className="text-white">{recs.tp_tiers.runner} ATR</span></li>}
+              {recs.same_ticker_repeat_recommendation && <li className="text-amber-200/90">Same-ticker repeats: {recs.same_ticker_repeat_recommendation}</li>}
+              {report.hindsight_oracle?.recommendations?.map((rec, i) => <li key={`oracle-${i}`}>{rec.message}</li>)}
+            </ul>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function CalibrationTab({ report, recs, reportId, onApply, applying, appliedMsg }) {
+  const [sub, setSub] = useState("health");
+  if (!report) return <div className="card p-12 text-center text-slate-400 text-sm">No calibration report. Run a calibration first.</div>;
+  const subs = [
+    { id: "health", label: "Health & Apply" },
+    { id: "entries", label: "Entry Paths & Profiles" },
+    { id: "models", label: "Models & Signals" },
+    { id: "risk", label: "Risk Management" },
+    { id: "context", label: "Market Context" },
+    { id: "quality", label: "Trade Quality" },
+  ];
+  return (
+    <div>
+      <div className="flex gap-1 border-b border-white/[0.06] mb-4 overflow-x-auto">
+        {subs.map(t => (
+          <button key={t.id} onClick={() => setSub(t.id)} className={`px-3 py-1.5 text-[11px] font-medium whitespace-nowrap ${sub === t.id ? "tab-active" : "tab-inactive"}`}>{t.label}</button>
+        ))}
+      </div>
+      {sub === "health" && (
+        <div>
+          <AnalysisSummary report={report} recs={recs} />
+          <SystemHealthCard health={report.system_health} />
+          {recs && (
+            <div className="card p-5 mt-4">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-sm font-semibold text-white">Apply Recommendations</h3>
+                <button className="btn btn-apply text-xs" onClick={() => onApply(reportId)} disabled={applying}>{applying ? "Applying..." : "Apply All"}</button>
+              </div>
+              {appliedMsg && <div className="mb-3 p-2 rounded bg-emerald-500/10 border border-emerald-500/20 text-xs text-emerald-300">{appliedMsg}</div>}
+              {report.wfo_summary?.verdict === "WARNING" && <div className="mb-3 p-2 rounded bg-amber-500/10 border border-amber-500/20 text-xs text-amber-300">WFO verdict is WARNING — apply with caution.</div>}
+              <div className="space-y-2 text-xs">
+                {recs.sl_atr != null && <div className="flex justify-between"><span className="text-slate-400">SL (ATR)</span><span className="text-white font-medium">{recs.sl_atr}</span></div>}
+                {recs.tp_tiers && <div className="flex justify-between"><span className="text-slate-400">TP Tiers</span><span className="text-white font-medium">Trim {recs.tp_tiers.trim}, Exit {recs.tp_tiers.exit}, Runner {recs.tp_tiers.runner}</span></div>}
+                {recs.rank_threshold != null && <div className="flex justify-between"><span className="text-slate-400">Rank Min</span><span className="text-white font-medium">{recs.rank_threshold}</span></div>}
+              </div>
+              {(recs.adaptive_entry_gates || recs.adaptive_regime_gates || recs.adaptive_sl_tp) && (
+                <div className="mt-4 pt-3 border-t border-white/[0.06]">
+                  <div className="text-[11px] font-semibold text-purple-400 mb-2">Adaptive Learning Parameters</div>
+                  <div className="space-y-1.5 text-[10px]">
+                    {recs.adaptive_entry_gates && <div className="flex justify-between"><span className="text-slate-400">Entry Gates</span><span className="text-white">{Object.keys(recs.adaptive_entry_gates).filter(k => k !== "_default").length} state-specific gates</span></div>}
+                    {recs.adaptive_regime_gates && <div className="flex justify-between"><span className="text-slate-400">VIX Regime Gates</span><span className="text-white">{Object.keys(recs.adaptive_regime_gates).length} regime rules</span></div>}
+                    {recs.adaptive_rank_weights && <div className="flex justify-between"><span className="text-slate-400">Rank Weights</span><span className="text-white">Dynamic scoring adjustments</span></div>}
+                    {recs.adaptive_sl_tp && <div className="flex justify-between"><span className="text-slate-400">SL/TP per State</span><span className="text-white">{Object.keys(recs.adaptive_sl_tp).filter(k => k !== "_default").length} state profiles</span></div>}
+                  </div>
+                  <p className="text-[9px] text-slate-500 mt-2">Click "Apply All" to write these adaptive parameters into the live scoring engine.</p>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+      {sub === "entries" && (
+        <div className="space-y-6">
+          <div>
+            <h3 className="text-sm font-semibold text-white mb-3 flex items-center gap-2">Entry Paths <span className="text-[10px] text-slate-500 font-normal">How we enter trades</span></h3>
+            <EntryPathsCard paths={report.entry_paths} />
+          </div>
+          <div className="border-t border-white/[0.06] pt-5">
+            <h3 className="text-sm font-semibold text-white mb-3 flex items-center gap-2">Profiles <span className="text-[10px] text-slate-500 font-normal">State-specific performance profiles</span></h3>
+            <ProfilesCard profiles={report.profiles || []} />
+          </div>
+        </div>
+      )}
+      {sub === "models" && (
+        <div className="space-y-6">
+          {report.hindsight_oracle && (
+            <div className="card p-5">
+              <h3 className="text-sm font-semibold text-amber-200/90 mb-2">Hindsight Oracle (5m perfect entry/exit)</h3>
+              <p className="text-xs text-slate-500 mb-3">Qualifying moves: {report.hindsight_oracle.qualifying_moves} | Fingerprints: {report.hindsight_oracle.fingerprints_count}</p>
+              {report.hindsight_oracle.golden_profiles && Object.keys(report.hindsight_oracle.golden_profiles).length > 0 && (
+                <div className="mb-4">
+                  <h4 className="text-xs font-semibold text-slate-400 mb-2">Golden profiles by state</h4>
+                  <div className="overflow-x-auto"><table className="w-full text-xs"><thead><tr className="text-slate-500 border-b border-white/[0.05]">
+                    <th className="text-left py-1.5 font-medium">State</th><th className="text-right px-2 font-medium">N</th><th className="text-right px-2 font-medium">Squeeze%</th><th className="text-right px-2 font-medium">EMA%</th><th className="text-right px-2 font-medium">ST%</th><th className="text-right px-2 font-medium">HTF med</th><th className="text-right pl-2 font-medium">Avg ATR</th>
+                  </tr></thead><tbody>
+                    {Object.entries(report.hindsight_oracle.golden_profiles).map(([state, g]) => (
+                      <tr key={state} className="border-b border-white/[0.03]">
+                        <td className="py-1.5 font-mono text-slate-300">{state.replace(/HTF_|LTF_/g, "").replace(/_/g, " ")}</td>
+                        <td className="text-right px-2">{g.sample_count}</td><td className="text-right px-2">{g.squeeze_release_pct}%</td><td className="text-right px-2">{g.ema_cross_pct}%</td><td className="text-right px-2">{g.st_flip_pct}%</td><td className="text-right px-2">{g.htf_score_median}</td><td className="text-right pl-2">{g.avg_move_atr}</td>
+                      </tr>
+                    ))}
+                  </tbody></table></div>
+                </div>
+              )}
+              {report.hindsight_oracle.recommendations?.length > 0 && (
+                <div><h4 className="text-xs font-semibold text-slate-400 mb-2">Recommendations</h4>
+                  <ul className="space-y-1.5">{report.hindsight_oracle.recommendations.map((rec, i) => (
+                    <li key={i} className="text-xs text-slate-300 pl-2 border-l-2 border-amber-500/30">{rec.message}</li>
+                  ))}</ul>
+                </div>
+              )}
+            </div>
+          )}
+          <div className="border-t border-white/[0.06] pt-5">
+            <h3 className="text-sm font-semibold text-white mb-3">Signal Importance (IC)</h3>
+            <SignalICCard ic={report.signal_ic} />
+          </div>
+        </div>
+      )}
+      {sub === "risk" && (
+        <div className="space-y-6">
+          <div>
+            <h3 className="text-sm font-semibold text-white mb-3">Stop Loss & Take Profit Calibration</h3>
+            <SLTPCard sltp={report.sl_tp_calibration} />
+          </div>
+          <div className="border-t border-white/[0.06] pt-5">
+            <h3 className="text-sm font-semibold text-white mb-3">Rank Optimization</h3>
+            <RankCard rank={report.rank_optimization} />
+          </div>
+          <div className="border-t border-white/[0.06] pt-5">
+            <h3 className="text-sm font-semibold text-white mb-3">Position Sizing</h3>
+            <PositionSizingCard sizing={report.position_sizing} />
+          </div>
+        </div>
+      )}
+      {sub === "context" && (
+        <div className="space-y-6">
+          <div>
+            <h3 className="text-sm font-semibold text-white mb-3">VIX Regime Performance</h3>
+            <VIXRegimeCard vixBuckets={report.vix_buckets} />
+          </div>
+          <div className="border-t border-white/[0.06] pt-5">
+            <h3 className="text-sm font-semibold text-white mb-3">Walk-Forward Optimization</h3>
+            <WFOCard wfo={report.wfo_summary} />
+          </div>
+        </div>
+      )}
+      {sub === "quality" && (
+        <div className="space-y-6">
+          <div>
+            <h3 className="text-sm font-semibold text-white mb-3">Same-Ticker Repeat Trades</h3>
+            <SameTickerRepeatsCard data={report.same_ticker_repeat_analysis} />
+          </div>
+          <div className="border-t border-white/[0.06] pt-5">
+            <h3 className="text-sm font-semibold text-white mb-3">Missed Opportunities</h3>
+            <MissedOpCard missed={report.missed_opportunities} />
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
+// TAB: Patterns (from Model dashboard)
+// ═══════════════════════════════════════════════════════════════
+function PatternsTab() {
+  const [patterns, setPatterns] = useState(null);
+  const [predictions, setPredictions] = useState(null);
+  const [retro, setRetro] = useState(null);
+  const [tickerProfiles, setTickerProfiles] = useState(null);
+  const [profileFilter, setProfileFilter] = useState("");
+  const [profileSort, setProfileSort] = useState("ticker");
+  const [sub, setSub] = useState("patterns");
+
+  useEffect(() => {
+    const load = async () => {
+      try {
+        const [patRes, predRes, retroRes] = await Promise.all([
+          fetch(`${API_BASE}/timed/model/patterns`, { credentials: "include" }).then(r => r.json()),
+          fetch(`${API_BASE}/timed/model/predictions?limit=30`, { credentials: "include" }).then(r => r.json()),
+          fetch(`${API_BASE}/timed/model/retrospective`, { credentials: "include" }).then(r => r.json()),
+        ]);
+        if (patRes.ok) setPatterns(patRes.patterns || []);
+        if (predRes.ok) setPredictions(predRes.predictions || []);
+        if (retroRes.ok) setRetro(retroRes);
+      } catch (_) {}
+    };
+    load();
+  }, []);
+
+  useEffect(() => {
+    if (sub !== "profiles" || tickerProfiles) return;
+    const load = async () => {
+      try {
+        const res = await fetch(`${API_BASE}/timed/system/ticker-profiles`, { credentials: "include" });
+        const data = await res.json();
+        if (data.ok) setTickerProfiles(data.profiles || []);
+      } catch (_) {}
+    };
+    load();
+  }, [sub]);
+
+  const subs = [
+    { id: "patterns", label: "Pattern Library" },
+    { id: "predictions", label: "Predictions" },
+    { id: "learning", label: "Learning Loop" },
+    { id: "profiles", label: "Ticker Profiles" },
+  ];
+
+  return (
+    <div>
+      <div className="flex gap-1 border-b border-white/[0.06] mb-4 overflow-x-auto">
+        {subs.map(t => (
+          <button key={t.id} onClick={() => setSub(t.id)} className={`px-3 py-1.5 text-[11px] font-medium whitespace-nowrap ${sub === t.id ? "tab-active" : "tab-inactive"}`}>{t.label}</button>
+        ))}
+      </div>
+
+      {sub === "patterns" && (
+        <div className="card p-5">
+          <h3 className="text-sm font-semibold text-white mb-3">Active Patterns</h3>
+          {!patterns ? <p className="text-slate-500 text-xs">Loading...</p> : patterns.length === 0 ? <p className="text-slate-500 text-xs">No active patterns.</p> : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs"><thead><tr className="text-slate-500 border-b border-white/[0.05]">
+                <th className="text-left py-1.5 font-medium">Pattern</th><th className="text-right px-2 font-medium">Hit Rate</th>
+                <th className="text-right px-2 font-medium">Samples</th><th className="text-right px-2 font-medium">EV</th><th className="text-right pl-2 font-medium">Confidence</th>
+              </tr></thead><tbody>
+                {patterns.map((p, i) => (
+                  <tr key={i} className="border-b border-white/[0.03]">
+                    <td className="py-1.5 text-slate-300">{p.name || p.pattern_id}</td>
+                    <td className="text-right px-2">{(Number(p.hit_rate) * 100).toFixed(0)}%</td>
+                    <td className="text-right px-2">{p.sample_count}</td>
+                    <td className={`text-right px-2 ${Number(p.expected_value) >= 0 ? "text-emerald-400" : "text-rose-400"}`}>{Number(p.expected_value).toFixed(2)}</td>
+                    <td className="text-right pl-2">{(Number(p.confidence) * 100).toFixed(0)}%</td>
+                  </tr>
+                ))}
+              </tbody></table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {sub === "predictions" && (
+        <div className="card p-5">
+          <h3 className="text-sm font-semibold text-white mb-3">Recent Predictions</h3>
+          {!predictions ? <p className="text-slate-500 text-xs">Loading...</p> : predictions.length === 0 ? <p className="text-slate-500 text-xs">No predictions yet.</p> : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs"><thead><tr className="text-slate-500 border-b border-white/[0.05]">
+                <th className="text-left py-1.5 font-medium">Ticker</th><th className="text-left px-2 font-medium">Direction</th>
+                <th className="text-left px-2 font-medium">Trigger</th><th className="text-right px-2 font-medium">Confidence</th><th className="text-right pl-2 font-medium">Resolved</th>
+              </tr></thead><tbody>
+                {predictions.slice(0, 20).map((p, i) => (
+                  <tr key={i} className="border-b border-white/[0.03]">
+                    <td className="py-1.5 text-white font-medium">{p.ticker}</td>
+                    <td className="px-2"><span className={p.direction === "LONG" ? "text-emerald-400" : "text-rose-400"}>{p.direction}</span></td>
+                    <td className="px-2 text-slate-400">{p.trigger_type}</td>
+                    <td className="text-right px-2">{p.confidence ? (Number(p.confidence) * 100).toFixed(0) + "%" : "—"}</td>
+                    <td className="text-right pl-2">{p.resolved ? (p.outcome === "HIT" ? <span className="badge-good px-1.5 py-0.5 rounded text-[10px]">HIT</span> : <span className="badge-bad px-1.5 py-0.5 rounded text-[10px]">MISS</span>) : <span className="text-slate-500">Open</span>}</td>
+                  </tr>
+                ))}
+              </tbody></table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {sub === "learning" && retro && (
+        <div className="space-y-4">
+          <div className="card p-5">
+            <h3 className="text-sm font-semibold text-white mb-3">Overall Direction Accuracy</h3>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-center">
+              <div><div className="text-[10px] text-slate-500 uppercase">Total</div><div className="text-lg font-bold">{retro.overall?.total || 0}</div></div>
+              <div><div className="text-[10px] text-slate-500 uppercase">Correct</div><div className="text-lg font-bold text-emerald-400">{retro.overall?.correct || 0}</div></div>
+              <div><div className="text-[10px] text-slate-500 uppercase">Wins</div><div className="text-lg font-bold">{retro.overall?.wins || 0}</div></div>
+              <div><div className="text-[10px] text-slate-500 uppercase">Avg P&L</div><div className={`text-lg font-bold ${(retro.overall?.avg_pnl_pct || 0) >= 0 ? "text-emerald-400" : "text-rose-400"}`}>{retro.overall?.avg_pnl_pct || 0}%</div></div>
+            </div>
+          </div>
+          {retro.by_path && retro.by_path.length > 0 && (
+            <div className="card p-5">
+              <h3 className="text-sm font-semibold text-white mb-3">Accuracy by Entry Path</h3>
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs"><thead><tr className="text-slate-500 border-b border-white/[0.05]">
+                  <th className="text-left py-1.5 font-medium">Path</th><th className="text-right px-2 font-medium">Total</th><th className="text-right px-2 font-medium">Correct</th>
+                  <th className="text-right px-2 font-medium">Accuracy</th><th className="text-right pl-2 font-medium">Avg P&L</th>
+                </tr></thead><tbody>
+                  {retro.by_path.map((p, i) => (
+                    <tr key={i} className="border-b border-white/[0.03]">
+                      <td className="py-1.5 font-mono text-slate-300">{p.entry_path}</td>
+                      <td className="text-right px-2">{p.total}</td><td className="text-right px-2 text-emerald-400">{p.correct}</td>
+                      <td className="text-right px-2">{p.total > 0 ? ((p.correct / p.total) * 100).toFixed(0) + "%" : "—"}</td>
+                      <td className={`text-right pl-2 ${(p.avg_pnl_pct || 0) >= 0 ? "text-emerald-400" : "text-rose-400"}`}>{p.avg_pnl_pct || 0}%</td>
+                    </tr>
+                  ))}
+                </tbody></table>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {sub === "profiles" && (
+        <div className="space-y-4">
+          <div className="card p-4">
+            <div className="flex flex-col sm:flex-row sm:items-center gap-3 mb-4">
+              <h3 className="text-sm font-semibold text-white">Ticker Learning Profiles</h3>
+              <input
+                type="text"
+                placeholder="Filter by ticker..."
+                value={profileFilter}
+                onChange={e => setProfileFilter(e.target.value.toUpperCase())}
+                className="px-3 py-1.5 text-xs bg-white/[0.04] border border-white/[0.08] rounded-lg text-white placeholder-slate-500 focus:outline-none focus:border-blue-500/50 w-full sm:w-48"
+              />
+              {tickerProfiles && (
+                <div className="flex gap-3 text-[10px] text-slate-500 ml-auto">
+                  {(() => {
+                    const counts = {};
+                    tickerProfiles.forEach(p => { const k = p.personality || "UNKNOWN"; counts[k] = (counts[k] || 0) + 1; });
+                    return Object.entries(counts).sort((a, b) => b[1] - a[1]).map(([k, v]) => (
+                      <span key={k} className="cursor-pointer hover:text-slate-300" onClick={() => setProfileFilter(profileFilter === k ? "" : k)}>
+                        <span className={`inline-block w-2 h-2 rounded-full mr-1 ${k === "VOLATILE_RUNNER" ? "bg-rose-500" : k === "PULLBACK_PLAYER" ? "bg-amber-500" : k === "SLOW_GRINDER" ? "bg-emerald-500" : k === "TREND_FOLLOWER" ? "bg-violet-500" : "bg-blue-500"}`}></span>
+                        {k.replace(/_/g, " ")} ({v})
+                      </span>
+                    ));
+                  })()}
+                </div>
+              )}
+            </div>
+
+            {!tickerProfiles ? (
+              <p className="text-slate-500 text-xs py-8 text-center">Loading profiles...</p>
+            ) : tickerProfiles.length === 0 ? (
+              <p className="text-slate-500 text-xs py-8 text-center">No ticker profiles yet. Run build-ticker-learning.js and build-ticker-profiles.js first.</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="text-slate-500 border-b border-white/[0.05]">
+                      <th className="text-left py-1.5 font-medium">Ticker</th>
+                      <th className="text-left px-2 font-medium">Personality</th>
+                      <th className="text-right px-2 font-medium">Moves</th>
+                      <th className="text-right px-2 font-medium">SL Mult</th>
+                      <th className="text-right px-2 font-medium">TP Mult</th>
+                      <th className="text-left px-2 font-medium">Trail</th>
+                      <th className="text-right px-2 font-medium">Long RSI Zone</th>
+                      <th className="text-right px-2 font-medium">Short RSI Zone</th>
+                      <th className="text-right pl-2 font-medium">EMA Boost</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {tickerProfiles
+                      .filter(p => !profileFilter || p.ticker?.includes(profileFilter) || (p.personality || "").includes(profileFilter))
+                      .map((p, i) => {
+                        const ep = p.entry_params || {};
+                        const pColors = { VOLATILE_RUNNER: "text-rose-400", PULLBACK_PLAYER: "text-amber-400", SLOW_GRINDER: "text-emerald-400", MODERATE: "text-blue-400", TREND_FOLLOWER: "text-violet-400" };
+                        const pClass = pColors[p.personality] || "text-slate-400";
+                        return (
+                          <tr key={i} className="border-b border-white/[0.03] hover:bg-white/[0.02]">
+                            <td className="py-1.5 font-mono font-bold text-white">{p.ticker}</td>
+                            <td className={`px-2 font-semibold ${pClass}`}>{(p.personality || "—").replace(/_/g, " ")}</td>
+                            <td className="text-right px-2 text-slate-300">{p.move_count ?? "—"}</td>
+                            <td className="text-right px-2 text-slate-300">{ep.sl_atr_mult ? `${ep.sl_atr_mult}x` : (p.sl_mult ? `${p.sl_mult}x` : "—")}</td>
+                            <td className="text-right px-2 text-slate-300">{ep.tp_atr_mult ? `${ep.tp_atr_mult}x` : (p.tp_mult ? `${p.tp_mult}x` : "—")}</td>
+                            <td className="px-2 text-slate-400">{ep.trail_style || "—"}</td>
+                            <td className="text-right px-2 text-slate-300">{ep.long_rsi_sweet_spot || p.long_profile?.rsi_best_zone || "—"}</td>
+                            <td className="text-right px-2 text-slate-300">{ep.short_rsi_sweet_spot || p.short_profile?.rsi_best_zone || "—"}</td>
+                            <td className="text-right pl-2">{ep.ema_alignment_boost ? <span className={Number(ep.ema_alignment_boost) > 1.2 ? "text-emerald-400 font-medium" : "text-slate-400"}>{ep.ema_alignment_boost}x</span> : "—"}</td>
+                          </tr>
+                        );
+                      })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
+// TAB: History
+// ═══════════════════════════════════════════════════════════════
+function HistoryTab({ onViewReport }) {
+  const [history, setHistory] = useState(null);
+  useEffect(() => {
+    const load = async () => {
+      try {
+        const res = await fetch(`${API_BASE}/timed/system/history`, { credentials: "include" });
+        const data = await res.json();
+        if (data.ok) setHistory(data.history || []);
+      } catch (_) {}
+    };
+    load();
+  }, []);
+
+  if (!history) return <div className="text-slate-500 text-sm py-8 text-center">Loading history...</div>;
+  if (history.length === 0) return <div className="card p-12 text-center text-slate-400 text-sm">No calibration history yet.</div>;
+
+  return (
+    <div className="card p-5">
+      <h3 className="text-sm font-semibold text-white mb-4">Calibration History</h3>
+      <div className="overflow-x-auto">
+        <table className="w-full text-xs"><thead><tr className="text-slate-500 border-b border-white/[0.05]">
+          <th className="text-left py-1.5 font-medium">Gen</th>
+          <th className="text-left px-2 font-medium">Date</th>
+          <th className="text-right px-2 font-medium">Trades</th>
+          <th className="text-right px-2 font-medium">SQN</th>
+          <th className="text-right px-2 font-medium">Win%</th>
+          <th className="text-right px-2 font-medium">Exp</th>
+          <th className="text-right px-2 font-medium">Avg R</th>
+          <th className="text-center px-2 font-medium">Applied</th>
+          <th className="text-right pl-2 font-medium"></th>
+        </tr></thead><tbody>
+          {history.map((row, i) => (
+            <tr key={i} className="border-b border-white/[0.03] hover:bg-white/[0.02] cursor-pointer" onClick={() => onViewReport(row.report_id)}>
+              <td className="py-2 text-white font-bold">#{row.generation || "?"}</td>
+              <td className="px-2 text-slate-400">{row.run_ts ? new Date(row.run_ts).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "—"}</td>
+              <td className="text-right px-2">{row.n || row.trade_count}</td>
+              <td className="text-right px-2">
+                <span className="text-white font-medium">{row.sqn?.toFixed(2) ?? "—"}</span>
+                <DeltaBadge value={row.delta_sqn} />
+              </td>
+              <td className="text-right px-2">
+                <span>{row.win_rate ?? "—"}%</span>
+                <DeltaBadge value={row.delta_win_rate} suffix="%" />
+              </td>
+              <td className="text-right px-2">
+                <span className={`${(row.expectancy || 0) >= 0 ? "text-emerald-400" : "text-rose-400"}`}>{row.expectancy ?? "—"}</span>
+                <DeltaBadge value={row.delta_expectancy} />
+              </td>
+              <td className="text-right px-2">{row.avg_r ?? "—"}</td>
+              <td className="text-center px-2">{row.applied ? <span className="text-emerald-400">✓</span> : <span className="text-slate-600">—</span>}</td>
+              <td className="text-right pl-2 text-[10px] text-blue-400 hover:text-blue-300">View</td>
+            </tr>
+          ))}
+        </tbody></table>
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
+// DEEP AUDIT TAB
+// ═══════════════════════════════════════════════════════════════
+function DeepAuditTab() {
+  const [audit, setAudit] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [applying, setApplying] = useState(false);
+  const [appliedMsg, setAppliedMsg] = useState(null);
+  const [subTab, setSubTab] = useState("summary");
+
+  const runAudit = async () => {
+    setLoading(true); setError(null);
+    try {
+      const res = await fetch(`${API_BASE}/timed/calibration/deep-audit?_t=${Date.now()}`, { cache: "no-store" });
+      const json = await res.json();
+      if (!json.ok) throw new Error(json.error || "Audit failed");
+      setAudit(json);
+    } catch (e) { setError(e.message); }
+    finally { setLoading(false); }
+  };
+
+  useEffect(() => { runAudit(); }, []);
+
+  const applyTopRecs = async () => {
+    if (!audit?.recommendations?.length) return;
+    setApplying(true); setAppliedMsg(null);
+    try {
+      const top3 = audit.recommendations.slice(0, 3);
+      const config = {};
+      for (const r of top3) { if (r.config) config[r.config.key] = r.config.value; }
+      const res = await fetch(`${API_BASE}/timed/admin/model-config`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ updates: Object.entries(config).map(([k, v]) => ({ key: k, value: JSON.stringify(v) })) }),
+      });
+      const json = await res.json();
+      setAppliedMsg(json.ok ? `Applied ${top3.length} recommendations to model_config` : (json.error || "Apply failed"));
+    } catch (e) { setAppliedMsg("Error: " + e.message); }
+    finally { setApplying(false); }
+  };
+
+  const pct = (v) => v != null ? `${v}%` : "—";
+  const signPct = (v) => v != null ? (v >= 0 ? `+${v}%` : `${v}%`) : "—";
+  const cardCls = "rounded-lg border p-3";
+  const cardStyle = (positive) => ({ background: "rgba(255,255,255,0.02)", borderColor: positive ? "rgba(16,185,129,0.2)" : "rgba(239,68,68,0.2)" });
+
+  if (loading) return (
+    <div className="flex items-center justify-center py-20">
+      <div className="w-6 h-6 border-2 border-white/20 border-t-emerald-500 rounded-full" style={{animation:"spin 0.7s linear infinite"}} />
+      <span className="ml-3 text-sm text-slate-400">Running deep audit...</span>
+    </div>
+  );
+
+  if (error) return (
+    <div className="p-4 rounded-lg bg-rose-500/10 border border-rose-500/20 text-rose-300 text-sm">
+      <p className="font-medium">Deep Audit Error</p><p className="mt-1">{error}</p>
+      <button className="mt-2 px-3 py-1 rounded bg-rose-500/20 text-xs" onClick={runAudit}>Retry</button>
+    </div>
+  );
+
+  if (!audit) return <div className="text-center py-10 text-slate-400 text-sm">Click "Run Audit" to start</div>;
+
+  const subTabs = [
+    { id: "summary", label: "Executive Summary" },
+    { id: "direction", label: "Direction" },
+    { id: "exits", label: "Exit Reasons" },
+    { id: "tickers", label: "Tickers" },
+    { id: "paths", label: "Entry Paths" },
+    { id: "time", label: "Time & Hold" },
+    { id: "recs", label: `Recommendations (${audit.recommendations?.length || 0})` },
+  ];
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-4">
+        <div>
+          <h2 className="text-base font-semibold text-white">Deep System Audit</h2>
+          <p className="text-[11px] text-slate-400">{audit.trade_count} closed trades analyzed at {new Date(audit.generated_at).toLocaleString()}</p>
+        </div>
+        <div className="flex gap-2">
+          <button className="px-3 py-1.5 rounded text-xs font-medium bg-white/5 border border-white/10 text-slate-300 hover:bg-white/10" onClick={runAudit}>Refresh</button>
+          {audit.recommendations?.length > 0 && (
+            <button className="px-3 py-1.5 rounded text-xs font-medium bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 hover:bg-emerald-500/25"
+              onClick={applyTopRecs} disabled={applying}>
+              {applying ? "Applying..." : `Apply Top ${Math.min(3, audit.recommendations.length)} Recs`}
+            </button>
+          )}
+        </div>
+      </div>
+      {appliedMsg && <div className="mb-3 p-2 rounded text-xs bg-emerald-500/10 border border-emerald-500/20 text-emerald-300">{appliedMsg}</div>}
+
+      <div className="flex gap-1 border-b border-white/[0.06] mb-4 overflow-x-auto">
+        {subTabs.map(t => (
+          <button key={t.id} onClick={() => setSubTab(t.id)} className={`px-3 py-1.5 text-[11px] font-medium whitespace-nowrap ${subTab === t.id ? "tab-active" : "tab-inactive"}`}>{t.label}</button>
+        ))}
+      </div>
+
+      {/* ── Executive Summary ── */}
+      {subTab === "summary" && (
+        <div className="space-y-4">
+          {/* Overall Metrics */}
+          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-2">
+            {[
+              ["Trades", audit.overall.n],
+              ["Win Rate", pct(audit.overall.win_rate)],
+              ["Expectancy", signPct(audit.overall.expectancy)],
+              ["SQN", audit.overall.sqn],
+              ["Profit Factor", audit.overall.profit_factor],
+              ["Max DD", `-${audit.drawdown_analysis.max_drawdown_pct}%`],
+              ["Max Consec L", audit.drawdown_analysis.max_consecutive_losses],
+            ].map(([label, val]) => (
+              <div key={label} className={cardCls} style={{background:"rgba(255,255,255,0.02)", borderColor:"rgba(255,255,255,0.06)"}}>
+                <div className="text-[10px] text-slate-500 uppercase">{label}</div>
+                <div className="text-sm font-bold text-white mt-0.5">{val}</div>
+              </div>
+            ))}
+          </div>
+
+          {/* Classification */}
+          <div className={cardCls} style={{background:"rgba(255,255,255,0.02)", borderColor:"rgba(255,255,255,0.06)"}}>
+            <h3 className="text-xs font-medium text-slate-400 mb-2">Trade Classification</h3>
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
+              {Object.entries(audit.classification_breakdown || {}).map(([cls, count]) => {
+                const colors = { optimal: "text-emerald-400", left_money: "text-amber-400", bad_entry: "text-rose-400", gave_back: "text-orange-400", noise_trade: "text-slate-400" };
+                return (
+                  <div key={cls} className="text-center">
+                    <div className={`text-lg font-bold ${colors[cls] || "text-white"}`}>{count}</div>
+                    <div className="text-[10px] text-slate-500">{cls.replace(/_/g, " ")}</div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Strengths & Issues side by side */}
+          <div className="grid md:grid-cols-2 gap-3">
+            <div className={cardCls} style={{background:"rgba(16,185,129,0.04)", borderColor:"rgba(16,185,129,0.15)"}}>
+              <h3 className="text-xs font-medium text-emerald-400 mb-2">Strengths</h3>
+              {(audit.strengths || []).map((s, i) => (
+                <div key={i} className="mb-1.5">
+                  <div className="text-[12px] font-medium text-white">{s.label}</div>
+                  <div className="text-[11px] text-slate-400">{s.detail}</div>
+                </div>
+              ))}
+              {(!audit.strengths || audit.strengths.length === 0) && <div className="text-xs text-slate-500">No notable strengths detected</div>}
+            </div>
+            <div className={cardCls} style={{background:"rgba(239,68,68,0.04)", borderColor:"rgba(239,68,68,0.15)"}}>
+              <h3 className="text-xs font-medium text-rose-400 mb-2">Issues</h3>
+              {(audit.issues || []).map((s, i) => (
+                <div key={i} className="mb-1.5">
+                  <div className="text-[12px] font-medium text-white">{s.label}</div>
+                  <div className="text-[11px] text-slate-400">{s.detail}</div>
+                </div>
+              ))}
+              {(!audit.issues || audit.issues.length === 0) && <div className="text-xs text-slate-500">No critical issues detected</div>}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Direction Analysis ── */}
+      {subTab === "direction" && (
+        <div className="space-y-3">
+          {["LONG", "SHORT"].map(dir => {
+            const d = audit.direction_analysis?.[dir];
+            if (!d) return null;
+            const isGood = d.expectancy >= 0;
+            return (
+              <div key={dir} className={cardCls} style={cardStyle(isGood)}>
+                <div className="flex items-center gap-2 mb-2">
+                  <span className={`text-sm font-bold ${isGood ? "text-emerald-400" : "text-rose-400"}`}>{dir}</span>
+                  <span className="text-[10px] px-1.5 py-0.5 rounded" style={{background: isGood ? "rgba(16,185,129,0.15)" : "rgba(239,68,68,0.15)", color: isGood ? "#34d399" : "#fca5a5"}}>{d.n} trades</span>
+                </div>
+                <div className="grid grid-cols-3 md:grid-cols-6 gap-3 text-center">
+                  {[["Win Rate", pct(d.win_rate)], ["Expectancy", signPct(d.expectancy)], ["SQN", d.sqn], ["Avg P&L", signPct(d.avg_pnl_pct)], ["PF", d.profit_factor], ["Total P&L", signPct(d.total_pnl_pct)]].map(([l,v]) => (
+                    <div key={l}><div className="text-[10px] text-slate-500">{l}</div><div className="text-xs font-semibold text-white">{v}</div></div>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+          {audit.direction_analysis?.verdict === "RESTRICT_SHORT" && (
+            <div className="p-3 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-300 text-xs">
+              Recommendation: SHORT trades are net-negative. Restrict to high-conviction only (rank &gt;= 80).
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Exit Reasons ── */}
+      {subTab === "exits" && (
+        <div className="overflow-x-auto">
+          <table className="w-full text-[11px]">
+            <thead><tr className="text-slate-500 border-b border-white/[0.06]">
+              <th className="py-2 text-left font-medium">Exit Reason</th>
+              <th className="py-2 text-right font-medium">Count</th>
+              <th className="py-2 text-right font-medium">Win Rate</th>
+              <th className="py-2 text-right font-medium">Avg P&L</th>
+              <th className="py-2 text-right font-medium">Total P&L</th>
+              <th className="py-2 text-right font-medium">SQN</th>
+              <th className="py-2 text-center font-medium">Verdict</th>
+            </tr></thead>
+            <tbody>
+              {Object.entries(audit.exit_reason_audit || {}).sort((a, b) => b[1].n - a[1].n).map(([reason, d]) => {
+                const colors = { STAR: "text-emerald-400 bg-emerald-500/10", GOOD: "text-emerald-300 bg-emerald-500/5", OK: "text-slate-300 bg-white/5", BAD: "text-amber-400 bg-amber-500/10", TOXIC: "text-rose-400 bg-rose-500/10" };
+                return (
+                  <tr key={reason} className="border-b border-white/[0.03] hover:bg-white/[0.02]">
+                    <td className="py-1.5 text-white font-medium max-w-[200px] truncate" title={reason}>{reason}</td>
+                    <td className="py-1.5 text-right text-slate-300">{d.n}</td>
+                    <td className="py-1.5 text-right text-slate-300">{pct(d.win_rate)}</td>
+                    <td className={`py-1.5 text-right font-semibold ${d.avg_pnl_pct >= 0 ? "text-emerald-400" : "text-rose-400"}`}>{signPct(d.avg_pnl_pct)}</td>
+                    <td className={`py-1.5 text-right ${d.total_pnl_pct >= 0 ? "text-emerald-400" : "text-rose-400"}`}>{signPct(d.total_pnl_pct)}</td>
+                    <td className="py-1.5 text-right text-slate-300">{d.sqn}</td>
+                    <td className="py-1.5 text-center"><span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${colors[d.verdict] || colors.OK}`}>{d.verdict}</span></td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* ── Tickers ── */}
+      {subTab === "tickers" && (
+        <div>
+          {audit.toxic_tickers?.length > 0 && (
+            <div className="mb-3 p-2 rounded bg-rose-500/10 border border-rose-500/20 text-xs text-rose-300">
+              <span className="font-medium">Toxic ({audit.toxic_tickers.length}):</span> {audit.toxic_tickers.join(", ")}
+            </div>
+          )}
+          {audit.edge_tickers?.length > 0 && (
+            <div className="mb-3 p-2 rounded bg-emerald-500/10 border border-emerald-500/20 text-xs text-emerald-300">
+              <span className="font-medium">Edge ({audit.edge_tickers.length}):</span> {audit.edge_tickers.join(", ")}
+            </div>
+          )}
+          <div className="overflow-x-auto max-h-[500px] overflow-y-auto">
+            <table className="w-full text-[11px]">
+              <thead className="sticky top-0 bg-[#0f1117]"><tr className="text-slate-500 border-b border-white/[0.06]">
+                <th className="py-2 text-left font-medium">Ticker</th>
+                <th className="py-2 text-right font-medium">N</th>
+                <th className="py-2 text-right font-medium">WR</th>
+                <th className="py-2 text-right font-medium">Avg P&L</th>
+                <th className="py-2 text-right font-medium">SQN</th>
+                <th className="py-2 text-right font-medium">MFE</th>
+                <th className="py-2 text-right font-medium">MAE</th>
+                <th className="py-2 text-center font-medium">Grade</th>
+              </tr></thead>
+              <tbody>
+                {Object.entries(audit.ticker_profiles || {}).sort((a, b) => b[1].total_pnl_pct - a[1].total_pnl_pct).map(([ticker, d]) => {
+                  const gradeColors = { EDGE: "text-emerald-400 bg-emerald-500/10", STRONG: "text-emerald-300 bg-emerald-500/5", NEUTRAL: "text-slate-300 bg-white/5", WEAK: "text-amber-400 bg-amber-500/10", TOXIC: "text-rose-400 bg-rose-500/10" };
+                  return (
+                    <tr key={ticker} className="border-b border-white/[0.03] hover:bg-white/[0.02]">
+                      <td className="py-1.5 text-white font-medium">{ticker}</td>
+                      <td className="py-1.5 text-right text-slate-300">{d.n}</td>
+                      <td className="py-1.5 text-right text-slate-300">{pct(d.win_rate)}</td>
+                      <td className={`py-1.5 text-right font-semibold ${d.avg_pnl_pct >= 0 ? "text-emerald-400" : "text-rose-400"}`}>{signPct(d.avg_pnl_pct)}</td>
+                      <td className="py-1.5 text-right text-slate-300">{d.sqn}</td>
+                      <td className="py-1.5 text-right text-slate-300">{pct(d.avg_mfe_pct)}</td>
+                      <td className="py-1.5 text-right text-slate-300">{pct(d.avg_mae_pct)}</td>
+                      <td className="py-1.5 text-center"><span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${gradeColors[d.grade] || gradeColors.NEUTRAL}`}>{d.grade}</span></td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* ── Entry Paths ── */}
+      {subTab === "paths" && (
+        <div className="space-y-3">
+          {Object.entries(audit.entry_paths || {}).sort((a, b) => b[1].n - a[1].n).map(([path, d]) => {
+            const actionColors = { KEEP: "text-slate-300 bg-white/5", BOOST: "text-emerald-400 bg-emerald-500/10", RESTRICT: "text-amber-400 bg-amber-500/10", DISABLE: "text-rose-400 bg-rose-500/10" };
+            return (
+              <div key={path} className={cardCls} style={{background:"rgba(255,255,255,0.02)", borderColor:"rgba(255,255,255,0.06)"}}>
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-xs font-semibold text-white">{path}</span>
+                  <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${actionColors[d.action] || actionColors.KEEP}`}>{d.action}</span>
+                </div>
+                <div className="grid grid-cols-3 md:grid-cols-6 gap-2 text-center text-[11px]">
+                  {[["N", d.n], ["WR", pct(d.win_rate)], ["Exp", signPct(d.expectancy)], ["SQN", d.sqn], ["PF", d.profit_factor], ["Total", signPct(d.total_pnl_pct)]].map(([l,v]) => (
+                    <div key={l}><div className="text-[10px] text-slate-500">{l}</div><div className="text-xs text-white">{v}</div></div>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* ── Time & Hold ── */}
+      {subTab === "time" && (
+        <div className="space-y-4">
+          <div>
+            <h3 className="text-xs font-medium text-slate-400 mb-2">Time of Day (ET)</h3>
+            <div className="grid grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-2">
+              {Object.entries(audit.time_of_day || {}).sort((a, b) => Number(a[0]) - Number(b[0])).map(([h, d]) => (
+                <div key={h} className={cardCls} style={{background: d.avg_pnl_pct >= 0 ? "rgba(16,185,129,0.05)" : "rgba(239,68,68,0.05)", borderColor: d.avg_pnl_pct >= 0 ? "rgba(16,185,129,0.15)" : "rgba(239,68,68,0.15)"}}>
+                  <div className="text-[10px] text-slate-500">{h}:00</div>
+                  <div className={`text-xs font-bold ${d.avg_pnl_pct >= 0 ? "text-emerald-400" : "text-rose-400"}`}>{signPct(d.avg_pnl_pct)}</div>
+                  <div className="text-[10px] text-slate-500">{d.n}t / {pct(d.win_rate)}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+          <div>
+            <h3 className="text-xs font-medium text-slate-400 mb-2">Hold Time Buckets</h3>
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2">
+              {Object.entries(audit.hold_time_analysis || {}).map(([bucket, d]) => (
+                <div key={bucket} className={cardCls} style={{background:"rgba(255,255,255,0.02)", borderColor:"rgba(255,255,255,0.06)"}}>
+                  <div className="text-[10px] text-slate-500 font-medium">{bucket}</div>
+                  <div className={`text-sm font-bold ${d.avg_pnl_pct >= 0 ? "text-emerald-400" : "text-rose-400"}`}>{signPct(d.avg_pnl_pct)}</div>
+                  <div className="text-[10px] text-slate-400">{d.n} trades / {pct(d.win_rate)} WR</div>
+                </div>
+              ))}
+            </div>
+          </div>
+          {audit.sector_analysis && (
+            <div>
+              <h3 className="text-xs font-medium text-slate-400 mb-2">Sector Performance</h3>
+              <div className="overflow-x-auto">
+                <table className="w-full text-[11px]">
+                  <thead><tr className="text-slate-500 border-b border-white/[0.06]">
+                    <th className="py-1.5 text-left font-medium">Sector</th>
+                    <th className="py-1.5 text-right font-medium">N</th>
+                    <th className="py-1.5 text-right font-medium">WR</th>
+                    <th className="py-1.5 text-right font-medium">Avg P&L</th>
+                    <th className="py-1.5 text-right font-medium">SQN</th>
+                  </tr></thead>
+                  <tbody>
+                    {Object.entries(audit.sector_analysis).sort((a, b) => b[1].n - a[1].n).map(([sec, d]) => (
+                      <tr key={sec} className="border-b border-white/[0.03]">
+                        <td className="py-1.5 text-white">{sec}</td>
+                        <td className="py-1.5 text-right text-slate-300">{d.n}</td>
+                        <td className="py-1.5 text-right">{pct(d.win_rate)}</td>
+                        <td className={`py-1.5 text-right font-semibold ${d.avg_pnl_pct >= 0 ? "text-emerald-400" : "text-rose-400"}`}>{signPct(d.avg_pnl_pct)}</td>
+                        <td className="py-1.5 text-right text-slate-300">{d.sqn}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Recommendations ── */}
+      {subTab === "recs" && (
+        <div className="space-y-3">
+          {(audit.recommendations || []).length === 0 && <div className="text-sm text-slate-400 text-center py-10">No recommendations generated</div>}
+          {(audit.recommendations || []).map((r, i) => (
+            <div key={r.id} className={cardCls} style={{background:"rgba(255,255,255,0.02)", borderColor: i < 3 ? "rgba(16,185,129,0.2)" : "rgba(255,255,255,0.06)"}}>
+              <div className="flex items-center justify-between mb-1">
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] font-bold text-slate-500">#{i + 1}</span>
+                  <span className="text-xs font-semibold text-white">{r.title}</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${r.confidence === "HIGH" ? "text-emerald-400 bg-emerald-500/10" : r.confidence === "MEDIUM" ? "text-amber-400 bg-amber-500/10" : "text-slate-300 bg-white/5"}`}>{r.confidence}</span>
+                  <span className="text-xs font-bold text-emerald-400">+{r.impact_pct}% pts</span>
+                </div>
+              </div>
+              <p className="text-[11px] text-slate-400 leading-relaxed">{r.detail}</p>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
+// UNIFIED ANALYSIS TAB (merges Deep Audit + Calibration)
+// ═══════════════════════════════════════════════════════════════
+function UnifiedAnalysisTab({ report, recs, reportId, onApply, applying, appliedMsg }) {
+  const [section, setSection] = useState("live");
+  return (
+    <div>
+      <div className="flex gap-1 mb-5">
+        <button onClick={() => setSection("live")} className={`px-4 py-2 text-xs font-semibold rounded-lg transition-all ${section === "live" ? "bg-emerald-500/15 text-emerald-300 border border-emerald-500/30" : "bg-white/[0.03] text-slate-400 border border-white/[0.06] hover:bg-white/[0.06]"}`}>
+          Live Audit
+        </button>
+        <button onClick={() => setSection("calibration")} className={`px-4 py-2 text-xs font-semibold rounded-lg transition-all ${section === "calibration" ? "bg-indigo-500/15 text-indigo-300 border border-indigo-500/30" : "bg-white/[0.03] text-slate-400 border border-white/[0.06] hover:bg-white/[0.06]"}`}>
+          Calibration Report
+        </button>
+      </div>
+      {section === "live" && <DeepAuditTab />}
+      {section === "calibration" && <CalibrationTab report={report} recs={recs} reportId={reportId} onApply={onApply} applying={applying} appliedMsg={appliedMsg} />}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
+// TAB: Backtest Runs
+// ═══════════════════════════════════════════════════════════════
+function RunsTab({ isAdmin }) {
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [runs, setRuns] = useState([]);
+  const [liveSummary, setLiveSummary] = useState(null);
+  const [promotingRunId, setPromotingRunId] = useState("");
+  const [message, setMessage] = useState(null);
+
+  const fmtNum = (n) => {
+    const v = Number(n);
+    return Number.isFinite(v) ? v.toLocaleString() : "—";
+  };
+  const fmtPct = (n) => {
+    const v = Number(n);
+    return Number.isFinite(v) ? `${v.toFixed(2)}%` : "—";
+  };
+  const fmtMoney = (n) => {
+    const v = Number(n);
+    if (!Number.isFinite(v)) return "—";
+    return `${v >= 0 ? "+" : "-"}$${Math.abs(v).toFixed(2)}`;
+  };
+  const shortRunId = (rid) => {
+    const s = String(rid || "");
+    if (!s) return "—";
+    if (s.length <= 42) return s;
+    return `${s.slice(0, 26)}...${s.slice(-12)}`;
+  };
+
+  const fetchRuns = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const [listRes, liveRes] = await Promise.all([
+        fetch(`${API_BASE}/timed/admin/runs?limit=60`, { credentials: "include" }).then(r => r.json()).catch(() => null),
+        fetch(`${API_BASE}/timed/admin/runs/live`, { credentials: "include" }).then(r => r.json()).catch(() => null),
+      ]);
+      if (!listRes?.ok) {
+        setError(listRes?.error || "Failed to load backtest runs");
+        setRuns([]);
+      } else {
+        const rows = Array.isArray(listRes.summaries) && listRes.summaries.length
+          ? listRes.summaries
+          : (Array.isArray(listRes.runs) ? listRes.runs : []);
+        setRuns(rows);
+      }
+      if (liveRes?.ok) setLiveSummary(liveRes.summary || null);
+    } catch (e) {
+      setError(String(e || "Failed to load runs"));
+    }
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { fetchRuns(); }, [fetchRuns]);
+
+  const promoteRun = async (runId) => {
+    if (!isAdmin) return;
+    if (!runId) return;
+    setPromotingRunId(runId);
+    setMessage(null);
+    try {
+      const res = await fetch(`${API_BASE}/timed/admin/runs/mark-live`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ run_id: runId }),
+        credentials: "include",
+      });
+      const data = await res.json();
+      if (!data?.ok) {
+        setError(data?.error || "Failed to promote run");
+      } else {
+        setMessage(`Live baseline updated: ${runId}`);
+        await fetchRuns();
+      }
+    } catch (e) {
+      setError(String(e || "Failed to promote run"));
+    }
+    setPromotingRunId("");
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="card p-4">
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-sm font-semibold text-white">Live Baseline</h3>
+          <button className="btn btn-secondary text-xs" onClick={fetchRuns} disabled={loading}>Refresh</button>
+        </div>
+        {liveSummary ? (
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
+            <div><div className="text-slate-500">Run ID</div><div className="text-slate-200 font-mono break-all">{liveSummary.run_id || "—"}</div></div>
+            <div><div className="text-slate-500">Date Range</div><div className="text-slate-200">{liveSummary.start_date || "—"} → {liveSummary.end_date || "—"}</div></div>
+            <div><div className="text-slate-500">Trades / Win Rate</div><div className="text-slate-200">{fmtNum(liveSummary?.trades?.total)} / {fmtPct(liveSummary?.trades?.win_rate)}</div></div>
+            <div><div className="text-slate-500">Realized P&L</div><div className={`${Number(liveSummary?.pnl?.realized || 0) >= 0 ? "text-emerald-400" : "text-rose-400"} font-semibold`}>{fmtMoney(liveSummary?.pnl?.realized)}</div></div>
+          </div>
+        ) : (
+          <p className="text-xs text-slate-500">No live baseline selected yet.</p>
+        )}
+      </div>
+
+      {message && <div className="p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-xs text-emerald-300">{message}</div>}
+      {error && <div className="p-3 rounded-lg bg-rose-500/10 border border-rose-500/20 text-xs text-rose-300">{error}</div>}
+
+      <div className="card overflow-hidden">
+        <div className="px-4 py-3 border-b border-white/[0.06]">
+          <h3 className="text-sm font-semibold text-white">Backtest Runs</h3>
+          <p className="text-[11px] text-slate-500 mt-1">Track run metrics and promote a specific run ID to live baseline.</p>
+        </div>
+        {loading ? (
+          <div className="p-5 text-center text-xs text-slate-500">Loading runs...</div>
+        ) : runs.length === 0 ? (
+          <div className="p-5 text-center text-xs text-slate-500">No runs found.</div>
+        ) : (
+          <div className="overflow-auto">
+            <table className="w-full text-xs min-w-[1180px]">
+              <thead className="bg-white/[0.03] text-slate-500">
+                <tr>
+                  <th className="px-3 py-2 text-left font-semibold">Run</th>
+                  <th className="px-3 py-2 text-left font-semibold">Range</th>
+                  <th className="px-3 py-2 text-right font-semibold">Tickers</th>
+                  <th className="px-3 py-2 text-right font-semibold">Trades</th>
+                  <th className="px-3 py-2 text-right font-semibold">W / L / BE</th>
+                  <th className="px-3 py-2 text-right font-semibold">Win Rate</th>
+                  <th className="px-3 py-2 text-right font-semibold">P&L</th>
+                  <th className="px-3 py-2 text-left font-semibold">Autopsy</th>
+                  <th className="px-3 py-2 text-left font-semibold">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {runs.map((r) => {
+                  const runId = r.run_id || "";
+                  const pnl = Number(r?.pnl?.realized ?? r?.realized_pnl ?? 0);
+                  const autopsyUrl = r?.autopsy_url || "#";
+                  const tradedCount = r?.tickers?.traded_count ?? r?.total_tickers_traded;
+                  const universeCount = r?.tickers?.universe_count ?? r?.ticker_universe_count;
+                  const totalTrades = r?.trades?.total ?? r?.total_trades;
+                  const wins = r?.trades?.wins ?? r?.wins;
+                  const losses = r?.trades?.losses ?? r?.losses;
+                  const be = r?.trades?.breakevens ?? r?.breakevens;
+                  const winRate = r?.trades?.win_rate ?? r?.win_rate;
+                  const isLive = !!(r?.live_config_slot);
+                  return (
+                    <tr key={runId} className="border-t border-white/[0.04] hover:bg-white/[0.02]">
+                      <td className="px-3 py-2">
+                        <div className="font-mono text-slate-200" title={runId}>{shortRunId(runId)}</div>
+                        <div className="text-[10px] text-slate-500">{r?.label || "—"} {isLive ? <span className="ml-1 text-emerald-400 font-semibold">LIVE</span> : null}</div>
+                      </td>
+                      <td className="px-3 py-2 text-slate-300">{r?.start_date || "—"} → {r?.end_date || "—"}</td>
+                      <td className="px-3 py-2 text-right text-slate-300">{fmtNum(tradedCount)} / {fmtNum(universeCount)}</td>
+                      <td className="px-3 py-2 text-right text-slate-300">{fmtNum(totalTrades)}</td>
+                      <td className="px-3 py-2 text-right text-slate-300">{fmtNum(wins)} / {fmtNum(losses)} / {fmtNum(be)}</td>
+                      <td className="px-3 py-2 text-right text-slate-300">{fmtPct(winRate)}</td>
+                      <td className={`px-3 py-2 text-right font-semibold ${pnl >= 0 ? "text-emerald-400" : "text-rose-400"}`}>{fmtMoney(pnl)}</td>
+                      <td className="px-3 py-2">
+                        {autopsyUrl && autopsyUrl !== "#" ? (
+                          <a className="text-cyan-300 hover:text-cyan-200 underline" href={autopsyUrl}>Open</a>
+                        ) : (
+                          <span className="text-slate-500">—</span>
+                        )}
+                      </td>
+                      <td className="px-3 py-2">
+                        {isAdmin ? (
+                          <button
+                            className="btn text-[11px]"
+                            style={{ background: isLive ? "rgba(16,185,129,0.15)" : "rgba(29,78,216,0.2)", color: isLive ? "#6ee7b7" : "#93c5fd", border: "1px solid rgba(147,197,253,0.25)", padding: "5px 10px" }}
+                            disabled={isLive || promotingRunId === runId}
+                            onClick={() => promoteRun(runId)}
+                          >
+                            {isLive ? "Live" : (promotingRunId === runId ? "Promoting..." : "Promote Live")}
+                          </button>
+                        ) : (
+                          <span className="text-slate-500">Admin only</span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
+// MAIN APP
+// ═══════════════════════════════════════════════════════════════
+function App() {
+  const [tab, setTab] = useState("dashboard");
+  const [dashboard, setDashboard] = useState(null);
+  const [report, setReport] = useState(null);
+  const [recs, setRecs] = useState(null);
+  const [reportId, setReportId] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [running, setRunning] = useState(false);
+  const [queued, setQueued] = useState(false);
+  const [progress, setProgress] = useState(null);
+  const preCalibReportIdRef = React.useRef(null);
+  const [applying, setApplying] = useState(false);
+  const [appliedMsg, setAppliedMsg] = useState(null);
+  const [resetting, setResetting] = useState(false);
+  const [resetMsg, setResetMsg] = useState(null);
+  const [error, setError] = useState(null);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const pollIntervalRef = React.useRef(null);
+  const statusPollRef = React.useRef(null);
+
+  useEffect(() => {
+    const session = window.TimedAuthHelpers?.getStoredSession();
+    const r = String(session?.role || "").toLowerCase();
+    const t = String(session?.tier || "").toLowerCase();
+    const admin = r === "admin" || t === "admin";
+    document.body.setAttribute("data-user-role", admin ? "admin" : (session?.role || ""));
+    setIsAdmin(admin);
+  }, []);
+
+  const fetchData = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const [dashRes, reportRes] = await Promise.all([
+        fetch(`${API_BASE}/timed/system/dashboard`, { credentials: "include" }).then(r => r.json()).catch(() => null),
+        fetch(`${API_BASE}/timed/calibration/report`, { credentials: "include" }).then(r => r.json()).catch(() => null),
+      ]);
+      if (dashRes?.ok) setDashboard(dashRes);
+      if (reportRes?.ok) {
+        setReport(reportRes.report);
+        setRecs(reportRes.recommendations);
+        setReportId(reportRes.report_id);
+      }
+    } catch (e) { setError(String(e)); }
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { fetchData(); }, [fetchData]);
+
+  // Poll status when queued
+  useEffect(() => {
+    if (!queued) return;
+    const fetchStatus = async () => {
+      try {
+        const res = await fetch(`${API_BASE}/timed/calibration/status`, { credentials: "include" });
+        if (res.ok) {
+          const data = await res.json();
+          if (data.ok) {
+            setProgress({ message: data.message, step: data.step, total_steps: data.total_steps, steps: data.steps, status: data.status });
+            if (data.status === "error" && data.message) {
+              setError(data.message);
+              setQueued(false);
+            }
+            // When status reports "done", fetch the new report and finish
+            if (data.status === "done") {
+              try {
+                const rptRes = await fetch(`${API_BASE}/timed/calibration/report`, { credentials: "include" });
+                const rptData = await rptRes.json();
+                if (rptData.ok && rptData.report) {
+                  setReport(rptData.report); setRecs(rptData.recommendations); setReportId(rptData.report_id);
+                }
+              } catch (_) {}
+              setQueued(false);
+              fetchData();
+            }
+          }
+        }
+      } catch (_) {}
+    };
+    fetchStatus();
+    statusPollRef.current = setInterval(fetchStatus, 3000);
+    return () => { if (statusPollRef.current) clearInterval(statusPollRef.current); statusPollRef.current = null; };
+  }, [queued]);
+
+  useEffect(() => {
+    if (!queued) return;
+    const tick = async () => {
+      try {
+        const res = await fetch(`${API_BASE}/timed/calibration/report`, { credentials: "include" });
+        if (res.ok) {
+          const data = await res.json();
+          // Only treat as "done" if this is a NEW report (different from the one before we clicked Run)
+          if (data.ok && data.report && data.report_id && data.report_id !== preCalibReportIdRef.current) {
+            setReport(data.report); setRecs(data.recommendations); setReportId(data.report_id);
+            setQueued(false); setProgress(null);
+            if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+            fetchData();
+            return;
+          }
+        }
+      } catch (_) {}
+    };
+    pollIntervalRef.current = setInterval(tick, 15000);
+    return () => { if (pollIntervalRef.current) clearInterval(pollIntervalRef.current); };
+  }, [queued]);
+
+  const handleRun = async () => {
+    setRunning(true); setError(null);
+    preCalibReportIdRef.current = reportId;
+    try {
+      const res = await fetch(`${API_BASE}/timed/calibration/run`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ analysis_only: true }), credentials: "include" });
+      const data = await res.json();
+      if (data.ok && data.report) { setReport(data.report); setRecs(data.report?.recommendations); setReportId(data.report?.report_id || reportId); fetchData(); }
+      else if (!data.ok) setError(data.error || "Analysis failed");
+    } catch (e) { setError(String(e)); }
+    setRunning(false);
+  };
+  const handleApply = async (id) => {
+    setApplying(true); setAppliedMsg(null);
+    try {
+      const res = await fetch(`${API_BASE}/timed/calibration/apply`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ report_id: id }), credentials: "include" });
+      const data = await res.json();
+      if (data.ok) setAppliedMsg(`Applied: ${data.applied?.join(", ")}`);
+      else setError(data.error);
+    } catch (e) { setError(String(e)); }
+    setApplying(false);
+  };
+  const handleReset = async () => {
+    if (!confirm("This will permanently delete ALL trades and reset the account to $100,000. Continue?")) return;
+    setResetting(true); setResetMsg(null); setError(null);
+    try {
+      const res = await fetch(`${API_BASE}/timed/trades/reset`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}", credentials: "include" });
+      const data = await res.json();
+      if (data.ok) { setResetMsg(data.message || "Account reset to $100,000."); setReport(null); setRecs(null); fetchData(); }
+      else setError(data.error || "Reset failed");
+    } catch (e) { setError(String(e)); }
+    setResetting(false);
+  };
+  const handleViewReport = async (rid) => {
+    try {
+      const res = await fetch(`${API_BASE}/timed/calibration/report?report_id=${rid}`, { credentials: "include" });
+      const data = await res.json();
+      if (data.ok) { setReport(data.report); setRecs(data.recommendations); setReportId(data.report_id); setTab("analysis"); }
+    } catch (_) {}
+  };
+
+  const tabs = [
+    { id: "dashboard", label: "Dashboard" },
+    { id: "analysis", label: "Analysis" },
+    ...(isAdmin ? [{ id: "runs", label: "Runs" }] : []),
+    { id: "patterns", label: "Patterns & Learning" },
+    { id: "history", label: "History" },
+  ];
+
+  return (
+    <div className="min-h-screen pb-16">
+      <NavHeader />
+      <div className="max-w-6xl mx-auto px-4 py-6">
+        <div className="flex items-center justify-between mb-5">
+          <div>
+            <h1 className="text-xl font-bold text-white">System Intelligence</h1>
+            <p className="text-xs text-slate-400 mt-1">Unified calibration, model performance, and learning loop</p>
+          </div>
+          {isAdmin && (
+            <div className="flex items-center gap-2">
+              <button className="btn btn-primary text-xs" onClick={handleRun} disabled={running}>
+                {running ? <span className="flex items-center gap-1.5"><span className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full" style={{animation:"spin 0.7s linear infinite"}} />Analyzing...</span> : "Run Analysis"}
+              </button>
+              <button className="btn text-xs" style={{background:"rgba(239,68,68,0.15)", color:"#fca5a5", border:"1px solid rgba(239,68,68,0.25)"}} onClick={handleReset} disabled={resetting}>
+                {resetting ? <span className="flex items-center gap-1.5"><span className="w-3 h-3 border-2 border-rose-400/30 border-t-rose-400 rounded-full" style={{animation:"spin 0.7s linear infinite"}} />Resetting...</span> : "Reset Account"}
+              </button>
+            </div>
+          )}
+        </div>
+
+        {isAdmin && (
+          <div className="mb-4 p-3 rounded-lg border text-xs" style={{background:"rgba(99,102,241,0.06)", borderColor:"rgba(99,102,241,0.2)"}}>
+            <p className="text-indigo-300 font-medium mb-1">Local Calibration Pipeline</p>
+            <p className="text-slate-400">Full calibration (harvest + autopsy) runs locally for reliability. Upload data, then click <span className="text-white font-medium">Run Analysis</span> to build profiles.</p>
+            <code className="block mt-1.5 text-[10px] text-slate-500 bg-white/[0.04] rounded px-2 py-1 font-mono">node scripts/calibrate.js</code>
+          </div>
+        )}
+        {error && <div className="mb-4 p-3 rounded-lg bg-rose-500/10 border border-rose-500/20 text-sm text-rose-300">{error}</div>}
+        {resetMsg && <div className="mb-4 p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-sm text-emerald-300">{resetMsg}</div>}
+
+        {/* Main tabs */}
+        <div className="flex gap-1 border-b border-white/[0.06] mb-5 overflow-x-auto">
+          {tabs.map(t => (
+            <button key={t.id} onClick={() => setTab(t.id)} className={`px-4 py-2 text-xs font-medium whitespace-nowrap ${tab === t.id ? "tab-active" : "tab-inactive"}`}>{t.label}</button>
+          ))}
+        </div>
+
+        {loading && tab === "dashboard" ? (
+          <div className="flex items-center justify-center py-20">
+            <div className="w-6 h-6 border-2 border-white/20 border-t-emerald-500 rounded-full" style={{animation:"spin 0.7s linear infinite"}} />
+          </div>
+        ) : (
+          <>
+            {tab === "dashboard" && <DashboardTab dashboard={dashboard} />}
+            {tab === "analysis" && <UnifiedAnalysisTab report={report} recs={recs} reportId={reportId} onApply={handleApply} applying={applying} appliedMsg={appliedMsg} />}
+            {tab === "runs" && <RunsTab isAdmin={isAdmin} />}
+            {tab === "patterns" && <PatternsTab />}
+            {tab === "history" && <HistoryTab onViewReport={handleViewReport} />}
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+    </script>
+  <script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'9d8253c6bc731c6f',t:'MTc3MjgxMDI0Ng=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+</html>

@@ -3263,7 +3263,7 @@
         }
 
         // Score strength bonus (strong HTF/LTF scores)
-        const htfStrength = Math.min(8, Math.abs(htf) * 0.15);
+        const htfStrength = Math.min(12, Math.abs(htf) * 0.25);
         const ltfStrength = Math.min(6, Math.abs(ltf) * 0.12);
         dynamicScore += htfStrength + ltfStrength;
 
@@ -4199,41 +4199,70 @@
 
           const relLabelY = -renderedSize - 8;
 
+          const isTimeTravel = !!ticker._isTimeTravel;
           const clampPx = (v, mx) => Math.sign(v) * Math.min(Math.abs(v), mx);
-          // Base drift from daily point change (absolute $, not %)
-          const dayChgPts = Number(ticker?.day_change || ticker?.change || 0);
+          // In Time Travel mode, strip live-data offsets so position is purely score-driven
+          const dayChgPts = isTimeTravel ? 0 : Number(ticker?.day_change || ticker?.change || 0);
           const baseDriftY = clampPx(-dayChgPts * 2, 15);
           const baseDriftX = clampPx(dayChgPts * 1, 8);
-          // Live WS impulse from tick-to-tick point delta
-          const impulseX = Number(ticker._price_impulse_x) || 0;
-          const impulseY = Number(ticker._price_impulse_y) || 0;
+          const impulseX = isTimeTravel ? 0 : (Number(ticker._price_impulse_x) || 0);
+          const impulseY = isTimeTravel ? 0 : (Number(ticker._price_impulse_y) || 0);
 
           const targetX = x + baseDriftX + impulseX;
           const targetY = y + baseDriftY + impulseY;
 
-          const gRef = useRef(null);
-          const animRef = useRef({ cx: targetX, cy: targetY, rafId: null, init: false });
+          // Stable per-bubble seed from ticker name for organic randomization
+          const seed = useMemo(() => {
+            let h = 0;
+            const s = ticker.ticker || '';
+            for (let i = 0; i < s.length; i++) h = ((h << 5) - h + s.charCodeAt(i)) | 0;
+            return Math.abs(h);
+          }, [ticker.ticker]);
 
+          const gRef = useRef(null);
+          const animRef = useRef({ cx: 0, cy: 0, tx: 0, ty: 0, rafId: null, init: false, isTimeTravel: false });
+
+          // Keep target in sync without restarting the loop
           useEffect(() => {
             const a = animRef.current;
-            if (!a.init) { a.cx = targetX; a.cy = targetY; a.init = true; if (gRef.current) gRef.current.setAttribute("transform", `translate(${targetX.toFixed(1)}, ${targetY.toFixed(1)})`); return; }
-            const sx = a.cx, sy = a.cy;
-            const dx = targetX - sx, dy = targetY - sy;
-            if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) { a.cx = targetX; a.cy = targetY; if (gRef.current) gRef.current.setAttribute("transform", `translate(${targetX.toFixed(1)}, ${targetY.toFixed(1)})`); return; }
-            if (a.rafId) cancelAnimationFrame(a.rafId);
-            const t0 = performance.now();
-            const dur = 700;
-            const step = (now) => {
-              const p = Math.min(1, (now - t0) / dur);
-              const e = p < 0.5 ? 2 * p * p : 1 - Math.pow(-2 * p + 2, 2) / 2;
-              a.cx = sx + dx * e;
-              a.cy = sy + dy * e;
-              if (gRef.current) gRef.current.setAttribute("transform", `translate(${a.cx.toFixed(1)}, ${a.cy.toFixed(1)})`);
-              if (p < 1) { a.rafId = requestAnimationFrame(step); } else { a.rafId = null; }
+            a.tx = targetX;
+            a.ty = targetY;
+            a.isTimeTravel = isTimeTravel;
+            if (!a.init) { a.cx = targetX; a.cy = targetY; a.init = true; }
+          }, [targetX, targetY, isTimeTravel]);
+
+          // Persistent animation loop — runs for the lifetime of the bubble
+          useEffect(() => {
+            const a = animRef.current;
+            // Per-bubble frequencies (different for each so they don't move in unison)
+            const fX1 = 0.4 + (seed % 200) / 500;
+            const fY1 = 0.3 + ((seed >> 8) % 200) / 500;
+            const fX2 = 0.15 + ((seed >> 4) % 100) / 800;
+            const fY2 = 0.12 + ((seed >> 12) % 100) / 800;
+            const phX = (seed % 628) / 100;
+            const phY = ((seed >> 6) % 628) / 100;
+            const amp = isActionable ? 2.5 : 1.8;
+
+            const loop = (now) => {
+              if (a.isTimeTravel) {
+                // Time Travel: fast snap to target (like scrubbing a video)
+                a.cx += (a.tx - a.cx) * 0.25;
+                a.cy += (a.ty - a.cy) * 0.25;
+                if (gRef.current) gRef.current.setAttribute("transform", `translate(${a.cx.toFixed(1)}, ${a.cy.toFixed(1)})`);
+              } else {
+                // Live mode: smooth chase + organic ambient oscillation
+                const t = now * 0.001;
+                a.cx += (a.tx - a.cx) * 0.06;
+                a.cy += (a.ty - a.cy) * 0.06;
+                const ox = Math.sin(t * fX1 + phX) * amp + Math.sin(t * fX2 + phX * 0.7) * (amp * 0.5);
+                const oy = Math.cos(t * fY1 + phY) * amp + Math.cos(t * fY2 + phY * 1.3) * (amp * 0.5);
+                if (gRef.current) gRef.current.setAttribute("transform", `translate(${(a.cx + ox).toFixed(1)}, ${(a.cy + oy).toFixed(1)})`);
+              }
+              a.rafId = requestAnimationFrame(loop);
             };
-            a.rafId = requestAnimationFrame(step);
-            return () => { if (a.rafId) cancelAnimationFrame(a.rafId); };
-          }, [targetX, targetY]);
+            a.rafId = requestAnimationFrame(loop);
+            return () => { if (a.rafId) { cancelAnimationFrame(a.rafId); a.rafId = null; } };
+          }, [seed, isActionable]);
 
           return (
             <g
@@ -8863,6 +8892,7 @@
         const [regimeStrip, setRegimeStrip] = useState([]);
         const [forwardReturns, setForwardReturns] = useState(null);
         const [autoSpeed, setAutoSpeed] = useState(true);
+        const MAX_TRAIL_DAYS = 45;
         const STEP_OPTIONS = React.useMemo(
           () => [
             { label: "5m", ms: 5 * 60 * 1000 },
@@ -8871,11 +8901,10 @@
             { label: "1H", ms: 60 * 60 * 1000 },
             { label: "4H", ms: 4 * 60 * 60 * 1000 },
             { label: "1D", ms: 24 * 60 * 60 * 1000 },
-            { label: "1W", ms: 7 * 24 * 60 * 60 * 1000 },
           ],
           [],
         );
-        const [stepMs, setStepMs] = useState(60 * 60 * 1000);
+        const [stepMs, setStepMs] = useState(15 * 60 * 1000);
 
         // Prevent render loops when parent passes unstable callbacks/arrays.
         // (This was causing "Maximum update depth exceeded" and breaking Play.)
@@ -8951,10 +8980,11 @@
           return Array.from(timestamps).sort((a, b) => a - b);
         }, [allTickers, tickers, trailData, roundToStep]);
 
+        const floorTs = roundToStep(Date.now() - MAX_TRAIL_DAYS * 24 * 60 * 60 * 1000);
         const minTimestamp =
           availableTimestamps.length > 0
-            ? availableTimestamps[0]
-            : roundToStep(Date.now() - 7 * 24 * 60 * 60 * 1000);
+            ? Math.max(availableTimestamps[0], floorTs)
+            : floorTs;
         const maxTimestamp =
           availableTimestamps.length > 0
             ? availableTimestamps[availableTimestamps.length - 1]
@@ -9127,13 +9157,13 @@
                 done: 0,
               });
 
-              const MAX_CONCURRENT = 5;
+              const sinceTs = Date.now() - MAX_TRAIL_DAYS * 24 * 60 * 60 * 1000;
+              const MAX_CONCURRENT = 10;
               for (
                 let i = 0;
                 i < tickerSymbolsArray.length;
                 i += MAX_CONCURRENT
               ) {
-                // Check if cancelled
                 if (cancelledRef.current) {
                   console.log('[Time Travel] Load cancelled by user');
                   break;
@@ -9144,17 +9174,11 @@
                   batch.map(async (ticker) => {
                     try {
                       const res = await fetch(
-                        `/timed/trail?ticker=${encodeURIComponent(
-                          ticker,
-                        )}&include_kanban=1`,
+                        `/timed/trail?ticker=${encodeURIComponent(ticker)}&include_kanban=1&since=${sinceTs}`,
                       );
                       if (res.ok) {
                         const json = await res.json();
-                        if (
-                          json.ok &&
-                          json.trail &&
-                          Array.isArray(json.trail)
-                        ) {
+                        if (json.ok && Array.isArray(json.trail)) {
                           return { ticker, trail: json.trail };
                         }
                       }
@@ -9181,13 +9205,22 @@
                   }));
                 }
 
-                // Small delay between batches to avoid spikes
-                await new Promise((r) => setTimeout(r, 250));
+                await new Promise((r) => setTimeout(r, 100));
               }
 
               if (!cancelledRef.current) {
                 setTrailData(trails);
-                console.log('[Time Travel] Trails loaded:', Object.keys(trails).length, 'tickers');
+                const totalPoints = Object.values(trails).reduce((s, arr) => s + arr.length, 0);
+                const sampleKey = Object.keys(trails)[0];
+                const sampleTrail = trails[sampleKey] || [];
+                const minTs = sampleTrail.length > 0 ? Math.min(...sampleTrail.map(p => p.ts)) : null;
+                const maxTs = sampleTrail.length > 0 ? Math.max(...sampleTrail.map(p => p.ts)) : null;
+                console.log('[Time Travel] Trails loaded:', {
+                  tickers: Object.keys(trails).length,
+                  totalPoints,
+                  sample: sampleKey ? `${sampleKey}: ${sampleTrail.length} points` : 'none',
+                  range: minTs ? `${new Date(minTs).toLocaleString()} → ${new Date(maxTs).toLocaleString()}` : 'no data',
+                });
               }
             } catch (err) {
               console.error("Failed to fetch trails:", err);
@@ -9325,28 +9358,22 @@
           return () => { if (forwardReturnTimerRef.current) clearTimeout(forwardReturnTimerRef.current); };
         }, [isActive, isPlaying, selectedTimestamp]);
 
-        // Auto-speed: adjust playback speed based on aggregate bubble movement
-        const prevSnapshotRef = React.useRef(null);
+        // Auto-speed: fast-forward through ETH (less action), slower during RTH
         useEffect(() => {
           if (!isActive || !isPlaying || !autoSpeed) return;
-          const snapshot = buildSnapshotTickers(tickersRef.current, trailData, roundToStep(selectedTimestamp || maxTimestamp));
-          const prev = prevSnapshotRef.current;
-          if (prev && prev.length > 0 && snapshot.length > 0) {
-            let totalDelta = 0;
-            for (const cur of snapshot) {
-              const old = prev.find(p => p.ticker === cur.ticker);
-              if (old) {
-                totalDelta += Math.abs((cur.htf_score || 0) - (old.htf_score || 0))
-                            + Math.abs((cur.ltf_score || 0) - (old.ltf_score || 0));
-              }
-            }
-            const avgDelta = totalDelta / snapshot.length;
-            if (avgDelta > 8) setPlaySpeedMs(1200);
-            else if (avgDelta > 3) setPlaySpeedMs(600);
-            else setPlaySpeedMs(300);
-          }
-          prevSnapshotRef.current = snapshot;
-        }, [isActive, isPlaying, autoSpeed, selectedTimestamp, trailData, buildSnapshotTickers, roundToStep, maxTimestamp]);
+          const ts = selectedTimestamp || maxTimestamp;
+          if (!ts) return;
+          const d = new Date(ts);
+          const utcH = d.getUTCHours();
+          // NYSE RTH: 13:30–20:00 UTC (9:30–4:00 ET)
+          const isRTH = utcH >= 13 && utcH < 20;
+          // Weekends: skip fast
+          const dow = d.getUTCDay();
+          const isWeekend = dow === 0 || dow === 6;
+          if (isWeekend) setPlaySpeedMs(100);
+          else if (isRTH) setPlaySpeedMs(800);
+          else setPlaySpeedMs(200);
+        }, [isActive, isPlaying, autoSpeed, selectedTimestamp, maxTimestamp]);
 
         // Animation: advance by step at a configurable speed.
         useEffect(() => {
@@ -9385,7 +9412,9 @@
         const handleTimestampChange = (e) => {
           const ts = Number(e.target.value);
           const rounded = roundToStep(ts);
-          setSelectedTimestamp(rounded);
+          if (rounded !== selectedTimestamp) {
+            setSelectedTimestamp(rounded);
+          }
           setIsPlaying(false);
         };
 
@@ -9580,7 +9609,11 @@
                   </div>
                 )}
 
-                {isActive && !loadingTrails && (
+                {isActive && !loadingTrails && Object.keys(trailData).length === 0 && (
+                  <span className="text-[10px] text-amber-400/80 flex-1">Trail data is accumulating — check back in a few hours for replay data.</span>
+                )}
+
+                {isActive && !loadingTrails && Object.keys(trailData).length > 0 && (
                   <>
                     {/* Play / Pause */}
                     <button
@@ -9637,14 +9670,15 @@
                           <div className="w-0 h-0" style={{ borderLeft: "3px solid transparent", borderRight: "3px solid transparent", ...(m.type === "entry" ? { borderBottom: "4px solid #22c55e" } : { borderTop: "4px solid " + (m.won ? "#22c55e" : "#ef4444") }) }} />
                         </div>
                       ))}
-                      {/* Range input (invisible, for interaction) */}
+                      {/* Range input (invisible, for interaction) — fine step (1min) for smooth dragging */}
                       <input
                         type="range"
                         min={minTimestamp}
                         max={maxTimestamp}
-                        step={STEP_MS}
+                        step={60000}
                         value={currentValue}
                         onChange={handleTimestampChange}
+                        onInput={handleTimestampChange}
                         className="absolute inset-x-0 top-[10px] h-4 opacity-0 cursor-pointer"
                         style={{ zIndex: 10 }}
                       />
@@ -9663,9 +9697,28 @@
                     {loadCancelled && (
                       <span className="text-[9px] text-rose-400 shrink-0">Cancelled</span>
                     )}
+                    {!loadCancelled && availableTimestamps.length > 0 && availableTimestamps.length < 5 && (
+                      <span className="text-[8px] text-amber-400/60 shrink-0">Limited data ({availableTimestamps.length} snapshots)</span>
+                    )}
                   </>
                 )}
               </div>
+              {/* Legend row — only show when active and data loaded */}
+              {isActive && !loadingTrails && (eventMarkers.length > 0 || tradeMarkers.length > 0 || regimeStrip.length > 0) && (
+                <div className="flex items-center gap-3 mt-1 pl-[120px] text-[8px] text-[#4b5563]">
+                  {regimeStrip.length > 0 && (
+                    <>
+                      <span className="flex items-center gap-1"><span className="inline-block w-2 h-1.5 rounded-sm" style={{background:"rgba(34,197,94,0.4)"}} /> Risk-On</span>
+                      <span className="flex items-center gap-1"><span className="inline-block w-2 h-1.5 rounded-sm" style={{background:"rgba(239,68,68,0.4)"}} /> Risk-Off</span>
+                    </>
+                  )}
+                  {eventMarkers.some(e => e.type === "FOMC") && <span className="flex items-center gap-1"><span className="inline-block w-1.5 h-1.5 rounded-full" style={{background:"#f59e0b"}} /> FOMC</span>}
+                  {eventMarkers.some(e => e.type === "CPI") && <span className="flex items-center gap-1"><span className="inline-block w-1.5 h-1.5 rounded-full" style={{background:"#a78bfa"}} /> CPI</span>}
+                  {eventMarkers.some(e => e.type === "EARNINGS") && <span className="flex items-center gap-1"><span className="inline-block w-1.5 h-1.5 rounded-full" style={{background:"#60a5fa"}} /> Earnings</span>}
+                  {tradeMarkers.some(m => m.type === "entry") && <span className="flex items-center gap-1"><span style={{width:0,height:0,borderLeft:"3px solid transparent",borderRight:"3px solid transparent",borderBottom:"4px solid #22c55e",display:"inline-block"}} /> Entry</span>}
+                  {tradeMarkers.some(m => m.type === "exit") && <span className="flex items-center gap-1"><span style={{width:0,height:0,borderLeft:"3px solid transparent",borderRight:"3px solid transparent",borderTop:"4px solid #ef4444",display:"inline-block"}} /> Exit</span>}
+                </div>
+              )}
             </div>
           );
         }
@@ -9837,9 +9890,10 @@
                     type="range"
                     min={minTimestamp}
                     max={maxTimestamp}
-                    step={STEP_MS}
+                    step={60000}
                     value={currentValue}
                     onChange={handleTimestampChange}
+                    onInput={handleTimestampChange}
                     className="w-full h-2 bg-transparent rounded-lg appearance-none cursor-pointer slider-thumb absolute top-[13px]"
                     style={{
                       background: `linear-gradient(to right, rgba(0,255,255,0.4) 0%, rgba(0,255,255,0.4) ${progress}%, rgba(37,43,54,0.6) ${progress}%, rgba(37,43,54,0.6) 100%)`,
@@ -13791,17 +13845,19 @@
               fillHeight ? "h-full flex flex-col" : ""
             }`}
           >
-            <div className="flex items-start justify-between gap-3 flex-wrap">
-              <div>
+            <div className="flex items-center justify-between gap-3 flex-wrap">
+              <div className="flex items-center gap-2">
                 <div className="text-[13px] font-medium text-[#d1d5db]">{title}</div>
-                <div className="text-[10px] text-[#6b7280] mt-0.5">
-                  Prime {counts.prime} • Eligible {counts.eligibleOnly} • Watch{" "}
-                  {counts.watch} • Total {counts.all}
-                  <span className="ml-2 text-[#4b5563]">
-                    • 🟢 {counts.active} ⛔ {counts.invalidated} ✅{" "}
-                    {counts.completed}
-                  </span>
-                </div>
+                <select
+                  value={sortBy}
+                  onChange={(e) => setSortBy(e.target.value)}
+                  className="px-1.5 py-0.5 text-[11px] bg-white/[0.03] border border-white/[0.06] rounded text-[#9ca3af]"
+                  title="Sort Viewport"
+                >
+                  <option value="RANK">Rank</option>
+                  <option value="ABC">ABC</option>
+                  <option value="DCHG">Daily %</option>
+                </select>
               </div>
               <div className="flex items-center gap-2">
                 {showControls && (
@@ -13812,16 +13868,6 @@
                     className="px-2 py-1 text-xs bg-white/[0.03] border border-white/[0.06] rounded text-white w-[110px]"
                   />
                 )}
-                <select
-                  value={sortBy}
-                  onChange={(e) => setSortBy(e.target.value)}
-                  className="px-2 py-1 text-xs bg-white/[0.03] border border-white/[0.06] rounded text-white"
-                  title="Sort Viewport"
-                >
-                  <option value="RANK">Sort: Rank</option>
-                  <option value="ABC">Sort: ABC</option>
-                  <option value="DCHG">Sort: Daily %</option>
-                </select>
                 {view === "today" && (
                   <button
                     onClick={updateTodaySnapshot}
@@ -16704,7 +16750,7 @@
           const moElite = all.filter(t => t.flags?.momentum_elite === true);
           chips.push({ id: "momentum_elite", icon: "🔥", label: "Mo Elite", count: moElite.length, color: "gold",
             tickers: moElite.map(t => t.ticker),
-            tooltip: `Momentum Elite — confirmed strong momentum (|mom/σ| > 1.0) across 2+ timeframes (30m, 10m, 5m).\nVolume + price aligned. These are the strongest movers right now.\n${moElite.slice(0, 5).map(t => t.ticker).join(", ") || "—"}`,
+            tooltip: `Momentum Elite — confirmed strong momentum (|mom/σ| > 1.0) across 2+ timeframes (30m, 15m, 5m).\nVolume + price aligned. These are the strongest movers right now.\n${moElite.slice(0, 5).map(t => t.ticker).join(", ") || "—"}`,
           });
 
           // ── Volume Surge ──
@@ -17093,60 +17139,7 @@
               <div className="mx-auto w-full px-2 sm:px-4 lg:px-5">
                 <header className="mb-4 pt-3">
 
-                  {/* ═══ 0. EVENTS BAR — earnings, dividends, notable dates ═══ */}
-                  {earningsEvents.length > 0 && (() => {
-                    const now = Date.now();
-                    const todayStr = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
-                    const tomorrowStr = new Date(now + 86400000).toLocaleDateString("en-CA", { timeZone: "America/New_York" });
-                    const formatHour = (h) => {
-                      if (!h) return "";
-                      const hl = String(h).toLowerCase();
-                      if (hl === "bmo" || hl === "before market open") return "BMO";
-                      if (hl === "amc" || hl === "after market close") return "AMC";
-                      if (hl === "dmh" || hl === "during market hours") return "DMH";
-                      return String(h).toUpperCase();
-                    };
-                    const formatDate = (d) => {
-                      if (d === todayStr) return "Today";
-                      if (d === tomorrowStr) return "Tomorrow";
-                      return new Date(d + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "America/New_York" });
-                    };
-                    const chipColor = (e) => {
-                      if (e.epsActual != null && e.epsEstimate != null) {
-                        return e.epsActual >= e.epsEstimate
-                          ? "border-green-500/30 bg-green-500/10 text-green-300"
-                          : "border-rose-500/30 bg-rose-500/10 text-rose-300";
-                      }
-                      if (e.date === todayStr) return "border-amber-500/30 bg-amber-500/10 text-amber-300";
-                      return "border-white/[0.08] bg-white/[0.03] text-gray-300";
-                    };
-                    return (
-                      <div className="mb-3">
-                        <div className="flex items-center gap-2 mb-1.5">
-                          <span className="text-[10px] text-[#6b7280] font-semibold tracking-wide uppercase">Upcoming Events</span>
-                          <span className="text-[9px] text-[#4b5563] tabular-nums">{earningsEvents.length} earnings</span>
-                        </div>
-                        <div className="flex items-center gap-2 overflow-x-auto pb-1" style={{ scrollbarWidth: "none" }}>
-                          {earningsEvents.slice(0, 20).map((e, i) => {
-                            const beatMiss = e.epsActual != null && e.epsEstimate != null
-                              ? (e.epsActual >= e.epsEstimate ? "Beat" : "Miss")
-                              : null;
-                            return (
-                              <button key={`ev-${i}`} onClick={() => handleTickerSelect(e.symbol)}
-                                className={`flex items-center gap-1.5 px-2 py-1 rounded-lg border ${chipColor(e)} flex-shrink-0 hover:brightness-125`}>
-                                <span className="text-[10px] font-bold">{e.symbol}</span>
-                                <span className="text-[9px] opacity-70">{formatDate(e.date)}</span>
-                                {formatHour(e.hour) && <span className="text-[8px] opacity-60">{formatHour(e.hour)}</span>}
-                                {beatMiss && <span className={`text-[8px] font-semibold ${beatMiss === "Beat" ? "text-green-400" : "text-rose-400"}`}>{beatMiss}</span>}
-                              </button>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    );
-                  })()}
-
-                  {/* ═══ 1. MARKET PULSE — Pro/VIP/Admin only (real-time prices) ═══ */}
+                  {/* ═══ 0. MARKET PULSE — real-time prices (always at top) ═══ */}
                   {window._ttIsPro && (() => {
                     const allData = data && typeof data === "object" ? data : {};
                     const intensityAlpha = (absPct) => {
@@ -17180,7 +17173,7 @@
                       const borderStyle = `1px solid rgba(${rgb},${bAlpha.toFixed(2)})`;
                       const chg = (() => { if (!td) return null; const dc = getDailyChange(td); return dc && Number.isFinite(dc.dayChg) ? dc.dayChg : null; })();
                       return (
-                        <button key={`mp2-${sym}`} onClick={() => handleTickerSelect(sym)}
+                        <button key={`mp0-${sym}`} onClick={() => handleTickerSelect(sym)}
                           className="flex items-center gap-1.5 px-2 py-1 rounded-lg hover:brightness-125 flex-shrink-0 transition-all"
                           style={{ background: pillBg, border: borderStyle }}>
                           <span className="text-[10px] text-white font-bold">{sym}</span>
@@ -17218,7 +17211,10 @@
                     );
                   })()}
 
-                  {/* ═══ 2. TOP GAINERS/LOSERS — visible to all users ═══ */}
+                  {/* ═══ 1. GAINERS/LOSERS (left) + EVENTS (right) — side by side ═══ */}
+                  <div className="mb-4 flex flex-col lg:flex-row lg:items-start gap-3">
+                  <div className="flex-1 min-w-0">
+                  {/* ═══ 1a. TOP GAINERS/LOSERS — left side, full width ═══ */}
                   {(() => {
                     const allArr = data && typeof data === 'object' ? Object.values(data) : [];
                     const CRYPTO_24H = new Set(["BTCUSD", "ETHUSD"]);
@@ -17266,8 +17262,6 @@
                         </div>
                       </div>
                     );
-
-                    // RTH movers: daily change (close vs prev_close)
                     const rthArr = allArr.map(t => {
                       const px = Number(t?.price ?? t?.close);
                       if (!Number.isFinite(px) || px <= 0) return null;
@@ -17279,8 +17273,6 @@
                     const rthSorted = [...rthArr].sort((a, b) => b._pct - a._pct);
                     const rthGainers = rthSorted.slice(0, 5);
                     const rthLosers = rthSorted.slice(-5).reverse();
-
-                    // ETH movers: only show when market is closed
                     const _moversMarketOpen = isNyRegularMarketOpen();
                     const ethArr = _moversMarketOpen ? [] : allArr.filter(t => !CRYPTO_24H.has(t?.ticker)).map(t => {
                       const pct = Number(t?._ah_change_pct);
@@ -17292,10 +17284,9 @@
                     const ethGainers = ethSorted.slice(0, 5);
                     const ethLosers = ethSorted.slice(-5).reverse();
                     const hasEth = ethGainers.length > 0 || ethLosers.length > 0;
-
                     if (rthGainers.length === 0 && rthLosers.length === 0 && !hasEth) return null;
                     return (
-                      <div className="mb-4 space-y-1.5">
+                      <div className="space-y-1.5">
                         {(rthGainers.length > 0 || rthLosers.length > 0) &&
                           moversRow("RTH", "bg-cyan-500/15 text-cyan-400 border-cyan-500/30", rthGainers, rthLosers, "_pct", "_price")
                         }
@@ -17305,6 +17296,63 @@
                       </div>
                     );
                   })()}
+                  </div>
+                  <div className="shrink-0 lg:max-w-[45%]">
+                  {/* ═══ 1b. UPCOMING EVENTS — right side, wraps ═══ */}
+                  {earningsEvents.length > 0 && (() => {
+                    const now = Date.now();
+                    const todayStr = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+                    const tomorrowStr = new Date(now + 86400000).toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+                    const formatHour = (h) => {
+                      if (!h) return "";
+                      const hl = String(h).toLowerCase();
+                      if (hl === "bmo" || hl === "before market open") return "BMO";
+                      if (hl === "amc" || hl === "after market close") return "AMC";
+                      if (hl === "dmh" || hl === "during market hours") return "DMH";
+                      return String(h).toUpperCase();
+                    };
+                    const formatDate = (d) => {
+                      if (d === todayStr) return "Today";
+                      if (d === tomorrowStr) return "Tomorrow";
+                      return new Date(d + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "America/New_York" });
+                    };
+                    const chipColor = (e) => {
+                      if (e.epsActual != null && e.epsEstimate != null) {
+                        return e.epsActual >= e.epsEstimate
+                          ? "border-green-500/30 bg-green-500/10 text-green-300"
+                          : "border-rose-500/30 bg-rose-500/10 text-rose-300";
+                      }
+                      if (e.date === todayStr) return "border-amber-500/30 bg-amber-500/10 text-amber-300";
+                      return "border-white/[0.08] bg-white/[0.03] text-gray-300";
+                    };
+                    return (
+                      <div>
+                        <div className="flex items-center gap-2 mb-1.5">
+                          <span className="text-[10px] text-[#6b7280] font-semibold tracking-wide uppercase">Upcoming Events</span>
+                          <span className="text-[9px] text-[#4b5563] tabular-nums">{earningsEvents.length} earnings</span>
+                        </div>
+                        <div className="flex items-center gap-2 flex-wrap pb-1">
+                          {earningsEvents.slice(0, 20).map((e, i) => {
+                            const beatMiss = e.epsActual != null && e.epsEstimate != null
+                              ? (e.epsActual >= e.epsEstimate ? "Beat" : "Miss")
+                              : null;
+                            return (
+                              <button key={`ev-${i}`} onClick={() => handleTickerSelect(e.symbol)}
+                                className={`flex items-center gap-1.5 px-2 py-1 rounded-lg border ${chipColor(e)} flex-shrink-0 hover:brightness-125`}>
+                                <span className="text-[10px] font-bold">{e.symbol}</span>
+                                <span className="text-[9px] opacity-70">{formatDate(e.date)}</span>
+                                {formatHour(e.hour) && <span className="text-[8px] opacity-60">{formatHour(e.hour)}</span>}
+                                {beatMiss && <span className={`text-[8px] font-semibold ${beatMiss === "Beat" ? "text-green-400" : "text-rose-400"}`}>{beatMiss}</span>}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })()}
+
+                  </div>
+                  </div>
 
                   {/* ═══ 3. ACCOUNT SUMMARY — above search (Active Trader / Investor modes only) ═══ */}
                   {(dashboardMode === "trader" || dashboardMode === "investor") && <div className="mb-4">
@@ -17324,17 +17372,72 @@
                     />
                   </div>}
 
-                  {/* ═══ 4. SEARCH + ACTIONS ═══ */}
+                  {/* ═══ 4b. MODE SELECTOR — Analysis / Active Trader / Investor ═══ */}
+                  <div className="mb-4 flex flex-col items-center gap-2" data-coachmark="nav-modes">
+                    <div className="text-center">
+                      <div className="text-[10px] uppercase tracking-[0.22em] text-[#4b5563]">Choose The View Below</div>
+                      <div className="text-[12px] text-[#94a3b8] mt-1">This controller changes the dashboard section underneath.</div>
+                    </div>
+                    <div className="flex justify-center w-full">
+                    <div className="flex w-full sm:w-auto items-stretch bg-white/[0.04] border border-white/[0.10] rounded-xl overflow-hidden shadow-sm">
+                      <button
+                        onClick={() => handleDashboardModeChange("analysis")}
+                        className={`flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-2.5 sm:px-4 py-2 text-[11px] sm:text-[12px] font-semibold transition-all ${
+                          dashboardMode === "analysis"
+                            ? "bg-gradient-to-r from-violet-500/20 to-indigo-500/15 text-white"
+                            : "text-[#6b7280] hover:text-white hover:bg-white/[0.05]"
+                        }`}
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
+                        Analysis
+                      </button>
+                      <button
+                        onClick={() => handleDashboardModeChange("trader")}
+                        className={`flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-2.5 sm:px-4 py-2 text-[11px] sm:text-[12px] font-semibold transition-all border-l border-white/[0.06] ${
+                          dashboardMode === "trader"
+                            ? "bg-gradient-to-r from-cyan-500/20 to-teal-500/15 text-white"
+                            : "text-[#6b7280] hover:text-white hover:bg-white/[0.05]"
+                        }`}
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" /></svg>
+                        Active Trader
+                      </button>
+                      <button
+                        onClick={() => handleDashboardModeChange("investor")}
+                        className={`flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-2.5 sm:px-4 py-2 text-[11px] sm:text-[12px] font-semibold transition-all border-l border-white/[0.06] ${
+                          dashboardMode === "investor"
+                            ? "bg-gradient-to-r from-emerald-500/20 to-teal-500/15 text-white"
+                            : "text-[#6b7280] hover:text-white hover:bg-white/[0.05]"
+                        }`}
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                        Investor
+                      </button>
+                      <button
+                        onClick={() => handleDashboardModeChange("all")}
+                        className={`flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-2.5 sm:px-4 py-2 text-[11px] sm:text-[12px] font-semibold transition-all border-l border-white/[0.06] ${
+                          dashboardMode === "all"
+                            ? "bg-gradient-to-r from-blue-500/20 to-indigo-500/15 text-white"
+                            : "text-[#6b7280] hover:text-white hover:bg-white/[0.05]"
+                        }`}
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M3 10h18M3 6h18M3 14h18M3 18h18" /></svg>
+                        All
+                      </button>
+                    </div>
+                    </div>
+                  </div>
+
+                  {/* ═══ 5. SEARCH + ACTIONS ═══ */}
                   <div className="mb-4 rounded-2xl border border-white/[0.08] bg-white/[0.025] p-3 shadow-[0_12px_32px_rgba(0,0,0,0.2)]" data-coachmark="search-filter">
                     <div className="flex flex-col gap-3">
                       <div className="flex flex-col xl:flex-row xl:items-center xl:justify-between gap-3">
                         <div className="flex-1 min-w-0">
-                          <div className="text-[10px] uppercase tracking-[0.18em] text-[#4b5563] mb-2">Search And Curate Your View</div>
                           <div className="relative max-w-[480px]">
                         <svg className="absolute left-3 top-1/2 pointer-events-none" style={{transform:"translateY(-50%)"}} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#6b7280" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
                         <input
                           type="text"
-                          placeholder="Search tickers or filters..."
+                          placeholder="Search tickers (e.g. AAPL, MSFT, TSLA)"
                           value={filters.search}
                           onChange={(e) => {
                             const value = e.target.value;
@@ -17345,8 +17448,18 @@
                               handleFilterChange({ tickerFilter: "" });
                             }
                           }}
-                          className="w-full pl-9 pr-3 py-1.5 bg-white/[0.03] border border-white/[0.08] rounded-2xl text-white text-sm placeholder-[#6b7280] focus:border-white/[0.15] focus:outline-none transition-colors"
+                          className="w-full pl-9 pr-8 py-1.5 bg-white/[0.03] border border-white/[0.08] rounded-2xl text-white text-sm placeholder-[#6b7280] focus:border-white/[0.15] focus:outline-none transition-colors"
                         />
+                        {filters.search && (
+                          <button
+                            onClick={() => { handleFilterChange({ search: "", tickerFilter: "" }); }}
+                            className="absolute right-2.5 top-1/2 text-[#6b7280] hover:text-white transition-colors"
+                            style={{ transform: "translateY(-50%)" }}
+                            title="Clear search"
+                          >
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                          </button>
+                        )}
                         {showSearchEmptyPopover && (() => {
                           const sym = normalizedSearchTicker;
                           return (
@@ -17563,74 +17676,20 @@
                   </div>
                   </div>
 
-                  {/* ═══ 4b. MODE SELECTOR — Analysis / Active Trader / Investor ═══ */}
-                  <div className="mb-4 flex flex-col items-center gap-2" data-coachmark="nav-modes">
-                    <div className="text-center">
-                      <div className="text-[10px] uppercase tracking-[0.22em] text-[#4b5563]">Choose The View Below</div>
-                      <div className="text-[12px] text-[#94a3b8] mt-1">This controller changes the dashboard section underneath.</div>
-                    </div>
-                    <div className="flex justify-center w-full">
-                    <div className="flex w-full sm:w-auto items-stretch bg-white/[0.04] border border-white/[0.10] rounded-xl overflow-hidden shadow-sm">
-                      <button
-                        onClick={() => handleDashboardModeChange("analysis")}
-                        className={`flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-2.5 sm:px-4 py-2 text-[11px] sm:text-[12px] font-semibold transition-all ${
-                          dashboardMode === "analysis"
-                            ? "bg-gradient-to-r from-violet-500/20 to-indigo-500/15 text-white"
-                            : "text-[#6b7280] hover:text-white hover:bg-white/[0.05]"
-                        }`}
-                      >
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
-                        Analysis
-                      </button>
-                      <button
-                        onClick={() => handleDashboardModeChange("trader")}
-                        className={`flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-2.5 sm:px-4 py-2 text-[11px] sm:text-[12px] font-semibold transition-all border-l border-white/[0.06] ${
-                          dashboardMode === "trader"
-                            ? "bg-gradient-to-r from-cyan-500/20 to-teal-500/15 text-white"
-                            : "text-[#6b7280] hover:text-white hover:bg-white/[0.05]"
-                        }`}
-                      >
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" /></svg>
-                        Active Trader
-                      </button>
-                      <button
-                        onClick={() => handleDashboardModeChange("investor")}
-                        className={`flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-2.5 sm:px-4 py-2 text-[11px] sm:text-[12px] font-semibold transition-all border-l border-white/[0.06] ${
-                          dashboardMode === "investor"
-                            ? "bg-gradient-to-r from-emerald-500/20 to-teal-500/15 text-white"
-                            : "text-[#6b7280] hover:text-white hover:bg-white/[0.05]"
-                        }`}
-                      >
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                        Investor
-                      </button>
-                      <button
-                        onClick={() => handleDashboardModeChange("all")}
-                        className={`flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-2.5 sm:px-4 py-2 text-[11px] sm:text-[12px] font-semibold transition-all border-l border-white/[0.06] ${
-                          dashboardMode === "all"
-                            ? "bg-gradient-to-r from-blue-500/20 to-indigo-500/15 text-white"
-                            : "text-[#6b7280] hover:text-white hover:bg-white/[0.05]"
-                        }`}
-                      >
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M3 10h18M3 6h18M3 14h18M3 18h18" /></svg>
-                        All
-                      </button>
-                    </div>
-                    </div>
-                    {/* Time Travel — full-width row below mode selector */}
-                    <div className="w-full">
+                  {/* ═══ 6. TIME TRAVEL — after search ═══ */}
+                  <div className="mb-4">
                     {window._ttIsPro ? (
-                        <TimeTravelSlider
-                          tickers={timeTravelBaseTickers}
-                          allTickers={data}
-                          data={data}
-                          onTimeChange={setTimeTravelTickers}
-                          tickerFilter={filters.tickerFilter}
-                          selectedTicker={selectedTicker}
-                          compact={true}
-                          trades={trades}
-                          onForwardReturns={setTimeTravelForwardReturns}
-                        />
+                      <TimeTravelSlider
+                        tickers={timeTravelBaseTickers}
+                        allTickers={data}
+                        data={data}
+                        onTimeChange={setTimeTravelTickers}
+                        tickerFilter={filters.tickerFilter}
+                        selectedTicker={selectedTicker}
+                        compact={true}
+                        trades={trades}
+                        onForwardReturns={setTimeTravelForwardReturns}
+                      />
                     ) : (
                       <div className="flex justify-center">
                         <button
@@ -17639,12 +17698,11 @@
                           title="Replay historical bubble positions — Pro feature"
                         >
                           <svg className="w-3.5 h-3.5 text-amber-400/80" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd"/></svg>
-                          <span>⏱️ Time Travel</span>
+                          <span>Time Travel</span>
                           <span className="text-[10px] text-amber-300/70">Pro</span>
                         </button>
                       </div>
                     )}
-                    </div>
                   </div>
 
                 </header>
@@ -17731,7 +17789,7 @@
                         </div>
                       </div>
                     ) : dashboardMode === "analysis" && (
-                    <div className="flex flex-col lg:flex-row gap-4" style={{ height: "calc(100vh - 160px)", minHeight: "600px" }}>
+                    <div className="flex flex-col lg:flex-row gap-4" style={{ height: "calc(100vh - 160px)", minHeight: "600px", maxHeight: "1100px" }}>
                       {/* Viewport - Left side (shares parent height) */}
                       <div className="w-full lg:w-[320px] lg:flex-shrink-0 lg:h-full min-h-[400px] lg:min-h-0" data-coachmark="viewport">
                         <OpportunitiesPanel
@@ -17758,21 +17816,19 @@
                       >
                         {/* Bubble Chart Legend — Analysis view */}
                         <div className="px-3 py-2 mb-1 rounded-lg border border-white/[0.06] bg-white/[0.02]" data-coachmark="bubble-chart">
-                          <div className="flex items-center gap-3 text-[10px] text-[#8b95a5] overflow-x-auto flex-nowrap">
+                          <div className="flex items-center gap-3 text-[10px] text-[#8b95a5] flex-wrap">
                             <span className="font-semibold text-white text-[11px] shrink-0">Bubble Map</span>
                             <span className="text-[#4b5563] shrink-0">|</span>
                             <span className="flex items-center gap-1 shrink-0" title="HTF bullish trend — system bias is long"><svg width="8" height="8" viewBox="0 0 8 8"><circle cx="4" cy="4" r="3.5" fill="rgba(34,211,238,0.45)"/></svg> <span className="text-cyan-400">Long bias</span></span>
                             <span className="flex items-center gap-1 shrink-0" title="HTF bearish trend — system bias is short"><svg width="8" height="8" viewBox="0 0 8 8"><circle cx="4" cy="4" r="3.5" fill="rgba(225,29,72,0.45)"/></svg> <span className="text-rose-400">Short bias</span></span>
                             <span className="flex items-center gap-1 shrink-0" title="No directional edge — mixed or transitional"><svg width="8" height="8" viewBox="0 0 8 8"><circle cx="4" cy="4" r="3.5" fill="rgba(234,179,8,0.35)"/></svg> <span className="text-yellow-400">Neutral</span></span>
                             <span className="text-[#4b5563] shrink-0">|</span>
-                            <span className="shrink-0" title="X-axis: LTF score (short-term momentum). Y-axis: HTF score (long-term trend strength)">X: momentum · Y: trend</span>
-                            <span className="shrink-0" title="Bigger bubble = higher R:R with more upside remaining">Size = R:R × upside</span>
-                            <span className="shrink-0" title="Upper-right quadrant: aligned longs. Lower-left: aligned shorts. Hover for system bias.">↗ longs · ↙ shorts</span>
+                            <span className="shrink-0" title="X-axis: Short-term momentum score. Y-axis: Long-term trend strength.">X: momentum · Y: trend</span>
+                            <span className="shrink-0" title="Bigger bubble = higher reward-to-risk with more upside remaining">Size = reward vs risk</span>
+                            <span className="shrink-0" title="Upper-right: strong longs. Lower-left: strong shorts.">↗ longs · ↙ shorts</span>
                             <span className="text-[#4b5563] shrink-0">|</span>
-                            <span className="flex items-center gap-1 shrink-0" title="Pulsing ring = system is highlighting for entry or management"><svg width="8" height="8" viewBox="0 0 8 8"><circle cx="4" cy="4" r="3" fill="none" stroke="#22d3ee" strokeWidth="0.8" opacity="0.6"><animate attributeName="r" values="2.5;3.5;2.5" dur="2s" repeatCount="indefinite"/></circle></svg> Actionable</span>
-                            <span className="shrink-0" title="Momentum Elite — volume + price confirmation aligned">🔥</span>
-                            <span className="shrink-0" title="Price at optimal entry level">🎯</span>
-                            <span className="flex items-center gap-1 shrink-0" title="Earnings within 7 days"><svg width="8" height="8" viewBox="0 0 8 8"><circle cx="4" cy="4" r="3" fill="none" stroke="#f59e0b" strokeWidth="1" strokeDasharray="2 1.5" opacity="0.6"/></svg></span>
+                            <span className="flex items-center gap-1 shrink-0" title="Pulsing glow = the system is flagging this ticker for action (enter, trim, exit, defend). These are your focus tickers."><svg width="10" height="10" viewBox="0 0 10 10"><circle cx="5" cy="5" r="3.5" fill="rgba(34,211,238,0.25)" stroke="#22d3ee" strokeWidth="0.8"><animate attributeName="r" values="3;4.5;3" dur="2s" repeatCount="indefinite"/><animate attributeName="opacity" values="0.8;0.3;0.8" dur="2s" repeatCount="indefinite"/></circle></svg> <span className="text-cyan-300 font-semibold">Pulsing = Actionable</span></span>
+                            <span className="shrink-0 text-[9px] text-[#6b7280]" title="Pulsing bubbles are in stages like Enter Now, Trim, Exit, or Defend — the system is telling you to act.">(enter · trim · exit · defend)</span>
                           </div>
                         </div>
                         {/* Insight Chips — Two rows + dynamic sector sub-group */}
@@ -17912,7 +17968,7 @@
                           onMouseDown={() => handleTickerSelect(null)}
                         />
                         <div
-                          className="fixed right-0 top-[60px] sm:top-[52px] w-full sm:w-[450px] bottom-[64px] sm:bottom-[56px] bg-[#0b0e11] border-l border-white/[0.04] z-40 slide-in-right shadow-xl overflow-y-auto"
+                          className="fixed right-0 top-[60px] sm:top-[52px] w-full sm:w-[520px] bottom-[64px] sm:bottom-[56px] bg-[#0b0e11] border-l border-white/[0.04] z-40 slide-in-right shadow-xl overflow-y-auto"
                           onMouseDown={(e) => e.stopPropagation()}
                         >
                           <OverlayPortal

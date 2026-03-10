@@ -1,0 +1,99 @@
+{
+  "ok": true,
+  "since": null,
+  "until": null,
+  "totals": {
+    "totalTrades": 10,
+    "openTrades": 6,
+    "closedTrades": 4,
+    "wins": 3,
+    "losses": 1,
+    "winRate": 75,
+    "closedPnl": 554.2481394052442,
+    "profitFactor": 56.03902437976499,
+    "avgWin": 188.10607774259438,
+    "avgLoss": 10.070093822538988,
+    "expectancy": 138.56203485131104,
+    "grossWin": 564.3182332277831,
+    "grossLoss": 10.070093822538988
+  },
+  "breakdown": {
+    "byRank": [
+      {
+        "bucket": "60-69",
+        "n": 1,
+        "wins": 0,
+        "losses": 0,
+        "pnl": 0
+      },
+      {
+        "bucket": "70-79",
+        "n": 2,
+        "wins": 0,
+        "losses": 1,
+        "pnl": -10.070093822538988
+      },
+      {
+        "bucket": "80+",
+        "n": 4,
+        "wins": 2,
+        "losses": 0,
+        "pnl": 401.1324025439028
+      },
+      {
+        "bucket": "<60",
+        "n": 3,
+        "wins": 1,
+        "losses": 0,
+        "pnl": 163.1858306838804
+      }
+    ],
+    "byRR": [
+      {
+        "bucket": "2.0+",
+        "n": 10,
+        "wins": 3,
+        "losses": 1,
+        "pnl": 554.2481394052442
+      }
+    ],
+    "byExitReason": [
+      {
+        "reason": "unknown",
+        "n": 6,
+        "wins": 0,
+        "losses": 0,
+        "pnl": 0
+      },
+      {
+        "reason": "ripster_short_pivot_reclaimed",
+        "n": 1,
+        "wins": 0,
+        "losses": 1,
+        "pnl": -10.070093822538988
+      },
+      {
+        "reason": "post_trim_breakeven_protect",
+        "n": 1,
+        "wins": 1,
+        "losses": 0,
+        "pnl": 277.6871082306341
+      },
+      {
+        "reason": "max_loss",
+        "n": 1,
+        "wins": 1,
+        "losses": 0,
+        "pnl": 123.44529431326868
+      },
+      {
+        "reason": "below_trigger,trigger_breached_5pct,overextended,left_entry_corridor,large_adverse_move",
+        "n": 1,
+        "wins": 1,
+        "losses": 0,
+        "pnl": 163.1858306838804
+      }
+    ],
+    "byTriggerReason": []
+  }
+}

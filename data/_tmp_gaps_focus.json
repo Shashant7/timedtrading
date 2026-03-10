@@ -1,0 +1,196 @@
+{
+  "ok": true,
+  "allClear": false,
+  "totalTickers": 153,
+  "tickersWithGaps": 10,
+  "tickersNeedingBackfill": [
+    "CL1!",
+    "ES1!",
+    "GC1!",
+    "IWM",
+    "NQ1!",
+    "NVDA",
+    "SI1!",
+    "SPX",
+    "TSLA",
+    "VX1!"
+  ],
+  "gapCount": 29,
+  "gaps": [
+    {
+      "ticker": "TSLA",
+      "tf": "240",
+      "count": 0,
+      "minRequired": 20
+    },
+    {
+      "ticker": "TSLA",
+      "tf": "60",
+      "count": 0,
+      "minRequired": 40
+    },
+    {
+      "ticker": "NVDA",
+      "tf": "240",
+      "count": 0,
+      "minRequired": 20
+    },
+    {
+      "ticker": "NVDA",
+      "tf": "60",
+      "count": 0,
+      "minRequired": 40
+    },
+    {
+      "ticker": "SPX",
+      "tf": "60",
+      "count": 0,
+      "minRequired": 40
+    },
+    {
+      "ticker": "SPX",
+      "tf": "30",
+      "count": 0,
+      "minRequired": 40
+    },
+    {
+      "ticker": "SPX",
+      "tf": "10",
+      "count": 0,
+      "minRequired": 40
+    },
+    {
+      "ticker": "IWM",
+      "tf": "240",
+      "count": 0,
+      "minRequired": 20
+    },
+    {
+      "ticker": "IWM",
+      "tf": "60",
+      "count": 0,
+      "minRequired": 40
+    },
+    {
+      "ticker": "ES1!",
+      "tf": "30",
+      "count": 0,
+      "minRequired": 40
+    },
+    {
+      "ticker": "ES1!",
+      "tf": "10",
+      "count": 0,
+      "minRequired": 40
+    },
+    {
+      "ticker": "NQ1!",
+      "tf": "30",
+      "count": 0,
+      "minRequired": 40
+    },
+    {
+      "ticker": "NQ1!",
+      "tf": "10",
+      "count": 0,
+      "minRequired": 40
+    },
+    {
+      "ticker": "GC1!",
+      "tf": "240",
+      "count": 0,
+      "minRequired": 20
+    },
+    {
+      "ticker": "GC1!",
+      "tf": "60",
+      "count": 0,
+      "minRequired": 40
+    },
+    {
+      "ticker": "GC1!",
+      "tf": "30",
+      "count": 0,
+      "minRequired": 40
+    },
+    {
+      "ticker": "GC1!",
+      "tf": "10",
+      "count": 0,
+      "minRequired": 40
+    },
+    {
+      "ticker": "SI1!",
+      "tf": "240",
+      "count": 0,
+      "minRequired": 20
+    },
+    {
+      "ticker": "SI1!",
+      "tf": "60",
+      "count": 0,
+      "minRequired": 40
+    },
+    {
+      "ticker": "SI1!",
+      "tf": "30",
+      "count": 0,
+      "minRequired": 40
+    },
+    {
+      "ticker": "SI1!",
+      "tf": "10",
+      "count": 0,
+      "minRequired": 40
+    },
+    {
+      "ticker": "VX1!",
+      "tf": "240",
+      "count": 0,
+      "minRequired": 20
+    },
+    {
+      "ticker": "VX1!",
+      "tf": "60",
+      "count": 0,
+      "minRequired": 40
+    },
+    {
+      "ticker": "VX1!",
+      "tf": "30",
+      "count": 0,
+      "minRequired": 40
+    },
+    {
+      "ticker": "VX1!",
+      "tf": "10",
+      "count": 0,
+      "minRequired": 40
+    },
+    {
+      "ticker": "CL1!",
+      "tf": "240",
+      "count": 0,
+      "minRequired": 20
+    },
+    {
+      "ticker": "CL1!",
+      "tf": "60",
+      "count": 0,
+      "minRequired": 40
+    },
+    {
+      "ticker": "CL1!",
+      "tf": "30",
+      "count": 0,
+      "minRequired": 40
+    },
+    {
+      "ticker": "CL1!",
+      "tf": "10",
+      "count": 0,
+      "minRequired": 40
+    }
+  ],
+  "truncated": false
+}

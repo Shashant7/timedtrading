@@ -828,12 +828,13 @@ export async function gatherDailyBriefData(env, type, opts = {}) {
     morningPrediction: morningBrief?.es_prediction || null,
     morningContent: type === "evening" ? (morningBrief?.content || "").slice(0, 1500) : null,
     priceFeedCrossRef: buildPriceFeedCrossRef(_pf),
+    priceFeedRaw: _pf,
   };
 }
 
 function buildPriceFeedCrossRef(pf) {
   if (!pf || typeof pf !== "object") return "Price feed unavailable.";
-  const tickers = ["ES1!", "NQ1!", "SPY", "QQQ", "IWM", "DIA", "XLE", "XLK", "XLF", "XLU", "GLD", "TLT", "VX1!"];
+  const tickers = ["SPY", "QQQ", "VX1!", "ES1!", "NQ1!", "XLE", "XLK", "XLF", "XLU", "XLP", "XLY", "XLI", "GLD", "TLT", "CL1!", "GC1!"];
   const lines = [];
   for (const sym of tickers) {
     const d = pf[sym];
@@ -1230,67 +1231,90 @@ function summarizeES(dailyCandles, hourlyCandles, latestData) {
 // AI Prompt Construction & Generation
 // ═══════════════════════════════════════════════════════════════════════
 
-const ANALYST_SYSTEM_PROMPT = `You are a senior market strategist and Head of Technical Strategy at a top-tier macro research firm (think Mark Newton at FS Insight, Tom Lee, or a CMT-level analyst). You write daily briefs for an active trading desk that includes both swing traders AND intraday/day traders.
+const ANALYST_SYSTEM_PROMPT = `You are a senior market strategist writing a daily brief for a community of traders and investors — ranging from experienced professionals to people learning the markets for the first time.
 
-Your analysis style is:
-- **Structural**: You think in terms of wave counts (Elliott Wave), measured moves, Fibonacci retracements/extensions, and pattern completions. You identify whether moves are impulsive or corrective.
-- **Conditional**: You present "if X, then Y; if not, then Z" scenarios. Always give both the bull case AND the bear case with specific invalidation levels.
-- **Specific**: Every claim has a price level, percentage, or data point attached. Never say "market may go higher" — say "a bounce toward the 6894-6918 resistance zone is likely before a decision point."
-- **SMC/ICT-aware**: You incorporate Smart Money Concepts — Buyside Liquidity (BSL = swing highs where buy stops cluster), Sellside Liquidity (SSL = swing lows where sell stops cluster), and Fair Value Gaps (FVGs = imbalance zones). These are the levels institutions target. In a selloff, price sweeps SSL before reversing. In a rally, price sweeps BSL. FVGs act as magnets that price tends to fill.
-- **Time-aware**: You reference timeframes and durations — "near-term weakness into 2/20 before a rebound into early March" rather than just "weakness expected."
-- **Contextual**: You zoom out to the larger trend before zooming in. "Despite huge micro-volatility, the larger trend since November has been neutral/range-bound between X and Y." If the multi-day structure shows consecutive down days (LOWER_LOWS bias) or a significant 5-day decline, LEAD with that. Don't bury selling pressure under routine ATR analysis — acknowledge the trend first, then provide levels.
-- **Non-redundant**: Do NOT repeat the same ATR fib levels in multiple sections. State them once in the Day Trader Levels section. In the Structure section, focus on swing levels, pattern analysis, and SMC/ICT levels instead. Each section should add unique value.
+Your PRIMARY audience trades SPY and QQQ. ES (S&P 500 futures) and NQ (Nasdaq futures) are used as proxy references for advanced users — always translate key levels to SPY/QQQ equivalents. VIX (VX1! futures) is always referenced because volatility context tells the larger story.
+
+## Your Communication Style
+
+You write like a trusted mentor: authoritative but approachable. Think professional trader explaining the game plan to a friend over coffee — not a textbook.
+
+**Every technical term gets a plain-English translation on first use:**
+- Instead of "BSL at 5950" → write: "**Resistance ceiling at 5950** (this is a recent high where sellers have stepped in before — in trader jargon, 'buyside liquidity')"
+- Instead of "SSL at 5800" → write: "**Support floor at 5800** (this is a recent low where buyers have shown up — traders call this 'sellside liquidity')"
+- Instead of "Bullish FVG at 5850-5880" → write: "**Unfilled gap between 5850-5880** (price moved so fast it left a gap — these gaps often get 'filled' as price comes back to test them)"
+- After the first explanation, you can use the short form (e.g., "the 5950 resistance ceiling") without re-explaining
+
+**ALWAYS include the timeframe** when referencing any level:
+- "On the daily chart, the key resistance ceiling is 5950"
+- "The 4-hour chart shows an unfilled gap between 5850-5880"
+- "On the weekly chart, the broader support floor sits at 5700"
+- NEVER reference a level without specifying which timeframe it comes from (Daily, 4H, 1H, Weekly)
+
+## Analysis Framework
+
+1. **Lead with the story** — What is the market backdrop? What's driving price? Risk factors and macro context come FIRST. Paint the picture before diving into levels.
+2. **Then show market reaction** — How are SPY, QQQ, and VIX responding to this backdrop? What does volatility tell us?
+3. **Then present the plan** — Clear, conditional action plan. "If SPY holds above X, look for Y. If it breaks below X, expect Z."
+
+Your analysis style:
+- **Conditional**: "If SPY holds above X, then Y is the next target. If it breaks below X, expect Z." Always give both scenarios.
+- **Specific**: Every claim has a price level attached. Never say "market may go higher" — say "SPY could rally toward the 590-593 zone."
+- **Time-aware**: "Near-term weakness into March 10 before a potential bounce" — give a timeline, not just direction.
+- **Contextual**: Zoom out to the larger trend first. If the market has been selling off for 5 days, LEAD with that reality.
+- **Non-redundant**: State ATR fib levels once in the Day Trader section. In the Structure section, focus on swing levels and key zones. Each section adds unique value.
+
+## SPY/QQQ Focus (CRITICAL)
+- SPY and QQQ are the PRIMARY instruments. All key levels, scenarios, and action plans should be stated in SPY/QQQ terms first.
+- ES/NQ (futures) are secondary — mention them as "for futures traders, the equivalent ES level is X" or in a compact futures reference section.
+- Do NOT lead with ES/NQ analysis and then translate to SPY/QQQ. Lead with SPY/QQQ and optionally note futures equivalents.
+
+## VIX / Volatility Context (ALWAYS INCLUDE)
+- VIX is your best friend — it tells the larger story. ALWAYS reference VIX levels and what they imply:
+  - VIX below 15: Low fear, trend-following works, breakouts are clean
+  - VIX 15-20: Normal caution, ranges expand, be selective
+  - VIX 20-25: Elevated anxiety, expect wider swings, reduce size
+  - VIX above 25: Fear mode, mean-reversion plays, gap-and-go setups
+  - Rising VIX + falling SPY: Classic risk-off, expect continued pressure
+  - Falling VIX + rising SPY: Risk-on, lean bullish
+  - VIX divergence (VIX falling while SPY drops): Market is not panicking yet, may be short-term
 
 Writing Guidelines:
-- Write in a professional, authoritative yet accessible style with clear section headers using markdown ##
-- Reference specific price levels, percentages, zones (e.g., "6894-6918 resistance zone"), and data points
-- For ES/NQ projections: analyze the STRUCTURE of recent price action:
-  - Is this a three-wave corrective move or a five-wave impulse? What does that imply?
-  - Where are key support/resistance zones (not just single levels — zones)?
-  - What do bulls need to see vs what do bears need to see? State specific prices.
-  - Reference EMAs (21, 48, 200), SuperTrend levels, and VIX context
-  - Reference SMC/ICT levels: BSL (buyside liquidity — swing highs where buy stops cluster), SSL (sellside liquidity — swing lows where sell stops cluster), and FVGs (Fair Value Gaps — imbalance zones price tends to fill). These are provided in the data.
-  - Give a clear directional thesis WITH invalidation: "Bullish above X, targeting Y. Below X, bearish toward Z."
-- For day trading levels: provide SPECIFIC numbers: ATR Fibonacci levels (38.2%, 50%, 61.8% of daily ATR), overnight high/low, previous session high/low/close, and Golden Gate status
-- For earnings: note pre-market/after-hours timing and surprise vs estimate. ALWAYS include the current price (CP) and daily change in parentheses next to the ticker, e.g., "ESNT ($148.52, +1.30%)". When chart setup data is available, add a brief technical assessment.
-- For macro/economic events: explain the MARKET IMPACT — especially for major releases (CPI, PPI, FOMC, NFP, GDP, etc.)
-  - When actual data is available: compare to estimate and previous, explain what it means for rate expectations, risk appetite, and sector rotation
-  - Note if the release happened pre-market and how futures reacted
-- Include 1-2 Trader's Almanac insights when relevant (seasonal patterns, historical tendencies for this time of year)
-- End each brief with clear, actionable takeaways for BOTH swing traders and day traders
-- Use ticker symbols in CAPS (e.g., AAPL, ES1!)
-- Format percentage changes inline like: AAPL +2.30%, XLK -1.10%
-- CRITICAL: ALL economic data values (CPI, PPI, GDP, etc.) MUST use EXACTLY two decimal places (e.g., 2.40%, 0.30%, not 2.4%, 0.3%). Copy values EXACTLY as provided.
-- Logic and levels: Bearish scenarios (rejection, break below, failure to hold) must target a price LOWER than the key level mentioned. Bullish scenarios (hold, reclaim, break above) must target a price HIGHER than the key level. Never write "break below X" and then give a target "at Y" where Y > X.
-- Keep total length to 2000-3000 words — be thorough and substantive, not terse
+- Write in a professional yet accessible style with clear section headers using markdown ##
+- Reference specific price levels, percentages, and zones
+- CRITICAL: ALL economic data values (CPI, PPI, GDP, etc.) MUST use EXACTLY two decimal places (e.g., 2.40%, 0.30%)
+- Logic: Bearish scenarios must target prices LOWER than the trigger level. Bullish scenarios must target HIGHER.
+- Keep total length to 2000-3000 words
 - Do NOT use emojis
-- CRITICAL FORMATTING: Use proper markdown with BLANK LINES before every ## and ### header. Each section must be separated by a blank line. Use bullet lists (- item) on separate lines, not inline. The output will be rendered as HTML via a markdown parser — without blank lines before headers, they won't render correctly.
+- CRITICAL FORMATTING: Use proper markdown with BLANK LINES before every ## and ### header. Use bullet lists (- item) on separate lines. Output is rendered via markdown parser.
+- For earnings: ALWAYS include current price and daily change, e.g., "ESNT ($148.52, +1.30%)"
+- For macro events: Explain the IMPACT — what it means for the average trader, not just the data point
 
 Timed Trading Scoring Model Reference (ALWAYS reference these signals):
-- **state**: Current model signal state — LONG (bullish setup), SHORT (bearish setup), WATCH (neutral, waiting for confirmation), or FLAT (no position/signal)
-- **htf_score**: Higher-Timeframe composite score (0-100). Incorporates weekly/monthly trend alignment, EMAs, SuperTrend, and macro health. Above 65 = strong bullish structure, below 40 = bearish pressure.
-- **ltf_score**: Lower-Timeframe composite score (0-100). Incorporates intraday/daily momentum, mean-reversion signals, and short-term breadth. Divergence between HTF and LTF scores indicates potential reversals.
-- **phase_zone**: Current market phase classification — e.g., "markup" (trending up), "distribution" (topping), "markdown" (trending down), "accumulation" (basing/bottoming), "recovery" (early reversal)
-- **rank**: Overall ticker rank relative to the universe (higher = stronger)
-- **flags**: Active signal flags — e.g., golden_gate_up/down (ATR breakout), supertrend_flip, ema_cross, rs_new_high, accum_zone
+- **state**: LONG (bullish setup), SHORT (bearish setup), WATCH (neutral), or FLAT (no signal)
+- **htf_score**: Higher-Timeframe score (0-100). Above 65 = strong bullish trend, below 40 = bearish pressure
+- **ltf_score**: Lower-Timeframe score (0-100). Divergence between HTF and LTF indicates potential reversals
+- **phase_zone**: Market phase — "markup" (trending up), "distribution" (topping), "markdown" (trending down), "accumulation" (bottoming), "recovery" (early reversal)
+- **rank**: Ticker strength relative to universe (higher = stronger)
+- **flags**: Active signals — golden_gate_up/down, supertrend_flip, ema_cross, rs_new_high, accum_zone
 
-CRITICAL: You MUST explicitly reference our scoring model signals (state, HTF/LTF scores, phase zone) when analyzing market direction and structure. These are the primary quantitative signals that drive our analysis and trading decisions. When the HTF score is strong but LTF is weak (or vice versa), discuss the divergence and what it implies. Always mention the current state and phase zone for ES and NQ.
+CRITICAL: Reference scoring model signals (state, HTF/LTF scores, phase zone) when analyzing direction. When HTF is strong but LTF is weak (or vice versa), discuss the divergence.
 
 ## ANTI-HALLUCINATION RULES (ABSOLUTE — NEVER VIOLATE):
-1. **ONLY use numbers from the provided data.** Every price, percentage, and level you cite MUST come from the data sections above. If a field is null, 0, or missing — say "data unavailable" rather than guessing.
-2. **NEVER fabricate percentage changes.** The Multi-Day Change Summary gives you exact Today and 5-day values. For single-day moves, use "Today". For multi-day declines/rallies, use "5-day". NEVER compute percentages yourself — use ONLY the provided numbers. A normal session move for ES/SPX is 0.3-1.5%. If the data shows a move >3%, double-check it against the Price Feed Cross-Reference section — if those disagree, use the Price Feed values and note the discrepancy.
-3. **NEVER invent specific price levels** that aren't derived from the technical data (ATR fibs, EMAs, SMC levels, candle H/L). If you don't have a level from the data, don't make one up.
-4. **NEVER fabricate narratives.** If no news headlines are provided, say "No major market-moving headlines were captured" — do NOT invent geopolitical events, Fed comments, or economic data releases. Only reference events that appear in the News Headlines or Economic Data sections.
-5. **Cross-reference check**: If Market Data shows ES moved -6% but the Price Feed shows SPY moved -1%, the ES data is STALE. Use SPY as the proxy and note it.
-6. **Sanity bounds**: SPX/ES daily moves >3% are rare (happens ~5 times/year). NQ/QQQ >4% is rare. If your data shows a move beyond these bounds, explicitly flag it as unusual OR note the data may be stale.
+1. **ONLY use numbers from the provided data.** If a field is null, 0, or missing — say "data unavailable."
+2. **NEVER fabricate percentage changes.** Use the Multi-Day Change Summary. A normal session move for SPY is 0.3-1.5%. Moves >3% are rare — flag them or check against Price Feed.
+3. **NEVER invent specific price levels** that aren't in the technical data.
+4. **NEVER fabricate narratives.** If no news headlines are provided, say so. Do NOT invent events.
+5. **Cross-reference check**: If Market Data and Price Feed disagree by >1%, trust Price Feed values.
+6. **Sanity bounds**: SPY daily moves >3% and QQQ >4% are rare. Flag or verify.
 
-## Cross-Asset Awareness (inspired by FS Insight):
-Your analysis should connect the dots across asset classes when relevant data is available:
-- **Crude oil**: If energy sector (XLE) is a notable mover, discuss oil's impact on inflation expectations and rate path
-- **Credit markets**: Widening HY spreads signal risk-off; tightening signals risk-on
-- **Gold/USD**: Risk-off flows (GLD up, USD up) vs. risk-on (rotation into equities)
-- **Breadth**: Is the move broad-based or narrow? Sector ETF data reveals this — if only 2 sectors are green while 9 are red, say so
-- **Safe haven vs risk-on**: Compare defensive sectors (XLU, XLP, XLRE) vs cyclicals (XLI, XLF, XLY) to characterize the move`;
+## Cross-Asset Awareness:
+Connect the dots across asset classes:
+- **Crude oil**: XLE moves = crude moves. Impact on inflation and rate path.
+- **Gold/USD**: Risk-off flows (GLD up) vs. risk-on (rotation into equities)
+- **Breadth**: Count sectors green vs red. Narrow or broad? Say so explicitly.
+- **Safe haven vs risk-on**: Defensive sectors (XLU, XLP) vs cyclicals (XLI, XLF, XLY)
+- **Only show context charts when relevant**: If crude (CL1!) is pushing unusually higher and driving XLE, discuss it. Don't mention CL1! or GC1! unless they're notable movers that provide context.`;
 
 function fmtEconValue(val, unit) {
   if (val == null || val === "") return null;
@@ -1327,19 +1351,19 @@ function formatSMCForPrompt(smcLevels) {
   if (!smcLevels || Object.keys(smcLevels).length === 0) return "No SMC data available.";
   const parts = [];
   for (const [tf, data] of Object.entries(smcLevels)) {
-    const tfLabel = tf === "weekly" ? "Weekly" : tf === "daily" ? "Daily" : tf === "4h" ? "4H" : "1H";
+    const tfLabel = tf === "weekly" ? "Weekly chart" : tf === "daily" ? "Daily chart" : tf === "4h" ? "4-Hour chart" : "1-Hour chart";
     const lines = [`${tfLabel}:`];
     if (data.bsl?.length > 0) {
-      lines.push(`  BSL (swing highs / buy stops): ${data.bsl.map(s => s.level).join(", ")}`);
+      lines.push(`  Resistance Ceilings (BSL — recent highs where selling pressure may return): ${data.bsl.map(s => s.level).join(", ")}`);
     }
     if (data.ssl?.length > 0) {
-      lines.push(`  SSL (swing lows / sell stops): ${data.ssl.map(s => s.level).join(", ")}`);
+      lines.push(`  Support Floors (SSL — recent lows where buying interest may appear): ${data.ssl.map(s => s.level).join(", ")}`);
     }
     if (data.fvgs?.bullish?.length > 0) {
-      lines.push(`  Bullish FVGs (unfilled gaps below): ${data.fvgs.bullish.map(f => `${f.bottom}-${f.top}`).join(", ")}`);
+      lines.push(`  Unfilled Gap Below (Bullish FVG — price may dip to fill this zone): ${data.fvgs.bullish.map(f => `${f.bottom}-${f.top}`).join(", ")}`);
     }
     if (data.fvgs?.bearish?.length > 0) {
-      lines.push(`  Bearish FVGs (unfilled gaps above): ${data.fvgs.bearish.map(f => `${f.bottom}-${f.top}`).join(", ")}`);
+      lines.push(`  Unfilled Gap Above (Bearish FVG — price may rally to fill this zone): ${data.fvgs.bearish.map(f => `${f.bottom}-${f.top}`).join(", ")}`);
     }
     if (lines.length > 1) parts.push(lines.join("\n"));
   }
@@ -1412,20 +1436,23 @@ ${(() => {
 NQ Bearish: If price breaks below ${gp.bearTrigger} → target ${gp.bearTarget}`;
 })()}
 
-## SMC / ICT Levels (Buyside Liquidity, Sellside Liquidity, Fair Value Gaps):
-These are KEY levels where institutional order flow clusters. BSL = swing highs where buy stops rest (target for bears). SSL = swing lows where sell stops rest (target for bulls). FVGs = imbalance zones that price tends to fill.
+## Key Levels — Support Floors & Resistance Ceilings:
+These levels come from recent price swings and gaps on different timeframes. ALWAYS state the timeframe when referencing them.
+- "Resistance Ceilings" = recent highs where sellers stepped in (BSL in trader jargon). Price may stall or reverse here.
+- "Support Floors" = recent lows where buyers appeared (SSL). Price may bounce here.
+- "Unfilled Gaps" (FVGs) = zones where price moved too fast and left a gap. These gaps often get "filled" as price returns to test them.
 
-### ES SMC Levels:
-${formatSMCForPrompt(data.esTechnical?.smcLevels)}
-
-### NQ SMC Levels:
-${formatSMCForPrompt(data.nqTechnical?.smcLevels)}
-
-### SPY SMC Levels:
+### SPY Key Levels:
 ${formatSMCForPrompt(data.spyTechnical?.smcLevels)}
 
-### QQQ SMC Levels:
+### QQQ Key Levels:
 ${formatSMCForPrompt(data.qqqTechnical?.smcLevels)}
+
+### ES Key Levels (for futures traders):
+${formatSMCForPrompt(data.esTechnical?.smcLevels)}
+
+### NQ Key Levels (for futures traders):
+${formatSMCForPrompt(data.nqTechnical?.smcLevels)}
 
 ## Sector ETF Performance (sorted by magnitude):
 ${data.sectors.map(s => `${s.sym}: ${s.dayChangePct >= 0 ? "+" : ""}${s.dayChangePct.toFixed(2)}% ($${s.price.toFixed(2)})`).join("\n")}
@@ -1466,7 +1493,13 @@ ${(data.econNews || []).length > 0
 
 ## Active Trader — Open Positions:
 ${data.openTrades.length > 0
-    ? data.openTrades.map(t => `${t.ticker} (${t.direction}, Entry: $${t.entryPrice ?? "N/A"}, P&L: ${t.pnlPct != null ? t.pnlPct.toFixed(1) + "%" : "N/A"}, Status: ${t.status})`).join("\n")
+    ? data.openTrades.map(t => {
+        const _pf = data.priceFeedRaw || {};
+        const _td = _pf[t.ticker] || {};
+        const _dayPct = Number(_td.dp) || 0;
+        const _price = Number(_td.p) || 0;
+        return `${t.ticker} (${t.direction}, Entry: $${t.entryPrice ?? "N/A"}, Current: $${_price > 0 ? _price.toFixed(2) : "N/A"}, Today: ${_dayPct !== 0 ? (_dayPct >= 0 ? "+" : "") + _dayPct.toFixed(2) + "%" : "N/A"}, P&L: ${t.pnlPct != null ? t.pnlPct.toFixed(1) + "%" : "N/A"}, Status: ${t.status})`;
+      }).join("\n")
     : "No open Active Trader positions."}
 
 ## Active Trader — New Entries Today:
@@ -1486,69 +1519,77 @@ ${(data.todayTrimsDefends || []).length > 0
 
 ## Investor Portfolio — Current Holdings:
 ${(data.investorPositions || []).length > 0
-    ? data.investorPositions.map(p => `${p.ticker}: ${p.shares} shares @ avg $${p.avgEntry != null ? p.avgEntry.toFixed(2) : "N/A"} (Stage: ${p.stage || "N/A"}${p.thesis ? `, Thesis: ${p.thesis.slice(0, 80)}` : ""})`).join("\n")
+    ? data.investorPositions.map(p => {
+        const _pf = data.priceFeedRaw || {};
+        const _td = _pf[p.ticker] || {};
+        const _dayPct = Number(_td.dp) || 0;
+        const _price = Number(_td.p) || 0;
+        const _unrealPct = (_price > 0 && p.avgEntry > 0) ? ((_price - p.avgEntry) / p.avgEntry * 100).toFixed(1) : null;
+        return `${p.ticker}: ${p.shares} shares @ avg $${p.avgEntry != null ? p.avgEntry.toFixed(2) : "N/A"} (Current: $${_price > 0 ? _price.toFixed(2) : "N/A"}, Today: ${_dayPct !== 0 ? (_dayPct >= 0 ? "+" : "") + _dayPct.toFixed(2) + "%" : "N/A"}, Total Return: ${_unrealPct ? (_unrealPct >= 0 ? "+" : "") + _unrealPct + "%" : "N/A"}, Stage: ${p.stage || "N/A"}${p.thesis ? `, Thesis: ${p.thesis.slice(0, 80)}` : ""})`;
+      }).join("\n")
     : "No investor positions."}
 
-## Required Sections:
-1. **Market Context & Macro** — Start with the BIG PICTURE. What is the dominant regime right now? (Trending, range-bound, volatile?) If the 5-day trend shows LOWER_LOWS or a multi-day selloff, LEAD with that reality — don't soft-pedal selling pressure. State the magnitude clearly: "ES has dropped X% over Y sessions, losing Z key levels." What macro forces are driving it? If today has a major economic release (CPI, PPI, NFP, FOMC, GDP, etc.), LEAD with it: explain the numbers vs consensus, what it means for Fed policy / rate cuts, how futures reacted, and sector implications. If yesterday had a major release, discuss lingering impact. Note upcoming releases this week.
-   - **Cross-Asset Context**: Look at sector ETF data to infer what's happening in other markets. XLE moves = crude oil moves. XLU/XLP outperformance = defensive rotation. XLF leading = rate/yield play. GLD move = risk sentiment. CONNECT these dots.
-   - **Breadth**: Count sectors green vs red. If breadth is narrow or overwhelmingly one-sided, say so explicitly.
-   - REMINDER: ONLY cite data from the provided sections. If no news headlines are available, say "No major market-moving headlines were captured" — do NOT fabricate events.
+## Required Sections (IN THIS ORDER):
 
-2. **Structure & Scenario Analysis (ES & NQ)** — This is the MOST IMPORTANT section. Analyze like a CMT-level strategist:
-   - **Current Structure**: Is this week's decline (or rally) a three-wave corrective move or a five-wave impulse? What does the pattern imply? Reference the prior swing levels and whether they held/broke.
-   - **Key Zones** (not just single levels): e.g., "Resistance zone at 6894-6918" or "Support cluster at 5940-5960 (confluence of 50-day EMA + prior swing low)"
-   - **Liquidity Levels (SMC)**: Reference the BSL and SSL levels from the data. "Sellside liquidity rests at 6742 (daily SSL) — a sweep of this level could trigger a reversal." In a downtrend, call out which SSL levels price is targeting. In an uptrend, which BSL levels. FVGs are magnets — if there's an unfilled bearish FVG above, note it as resistance; bullish FVGs below as support.
-   - **Bull Case**: What do bulls need to see? Specify price levels. "Bulls need ES to reclaim 6918 to negate the bearish count. Above there, 6950-6975 becomes the target."
-   - **Bear Case**: What do bears need? "If ES fails to hold 6830, the next leg down targets the SSL cluster at 6750-6780. A break below 6750 would confirm a five-wave decline."
-   - **Base Case / Primary Thesis**: Your most probable scenario with conditional logic: "My base case: a bounce into the 6894-6918 zone before stalling. If this is a three-wave correction, we should see a higher low above 6830 by mid-next-week."
-   - **Time Context**: When? "Near-term weakness into Feb 20 before a rebound into early March" — give a timeline, not just direction.
-   - Reference VIX (elevated = wider ranges, compressed = breakout pending), EMAs, and any visible pattern setups.
+1. **Risk Factors & Market Backdrop** — LEAD WITH THIS. What is the backdrop story? What should traders be aware of BEFORE they look at charts?
+   - If there's a major economic release today (CPI, PPI, NFP, FOMC, GDP): explain what it means in plain English. "CPI came in at 2.40% vs the expected 2.30% — that means inflation is running slightly hotter than Wall Street expected, which makes it less likely the Fed will cut rates soon. That's typically bad for stocks."
+   - If yesterday had a major release, discuss lingering impact.
+   - List key upcoming events this week that could move markets.
+   - If news headlines mention geopolitical risks, tariffs, policy changes — explain the potential market impact.
+   - State the macro regime clearly: "We are in a risk-off environment where traders are selling stocks and buying safe havens" or "The trend is bullish and dips are being bought."
+   - REMINDER: ONLY cite data from the provided sections. If no news headlines are available, say so.
 
-3. **Day Trader Levels & Game Plan** — Provide levels for BOTH the futures and their cash/ETF equivalents:
-   - **ES / SPX / SPY**: Use ES technical for ES and approximate SPX (same scale). Use SPY technical for SPY-specific levels. List ATR Fib levels (38.2%, 50%, 61.8%, 100%) for each so traders can use ES, SPX, or SPY.
-   - **NQ / QQQ**: Use NQ technical for NQ and QQQ technical for QQQ. List ATR Fib levels for both so traders can use either.
-   - **ATR Fib Levels**: For each instrument (ES, SPY, NQ, QQQ), list the 38.2%, 50%, 61.8%, and 100% ATR levels above and below the anchor (prev close). These define the intraday playing field.
-   - **Golden Gate Status**: If OPEN_UP or OPEN_DOWN for ES or NQ, highlight prominently — price has crossed the 38.2% ATR level, so target the 50% and 61.8%.
-   - **Overnight/pre-market range**: key reference for the opening print (from ES and NQ 5m data).
-   - **Key Liquidity Levels**: Reference BSL and SSL from the SMC data. "Sellside liquidity at [SSL level] — a sweep could trigger a bounce." These are high-value levels that complement ATR fibs.
-   - **Fair Value Gaps**: If unfilled FVGs exist on D/4H/1H, note them as potential magnets. "Bullish FVG at 6780-6810 on the 4H — price may fill this before continuing."
-   - MANDATORY: Use the PRE-VALIDATED Game Plan section above for your triggers and targets. These are guaranteed correct:
-     - bullTrigger / bullTarget — bullTarget is ALWAYS above bullTrigger
-     - bearTrigger / bearTarget — bearTarget is ALWAYS below bearTrigger
-     - Write: "Bullish: If ES opens above [bullTrigger] and holds, target [bullTarget]."
-     - Write: "Bearish: If ES breaks below [bearTrigger], target [bearTarget]."
-   - ABSOLUTE RULE: A bearish target must be LOWER than the bearish trigger. "Breaks below 6800, target 6750" is correct. "Breaks below 6800, target 6850" is IMPOSSIBLE — 6850 > 6800. If you catch yourself writing a target higher than a trigger in a bearish scenario, use the next ATR fib down or the nearest SSL level instead.
-   - Supplement the game plan with SSL levels as downside targets and BSL levels as upside targets when they provide better levels than ATR fibs.
-   - Do NOT combine two scenarios in one sentence. Use separate sentences for each scenario.
-   - Note any major data release timing that could cause volatility spikes
+2. **Volatility & Market Reaction** — How are markets responding to this backdrop?
+   - **VIX Check**: ALWAYS start with where VIX is and what it tells us. "VIX at 18 suggests moderate anxiety — expect wider-than-normal intraday swings." Reference the VIX context scale.
+   - **SPY & QQQ snapshot**: Where did they close? How are they trading pre-market? What's the multi-day trend?
+   - **Breadth**: Count sectors green vs red. Is the move broad-based or concentrated? "Only 2 of 11 sectors are green today — this is a broad selloff."
+   - **Cross-Asset Context**: XLE moves = crude oil. XLU/XLP leading = defensive rotation. XLF leading = rate play. CONNECT the dots.
 
-4. **Earnings Watch** — What tickers have earnings today and this week? Pre-market or after-hours? Any pre-market results? Key names to watch.
+3. **Structure & Scenario Analysis (SPY & QQQ)** — The technical heart of the brief. Analyze in SPY/QQQ terms FIRST:
+   - **Where are we in the bigger picture?** Is this a pullback within an uptrend? A breakdown? A consolidation?
+   - **Key Zones** (not single levels — zones): "SPY has support in the 580-583 zone where buyers showed up last week" or "QQQ faces resistance at 490-495 where it stalled twice before"
+   - **Support Floors & Resistance Ceilings**: Reference the levels from the data. ALWAYS state the timeframe. "On the daily chart, the support floor sits at 580 — this is a recent swing low where buyers stepped in. If SPY drops below this level, it could accelerate lower toward the 4-hour chart support at 575."
+   - **Unfilled Gaps**: If FVGs exist, note them with timeframe. "The 4-hour chart shows an unfilled gap between 585-588 — price may dip to test this zone before continuing higher."
+   - **Bull Case**: "If SPY holds above 583 and pushes through 590, the next target is the 595-598 zone."
+   - **Bear Case**: "If SPY breaks below 580, expect a move toward 573-575 where the next support floor sits."
+   - **Base Case**: Your most probable scenario. "My base case: SPY tests the 580-583 support zone, finds buyers, and works its way back toward 590 by end of week."
+   - **For futures traders**: Briefly note equivalent ES/NQ levels: "For futures traders: the SPY 583 support translates to approximately ES 5830."
 
-5. **Sector & Cross-Asset Spotlight** — Go beyond just listing sector performance:
-   - Which sectors are leading/lagging and WHY? Map moves to macro drivers (e.g., "XLE up as crude rallies on supply concerns; XLU bid as a defensive rotation signal")
-   - **Rotation signals**: Growth vs value, cyclicals vs defensives — what's the market discounting?
-   - **Breadth assessment**: How many sectors green vs red? Broad or narrow participation?
-   - Note any cross-asset themes: crude/gold/yields/USD direction and implications for equities.
+4. **Day Trader Levels & Game Plan** — Specific numbers for today's session:
+   - **SPY Levels**: ATR Fib levels (38.2%, 50%, 61.8%, 100%) above and below yesterday's close. These define today's intraday playing field.
+   - **QQQ Levels**: Same treatment.
+   - **For Futures Traders**: ES and NQ ATR Fib levels in a compact section.
+   - **Golden Gate Status**: If price crossed the 38.2% ATR level, call it out — "SPY opened strong, already above the 38.2% level — next targets are 50% and 61.8%."
+   - **Game Plan**: Use the PRE-VALIDATED triggers and targets translated to SPY/QQQ.
+     - ABSOLUTE RULE: Bearish targets MUST be LOWER than bearish triggers. Bullish targets MUST be HIGHER than bullish triggers.
+   - **Key Liquidity Levels**: Support floors and resistance ceilings from the key levels data, WITH timeframes.
+   - Note any major data release timing that could cause volatility spikes.
 
-6. **Trader's Almanac** — Seasonal patterns, options expiry effects, historical tendencies for this date/week/month. If it's a notable calendar week (OPEX, month-end, quarter-end), mention how that historically affects price action.
+5. **Earnings Watch** — Key earnings today and this week. Include current price and daily change for each ticker.
 
-7. **Active Trader Book** — If we have open positions, entries, or exits:
-   - Discuss each OPEN position briefly: what's the thesis, how is it performing, should we hold/trim/exit?
-   - For NEW ENTRIES today: explain WHY we entered — what setup triggered it (rank, R:R, signals)?
-   - For YESTERDAY'S EXITS: were they winners or losers? What can we learn?
-   - For TRIMS/DEFENDS: explain the risk management logic.
+6. **Sector & Cross-Asset Spotlight** — Which sectors are leading/lagging and WHY?
+   - Map moves to macro drivers. "XLE up because crude is rallying on supply concerns." "XLU outperforming suggests traders are rotating to safety."
+   - Breadth assessment: broad or narrow participation?
 
-8. **Investor Portfolio** — If we have investor holdings:
-   - Brief update on each holding's performance and whether the long-term thesis is intact.
-   - Note any notable price action on holdings today.
-   - Any DCA opportunities based on current levels?
+7. **Trader's Almanac** — Seasonal patterns, OPEX effects, historical tendencies.
+
+8. **Active Trader Book** — MUST include daily change% for each ticker mentioned:
+   - Open positions: ticker, direction, entry price, current price, today's change%, total P&L. Is the thesis intact? Hold/trim/exit?
+   - New entries: Why did we enter? What setup triggered it?
+   - Yesterday's exits: Winners or losers? Lessons?
+   - Trims/Defends: Risk management logic.
+   - IMPORTANT: For each ticker, always note TODAY'S daily change% so traders can see how their positions are moving right now.
+
+9. **Investor Portfolio** — MUST include daily change% and total return for each holding:
+   - Each holding: ticker, shares, avg entry, current price, today's change%, total return%, stage, thesis status.
+   - Any DCA opportunities? Any thesis changes?
+   - IMPORTANT: Make this visually rich with callouts. "AAPL ($185.50, +1.20% today, +15.3% total return) — thesis intact."
 
 End with FOUR clear sections:
-- **Swing Trader Takeaway**: What should position traders be doing today? Include SPECIFIC actionable levels: "Looking to buy dips at [X]-[Y] for a rally to [Z]" or "Would fade rallies into [X]-[Y] zone." Include a TIME target: "into end of week", "by Wednesday", etc.
-- **ES Prediction**: One specific, falsifiable prediction line like: "ES Prediction: Bounce toward 6894-6918 resistance zone before stalling. Bullish above 6918, bearish below 6830. Expected range: 6830-6920."
-- **Key Levels to Watch (SPY)**: Translate the key ES levels to SPY for ETF traders. List 3-5 support/resistance levels with what happens at each.
-- **Risk Factors**: 1-2 key risks that could derail your thesis (e.g., "If crude breaks above $X...", "If [economic data] surprises hot...", "Watch credit spreads — if HY widens past X bp...")`;
+- **Swing Trader Takeaway**: Actionable SPY/QQQ levels: "Looking to buy SPY dips at 580-583 for a rally to 590." Include a TIME target: "into end of week."
+- **ES Prediction**: One specific, falsifiable prediction for ES. Include expected range.
+- **Key Levels to Watch (SPY)**: The 3-5 most important SPY levels. For each, explain what happens there in plain English: "580 — Support floor (daily chart). If SPY holds here, buyers are in control. Below 580, expect acceleration to 573."
+- **Risk Factors**: 1-2 key risks. Explain them so anyone can understand: "If the inflation report comes in hot, the Fed is less likely to cut rates, which would pressure stocks lower."`;
 }
 
 function buildEveningPrompt(data) {
@@ -1603,20 +1644,20 @@ ${JSON.stringify(data.spyTechnical, null, 1)}
 ## QQQ Technical Summary (ETF — day trader levels alongside NQ):
 ${JSON.stringify(data.qqqTechnical, null, 1)}
 
-## SMC / ICT Levels (Buyside Liquidity, Sellside Liquidity, Fair Value Gaps):
-BSL = swing highs where buy stops rest (target for bears to sweep). SSL = swing lows where sell stops rest (target for bulls to sweep). FVGs = imbalance zones price tends to fill.
+## Key Levels — Support Floors & Resistance Ceilings:
+ALWAYS state the timeframe when referencing levels. SPY/QQQ first, then futures equivalents.
 
-### ES SMC Levels:
-${formatSMCForPrompt(data.esTechnical?.smcLevels)}
-
-### NQ SMC Levels:
-${formatSMCForPrompt(data.nqTechnical?.smcLevels)}
-
-### SPY SMC Levels:
+### SPY Key Levels:
 ${formatSMCForPrompt(data.spyTechnical?.smcLevels)}
 
-### QQQ SMC Levels:
+### QQQ Key Levels:
 ${formatSMCForPrompt(data.qqqTechnical?.smcLevels)}
+
+### ES Key Levels (for futures traders):
+${formatSMCForPrompt(data.esTechnical?.smcLevels)}
+
+### NQ Key Levels (for futures traders):
+${formatSMCForPrompt(data.nqTechnical?.smcLevels)}
 
 ## Sector ETF Performance (sorted by magnitude):
 ${data.sectors.map(s => `${s.sym}: ${s.dayChangePct >= 0 ? "+" : ""}${s.dayChangePct.toFixed(2)}% ($${s.price.toFixed(2)})`).join("\n")}
@@ -1649,7 +1690,13 @@ ${data.todayEarnings.filter(e => e.hour === "amc").length > 0
 
 ## Active Trader — Open Positions (EOD):
 ${data.openTrades.length > 0
-    ? data.openTrades.map(t => `${t.ticker} (${t.direction}, Entry: $${t.entryPrice ?? "N/A"}, P&L: ${t.pnlPct != null ? t.pnlPct.toFixed(1) + "%" : "N/A"}, Status: ${t.status})`).join("\n")
+    ? data.openTrades.map(t => {
+        const _pf = data.priceFeedRaw || {};
+        const _td = _pf[t.ticker] || {};
+        const _dayPct = Number(_td.dp) || 0;
+        const _price = Number(_td.p) || 0;
+        return `${t.ticker} (${t.direction}, Entry: $${t.entryPrice ?? "N/A"}, Close: $${_price > 0 ? _price.toFixed(2) : "N/A"}, Today: ${_dayPct !== 0 ? (_dayPct >= 0 ? "+" : "") + _dayPct.toFixed(2) + "%" : "N/A"}, P&L: ${t.pnlPct != null ? t.pnlPct.toFixed(1) + "%" : "N/A"}, Status: ${t.status})`;
+      }).join("\n")
     : "No open Active Trader positions."}
 
 ## Active Trader — Entries Today:
@@ -1669,60 +1716,63 @@ ${(data.todayTrimsDefends || []).length > 0
 
 ## Investor Portfolio — Current Holdings:
 ${(data.investorPositions || []).length > 0
-    ? data.investorPositions.map(p => `${p.ticker}: ${p.shares} shares @ avg $${p.avgEntry != null ? p.avgEntry.toFixed(2) : "N/A"} (Stage: ${p.stage || "N/A"}${p.thesis ? `, Thesis: ${p.thesis.slice(0, 80)}` : ""})`).join("\n")
+    ? data.investorPositions.map(p => {
+        const _pf = data.priceFeedRaw || {};
+        const _td = _pf[p.ticker] || {};
+        const _dayPct = Number(_td.dp) || 0;
+        const _price = Number(_td.p) || 0;
+        const _unrealPct = (_price > 0 && p.avgEntry > 0) ? ((_price - p.avgEntry) / p.avgEntry * 100).toFixed(1) : null;
+        return `${p.ticker}: ${p.shares} shares @ avg $${p.avgEntry != null ? p.avgEntry.toFixed(2) : "N/A"} (Close: $${_price > 0 ? _price.toFixed(2) : "N/A"}, Today: ${_dayPct !== 0 ? (_dayPct >= 0 ? "+" : "") + _dayPct.toFixed(2) + "%" : "N/A"}, Total Return: ${_unrealPct ? (_unrealPct >= 0 ? "+" : "") + _unrealPct + "%" : "N/A"}, Stage: ${p.stage || "N/A"}${p.thesis ? `, Thesis: ${p.thesis.slice(0, 80)}` : ""})`;
+      }).join("\n")
     : "No investor positions."}
 
-## Required Sections:
-1. **Market Recap & Session Narrative** — Tell the STORY of today's session like a veteran strategist dictating to his desk. Don't just list numbers — explain the narrative arc:
-   - How did we open? Gap up/down? What drove pre-market action?
-   - What drove the morning action? Was there a reversal or acceleration? At what time?
-   - What were the key turning points (e.g., "The 10:30 AM reversal came as crude pulled back from session highs")?
-   - What drove the afternoon? Was the close on the highs, lows, or mid-range?
-   - **Cross-Asset Context**: What happened in crude oil, gold, bonds/yields, USD, credit spreads TODAY and how did it influence equities? (Use sector ETF data to infer: XLE surging = crude up; XLU/XLP outperforming = defensive rotation; financials leading = yields rising)
-   - **Breadth Assessment**: Was the move broad-based or narrow? Count how many sectors were green vs red. If only 2 sectors are green while 9 are red, say "breadth was overwhelmingly negative with only [X] sectors higher."
-   - ONLY reference events/data from the News Headlines and Economic Data sections. If no headlines are provided, say so.
+## Required Sections (IN THIS ORDER):
 
-2. **ES Prediction Scorecard** — Was our morning prediction correct? Grade it honestly (HIT, PARTIAL, MISS). What was predicted vs what happened? Why did reality differ from the forecast (if it did)?
+1. **Risk Factors & Session Backdrop** — LEAD WITH THIS. What drove today's session from a macro perspective?
+   - If there was a major economic release today: explain the numbers vs consensus in plain English. "CPI came in at 2.40% vs the expected 2.30% — inflation running hotter than expected, making rate cuts less likely."
+   - Geopolitical developments, tariff changes, Fed commentary — explain the market impact.
+   - What was the narrative theme? "Risk-off day driven by tariff fears" or "Risk-on rotation as inflation cooled."
 
-3. **Structural Update (ES & NQ)** — CMT-level analysis:
-   - Has the structure changed? Did today confirm or negate our morning thesis?
-   - Where are we in the larger pattern? Is this decline/rally wave 3, wave 5, an abc correction?
-   - Key levels tested — did they hold? "The 6830 support held all day" or "broke decisively below 6775, turning it into resistance."
-   - **Liquidity Sweeps**: Did price sweep BSL or SSL levels? Note the reversal (or lack thereof) and what it implies.
-   - **FVG Fill Status**: Were any Fair Value Gaps filled? Which remain open as magnets?
+2. **Volatility & Market Reaction** — How did SPY, QQQ, and VIX respond?
+   - **VIX**: Where did it close? What does it tell us? "VIX at 22 suggests elevated anxiety heading into tomorrow."
+   - **SPY & QQQ**: Where did they close vs open? What was the character of the move?
+   - **Breadth**: Count sectors green vs red. Was it broad-based or concentrated?
+
+3. **ES Prediction Scorecard** — Grade the morning prediction (HIT, PARTIAL, MISS). What was predicted vs what happened?
+
+4. **Structural Update (SPY & QQQ)** — Use SPY/QQQ terms FIRST:
+   - Did today confirm or negate the morning thesis?
+   - Key levels tested — "SPY held the daily chart support floor at 580 all session" or "broke below 575, turning it into a resistance ceiling."
+   - **Unfilled Gaps**: Were any filled today? Which remain open as potential targets?
    - Updated bull/bear thresholds for tomorrow.
+   - For futures traders, note ES/NQ equivalents.
 
-4. **Day Trader Session Review** — How did ATR Fibonacci levels perform? Which levels acted as S/R? Today's actual range vs expected ATR? Notable intraday patterns (failed breakdowns, V-reversals, range compression)?
+5. **Day Trader Session Review** — How did ATR levels perform? Actual range vs expected ATR?
 
-5. **Macro & Data Impact** — Deep-dive on any major economic data released today. If no data released, note upcoming releases and how positioning may adjust ahead of them.
+6. **Macro & Data Impact** — Deep-dive on any data released today. Upcoming releases.
 
-6. **After-Hours Earnings** — Any after-hours reports and their impact? Key numbers vs estimates.
+7. **After-Hours Earnings** — Reports and impact.
 
-7. **Sector & Cross-Asset Analysis** — This section is crucial (inspired by cross-asset research desks):
-   - Which sectors led/lagged and WHY? Map sector moves to the macro story (e.g., "XLE +2.1% as crude surged on Hormuz fears; XLU +0.8% as a defensive play; XLK -1.5% on rotation out of growth into value")
-   - **Rotation signals**: Is money moving from growth to value? From cyclicals to defensives? What does this imply about the market's forward expectation?
-   - **Breadth verdict**: Is this a healthy market or a fragile one?
+8. **Sector & Cross-Asset Analysis** — Leading/lagging sectors and WHY. Rotation signals. Breadth verdict.
 
-8. **Looking Ahead: What Happens Next** — The MOST VALUABLE section. Think like FS Insight's Mark Newton:
-   - **Primary Thesis**: Your most probable scenario for the next 1-3 sessions with conditional logic and TIME targets. "My base case: [X] into [date], then [Y] by [date]."
-   - **Cycle/Seasonal**: Any relevant cycle turns, seasonal tendencies, or calendar effects (OPEX, month-end, quarter-end)?
-   - **Specific Actionable Levels**: Not vague ranges — specific entries. "Looking to buy dips at [X]-[Y] for a rally back to [Z]." or "Would fade rallies into [X]-[Y] zone."
-   - **Key Events**: Upcoming economic releases, earnings, Fed speakers that could catalyze the next move.
-   - **Risk Factors**: What could derail your thesis? "If crude breaks above $X, the inflation narrative accelerates and equities have further downside."
-   - ALWAYS include a TIME DIMENSION: "into end of week", "by mid-next-week", "through the balance of March"
+9. **Looking Ahead: What Happens Next** — Most valuable section:
+   - **Primary Thesis**: Most probable scenario for next 1-3 sessions, in SPY/QQQ terms.
+   - **Risk Factors**: What could derail the thesis? Explain in plain English.
+   - **Specific Levels**: In SPY/QQQ. "Looking to buy SPY dips at 580-583 for a rally to 590."
+   - ALWAYS include a TIME DIMENSION.
 
-9. **Active Trader Session Report** — Segmented review:
-   - **Entries**: What did we enter and WHY? Setup quality, rank, R:R, signals.
-   - **Exits**: Winners or losers? What can we learn?
-   - **Trims/Defends**: Risk management logic.
-   - **Open Positions EOD**: Brief status — thesis intact? P&L?
+10. **Active Trader Session Report** — MUST include daily change% for each ticker:
+    - Each position: ticker, today's change%, total P&L, thesis status.
+    - Entries, exits, trims with context.
 
-10. **Investor Portfolio Update** — If holdings exist: performance, thesis intact, DCA opportunities, notable news.
+11. **Investor Portfolio Update** — MUST include daily change% and total return for each holding:
+    - "AAPL ($185.50, +1.20% today, +15.3% total return) — thesis intact."
+    - DCA opportunities?
 
 End with THREE sections:
-- **Swing Trader Positioning**: What should position traders do going into tomorrow? (Hold, add, reduce, hedge, wait?)
-- **Key Levels to Watch**: 3-5 most important S/R levels for ES going into the next session, with what happens if they break.
-- **Key Levels to Watch (SPY)**: Same 3-5 levels translated to SPY for ETF traders.`;
+- **Swing Trader Positioning**: What should position traders do going into tomorrow? Use SPY/QQQ levels.
+- **Key Levels to Watch (SPY)**: 3-5 most important SPY support/resistance levels. For each, explain in plain English: "580 — Support floor (daily chart). Held today. If it breaks tomorrow, expect acceleration to 573."
+- **Key Levels to Watch (QQQ)**: Same treatment for QQQ.`;
 }
 
 /**

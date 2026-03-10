@@ -1,0 +1,1054 @@
+{
+  "overview": {
+    "total": 527,
+    "closed": 520,
+    "wins": 286,
+    "losses": 234,
+    "open": 7,
+    "winRate": 55
+  },
+  "pnl": {
+    "all": {
+      "count": 520,
+      "mean": 0.413,
+      "median": 0.2732139987248001,
+      "p10": -3.1487897125567335,
+      "p25": -1.142999460222165,
+      "p75": 1.9138469154460287,
+      "p90": 3.7425447645263983
+    },
+    "winners": {
+      "count": 286,
+      "mean": 2.585,
+      "median": 1.7172913819634983,
+      "p10": 0.2826599267851331,
+      "p25": 0.7532122286220724,
+      "p75": 3.219231741766243,
+      "p90": 5.369631901840497
+    },
+    "losers": {
+      "count": 234,
+      "mean": -2.242,
+      "median": -1.4066970923812991,
+      "p10": -3.6712332453851255,
+      "p25": -3.0207326533529604,
+      "p75": -0.5466906988481535,
+      "p90": -0.2294197446420373
+    },
+    "profitFactor": 1.41
+  },
+  "holdTime": {
+    "winners": {
+      "count": 286,
+      "mean": 4665.28,
+      "median": 1550,
+      "p10": 10,
+      "p25": 240,
+      "p75": 6080,
+      "p90": 11370
+    },
+    "losers": {
+      "count": 234,
+      "mean": 4715.769,
+      "median": 1440,
+      "p10": 240,
+      "p25": 270,
+      "p75": 5470,
+      "p90": 8820
+    }
+  },
+  "direction": {
+    "LONG": {
+      "total": 397,
+      "wins": 232,
+      "losses": 165,
+      "winRate": 58.4,
+      "avgPnl": 0.57
+    },
+    "SHORT": {
+      "total": 123,
+      "wins": 54,
+      "losses": 69,
+      "winRate": 43.9,
+      "avgPnl": -0.092
+    }
+  },
+  "exitReasons": {
+    "sl_breached": {
+      "count": 156,
+      "wins": 84,
+      "losses": 72,
+      "avgPnl": 0.112,
+      "winRate": 53.8
+    },
+    "SOFT_FUSE_RSI_CONFIRMED": {
+      "count": 119,
+      "wins": 113,
+      "losses": 6,
+      "avgPnl": 3.05,
+      "winRate": 95
+    },
+    "max_loss": {
+      "count": 47,
+      "wins": 0,
+      "losses": 47,
+      "avgPnl": -4.81,
+      "winRate": 0
+    },
+    "sl_breached,ichimoku_regime_break": {
+      "count": 37,
+      "wins": 1,
+      "losses": 36,
+      "avgPnl": -1.144,
+      "winRate": 2.7
+    },
+    "below_trigger,trigger_breached_5pct,overextended,large_adverse_move": {
+      "count": 26,
+      "wins": 18,
+      "losses": 8,
+      "avgPnl": 0.658,
+      "winRate": 69.2
+    },
+    "below_trigger,trigger_breached_5pct,large_adverse_move": {
+      "count": 13,
+      "wins": 9,
+      "losses": 4,
+      "avgPnl": 0.497,
+      "winRate": 69.2
+    },
+    "below_trigger,trigger_breached_5pct,overextended,left_entry_corridor,large_adverse_move": {
+      "count": 13,
+      "wins": 5,
+      "losses": 8,
+      "avgPnl": -0.388,
+      "winRate": 38.5
+    },
+    "below_trigger,trigger_breached_5pct,daily_ema_regime_break,overextended,large_adverse_move": {
+      "count": 12,
+      "wins": 8,
+      "losses": 4,
+      "avgPnl": 0.565,
+      "winRate": 66.7
+    },
+    "ema_regime_reversed": {
+      "count": 11,
+      "wins": 1,
+      "losses": 10,
+      "avgPnl": -0.142,
+      "winRate": 9.1
+    },
+    "below_trigger,trigger_breached_5pct,adverse_move_warning": {
+      "count": 10,
+      "wins": 8,
+      "losses": 2,
+      "avgPnl": 1.155,
+      "winRate": 80
+    },
+    "below_trigger,trigger_breached_5pct,daily_ema_regime_break,overextended,left_entry_corridor,large_adverse_move": {
+      "count": 9,
+      "wins": 2,
+      "losses": 7,
+      "avgPnl": -0.199,
+      "winRate": 22.2
+    },
+    "HARD_FUSE_RSI_EXTREME": {
+      "count": 8,
+      "wins": 7,
+      "losses": 1,
+      "avgPnl": 6.51,
+      "winRate": 87.5
+    },
+    "time_exit_loser_choppy": {
+      "count": 6,
+      "wins": 0,
+      "losses": 6,
+      "avgPnl": -0.879,
+      "winRate": 0
+    },
+    "below_trigger,trigger_breached_5pct,left_entry_corridor,adverse_move_warning": {
+      "count": 6,
+      "wins": 2,
+      "losses": 4,
+      "avgPnl": -0.327,
+      "winRate": 33.3
+    },
+    "below_trigger,trigger_breached_5pct,daily_ema_regime_break,large_adverse_move": {
+      "count": 5,
+      "wins": 4,
+      "losses": 1,
+      "avgPnl": 0.502,
+      "winRate": 80
+    },
+    "time_exit_loser_transitional": {
+      "count": 3,
+      "wins": 0,
+      "losses": 3,
+      "avgPnl": -1.744,
+      "winRate": 0
+    },
+    "sl_breached,tp_reached,daily_ema_regime_break,ichimoku_regime_break": {
+      "count": 3,
+      "wins": 0,
+      "losses": 3,
+      "avgPnl": -0.918,
+      "winRate": 0
+    },
+    "below_trigger,trigger_breached_5pct,daily_ema_regime_break,adverse_move_warning": {
+      "count": 3,
+      "wins": 2,
+      "losses": 1,
+      "avgPnl": 0.388,
+      "winRate": 66.7
+    },
+    "sl_breached,ichimoku_regime_break,left_entry_corridor": {
+      "count": 3,
+      "wins": 3,
+      "losses": 0,
+      "avgPnl": 0.899,
+      "winRate": 100
+    },
+    "below_trigger,trigger_breached_5pct,left_entry_corridor,large_adverse_move": {
+      "count": 3,
+      "wins": 1,
+      "losses": 2,
+      "avgPnl": -1.304,
+      "winRate": 33.3
+    },
+    "above_trigger,trigger_breached_5pct,overextended,left_entry_corridor,large_adverse_move": {
+      "count": 3,
+      "wins": 3,
+      "losses": 0,
+      "avgPnl": 1.584,
+      "winRate": 100
+    },
+    "unknown": {
+      "count": 2,
+      "wins": 2,
+      "losses": 0,
+      "avgPnl": 4.947,
+      "winRate": 100
+    },
+    "TP_FULL": {
+      "count": 2,
+      "wins": 2,
+      "losses": 0,
+      "avgPnl": 5.208,
+      "winRate": 100
+    },
+    "below_trigger,trigger_breached_5pct,late_cycle,overextended,large_adverse_move": {
+      "count": 2,
+      "wins": 1,
+      "losses": 1,
+      "avgPnl": 0.164,
+      "winRate": 50
+    },
+    "above_trigger,trigger_breached_5pct,overextended,large_adverse_move": {
+      "count": 2,
+      "wins": 1,
+      "losses": 1,
+      "avgPnl": -0.412,
+      "winRate": 50
+    },
+    "below_trigger,sl_breached,daily_ema_regime_break,ichimoku_regime_break,left_entry_corridor": {
+      "count": 1,
+      "wins": 0,
+      "losses": 1,
+      "avgPnl": -2.436,
+      "winRate": 0
+    },
+    "sl_breached,tp_reached,ichimoku_regime_break": {
+      "count": 1,
+      "wins": 0,
+      "losses": 1,
+      "avgPnl": -0.327,
+      "winRate": 0
+    },
+    "below_trigger,sl_breached,daily_ema_regime_break,left_entry_corridor": {
+      "count": 1,
+      "wins": 0,
+      "losses": 1,
+      "avgPnl": -3.234,
+      "winRate": 0
+    },
+    "below_trigger,trigger_breached_5pct,late_cycle,adverse_move_warning": {
+      "count": 1,
+      "wins": 1,
+      "losses": 0,
+      "avgPnl": 1.722,
+      "winRate": 100
+    },
+    "below_trigger,trigger_breached_5pct,daily_ema_regime_break,late_cycle,overextended,adverse_move_warning": {
+      "count": 1,
+      "wins": 1,
+      "losses": 0,
+      "avgPnl": 0.624,
+      "winRate": 100
+    },
+    "above_trigger,trigger_breached_5pct,left_entry_corridor,large_adverse_move": {
+      "count": 1,
+      "wins": 1,
+      "losses": 0,
+      "avgPnl": 0.177,
+      "winRate": 100
+    },
+    "above_trigger,trigger_breached_5pct,large_adverse_move": {
+      "count": 1,
+      "wins": 1,
+      "losses": 0,
+      "avgPnl": 0.273,
+      "winRate": 100
+    },
+    "below_trigger,sl_breached,daily_ema_regime_break,ichimoku_regime_break,overextended,left_entry_corridor": {
+      "count": 1,
+      "wins": 1,
+      "losses": 0,
+      "avgPnl": 0.393,
+      "winRate": 100
+    },
+    "below_trigger,trigger_breached_5pct,sl_breached,ichimoku_regime_break,left_entry_corridor,adverse_move_warning": {
+      "count": 1,
+      "wins": 1,
+      "losses": 0,
+      "avgPnl": 9.558,
+      "winRate": 100
+    },
+    "sl_breached,tp_reached,daily_ema_regime_break,ichimoku_regime_break,left_entry_corridor": {
+      "count": 1,
+      "wins": 0,
+      "losses": 1,
+      "avgPnl": -1.372,
+      "winRate": 0
+    },
+    "above_trigger,trigger_breached_5pct,sl_breached,overextended,left_entry_corridor,large_adverse_move": {
+      "count": 1,
+      "wins": 1,
+      "losses": 0,
+      "avgPnl": 0.376,
+      "winRate": 100
+    },
+    "sl_breached,left_entry_corridor": {
+      "count": 1,
+      "wins": 0,
+      "losses": 1,
+      "avgPnl": -0.182,
+      "winRate": 0
+    },
+    "below_trigger,trigger_breached_5pct,daily_ema_regime_break,left_entry_corridor,adverse_move_warning": {
+      "count": 1,
+      "wins": 1,
+      "losses": 0,
+      "avgPnl": 1.698,
+      "winRate": 100
+    },
+    "sl_breached,tp_reached,ichimoku_regime_break,left_entry_corridor": {
+      "count": 1,
+      "wins": 0,
+      "losses": 1,
+      "avgPnl": -1.033,
+      "winRate": 0
+    },
+    "above_trigger,trigger_breached_5pct,left_entry_corridor,adverse_move_warning": {
+      "count": 1,
+      "wins": 1,
+      "losses": 0,
+      "avgPnl": 0.48,
+      "winRate": 100
+    },
+    "above_trigger,trigger_breached_5pct,sl_breached,ichimoku_regime_break,left_entry_corridor,adverse_move_warning": {
+      "count": 1,
+      "wins": 0,
+      "losses": 1,
+      "avgPnl": -1.299,
+      "winRate": 0
+    }
+  },
+  "slAnalysis": {
+    "slDistancePct": {
+      "count": 527,
+      "mean": 3.197,
+      "median": 2.4689969348443443,
+      "p10": 0.2731286282315811,
+      "p25": 0.7778491630016009,
+      "p75": 4.091688285543071,
+      "p90": 6.159930887909087
+    },
+    "winnersSlDistance": {
+      "count": 286,
+      "mean": 2.44,
+      "median": 1.6657731263099618,
+      "p10": 0.2731286282315811,
+      "p25": 0.6611357505569813,
+      "p75": 3.240759902321929,
+      "p90": 5.398773006134974
+    },
+    "losersSlDistance": {
+      "count": 234,
+      "mean": 4.13,
+      "median": 3.2514904677701533,
+      "p10": 0.2672889198352685,
+      "p25": 1.3313332083255125,
+      "p75": 5.17730964802219,
+      "p90": 7.955066483264566
+    }
+  },
+  "tradeHistory": {
+    "quickExits": 37,
+    "trimThenExit": 52,
+    "multipleTrims": 9,
+    "slTightens": 17,
+    "noEvents": 0
+  },
+  "perTicker": {
+    "ELF": {
+      "trades": 26,
+      "wins": 14,
+      "losses": 12,
+      "netPnl": 44.333,
+      "winRate": 53.8,
+      "directions": [
+        "SHORT",
+        "LONG"
+      ]
+    },
+    "ORCL": {
+      "trades": 12,
+      "wins": 6,
+      "losses": 5,
+      "netPnl": 22.79,
+      "winRate": 54.5,
+      "directions": [
+        "SHORT",
+        "LONG"
+      ]
+    },
+    "GEV": {
+      "trades": 10,
+      "wins": 5,
+      "losses": 5,
+      "netPnl": 22.259,
+      "winRate": 50,
+      "directions": [
+        "LONG"
+      ]
+    },
+    "PH": {
+      "trades": 15,
+      "wins": 10,
+      "losses": 5,
+      "netPnl": 21.762,
+      "winRate": 66.7,
+      "directions": [
+        "LONG"
+      ]
+    },
+    "COST": {
+      "trades": 17,
+      "wins": 11,
+      "losses": 5,
+      "netPnl": 20.485,
+      "winRate": 68.8,
+      "directions": [
+        "LONG",
+        "SHORT"
+      ]
+    },
+    "LITE": {
+      "trades": 2,
+      "wins": 2,
+      "losses": 0,
+      "netPnl": 18.481,
+      "winRate": 100,
+      "directions": [
+        "LONG"
+      ]
+    },
+    "TSLA": {
+      "trades": 12,
+      "wins": 5,
+      "losses": 7,
+      "netPnl": 18.116,
+      "winRate": 41.7,
+      "directions": [
+        "SHORT",
+        "LONG"
+      ]
+    },
+    "KO": {
+      "trades": 23,
+      "wins": 13,
+      "losses": 10,
+      "netPnl": 16.397,
+      "winRate": 56.5,
+      "directions": [
+        "LONG",
+        "SHORT"
+      ]
+    },
+    "ETN": {
+      "trades": 9,
+      "wins": 4,
+      "losses": 5,
+      "netPnl": 16.017,
+      "winRate": 44.4,
+      "directions": [
+        "LONG",
+        "SHORT"
+      ]
+    },
+    "HII": {
+      "trades": 10,
+      "wins": 7,
+      "losses": 3,
+      "netPnl": 16.015,
+      "winRate": 70,
+      "directions": [
+        "LONG"
+      ]
+    },
+    "FIX": {
+      "trades": 10,
+      "wins": 8,
+      "losses": 2,
+      "netPnl": 14.46,
+      "winRate": 80,
+      "directions": [
+        "LONG"
+      ]
+    },
+    "WMT": {
+      "trades": 21,
+      "wins": 13,
+      "losses": 8,
+      "netPnl": 12.671,
+      "winRate": 61.9,
+      "directions": [
+        "LONG"
+      ]
+    },
+    "GE": {
+      "trades": 12,
+      "wins": 6,
+      "losses": 5,
+      "netPnl": 12.576,
+      "winRate": 54.5,
+      "directions": [
+        "LONG"
+      ]
+    },
+    "TJX": {
+      "trades": 14,
+      "wins": 7,
+      "losses": 7,
+      "netPnl": 12.352,
+      "winRate": 50,
+      "directions": [
+        "LONG"
+      ]
+    },
+    "MNST": {
+      "trades": 20,
+      "wins": 12,
+      "losses": 8,
+      "netPnl": 11.852,
+      "winRate": 60,
+      "directions": [
+        "LONG"
+      ]
+    },
+    "STRL": {
+      "trades": 4,
+      "wins": 2,
+      "losses": 2,
+      "netPnl": 9.962,
+      "winRate": 50,
+      "directions": [
+        "LONG"
+      ]
+    },
+    "KTOS": {
+      "trades": 1,
+      "wins": 1,
+      "losses": 0,
+      "netPnl": 8.272,
+      "winRate": 100,
+      "directions": [
+        "LONG"
+      ]
+    },
+    "ISRG": {
+      "trades": 2,
+      "wins": 2,
+      "losses": 0,
+      "netPnl": 8.129,
+      "winRate": 100,
+      "directions": [
+        "SHORT"
+      ]
+    },
+    "AAPL": {
+      "trades": 10,
+      "wins": 7,
+      "losses": 3,
+      "netPnl": 7.616,
+      "winRate": 70,
+      "directions": [
+        "LONG",
+        "SHORT"
+      ]
+    },
+    "CDNS": {
+      "trades": 4,
+      "wins": 2,
+      "losses": 2,
+      "netPnl": 6.075,
+      "winRate": 50,
+      "directions": [
+        "SHORT",
+        "LONG"
+      ]
+    },
+    "MSFT": {
+      "trades": 4,
+      "wins": 3,
+      "losses": 1,
+      "netPnl": 6.067,
+      "winRate": 75,
+      "directions": [
+        "SHORT",
+        "LONG"
+      ]
+    },
+    "AR": {
+      "trades": 2,
+      "wins": 2,
+      "losses": 0,
+      "netPnl": 5.849,
+      "winRate": 100,
+      "directions": [
+        "SHORT"
+      ]
+    },
+    "AWI": {
+      "trades": 6,
+      "wins": 4,
+      "losses": 2,
+      "netPnl": 5.58,
+      "winRate": 66.7,
+      "directions": [
+        "LONG",
+        "SHORT"
+      ]
+    },
+    "CSX": {
+      "trades": 13,
+      "wins": 7,
+      "losses": 6,
+      "netPnl": 5.483,
+      "winRate": 53.8,
+      "directions": [
+        "LONG",
+        "SHORT"
+      ]
+    },
+    "SATS": {
+      "trades": 1,
+      "wins": 1,
+      "losses": 0,
+      "netPnl": 5.356,
+      "winRate": 100,
+      "directions": [
+        "LONG"
+      ]
+    },
+    "AVGO": {
+      "trades": 4,
+      "wins": 2,
+      "losses": 2,
+      "netPnl": 5.083,
+      "winRate": 50,
+      "directions": [
+        "LONG"
+      ]
+    },
+    "PPG": {
+      "trades": 2,
+      "wins": 2,
+      "losses": 0,
+      "netPnl": 4.369,
+      "winRate": 100,
+      "directions": [
+        "SHORT"
+      ]
+    },
+    "MSTR": {
+      "trades": 5,
+      "wins": 4,
+      "losses": 1,
+      "netPnl": 3.928,
+      "winRate": 80,
+      "directions": [
+        "SHORT"
+      ]
+    },
+    "ULTA": {
+      "trades": 28,
+      "wins": 15,
+      "losses": 12,
+      "netPnl": 3.58,
+      "winRate": 55.6,
+      "directions": [
+        "LONG"
+      ]
+    },
+    "ITT": {
+      "trades": 4,
+      "wins": 3,
+      "losses": 1,
+      "netPnl": 2.371,
+      "winRate": 75,
+      "directions": [
+        "LONG"
+      ]
+    },
+    "LSCC": {
+      "trades": 1,
+      "wins": 1,
+      "losses": 0,
+      "netPnl": 2.248,
+      "winRate": 100,
+      "directions": [
+        "LONG"
+      ]
+    },
+    "H": {
+      "trades": 17,
+      "wins": 9,
+      "losses": 7,
+      "netPnl": 1.742,
+      "winRate": 56.3,
+      "directions": [
+        "LONG"
+      ]
+    },
+    "META": {
+      "trades": 1,
+      "wins": 1,
+      "losses": 0,
+      "netPnl": 1.717,
+      "winRate": 100,
+      "directions": [
+        "SHORT"
+      ]
+    },
+    "ANET": {
+      "trades": 4,
+      "wins": 1,
+      "losses": 3,
+      "netPnl": 1.439,
+      "winRate": 25,
+      "directions": [
+        "LONG",
+        "SHORT"
+      ]
+    },
+    "NFLX": {
+      "trades": 5,
+      "wins": 4,
+      "losses": 1,
+      "netPnl": 1.417,
+      "winRate": 80,
+      "directions": [
+        "SHORT",
+        "LONG"
+      ]
+    },
+    "DE": {
+      "trades": 7,
+      "wins": 3,
+      "losses": 3,
+      "netPnl": 1.117,
+      "winRate": 50,
+      "directions": [
+        "LONG",
+        "SHORT"
+      ]
+    },
+    "PANW": {
+      "trades": 3,
+      "wins": 1,
+      "losses": 2,
+      "netPnl": 0.743,
+      "winRate": 33.3,
+      "directions": [
+        "SHORT",
+        "LONG"
+      ]
+    },
+    "WTS": {
+      "trades": 4,
+      "wins": 3,
+      "losses": 1,
+      "netPnl": 0.539,
+      "winRate": 75,
+      "directions": [
+        "LONG"
+      ]
+    },
+    "PWR": {
+      "trades": 3,
+      "wins": 1,
+      "losses": 2,
+      "netPnl": 0.301,
+      "winRate": 33.3,
+      "directions": [
+        "LONG"
+      ]
+    },
+    "RGLD": {
+      "trades": 1,
+      "wins": 0,
+      "losses": 1,
+      "netPnl": -0.506,
+      "winRate": 0,
+      "directions": [
+        "SHORT"
+      ]
+    },
+    "MDB": {
+      "trades": 1,
+      "wins": 0,
+      "losses": 1,
+      "netPnl": -0.596,
+      "winRate": 0,
+      "directions": [
+        "LONG"
+      ]
+    },
+    "APD": {
+      "trades": 1,
+      "wins": 0,
+      "losses": 1,
+      "netPnl": -0.644,
+      "winRate": 0,
+      "directions": [
+        "SHORT"
+      ]
+    },
+    "PATH": {
+      "trades": 2,
+      "wins": 1,
+      "losses": 1,
+      "netPnl": -0.999,
+      "winRate": 50,
+      "directions": [
+        "SHORT"
+      ]
+    },
+    "DY": {
+      "trades": 3,
+      "wins": 2,
+      "losses": 1,
+      "netPnl": -1.086,
+      "winRate": 66.7,
+      "directions": [
+        "LONG"
+      ]
+    },
+    "BWXT": {
+      "trades": 2,
+      "wins": 1,
+      "losses": 1,
+      "netPnl": -1.352,
+      "winRate": 50,
+      "directions": [
+        "LONG"
+      ]
+    },
+    "KLAC": {
+      "trades": 8,
+      "wins": 4,
+      "losses": 4,
+      "netPnl": -1.593,
+      "winRate": 50,
+      "directions": [
+        "LONG"
+      ]
+    },
+    "OKE": {
+      "trades": 3,
+      "wins": 1,
+      "losses": 2,
+      "netPnl": -2.223,
+      "winRate": 33.3,
+      "directions": [
+        "SHORT"
+      ]
+    },
+    "ON": {
+      "trades": 2,
+      "wins": 0,
+      "losses": 2,
+      "netPnl": -2.227,
+      "winRate": 0,
+      "directions": [
+        "LONG",
+        "SHORT"
+      ]
+    },
+    "RDDT": {
+      "trades": 1,
+      "wins": 0,
+      "losses": 1,
+      "netPnl": -3.021,
+      "winRate": 0,
+      "directions": [
+        "SHORT"
+      ]
+    },
+    "UHS": {
+      "trades": 1,
+      "wins": 0,
+      "losses": 1,
+      "netPnl": -3.389,
+      "winRate": 0,
+      "directions": [
+        "SHORT"
+      ]
+    },
+    "NVDA": {
+      "trades": 6,
+      "wins": 3,
+      "losses": 3,
+      "netPnl": -3.534,
+      "winRate": 50,
+      "directions": [
+        "LONG"
+      ]
+    },
+    "LRN": {
+      "trades": 5,
+      "wins": 2,
+      "losses": 3,
+      "netPnl": -3.603,
+      "winRate": 40,
+      "directions": [
+        "SHORT",
+        "LONG"
+      ]
+    },
+    "PLTR": {
+      "trades": 3,
+      "wins": 1,
+      "losses": 2,
+      "netPnl": -3.929,
+      "winRate": 33.3,
+      "directions": [
+        "SHORT",
+        "LONG"
+      ]
+    },
+    "AMD": {
+      "trades": 4,
+      "wins": 2,
+      "losses": 2,
+      "netPnl": -4.39,
+      "winRate": 50,
+      "directions": [
+        "LONG"
+      ]
+    },
+    "DPZ": {
+      "trades": 5,
+      "wins": 2,
+      "losses": 3,
+      "netPnl": -4.657,
+      "winRate": 40,
+      "directions": [
+        "SHORT"
+      ]
+    },
+    "APP": {
+      "trades": 25,
+      "wins": 10,
+      "losses": 15,
+      "netPnl": -5.056,
+      "winRate": 40,
+      "directions": [
+        "SHORT",
+        "LONG"
+      ]
+    },
+    "BE": {
+      "trades": 2,
+      "wins": 0,
+      "losses": 2,
+      "netPnl": -5.673,
+      "winRate": 0,
+      "directions": [
+        "LONG"
+      ]
+    },
+    "PSTG": {
+      "trades": 2,
+      "wins": 0,
+      "losses": 2,
+      "netPnl": -6.583,
+      "winRate": 0,
+      "directions": [
+        "SHORT"
+      ]
+    },
+    "TT": {
+      "trades": 5,
+      "wins": 1,
+      "losses": 4,
+      "netPnl": -7.184,
+      "winRate": 20,
+      "directions": [
+        "LONG",
+        "SHORT"
+      ]
+    },
+    "TPL": {
+      "trades": 4,
+      "wins": 0,
+      "losses": 4,
+      "netPnl": -7.347,
+      "winRate": 0,
+      "directions": [
+        "SHORT"
+      ]
+    },
+    "AMZN": {
+      "trades": 13,
+      "wins": 6,
+      "losses": 7,
+      "netPnl": -9.387,
+      "winRate": 46.2,
+      "directions": [
+        "SHORT",
+        "LONG"
+      ]
+    },
+    "CAT": {
+      "trades": 76,
+      "wins": 44,
+      "losses": 31,
+      "netPnl": -33.055,
+      "winRate": 58.7,
+      "directions": [
+        "LONG"
+      ]
+    },
+    "BABA": {
+      "trades": 4,
+      "wins": 2,
+      "losses": 2,
+      "netPnl": -48.316,
+      "winRate": 50,
+      "directions": [
+        "SHORT"
+      ]
+    }
+  }
+}

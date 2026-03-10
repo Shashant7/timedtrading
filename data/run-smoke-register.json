@@ -1,0 +1,1 @@
+{"run_id":"smoke-runs-20260306T143820Z","label":"smoke-run-registry","start_date":"2025-07-01","end_date":"2025-07-31","interval_min":5,"ticker_batch":25,"ticker_universe_count":153,"trader_only":true,"keep_open_at_end":true,"low_write":true,"status":"running","status_note":"smoke register"}

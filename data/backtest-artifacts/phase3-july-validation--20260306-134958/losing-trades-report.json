@@ -1,0 +1,22 @@
+{
+  "ok": true,
+  "count": 1,
+  "trades": [
+    {
+      "trade_id": "COST-1751463600000-nafnuwnn3",
+      "run_id": "backtest_2025-07-01_2025-07-31@2026-03-06T17:02:59.157Z",
+      "ticker": "COST",
+      "direction": "SHORT",
+      "entry_ts": 1751463600000,
+      "exit_ts": 1751478600000,
+      "entry_price": 981.11499,
+      "exit_price": 982.34998,
+      "pnl": -10.070093822538988,
+      "pnl_pct": -0.12587617278173735,
+      "exit_reason": "ripster_short_pivot_reclaimed",
+      "signal_snapshot_json": "{\"avg_bias\":-0.863,\"tf\":{\"10m\":{\"bias\":-0.914,\"signals\":{\"ema_cross\":-1,\"supertrend\":-1,\"ema_structure\":-1,\"ema_depth\":0,\"rsi\":37.2}},\"30m\":{\"bias\":-0.872,\"signals\":{\"ema_cross\":-1,\"supertrend\":-1,\"ema_structure\":-1,\"ema_depth\":0,\"rsi\":45.6}},\"1H\":{\"bias\":-0.88,\"signals\":{\"ema_cross\":-1,\"supertrend\":-1,\"ema_structure\":-1,\"ema_depth\":0,\"rsi\":44}},\"4H\":{\"bias\":-0.896,\"signals\":{\"ema_cross\":-1,\"supertrend\":-1,\"ema_structure\":-1,\"ema_depth\":0,\"rsi\":40.7}},\"D\":{\"bias\":-0.788,\"signals\":{\"ema5_48\":-1,\"ema_cross\":-1,\"supertrend\":-1,\"ema_structure\":-0.54,\"ema_depth\":1,\"rsi\":39.8}}}}",
+      "entry_path": "ripster_momentum",
+      "consensus_direction": null
+    }
+  ]
+}

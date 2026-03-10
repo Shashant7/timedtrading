@@ -1,0 +1,579 @@
+{
+  "generated_at": "2026-03-03T14:24:19.066Z",
+  "summary": {
+    "total_missed_moves": 1421,
+    "unique_tickers": 74,
+    "tickers_with_moves": 74,
+    "diagnosis": {
+      "NO_TRAIL_DATA": 847,
+      "LOW_RANK": 531,
+      "LOW_HTF": 7,
+      "WRONG_STATE": 24,
+      "SHOULD_HAVE_ENTERED": 12
+    }
+  },
+  "candidates": [
+    {
+      "name": "ema_aligned_strong_htf (emaAligned, rank>=55, |HTF|>=10)",
+      "count": 9,
+      "avgAtr": 5.1,
+      "avgPct": 24.1,
+      "avgRank": 70,
+      "tickers": 8,
+      "sampleTickers": [
+        "ETHA",
+        "SOFI",
+        "MSTR",
+        "WFRD",
+        "LITE",
+        "GILD",
+        "PNC",
+        "KLAC"
+      ]
+    },
+    {
+      "name": "htf_bull_ltf_bull_UP (aligned state, rank>=50)",
+      "count": 6,
+      "avgAtr": 3.8,
+      "avgPct": 17.4,
+      "avgRank": 69,
+      "tickers": 6,
+      "sampleTickers": [
+        "WFRD",
+        "LITE",
+        "GILD",
+        "PNC",
+        "KLAC",
+        "TLN"
+      ]
+    },
+    {
+      "name": "no_regime_with_signals (regime=0, has signal, rank>=50)",
+      "count": 2,
+      "avgAtr": 3.6,
+      "avgPct": 16.8,
+      "avgRank": 64,
+      "tickers": 2,
+      "sampleTickers": [
+        "SN",
+        "SMCI"
+      ]
+    },
+    {
+      "name": "early_bull_relaxed (regime=1, rank>=50, UP)",
+      "count": 0,
+      "avgAtr": 0,
+      "avgPct": 0,
+      "avgRank": 0,
+      "tickers": 0,
+      "sampleTickers": []
+    },
+    {
+      "name": "confirmed_bull_low_rank (regime=2, rank 40-54, UP)",
+      "count": 0,
+      "avgAtr": 0,
+      "avgPct": 0,
+      "avgRank": 0,
+      "tickers": 0,
+      "sampleTickers": []
+    },
+    {
+      "name": "confirmed_bear_short (regime=-2, rank>=50, DOWN)",
+      "count": 0,
+      "avgAtr": 0,
+      "avgPct": 0,
+      "avgRank": 0,
+      "tickers": 0,
+      "sampleTickers": []
+    },
+    {
+      "name": "early_bear_short (regime=-1, rank>=50, DOWN)",
+      "count": 0,
+      "avgAtr": 0,
+      "avgPct": 0,
+      "avgRank": 0,
+      "tickers": 0,
+      "sampleTickers": []
+    }
+  ],
+  "top_moves": [
+    {
+      "ticker": "ETHA",
+      "direction": "UP",
+      "window": 60,
+      "move_pct": 97.36,
+      "move_atr": 43.2,
+      "start_date": "2025-07-01",
+      "end_date": "2025-08-13",
+      "signals": {
+        "squeeze": false,
+        "ema_cross": false,
+        "st_flip": false,
+        "momentum_elite": false
+      }
+    },
+    {
+      "ticker": "MP",
+      "direction": "UP",
+      "window": 60,
+      "move_pct": 135.65,
+      "move_atr": 33.8,
+      "start_date": "2025-07-03",
+      "end_date": "2025-08-15",
+      "signals": {
+        "squeeze": false,
+        "ema_cross": false,
+        "st_flip": false,
+        "momentum_elite": false
+      }
+    },
+    {
+      "ticker": "BABA",
+      "direction": "UP",
+      "window": 60,
+      "move_pct": 59.23,
+      "move_atr": 25.87,
+      "start_date": "2025-08-21",
+      "end_date": "2025-10-03",
+      "signals": {
+        "squeeze": false,
+        "ema_cross": false,
+        "st_flip": false,
+        "momentum_elite": false
+      }
+    },
+    {
+      "ticker": "PATH",
+      "direction": "UP",
+      "window": 60,
+      "move_pct": 66.16,
+      "move_atr": 23.76,
+      "start_date": "2025-08-27",
+      "end_date": "2025-10-09",
+      "signals": {
+        "squeeze": false,
+        "ema_cross": false,
+        "st_flip": false,
+        "momentum_elite": false
+      }
+    },
+    {
+      "ticker": "LRN",
+      "direction": "DOWN",
+      "window": 60,
+      "move_pct": -63.15,
+      "move_atr": 22.47,
+      "start_date": "2025-09-09",
+      "end_date": "2025-12-03",
+      "signals": {
+        "squeeze": false,
+        "ema_cross": false,
+        "st_flip": false,
+        "momentum_elite": false
+      }
+    },
+    {
+      "ticker": "LRN",
+      "direction": "DOWN",
+      "window": 60,
+      "move_pct": -61.27,
+      "move_atr": 22.03,
+      "start_date": "2025-08-27",
+      "end_date": "2025-11-20",
+      "signals": {
+        "squeeze": false,
+        "ema_cross": false,
+        "st_flip": false,
+        "momentum_elite": false
+      }
+    },
+    {
+      "ticker": "LRN",
+      "direction": "DOWN",
+      "window": 20,
+      "move_pct": -58.99,
+      "move_atr": 20.9,
+      "start_date": "2025-10-28",
+      "end_date": "2025-11-25",
+      "signals": {
+        "squeeze": false,
+        "ema_cross": false,
+        "st_flip": false,
+        "momentum_elite": false
+      }
+    },
+    {
+      "ticker": "PPG",
+      "direction": "UP",
+      "window": 60,
+      "move_pct": 28.19,
+      "move_atr": 20.7,
+      "start_date": "2025-12-31",
+      "end_date": "2026-02-13",
+      "ema_regime": 0,
+      "state": "HTF_BEAR_LTF_PULLBACK",
+      "rank": 0,
+      "htf_score": -11.4,
+      "signals": {
+        "squeeze": false,
+        "ema_cross": false,
+        "st_flip": true,
+        "momentum_elite": false
+      }
+    },
+    {
+      "ticker": "SPGI",
+      "direction": "DOWN",
+      "window": 60,
+      "move_pct": -25.95,
+      "move_atr": 20.55,
+      "start_date": "2025-12-30",
+      "end_date": "2026-02-11",
+      "ema_regime": 0,
+      "state": "HTF_BULL_LTF_PULLBACK",
+      "rank": 0,
+      "htf_score": 28.7,
+      "signals": {
+        "squeeze": false,
+        "ema_cross": false,
+        "st_flip": false,
+        "momentum_elite": false
+      }
+    },
+    {
+      "ticker": "AMD",
+      "direction": "UP",
+      "window": 40,
+      "move_pct": 61.17,
+      "move_atr": 20.38,
+      "start_date": "2025-10-01",
+      "end_date": "2025-10-29",
+      "ema_regime": 0,
+      "state": "HTF_BULL_LTF_PULLBACK",
+      "rank": 0,
+      "htf_score": 36.8,
+      "signals": {
+        "squeeze": false,
+        "ema_cross": false,
+        "st_flip": false,
+        "momentum_elite": false
+      }
+    },
+    {
+      "ticker": "AMD",
+      "direction": "UP",
+      "window": 60,
+      "move_pct": 66.08,
+      "move_atr": 20.19,
+      "start_date": "2025-09-17",
+      "end_date": "2025-10-29",
+      "signals": {
+        "squeeze": false,
+        "ema_cross": false,
+        "st_flip": false,
+        "momentum_elite": false
+      }
+    },
+    {
+      "ticker": "LRN",
+      "direction": "DOWN",
+      "window": 40,
+      "move_pct": -56.64,
+      "move_atr": 19.92,
+      "start_date": "2025-10-15",
+      "end_date": "2025-12-11",
+      "signals": {
+        "squeeze": false,
+        "ema_cross": false,
+        "st_flip": false,
+        "momentum_elite": false
+      }
+    },
+    {
+      "ticker": "TPL",
+      "direction": "UP",
+      "window": 40,
+      "move_pct": 79.71,
+      "move_atr": 19.89,
+      "start_date": "2025-12-24",
+      "end_date": "2026-02-24",
+      "signals": {
+        "squeeze": false,
+        "ema_cross": false,
+        "st_flip": false,
+        "momentum_elite": false
+      }
+    },
+    {
+      "ticker": "SANM",
+      "direction": "UP",
+      "window": 60,
+      "move_pct": 57.07,
+      "move_atr": 19.8,
+      "start_date": "2025-09-24",
+      "end_date": "2025-11-05",
+      "signals": {
+        "squeeze": false,
+        "ema_cross": false,
+        "st_flip": false,
+        "momentum_elite": false
+      }
+    },
+    {
+      "ticker": "UTHR",
+      "direction": "UP",
+      "window": 60,
+      "move_pct": 49.6,
+      "move_atr": 19.72,
+      "start_date": "2025-08-25",
+      "end_date": "2025-10-07",
+      "signals": {
+        "squeeze": false,
+        "ema_cross": false,
+        "st_flip": false,
+        "momentum_elite": false
+      }
+    },
+    {
+      "ticker": "HALO",
+      "direction": "UP",
+      "window": 40,
+      "move_pct": 35.26,
+      "move_atr": 18.75,
+      "start_date": "2025-07-07",
+      "end_date": "2025-09-02",
+      "signals": {
+        "squeeze": false,
+        "ema_cross": false,
+        "st_flip": false,
+        "momentum_elite": false
+      }
+    },
+    {
+      "ticker": "LRN",
+      "direction": "DOWN",
+      "window": 60,
+      "move_pct": -59.9,
+      "move_atr": 18.73,
+      "start_date": "2025-08-19",
+      "end_date": "2025-11-12",
+      "signals": {
+        "squeeze": false,
+        "ema_cross": false,
+        "st_flip": false,
+        "momentum_elite": false
+      }
+    },
+    {
+      "ticker": "TPL",
+      "direction": "UP",
+      "window": 60,
+      "move_pct": 77.9,
+      "move_atr": 18.73,
+      "start_date": "2025-11-28",
+      "end_date": "2026-02-26",
+      "signals": {
+        "squeeze": false,
+        "ema_cross": false,
+        "st_flip": false,
+        "momentum_elite": false
+      }
+    },
+    {
+      "ticker": "CVX",
+      "direction": "UP",
+      "window": 60,
+      "move_pct": 23.07,
+      "move_atr": 18.68,
+      "start_date": "2025-12-29",
+      "end_date": "2026-02-11",
+      "ema_regime": 0,
+      "state": "HTF_BULL_LTF_PULLBACK",
+      "rank": 0,
+      "htf_score": 17.3,
+      "signals": {
+        "squeeze": false,
+        "ema_cross": false,
+        "st_flip": false,
+        "momentum_elite": false
+      }
+    },
+    {
+      "ticker": "LRN",
+      "direction": "DOWN",
+      "window": 60,
+      "move_pct": -45.37,
+      "move_atr": 18.5,
+      "start_date": "2025-08-05",
+      "end_date": "2025-10-29",
+      "signals": {
+        "squeeze": false,
+        "ema_cross": false,
+        "st_flip": false,
+        "momentum_elite": false
+      }
+    },
+    {
+      "ticker": "LRN",
+      "direction": "DOWN",
+      "window": 40,
+      "move_pct": -57.87,
+      "move_atr": 18.45,
+      "start_date": "2025-10-08",
+      "end_date": "2025-12-04",
+      "signals": {
+        "squeeze": false,
+        "ema_cross": false,
+        "st_flip": false,
+        "momentum_elite": false
+      }
+    },
+    {
+      "ticker": "IONQ",
+      "direction": "UP",
+      "window": 60,
+      "move_pct": 92.07,
+      "move_atr": 18.26,
+      "start_date": "2025-08-29",
+      "end_date": "2025-10-13",
+      "signals": {
+        "squeeze": false,
+        "ema_cross": false,
+        "st_flip": false,
+        "momentum_elite": false
+      }
+    },
+    {
+      "ticker": "SPGI",
+      "direction": "DOWN",
+      "window": 40,
+      "move_pct": -28.3,
+      "move_atr": 18.19,
+      "start_date": "2026-01-14",
+      "end_date": "2026-02-11",
+      "ema_regime": 0,
+      "state": "HTF_BULL_LTF_PULLBACK",
+      "rank": 0,
+      "htf_score": 42.9,
+      "signals": {
+        "squeeze": false,
+        "ema_cross": false,
+        "st_flip": false,
+        "momentum_elite": false
+      }
+    },
+    {
+      "ticker": "AVAV",
+      "direction": "UP",
+      "window": 60,
+      "move_pct": 69.81,
+      "move_atr": 18.12,
+      "start_date": "2025-08-29",
+      "end_date": "2025-10-13",
+      "signals": {
+        "squeeze": false,
+        "ema_cross": false,
+        "st_flip": false,
+        "momentum_elite": false
+      }
+    },
+    {
+      "ticker": "LITE",
+      "direction": "UP",
+      "window": 60,
+      "move_pct": 107.42,
+      "move_atr": 17.89,
+      "start_date": "2025-10-22",
+      "end_date": "2025-12-04",
+      "ema_regime": 0,
+      "state": "HTF_BULL_LTF_BULL",
+      "rank": 0,
+      "htf_score": 46.6,
+      "signals": {
+        "squeeze": false,
+        "ema_cross": false,
+        "st_flip": false,
+        "momentum_elite": false
+      }
+    },
+    {
+      "ticker": "BABA",
+      "direction": "UP",
+      "window": 60,
+      "move_pct": 44.13,
+      "move_atr": 17.86,
+      "start_date": "2025-08-12",
+      "end_date": "2025-09-24",
+      "signals": {
+        "squeeze": false,
+        "ema_cross": false,
+        "st_flip": false,
+        "momentum_elite": false
+      }
+    },
+    {
+      "ticker": "CARR",
+      "direction": "DOWN",
+      "window": 60,
+      "move_pct": -21.84,
+      "move_atr": 17.8,
+      "start_date": "2025-07-03",
+      "end_date": "2025-09-29",
+      "signals": {
+        "squeeze": false,
+        "ema_cross": false,
+        "st_flip": false,
+        "momentum_elite": false
+      }
+    },
+    {
+      "ticker": "UHS",
+      "direction": "UP",
+      "window": 60,
+      "move_pct": 34.48,
+      "move_atr": 17.55,
+      "start_date": "2025-09-03",
+      "end_date": "2025-11-26",
+      "signals": {
+        "squeeze": false,
+        "ema_cross": false,
+        "st_flip": false,
+        "momentum_elite": false
+      }
+    },
+    {
+      "ticker": "PATH",
+      "direction": "UP",
+      "window": 40,
+      "move_pct": 58.34,
+      "move_atr": 17.54,
+      "start_date": "2025-09-11",
+      "end_date": "2025-10-09",
+      "signals": {
+        "squeeze": false,
+        "ema_cross": false,
+        "st_flip": false,
+        "momentum_elite": false
+      }
+    },
+    {
+      "ticker": "RKLB",
+      "direction": "UP",
+      "window": 60,
+      "move_pct": 115.34,
+      "move_atr": 17.21,
+      "start_date": "2025-12-03",
+      "end_date": "2026-01-16",
+      "ema_regime": 0,
+      "state": "HTF_BULL_LTF_BULL",
+      "rank": 0,
+      "htf_score": 8.5,
+      "signals": {
+        "squeeze": false,
+        "ema_cross": false,
+        "st_flip": false,
+        "momentum_elite": false
+      }
+    }
+  ]
+}

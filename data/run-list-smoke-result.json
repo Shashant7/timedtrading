@@ -1,0 +1,83 @@
+{
+  "ok": true,
+  "total": 6,
+  "limit": 1,
+  "offset": 0,
+  "runs": [
+    {
+      "run_id": "test-run-registry-1772808049",
+      "label": "registry-smoke",
+      "start_date": "2025-07-01",
+      "end_date": "2025-07-31",
+      "interval_min": 5,
+      "ticker_batch": 25,
+      "ticker_universe_count": 153,
+      "trader_only": 1,
+      "keep_open_at_end": 1,
+      "low_write": 1,
+      "status": "running",
+      "status_note": "smoke",
+      "live_config_slot": 0,
+      "tags_json": "[]",
+      "params_json": null,
+      "metrics_json": "{\"run_id\":\"test-run-registry-1772808049\",\"period\":{\"start_date\":\"2025-07-01\",\"end_date\":\"2025-07-31\"},\"tickers\":{\"universe\":153,\"traded\":0},\"trades\":{\"total\":0,\"wins\":0,\"losses\":0,\"breakevens\":0,\"open\":0,\"closed\":0,\"win_rate\":0},\"pnl\":{\"realized_pnl\":0,\"realized_pnl_pct\":0,\"avg_win_pct\":0,\"avg_loss_pct\":0},\"classifications\":{},\"autopsy_url\":\"trade-autopsy.html?run_id=test-run-registry-1772808049\",\"finalized_at\":1772808049703}",
+      "created_at": 1772808049426,
+      "started_at": 1772808049426,
+      "ended_at": 1772808049703,
+      "updated_at": 1772808049703,
+      "total_tickers_traded": 0,
+      "total_trades": 0,
+      "wins": 0,
+      "losses": 0,
+      "breakevens": 0,
+      "open_trades": 0,
+      "closed_trades": 0,
+      "win_rate": 0,
+      "realized_pnl": 0,
+      "realized_pnl_pct": 0,
+      "avg_win_pct": 0,
+      "avg_loss_pct": 0,
+      "classifications_json": "{}",
+      "by_status_json": "{}",
+      "autopsy_url": "trade-autopsy.html?run_id=test-run-registry-1772808049"
+    }
+  ],
+  "summaries": [
+    {
+      "run_id": "test-run-registry-1772808049",
+      "label": "registry-smoke",
+      "status": "running",
+      "live_config_slot": false,
+      "started_at": 1772808049426,
+      "ended_at": 1772808049703,
+      "created_at": 1772808049426,
+      "updated_at": 1772808049703,
+      "start_date": "2025-07-01",
+      "end_date": "2025-07-31",
+      "interval_min": 5,
+      "ticker_batch": 25,
+      "tickers": {
+        "universe_count": 153,
+        "traded_count": 0
+      },
+      "trades": {
+        "total": 0,
+        "wins": 0,
+        "losses": 0,
+        "breakevens": 0,
+        "open": 0,
+        "closed": 0,
+        "win_rate": 0
+      },
+      "pnl": {
+        "realized": 0,
+        "realized_pct": 0,
+        "avg_win_pct": 0,
+        "avg_loss_pct": 0
+      },
+      "classifications": {},
+      "by_status": {},
+      "autopsy_url": "trade-autopsy.html?run_id=test-run-registry-1772808049"
+    }
+  ]
+}

@@ -174,10 +174,15 @@ for (const ticker of tickers) {
   const earliestTs = Math.min(...moves.map(m => new Date(m.start_date + "T00:00:00Z").getTime()));
   const latestTs = Math.max(...moves.map(m => new Date(m.end_date + "T23:59:59Z").getTime()));
 
+  const hasCol = (col) => {
+    try { query(`SELECT ${col} FROM trail_5m_facts LIMIT 1`); return true; } catch { return false; }
+  };
+  const emaRegCol = hasCol("ema_regime_D") ? "ema_regime_D" : "NULL AS ema_regime_D";
+  const pdzCol = hasCol("pdz_zone") ? "pdz_zone" : "NULL AS pdz_zone";
   const trailRows = queryChunked(
     `SELECT bucket_ts, htf_score_avg, ltf_score_avg, state, rank,
             completion, phase_pct, had_squeeze_release, had_ema_cross,
-            had_st_flip, had_momentum_elite, ema_regime_D, pdz_zone,
+            had_st_flip, had_momentum_elite, ${emaRegCol}, ${pdzCol},
             kanban_stage_end
      FROM trail_5m_facts
      WHERE ticker='${ticker}' AND bucket_ts >= ${earliestTs} AND bucket_ts <= ${latestTs}

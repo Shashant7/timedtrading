@@ -1230,7 +1230,7 @@ export function computeTfBundle(bars, anchors = null) {
       crossDn,
     };
   };
-  const ripsterClouds = {
+  const ttClouds = {
     c5_12: cloudState(e5, e12, e5s[last - 1], e12s[last - 1]),
     c8_9: cloudState(e8, e9, e8s[last - 1], e9s[last - 1]),
     c34_50: cloudState(e34, e50, e34s[last - 1], e50s[last - 1]),
@@ -1259,7 +1259,7 @@ export function computeTfBundle(bars, anchors = null) {
     emaCross13_48_up, emaCross13_48_dn, emaCross13_48_up_ts, emaCross13_48_dn_ts,
     ema5above48, ema13above21, ema8above21, emaRegime,
     rsiDiv,
-    ripsterClouds,
+    ttClouds,
     pdz, fvg, liq,
     ichimoku,
   };
@@ -1802,7 +1802,7 @@ export function computeEntryQualityScore(bundles, side, regime = null) {
   // ── STRUCTURE (35 pts): Multi-TF EMA(13)/EMA(48) alignment ──
   let structure = 0;
   const emaChecks = [
-    { b: b10,  pts: 5,  label: "10m" },
+    { b: b10,  pts: 5,  label: "15m" },
     { b: b30,  pts: 7,  label: "30m" },
     { b: b1H,  pts: 8,  label: "1H"  },
     { b: b4H,  pts: 8,  label: "4H"  },
@@ -1822,7 +1822,7 @@ export function computeEntryQualityScore(bundles, side, regime = null) {
   //           opposing + flat = -2, opposing + sloping = -5
   let momentumRaw = 0;
   const stChecks = [
-    { b: b10,  label: "10m" },
+    { b: b10,  label: "15m" },
     { b: b30,  label: "30m" },
     { b: b1H,  label: "1H"  },
     { b: b4H,  label: "4H"  },
@@ -2256,7 +2256,7 @@ export function computeSwingConsensus(bundles, regime = null, tfWeights = null, 
   const w = tfWeights && typeof tfWeights === "object" ? { ...DEFAULT_WEIGHTS, ...tfWeights } : DEFAULT_WEIGHTS;
 
   const TFS = [
-    { key: "10",  label: "10m", b: bundles?.["10"], isDaily: false },
+    { key: "10",  label: "15m", b: bundles?.["10"], isDaily: false },
     { key: "30",  label: "30m", b: bundles?.["30"], isDaily: false },
     { key: "60",  label: "1H",  b: bundles?.["60"], isDaily: false },
     { key: "240", label: "4H",  b: bundles?.["240"], isDaily: false },
@@ -2404,7 +2404,7 @@ export function detectFlags(bundles) {
   // SuperTrend flips (with timestamps)
   if (b30?.stFlip) { flags.st_flip_30m = true; flags.st_flip_30m_ts = b30.stFlip_ts; }
   if (b60?.stFlip) { flags.st_flip_1h = true; flags.st_flip_1h_ts = b60.stFlip_ts; }
-  if (b10?.stFlip) { flags.st_flip_10m = true; flags.st_flip_10m_ts = b10.stFlip_ts; }
+  if (b10?.stFlip) { flags.st_flip_15m = true; flags.st_flip_15m_ts = b10.stFlip_ts; }
   // Bear-side ST flip (timestamp is the most recent bear flip)
   if (b30?.stFlipDir === -1 || b60?.stFlipDir === -1) {
     flags.st_flip_bear = true;
@@ -3144,7 +3144,7 @@ export function assembleTickerData(ticker, bundles, existingData = null, opts = 
         bearish: !!b.rsiDiv.bearish,
         strength: Number.isFinite(b.rsiDiv.strength) ? Math.round(b.rsiDiv.strength * 1000) / 1000 : 0,
       } : undefined,
-      ripster: b.ripsterClouds || undefined,
+      ripster: b.ttClouds || undefined,
       ph: {
         v: Number.isFinite(b.phaseOsc) ? Math.round(b.phaseOsc * 10) / 10 : undefined,
         z: b.phaseZone || undefined,
@@ -4873,7 +4873,7 @@ export async function computeOvernightSignals(ticker, lastRTHCloseTs, currentTs,
   const overnightFlags = {};
 
   // Fetch candles for the key signal timeframes (30m, 60m, 10m)
-  const signalTFs = ["30", "60", "10"];
+  const signalTFs = ["30", "60", "15"];
 
   for (const tf of signalTFs) {
     try {
@@ -4883,7 +4883,7 @@ export async function computeOvernightSignals(ticker, lastRTHCloseTs, currentTs,
       const bundle = computeTfBundle(result.candles);
       if (!bundle) continue;
 
-      const tfLabel = tf === "60" ? "1h" : tf === "30" ? "30m" : tf === "10" ? "10m" : tf;
+      const tfLabel = tf === "60" ? "1h" : tf === "30" ? "30m" : tf === "15" ? "15m" : tf === "10" ? "10m" : tf;
 
       // Check for EMA cross signals with timestamps in the overnight window
       if (bundle.emaCross13_48_up && bundle.emaCross13_48_up_ts > lastRTHCloseTs && bundle.emaCross13_48_up_ts < currentTs) {

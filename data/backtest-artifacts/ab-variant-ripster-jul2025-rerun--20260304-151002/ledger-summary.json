@@ -1,0 +1,78 @@
+{
+  "ok": true,
+  "since": null,
+  "until": null,
+  "totals": {
+    "totalTrades": 6,
+    "openTrades": 2,
+    "closedTrades": 4,
+    "wins": 1,
+    "losses": 3,
+    "winRate": 25,
+    "closedPnl": -64.68255600681458,
+    "profitFactor": 0.6411271986478191,
+    "avgWin": 115.5555555555553,
+    "avgLoss": 60.07937052078996,
+    "expectancy": -16.170639001703645,
+    "grossWin": 115.5555555555553,
+    "grossLoss": 180.23811156236988
+  },
+  "breakdown": {
+    "byRank": [
+      {
+        "bucket": "60-69",
+        "n": 1,
+        "wins": 0,
+        "losses": 0,
+        "pnl": 0
+      },
+      {
+        "bucket": "70-79",
+        "n": 1,
+        "wins": 0,
+        "losses": 0,
+        "pnl": 0
+      },
+      {
+        "bucket": "80+",
+        "n": 3,
+        "wins": 0,
+        "losses": 3,
+        "pnl": -180.23811156236988
+      },
+      {
+        "bucket": "<60",
+        "n": 1,
+        "wins": 1,
+        "losses": 0,
+        "pnl": 115.5555555555553
+      }
+    ],
+    "byRR": [
+      {
+        "bucket": "2.0+",
+        "n": 6,
+        "wins": 1,
+        "losses": 3,
+        "pnl": -64.68255600681458
+      }
+    ],
+    "byExitReason": [
+      {
+        "reason": "ripster_5_12_lost",
+        "n": 4,
+        "wins": 1,
+        "losses": 3,
+        "pnl": -64.68255600681458
+      },
+      {
+        "reason": "unknown",
+        "n": 2,
+        "wins": 0,
+        "losses": 0,
+        "pnl": 0
+      }
+    ],
+    "byTriggerReason": []
+  }
+}

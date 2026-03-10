@@ -1,0 +1,140 @@
+{
+  "ok": true,
+  "date": "2025-07-01",
+  "tickerOffset": 0,
+  "tickerBatch": 5,
+  "tickersProcessed": 5,
+  "intervals": 40,
+  "intervalMinutes": 10,
+  "scored": 200,
+  "skipped": 0,
+  "tradesCreated": 0,
+  "totalTrades": 38,
+  "hasMore": true,
+  "nextTickerOffset": 5,
+  "errorsCount": 0,
+  "errors": [],
+  "stageCounts": {
+    "setup": 52,
+    "watch": 118,
+    "enter": 30
+  },
+  "blockReasons": {
+    "price_not_above_21ema_10m": 22,
+    "da_htf_too_low": 80,
+    "da_ticker_blacklisted": 40,
+    "ripster_bias_not_aligned": 9,
+    "golden_ltf_below_floor": 1,
+    "ripster_no_trigger": 7,
+    "rsi_10m_chase_block": 3,
+    "rvol_dead_zone": 6,
+    "st_10m_not_bullish_long": 2
+  },
+  "d1StateWritten": 0,
+  "trailWritten": 0,
+  "skipTrailWrite": true,
+  "lastSnapshot": {
+    "AMZN": {
+      "state": "HTF_BULL_LTF_BULL",
+      "htf_score": 40.8,
+      "ltf_score": 7.3,
+      "ema_regime_daily": 2,
+      "ema_regime_4h": 2,
+      "fuel_D": 72,
+      "fuel_10": 93,
+      "fuel_30": 78,
+      "st_support_D": {
+        "dir": "bull",
+        "slope": "flat",
+        "aligned": true
+      },
+      "kanban_stage": "watch",
+      "score": 72,
+      "block_reason": "price_not_above_21ema_10m",
+      "block_fuel_pct": null,
+      "primary_fuel": 93
+    },
+    "TSLA": {
+      "state": "HTF_BULL_LTF_PULLBACK",
+      "htf_score": 8.4,
+      "ltf_score": -5.8,
+      "ema_regime_daily": -2,
+      "ema_regime_4h": 2,
+      "fuel_D": 65,
+      "fuel_10": 86,
+      "fuel_30": 56,
+      "st_support_D": {
+        "dir": "bear",
+        "slope": "falling",
+        "aligned": true
+      },
+      "kanban_stage": "setup",
+      "score": 44,
+      "block_reason": "da_htf_too_low",
+      "block_fuel_pct": null,
+      "primary_fuel": 86
+    },
+    "TJX": {
+      "state": "HTF_BULL_LTF_BULL",
+      "htf_score": 11.5,
+      "ltf_score": 23,
+      "ema_regime_daily": -2,
+      "ema_regime_4h": 2,
+      "fuel_D": 85,
+      "fuel_10": 78,
+      "fuel_30": 63,
+      "st_support_D": {
+        "dir": "bear",
+        "slope": "flat",
+        "aligned": true
+      },
+      "kanban_stage": "watch",
+      "score": 100,
+      "block_reason": "da_htf_too_low",
+      "block_fuel_pct": null,
+      "primary_fuel": 78
+    },
+    "BABA": {
+      "state": "HTF_BEAR_LTF_PULLBACK",
+      "htf_score": -17.4,
+      "ltf_score": 12.4,
+      "ema_regime_daily": -2,
+      "ema_regime_4h": -2,
+      "fuel_D": 92,
+      "fuel_10": 85,
+      "fuel_30": 77,
+      "st_support_D": {
+        "dir": "bear",
+        "slope": "flat",
+        "aligned": true
+      },
+      "kanban_stage": "watch",
+      "score": 80,
+      "block_reason": "da_ticker_blacklisted",
+      "block_fuel_pct": 24,
+      "primary_fuel": 85
+    },
+    "ULTA": {
+      "state": "HTF_BULL_LTF_BULL",
+      "htf_score": 36.3,
+      "ltf_score": 16.8,
+      "ema_regime_daily": 2,
+      "ema_regime_4h": 2,
+      "fuel_D": 82,
+      "fuel_10": 94,
+      "fuel_30": 75,
+      "st_support_D": {
+        "dir": "bull",
+        "slope": "flat",
+        "aligned": true
+      },
+      "kanban_stage": "watch",
+      "score": 74,
+      "block_reason": "st_10m_not_bullish_long",
+      "block_fuel_pct": null,
+      "primary_fuel": 94
+    }
+  },
+  "processDebug": [],
+  "fullDay": false
+}

@@ -1,0 +1,13 @@
+{
+  "ok": true,
+  "applied": [
+    "consensus_signal_weights",
+    "calibrated_sl_atr",
+    "calibrated_tp_tiers",
+    "calibrated_rank_min",
+    "adaptive_rank_weights",
+    "adaptive_entry_gates",
+    "adaptive_regime_gates",
+    "adaptive_sl_tp"
+  ]
+}

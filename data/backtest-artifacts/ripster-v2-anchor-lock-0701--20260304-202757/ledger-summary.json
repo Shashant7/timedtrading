@@ -1,0 +1,71 @@
+{
+  "ok": true,
+  "since": null,
+  "until": null,
+  "totals": {
+    "totalTrades": 6,
+    "openTrades": 0,
+    "closedTrades": 6,
+    "wins": 5,
+    "losses": 1,
+    "winRate": 83.33333333333334,
+    "closedPnl": 184.78379414849582,
+    "profitFactor": 61.695316917973635,
+    "avgWin": 37.565648620647025,
+    "avgLoss": 3.044448954739307,
+    "expectancy": 30.797299024749304,
+    "grossWin": 187.82824310323514,
+    "grossLoss": 3.044448954739307
+  },
+  "breakdown": {
+    "byRank": [
+      {
+        "bucket": "60-69",
+        "n": 1,
+        "wins": 0,
+        "losses": 1,
+        "pnl": -3.044448954739307
+      },
+      {
+        "bucket": "70-79",
+        "n": 3,
+        "wins": 3,
+        "losses": 0,
+        "pnl": 20.88056814892971
+      },
+      {
+        "bucket": "80+",
+        "n": 2,
+        "wins": 2,
+        "losses": 0,
+        "pnl": 166.94767495430543
+      }
+    ],
+    "byRR": [
+      {
+        "bucket": "2.0+",
+        "n": 6,
+        "wins": 5,
+        "losses": 1,
+        "pnl": 184.78379414849582
+      }
+    ],
+    "byExitReason": [
+      {
+        "reason": "replay_end_close",
+        "n": 5,
+        "wins": 4,
+        "losses": 1,
+        "pnl": 33.90991890066873
+      },
+      {
+        "reason": "sl_breached",
+        "n": 1,
+        "wins": 1,
+        "losses": 0,
+        "pnl": 150.8738752478271
+      }
+    ],
+    "byTriggerReason": []
+  }
+}

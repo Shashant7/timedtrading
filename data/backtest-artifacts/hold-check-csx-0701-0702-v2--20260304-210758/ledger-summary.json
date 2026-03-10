@@ -1,0 +1,92 @@
+{
+  "ok": true,
+  "since": null,
+  "until": null,
+  "totals": {
+    "totalTrades": 11,
+    "openTrades": 0,
+    "closedTrades": 11,
+    "wins": 8,
+    "losses": 3,
+    "winRate": 72.72727272727273,
+    "closedPnl": 897.4932315971862,
+    "profitFactor": 12.774764675510303,
+    "avgWin": 121.71437335986963,
+    "avgLoss": 25.40725176059028,
+    "expectancy": 81.59029378156238,
+    "grossWin": 973.714986878957,
+    "grossLoss": 76.22175528177084
+  },
+  "breakdown": {
+    "byRank": [
+      {
+        "bucket": "60-69",
+        "n": 1,
+        "wins": 0,
+        "losses": 1,
+        "pnl": -56.62675055814939
+      },
+      {
+        "bucket": "70-79",
+        "n": 4,
+        "wins": 3,
+        "losses": 1,
+        "pnl": 359.7705586744529
+      },
+      {
+        "bucket": "80+",
+        "n": 5,
+        "wins": 4,
+        "losses": 1,
+        "pnl": 524.2804111149454
+      },
+      {
+        "bucket": "<60",
+        "n": 1,
+        "wins": 1,
+        "losses": 0,
+        "pnl": 70.06901236593727
+      }
+    ],
+    "byRR": [
+      {
+        "bucket": "2.0+",
+        "n": 11,
+        "wins": 8,
+        "losses": 3,
+        "pnl": 897.4932315971862
+      }
+    ],
+    "byExitReason": [
+      {
+        "reason": "replay_forced_eod_close",
+        "n": 8,
+        "wins": 6,
+        "losses": 2,
+        "pnl": 588.5989374688014
+      },
+      {
+        "reason": "ripster_short_pivot_reclaimed",
+        "n": 1,
+        "wins": 0,
+        "losses": 1,
+        "pnl": -10.070093822538988
+      },
+      {
+        "reason": "below_trigger,trigger_breached_5pct,overextended,left_entry_corridor,large_adverse_move",
+        "n": 1,
+        "wins": 1,
+        "losses": 0,
+        "pnl": 163.1858306838804
+      },
+      {
+        "reason": "below_trigger,trigger_breached_5pct,adverse_move_warning",
+        "n": 1,
+        "wins": 1,
+        "losses": 0,
+        "pnl": 155.77855726704337
+      }
+    ],
+    "byTriggerReason": []
+  }
+}

@@ -1,0 +1,1974 @@
+{
+  "generated": "2026-03-08T16:25:51.883Z",
+  "since": "2025-07-01",
+  "universe_size": 274,
+  "candle_gaps": [
+    {
+      "ticker": "FIG",
+      "missing": [],
+      "late": [
+        {
+          "tf": "D",
+          "earliest": "2025-07-31",
+          "needed": "2025-07-01"
+        },
+        {
+          "tf": "240",
+          "earliest": "2025-07-31",
+          "needed": "2025-07-01"
+        },
+        {
+          "tf": "60",
+          "earliest": "2025-07-31",
+          "needed": "2025-07-01"
+        },
+        {
+          "tf": "30",
+          "earliest": "2025-07-31",
+          "needed": "2025-07-01"
+        },
+        {
+          "tf": "15",
+          "earliest": "2025-07-31",
+          "needed": "2025-07-01"
+        },
+        {
+          "tf": "10",
+          "earliest": "2025-07-31",
+          "needed": "2025-07-01"
+        }
+      ]
+    }
+  ],
+  "trail_gaps": [
+    {
+      "ticker": "AAPL",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3372
+    },
+    {
+      "ticker": "AAPU",
+      "reason": "late_start",
+      "earliest": "2026-02-04",
+      "needed": "2025-07-01",
+      "count": 2
+    },
+    {
+      "ticker": "ABBV",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3058
+    },
+    {
+      "ticker": "ABNB",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3058
+    },
+    {
+      "ticker": "ABT",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3057
+    },
+    {
+      "ticker": "ADBE",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3055
+    },
+    {
+      "ticker": "AEE",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3171
+    },
+    {
+      "ticker": "AEHR",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3466
+    },
+    {
+      "ticker": "AEP",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3173
+    },
+    {
+      "ticker": "AGQ",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3313
+    },
+    {
+      "ticker": "AGYS",
+      "reason": "late_start",
+      "earliest": "2026-02-04",
+      "needed": "2025-07-01",
+      "count": 3
+    },
+    {
+      "ticker": "ALB",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3462
+    },
+    {
+      "ticker": "ALLY",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3493
+    },
+    {
+      "ticker": "AMAT",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3051
+    },
+    {
+      "ticker": "AMD",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3584
+    },
+    {
+      "ticker": "AMGN",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3220
+    },
+    {
+      "ticker": "AMT",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3030
+    },
+    {
+      "ticker": "AMZN",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3557
+    },
+    {
+      "ticker": "ANET",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3489
+    },
+    {
+      "ticker": "APD",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3023
+    },
+    {
+      "ticker": "APLD",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3487
+    },
+    {
+      "ticker": "APP",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3496
+    },
+    {
+      "ticker": "ARM",
+      "reason": "late_start",
+      "earliest": "2026-02-04",
+      "needed": "2025-07-01",
+      "count": 3
+    },
+    {
+      "ticker": "ASTS",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3303
+    },
+    {
+      "ticker": "AU",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3517
+    },
+    {
+      "ticker": "AVAV",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3496
+    },
+    {
+      "ticker": "AVGO",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3560
+    },
+    {
+      "ticker": "AWI",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3447
+    },
+    {
+      "ticker": "AXON",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3545
+    },
+    {
+      "ticker": "AXP",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3526
+    },
+    {
+      "ticker": "AYI",
+      "reason": "late_start",
+      "earliest": "2026-01-14",
+      "needed": "2025-07-01",
+      "count": 686
+    },
+    {
+      "ticker": "B",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3314
+    },
+    {
+      "ticker": "BA",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3503
+    },
+    {
+      "ticker": "BABA",
+      "reason": "late_start",
+      "earliest": "2025-10-27",
+      "needed": "2025-07-01",
+      "count": 3044
+    },
+    {
+      "ticker": "BAC",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3030
+    },
+    {
+      "ticker": "BE",
+      "reason": "late_start",
+      "earliest": "2025-10-27",
+      "needed": "2025-07-01",
+      "count": 3125
+    },
+    {
+      "ticker": "BIIB",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3059
+    },
+    {
+      "ticker": "BK",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3406
+    },
+    {
+      "ticker": "BKNG",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3058
+    },
+    {
+      "ticker": "BLK",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3030
+    },
+    {
+      "ticker": "BMNR",
+      "reason": "late_start",
+      "earliest": "2025-10-27",
+      "needed": "2025-07-01",
+      "count": 3008
+    },
+    {
+      "ticker": "BMY",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3057
+    },
+    {
+      "ticker": "BRK-B",
+      "reason": "late_start",
+      "earliest": "2026-01-13",
+      "needed": "2025-07-01",
+      "count": 838
+    },
+    {
+      "ticker": "BTBT",
+      "reason": "late_start",
+      "earliest": "2026-02-04",
+      "needed": "2025-07-01",
+      "count": 3
+    },
+    {
+      "ticker": "BTCUSD",
+      "reason": "late_start",
+      "earliest": "2026-01-14",
+      "needed": "2025-07-01",
+      "count": 3509
+    },
+    {
+      "ticker": "BWXT",
+      "reason": "late_start",
+      "earliest": "2025-10-27",
+      "needed": "2025-07-01",
+      "count": 3056
+    },
+    {
+      "ticker": "C",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3033
+    },
+    {
+      "ticker": "CAT",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3492
+    },
+    {
+      "ticker": "CCJ",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3511
+    },
+    {
+      "ticker": "CDNS",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3479
+    },
+    {
+      "ticker": "CELH",
+      "reason": "late_start",
+      "earliest": "2026-02-04",
+      "needed": "2025-07-01",
+      "count": 3
+    },
+    {
+      "ticker": "CLS",
+      "reason": "late_start",
+      "earliest": "2025-10-27",
+      "needed": "2025-07-01",
+      "count": 3108
+    },
+    {
+      "ticker": "CMCSA",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3027
+    },
+    {
+      "ticker": "CMG",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3057
+    },
+    {
+      "ticker": "COF",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3031
+    },
+    {
+      "ticker": "COIN",
+      "reason": "late_start",
+      "earliest": "2025-10-27",
+      "needed": "2025-07-01",
+      "count": 2617
+    },
+    {
+      "ticker": "COP",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3041
+    },
+    {
+      "ticker": "COST",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3452
+    },
+    {
+      "ticker": "CRM",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3056
+    },
+    {
+      "ticker": "CRS",
+      "reason": "late_start",
+      "earliest": "2025-10-27",
+      "needed": "2025-07-01",
+      "count": 3100
+    },
+    {
+      "ticker": "CRVS",
+      "reason": "late_start",
+      "earliest": "2025-10-27",
+      "needed": "2025-07-01",
+      "count": 2908
+    },
+    {
+      "ticker": "CRWD",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3561
+    },
+    {
+      "ticker": "CRWV",
+      "reason": "late_start",
+      "earliest": "2025-10-27",
+      "needed": "2025-07-01",
+      "count": 2938
+    },
+    {
+      "ticker": "CSCO",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3550
+    },
+    {
+      "ticker": "CSX",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3527
+    },
+    {
+      "ticker": "CVNA",
+      "reason": "late_start",
+      "earliest": "2025-10-27",
+      "needed": "2025-07-01",
+      "count": 2632
+    },
+    {
+      "ticker": "CVX",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3043
+    },
+    {
+      "ticker": "D",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3173
+    },
+    {
+      "ticker": "DCI",
+      "reason": "late_start",
+      "earliest": "2025-10-27",
+      "needed": "2025-07-01",
+      "count": 3039
+    },
+    {
+      "ticker": "DE",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3460
+    },
+    {
+      "ticker": "DHR",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3057
+    },
+    {
+      "ticker": "DIS",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3025
+    },
+    {
+      "ticker": "DKNG",
+      "reason": "late_start",
+      "earliest": "2026-02-04",
+      "needed": "2025-07-01",
+      "count": 3
+    },
+    {
+      "ticker": "DLR",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3032
+    },
+    {
+      "ticker": "DUK",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 2973
+    },
+    {
+      "ticker": "DY",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3614
+    },
+    {
+      "ticker": "ECL",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 2936
+    },
+    {
+      "ticker": "EME",
+      "reason": "late_start",
+      "earliest": "2025-10-27",
+      "needed": "2025-07-01",
+      "count": 2994
+    },
+    {
+      "ticker": "EMR",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3482
+    },
+    {
+      "ticker": "ENS",
+      "reason": "late_start",
+      "earliest": "2025-10-27",
+      "needed": "2025-07-01",
+      "count": 2821
+    },
+    {
+      "ticker": "EOG",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3041
+    },
+    {
+      "ticker": "EQIX",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3032
+    },
+    {
+      "ticker": "ES",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3169
+    },
+    {
+      "ticker": "ETHA",
+      "reason": "late_start",
+      "earliest": "2025-10-27",
+      "needed": "2025-07-01",
+      "count": 3015
+    },
+    {
+      "ticker": "ETHT",
+      "reason": "late_start",
+      "earliest": "2025-10-27",
+      "needed": "2025-07-01",
+      "count": 2891
+    },
+    {
+      "ticker": "ETHUSD",
+      "reason": "late_start",
+      "earliest": "2026-01-14",
+      "needed": "2025-07-01",
+      "count": 2537
+    },
+    {
+      "ticker": "ETN",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3409
+    },
+    {
+      "ticker": "ETR",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3174
+    },
+    {
+      "ticker": "EWBC",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3413
+    },
+    {
+      "ticker": "EXC",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3172
+    },
+    {
+      "ticker": "EXPE",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3523
+    },
+    {
+      "ticker": "EXPI",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3031
+    },
+    {
+      "ticker": "FCX",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3042
+    },
+    {
+      "ticker": "FDX",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3056
+    },
+    {
+      "ticker": "FE",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3171
+    },
+    {
+      "ticker": "FIG",
+      "reason": "late_start",
+      "earliest": "2026-02-04",
+      "needed": "2025-07-01",
+      "count": 3
+    },
+    {
+      "ticker": "FIX",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3526
+    },
+    {
+      "ticker": "FSLR",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3452
+    },
+    {
+      "ticker": "GD",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3055
+    },
+    {
+      "ticker": "GDX",
+      "reason": "late_start",
+      "earliest": "2026-02-04",
+      "needed": "2025-07-01",
+      "count": 5
+    },
+    {
+      "ticker": "GDXJ",
+      "reason": "late_start",
+      "earliest": "2025-10-27",
+      "needed": "2025-07-01",
+      "count": 2769
+    },
+    {
+      "ticker": "GE",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3374
+    },
+    {
+      "ticker": "GEV",
+      "reason": "late_start",
+      "earliest": "2025-10-27",
+      "needed": "2025-07-01",
+      "count": 2986
+    },
+    {
+      "ticker": "GILD",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3184
+    },
+    {
+      "ticker": "GLD",
+      "reason": "no_data",
+      "count": 0
+    },
+    {
+      "ticker": "GLXY",
+      "reason": "late_start",
+      "earliest": "2026-01-14",
+      "needed": "2025-07-01",
+      "count": 822
+    },
+    {
+      "ticker": "GOLD",
+      "reason": "late_start",
+      "earliest": "2026-01-14",
+      "needed": "2025-07-01",
+      "count": 2571
+    },
+    {
+      "ticker": "GOOG",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3024
+    },
+    {
+      "ticker": "GOOGL",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3424
+    },
+    {
+      "ticker": "GRAB",
+      "reason": "late_start",
+      "earliest": "2026-02-04",
+      "needed": "2025-07-01",
+      "count": 3
+    },
+    {
+      "ticker": "GRNY",
+      "reason": "late_start",
+      "earliest": "2026-02-04",
+      "needed": "2025-07-01",
+      "count": 3
+    },
+    {
+      "ticker": "GS",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3554
+    },
+    {
+      "ticker": "HD",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3060
+    },
+    {
+      "ticker": "HII",
+      "reason": "late_start",
+      "earliest": "2025-10-27",
+      "needed": "2025-07-01",
+      "count": 2965
+    },
+    {
+      "ticker": "HIMS",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3531
+    },
+    {
+      "ticker": "HL",
+      "reason": "late_start",
+      "earliest": "2025-10-27",
+      "needed": "2025-07-01",
+      "count": 2569
+    },
+    {
+      "ticker": "HON",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3059
+    },
+    {
+      "ticker": "HOOD",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3526
+    },
+    {
+      "ticker": "HUBS",
+      "reason": "late_start",
+      "earliest": "2026-02-04",
+      "needed": "2025-07-01",
+      "count": 3
+    },
+    {
+      "ticker": "IAU",
+      "reason": "late_start",
+      "earliest": "2025-10-27",
+      "needed": "2025-07-01",
+      "count": 2578
+    },
+    {
+      "ticker": "IBKR",
+      "reason": "late_start",
+      "earliest": "2026-02-04",
+      "needed": "2025-07-01",
+      "count": 4
+    },
+    {
+      "ticker": "IBP",
+      "reason": "late_start",
+      "earliest": "2025-10-27",
+      "needed": "2025-07-01",
+      "count": 2903
+    },
+    {
+      "ticker": "IBRX",
+      "reason": "late_start",
+      "earliest": "2025-10-27",
+      "needed": "2025-07-01",
+      "count": 2753
+    },
+    {
+      "ticker": "IESC",
+      "reason": "late_start",
+      "earliest": "2025-10-27",
+      "needed": "2025-07-01",
+      "count": 2800
+    },
+    {
+      "ticker": "INTC",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3318
+    },
+    {
+      "ticker": "INTU",
+      "reason": "late_start",
+      "earliest": "2025-10-27",
+      "needed": "2025-07-01",
+      "count": 2895
+    },
+    {
+      "ticker": "IONQ",
+      "reason": "late_start",
+      "earliest": "2025-10-27",
+      "needed": "2025-07-01",
+      "count": 2893
+    },
+    {
+      "ticker": "IOT",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3529
+    },
+    {
+      "ticker": "IREN",
+      "reason": "late_start",
+      "earliest": "2025-10-27",
+      "needed": "2025-07-01",
+      "count": 2719
+    },
+    {
+      "ticker": "ITT",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3573
+    },
+    {
+      "ticker": "IWM",
+      "reason": "late_start",
+      "earliest": "2025-10-27",
+      "needed": "2025-07-01",
+      "count": 2949
+    },
+    {
+      "ticker": "JCI",
+      "reason": "late_start",
+      "earliest": "2026-01-14",
+      "needed": "2025-07-01",
+      "count": 811
+    },
+    {
+      "ticker": "JD",
+      "reason": "late_start",
+      "earliest": "2026-02-04",
+      "needed": "2025-07-01",
+      "count": 3
+    },
+    {
+      "ticker": "JNJ",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3056
+    },
+    {
+      "ticker": "JOBY",
+      "reason": "late_start",
+      "earliest": "2025-10-27",
+      "needed": "2025-07-01",
+      "count": 2937
+    },
+    {
+      "ticker": "JPM",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3342
+    },
+    {
+      "ticker": "KLAC",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3560
+    },
+    {
+      "ticker": "KO",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3116
+    },
+    {
+      "ticker": "KTOS",
+      "reason": "late_start",
+      "earliest": "2025-10-27",
+      "needed": "2025-07-01",
+      "count": 2808
+    },
+    {
+      "ticker": "KWEB",
+      "reason": "late_start",
+      "earliest": "2026-02-04",
+      "needed": "2025-07-01",
+      "count": 3
+    },
+    {
+      "ticker": "LIN",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3022
+    },
+    {
+      "ticker": "LITE",
+      "reason": "late_start",
+      "earliest": "2025-10-27",
+      "needed": "2025-07-01",
+      "count": 2951
+    },
+    {
+      "ticker": "LLY",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3114
+    },
+    {
+      "ticker": "LMND",
+      "reason": "late_start",
+      "earliest": "2026-02-04",
+      "needed": "2025-07-01",
+      "count": 4
+    },
+    {
+      "ticker": "LMT",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3056
+    },
+    {
+      "ticker": "LOW",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3057
+    },
+    {
+      "ticker": "LRCX",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3472
+    },
+    {
+      "ticker": "LULU",
+      "reason": "late_start",
+      "earliest": "2025-10-27",
+      "needed": "2025-07-01",
+      "count": 2476
+    },
+    {
+      "ticker": "MCD",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3068
+    },
+    {
+      "ticker": "MCO",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3030
+    },
+    {
+      "ticker": "MDB",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3373
+    },
+    {
+      "ticker": "META",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3511
+    },
+    {
+      "ticker": "MLI",
+      "reason": "late_start",
+      "earliest": "2025-10-27",
+      "needed": "2025-07-01",
+      "count": 2827
+    },
+    {
+      "ticker": "MNST",
+      "reason": "late_start",
+      "earliest": "2025-10-27",
+      "needed": "2025-07-01",
+      "count": 2945
+    },
+    {
+      "ticker": "MP",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3581
+    },
+    {
+      "ticker": "MPC",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3044
+    },
+    {
+      "ticker": "MRK",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3057
+    },
+    {
+      "ticker": "MS",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3031
+    },
+    {
+      "ticker": "MSFT",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3474
+    },
+    {
+      "ticker": "MSTR",
+      "reason": "late_start",
+      "earliest": "2025-10-27",
+      "needed": "2025-07-01",
+      "count": 2719
+    },
+    {
+      "ticker": "MTB",
+      "reason": "late_start",
+      "earliest": "2025-10-27",
+      "needed": "2025-07-01",
+      "count": 2459
+    },
+    {
+      "ticker": "MTZ",
+      "reason": "late_start",
+      "earliest": "2025-10-27",
+      "needed": "2025-07-01",
+      "count": 2867
+    },
+    {
+      "ticker": "MU",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3480
+    },
+    {
+      "ticker": "NBIS",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3472
+    },
+    {
+      "ticker": "NEE",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3059
+    },
+    {
+      "ticker": "NEM",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3042
+    },
+    {
+      "ticker": "NEU",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3301
+    },
+    {
+      "ticker": "NFLX",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3544
+    },
+    {
+      "ticker": "NKE",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3571
+    },
+    {
+      "ticker": "NOC",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3059
+    },
+    {
+      "ticker": "NVDA",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3509
+    },
+    {
+      "ticker": "NXT",
+      "reason": "late_start",
+      "earliest": "2025-10-27",
+      "needed": "2025-07-01",
+      "count": 2938
+    },
+    {
+      "ticker": "O",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3029
+    },
+    {
+      "ticker": "ON",
+      "reason": "late_start",
+      "earliest": "2025-10-27",
+      "needed": "2025-07-01",
+      "count": 2811
+    },
+    {
+      "ticker": "ONDS",
+      "reason": "late_start",
+      "earliest": "2025-10-27",
+      "needed": "2025-07-01",
+      "count": 2603
+    },
+    {
+      "ticker": "OPEN",
+      "reason": "late_start",
+      "earliest": "2026-02-04",
+      "needed": "2025-07-01",
+      "count": 3
+    },
+    {
+      "ticker": "ORCL",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3531
+    },
+    {
+      "ticker": "PANW",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3451
+    },
+    {
+      "ticker": "PATH",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3490
+    },
+    {
+      "ticker": "PEG",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3170
+    },
+    {
+      "ticker": "PEGA",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3456
+    },
+    {
+      "ticker": "PH",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3425
+    },
+    {
+      "ticker": "PI",
+      "reason": "late_start",
+      "earliest": "2025-10-27",
+      "needed": "2025-07-01",
+      "count": 2802
+    },
+    {
+      "ticker": "PLD",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3033
+    },
+    {
+      "ticker": "PLTR",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3490
+    },
+    {
+      "ticker": "PNC",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3448
+    },
+    {
+      "ticker": "PPG",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3043
+    },
+    {
+      "ticker": "PSA",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3031
+    },
+    {
+      "ticker": "PSTG",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3398
+    },
+    {
+      "ticker": "PSX",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3042
+    },
+    {
+      "ticker": "PWR",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3578
+    },
+    {
+      "ticker": "PYPL",
+      "reason": "late_start",
+      "earliest": "2026-02-04",
+      "needed": "2025-07-01",
+      "count": 3
+    },
+    {
+      "ticker": "QCOM",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3054
+    },
+    {
+      "ticker": "QLYS",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3485
+    },
+    {
+      "ticker": "QQQ",
+      "reason": "late_start",
+      "earliest": "2025-10-27",
+      "needed": "2025-07-01",
+      "count": 2774
+    },
+    {
+      "ticker": "RBLX",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3568
+    },
+    {
+      "ticker": "RDDT",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3481
+    },
+    {
+      "ticker": "REGN",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3059
+    },
+    {
+      "ticker": "RGLD",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3551
+    },
+    {
+      "ticker": "RIOT",
+      "reason": "late_start",
+      "earliest": "2025-10-27",
+      "needed": "2025-07-01",
+      "count": 2751
+    },
+    {
+      "ticker": "RKLB",
+      "reason": "late_start",
+      "earliest": "2025-10-27",
+      "needed": "2025-07-01",
+      "count": 2663
+    },
+    {
+      "ticker": "RTX",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 2973
+    },
+    {
+      "ticker": "SANM",
+      "reason": "late_start",
+      "earliest": "2025-10-27",
+      "needed": "2025-07-01",
+      "count": 2797
+    },
+    {
+      "ticker": "SBET",
+      "reason": "late_start",
+      "earliest": "2026-02-04",
+      "needed": "2025-07-01",
+      "count": 3
+    },
+    {
+      "ticker": "SBUX",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3060
+    },
+    {
+      "ticker": "SCHW",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3030
+    },
+    {
+      "ticker": "SGI",
+      "reason": "late_start",
+      "earliest": "2025-10-27",
+      "needed": "2025-07-01",
+      "count": 2787
+    },
+    {
+      "ticker": "SHOP",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3563
+    },
+    {
+      "ticker": "SHW",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3043
+    },
+    {
+      "ticker": "SLB",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3039
+    },
+    {
+      "ticker": "SLV",
+      "reason": "late_start",
+      "earliest": "2025-10-27",
+      "needed": "2025-07-01",
+      "count": 2556
+    },
+    {
+      "ticker": "SMCI",
+      "reason": "late_start",
+      "earliest": "2026-02-04",
+      "needed": "2025-07-01",
+      "count": 5
+    },
+    {
+      "ticker": "SN",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3608
+    },
+    {
+      "ticker": "SNDK",
+      "reason": "late_start",
+      "earliest": "2025-10-27",
+      "needed": "2025-07-01",
+      "count": 2577
+    },
+    {
+      "ticker": "SO",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3172
+    },
+    {
+      "ticker": "SOFI",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3454
+    },
+    {
+      "ticker": "SOXL",
+      "reason": "late_start",
+      "earliest": "2025-10-27",
+      "needed": "2025-07-01",
+      "count": 2601
+    },
+    {
+      "ticker": "SPG",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3031
+    },
+    {
+      "ticker": "SPGI",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3481
+    },
+    {
+      "ticker": "SPOT",
+      "reason": "late_start",
+      "earliest": "2026-02-04",
+      "needed": "2025-07-01",
+      "count": 3
+    },
+    {
+      "ticker": "SPY",
+      "reason": "late_start",
+      "earliest": "2025-10-27",
+      "needed": "2025-07-01",
+      "count": 2738
+    },
+    {
+      "ticker": "SRE",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3172
+    },
+    {
+      "ticker": "STRL",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3551
+    },
+    {
+      "ticker": "STX",
+      "reason": "late_start",
+      "earliest": "2025-10-27",
+      "needed": "2025-07-01",
+      "count": 2789
+    },
+    {
+      "ticker": "SWK",
+      "reason": "late_start",
+      "earliest": "2025-10-27",
+      "needed": "2025-07-01",
+      "count": 2490
+    },
+    {
+      "ticker": "T",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3024
+    },
+    {
+      "ticker": "TEM",
+      "reason": "late_start",
+      "earliest": "2026-02-04",
+      "needed": "2025-07-01",
+      "count": 3
+    },
+    {
+      "ticker": "TFC",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3032
+    },
+    {
+      "ticker": "TJX",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3592
+    },
+    {
+      "ticker": "TLN",
+      "reason": "late_start",
+      "earliest": "2025-10-27",
+      "needed": "2025-07-01",
+      "count": 2825
+    },
+    {
+      "ticker": "TMO",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3058
+    },
+    {
+      "ticker": "TNA",
+      "reason": "late_start",
+      "earliest": "2026-02-04",
+      "needed": "2025-07-01",
+      "count": 5
+    },
+    {
+      "ticker": "TSLA",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3552
+    },
+    {
+      "ticker": "TSM",
+      "reason": "late_start",
+      "earliest": "2025-10-27",
+      "needed": "2025-07-01",
+      "count": 2318
+    },
+    {
+      "ticker": "TT",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3521
+    },
+    {
+      "ticker": "TWLO",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3493
+    },
+    {
+      "ticker": "TXN",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3055
+    },
+    {
+      "ticker": "U",
+      "reason": "late_start",
+      "earliest": "2026-02-04",
+      "needed": "2025-07-01",
+      "count": 3
+    },
+    {
+      "ticker": "ULTA",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3321
+    },
+    {
+      "ticker": "UNH",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3062
+    },
+    {
+      "ticker": "UNP",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3059
+    },
+    {
+      "ticker": "UPS",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3061
+    },
+    {
+      "ticker": "USB",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3031
+    },
+    {
+      "ticker": "UTHR",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3576
+    },
+    {
+      "ticker": "UUUU",
+      "reason": "late_start",
+      "earliest": "2025-10-27",
+      "needed": "2025-07-01",
+      "count": 2706
+    },
+    {
+      "ticker": "VICI",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3032
+    },
+    {
+      "ticker": "VRTX",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3059
+    },
+    {
+      "ticker": "VST",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3439
+    },
+    {
+      "ticker": "VZ",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3022
+    },
+    {
+      "ticker": "W",
+      "reason": "late_start",
+      "earliest": "2025-10-27",
+      "needed": "2025-07-01",
+      "count": 2373
+    },
+    {
+      "ticker": "WAL",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3526
+    },
+    {
+      "ticker": "WDAY",
+      "reason": "late_start",
+      "earliest": "2026-02-04",
+      "needed": "2025-07-01",
+      "count": 3
+    },
+    {
+      "ticker": "WDC",
+      "reason": "late_start",
+      "earliest": "2025-10-27",
+      "needed": "2025-07-01",
+      "count": 2522
+    },
+    {
+      "ticker": "WEC",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3173
+    },
+    {
+      "ticker": "WELL",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3031
+    },
+    {
+      "ticker": "WFC",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3031
+    },
+    {
+      "ticker": "WFRD",
+      "reason": "late_start",
+      "earliest": "2025-10-27",
+      "needed": "2025-07-01",
+      "count": 2649
+    },
+    {
+      "ticker": "WM",
+      "reason": "late_start",
+      "earliest": "2025-10-27",
+      "needed": "2025-07-01",
+      "count": 4762
+    },
+    {
+      "ticker": "WMT",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3532
+    },
+    {
+      "ticker": "WTS",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3416
+    },
+    {
+      "ticker": "XEL",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3171
+    },
+    {
+      "ticker": "XLB",
+      "reason": "late_start",
+      "earliest": "2025-10-27",
+      "needed": "2025-07-01",
+      "count": 4823
+    },
+    {
+      "ticker": "XLC",
+      "reason": "late_start",
+      "earliest": "2025-10-27",
+      "needed": "2025-07-01",
+      "count": 4814
+    },
+    {
+      "ticker": "XLE",
+      "reason": "late_start",
+      "earliest": "2025-10-27",
+      "needed": "2025-07-01",
+      "count": 4769
+    },
+    {
+      "ticker": "XLF",
+      "reason": "late_start",
+      "earliest": "2025-10-27",
+      "needed": "2025-07-01",
+      "count": 4707
+    },
+    {
+      "ticker": "XLI",
+      "reason": "late_start",
+      "earliest": "2025-10-27",
+      "needed": "2025-07-01",
+      "count": 4545
+    },
+    {
+      "ticker": "XLK",
+      "reason": "late_start",
+      "earliest": "2025-10-27",
+      "needed": "2025-07-01",
+      "count": 4750
+    },
+    {
+      "ticker": "XLP",
+      "reason": "late_start",
+      "earliest": "2025-10-27",
+      "needed": "2025-07-01",
+      "count": 4728
+    },
+    {
+      "ticker": "XLRE",
+      "reason": "late_start",
+      "earliest": "2025-10-27",
+      "needed": "2025-07-01",
+      "count": 4549
+    },
+    {
+      "ticker": "XLU",
+      "reason": "late_start",
+      "earliest": "2025-10-27",
+      "needed": "2025-07-01",
+      "count": 4784
+    },
+    {
+      "ticker": "XLV",
+      "reason": "late_start",
+      "earliest": "2025-10-27",
+      "needed": "2025-07-01",
+      "count": 4667
+    },
+    {
+      "ticker": "XLY",
+      "reason": "late_start",
+      "earliest": "2025-10-27",
+      "needed": "2025-07-01",
+      "count": 4733
+    },
+    {
+      "ticker": "XOM",
+      "reason": "late_start",
+      "earliest": "2025-10-01",
+      "needed": "2025-07-01",
+      "count": 3042
+    },
+    {
+      "ticker": "XYZ",
+      "reason": "late_start",
+      "earliest": "2026-02-04",
+      "needed": "2025-07-01",
+      "count": 3
+    }
+  ],
+  "summary": {
+    "candles": {
+      "ok": 273,
+      "gaps": 1,
+      "total": 274
+    },
+    "trail": {
+      "ok": 0,
+      "missing": 1,
+      "late_start": 273,
+      "total": 274
+    }
+  }
+}

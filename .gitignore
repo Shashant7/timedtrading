@@ -37,6 +37,9 @@ npm-debug.log*
 
 # Cloudflare Pages asset limit (25 MiB/file)
 docs/BEST_SETUPS_ANALYSIS.json
+data/ticker-learning-inserts.sql
+data/ticker-learning-chunk-*.sql
+data/timed-local.db
 
 # Local exports (TradingView, etc.)
 TV Exports/

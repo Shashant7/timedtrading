@@ -1,0 +1,10 @@
+{
+  "ok": true,
+  "label": "july-variant-guardrails-v3-",
+  "captured_at": "20260305-092704",
+  "start_date": "2025-07-01",
+  "end_date": "2025-07-31",
+  "trader_only": true,
+  "sequence": false,
+  "note": "Captured automatically before reset for A/B comparison."
+}

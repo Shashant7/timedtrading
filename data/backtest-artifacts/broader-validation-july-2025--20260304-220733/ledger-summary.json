@@ -1,0 +1,92 @@
+{
+  "ok": true,
+  "since": null,
+  "until": null,
+  "totals": {
+    "totalTrades": 12,
+    "openTrades": 0,
+    "closedTrades": 12,
+    "wins": 9,
+    "losses": 3,
+    "winRate": 75,
+    "closedPnl": 1023.5286390235236,
+    "profitFactor": 22.508884678849707,
+    "avgWin": 119.01277306910022,
+    "avgLoss": 15.86210619945949,
+    "expectancy": 85.2940532519603,
+    "grossWin": 1071.114957621902,
+    "grossLoss": 47.58631859837847
+  },
+  "breakdown": {
+    "byRank": [
+      {
+        "bucket": "60-69",
+        "n": 1,
+        "wins": 0,
+        "losses": 1,
+        "pnl": -10.960016237061508
+      },
+      {
+        "bucket": "70-79",
+        "n": 7,
+        "wins": 6,
+        "losses": 1,
+        "pnl": 529.7731439864143
+      },
+      {
+        "bucket": "80+",
+        "n": 4,
+        "wins": 3,
+        "losses": 1,
+        "pnl": 504.71551127417086
+      }
+    ],
+    "byRR": [
+      {
+        "bucket": "2.0+",
+        "n": 12,
+        "wins": 9,
+        "losses": 3,
+        "pnl": 1023.5286390235236
+      }
+    ],
+    "byExitReason": [
+      {
+        "reason": "replay_forced_eod_close",
+        "n": 8,
+        "wins": 7,
+        "losses": 1,
+        "pnl": 873.0150782239355
+      },
+      {
+        "reason": "ripster_short_pivot_reclaimed",
+        "n": 1,
+        "wins": 0,
+        "losses": 1,
+        "pnl": -10.070093822538988
+      },
+      {
+        "reason": "below_trigger,trigger_breached_5pct,overextended,left_entry_corridor,large_adverse_move",
+        "n": 1,
+        "wins": 1,
+        "losses": 0,
+        "pnl": 163.1858306838804
+      },
+      {
+        "reason": "below_trigger,trigger_breached_5pct,overextended,large_adverse_move",
+        "n": 1,
+        "wins": 1,
+        "losses": 0,
+        "pnl": 23.9540324770247
+      },
+      {
+        "reason": "below_trigger,trigger_breached_5pct,daily_ema_regime_break,overextended,large_adverse_move",
+        "n": 1,
+        "wins": 0,
+        "losses": 1,
+        "pnl": -26.55620853877797
+      }
+    ],
+    "byTriggerReason": []
+  }
+}

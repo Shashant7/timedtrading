@@ -1,0 +1,925 @@
+{
+  "ok": true,
+  "annotations": {
+    "CSX-1751376600000-ox9sknldk": {
+      "classification": "good_trade",
+      "notes": "",
+      "updatedAt": 1772725547710
+    },
+    "H-1751376900000-dpmndv4co": {
+      "classification": "bad_exit",
+      "notes": "Held the trade too long after Trim.  The price went higher, consolidated and then broke down.",
+      "updatedAt": 1772726906035
+    },
+    "WMT-1751377200000-qahr646my": {
+      "classification": "bad_trade",
+      "notes": "All TF RSIs were high, esp 30m and 1h being over 70.  Which isn't bad but the R:R didn't seem worth it.  Better to let it pass than chase.",
+      "updatedAt": 1772725984163
+    },
+    "AMZN-1751377200000-bzx6s2hla": {
+      "classification": "bad_exit",
+      "notes": "After the Trim, we saw price get exhausted and should have tighten our SL.  Our SL should never be below Entry after a Trim.",
+      "updatedAt": 1772726707876
+    },
+    "HII-1751377800000-g4i904mdm": {
+      "classification": "good_trade",
+      "notes": "",
+      "updatedAt": 1772726912640
+    },
+    "CAT-1751379000000-bngmlgjew": {
+      "classification": "good_trade",
+      "notes": "",
+      "updatedAt": 1772726923353
+    },
+    "AAPL-1751463000000-tnkd2uq3q": {
+      "classification": "bad_exit",
+      "notes": "",
+      "updatedAt": 1772726937225
+    },
+    "COST-1751463600000-tygmez9du": {
+      "classification": "bad_exit",
+      "notes": "",
+      "updatedAt": 1772726947659
+    },
+    "ULTA-1751466600000-br2hfm6l9": {
+      "classification": "bad_exit",
+      "notes": "",
+      "updatedAt": 1772726958943
+    },
+    "PH-1751469900000-vum142x3c": {
+      "classification": "good_trade",
+      "notes": "Perfect TP Selection!",
+      "updatedAt": 1772727049644
+    },
+    "AAPL-1751551200000-vtwf8wr22": {
+      "classification": "ok_trade",
+      "notes": "",
+      "updatedAt": 1772727057817
+    },
+    "ULTA-1751555400000-sssrd9h4v": {
+      "classification": "ok_trade",
+      "notes": "",
+      "updatedAt": 1772727067220
+    },
+    "KTOS-1751895000000-55j1qvk57": {
+      "classification": "early_entry",
+      "notes": "KTOS Long - We entered due to a pullback but the pullback didn't seem deep enough.  We may need to reference ATR Levels and TD Sequential Counts.",
+      "updatedAt": 1772729949866
+    },
+    "AVGO-1751895300000-lv2khfjxc": {
+      "classification": "bad_exit",
+      "notes": "",
+      "updatedAt": 1772729961029
+    },
+    "PLTR-1751916300000-dffl12115": {
+      "classification": "good_trade",
+      "notes": "",
+      "updatedAt": 1772730054435
+    },
+    "ANET-1752246000000-j6u8zoe1m": {
+      "classification": "good_trade",
+      "notes": "",
+      "updatedAt": 1772730058897
+    },
+    "MSFT-1752499800000-y0rmrpuer": {
+      "classification": "good_trade",
+      "notes": "",
+      "updatedAt": 1772730063498
+    },
+    "KO-1752504000000-46tb8ifd1": {
+      "classification": "early_entry",
+      "notes": "10m was bearish, 30m was bearish, 10m SuperTrend was bearish.",
+      "updatedAt": 1772730093320
+    },
+    "PWR-1752845400000-5di39xkq2": {
+      "classification": "bad_exit",
+      "notes": "We trimmed well but then let our remaining position fall below our entry.",
+      "updatedAt": 1772730803322
+    },
+    "CDNS-1753882200000-iein99tql": {
+      "classification": "bad_exit",
+      "notes": "",
+      "updatedAt": 1772733711066
+    },
+    "CAT-1753968900000-x6k5r7uee": {
+      "classification": "early_entry",
+      "notes": "",
+      "updatedAt": 1772734448207
+    },
+    "GE-1754314200000-251xbfnrw": {
+      "classification": "bad_exit",
+      "notes": "We react too late.  After a trim, we need to be on guard.",
+      "updatedAt": 1772735078680
+    },
+    "CLS-1754314200000-y9bj8hn78": {
+      "classification": "bad_exit",
+      "notes": "Same issue.  Bad Exit after trimming in profit successfully.",
+      "updatedAt": 1772735106136
+    },
+    "FN-1754400600000-axultjozn": {
+      "classification": "bad_exit",
+      "notes": "",
+      "updatedAt": 1772735113246
+    },
+    "ULTA-1754400900000-j10ye9n95": {
+      "classification": "early_entry",
+      "notes": "",
+      "updatedAt": 1772735662546
+    },
+    "WMT-1754487000000-5j19q4aig": {
+      "classification": "bad_exit",
+      "notes": "",
+      "updatedAt": 1772735667801
+    },
+    "CDNS-1754487000000-sownhl343": {
+      "classification": "bad_trade",
+      "notes": "10m was bearish.",
+      "updatedAt": 1772735692785
+    },
+    "TJX-1754492700000-1l3hb1ip5": {
+      "classification": "good_trade",
+      "notes": "",
+      "updatedAt": 1772736517533
+    },
+    "APP-1754573700000-ec78mntx4": {
+      "classification": "good_trade",
+      "notes": "",
+      "updatedAt": 1772736525532
+    },
+    "WMT-1754595600000-cktlvmys1": {
+      "classification": "bad_exit",
+      "notes": "Same Pattern with WMT, we should have learned to stay away when the 4H and D RSI is so high.",
+      "updatedAt": 1772736557361
+    },
+    "PLTR-1755018600000-5ze4fkrb2": {
+      "classification": "bad_trade",
+      "notes": "Chased here, 4h and Daily RSI are on the high end. ",
+      "updatedAt": 1772736593719
+    },
+    "CSX-1755183000000-glarltob1": {
+      "classification": "ok_trade",
+      "notes": "",
+      "updatedAt": 1772736606645
+    },
+    "SMCI-1755274200000-2d2jvqmaa": {
+      "classification": "bad_trade",
+      "notes": "most RSI was at the low end, and D was very low.",
+      "updatedAt": 1772736639600
+    },
+    "META-1755274200000-1dlvnqtym": {
+      "classification": "bad_trade",
+      "notes": "This seems like a good pullback but our SL was too tolerant and this actually looks like a good Short.",
+      "updatedAt": 1772736699239
+    },
+    "AWI-1755536400000-yvzzg4g9w": {
+      "classification": "bad_exit",
+      "notes": "",
+      "updatedAt": 1772742883843
+    },
+    "ULTA-1755696600000-ftoxfnmy0": {
+      "classification": "early_entry",
+      "notes": "",
+      "updatedAt": 1772742890069
+    },
+    "ULTA-1755802800000-mbryepp9f": {
+      "classification": "good_trade",
+      "notes": "",
+      "updatedAt": 1772742897049
+    },
+    "ULTA-1755888000000-bm7u6y7rt": {
+      "classification": "early_entry",
+      "notes": "",
+      "updatedAt": 1772742906533
+    },
+    "CAT-1755888000000-v1f4lfldv": {
+      "classification": "early_entry",
+      "notes": "",
+      "updatedAt": 1772742913133
+    },
+    "TSLA-1756128600000-8101fi97r": {
+      "classification": "bad_exit",
+      "notes": "",
+      "updatedAt": 1772742920101
+    },
+    "LITE-1756218000000-adfvs76id": {
+      "classification": "good_trade",
+      "notes": "",
+      "updatedAt": 1772742924902
+    },
+    "HII-1756218000000-wywc8kmlz": {
+      "classification": "bad_exit",
+      "notes": "",
+      "updatedAt": 1772742932822
+    },
+    "ANET-1756218000000-cm4b5741n": {
+      "classification": "bad_exit",
+      "notes": "",
+      "updatedAt": 1772742950112
+    },
+    "AMZN-1756234200000-7d09t226z": {
+      "classification": "bad_exit",
+      "notes": "Could have trimmed once.",
+      "updatedAt": 1772742966977
+    },
+    "CRS-1772548500000-v5cof7456": {
+      "classification": "data_error",
+      "notes": "",
+      "updatedAt": 1772743050225
+    },
+    "MSFT-1772548200000-u7gemnjg9": {
+      "classification": "data_error",
+      "notes": "",
+      "updatedAt": 1772743056785
+    },
+    "H-1772139300000-n0zfp2en3": {
+      "classification": "data_error",
+      "notes": "",
+      "updatedAt": 1772743062548
+    },
+    "KO-1771607400000-sictrmpnw": {
+      "classification": "good_trade",
+      "notes": "",
+      "updatedAt": 1772743071472
+    },
+    "H-1771603200000-0jchn8svv": {
+      "classification": "bad_trade",
+      "notes": "",
+      "updatedAt": 1772743093695
+    },
+    "TJX-1771875900000-71jxvhm74": {
+      "classification": "ok_trade",
+      "notes": "",
+      "updatedAt": 1772743115846
+    },
+    "AAPL-1771948800000-8rsh1ttgt": {
+      "classification": "bad_trade",
+      "notes": "LTF was extreme RSI, bad entry.",
+      "updatedAt": 1772743241347
+    },
+    "KO-1772550000000-u3zf2s6fu": {
+      "classification": "data_error",
+      "notes": "",
+      "updatedAt": 1772743247374
+    },
+    "AMZN-1771339200000-r3xq5xrnv": {
+      "classification": "bad_exit",
+      "notes": "Should have trimmed rather clear exit.",
+      "updatedAt": 1772743293428
+    },
+    "DE-1771339200000-zspac095t": {
+      "classification": "bad_exit",
+      "notes": "",
+      "updatedAt": 1772744319308
+    },
+    "APP-1771338900000-rew102f19": {
+      "classification": "bad_exit",
+      "notes": "",
+      "updatedAt": 1772744323736
+    },
+    "ULTA-1771338900000-zadnetpbx": {
+      "classification": "bad_exit",
+      "notes": "",
+      "updatedAt": 1772744329507
+    },
+    "GE-1771338600000-5nmhuctvd": {
+      "classification": "good_trade",
+      "notes": "",
+      "updatedAt": 1772744337262
+    },
+    "AMZN-1770919800000-ltzvvxhe0": {
+      "classification": "bad_trade",
+      "notes": "RSI on the Daily is extreme and 4H",
+      "updatedAt": 1772744374351
+    },
+    "APP-1770918600000-nj9rd23k0": {
+      "classification": "bad_trade",
+      "notes": "RSI is at extreme.  ",
+      "updatedAt": 1772744542909
+    },
+    "DY-1770906600000-nxobx9o00": {
+      "classification": "bad_trade",
+      "notes": "LTF RSI is near extreme.",
+      "updatedAt": 1772744559106
+    },
+    "FIX-1770906600000-rch4dv3te": {
+      "classification": "bad_trade",
+      "notes": "RSI LTF is at near extreme.",
+      "updatedAt": 1772744575524
+    },
+    "PH-1770906600000-6eovssk7z": {
+      "classification": "bad_trade",
+      "notes": "RSI LTF is at near extreme.",
+      "updatedAt": 1772744586338
+    },
+    "PWR-1770820200000-ih4wkdhh8": {
+      "classification": "bad_trade",
+      "notes": "Chasing.  RSI is at extremes.",
+      "updatedAt": 1772744605582
+    },
+    "CVX-1770754200000-04usyrra8": {
+      "classification": "ok_trade",
+      "notes": "",
+      "updatedAt": 1772744729935
+    },
+    "CSX-1770745200000-2qe39vg1d": {
+      "classification": "good_trade",
+      "notes": "",
+      "updatedAt": 1772744738268
+    },
+    "COST-1770647400000-dr067pbhy": {
+      "classification": "bad_exit",
+      "notes": "",
+      "updatedAt": 1772744745022
+    },
+    "ULTA-1770399600000-hjl74y7ls": {
+      "classification": "early_entry",
+      "notes": "",
+      "updatedAt": 1772744754185
+    },
+    "WMT-1770399600000-9xqmok315": {
+      "classification": "bad_exit",
+      "notes": "",
+      "updatedAt": 1772744759553
+    },
+    "MNST-1770150000000-41xw8a03e": {
+      "classification": "good_trade",
+      "notes": "",
+      "updatedAt": 1772744763922
+    },
+    "DE-1770148800000-igpx3bmvz": {
+      "classification": "good_trade",
+      "notes": "",
+      "updatedAt": 1772744767710
+    },
+    "AMZN-1770048000000-pd089vuoa": {
+      "classification": "bad_trade",
+      "notes": "LTF RSI is at extremes.  Chasing.",
+      "updatedAt": 1772744783145
+    },
+    "TSLA-1770047400000-azhrvpeis": {
+      "classification": "bad_exit",
+      "notes": "The price was below the gap, no need to exit.",
+      "updatedAt": 1772744805439
+    },
+    "ETN-1770045600000-2bpb20nrz": {
+      "classification": "good_trade",
+      "notes": "",
+      "updatedAt": 1772744809772
+    },
+    "WMT-1770042600000-n63c2m3c3": {
+      "classification": "good_trade",
+      "notes": "",
+      "updatedAt": 1772744813874
+    },
+    "KO-1769700600000-e1ncw9is1": {
+      "classification": "good_trade",
+      "notes": "",
+      "updatedAt": 1772744833111
+    },
+    "KLAC-1769525700000-ggqcc7v46": {
+      "classification": "bad_trade",
+      "notes": "RSI were at extremes.",
+      "updatedAt": 1772744844787
+    },
+    "SHOP-1769525400000-n2pjhehuz": {
+      "classification": "bad_trade",
+      "notes": "D and 4H RSI were at extremes.",
+      "updatedAt": 1772744883066
+    },
+    "PKG-1769438100000-aqcrchibx": {
+      "classification": "good_trade",
+      "notes": "",
+      "updatedAt": 1772744887423
+    },
+    "APP-1769095800000-ux1l1ehc8": {
+      "classification": "bad_trade",
+      "notes": "",
+      "updatedAt": 1772744978551
+    },
+    "LSCC-1769092800000-isl7yalz9": {
+      "classification": "bad_trade",
+      "notes": "RSI for LTF is near extreme.",
+      "updatedAt": 1772744996880
+    },
+    "SANM-1769023500000-2xv832v4v": {
+      "classification": "bad_trade",
+      "notes": "",
+      "updatedAt": 1772745008367
+    },
+    "ULTA-1769011200000-9g3v3jrpd": {
+      "classification": "bad_trade",
+      "notes": "",
+      "updatedAt": 1772745012932
+    },
+    "COST-1769009400000-yzgm6m8r3": {
+      "classification": "bad_exit",
+      "notes": "",
+      "updatedAt": 1772745018838
+    },
+    "DCI-1768314600000-hmbzyufax": {
+      "classification": "good_trade",
+      "notes": "",
+      "updatedAt": 1772745023121
+    },
+    "IESC-1768487400000-sh6xvt24q": {
+      "classification": "bad_exit",
+      "notes": "",
+      "updatedAt": 1772745028155
+    },
+    "AU-1768228200000-su23orsgj": {
+      "classification": "good_trade",
+      "notes": "",
+      "updatedAt": 1772745033166
+    },
+    "CAT-1767987600000-s5jcqlag8": {
+      "classification": "good_trade",
+      "notes": "",
+      "updatedAt": 1772745037574
+    },
+    "PH-1767726600000-1iprgo5fx": {
+      "classification": "good_trade",
+      "notes": "",
+      "updatedAt": 1772745040941
+    },
+    "WMT-1767718800000-1vrkzhce3": {
+      "classification": "bad_exit",
+      "notes": "",
+      "updatedAt": 1772745045670
+    },
+    "KO-1767715200000-gjqjethol": {
+      "classification": "bad_trade",
+      "notes": "D RSI is at extreme.",
+      "updatedAt": 1772745060228
+    },
+    "AMZN-1767714600000-t3ujdvixr": {
+      "classification": "bad_exit",
+      "notes": "",
+      "updatedAt": 1772745065197
+    },
+    "ULTA-1767623700000-y5slmeng3": {
+      "classification": "good_trade",
+      "notes": "",
+      "updatedAt": 1772745070079
+    },
+    "KO-1767623400000-05oymp3nx": {
+      "classification": "bad_trade",
+      "notes": "",
+      "updatedAt": 1772745076701
+    },
+    "ON-1767365400000-pq5w8t22c": {
+      "classification": "good_trade",
+      "notes": "",
+      "updatedAt": 1772745082879
+    },
+    "LITE-1766586600000-o4xpl4lcq": {
+      "classification": "bad_exit",
+      "notes": "",
+      "updatedAt": 1772745088656
+    },
+    "RGLD-1766004300000-7ugkav481": {
+      "classification": "good_trade",
+      "notes": "",
+      "updatedAt": 1772745092886
+    },
+    "MP-1765999800000-9x2uezvkc": {
+      "classification": "bad_trade",
+      "notes": "",
+      "updatedAt": 1772745099233
+    },
+    "NVDA-1765999800000-or5rg33sd": {
+      "classification": "bad_trade",
+      "notes": "",
+      "updatedAt": 1772745106416
+    },
+    "ORCL-1765999800000-sny9njoj2": {
+      "classification": "bad_trade",
+      "notes": "",
+      "updatedAt": 1772745111623
+    },
+    "PANW-1765999800000-ka51wnx4a": {
+      "classification": "bad_trade",
+      "notes": "",
+      "updatedAt": 1772745116051
+    },
+    "JCI-1765829400000-bjeh8j86k": {
+      "classification": "bad_exit",
+      "notes": "",
+      "updatedAt": 1772745120975
+    },
+    "H-1765821900000-0nmb6oijf": {
+      "classification": "ok_trade",
+      "notes": "",
+      "updatedAt": 1772745131775
+    },
+    "TSLA-1765815300000-5p8fz3ydg": {
+      "classification": "bad_exit",
+      "notes": "",
+      "updatedAt": 1772745136203
+    },
+    "ULTA-1765558800000-8a8mqad79": {
+      "classification": "ok_trade",
+      "notes": "",
+      "updatedAt": 1772745147691
+    },
+    "APP-1765483800000-j66dwgd9c": {
+      "classification": "bad_trade",
+      "notes": "",
+      "updatedAt": 1772745154099
+    },
+    "DY-1765483800000-992cjgj9s": {
+      "classification": "bad_trade",
+      "notes": "",
+      "updatedAt": 1772745158330
+    },
+    "TSLA-1765393200000-jd4zu8dfg": {
+      "classification": "bad_exit",
+      "notes": "",
+      "updatedAt": 1772745208027
+    },
+    "COST-1765379400000-oayqdfxvf": {
+      "classification": "ok_trade",
+      "notes": "",
+      "updatedAt": 1772745214798
+    },
+    "CSX-1765379400000-rus8o0vzd": {
+      "classification": "bad_exit",
+      "notes": "",
+      "updatedAt": 1772745219499
+    },
+    "TJX-1765379400000-b4rmksi6k": {
+      "classification": "bad_exit",
+      "notes": "",
+      "updatedAt": 1772745225962
+    },
+    "CAT-1765292400000-p11hqvtaf": {
+      "classification": "bad_exit",
+      "notes": "",
+      "updatedAt": 1772745318363
+    },
+    "SHOP-1756237800000-2rp1wn72k": {
+      "classification": "bad_exit",
+      "notes": "",
+      "updatedAt": 1772745326982
+    },
+    "RGLD-1756906200000-6k9ahi0de": {
+      "classification": "bad_trade",
+      "notes": "",
+      "updatedAt": 1772745332224
+    },
+    "KO-1756906200000-m4uy99zxu": {
+      "classification": "bad_trade",
+      "notes": "",
+      "updatedAt": 1772745336765
+    },
+    "TJX-1756906500000-czg96c0i6": {
+      "classification": "good_trade",
+      "notes": "",
+      "updatedAt": 1772745340871
+    },
+    "SMCI-1756908000000-3ccg0exsd": {
+      "classification": "bad_trade",
+      "notes": "",
+      "updatedAt": 1772745346631
+    },
+    "DE-1757082600000-zrwsy9djx": {
+      "classification": "bad_trade",
+      "notes": "",
+      "updatedAt": 1772745354982
+    },
+    "TSLA-1757338200000-81x340snc": {
+      "classification": "bad_trade",
+      "notes": "",
+      "updatedAt": 1772745363288
+    },
+    "H-1757338200000-w8h7wqllu": {
+      "classification": "bad_exit",
+      "notes": "",
+      "updatedAt": 1772745374420
+    },
+    "WMT-1757338800000-x8hakwhv2": {
+      "classification": "bad_exit",
+      "notes": "",
+      "updatedAt": 1772745378882
+    },
+    "APP-1757427900000-3e0eey4ur": {
+      "classification": "good_trade",
+      "notes": "",
+      "updatedAt": 1772745383652
+    },
+    "LSCC-1757511300000-rxmkee1zq": {
+      "classification": "bad_exit",
+      "notes": "We need to be mindful of how long we have been in range and if we fail a breakout.  If we do, then we need to be defensive.",
+      "updatedAt": 1772745485049
+    },
+    "CAT-1757601300000-0z362bb4m": {
+      "classification": "early_entry",
+      "notes": "",
+      "updatedAt": 1772745493902
+    },
+    "GEV-1757683800000-luhmxy8x4": {
+      "classification": "bad_trade",
+      "notes": "",
+      "updatedAt": 1772745500268
+    },
+    "MNST-1757943000000-g2ri0vw52": {
+      "classification": "good_trade",
+      "notes": "",
+      "updatedAt": 1772745505249
+    },
+    "PANW-1757945400000-mdx1hiuz6": {
+      "classification": "good_trade",
+      "notes": "",
+      "updatedAt": 1772745514557
+    },
+    "ULTA-1758116100000-ba039tonl": {
+      "classification": "good_trade",
+      "notes": "",
+      "updatedAt": 1772745519119
+    },
+    "GE-1758202200000-ip11luqsl": {
+      "classification": "good_trade",
+      "notes": "",
+      "updatedAt": 1772745525723
+    },
+    "TSLA-1758720900000-8f1m9xgu1": {
+      "classification": "bad_exit",
+      "notes": "",
+      "updatedAt": 1772745530599
+    },
+    "CAT-1758893400000-6f6jejb1h": {
+      "classification": "bad_exit",
+      "notes": "We keep exiting early with CAT.",
+      "updatedAt": 1772745543003
+    },
+    "PWR-1759152600000-n7czhzmxb": {
+      "classification": "bad_exit",
+      "notes": "We keep trimming well and then letting our gains go down with PWR.",
+      "updatedAt": 1772745570277
+    },
+    "KO-1759153200000-4z995qoco": {
+      "classification": "bad_trade",
+      "notes": "",
+      "updatedAt": 1772745579851
+    },
+    "CSX-1759153200000-ydxp0owox": {
+      "classification": "bad_exit",
+      "notes": "",
+      "updatedAt": 1772745587121
+    },
+    "ANET-1760103300000-qmsgi8q7q": {
+      "classification": "bad_trade",
+      "notes": "Chasing",
+      "updatedAt": 1772745599254
+    },
+    "ULTA-1760103600000-nvj40gfi3": {
+      "classification": "bad_trade",
+      "notes": "",
+      "updatedAt": 1772745604135
+    },
+    "MNST-1760104800000-i8i8zzpiw": {
+      "classification": "bad_trade",
+      "notes": "",
+      "updatedAt": 1772745610112
+    },
+    "DPZ-1760122800000-hxdv1p0mk": {
+      "classification": "bad_trade",
+      "notes": "",
+      "updatedAt": 1772745617285
+    },
+    "H-1760455800000-sv1znybez": {
+      "classification": "bad_exit",
+      "notes": "",
+      "updatedAt": 1772745623556
+    },
+    "TSLA-1760625000000-4e3xaa1ak": {
+      "classification": "bad_exit",
+      "notes": "",
+      "updatedAt": 1772745627752
+    },
+    "H-1760968800000-9es8p92p2": {
+      "classification": "bad_exit",
+      "notes": "",
+      "updatedAt": 1772745631760
+    },
+    "MSTR-1761226200000-zgdgn0ry2": {
+      "classification": "bad_trade",
+      "notes": "",
+      "updatedAt": 1772745643408
+    },
+    "HII-1761232200000-ogup6ogcc": {
+      "classification": "good_trade",
+      "notes": "",
+      "updatedAt": 1772745647330
+    },
+    "SHOP-1761242400000-0uyzpazzb": {
+      "classification": "bad_exit",
+      "notes": "",
+      "updatedAt": 1772745652222
+    },
+    "PLTR-1761677400000-vvcgyck8t": {
+      "classification": "bad_exit",
+      "notes": "",
+      "updatedAt": 1772745657063
+    },
+    "TSLA-1761658500000-0k6fysxrz": {
+      "classification": "bad_exit",
+      "notes": "",
+      "updatedAt": 1772745661586
+    },
+    "MLI-1761744600000-6acv5jh3m": {
+      "classification": "good_trade",
+      "notes": "",
+      "updatedAt": 1772745665718
+    },
+    "APP-1761918000000-nrn324snm": {
+      "classification": "bad_trade",
+      "notes": "LTF RSI is at extremes.",
+      "updatedAt": 1772745683340
+    },
+    "CAT-1761939000000-zmrou2ov5": {
+      "classification": "early_entry",
+      "notes": "",
+      "updatedAt": 1772745695044
+    },
+    "AMZN-1762272000000-tqghedha3": {
+      "classification": "early_entry",
+      "notes": "",
+      "updatedAt": 1772745705153
+    },
+    "PH-1762360800000-vuyvt0pkd": {
+      "classification": "good_trade",
+      "notes": "",
+      "updatedAt": 1772745709972
+    },
+    "SANM-1762459800000-vzk9yuph1": {
+      "classification": "bad_trade",
+      "notes": "",
+      "updatedAt": 1772745716807
+    },
+    "PH-1762459800000-0jziroqvd": {
+      "classification": "bad_exit",
+      "notes": "",
+      "updatedAt": 1772745721346
+    },
+    "MSTR-1762459800000-c4idde02q": {
+      "classification": "good_trade",
+      "notes": "",
+      "updatedAt": 1772745737269
+    },
+    "META-1762459800000-0idzsitzk": {
+      "classification": "good_trade",
+      "notes": "",
+      "updatedAt": 1772745743979
+    },
+    "KO-1762459800000-jo3r3o62a": {
+      "classification": "good_trade",
+      "notes": "",
+      "updatedAt": 1772745748683
+    },
+    "DE-1762459800000-aj2eoq80e": {
+      "classification": "early_entry",
+      "notes": "",
+      "updatedAt": 1772745754490
+    },
+    "MNST-1762527900000-dw783uul4": {
+      "classification": "bad_trade",
+      "notes": "",
+      "updatedAt": 1772745759894
+    },
+    "WMT-1764954600000-i0s44tv9a": {
+      "classification": "bad_trade",
+      "notes": "LTF RSI is at extremes.",
+      "updatedAt": 1772745778403
+    },
+    "AVGO-1764954000000-3f7dmsyfx": {
+      "classification": "bad_exit",
+      "notes": "",
+      "updatedAt": 1772745810628
+    },
+    "CAT-1764946800000-g92y2929k": {
+      "classification": "bad_exit",
+      "notes": "",
+      "updatedAt": 1772745815352
+    },
+    "TSLA-1764946800000-khl670rvo": {
+      "classification": "early_entry",
+      "notes": "4h RSI is at extreme high. so is Daily",
+      "updatedAt": 1772745841895
+    },
+    "ULTA-1764946800000-unjrgxvuu": {
+      "classification": "early_entry",
+      "notes": "RSI all at extremes.",
+      "updatedAt": 1772745858627
+    },
+    "ETN-1764772200000-2097rsays": {
+      "classification": "bad_trade",
+      "notes": "",
+      "updatedAt": 1772745866485
+    },
+    "CAT-1764609900000-tgkcqbssj": {
+      "classification": "bad_exit",
+      "notes": "",
+      "updatedAt": 1772745874176
+    },
+    "ULTA-1764601800000-w92099irt": {
+      "classification": "early_entry",
+      "notes": "",
+      "updatedAt": 1772745885559
+    },
+    "WMT-1764097800000-2poyhaq96": {
+      "classification": "good_trade",
+      "notes": "",
+      "updatedAt": 1772745892696
+    },
+    "PH-1764096600000-6jlf9xtvb": {
+      "classification": "good_trade",
+      "notes": "",
+      "updatedAt": 1772745903276
+    },
+    "H-1762785300000-35sfekpta": {
+      "classification": "bad_exit",
+      "notes": "",
+      "updatedAt": 1772745909220
+    },
+    "MNST-1762785600000-1jye8h8md": {
+      "classification": "good_trade",
+      "notes": "",
+      "updatedAt": 1772745913870
+    },
+    "AAPL-1762786800000-y1uav6yyn": {
+      "classification": "bad_exit",
+      "notes": "",
+      "updatedAt": 1772745920511
+    },
+    "AMZN-1762798800000-hzqrar3fh": {
+      "classification": "bad_trade",
+      "notes": "",
+      "updatedAt": 1772745938638
+    },
+    "CARR-1763130900000-wy8yvrg80": {
+      "classification": "bad_exit",
+      "notes": "",
+      "updatedAt": 1772745935498
+    },
+    "CRS-1763131500000-ggu00atm5": {
+      "classification": "bad_exit",
+      "notes": "",
+      "updatedAt": 1772745944165
+    },
+    "DY-1763148900000-mhm1fbonj": {
+      "classification": "good_trade",
+      "notes": "",
+      "updatedAt": 1772745948283
+    },
+    "DY-1763651400000-6bnh0jmfo": {
+      "classification": "bad_trade",
+      "notes": "all RSI are at extremes.",
+      "updatedAt": 1772745961910
+    },
+    "MSFT-1763653800000-2twuvmwwn": {
+      "classification": "good_trade",
+      "notes": "",
+      "updatedAt": 1772745969877
+    },
+    "ARRY-1763654400000-rdnjkwk70": {
+      "classification": "good_trade",
+      "notes": "",
+      "updatedAt": 1772745975319
+    },
+    "TJX-1763752800000-ulpgh1n2y": {
+      "classification": "bad_exit",
+      "notes": "",
+      "updatedAt": 1772745980815
+    },
+    "KO-1763752800000-o42ec8kt0": {
+      "classification": "bad_trade",
+      "notes": "",
+      "updatedAt": 1772745992952
+    },
+    "H-1763752800000-phzntqhbr": {
+      "classification": "bad_exit",
+      "notes": "",
+      "updatedAt": 1772745997037
+    },
+    "DE-1763752800000-uhrdwnmmf": {
+      "classification": "bad_exit",
+      "notes": "",
+      "updatedAt": 1772746001374
+    },
+    "MSFT-1763756400000-wzcwlxgba": {
+      "classification": "bad_exit",
+      "notes": "",
+      "updatedAt": 1772746005425
+    },
+    "DPZ-1763758200000-mxacfs62o": {
+      "classification": "bad_exit",
+      "notes": "",
+      "updatedAt": 1772746012982
+    },
+    "ETN-1763994900000-fw951829w": {
+      "classification": "bad_exit",
+      "notes": "",
+      "updatedAt": 1772746017534
+    }
+  }
+}

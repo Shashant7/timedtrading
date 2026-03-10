@@ -1,0 +1,70 @@
+{
+  "ok": true,
+  "count": 4,
+  "trades": [
+    {
+      "trade_id": "ULTA-1751983500000-441c32htl",
+      "run_id": "backtest_2025-07-01_2025-07-31@2026-03-06T13:57:58.935Z",
+      "ticker": "ULTA",
+      "direction": "LONG",
+      "entry_ts": 1751983500000,
+      "exit_ts": 1751997900000,
+      "entry_price": 485.61499,
+      "exit_price": 478.82001,
+      "pnl": -111.94020184591011,
+      "pnl_pct": -1.3992525230738764,
+      "exit_reason": "below_trigger,trigger_breached_5pct,daily_ema_regime_break,overextended,large_adverse_move",
+      "signal_snapshot_json": "{\"avg_bias\":0.917,\"tf\":{\"10m\":{\"bias\":0.916,\"signals\":{\"ema_cross\":1,\"supertrend\":1,\"ema_structure\":1,\"ema_depth\":10,\"rsi\":63.2}},\"30m\":{\"bias\":0.933,\"signals\":{\"ema_cross\":1,\"supertrend\":1,\"ema_structure\":1,\"ema_depth\":10,\"rsi\":66.5}},\"1H\":{\"bias\":0.867,\"signals\":{\"ema_cross\":1,\"supertrend\":1,\"ema_structure\":1,\"ema_depth\":9,\"rsi\":61.3}},\"4H\":{\"bias\":0.865,\"signals\":{\"ema_cross\":1,\"st_slope\":1,\"supertrend\":1,\"ema_structure\":1,\"ema_depth\":9,\"rsi\":58.9}},\"D\":{\"bias\":0.975,\"signals\":{\"ema5_48\":1,\"ema_cross\":1,\"supertrend\":1,\"ema_structure\":1,\"ema_depth\":10,\"rsi\":73.9}}}}",
+      "entry_path": "ripster_momentum",
+      "consensus_direction": "LONG"
+    },
+    {
+      "trade_id": "KTOS-1751895000000-6lql9azi9",
+      "run_id": "backtest_2025-07-01_2025-07-31@2026-03-06T13:57:58.935Z",
+      "ticker": "KTOS",
+      "direction": "LONG",
+      "entry_ts": 1751895000000,
+      "exit_ts": 1751916000000,
+      "entry_price": 45.315,
+      "exit_price": 44.17,
+      "pnl": -151.60542866600412,
+      "pnl_pct": -2.526757144433402,
+      "exit_reason": "max_loss",
+      "signal_snapshot_json": "{\"avg_bias\":0.856,\"tf\":{\"10m\":{\"bias\":0.88,\"signals\":{\"ema_cross\":1,\"supertrend\":1,\"ema_structure\":1,\"ema_depth\":10,\"rsi\":56.1}},\"30m\":{\"bias\":0.724,\"signals\":{\"ema_cross\":1,\"supertrend\":1,\"ema_structure\":1,\"ema_depth\":6,\"rsi\":56.8}},\"1H\":{\"bias\":0.837,\"signals\":{\"ema_cross\":1,\"supertrend\":1,\"ema_structure\":1,\"ema_depth\":8,\"rsi\":63.4}},\"4H\":{\"bias\":0.894,\"signals\":{\"ema_cross\":1,\"supertrend\":1,\"ema_structure\":1,\"ema_depth\":10,\"rsi\":58.8}},\"D\":{\"bias\":0.914,\"signals\":{\"ema5_48\":1,\"ema_cross\":1,\"supertrend\":1,\"ema_structure\":1,\"ema_depth\":10,\"rsi\":59.3}}}}",
+      "entry_path": "ripster_pullback",
+      "consensus_direction": "LONG"
+    },
+    {
+      "trade_id": "COST-1751463600000-tfc0mtq9u",
+      "run_id": "backtest_2025-07-01_2025-07-31@2026-03-06T13:57:58.935Z",
+      "ticker": "COST",
+      "direction": "SHORT",
+      "entry_ts": 1751463600000,
+      "exit_ts": 1751478600000,
+      "entry_price": 981.11499,
+      "exit_price": 982.34998,
+      "pnl": -10.070093822538988,
+      "pnl_pct": -0.12587617278173735,
+      "exit_reason": "ripster_short_pivot_reclaimed",
+      "signal_snapshot_json": "{\"avg_bias\":-0.863,\"tf\":{\"10m\":{\"bias\":-0.914,\"signals\":{\"ema_cross\":-1,\"supertrend\":-1,\"ema_structure\":-1,\"ema_depth\":0,\"rsi\":37.2}},\"30m\":{\"bias\":-0.872,\"signals\":{\"ema_cross\":-1,\"supertrend\":-1,\"ema_structure\":-1,\"ema_depth\":0,\"rsi\":45.6}},\"1H\":{\"bias\":-0.88,\"signals\":{\"ema_cross\":-1,\"supertrend\":-1,\"ema_structure\":-1,\"ema_depth\":0,\"rsi\":44}},\"4H\":{\"bias\":-0.896,\"signals\":{\"ema_cross\":-1,\"supertrend\":-1,\"ema_structure\":-1,\"ema_depth\":0,\"rsi\":40.7}},\"D\":{\"bias\":-0.788,\"signals\":{\"ema5_48\":-1,\"ema_cross\":-1,\"supertrend\":-1,\"ema_structure\":-0.54,\"ema_depth\":1,\"rsi\":39.8}}}}",
+      "entry_path": "ripster_momentum",
+      "consensus_direction": null
+    },
+    {
+      "trade_id": "AMZN-1751377200000-fu94oo7py",
+      "run_id": null,
+      "ticker": "AMZN",
+      "direction": "LONG",
+      "entry_ts": 1751377200000,
+      "exit_ts": 1772807445169,
+      "entry_price": 219.82561,
+      "exit_price": 218.94,
+      "pnl": -32.229547776531184,
+      "pnl_pct": -0.4028693472066398,
+      "exit_reason": "ema_regime_reversed",
+      "signal_snapshot_json": "{\"avg_bias\":0.495,\"tf\":{\"10m\":{\"bias\":0.591,\"signals\":{\"ema_cross\":-1,\"supertrend\":1,\"ema_structure\":1,\"ema_depth\":10,\"rsi\":58.2}},\"30m\":{\"bias\":-0.189,\"signals\":{\"ema_cross\":-1,\"supertrend\":-1,\"ema_structure\":0.4,\"ema_depth\":8,\"rsi\":48.2}},\"1H\":{\"bias\":0.158,\"signals\":{\"ema_cross\":1,\"supertrend\":-1,\"ema_structure\":0.76,\"ema_depth\":7,\"rsi\":47.6}},\"4H\":{\"bias\":0.762,\"signals\":{\"ema_cross\":1,\"supertrend\":1,\"ema_structure\":1,\"ema_depth\":7,\"rsi\":56.4}},\"D\":{\"bias\":0.934,\"signals\":{\"ema5_48\":1,\"ema_cross\":1,\"supertrend\":1,\"ema_structure\":1,\"ema_depth\":10,\"rsi\":64.2}}}}",
+      "entry_path": "ripster_momentum",
+      "consensus_direction": "LONG"
+    }
+  ]
+}

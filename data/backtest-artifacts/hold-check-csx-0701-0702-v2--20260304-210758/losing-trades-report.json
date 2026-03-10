@@ -1,0 +1,54 @@
+{
+  "ok": true,
+  "count": 3,
+  "trades": [
+    {
+      "trade_id": "ULTA-1751466600000-8164f2gju",
+      "run_id": "backtest_2025-07-01_2025-07-02@2026-03-05T01:58:11.605Z",
+      "ticker": "ULTA",
+      "direction": "LONG",
+      "entry_ts": 1751466600000,
+      "exit_ts": 1751486400000,
+      "entry_price": 475.595,
+      "exit_price": 474.84,
+      "pnl": -9.524910901082462,
+      "pnl_pct": -0.15874851501804105,
+      "exit_reason": "replay_forced_eod_close",
+      "signal_snapshot_json": "{\"avg_bias\":0.899,\"tf\":{\"10m\":{\"bias\":0.915,\"signals\":{\"ema_cross\":1,\"supertrend\":1,\"ema_structure\":1,\"ema_depth\":10,\"rsi\":63.1}},\"30m\":{\"bias\":0.861,\"signals\":{\"ema_cross\":1,\"supertrend\":1,\"ema_structure\":1,\"ema_depth\":9,\"rsi\":60.3}},\"1H\":{\"bias\":0.873,\"signals\":{\"ema_cross\":1,\"supertrend\":1,\"ema_structure\":1,\"ema_depth\":9,\"rsi\":62.7}},\"4H\":{\"bias\":0.867,\"signals\":{\"ema_cross\":1,\"st_slope\":1,\"supertrend\":1,\"ema_structure\":1,\"ema_depth\":9,\"rsi\":59.3}},\"D\":{\"bias\":0.953,\"signals\":{\"ema5_48\":1,\"ema_cross\":1,\"st_slope\":1,\"supertrend\":1,\"ema_structure\":1,\"ema_depth\":10,\"rsi\":67.4}}}}",
+      "entry_path": "ripster_momentum",
+      "consensus_direction": "LONG"
+    },
+    {
+      "trade_id": "COST-1751463600000-1crc3xj8g",
+      "run_id": "backtest_2025-07-01_2025-07-02@2026-03-05T01:58:11.605Z",
+      "ticker": "COST",
+      "direction": "SHORT",
+      "entry_ts": 1751463600000,
+      "exit_ts": 1751478600000,
+      "entry_price": 981.11499,
+      "exit_price": 982.34998,
+      "pnl": -10.070093822538988,
+      "pnl_pct": -0.12587617278173735,
+      "exit_reason": "ripster_short_pivot_reclaimed",
+      "signal_snapshot_json": "{\"avg_bias\":-0.863,\"tf\":{\"10m\":{\"bias\":-0.914,\"signals\":{\"ema_cross\":-1,\"supertrend\":-1,\"ema_structure\":-1,\"ema_depth\":0,\"rsi\":37.2}},\"30m\":{\"bias\":-0.872,\"signals\":{\"ema_cross\":-1,\"supertrend\":-1,\"ema_structure\":-1,\"ema_depth\":0,\"rsi\":45.6}},\"1H\":{\"bias\":-0.88,\"signals\":{\"ema_cross\":-1,\"supertrend\":-1,\"ema_structure\":-1,\"ema_depth\":0,\"rsi\":44}},\"4H\":{\"bias\":-0.896,\"signals\":{\"ema_cross\":-1,\"supertrend\":-1,\"ema_structure\":-1,\"ema_depth\":0,\"rsi\":40.7}},\"D\":{\"bias\":-0.788,\"signals\":{\"ema5_48\":-1,\"ema_cross\":-1,\"supertrend\":-1,\"ema_structure\":-0.54,\"ema_depth\":1,\"rsi\":39.8}}}}",
+      "entry_path": "ripster_momentum",
+      "consensus_direction": null
+    },
+    {
+      "trade_id": "WMT-1751377200000-p724u8cl8",
+      "run_id": "backtest_2025-07-01_2025-07-02@2026-03-05T01:58:11.605Z",
+      "ticker": "WMT",
+      "direction": "LONG",
+      "entry_ts": 1751377200000,
+      "exit_ts": 1751486400000,
+      "entry_price": 98.54,
+      "exit_price": 97.61,
+      "pnl": -56.62675055814939,
+      "pnl_pct": -0.9437791759691564,
+      "exit_reason": "replay_forced_eod_close",
+      "signal_snapshot_json": "{\"avg_bias\":0.827,\"tf\":{\"10m\":{\"bias\":0.949,\"signals\":{\"ema_cross\":1,\"st_slope\":1,\"supertrend\":1,\"ema_structure\":1,\"ema_depth\":10,\"rsi\":68.9}},\"30m\":{\"bias\":0.964,\"signals\":{\"ema_cross\":1,\"st_slope\":1,\"supertrend\":1,\"ema_structure\":1,\"ema_depth\":10,\"rsi\":72.2}},\"1H\":{\"bias\":0.956,\"signals\":{\"ema_cross\":1,\"st_slope\":1,\"supertrend\":1,\"ema_structure\":1,\"ema_depth\":10,\"rsi\":70.5}},\"4H\":{\"bias\":0.91,\"signals\":{\"ema_cross\":1,\"supertrend\":1,\"ema_structure\":1,\"ema_depth\":10,\"rsi\":62}},\"D\":{\"bias\":0.513,\"signals\":{\"ema5_48\":1,\"ema_cross\":1,\"supertrend\":-1,\"ema_structure\":1,\"ema_depth\":10,\"rsi\":63.2}}}}",
+      "entry_path": "ripster_momentum",
+      "consensus_direction": "LONG"
+    }
+  ]
+}

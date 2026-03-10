@@ -1,0 +1,38 @@
+{
+  "ok": true,
+  "count": 2,
+  "trades": [
+    {
+      "trade_id": "CAT-1751549400000-hq4w5jncy",
+      "run_id": "focused_wmt_guard_rerun_2025-07-01_2025-07-03@2026-03-05T04:12:33.682Z",
+      "ticker": "CAT",
+      "direction": "LONG",
+      "entry_ts": 1751549400000,
+      "exit_ts": 1751572800000,
+      "entry_price": 401.67,
+      "exit_price": 397.86,
+      "pnl": -50.84173575323029,
+      "pnl_pct": -0.6355216969153785,
+      "exit_reason": "replay_forced_eod_close",
+      "signal_snapshot_json": "{\"avg_bias\":0.973,\"tf\":{\"10m\":{\"bias\":0.939,\"signals\":{\"ema_cross\":1,\"supertrend\":1,\"ema_structure\":1,\"ema_depth\":10,\"rsi\":67.8}},\"30m\":{\"bias\":0.938,\"signals\":{\"ema_cross\":1,\"supertrend\":1,\"ema_structure\":1,\"ema_depth\":10,\"rsi\":67.7}},\"1H\":{\"bias\":0.976,\"signals\":{\"ema_cross\":1,\"supertrend\":1,\"ema_structure\":1,\"ema_depth\":10,\"rsi\":75.3}},\"4H\":{\"bias\":1,\"signals\":{\"ema_cross\":1,\"st_slope\":1,\"supertrend\":1,\"ema_structure\":1,\"ema_depth\":10,\"rsi\":83.9}},\"D\":{\"bias\":1,\"signals\":{\"ema5_48\":1,\"ema_cross\":1,\"st_slope\":1,\"supertrend\":1,\"ema_structure\":1,\"ema_depth\":10,\"rsi\":87.7}}}}",
+      "entry_path": "ripster_momentum",
+      "consensus_direction": "LONG"
+    },
+    {
+      "trade_id": "CSX-1751549400000-tgt99h1sq",
+      "run_id": "focused_wmt_guard_rerun_2025-07-01_2025-07-03@2026-03-05T04:12:33.682Z",
+      "ticker": "CSX",
+      "direction": "LONG",
+      "entry_ts": 1751549400000,
+      "exit_ts": 1751563800000,
+      "entry_price": 33.69,
+      "exit_price": 33.6,
+      "pnl": -16.028495102403618,
+      "pnl_pct": -0.2671415850400603,
+      "exit_reason": "below_trigger,trigger_breached_5pct,adverse_move_warning",
+      "signal_snapshot_json": "{\"avg_bias\":0.936,\"tf\":{\"10m\":{\"bias\":0.907,\"signals\":{\"ema_cross\":1,\"supertrend\":1,\"ema_structure\":1,\"ema_depth\":10,\"rsi\":61.3}},\"30m\":{\"bias\":0.906,\"signals\":{\"ema_cross\":1,\"supertrend\":1,\"ema_structure\":1,\"ema_depth\":10,\"rsi\":61.1}},\"1H\":{\"bias\":0.917,\"signals\":{\"ema_cross\":1,\"supertrend\":1,\"ema_structure\":1,\"ema_depth\":10,\"rsi\":63.4}},\"4H\":{\"bias\":0.946,\"signals\":{\"ema_cross\":1,\"st_slope\":1,\"supertrend\":1,\"ema_structure\":1,\"ema_depth\":10,\"rsi\":68.3}},\"D\":{\"bias\":0.982,\"signals\":{\"ema5_48\":1,\"ema_cross\":1,\"st_slope\":1,\"supertrend\":1,\"ema_structure\":1,\"ema_depth\":10,\"rsi\":75.3}}}}",
+      "entry_path": "ripster_momentum",
+      "consensus_direction": "LONG"
+    }
+  ]
+}

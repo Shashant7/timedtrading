@@ -1,0 +1,183 @@
+{
+  "ok": true,
+  "since": null,
+  "until": null,
+  "totals": {
+    "totalTrades": 74,
+    "openTrades": 11,
+    "closedTrades": 63,
+    "wins": 35,
+    "losses": 28,
+    "winRate": 55.55555555555556,
+    "closedPnl": 6042.166208623277,
+    "profitFactor": 5.133469810914562,
+    "avgWin": 214.3980670918832,
+    "avgLoss": 52.20593355687981,
+    "expectancy": 95.90740013687741,
+    "grossWin": 7503.9323482159125,
+    "grossLoss": 1461.7661395926348
+  },
+  "breakdown": {
+    "byRank": [
+      {
+        "bucket": "60-69",
+        "n": 9,
+        "wins": 2,
+        "losses": 3,
+        "pnl": -8.936259703248016
+      },
+      {
+        "bucket": "70-79",
+        "n": 22,
+        "wins": 9,
+        "losses": 12,
+        "pnl": 367.3665873435775
+      },
+      {
+        "bucket": "80+",
+        "n": 31,
+        "wins": 17,
+        "losses": 13,
+        "pnl": 209.13065796534406
+      },
+      {
+        "bucket": "<60",
+        "n": 2,
+        "wins": 2,
+        "losses": 0,
+        "pnl": 87.52103349734324
+      },
+      {
+        "bucket": "unknown",
+        "n": 10,
+        "wins": 5,
+        "losses": 0,
+        "pnl": 5387.08418952026
+      }
+    ],
+    "byRR": [
+      {
+        "bucket": "1.5-1.99",
+        "n": 5,
+        "wins": 3,
+        "losses": 2,
+        "pnl": 103.793159540232
+      },
+      {
+        "bucket": "2.0+",
+        "n": 59,
+        "wins": 27,
+        "losses": 26,
+        "pnl": 551.2888595627849
+      },
+      {
+        "bucket": "unknown",
+        "n": 10,
+        "wins": 5,
+        "losses": 0,
+        "pnl": 5387.08418952026
+      }
+    ],
+    "byExitReason": [
+      {
+        "reason": "ripster_5_12_lost",
+        "n": 33,
+        "wins": 11,
+        "losses": 22,
+        "pnl": 106.68140183297662
+      },
+      {
+        "reason": "unknown",
+        "n": 10,
+        "wins": 0,
+        "losses": 0,
+        "pnl": 0
+      },
+      {
+        "reason": "SOFT_FUSE_RSI_CONFIRMED",
+        "n": 9,
+        "wins": 7,
+        "losses": 1,
+        "pnl": 571.2051391633561
+      },
+      {
+        "reason": "dedup_reconcile",
+        "n": 5,
+        "wins": 5,
+        "losses": 0,
+        "pnl": 5387.08418952026
+      },
+      {
+        "reason": "below_trigger,trigger_breached_5pct,overextended,large_adverse_move",
+        "n": 3,
+        "wins": 1,
+        "losses": 2,
+        "pnl": -20.788137153502944
+      },
+      {
+        "reason": "below_trigger,trigger_breached_5pct,large_adverse_move",
+        "n": 3,
+        "wins": 2,
+        "losses": 1,
+        "pnl": 125.71722484927986
+      },
+      {
+        "reason": "below_trigger,trigger_breached_5pct,overextended,left_entry_corridor,large_adverse_move",
+        "n": 2,
+        "wins": 1,
+        "losses": 1,
+        "pnl": 38.42229831367322
+      },
+      {
+        "reason": "below_trigger,trigger_breached_5pct,late_cycle,overextended,left_entry_corridor,large_adverse_move",
+        "n": 2,
+        "wins": 2,
+        "losses": 0,
+        "pnl": 164.07810404597154
+      },
+      {
+        "reason": "below_trigger,trigger_breached_5pct,daily_ema_regime_break,overextended,large_adverse_move",
+        "n": 2,
+        "wins": 2,
+        "losses": 0,
+        "pnl": 25.293654754445313
+      },
+      {
+        "reason": "ripster_34_50_lost_mtf",
+        "n": 1,
+        "wins": 0,
+        "losses": 1,
+        "pnl": -536.1412364340993
+      },
+      {
+        "reason": "below_trigger,trigger_breached_5pct,late_cycle,overextended,large_adverse_move",
+        "n": 1,
+        "wins": 1,
+        "losses": 0,
+        "pnl": 40.297879135395966
+      },
+      {
+        "reason": "below_trigger,trigger_breached_5pct,daily_ema_regime_break,overextended,left_entry_corridor,large_adverse_move",
+        "n": 1,
+        "wins": 1,
+        "losses": 0,
+        "pnl": 77.4779881721014
+      },
+      {
+        "reason": "below_trigger,trigger_breached_5pct,daily_ema_regime_break,adverse_move_warning",
+        "n": 1,
+        "wins": 1,
+        "losses": 0,
+        "pnl": 32.680509674374484
+      },
+      {
+        "reason": "HARD_FUSE_RSI_EXTREME",
+        "n": 1,
+        "wins": 1,
+        "losses": 0,
+        "pnl": 30.15719274904452
+      }
+    ],
+    "byTriggerReason": []
+  }
+}

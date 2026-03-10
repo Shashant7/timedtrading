@@ -1,0 +1,73 @@
+{
+  "ok": true,
+  "count": 2,
+  "totalCount": 2,
+  "version": "all",
+  "versions": [
+    "alpaca_server_v2.0"
+  ],
+  "trades": [
+    {
+      "id": "AMGN-1772808060683-tvyamlhxr",
+      "trade_id": "AMGN-1772808060683-tvyamlhxr",
+      "run_id": "live@2026-03-06",
+      "runId": "live@2026-03-06",
+      "ticker": "AMGN",
+      "direction": "LONG",
+      "entryPrice": 363.24,
+      "entry_price": 363.24,
+      "entry_ts": 1772808062595,
+      "entryTime": "2026-03-06T14:41:02.595Z",
+      "rank": 74,
+      "rr": 24.74860335195503,
+      "status": "FLAT",
+      "exit_ts": 1772808063844,
+      "exitReason": "unknown",
+      "trimmedPct": 0,
+      "scriptVersion": "alpaca_server_v2.0",
+      "script_version": "alpaca_server_v2.0",
+      "created_at": 1772808062595,
+      "updated_at": "2026-03-06 14:41:03",
+      "shares": 22.024006166721726,
+      "history": [
+        {
+          "type": "ENTRY",
+          "ts": 1772808062595,
+          "timestamp": "2026-03-06T14:41:02.595Z",
+          "price": 363.24,
+          "trimPct": null,
+          "trimDeltaPct": null,
+          "reason": "KANBAN_ENTER",
+          "shares": 22.024006166721726,
+          "value": 8000,
+          "note": "Entry from ENTER_NOW at $363.24 (risk_based, risk=1.2%)"
+        }
+      ]
+    },
+    {
+      "id": "AMGN-1772808060683-tvyamlhxr",
+      "trade_id": "AMGN-1772808060683-tvyamlhxr",
+      "ticker": "AMGN",
+      "direction": "LONG",
+      "entryPrice": 367.6,
+      "avgEntry": 363.24,
+      "entry_ts": 1772808062595,
+      "entryTime": "2026-03-06T14:41:02.595Z",
+      "status": "OPEN",
+      "stop_loss": 361.45,
+      "take_profit": 389.75,
+      "trimmedPct": null,
+      "pnl": null,
+      "pnlPct": null,
+      "exitReason": null,
+      "scriptVersion": "alpaca_server_v2.0",
+      "script_version": "alpaca_server_v2.0",
+      "shares": 22.024006166721726,
+      "created_at": 1772808062595,
+      "updated_at": 1772808062595,
+      "history": [],
+      "entry_price": 367.6
+    }
+  ],
+  "source": "d1"
+}

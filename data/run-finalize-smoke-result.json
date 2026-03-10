@@ -1,0 +1,34 @@
+{
+  "ok": true,
+  "run_id": "test-run-registry-1772808049",
+  "status": "running",
+  "summary": {
+    "run_id": "test-run-registry-1772808049",
+    "period": {
+      "start_date": "2025-07-01",
+      "end_date": "2025-07-31"
+    },
+    "tickers": {
+      "universe": 153,
+      "traded": 0
+    },
+    "trades": {
+      "total": 0,
+      "wins": 0,
+      "losses": 0,
+      "breakevens": 0,
+      "open": 0,
+      "closed": 0,
+      "win_rate": 0
+    },
+    "pnl": {
+      "realized_pnl": 0,
+      "realized_pnl_pct": 0,
+      "avg_win_pct": 0,
+      "avg_loss_pct": 0
+    },
+    "classifications": {},
+    "autopsy_url": "trade-autopsy.html?run_id=test-run-registry-1772808049",
+    "finalized_at": 1772808049703
+  }
+}

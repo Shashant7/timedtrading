@@ -1,0 +1,707 @@
+{
+  "generated": "2026-03-02T16:52:03.108Z",
+  "report": "move-discovery-2026-03-02T16-0.json",
+  "totalMissedNoData": 627,
+  "tickersNeedingBackfill": [
+    "J",
+    "OKE",
+    "LRN",
+    "ARRY",
+    "ELF",
+    "FLR",
+    "ISRG",
+    "LSCC",
+    "FN",
+    "SATS",
+    "AR",
+    "EXEL",
+    "CW",
+    "H",
+    "ALB",
+    "ANET",
+    "DTM",
+    "ON",
+    "MNST",
+    "SHOP",
+    "VMI",
+    "AVGO",
+    "PSTG",
+    "IESC",
+    "VST",
+    "WTS"
+  ],
+  "tickersWithPartialData": [
+    "SMCI",
+    "ENS",
+    "AVAV",
+    "NOC",
+    "PPG",
+    "PATH",
+    "IBP",
+    "MSFT",
+    "FIX",
+    "NVDA"
+  ],
+  "backfillDateRange": {
+    "from": "2025-07-01",
+    "to": "2026-02-27"
+  },
+  "details": [
+    {
+      "ticker": "AAPL",
+      "moveCount": 4,
+      "dateRange": "2025-07-25 → 2025-10-30",
+      "trailRows": 747,
+      "needsBackfill": false,
+      "partialData": false
+    },
+    {
+      "ticker": "ALB",
+      "moveCount": 6,
+      "dateRange": "2025-07-01 → 2025-09-11",
+      "trailRows": 0,
+      "needsBackfill": true,
+      "partialData": false
+    },
+    {
+      "ticker": "AMD",
+      "moveCount": 7,
+      "dateRange": "2025-07-07 → 2025-10-29",
+      "trailRows": 734,
+      "needsBackfill": false,
+      "partialData": false
+    },
+    {
+      "ticker": "AMGN",
+      "moveCount": 6,
+      "dateRange": "2025-07-23 → 2025-10-20",
+      "trailRows": 490,
+      "needsBackfill": false,
+      "partialData": false
+    },
+    {
+      "ticker": "AMZN",
+      "moveCount": 11,
+      "dateRange": "2025-07-02 → 2025-11-04",
+      "trailRows": 875,
+      "needsBackfill": false,
+      "partialData": false
+    },
+    {
+      "ticker": "ANET",
+      "moveCount": 5,
+      "dateRange": "2025-07-07 → 2025-09-17",
+      "trailRows": 0,
+      "needsBackfill": true,
+      "partialData": false
+    },
+    {
+      "ticker": "APP",
+      "moveCount": 9,
+      "dateRange": "2025-07-07 → 2025-10-21",
+      "trailRows": 555,
+      "needsBackfill": false,
+      "partialData": false
+    },
+    {
+      "ticker": "AR",
+      "moveCount": 9,
+      "dateRange": "2025-08-18 → 2026-01-30",
+      "trailRows": 0,
+      "needsBackfill": true,
+      "partialData": false
+    },
+    {
+      "ticker": "ARRY",
+      "moveCount": 16,
+      "dateRange": "2025-07-02 → 2026-02-26",
+      "trailRows": 0,
+      "needsBackfill": true,
+      "partialData": false
+    },
+    {
+      "ticker": "AU",
+      "moveCount": 5,
+      "dateRange": "2025-07-31 → 2025-10-16",
+      "trailRows": 420,
+      "needsBackfill": false,
+      "partialData": false
+    },
+    {
+      "ticker": "AVAV",
+      "moveCount": 8,
+      "dateRange": "2025-07-10 → 2025-10-13",
+      "trailRows": 324,
+      "needsBackfill": false,
+      "partialData": true
+    },
+    {
+      "ticker": "AVGO",
+      "moveCount": 3,
+      "dateRange": "2025-07-02 → 2025-09-11",
+      "trailRows": 0,
+      "needsBackfill": true,
+      "partialData": false
+    },
+    {
+      "ticker": "AWI",
+      "moveCount": 3,
+      "dateRange": "2025-07-28 → 2026-02-25",
+      "trailRows": 3447,
+      "needsBackfill": false,
+      "partialData": false
+    },
+    {
+      "ticker": "AXON",
+      "moveCount": 9,
+      "dateRange": "2025-07-09 → 2026-02-26",
+      "trailRows": 3545,
+      "needsBackfill": false,
+      "partialData": false
+    },
+    {
+      "ticker": "BABA",
+      "moveCount": 8,
+      "dateRange": "2025-07-01 → 2025-11-20",
+      "trailRows": 710,
+      "needsBackfill": false,
+      "partialData": false
+    },
+    {
+      "ticker": "BRK-B",
+      "moveCount": 8,
+      "dateRange": "2025-07-28 → 2026-01-28",
+      "trailRows": 610,
+      "needsBackfill": false,
+      "partialData": false
+    },
+    {
+      "ticker": "BWXT",
+      "moveCount": 8,
+      "dateRange": "2025-07-15 → 2025-11-25",
+      "trailRows": 827,
+      "needsBackfill": false,
+      "partialData": false
+    },
+    {
+      "ticker": "CCJ",
+      "moveCount": 6,
+      "dateRange": "2025-07-24 → 2025-10-28",
+      "trailRows": 691,
+      "needsBackfill": false,
+      "partialData": false
+    },
+    {
+      "ticker": "COIN",
+      "moveCount": 7,
+      "dateRange": "2025-07-03 → 2025-11-20",
+      "trailRows": 710,
+      "needsBackfill": false,
+      "partialData": false
+    },
+    {
+      "ticker": "COST",
+      "moveCount": 8,
+      "dateRange": "2025-07-07 → 2025-10-31",
+      "trailRows": 805,
+      "needsBackfill": false,
+      "partialData": false
+    },
+    {
+      "ticker": "CRS",
+      "moveCount": 7,
+      "dateRange": "2025-07-03 → 2025-11-17",
+      "trailRows": 593,
+      "needsBackfill": false,
+      "partialData": false
+    },
+    {
+      "ticker": "CVX",
+      "moveCount": 6,
+      "dateRange": "2025-07-03 → 2025-10-15",
+      "trailRows": 385,
+      "needsBackfill": false,
+      "partialData": false
+    },
+    {
+      "ticker": "CW",
+      "moveCount": 8,
+      "dateRange": "2025-09-22 → 2026-02-26",
+      "trailRows": 0,
+      "needsBackfill": true,
+      "partialData": false
+    },
+    {
+      "ticker": "DE",
+      "moveCount": 6,
+      "dateRange": "2025-07-24 → 2026-02-20",
+      "trailRows": 3460,
+      "needsBackfill": false,
+      "partialData": false
+    },
+    {
+      "ticker": "DTM",
+      "moveCount": 5,
+      "dateRange": "2025-07-15 → 2026-02-23",
+      "trailRows": 0,
+      "needsBackfill": true,
+      "partialData": false
+    },
+    {
+      "ticker": "ELF",
+      "moveCount": 15,
+      "dateRange": "2025-07-03 → 2026-02-26",
+      "trailRows": 0,
+      "needsBackfill": true,
+      "partialData": false
+    },
+    {
+      "ticker": "ENS",
+      "moveCount": 9,
+      "dateRange": "2025-07-08 → 2025-11-11",
+      "trailRows": 437,
+      "needsBackfill": false,
+      "partialData": true
+    },
+    {
+      "ticker": "ETHA",
+      "moveCount": 12,
+      "dateRange": "2025-07-01 → 2025-11-25",
+      "trailRows": 826,
+      "needsBackfill": false,
+      "partialData": false
+    },
+    {
+      "ticker": "EWBC",
+      "moveCount": 9,
+      "dateRange": "2025-07-10 → 2026-02-27",
+      "trailRows": 3413,
+      "needsBackfill": false,
+      "partialData": false
+    },
+    {
+      "ticker": "EXEL",
+      "moveCount": 9,
+      "dateRange": "2025-07-02 → 2026-01-05",
+      "trailRows": 0,
+      "needsBackfill": true,
+      "partialData": false
+    },
+    {
+      "ticker": "FIX",
+      "moveCount": 4,
+      "dateRange": "2025-07-07 → 2025-10-01",
+      "trailRows": 35,
+      "needsBackfill": false,
+      "partialData": true
+    },
+    {
+      "ticker": "FLR",
+      "moveCount": 15,
+      "dateRange": "2025-07-02 → 2026-02-02",
+      "trailRows": 0,
+      "needsBackfill": true,
+      "partialData": false
+    },
+    {
+      "ticker": "FN",
+      "moveCount": 12,
+      "dateRange": "2025-07-24 → 2026-02-25",
+      "trailRows": 0,
+      "needsBackfill": true,
+      "partialData": false
+    },
+    {
+      "ticker": "FSLR",
+      "moveCount": 6,
+      "dateRange": "2025-07-14 → 2026-02-27",
+      "trailRows": 3452,
+      "needsBackfill": false,
+      "partialData": false
+    },
+    {
+      "ticker": "GE",
+      "moveCount": 2,
+      "dateRange": "2025-07-07 → 2025-10-21",
+      "trailRows": 525,
+      "needsBackfill": false,
+      "partialData": false
+    },
+    {
+      "ticker": "GEV",
+      "moveCount": 6,
+      "dateRange": "2025-07-03 → 2025-11-06",
+      "trailRows": 311,
+      "needsBackfill": false,
+      "partialData": false
+    },
+    {
+      "ticker": "H",
+      "moveCount": 7,
+      "dateRange": "2025-07-03 → 2026-01-15",
+      "trailRows": 0,
+      "needsBackfill": true,
+      "partialData": false
+    },
+    {
+      "ticker": "HII",
+      "moveCount": 5,
+      "dateRange": "2025-07-08 → 2025-11-10",
+      "trailRows": 387,
+      "needsBackfill": false,
+      "partialData": false
+    },
+    {
+      "ticker": "IBP",
+      "moveCount": 5,
+      "dateRange": "2025-07-21 → 2025-10-28",
+      "trailRows": 74,
+      "needsBackfill": false,
+      "partialData": true
+    },
+    {
+      "ticker": "IESC",
+      "moveCount": 2,
+      "dateRange": "2025-07-22 → 2025-10-24",
+      "trailRows": 0,
+      "needsBackfill": true,
+      "partialData": false
+    },
+    {
+      "ticker": "ISRG",
+      "moveCount": 14,
+      "dateRange": "2025-07-03 → 2026-02-06",
+      "trailRows": 0,
+      "needsBackfill": true,
+      "partialData": false
+    },
+    {
+      "ticker": "ITT",
+      "moveCount": 7,
+      "dateRange": "2025-07-01 → 2025-10-16",
+      "trailRows": 420,
+      "needsBackfill": false,
+      "partialData": false
+    },
+    {
+      "ticker": "J",
+      "moveCount": 21,
+      "dateRange": "2025-08-19 → 2026-02-25",
+      "trailRows": 0,
+      "needsBackfill": true,
+      "partialData": false
+    },
+    {
+      "ticker": "JPM",
+      "moveCount": 4,
+      "dateRange": "2025-07-03 → 2025-10-16",
+      "trailRows": 420,
+      "needsBackfill": false,
+      "partialData": false
+    },
+    {
+      "ticker": "KO",
+      "moveCount": 6,
+      "dateRange": "2025-07-17 → 2025-10-21",
+      "trailRows": 525,
+      "needsBackfill": false,
+      "partialData": false
+    },
+    {
+      "ticker": "KTOS",
+      "moveCount": 10,
+      "dateRange": "2025-07-03 → 2025-11-25",
+      "trailRows": 813,
+      "needsBackfill": false,
+      "partialData": false
+    },
+    {
+      "ticker": "LRN",
+      "moveCount": 18,
+      "dateRange": "2025-07-03 → 2026-02-25",
+      "trailRows": 0,
+      "needsBackfill": true,
+      "partialData": false
+    },
+    {
+      "ticker": "LSCC",
+      "moveCount": 13,
+      "dateRange": "2025-09-22 → 2026-02-25",
+      "trailRows": 0,
+      "needsBackfill": true,
+      "partialData": false
+    },
+    {
+      "ticker": "META",
+      "moveCount": 4,
+      "dateRange": "2025-07-29 → 2025-10-31",
+      "trailRows": 770,
+      "needsBackfill": false,
+      "partialData": false
+    },
+    {
+      "ticker": "MLI",
+      "moveCount": 10,
+      "dateRange": "2025-07-25 → 2025-12-02",
+      "trailRows": 962,
+      "needsBackfill": false,
+      "partialData": false
+    },
+    {
+      "ticker": "MNST",
+      "moveCount": 4,
+      "dateRange": "2025-07-03 → 2025-08-21",
+      "trailRows": 0,
+      "needsBackfill": true,
+      "partialData": false
+    },
+    {
+      "ticker": "MP",
+      "moveCount": 3,
+      "dateRange": "2025-07-11 → 2025-11-04",
+      "trailRows": 867,
+      "needsBackfill": false,
+      "partialData": false
+    },
+    {
+      "ticker": "MSFT",
+      "moveCount": 5,
+      "dateRange": "2025-07-02 → 2025-10-08",
+      "trailRows": 210,
+      "needsBackfill": false,
+      "partialData": true
+    },
+    {
+      "ticker": "NBIS",
+      "moveCount": 3,
+      "dateRange": "2025-08-29 → 2025-10-13",
+      "trailRows": 315,
+      "needsBackfill": false,
+      "partialData": false
+    },
+    {
+      "ticker": "NOC",
+      "moveCount": 7,
+      "dateRange": "2025-07-09 → 2025-10-09",
+      "trailRows": 245,
+      "needsBackfill": false,
+      "partialData": true
+    },
+    {
+      "ticker": "NVDA",
+      "moveCount": 4,
+      "dateRange": "2025-07-07 → 2025-10-03",
+      "trailRows": 105,
+      "needsBackfill": false,
+      "partialData": true
+    },
+    {
+      "ticker": "OKE",
+      "moveCount": 21,
+      "dateRange": "2025-07-03 → 2026-02-23",
+      "trailRows": 0,
+      "needsBackfill": true,
+      "partialData": false
+    },
+    {
+      "ticker": "ON",
+      "moveCount": 5,
+      "dateRange": "2025-07-14 → 2025-10-21",
+      "trailRows": 0,
+      "needsBackfill": true,
+      "partialData": false
+    },
+    {
+      "ticker": "ORCL",
+      "moveCount": 11,
+      "dateRange": "2025-07-01 → 2025-11-03",
+      "trailRows": 839,
+      "needsBackfill": false,
+      "partialData": false
+    },
+    {
+      "ticker": "PATH",
+      "moveCount": 6,
+      "dateRange": "2025-07-18 → 2025-10-09",
+      "trailRows": 245,
+      "needsBackfill": false,
+      "partialData": true
+    },
+    {
+      "ticker": "PH",
+      "moveCount": 2,
+      "dateRange": "2025-08-28 → 2025-10-10",
+      "trailRows": 280,
+      "needsBackfill": false,
+      "partialData": false
+    },
+    {
+      "ticker": "PNC",
+      "moveCount": 9,
+      "dateRange": "2025-07-10 → 2026-02-27",
+      "trailRows": 3448,
+      "needsBackfill": false,
+      "partialData": false
+    },
+    {
+      "ticker": "PPG",
+      "moveCount": 7,
+      "dateRange": "2025-07-03 → 2025-10-13",
+      "trailRows": 315,
+      "needsBackfill": false,
+      "partialData": true
+    },
+    {
+      "ticker": "PSTG",
+      "moveCount": 3,
+      "dateRange": "2025-07-25 → 2025-09-16",
+      "trailRows": 0,
+      "needsBackfill": true,
+      "partialData": false
+    },
+    {
+      "ticker": "PWR",
+      "moveCount": 6,
+      "dateRange": "2025-07-11 → 2025-11-05",
+      "trailRows": 910,
+      "needsBackfill": false,
+      "partialData": false
+    },
+    {
+      "ticker": "RDDT",
+      "moveCount": 7,
+      "dateRange": "2025-07-07 → 2025-10-17",
+      "trailRows": 455,
+      "needsBackfill": false,
+      "partialData": false
+    },
+    {
+      "ticker": "RKLB",
+      "moveCount": 12,
+      "dateRange": "2025-07-03 → 2025-11-20",
+      "trailRows": 665,
+      "needsBackfill": false,
+      "partialData": false
+    },
+    {
+      "ticker": "SATS",
+      "moveCount": 11,
+      "dateRange": "2025-07-08 → 2026-02-12",
+      "trailRows": 0,
+      "needsBackfill": true,
+      "partialData": false
+    },
+    {
+      "ticker": "SHOP",
+      "moveCount": 4,
+      "dateRange": "2025-07-09 → 2025-09-26",
+      "trailRows": 0,
+      "needsBackfill": true,
+      "partialData": false
+    },
+    {
+      "ticker": "SMCI",
+      "moveCount": 14,
+      "dateRange": "2025-07-07 → 2026-02-06",
+      "trailRows": 4,
+      "needsBackfill": false,
+      "partialData": true
+    },
+    {
+      "ticker": "SN",
+      "moveCount": 4,
+      "dateRange": "2025-08-19 → 2025-10-31",
+      "trailRows": 796,
+      "needsBackfill": false,
+      "partialData": false
+    },
+    {
+      "ticker": "UTHR",
+      "moveCount": 9,
+      "dateRange": "2025-07-02 → 2026-02-25",
+      "trailRows": 3576,
+      "needsBackfill": false,
+      "partialData": false
+    },
+    {
+      "ticker": "UUUU",
+      "moveCount": 7,
+      "dateRange": "2025-08-13 → 2025-11-25",
+      "trailRows": 770,
+      "needsBackfill": false,
+      "partialData": false
+    },
+    {
+      "ticker": "VMI",
+      "moveCount": 4,
+      "dateRange": "2025-12-09 → 2026-02-26",
+      "trailRows": 0,
+      "needsBackfill": true,
+      "partialData": false
+    },
+    {
+      "ticker": "VRTX",
+      "moveCount": 6,
+      "dateRange": "2025-07-08 → 2025-10-22",
+      "trailRows": 560,
+      "needsBackfill": false,
+      "partialData": false
+    },
+    {
+      "ticker": "VST",
+      "moveCount": 2,
+      "dateRange": "2025-08-04 → 2025-09-15",
+      "trailRows": 0,
+      "needsBackfill": true,
+      "partialData": false
+    },
+    {
+      "ticker": "WAL",
+      "moveCount": 7,
+      "dateRange": "2025-07-14 → 2025-10-16",
+      "trailRows": 420,
+      "needsBackfill": false,
+      "partialData": false
+    },
+    {
+      "ticker": "WMT",
+      "moveCount": 10,
+      "dateRange": "2025-07-07 → 2025-10-22",
+      "trailRows": 560,
+      "needsBackfill": false,
+      "partialData": false
+    },
+    {
+      "ticker": "WTS",
+      "moveCount": 2,
+      "dateRange": "2025-07-29 → 2025-09-18",
+      "trailRows": 0,
+      "needsBackfill": true,
+      "partialData": false
+    },
+    {
+      "ticker": "XLC",
+      "moveCount": 12,
+      "dateRange": "2025-07-02 → 2025-11-17",
+      "trailRows": 1104,
+      "needsBackfill": false,
+      "partialData": false
+    },
+    {
+      "ticker": "XLE",
+      "moveCount": 9,
+      "dateRange": "2025-07-21 → 2025-11-14",
+      "trailRows": 1020,
+      "needsBackfill": false,
+      "partialData": false
+    },
+    {
+      "ticker": "XLY",
+      "moveCount": 8,
+      "dateRange": "2025-07-25 → 2025-11-20",
+      "trailRows": 1292,
+      "needsBackfill": false,
+      "partialData": false
+    }
+  ]
+}

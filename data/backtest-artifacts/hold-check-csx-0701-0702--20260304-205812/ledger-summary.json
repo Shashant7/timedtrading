@@ -1,0 +1,64 @@
+{
+  "ok": true,
+  "since": null,
+  "until": null,
+  "totals": {
+    "totalTrades": 6,
+    "openTrades": 0,
+    "closedTrades": 6,
+    "wins": 5,
+    "losses": 1,
+    "winRate": 83.33333333333334,
+    "closedPnl": 453.3393281060047,
+    "profitFactor": 25.81780966198001,
+    "avgWin": 94.32120436688811,
+    "avgLoss": 18.266693728435843,
+    "expectancy": 75.55655468433412,
+    "grossWin": 471.6060218344406,
+    "grossLoss": 18.266693728435843
+  },
+  "breakdown": {
+    "byRank": [
+      {
+        "bucket": "60-69",
+        "n": 1,
+        "wins": 0,
+        "losses": 1,
+        "pnl": -18.266693728435843
+      },
+      {
+        "bucket": "70-79",
+        "n": 3,
+        "wins": 3,
+        "losses": 0,
+        "pnl": 167.0445451914377
+      },
+      {
+        "bucket": "80+",
+        "n": 2,
+        "wins": 2,
+        "losses": 0,
+        "pnl": 304.5614766430029
+      }
+    ],
+    "byRR": [
+      {
+        "bucket": "2.0+",
+        "n": 6,
+        "wins": 5,
+        "losses": 1,
+        "pnl": 453.3393281060047
+      }
+    ],
+    "byExitReason": [
+      {
+        "reason": "replay_forced_eod_close",
+        "n": 6,
+        "wins": 5,
+        "losses": 1,
+        "pnl": 453.3393281060047
+      }
+    ],
+    "byTriggerReason": []
+  }
+}

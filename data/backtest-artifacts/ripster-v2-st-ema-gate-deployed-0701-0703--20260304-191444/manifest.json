@@ -1,0 +1,10 @@
+{
+  "ok": true,
+  "label": "ripster-v2-st-ema-gate-deployed-0701-0703-",
+  "captured_at": "20260304-191444",
+  "start_date": "2025-07-01",
+  "end_date": "2025-07-03",
+  "trader_only": true,
+  "sequence": false,
+  "note": "Captured automatically before reset for A/B comparison."
+}

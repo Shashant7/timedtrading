@@ -1745,7 +1745,7 @@ function tfTechRow(tickerData, key) {
 
 function resolveEngineMode(raw) {
   const m = String(raw || "").trim().toLowerCase();
-  if (m === "ripster_core") return "ripster_core";
+  if (m === "tt_core" || m === "ripster_core") return "tt_core";
   return "legacy";
 }
 
@@ -1903,12 +1903,12 @@ function triggerSummaryAndScore(tickerData) {
   if (has("ST_FLIP_30M")) score += 1;
   score += 3 * matchSide("BUYABLE_DIP_1H_13_48_LONG", "BUYABLE_DIP_1H_13_48_SHORT");  // Was +7
 
-  // LTF triggers (10m) — keep same weights (minor contributors)
-  if (has("SQUEEZE_RELEASE_10M")) score += 1;  // Was +3
+  // LTF triggers (15m / legacy 10m) — keep same weights (minor contributors)
+  if (has("SQUEEZE_RELEASE_15M") || has("SQUEEZE_RELEASE_10M")) score += 1;  // Was +3
   if (has("SQUEEZE_RELEASE_5M")) score += 0.5; // Kept for historical triggers, 5m TF dropped
   if (has("SQUEEZE_RELEASE_3M")) score += 0.5; // Was +1
   if (has("SQUEEZE_RELEASE_1M")) score += 0.5; // Was +1
-  score += 1 * matchSide("EMA_CROSS_10M_13_48_BULL", "EMA_CROSS_10M_13_48_BEAR");  // Was +2
+  score += 1 * Math.max(matchSide("EMA_CROSS_15M_13_48_BULL", "EMA_CROSS_15M_13_48_BEAR"), matchSide("EMA_CROSS_10M_13_48_BULL", "EMA_CROSS_10M_13_48_BEAR"));  // Was +2
   score += 0.5 * matchSide("EMA_CROSS_5M_13_48_BULL", "EMA_CROSS_5M_13_48_BEAR");
   score += 0.5 * matchSide("EMA_CROSS_3M_13_48_BULL", "EMA_CROSS_3M_13_48_BEAR");
   score += 0.5 * matchSide("EMA_CROSS_1M_13_48_BULL", "EMA_CROSS_1M_13_48_BEAR");
@@ -2373,7 +2373,7 @@ function qualifiesForEnter(d, asOfTs = null) {
   const tf4H = tfTechRow(d, "4H");
   const tfD = tfTechRow(d, "D");
   const entryEngine = resolveEngineMode(d?._env?._entryEngine);
-  const ripsterTuneV2 = parseBoolFlag(d?._env?._ttTuneV2, false);
+  const ttTuneV2 = parseBoolFlag(d?._env?._ttTuneV2, false);
   let ewContext = "none";
   
   // ── PRECISION SCORING ENGINE v2 fields ──
@@ -2407,7 +2407,7 @@ function qualifiesForEnter(d, asOfTs = null) {
   const rvol1H = d?.rvol_map?.["60"]?.vr ?? 1.0;
   const rvolBest = Math.max(rvol30, rvol1H);
   const inferredSide = sideFromStateOrScores(d);
-  const ripsterTrendConfirmed = entryEngine === "ripster_core" && ripsterTuneV2 && (
+  const ttTrendConfirmed = entryEngine === "tt_core" && ttTuneV2 && (
     (inferredSide === "LONG" && (Number(d?.ema_regime_daily) || 0) >= 2) ||
     // Slightly looser for shorts: allow early bearish regime as "trend confirmed"
     (inferredSide === "SHORT" && (Number(d?.ema_regime_daily) || 0) <= -1)
@@ -2435,18 +2435,18 @@ function qualifiesForEnter(d, asOfTs = null) {
   const daRsiAllTfHigh = Number(_daConfig.deep_audit_rsi_all_tf_high) || 70;
   const daRsiAllTfLow = Number(_daConfig.deep_audit_rsi_all_tf_low) || 30;
   const daRsiExtremeProfileMinPct = Number(_daConfig.deep_audit_rsi_extreme_profile_min_pct) || 40;
-  const daRipsterChaseRsi10Long = Number(_daConfig.deep_audit_ripster_chase_rsi10_long) || 74;
-  const daRipsterChaseRsi30Long = Number(_daConfig.deep_audit_ripster_chase_rsi30_long) || 68;
-  const daRipsterChaseRsi10Short = Number(_daConfig.deep_audit_ripster_chase_rsi10_short) || 26;
-  const daRipsterChaseRsi30Short = Number(_daConfig.deep_audit_ripster_chase_rsi30_short) || 32;
-  const daRipsterChaseCloudDistPct = Number(_daConfig.deep_audit_ripster_chase_dist_to_cloud_pct) || 0.0045;
-  const daRipsterMomentumHeatRsi30 = Number(_daConfig.deep_audit_ripster_momentum_heat_rsi30) || 70;
-  const daRipsterMomentumHeatRsi1H = Number(_daConfig.deep_audit_ripster_momentum_heat_rsi1h) || 70;
-  const daRipsterOpeningNoiseEndMinute = Number(_daConfig.deep_audit_ripster_opening_noise_end_minute);
+  const daTtChaseRsi10Long = Number(_daConfig.deep_audit_ripster_chase_rsi10_long) || 74;
+  const daTtChaseRsi30Long = Number(_daConfig.deep_audit_ripster_chase_rsi30_long) || 68;
+  const daTtChaseRsi10Short = Number(_daConfig.deep_audit_ripster_chase_rsi10_short) || 26;
+  const daTtChaseRsi30Short = Number(_daConfig.deep_audit_ripster_chase_rsi30_short) || 32;
+  const daTtChaseCloudDistPct = Number(_daConfig.deep_audit_ripster_chase_dist_to_cloud_pct) || 0.0045;
+  const daTtMomentumHeatRsi30 = Number(_daConfig.deep_audit_ripster_momentum_heat_rsi30) || 70;
+  const daTtMomentumHeatRsi1H = Number(_daConfig.deep_audit_ripster_momentum_heat_rsi1h) || 70;
+  const daTtOpeningNoiseEndMinute = Number(_daConfig.deep_audit_ripster_opening_noise_end_minute);
 
   // DA-1: SHORT minimum rank gate
   const daShortMinRank = Number(_daConfig.deep_audit_short_min_rank) || 0;
-  const daShortMinRankEff = (entryEngine === "ripster_core" && ripsterTuneV2 && inferredSide === "SHORT")
+  const daShortMinRankEff = (entryEngine === "tt_core" && ttTuneV2 && inferredSide === "SHORT")
     ? Math.max(55, daShortMinRank - 7)
     : daShortMinRank;
   if (daShortMinRankEff > 0 && inferredSide === "SHORT" && score < daShortMinRankEff) {
@@ -2481,15 +2481,20 @@ function qualifiesForEnter(d, asOfTs = null) {
   // Filtering out low-HTF entries reduces noise trades.
   const daMinHtf = Number(_daConfig.deep_audit_min_htf_score) || 0;
   if (daMinHtf > 0 && htf < daMinHtf) {
-    if (!ripsterTrendConfirmed) {
+    if (!ttTrendConfirmed) {
       return { qualifies: false, reason: "da_htf_too_low", htf, required: daMinHtf };
     }
   }
 
   // DA-V3: Experimental guardrails variant
   // Tighten entry quality to reduce loser clusters from low-conviction setups.
+  // Strong HTF trend override: HTF >= 25 + aligned/pullback state = enough conviction.
+  const _daHtfOverride = Math.abs(htf) >= 25 && (
+    state === "HTF_BULL_LTF_BULL" || state === "HTF_BEAR_LTF_BEAR" ||
+    state === "HTF_BULL_LTF_PULLBACK" || state === "HTF_BEAR_LTF_PULLBACK"
+  );
   if (daVariantGuardrailsV3) {
-    if (score < daVariantMinRank && !ripsterTrendConfirmed) {
+    if (score < daVariantMinRank && !ttTrendConfirmed && !_daHtfOverride) {
       return { qualifies: false, reason: "da_v3_rank_too_low", rank: score, required: daVariantMinRank };
     }
     if (Number.isFinite(rr) && rr > 0 && rr < daVariantMinRR) {
@@ -2512,7 +2517,7 @@ function qualifiesForEnter(d, asOfTs = null) {
 
   // SHORT volume gate: SHORTs need elevated RVOL (institutional selling must be visible)
   const shortRvolMin = rParams.shortRvolMin ?? 1.0;
-  const shortRvolMinEff = (entryEngine === "ripster_core" && ripsterTuneV2 && inferredSide === "SHORT")
+  const shortRvolMinEff = (entryEngine === "tt_core" && ttTuneV2 && inferredSide === "SHORT")
     ? Math.max(0.85, shortRvolMin - 0.1)
     : shortRvolMin;
   if (inferredSide === "SHORT" && rvolBest < shortRvolMinEff) {
@@ -2593,11 +2598,11 @@ function qualifiesForEnter(d, asOfTs = null) {
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // 10m LEADING TF GATES (strict): require both
-  //   1) price location vs 10m EMA21
-  //   2) 10m SuperTrend direction alignment
-  // LONG  => price above 10m EMA21 AND 10m ST bullish
-  // SHORT => price below 10m EMA21 AND 10m ST bearish
+  // 15m LEADING TF GATES (strict): require both
+  //   1) price location vs 15m EMA21
+  //   2) 15m SuperTrend direction alignment
+  // LONG  => price above 15m EMA21 AND 15m ST bullish
+  // SHORT => price below 15m EMA21 AND 15m ST bearish
   // ═══════════════════════════════════════════════════════════════════════════
   const emaRegimeDaily = Number(d?.ema_regime_daily) || 0;
   const priceAboveEma21_10m = tf10?.ema?.priceAboveEma21;
@@ -2754,10 +2759,16 @@ function qualifiesForEnter(d, asOfTs = null) {
   }
 
   // Adaptive per-state rank minimum (with calibrated global fallback)
+  // Move Discovery: strong HTF tickers with aligned state should pass rank gate
+  // even if rank is slightly below threshold — the trend conviction is there.
   const _calibRankMin = Number(d?._env?._calibratedRankMin) || 0;
   const effectiveRankMin = stateGate?.min_rank > 0 ? stateGate.min_rank : (_calibRankMin > 0 ? _calibRankMin : 0);
+  const htfTrendOverride = Math.abs(htf) >= 25 && (
+    state === "HTF_BULL_LTF_BULL" || state === "HTF_BEAR_LTF_BEAR" ||
+    state === "HTF_BULL_LTF_PULLBACK" || state === "HTF_BEAR_LTF_PULLBACK"
+  );
   if (effectiveRankMin > 0 && score < effectiveRankMin) {
-    if (!ripsterTrendConfirmed) {
+    if (!ttTrendConfirmed && !htfTrendOverride) {
       return { qualifies: false, reason: "adaptive_rank_below_min", rank: score, required: effectiveRankMin, state };
     }
   }
@@ -2770,7 +2781,7 @@ function qualifiesForEnter(d, asOfTs = null) {
       const gpHtfFloor = Number(gpState.htf_score_median) || 0;
       const gpLtfFloor = Number(gpState.ltf_score_median) || 0;
       if (gpHtfFloor > 0 && htf < gpHtfFloor * 0.75) {
-        if (!ripsterTrendConfirmed) {
+        if (!ttTrendConfirmed) {
           return { qualifies: false, reason: "golden_htf_below_floor", htf, floor: gpHtfFloor * 0.75, state };
         }
       }
@@ -2977,7 +2988,7 @@ function qualifiesForEnter(d, asOfTs = null) {
   // RSI bullish divergence is a strong pullback confirmation — adds to recovery signals
   const ltfRecovering = ltf > -10 || hasStFlipBull || hasEmaCrossBull || hasSqRelease ||
     (inferredSide === "LONG" && hasRsiDivBull) || (inferredSide === "SHORT" && hasRsiDivBear);
-  const ripsterLtfConfirm = inferredSide === "LONG"
+  const ttLtfConfirm = inferredSide === "LONG"
     ? ltfRecovering
     : (ltf < 10 || hasStFlipBear || hasEmaCrossBear || hasSqRelease || hasRsiDivBear);
   
@@ -3036,6 +3047,8 @@ function qualifiesForEnter(d, asOfTs = null) {
         minQuality = Math.max(minQuality, minQuality + 8);  // Crypto LONG: higher bar
       } else if (sectorForEntry === "Basic Materials" || sectorForEntry === "Precious Metals" || sectorForEntry === "Energy") {
         minQuality = Math.max(35, minQuality - 5);          // Bullish sectors: slightly easier
+      } else if (sectorForEntry === "Semiconductors") {
+        minQuality = Math.max(35, minQuality - 3);          // Semis: systematic miss in Move Discovery
       }
     }
 
@@ -3095,11 +3108,11 @@ function qualifiesForEnter(d, asOfTs = null) {
 
   // ═══════════════════════════════════════════════════════════════════════════
   // FEATURE-FLAGGED ENTRY ENGINE: TT-Core
-  // Bias: D+1H+10m 34/50 cloud alignment
-  // Trigger: 10m 5/12 reclaim/cross
-  // Pullback add: 10m 8/9 bounce while 34/50 bias holds
+  // Bias: D+1H+15m 34/50 cloud alignment
+  // Trigger: 15m 5/12 reclaim/cross
+  // Pullback add: 15m 8/9 bounce while 34/50 bias holds
   // ═══════════════════════════════════════════════════════════════════════════
-  if (entryEngine === "ripster_core") {
+  if (entryEngine === "tt_core") {
     const c10_34 = tf10?.ripster?.c34_50;
     const c1h_34 = tf1H?.ripster?.c34_50;
     const cD_34 = tfD?.ripster?.c34_50;
@@ -3111,8 +3124,12 @@ function qualifiesForEnter(d, asOfTs = null) {
     const m10Aligned = inferredSide === "LONG" ? !!c10_34?.bull : !!c10_34?.bear;
     const alignedCount = [dAligned, h1Aligned, m10Aligned].filter(Boolean).length;
     const strongDailyTrend = (inferredSide === "LONG" && emaRegimeDaily >= 2) || (inferredSide === "SHORT" && emaRegimeDaily <= -2);
-    const biasAligned = ripsterTuneV2
-      ? (dAligned && h1Aligned && (strongDailyTrend ? alignedCount >= 2 : m10Aligned))
+    // Move Discovery: 815 tickers stuck in "setup" never convert to "enter" because
+    // TT-Core bias is too strict. Allow 2/3 alignment when HTF is strong (>=25)
+    // AND the daily cloud agrees — the strong trend provides enough conviction.
+    const strongHTFTrend = Math.abs(htf) >= 25 && dAligned;
+    const biasAligned = ttTuneV2
+      ? (dAligned && h1Aligned && (strongDailyTrend || strongHTFTrend ? alignedCount >= 2 : m10Aligned))
       : (dAligned && h1Aligned && m10Aligned);
     if (!biasAligned) {
       return {
@@ -3134,18 +3151,18 @@ function qualifiesForEnter(d, asOfTs = null) {
       : !!(c10_5?.crossDn || (c10_5?.bear && c10_5?.below && c10_5?.fastSlope <= 0));
 
     const pullbackTrigger = inferredSide === "LONG"
-      ? !!((c10_8?.inCloud || c10_8?.above) && c10_8?.fastSlope >= 0 && ripsterLtfConfirm)
-      : !!((c10_8?.inCloud || c10_8?.below) && c10_8?.fastSlope <= 0 && ripsterLtfConfirm);
-    const reclaimTrigger = ripsterTuneV2 && inferredSide === "LONG"
+      ? !!((c10_8?.inCloud || c10_8?.above) && c10_8?.fastSlope >= 0 && ttLtfConfirm)
+      : !!((c10_8?.inCloud || c10_8?.below) && c10_8?.fastSlope <= 0 && ttLtfConfirm);
+    const reclaimTrigger = ttTuneV2 && inferredSide === "LONG"
       ? !!((c10_8?.crossUp || (c10_8?.bull && c10_8?.above)) && hasStFlipBull && ltfRecovering && c10_8?.fastSlope >= 0)
-      : ripsterTuneV2
-        ? !!((c10_8?.crossDn || (c10_8?.bear && c10_8?.below)) && hasStFlipBear && ripsterLtfConfirm && c10_8?.fastSlope <= 0)
+      : ttTuneV2
+        ? !!((c10_8?.crossDn || (c10_8?.bear && c10_8?.below)) && hasStFlipBear && ttLtfConfirm && c10_8?.fastSlope <= 0)
         : false;
     const nowMsRip = asOfTs > 0 ? asOfTs : Date.now();
     const nowEtRip = getEasternParts(new Date(nowMsRip));
     const nyHourRip = Number(nowEtRip.hour) || 0;
     const nyMinRip = Number(nowEtRip.minute) || 0;
-    const openingNoiseEndMinute = Number.isFinite(daRipsterOpeningNoiseEndMinute) ? daRipsterOpeningNoiseEndMinute : 45;
+    const openingNoiseEndMinute = Number.isFinite(daTtOpeningNoiseEndMinute) ? daTtOpeningNoiseEndMinute : 45;
     const inOpeningNoiseWindow = nyHourRip === 9 && nyMinRip < openingNoiseEndMinute;
     const stDir10m = Number(tf10?.stDir) || 0;
     const stDir30m = Number(tf30?.stDir) || 0;
@@ -3157,19 +3174,19 @@ function qualifiesForEnter(d, asOfTs = null) {
     const stDirD = Number(tfD?.stDir) || 0;
     const trendExtensionPct = Number(c10_5?.distToCloudPct) || 0;
     const chasingLong = inferredSide === "LONG"
-      && rsi10m >= daRipsterChaseRsi10Long
-      && rsi30m >= daRipsterChaseRsi30Long
-      && trendExtensionPct >= daRipsterChaseCloudDistPct;
+      && rsi10m >= daTtChaseRsi10Long
+      && rsi30m >= daTtChaseRsi30Long
+      && trendExtensionPct >= daTtChaseCloudDistPct;
     const chasingShort = inferredSide === "SHORT"
-      && rsi10m <= daRipsterChaseRsi10Short
-      && rsi30m <= daRipsterChaseRsi30Short
-      && trendExtensionPct >= daRipsterChaseCloudDistPct;
-    // CRS-style anti-chase guard: when micro (10m) and macro (Daily) are both very hot,
+      && rsi10m <= daTtChaseRsi10Short
+      && rsi30m <= daTtChaseRsi30Short
+      && trendExtensionPct >= daTtChaseCloudDistPct;
+    // CRS-style anti-chase guard: when micro (15m) and macro (Daily) are both very hot,
     // momentum entries tend to be late and vulnerable to pullbacks.
     const rsi10mDailyHeatLong = inferredSide === "LONG" && rsi10m >= 77 && rsiD >= 80;
     const rsi10mDailyHeatShort = inferredSide === "SHORT" && rsi10m <= 23 && rsiD <= 20;
-    const momentumRsiHeatLong = inferredSide === "LONG" && rsi30m >= daRipsterMomentumHeatRsi30 && rsi1h >= daRipsterMomentumHeatRsi1H;
-    const momentumRsiHeatShort = inferredSide === "SHORT" && rsi30m <= (100 - daRipsterMomentumHeatRsi30) && rsi1h <= (100 - daRipsterMomentumHeatRsi1H);
+    const momentumRsiHeatLong = inferredSide === "LONG" && rsi30m >= daTtMomentumHeatRsi30 && rsi1h >= daTtMomentumHeatRsi1H;
+    const momentumRsiHeatShort = inferredSide === "SHORT" && rsi30m <= (100 - daTtMomentumHeatRsi30) && rsi1h <= (100 - daTtMomentumHeatRsi1H);
     const dailyStConflictLong = inferredSide === "LONG" && stDirD === 1;
     const dailyStConflictShort = inferredSide === "SHORT" && stDirD === -1;
     const htfRsiExtremeLong = inferredSide === "LONG" && (rsi4h >= 80 || rsiD >= 82);
@@ -3185,7 +3202,7 @@ function qualifiesForEnter(d, asOfTs = null) {
     const ltfOpposedLong = inferredSide === "LONG" && stDir10m === 1 && stDir30m === 1;
     const ltfOpposedShort = inferredSide === "SHORT" && stDir10m === -1 && stDir30m === -1;
 
-    if (ripsterTuneV2 && (chasingLong || chasingShort) && momentumTrigger && !pullbackTrigger && !reclaimTrigger) {
+    if (ttTuneV2 && (chasingLong || chasingShort) && momentumTrigger && !pullbackTrigger && !reclaimTrigger) {
       return {
         qualifies: false,
         reason: "ripster_chasing_extension",
@@ -3195,7 +3212,7 @@ function qualifiesForEnter(d, asOfTs = null) {
         distToCloudPct: trendExtensionPct,
       };
     }
-    if (ripsterTuneV2 && (rsi10mDailyHeatLong || rsi10mDailyHeatShort) && momentumTrigger && !pullbackTrigger && !reclaimTrigger) {
+    if (ttTuneV2 && (rsi10mDailyHeatLong || rsi10mDailyHeatShort) && momentumTrigger && !pullbackTrigger && !reclaimTrigger) {
       return {
         qualifies: false,
         reason: inferredSide === "LONG" ? "ripster_rsi_10m_daily_heat_long" : "ripster_rsi_10m_daily_heat_short",
@@ -3204,7 +3221,7 @@ function qualifiesForEnter(d, asOfTs = null) {
         rsiD,
       };
     }
-    if (ripsterTuneV2 && (momentumRsiHeatLong || momentumRsiHeatShort) && momentumTrigger && !pullbackTrigger && !reclaimTrigger) {
+    if (ttTuneV2 && (momentumRsiHeatLong || momentumRsiHeatShort) && momentumTrigger && !pullbackTrigger && !reclaimTrigger) {
       return {
         qualifies: false,
         reason: inferredSide === "LONG" ? "ripster_rsi_heat_block_long" : "ripster_rsi_heat_block_short",
@@ -3214,7 +3231,7 @@ function qualifiesForEnter(d, asOfTs = null) {
         rsi1h,
       };
     }
-    if (ripsterTuneV2 && (dailyStConflictLong || dailyStConflictShort) && momentumTrigger && !pullbackTrigger && !reclaimTrigger) {
+    if (ttTuneV2 && (dailyStConflictLong || dailyStConflictShort) && momentumTrigger && !pullbackTrigger && !reclaimTrigger) {
       return {
         qualifies: false,
         reason: inferredSide === "LONG" ? "ripster_daily_st_conflict_long" : "ripster_daily_st_conflict_short",
@@ -3222,7 +3239,7 @@ function qualifiesForEnter(d, asOfTs = null) {
         stDirD,
       };
     }
-    if (ripsterTuneV2 && (ltfOpposedLong || ltfOpposedShort) && momentumTrigger && !pullbackTrigger && !reclaimTrigger) {
+    if (ttTuneV2 && (ltfOpposedLong || ltfOpposedShort) && momentumTrigger && !pullbackTrigger && !reclaimTrigger) {
       return {
         qualifies: false,
         reason: inferredSide === "LONG" ? "ripster_ltf_st_opposed_long" : "ripster_ltf_st_opposed_short",
@@ -3231,7 +3248,7 @@ function qualifiesForEnter(d, asOfTs = null) {
         stDir30m,
       };
     }
-    if (ripsterTuneV2 && inOpeningNoiseWindow && momentumTrigger && !pullbackTrigger && !reclaimTrigger) {
+    if (ttTuneV2 && inOpeningNoiseWindow && momentumTrigger && !pullbackTrigger && !reclaimTrigger) {
       return {
         qualifies: false,
         reason: "ripster_opening_chase_guard",
@@ -3240,7 +3257,7 @@ function qualifiesForEnter(d, asOfTs = null) {
         nyMinute: nyMinRip,
       };
     }
-    if (ripsterTuneV2 && (htfRsiExtremeLong || htfRsiExtremeShort) && momentumTrigger && !pullbackTrigger && !reclaimTrigger) {
+    if (ttTuneV2 && (htfRsiExtremeLong || htfRsiExtremeShort) && momentumTrigger && !pullbackTrigger && !reclaimTrigger) {
       return {
         qualifies: false,
         reason: inferredSide === "LONG" ? "ripster_htf_rsi_extreme_long" : "ripster_htf_rsi_extreme_short",
@@ -3250,7 +3267,7 @@ function qualifiesForEnter(d, asOfTs = null) {
       };
     }
     if (
-      ripsterTuneV2 &&
+      ttTuneV2 &&
       daRsiAllTfExtremeGuard &&
       (allTfRsiExtremeLong || allTfRsiExtremeShort) &&
       momentumTrigger &&
@@ -3271,10 +3288,10 @@ function qualifiesForEnter(d, asOfTs = null) {
       };
     }
     // Narrow APP-style exhaustion block:
-    // very stretched Daily/4H trend + pullback-style long, but without a fresh 10m EMA reclaim.
+    // very stretched Daily/4H trend + pullback-style long, but without a fresh 15m EMA reclaim.
     // This avoids bluntly suppressing all hot-trend pullbacks while catching late stretched adds.
     if (
-      ripsterTuneV2 &&
+      ttTuneV2 &&
       inferredSide === "LONG" &&
       pullbackTrigger &&
       !reclaimTrigger &&
@@ -3299,7 +3316,7 @@ function qualifiesForEnter(d, asOfTs = null) {
         confidence: "medium",
         reason: "ripster_5_12_trend_trigger",
         engine: entryEngine,
-        ripster_bias_state: "aligned_34_50_d_1h_10m",
+        ripster_bias_state: "aligned_34_50_d_1h_15m",
       });
     }
     if (pullbackTrigger) {
@@ -3309,7 +3326,7 @@ function qualifiesForEnter(d, asOfTs = null) {
         confidence: "medium",
         reason: "ripster_8_9_bounce",
         engine: entryEngine,
-        ripster_bias_state: "aligned_34_50_d_1h_10m",
+        ripster_bias_state: "aligned_34_50_d_1h_15m",
       });
     }
     if (reclaimTrigger) {
@@ -3319,7 +3336,7 @@ function qualifiesForEnter(d, asOfTs = null) {
         confidence: "medium",
         reason: "ripster_8_9_reclaim_st_flip",
         engine: entryEngine,
-        ripster_bias_state: "aligned_34_50_d_1h_10m",
+        ripster_bias_state: "aligned_34_50_d_1h_15m",
       });
     }
 
@@ -3327,7 +3344,7 @@ function qualifiesForEnter(d, asOfTs = null) {
       qualifies: false,
       reason: "ripster_no_trigger",
       engine: entryEngine,
-      ripster_bias_state: "aligned_34_50_d_1h_10m",
+      ripster_bias_state: "aligned_34_50_d_1h_15m",
     };
   }
 
@@ -3349,7 +3366,7 @@ function qualifiesForEnter(d, asOfTs = null) {
   // inferredSide already declared at top of function (v3 regime gates)
 
   // LTF alignment gate: don't enter when intraday momentum is actively opposing.
-  // Two checks: (1) deep EMA trend against you, (2) both 10m+30m RSI in bearish/bullish zone.
+  // Two checks: (1) deep EMA trend against you, (2) both 15m+30m RSI in bearish/bullish zone.
   // The RSI check catches "entering upstream" — e.g., going LONG when both LTFs are selling.
   const ltf10mDepth = tf10?.ema?.depth ?? 5;
   const ltf10mStruct = tf10?.ema?.structure ?? 0;
@@ -3374,7 +3391,7 @@ function qualifiesForEnter(d, asOfTs = null) {
     return { qualifies: false, reason: "oversold_exhaustion", rsi30m: _rsi30m, rsi1H: _rsi1H, rsi4H: _rsi4H, rsiD: _rsiD, osCount: _osCount };
   }
 
-  // LTF SuperTrend alignment: block when BOTH 10m+30m ST oppose trade direction.
+  // LTF SuperTrend alignment: block when BOTH 15m+30m ST oppose trade direction.
   // Pullbacks: still require at least one LTF ST aligned (full opposition = breakdown, not dip).
   const stDir10m = tf10?.stDir ?? 0;
   const stDir30m = tf30?.stDir ?? 0;
@@ -3665,7 +3682,7 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
     const phase_10m = Number(tickerData?.tf_tech?.["10"]?.ph?.v) || 0;
     const phase_30m = Number(tickerData?.tf_tech?.["30"]?.ph?.v) || 0;
     const managementEngine = resolveEngineMode(tickerData?._env?._managementEngine);
-    const ripsterTuneV2 = parseBoolFlag(tickerData?._env?._ttTuneV2, false);
+    const ttTuneV2 = parseBoolFlag(tickerData?._env?._ttTuneV2, false);
     const _daConfig = tickerData?._env?._deepAuditConfig || {};
     const daVariantGuardrailsV3 = parseBoolFlag(_daConfig.deep_audit_variant_guardrails_v3, false);
     
@@ -3708,7 +3725,7 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
       : positionAgeMin >= Math.max(240, _daMinHoldRegimeH * 60);
 
     // TT-Core management exits (feature-flagged)
-    if (managementEngine === "ripster_core") {
+    if (managementEngine === "tt_core") {
       const rt10 = tfTechRow(tickerData, "10")?.ripster;
       const rt30 = tfTechRow(tickerData, "30")?.ripster;
       const rt1H = tfTechRow(tickerData, "1H")?.ripster;
@@ -3734,13 +3751,13 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
       const cloudCompression = Number(c72_89_10?.spreadPct) <= 0.003 && Number(c180_200_10?.spreadPct) <= 0.0035;
       const holdPivotLong = above10m21 && above30m21 && above1h48;
       const holdPivotShort = below10m21 && below30m21 && below1h48;
-      const exitDebounceBars = ripsterTuneV2 ? Math.max(1, Number(tickerData?._env?._ttExitDebounceBars) || 2) : 1;
+      const exitDebounceBars = ttTuneV2 ? Math.max(1, Number(tickerData?._env?._ttExitDebounceBars) || 2) : 1;
 
-      const ripsterLose5_12 = direction === "LONG"
+      const ttLose5_12 = direction === "LONG"
         ? !!(c5_12_10?.crossDn || (c5_12_10?.bear && c5_12_10?.below))
         : !!(c5_12_10?.crossUp || (c5_12_10?.bull && c5_12_10?.above));
 
-      const ripsterLose34_50 = direction === "LONG"
+      const ttLose34_50 = direction === "LONG"
         ? !!((c34_50_10?.bear || c34_50_10?.below) && (c34_50_1H?.bear || c34_50_1H?.below))
         : !!((c34_50_10?.bull || c34_50_10?.above) && (c34_50_1H?.bull || c34_50_1H?.above));
 
@@ -3752,8 +3769,8 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
         Number(openPosition?.ripster_pending_34_50) || 0,
         Number(tickerData?.__ripster_pending_34_50) || 0,
       );
-      const pending5 = ripsterLose5_12 ? prevPending5 + 1 : 0;
-      const pending34 = ripsterLose34_50 ? prevPending34 + 1 : 0;
+      const pending5 = ttLose5_12 ? prevPending5 + 1 : 0;
+      const pending34 = ttLose34_50 ? prevPending34 + 1 : 0;
       openPosition.ripster_pending_5_12 = pending5;
       openPosition.ripster_pending_34_50 = pending34;
       tickerData.__ripster_pending_5_12 = pending5;
@@ -3763,13 +3780,13 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
         openPosition.__tradeRef.ripster_pending_34_50 = pending34;
       }
 
-      if (positionAgeMin >= 30 && ripsterLose5_12) {
-        if (ripsterTuneV2 && pending5 < exitDebounceBars) {
+      if (positionAgeMin >= 30 && ttLose5_12) {
+        if (ttTuneV2 && pending5 < exitDebounceBars) {
           tickerData.__exit_reason = "ripster_5_12_pending";
           tickerData.__exit_family = "ripster_cloud";
           return "defend";
         }
-        if (ripsterTuneV2) {
+        if (ttTuneV2) {
           const trimmedPct = Number(openPosition?.trimmedPct ?? openPosition?.trimmed_pct) || 0;
           if (pnlPct > 0.4 && trimmedPct < 0.33) {
             tickerData.__exit_reason = "ripster_5_12_defend_trim";
@@ -3784,13 +3801,13 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
         tickerData.__exit_family = "ripster_cloud";
         return "exit";
       }
-      if (positionAgeMin >= 60 && ripsterLose34_50) {
-        if (ripsterTuneV2 && pending34 < Math.max(2, exitDebounceBars)) {
+      if (positionAgeMin >= 60 && ttLose34_50) {
+        if (ttTuneV2 && pending34 < Math.max(2, exitDebounceBars)) {
           tickerData.__exit_reason = "ripster_34_50_pending";
           tickerData.__exit_family = "ripster_cloud";
           return "defend";
         }
-        if (ripsterTuneV2) {
+        if (ttTuneV2) {
           const trimmedPct = Number(openPosition?.trimmedPct ?? openPosition?.trimmed_pct) || 0;
           if (direction === "LONG" && (holdPivotLong || (lost72_89 && farFrom180_200) || cloudCompression)) {
             if (pnlPct > 0.5 && trimmedPct < 0.33) {
@@ -3812,7 +3829,7 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
         tickerData.__exit_family = "ripster_cloud";
         return "exit";
       }
-      if (ripsterTuneV2 && direction === "SHORT" && positionAgeMin >= 20) {
+      if (ttTuneV2 && direction === "SHORT" && positionAgeMin >= 20) {
         const shortReclaimedPivot = !holdPivotShort && (c5_12_10?.bull || c5_12_10?.above || c34_50_10?.bull || c34_50_10?.above || rt30?.c5_12?.bull);
         if (shortReclaimedPivot) {
           tickerData.__exit_reason = "ripster_short_pivot_reclaimed";
@@ -3916,34 +3933,34 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
 
     // Critical invalidation: always honor, but give regime+favorable zone a small buffer
     // TT_TUNE_V2: avoid hard exits on one-bar trigger noise while cloud trend still holds.
-    const rt10ForCritical = managementEngine === "ripster_core" ? tfTechRow(tickerData, "10")?.ripster : null;
-    const rt1HForCritical = managementEngine === "ripster_core" ? tfTechRow(tickerData, "1H")?.ripster : null;
+    const rt10ForCritical = managementEngine === "tt_core" ? tfTechRow(tickerData, "10")?.ripster : null;
+    const rt1HForCritical = managementEngine === "tt_core" ? tfTechRow(tickerData, "1H")?.ripster : null;
     const c34_50_10_critical = rt10ForCritical?.c34_50;
     const c34_50_1H_critical = rt1HForCritical?.c34_50;
-    const ripsterTrendStillAligned = direction === "LONG"
+    const ttTrendStillAligned = direction === "LONG"
       ? !!((c34_50_10_critical?.bull || c34_50_10_critical?.above) && (c34_50_1H_critical?.bull || c34_50_1H_critical?.above))
       : !!((c34_50_10_critical?.bear || c34_50_10_critical?.below) && (c34_50_1H_critical?.bear || c34_50_1H_critical?.below));
     const entryPathHint = String(
       tickerData?.__entry_path || tickerData?.entry_path || openPosition?.entryPath || "",
     ).toLowerCase();
-    const isRipsterPullbackLike = entryPathHint.includes("ripster_pullback") || entryPathHint.includes("ripster_reclaim");
+    const isTtPullbackLike = entryPathHint.includes("ripster_pullback") || entryPathHint.includes("ripster_reclaim");
     const triggerNoiseCandidate = reasons.includes("trigger_breached_5pct")
       && !reasons.includes("sl_breached")
       && pnlPct > (Number(_daConfig.deep_audit_ripster_trigger_noise_max_loss_pct) || -0.8)
       && positionAgeMin >= 45
       && positionAgeMin <= (18 * 60)
-      && ripsterTuneV2
-      && managementEngine === "ripster_core"
-      && ripsterTrendStillAligned;
+      && ttTuneV2
+      && managementEngine === "tt_core"
+      && ttTrendStillAligned;
     const pullbackNoiseCandidate = (reasons.includes("trigger_breached_5pct") || reasons.includes("below_trigger"))
       && !reasons.includes("sl_breached")
-      && isRipsterPullbackLike
+      && isTtPullbackLike
       && pnlPct > (Number(_daConfig.deep_audit_ripster_pullback_trigger_noise_max_loss_pct) || -1.2)
       && positionAgeMin >= 30
       && positionAgeMin <= (6 * 60)
-      && ripsterTuneV2
-      && managementEngine === "ripster_core"
-      && ripsterTrendStillAligned;
+      && ttTuneV2
+      && managementEngine === "tt_core"
+      && ttTrendStillAligned;
 
     if (reasons.includes("sl_breached") || severity === "CRITICAL" || reasons.includes("trigger_breached_5pct")) {
       const trimmedPct = Number(openPosition?.trimmedPct ?? openPosition?.trimmed_pct) || 0;
@@ -3972,8 +3989,8 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
         );
       // Protect trimmed winners from turning into clear losers due to repeated trigger noise.
       if (
-        ripsterTuneV2
-        && managementEngine === "ripster_core"
+        ttTuneV2
+        && managementEngine === "tt_core"
         && postTrimNearBreakeven
       ) {
         tickerData.__exit_reason = "post_trim_breakeven_protect";
@@ -3982,10 +3999,10 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
       // During active compression with trend still aligned, hold through trigger noise.
       // This reduces premature exits before potential squeeze expansion.
       if (
-        ripsterTuneV2
-        && managementEngine === "ripster_core"
+        ttTuneV2
+        && managementEngine === "tt_core"
         && squeezeOnMgmt
-        && ripsterTrendStillAligned
+        && ttTrendStillAligned
         && !reasons.includes("sl_breached")
         && !reasons.includes("large_adverse_move")
         && pnlPct > -1.2
@@ -3996,8 +4013,8 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
       // After a TRIM, do not hard-exit runners on entry-trigger invalidation alone.
       // The post-trim runner should be governed by structural/cloud breaks and SL.
       if (
-        ripsterTuneV2
-        && managementEngine === "ripster_core"
+        ttTuneV2
+        && managementEngine === "tt_core"
         && isPostTrimRunner
         && (triggerOnlyCritical || triggerPlusWarningCritical)
       ) {
@@ -4014,8 +4031,8 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
         return "defend";
       }
       if (
-        ripsterTuneV2
-        && managementEngine === "ripster_core"
+        ttTuneV2
+        && managementEngine === "tt_core"
         && !reasons.includes("sl_breached")
         && pnlPct > 0.6
         && trimmedPct < 0.33
@@ -4860,7 +4877,8 @@ function computeDynamicScore(ticker) {
   }
 
   // Score strength bonus (strong HTF/LTF scores)
-  const htfStrength = Math.min(8, Math.abs(htf) * 0.15);
+  // Increased HTF weight to match computeRank changes
+  const htfStrength = Math.min(12, Math.abs(htf) * 0.25);
   const ltfStrength = Math.min(6, Math.abs(ltf) * 0.12);
   dynamicScore += htfStrength + ltfStrength;
 
@@ -5728,8 +5746,8 @@ async function updateConsensusWeights(env) {
 
     if (!rows || rows.length < 20) return { ok: true, skipped: true, reason: "insufficient_data" };
 
-    const tfKeys = ["10m", "30m", "1H", "4H", "D"];
-    const tfKeyToConfigKey = { "10m": "10", "30m": "30", "1H": "60", "4H": "240", "D": "D" };
+    const tfKeys = ["15m", "30m", "1H", "4H", "D"];
+    const tfKeyToConfigKey = { "15m": "10", "30m": "30", "1H": "60", "4H": "240", "D": "D" };
     const tfCorrect = {};
     const tfTotal = {};
     for (const k of tfKeys) { tfCorrect[k] = 0; tfTotal[k] = 0; }
@@ -5927,7 +5945,7 @@ async function updateScoringWeightAdjustments(env) {
     const tfTotal = {};
     for (const k of TF_KEYS) { tfHits[k] = 0; tfTotal[k] = 0; }
 
-    const labelToKey = { "10m": "10", "30m": "30", "1H": "60", "4H": "240", "D": "D", "W": "W" };
+    const labelToKey = { "15m": "10", "30m": "30", "1H": "60", "4H": "240", "D": "D", "W": "W" };
 
     for (const t of trades) {
       let stack;
@@ -9871,8 +9889,8 @@ async function processTradeSimulation(
           const ema10 = tf10Now?.ema || {};
           const ema30 = tf30Now?.ema || {};
           const ema1H = tf1HNow?.ema || {};
-          const rip10 = tf10Now?.ripster || {};
-          const rip1H = tf1HNow?.ripster || {};
+          const tt10 = tf10Now?.ripster || {};
+          const tt1H = tf1HNow?.ripster || {};
           const holdByPivotLong = Number.isFinite(ema10?.e21) && Number.isFinite(ema30?.e21) && Number.isFinite(ema1H?.e48)
             ? pxNow >= Number(ema10.e21) && pxNow >= Number(ema30.e21) && pxNow >= Number(ema1H.e48)
             : false;
@@ -9880,14 +9898,14 @@ async function processTradeSimulation(
             ? pxNow <= Number(ema10.e21) && pxNow <= Number(ema30.e21) && pxNow <= Number(ema1H.e48)
             : false;
           const longStructuralDefense = !!(
-            (rip10?.c72_89?.bull || rip10?.c72_89?.above)
-            && (rip1H?.c72_89?.bull || rip1H?.c72_89?.above)
-            && (rip10?.c180_200?.bull || rip10?.c180_200?.above || Number(rip10?.c180_200?.distToCloudPct) > 0.01)
+            (tt10?.c72_89?.bull || tt10?.c72_89?.above)
+            && (tt1H?.c72_89?.bull || tt1H?.c72_89?.above)
+            && (tt10?.c180_200?.bull || tt10?.c180_200?.above || Number(tt10?.c180_200?.distToCloudPct) > 0.01)
           );
           const shortStructuralDefense = !!(
-            (rip10?.c72_89?.bear || rip10?.c72_89?.below)
-            && (rip1H?.c72_89?.bear || rip1H?.c72_89?.below)
-            && (rip10?.c180_200?.bear || rip10?.c180_200?.below || Number(rip10?.c180_200?.distToCloudPct) > 0.01)
+            (tt10?.c72_89?.bear || tt10?.c72_89?.below)
+            && (tt1H?.c72_89?.bear || tt1H?.c72_89?.below)
+            && (tt10?.c180_200?.bear || tt10?.c180_200?.below || Number(tt10?.c180_200?.distToCloudPct) > 0.01)
           );
 
           const dEma21Break = isLong ? (dailyEma21 < 4) : (dailyEma21 > 6);
@@ -13572,12 +13590,14 @@ function computeRank(d) {
   if (setup) score += 4; // Reduced from 5
 
   // HTF/LTF contributions — thresholds adaptive
+  // Move Discovery insight: missed moves avg HTF=21.5 but rank stays near 0.
+  // Increase HTF weight so strong trends surface in ranking.
   const htfStrong = aw?.htf_strong_threshold ?? 25;
   if (Number.isFinite(htf)) {
     const htfAbs = Math.abs(htf);
-    if (htfAbs >= htfStrong) score += Math.min(10, htfAbs * 0.4);
-    else if (htfAbs >= 15) score += Math.min(7, htfAbs * 0.35);
-    else score += Math.min(4, htfAbs * 0.25);
+    if (htfAbs >= htfStrong) score += Math.min(14, htfAbs * 0.5);
+    else if (htfAbs >= 15) score += Math.min(10, htfAbs * 0.45);
+    else score += Math.min(5, htfAbs * 0.3);
   }
 
   const ltfStrong = aw?.ltf_strong_threshold ?? 20;
@@ -13586,6 +13606,12 @@ function computeRank(d) {
     if (ltfAbs >= ltfStrong) score += Math.min(10, ltfAbs * 0.3);
     else if (ltfAbs >= 12) score += Math.min(6, ltfAbs * 0.25);
     else score += Math.min(3, ltfAbs * 0.2);
+  }
+
+  // Strong trend bonus: when HTF is very strong AND state is aligned,
+  // give extra lift to ensure these don't stay buried at low rank.
+  if (Number.isFinite(htf) && Math.abs(htf) >= 30 && aligned) {
+    score += 6;
   }
 
   // Completion bonus — adaptive when available
@@ -13643,17 +13669,19 @@ function computeRank(d) {
     score -= 5; // HTF/LTF divergence: setup reliability drops significantly
   }
 
-  // Sector bias adjustment — DATA-DRIVEN (Phase 1 analysis: massive sector skew).
-  // Basic Materials 86.4% UP, Precious Metals 83.3% UP, Energy 100% UP
-  // Financials 13.6% UP (86.4% bearish), Crypto 43.9% UP
+  // Sector bias adjustment — DATA-DRIVEN (Phase 1 analysis + Move Discovery).
+  // Move Discovery: metals (GLD, SLV, AGQ), semis (MU, LRCX, AMAT, SNDK, WDC)
+  // are systematically missed — 285 tickers never captured, many from these sectors.
   const ticker = String(d?.ticker || "").toUpperCase();
   const sector = SECTOR_MAP[ticker] || "";
   if (sector === "Basic Materials" || sector === "Precious Metals" || sector === "Energy") {
-    score += 3; // Strong historical bullish bias
+    score += 5;
+  } else if (sector === "Semiconductors" || sector === "Technology") {
+    score += 3;
   } else if (sector === "Financials") {
-    score -= 4; // Strong historical bearish bias (only 13.6% UP)
+    score -= 4;
   } else if (sector === "Crypto") {
-    score -= 2; // Moderate bearish bias (43.9% UP)
+    score -= 2;
   }
 
   // RSI Divergence boost/penalty (from tf_tech bundle rsiDiv)
@@ -42396,7 +42424,13 @@ Your role is to observe market conditions, identify opportunities, warn about ri
   - HTF/LTF, quadrant names → "bigger-timeframe trend" / "short-term trend" and "bull setup" / "bull momentum" etc.
   - In corridor → "price is in the suggested entry zone"
   - Squeeze release → "momentum firing after a pause"
+  - BSL (Buyside Liquidity) → "resistance ceiling — a recent high where selling pressure may appear"
+  - SSL (Sellside Liquidity) → "support floor — a recent low where buyers may step in"
+  - FVG (Fair Value Gap) → "an unfilled price gap the market may revisit"
+  - VIX / VX1! → "the market's fear gauge — higher = more uncertainty, lower = calmer conditions"
 - Give a short, clear thesis first (one or two sentences), then simple analysis, then guidance. Be conversational and natural, like a seasoned analyst's quick insight — not a canned template.
+- When discussing market conditions, always consider volatility context (VIX). High VIX = caution warranted, low VIX = conditions favor setups.
+- Lead with risk factors and what to watch out for BEFORE discussing opportunities. Traders want to know the hazards first, then the plan.
 - Prefer "this looks like a strong setup" over "Prime setup with excellent RR". Prefer "price is still early in the move" over "Phase 6%, Completion 17%".
 
 ## YOUR CAPABILITIES
@@ -43062,6 +43096,9 @@ Remember: Be professional, accurate, and prioritize user safety. Use plain langu
           const summaryPrompt = `You are a senior trading analyst providing a comprehensive daily market thesis. Write as if someone asked you: "How did the market do today? What interesting developments were there?"
 
 Your response should be thesis-driven, narrative, and detailed - like a professional market commentary.
+Lead with the risk environment and volatility context first (VIX, macro headwinds/tailwinds), then discuss how SPY/QQQ reacted, then move into trade-level performance.
+Translate technical terms into plain language — our users range from beginners to experienced traders.
+When mentioning tickers, include daily change % where available.
 
 ## TODAY'S PERFORMANCE SUMMARY
 
@@ -43626,24 +43663,26 @@ ${
 
 ## MONITORING RESPONSE FORMAT
 
-Structure your response so it reads like a brief, thoughtful analyst insight — thesis first, then evidence in plain language.
+Structure your response like a professional trader's situational awareness brief: risk first, then opportunities, then the plan.
 
-### 1. Lead with a short thesis (1–3 sentences)
-- State the main takeaway in plain language: e.g. "Conditions look favorable for a few high-quality setups; a couple of names are late in their move and worth watching for risk."
-- No jargon. No "Prime setups" or "Momentum Elite" without briefly explaining what that means for the user.
+### 1. 🌡️ Risk & Volatility Context (ALWAYS LEAD WITH THIS)
+- Start with the big picture: what's the current risk environment?
+- Reference VIX/volatility if available — translate it: "The market's fear gauge is elevated/calm, meaning..."
+- Flag any macro risks, sector rotation, or unusual conditions.
+- SPY and QQQ are the primary market benchmarks our users trade.
 
-### 2. 🎯 Opportunities
+### 2. ⚠️ Warnings
+
+Group by type (High-Risk, Approaching TP, Approaching SL). For each:
+- Ticker in **bold**, then a simple explanation (e.g. "Most of the move may already be done — consider reducing exposure or tightening stops").
+- Use plain language; avoid raw metrics without a short interpretation.
+
+### 3. 🎯 Opportunities
 
 List setups worth watching. For each:
 - Ticker in **bold**, then a short sentence in plain language (e.g. "Strong setup quality, early in the move, good reward vs. risk").
 - You may include Rank, RR, Price, Phase %, Completion % for clarity, but always add a simple one-line takeaway.
 - Avoid canned phrases like "Prime setup with excellent risk/reward." Be specific and natural.
-
-### 3. ⚠️ Warnings
-
-Group by type (High-Risk, Approaching TP, Approaching SL). For each:
-- Ticker in **bold**, then a simple explanation (e.g. "Most of the move may already be done — consider reducing exposure or tightening stops").
-- Use plain language; avoid raw metrics without a short interpretation.
 
 ### 4. 📊 Market Insights (optional, brief)
 
@@ -43651,7 +43690,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
 
 ### 5. 💡 Recommendations
 
-3–5 short, actionable next steps in plain language. Number them. Reference specific tickers when relevant.
+3–5 short, actionable next steps in plain language. Number them. Reference specific tickers when relevant. Frame as risk management first, then opportunity capture.
 
 **FORMATTING:** Use **bold** for tickers, blank lines between sections, bullets for lists. Keep paragraphs short.
 

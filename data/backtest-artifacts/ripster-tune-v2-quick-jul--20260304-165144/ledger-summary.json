@@ -1,0 +1,176 @@
+{
+  "ok": true,
+  "since": null,
+  "until": null,
+  "totals": {
+    "totalTrades": 74,
+    "openTrades": 26,
+    "closedTrades": 48,
+    "wins": 29,
+    "losses": 19,
+    "winRate": 60.416666666666664,
+    "closedPnl": 6134.92147943957,
+    "profitFactor": 6.916687302456167,
+    "avgWin": 247.30365518713734,
+    "avgLoss": 54.5728695256533,
+    "expectancy": 127.81086415499105,
+    "grossWin": 7171.806000426983,
+    "grossLoss": 1036.8845209874128
+  },
+  "breakdown": {
+    "byRank": [
+      {
+        "bucket": "60-69",
+        "n": 8,
+        "wins": 1,
+        "losses": 3,
+        "pnl": -86.41424787534942
+      },
+      {
+        "bucket": "70-79",
+        "n": 17,
+        "wins": 7,
+        "losses": 9,
+        "pnl": 449.12450897753746
+      },
+      {
+        "bucket": "80+",
+        "n": 23,
+        "wins": 15,
+        "losses": 7,
+        "pnl": 356.44027633894945
+      },
+      {
+        "bucket": "<60",
+        "n": 1,
+        "wins": 1,
+        "losses": 0,
+        "pnl": 29.60872333651735
+      },
+      {
+        "bucket": "unknown",
+        "n": 25,
+        "wins": 5,
+        "losses": 0,
+        "pnl": 5386.162218661915
+      }
+    ],
+    "byRR": [
+      {
+        "bucket": "1.5-1.99",
+        "n": 4,
+        "wins": 3,
+        "losses": 1,
+        "pnl": 166.01510398467582
+      },
+      {
+        "bucket": "2.0+",
+        "n": 45,
+        "wins": 21,
+        "losses": 18,
+        "pnl": 582.744156792979
+      },
+      {
+        "bucket": "unknown",
+        "n": 25,
+        "wins": 5,
+        "losses": 0,
+        "pnl": 5386.162218661915
+      }
+    ],
+    "byExitReason": [
+      {
+        "reason": "unknown",
+        "n": 25,
+        "wins": 0,
+        "losses": 0,
+        "pnl": 0
+      },
+      {
+        "reason": "ripster_5_12_lost",
+        "n": 21,
+        "wins": 7,
+        "losses": 14,
+        "pnl": 315.7515017867334
+      },
+      {
+        "reason": "SOFT_FUSE_RSI_CONFIRMED",
+        "n": 8,
+        "wins": 6,
+        "losses": 1,
+        "pnl": 482.78408653177684
+      },
+      {
+        "reason": "dedup_reconcile",
+        "n": 5,
+        "wins": 5,
+        "losses": 0,
+        "pnl": 5386.162218661915
+      },
+      {
+        "reason": "below_trigger,trigger_breached_5pct,large_adverse_move",
+        "n": 3,
+        "wins": 2,
+        "losses": 1,
+        "pnl": 125.71722484927986
+      },
+      {
+        "reason": "below_trigger,trigger_breached_5pct,overextended,left_entry_corridor,large_adverse_move",
+        "n": 2,
+        "wins": 1,
+        "losses": 1,
+        "pnl": 38.42229831367322
+      },
+      {
+        "reason": "below_trigger,trigger_breached_5pct,overextended,large_adverse_move",
+        "n": 2,
+        "wins": 1,
+        "losses": 1,
+        "pnl": 29.718045371058977
+      },
+      {
+        "reason": "below_trigger,trigger_breached_5pct,late_cycle,overextended,left_entry_corridor,large_adverse_move",
+        "n": 2,
+        "wins": 2,
+        "losses": 0,
+        "pnl": 164.07810404597154
+      },
+      {
+        "reason": "below_trigger,trigger_breached_5pct,daily_ema_regime_break,overextended,large_adverse_move",
+        "n": 2,
+        "wins": 2,
+        "losses": 0,
+        "pnl": 25.293654754445313
+      },
+      {
+        "reason": "ripster_34_50_lost_mtf",
+        "n": 1,
+        "wins": 0,
+        "losses": 1,
+        "pnl": -536.1412364340993
+      },
+      {
+        "reason": "below_trigger,trigger_breached_5pct,late_cycle,overextended,large_adverse_move",
+        "n": 1,
+        "wins": 1,
+        "losses": 0,
+        "pnl": 40.297879135395966
+      },
+      {
+        "reason": "below_trigger,trigger_breached_5pct,daily_ema_regime_break,adverse_move_warning",
+        "n": 1,
+        "wins": 1,
+        "losses": 0,
+        "pnl": 32.680509674374484
+      },
+      {
+        "reason": "HARD_FUSE_RSI_EXTREME",
+        "n": 1,
+        "wins": 1,
+        "losses": 0,
+        "pnl": 30.15719274904452
+      }
+    ],
+    "byTriggerReason": []
+  }
+}

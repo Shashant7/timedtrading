@@ -1,0 +1,10 @@
+{
+  "ok": true,
+  "label": "july-normal-fidelity-rsi-guard-",
+  "captured_at": "20260305-171347",
+  "start_date": "2025-07-01",
+  "end_date": "2025-07-31",
+  "trader_only": true,
+  "sequence": false,
+  "note": "Captured automatically before reset for A/B comparison."
+}

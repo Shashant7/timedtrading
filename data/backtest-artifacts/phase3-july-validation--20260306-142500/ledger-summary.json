@@ -1,0 +1,106 @@
+{
+  "ok": true,
+  "since": null,
+  "until": null,
+  "totals": {
+    "totalTrades": 14,
+    "openTrades": 9,
+    "closedTrades": 5,
+    "wins": 3,
+    "losses": 2,
+    "winRate": 60,
+    "closedPnl": 194.32151896134334,
+    "profitFactor": 3.3571299339620997,
+    "avgWin": 92.25380107657072,
+    "avgLoss": 41.219942134184414,
+    "expectancy": 38.86430379226867,
+    "grossWin": 276.7614032297122,
+    "grossLoss": 82.43988426836883
+  },
+  "breakdown": {
+    "byRank": [
+      {
+        "bucket": "60-69",
+        "n": 1,
+        "wins": 0,
+        "losses": 0,
+        "pnl": 0
+      },
+      {
+        "bucket": "70-79",
+        "n": 5,
+        "wins": 0,
+        "losses": 1,
+        "pnl": -10.070093822538988
+      },
+      {
+        "bucket": "80+",
+        "n": 3,
+        "wins": 1,
+        "losses": 0,
+        "pnl": 143.00947486751372
+      },
+      {
+        "bucket": "<60",
+        "n": 5,
+        "wins": 2,
+        "losses": 1,
+        "pnl": 61.38213791636862
+      }
+    ],
+    "byRR": [
+      {
+        "bucket": "2.0+",
+        "n": 13,
+        "wins": 2,
+        "losses": 2,
+        "pnl": 51.31204409382963
+      },
+      {
+        "bucket": "<1.0",
+        "n": 1,
+        "wins": 1,
+        "losses": 0,
+        "pnl": 143.00947486751372
+      }
+    ],
+    "byExitReason": [
+      {
+        "reason": "unknown",
+        "n": 10,
+        "wins": 1,
+        "losses": 0,
+        "pnl": 125.2879125133071
+      },
+      {
+        "reason": "ripster_short_pivot_reclaimed",
+        "n": 1,
+        "wins": 0,
+        "losses": 1,
+        "pnl": -10.070093822538988
+      },
+      {
+        "reason": "post_trim_breakeven_protect",
+        "n": 1,
+        "wins": 1,
+        "losses": 0,
+        "pnl": 143.00947486751372
+      },
+      {
+        "reason": "dedup_reconcile",
+        "n": 1,
+        "wins": 1,
+        "losses": 0,
+        "pnl": 8.464015848891348
+      },
+      {
+        "reason": "below_trigger,trigger_breached_5pct,overextended,large_adverse_move",
+        "n": 1,
+        "wins": 0,
+        "losses": 1,
+        "pnl": -72.36979044582984
+      }
+    ],
+    "byTriggerReason": []
+  }
+}

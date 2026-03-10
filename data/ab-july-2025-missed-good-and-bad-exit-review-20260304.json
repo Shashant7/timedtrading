@@ -1,0 +1,466 @@
+{
+  "generated_at": "2026-03-04T21:42:14.631Z",
+  "period": {
+    "start": "2025-07-01",
+    "end": "2025-07-31"
+  },
+  "overlap": {
+    "control": {
+      "closedTrades": 45,
+      "maxConcurrent": 10,
+      "sameTickerOverlapCount": 0,
+      "sameTickerOverlapExamples": []
+    },
+    "variant": {
+      "closedTrades": 64,
+      "maxConcurrent": 10,
+      "sameTickerOverlapCount": 3,
+      "sameTickerOverlapExamples": [
+        {
+          "ticker": "AWI",
+          "a": "AWI-1751572200000-5quino4zb",
+          "b": "AWI-1751998200000-24bx6qwlw"
+        },
+        {
+          "ticker": "AWI",
+          "a": "AWI-1751572200000-5quino4zb",
+          "b": "AWI-1752156000000-khup3knmt"
+        },
+        {
+          "ticker": "AWI",
+          "a": "AWI-1751572200000-5quino4zb",
+          "b": "AWI-1753811400000-p2s5w1g9y"
+        }
+      ]
+    }
+  },
+  "control_good_trades": {
+    "total_good": 16,
+    "missing_in_variant": 15,
+    "ranked_missing": [
+      {
+        "trade_id": "ANET-1752168900000-5e3qqqjpl",
+        "ticker": "ANET",
+        "direction": "LONG",
+        "entry_day": "2025-07-10",
+        "control_pnl": 722.7701651571363,
+        "control_pnl_pct": 12.258820208862543,
+        "variant_snapshot": {
+          "stage": "exit",
+          "block_reason": null,
+          "htf_score": 40.3,
+          "ltf_score": 18.5,
+          "score": 77,
+          "ema_regime_daily": 2,
+          "ema_regime_4h": 2
+        },
+        "review_recommendation": "Add rapid re-entry/reclaim path after management-stage transitions to avoid missing resumed trends."
+      },
+      {
+        "trade_id": "PWR-1753278000000-rezd94zbm",
+        "ticker": "PWR",
+        "direction": "LONG",
+        "entry_day": "2025-07-23",
+        "control_pnl": 340.2575570187652,
+        "control_pnl_pct": 4.222822927625727,
+        "variant_snapshot": {
+          "stage": "trim",
+          "block_reason": "ripster_bias_not_aligned",
+          "htf_score": 39.6,
+          "ltf_score": 25.3,
+          "score": 70,
+          "ema_regime_daily": 2,
+          "ema_regime_4h": 2
+        },
+        "review_recommendation": "Relax strict 34/50 MTF unanimity (allow 2-of-3 with D+1H priority) or permit pullback exception when D/1H aligned and 10m recovering."
+      },
+      {
+        "trade_id": "PLTR-1753278000000-nwrgfxwjv",
+        "ticker": "PLTR",
+        "direction": "LONG",
+        "entry_day": "2025-07-23",
+        "control_pnl": 317.65961794794976,
+        "control_pnl_pct": 4.91344873501999,
+        "variant_snapshot": {
+          "stage": "exit",
+          "block_reason": null,
+          "htf_score": 44,
+          "ltf_score": 21.6,
+          "score": 61,
+          "ema_regime_daily": 2,
+          "ema_regime_4h": 2
+        },
+        "review_recommendation": "Add rapid re-entry/reclaim path after management-stage transitions to avoid missing resumed trends."
+      },
+      {
+        "trade_id": "AMZN-1751377200000-8rt20h0ih",
+        "ticker": "AMZN",
+        "direction": "LONG",
+        "entry_day": "2025-07-01",
+        "control_pnl": 315.7435569040383,
+        "control_pnl_pct": 3.9467944613004793,
+        "variant_snapshot": {
+          "stage": "exit",
+          "block_reason": "golden_htf_below_floor",
+          "htf_score": 40.8,
+          "ltf_score": 7.3,
+          "score": 72,
+          "ema_regime_daily": 2,
+          "ema_regime_4h": 2
+        },
+        "review_recommendation": "Decouple legacy quality/rank floors when ripster bias+trigger are valid; use softer thresholds in strong daily regime."
+      },
+      {
+        "trade_id": "GE-1751564100000-43zwmucxh",
+        "ticker": "GE",
+        "direction": "LONG",
+        "entry_day": "2025-07-03",
+        "control_pnl": 256.8559957100041,
+        "control_pnl_pct": 5.217113577446543,
+        "variant_snapshot": {
+          "stage": "exit",
+          "block_reason": "ripster_bias_not_aligned",
+          "htf_score": 33.9,
+          "ltf_score": -8,
+          "score": 90,
+          "ema_regime_daily": 2,
+          "ema_regime_4h": -2
+        },
+        "review_recommendation": "Relax strict 34/50 MTF unanimity (allow 2-of-3 with D+1H priority) or permit pullback exception when D/1H aligned and 10m recovering."
+      },
+      {
+        "trade_id": "CCJ-1752520200000-ipxrkt7nz",
+        "ticker": "CCJ",
+        "direction": "LONG",
+        "entry_day": "2025-07-14",
+        "control_pnl": 244.21073662801555,
+        "control_pnl_pct": 5.030609528879427,
+        "variant_snapshot": {
+          "stage": "enter",
+          "block_reason": null,
+          "htf_score": 41.5,
+          "ltf_score": 26.2,
+          "score": 83,
+          "ema_regime_daily": 2,
+          "ema_regime_4h": 2
+        },
+        "review_recommendation": "Review snapshot manually; no dominant block reason captured."
+      },
+      {
+        "trade_id": "H-1752069600000-comqytyoa",
+        "ticker": "H",
+        "direction": "LONG",
+        "entry_day": "2025-07-09",
+        "control_pnl": 213.25660044748804,
+        "control_pnl_pct": 2.6657075055936006,
+        "variant_snapshot": {
+          "stage": "trim",
+          "block_reason": "golden_htf_below_floor",
+          "htf_score": 35.5,
+          "ltf_score": 16,
+          "score": 100,
+          "ema_regime_daily": 2,
+          "ema_regime_4h": 2
+        },
+        "review_recommendation": "Decouple legacy quality/rank floors when ripster bias+trigger are valid; use softer thresholds in strong daily regime."
+      },
+      {
+        "trade_id": "PH-1753278000000-lh88xnilr",
+        "ticker": "PH",
+        "direction": "LONG",
+        "entry_day": "2025-07-23",
+        "control_pnl": 147.72994886160393,
+        "control_pnl_pct": 1.9120920009095357,
+        "variant_snapshot": {
+          "stage": "exit",
+          "block_reason": "trigger_stale",
+          "htf_score": 44.7,
+          "ltf_score": 21.4,
+          "score": 83,
+          "ema_regime_daily": 2,
+          "ema_regime_4h": 2
+        },
+        "review_recommendation": "Review snapshot manually; no dominant block reason captured."
+      },
+      {
+        "trade_id": "MSFT-1752500700000-1n0uhzg15",
+        "ticker": "MSFT",
+        "direction": "LONG",
+        "entry_day": "2025-07-14",
+        "control_pnl": 114.55406451902307,
+        "control_pnl_pct": 1.910942134283501,
+        "variant_snapshot": {
+          "stage": "enter",
+          "block_reason": null,
+          "htf_score": 44.6,
+          "ltf_score": 14.5,
+          "score": 82,
+          "ema_regime_daily": 2,
+          "ema_regime_4h": 2
+        },
+        "review_recommendation": "Review snapshot manually; no dominant block reason captured."
+      },
+      {
+        "trade_id": "DPZ-1752773400000-q7e56qa8s",
+        "ticker": "DPZ",
+        "direction": "LONG",
+        "entry_day": "2025-07-17",
+        "control_pnl": 93.45913553487237,
+        "control_pnl_pct": 1.5576522589145396,
+        "variant_snapshot": {
+          "stage": "watch",
+          "block_reason": "rr_too_low",
+          "htf_score": 30.1,
+          "ltf_score": 8.5,
+          "score": 73,
+          "ema_regime_daily": 2,
+          "ema_regime_4h": 2
+        },
+        "review_recommendation": "Review snapshot manually; no dominant block reason captured."
+      },
+      {
+        "trade_id": "PANW-1751908800000-2sor7ys0d",
+        "ticker": "PANW",
+        "direction": "LONG",
+        "entry_day": "2025-07-07",
+        "control_pnl": 89.07169772778188,
+        "control_pnl_pct": 1.2321702098840925,
+        "variant_snapshot": {
+          "stage": "watch",
+          "block_reason": "ripster_bias_not_aligned",
+          "htf_score": 29.3,
+          "ltf_score": 8.4,
+          "score": 73,
+          "ema_regime_daily": 2,
+          "ema_regime_4h": 1
+        },
+        "review_recommendation": "Relax strict 34/50 MTF unanimity (allow 2-of-3 with D+1H priority) or permit pullback exception when D/1H aligned and 10m recovering."
+      },
+      {
+        "trade_id": "AAPL-1752154500000-6gsxgabt2",
+        "ticker": "AAPL",
+        "direction": "LONG",
+        "entry_day": "2025-07-10",
+        "control_pnl": 78.61098894506927,
+        "control_pnl_pct": 0.9826373618133658,
+        "variant_snapshot": {
+          "stage": "exit",
+          "block_reason": "da_htf_too_low",
+          "htf_score": 33.5,
+          "ltf_score": 14.1,
+          "score": 58,
+          "ema_regime_daily": 2,
+          "ema_regime_4h": 2
+        },
+        "review_recommendation": "Decouple legacy quality/rank floors when ripster bias+trigger are valid; use softer thresholds in strong daily regime."
+      },
+      {
+        "trade_id": "ORCL-1753278000000-8hlj4zcuo",
+        "ticker": "ORCL",
+        "direction": "LONG",
+        "entry_day": "2025-07-23",
+        "control_pnl": 56.843153130709254,
+        "control_pnl_pct": 5.702312140714664,
+        "variant_snapshot": {
+          "stage": "exit",
+          "block_reason": "ripster_bias_not_aligned",
+          "htf_score": 36.9,
+          "ltf_score": 19.1,
+          "score": 71,
+          "ema_regime_daily": 2,
+          "ema_regime_4h": 2
+        },
+        "review_recommendation": "Relax strict 34/50 MTF unanimity (allow 2-of-3 with D+1H priority) or permit pullback exception when D/1H aligned and 10m recovering."
+      },
+      {
+        "trade_id": "GE-1753278000000-2a7ul15i3",
+        "ticker": "GE",
+        "direction": "LONG",
+        "entry_day": "2025-07-23",
+        "control_pnl": 33.61008364969018,
+        "control_pnl_pct": 3.365045471011035,
+        "variant_snapshot": {
+          "stage": "defend",
+          "block_reason": "ripster_bias_not_aligned",
+          "htf_score": 37.6,
+          "ltf_score": 17.6,
+          "score": 90,
+          "ema_regime_daily": 2,
+          "ema_regime_4h": 2
+        },
+        "review_recommendation": "Relax strict 34/50 MTF unanimity (allow 2-of-3 with D+1H priority) or permit pullback exception when D/1H aligned and 10m recovering."
+      },
+      {
+        "trade_id": "DY-1753709400000-bjas7xg29",
+        "ticker": "DY",
+        "direction": "LONG",
+        "entry_day": "2025-07-28",
+        "control_pnl": 23.726197718631095,
+        "control_pnl_pct": 2.376505222359544,
+        "variant_snapshot": {
+          "stage": "just_entered",
+          "block_reason": null,
+          "htf_score": 45.6,
+          "ltf_score": 20.6,
+          "score": 59,
+          "ema_regime_daily": 2,
+          "ema_regime_4h": 2
+        },
+        "review_recommendation": "Review snapshot manually; no dominant block reason captured."
+      }
+    ]
+  },
+  "variant_bad_exit_analysis": {
+    "count": 35,
+    "winners": 21,
+    "losses": 14,
+    "avgPnlPct": 2.7757488342047987,
+    "avgHoldDays": 27.420748678902115,
+    "earlyExitCandidates": [
+      {
+        "trade_id": "HII-1751376600000-p65kuz67d",
+        "ticker": "HII",
+        "pnlPct": 0.1306696664217897,
+        "holdDays": 0.2569444444444444,
+        "entry_day": "2025-07-01",
+        "status": "WIN"
+      },
+      {
+        "trade_id": "KLAC-1752773700000-1qkfqnm0s",
+        "ticker": "KLAC",
+        "pnlPct": 0.17664424630528328,
+        "holdDays": 0.8368055555555556,
+        "entry_day": "2025-07-17",
+        "status": "WIN"
+      },
+      {
+        "trade_id": "AWI-1751998200000-24bx6qwlw",
+        "ticker": "AWI",
+        "pnlPct": 0.18368749970160395,
+        "holdDays": 0.8055555555555556,
+        "entry_day": "2025-07-08",
+        "status": "WIN"
+      },
+      {
+        "trade_id": "CAT-1753278600000-gjd61olvx",
+        "ticker": "CAT",
+        "pnlPct": 0.2078550798768408,
+        "holdDays": 0.010416666666666666,
+        "entry_day": "2025-07-23",
+        "status": "WIN"
+      },
+      {
+        "trade_id": "ORCL-1753811400000-yplmfer45",
+        "ticker": "ORCL",
+        "pnlPct": 0.28764261610156205,
+        "holdDays": 0.8263888888888888,
+        "entry_day": "2025-07-29",
+        "status": "WIN"
+      },
+      {
+        "trade_id": "AWI-1753811400000-p2s5w1g9y",
+        "ticker": "AWI",
+        "pnlPct": 0.3769649093630565,
+        "holdDays": 0.003472222222222222,
+        "entry_day": "2025-07-29",
+        "status": "WIN"
+      },
+      {
+        "trade_id": "GEV-1752846300000-qcy2ve5fl",
+        "ticker": "GEV",
+        "pnlPct": 0.4009046470122912,
+        "holdDays": 0.17708333333333334,
+        "entry_day": "2025-07-18",
+        "status": "WIN"
+      },
+      {
+        "trade_id": "HII-1752156000000-kmkq6wtp0",
+        "ticker": "HII",
+        "pnlPct": 0.6706339236011649,
+        "holdDays": 0.9861111111111112,
+        "entry_day": "2025-07-10",
+        "status": "WIN"
+      },
+      {
+        "trade_id": "CAT-1751463000000-kqiqnfb8y",
+        "ticker": "CAT",
+        "pnlPct": 0.6835565268213489,
+        "holdDays": 0.16666666666666666,
+        "entry_day": "2025-07-02",
+        "status": "WIN"
+      },
+      {
+        "trade_id": "FIX-1752684600000-copetpqgx",
+        "ticker": "FIX",
+        "pnlPct": 0.8380168745517536,
+        "holdDays": 0.8611111111111112,
+        "entry_day": "2025-07-16",
+        "status": "WIN"
+      },
+      {
+        "trade_id": "PH-1751376900000-qfcfw680g",
+        "ticker": "PH",
+        "pnlPct": 0.8787543883074505,
+        "holdDays": 0.23958333333333334,
+        "entry_day": "2025-07-01",
+        "status": "WIN"
+      },
+      {
+        "trade_id": "H-1751903400000-pipo5vs0b",
+        "ticker": "H",
+        "pnlPct": 0.9672108656880207,
+        "holdDays": 1.0625,
+        "entry_day": "2025-07-07",
+        "status": "WIN"
+      },
+      {
+        "trade_id": "ALB-1752773700000-pec8zidfm",
+        "ticker": "ALB",
+        "pnlPct": 1.1052631578947414,
+        "holdDays": 0.8333333333333334,
+        "entry_day": "2025-07-17",
+        "status": "WIN"
+      },
+      {
+        "trade_id": "CAT-1751378400000-vxc10j8pr",
+        "ticker": "CAT",
+        "pnlPct": 1.3674197737532952,
+        "holdDays": 0.16666666666666666,
+        "entry_day": "2025-07-01",
+        "status": "WIN"
+      },
+      {
+        "trade_id": "GEV-1753384800000-mh8wzbbnq",
+        "ticker": "GEV",
+        "pnlPct": 1.4545435075407538,
+        "holdDays": 0.7569444444444444,
+        "entry_day": "2025-07-24",
+        "status": "WIN"
+      },
+      {
+        "trade_id": "H-1751376600000-yrvy2okmb",
+        "ticker": "H",
+        "pnlPct": 1.7195121951219412,
+        "holdDays": 0.16666666666666666,
+        "entry_day": "2025-07-01",
+        "status": "WIN"
+      }
+    ]
+  },
+  "recommendations": {
+    "entry": [
+      "Soften ripster bias gate from strict 3/3 (D,1H,10m 34/50) to 2/3 with D+1H mandatory in strong daily regime.",
+      "Add secondary trigger path when 5/12 cross is absent but 8/9 reclaim + ST flip + improving LTF confirms continuation.",
+      "Reduce/disable legacy da_htf_too_low and adaptive_rank_below_min blockers for ripster-qualified setups in regime-confirmed trend."
+    ],
+    "exits": [
+      "Demote first 5/12 loss to DEFEND/TRIM, not full EXIT; require 34/50 loss persistence + 1H confirmation for hard exits.",
+      "Add N-bar debounce (2-3 bars) for ripster management exits to avoid one-bar shakeout exits.",
+      "Add re-entry reclaim rule after premature exit when 34/50 bias re-aligns and 5/12 recrosses within short window."
+    ],
+    "risk_controls": [
+      "Disallow overlapping same-ticker entries unless explicit add-entry criteria and risk budget remain valid.",
+      "Track exit efficiency proxy: bad_exit with positive pnl and short hold as under-capture candidates."
+    ]
+  }
+}

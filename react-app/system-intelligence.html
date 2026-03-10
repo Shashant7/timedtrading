@@ -2892,11 +2892,38 @@ function MoveDiscoveryTab({ report, loading, error }) {
           </div>
           <div className="card p-4">
             <h3 className="text-sm font-semibold text-white mb-3">Current Read</h3>
-            <div className="flex flex-col gap-2 text-sm text-slate-300">
-              <div><span className="text-rose-300 font-medium">Miss drivers:</span> {breakdownEntries.slice(0, 3).map((item) => item.key).join(", ") || "None yet"}</div>
-              <div><span className="text-amber-300 font-medium">Churn cost:</span> {summary.total_missed_upside_from_churn || 0}% missed upside</div>
-              <div><span className="text-sky-300 font-medium">Primary action:</span> {totalNoTrail > 0 ? `Fix trail coverage first. Current NO_TRAIL_DATA is mostly ${coverageEntries[0]?.key || "coverage drift"}, so backfill or mask uncovered move windows before tuning entries.` : "Coverage is not the main blocker right now; focus on the highest stable miss bucket first."}</div>
-            </div>
+            {(() => {
+              const noTrailPct = totalDiagnosed > 0 ? Math.round((totalNoTrail / totalDiagnosed) * 100) : 0;
+              const topDriver = breakdownEntries[0];
+              const topDriverPct = totalDiagnosed > 0 && topDriver ? Math.round((topDriver.count / totalDiagnosed) * 100) : 0;
+              const lowRankCount = Number(diagnosis?.breakdown?.low_rank) || 0;
+              const wrongStateCount = Number(diagnosis?.breakdown?.wrong_state) || 0;
+              const captureRate = Number(summary.capture_rate_pct) || 0;
+              let action = "";
+              if (totalDiagnosed === 0) {
+                action = "No diagnosis data yet. Run the diagnosis scripts to see actionable insights.";
+              } else if (noTrailPct > 50) {
+                action = `Trail coverage is the main gap (${noTrailPct}% of misses). ${coverageEntries[0]?.key === "move_before_coverage" ? "Most moves predate trail backfill — extend backtest coverage." : "Backfill trail data for uncovered tickers/windows."}`;
+              } else if (lowRankCount > wrongStateCount && lowRankCount > totalNoTrail) {
+                action = `Low rank is the primary blocker (${Math.round(lowRankCount / totalDiagnosed * 100)}% of misses). Increase HTF weight in rank formula or lower rank gates for high-conviction setups.`;
+              } else if (wrongStateCount > lowRankCount && wrongStateCount > totalNoTrail) {
+                action = `Wrong state is the primary blocker (${Math.round(wrongStateCount / totalDiagnosed * 100)}% of misses). Tickers enter valid moves from non-qualifying states — consider relaxing state gates or adding more entry paths.`;
+              } else if (noTrailPct > 20) {
+                action = `Mixed blockers: trail gaps (${noTrailPct}%), ${topDriver?.key !== "no_trail_data" ? `${topDriver?.key} (${topDriverPct}%)` : `${breakdownEntries[1]?.key || "other"} (${totalDiagnosed > 0 && breakdownEntries[1] ? Math.round(breakdownEntries[1].count / totalDiagnosed * 100) : 0}%)`}. Address both trail coverage and entry tuning.`;
+              } else {
+                action = `Focus on the top miss bucket: ${topDriver?.key || "unknown"} (${topDriverPct}% of diagnosed misses).${captureRate < 5 ? " Capture rate is very low — consider broadening entry criteria." : ""}`;
+              }
+              return (
+                <div className="flex flex-col gap-2 text-sm text-slate-300">
+                  <div><span className="text-rose-300 font-medium">Miss drivers:</span> {breakdownEntries.slice(0, 3).map((item) => {
+                    const pct = totalDiagnosed > 0 ? Math.round(item.count / totalDiagnosed * 100) : 0;
+                    return `${item.key} (${pct}%)`;
+                  }).join(", ") || "None yet"}</div>
+                  <div><span className="text-amber-300 font-medium">Churn cost:</span> {summary.total_missed_upside_from_churn || 0}% missed upside</div>
+                  <div><span className="text-sky-300 font-medium">Primary action:</span> {action}</div>
+                </div>
+              );
+            })()}
           </div>
         </div>
       )}

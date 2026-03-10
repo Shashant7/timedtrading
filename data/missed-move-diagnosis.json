@@ -1,0 +1,84 @@
+{
+  "generated": "2026-03-09T22:30:20.666Z",
+  "total_candidates": 427,
+  "total_diagnosed": 427,
+  "limit_applied": null,
+  "breakdown": {
+    "low_rank": 324,
+    "low_htf": 0,
+    "wrong_state": 0,
+    "no_trail_data": 103,
+    "low_completion": 0,
+    "no_signals": 0,
+    "should_have_entered": 0
+  },
+  "coverage_breakdown": {
+    "no_rows_for_ticker": 0,
+    "move_before_coverage": 103,
+    "move_after_coverage": 0,
+    "gap_inside_coverage": 0
+  },
+  "coverage_examples": {
+    "no_rows_for_ticker": [],
+    "move_before_coverage": [
+      {
+        "ticker": "BE",
+        "direction": "UP",
+        "start_date": "2025-07-22",
+        "end_date": "2025-10-15",
+        "move_atr": 53.09,
+        "coverage_start": "2025-10-27",
+        "coverage_end": "2026-02-07",
+        "ticker_trail_rows": 3125
+      },
+      {
+        "ticker": "BE",
+        "direction": "UP",
+        "start_date": "2025-07-08",
+        "end_date": "2025-10-01",
+        "move_atr": 48.93,
+        "coverage_start": "2025-10-27",
+        "coverage_end": "2026-02-07",
+        "ticker_trail_rows": 3125
+      },
+      {
+        "ticker": "BE",
+        "direction": "DOWN",
+        "start_date": "2025-09-19",
+        "end_date": "2025-09-26",
+        "move_atr": 3.19,
+        "coverage_start": "2025-10-27",
+        "coverage_end": "2026-02-07",
+        "ticker_trail_rows": 3125
+      },
+      {
+        "ticker": "APP",
+        "direction": "UP",
+        "start_date": "2025-07-07",
+        "end_date": "2025-09-30",
+        "move_atr": 26.79,
+        "coverage_start": "2025-10-01",
+        "coverage_end": "2026-02-07",
+        "ticker_trail_rows": 3496
+      },
+      {
+        "ticker": "APP",
+        "direction": "UP",
+        "start_date": "2025-08-01",
+        "end_date": "2025-09-29",
+        "move_atr": 19.39,
+        "coverage_start": "2025-10-01",
+        "coverage_end": "2026-02-07",
+        "ticker_trail_rows": 3496
+      }
+    ],
+    "move_after_coverage": [],
+    "gap_inside_coverage": []
+  },
+  "kanban_distribution": {
+    "unknown": 157,
+    "watch": 185,
+    "setup": 85
+  },
+  "should_have_entered": []
+}
