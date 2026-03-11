@@ -31,8 +31,14 @@ Status and a live log tail refresh every few seconds.
 **Command line**
 
 ```bash
+# Build and freeze a canonical replay-ready dataset once for the exact window.
+./scripts/freeze-replay-dataset.sh 2025-07-01 2025-07-31 july-2025-canonical
+
 # Full run (gap check → backfill if needed → replay)
 ./scripts/full-backtest.sh 2025-07-01 2026-02-23 15
+
+# Reuse a frozen dataset manifest and skip Step 1.5 entirely.
+./scripts/full-backtest.sh --frozen-dataset=data/replay-datasets/july-2025-canonical/manifest.json --trader-only --low-write --keep-open-at-end 2025-07-01 2025-07-31 15
 
 # Resume from checkpoint (after pause or interrupt)
 ./scripts/full-backtest.sh --resume
@@ -56,19 +62,22 @@ Status and a live log tail refresh every few seconds.
 1. **Lock** — Acquires a replay lock (KV) so only one run is active.
 2. **Reset** — Clears trade state (D1 + KV): `trades`, `account_ledger`, `investor_positions`, `investor_lots`, `portfolio_snapshots`, and related keys. Candles in `ticker_candles` are **not** cleared.
 3. **Backfill (gap-based)** — Calls `GET /timed/admin/candle-gaps?startDate=...&endDate=...`. If `allClear` is true, skips backfill. Otherwise backfills only tickers with missing candle coverage. **Run `./scripts/backfill-history.sh` once** to avoid gaps; then this step typically skips.
-4. **Replay** — For each trading day in range (skips weekends and listed holidays), calls `POST /timed/admin/candle-replay` in batches (e.g. 15 tickers per batch). At end of each day: runs investor daily replay and snapshots both portfolios (unless `--trader-only` or `--sequence`; then day state is saved to KV for investor-only backfill).
-5. **Sequence (optional)** — If `--sequence` was used, after the replay loop the script runs an investor-only pass: for each day it calls `POST /timed/admin/investor-replay?date=...` using the saved day state. No candles are loaded again.
-6. **Checkpoint** — After each day, writes `data/replay-checkpoint.txt` (next date, end date, batch size) so you can resume with `--resume`.
-7. **Unlock** — On completion, releases the replay lock and removes the checkpoint.
+4. **Frozen dataset (optional)** — `./scripts/freeze-replay-dataset.sh` builds a verified replay-ready candle window and writes `data/replay-datasets/<label>/manifest.json`. When you pass that manifest to `full-backtest.sh --frozen-dataset=...`, Step 1.5 is skipped entirely, but only if the manifest matches the exact replay window and reports zero supported tickers with gaps.
+5. **Replay** — For each trading day in range (skips weekends and listed holidays), calls `POST /timed/admin/candle-replay` in batches (e.g. 15 tickers per batch). At end of each day: runs investor daily replay and snapshots both portfolios (unless `--trader-only` or `--sequence`; then day state is saved to KV for investor-only backfill).
+6. **Sequence (optional)** — If `--sequence` was used, after the replay loop the script runs an investor-only pass: for each day it calls `POST /timed/admin/investor-replay?date=...` using the saved day state. No candles are loaded again.
+7. **Checkpoint** — After each day, writes `data/replay-checkpoint.txt` (next date, end date, batch size) so you can resume with `--resume`.
+8. **Unlock** — On completion, releases the replay lock and removes the checkpoint.
 
 ## Files
 
 | File | Purpose |
 |------|--------|
 | `scripts/full-backtest.sh` | Orchestrates lock, reset, gap check, backfill, replay loop, checkpoint. |
+| `scripts/freeze-replay-dataset.sh` | Builds a verified replay-ready candle window and writes a frozen manifest for reuse. |
 | `scripts/replay-ui-server.js` | Local server: serves Replay Control UI and API (status, start, resume, pause). |
 | `data/replay.log` | Log output when running from the UI (or when using `tee data/replay.log`). |
 | `data/replay-checkpoint.txt` | Last processed date + end date + batch size + interval; used by `--resume`. |
+| `data/replay-datasets/<label>/manifest.json` | Frozen dataset manifest used to skip Step 1.5 for a known-good replay window. |
 
 ## APIs used
 

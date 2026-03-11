@@ -1264,6 +1264,9 @@
       const [investorData, setInvestorData] = useState(null);
       const [investorLoading, setInvestorLoading] = useState(false);
       const [investorError, setInvestorError] = useState(null);
+      const [predictionContract, setPredictionContract] = useState(null);
+      const [predictionContractLoading, setPredictionContractLoading] = useState(false);
+      const [predictionContractError, setPredictionContractError] = useState(null);
 
       // Right Rail: multi-timeframe candles chart (fetched on-demand)
       const [chartTf, setChartTf] = useState("15"); // Default to 15m
@@ -1487,6 +1490,44 @@
           }
         };
         fetchInvestor();
+        return () => {
+          cancelled = true;
+        };
+      }, [railTab, tickerSymbol]);
+      useEffect(() => {
+        const sym = String(tickerSymbol || "").trim().toUpperCase();
+        const mode = railTab === "INVESTOR" ? "investor" : railTab === "ANALYSIS" ? "trader" : null;
+        if (!sym || !mode) {
+          setPredictionContract(null);
+          setPredictionContractError(null);
+          setPredictionContractLoading(false);
+          return;
+        }
+        let cancelled = false;
+        const fetchContract = async () => {
+          try {
+            setPredictionContractLoading(true);
+            setPredictionContractError(null);
+            const qs = new URLSearchParams();
+            qs.set("ticker", sym);
+            qs.set("mode", mode);
+            const res = await fetch(`${API_BASE}/timed/prediction-contract?${qs.toString()}`, {
+              cache: "no-store"
+            });
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const json = await res.json();
+            if (!json.ok) throw new Error(json.error || "prediction_contract_failed");
+            if (!cancelled) setPredictionContract(json.contract || null);
+          } catch (e) {
+            if (!cancelled) {
+              setPredictionContract(null);
+              setPredictionContractError(String(e?.message || e));
+            }
+          } finally {
+            if (!cancelled) setPredictionContractLoading(false);
+          }
+        };
+        fetchContract();
         return () => {
           cancelled = true;
         };
@@ -2513,7 +2554,41 @@
           className: "text-[10px] text-[#6b7280]"
         }, "Investor Score"))), /*#__PURE__*/React.createElement("div", {
           className: "text-[11px] text-[#9ca3af] mt-2 italic leading-relaxed"
-        }, summary)), price != null && Number.isFinite(price) && /*#__PURE__*/React.createElement("div", {
+        }, summary)), predictionContractLoading ? /*#__PURE__*/React.createElement("div", {
+          className: "rounded-lg border border-white/[0.06] bg-white/[0.02] p-3 text-[11px] text-[#6b7280]"
+        }, "Building prediction contract...") : predictionContract ? /*#__PURE__*/React.createElement("div", {
+          className: "rounded-xl border border-white/[0.08] bg-white/[0.03] p-3"
+        }, /*#__PURE__*/React.createElement("div", {
+          className: "flex items-start justify-between gap-3"
+        }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+          className: "text-[10px] uppercase tracking-[0.16em] text-[#6b7280]"
+        }, "Current Prediction"), /*#__PURE__*/React.createElement("div", {
+          className: "mt-1 text-sm font-semibold text-white"
+        }, predictionContract.action_label || "Monitor")), /*#__PURE__*/React.createElement("div", {
+          className: "flex flex-wrap items-center justify-end gap-1.5"
+        }, /*#__PURE__*/React.createElement("span", {
+          className: `px-2 py-0.5 rounded-md text-[10px] font-semibold border ${predictionContract.confidence === "high" ? "bg-[#00c853]/12 text-[#34d399] border-[#00c853]/25" : predictionContract.confidence === "medium" ? "bg-amber-500/12 text-amber-300 border-amber-500/25" : "bg-red-500/12 text-red-300 border-red-500/25"}`
+        }, String(predictionContract.confidence || "low").toUpperCase()), predictionContract.horizon && /*#__PURE__*/React.createElement("span", {
+          className: "px-2 py-0.5 rounded-md text-[10px] font-medium border border-white/[0.08] text-[#9ca3af]"
+        }, String(predictionContract.horizon).replace(/_/g, " ")))), predictionContract.thesis && /*#__PURE__*/React.createElement("div", {
+          className: "mt-2 text-[12px] text-[#d1d5db] leading-relaxed"
+        }, predictionContract.thesis), predictionContract.why_now && /*#__PURE__*/React.createElement("div", {
+          className: "mt-2 text-[11px] text-[#9ca3af] leading-relaxed"
+        }, predictionContract.why_now), Array.isArray(predictionContract.supporting) && predictionContract.supporting.length > 0 && /*#__PURE__*/React.createElement("div", {
+          className: "mt-2 flex flex-wrap gap-1.5"
+        }, predictionContract.supporting.map((item, idx) => /*#__PURE__*/React.createElement("span", {
+          key: idx,
+          className: "px-1.5 py-0.5 rounded bg-white/[0.04] text-[10px] text-[#9ca3af] border border-white/[0.05]"
+        }, item))), Array.isArray(predictionContract.invalidation) && predictionContract.invalidation.length > 0 && /*#__PURE__*/React.createElement("div", {
+          className: "mt-2"
+        }, /*#__PURE__*/React.createElement("div", {
+          className: "text-[10px] text-[#6b7280] mb-1"
+        }, "Invalidation"), predictionContract.invalidation.slice(0, 3).map((item, idx) => /*#__PURE__*/React.createElement("div", {
+          key: idx,
+          className: "text-[11px] text-red-300/80 leading-relaxed"
+        }, "\u2022 ", item)))) : predictionContractError ? /*#__PURE__*/React.createElement("div", {
+          className: "rounded-lg border border-white/[0.06] bg-white/[0.02] p-3 text-[11px] text-[#6b7280]"
+        }, "Prediction contract unavailable.") : null, price != null && Number.isFinite(price) && /*#__PURE__*/React.createElement("div", {
           className: "rounded-lg border border-white/[0.06] bg-white/[0.02] p-3 flex items-center justify-between"
         }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
           className: "text-[10px] text-[#6b7280] uppercase"
@@ -2647,7 +2722,68 @@
           key: i,
           className: "text-[11px] text-red-400/80 pl-2"
         }, "\u2022 ", inv)))));
-      })()) : railTab === "ANALYSIS" ? /*#__PURE__*/React.createElement(React.Fragment, null, (() => {
+      })()) : railTab === "ANALYSIS" ? /*#__PURE__*/React.createElement(React.Fragment, null, predictionContractLoading ? /*#__PURE__*/React.createElement("div", {
+        className: "rounded-xl border border-white/[0.08] bg-white/[0.03] p-3 mb-4 text-[11px] text-[#6b7280]"
+      }, "Building prediction contract...") : predictionContract ? /*#__PURE__*/React.createElement("div", {
+        className: "rounded-xl border border-white/[0.08] bg-white/[0.03] p-3 mb-4"
+      }, /*#__PURE__*/React.createElement("div", {
+        className: "flex items-start justify-between gap-3"
+      }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+        className: "text-[10px] uppercase tracking-[0.16em] text-[#6b7280]"
+      }, "Current Prediction"), /*#__PURE__*/React.createElement("div", {
+        className: "mt-1 text-sm font-semibold text-white"
+      }, predictionContract.action_label || "Monitor")), /*#__PURE__*/React.createElement("div", {
+        className: "flex flex-wrap items-center justify-end gap-1.5"
+      }, predictionContract.direction && /*#__PURE__*/React.createElement("span", {
+        className: `px-2 py-0.5 rounded-md text-[10px] font-semibold border ${predictionContract.direction === "LONG" ? "bg-[#00c853]/12 text-[#34d399] border-[#00c853]/25" : "bg-red-500/12 text-red-300 border-red-500/25"}`
+      }, predictionContract.direction), /*#__PURE__*/React.createElement("span", {
+        className: `px-2 py-0.5 rounded-md text-[10px] font-semibold border ${predictionContract.confidence === "high" ? "bg-[#00c853]/12 text-[#34d399] border-[#00c853]/25" : predictionContract.confidence === "medium" ? "bg-amber-500/12 text-amber-300 border-amber-500/25" : "bg-red-500/12 text-red-300 border-red-500/25"}`
+      }, String(predictionContract.confidence || "low").toUpperCase()))), predictionContract.thesis && /*#__PURE__*/React.createElement("div", {
+        className: "mt-2 text-[12px] text-[#d1d5db] leading-relaxed"
+      }, predictionContract.thesis), predictionContract.why_now && /*#__PURE__*/React.createElement("div", {
+        className: "mt-2 text-[11px] text-[#9ca3af] leading-relaxed"
+      }, predictionContract.why_now), Array.isArray(predictionContract.supporting) && predictionContract.supporting.length > 0 && /*#__PURE__*/React.createElement("div", {
+        className: "mt-2 flex flex-wrap gap-1.5"
+      }, predictionContract.supporting.map((item, idx) => /*#__PURE__*/React.createElement("span", {
+        key: idx,
+        className: "px-1.5 py-0.5 rounded bg-white/[0.04] text-[10px] text-[#9ca3af] border border-white/[0.05]"
+      }, item))), /*#__PURE__*/React.createElement("div", {
+        className: "mt-3 grid grid-cols-2 gap-2"
+      }, predictionContract?.risk?.stop_loss != null && /*#__PURE__*/React.createElement("div", {
+        className: "rounded-lg border border-red-500/20 bg-red-500/8 p-2"
+      }, /*#__PURE__*/React.createElement("div", {
+        className: "text-[10px] text-[#6b7280] uppercase"
+      }, "Stop Loss"), /*#__PURE__*/React.createElement("div", {
+        className: "text-sm font-semibold text-red-300 tabular-nums"
+      }, "$", Number(predictionContract.risk.stop_loss).toFixed(2))), predictionContract?.risk?.rr != null && /*#__PURE__*/React.createElement("div", {
+        className: "rounded-lg border border-white/[0.06] bg-white/[0.02] p-2"
+      }, /*#__PURE__*/React.createElement("div", {
+        className: "text-[10px] text-[#6b7280] uppercase"
+      }, "Risk / Reward"), /*#__PURE__*/React.createElement("div", {
+        className: "text-sm font-semibold text-white tabular-nums"
+      }, Number(predictionContract.risk.rr).toFixed(2), "x"))), Array.isArray(predictionContract.targets) && predictionContract.targets.length > 0 && /*#__PURE__*/React.createElement("div", {
+        className: "mt-3"
+      }, /*#__PURE__*/React.createElement("div", {
+        className: "text-[10px] text-[#6b7280] mb-1 uppercase"
+      }, "Management Levels"), /*#__PURE__*/React.createElement("div", {
+        className: "space-y-1.5"
+      }, predictionContract.targets.slice(0, 3).map((target, idx) => /*#__PURE__*/React.createElement("div", {
+        key: idx,
+        className: "flex items-center justify-between rounded-lg border border-[#00c853]/18 bg-[#00c853]/8 px-2.5 py-1.5"
+      }, /*#__PURE__*/React.createElement("span", {
+        className: "text-[11px] text-[#9ca3af]"
+      }, target.label), /*#__PURE__*/React.createElement("span", {
+        className: "text-[12px] font-semibold text-[#d1fae5] tabular-nums"
+      }, "$", Number(target.price).toFixed(2)))))), Array.isArray(predictionContract.invalidation) && predictionContract.invalidation.length > 0 && /*#__PURE__*/React.createElement("div", {
+        className: "mt-3"
+      }, /*#__PURE__*/React.createElement("div", {
+        className: "text-[10px] text-[#6b7280] mb-1 uppercase"
+      }, "Invalidation"), predictionContract.invalidation.slice(0, 3).map((item, idx) => /*#__PURE__*/React.createElement("div", {
+        key: idx,
+        className: "text-[11px] text-red-300/80 leading-relaxed"
+      }, "\u2022 ", item)))) : predictionContractError ? /*#__PURE__*/React.createElement("div", {
+        className: "rounded-xl border border-white/[0.08] bg-white/[0.03] p-3 mb-4 text-[11px] text-[#6b7280]"
+      }, "Prediction contract unavailable.") : null, (() => {
         const baseCtx = ticker?.context && typeof ticker.context === "object" ? ticker.context : null;
         const mergedCtx = latestTicker?.context && typeof latestTicker.context === "object" ? latestTicker.context : null;
         const ctx = mergedCtx || baseCtx;

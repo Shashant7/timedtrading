@@ -1443,9 +1443,24 @@ export function classifyState(htfScore, ltfScore) {
  *   score:  -15 (extreme chop) to +15 (strong trend)
  *   factors: breakdown of what contributed to the score
  */
-export function classifyTickerRegime(dBundle, h4Bundle = null, wBundle = null) {
+function normalizeMarketInternals(internals = null) {
+  if (!internals || typeof internals !== "object") return null;
+  return {
+    overall: String(internals.overall || "").toLowerCase() || "balanced",
+    score: Number(internals.score || 0),
+    vix: internals.vix || null,
+    tick: internals.tick || null,
+    fx_barometer: internals.fx_barometer || null,
+    sector_rotation: internals.sector_rotation || null,
+    squeeze: internals.squeeze || null,
+    evidence: Array.isArray(internals.evidence) ? internals.evidence : [],
+  };
+}
+
+export function classifyTickerRegime(dBundle, h4Bundle = null, wBundle = null, marketInternals = null) {
   let score = 0;
   const factors = {};
+  const internals = normalizeMarketInternals(marketInternals);
 
   // ── 1. Ichimoku Cloud Thickness (Daily) — strongest chop signal ──
   // Thick cloud = strong trend support/resistance. Thin = no conviction.
@@ -1542,12 +1557,53 @@ export function classifyTickerRegime(dBundle, h4Bundle = null, wBundle = null) {
     }
   }
 
+  // ── 8. Higher-level market internals overlay ──
+  if (internals) {
+    if (internals.overall === "risk_on") {
+      score += 1;
+      factors.market_internals = "+1 (risk-on internals)";
+    } else if (internals.overall === "risk_off") {
+      score -= 2;
+      factors.market_internals = "-2 (risk-off internals)";
+    }
+    if (internals.vix?.state === "fear") {
+      score -= 2;
+      factors.vix = "-2 (fear regime)";
+    } else if (internals.vix?.state === "elevated") {
+      score -= 1;
+      factors.vix = "-1 (elevated vol)";
+    } else if (internals.vix?.state === "low_fear") {
+      score += 1;
+      factors.vix = "+1 (low-vol trend-friendly)";
+    }
+    if (internals.sector_rotation?.state === "risk_on") {
+      score += 1;
+      factors.sector_rotation = "+1 (offense leading)";
+    } else if (internals.sector_rotation?.state === "risk_off") {
+      score -= 1;
+      factors.sector_rotation = "-1 (defense leading)";
+    }
+    if (internals.tick?.state === "selling_extreme") {
+      score -= 1;
+      factors.tick = "-1 (broad selling pressure)";
+    } else if (internals.tick?.state === "buying_extreme") {
+      score += 1;
+      factors.tick = "+1 (broad buying pressure)";
+    }
+    if (internals.squeeze?.release_30m || internals.squeeze?.release_1h) {
+      score += 1;
+      factors.squeeze_energy = "+1 (multi-tf squeeze fired)";
+    } else if (internals.squeeze?.on_30m) {
+      factors.squeeze_energy = "0 (compression building)";
+    }
+  }
+
   // ── Classify ──
   const regime = score >= 5 ? "TRENDING"
     : score >= 0 ? "TRANSITIONAL"
     : "CHOPPY";
 
-  return { regime, score, factors };
+  return { regime, score, factors, market_internals: internals };
 }
 
 /**
@@ -1573,7 +1629,7 @@ export function classifyMarketRegime(spyDailyBundle, spyWeeklyBundle = null) {
  * @param {string} [marketRegime] - global overlay from SPY
  * @returns {object} adaptive parameters for entry/exit gates
  */
-export function getRegimeParams(tickerRegime, marketRegime = null) {
+export function getRegimeParams(tickerRegime, marketRegime = null, marketInternals = null) {
   // If market is choppy, override ticker regime to at least TRANSITIONAL
   const effectiveRegime = (marketRegime === "CHOPPY" && tickerRegime === "TRENDING")
     ? "TRANSITIONAL"
@@ -1630,7 +1686,149 @@ export function getRegimeParams(tickerRegime, marketRegime = null) {
     },
   };
 
-  return params[effectiveRegime] || params.TRANSITIONAL;
+  const selected = { ...(params[effectiveRegime] || params.TRANSITIONAL) };
+  const internals = normalizeMarketInternals(marketInternals);
+  if (internals) {
+    selected.marketInternals = internals;
+    if (internals.overall === "risk_off") {
+      selected.positionSizeMultiplier = Math.max(0.35, selected.positionSizeMultiplier * 0.75);
+      selected.minHTFScore += 5;
+      selected.minRR += 0.25;
+      selected.maxDailyEntries = Math.max(1, Math.floor(selected.maxDailyEntries * 0.6));
+      selected.maxWeeklyEntries = Math.max(2, Math.floor(selected.maxWeeklyEntries * 0.6));
+      selected.slCushionMultiplier = Math.max(selected.slCushionMultiplier, 1.2);
+    } else if (internals.overall === "risk_on" && selected.regime === "TRENDING") {
+      selected.positionSizeMultiplier = Math.min(1.15, selected.positionSizeMultiplier * 1.05);
+    }
+    if (internals.vix?.state === "fear") {
+      selected.positionSizeMultiplier = Math.max(0.30, selected.positionSizeMultiplier * 0.7);
+      selected.minRR += 0.25;
+      selected.minHTFScore += 3;
+    } else if (internals.vix?.state === "low_fear" && selected.regime === "TRENDING") {
+      selected.maxCompletion = Math.min(0.7, selected.maxCompletion + 0.05);
+    }
+    if (internals.squeeze?.release_30m || internals.squeeze?.release_1h) {
+      selected.maxCompletion = Math.min(0.75, selected.maxCompletion + 0.05);
+    }
+  }
+  return selected;
+}
+
+function normalizeTickerProfileForSelection(rawProfile = null) {
+  if (!rawProfile || typeof rawProfile !== "object") return null;
+  const learning = rawProfile.learning_json
+    ? (typeof rawProfile.learning_json === "string" ? (() => { try { return JSON.parse(rawProfile.learning_json); } catch { return null; } })() : rawProfile.learning_json)
+    : rawProfile.learning || null;
+  const personality = learning?.personality || rawProfile.personality || rawProfile.behaviorType || rawProfile.behavior_type || null;
+  const entryParams = learning?.entry_params || null;
+  return {
+    personality,
+    behaviorType: rawProfile.behaviorType || rawProfile.behavior_type || null,
+    trendPersistence: Number(rawProfile.trendPersistence ?? rawProfile.trend_persistence ?? 0),
+    meanReversionSpeed: Number(rawProfile.meanReversionSpeed ?? rawProfile.mean_reversion_speed ?? 0),
+    slMult: Number(rawProfile.slMult ?? rawProfile.sl_mult ?? 1),
+    tpMult: Number(rawProfile.tpMult ?? rawProfile.tp_mult ?? 1),
+    entryThresholdAdj: Number(rawProfile.entryThresholdAdj ?? rawProfile.entry_threshold_adj ?? 0),
+    entryParams,
+  };
+}
+
+export function selectExecutionProfile({
+  tickerRegime = "TRANSITIONAL",
+  marketInternals = null,
+  tickerProfile = null,
+  state = "unknown",
+  flags = {},
+  entryQuality = null,
+} = {}) {
+  const internals = normalizeMarketInternals(marketInternals);
+  const profile = normalizeTickerProfileForSelection(tickerProfile);
+  const reasons = [];
+  let activeProfile = "correction_transition";
+  let confidence = 0.5;
+
+  const eqScore = Number(entryQuality?.score || 0);
+  const trendPersistence = Number(profile?.trendPersistence || 0);
+  const personality = String(profile?.personality || profile?.behaviorType || "").toUpperCase();
+  const riskState = internals?.overall || "balanced";
+
+  if (
+    tickerRegime === "TRENDING" &&
+    riskState === "risk_on" &&
+    (trendPersistence >= 0.58 || personality === "TREND_FOLLOWER" || personality === "MOMENTUM")
+  ) {
+    activeProfile = "trend_riding";
+    confidence = 0.82;
+    reasons.push("Ticker regime is trending");
+    reasons.push("Market internals are risk-on");
+    if (trendPersistence >= 0.58) reasons.push(`Trend persistence ${trendPersistence.toFixed(2)}`);
+    if (flags?.sq30_release || flags?.sq1h_release) reasons.push("Squeeze has fired");
+  } else if (
+    tickerRegime === "CHOPPY" ||
+    riskState === "risk_off" ||
+    internals?.vix?.state === "fear" ||
+    internals?.sector_rotation?.state === "risk_off"
+  ) {
+    activeProfile = "choppy_selective";
+    confidence = 0.84;
+    if (tickerRegime === "CHOPPY") reasons.push("Ticker regime is choppy");
+    if (riskState === "risk_off") reasons.push("Market internals are risk-off");
+    if (internals?.vix?.state === "fear") reasons.push("VIX is in fear mode");
+    if (internals?.sector_rotation?.state === "risk_off") reasons.push("Defense sectors are leading");
+  } else {
+    activeProfile = "correction_transition";
+    confidence = 0.68;
+    reasons.push("Mixed trend and transition evidence");
+    if (tickerRegime === "TRANSITIONAL") reasons.push("Ticker regime is transitional");
+    if (riskState === "balanced") reasons.push("Market internals are balanced");
+    if (personality === "PULLBACK_PLAYER" || personality === "MEAN_REVERT") reasons.push("Ticker character favors pullback entries");
+  }
+
+  const adjustments = {
+    trend_riding: {
+      minHTFScoreAdj: 0,
+      minRRAdj: 0,
+      maxCompletionAdj: 0.08,
+      positionSizeMultiplierAdj: 1.05,
+      slCushionMultiplierAdj: 1.0,
+      requireSqueezeRelease: false,
+      defendWinnerBias: "hold_runner",
+    },
+    correction_transition: {
+      minHTFScoreAdj: 3,
+      minRRAdj: 0.15,
+      maxCompletionAdj: -0.02,
+      positionSizeMultiplierAdj: 0.9,
+      slCushionMultiplierAdj: 1.05,
+      requireSqueezeRelease: false,
+      defendWinnerBias: "trim_then_reassess",
+    },
+    choppy_selective: {
+      minHTFScoreAdj: 8,
+      minRRAdj: 0.4,
+      maxCompletionAdj: -0.1,
+      positionSizeMultiplierAdj: 0.7,
+      slCushionMultiplierAdj: 1.1,
+      requireSqueezeRelease: true,
+      defendWinnerBias: "quick_defend",
+    },
+  }[activeProfile];
+
+  if (eqScore >= 75) confidence = Math.min(0.92, confidence + 0.05);
+  if (profile?.entryThresholdAdj > 0 && activeProfile !== "trend_riding") {
+    reasons.push(`Ticker-specific threshold adjustment ${profile.entryThresholdAdj}`);
+  }
+
+  return {
+    active_profile: activeProfile,
+    confidence: Math.round(confidence * 100) / 100,
+    reasons,
+    ticker_regime: tickerRegime,
+    market_state: riskState,
+    state,
+    personality: profile?.personality || profile?.behaviorType || null,
+    adjustments,
+  };
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -2796,6 +2994,9 @@ export function assembleTickerData(ticker, bundles, existingData = null, opts = 
   // TP/SL must use the same direction we'll trade, else SHORT alerts show LONG-style TP.
   const rawBarsEarly = opts?.rawBars || null;
   let regimeEarly = opts?.regime || null;
+  const marketInternals = opts?.marketInternals || existingData?._marketInternals || null;
+  const liveTickerProfile = existingData?._tickerProfile || null;
+  const enableExecutionProfileRuntime = opts?.enableExecutionProfileRuntime === true;
   if (!regimeEarly && rawBarsEarly) {
     const dailyBars = rawBarsEarly.D || rawBarsEarly.daily || [];
     const weeklyBars = rawBarsEarly.W || rawBarsEarly.weekly || [];
@@ -3034,8 +3235,31 @@ export function assembleTickerData(ticker, bundles, existingData = null, opts = 
   const entryQuality = computeEntryQualityScore(bundles, eqSide, regime);
 
   // ── Regime Classification (v3 chop filter) ──
-  const regimeClass = classifyTickerRegime(bD, b4H, bW);
-  const regimeParams = getRegimeParams(regimeClass.regime);
+  const runtimeMarketInternals = enableExecutionProfileRuntime ? marketInternals : null;
+  const regimeClass = classifyTickerRegime(bD, b4H, bW, runtimeMarketInternals);
+  const executionProfile = selectExecutionProfile({
+    tickerRegime: regimeClass.regime,
+    marketInternals,
+    tickerProfile: liveTickerProfile,
+    state,
+    flags,
+    entryQuality,
+  });
+  const regimeParams = getRegimeParams(
+    regimeClass.regime,
+    runtimeMarketInternals?.overall === "risk_off" ? "CHOPPY" : null,
+    runtimeMarketInternals,
+  );
+  if (enableExecutionProfileRuntime && executionProfile?.adjustments) {
+    const adj = executionProfile.adjustments;
+    regimeParams.minHTFScore = Math.max(0, (regimeParams.minHTFScore || 0) + (adj.minHTFScoreAdj || 0));
+    regimeParams.minRR = Math.max(0.5, (regimeParams.minRR || 0) + (adj.minRRAdj || 0));
+    regimeParams.maxCompletion = Math.max(0.15, Math.min(0.85, (regimeParams.maxCompletion || 0.5) + (adj.maxCompletionAdj || 0)));
+    regimeParams.positionSizeMultiplier = Math.max(0.2, Math.min(1.25, (regimeParams.positionSizeMultiplier || 1) * (adj.positionSizeMultiplierAdj || 1)));
+    regimeParams.slCushionMultiplier = Math.max(0.8, (regimeParams.slCushionMultiplier || 1) * (adj.slCushionMultiplierAdj || 1));
+    regimeParams.requireSqueezeRelease = !!adj.requireSqueezeRelease;
+    regimeParams.defendWinnerBias = adj.defendWinnerBias || regimeParams.defendWinnerBias || "standard";
+  }
 
   // ── Breakout Detection (daily level, ATR-relative, EMA stack) ──
   const rawDailyBars = rawBarsEarly?.D || rawBarsEarly?.daily || [];
@@ -3135,6 +3359,8 @@ export function assembleTickerData(ticker, bundles, existingData = null, opts = 
     regime_score: regimeClass.score,           // -15 to +15
     regime_factors: regimeClass.factors,       // breakdown for debugging/UI
     regime_params: regimeParams,               // adaptive trading parameters
+    market_internals: marketInternals || regimeClass.market_internals || undefined,
+    execution_profile: executionProfile || undefined,
     breakout: breakout || undefined,           // breakout detection result
     data_source: "alpaca",
     // ── Ichimoku native data (replaces external ichimoku_d/ichimoku_w) ──
@@ -4555,10 +4781,17 @@ export async function computeServerSideScores(ticker, getCandles, env, existingD
 
   // Pass raw bars + optional learned weights so assembleTickerData uses them
   const assembleOpts = { rawBars };
+  const runtimeProfileFlag = String(
+    env?.ENABLE_EXECUTION_PROFILE_RUNTIME
+      || env?.TT_ENABLE_PROFILE_RUNTIME
+      || "false"
+  ).toLowerCase() === "true";
   if (leadingLtf) assembleOpts.leadingLtf = leadingLtf;
   if (existingData?._tfWeights) assembleOpts.tfWeights = existingData._tfWeights;
   if (existingData?._signalWeights) assembleOpts.signalWeights = existingData._signalWeights;
   if (existingData?._scoreWeights) assembleOpts.scoreWeights = existingData._scoreWeights;
+  if (existingData?._marketInternals) assembleOpts.marketInternals = existingData._marketInternals;
+  assembleOpts.enableExecutionProfileRuntime = runtimeProfileFlag;
   const tickerData = assembleTickerData(ticker, bundleMap, existingData, assembleOpts);
   if (!tickerData) return null;
 

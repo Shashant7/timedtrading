@@ -33,6 +33,9 @@ const DRY_RUN = hasFlag("dry-run");
 const SKIP_MOVES = hasFlag("skip-moves");
 const SKIP_AUTOPSY = hasFlag("skip-autopsy");
 const NO_SYNC = hasFlag("no-sync");
+const CALIBRATION_SCOPE_ID = getArg("scope-id", `cal_scope_${Date.now()}`);
+const CALIBRATION_RUN_ID = getArg("run-id", null);
+const CALIBRATION_SCOPE_KIND = getArg("scope-kind", CALIBRATION_RUN_ID ? "run_diagnostic" : "diagnostic_active");
 
 const API_BASE = process.env.API_BASE || "https://timed-trading-ingest.shashant.workers.dev";
 const API_KEY = process.env.TIMED_API_KEY || "AwesomeSauce";
@@ -201,6 +204,8 @@ console.log(`  Lookback: ${LOOKBACK_DAYS} days`);
 console.log(`  Since: ${SINCE_DATE} (only data from this date)`);
 console.log(`  Ticker filter: ${TICKER_FILTER || "ALL"}`);
 console.log(`  Dry run: ${DRY_RUN}`);
+console.log(`  Calibration scope: ${CALIBRATION_SCOPE_ID} (${CALIBRATION_SCOPE_KIND})`);
+if (CALIBRATION_RUN_ID) console.log(`  Source run: ${CALIBRATION_RUN_ID}`);
 console.log();
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -459,7 +464,8 @@ if (!SKIP_AUTOPSY) {
     `SELECT t.trade_id, t.ticker, t.direction, t.entry_ts, t.exit_ts,
             t.entry_price, t.exit_price, t.pnl_pct, t.rank, t.rr, t.status,
             da.signal_snapshot_json, da.regime_daily, da.regime_weekly, da.regime_combined,
-            da.entry_path AS da_entry_path
+            da.entry_path AS da_entry_path,
+            da.execution_profile_name, da.execution_profile_confidence, da.market_state, da.execution_profile_json
      FROM trades t
      LEFT JOIN direction_accuracy da ON da.trade_id = t.trade_id
      WHERE t.status IN ('WIN','LOSS','FLAT') ${tickerWhere} ${sinceWhere}
@@ -648,6 +654,10 @@ if (!SKIP_AUTOPSY) {
         entry_path: entryPath,
         rank_at_entry: Number(trade.rank) || 0,
         regime_at_entry: trade.regime_combined || trade.regime_daily || "unknown",
+        execution_profile_name: trade.execution_profile_name || null,
+        execution_profile_confidence: trade.execution_profile_confidence ?? null,
+        market_state: trade.market_state || null,
+        execution_profile_json: trade.execution_profile_json || null,
         vix_at_entry: vixAtEntry,
         htf_score_at_entry: htfScoreAtEntry,
         ltf_score_at_entry: ltfScoreAtEntry,
@@ -1103,7 +1113,11 @@ async function uploadAndAnalyze() {
     for (let i = 0; i < harvestedMoves.length; i += batchSize) {
       const chunk = harvestedMoves.slice(i, i + batchSize);
       const isFirst = i === 0;
-      const resp = await apiPost("/timed/calibration/upload-moves", { moves: chunk, clear: isFirst });
+      const resp = await apiPost("/timed/calibration/upload-moves", {
+        scope_id: CALIBRATION_SCOPE_ID,
+        moves: chunk,
+        clear: isFirst,
+      });
       if (!resp.ok) {
         console.error(`  Upload moves failed:`, resp.error);
         break;
@@ -1118,7 +1132,11 @@ async function uploadAndAnalyze() {
 
   if (autopsiedTrades.length > 0) {
     console.log(`  [${elapsed()}] Uploading ${autopsiedTrades.length} trade autopsies...`);
-    const resp = await apiPost("/timed/calibration/upload-autopsy", { trades: autopsiedTrades, clear: true });
+    const resp = await apiPost("/timed/calibration/upload-autopsy", {
+      scope_id: CALIBRATION_SCOPE_ID,
+      trades: autopsiedTrades,
+      clear: true,
+    });
     if (resp.ok) {
       console.log(`    Uploaded: ${resp.inserted || autopsiedTrades.length} trades`);
     } else {
@@ -1127,7 +1145,12 @@ async function uploadAndAnalyze() {
   }
 
   console.log(`\n  [${elapsed()}] Running server-side analysis...`);
-  const runBody = { analysis_only: true };
+  const runBody = {
+    analysis_only: true,
+    scope_id: CALIBRATION_SCOPE_ID,
+    source_run_id: CALIBRATION_RUN_ID,
+    scope_kind: CALIBRATION_SCOPE_KIND,
+  };
   if (hindsightOracle) runBody.hindsight_oracle = hindsightOracle;
   const runResp = await apiPost("/timed/calibration/run", runBody);
   if (runResp.ok) {

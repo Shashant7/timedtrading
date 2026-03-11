@@ -1,0 +1,226 @@
+{
+  "ok": true,
+  "allClear": false,
+  "totalTickers": 155,
+  "tickersWithGaps": 10,
+  "tickersNeedingBackfill": [
+    "BRK-B",
+    "BTCUSD",
+    "CL1!",
+    "ES1!",
+    "ETHUSD",
+    "GC1!",
+    "NQ1!",
+    "SI1!",
+    "SPX",
+    "VX1!"
+  ],
+  "gapCount": 34,
+  "gaps": [
+    {
+      "ticker": "BRK-B",
+      "tf": "60",
+      "count": 0,
+      "minRequired": 40
+    },
+    {
+      "ticker": "BRK-B",
+      "tf": "30",
+      "count": 0,
+      "minRequired": 40
+    },
+    {
+      "ticker": "BRK-B",
+      "tf": "10",
+      "count": 0,
+      "minRequired": 40
+    },
+    {
+      "ticker": "BTCUSD",
+      "tf": "60",
+      "count": 0,
+      "minRequired": 40
+    },
+    {
+      "ticker": "BTCUSD",
+      "tf": "30",
+      "count": 0,
+      "minRequired": 40
+    },
+    {
+      "ticker": "BTCUSD",
+      "tf": "10",
+      "count": 0,
+      "minRequired": 40
+    },
+    {
+      "ticker": "ETHUSD",
+      "tf": "60",
+      "count": 0,
+      "minRequired": 40
+    },
+    {
+      "ticker": "ETHUSD",
+      "tf": "30",
+      "count": 0,
+      "minRequired": 40
+    },
+    {
+      "ticker": "ETHUSD",
+      "tf": "10",
+      "count": 0,
+      "minRequired": 40
+    },
+    {
+      "ticker": "SPX",
+      "tf": "60",
+      "count": 0,
+      "minRequired": 40
+    },
+    {
+      "ticker": "SPX",
+      "tf": "30",
+      "count": 0,
+      "minRequired": 40
+    },
+    {
+      "ticker": "SPX",
+      "tf": "10",
+      "count": 0,
+      "minRequired": 40
+    },
+    {
+      "ticker": "ES1!",
+      "tf": "60",
+      "count": 0,
+      "minRequired": 40
+    },
+    {
+      "ticker": "ES1!",
+      "tf": "30",
+      "count": 0,
+      "minRequired": 40
+    },
+    {
+      "ticker": "ES1!",
+      "tf": "10",
+      "count": 0,
+      "minRequired": 40
+    },
+    {
+      "ticker": "NQ1!",
+      "tf": "60",
+      "count": 0,
+      "minRequired": 40
+    },
+    {
+      "ticker": "NQ1!",
+      "tf": "30",
+      "count": 0,
+      "minRequired": 40
+    },
+    {
+      "ticker": "NQ1!",
+      "tf": "10",
+      "count": 0,
+      "minRequired": 40
+    },
+    {
+      "ticker": "GC1!",
+      "tf": "240",
+      "count": 0,
+      "minRequired": 20
+    },
+    {
+      "ticker": "GC1!",
+      "tf": "60",
+      "count": 0,
+      "minRequired": 40
+    },
+    {
+      "ticker": "GC1!",
+      "tf": "30",
+      "count": 0,
+      "minRequired": 40
+    },
+    {
+      "ticker": "GC1!",
+      "tf": "10",
+      "count": 0,
+      "minRequired": 40
+    },
+    {
+      "ticker": "SI1!",
+      "tf": "240",
+      "count": 0,
+      "minRequired": 20
+    },
+    {
+      "ticker": "SI1!",
+      "tf": "60",
+      "count": 0,
+      "minRequired": 40
+    },
+    {
+      "ticker": "SI1!",
+      "tf": "30",
+      "count": 0,
+      "minRequired": 40
+    },
+    {
+      "ticker": "SI1!",
+      "tf": "10",
+      "count": 0,
+      "minRequired": 40
+    },
+    {
+      "ticker": "VX1!",
+      "tf": "240",
+      "count": 0,
+      "minRequired": 20
+    },
+    {
+      "ticker": "VX1!",
+      "tf": "60",
+      "count": 0,
+      "minRequired": 40
+    },
+    {
+      "ticker": "VX1!",
+      "tf": "30",
+      "count": 0,
+      "minRequired": 40
+    },
+    {
+      "ticker": "VX1!",
+      "tf": "10",
+      "count": 0,
+      "minRequired": 40
+    },
+    {
+      "ticker": "CL1!",
+      "tf": "240",
+      "count": 0,
+      "minRequired": 20
+    },
+    {
+      "ticker": "CL1!",
+      "tf": "60",
+      "count": 0,
+      "minRequired": 40
+    },
+    {
+      "ticker": "CL1!",
+      "tf": "30",
+      "count": 0,
+      "minRequired": 40
+    },
+    {
+      "ticker": "CL1!",
+      "tf": "10",
+      "count": 0,
+      "minRequired": 40
+    }
+  ],
+  "truncated": false
+}

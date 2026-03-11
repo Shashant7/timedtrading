@@ -1,0 +1,98 @@
+{
+  "ok": true,
+  "label": "july-2025-canonical",
+  "created_at": "2026-03-11T01:47:00Z",
+  "replay_window": {
+    "start_date": "2025-07-01",
+    "end_date": "2025-07-31"
+  },
+  "coverage_window": {
+    "start_date": "2025-05-02",
+    "end_date": "2025-07-31"
+  },
+  "universe": {
+    "total_tickers": 155,
+    "supported_tickers": 145,
+    "unsupported_backfill_tickers": [
+      "BRK-B",
+      "CL1!",
+      "ES1!",
+      "GC1!",
+      "NQ1!",
+      "SI1!",
+      "VX1!",
+      "SPX",
+      "BTCUSD",
+      "ETHUSD"
+    ]
+  },
+  "backfill": {
+    "batch_size": 3,
+    "verify_passes": 0,
+    "total_batches": 0,
+    "total_upserted": 0,
+    "total_errors": 0,
+    "elapsed_sec": 0
+  },
+  "verification": {
+    "supported_tickers_with_gaps": 0,
+    "unsupported_tickers_with_gaps": 10,
+    "raw_gap_count": 34,
+    "raw_tickers_with_gaps": 10,
+    "supported_tickers": [],
+    "unsupported_tickers": [
+      "BRK-B",
+      "BTCUSD",
+      "CL1!",
+      "ES1!",
+      "ETHUSD",
+      "GC1!",
+      "NQ1!",
+      "SI1!",
+      "SPX",
+      "VX1!"
+    ]
+  },
+  "initial_gap_summary": {
+    "initial_raw_gap_count": 34,
+    "initial_raw_tickers_with_gaps": 10,
+    "initial_supported_tickers_with_gaps": 0,
+    "initial_unsupported_tickers_with_gaps": 10,
+    "initial_supported_tickers": [],
+    "initial_unsupported_tickers": [
+      "BRK-B",
+      "BTCUSD",
+      "CL1!",
+      "ES1!",
+      "ETHUSD",
+      "GC1!",
+      "NQ1!",
+      "SI1!",
+      "SPX",
+      "VX1!"
+    ]
+  },
+  "final_gap_summary": {
+    "final_raw_gap_count": 34,
+    "final_raw_tickers_with_gaps": 10,
+    "final_supported_tickers_with_gaps": 0,
+    "final_unsupported_tickers_with_gaps": 10,
+    "final_supported_tickers": [],
+    "final_unsupported_tickers": [
+      "BRK-B",
+      "BTCUSD",
+      "CL1!",
+      "ES1!",
+      "ETHUSD",
+      "GC1!",
+      "NQ1!",
+      "SI1!",
+      "SPX",
+      "VX1!"
+    ]
+  },
+  "usage": {
+    "note": "Use this manifest to skip Step 1.5 in full-backtest.sh for the exact same replay window.",
+    "full_backtest_example": "./scripts/full-backtest.sh --frozen-dataset=data/replay-datasets/july-2025-canonical/manifest.json --trader-only --low-write --keep-open-at-end 2025-07-01 2025-07-31 15"
+  }
+}

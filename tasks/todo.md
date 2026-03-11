@@ -19,6 +19,19 @@
 - [ ] Variant v2 hardening: mitigate bad exits and chasing from classified trades
 - [ ] Mean reversion TD9: implement primitives per docs/MEAN_REVERSION_TD9_ALIGNMENT_PLAN.md
 
+## Launch Calibration Build [2026-03-11]
+- [x] Define the Active Trader and Investor prediction product contract from the current splash-page promise
+- [ ] Refactor calibration storage/reporting to be run-scoped and block partial-run apply to shared `model_config`
+- [x] Add a diagnostic-only calibration/report path for the active run
+- [ ] Add Carter-style market internals to regime evidence: VIX bands, risk barometers (`AUDJPY`/`USDJPY` when available), sector offense/defense rotation, and TICK support when data exists
+- [ ] Promote squeeze/compression from a local setup flag into a first-class regime/timing input with multi-timeframe evidence
+- [x] Formalize regime-orchestration inputs and profile selection hooks
+- [x] Persist ticker-character and market-context evidence with run/trade lineage
+- [ ] Keep Carter/profile overlays diagnostic-only until a fresh post-deploy replay proves they improve the protected baseline
+- [ ] Re-anchor the next trader replay on `15m-best-foot-forward-jul1-mar4` plus the recent Ripster trade-management patches
+- [ ] Reconcile Fundstrat deck tickers/sectors into `SECTOR_MAP` and queue new universe additions through `watchlist/add`
+- [ ] Audit user-facing prediction surfaces so they can show reasoning, levels, regime, and management proof cleanly
+
 ## Run-Scoped Trade Retention [2026-03-07]
 - [x] Preserve completed backtest trades per `run_id` even after replay reset clears live tables
 - [x] Archive Trade Autopsy rows by run so historical run analysis remains available
@@ -36,6 +49,8 @@
 - [x] Define the smaller next-cycle backtest matrix from the regime/profile learnings
 - [x] Define the runtime `profile evidence` contract for future adaptive overrides
 - [x] Define the first named regime-linked profiles: `trend_riding`, `correction_transition`, `choppy_selective`
+- [x] Wire the named execution-profile selector into live scoring so regime + internals + ticker character can pick the active profile at runtime
+- [x] Persist execution-profile lineage into `direction_accuracy` and calibration autopsy rows for downstream replay/calibration traceability
 - [x] Surface stored market/sector context history in System Intelligence
 - [x] Surface richer ticker profiles and regime-profile mapping in System Intelligence
 - [x] Surface canonical ticker context evidence inside Trade Autopsy
@@ -63,6 +78,11 @@
 - [x] Determine whether gaps are real missing data or a reporting/calculation issue
 - [x] Summarize impact on backtests and define corrective action
 
+## Replay Dataset Freeze [2026-03-10]
+- [ ] Add a dedicated script to build and freeze a canonical replay-ready dataset window
+- [ ] Add `full-backtest.sh` support for using a frozen dataset manifest and skipping Step 1.5
+- [ ] Verify the July 2025 frozen dataset workflow and document the operator commands
+
 ## TradingView 15m Export Import [2026-03-08]
 - [ ] Verify new `TV Exports` 15m CSV files and import path
 - [ ] Update CSV auto-detection for new futures/index export prefixes
@@ -88,6 +108,19 @@
 - [ ] Fix Evening Daily Brief ES close-source mismatch bug
 - [ ] Improve Home initial-load latency on first render
 - [ ] Validate with lint + quick replay/UI smoke checks
+
+## UI Polish Pass [2026-03-10]
+- [ ] Rework homepage top rows so Upcoming Events has its own row and movers wrap cleanly
+- [ ] Keep Trade Autopsy mobile footer actions visible above safe-area cutoff
+- [ ] Confirm right rail Journey and Technicals ordering/copy changes in production
+- [ ] Push only Pages/UI commits after isolating accidental non-UI git changes
+
+## Run Integrity Repair [2026-03-11]
+- [x] Trace historical run import path for run -> trades -> classifications linkage
+- [ ] Restore/import per-trade autopsy annotations for imported protected/reference runs when artifact data exists
+- [x] Make Trade Autopsy-from-Runs load run-scoped classifications instead of only relying on summary metrics
+- [ ] Define/archive run lifecycle semantics so calibration only uses runs with linked trade outcomes + annotations
+- [ ] Verify protected baseline run opens in Trade Autopsy with its saved classifications
 
 ## Replay Follow-ups [2026-03-04]
 - [ ] Harden 10m entry gates (strict EMA21 + ST direction)

@@ -34,6 +34,7 @@ LOW_WRITE=false
 RUN_LABEL=""
 RUN_DESCRIPTION=""
 SNAPSHOT_BEFORE_RESET=true
+FROZEN_DATASET=""
 ENV_OVERRIDES=()
 POSARGS=()
 while [[ $# -gt 0 ]]; do
@@ -47,6 +48,11 @@ while [[ $# -gt 0 ]]; do
     --keep-open-at-end) KEEP_OPEN_AT_END=true ;;
     --low-write) LOW_WRITE=true ;;
     --no-snapshot-before-reset) SNAPSHOT_BEFORE_RESET=false ;;
+    --frozen-dataset=*) FROZEN_DATASET="${arg#--frozen-dataset=}" ;;
+    --dataset-manifest=*) FROZEN_DATASET="${arg#--dataset-manifest=}" ;;
+    --frozen-dataset|--dataset-manifest)
+      [[ -n "$1" && "$1" != --* ]] && FROZEN_DATASET="$1" && shift
+      ;;
     --label=*) RUN_LABEL="${arg#--label=}" ;;
     --desc=*|--description=*) RUN_DESCRIPTION="${arg#*=}" ;;
     --env-override=*) ENV_OVERRIDES+=("${arg#--env-override=}") ;;
@@ -70,6 +76,30 @@ is_backfill_supported_ticker() {
   return 0
 }
 
+compute_backfill_start_date() {
+  local base_start="$1"
+  date -j -v-60d -f "%Y-%m-%d" "$base_start" "+%Y-%m-%d" 2>/dev/null || \
+    date -d "$base_start 60 days ago" "+%Y-%m-%d" 2>/dev/null || \
+    echo "$base_start"
+}
+
+resolve_frozen_dataset_manifest() {
+  local ref="$1"
+  if [[ -z "$ref" ]]; then
+    echo ""
+    return 0
+  fi
+  if [[ -f "$ref" ]]; then
+    echo "$ref"
+    return 0
+  fi
+  if [[ -f "data/replay-datasets/$ref/manifest.json" ]]; then
+    echo "data/replay-datasets/$ref/manifest.json"
+    return 0
+  fi
+  echo "$ref"
+}
+
 snapshot_replay_artifacts() {
   local label="$1"
   local snapshot_ts
@@ -86,6 +116,7 @@ snapshot_replay_artifacts() {
   curl -s "$API_BASE/timed/ledger/summary?key=$API_KEY" > "$out_dir/ledger-summary.json" || true
   curl -s "$API_BASE/timed/account-summary?key=$API_KEY" > "$out_dir/account-summary.json" || true
   curl -s "$API_BASE/timed/admin/trade-autopsy/trades?key=$API_KEY" > "$out_dir/trade-autopsy-trades.json" || true
+  curl -s "$API_BASE/timed/admin/trade-autopsy/annotations?all=1&key=$API_KEY" > "$out_dir/trade-autopsy-annotations.json" || true
   curl -s "$API_BASE/timed/admin/losing-trades-report?key=$API_KEY" > "$out_dir/losing-trades-report.json" || true
 
   cat > "$out_dir/manifest.json" <<EOF
@@ -137,6 +168,12 @@ else
   $SEQUENCE && echo "║  Mode: sequence (trader-only then investor-only)"
   echo "╚══════════════════════════════════════════════════════╝"
   echo ""
+fi
+
+BF_START_DATE=$(compute_backfill_start_date "$START_DATE")
+FROZEN_DATASET_MANIFEST=""
+if [[ -n "$FROZEN_DATASET" ]]; then
+  FROZEN_DATASET_MANIFEST=$(resolve_frozen_dataset_manifest "$FROZEN_DATASET")
 fi
 
 # ─── Investor-only only: no lock/reset/backfill/replay, just investor-replay per day ─
@@ -266,28 +303,65 @@ else
 
   # ─── Step 1.5: Backfill candle data ─────────────────────────────────────────
   # Backfill from 60 days before start (EMA/indicator warm-up) through end date
-  BF_START_DATE=$(date -j -v-60d -f "%Y-%m-%d" "$START_DATE" "+%Y-%m-%d" 2>/dev/null || date -d "$START_DATE 60 days ago" "+%Y-%m-%d" 2>/dev/null || echo "$START_DATE")
   BF_BATCH=3
 
-  echo "Step 1.5: Checking candle coverage (gap detection, range $BF_START_DATE → $END_DATE)..."
-  GAP_RESULT=$(curl -s -m 120 \
-    "$API_BASE/timed/admin/candle-gaps?startDate=$BF_START_DATE&endDate=$END_DATE&key=$API_KEY" 2>&1)
-  GAP_OK=$(echo "$GAP_RESULT" | jq -r '.ok // false' 2>/dev/null || echo "false")
-  ALL_CLEAR=$(echo "$GAP_RESULT" | jq -r '.allClear // false' 2>/dev/null || echo "false")
-  TICKERS_WITH_GAPS=$(echo "$GAP_RESULT" | jq -r '.tickersWithGaps // 0' 2>/dev/null || echo "0")
-  GAP_COUNT=$(echo "$GAP_RESULT" | jq -r '.gapCount // 0' 2>/dev/null || echo "0")
-
-  if [[ "$GAP_OK" != "true" ]]; then
-    echo "  WARNING: Gap check failed ($(echo "$GAP_RESULT" | head -c 200))"
-    echo "  Falling back to full backfill..."
-    ALL_CLEAR="false"
-    TICKERS_WITH_GAPS="$TOTAL_TICKERS"
-  fi
-
-  if [[ "$ALL_CLEAR" == "true" ]]; then
-    echo "  All candles present — no gaps detected. Skipping backfill."
+  if [[ -n "$FROZEN_DATASET_MANIFEST" ]]; then
+    echo "Step 1.5: Using frozen dataset manifest ($FROZEN_DATASET_MANIFEST)"
+    if [[ ! -f "$FROZEN_DATASET_MANIFEST" ]]; then
+      echo "ERROR: Frozen dataset manifest not found: $FROZEN_DATASET_MANIFEST"
+      exit 1
+    fi
+    MANIFEST_OK=$(jq -r '.ok // false' "$FROZEN_DATASET_MANIFEST" 2>/dev/null || echo "false")
+    MANIFEST_START=$(jq -r '.replay_window.start_date // ""' "$FROZEN_DATASET_MANIFEST" 2>/dev/null || echo "")
+    MANIFEST_END=$(jq -r '.replay_window.end_date // ""' "$FROZEN_DATASET_MANIFEST" 2>/dev/null || echo "")
+    MANIFEST_COVERAGE_START=$(jq -r '.coverage_window.start_date // ""' "$FROZEN_DATASET_MANIFEST" 2>/dev/null || echo "")
+    MANIFEST_COVERAGE_END=$(jq -r '.coverage_window.end_date // ""' "$FROZEN_DATASET_MANIFEST" 2>/dev/null || echo "")
+    MANIFEST_SUPPORTED_GAPS=$(jq -r '.verification.supported_tickers_with_gaps // 999999' "$FROZEN_DATASET_MANIFEST" 2>/dev/null || echo "999999")
+    MANIFEST_LABEL=$(jq -r '.label // ""' "$FROZEN_DATASET_MANIFEST" 2>/dev/null || echo "")
+    if [[ "$MANIFEST_OK" != "true" ]]; then
+      echo "ERROR: Frozen dataset manifest is not marked ok=true"
+      exit 1
+    fi
+    if [[ "$MANIFEST_START" != "$START_DATE" || "$MANIFEST_END" != "$END_DATE" ]]; then
+      echo "ERROR: Frozen dataset replay window mismatch."
+      echo "  Manifest: $MANIFEST_START → $MANIFEST_END"
+      echo "  Requested: $START_DATE → $END_DATE"
+      exit 1
+    fi
+    if [[ "$MANIFEST_COVERAGE_START" != "$BF_START_DATE" || "$MANIFEST_COVERAGE_END" != "$END_DATE" ]]; then
+      echo "ERROR: Frozen dataset coverage window mismatch."
+      echo "  Manifest: $MANIFEST_COVERAGE_START → $MANIFEST_COVERAGE_END"
+      echo "  Expected: $BF_START_DATE → $END_DATE"
+      exit 1
+    fi
+    if [[ "$MANIFEST_SUPPORTED_GAPS" != "0" ]]; then
+      echo "ERROR: Frozen dataset manifest still reports supported tickers with gaps ($MANIFEST_SUPPORTED_GAPS)."
+      exit 1
+    fi
+    [[ -n "$MANIFEST_LABEL" ]] && echo "  Frozen dataset: $MANIFEST_LABEL"
+    echo "  Verified manifest window $MANIFEST_START → $MANIFEST_END"
+    echo "  Supported tickers with gaps remaining: 0"
     echo ""
   else
+    echo "Step 1.5: Checking candle coverage (gap detection, range $BF_START_DATE → $END_DATE)..."
+    GAP_RESULT=$(curl -s -m 120 \
+      "$API_BASE/timed/admin/candle-gaps?startDate=$BF_START_DATE&endDate=$END_DATE&key=$API_KEY" 2>&1)
+    GAP_OK=$(echo "$GAP_RESULT" | jq -r '.ok // false' 2>/dev/null || echo "false")
+    ALL_CLEAR=$(echo "$GAP_RESULT" | jq -r '.allClear // false' 2>/dev/null || echo "false")
+    TICKERS_WITH_GAPS=$(echo "$GAP_RESULT" | jq -r '.tickersWithGaps // 0' 2>/dev/null || echo "0")
+    GAP_COUNT=$(echo "$GAP_RESULT" | jq -r '.gapCount // 0' 2>/dev/null || echo "0")
+
+    if [[ "$GAP_OK" != "true" ]]; then
+      echo "  WARNING: Gap check failed ($(echo "$GAP_RESULT" | head -c 200))"
+      echo "  Falling back to full backfill..."
+      ALL_CLEAR="false"
+      TICKERS_WITH_GAPS="$TOTAL_TICKERS"
+    fi
+
+    if [[ "$ALL_CLEAR" == "true" ]]; then
+      echo "  All candles present — no gaps detected. Skipping backfill."
+      echo ""
+    else
     BACKFILL_TICKERS=$(echo "$GAP_RESULT" | jq -r '.tickersNeedingBackfill[]' 2>/dev/null || echo "")
     BACKFILL_COUNT=$(echo "$BACKFILL_TICKERS" | grep -c . 2>/dev/null || echo "$TICKERS_WITH_GAPS")
 
@@ -391,6 +465,7 @@ else
     echo ""
     echo "  Backfill complete: ${BF_TOTAL_UPSERTED} total candles, ${BF_TOTAL_ERRORS} errors (${BF_ELAPSED}s)"
     echo ""
+    fi
   fi
 fi
 

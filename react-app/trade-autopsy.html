@@ -790,8 +790,9 @@
           setEntryGrade(Array.isArray(annotations?.entry_grade) ? annotations.entry_grade : []);
           setTradeManagement(Array.isArray(annotations?.trade_management) ? annotations.trade_management : []);
         }, [trade?.trade_id, trade?.id, annotations?.entry_grade, annotations?.trade_management]);
-        const [candleCloseAtEntry, setCandleCloseAtEntry] = useState(null);
-        const [candleCloseAtExit, setCandleCloseAtExit] = useState(null);
+        const [candleAtEntry, setCandleAtEntry] = useState(null);
+        const [candleAtExit, setCandleAtExit] = useState(null);
+        const [candleAtTrim, setCandleAtTrim] = useState(null);
         const appliedEntryRef = useRef(false);
         const appliedExitRef = useRef(false);
 
@@ -799,7 +800,7 @@
         const storedEntry = Number(trade?.entry_price || trade?.entryPrice);
         const storedExit = Number(trade?.exit_price || trade?.exitPrice);
 
-        // Fetch 15m candle at entry and exit to align stored prices with bar closes
+        // Fetch 15m candles at entry/trim/exit so markers and price lines use the same aligned bar.
         useEffect(() => {
           if (!trade?.ticker || !trade?.entry_ts) return;
           const asOfMs = (ts) => {
@@ -807,35 +808,39 @@
             if (!Number.isFinite(raw) || raw <= 0) return null;
             return raw < 1e12 ? raw * 1000 : raw;
           };
-          const entryMs = asOfMs(trade.entry_ts);
-          if (entryMs) {
-            fetch(`${API_BASE}/timed/candles?ticker=${encodeURIComponent(trade.ticker)}&tf=15&limit=5&asOfTs=${entryMs}`, fetchOpts)
-              .then(r => r.json())
-              .then(data => {
-                const candles = data?.candles;
-                if (Array.isArray(candles) && candles.length > 0) {
-                  const close = Number(candles[candles.length - 1]?.c);
-                  if (Number.isFinite(close) && close > 0) setCandleCloseAtEntry(close);
-                }
-              })
-              .catch(() => {});
-          }
-          if (trade?.exit_ts) {
-            const exitMs = asOfMs(trade.exit_ts);
-            if (exitMs) {
-              fetch(`${API_BASE}/timed/candles?ticker=${encodeURIComponent(trade.ticker)}&tf=15&limit=5&asOfTs=${exitMs}`, fetchOpts)
-                .then(r => r.json())
-                .then(data => {
-                  const candles = data?.candles;
-                  if (Array.isArray(candles) && candles.length > 0) {
-                    const close = Number(candles[candles.length - 1]?.c);
-                    if (Number.isFinite(close) && close > 0) setCandleCloseAtExit(close);
-                  }
-                })
-                .catch(() => {});
+          const loadAlignedCandle = async (ts, setter) => {
+            const alignedMs = asOfMs(ts);
+            if (!alignedMs) {
+              setter(null);
+              return;
             }
-          }
-        }, [trade?.ticker, trade?.entry_ts, trade?.exit_ts]);
+            try {
+              const r = await fetch(`${API_BASE}/timed/candles?ticker=${encodeURIComponent(trade.ticker)}&tf=15&limit=5&asOfTs=${alignedMs}`, fetchOpts);
+              const data = await r.json();
+              const candles = data?.candles;
+              if (Array.isArray(candles) && candles.length > 0) {
+                const last = candles[candles.length - 1];
+                const close = Number(last?.c);
+                const tsRaw = Number(last?.ts);
+                const tsMs = Number.isFinite(tsRaw) && tsRaw > 0 ? (tsRaw < 1e12 ? tsRaw * 1000 : tsRaw) : null;
+                if (Number.isFinite(close) && close > 0 && Number.isFinite(tsMs) && tsMs > 0) {
+                  setter({ close, ts: tsMs });
+                  return;
+                }
+              }
+            } catch (_) {}
+            setter(null);
+          };
+          loadAlignedCandle(trade.entry_ts, setCandleAtEntry);
+          loadAlignedCandle(trade.exit_ts, setCandleAtExit);
+          loadAlignedCandle(trade.trim_ts, setCandleAtTrim);
+        }, [trade?.ticker, trade?.entry_ts, trade?.exit_ts, trade?.trim_ts]);
+
+        const displayEntryPrice = Number.isFinite(Number(candleAtEntry?.close)) ? Number(candleAtEntry.close) : storedEntry;
+        const displayExitPrice = Number.isFinite(Number(candleAtExit?.close)) ? Number(candleAtExit.close) : storedExit;
+        const displayEntryTs = Number.isFinite(Number(candleAtEntry?.ts)) ? Number(candleAtEntry.ts) : trade?.entry_ts;
+        const displayExitTs = Number.isFinite(Number(candleAtExit?.ts)) ? Number(candleAtExit.ts) : trade?.exit_ts;
+        const displayTrimTs = Number.isFinite(Number(candleAtTrim?.ts)) ? Number(candleAtTrim.ts) : trade?.trim_ts;
 
         useEffect(() => {
           let cancelled = false;
@@ -865,7 +870,7 @@
           if (!tradeId || !onRefreshTrades) return;
           const run = async () => {
             let didCorrect = false;
-            if (Number.isFinite(candleCloseAtEntry) && Number.isFinite(storedEntry) && Math.abs(candleCloseAtEntry - storedEntry) > 0.01 && !appliedEntryRef.current) {
+            if (Number.isFinite(Number(candleAtEntry?.close)) && Number.isFinite(storedEntry) && Math.abs(Number(candleAtEntry.close) - storedEntry) > 0.01 && !appliedEntryRef.current) {
               appliedEntryRef.current = true;
               try {
                 const res = await fetch(`${API_BASE}/timed/admin/trade-autopsy/correct-entry`, {
@@ -878,7 +883,7 @@
                 if (data.ok && data.corrected) didCorrect = true;
               } catch (_) {}
             }
-            if (Number.isFinite(candleCloseAtExit) && Number.isFinite(storedExit) && Math.abs(candleCloseAtExit - storedExit) > 0.01 && !appliedExitRef.current) {
+            if (Number.isFinite(Number(candleAtExit?.close)) && Number.isFinite(storedExit) && Math.abs(Number(candleAtExit.close) - storedExit) > 0.01 && !appliedExitRef.current) {
               appliedExitRef.current = true;
               try {
                 const res = await fetch(`${API_BASE}/timed/admin/trade-autopsy/correct-exit`, {
@@ -894,7 +899,7 @@
             if (didCorrect) await onRefreshTrades();
           };
           run();
-        }, [tradeId, candleCloseAtEntry, candleCloseAtExit, storedEntry, storedExit, onRefreshTrades]);
+        }, [tradeId, candleAtEntry, candleAtExit, storedEntry, storedExit, onRefreshTrades]);
 
         const handleSave = async () => {
           setSaving(true);
@@ -903,7 +908,14 @@
               ...fetchOpts,
               method: "POST",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ trade_id: tradeId, classification, notes, entry_grade: entryGrade, trade_management: tradeManagement }),
+              body: JSON.stringify({
+                trade_id: tradeId,
+                run_id: trade?.run_id || trade?.runId || null,
+                classification,
+                notes,
+                entry_grade: entryGrade,
+                trade_management: tradeManagement,
+              }),
             });
             const data = await res.json();
             if (data.ok) {
@@ -947,11 +959,11 @@
                 <div className="flex flex-col sm:flex-row flex-wrap items-start sm:items-center gap-2 sm:gap-3 shrink-0">
                   <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#60a5fa]/15 border border-[#60a5fa]/30 w-full sm:w-auto">
                     <span className="text-[10px] font-semibold text-[#60a5fa] uppercase tracking-wider shrink-0">Entry</span>
-                    <span className="text-[13px] font-semibold text-white truncate">{formatDate(trade?.entry_ts)} @ {fmtUsd(trade?.entry_price || trade?.entryPrice)}</span>
+                    <span className="text-[13px] font-semibold text-white truncate">{formatDate(displayEntryTs)} @ {fmtUsd(displayEntryPrice)}</span>
                   </div>
                   <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#f59e0b]/15 border border-[#f59e0b]/30 w-full sm:w-auto">
                     <span className="text-[10px] font-semibold text-[#f59e0b] uppercase tracking-wider shrink-0">Exit</span>
-                    <span className="text-[13px] font-semibold text-white truncate">{formatDate(trade?.exit_ts)} @ {fmtUsd(trade?.exit_price || trade?.exitPrice)}</span>
+                    <span className="text-[13px] font-semibold text-white truncate">{formatDate(displayExitTs)} @ {fmtUsd(displayExitPrice)}</span>
                   </div>
                   <div className="flex items-center gap-3">
                     <div className="text-[12px] text-[#9ca3af]">
@@ -1123,11 +1135,11 @@
                   <div className="lg:col-span-2 min-h-[280px] md:min-h-[500px] flex flex-col order-1 lg:order-2">
                     <AutopsyChart
                       ticker={trade?.ticker}
-                      entryPrice={trade?.entry_price || trade?.entryPrice}
-                      exitPrice={trade?.exit_price || trade?.exitPrice}
-                      entryTs={trade?.entry_ts}
-                      exitTs={trade?.exit_ts}
-                      trimTs={trade?.trim_ts}
+                      entryPrice={displayEntryPrice}
+                      exitPrice={displayExitPrice}
+                      entryTs={displayEntryTs}
+                      exitTs={displayExitTs}
+                      trimTs={displayTrimTs}
                       height={typeof window !== "undefined" && window.innerWidth < 768 ? 240 : 500}
                     />
                   </div>
@@ -1281,6 +1293,7 @@
         const tradesUrl = (() => {
           const base = `${API_BASE}/timed/admin/trade-autopsy/trades`;
           if (effectiveRunId) return `${base}?run_id=${encodeURIComponent(effectiveRunId)}`;
+          if (filterRunId === RUN_FILTER_LIVE) return `${base}?live=1`;
           return base;
         })();
 
@@ -1293,9 +1306,11 @@
           if (!exists) setFilterRunId(RUN_FILTER_LATEST);
         }, [runMeta, filterRunId, runIdFromUrl]);
 
-        const buildTradesUrl = useCallback((runId) => {
+        const buildTradesUrl = useCallback((runId, liveOnly = false) => {
           const base = `${API_BASE}/timed/admin/trade-autopsy/trades`;
-          return runId ? `${base}?run_id=${encodeURIComponent(runId)}` : base;
+          if (runId) return `${base}?run_id=${encodeURIComponent(runId)}`;
+          if (liveOnly) return `${base}?live=1`;
+          return base;
         }, []);
         const buildAnnotationsUrl = useCallback((runId) => {
           const base = `${API_BASE}/timed/admin/trade-autopsy/annotations?all=1`;
@@ -1356,8 +1371,9 @@
           try {
             const runs = await refreshRuns();
             const resolvedRunId = String(runIdFromUrl || "").trim() || resolveSelectedRunId(filterRunId, resolveLatestCompletedRunId(runs));
+            const liveOnly = !String(runIdFromUrl || "").trim() && filterRunId === RUN_FILTER_LIVE;
             const [tradesRes, annRes] = await Promise.all([
-              fetch(buildTradesUrl(resolvedRunId), fetchOpts).then(r => r.json()),
+              fetch(buildTradesUrl(resolvedRunId, liveOnly), fetchOpts).then(r => r.json()),
               fetch(buildAnnotationsUrl(resolvedRunId), fetchOpts).then(r => r.json()),
             ]);
             if (tradesRes.ok && Array.isArray(tradesRes.trades)) setTrades(tradesRes.trades);
@@ -1385,8 +1401,9 @@
                 return;
               }
               const resolvedRunId = String(runIdFromUrl || "").trim() || resolveSelectedRunId(filterRunId, resolveLatestCompletedRunId(runs));
+              const liveOnly = !String(runIdFromUrl || "").trim() && filterRunId === RUN_FILTER_LIVE;
               const [tradesData, annData] = await Promise.all([
-                fetch(buildTradesUrl(resolvedRunId), fetchOpts).then(r => r.json()),
+                fetch(buildTradesUrl(resolvedRunId, liveOnly), fetchOpts).then(r => r.json()),
                 fetch(buildAnnotationsUrl(resolvedRunId), fetchOpts).then(r => r.json()),
               ]);
               if (cancelled) return;
