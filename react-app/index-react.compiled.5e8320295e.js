@@ -1310,6 +1310,76 @@ function useEarningsEvents(enabled = true) {
     updatedAt
   };
 }
+function useMacroEvents(enabled = true) {
+  const [events, setEvents] = useState([]);
+  const [updatedAt, setUpdatedAt] = useState(0);
+  const fetchEvents = useCallback(async () => {
+    try {
+      const now = Date.now();
+      const from = now - 36 * 3600000;
+      const to = now + 10 * 24 * 3600000;
+      const res = await fetch(`${API_BASE}/timed/time-travel/events?from=${from}&to=${to}`);
+      if (!res.ok) return;
+      const json = await res.json();
+      if (json.ok && Array.isArray(json.events)) {
+        const normalizeType = ev => {
+          const raw = String(ev?.type || ev?.eventType || ev?.label || ev?.title || ev?.event || "").toUpperCase();
+          if (!raw) return null;
+          if (raw.includes("FOMC")) return "FOMC";
+          if (raw.includes("CPI")) return "CPI";
+          if (raw.includes("NFP") || raw.includes("NONFARM") || raw.includes("PAYROLL")) return "NFP";
+          if (raw.includes("PPI")) return "PPI";
+          if (raw.includes("GDP")) return "GDP";
+          if (raw.includes("PCE")) return "PCE";
+          if (raw.includes("EARN")) return "EARNINGS";
+          return null;
+        };
+        const formatNyDate = ts => {
+          try {
+            return new Date(ts).toLocaleDateString("en-CA", {
+              timeZone: "America/New_York"
+            });
+          } catch {
+            return "";
+          }
+        };
+        const normalized = json.events.map(ev => {
+          const tsRaw = Number(ev?.ts ?? ev?.timestamp ?? ev?.at ?? 0);
+          const ts = Number.isFinite(tsRaw) && tsRaw > 0 ? tsRaw < 1e12 ? tsRaw * 1000 : tsRaw : null;
+          const type = normalizeType(ev);
+          if (!ts || !type || type === "EARNINGS") return null;
+          return {
+            type,
+            label: String(ev?.label || ev?.title || ev?.event || type),
+            ts,
+            date: formatNyDate(ts)
+          };
+        }).filter(Boolean).sort((a, b) => a.ts - b.ts);
+        const seen = new Set();
+        const deduped = normalized.filter(ev => {
+          const key = `${ev.type}|${ev.date}`;
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        });
+        setEvents(deduped.slice(0, 8));
+        setUpdatedAt(json.updated_at || Date.now());
+      }
+    } catch (err) {
+      console.warn("[MACRO_EVENTS] Fetch failed:", err);
+    }
+  }, []);
+  useEffect(() => {
+    if (!enabled) return undefined;
+    fetchEvents();
+    const interval = setInterval(fetchEvents, 30 * 60000);
+    return () => clearInterval(interval);
+  }, [enabled, fetchEvents]);
+  return {
+    events,
+    updatedAt
+  };
+}
 function getTickerSector(ticker) {
   const T = normTicker(ticker).toUpperCase();
   const SECTOR_MAP = {
@@ -12810,6 +12880,9 @@ function App() {
   const {
     events: earningsEvents
   } = useEarningsEvents(secondaryDataReady);
+  const {
+    events: macroEvents
+  } = useMacroEvents(secondaryDataReady);
   useEffect(() => {
     const handler = () => {
       refetch();
@@ -13790,7 +13863,102 @@ function App() {
     className: "mx-auto w-full px-2 sm:px-4 lg:px-5"
   }, React.createElement("header", {
     className: "mb-4 pt-3"
-  }, window._ttIsPro && (() => {
+  }, (() => {
+    const now = Date.now();
+    const todayStr = new Date().toLocaleDateString("en-CA", {
+      timeZone: "America/New_York"
+    });
+    const tomorrowStr = new Date(now + 86400000).toLocaleDateString("en-CA", {
+      timeZone: "America/New_York"
+    });
+    const formatDayLabel = dateStr => {
+      if (!dateStr) return "Soon";
+      if (dateStr === todayStr) return "Today";
+      if (dateStr === tomorrowStr) return "Tomorrow";
+      return new Date(`${dateStr}T12:00:00`).toLocaleDateString("en-US", {
+        month: "short",
+        day: "numeric",
+        timeZone: "America/New_York"
+      });
+    };
+    const formatHour = h => {
+      if (!h) return "";
+      const hl = String(h).toLowerCase();
+      if (hl === "bmo" || hl === "before market open") return "BMO";
+      if (hl === "amc" || hl === "after market close") return "AMC";
+      if (hl === "dmh" || hl === "during market hours") return "DMH";
+      return String(h).toUpperCase();
+    };
+    const macroTypeCls = type => ({
+      FOMC: "border-amber-500/30 bg-amber-500/10 text-amber-300",
+      CPI: "border-violet-500/30 bg-violet-500/10 text-violet-300",
+      NFP: "border-sky-500/30 bg-sky-500/10 text-sky-300",
+      PPI: "border-cyan-500/30 bg-cyan-500/10 text-cyan-300",
+      GDP: "border-emerald-500/30 bg-emerald-500/10 text-emerald-300",
+      PCE: "border-fuchsia-500/30 bg-fuchsia-500/10 text-fuchsia-300"
+    })[type] || "border-white/[0.08] bg-white/[0.03] text-gray-300";
+    const macroItems = (Array.isArray(macroEvents) ? macroEvents : []).slice(0, 8);
+    const earningItems = (Array.isArray(earningsEvents) ? earningsEvents : []).slice(0, 12);
+    if (macroItems.length === 0 && earningItems.length === 0) return null;
+    return React.createElement("div", {
+      className: "mb-4 rounded-xl border border-white/[0.08] bg-white/[0.025] p-3"
+    }, React.createElement("div", {
+      className: "flex flex-wrap items-center justify-between gap-2 mb-3"
+    }, React.createElement("div", {
+      className: "flex items-center gap-2"
+    }, React.createElement("span", {
+      className: "text-[10px] text-[#6b7280] font-semibold tracking-wide uppercase"
+    }, "Upcoming Events"), React.createElement("span", {
+      className: "text-[9px] text-[#4b5563] tabular-nums"
+    }, macroItems.length, " macro \xB7 ", earningItems.length, " earnings"))), React.createElement("div", {
+      className: "grid grid-cols-1 xl:grid-cols-[minmax(280px,0.9fr)_minmax(0,1.1fr)] gap-3"
+    }, React.createElement("div", {
+      className: "rounded-lg border border-white/[0.06] bg-black/10 p-3"
+    }, React.createElement("div", {
+      className: "text-[9px] uppercase tracking-wide text-[#4b5563] mb-2"
+    }, "Macro Calendar"), macroItems.length > 0 ? React.createElement("div", {
+      className: "flex flex-wrap gap-2"
+    }, macroItems.map((ev, i) => React.createElement("div", {
+      key: `macro-${ev.type}-${ev.date || i}`,
+      className: `flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border ${macroTypeCls(ev.type)}`,
+      title: ev.label || ev.type
+    }, React.createElement("span", {
+      className: "text-[10px] font-bold"
+    }, ev.type), React.createElement("span", {
+      className: "text-[9px] opacity-80"
+    }, formatDayLabel(ev.date))))) : React.createElement("div", {
+      className: "text-[11px] text-[#6b7280]"
+    }, "No major macro releases in the current window.")), React.createElement("div", {
+      className: "rounded-lg border border-white/[0.06] bg-black/10 p-3"
+    }, React.createElement("div", {
+      className: "text-[9px] uppercase tracking-wide text-[#4b5563] mb-2"
+    }, "Earnings Calendar"), earningItems.length > 0 ? React.createElement("div", {
+      className: "flex flex-wrap gap-2"
+    }, earningItems.map((e, i) => {
+      const beatMiss = e.epsActual != null && e.epsEstimate != null ? e.epsActual >= e.epsEstimate ? "Beat" : "Miss" : null;
+      const chipColor = (() => {
+        if (beatMiss === "Beat") return "border-green-500/30 bg-green-500/10 text-green-300";
+        if (beatMiss === "Miss") return "border-rose-500/30 bg-rose-500/10 text-rose-300";
+        if (e.date === todayStr) return "border-amber-500/30 bg-amber-500/10 text-amber-300";
+        return "border-white/[0.08] bg-white/[0.03] text-gray-300";
+      })();
+      return React.createElement("button", {
+        key: `ev-${i}`,
+        onClick: () => handleTickerSelect(e.symbol),
+        className: `flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border ${chipColor} hover:brightness-125`
+      }, React.createElement("span", {
+        className: "text-[10px] font-bold"
+      }, e.symbol), React.createElement("span", {
+        className: "text-[9px] opacity-70"
+      }, formatDayLabel(e.date)), formatHour(e.hour) && React.createElement("span", {
+        className: "text-[8px] opacity-60"
+      }, formatHour(e.hour)), beatMiss && React.createElement("span", {
+        className: `text-[8px] font-semibold ${beatMiss === "Beat" ? "text-green-400" : "text-rose-400"}`
+      }, beatMiss));
+    })) : React.createElement("div", {
+      className: "text-[11px] text-[#6b7280]"
+    }, "No nearby earnings events."))));
+  })(), window._ttIsPro && (() => {
     const allData = data && typeof data === "object" ? data : {};
     const intensityAlpha = absPct => {
       if (absPct <= 0.1) return 0.06;
@@ -13824,15 +13992,10 @@ function App() {
       const rgb = up ? "34,197,94" : "239,68,68";
       const pillBg = `rgba(${rgb},${alpha.toFixed(3)})`;
       const borderStyle = `1px solid rgba(${rgb},${bAlpha.toFixed(2)})`;
-      const chg = (() => {
-        if (!td) return null;
-        const dc = getDailyChange(td);
-        return dc && Number.isFinite(dc.dayChg) ? dc.dayChg : null;
-      })();
       return React.createElement("button", {
         key: `mp0-${sym}`,
         onClick: () => handleTickerSelect(sym),
-        className: "flex items-center gap-1.5 px-2 py-1 rounded-lg hover:brightness-125 flex-shrink-0 transition-all",
+        className: "flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg hover:brightness-125 flex-shrink-0 transition-all",
         style: {
           background: pillBg,
           border: borderStyle
@@ -13843,9 +14006,7 @@ function App() {
         className: "text-[9px] text-gray-400"
       }, "$", price.toFixed(2)), React.createElement("span", {
         className: `text-[9px] font-semibold ${up ? "text-[#00e676]" : "text-rose-400"}`
-      }, pct >= 0 ? "+" : "", pct.toFixed(2), "%"), chg !== null && React.createElement("span", {
-        className: `text-[8px] tabular-nums ${up ? "text-[#00e676]/70" : "text-rose-400/70"}`
-      }, chg >= 0 ? "+" : "", chg.toFixed(2)));
+      }, pct >= 0 ? "+" : "", pct.toFixed(2), "%"));
     };
     const row1 = ["US500", "ES1!", "NQ1!", "RTY1!", "YM1!", "VX1!", "CL1!", "GC1!", "SI1!", "BTCUSD", "ETHUSD"];
     const row2 = ["SPX", "SPY", "QQQ", "IWM", "XLK", "XLF", "XLY", "XLP", "XLC", "XLI", "XLB", "XLE", "XLRE", "XLU", "XLV"];
@@ -13860,29 +14021,25 @@ function App() {
       return `${Math.floor(ago / 3600)}h ago`;
     })();
     return React.createElement("div", {
-      className: "mb-4"
+      className: "mb-4 rounded-xl border border-white/[0.08] bg-white/[0.025] p-3"
     }, React.createElement("div", {
-      className: "flex items-center gap-2 mb-1.5"
+      className: "flex flex-wrap items-center gap-2 mb-3"
     }, React.createElement("span", {
       className: "text-[10px] text-[#6b7280] font-semibold tracking-wide uppercase"
     }, "Market Pulse"), freshness && React.createElement("span", {
       className: "text-[9px] text-[#4b5563] tabular-nums"
-    }, "updated ", freshness)), row1Chips.length > 0 && React.createElement("div", {
-      className: "flex items-center gap-2 overflow-x-auto pb-1",
-      style: {
-        scrollbarWidth: "none"
-      }
-    }, row1Chips), row2Chips.length > 0 && React.createElement("div", {
-      className: "flex items-center gap-2 overflow-x-auto pt-1 pb-1",
-      style: {
-        scrollbarWidth: "none"
-      }
-    }, row2Chips));
-  })(), React.createElement("div", {
-    className: "mb-4 flex flex-col lg:flex-row lg:items-start gap-3"
-  }, React.createElement("div", {
-    className: "flex-1 min-w-0"
-  }, (() => {
+    }, "updated ", freshness)), React.createElement("div", {
+      className: "space-y-2"
+    }, row1Chips.length > 0 && React.createElement("div", null, React.createElement("div", {
+      className: "text-[9px] uppercase tracking-wide text-[#4b5563] mb-1.5"
+    }, "Futures, Commodities, Crypto"), React.createElement("div", {
+      className: "flex flex-wrap gap-2"
+    }, row1Chips)), row2Chips.length > 0 && React.createElement("div", null, React.createElement("div", {
+      className: "text-[9px] uppercase tracking-wide text-[#4b5563] mb-1.5"
+    }, "Indices & Sector ETFs"), React.createElement("div", {
+      className: "flex flex-wrap gap-2"
+    }, row2Chips))));
+  })(), (() => {
     const allArr = data && typeof data === 'object' ? Object.values(data) : [];
     const CRYPTO_24H = new Set(["BTCUSD", "ETHUSD"]);
     const chipIntensity = absPct => {
@@ -13930,7 +14087,7 @@ function App() {
         key: sym,
         onClick: () => handleTickerSelect(sym),
         title: title,
-        className: `px-2 py-0.5 rounded-lg text-[10px] font-semibold flex items-center gap-1 hover:brightness-125 transition-all ${textCls}`,
+        className: `px-2.5 py-1.5 rounded-lg text-[10px] font-semibold flex items-center gap-1.5 hover:brightness-125 transition-all ${textCls}`,
         style: {
           background: chipBg,
           border: borderStyle
@@ -13939,21 +14096,19 @@ function App() {
         className: "text-white font-bold"
       }, sym), Number.isFinite(price) && price > 0 && React.createElement("span", null, "$", Number(price).toFixed(2)), React.createElement("span", null, pct >= 0 ? "+" : "", pct.toFixed(2), "%"));
     };
-    const moversRow = (label, badgeCls, gainers, losers, pctKey, priceKey) => React.createElement("div", {
-      className: "flex items-center gap-2 flex-wrap text-[10px]"
+    const moversCard = (title, badgeCls, items, isGain, pctKey, priceKey) => React.createElement("div", {
+      className: "rounded-xl border border-white/[0.08] bg-white/[0.025] p-3"
+    }, React.createElement("div", {
+      className: "flex items-center gap-2 mb-2"
     }, React.createElement("span", {
       className: `px-1.5 py-px rounded text-[9px] font-bold tracking-wide border shrink-0 ${badgeCls}`
-    }, label), React.createElement("div", {
-      className: "flex items-center gap-1.5"
-    }, React.createElement("span", {
-      className: "text-[#6b7280] font-semibold whitespace-nowrap"
-    }, "Gainers"), gainers.map(t => chip(t, true, pctKey, priceKey))), React.createElement("div", {
-      className: "w-px h-4 bg-white/10"
-    }), React.createElement("div", {
-      className: "flex items-center gap-1.5"
-    }, React.createElement("span", {
-      className: "text-[#6b7280] font-semibold whitespace-nowrap"
-    }, "Losers"), losers.map(t => chip(t, false, pctKey, priceKey))));
+    }, title), React.createElement("span", {
+      className: "text-[9px] text-[#4b5563]"
+    }, items.length, " tickers")), items.length > 0 ? React.createElement("div", {
+      className: "flex flex-wrap gap-2"
+    }, items.map(t => chip(t, isGain, pctKey, priceKey))) : React.createElement("div", {
+      className: "text-[11px] text-[#6b7280]"
+    }, "No movers in this bucket."));
     const rthArr = allArr.map(t => {
       const px = Number(t?.price ?? t?.close);
       if (!Number.isFinite(px) || px <= 0) return null;
@@ -13986,67 +14141,15 @@ function App() {
     const hasEth = ethGainers.length > 0 || ethLosers.length > 0;
     if (rthGainers.length === 0 && rthLosers.length === 0 && !hasEth) return null;
     return React.createElement("div", {
-      className: "space-y-1.5"
-    }, (rthGainers.length > 0 || rthLosers.length > 0) && moversRow("RTH", "bg-cyan-500/15 text-cyan-400 border-cyan-500/30", rthGainers, rthLosers, "_pct", "_price"), hasEth && moversRow("EXT", "bg-amber-500/15 text-amber-400 border-amber-500/30", ethGainers, ethLosers, "_ethPct", "_ethPrice"));
-  })()), React.createElement("div", {
-    className: "shrink-0 lg:max-w-[45%]"
-  }, earningsEvents.length > 0 && (() => {
-    const now = Date.now();
-    const todayStr = new Date().toLocaleDateString("en-CA", {
-      timeZone: "America/New_York"
-    });
-    const tomorrowStr = new Date(now + 86400000).toLocaleDateString("en-CA", {
-      timeZone: "America/New_York"
-    });
-    const formatHour = h => {
-      if (!h) return "";
-      const hl = String(h).toLowerCase();
-      if (hl === "bmo" || hl === "before market open") return "BMO";
-      if (hl === "amc" || hl === "after market close") return "AMC";
-      if (hl === "dmh" || hl === "during market hours") return "DMH";
-      return String(h).toUpperCase();
-    };
-    const formatDate = d => {
-      if (d === todayStr) return "Today";
-      if (d === tomorrowStr) return "Tomorrow";
-      return new Date(d + "T12:00:00").toLocaleDateString("en-US", {
-        month: "short",
-        day: "numeric",
-        timeZone: "America/New_York"
-      });
-    };
-    const chipColor = e => {
-      if (e.epsActual != null && e.epsEstimate != null) {
-        return e.epsActual >= e.epsEstimate ? "border-green-500/30 bg-green-500/10 text-green-300" : "border-rose-500/30 bg-rose-500/10 text-rose-300";
-      }
-      if (e.date === todayStr) return "border-amber-500/30 bg-amber-500/10 text-amber-300";
-      return "border-white/[0.08] bg-white/[0.03] text-gray-300";
-    };
-    return React.createElement("div", null, React.createElement("div", {
-      className: "flex items-center gap-2 mb-1.5"
+      className: "mb-4"
+    }, React.createElement("div", {
+      className: "flex items-center gap-2 mb-3"
     }, React.createElement("span", {
       className: "text-[10px] text-[#6b7280] font-semibold tracking-wide uppercase"
-    }, "Upcoming Events"), React.createElement("span", {
-      className: "text-[9px] text-[#4b5563] tabular-nums"
-    }, earningsEvents.length, " earnings")), React.createElement("div", {
-      className: "flex items-center gap-2 flex-wrap pb-1"
-    }, earningsEvents.slice(0, 20).map((e, i) => {
-      const beatMiss = e.epsActual != null && e.epsEstimate != null ? e.epsActual >= e.epsEstimate ? "Beat" : "Miss" : null;
-      return React.createElement("button", {
-        key: `ev-${i}`,
-        onClick: () => handleTickerSelect(e.symbol),
-        className: `flex items-center gap-1.5 px-2 py-1 rounded-lg border ${chipColor(e)} flex-shrink-0 hover:brightness-125`
-      }, React.createElement("span", {
-        className: "text-[10px] font-bold"
-      }, e.symbol), React.createElement("span", {
-        className: "text-[9px] opacity-70"
-      }, formatDate(e.date)), formatHour(e.hour) && React.createElement("span", {
-        className: "text-[8px] opacity-60"
-      }, formatHour(e.hour)), beatMiss && React.createElement("span", {
-        className: `text-[8px] font-semibold ${beatMiss === "Beat" ? "text-green-400" : "text-rose-400"}`
-      }, beatMiss));
-    })));
-  })())), (dashboardMode === "trader" || dashboardMode === "investor") && React.createElement("div", {
+    }, "Top Movers")), React.createElement("div", {
+      className: "grid grid-cols-1 xl:grid-cols-2 gap-3"
+    }, moversCard("RTH Gainers", "bg-cyan-500/15 text-cyan-400 border-cyan-500/30", rthGainers, true, "_pct", "_price"), moversCard("RTH Losers", "bg-rose-500/15 text-rose-400 border-rose-500/30", rthLosers, false, "_pct", "_price"), hasEth && moversCard("EXT Gainers", "bg-amber-500/15 text-amber-400 border-amber-500/30", ethGainers, true, "_ethPct", "_ethPrice"), hasEth && moversCard("EXT Losers", "bg-orange-500/15 text-orange-400 border-orange-500/30", ethLosers, false, "_ethPct", "_ethPrice")));
+  })(), (dashboardMode === "trader" || dashboardMode === "investor") && React.createElement("div", {
     className: "mb-4"
   }, React.createElement(ActionCenterPanel, {
     tickers: tickers,
