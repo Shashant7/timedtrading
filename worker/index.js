@@ -128,6 +128,8 @@ import {
   handleGetArchiveBrief,
   handleMarkPrediction,
   fetchFinnhubEarnings,
+  fetchFinnhubEconomicCalendar,
+  fetchForexFactoryCalendar,
 } from "./daily-brief.js";
 import {
   sendEmail,
@@ -498,6 +500,7 @@ const ROUTES = [
   ["GET", "/timed/all", "GET /timed/all"],
   ["GET", "/timed/prices", "GET /timed/prices"],
   ["GET", "/timed/earnings/upcoming", "GET /timed/earnings/upcoming"],
+  ["GET", "/timed/time-travel/events", "GET /timed/time-travel/events"],
   ["GET", "/timed/candles", "GET /timed/candles"],
   ["GET", "/timed/time-travel/forward-returns", "GET /timed/time-travel/forward-returns"],
   ["GET", "/timed/time-travel/events", "GET /timed/time-travel/events"],
@@ -29235,6 +29238,218 @@ export default {
           );
         } catch (e) {
           console.error("[EARNINGS] GET error:", String(e));
+          return sendJSON({ ok: false, error: "internal_error" }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // GET /timed/time-travel/events — macro economic calendar for the homepage header
+      if (routeKey === "GET /timed/time-travel/events") {
+        try {
+          const debug = url.searchParams.get("debug") === "1";
+          const fromMs = Number(url.searchParams.get("from"));
+          const toMs = Number(url.searchParams.get("to"));
+          const defaultFromMs = Date.now() - 3 * 86400000;
+          const defaultToMs = Date.now() + 14 * 86400000;
+          const fromDate = new Date(Number.isFinite(fromMs) && fromMs > 0 ? fromMs : defaultFromMs)
+            .toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+          const toDate = new Date(Number.isFinite(toMs) && toMs > 0 ? toMs : defaultToMs)
+            .toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+          const enumerateNyDates = (startDate, endDate) => {
+            const dates = [];
+            let cur = new Date(`${startDate}T00:00:00Z`).getTime();
+            const end = new Date(`${endDate}T00:00:00Z`).getTime();
+            while (Number.isFinite(cur) && Number.isFinite(end) && cur <= end && dates.length < 21) {
+              dates.push(new Date(cur).toLocaleDateString("en-CA", { timeZone: "America/New_York" }));
+              cur += 86400000;
+            }
+            return [...new Set(dates)];
+          };
+          const parseEtEventTs = (dateStr, timeStr) => {
+            const date = String(dateStr || "").slice(0, 10);
+            const time = String(timeStr || "").trim().toLowerCase();
+            if (!date) return 0;
+            if (!time) return new Date(`${date}T09:00:00-05:00`).getTime();
+            const m = time.match(/^(\d{1,2}):(\d{2})(am|pm)$/);
+            if (!m) return new Date(`${date}T09:00:00-05:00`).getTime();
+            let hour = Number(m[1]) % 12;
+            const minute = Number(m[2]);
+            if (m[3] === "pm") hour += 12;
+            const hh = String(hour).padStart(2, "0");
+            const mm = String(minute).padStart(2, "0");
+            return new Date(`${date}T${hh}:${mm}:00-05:00`).getTime();
+          };
+          const fetchBlsMacroFallback = async (startDate, endDate) => {
+            const monthKeys = [];
+            for (const d of enumerateNyDates(startDate, endDate)) {
+              const key = String(d).slice(0, 7);
+              if (key && !monthKeys.includes(key)) monthKeys.push(key);
+            }
+            const mapTitleToType = (title) => {
+              const raw = String(title || "").trim();
+              if (!raw) return null;
+              if (/consumer price index/i.test(raw)) return "CPI";
+              if (/producer price index/i.test(raw)) return "PPI";
+              if (/employment situation/i.test(raw)) return "NFP";
+              return null;
+            };
+            const monthResults = await Promise.all(monthKeys.map(async (key) => {
+              try {
+                const [year, month] = key.split("-");
+                const url = `https://www.bls.gov/schedule/${year}/${month}_sched.htm`;
+                const resp = await fetch(url, {
+                  headers: {
+                    "User-Agent": "Mozilla/5.0",
+                    Accept: "text/html,application/xhtml+xml",
+                  },
+                });
+                if (!resp.ok) return [];
+                const html = await resp.text();
+                const cellRegex = /<td[^>]*id="d(\d{2})(\d{2})"[^>]*>([\s\S]*?)<\/td>/gi;
+                const events = [];
+                let cellMatch;
+                while ((cellMatch = cellRegex.exec(html)) !== null) {
+                  const mm = cellMatch[1];
+                  const dd = cellMatch[2];
+                  const cellHtml = cellMatch[3] || "";
+                  const date = `${year}-${mm}-${dd}`;
+                  if (date < startDate || date > endDate) continue;
+                  const eventRegex = /<strong>([^<]+?)<br><\/strong>\s*([^<]+?)<br>\s*([0-9: ]+[AP]M)/gi;
+                  let eventMatch;
+                  while ((eventMatch = eventRegex.exec(cellHtml)) !== null) {
+                    const label = String(eventMatch[1] || "").replace(/\s+/g, " ").trim();
+                    const type = mapTitleToType(label);
+                    if (!type) continue;
+                    const release = String(eventMatch[2] || "").replace(/\s+/g, " ").trim();
+                    const time = String(eventMatch[3] || "").replace(/\s+/g, "").trim().toLowerCase();
+                    events.push({
+                      type,
+                      label,
+                      date,
+                      ts: parseEtEventTs(date, time),
+                      impact: "high",
+                      actual: null,
+                      estimate: null,
+                      prev: null,
+                      release,
+                    });
+                  }
+                }
+                return events;
+              } catch {
+                return [];
+              }
+            }));
+            return monthResults.flat();
+          };
+          let cached = await kvGetJSON(KV, "timed:macro:events");
+          const staleMs = 24 * 3600 * 1000;
+          const isEmpty = !cached?.events || cached.events.length === 0;
+          const isStale = cached?.updated_at && (Date.now() - cached.updated_at) > staleMs;
+          let rawDebug = null;
+          if (isEmpty || isStale || debug) {
+            try {
+              const raw = await fetchFinnhubEconomicCalendar(env, fromDate, toDate);
+              const allEvents = Array.isArray(raw?.events) ? raw.events : (Array.isArray(raw) ? raw : []);
+              const usHigh = allEvents.filter((e) => {
+                const country = String(e?.country || e?.countryCode || e?.region || "").trim().toUpperCase();
+                const isUS =
+                  country === "US" ||
+                  country === "USA" ||
+                  country.includes("UNITED STATES");
+                const impactRaw = String(e?.impact || e?.importance || e?.impactName || "").trim().toLowerCase();
+                const impactNum = Number(e?.impact ?? e?.importance);
+                const isMediumOrHigh =
+                  impactRaw === "high" ||
+                  impactRaw === "medium" ||
+                  impactNum >= 2;
+                return isUS && isMediumOrHigh;
+              });
+              const mapped = usHigh.map(e => {
+                const rawDate = String(e?.date || e?.datetime || e?.timestamp || "").trim();
+                const rawTime = String(e?.time || "").trim();
+                const rawEvent = String(e?.event || e?.title || e?.name || "").trim();
+                const isoCandidate = rawDate && /T/.test(rawDate)
+                  ? rawDate
+                  : rawDate
+                    ? `${rawDate}${rawTime ? `T${rawTime}` : "T09:00:00"}`
+                    : "";
+                const ts = isoCandidate ? new Date(isoCandidate).getTime() : 0;
+                return {
+                  type: rawEvent,
+                  label: rawEvent,
+                  ts: Number.isFinite(ts) && ts > 0 ? ts : 0,
+                  date: rawDate.slice(0, 10),
+                  impact: e.impact ?? e.importance ?? null,
+                  actual: e.actual,
+                  estimate: e.estimate ?? e.forecast,
+                  prev: e.prev ?? e.previous,
+                };
+              }).filter(e => e.ts > 0 && e.type);
+              rawDebug = {
+                range: { fromDate, toDate },
+                total: allEvents.length,
+                usHigh: usHigh.length,
+                mapped: mapped.length,
+                sample: allEvents.slice(0, 5),
+                sourceDebug: raw?._debug || null,
+              };
+              if (mapped.length > 0) {
+                cached = { events: mapped, updated_at: Date.now() };
+                if (!debug) {
+                  ctx.waitUntil(kvPutJSON(KV, "timed:macro:events", cached, 86400).catch(() => {}));
+                }
+              } else {
+                const ffDates = enumerateNyDates(fromDate, toDate);
+                const ffByDay = await Promise.all(ffDates.map((d) => fetchForexFactoryCalendar(env, d).catch(() => [])));
+                const ffMapped = ffByDay
+                  .flat()
+                  .filter((e) => {
+                    const impact = String(e?.impact || "").toLowerCase();
+                    return String(e?.country || "").toUpperCase() === "US" && (impact === "high" || impact === "medium");
+                  })
+                  .map((e) => ({
+                    type: String(e?.event || "").trim(),
+                    label: String(e?.event || "").trim(),
+                    ts: parseEtEventTs(e?.date, e?.time),
+                    date: String(e?.date || "").slice(0, 10),
+                    impact: e?.impact || null,
+                    actual: e?.actual ?? null,
+                    estimate: e?.estimate ?? null,
+                    prev: e?.prev ?? null,
+                  }))
+                  .filter((e) => e.ts > 0 && e.type);
+                rawDebug.ffFallback = { dates: ffDates, mapped: ffMapped.length, sample: ffMapped.slice(0, 5) };
+                if (ffMapped.length > 0) {
+                  cached = { events: ffMapped, updated_at: Date.now() };
+                  if (!debug) {
+                    ctx.waitUntil(kvPutJSON(KV, "timed:macro:events", cached, 86400).catch(() => {}));
+                  }
+                } else {
+                  const blsMapped = await fetchBlsMacroFallback(fromDate, toDate);
+                  rawDebug.blsFallback = { mapped: blsMapped.length, sample: blsMapped.slice(0, 5) };
+                  if (blsMapped.length > 0) {
+                    cached = { events: blsMapped, updated_at: Date.now() };
+                    if (!debug) {
+                      ctx.waitUntil(kvPutJSON(KV, "timed:macro:events", cached, 86400).catch(() => {}));
+                    }
+                  } else {
+                    console.warn(`[MACRO EVENTS] Finnhub, ForexFactory, and BLS fallback all returned empty. Debug: ${JSON.stringify(rawDebug).slice(0, 900)}`);
+                  }
+                }
+              }
+            } catch (fetchErr) {
+              console.warn("[MACRO EVENTS] Fetch failed:", String(fetchErr?.message || fetchErr).slice(0, 150));
+            }
+          }
+          const payload = { ok: true, events: cached?.events || [], updated_at: cached?.updated_at || 0 };
+          if (debug) payload._debug = rawDebug;
+          return sendJSON(
+            payload,
+            200,
+            { ...corsHeaders(env, req), "Cache-Control": debug ? "no-store" : "public, max-age=300" },
+          );
+        } catch (e) {
+          console.error("[MACRO EVENTS] GET error:", String(e));
           return sendJSON({ ok: false, error: "internal_error" }, 500, corsHeaders(env, req));
         }
       }
