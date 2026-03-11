@@ -13889,6 +13889,22 @@ function App() {
       if (hl === "dmh" || hl === "during market hours") return "DMH";
       return String(h).toUpperCase();
     };
+<<<<<<<< HEAD:react-app/index-react.compiled.084ed3bfce.js
+========
+    const formatMacroTime = ts => {
+      if (!Number.isFinite(Number(ts))) return "";
+      try {
+        return new Date(Number(ts)).toLocaleTimeString("en-US", {
+          timeZone: "America/New_York",
+          hour: "numeric",
+          minute: "2-digit",
+          hour12: true
+        });
+      } catch {
+        return "";
+      }
+    };
+>>>>>>>> ab0f02d69b3111c7adaf6b98eb08c236016d357f:react-app/index-react.compiled.5e0cc32501.js
     const macroTypeCls = type => ({
       FOMC: "border-amber-500/30 bg-amber-500/10 text-amber-300",
       CPI: "border-violet-500/30 bg-violet-500/10 text-violet-300",
