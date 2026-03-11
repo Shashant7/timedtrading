@@ -17237,6 +17237,19 @@
                       if (hl === "dmh" || hl === "during market hours") return "DMH";
                       return String(h).toUpperCase();
                     };
+                    const formatMacroTime = (ts) => {
+                      if (!Number.isFinite(Number(ts))) return "";
+                      try {
+                        return new Date(Number(ts)).toLocaleTimeString("en-US", {
+                          timeZone: "America/New_York",
+                          hour: "numeric",
+                          minute: "2-digit",
+                          hour12: true,
+                        });
+                      } catch {
+                        return "";
+                      }
+                    };
                     const macroTypeCls = (type) => ({
                       FOMC: "border-amber-500/30 bg-amber-500/10 text-amber-300",
                       CPI: "border-violet-500/30 bg-violet-500/10 text-violet-300",
@@ -17249,26 +17262,25 @@
                     const earningItems = (Array.isArray(earningsEvents) ? earningsEvents : []).slice(0, 12);
                     if (macroItems.length === 0 && earningItems.length === 0) return null;
                     return (
-                      <div className="mb-4 rounded-xl border border-white/[0.08] bg-white/[0.025] p-3">
-                        <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
-                          <div className="flex items-center gap-2">
-                            <span className="text-[10px] text-[#6b7280] font-semibold tracking-wide uppercase">Upcoming Events</span>
-                            <span className="text-[9px] text-[#4b5563] tabular-nums">{macroItems.length} macro · {earningItems.length} earnings</span>
-                          </div>
+                      <div className="mb-4">
+                        <div className="flex flex-wrap items-center gap-2 mb-2">
+                          <span className="text-[10px] text-[#6b7280] font-semibold tracking-wide uppercase">Upcoming Events</span>
+                          <span className="text-[9px] text-[#4b5563] tabular-nums">{macroItems.length} macro · {earningItems.length} earnings</span>
                         </div>
-                        <div className="grid grid-cols-1 xl:grid-cols-[minmax(280px,0.9fr)_minmax(0,1.1fr)] gap-3">
-                          <div className="rounded-lg border border-white/[0.06] bg-black/10 p-3">
-                            <div className="text-[9px] uppercase tracking-wide text-[#4b5563] mb-2">Macro Calendar</div>
+                        <div className="space-y-2">
+                          <div className="flex flex-col lg:flex-row lg:items-start gap-2 lg:gap-3">
+                            <div className="text-[9px] uppercase tracking-wide text-[#4b5563] lg:min-w-[68px] pt-1">Macro</div>
                             {macroItems.length > 0 ? (
                               <div className="flex flex-wrap gap-2">
                                 {macroItems.map((ev, i) => (
                                   <div
                                     key={`macro-${ev.type}-${ev.date || i}`}
-                                    className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border ${macroTypeCls(ev.type)}`}
+                                    className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg border ${macroTypeCls(ev.type)}`}
                                     title={ev.label || ev.type}
                                   >
                                     <span className="text-[10px] font-bold">{ev.type}</span>
                                     <span className="text-[9px] opacity-80">{formatDayLabel(ev.date)}</span>
+                                    <span className="text-[8px] opacity-60">{formatMacroTime(ev.ts)} ET</span>
                                   </div>
                                 ))}
                               </div>
@@ -17276,8 +17288,8 @@
                               <div className="text-[11px] text-[#6b7280]">No major macro releases in the current window.</div>
                             )}
                           </div>
-                          <div className="rounded-lg border border-white/[0.06] bg-black/10 p-3">
-                            <div className="text-[9px] uppercase tracking-wide text-[#4b5563] mb-2">Earnings Calendar</div>
+                          <div className="flex flex-col lg:flex-row lg:items-start gap-2 lg:gap-3">
+                            <div className="text-[9px] uppercase tracking-wide text-[#4b5563] lg:min-w-[68px] pt-1">Earnings</div>
                             {earningItems.length > 0 ? (
                               <div className="flex flex-wrap gap-2">
                                 {earningItems.map((e, i) => {
@@ -17292,7 +17304,7 @@
                                   })();
                                   return (
                                     <button key={`ev-${i}`} onClick={() => handleTickerSelect(e.symbol)}
-                                      className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border ${chipColor} hover:brightness-125`}>
+                                      className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg border ${chipColor} hover:brightness-125`}>
                                       <span className="text-[10px] font-bold">{e.symbol}</span>
                                       <span className="text-[9px] opacity-70">{formatDayLabel(e.date)}</span>
                                       {formatHour(e.hour) && <span className="text-[8px] opacity-60">{formatHour(e.hour)}</span>}
@@ -17365,21 +17377,21 @@
                       return `${Math.floor(ago / 3600)}h ago`;
                     })();
                     return (
-                      <div className="mb-4 rounded-xl border border-white/[0.08] bg-white/[0.025] p-3">
-                        <div className="flex flex-wrap items-center gap-2 mb-3">
+                      <div className="mb-4">
+                        <div className="flex flex-wrap items-center gap-2 mb-2">
                           <span className="text-[10px] text-[#6b7280] font-semibold tracking-wide uppercase">Market Pulse</span>
                           {freshness && <span className="text-[9px] text-[#4b5563] tabular-nums">updated {freshness}</span>}
                         </div>
                         <div className="space-y-2">
                           {row1Chips.length > 0 && (
                             <div>
-                              <div className="text-[9px] uppercase tracking-wide text-[#4b5563] mb-1.5">Futures, Commodities, Crypto</div>
+                              <div className="text-[9px] uppercase tracking-wide text-[#4b5563] mb-1">Futures, Commodities, Crypto</div>
                               <div className="flex flex-wrap gap-2">{row1Chips}</div>
                             </div>
                           )}
                           {row2Chips.length > 0 && (
                             <div>
-                              <div className="text-[9px] uppercase tracking-wide text-[#4b5563] mb-1.5">Indices & Sector ETFs</div>
+                              <div className="text-[9px] uppercase tracking-wide text-[#4b5563] mb-1">Indices & Sector ETFs</div>
                               <div className="flex flex-wrap gap-2">{row2Chips}</div>
                             </div>
                           )}
@@ -17422,9 +17434,9 @@
                         </button>
                       );
                     };
-                    const moversCard = (title, badgeCls, items, isGain, pctKey, priceKey) => (
-                      <div className="rounded-xl border border-white/[0.08] bg-white/[0.025] p-3">
-                        <div className="flex items-center gap-2 mb-2">
+                    const moversRow = (title, badgeCls, items, isGain, pctKey, priceKey) => (
+                      <div>
+                        <div className="flex items-center gap-2 mb-1.5">
                           <span className={`px-1.5 py-px rounded text-[9px] font-bold tracking-wide border shrink-0 ${badgeCls}`}>{title}</span>
                           <span className="text-[9px] text-[#4b5563]">{items.length} tickers</span>
                         </div>
@@ -17462,14 +17474,14 @@
                     if (rthGainers.length === 0 && rthLosers.length === 0 && !hasEth) return null;
                     return (
                       <div className="mb-4">
-                        <div className="flex items-center gap-2 mb-3">
+                        <div className="flex items-center gap-2 mb-2">
                           <span className="text-[10px] text-[#6b7280] font-semibold tracking-wide uppercase">Top Movers</span>
                         </div>
-                        <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
-                          {moversCard("RTH Gainers", "bg-cyan-500/15 text-cyan-400 border-cyan-500/30", rthGainers, true, "_pct", "_price")}
-                          {moversCard("RTH Losers", "bg-rose-500/15 text-rose-400 border-rose-500/30", rthLosers, false, "_pct", "_price")}
-                          {hasEth && moversCard("EXT Gainers", "bg-amber-500/15 text-amber-400 border-amber-500/30", ethGainers, true, "_ethPct", "_ethPrice")}
-                          {hasEth && moversCard("EXT Losers", "bg-orange-500/15 text-orange-400 border-orange-500/30", ethLosers, false, "_ethPct", "_ethPrice")}
+                        <div className="space-y-2">
+                          {moversRow("RTH Gainers", "bg-cyan-500/15 text-cyan-400 border-cyan-500/30", rthGainers, true, "_pct", "_price")}
+                          {moversRow("RTH Losers", "bg-rose-500/15 text-rose-400 border-rose-500/30", rthLosers, false, "_pct", "_price")}
+                          {hasEth && moversRow("EXT Gainers", "bg-amber-500/15 text-amber-400 border-amber-500/30", ethGainers, true, "_ethPct", "_ethPrice")}
+                          {hasEth && moversRow("EXT Losers", "bg-orange-500/15 text-orange-400 border-orange-500/30", ethLosers, false, "_ethPct", "_ethPrice")}
                         </div>
                       </div>
                     );
