@@ -66,7 +66,7 @@ import {
 } from "./indicators.js";
 import { createExecutionAdapter } from "./execution.js";
 import * as DataProvider from "./data-provider.js";
-import { tdFetchEarningsCalendar } from "./twelvedata.js";
+import { tdFetchEarningsCalendar, tdSearchSymbol } from "./twelvedata.js";
 import { onboardTicker, loadTickerProfile, loadSectorProfile, mergeProfileWeights } from "./onboard-ticker.js";
 import {
   loadCalendar,
@@ -842,6 +842,7 @@ function deriveTickerContext(obj) {
 
   const name = pickStr(
     obj?.name,
+    obj?.companyName,
     obj?.company_name,
     fundamentals?.name,
     fundamentals?.longName,
@@ -25426,6 +25427,10 @@ export default {
                     obj.context = cleaned || derived;
                   }
                 }
+                if (obj?.context?.name) {
+                  if (!obj.companyName) obj.companyName = obj.context.name;
+                  if (!obj.name) obj.name = obj.context.name;
+                }
               } catch {
                 // ignore
               }
@@ -25455,6 +25460,8 @@ export default {
                   if (kvCtx && typeof kvCtx === "object" && kvCtx.name) {
                     const sym = batch[i];
                     data[sym].context = { ...(data[sym].context || {}), ...kvCtx };
+                    if (!data[sym].companyName) data[sym].companyName = kvCtx.name;
+                    if (!data[sym].name) data[sym].name = kvCtx.name;
                   }
                 }
               }
@@ -27580,7 +27587,7 @@ export default {
       async function alpacaEnrichMissingContext(env, KV, symbols) {
         const apiKeyId = env?.ALPACA_API_KEY_ID;
         const apiSecret = env?.ALPACA_API_SECRET_KEY;
-        if (!apiKeyId || !apiSecret || !symbols.length) return { enriched: 0, skipped: 0 };
+        if (!symbols.length) return { enriched: 0, skipped: 0 };
         const base = env.ALPACA_API_BASE || "https://paper-api.alpaca.markets";
         let enriched = 0, skipped = 0;
         for (const sym of symbols) {
@@ -27588,25 +27595,50 @@ export default {
             // Check if already enriched in KV (avoid redundant Alpaca calls)
             const existing = await kvGetJSON(KV, `timed:context:${sym}`);
             if (existing && existing.name) { skipped++; continue; }
+            let enrichment = null;
 
-            const url = `${base}/v2/assets/${encodeURIComponent(sym)}`;
-            const resp = await fetch(url, {
-              headers: {
-                "APCA-API-KEY-ID": apiKeyId,
-                "APCA-API-SECRET-KEY": apiSecret,
-                "Accept": "application/json",
-              },
-            });
-            if (!resp.ok) { skipped++; continue; }
-            const asset = await resp.json();
-            if (!asset?.name) { skipped++; continue; }
+            if (apiKeyId && apiSecret) {
+              const url = `${base}/v2/assets/${encodeURIComponent(sym)}`;
+              const resp = await fetch(url, {
+                headers: {
+                  "APCA-API-KEY-ID": apiKeyId,
+                  "APCA-API-SECRET-KEY": apiSecret,
+                  "Accept": "application/json",
+                },
+              });
+              if (resp.ok) {
+                const asset = await resp.json();
+                if (asset?.name) {
+                  enrichment = {
+                    name: asset.name,
+                    _enriched_at: Date.now(),
+                    _source: "alpaca_asset",
+                  };
+                  if (asset.exchange) enrichment.exchange = asset.exchange;
+                }
+              }
+            }
 
-            const enrichment = {
-              name: asset.name,
-              _enriched_at: Date.now(),
-              _source: "alpaca_asset",
-            };
-            if (asset.exchange) enrichment.exchange = asset.exchange;
+            if (!enrichment) {
+              const tdResult = await tdSearchSymbol(env, sym);
+              const tdMatch = (Array.isArray(tdResult?.data) ? tdResult.data : []).find((row) => {
+                const rowSym = String(row?.symbol || "").toUpperCase().replace(/\./g, "-");
+                return rowSym === sym;
+              }) || (Array.isArray(tdResult?.data) ? tdResult.data[0] : null);
+              if (tdMatch?.name) {
+                enrichment = {
+                  name: tdMatch.name,
+                  _enriched_at: Date.now(),
+                  _source: "twelvedata_symbol_search",
+                };
+                if (tdMatch.exchange) enrichment.exchange = tdMatch.exchange;
+                if (tdMatch.country) enrichment.country = tdMatch.country;
+                if (tdMatch.type) enrichment.asset_type = tdMatch.type;
+              }
+            }
+
+            if (!enrichment?.name) { skipped++; continue; }
+
             // Merge with any existing partial context
             const merged = { ...(existing || {}), ...enrichment };
             await kvPutJSON(KV, `timed:context:${sym}`, merged, 90 * 24 * 60 * 60);

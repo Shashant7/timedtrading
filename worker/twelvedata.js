@@ -108,8 +108,11 @@ export async function tdFetchTimeSeries(env, symbols, interval, start, end = nul
       outputsize: String(outputsize),
       order: "asc",
       timezone: "UTC",
-      prepost: "true",
     });
+    // TwelveData rejects pre/post on 1h+ timeframes.
+    if (["1min", "5min", "15min", "30min"].includes(interval)) {
+      params.set("prepost", "true");
+    }
     if (start) params.set("start_date", start.replace("Z", "").replace("T", " ").slice(0, 19));
     if (end) params.set("end_date", end.replace("Z", "").replace("T", " ").slice(0, 19));
 
@@ -307,6 +310,24 @@ export async function tdFetchStocks(env, country = "United States") {
   if (data._error) return { stocks: [], error: data._error };
 
   return { stocks: Array.isArray(data.data) ? data.data : [] };
+}
+
+export async function tdSearchSymbol(env, symbol) {
+  const apiKey = getApiKey(env);
+  const sym = String(symbol || "").trim();
+  if (!apiKey || !sym) return { data: [], error: "missing_credentials" };
+
+  const params = new URLSearchParams({
+    symbol: toTdSymbol(sym),
+    outputsize: "10",
+    apikey: apiKey,
+  });
+  const url = `${TD_BASE}/symbol_search?${params}`;
+  const data = await tdFetch(url, 15000);
+  if (data._error) return { data: [], error: data._error, detail: data._detail || "" };
+
+  const rows = Array.isArray(data?.data) ? data.data : Array.isArray(data) ? data : [];
+  return { data: rows };
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
