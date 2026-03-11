@@ -3534,6 +3534,93 @@
                         })()}
                       </div>
 
+                      {ticker.td_sequential &&
+                        (() => {
+                          const tdSeq = ticker.td_sequential;
+                          const bullPrep = Number(tdSeq.bullish_prep_count || 0);
+                          const bearPrep = Number(tdSeq.bearish_prep_count || 0);
+                          const bullLeadup = Number(tdSeq.bullish_leadup_count || 0);
+                          const bearLeadup = Number(tdSeq.bearish_leadup_count || 0);
+                          const hasTd9Bull = tdSeq.td9_bullish === true || tdSeq.td9_bullish === "true";
+                          const hasTd9Bear = tdSeq.td9_bearish === true || tdSeq.td9_bearish === "true";
+                          const hasTd13Bull = tdSeq.td13_bullish === true || tdSeq.td13_bullish === "true";
+                          const hasTd13Bear = tdSeq.td13_bearish === true || tdSeq.td13_bearish === "true";
+                          const hasExitLong = tdSeq.exit_long === true || tdSeq.exit_long === "true";
+                          const hasExitShort = tdSeq.exit_short === true || tdSeq.exit_short === "true";
+
+                          const tdSummary = (() => {
+                            if (hasExitLong) return "Exhaustion signal — the current up-move may be running out of steam. Consider tightening stops.";
+                            if (hasExitShort) return "Exhaustion signal — the current down-move may be running out of steam. Watch for a bounce.";
+                            if (hasTd13Bull) return "TD13 bullish complete — a strong reversal buy signal. The downtrend is likely exhausted.";
+                            if (hasTd13Bear) return "TD13 bearish complete — a strong reversal sell signal. The uptrend is likely exhausted.";
+                            if (hasTd9Bull) return "TD9 bullish complete — a potential buy reversal setup. Selling pressure may be near exhaustion.";
+                            if (hasTd9Bear) return "TD9 bearish complete — a potential sell reversal setup. Buying pressure may be near exhaustion.";
+                            if (bullPrep >= 7) return `Bullish setup ${bullPrep}/9 — nearing completion for a potential buy signal.`;
+                            if (bearPrep >= 7) return `Bearish setup ${bearPrep}/9 — nearing completion for a potential sell signal.`;
+                            if (bullPrep >= 4) return `Bullish setup building (${bullPrep}/9) — counting consecutive closes below prior close.`;
+                            if (bearPrep >= 4) return `Bearish setup building (${bearPrep}/9) — counting consecutive closes above prior close.`;
+                            return "No active TD Sequential patterns — the current trend hasn't reached a reversal count yet.";
+                          })();
+
+                          return (
+                            <div className="mb-4 p-3 bg-white/[0.03] border border-white/[0.06] rounded-lg">
+                              <div className="text-sm font-bold text-[#6b7280] mb-2">
+                                TD Sequential
+                              </div>
+                              <div className="text-[11px] text-slate-300/80 italic mb-3 leading-snug">{tdSummary}</div>
+
+                              <div className="p-3 bg-white/[0.03] rounded-lg border border-white/[0.06] space-y-2">
+                                <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-[11px]">
+                                  <div className="flex justify-between">
+                                    <span className="text-[#6b7280]" title="Counts consecutive closes lower than 4 bars ago — a buy setup forms at 9">Buy Setup</span>
+                                    <span className={`font-semibold ${bullPrep >= 7 ? "text-yellow-400" : bullPrep >= 4 ? "text-green-400" : "text-[#6b7280]"}`}>{bullPrep}/9</span>
+                                  </div>
+                                  <div className="flex justify-between">
+                                    <span className="text-[#6b7280]" title="Counts consecutive closes higher than 4 bars ago — a sell setup forms at 9">Sell Setup</span>
+                                    <span className={`font-semibold ${bearPrep >= 7 ? "text-yellow-400" : bearPrep >= 4 ? "text-red-400" : "text-[#6b7280]"}`}>{bearPrep}/9</span>
+                                  </div>
+                                  <div className="flex justify-between">
+                                    <span className="text-[#6b7280]" title="After a completed buy setup, counts 13 bars for a stronger buy signal">Buy Countdown</span>
+                                    <span className={`font-semibold ${bullLeadup >= 10 ? "text-yellow-400" : bullLeadup >= 4 ? "text-green-400" : "text-[#6b7280]"}`}>{bullLeadup}/13</span>
+                                  </div>
+                                  <div className="flex justify-between">
+                                    <span className="text-[#6b7280]" title="After a completed sell setup, counts 13 bars for a stronger sell signal">Sell Countdown</span>
+                                    <span className={`font-semibold ${bearLeadup >= 10 ? "text-yellow-400" : bearLeadup >= 4 ? "text-red-400" : "text-[#6b7280]"}`}>{bearLeadup}/13</span>
+                                  </div>
+                                </div>
+
+                                {(hasTd9Bull || hasTd9Bear || hasTd13Bull || hasTd13Bear) && (
+                                  <div className="pt-2 mt-1 border-t border-white/[0.06] space-y-1">
+                                    {hasTd9Bull && <div className="flex items-center gap-2 text-xs"><span className="w-2 h-2 rounded-full bg-green-400"></span><span className="text-green-400 font-semibold">TD9 Buy</span><span className="text-[#6b7280]">— setup complete, potential reversal up</span></div>}
+                                    {hasTd9Bear && <div className="flex items-center gap-2 text-xs"><span className="w-2 h-2 rounded-full bg-red-400"></span><span className="text-red-400 font-semibold">TD9 Sell</span><span className="text-[#6b7280]">— setup complete, potential reversal down</span></div>}
+                                    {hasTd13Bull && <div className="flex items-center gap-2 text-xs"><span className="w-2 h-2 rounded-full bg-green-400"></span><span className="text-green-400 font-semibold">TD13 Buy</span><span className="text-[#6b7280]">— countdown complete, strong buy signal</span></div>}
+                                    {hasTd13Bear && <div className="flex items-center gap-2 text-xs"><span className="w-2 h-2 rounded-full bg-red-400"></span><span className="text-red-400 font-semibold">TD13 Sell</span><span className="text-[#6b7280]">— countdown complete, strong sell signal</span></div>}
+                                  </div>
+                                )}
+                              </div>
+
+                              {(hasExitLong || hasExitShort) && (
+                                <div className="mt-2 p-3 rounded-lg border-2 bg-red-500/20 border-red-500/50">
+                                  <div className="flex items-center justify-between">
+                                    <span className="text-xs text-[#6b7280]">Exhaustion Warning</span>
+                                    <span className="font-bold text-sm text-red-400">{hasExitLong ? "EXIT LONG" : "EXIT SHORT"}</span>
+                                  </div>
+                                  <div className="text-[11px] text-[#6b7280] mt-1">
+                                    {hasExitLong ? "The current rally shows signs of exhaustion — momentum is fading. Consider taking profits or raising stops." : "The current decline shows signs of exhaustion — selling pressure is fading. Watch for a reversal bounce."}
+                                  </div>
+                                </div>
+                              )}
+
+                              {tdSeq.boost !== undefined && tdSeq.boost !== null && Number(tdSeq.boost) !== 0 && (
+                                <div className="mt-2 flex justify-between items-center text-xs px-3 py-2 bg-white/[0.03] rounded-lg border border-white/[0.06]">
+                                  <span className="text-[#6b7280]">Score impact from TD Sequential</span>
+                                  <span className={`font-semibold ${Number(tdSeq.boost) > 0 ? "text-green-400" : "text-red-400"}`}>{Number(tdSeq.boost) > 0 ? "+" : ""}{Number(tdSeq.boost).toFixed(1)}</span>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })()}
+
                       {/* Triggers */}
                       <div className="mt-6 pt-6 border-t-2 border-white/[0.06]">
                         <div className="text-sm font-bold text-[#6b7280] mb-4">
@@ -3769,93 +3856,6 @@
                           )}
                         </div>
                       </div>
-
-                      {ticker.td_sequential &&
-                        (() => {
-                          const tdSeq = ticker.td_sequential;
-                          const bullPrep = Number(tdSeq.bullish_prep_count || 0);
-                          const bearPrep = Number(tdSeq.bearish_prep_count || 0);
-                          const bullLeadup = Number(tdSeq.bullish_leadup_count || 0);
-                          const bearLeadup = Number(tdSeq.bearish_leadup_count || 0);
-                          const hasTd9Bull = tdSeq.td9_bullish === true || tdSeq.td9_bullish === "true";
-                          const hasTd9Bear = tdSeq.td9_bearish === true || tdSeq.td9_bearish === "true";
-                          const hasTd13Bull = tdSeq.td13_bullish === true || tdSeq.td13_bullish === "true";
-                          const hasTd13Bear = tdSeq.td13_bearish === true || tdSeq.td13_bearish === "true";
-                          const hasExitLong = tdSeq.exit_long === true || tdSeq.exit_long === "true";
-                          const hasExitShort = tdSeq.exit_short === true || tdSeq.exit_short === "true";
-
-                          const tdSummary = (() => {
-                            if (hasExitLong) return "Exhaustion signal — the current up-move may be running out of steam. Consider tightening stops.";
-                            if (hasExitShort) return "Exhaustion signal — the current down-move may be running out of steam. Watch for a bounce.";
-                            if (hasTd13Bull) return "TD13 bullish complete — a strong reversal buy signal. The downtrend is likely exhausted.";
-                            if (hasTd13Bear) return "TD13 bearish complete — a strong reversal sell signal. The uptrend is likely exhausted.";
-                            if (hasTd9Bull) return "TD9 bullish complete — a potential buy reversal setup. Selling pressure may be near exhaustion.";
-                            if (hasTd9Bear) return "TD9 bearish complete — a potential sell reversal setup. Buying pressure may be near exhaustion.";
-                            if (bullPrep >= 7) return `Bullish setup ${bullPrep}/9 — nearing completion for a potential buy signal.`;
-                            if (bearPrep >= 7) return `Bearish setup ${bearPrep}/9 — nearing completion for a potential sell signal.`;
-                            if (bullPrep >= 4) return `Bullish setup building (${bullPrep}/9) — counting consecutive closes below prior close.`;
-                            if (bearPrep >= 4) return `Bearish setup building (${bearPrep}/9) — counting consecutive closes above prior close.`;
-                            return "No active TD Sequential patterns — the current trend hasn't reached a reversal count yet.";
-                          })();
-
-                          return (
-                            <div className="mt-6 pt-6 border-t-2 border-white/[0.06]">
-                              <div className="text-sm font-bold text-[#6b7280] mb-2">
-                                TD Sequential
-                              </div>
-                              <div className="text-[11px] text-slate-300/80 italic mb-3 leading-snug">{tdSummary}</div>
-
-                              <div className="p-3 bg-white/[0.03] rounded-lg border border-white/[0.06] space-y-2">
-                                <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-[11px]">
-                                  <div className="flex justify-between">
-                                    <span className="text-[#6b7280]" title="Counts consecutive closes lower than 4 bars ago — a buy setup forms at 9">Buy Setup</span>
-                                    <span className={`font-semibold ${bullPrep >= 7 ? "text-yellow-400" : bullPrep >= 4 ? "text-green-400" : "text-[#6b7280]"}`}>{bullPrep}/9</span>
-                                  </div>
-                                  <div className="flex justify-between">
-                                    <span className="text-[#6b7280]" title="Counts consecutive closes higher than 4 bars ago — a sell setup forms at 9">Sell Setup</span>
-                                    <span className={`font-semibold ${bearPrep >= 7 ? "text-yellow-400" : bearPrep >= 4 ? "text-red-400" : "text-[#6b7280]"}`}>{bearPrep}/9</span>
-                                  </div>
-                                  <div className="flex justify-between">
-                                    <span className="text-[#6b7280]" title="After a completed buy setup, counts 13 bars for a stronger buy signal">Buy Countdown</span>
-                                    <span className={`font-semibold ${bullLeadup >= 10 ? "text-yellow-400" : bullLeadup >= 4 ? "text-green-400" : "text-[#6b7280]"}`}>{bullLeadup}/13</span>
-                                  </div>
-                                  <div className="flex justify-between">
-                                    <span className="text-[#6b7280]" title="After a completed sell setup, counts 13 bars for a stronger sell signal">Sell Countdown</span>
-                                    <span className={`font-semibold ${bearLeadup >= 10 ? "text-yellow-400" : bearLeadup >= 4 ? "text-red-400" : "text-[#6b7280]"}`}>{bearLeadup}/13</span>
-                                  </div>
-                                </div>
-
-                                {(hasTd9Bull || hasTd9Bear || hasTd13Bull || hasTd13Bear) && (
-                                  <div className="pt-2 mt-1 border-t border-white/[0.06] space-y-1">
-                                    {hasTd9Bull && <div className="flex items-center gap-2 text-xs"><span className="w-2 h-2 rounded-full bg-green-400"></span><span className="text-green-400 font-semibold">TD9 Buy</span><span className="text-[#6b7280]">— setup complete, potential reversal up</span></div>}
-                                    {hasTd9Bear && <div className="flex items-center gap-2 text-xs"><span className="w-2 h-2 rounded-full bg-red-400"></span><span className="text-red-400 font-semibold">TD9 Sell</span><span className="text-[#6b7280]">— setup complete, potential reversal down</span></div>}
-                                    {hasTd13Bull && <div className="flex items-center gap-2 text-xs"><span className="w-2 h-2 rounded-full bg-green-400"></span><span className="text-green-400 font-semibold">TD13 Buy</span><span className="text-[#6b7280]">— countdown complete, strong buy signal</span></div>}
-                                    {hasTd13Bear && <div className="flex items-center gap-2 text-xs"><span className="w-2 h-2 rounded-full bg-red-400"></span><span className="text-red-400 font-semibold">TD13 Sell</span><span className="text-[#6b7280]">— countdown complete, strong sell signal</span></div>}
-                                  </div>
-                                )}
-                              </div>
-
-                              {(hasExitLong || hasExitShort) && (
-                                <div className="mt-2 p-3 rounded-lg border-2 bg-red-500/20 border-red-500/50">
-                                  <div className="flex items-center justify-between">
-                                    <span className="text-xs text-[#6b7280]">Exhaustion Warning</span>
-                                    <span className="font-bold text-sm text-red-400">{hasExitLong ? "EXIT LONG" : "EXIT SHORT"}</span>
-                                  </div>
-                                  <div className="text-[11px] text-[#6b7280] mt-1">
-                                    {hasExitLong ? "The current rally shows signs of exhaustion — momentum is fading. Consider taking profits or raising stops." : "The current decline shows signs of exhaustion — selling pressure is fading. Watch for a reversal bounce."}
-                                  </div>
-                                </div>
-                              )}
-
-                              {tdSeq.boost !== undefined && tdSeq.boost !== null && Number(tdSeq.boost) !== 0 && (
-                                <div className="mt-2 flex justify-between items-center text-xs px-3 py-2 bg-white/[0.03] rounded-lg border border-white/[0.06]">
-                                  <span className="text-[#6b7280]">Score impact from TD Sequential</span>
-                                  <span className={`font-semibold ${Number(tdSeq.boost) > 0 ? "text-green-400" : "text-red-400"}`}>{Number(tdSeq.boost) > 0 ? "+" : ""}{Number(tdSeq.boost).toFixed(1)}</span>
-                                </div>
-                              )}
-                            </div>
-                          );
-                        })()}
 
                       {/* RSI & Divergence */}
                       {ticker.rsi &&
@@ -5743,15 +5743,24 @@
                           const absChg = Math.abs(changePct);
                           const aligned = (isLong && isUp) || (isShort && !isUp);
                           const against = (isLong && !isUp) || (isShort && isUp);
-
-                          if (absChg < 0.5) return null;
-
+                          if (absChg < 0.5) {
+                            if (label === "1D") return "Little changed today — short-term tape is quiet.";
+                            if (label === "5D") return "Mostly unchanged over the last week — still basing, not yet breaking trend.";
+                            if (label === "15D") return "Still range-bound over the last two weeks — early evidence, but no decisive trend.";
+                            return "Price action has been relatively flat over this window.";
+                          }
                           if (aligned && absChg >= 2) {
+                            if (label === "1D") return `Today's move is supporting the ${dir.toLowerCase()} thesis${stage ? ` while staying in "${stage}"` : ""}.`;
+                            if (label === "5D") return `The last week is trending with the ${dir.toLowerCase()} thesis${stage ? ` and still reads as "${stage}"` : ""}.`;
                             return `Moving with the ${dir.toLowerCase()} thesis${stage ? ` — in "${stage}" stage` : ""}.`;
                           } else if (against && absChg >= 3) {
+                            if (label === "1D") return `Today's move is pressing against the ${dir.toLowerCase()} thesis${stage ? ` even though the setup still reads "${stage}"` : ""}.`;
+                            if (label === "5D") return `The last week is working against the ${dir.toLowerCase()} thesis${stage ? ` — "${stage}" may need reassessment` : ""}.`;
                             return `Moving against the ${dir.toLowerCase()} thesis${stage ? ` — "${stage}" stage may need reassessment` : ""}.`;
                           }
-                          return null;
+                          if (label === "1D") return "Today's move is notable but not decisive enough to change the setup on its own.";
+                          if (label === "5D") return "The last week adds some direction, but the bigger move still needs confirmation.";
+                          return "This window adds context, but not enough to change the broader read by itself.";
                         };
 
                         return (

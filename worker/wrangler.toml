@@ -55,11 +55,11 @@ ALPACA_BASE_URL = "https://paper-api.alpaca.markets"
 DATA_PROVIDER = "twelvedata"
 TWELVEDATA_PLAN = "pro"
 # ── Engine Selection ──
-# ENTRY_ENGINE: legacy | tt_core (formerly ripster_core)
-# MANAGEMENT_ENGINE: legacy | tt_core (formerly ripster_core)
+# ENTRY_ENGINE: legacy | tt_core
+# MANAGEMENT_ENGINE: legacy | tt_core
 ENTRY_ENGINE = "tt_core"
 MANAGEMENT_ENGINE = "tt_core"
-LEADING_LTF = "15"
+LEADING_LTF = "10"
 TT_TUNE_V2 = "true"
 TT_EXIT_DEBOUNCE_BARS = "3"
 CF_ACCESS_TEAM_DOMAIN = "timedtrading"
@@ -174,7 +174,7 @@ TWELVEDATA_PLAN = "pro"
 # ── Engine Selection ──
 ENTRY_ENGINE = "tt_core"
 MANAGEMENT_ENGINE = "tt_core"
-LEADING_LTF = "15"
+LEADING_LTF = "10"
 TT_TUNE_V2 = "true"
 TT_EXIT_DEBOUNCE_BARS = "3"
 # Cloudflare Access — user auth via Google SSO / One-time PIN

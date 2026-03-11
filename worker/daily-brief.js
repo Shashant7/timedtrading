@@ -828,13 +828,14 @@ export async function gatherDailyBriefData(env, type, opts = {}) {
     morningPrediction: morningBrief?.es_prediction || null,
     morningContent: type === "evening" ? (morningBrief?.content || "").slice(0, 1500) : null,
     priceFeedCrossRef: buildPriceFeedCrossRef(_pf),
+    crossAssetContext: buildCrossAssetContext(_pf),
     priceFeedRaw: _pf,
   };
 }
 
 function buildPriceFeedCrossRef(pf) {
   if (!pf || typeof pf !== "object") return "Price feed unavailable.";
-  const tickers = ["SPY", "QQQ", "VX1!", "ES1!", "NQ1!", "XLE", "XLK", "XLF", "XLU", "XLP", "XLY", "XLI", "GLD", "TLT", "CL1!", "GC1!"];
+  const tickers = ["SPY", "QQQ", "VX1!", "ES1!", "NQ1!", "XLE", "XLK", "XLF", "XLU", "XLP", "XLY", "XLI", "GLD", "TLT", "CL1!", "GC1!", "SI1!", "IWM", "DIA"];
   const lines = [];
   for (const sym of tickers) {
     const d = pf[sym];
@@ -845,6 +846,55 @@ function buildPriceFeedCrossRef(pf) {
     lines.push(`${sym}: $${price.toFixed(2)} (${pct >= 0 ? "+" : ""}${pct.toFixed(2)}%, ${chg >= 0 ? "+" : ""}$${chg.toFixed(2)})`);
   }
   return lines.length > 0 ? lines.join("\n") : "Price feed unavailable.";
+}
+
+function buildCrossAssetContext(pf) {
+  if (!pf || typeof pf !== "object") return null;
+  const assets = {
+    "CL1! (Crude Oil)": pf["CL1!"],
+    "GC1! (Gold)": pf["GC1!"],
+    "SI1! (Silver)": pf["SI1!"],
+    "VX1! (VIX Futures)": pf["VX1!"],
+    "GLD (Gold ETF)": pf["GLD"],
+    "TLT (Long Treasuries)": pf["TLT"],
+    "IWM (Russell 2000)": pf["IWM"],
+  };
+  const lines = [];
+  for (const [label, d] of Object.entries(assets)) {
+    if (!d || !Number(d.p)) continue;
+    const price = Number(d.p);
+    const pct = Number(d.dp) || 0;
+    const dir = pct > 0.5 ? "rallying" : pct < -0.5 ? "declining" : "flat";
+    lines.push(`${label}: $${price.toFixed(2)} (${pct >= 0 ? "+" : ""}${pct.toFixed(2)}%) — ${dir}`);
+  }
+  if (lines.length === 0) return null;
+
+  const interp = [];
+  const cl = pf["CL1!"];
+  const gc = pf["GC1!"];
+  const tlt = pf["TLT"];
+  const vx = pf["VX1!"];
+  if (cl && Math.abs(Number(cl.dp) || 0) > 1.5) {
+    interp.push(`Crude oil moving ${Number(cl.dp) > 0 ? "sharply higher — watch XLE for sympathy and inflation/rate path implications" : "sharply lower — potential relief for inflation expectations, watch XLE for downside"}`);
+  }
+  if (gc && Math.abs(Number(gc.dp) || 0) > 1) {
+    interp.push(`Gold ${Number(gc.dp) > 0 ? "bid — classic risk-off signal, watch for rotation out of equities" : "selling off — risk-on appetite may be returning"}`);
+  }
+  if (tlt && Math.abs(Number(tlt.dp) || 0) > 0.8) {
+    interp.push(`Long Treasuries (TLT) ${Number(tlt.dp) > 0 ? "rallying — yields dropping, flight to safety" : "declining — yields rising, watch rate-sensitive tech names"}`);
+  }
+  if (vx && Number(vx.dp) !== 0) {
+    const vxPrice = Number(vx.p);
+    if (vxPrice > 25) interp.push(`VIX at ${vxPrice.toFixed(1)} — elevated fear, expect wide swings and mean-reversion setups`);
+    else if (vxPrice > 20) interp.push(`VIX at ${vxPrice.toFixed(1)} — caution warranted, ranges expanding`);
+    else if (vxPrice < 15) interp.push(`VIX at ${vxPrice.toFixed(1)} — low vol, trend-following works, breakouts tend to be cleaner`);
+  }
+  if (interp.length) {
+    lines.push("");
+    lines.push("Interpretation:");
+    lines.push(...interp.map(i => `- ${i}`));
+  }
+  return lines.join("\n");
 }
 
 function dailyBriefTsMs(value) {
@@ -1308,13 +1358,18 @@ CRITICAL: Reference scoring model signals (state, HTF/LTF scores, phase zone) wh
 5. **Cross-reference check**: If Market Data and Price Feed disagree by >1%, trust Price Feed values.
 6. **Sanity bounds**: SPY daily moves >3% and QQQ >4% are rare. Flag or verify.
 
-## Cross-Asset Awareness:
-Connect the dots across asset classes:
-- **Crude oil**: XLE moves = crude moves. Impact on inflation and rate path.
-- **Gold/USD**: Risk-off flows (GLD up) vs. risk-on (rotation into equities)
-- **Breadth**: Count sectors green vs red. Narrow or broad? Say so explicitly.
-- **Safe haven vs risk-on**: Defensive sectors (XLU, XLP) vs cyclicals (XLI, XLF, XLY)
-- **Only show context charts when relevant**: If crude (CL1!) is pushing unusually higher and driving XLE, discuss it. Don't mention CL1! or GC1! unless they're notable movers that provide context.`;
+## Cross-Asset Correlation (Newton-Style — CRITICAL)
+ALWAYS connect the dots across asset classes. Don't just describe equity price action in isolation — show the web of causation:
+
+- **Crude Oil (CL1!) → Equities**: Crude spikes → XLE rallies, but inflation fears pressure tech. Crude drops → potential relief for rate-sensitive growth. If crude is making a notable move (>1.5%), LEAD with it and explain the equity impact.
+- **Gold (GC1!, GLD) → Risk Sentiment**: Gold rallying = risk-off flows. "Gold pushing toward $2,350 suggests the market is seeking safety — not a great environment for aggressive equity longs." If gold is dropping, it signals risk appetite returning.
+- **Treasury Yields (TLT proxy) → Tech/Growth**: TLT rallying = yields falling = good for growth/tech. TLT selling off = yields rising = pressure on long-duration assets. Always note the direction and equity implication.
+- **VIX → Position Sizing**: Always reference VIX as it contextualizes EVERYTHING. A breakout with VIX at 14 is a very different trade than a breakout with VIX at 28.
+- **US Dollar**: Stronger dollar = headwind for multinationals and commodities. Weaker dollar = tailwind for EM-exposed names and commodity plays.
+- **Breadth**: Count sectors green vs red. Narrow leadership (only tech green) vs broad-based (8/11 green). Say so explicitly — breadth confirms or denies the move.
+- **Safe haven vs risk-on rotation**: Defensive sectors (XLU, XLP) outperforming vs cyclicals (XLI, XLF, XLY) outperforming. This tells the story of what type of money is flowing.
+- **Be specific**: "Crude oil reversing off $82 with a hammer on the 4H chart — if this holds, expect XLE to stabilize and some relief for SPY near 585." Not just "oil is moving."
+- **Pattern callouts**: When a correlated asset forms a notable technical pattern (Ichimoku cloud test, Fibonacci retracement, candlestick reversal), NAME the pattern with timeframe and level.`;
 
 function fmtEconValue(val, unit) {
   if (val == null || val === "") return null;
@@ -1388,6 +1443,10 @@ ${JSON.stringify(data.market, null, 1)}
 ## Price Feed Cross-Reference (TwelveData cron — GROUND TRUTH for daily changes):
 ${data.priceFeedCrossRef || "Unavailable."}
 NOTE: If Market Data and Price Feed disagree on daily change by >1%, trust the Price Feed values. The scoring model payload may be stale from backtesting.
+
+## Cross-Asset Context (USE for Newton-style correlated analysis):
+${data.crossAssetContext || "Not available — skip cross-asset section."}
+IMPORTANT: If crude, gold, TLT, or VIX are making notable moves (>1%), LEAD with the cross-asset story and explain the equity implications.
 
 ## Timed Trading Scoring Model Signals (MUST reference in your analysis):
 ${Object.entries(data.market).filter(([, v]) => v).map(([sym, v]) => {
@@ -1539,11 +1598,12 @@ ${(data.investorPositions || []).length > 0
    - State the macro regime clearly: "We are in a risk-off environment where traders are selling stocks and buying safe havens" or "The trend is bullish and dips are being bought."
    - REMINDER: ONLY cite data from the provided sections. If no news headlines are available, say so.
 
-2. **Volatility & Market Reaction** — How are markets responding to this backdrop?
-   - **VIX Check**: ALWAYS start with where VIX is and what it tells us. "VIX at 18 suggests moderate anxiety — expect wider-than-normal intraday swings." Reference the VIX context scale.
+2. **Cross-Asset Correlation & Volatility** — Connect the dots BEFORE diving into equities:
+   - **VIX Check**: ALWAYS start with where VIX is and what it tells us. "VIX at 18 suggests moderate anxiety — expect wider-than-normal intraday swings."
+   - **Cross-Asset Moves**: If crude oil, gold, TLT (treasuries), or other correlated assets are making notable moves, LEAD with them. "Crude oil rallying 2.3% off $80 support with an intraday hammer pattern — this is driving XLE higher and taking pressure off SPY." Be specific: name the pattern, level, and equity implication.
    - **SPY & QQQ snapshot**: Where did they close? How are they trading pre-market? What's the multi-day trend?
    - **Breadth**: Count sectors green vs red. Is the move broad-based or concentrated? "Only 2 of 11 sectors are green today — this is a broad selloff."
-   - **Cross-Asset Context**: XLE moves = crude oil. XLU/XLP leading = defensive rotation. XLF leading = rate play. CONNECT the dots.
+   - **Intermarket Flows**: XLE moves = crude. XLU/XLP leading = defensive rotation. XLF leading = rate play. GLD bid = risk-off. TLT rallying = yields dropping.
 
 3. **Structure & Scenario Analysis (SPY & QQQ)** — The technical heart of the brief. Analyze in SPY/QQQ terms FIRST:
    - **Where are we in the bigger picture?** Is this a pullback within an uptrend? A breakdown? A consolidation?
@@ -1610,6 +1670,10 @@ ${JSON.stringify(data.market, null, 1)}
 ## Price Feed Cross-Reference (TwelveData cron — GROUND TRUTH for daily changes):
 ${data.priceFeedCrossRef || "Unavailable."}
 NOTE: If Market Close Data and Price Feed disagree on daily change by >1%, trust the Price Feed values. The scoring model payload may be stale from backtesting.
+
+## Cross-Asset Context (USE for Newton-style correlated analysis):
+${data.crossAssetContext || "Not available — skip cross-asset section."}
+IMPORTANT: If crude, gold, TLT, or VIX made notable moves today (>1%), highlight the cross-asset story and explain how it drove or correlated with equity action.
 
 ## Timed Trading Scoring Model Signals at Close (MUST reference in your analysis):
 ${Object.entries(data.market).filter(([, v]) => v).map(([sym, v]) => {
@@ -1733,8 +1797,9 @@ ${(data.investorPositions || []).length > 0
    - Geopolitical developments, tariff changes, Fed commentary — explain the market impact.
    - What was the narrative theme? "Risk-off day driven by tariff fears" or "Risk-on rotation as inflation cooled."
 
-2. **Volatility & Market Reaction** — How did SPY, QQQ, and VIX respond?
-   - **VIX**: Where did it close? What does it tell us? "VIX at 22 suggests elevated anxiety heading into tomorrow."
+2. **Cross-Asset Correlation & Volatility** — Connect the dots across today's session:
+   - **VIX**: Where did it close? What does it tell us for tomorrow? "VIX at 22 suggests elevated anxiety heading into tomorrow."
+   - **Cross-Asset Moves**: If crude oil, gold, TLT, or other correlated assets made notable moves today, explain how they drove or correlated with equity action. Be specific with patterns and levels.
    - **SPY & QQQ**: Where did they close vs open? What was the character of the move?
    - **Breadth**: Count sectors green vs red. Was it broad-based or concentrated?
 
@@ -2098,7 +2163,8 @@ export async function cleanupDailyBrief(env) {
   if (!KV) return;
   try {
     await kvPutJSON(KV, "timed:daily-brief:current", {});
-    console.log("[DAILY BRIEF] Cleared current brief (3 AM cleanup)");
+    await kvPutJSON(KV, "timed:daily-brief:intraday", []);
+    console.log("[DAILY BRIEF] Cleared current brief + intraday (3 AM cleanup)");
   } catch (e) {
     console.warn("[DAILY BRIEF] Cleanup failed:", String(e).slice(0, 100));
   }
@@ -2162,6 +2228,182 @@ export async function handleGetArchiveBrief(env, briefId) {
   `).bind(briefId).first();
 
   return row ? { ok: true, brief: row } : { ok: false, error: "not_found" };
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// INTRADAY FLASH BRIEF — Newton-style real-time market insights
+// ═══════════════════════════════════════════════════════════════════════
+
+const INTRADAY_SYSTEM_PROMPT = `You are a senior technical strategist writing intraday flash insights — concise, real-time market updates for active traders. Think Mark Newton at Fundstrat Direct.
+
+## Your Style
+- **Cross-asset storytelling**: Connect DXY, Crude Oil, Gold, Treasury yields, VIX to equity price action. Example: "Crude oil reversing off $120 after a massive intraday hammer — if this holds, expect relief for equities as energy-driven inflation fears ease."
+- **Specific technical callouts**: Name the pattern (hammer, engulfing, Ichimoku cloud test, Fibonacci retracement). Always include the timeframe and price level.
+- **Actionable conviction**: "I expect SPY to bounce toward 585-588, but cannot make the case for a push above 590 until VIX breaks below 18."
+- **Candid risk framing**: "Given the extent of the recent breakdown, it's hard to make the call for a full recovery — a 2-3 day bounce is more likely before another leg down."
+- **No hedge-speak**: Don't say "markets could go up or down." Take a view, explain why, and give the invalidation level.
+
+## Format
+Write 2-4 paragraphs. Each paragraph covers a different angle:
+1. **Lead with the most notable cross-asset move** — what's driving the tape right now?
+2. **Equity reaction** — how are SPY/QQQ responding? What pattern is forming on the intraday chart?
+3. **Key levels and targets** — specific prices for the next 1-3 sessions. Include the invalidation.
+4. **What to watch** — the one thing that would change the thesis.
+
+## Data Rules
+- Use ONLY the provided data. If a field is null or missing, skip it.
+- Reference the TT scoring model signals when relevant (HTF/LTF scores, state, phase zone).
+- VIX context is ALWAYS relevant — include it.
+- Keep it under 600 words. This is a flash insight, not a full brief.
+- Do NOT use emojis. Use markdown headers (##) sparingly — one or two at most.
+- ALWAYS reference specific price levels from the data. Never say "higher" without a target.`;
+
+function buildIntradayPrompt(data) {
+  const lines = [];
+  lines.push(`## Intraday Flash — ${data.today} at ${data.currentTimeET}`);
+  lines.push("");
+
+  if (data.priceFeedCrossRef) {
+    lines.push("### Real-Time Prices");
+    lines.push(data.priceFeedCrossRef);
+    lines.push("");
+  }
+
+  if (data.crossAssetContext) {
+    lines.push("### Cross-Asset Context");
+    lines.push(data.crossAssetContext);
+    lines.push("");
+  }
+
+  const keyTickers = ["SPY", "QQQ", "ES1!", "NQ1!", "VX1!"];
+  for (const sym of keyTickers) {
+    const m = data.market?.[sym];
+    if (!m) continue;
+    const parts = [`${sym}: price=$${m.price}`];
+    if (m.dayChangePct) parts.push(`day=${m.dayChangePct}%`);
+    if (m.state) parts.push(`state=${m.state}`);
+    if (m.htf_score) parts.push(`htf=${m.htf_score}`);
+    if (m.ltf_score) parts.push(`ltf=${m.ltf_score}`);
+    if (m.phase_zone) parts.push(`phase=${m.phase_zone}`);
+    if (m.rank) parts.push(`rank=${m.rank}`);
+    lines.push(parts.join(", "));
+  }
+  lines.push("");
+
+  if (data.spyTechnical) {
+    lines.push("### SPY Technical (from scoring engine)");
+    lines.push(data.spyTechnical.slice(0, 1500));
+    lines.push("");
+  }
+  if (data.qqqTechnical) {
+    lines.push("### QQQ Technical (from scoring engine)");
+    lines.push(data.qqqTechnical.slice(0, 1500));
+    lines.push("");
+  }
+
+  if (data.sectors) {
+    lines.push("### Sector Heatmap");
+    lines.push(data.sectors);
+    lines.push("");
+  }
+
+  if (data.morningContent) {
+    lines.push("### Morning Brief Context (for continuity)");
+    lines.push(data.morningContent.slice(0, 800));
+    lines.push("");
+  }
+
+  const openCount = data.openTrades?.length || 0;
+  if (openCount > 0) {
+    lines.push(`### Active Trades (${openCount} open)`);
+    for (const t of data.openTrades.slice(0, 10)) {
+      lines.push(`- ${t.ticker} ${t.direction} entry=$${t.entry_price?.toFixed?.(2) || "?"} pnl=${t.pnl_pct?.toFixed?.(1) || "?"}%`);
+    }
+    lines.push("");
+  }
+
+  lines.push("Write a concise intraday flash insight (2-4 paragraphs, under 600 words). Lead with the most notable cross-asset move driving the tape right now. Connect to equity action. Give specific levels and a clear near-term view.");
+
+  return lines.join("\n");
+}
+
+export async function generateIntradayBrief(env, opts = {}) {
+  const KV = env?.KV_TIMED;
+  if (!KV) return { ok: false, error: "no_kv" };
+
+  console.log("[INTRADAY BRIEF] Generating flash insight...");
+  const start = Date.now();
+
+  try {
+    const data = await gatherDailyBriefData(env, "intraday", opts);
+    if (data.error) return { ok: false, error: data.error };
+
+    const nowET = new Date().toLocaleString("en-US", { timeZone: "America/New_York" });
+    const timeParts = new Date(nowET);
+    const hours = timeParts.getHours();
+    const mins = timeParts.getMinutes();
+    data.currentTimeET = `${hours > 12 ? hours - 12 : hours}:${String(mins).padStart(2, "0")} ${hours >= 12 ? "PM" : "AM"} ET`;
+
+    const db = env?.DB;
+    if (db) {
+      try {
+        const morningRow = await db.prepare(
+          "SELECT content FROM daily_briefs WHERE date = ?1 AND type = 'morning' LIMIT 1"
+        ).bind(data.today).first();
+        if (morningRow?.content) {
+          data.morningContent = morningRow.content.slice(0, 800);
+        }
+      } catch (_) {}
+    }
+
+    const prompt = buildIntradayPrompt(data);
+    const content = await callOpenAI(env, INTRADAY_SYSTEM_PROMPT, prompt);
+    if (!content || content.length < 50) {
+      return { ok: false, error: "ai_response_too_short" };
+    }
+
+    const now = Date.now();
+    const entry = {
+      id: `intraday-${data.today}-${now}`,
+      date: data.today,
+      timeET: data.currentTimeET,
+      content,
+      publishedAt: now,
+    };
+
+    const currentIntraday = (await kvGetJSON(KV, "timed:daily-brief:intraday")) || [];
+    const todayEntries = currentIntraday.filter(
+      (e) => e.date === data.today
+    );
+    todayEntries.push(entry);
+    await kvPutJSON(KV, "timed:daily-brief:intraday", todayEntries);
+
+    await kvPutJSON(KV, "timed:daily-brief:badge", { ts: now, type: "intraday", date: data.today });
+
+    if (db) {
+      await d1EnsureBriefSchema(env);
+      await db.prepare(`
+        INSERT INTO daily_briefs (id, date, type, content, es_prediction, published_at, created_at)
+        VALUES (?1, ?2, 'intraday', ?3, NULL, ?4, ?5)
+        ON CONFLICT(id) DO UPDATE SET content = excluded.content, published_at = excluded.published_at
+      `).bind(entry.id, data.today, content, now, now).run();
+    }
+
+    const elapsed = Date.now() - start;
+    console.log(`[INTRADAY BRIEF] Flash insight generated in ${elapsed}ms (${content.length} chars)`);
+    return { ok: true, id: entry.id, elapsed, chars: content.length };
+  } catch (e) {
+    console.error("[INTRADAY BRIEF] Generation failed:", String(e).slice(0, 300));
+    return { ok: false, error: String(e).slice(0, 200) };
+  }
+}
+
+/** GET /timed/daily-brief/intraday — returns today's flash insights */
+export async function handleGetIntradayBriefs(env) {
+  const KV = env?.KV_TIMED;
+  if (!KV) return { ok: false, error: "no_kv" };
+  const entries = (await kvGetJSON(KV, "timed:daily-brief:intraday")) || [];
+  return { ok: true, entries };
 }
 
 /** POST /timed/daily-brief/predict — mark ES prediction as correct/incorrect */

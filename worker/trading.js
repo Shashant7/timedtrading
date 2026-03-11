@@ -45,17 +45,13 @@ export function normalizeStage(stage) {
 }
 
 /**
- * Enforce stage monotonicity: stages can only progress forward.
+ * Enforce stage monotonicity for open positions: management lanes can only progress forward.
+ * Prevents bouncing from EXIT→TRIM→ACTIVE due to price fluctuations.
  * 
- * Discovery mode (no position):
- *   - "enter" is a committed signal — once shown, it cannot regress to
- *     setup/watch. This matches backtest behavior where the trade sim
- *     opens a position the moment enter fires, so regression never happens.
- *   - watch ↔ setup can still oscillate (neither is actionable).
- * 
- * Management mode (has position):
- *   - Stages only move forward: active → trim → exit → closed
- *   - Open positions must be at least 'active' (floor)
+ * Rules:
+ * 1. Open positions MUST stay in management mode (active/trim/exit)
+ * 2. Management stages can only move forward (active → trim → exit)
+ * 3. Never regress from exit back to trim or active
  * 
  * @param {string} newStage - Newly computed stage
  * @param {string} prevStage - Previous stage (may be legacy name)
@@ -63,22 +59,13 @@ export function normalizeStage(stage) {
  * @returns {string} - Finalized stage
  */
 export function enforceStageMonotonicity(newStage, prevStage, hasOpenPosition) {
+  // Normalize both stages to new system
   const normalizedNew = normalizeStage(newStage) || newStage;
   const normalizedPrev = normalizeStage(prevStage);
-
+  
+  if (!hasOpenPosition) return normalizedNew;
   if (!normalizedPrev || !normalizedNew) return normalizedNew;
 
-  // ── Discovery mode ──
-  if (!hasOpenPosition) {
-    // "enter" is committed: once the system says enter, it stays enter
-    // until a position opens (promoting to management mode) or admin resets.
-    if (normalizedPrev === 'enter' && KANBAN_STAGE_ORDER[normalizedNew] < KANBAN_STAGE_ORDER.enter) {
-      return 'enter';
-    }
-    return normalizedNew;
-  }
-
-  // ── Management mode ──
   const newOrder = KANBAN_STAGE_ORDER[normalizedNew] ?? 0;
   const prevOrder = KANBAN_STAGE_ORDER[normalizedPrev] ?? 0;
   const activeOrder = KANBAN_STAGE_ORDER.active;

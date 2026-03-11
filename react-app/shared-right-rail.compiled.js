@@ -721,7 +721,7 @@
           lastValueVisible: false,
           priceLineVisible: false
         };
-        const url = `${apiBase}/timed/candles?ticker=${encodeURIComponent(ticker)}&tf=10&limit=${limit}&asOfTs=${asOfMs}`;
+        const url = `${apiBase}/timed/candles?ticker=${encodeURIComponent(ticker)}&tf=15&limit=${limit}&asOfTs=${asOfMs}`;
         fetch(url, {
           cache: "no-store"
         }).then(r => r.json()).then(data => {
@@ -987,7 +987,7 @@
         const isClosed = trade.status === "WIN" || trade.status === "LOSS" || trade.status === "FLAT";
         const asOfMs = isClosed && exitMs ? exitMs + 3 * 24 * 60 * 60 * 1000 : Date.now();
         const limit = 800;
-        const url = `${apiBase}/timed/candles?ticker=${encodeURIComponent(tickerSym)}&tf=10&limit=${limit}&asOfTs=${asOfMs}`;
+        const url = `${apiBase}/timed/candles?ticker=${encodeURIComponent(tickerSym)}&tf=15&limit=${limit}&asOfTs=${asOfMs}`;
         fetch(url, {
           cache: "no-store"
         }).then(r => r.json()).then(data => {
@@ -2297,9 +2297,10 @@
           className: "text-[#6b7280] text-[8px] leading-none"
         }, p.desc))));
       })(), /*#__PURE__*/React.createElement("div", {
-        className: "mt-3 flex items-center gap-1.5 overflow-x-auto",
+        className: "mt-3 flex items-center gap-1 overflow-x-auto",
         style: {
-          scrollbarWidth: "none"
+          scrollbarWidth: "none",
+          WebkitOverflowScrolling: "touch"
         }
       }, [{
         k: "ANALYSIS",
@@ -2331,7 +2332,7 @@
         return /*#__PURE__*/React.createElement("button", {
           key: `rail-tab-${t.k}`,
           onClick: () => setRailTab(t.k),
-          className: `px-2.5 py-1 rounded-lg border text-[11px] font-semibold transition-all whitespace-nowrap flex-shrink-0 flex items-center gap-1 ${active ? "border-blue-400 bg-blue-500/20 text-blue-200" : locked ? "border-amber-500/20 bg-amber-500/5 text-amber-400/60 hover:text-amber-300" : "border-white/[0.06] bg-white/[0.03] text-[#6b7280] hover:text-white"}`
+          className: `px-2 py-1 rounded-lg border text-[10px] sm:text-[11px] font-semibold transition-all whitespace-nowrap flex-shrink-0 flex items-center gap-0.5 ${active ? "border-blue-400 bg-blue-500/20 text-blue-200" : locked ? "border-amber-500/20 bg-amber-500/5 text-amber-400/60 hover:text-amber-300" : "border-white/[0.06] bg-white/[0.03] text-[#6b7280] hover:text-white"}`
         }, t.label, locked && /*#__PURE__*/React.createElement("svg", {
           className: "w-3 h-3 text-amber-400/60",
           fill: "currentColor",
@@ -3180,24 +3181,33 @@
         }, rs >= 0 ? "+" : "", rs)), /*#__PURE__*/React.createElement("div", {
           className: "grid grid-cols-3 gap-1.5 text-[9px] mb-1.5"
         }, /*#__PURE__*/React.createElement("div", {
-          className: "p-1 bg-white/[0.03] rounded text-center"
+          className: "p-1 bg-white/[0.03] rounded text-center",
+          title: "Relative volume \u2014 how much trading activity vs. normal. Above 1.5x = high interest."
         }, /*#__PURE__*/React.createElement("div", {
           className: "text-[8px] text-slate-500"
-        }, "RVOL"), /*#__PURE__*/React.createElement("div", {
+        }, "Volume"), /*#__PURE__*/React.createElement("div", {
           className: `font-bold tabular-nums ${rvBest >= 1.5 ? "text-emerald-400" : rvBest >= 0.8 ? "text-white" : "text-rose-400"}`
-        }, rvBest.toFixed(2), "x")), /*#__PURE__*/React.createElement("div", {
-          className: "p-1 bg-white/[0.03] rounded text-center"
+        }, rvBest.toFixed(2), "x"), /*#__PURE__*/React.createElement("div", {
+          className: `text-[7px] mt-0.5 ${rvBest >= 1.5 ? "text-emerald-400/70" : rvBest >= 0.8 ? "text-slate-500" : "text-rose-400/70"}`
+        }, rvBest >= 1.5 ? "High" : rvBest >= 0.8 ? "Normal" : "Low")), /*#__PURE__*/React.createElement("div", {
+          className: "p-1 bg-white/[0.03] rounded text-center",
+          title: "Trend quality \u2014 higher score = stronger, cleaner trend. Scale: 0 (choppy) to 25+ (strong trend)."
         }, /*#__PURE__*/React.createElement("div", {
           className: "text-[8px] text-slate-500"
-        }, "Min HTF"), /*#__PURE__*/React.createElement("div", {
-          className: "font-bold text-white tabular-nums"
-        }, rp.minHTFScore ?? "—")), /*#__PURE__*/React.createElement("div", {
-          className: "p-1 bg-white/[0.03] rounded text-center"
+        }, "Trend Quality"), /*#__PURE__*/React.createElement("div", {
+          className: `font-bold tabular-nums ${(rp.minHTFScore ?? 0) >= 15 ? "text-emerald-400" : (rp.minHTFScore ?? 0) >= 8 ? "text-white" : "text-rose-400"}`
+        }, rp.minHTFScore ?? "—"), /*#__PURE__*/React.createElement("div", {
+          className: `text-[7px] mt-0.5 ${(rp.minHTFScore ?? 0) >= 15 ? "text-emerald-400/70" : (rp.minHTFScore ?? 0) >= 8 ? "text-slate-500" : "text-rose-400/70"}`
+        }, (rp.minHTFScore ?? 0) >= 15 ? "Strong" : (rp.minHTFScore ?? 0) >= 8 ? "Moderate" : "Weak")), /*#__PURE__*/React.createElement("div", {
+          className: "p-1 bg-white/[0.03] rounded text-center",
+          title: "Suggested position sizing \u2014 1x = normal, above 1x = conditions favor larger size, below 1x = reduce size."
         }, /*#__PURE__*/React.createElement("div", {
           className: "text-[8px] text-slate-500"
-        }, "Size"), /*#__PURE__*/React.createElement("div", {
-          className: "font-bold text-white tabular-nums"
-        }, rp.positionSizeMultiplier != null ? `${rp.positionSizeMultiplier}x` : "—"))), factorKeys.length > 0 && /*#__PURE__*/React.createElement("div", {
+        }, "Sizing"), /*#__PURE__*/React.createElement("div", {
+          className: `font-bold tabular-nums ${(rp.positionSizeMultiplier ?? 1) > 1 ? "text-emerald-400" : (rp.positionSizeMultiplier ?? 1) < 1 ? "text-rose-400" : "text-white"}`
+        }, rp.positionSizeMultiplier != null ? `${rp.positionSizeMultiplier}x` : "—"), /*#__PURE__*/React.createElement("div", {
+          className: `text-[7px] mt-0.5 ${(rp.positionSizeMultiplier ?? 1) > 1 ? "text-emerald-400/70" : (rp.positionSizeMultiplier ?? 1) < 1 ? "text-rose-400/70" : "text-slate-500"}`
+        }, (rp.positionSizeMultiplier ?? 1) > 1 ? "Size up" : (rp.positionSizeMultiplier ?? 1) < 1 ? "Reduce" : "Normal"))), factorKeys.length > 0 && /*#__PURE__*/React.createElement("div", {
           className: "flex flex-wrap gap-x-2 gap-y-0.5 text-[8px] text-slate-400"
         }, factorKeys.slice(0, 6).map(k => /*#__PURE__*/React.createElement("span", {
           key: k,
@@ -3220,7 +3230,7 @@
         return /*#__PURE__*/React.createElement("div", {
           className: `mb-3 px-2.5 py-2 rounded-lg border ${btBg}`
         }, /*#__PURE__*/React.createElement("div", {
-          className: "flex items-center justify-between mb-1.5"
+          className: "flex items-center justify-between mb-1"
         }, /*#__PURE__*/React.createElement("div", {
           className: "flex items-center gap-1.5"
         }, /*#__PURE__*/React.createElement("span", {
@@ -3228,46 +3238,51 @@
         }, bt.replace("_", " ")), /*#__PURE__*/React.createElement("span", {
           className: "text-[10px] text-slate-400"
         }, "Profile"))), /*#__PURE__*/React.createElement("div", {
+          className: "text-[9px] text-slate-400/80 italic mb-2 leading-snug"
+        }, bt === "MOMENTUM" ? "This stock tends to trend in one direction — once it moves, it keeps going. Best traded with the trend." : bt === "MEAN_REVERT" ? "This stock tends to bounce between levels — it reverses more often. Better for buying dips and selling rips." : "Balanced behavior — can trend or reverse depending on conditions."), /*#__PURE__*/React.createElement("div", {
           className: "grid grid-cols-3 gap-1.5 text-[9px] mb-1.5"
         }, /*#__PURE__*/React.createElement("div", {
-          className: "p-1 bg-white/[0.03] rounded text-center"
+          className: "p-1 bg-white/[0.03] rounded text-center",
+          title: "Average daily price range \u2014 how much this stock typically moves in a day"
         }, /*#__PURE__*/React.createElement("div", {
           className: "text-[8px] text-slate-500"
-        }, "ATR%"), /*#__PURE__*/React.createElement("div", {
+        }, "Daily Range"), /*#__PURE__*/React.createElement("div", {
           className: "font-bold text-white tabular-nums"
         }, atrPct > 0 ? `${(atrPct * 100).toFixed(1)}%` : "—")), /*#__PURE__*/React.createElement("div", {
-          className: "p-1 bg-white/[0.03] rounded text-center"
+          className: "p-1 bg-white/[0.03] rounded text-center",
+          title: "How long trends last \u2014 higher = trends persist longer, great for momentum plays"
         }, /*#__PURE__*/React.createElement("div", {
           className: "text-[8px] text-slate-500"
-        }, "SL Mult"), /*#__PURE__*/React.createElement("div", {
-          className: `font-bold tabular-nums ${slM > 1.05 ? "text-amber-300" : slM < 0.95 ? "text-emerald-300" : "text-white"}`
-        }, slM.toFixed(2), "x")), /*#__PURE__*/React.createElement("div", {
-          className: "p-1 bg-white/[0.03] rounded text-center"
-        }, /*#__PURE__*/React.createElement("div", {
-          className: "text-[8px] text-slate-500"
-        }, "TP Mult"), /*#__PURE__*/React.createElement("div", {
-          className: `font-bold tabular-nums ${tpM > 1.05 ? "text-emerald-300" : tpM < 0.95 ? "text-amber-300" : "text-white"}`
-        }, tpM.toFixed(2), "x"))), /*#__PURE__*/React.createElement("div", {
-          className: "grid grid-cols-3 gap-1.5 text-[9px]"
-        }, /*#__PURE__*/React.createElement("div", {
-          className: "p-1 bg-white/[0.03] rounded text-center"
-        }, /*#__PURE__*/React.createElement("div", {
-          className: "text-[8px] text-slate-500"
-        }, "Trend Persist"), /*#__PURE__*/React.createElement("div", {
+        }, "Trend Follow"), /*#__PURE__*/React.createElement("div", {
           className: `font-bold tabular-nums ${trendP >= 0.6 ? "text-emerald-400" : trendP <= 0.35 ? "text-rose-400" : "text-white"}`
-        }, (trendP * 100).toFixed(0), "%")), /*#__PURE__*/React.createElement("div", {
-          className: "p-1 bg-white/[0.03] rounded text-center"
+        }, (trendP * 100).toFixed(0), "%"), /*#__PURE__*/React.createElement("div", {
+          className: `text-[7px] mt-0.5 ${trendP >= 0.6 ? "text-emerald-400/70" : trendP <= 0.35 ? "text-rose-400/70" : "text-slate-500"}`
+        }, trendP >= 0.6 ? "Sticky" : trendP <= 0.35 ? "Choppy" : "Average")), /*#__PURE__*/React.createElement("div", {
+          className: "p-1 bg-white/[0.03] rounded text-center",
+          title: "How well the stock responds to indicator signals \u2014 higher = more predictable"
         }, /*#__PURE__*/React.createElement("div", {
           className: "text-[8px] text-slate-500"
-        }, "Ichi Resp"), /*#__PURE__*/React.createElement("div", {
+        }, "Predictability"), /*#__PURE__*/React.createElement("div", {
           className: `font-bold tabular-nums ${ichResp >= 0.6 ? "text-emerald-400" : ichResp <= 0.35 ? "text-rose-400" : "text-white"}`
-        }, (ichResp * 100).toFixed(0), "%")), ethAdj !== 0 && /*#__PURE__*/React.createElement("div", {
-          className: "p-1 bg-white/[0.03] rounded text-center"
+        }, (ichResp * 100).toFixed(0), "%"), /*#__PURE__*/React.createElement("div", {
+          className: `text-[7px] mt-0.5 ${ichResp >= 0.6 ? "text-emerald-400/70" : ichResp <= 0.35 ? "text-rose-400/70" : "text-slate-500"}`
+        }, ichResp >= 0.6 ? "Reliable" : ichResp <= 0.35 ? "Erratic" : "Moderate"))), /*#__PURE__*/React.createElement("div", {
+          className: "grid grid-cols-2 gap-1.5 text-[9px]"
+        }, /*#__PURE__*/React.createElement("div", {
+          className: "p-1 bg-white/[0.03] rounded text-center",
+          title: "Stop loss is adjusted by this factor based on the stock's behavior"
         }, /*#__PURE__*/React.createElement("div", {
           className: "text-[8px] text-slate-500"
-        }, "Entry Adj"), /*#__PURE__*/React.createElement("div", {
-          className: `font-bold tabular-nums ${ethAdj > 0 ? "text-amber-300" : "text-emerald-300"}`
-        }, ethAdj > 0 ? "+" : "", ethAdj))));
+        }, "Stop Width"), /*#__PURE__*/React.createElement("div", {
+          className: `font-bold tabular-nums ${slM > 1.05 ? "text-amber-300" : slM < 0.95 ? "text-emerald-300" : "text-white"}`
+        }, slM > 1.05 ? "Wider" : slM < 0.95 ? "Tighter" : "Standard")), /*#__PURE__*/React.createElement("div", {
+          className: "p-1 bg-white/[0.03] rounded text-center",
+          title: "Target is adjusted by this factor based on the stock's behavior"
+        }, /*#__PURE__*/React.createElement("div", {
+          className: "text-[8px] text-slate-500"
+        }, "Target"), /*#__PURE__*/React.createElement("div", {
+          className: `font-bold tabular-nums ${tpM > 1.05 ? "text-emerald-300" : tpM < 0.95 ? "text-amber-300" : "text-white"}`
+        }, tpM > 1.05 ? "Extended" : tpM < 0.95 ? "Closer" : "Standard"))));
       })(), (() => {
         const al = (latestTicker || ticker)?._alignment;
         if (!al || al.path_win_rate == null && al.rank_bucket_wr == null) return null;
@@ -3391,13 +3406,14 @@
           className: "flex items-center gap-3 text-[11px]"
         }, /*#__PURE__*/React.createElement("span", {
           className: "text-slate-400"
-        }, "Net: ", /*#__PURE__*/React.createElement("span", {
+        }, "Strength: ", /*#__PURE__*/React.createElement("span", {
           className: `font-semibold ${(ts?.netSignal || pm?.netSignal || 0) > 0 ? "text-[#00e676]" : (ts?.netSignal || pm?.netSignal || 0) < 0 ? "text-red-400" : "text-slate-300"}`
         }, (ts?.netSignal || pm?.netSignal || 0) > 0 ? "+" : "", (ts?.netSignal || pm?.netSignal || 0).toFixed(2))), /*#__PURE__*/React.createElement("span", {
-          className: "text-slate-400"
-        }, "Patterns: ", /*#__PURE__*/React.createElement("span", {
-          className: "text-white font-semibold"
-        }, ts?.bullPatterns || pm?.bullCount || 0, "B / ", ts?.bearPatterns || pm?.bearCount || 0, "S"))), pm?.bestBull && /*#__PURE__*/React.createElement("div", {
+          className: "text-slate-400",
+          title: "Number of bullish vs bearish chart patterns detected"
+        }, ts?.bullPatterns || pm?.bullCount || 0, " bullish / ", ts?.bearPatterns || pm?.bearCount || 0, " bearish ", /*#__PURE__*/React.createElement("span", {
+          className: "text-slate-500"
+        }, "patterns"))), pm?.bestBull && /*#__PURE__*/React.createElement("div", {
           className: "mt-1.5 text-[10px] text-[#69f0ae]/80"
         }, "Top: ", pm.bestBull.name, " (", (pm.bestBull.conf * 100).toFixed(0), "% conf, EV: ", pm.bestBull.ev > 0 ? "+" : "", pm.bestBull.ev, ")"), /*#__PURE__*/React.createElement("div", {
           className: "mt-1.5 text-[10px] text-slate-400/90 italic leading-snug"
@@ -3923,6 +3939,213 @@
           strokeWidth: "1.2"
         }))));
       })())) : null, railTab === "TECHNICALS" ? /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
+        className: "mb-4 p-3 bg-white/[0.03] border-2 border-white/[0.06] rounded-lg"
+      }, /*#__PURE__*/React.createElement("div", {
+        className: "text-sm font-bold text-[#6b7280] mb-2"
+      }, "Current Position"), (() => {
+        const stateTranslations = {
+          "HTF_BULL_LTF_BULL": {
+            label: "Fully Bullish",
+            desc: "Both long-term and short-term trends aligned up — strongest buying condition",
+            color: "text-green-400"
+          },
+          "HTF_BULL_LTF_PULLBACK": {
+            label: "Bullish Pullback",
+            desc: "Long-term trend is up, short-term pulling back — potential buy-the-dip zone",
+            color: "text-yellow-400"
+          },
+          "HTF_BULL_LTF_BEAR": {
+            label: "Bull Trend, Bear Momentum",
+            desc: "Long-term still bullish but short-term momentum has turned down — wait for stabilization",
+            color: "text-yellow-400"
+          },
+          "HTF_BEAR_LTF_BEAR": {
+            label: "Fully Bearish",
+            desc: "Both long-term and short-term trends aligned down — strongest selling condition",
+            color: "text-red-400"
+          },
+          "HTF_BEAR_LTF_PULLBACK": {
+            label: "Bearish Bounce",
+            desc: "Long-term trend is down, short-term bouncing — potential sell-the-rip zone",
+            color: "text-orange-400"
+          },
+          "HTF_BEAR_LTF_BULL": {
+            label: "Bear Trend, Bull Momentum",
+            desc: "Long-term still bearish but short-term momentum has turned up — could be a reversal or dead cat bounce",
+            color: "text-orange-400"
+          }
+        };
+        const raw = ticker.state || "";
+        const translated = stateTranslations[raw] || null;
+        const horizonLabel = (() => {
+          const bucket = String(ticker.horizon_bucket || "").trim().toUpperCase();
+          if (bucket) {
+            if (bucket.includes("SHORT")) return {
+              label: "Short Term",
+              desc: "Expected to play out within days"
+            };
+            if (bucket.includes("SWING")) return {
+              label: "Swing",
+              desc: "Expected to play out over 1-4 weeks"
+            };
+            if (bucket.includes("POSITION")) return {
+              label: "Positional",
+              desc: "Expected to play out over weeks to months"
+            };
+            return {
+              label: bucket.replace("_", " "),
+              desc: ""
+            };
+          }
+          const eta = computeEtaDays(ticker);
+          if (!Number.isFinite(eta)) return null;
+          if (eta <= 7) return {
+            label: "Short Term",
+            desc: `~${eta.toFixed(0)} days remaining`
+          };
+          if (eta <= 30) return {
+            label: "Swing",
+            desc: `~${eta.toFixed(0)} days remaining`
+          };
+          return {
+            label: "Positional",
+            desc: `~${eta.toFixed(0)} days remaining`
+          };
+        })();
+        return /*#__PURE__*/React.createElement("div", {
+          className: "space-y-2 text-xs"
+        }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+          className: "flex justify-between items-center"
+        }, /*#__PURE__*/React.createElement("span", {
+          className: "text-[#6b7280]"
+        }, "Market State"), /*#__PURE__*/React.createElement("span", {
+          className: `font-semibold ${translated ? translated.color : "text-white"}`
+        }, translated ? translated.label : raw || "—")), translated && /*#__PURE__*/React.createElement("div", {
+          className: "text-[10px] text-slate-400/80 mt-0.5 leading-snug"
+        }, translated.desc)), horizonLabel && /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+          className: "flex justify-between items-center"
+        }, /*#__PURE__*/React.createElement("span", {
+          className: "text-[#6b7280]"
+        }, "Time Horizon"), /*#__PURE__*/React.createElement("span", {
+          className: "font-semibold text-white"
+        }, horizonLabel.label)), horizonLabel.desc && /*#__PURE__*/React.createElement("div", {
+          className: "text-[10px] text-slate-400/80 mt-0.5"
+        }, horizonLabel.desc)));
+      })()), ticker.td_sequential && (() => {
+        const tdSeq = ticker.td_sequential;
+        const bullPrep = Number(tdSeq.bullish_prep_count || 0);
+        const bearPrep = Number(tdSeq.bearish_prep_count || 0);
+        const bullLeadup = Number(tdSeq.bullish_leadup_count || 0);
+        const bearLeadup = Number(tdSeq.bearish_leadup_count || 0);
+        const hasTd9Bull = tdSeq.td9_bullish === true || tdSeq.td9_bullish === "true";
+        const hasTd9Bear = tdSeq.td9_bearish === true || tdSeq.td9_bearish === "true";
+        const hasTd13Bull = tdSeq.td13_bullish === true || tdSeq.td13_bullish === "true";
+        const hasTd13Bear = tdSeq.td13_bearish === true || tdSeq.td13_bearish === "true";
+        const hasExitLong = tdSeq.exit_long === true || tdSeq.exit_long === "true";
+        const hasExitShort = tdSeq.exit_short === true || tdSeq.exit_short === "true";
+        const tdSummary = (() => {
+          if (hasExitLong) return "Exhaustion signal — the current up-move may be running out of steam. Consider tightening stops.";
+          if (hasExitShort) return "Exhaustion signal — the current down-move may be running out of steam. Watch for a bounce.";
+          if (hasTd13Bull) return "TD13 bullish complete — a strong reversal buy signal. The downtrend is likely exhausted.";
+          if (hasTd13Bear) return "TD13 bearish complete — a strong reversal sell signal. The uptrend is likely exhausted.";
+          if (hasTd9Bull) return "TD9 bullish complete — a potential buy reversal setup. Selling pressure may be near exhaustion.";
+          if (hasTd9Bear) return "TD9 bearish complete — a potential sell reversal setup. Buying pressure may be near exhaustion.";
+          if (bullPrep >= 7) return `Bullish setup ${bullPrep}/9 — nearing completion for a potential buy signal.`;
+          if (bearPrep >= 7) return `Bearish setup ${bearPrep}/9 — nearing completion for a potential sell signal.`;
+          if (bullPrep >= 4) return `Bullish setup building (${bullPrep}/9) — counting consecutive closes below prior close.`;
+          if (bearPrep >= 4) return `Bearish setup building (${bearPrep}/9) — counting consecutive closes above prior close.`;
+          return "No active TD Sequential patterns — the current trend hasn't reached a reversal count yet.";
+        })();
+        return /*#__PURE__*/React.createElement("div", {
+          className: "mb-4 p-3 bg-white/[0.03] border border-white/[0.06] rounded-lg"
+        }, /*#__PURE__*/React.createElement("div", {
+          className: "text-sm font-bold text-[#6b7280] mb-2"
+        }, "TD Sequential"), /*#__PURE__*/React.createElement("div", {
+          className: "text-[11px] text-slate-300/80 italic mb-3 leading-snug"
+        }, tdSummary), /*#__PURE__*/React.createElement("div", {
+          className: "p-3 bg-white/[0.03] rounded-lg border border-white/[0.06] space-y-2"
+        }, /*#__PURE__*/React.createElement("div", {
+          className: "grid grid-cols-2 gap-x-4 gap-y-1.5 text-[11px]"
+        }, /*#__PURE__*/React.createElement("div", {
+          className: "flex justify-between"
+        }, /*#__PURE__*/React.createElement("span", {
+          className: "text-[#6b7280]",
+          title: "Counts consecutive closes lower than 4 bars ago \u2014 a buy setup forms at 9"
+        }, "Buy Setup"), /*#__PURE__*/React.createElement("span", {
+          className: `font-semibold ${bullPrep >= 7 ? "text-yellow-400" : bullPrep >= 4 ? "text-green-400" : "text-[#6b7280]"}`
+        }, bullPrep, "/9")), /*#__PURE__*/React.createElement("div", {
+          className: "flex justify-between"
+        }, /*#__PURE__*/React.createElement("span", {
+          className: "text-[#6b7280]",
+          title: "Counts consecutive closes higher than 4 bars ago \u2014 a sell setup forms at 9"
+        }, "Sell Setup"), /*#__PURE__*/React.createElement("span", {
+          className: `font-semibold ${bearPrep >= 7 ? "text-yellow-400" : bearPrep >= 4 ? "text-red-400" : "text-[#6b7280]"}`
+        }, bearPrep, "/9")), /*#__PURE__*/React.createElement("div", {
+          className: "flex justify-between"
+        }, /*#__PURE__*/React.createElement("span", {
+          className: "text-[#6b7280]",
+          title: "After a completed buy setup, counts 13 bars for a stronger buy signal"
+        }, "Buy Countdown"), /*#__PURE__*/React.createElement("span", {
+          className: `font-semibold ${bullLeadup >= 10 ? "text-yellow-400" : bullLeadup >= 4 ? "text-green-400" : "text-[#6b7280]"}`
+        }, bullLeadup, "/13")), /*#__PURE__*/React.createElement("div", {
+          className: "flex justify-between"
+        }, /*#__PURE__*/React.createElement("span", {
+          className: "text-[#6b7280]",
+          title: "After a completed sell setup, counts 13 bars for a stronger sell signal"
+        }, "Sell Countdown"), /*#__PURE__*/React.createElement("span", {
+          className: `font-semibold ${bearLeadup >= 10 ? "text-yellow-400" : bearLeadup >= 4 ? "text-red-400" : "text-[#6b7280]"}`
+        }, bearLeadup, "/13"))), (hasTd9Bull || hasTd9Bear || hasTd13Bull || hasTd13Bear) && /*#__PURE__*/React.createElement("div", {
+          className: "pt-2 mt-1 border-t border-white/[0.06] space-y-1"
+        }, hasTd9Bull && /*#__PURE__*/React.createElement("div", {
+          className: "flex items-center gap-2 text-xs"
+        }, /*#__PURE__*/React.createElement("span", {
+          className: "w-2 h-2 rounded-full bg-green-400"
+        }), /*#__PURE__*/React.createElement("span", {
+          className: "text-green-400 font-semibold"
+        }, "TD9 Buy"), /*#__PURE__*/React.createElement("span", {
+          className: "text-[#6b7280]"
+        }, "\u2014 setup complete, potential reversal up")), hasTd9Bear && /*#__PURE__*/React.createElement("div", {
+          className: "flex items-center gap-2 text-xs"
+        }, /*#__PURE__*/React.createElement("span", {
+          className: "w-2 h-2 rounded-full bg-red-400"
+        }), /*#__PURE__*/React.createElement("span", {
+          className: "text-red-400 font-semibold"
+        }, "TD9 Sell"), /*#__PURE__*/React.createElement("span", {
+          className: "text-[#6b7280]"
+        }, "\u2014 setup complete, potential reversal down")), hasTd13Bull && /*#__PURE__*/React.createElement("div", {
+          className: "flex items-center gap-2 text-xs"
+        }, /*#__PURE__*/React.createElement("span", {
+          className: "w-2 h-2 rounded-full bg-green-400"
+        }), /*#__PURE__*/React.createElement("span", {
+          className: "text-green-400 font-semibold"
+        }, "TD13 Buy"), /*#__PURE__*/React.createElement("span", {
+          className: "text-[#6b7280]"
+        }, "\u2014 countdown complete, strong buy signal")), hasTd13Bear && /*#__PURE__*/React.createElement("div", {
+          className: "flex items-center gap-2 text-xs"
+        }, /*#__PURE__*/React.createElement("span", {
+          className: "w-2 h-2 rounded-full bg-red-400"
+        }), /*#__PURE__*/React.createElement("span", {
+          className: "text-red-400 font-semibold"
+        }, "TD13 Sell"), /*#__PURE__*/React.createElement("span", {
+          className: "text-[#6b7280]"
+        }, "\u2014 countdown complete, strong sell signal")))), (hasExitLong || hasExitShort) && /*#__PURE__*/React.createElement("div", {
+          className: "mt-2 p-3 rounded-lg border-2 bg-red-500/20 border-red-500/50"
+        }, /*#__PURE__*/React.createElement("div", {
+          className: "flex items-center justify-between"
+        }, /*#__PURE__*/React.createElement("span", {
+          className: "text-xs text-[#6b7280]"
+        }, "Exhaustion Warning"), /*#__PURE__*/React.createElement("span", {
+          className: "font-bold text-sm text-red-400"
+        }, hasExitLong ? "EXIT LONG" : "EXIT SHORT")), /*#__PURE__*/React.createElement("div", {
+          className: "text-[11px] text-[#6b7280] mt-1"
+        }, hasExitLong ? "The current rally shows signs of exhaustion — momentum is fading. Consider taking profits or raising stops." : "The current decline shows signs of exhaustion — selling pressure is fading. Watch for a reversal bounce.")), tdSeq.boost !== undefined && tdSeq.boost !== null && Number(tdSeq.boost) !== 0 && /*#__PURE__*/React.createElement("div", {
+          className: "mt-2 flex justify-between items-center text-xs px-3 py-2 bg-white/[0.03] rounded-lg border border-white/[0.06]"
+        }, /*#__PURE__*/React.createElement("span", {
+          className: "text-[#6b7280]"
+        }, "Score impact from TD Sequential"), /*#__PURE__*/React.createElement("span", {
+          className: `font-semibold ${Number(tdSeq.boost) > 0 ? "text-green-400" : "text-red-400"}`
+        }, Number(tdSeq.boost) > 0 ? "+" : "", Number(tdSeq.boost).toFixed(1))));
+      })(), /*#__PURE__*/React.createElement("div", {
         className: "mt-6 pt-6 border-t-2 border-white/[0.06]"
       }, /*#__PURE__*/React.createElement("div", {
         className: "text-sm font-bold text-[#6b7280] mb-4"
@@ -4133,121 +4356,7 @@
         }, phDivSummary))));
       }) : /*#__PURE__*/React.createElement("div", {
         className: "text-xs text-[#6b7280] p-3 bg-white/[0.03] rounded-lg border border-white/[0.06]"
-      }, "No per-timeframe technicals available yet."))), ticker.td_sequential && (() => {
-        const tdSeq = ticker.td_sequential;
-        const bullPrep = Number(tdSeq.bullish_prep_count || 0);
-        const bearPrep = Number(tdSeq.bearish_prep_count || 0);
-        const bullLeadup = Number(tdSeq.bullish_leadup_count || 0);
-        const bearLeadup = Number(tdSeq.bearish_leadup_count || 0);
-        const hasTd9Bull = tdSeq.td9_bullish === true || tdSeq.td9_bullish === "true";
-        const hasTd9Bear = tdSeq.td9_bearish === true || tdSeq.td9_bearish === "true";
-        const hasTd13Bull = tdSeq.td13_bullish === true || tdSeq.td13_bullish === "true";
-        const hasTd13Bear = tdSeq.td13_bearish === true || tdSeq.td13_bearish === "true";
-        const hasExitLong = tdSeq.exit_long === true || tdSeq.exit_long === "true";
-        const hasExitShort = tdSeq.exit_short === true || tdSeq.exit_short === "true";
-        const tdSummary = (() => {
-          if (hasExitLong) return "Exhaustion signal — the current up-move may be running out of steam. Consider tightening stops.";
-          if (hasExitShort) return "Exhaustion signal — the current down-move may be running out of steam. Watch for a bounce.";
-          if (hasTd13Bull) return "TD13 bullish complete — a strong reversal buy signal. The downtrend is likely exhausted.";
-          if (hasTd13Bear) return "TD13 bearish complete — a strong reversal sell signal. The uptrend is likely exhausted.";
-          if (hasTd9Bull) return "TD9 bullish complete — a potential buy reversal setup. Selling pressure may be near exhaustion.";
-          if (hasTd9Bear) return "TD9 bearish complete — a potential sell reversal setup. Buying pressure may be near exhaustion.";
-          if (bullPrep >= 7) return `Bullish setup ${bullPrep}/9 — nearing completion for a potential buy signal.`;
-          if (bearPrep >= 7) return `Bearish setup ${bearPrep}/9 — nearing completion for a potential sell signal.`;
-          if (bullPrep >= 4) return `Bullish setup building (${bullPrep}/9) — counting consecutive closes below prior close.`;
-          if (bearPrep >= 4) return `Bearish setup building (${bearPrep}/9) — counting consecutive closes above prior close.`;
-          return "No active TD Sequential patterns — the current trend hasn't reached a reversal count yet.";
-        })();
-        return /*#__PURE__*/React.createElement("div", {
-          className: "mt-6 pt-6 border-t-2 border-white/[0.06]"
-        }, /*#__PURE__*/React.createElement("div", {
-          className: "text-sm font-bold text-[#6b7280] mb-2"
-        }, "TD Sequential"), /*#__PURE__*/React.createElement("div", {
-          className: "text-[11px] text-slate-300/80 italic mb-3 leading-snug"
-        }, tdSummary), /*#__PURE__*/React.createElement("div", {
-          className: "p-3 bg-white/[0.03] rounded-lg border border-white/[0.06] space-y-2"
-        }, /*#__PURE__*/React.createElement("div", {
-          className: "grid grid-cols-2 gap-x-4 gap-y-1.5 text-[11px]"
-        }, /*#__PURE__*/React.createElement("div", {
-          className: "flex justify-between"
-        }, /*#__PURE__*/React.createElement("span", {
-          className: "text-[#6b7280]",
-          title: "Counts consecutive closes lower than 4 bars ago \u2014 a buy setup forms at 9"
-        }, "Buy Setup"), /*#__PURE__*/React.createElement("span", {
-          className: `font-semibold ${bullPrep >= 7 ? "text-yellow-400" : bullPrep >= 4 ? "text-green-400" : "text-[#6b7280]"}`
-        }, bullPrep, "/9")), /*#__PURE__*/React.createElement("div", {
-          className: "flex justify-between"
-        }, /*#__PURE__*/React.createElement("span", {
-          className: "text-[#6b7280]",
-          title: "Counts consecutive closes higher than 4 bars ago \u2014 a sell setup forms at 9"
-        }, "Sell Setup"), /*#__PURE__*/React.createElement("span", {
-          className: `font-semibold ${bearPrep >= 7 ? "text-yellow-400" : bearPrep >= 4 ? "text-red-400" : "text-[#6b7280]"}`
-        }, bearPrep, "/9")), /*#__PURE__*/React.createElement("div", {
-          className: "flex justify-between"
-        }, /*#__PURE__*/React.createElement("span", {
-          className: "text-[#6b7280]",
-          title: "After a completed buy setup, counts 13 bars for a stronger buy signal"
-        }, "Buy Countdown"), /*#__PURE__*/React.createElement("span", {
-          className: `font-semibold ${bullLeadup >= 10 ? "text-yellow-400" : bullLeadup >= 4 ? "text-green-400" : "text-[#6b7280]"}`
-        }, bullLeadup, "/13")), /*#__PURE__*/React.createElement("div", {
-          className: "flex justify-between"
-        }, /*#__PURE__*/React.createElement("span", {
-          className: "text-[#6b7280]",
-          title: "After a completed sell setup, counts 13 bars for a stronger sell signal"
-        }, "Sell Countdown"), /*#__PURE__*/React.createElement("span", {
-          className: `font-semibold ${bearLeadup >= 10 ? "text-yellow-400" : bearLeadup >= 4 ? "text-red-400" : "text-[#6b7280]"}`
-        }, bearLeadup, "/13"))), (hasTd9Bull || hasTd9Bear || hasTd13Bull || hasTd13Bear) && /*#__PURE__*/React.createElement("div", {
-          className: "pt-2 mt-1 border-t border-white/[0.06] space-y-1"
-        }, hasTd9Bull && /*#__PURE__*/React.createElement("div", {
-          className: "flex items-center gap-2 text-xs"
-        }, /*#__PURE__*/React.createElement("span", {
-          className: "w-2 h-2 rounded-full bg-green-400"
-        }), /*#__PURE__*/React.createElement("span", {
-          className: "text-green-400 font-semibold"
-        }, "TD9 Buy"), /*#__PURE__*/React.createElement("span", {
-          className: "text-[#6b7280]"
-        }, "\u2014 setup complete, potential reversal up")), hasTd9Bear && /*#__PURE__*/React.createElement("div", {
-          className: "flex items-center gap-2 text-xs"
-        }, /*#__PURE__*/React.createElement("span", {
-          className: "w-2 h-2 rounded-full bg-red-400"
-        }), /*#__PURE__*/React.createElement("span", {
-          className: "text-red-400 font-semibold"
-        }, "TD9 Sell"), /*#__PURE__*/React.createElement("span", {
-          className: "text-[#6b7280]"
-        }, "\u2014 setup complete, potential reversal down")), hasTd13Bull && /*#__PURE__*/React.createElement("div", {
-          className: "flex items-center gap-2 text-xs"
-        }, /*#__PURE__*/React.createElement("span", {
-          className: "w-2 h-2 rounded-full bg-green-400"
-        }), /*#__PURE__*/React.createElement("span", {
-          className: "text-green-400 font-semibold"
-        }, "TD13 Buy"), /*#__PURE__*/React.createElement("span", {
-          className: "text-[#6b7280]"
-        }, "\u2014 countdown complete, strong buy signal")), hasTd13Bear && /*#__PURE__*/React.createElement("div", {
-          className: "flex items-center gap-2 text-xs"
-        }, /*#__PURE__*/React.createElement("span", {
-          className: "w-2 h-2 rounded-full bg-red-400"
-        }), /*#__PURE__*/React.createElement("span", {
-          className: "text-red-400 font-semibold"
-        }, "TD13 Sell"), /*#__PURE__*/React.createElement("span", {
-          className: "text-[#6b7280]"
-        }, "\u2014 countdown complete, strong sell signal")))), (hasExitLong || hasExitShort) && /*#__PURE__*/React.createElement("div", {
-          className: "mt-2 p-3 rounded-lg border-2 bg-red-500/20 border-red-500/50"
-        }, /*#__PURE__*/React.createElement("div", {
-          className: "flex items-center justify-between"
-        }, /*#__PURE__*/React.createElement("span", {
-          className: "text-xs text-[#6b7280]"
-        }, "Exhaustion Warning"), /*#__PURE__*/React.createElement("span", {
-          className: "font-bold text-sm text-red-400"
-        }, hasExitLong ? "EXIT LONG" : "EXIT SHORT")), /*#__PURE__*/React.createElement("div", {
-          className: "text-[11px] text-[#6b7280] mt-1"
-        }, hasExitLong ? "The current rally shows signs of exhaustion — momentum is fading. Consider taking profits or raising stops." : "The current decline shows signs of exhaustion — selling pressure is fading. Watch for a reversal bounce.")), tdSeq.boost !== undefined && tdSeq.boost !== null && Number(tdSeq.boost) !== 0 && /*#__PURE__*/React.createElement("div", {
-          className: "mt-2 flex justify-between items-center text-xs px-3 py-2 bg-white/[0.03] rounded-lg border border-white/[0.06]"
-        }, /*#__PURE__*/React.createElement("span", {
-          className: "text-[#6b7280]"
-        }, "Score impact from TD Sequential"), /*#__PURE__*/React.createElement("span", {
-          className: `font-semibold ${Number(tdSeq.boost) > 0 ? "text-green-400" : "text-red-400"}`
-        }, Number(tdSeq.boost) > 0 ? "+" : "", Number(tdSeq.boost).toFixed(1))));
-      })(), ticker.rsi && (() => {
+      }, "No per-timeframe technicals available yet."))), ticker.rsi && (() => {
         const rsi = ticker.rsi;
         const rsiValue = Number(rsi.value || 0);
         const rsiLevel = rsi.level || "neutral";
@@ -4302,103 +4411,8 @@
         }, divType === "bullish" ? "Price made a lower low but RSI made a higher low — selling momentum is fading even as price drops. This often precedes a reversal upward." : "Price made a higher high but RSI made a lower high — buying momentum is fading even as price rises. This often precedes a reversal downward."), divStrength > 0 && /*#__PURE__*/React.createElement("div", {
           className: "text-[10px] text-[#6b7280] mt-1"
         }, "Signal strength: ", divStrength.toFixed(2))));
-      })(), /*#__PURE__*/React.createElement("div", {
-        className: "mb-4 p-3 bg-white/[0.03] border-2 border-white/[0.06] rounded-lg"
-      }, /*#__PURE__*/React.createElement("div", {
-        className: "text-sm font-bold text-[#6b7280] mb-2"
-      }, "Current Position"), (() => {
-        const stateTranslations = {
-          "HTF_BULL_LTF_BULL": {
-            label: "Fully Bullish",
-            desc: "Both long-term and short-term trends aligned up — strongest buying condition",
-            color: "text-green-400"
-          },
-          "HTF_BULL_LTF_PULLBACK": {
-            label: "Bullish Pullback",
-            desc: "Long-term trend is up, short-term pulling back — potential buy-the-dip zone",
-            color: "text-yellow-400"
-          },
-          "HTF_BULL_LTF_BEAR": {
-            label: "Bull Trend, Bear Momentum",
-            desc: "Long-term still bullish but short-term momentum has turned down — wait for stabilization",
-            color: "text-yellow-400"
-          },
-          "HTF_BEAR_LTF_BEAR": {
-            label: "Fully Bearish",
-            desc: "Both long-term and short-term trends aligned down — strongest selling condition",
-            color: "text-red-400"
-          },
-          "HTF_BEAR_LTF_PULLBACK": {
-            label: "Bearish Bounce",
-            desc: "Long-term trend is down, short-term bouncing — potential sell-the-rip zone",
-            color: "text-orange-400"
-          },
-          "HTF_BEAR_LTF_BULL": {
-            label: "Bear Trend, Bull Momentum",
-            desc: "Long-term still bearish but short-term momentum has turned up — could be a reversal or dead cat bounce",
-            color: "text-orange-400"
-          }
-        };
-        const raw = ticker.state || "";
-        const translated = stateTranslations[raw] || null;
-        const horizonLabel = (() => {
-          const bucket = String(ticker.horizon_bucket || "").trim().toUpperCase();
-          if (bucket) {
-            if (bucket.includes("SHORT")) return {
-              label: "Short Term",
-              desc: "Expected to play out within days"
-            };
-            if (bucket.includes("SWING")) return {
-              label: "Swing",
-              desc: "Expected to play out over 1-4 weeks"
-            };
-            if (bucket.includes("POSITION")) return {
-              label: "Positional",
-              desc: "Expected to play out over weeks to months"
-            };
-            return {
-              label: bucket.replace("_", " "),
-              desc: ""
-            };
-          }
-          const eta = computeEtaDays(ticker);
-          if (!Number.isFinite(eta)) return null;
-          if (eta <= 7) return {
-            label: "Short Term",
-            desc: `~${eta.toFixed(0)} days remaining`
-          };
-          if (eta <= 30) return {
-            label: "Swing",
-            desc: `~${eta.toFixed(0)} days remaining`
-          };
-          return {
-            label: "Positional",
-            desc: `~${eta.toFixed(0)} days remaining`
-          };
-        })();
-        return /*#__PURE__*/React.createElement("div", {
-          className: "space-y-2 text-xs"
-        }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
-          className: "flex justify-between items-center"
-        }, /*#__PURE__*/React.createElement("span", {
-          className: "text-[#6b7280]",
-          title: "The combined long-term (HTF) and short-term (LTF) trend state"
-        }, "Market State"), /*#__PURE__*/React.createElement("span", {
-          className: `font-semibold ${translated ? translated.color : "text-white"}`
-        }, translated ? translated.label : raw || "—")), translated && /*#__PURE__*/React.createElement("div", {
-          className: "text-[10px] text-slate-400/80 mt-0.5 leading-snug"
-        }, translated.desc)), horizonLabel && /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
-          className: "flex justify-between items-center"
-        }, /*#__PURE__*/React.createElement("span", {
-          className: "text-[#6b7280]",
-          title: "How long the trade setup is expected to take"
-        }, "Time Horizon"), /*#__PURE__*/React.createElement("span", {
-          className: "font-semibold text-white"
-        }, horizonLabel.label)), horizonLabel.desc && /*#__PURE__*/React.createElement("div", {
-          className: "text-[10px] text-slate-400/80 mt-0.5"
-        }, horizonLabel.desc)));
       })(), detectedPatterns && detectedPatterns.length > 0 && /*#__PURE__*/React.createElement("div", {
-        className: "mt-3 pt-3 border-t border-white/[0.06]"
+        className: "mb-4 p-3 bg-white/[0.03] border border-white/[0.06] rounded-lg"
       }, /*#__PURE__*/React.createElement("div", {
         className: "text-xs font-semibold text-yellow-400 mb-2"
       }, "Detected Patterns"), /*#__PURE__*/React.createElement("div", {
@@ -4414,7 +4428,7 @@
         className: "text-[10px] px-1.5 py-0.5 rounded bg-yellow-500/20 text-yellow-300"
       }, pattern.confidence)), pattern.quadrant && /*#__PURE__*/React.createElement("div", {
         className: "text-[10px] text-[#6b7280] mt-0.5"
-      }, pattern.quadrant)))))), (ticker.daily_ema_cloud || ticker.fourh_ema_cloud || ticker.oneh_ema_cloud) && (() => {
+      }, pattern.quadrant))))), (ticker.daily_ema_cloud || ticker.fourh_ema_cloud || ticker.oneh_ema_cloud) && (() => {
         const clouds = [{
           data: ticker.daily_ema_cloud,
           label: "Daily",
@@ -5603,94 +5617,7 @@
         }, "Market:"), " Reads the broad market breadth to gauge whether conditions favor risk-on or risk-off positioning."), /*#__PURE__*/React.createElement("p", {
           className: "text-[10px] text-slate-500 pt-1"
         }, "Signals appear once the scoring data is loaded. If this is empty, the model endpoint may be temporarily unavailable."))));
-      })()) : null, railTab === "JOURNEY" ? /*#__PURE__*/React.createElement(React.Fragment, null, (() => {
-        if (candlePerfLoading) {
-          return /*#__PURE__*/React.createElement("div", {
-            className: "mb-4 p-3 bg-white/[0.03] border border-white/[0.06] rounded-lg text-xs text-[#6b7280] flex items-center gap-2"
-          }, /*#__PURE__*/React.createElement("div", {
-            className: "loading-spinner"
-          }), "Loading performance\u2026");
-        }
-        const perf = candlePerf?.performance;
-        if (!perf || Object.keys(perf).length === 0) {
-          return /*#__PURE__*/React.createElement("div", {
-            className: "mb-4 p-3 bg-white/[0.03] border border-white/[0.06] rounded-lg text-xs text-[#6b7280]"
-          }, "Performance data unavailable.");
-        }
-        const sym = String(ticker.ticker).toUpperCase();
-        const periods = [{
-          label: '1D',
-          key: '1D'
-        }, {
-          label: '5D',
-          key: '5D'
-        }, {
-          label: '15D',
-          key: '15D'
-        }, {
-          label: '30D',
-          key: '30D'
-        }, {
-          label: '90D',
-          key: '90D'
-        }];
-        const available = periods.map(p => ({
-          ...p,
-          data: perf[p.key]
-        })).filter(p => p.data);
-        if (available.length === 0) return null;
-        const dir = String(ticker.direction || "").toUpperCase();
-        const stage = String(ticker.kanban_stage || "").toLowerCase().replace(/_/g, " ");
-        const isLong = dir === "LONG" || dir === "BULLISH";
-        const isShort = dir === "SHORT" || dir === "BEARISH";
-        const getInterpretation = (changePct, isUp, label) => {
-          const absChg = Math.abs(changePct);
-          const aligned = isLong && isUp || isShort && !isUp;
-          const against = isLong && !isUp || isShort && isUp;
-          let momentum;
-          if (absChg < 2) momentum = "relatively flat";else if (absChg < 5) momentum = isUp ? "modestly higher" : "modestly lower";else if (absChg < 10) momentum = isUp ? "solidly higher" : "notably lower";else if (absChg < 20) momentum = isUp ? "sharply higher" : "sharply lower";else momentum = isUp ? "surging" : "plunging";
-          let base = `${sym} is ${momentum} over ${label} (${isUp ? "+" : ""}${changePct.toFixed(1)}%).`;
-          if (aligned && absChg >= 2) {
-            base += ` This aligns with the ${dir} thesis${stage ? ` — currently in "${stage}" stage` : ""}.`;
-          } else if (against && absChg >= 3) {
-            base += ` This moves against the ${dir} thesis${stage ? ` — "${stage}" stage may need reassessment` : ""}.`;
-          } else if (absChg < 2) {
-            base += stage ? ` Consolidating in "${stage}" stage — waiting for a catalyst.` : " Price is consolidating.";
-          }
-          return base;
-        };
-        return /*#__PURE__*/React.createElement("div", {
-          className: "mb-4 space-y-3"
-        }, available.map(({
-          label,
-          data
-        }) => {
-          const {
-            changePct,
-            changePoints,
-            isUp,
-            actualDays
-          } = data;
-          return /*#__PURE__*/React.createElement("div", {
-            key: label,
-            className: "p-3 bg-white/[0.03] border-2 border-white/[0.06] rounded-lg"
-          }, /*#__PURE__*/React.createElement("div", {
-            className: "flex items-center justify-between mb-2"
-          }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", {
-            className: "text-xs font-bold text-[#6b7280]"
-          }, label), actualDays != null && /*#__PURE__*/React.createElement("span", {
-            className: "ml-1.5 text-[10px] text-[#4b5563]"
-          }, "(", actualDays, "d ago)")), /*#__PURE__*/React.createElement("div", {
-            className: "text-right"
-          }, /*#__PURE__*/React.createElement("div", {
-            className: `text-lg font-bold ${isUp ? 'text-green-400' : 'text-red-400'}`
-          }, isUp ? '+' : '', changePct.toFixed(2), "%"), /*#__PURE__*/React.createElement("div", {
-            className: `text-xs ${isUp ? 'text-green-300/70' : 'text-red-300/70'}`
-          }, isUp ? '+' : '', "$", changePoints.toFixed(2), " pts"))), /*#__PURE__*/React.createElement("div", {
-            className: "text-xs text-[#cbd5ff] leading-relaxed bg-white/[0.02] p-2 rounded border border-white/[0.06]/50"
-          }, getInterpretation(changePct, isUp, label)));
-        }));
-      })(), /*#__PURE__*/React.createElement("div", {
+      })()) : null, railTab === "JOURNEY" ? /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
         className: "mb-4 p-3 bg-white/[0.03] border-2 border-white/[0.06] rounded-lg"
       }, /*#__PURE__*/React.createElement("div", {
         className: "flex items-center justify-between mb-2"
@@ -5905,7 +5832,108 @@
         return parts.length > 0 ? /*#__PURE__*/React.createElement("div", {
           className: "mt-2 text-[10px] text-slate-400/80 italic leading-snug"
         }, parts.join(" — "), ".") : null;
-      })())) : null)), /*#__PURE__*/React.createElement("div", {
+      })()), (() => {
+        if (candlePerfLoading) {
+          return /*#__PURE__*/React.createElement("div", {
+            className: "mb-4 p-3 bg-white/[0.03] border border-white/[0.06] rounded-lg text-xs text-[#6b7280] flex items-center gap-2"
+          }, /*#__PURE__*/React.createElement("div", {
+            className: "loading-spinner"
+          }), "Loading performance\u2026");
+        }
+        const perf = candlePerf?.performance;
+        if (!perf || Object.keys(perf).length === 0) {
+          return /*#__PURE__*/React.createElement("div", {
+            className: "mb-4 p-3 bg-white/[0.03] border border-white/[0.06] rounded-lg text-xs text-[#6b7280]"
+          }, "Performance data unavailable.");
+        }
+        const sym = String(ticker.ticker).toUpperCase();
+        const periods = [{
+          label: '1D',
+          key: '1D'
+        }, {
+          label: '5D',
+          key: '5D'
+        }, {
+          label: '15D',
+          key: '15D'
+        }, {
+          label: '30D',
+          key: '30D'
+        }, {
+          label: '90D',
+          key: '90D'
+        }];
+        const available = periods.map(p => ({
+          ...p,
+          data: perf[p.key]
+        })).filter(p => p.data);
+        if (available.length === 0) return null;
+        const dir = String(ticker.direction || "").toUpperCase();
+        const stage = String(ticker.kanban_stage || "").toLowerCase().replace(/_/g, " ");
+        const isLong = dir === "LONG" || dir === "BULLISH";
+        const isShort = dir === "SHORT" || dir === "BEARISH";
+        const getInterpretation = (changePct, isUp, label) => {
+          const absChg = Math.abs(changePct);
+          const aligned = isLong && isUp || isShort && !isUp;
+          const against = isLong && !isUp || isShort && isUp;
+          if (absChg < 0.5) {
+            if (label === "1D") return "Little changed today — short-term tape is quiet.";
+            if (label === "5D") return "Mostly unchanged over the last week — still basing, not yet breaking trend.";
+            if (label === "15D") return "Still range-bound over the last two weeks — early evidence, but no decisive trend.";
+            return "Price action has been relatively flat over this window.";
+          }
+          if (aligned && absChg >= 2) {
+            if (label === "1D") return `Today's move is supporting the ${dir.toLowerCase()} thesis${stage ? ` while staying in "${stage}"` : ""}.`;
+            if (label === "5D") return `The last week is trending with the ${dir.toLowerCase()} thesis${stage ? ` and still reads as "${stage}"` : ""}.`;
+            return `Moving with the ${dir.toLowerCase()} thesis${stage ? ` — in "${stage}" stage` : ""}.`;
+          } else if (against && absChg >= 3) {
+            if (label === "1D") return `Today's move is pressing against the ${dir.toLowerCase()} thesis${stage ? ` even though the setup still reads "${stage}"` : ""}.`;
+            if (label === "5D") return `The last week is working against the ${dir.toLowerCase()} thesis${stage ? ` — "${stage}" may need reassessment` : ""}.`;
+            return `Moving against the ${dir.toLowerCase()} thesis${stage ? ` — "${stage}" stage may need reassessment` : ""}.`;
+          }
+          if (label === "1D") return "Today's move is notable but not decisive enough to change the setup on its own.";
+          if (label === "5D") return "The last week adds some direction, but the bigger move still needs confirmation.";
+          return "This window adds context, but not enough to change the broader read by itself.";
+        };
+        return /*#__PURE__*/React.createElement("div", {
+          className: "mb-4"
+        }, /*#__PURE__*/React.createElement("div", {
+          className: "text-xs font-semibold text-[#6b7280] uppercase tracking-wider mb-2"
+        }, "Price Performance"), /*#__PURE__*/React.createElement("div", {
+          className: "space-y-2"
+        }, available.map(({
+          label,
+          data
+        }) => {
+          const {
+            changePct,
+            changePoints,
+            isUp,
+            actualDays
+          } = data;
+          const interp = getInterpretation(changePct, isUp, label);
+          return /*#__PURE__*/React.createElement("div", {
+            key: label,
+            className: "p-2.5 bg-white/[0.03] border border-white/[0.06] rounded-lg"
+          }, /*#__PURE__*/React.createElement("div", {
+            className: "flex items-center justify-between"
+          }, /*#__PURE__*/React.createElement("div", {
+            className: "flex items-center gap-2"
+          }, /*#__PURE__*/React.createElement("span", {
+            className: "text-xs font-bold text-white"
+          }, label), actualDays != null && /*#__PURE__*/React.createElement("span", {
+            className: "text-[10px] text-[#4b5563]"
+          }, "(", actualDays, "d ago)")), /*#__PURE__*/React.createElement("div", {
+            className: "flex items-center gap-2"
+          }, /*#__PURE__*/React.createElement("span", {
+            className: `text-sm font-bold ${isUp ? 'text-green-400' : 'text-red-400'}`
+          }, isUp ? '+' : '', changePct.toFixed(2), "%"), /*#__PURE__*/React.createElement("span", {
+            className: `text-[10px] ${isUp ? 'text-green-300/60' : 'text-red-300/60'}`
+          }, isUp ? '+' : '', "$", changePoints.toFixed(2)))), interp && /*#__PURE__*/React.createElement("div", {
+            className: "mt-1 text-[10px] text-slate-400/80 italic leading-snug"
+          }, interp));
+        })));
+      })()) : null)), /*#__PURE__*/React.createElement("div", {
         className: "flex-shrink-0 p-6 pt-4 border-t border-white/[0.06] bg-white/[0.02]"
       }, /*#__PURE__*/React.createElement("a", {
         href: `https://www.tradingview.com/chart/?symbol=${encodeURIComponent(tickerSymbol)}`,

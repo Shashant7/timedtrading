@@ -496,12 +496,12 @@ while [[ "$CURRENT_DATE" < "$END_DATE" ]] || [[ "$CURRENT_DATE" == "$END_DATE" ]
   # Periodic lifecycle: aggregate timed_trail → trail_5m_facts every 5 replayed days
   if (( DAY_COUNT % 5 == 0 )) && ! $LOW_WRITE; then
     echo -n "  ⚡ Lifecycle aggregation (day $DAY_COUNT)... "
-    LC_RESULT=$(curl -s -m 120 -X POST "$API_BASE/timed/admin/run-lifecycle?key=$API_KEY&cutoff_hours=0" 2>&1)
+    LC_RESULT=$(curl -s -m 300 -X POST "$API_BASE/timed/admin/run-lifecycle?key=$API_KEY&cutoff_hours=0" 2>&1) || true
     LC_OK=$(echo "$LC_RESULT" | jq -r '.ok // false' 2>/dev/null || echo "false")
     if [[ "$LC_OK" == "true" ]]; then
       echo "done"
     else
-      echo "warn: $(echo "$LC_RESULT" | jq -r '.error // "unknown"' 2>/dev/null | head -c 100)"
+      echo "warn (non-fatal): $(echo "$LC_RESULT" | jq -r '.error // "unknown"' 2>/dev/null | head -c 100)"
     fi
   fi
 
@@ -546,12 +546,12 @@ if $LOW_WRITE; then
   echo "Final lifecycle aggregation skipped (--low-write enabled)"
 else
   echo -n "Final lifecycle aggregation... "
-  LC_FINAL=$(curl -s -m 120 -X POST "$API_BASE/timed/admin/run-lifecycle?key=$API_KEY&cutoff_hours=0" 2>&1)
+  LC_FINAL=$(curl -s -m 300 -X POST "$API_BASE/timed/admin/run-lifecycle?key=$API_KEY&cutoff_hours=0" 2>&1) || true
   LC_FINAL_OK=$(echo "$LC_FINAL" | jq -r '.ok // false' 2>/dev/null || echo "false")
   if [[ "$LC_FINAL_OK" == "true" ]]; then
     echo "done"
   else
-    echo "warn: $(echo "$LC_FINAL" | jq -r '.error // "unknown"' 2>/dev/null | head -c 100)"
+    echo "warn (non-fatal): $(echo "$LC_FINAL" | jq -r '.error // "unknown"' 2>/dev/null | head -c 100)"
   fi
 fi
 echo ""

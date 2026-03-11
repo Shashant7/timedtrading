@@ -761,86 +761,6 @@ function clusterPivots(pivots, threshold) {
 }
 
 /**
- * Detect RSI divergence at the most recent bar.
- *
- * Bullish divergence: price makes a lower low while RSI makes a higher low.
- * Bearish divergence: price makes a higher high while RSI makes a lower high.
- *
- * Uses simple pivot detection: find the two most recent swing lows (or highs)
- * within a lookback window, then compare price and RSI at those pivots.
- *
- * @param {Array<{h:number,l:number,c:number}>} bars - OHLC bars sorted asc
- * @param {number[]} rsiArr - RSI(14) series aligned with bars
- * @param {number} last - index of the latest bar
- * @returns {{ bullish: boolean, bearish: boolean, strength: number }}
- *   strength 0-1: how strong the divergence is (RSI delta / 20, capped at 1)
- */
-function detectRsiDivergence(bars, rsiArr, last) {
-  const result = { bullish: false, bearish: false, strength: 0 };
-  if (last < 20) return result;
-
-  const lookback = Math.min(30, last);
-  const pivotRadius = 3;
-  const start = last - lookback;
-
-  // Find swing lows (for bullish divergence)
-  const swingLows = [];
-  for (let i = start + pivotRadius; i <= last - pivotRadius; i++) {
-    let isLow = true;
-    for (let j = 1; j <= pivotRadius; j++) {
-      if (bars[i].l >= bars[i - j].l || bars[i].l >= bars[i + j].l) { isLow = false; break; }
-    }
-    if (isLow && Number.isFinite(rsiArr[i])) {
-      swingLows.push({ idx: i, price: bars[i].l, rsi: rsiArr[i] });
-    }
-  }
-  if (swingLows.length >= 1) {
-    let recentLowIdx = last;
-    for (let i = last - 2; i <= last; i++) {
-      if (i >= 0 && bars[i].l < bars[recentLowIdx].l) recentLowIdx = i;
-    }
-    if (Number.isFinite(rsiArr[recentLowIdx])) {
-      const prevLow = swingLows[swingLows.length - 1];
-      if (recentLowIdx > prevLow.idx + 3 &&
-          bars[recentLowIdx].l < prevLow.price &&
-          rsiArr[recentLowIdx] > prevLow.rsi) {
-        result.bullish = true;
-        result.strength = Math.min(1, (rsiArr[recentLowIdx] - prevLow.rsi) / 20);
-      }
-    }
-  }
-
-  // Find swing highs (for bearish divergence)
-  const swingHighs = [];
-  for (let i = start + pivotRadius; i <= last - pivotRadius; i++) {
-    let isHigh = true;
-    for (let j = 1; j <= pivotRadius; j++) {
-      if (bars[i].h <= bars[i - j].h || bars[i].h <= bars[i + j].h) { isHigh = false; break; }
-    }
-    if (isHigh && Number.isFinite(rsiArr[i])) {
-      swingHighs.push({ idx: i, price: bars[i].h, rsi: rsiArr[i] });
-    }
-  }
-  if (swingHighs.length >= 1 && !result.bullish) {
-    let recentHighIdx = last;
-    for (let i = last - 2; i <= last; i++) {
-      if (i >= 0 && bars[i].h > bars[recentHighIdx].h) recentHighIdx = i;
-    }
-    if (Number.isFinite(rsiArr[recentHighIdx])) {
-      const prevHigh = swingHighs[swingHighs.length - 1];
-      if (recentHighIdx > prevHigh.idx + 3 &&
-          bars[recentHighIdx].h > prevHigh.price &&
-          rsiArr[recentHighIdx] < prevHigh.rsi) {
-        result.bearish = true;
-        result.strength = Math.min(1, (prevHigh.rsi - rsiArr[recentHighIdx]) / 20);
-      }
-    }
-  }
-
-  return result;
-}
-
-/**
  * Compute the full indicator bundle for a single timeframe.
  * Mirrors Pine's f_tf_bundle() which returns 25 values.
  *
@@ -865,32 +785,22 @@ export function computeTfBundle(bars, anchors = null) {
   const e3s = emaSeries(closes, 3);
   const e5s = emaSeries(closes, 5);
   const e8s = emaSeries(closes, 8);
-  const e9s = emaSeries(closes, 9);
-  const e12s = emaSeries(closes, 12);
   const e13s = emaSeries(closes, 13);
   const e21s = emaSeries(closes, 21);
   const e34s = emaSeries(closes, 34);
   const e48s = emaSeries(closes, 48);
-  const e50s = emaSeries(closes, 50);
-  const e72s = emaSeries(closes, 72);
   const e89s = emaSeries(closes, 89);
-  const e180s = emaSeries(closes, 180);
   const e200s = emaSeries(closes, 200);
   const e233s = emaSeries(closes, 233);
 
   const e3 = e3s[last];
   const e5 = e5s[last];
   const e8 = e8s[last];
-  const e9 = e9s[last];
-  const e12 = e12s[last];
   const e13 = e13s[last]; // eFast (emaFastLen=13)
   const e21 = e21s[last];
   const e34 = e34s[last];
   const e48 = e48s[last]; // eSlow (emaSlowLen=48)
-  const e50 = e50s[last];
-  const e72 = e72s[last];
   const e89 = e89s[last];
-  const e180 = e180s[last];
   const e200 = e200s[last];
   const e233 = e233s[last];
   const eFast = e13; // Pine default emaFastLen=13
@@ -1182,12 +1092,6 @@ export function computeTfBundle(bars, anchors = null) {
     else break;
   }
 
-  // ── RSI Divergence Detection ──
-  // Bullish divergence: price makes lower low, RSI makes higher low
-  // Bearish divergence: price makes higher high, RSI makes lower high
-  // Lookback: scan last 10-30 bars for pivot lows/highs, compare RSI at those pivots
-  const rsiDiv = detectRsiDivergence(bars, rsiArr, last);
-
   // ── SMC: Premium / Discount Zones (PDZ) ──
   const pdz = computePDZ(bars, atr14);
 
@@ -1200,47 +1104,9 @@ export function computeTfBundle(bars, anchors = null) {
   // ── Ichimoku Kinko Hyo (native computation) ──
   const ichimoku = computeIchimoku(bars, atr14);
 
-  // ── TT cloud primitives (for feature-flagged engine + diagnostics) ──
-  const cloudState = (fastNow, slowNow, fastPrev, slowPrev) => {
-    if (!Number.isFinite(fastNow) || !Number.isFinite(slowNow)) return null;
-    const lo = Math.min(fastNow, slowNow);
-    const hi = Math.max(fastNow, slowNow);
-    const inCloud = Number.isFinite(px) && px >= lo && px <= hi;
-    const above = Number.isFinite(px) && px > hi;
-    const below = Number.isFinite(px) && px < lo;
-    const spread = Math.abs(fastNow - slowNow);
-    const distToCloudPct = Number.isFinite(px) && px > 0
-      ? Math.max(0, (above ? (px - hi) : below ? (lo - px) : 0) / px)
-      : 0;
-    const fastSlope = Number.isFinite(fastPrev) ? fastNow - fastPrev : 0;
-    const slowSlope = Number.isFinite(slowPrev) ? slowNow - slowPrev : 0;
-    const crossUp = Number.isFinite(fastPrev) && Number.isFinite(slowPrev) && fastPrev <= slowPrev && fastNow > slowNow;
-    const crossDn = Number.isFinite(fastPrev) && Number.isFinite(slowPrev) && fastPrev >= slowPrev && fastNow < slowNow;
-    return {
-      bull: fastNow >= slowNow,
-      bear: fastNow < slowNow,
-      above,
-      below,
-      inCloud,
-      spreadPct: Number.isFinite(px) && px > 0 ? spread / px : 0,
-      distToCloudPct,
-      fastSlope,
-      slowSlope,
-      crossUp,
-      crossDn,
-    };
-  };
-  const ttClouds = {
-    c5_12: cloudState(e5, e12, e5s[last - 1], e12s[last - 1]),
-    c8_9: cloudState(e8, e9, e8s[last - 1], e9s[last - 1]),
-    c34_50: cloudState(e34, e50, e34s[last - 1], e50s[last - 1]),
-    c72_89: cloudState(e72, e89, e72s[last - 1], e89s[last - 1]),
-    c180_200: cloudState(e180, e200, e180s[last - 1], e200s[last - 1]),
-  };
-
   return {
     px, lastTs,
-    e3, e5, e8, e9, e12, e13, e21, e34, e48, e50, e72, e89, e180, e200, e233,
+    e3, e5, e8, e13, e21, e34, e48, e89, e200, e233,
     eFast, eSlow,
     emaDepth, emaStructure, emaMomentum, ribbonSpread,
     stLine, stDir, stLinePrev, stSlopeUp, stSlopeDn,
@@ -1258,8 +1124,6 @@ export function computeTfBundle(bars, anchors = null) {
     emaCross13_21_up, emaCross13_21_dn, emaCross13_21_up_ts, emaCross13_21_dn_ts,
     emaCross13_48_up, emaCross13_48_dn, emaCross13_48_up_ts, emaCross13_48_dn_ts,
     ema5above48, ema13above21, ema8above21, emaRegime,
-    rsiDiv,
-    ttClouds,
     pdz, fvg, liq,
     ichimoku,
   };
@@ -1802,7 +1666,7 @@ export function computeEntryQualityScore(bundles, side, regime = null) {
   // ── STRUCTURE (35 pts): Multi-TF EMA(13)/EMA(48) alignment ──
   let structure = 0;
   const emaChecks = [
-    { b: b10,  pts: 5,  label: "15m" },
+    { b: b10,  pts: 5,  label: "10m" },
     { b: b30,  pts: 7,  label: "30m" },
     { b: b1H,  pts: 8,  label: "1H"  },
     { b: b4H,  pts: 8,  label: "4H"  },
@@ -1822,7 +1686,7 @@ export function computeEntryQualityScore(bundles, side, regime = null) {
   //           opposing + flat = -2, opposing + sloping = -5
   let momentumRaw = 0;
   const stChecks = [
-    { b: b10,  label: "15m" },
+    { b: b10,  label: "10m" },
     { b: b30,  label: "30m" },
     { b: b1H,  label: "1H"  },
     { b: b4H,  label: "4H"  },
@@ -1917,27 +1781,6 @@ export function computeEntryQualityScore(bundles, side, regime = null) {
   if (sq30Release || sq1HRelease) {
     confirmation = Math.min(30, confirmation + 5);
     confirmDetails.squeeze_release = true;
-  }
-
-  // RSI divergence boost: bullish div on pullback = high-probability reversal signal
-  // Bearish div on LONG entry = reduce confirmation (exhaustion warning)
-  const div10 = b10?.rsiDiv;
-  const div30 = b30?.rsiDiv;
-  const div1H = b1H?.rsiDiv;
-  const hasBullDiv = (isLong && (div10?.bullish || div30?.bullish || div1H?.bullish));
-  const hasBearDiv = (!isLong && (div10?.bearish || div30?.bearish || div1H?.bearish));
-  const hasCounterDiv = (isLong && (div10?.bearish || div30?.bearish)) ||
-                        (!isLong && (div10?.bullish || div30?.bullish));
-  if (hasBullDiv || hasBearDiv) {
-    const bestStrength = Math.max(
-      (hasBullDiv ? (div30?.strength || div10?.strength || div1H?.strength || 0) : 0),
-      (hasBearDiv ? (div30?.strength || div10?.strength || div1H?.strength || 0) : 0)
-    );
-    confirmation = Math.min(30, confirmation + Math.round(5 * bestStrength));
-    confirmDetails.rsi_divergence = hasBullDiv ? "bullish" : "bearish";
-  } else if (hasCounterDiv) {
-    confirmation = Math.max(0, confirmation - 3);
-    confirmDetails.rsi_divergence = "counter";
   }
 
   const total = structure + momentum + confirmation;
@@ -2256,7 +2099,7 @@ export function computeSwingConsensus(bundles, regime = null, tfWeights = null, 
   const w = tfWeights && typeof tfWeights === "object" ? { ...DEFAULT_WEIGHTS, ...tfWeights } : DEFAULT_WEIGHTS;
 
   const TFS = [
-    { key: "10",  label: "15m", b: bundles?.["10"], isDaily: false },
+    { key: "10",  label: "10m", b: bundles?.["10"], isDaily: false },
     { key: "30",  label: "30m", b: bundles?.["30"], isDaily: false },
     { key: "60",  label: "1H",  b: bundles?.["60"], isDaily: false },
     { key: "240", label: "4H",  b: bundles?.["240"], isDaily: false },
@@ -2404,7 +2247,7 @@ export function detectFlags(bundles) {
   // SuperTrend flips (with timestamps)
   if (b30?.stFlip) { flags.st_flip_30m = true; flags.st_flip_30m_ts = b30.stFlip_ts; }
   if (b60?.stFlip) { flags.st_flip_1h = true; flags.st_flip_1h_ts = b60.stFlip_ts; }
-  if (b10?.stFlip) { flags.st_flip_15m = true; flags.st_flip_15m_ts = b10.stFlip_ts; }
+  if (b10?.stFlip) { flags.st_flip_10m = true; flags.st_flip_10m_ts = b10.stFlip_ts; }
   // Bear-side ST flip (timestamp is the most recent bear flip)
   if (b30?.stFlipDir === -1 || b60?.stFlipDir === -1) {
     flags.st_flip_bear = true;
@@ -2529,7 +2372,7 @@ export function buildSTSupportMap(bundles) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// LAYER 3: ATR FIBONACCI LEVEL MAPS (TT ATR Levels)
+// LAYER 3: ATR FIBONACCI LEVEL MAPS (Saty ATR Levels)
 // ═══════════════════════════════════════════════════════════════════════════════
 
 const FIB_RATIOS = [0.236, 0.382, 0.500, 0.618, 0.786, 1.000, 1.236, 1.618, 2.000, 2.618, 3.000];
@@ -2914,8 +2757,7 @@ export function assembleTickerData(ticker, bundles, existingData = null, opts = 
   const b4H = bundles?.["240"];
   const b1H = bundles?.["60"];
   const b30 = bundles?.["30"];
-  const leadingLtf = String(opts?.leadingLtf || "10").trim() || "10";
-  const b10 = bundles?.[leadingLtf] || bundles?.["10"];
+  const b10 = bundles?.["10"];
   const b5 = bundles?.["5"];
 
   // Compute daily anchors for Golden Gate
@@ -3124,27 +2966,12 @@ export function assembleTickerData(ticker, bundles, existingData = null, opts = 
         structure: Math.round((b.emaStructure || 0) * 1000) / 1000,
         momentum: Math.round((b.emaMomentum || 0) * 1000) / 1000,
         priceAboveEma21,
-        e5: Number.isFinite(b.e5) ? b.e5 : undefined,
-        e8: Number.isFinite(b.e8) ? b.e8 : undefined,
-        e9: Number.isFinite(b.e9) ? b.e9 : undefined,
-        e12: Number.isFinite(b.e12) ? b.e12 : undefined,
-        e13: Number.isFinite(b.e13) ? b.e13 : undefined,
-        e21: Number.isFinite(b.e21) ? b.e21 : undefined,
-        e34: Number.isFinite(b.e34) ? b.e34 : undefined,
-        e48: Number.isFinite(b.e48) ? b.e48 : undefined,
-        e50: Number.isFinite(b.e50) ? b.e50 : undefined,
       },
       stDir: Number.isFinite(b.stDir) ? b.stDir : 0,
       stSlope: b.stSlopeUp ? 1 : b.stSlopeDn ? -1 : 0,
       atr: atrBand ? { ...atrBand, ...(atrCross || {}) } : (atrCross || undefined),
       sq: { s: b.sqOn ? 1 : 0, r: b.sqRelease ? 1 : 0, c: b.compressed ? 1 : 0 },
       rsi: { r5: Number.isFinite(b.rsi) ? Math.round(b.rsi * 10) / 10 : undefined },
-      rsiDiv: b.rsiDiv ? {
-        bullish: !!b.rsiDiv.bullish,
-        bearish: !!b.rsiDiv.bearish,
-        strength: Number.isFinite(b.rsiDiv.strength) ? Math.round(b.rsiDiv.strength * 1000) / 1000 : 0,
-      } : undefined,
-      ripster: b.ttClouds || undefined,
       ph: {
         v: Number.isFinite(b.phaseOsc) ? Math.round(b.phaseOsc * 10) / 10 : undefined,
         z: b.phaseZone || undefined,
@@ -3161,17 +2988,8 @@ export function assembleTickerData(ticker, bundles, existingData = null, opts = 
         bs: b.liq.buysideCount, ss: b.liq.sellsideCount,
         bsd: b.liq.nearestBuysideDist, ssd: b.liq.nearestSellsideDist,
       } : undefined,
-      // Backward-compatible aliases for older consumers
-      ema21: Number.isFinite(b.e21) ? b.e21 : undefined,
-      ema48: Number.isFinite(b.e48) ? b.e48 : undefined,
     };
   }
-
-  // Timeframe aliases: support both canonical labels and numeric keys
-  if (tfTech["1H"] && !tfTech["60"]) tfTech["60"] = tfTech["1H"];
-  if (tfTech["4H"] && !tfTech["240"]) tfTech["240"] = tfTech["4H"];
-  if (tfTech["60"] && !tfTech["1H"]) tfTech["1H"] = tfTech["60"];
-  if (tfTech["240"] && !tfTech["4H"]) tfTech["4H"] = tfTech["240"];
 
   // Elliott Wave impulse detection on HTF (Daily, Weekly)
   const rawBarsForEW = rawBarsEarly || {};
@@ -3432,16 +3250,11 @@ function isRTHNow() {
  * @param {boolean} [opts.htfBull] - Higher-timeframe bullish bias (for boost calc)
  * @returns {object} td_sequential object matching existing schema
  */
-/**
- * TD Sequential (matches LuxAlgo Sequencer settings).
- * Preparation: 9 bars, comparison 4. Lead-up: 13 bars, comparison 2.
- * Apply Cancellation: on. Suspension: off.
- */
 export function computeTDSequential(candles, tf, opts = {}) {
-  const PREP_LEN = 9;      // Preparation Phase Length
-  const PREP_COMP = 4;     // Comparison Period
-  const LEADUP_LEN = 13;   // Lead-Up Phase Length
-  const LEADUP_COMP = 2;   // Lead-Up Comparison Period
+  const PREP_LEN = 9;
+  const PREP_COMP = 4;
+  const LEADUP_LEN = 13;
+  const LEADUP_COMP = 2;
 
   const result = {
     tf: tf || "D",
@@ -3461,8 +3274,7 @@ export function computeTDSequential(candles, tf, opts = {}) {
 
   if (!candles || candles.length < PREP_COMP + PREP_LEN) return result;
 
-  // Walk through all candles to build state (matches LuxAlgo Sequencer settings)
-  // Preparation: 9 bars, comparison 4. Lead-up: 13 bars, comparison 2. Cancellation on. Suspension off.
+  // Walk through all candles to build state (stateful counters, just like Pine)
   let bullPrepCount = 0;
   let bearPrepCount = 0;
   let bullLeadupCount = 0;
@@ -3479,26 +3291,30 @@ export function computeTDSequential(candles, tf, opts = {}) {
     const bullPrepComplete = bullPrepCount === PREP_LEN;
     const bearPrepComplete = bearPrepCount === PREP_LEN;
 
-    // ── Lead-up Phase (Apply Cancellation: opposite prep resets lead-up) ──
+    // ── Lead-up Phase ──
+    // Reset lead-up on opposite prep completion (cancellation)
     if (bearPrepComplete) bullLeadupCount = 0;
     if (bullPrepComplete) bearLeadupCount = 0;
 
-    // Bullish lead-up: start at 1 on prep completion; close < low[2] increments; no reset on failed bar (LuxAlgo)
+    // Bullish lead-up: close < low[2]
     if (i >= LEADUP_COMP) {
       const lowComp = candles[i - LEADUP_COMP].l;
       const highComp = candles[i - LEADUP_COMP].h;
 
-      if (bullPrepComplete) {
-        bullLeadupCount = 1; // Start lead-up on prep completion (LuxAlgo: complete_bullish_preparation ? 1)
+      if (bullPrepComplete && c < lowComp) {
+        bullLeadupCount += 1;
       } else if (bullLeadupCount > 0 && c < lowComp) {
         bullLeadupCount += 1;
+      } else if (bullLeadupCount > 0 && c >= lowComp) {
+        bullLeadupCount = 0; // Reset if condition breaks
       }
-      // else: keep count (LuxAlgo does not reset on close >= low[2])
 
-      if (bearPrepComplete) {
-        bearLeadupCount = 1;
+      if (bearPrepComplete && c > highComp) {
+        bearLeadupCount += 1;
       } else if (bearLeadupCount > 0 && c > highComp) {
         bearLeadupCount += 1;
+      } else if (bearLeadupCount > 0 && c <= highComp) {
+        bearLeadupCount = 0; // Reset if condition breaks
       }
     }
   }
@@ -3720,7 +3536,6 @@ const TF_TO_ALPACA = {
   "1": "1Min",
   "5": "5Min",
   "10": "10Min",
-  "15": "15Min",
   "30": "30Min",
   "60": "1Hour",
   "240": "4Hour",
@@ -3737,7 +3552,7 @@ const TF_TO_ALPACA = {
 const ALL_TFS = ["M", "W", "D", "240", "60", "30", "10"];
 
 // All timeframes we fetch from Alpaca for candle storage (5m dropped — swing focus)
-const CRON_FETCH_TFS = ["M", "W", "D", "240", "60", "30", "15", "10"];
+const CRON_FETCH_TFS = ["M", "W", "D", "240", "60", "30", "10"];
 
 // TD Sequential timeframes — computed on 7 TFs for chart overlays (5m dropped)
 const TD_SEQ_TFS = ["10", "30", "60", "240", "D", "W", "M"];
@@ -4486,11 +4301,11 @@ export async function alpacaBackfill(env, tickers, _unused, tfKey = "all", opts 
   if (startDateStr && endDateStr) {
     const start = new Date(startDateStr + "T00:00:00Z").toISOString();
     const end = new Date(endDateStr + "T23:59:59Z").toISOString();
-    startDates = { "M": start, "W": start, "D": start, "240": start, "60": start, "30": start, "15": start, "10": start };
-    endDates = { "M": end, "W": end, "D": end, "240": end, "60": end, "30": end, "15": end, "10": end };
+    startDates = { "M": start, "W": start, "D": start, "240": start, "60": start, "30": start, "10": start };
+    endDates = { "M": end, "W": end, "D": end, "240": end, "60": end, "30": end, "10": end };
   } else if (typeof sinceDays === "number" && sinceDays > 0) {
     const start = new Date(now.getTime() - sinceDays * DAY_MS).toISOString();
-    startDates = { "M": start, "W": start, "D": start, "240": start, "60": start, "30": start, "15": start, "10": start };
+    startDates = { "M": start, "W": start, "D": start, "240": start, "60": start, "30": start, "10": start };
   } else {
     startDates = {
       "M": new Date(now.getTime() - 365 * 10 * DAY_MS).toISOString(),
@@ -4499,7 +4314,6 @@ export async function alpacaBackfill(env, tickers, _unused, tfKey = "all", opts 
       "240": new Date(now.getTime() - tradingCalDays(1000, 240) * DAY_MS).toISOString(),
       "60": new Date(now.getTime() - tradingCalDays(1000, 60) * DAY_MS).toISOString(),
       "30": new Date(now.getTime() - tradingCalDays(1000, 30) * DAY_MS).toISOString(),
-      "15": new Date(now.getTime() - tradingCalDays(3000, 15) * DAY_MS).toISOString(),
       "10": new Date(now.getTime() - tradingCalDays(3000, 10) * DAY_MS).toISOString(),
     };
   }
@@ -4666,10 +4480,9 @@ export async function computeServerSideScores(ticker, getCandles, env, existingD
   let hasData = false;
 
   // Fetch candles for all scoring timeframes + TD Sequential timeframes in PARALLEL
-  // Scoring TFs: W, D, 240, 60, 30, 10, 5. Add 15 when LEADING_LTF=15 for 15m experiment.
-  const leadingLtf = String(env?.LEADING_LTF || "10").trim();
-  const extraTfs = leadingLtf === "15" ? ["15"] : [];
-  const allTfsToFetch = [...new Set([...ALL_TFS, ...TD_SEQ_TFS, ...extraTfs])];
+  // Scoring TFs: W, D, 240, 60, 30, 10, 5
+  // TD Sequential TFs: all 9 TFs (1, 5, 10, 30, 60, 240, D, W, M)
+  const allTfsToFetch = [...new Set([...ALL_TFS, ...TD_SEQ_TFS])]; // union of scoring + TD TFs
   const tfResults = await Promise.all(
     allTfsToFetch.map(async (tf) => {
       try {
@@ -4694,8 +4507,8 @@ export async function computeServerSideScores(ticker, getCandles, env, existingD
       // from multiple Alpaca backfill runs that store two entries per date)
       const deduped = deduplicateCandles(result.candles, tf);
 
-      // Scoring bundles (need 50+ candles for indicator computation). Include 15 when LEADING_LTF=15.
-      if ((ALL_TFS.includes(tf) || tf === "15") && deduped.length >= 50) {
+      // Scoring bundles (need 50+ candles for indicator computation)
+      if (ALL_TFS.includes(tf) && deduped.length >= 50) {
         bundles[tf] = computeTfBundle(deduped);
         if (bundles[tf]) hasData = true;
       }
@@ -4712,7 +4525,7 @@ export async function computeServerSideScores(ticker, getCandles, env, existingD
 
   if (!hasData) return null;
 
-  // Map to the key format used by assembleTickerData (include 15 for leading_ltf experiment)
+  // Map to the key format used by assembleTickerData
   const bundleMap = {
     M: bundles.M || null,
     W: bundles.W || null,
@@ -4720,13 +4533,11 @@ export async function computeServerSideScores(ticker, getCandles, env, existingD
     "240": bundles["240"] || null,
     "60": bundles["60"] || null,
     "30": bundles["30"] || null,
-    "15": bundles["15"] || null,
     "10": bundles["10"] || null,
   };
 
-  // Pass raw bars + optional learned weights + leadingLtf so assembleTickerData uses them
+  // Pass raw bars + optional learned weights so assembleTickerData uses them
   const assembleOpts = { rawBars };
-  if (env?.LEADING_LTF) assembleOpts.leadingLtf = String(env.LEADING_LTF).trim();
   if (existingData?._tfWeights) assembleOpts.tfWeights = existingData._tfWeights;
   if (existingData?._signalWeights) assembleOpts.signalWeights = existingData._signalWeights;
   if (existingData?._scoreWeights) assembleOpts.scoreWeights = existingData._scoreWeights;
@@ -4873,7 +4684,7 @@ export async function computeOvernightSignals(ticker, lastRTHCloseTs, currentTs,
   const overnightFlags = {};
 
   // Fetch candles for the key signal timeframes (30m, 60m, 10m)
-  const signalTFs = ["30", "60", "15"];
+  const signalTFs = ["30", "60", "10"];
 
   for (const tf of signalTFs) {
     try {
@@ -4883,7 +4694,7 @@ export async function computeOvernightSignals(ticker, lastRTHCloseTs, currentTs,
       const bundle = computeTfBundle(result.candles);
       if (!bundle) continue;
 
-      const tfLabel = tf === "60" ? "1h" : tf === "30" ? "30m" : tf === "15" ? "15m" : tf === "10" ? "10m" : tf;
+      const tfLabel = tf === "60" ? "1h" : tf === "30" ? "30m" : tf === "10" ? "10m" : tf;
 
       // Check for EMA cross signals with timestamps in the overnight window
       if (bundle.emaCross13_48_up && bundle.emaCross13_48_up_ts > lastRTHCloseTs && bundle.emaCross13_48_up_ts < currentTs) {

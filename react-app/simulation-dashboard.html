@@ -127,7 +127,7 @@
     <script src="auth-gate.js?v=20260219a"></script>
     <script src="shared-price-utils.js?v=20260211a"></script>
     <script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
-    <script src="shared-right-rail.compiled.js?v=20260226k"></script>
+    <script src="shared-right-rail.compiled.js?v=20260311a"></script>
     <script type="text/babel">
       const { useState, useEffect, useMemo, useCallback, memo, useRef, createElement } = React;
       const html = (function () {
@@ -5949,25 +5949,34 @@
         // Trade history sorted by date descending
         const [expanded, setExpanded] = useState(false);
         const tradeHistory = useMemo(() => {
+          const fmtTradeDate = (ts) => {
+            if (!ts) return "—";
+            const raw = Number(ts);
+            if (!Number.isFinite(raw) || raw <= 0) return "—";
+            const ms = raw < 1e12 ? raw * 1000 : raw;
+            const d = new Date(ms);
+            return d.toLocaleDateString("en-US", { month: "short", day: "numeric" }) + ", " + d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true });
+          };
           const all = (trades || []).map(t => {
             const s = String(t.status || "").toUpperCase();
             const act = String(t.action || "").toUpperCase();
             const isClosed = isTrader ? (s === "WIN" || s === "LOSS" || s === "FLAT") : (act === "SELL");
-            const ts = t.entry_ts || t.ts;
             return {
               ticker: String(t.ticker || "").toUpperCase(),
-              date: ts ? new Date(Number(ts)).toLocaleDateString("en-CA") : "—",
-              action: isTrader
-                ? (isClosed ? "EXIT" : (Number(t.trimmed_pct) > 0 ? "TRIM" : "ENTRY"))
-                : (act === "SELL" ? "SELL" : act === "DCA_BUY" ? "DCA" : "BUY"),
-              price: Number(t.exit_price || t.price || t.entry_price) || 0,
+              direction: String(t.direction || "LONG").toUpperCase(),
+              entryDate: fmtTradeDate(t.entry_ts || t.ts),
+              exitDate: isClosed ? fmtTradeDate(t.exit_ts) : null,
               pnl: isClosed ? Number(t.pnl) || 0 : null,
-              reason: isClosed && isTrader ? humanizeExitReason(t.exit_reason || t.exitReason) : (t.reason || ""),
               status: s,
+              tradeId: t.trade_id || t.id || null,
               raw: t,
             };
           });
-          all.sort((a, b) => (b.date || "").localeCompare(a.date || ""));
+          all.sort((a, b) => {
+            const aTs = Number(a.raw?.entry_ts || a.raw?.ts || 0);
+            const bTs = Number(b.raw?.entry_ts || b.raw?.ts || 0);
+            return bTs - aTs;
+          });
           return all;
         }, [trades, isTrader]);
 
@@ -6112,15 +6121,15 @@
             ${!window._ttIsPro ? html`
               <div className="relative">
                 <div style=${{ filter: "blur(6px)", pointerEvents: "none", userSelect: "none", opacity: 0.4 }}>
-                  <table className="w-full text-[12px]">
-                    <thead><tr className="text-[var(--tt-text-faint)] border-b border-[var(--tt-border)]">
-                      <th className="py-1.5 pr-2">Date</th><th className="py-1.5 pr-2">Ticker</th><th className="py-1.5 pr-2">Action</th>
-                      <th className="py-1.5 pr-2 text-right">Price</th><th className="py-1.5 pr-2 text-right">P&L</th><th className="py-1.5">Reason</th>
+                  <table className="w-full text-[13px]">
+                    <thead><tr className="border-b border-white/[0.06]">
+                      <th className="py-2.5 pr-3 text-left">Entry</th><th className="py-2.5 pr-3 text-left">Ticker</th><th className="py-2.5 pr-3 text-left">Dir</th>
+                      <th className="py-2.5 pr-3 text-left">Exit</th><th className="py-2.5 pr-3 text-right">P&L</th><th className="py-2.5 text-left">Status</th>
                     </tr></thead>
                     <tbody>
-                      ${[1,2,3,4].map(i => html`<tr key=${i} className="border-b border-[var(--tt-border)]/30">
-                        <td className="py-1.5 pr-2">2025-01-01</td><td className="py-1.5 pr-2">AAPL</td><td className="py-1.5 pr-2">EXIT</td>
-                        <td className="py-1.5 pr-2 text-right">$0.00</td><td className="py-1.5 pr-2 text-right">$0.00</td><td className="py-1.5">—</td>
+                      ${[1,2,3,4].map(i => html`<tr key=${i} className="border-b border-white/[0.04]">
+                        <td className="py-2.5 pr-3">Jan 1, 9:30 AM</td><td className="py-2.5 pr-3">AAPL</td><td className="py-2.5 pr-3">LONG</td>
+                        <td className="py-2.5 pr-3">Jan 1, 2:00 PM</td><td className="py-2.5 pr-3 text-right">$0.00</td><td className="py-2.5">WIN</td>
                       </tr>`)}
                     </tbody>
                   </table>
@@ -6134,39 +6143,47 @@
             ` : !expanded ? html`
               ${tradeHistory.length === 0
                 ? html`<div className="text-[13px] text-[var(--tt-text-faint)] py-2">No trades yet</div>`
-                : html`<div className="max-h-[260px] overflow-y-auto">
-                    <table className="w-full text-[12px]">
+                : html`<div className="max-h-[400px] overflow-y-auto">
+                    <table className="w-full text-[13px]">
                       <thead>
-                        <tr className="text-[var(--tt-text-faint)] text-left border-b border-[var(--tt-border)]">
-                          <th className="py-1.5 pr-2 font-medium">Date</th>
-                          <th className="py-1.5 pr-2 font-medium">Ticker</th>
-                          <th className="py-1.5 pr-2 font-medium">Action</th>
-                          <th className="py-1.5 pr-2 font-medium text-right">Price</th>
-                          <th className="py-1.5 pr-2 font-medium text-right">P&L</th>
-                          <th className="py-1.5 font-medium">Reason</th>
+                        <tr className="border-b border-white/[0.06]">
+                          <th className="py-2.5 pr-3 text-left font-semibold text-[var(--tt-text-faint)]">Entry</th>
+                          <th className="py-2.5 pr-3 text-left font-semibold text-[var(--tt-text-faint)]">Ticker</th>
+                          <th className="py-2.5 pr-3 text-left font-semibold text-[var(--tt-text-faint)]">Dir</th>
+                          <th className="py-2.5 pr-3 text-left font-semibold text-[var(--tt-text-faint)]">Exit</th>
+                          <th className="py-2.5 pr-3 text-right font-semibold text-[var(--tt-text-faint)]">P&L</th>
+                          <th className="py-2.5 text-left font-semibold text-[var(--tt-text-faint)]">Status</th>
                         </tr>
                       </thead>
                       <tbody>
-                        ${tradeHistory.slice(0, 50).map((h, i) => {
-                          const actionColor = (h.action === "ENTRY" || h.action === "BUY" || h.action === "DCA") ? "text-cyan-400" : (h.action === "EXIT" || h.action === "SELL") ? (h.pnl != null && h.pnl >= 0 ? "text-[var(--tt-accent)]" : "text-[var(--tt-negative)]") : "text-yellow-400";
+                        ${tradeHistory.slice(0, 100).map((h, i) => {
+                          const statusColor = h.status === "WIN" ? "text-[var(--tt-accent)]" : h.status === "LOSS" ? "text-[var(--tt-negative)]" : "text-[var(--tt-text-muted)]";
+                          const pnlColor = h.pnl != null ? (h.pnl >= 0 ? "text-[var(--tt-accent)]" : "text-[var(--tt-negative)]") : "text-[var(--tt-text-faint)]";
+                          const tradeId = h.tradeId || h.raw?.trade_id || h.raw?.id || "";
                           return html`<tr
                             key=${i}
-                            className="border-b border-[var(--tt-border)]/30 hover:bg-[var(--tt-bg-hover)] cursor-pointer transition-colors"
-                            onClick=${() => onSelectTrade && onSelectTrade(h.raw)}
+                            className="border-b border-white/[0.04] hover:bg-[var(--tt-bg-hover)] cursor-pointer transition-colors"
+                            onClick=${() => {
+                              if (tradeId) {
+                                window.open("trade-autopsy.html?trade_id=" + encodeURIComponent(tradeId) + "&readonly=1", "_blank");
+                              } else {
+                                onSelectTrade && onSelectTrade(h.raw);
+                              }
+                            }}
                           >
-                            <td className="py-1.5 pr-2 text-[var(--tt-text-muted)]">${h.date}</td>
-                            <td className="py-1.5 pr-2 font-medium text-[var(--tt-text)]">${h.ticker}</td>
-                            <td className=${"py-1.5 pr-2 font-semibold " + actionColor}>${h.action}</td>
-                            <td className="py-1.5 pr-2 text-right text-[var(--tt-text)]">${h.price ? "$" + h.price.toFixed(2) : "—"}</td>
-                            <td className=${"py-1.5 pr-2 text-right font-semibold " + (h.pnl != null ? (h.pnl >= 0 ? "text-[var(--tt-accent)]" : "text-[var(--tt-negative)]") : "text-[var(--tt-text-faint)]")}>
+                            <td className="py-2.5 pr-3 text-[var(--tt-text-muted)]">${h.entryDate}</td>
+                            <td className="py-2.5 pr-3 font-medium text-white">${h.ticker}</td>
+                            <td className="py-2.5 pr-3 text-[var(--tt-text-muted)]">${h.direction}</td>
+                            <td className="py-2.5 pr-3 text-[var(--tt-text-muted)]">${h.exitDate || "—"}</td>
+                            <td className=${"py-2.5 pr-3 text-right font-medium " + pnlColor}>
                               ${h.pnl != null ? fmtUsd(h.pnl) : "—"}
                             </td>
-                            <td className="py-1.5 text-[var(--tt-text-faint)] truncate max-w-[120px]" title=${h.reason}>${h.reason || "—"}</td>
+                            <td className=${"py-2.5 " + statusColor}>${h.status || "—"}</td>
                           </tr>`;
                         })}
                       </tbody>
                     </table>
-                    ${tradeHistory.length > 50 && html`<div className="text-center text-[11px] text-[var(--tt-text-faint)] py-2">Showing 50 of ${tradeHistory.length}</div>`}
+                    ${tradeHistory.length > 100 && html`<div className="text-center text-[11px] text-[var(--tt-text-faint)] py-2">Showing 100 of ${tradeHistory.length}</div>`}
                   </div>`
               }
             ` : html`
