@@ -18082,18 +18082,19 @@ async function d1UpsertTrade(env, trade) {
     }
   }
 
+  const resolvedRunId = trade.run_id ?? trade.runId ?? null;
   const insertWithTrimPrice = `INSERT OR IGNORE INTO trades
           (trade_id, ticker, direction, entry_ts, entry_price, rank, rr, status,
            exit_ts, exit_price, exit_reason, trimmed_pct, pnl, pnl_pct, script_version,
-           created_at, updated_at, trim_ts, trim_price)
+           created_at, updated_at, trim_ts, trim_price, run_id)
          VALUES
-          (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)`;
+          (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20)`;
   const insertWithoutTrimPrice = `INSERT OR IGNORE INTO trades
           (trade_id, ticker, direction, entry_ts, entry_price, rank, rr, status,
            exit_ts, exit_price, exit_reason, trimmed_pct, pnl, pnl_pct, script_version,
-           created_at, updated_at, trim_ts)
+           created_at, updated_at, trim_ts, run_id)
          VALUES
-          (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)`;
+          (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)`;
 
   const resolvedEntryPrice = trade.entryPrice != null ? Number(trade.entryPrice)
     : trade.entry_price != null ? Number(trade.entry_price) : null;
@@ -18131,6 +18132,7 @@ async function d1UpsertTrade(env, trade) {
         updatedAt,
         Number.isFinite(trimTs) ? trimTs : null,
         Number.isFinite(trimPrice) ? trimPrice : null,
+        resolvedRunId != null ? String(resolvedRunId) : null,
       )
       .run();
 
@@ -18140,7 +18142,7 @@ async function d1UpsertTrade(env, trade) {
           ticker=?2, direction=?3, entry_ts=?4, entry_price=?5, rank=?6, rr=?7, status=?8,
           exit_ts=?9, exit_price=?10, exit_reason=?11,
           trimmed_pct=?12, pnl=?13, pnl_pct=?14, script_version=?15,
-          updated_at=?16, trim_ts=?17, trim_price=?18
+          updated_at=?16, trim_ts=?17, trim_price=?18, run_id=COALESCE(?19, run_id)
          WHERE trade_id=?1`,
       )
       .bind(
@@ -18166,6 +18168,7 @@ async function d1UpsertTrade(env, trade) {
         updatedAt,
         Number.isFinite(trimTs) ? trimTs : null,
         Number.isFinite(trimPrice) ? trimPrice : null,
+        resolvedRunId != null ? String(resolvedRunId) : null,
       )
       .run();
 
@@ -32697,9 +32700,10 @@ export default {
           const requestedRunId = String(url.searchParams.get("run_id") || "").trim();
           const KV = env?.KV_TIMED;
           const replayRunning = KV ? await kvGetJSON(KV, "timed:replay:running") : null;
-          const liveOnly = url.searchParams.get("live") === "1" || (!requestedRunId && !!replayRunning);
+          const replayLockActive = KV ? await KV.get("timed:replay:lock") : null;
+          const liveOnly = url.searchParams.get("live") === "1" || (!requestedRunId && (!!replayRunning || !!replayLockActive));
           if (liveOnly) {
-            const replayLock = KV ? await KV.get("timed:replay:lock") : null;
+            const replayLock = replayLockActive || (KV ? await KV.get("timed:replay:lock") : null);
             const replayTrades = KV ? ((await kvGetJSON(KV, REPLAY_TRADES_KV_KEY)) || []) : [];
             const closedTrades = Array.isArray(replayTrades)
               ? replayTrades.filter((t) => {
@@ -33279,6 +33283,7 @@ export default {
         }
 
         // Set replay-running lock (prevents live scoring cron from overwriting replay trades)
+        const replayLockVal = await KV.get("timed:replay:lock") || null;
         await kvPutJSON(KV, "timed:replay:running", { since: Date.now(), date: dateParam, offset: tickerOffset, fullDay: !!fullDay });
 
         // Clean slate: purge ALL trades on first batch of a day (KV + D1)
@@ -33701,6 +33706,7 @@ export default {
             );
             try {
               for (const trade of batchTrades) {
+                if (replayLockVal && !trade.run_id) trade.run_id = replayLockVal;
                 await d1UpsertTrade(env, trade).catch(() => {});
               }
             } catch (e) {
