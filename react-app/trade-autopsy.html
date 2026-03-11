@@ -45,6 +45,7 @@
       ::-webkit-scrollbar-track { background: transparent; }
       ::-webkit-scrollbar-thumb { background: #374151; border-radius: 3px; }
       .trade-row:hover { background: rgba(255,255,255,0.03); cursor: pointer; }
+      @keyframes pulse-badge { 0%, 100% { opacity: 0.5; transform: scale(0.9); } 50% { opacity: 1; transform: scale(1); } }
       .autopsy-modal-card {
         background: var(--tt-bg-base);
         border: 1px solid var(--tt-border);
@@ -102,7 +103,7 @@
       };
       function formatPath(path) {
         if (!path || typeof path !== "string") return null;
-        return path.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+        return path.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase()).replace(/\bTt\b/g, "TT");
       }
       function parseSnapshot(snap) {
         if (!snap) return null;
@@ -320,6 +321,34 @@
         const [error, setError] = useState(null);
         const [tf, setTf] = useState("15");
         const [showIndicators, setShowIndicators] = useState({ ema9: false, ema21: false, ema48: false, ema200: false, superTrend: false });
+        const intradaySessionMode = useMemo(() => {
+          const sym = String(ticker || "").toUpperCase();
+          if (!sym) return "rth";
+          if (sym.endsWith("USD") || sym.endsWith("USDT") || sym.endsWith("1!")) return "extended";
+          if (["SPX", "US500", "DXY", "GOLD", "SILVER", "USOIL"].includes(sym)) return "extended";
+          return "rth";
+        }, [ticker]);
+
+        const isRegularSessionBar = useCallback((tsSec) => {
+          if (!Number.isFinite(tsSec) || tsSec <= 0) return false;
+          try {
+            const parts = new Intl.DateTimeFormat("en-US", {
+              timeZone: "America/New_York",
+              weekday: "short",
+              hour: "2-digit",
+              minute: "2-digit",
+              hour12: false,
+            }).formatToParts(new Date(tsSec * 1000));
+            const map = {};
+            for (const p of parts) map[p.type] = p.value;
+            const weekday = String(map.weekday || "");
+            if (weekday === "Sat" || weekday === "Sun") return false;
+            const mins = Number(map.hour || 0) * 60 + Number(map.minute || 0);
+            return mins >= 570 && mins < 960;
+          } catch {
+            return true;
+          }
+        }, []);
 
         const mapCandles = useCallback((candles, timeframe) => {
           const mapped = candles.map(c => {
@@ -350,8 +379,12 @@
             }
             return Array.from(byDay.entries()).sort((a, b) => a[0].localeCompare(b[0])).map(([, b]) => b);
           }
+          if (intradaySessionMode === "rth") {
+            const rthOnly = deduped.filter(b => isRegularSessionBar(b.time));
+            if (rthOnly.length >= 2) return rthOnly;
+          }
           return deduped;
-        }, []);
+        }, [intradaySessionMode, isRegularSessionBar]);
 
         useEffect(() => {
           if (!containerRef.current || !ticker || typeof LightweightCharts === "undefined") {
@@ -745,7 +778,7 @@
       }
 
       // ── Autopsy Modal ───────────────────────────────────────────────────────
-      function AutopsyModal({ trade, annotations, onSave, onRefreshTrades, onClose }) {
+      function AutopsyModal({ trade, annotations, onSave, onRefreshTrades, onClose, readonly = false }) {
         const [notes, setNotes] = useState(annotations?.notes ?? "");
         const [classification, setClassification] = useState(annotations?.classification ?? "");
         const [entryGrade, setEntryGrade] = useState(Array.isArray(annotations?.entry_grade) ? annotations.entry_grade : []);
@@ -902,12 +935,15 @@
             <div className="autopsy-modal-card w-full h-full md:h-auto md:max-w-[95vw] md:max-h-[95vh] overflow-hidden flex flex-col" onClick={e => e.stopPropagation()}>
               <div className="flex items-center justify-between px-4 py-2.5 border-b border-white/[0.06] shrink-0" style={{ background: "var(--tt-bg-surface)" }}>
                 <h2 className="text-[15px] font-semibold text-white truncate mr-2">
-                  {trade?.ticker} {trade?.direction || ""} — Trade Autopsy
+                  {trade?.ticker} {trade?.direction || ""} — {readonly ? "Trade Review" : "Trade Autopsy"}
                 </h2>
                 <button onClick={onClose} className="p-2 -mr-1 rounded-md text-[#6b7280] hover:text-white hover:bg-white/[0.06] shrink-0">✕</button>
               </div>
 
-              <div className="p-3 md:p-4 flex-1 min-h-0 overflow-y-auto flex flex-col gap-3">
+              <div
+                className="p-3 md:p-4 flex-1 min-h-0 overflow-y-auto flex flex-col gap-3"
+                style={{ paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 0.75rem)" }}
+              >
                 <div className="flex flex-col sm:flex-row flex-wrap items-start sm:items-center gap-2 sm:gap-3 shrink-0">
                   <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#60a5fa]/15 border border-[#60a5fa]/30 w-full sm:w-auto">
                     <span className="text-[10px] font-semibold text-[#60a5fa] uppercase tracking-wider shrink-0">Entry</span>
@@ -1097,7 +1133,7 @@
                   </div>
                 </div>
 
-                <div className="space-y-3 shrink-0 order-3">
+                {!readonly && <div className="space-y-3 shrink-0 order-3">
                   <div>
                     <label className="block text-[11px] font-medium text-[#9ca3af] mb-1">Notes</label>
                     <textarea
@@ -1108,9 +1144,9 @@
                       className="w-full px-2.5 py-1.5 rounded-lg bg-white/[0.04] border border-white/[0.06] text-[12px] text-white placeholder-[#4b5563] focus:outline-none focus:ring-1 focus:ring-[#14b8a6]/50 resize-none"
                     />
                   </div>
-                </div>
+                </div>}
 
-                <div className="shrink-0 order-4 mt-1 static bg-[#0b0e11]/95 rounded-lg border border-white/[0.06] p-2 overflow-y-auto max-h-[40vh] overflow-x-hidden">
+                {!readonly && <div className="shrink-0 order-4 mt-1 static bg-[#0b0e11]/95 rounded-lg border border-white/[0.06] p-2 overflow-y-auto max-h-[40vh] overflow-x-hidden">
                   <div className="text-[10px] font-semibold text-[#9ca3af] uppercase tracking-wider mb-1.5">Primary classification</div>
                   <div className="grid grid-cols-2 sm:grid-cols-3 md:flex md:flex-wrap gap-1.5 sm:gap-2 mb-3">
                     {CLASSIFICATION_OPTIONS.filter(o => o.value).map(opt => {
@@ -1170,11 +1206,14 @@
                       );
                     })}
                   </div>
-                  <div className="flex items-center justify-end gap-2 pt-2 border-t border-white/[0.06]">
+                  <div
+                    className="sticky bottom-0 flex items-center justify-end gap-2 pt-2 mt-2 border-t border-white/[0.06] bg-[#0b0e11]/95"
+                    style={{ paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 0.25rem)" }}
+                  >
                     <button onClick={onClose} className="px-4 py-2.5 sm:py-1.5 rounded-lg text-[12px] text-[#9ca3af] hover:bg-white/[0.04]" disabled={saving}>Cancel</button>
                     <button onClick={handleSave} disabled={saving} className="px-5 py-2.5 sm:py-1.5 rounded-lg text-[12px] font-medium bg-[#14b8a6]/20 text-[#14b8a6] hover:bg-[#14b8a6]/30 disabled:opacity-50">{saving ? "Saving…" : "Save"}</button>
                   </div>
-                </div>
+                </div>}
               </div>
             </div>
           </div>
@@ -1206,6 +1245,7 @@
           const params = new URLSearchParams(window.location.search);
           return params.get("run_id") || params.get("runId") || null;
         })();
+        const isReadonly = new URLSearchParams(window.location.search).get("readonly") === "1";
         const reviewableRuns = useMemo(
           () => (availableRuns || []).filter(r => String(r?.status || "").trim().toLowerCase() === "completed" && Number(r?.total_trades || 0) > 0),
           [availableRuns]
@@ -1368,7 +1408,8 @@
           const match = trades.find(t => (t.trade_id || t.id || "") === tradeIdFromUrl);
           if (match) {
             setSelectedTrade(match);
-            try { window.history.replaceState(null, "", `${window.location.pathname}?trade_id=${encodeURIComponent(tradeIdFromUrl)}`); } catch (_) {}
+            const qs = `trade_id=${encodeURIComponent(tradeIdFromUrl)}${isReadonly ? "&readonly=1" : ""}`;
+            try { window.history.replaceState(null, "", `${window.location.pathname}?${qs}`); } catch (_) {}
           }
         }, [tradeIdFromUrl, trades]);
         useEffect(() => {
@@ -1376,6 +1417,12 @@
           const exists = trades.some(t => String(t?.run_id || "").trim() === String(runIdFromUrl).trim());
           if (exists) setFilterRunId(String(runIdFromUrl).trim());
         }, [runIdFromUrl, trades]);
+
+        useEffect(() => {
+          if (!liveRun || (filterRunId !== RUN_FILTER_LIVE && filterRunId !== RUN_FILTER_LATEST)) return;
+          const iv = setInterval(() => { refreshAll(); }, 60_000);
+          return () => clearInterval(iv);
+        }, [liveRun, filterRunId, refreshAll]);
 
         const filteredTrades = useMemo(() => {
           let out = trades;
@@ -1486,50 +1533,54 @@
                 <button onClick={refreshAll} className="shrink-0 px-3 py-1.5 rounded-lg bg-white/[0.06] border border-white/[0.08] text-[12px] font-medium text-[#9ca3af] hover:text-white hover:bg-white/[0.1] transition-all">Refresh</button>
               </div>
 
-              {!loading && !error && trades.length > 0 && (
+              {!loading && !error && (availableRuns.length > 0 || trades.length > 0) && (
                 <div className="grid grid-cols-2 sm:flex sm:flex-wrap gap-2 sm:gap-3 mb-4">
-                  <input
-                    type="text"
-                    placeholder="Filter ticker"
-                    value={filterTicker}
-                    onChange={e => setFilterTicker(e.target.value)}
-                    className="px-3 py-2 sm:py-1.5 rounded-lg bg-white/[0.04] border border-white/[0.06] text-[13px] text-white placeholder-[#4b5563] col-span-1 sm:w-32"
-                  />
                   <select
                     value={filterRunId}
                     onChange={e => setFilterRunId(e.target.value)}
-                    className="px-3 py-2 sm:py-1.5 rounded-lg bg-white/[0.04] border border-white/[0.06] text-[13px] text-white col-span-1 sm:max-w-[260px]"
+                    className="px-3 py-2 sm:py-1.5 rounded-lg bg-white/[0.04] border border-white/[0.06] text-[13px] text-white col-span-2 sm:col-span-1 sm:max-w-[260px]"
                     title="Filter trades by replay run ID"
                   >
                     <option value={RUN_FILTER_LATEST}>Latest run</option>
                     <option value={RUN_FILTER_LIVE}>Live replay{runMeta.liveRunId ? ` · ${runMeta.liveRunLabel || runMeta.liveRunId}` : ""}</option>
                     <option value="">All runs</option>
                     {runMeta.runs.map(r => (
-                      <option key={r.runId} value={r.runId}>{r.runId}</option>
+                      <option key={r.runId} value={r.runId}>{r.label ? `${r.label} (${r.startDate || ""}→${r.endDate || ""})` : r.runId}</option>
                     ))}
                   </select>
-                  <select
-                    value={filterClassification}
-                    onChange={e => setFilterClassification(e.target.value)}
-                    className="px-3 py-2 sm:py-1.5 rounded-lg bg-white/[0.04] border border-white/[0.06] text-[13px] text-white col-span-1"
-                  >
-                    <option value="">All classes</option>
-                    {CLASSIFICATION_OPTIONS.filter(o => o.value).map(o => (
-                      <option key={o.value} value={o.value}>{o.label}</option>
-                    ))}
-                  </select>
-                  <input
-                    type="date"
-                    value={filterDateFrom}
-                    onChange={e => setFilterDateFrom(e.target.value)}
-                    className="px-3 py-2 sm:py-1.5 rounded-lg bg-white/[0.04] border border-white/[0.06] text-[13px] text-white col-span-1"
-                  />
-                  <input
-                    type="date"
-                    value={filterDateTo}
-                    onChange={e => setFilterDateTo(e.target.value)}
-                    className="px-3 py-2 sm:py-1.5 rounded-lg bg-white/[0.04] border border-white/[0.06] text-[13px] text-white col-span-1"
-                  />
+                  {trades.length > 0 && (
+                    <>
+                      <input
+                        type="text"
+                        placeholder="Filter ticker"
+                        value={filterTicker}
+                        onChange={e => setFilterTicker(e.target.value)}
+                        className="px-3 py-2 sm:py-1.5 rounded-lg bg-white/[0.04] border border-white/[0.06] text-[13px] text-white placeholder-[#4b5563] col-span-1 sm:w-32"
+                      />
+                      <select
+                        value={filterClassification}
+                        onChange={e => setFilterClassification(e.target.value)}
+                        className="px-3 py-2 sm:py-1.5 rounded-lg bg-white/[0.04] border border-white/[0.06] text-[13px] text-white col-span-1"
+                      >
+                        <option value="">All classes</option>
+                        {CLASSIFICATION_OPTIONS.filter(o => o.value).map(o => (
+                          <option key={o.value} value={o.value}>{o.label}</option>
+                        ))}
+                      </select>
+                      <input
+                        type="date"
+                        value={filterDateFrom}
+                        onChange={e => setFilterDateFrom(e.target.value)}
+                        className="px-3 py-2 sm:py-1.5 rounded-lg bg-white/[0.04] border border-white/[0.06] text-[13px] text-white col-span-1"
+                      />
+                      <input
+                        type="date"
+                        value={filterDateTo}
+                        onChange={e => setFilterDateTo(e.target.value)}
+                        className="px-3 py-2 sm:py-1.5 rounded-lg bg-white/[0.04] border border-white/[0.06] text-[13px] text-white col-span-1"
+                      />
+                    </>
+                  )}
                   {(filterTicker || filterClassification || filterDateFrom || filterDateTo || filterRunId !== RUN_FILTER_LATEST) && (
                     <button onClick={() => { setFilterTicker(""); setFilterClassification(""); setFilterDateFrom(""); setFilterDateTo(""); setFilterRunId(RUN_FILTER_LATEST); }} className="px-3 py-2 sm:py-1.5 text-[12px] text-[#6b7280] hover:text-white col-span-2 sm:col-span-1">Clear filters</button>
                   )}
@@ -1553,8 +1604,60 @@
                 <div className="tt-card p-6 text-center text-[#ef4444]">{error}</div>
               )}
 
-              {!loading && !error && trades.length === 0 && (
+              {!loading && !error && liveRun && (
+                <div className={`tt-card p-4 mb-4 ${filterRunId === RUN_FILTER_LIVE ? "border-[#f59e0b]/30 bg-[#f59e0b]/[0.03]" : ""}`}>
+                  <div className="flex items-center gap-3">
+                    <div className="relative flex-shrink-0">
+                      <div className="w-2.5 h-2.5 rounded-full bg-[#f59e0b]" style={{ animation: "pulse-badge 2s ease-in-out infinite" }} />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[13px] text-white font-medium">
+                        Backtest in progress{liveRun.label ? `: ${liveRun.label}` : ""}
+                      </p>
+                      <p className="text-[12px] text-[#6b7280] mt-0.5">
+                        {liveRun.start_date || ""} → {liveRun.end_date || ""} · {liveRun.status_note || liveRun.status || "running"}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      {filterRunId === RUN_FILTER_LIVE ? (
+                        <span className="px-3 py-1.5 rounded-lg bg-[#f59e0b]/15 text-[12px] font-medium text-[#f59e0b]">Viewing live</span>
+                      ) : (
+                        <button
+                          onClick={() => setFilterRunId(RUN_FILTER_LIVE)}
+                          className="px-3 py-1.5 rounded-lg bg-[#f59e0b]/10 border border-[#f59e0b]/20 text-[12px] font-medium text-[#f59e0b] hover:bg-[#f59e0b]/20 transition-all"
+                        >View live trades</button>
+                      )}
+                      <button
+                        onClick={refreshAll}
+                        className="px-3 py-1.5 rounded-lg bg-white/[0.06] border border-white/[0.08] text-[12px] font-medium text-[#9ca3af] hover:text-white hover:bg-white/[0.1] transition-all"
+                      >Refresh</button>
+                    </div>
+                  </div>
+                  {filterRunId === RUN_FILTER_LIVE && trades.length === 0 && (
+                    <div className="mt-3 pt-3 border-t border-white/[0.06]">
+                      <div className="flex items-center gap-2 text-[12px] text-[#9ca3af]">
+                        <div className="loading-spinner" style={{ width: 16, height: 16 }} />
+                        <span>Waiting for trades — the backtest is backfilling candle data before replay begins. Trades will appear here automatically.</span>
+                      </div>
+                    </div>
+                  )}
+                  {filterRunId === RUN_FILTER_LIVE && trades.length > 0 && (
+                    <div className="mt-3 pt-3 border-t border-white/[0.06]">
+                      <p className="text-[12px] text-[#9ca3af]">{trades.length} trade{trades.length !== 1 ? "s" : ""} so far · auto-refreshing every 60s</p>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {!loading && !error && trades.length === 0 && !liveRun && (
                 <div className="tt-card p-12 text-center text-[#6b7280]">No closed trades to review.</div>
+              )}
+
+              {!loading && !error && trades.length === 0 && !!liveRun && filterRunId !== RUN_FILTER_LIVE && (
+                <div className="tt-card p-8 text-center">
+                  <p className="text-[#9ca3af] mb-2">No trades for this selection.</p>
+                  <p className="text-[12px] text-[#6b7280]">A backtest is running — click <strong className="text-[#f59e0b] cursor-pointer" onClick={() => setFilterRunId(RUN_FILTER_LIVE)}>View live trades</strong> above to watch its progress.</p>
+                </div>
               )}
 
               {!loading && !error && trades.length > 0 && filteredTrades.length === 0 && (
@@ -1674,7 +1777,14 @@
                 annotations={getAnnotation(selectedTrade)}
                 onSave={refreshAnnotations}
                 onRefreshTrades={refreshTrades}
-                onClose={() => setSelectedTrade(null)}
+                onClose={() => {
+                  setSelectedTrade(null);
+                  if (isReadonly) {
+                    if (window.history.length > 1) window.history.back();
+                    else window.close();
+                  }
+                }}
+                readonly={isReadonly}
               />
             )}
           </div>
