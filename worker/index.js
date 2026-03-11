@@ -8330,32 +8330,24 @@ async function processTradeSimulation(
         pxNow = exit10m;
       }
     }
-    // CRITICAL: For LIVE entries, always use the current market price.
-    // tickerData.entry_price can be hours/days stale (set when signal first fired).
-    // For REPLAY, use the stored entry_price since pxNow is the replay candle close.
+    // CRITICAL: Always prefer current market price (pxNow) for entry.
+    // tickerData.entry_price is set when the signal first fires and can be
+    // hours/days stale by the time the trade is actually opened.
+    // In REPLAY, pxNow = 10m candle close at the processing interval = the price
+    // the system would actually execute at. Using stale entry_price caused large
+    // entry-price divergences (e.g. CSX: stored $33.94 vs actual $32.81).
     let entryPxCandidate;
-    if (isReplay) {
-      entryPxCandidate =
-        Number(tickerData?.entry_price) ||
-        Number(tickerData?.entry_ref) ||
-        Number(tickerData?.trigger_price) ||
-        pxNow ||
-        null;
-    } else {
-      // Live mode: prefer current market price, with staleness guard
-      const storedEntryPx = Number(tickerData?.entry_price);
-      if (Number.isFinite(pxNow) && pxNow > 0) {
-        entryPxCandidate = pxNow;
-        // Log warning if stored entry_price diverges significantly from market
-        if (Number.isFinite(storedEntryPx) && storedEntryPx > 0) {
-          const divergePct = Math.abs(storedEntryPx - pxNow) / pxNow * 100;
-          if (divergePct > 1) {
-            console.warn(`[ENTRY_PRICE_STALE] ${sym}: stored entry_price=$${storedEntryPx.toFixed(2)} vs market=$${pxNow.toFixed(2)} (${divergePct.toFixed(1)}% divergence, using market)`);
-          }
+    const storedEntryPx = Number(tickerData?.entry_price);
+    if (Number.isFinite(pxNow) && pxNow > 0) {
+      entryPxCandidate = pxNow;
+      if (Number.isFinite(storedEntryPx) && storedEntryPx > 0) {
+        const divergePct = Math.abs(storedEntryPx - pxNow) / pxNow * 100;
+        if (divergePct > 1) {
+          console.warn(`[ENTRY_PRICE_STALE] ${sym}: signal entry_price=$${storedEntryPx.toFixed(2)} vs market=$${pxNow.toFixed(2)} (${divergePct.toFixed(1)}% divergence, using market)`);
         }
-      } else {
-        entryPxCandidate = storedEntryPx || Number(tickerData?.trigger_price) || null;
       }
+    } else {
+      entryPxCandidate = storedEntryPx || Number(tickerData?.entry_ref) || Number(tickerData?.trigger_price) || null;
     }
 
     const move =
@@ -32737,6 +32729,7 @@ export default {
                   run_id: replayLock || null,
                   ticker: t?.ticker || null,
                   direction: t?.direction || null,
+                  status: t?.status || null,
                   entry_ts: t?.entry_ts ?? null,
                   exit_ts: t?.exit_ts ?? null,
                   trim_ts: t?.trim_ts ?? null,
@@ -32745,6 +32738,7 @@ export default {
                   pnl: t?.pnl ?? null,
                   pnl_pct: t?.pnl_pct ?? t?.pnlPct ?? null,
                   exit_reason: t?.exit_reason ?? t?.exitReason ?? null,
+                  trimmed_pct: t?.trimmed_pct ?? t?.trimmedPct ?? null,
                   signal_snapshot_json: da.signal_snapshot_json || null,
                   entry_path: da.entry_path || t?.entryPath || null,
                   consensus_direction: da.consensus_direction || null,
@@ -32767,8 +32761,9 @@ export default {
             }, 200, corsHeaders(env, req));
           }
           const { results: rows } = await db.prepare(
-            `SELECT t.trade_id, t.ticker, t.direction, t.entry_ts, t.exit_ts, t.trim_ts,
+            `SELECT t.trade_id, t.ticker, t.direction, t.status, t.entry_ts, t.exit_ts, t.trim_ts,
                     t.entry_price, t.exit_price, t.pnl, t.pnl_pct, t.exit_reason, t.run_id,
+                    t.trimmed_pct, t.trim_price,
                     da.signal_snapshot_json, da.entry_path, da.consensus_direction,
                     da.max_favorable_excursion, da.max_adverse_excursion, da.tf_stack_json,
                     da.execution_profile_name, da.execution_profile_confidence, da.market_state, da.execution_profile_json
@@ -32782,6 +32777,7 @@ export default {
             run_id: r.run_id,
             ticker: r.ticker,
             direction: r.direction,
+            status: r.status,
             entry_ts: r.entry_ts,
             exit_ts: r.exit_ts,
             trim_ts: r.trim_ts,
@@ -32790,6 +32786,8 @@ export default {
             pnl: r.pnl,
             pnl_pct: r.pnl_pct,
             exit_reason: r.exit_reason,
+            trimmed_pct: r.trimmed_pct,
+            trim_price: r.trim_price,
             signal_snapshot_json: r.signal_snapshot_json,
             entry_path: r.entry_path,
             consensus_direction: r.consensus_direction,

@@ -836,11 +836,13 @@
           loadAlignedCandle(trade.trim_ts, setCandleAtTrim);
         }, [trade?.ticker, trade?.entry_ts, trade?.exit_ts, trade?.trim_ts]);
 
-        const displayEntryPrice = Number.isFinite(Number(candleAtEntry?.close)) ? Number(candleAtEntry.close) : storedEntry;
-        const displayExitPrice = Number.isFinite(Number(candleAtExit?.close)) ? Number(candleAtExit.close) : storedExit;
-        const displayEntryTs = Number.isFinite(Number(candleAtEntry?.ts)) ? Number(candleAtEntry.ts) : trade?.entry_ts;
-        const displayExitTs = Number.isFinite(Number(candleAtExit?.ts)) ? Number(candleAtExit.ts) : trade?.exit_ts;
-        const displayTrimTs = Number.isFinite(Number(candleAtTrim?.ts)) ? Number(candleAtTrim.ts) : trade?.trim_ts;
+        // Chart markers use aligned 15m candle close for accurate visual placement on the chart.
+        // Header / P&L use the stored trade prices (= actual execution price).
+        const chartEntryPrice = Number.isFinite(Number(candleAtEntry?.close)) ? Number(candleAtEntry.close) : storedEntry;
+        const chartExitPrice = Number.isFinite(Number(candleAtExit?.close)) ? Number(candleAtExit.close) : storedExit;
+        const chartEntryTs = Number.isFinite(Number(candleAtEntry?.ts)) ? Number(candleAtEntry.ts) : trade?.entry_ts;
+        const chartExitTs = Number.isFinite(Number(candleAtExit?.ts)) ? Number(candleAtExit.ts) : trade?.exit_ts;
+        const chartTrimTs = Number.isFinite(Number(candleAtTrim?.ts)) ? Number(candleAtTrim.ts) : trade?.trim_ts;
 
         useEffect(() => {
           let cancelled = false;
@@ -959,11 +961,11 @@
                 <div className="flex flex-col sm:flex-row flex-wrap items-start sm:items-center gap-2 sm:gap-3 shrink-0">
                   <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#60a5fa]/15 border border-[#60a5fa]/30 w-full sm:w-auto">
                     <span className="text-[10px] font-semibold text-[#60a5fa] uppercase tracking-wider shrink-0">Entry</span>
-                    <span className="text-[13px] font-semibold text-white truncate">{formatDate(displayEntryTs)} @ {fmtUsd(displayEntryPrice)}</span>
+                    <span className="text-[13px] font-semibold text-white truncate">{formatDate(trade?.entry_ts)} @ {fmtUsd(storedEntry)}</span>
                   </div>
                   <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#f59e0b]/15 border border-[#f59e0b]/30 w-full sm:w-auto">
                     <span className="text-[10px] font-semibold text-[#f59e0b] uppercase tracking-wider shrink-0">Exit</span>
-                    <span className="text-[13px] font-semibold text-white truncate">{formatDate(displayExitTs)} @ {fmtUsd(displayExitPrice)}</span>
+                    <span className="text-[13px] font-semibold text-white truncate">{formatDate(trade?.exit_ts)} @ {fmtUsd(storedExit)}</span>
                   </div>
                   <div className="flex items-center gap-3">
                     <div className="text-[12px] text-[#9ca3af]">
@@ -979,7 +981,7 @@
                   </div>
                 </div>
                 <div className="text-[11px] text-[#9ca3af] px-1 hidden sm:block">
-                  Entry and exit prices are aligned to the 15m bar close at that time.
+                  Chart markers aligned to the nearest 15m bar. Header prices reflect the actual execution price.
                 </div>
 
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 md:gap-4 lg:flex-1 lg:min-h-0">
@@ -1135,11 +1137,11 @@
                   <div className="lg:col-span-2 min-h-[280px] md:min-h-[500px] flex flex-col order-1 lg:order-2">
                     <AutopsyChart
                       ticker={trade?.ticker}
-                      entryPrice={displayEntryPrice}
-                      exitPrice={displayExitPrice}
-                      entryTs={displayEntryTs}
-                      exitTs={displayExitTs}
-                      trimTs={displayTrimTs}
+                      entryPrice={chartEntryPrice}
+                      exitPrice={chartExitPrice}
+                      entryTs={chartEntryTs}
+                      exitTs={chartExitTs}
+                      trimTs={chartTrimTs}
                       height={typeof window !== "undefined" && window.innerWidth < 768 ? 240 : 500}
                     />
                   </div>
