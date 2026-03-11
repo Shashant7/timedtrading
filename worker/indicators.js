@@ -3,6 +3,8 @@
 // Replicates TimedTrading_ScoreEngine_v2.1.0 Pine Script logic in JavaScript
 // ─────────────────────────────────────────────────────────────────────────────
 
+import { normalizeTfKey } from "./ingest.js";
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // PRIMITIVE INDICATORS (from OHLCV bar arrays)
 // Each bar: { ts, o, h, l, c, v }
@@ -1657,7 +1659,9 @@ export function computeEntryQualityScore(bundles, side, regime = null) {
   const isLong = side === "LONG";
   const mult = isLong ? 1 : -1; // flip comparisons for SHORT
 
-  const b10  = bundles?.["10"];
+  const leadingTf = bundles?.["15"] ? "15" : "10";
+  const leadLabel = leadingTf === "15" ? "15m" : "10m";
+  const b10  = bundles?.[leadingTf];
   const b30  = bundles?.["30"];
   const b1H  = bundles?.["60"];
   const b4H  = bundles?.["240"];
@@ -1666,7 +1670,7 @@ export function computeEntryQualityScore(bundles, side, regime = null) {
   // ── STRUCTURE (35 pts): Multi-TF EMA(13)/EMA(48) alignment ──
   let structure = 0;
   const emaChecks = [
-    { b: b10,  pts: 5,  label: "10m" },
+    { b: b10,  pts: 5,  label: leadLabel },
     { b: b30,  pts: 7,  label: "30m" },
     { b: b1H,  pts: 8,  label: "1H"  },
     { b: b4H,  pts: 8,  label: "4H"  },
@@ -1686,7 +1690,7 @@ export function computeEntryQualityScore(bundles, side, regime = null) {
   //           opposing + flat = -2, opposing + sloping = -5
   let momentumRaw = 0;
   const stChecks = [
-    { b: b10,  label: "10m" },
+    { b: b10,  label: leadLabel },
     { b: b30,  label: "30m" },
     { b: b1H,  label: "1H"  },
     { b: b4H,  label: "4H"  },
@@ -2095,11 +2099,12 @@ function computeTfBias(b, signalW = null, isDaily = false) {
 
 export function computeSwingConsensus(bundles, regime = null, tfWeights = null, signalWeights = null) {
   // Daily gets higher weight: 5/48 cross + ST slope = strong bias/continuation
-  const DEFAULT_WEIGHTS = { "10": 1, "30": 1, "60": 1, "240": 1, "D": 1.5 };
+  const leadingTf = bundles?.["15"] ? "15" : "10";
+  const DEFAULT_WEIGHTS = { "10": 1, "15": 1, "30": 1, "60": 1, "240": 1, "D": 1.5 };
   const w = tfWeights && typeof tfWeights === "object" ? { ...DEFAULT_WEIGHTS, ...tfWeights } : DEFAULT_WEIGHTS;
 
   const TFS = [
-    { key: "10",  label: "10m", b: bundles?.["10"], isDaily: false },
+    { key: leadingTf, label: leadingTf === "15" ? "15m" : "10m", b: bundles?.[leadingTf], isDaily: false },
     { key: "30",  label: "30m", b: bundles?.["30"], isDaily: false },
     { key: "60",  label: "1H",  b: bundles?.["60"], isDaily: false },
     { key: "240", label: "4H",  b: bundles?.["240"], isDaily: false },
@@ -2334,7 +2339,8 @@ export function detectFlags(bundles) {
  * @returns {object} { map, bullCount, bearCount, slopeAligned, supportScore }
  */
 export function buildSTSupportMap(bundles) {
-  const TF_WEIGHTS = { W: 0.26, D: 0.23, "240": 0.19, "60": 0.15, "30": 0.10, "10": 0.07 };
+  const leadingTf = bundles?.["15"] ? "15" : "10";
+  const TF_WEIGHTS = { W: 0.26, D: 0.23, "240": 0.19, "60": 0.15, "30": 0.10, [leadingTf]: 0.07 };
   const map = {};
   let bullCount = 0;
   let bearCount = 0;
@@ -2757,8 +2763,12 @@ export function assembleTickerData(ticker, bundles, existingData = null, opts = 
   const b4H = bundles?.["240"];
   const b1H = bundles?.["60"];
   const b30 = bundles?.["30"];
+  const b15 = bundles?.["15"];
   const b10 = bundles?.["10"];
   const b5 = bundles?.["5"];
+  const requestedLeadingLtf = normalizeTfKey(opts?.leadingLtf || existingData?.leading_ltf || "10") || "10";
+  const leadingLtf = requestedLeadingLtf === "15" && b15 ? "15" : "10";
+  const bLead = leadingLtf === "15" ? b15 : b10;
 
   // Compute daily anchors for Golden Gate
   let anchors = null;
@@ -2772,10 +2782,10 @@ export function assembleTickerData(ticker, bundles, existingData = null, opts = 
   }
 
   // Compute scores (pass learned weight adjustments if available)
-  // v3 TF architecture: HTF = M/W/D/4H, LTF = 1H/30m/10m
+  // v3 TF architecture: HTF = M/W/D/4H, LTF = 1H/30m/leading intraday TF
   const _learnedScoreAdj = opts?.scoreWeights || null;
   const htfScore = computeWeightedHTFScore(bM, bW, bD, b4H, _learnedScoreAdj);
-  const ltfScore = computeWeightedLTFScore(b1H, b30, b10, anchors, isRTHNow(), _learnedScoreAdj);
+  const ltfScore = computeWeightedLTFScore(b1H, b30, bLead, anchors, isRTHNow(), _learnedScoreAdj);
   const state = classifyState(htfScore, ltfScore);
 
   // Detect flags
@@ -2806,6 +2816,7 @@ export function assembleTickerData(ticker, bundles, existingData = null, opts = 
   // prices when intraday data had gaps but daily was current.
   const priceCandidates = [
     { px: b5?.px,  ts: b5?.lastTs  || 0 },
+    { px: b15?.px, ts: b15?.lastTs || 0 },
     { px: b10?.px, ts: b10?.lastTs || 0 },
     { px: b30?.px, ts: b30?.lastTs || 0 },
     { px: b1H?.px, ts: b1H?.lastTs || 0 },
@@ -2813,7 +2824,7 @@ export function assembleTickerData(ticker, bundles, existingData = null, opts = 
     { px: bD?.px,  ts: bD?.lastTs  || 0 },
   ].filter(c => Number.isFinite(c.px) && c.px > 0 && c.ts > 0);
   const freshest = priceCandidates.reduce((a, b) => b.ts > a.ts ? b : a, priceCandidates[0] || { px: 0 });
-  const price = freshest?.px || b30?.px || b10?.px || bD?.px || 0;
+  const price = freshest?.px || bLead?.px || b30?.px || b10?.px || bD?.px || 0;
 
   // ── NEW: SuperTrend Support Map ──
   const stSupport = buildSTSupportMap(bundles);
@@ -2824,6 +2835,7 @@ export function assembleTickerData(ticker, bundles, existingData = null, opts = 
   // ── NEW: Fuel Gauges per key timeframe ──
   const fuel = {
     "30": computeFuelGauge(b30),
+    "15": computeFuelGauge(b15),
     "10": computeFuelGauge(b10),
     "60": computeFuelGauge(b1H),
     D:    computeFuelGauge(bD),
@@ -2831,7 +2843,7 @@ export function assembleTickerData(ticker, bundles, existingData = null, opts = 
 
   // ── EMA Triplet Map per key timeframe ──
   const emaMap = {};
-  const tfEmaSources = { M: bM, W: bW, D: bD, "240": b4H, "60": b1H, "30": b30, "10": b10 };
+  const tfEmaSources = { M: bM, W: bW, D: bD, "240": b4H, "60": b1H, "30": b30, "15": b15, "10": b10 };
   for (const [tf, b] of Object.entries(tfEmaSources)) {
     if (b && Number.isFinite(b.emaDepth)) {
       emaMap[tf] = {
@@ -2914,7 +2926,7 @@ export function assembleTickerData(ticker, bundles, existingData = null, opts = 
 
   // Build tf_tech for compatibility with existing worker logic
   const tfTech = {};
-  const tfMap = { M: bM, W: bW, D: bD, "4H": b4H, "1H": b1H, "30": b30, "10": b10 };
+  const tfMap = { M: bM, W: bW, D: bD, "4H": b4H, "1H": b1H, "30": b30, "15": b15, "10": b10 };
   for (const [tfLabel, b] of Object.entries(tfMap)) {
     if (!b) continue;
     // ATR band: which Fibonacci ATR zone price is in
@@ -3056,6 +3068,8 @@ export function assembleTickerData(ticker, bundles, existingData = null, opts = 
     phase_pct: Math.round(phasePct * 1000) / 1000,
     phase_dir: phaseDir,
     phase_zone: phaseZone,
+    leading_ltf: leadingLtf,
+    lead_intraday_tf: leadingLtf,
     flags,
     tf_tech: tfTech,
     atr_d: ATRd ? Math.round(ATRd * 100) / 100 : undefined,
@@ -4478,16 +4492,18 @@ export async function alpacaBackfill(env, tickers, _unused, tfKey = "all", opts 
 export async function computeServerSideScores(ticker, getCandles, env, existingData = null) {
   const bundles = {};
   let hasData = false;
+  const leadingLtf = normalizeTfKey(env?.LEADING_LTF || existingData?.leading_ltf || "10") || "10";
 
   // Fetch candles for all scoring timeframes + TD Sequential timeframes in PARALLEL
-  // Scoring TFs: W, D, 240, 60, 30, 10, 5
+  // Scoring TFs: W, D, 240, 60, 30, leading intraday TF
   // TD Sequential TFs: all 9 TFs (1, 5, 10, 30, 60, 240, D, W, M)
-  const allTfsToFetch = [...new Set([...ALL_TFS, ...TD_SEQ_TFS])]; // union of scoring + TD TFs
+  const scoringTfs = leadingLtf === "15" ? [...ALL_TFS, "15"] : ALL_TFS;
+  const allTfsToFetch = [...new Set([...scoringTfs, ...TD_SEQ_TFS])]; // union of scoring + TD TFs
   const tfResults = await Promise.all(
     allTfsToFetch.map(async (tf) => {
       try {
         // For TD Sequential, we need ~50 candles; for scoring we need 300
-        const limit = TD_SEQ_TFS.includes(tf) && !ALL_TFS.includes(tf) ? 60 : 300;
+        const limit = TD_SEQ_TFS.includes(tf) && !scoringTfs.includes(tf) ? 60 : 300;
         const result = await getCandles(env, ticker, tf, limit);
         return { tf, result };
       } catch (e) {
@@ -4508,7 +4524,7 @@ export async function computeServerSideScores(ticker, getCandles, env, existingD
       const deduped = deduplicateCandles(result.candles, tf);
 
       // Scoring bundles (need 50+ candles for indicator computation)
-      if (ALL_TFS.includes(tf) && deduped.length >= 50) {
+      if (scoringTfs.includes(tf) && deduped.length >= 50) {
         bundles[tf] = computeTfBundle(deduped);
         if (bundles[tf]) hasData = true;
       }
@@ -4533,11 +4549,13 @@ export async function computeServerSideScores(ticker, getCandles, env, existingD
     "240": bundles["240"] || null,
     "60": bundles["60"] || null,
     "30": bundles["30"] || null,
+    "15": bundles["15"] || null,
     "10": bundles["10"] || null,
   };
 
   // Pass raw bars + optional learned weights so assembleTickerData uses them
   const assembleOpts = { rawBars };
+  if (leadingLtf) assembleOpts.leadingLtf = leadingLtf;
   if (existingData?._tfWeights) assembleOpts.tfWeights = existingData._tfWeights;
   if (existingData?._signalWeights) assembleOpts.signalWeights = existingData._signalWeights;
   if (existingData?._scoreWeights) assembleOpts.scoreWeights = existingData._scoreWeights;
@@ -4682,9 +4700,10 @@ export function sessionWeight(session) {
 export async function computeOvernightSignals(ticker, lastRTHCloseTs, currentTs, getCandles, env) {
   const signals = [];
   const overnightFlags = {};
+  const leadingLtf = normalizeTfKey(env?.LEADING_LTF || "10") || "10";
 
-  // Fetch candles for the key signal timeframes (30m, 60m, 10m)
-  const signalTFs = ["30", "60", "10"];
+  // Fetch candles for the key signal timeframes (30m, 60m, leading intraday TF)
+  const signalTFs = [...new Set(["30", "60", leadingLtf])];
 
   for (const tf of signalTFs) {
     try {
@@ -4694,7 +4713,7 @@ export async function computeOvernightSignals(ticker, lastRTHCloseTs, currentTs,
       const bundle = computeTfBundle(result.candles);
       if (!bundle) continue;
 
-      const tfLabel = tf === "60" ? "1h" : tf === "30" ? "30m" : tf === "10" ? "10m" : tf;
+      const tfLabel = tf === "60" ? "1h" : tf === "30" ? "30m" : tf === "15" ? "15m" : tf === "10" ? "10m" : tf;
 
       // Check for EMA cross signals with timestamps in the overnight window
       if (bundle.emaCross13_48_up && bundle.emaCross13_48_up_ts > lastRTHCloseTs && bundle.emaCross13_48_up_ts < currentTs) {

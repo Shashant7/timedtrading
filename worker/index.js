@@ -2143,6 +2143,21 @@ function computeCompletionToTier(tickerData, tier = "TRIM") {
 }
 
 /**
+ * Resolve the leading intraday timeframe for a ticker payload.
+ * Prefer explicit metadata, but only return 15m when the payload actually
+ * carries 15m tech/fuel fields so older snapshots safely fall back to 10m.
+ */
+function resolveLeadingLtf(d) {
+  const requested = normalizeTfKey(
+    d?.leading_ltf || d?.lead_intraday_tf || d?._env?._leadingLtf || "10",
+  ) || "10";
+  if (requested === "15" && (d?.tf_tech?.["15"] || d?.fuel?.["15"] || d?.ema_map?.["15"])) {
+    return "15";
+  }
+  return "10";
+}
+
+/**
  * Check if a ticker qualifies for ENTER stage based on consolidated criteria.
  * 4 data-driven paths derived from Gold Standard analysis:
  * - Path 1: Gold Standard LONG (67.7% of big UP moves)
@@ -2163,11 +2178,14 @@ function qualifiesForEnter(d, asOfTs = null) {
   const completion = Number(d?.completion) || 0;
   const phase = Number(d?.phase_pct) || 0;
   const rr = Number(d?.rr) || 0;
+  const leadingLtf = resolveLeadingLtf(d);
+  const leadingLtfLabel = leadingLtf === "15" ? "15m" : "10m";
+  const fuelLead = d?.fuel?.[leadingLtf]?.fuelPct ?? d?.fuel?.["10"]?.fuelPct ?? 50;
   
   // ── PRECISION SCORING ENGINE v2 fields ──
   const stSupportScore = d?.st_support?.supportScore ?? 0.5; // 0.0–1.0, 0.5 = neutral
   const fuel30 = d?.fuel?.["30"]?.fuelPct ?? 50;
-  const fuel10 = d?.fuel?.["10"]?.fuelPct ?? 50;
+  const fuel10 = fuelLead;
   const fuelD = d?.fuel?.D?.fuelPct ?? 50;
   const primaryFuel = Math.max(fuel30, fuel10); // best LTF fuel reading
   // EMA triplet: depth (0-10), structure (-1 to +1), momentum (-1 to +1)
@@ -2283,8 +2301,8 @@ function qualifiesForEnter(d, asOfTs = null) {
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // 10m PRICE vs 21 EMA GATE: Never enter LONG if price below 21 EMA on 10m;
-  // never enter SHORT if price above 21 EMA on 10m. (User feedback: GE/BABA bad trades)
+  // Leading-LTF PRICE vs 21 EMA GATE: Never enter LONG if price below 21 EMA on
+  // the leading intraday TF; never enter SHORT if price above it.
   // EXCEPTION: Daily regime confirmed (ema_regime_daily ±2) — we're buying/selling
   // a pullback in a strong trend; price can be below/above 21 EMA at the pullback.
   // ═══════════════════════════════════════════════════════════════════════════
@@ -2292,12 +2310,12 @@ function qualifiesForEnter(d, asOfTs = null) {
   const isRegimeConfirmedLong = emaRegimeDaily >= 2 && inferredSide === "LONG";
   const isRegimeConfirmedShort = emaRegimeDaily <= -2 && inferredSide === "SHORT";
   if (!isRegimeConfirmedLong && !isRegimeConfirmedShort) {
-    const priceAboveEma21_10m = d?.tf_tech?.["10"]?.ema?.priceAboveEma21;
+    const priceAboveEma21_10m = d?.tf_tech?.[leadingLtf]?.ema?.priceAboveEma21;
     if (priceAboveEma21_10m === false && inferredSide === "LONG") {
-      return { qualifies: false, reason: "price_below_21ema_10m" };
+      return { qualifies: false, reason: `price_below_21ema_${leadingLtfLabel}`, leadingLtf };
     }
     if (priceAboveEma21_10m === true && inferredSide === "SHORT") {
-      return { qualifies: false, reason: "price_above_21ema_10m" };
+      return { qualifies: false, reason: `price_above_21ema_${leadingLtfLabel}`, leadingLtf };
     }
   }
 
@@ -2433,7 +2451,7 @@ function qualifiesForEnter(d, asOfTs = null) {
   }
 
   // Golden Profile gates: enforce HTF/LTF score floors from hindsight oracle
-  const _gp = d?._env?._goldenProfiles;
+  const _gp = null; // d?._env?._goldenProfiles;
   if (_gp) {
     const gpState = _gp[state] || _gp["_default"];
     if (gpState) {
@@ -2771,15 +2789,15 @@ function qualifiesForEnter(d, asOfTs = null) {
     return { qualifies: false, reason: "oversold_exhaustion", rsi30m: _rsi30m, rsi1H: _rsi1H, rsi4H: _rsi4H, rsiD: _rsiD, osCount: _osCount };
   }
 
-  // LTF SuperTrend alignment: block when BOTH 10m+30m ST oppose trade direction.
+  // LTF SuperTrend alignment: block when BOTH leading LTF + 30m ST oppose trade direction.
   // Pullbacks: still require at least one LTF ST aligned (full opposition = breakdown, not dip).
-  const stDir10m = d?.tf_tech?.["10"]?.stDir ?? 0;
+  const stDir10m = d?.tf_tech?.[leadingLtf]?.stDir ?? 0;
   const stDir30m = d?.tf_tech?.["30"]?.stDir ?? 0;
   if (inferredSide === "LONG" && stDir10m === 1 && stDir30m === 1) {
-    return { qualifies: false, reason: isPullback ? "ltf_st_both_bearish_pullback" : "ltf_st_both_bearish", stDir10m, stDir30m };
+    return { qualifies: false, reason: isPullback ? "ltf_st_both_bearish_pullback" : "ltf_st_both_bearish", stDir10m, stDir30m, leadingLtf };
   }
   if (inferredSide === "SHORT" && stDir10m === -1 && stDir30m === -1) {
-    return { qualifies: false, reason: isPullback ? "ltf_st_both_bullish_pullback" : "ltf_st_both_bullish", stDir10m, stDir30m };
+    return { qualifies: false, reason: isPullback ? "ltf_st_both_bullish_pullback" : "ltf_st_both_bullish", stDir10m, stDir30m, leadingLtf };
   }
 
   // Elliott Wave context (soft annotation, not a gate).
@@ -3048,6 +3066,9 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
     const entryTs = Number(openPosition.entry_ts || openPosition.created_at) || 0;
     const now = (asOfTs != null && Number.isFinite(Number(asOfTs))) ? Number(asOfTs) : Date.now();
     const positionAgeMin = entryTs > 0 ? (now - entryTs) / (1000 * 60) : 999;
+    const leadingLtf = resolveLeadingLtf(tickerData);
+    const leadTfTech = tickerData?.tf_tech?.[leadingLtf] || tickerData?.tf_tech?.["10"] || {};
+    const currentTrimPct = clamp(Number(openPosition?.trimmedPct ?? openPosition?.trimmed_pct ?? 0), 0, 1);
     
     // Calculate P&L
     let pnlPct = 0;
@@ -3058,9 +3079,9 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
     }
     
     // Get RSI and Phase from ticker data for extreme detection
-    const rsi5_10m = Number(tickerData?.tf_tech?.["10"]?.rsi?.r5) || 50;
+    const rsi5_10m = Number(leadTfTech?.rsi?.r5) || 50;
     const rsi5_30m = Number(tickerData?.tf_tech?.["30"]?.rsi?.r5) || 50;
-    const phase_10m = Number(tickerData?.tf_tech?.["10"]?.ph?.v) || 0;
+    const phase_10m = Number(leadTfTech?.ph?.v) || 0;
     const phase_30m = Number(tickerData?.tf_tech?.["30"]?.ph?.v) || 0;
     
     // ─────────────────────────────────────────────────────────────────────────
@@ -3178,11 +3199,32 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
     const reasons = moveStatus?.reasons || [];
     const severity = String(moveStatus?.severity || "").toUpperCase();
 
+    const triggerNoiseOnly =
+      reasons.length > 0 &&
+      reasons.every((reason) =>
+        ["trigger_breached_5pct", "below_trigger", "above_trigger", "left_entry_corridor"].includes(reason),
+      );
+    const earlyDevelopingMove = positionAgeMin < 180 && pnlPct > -1.75 && !_inExtendedZone;
+    const hasRoomToTrim = pnlPct >= 1.25 && currentTrimPct < 0.4;
+
+    if (!reasons.includes("sl_breached") && reasons.includes("trigger_breached_5pct")) {
+      if (hasRoomToTrim) {
+        tickerData.__trim_reason = "trigger_noise_with_gains";
+        return "trim";
+      }
+      if ((_inFavorableZone && _regimeConfirms) || triggerNoiseOnly || earlyDevelopingMove) {
+        tickerData.__defend_reason = "critical_trigger_noise_defend";
+        tickerData.__exit_reason = "critical_trigger_noise_defend";
+        return "defend";
+      }
+    }
+
     // Critical invalidation: always honor, but give regime+favorable zone a small buffer
     if (reasons.includes("sl_breached") || severity === "CRITICAL" || reasons.includes("trigger_breached_5pct")) {
       // In favorable zone with regime: downgrade to defend instead of hard exit
       if (_inFavorableZone && _regimeConfirms && !reasons.includes("sl_breached")) {
         tickerData.__exit_reason = "critical_downgraded_to_defend";
+        tickerData.__defend_reason = "critical_downgraded_to_defend";
         return "defend";
       }
       tickerData.__exit_reason = reasons.join(",") || "critical";
@@ -3241,7 +3283,7 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
     // Fuel gauge: "critical" = move exhausted, take profit
     // Uses continuous phase+RSI measure instead of binary phase >= 75 check
     const fuel30 = tickerData?.fuel?.["30"];
-    const fuel10 = tickerData?.fuel?.["10"];
+    const fuel10 = tickerData?.fuel?.[leadingLtf] || tickerData?.fuel?.["10"];
     const isFuelCritical = (fuel30?.status === "critical") || (fuel10?.status === "critical");
     
     // Legacy phase extreme fallback (for data without fuel fields)
@@ -7284,6 +7326,50 @@ function getValidTP(tickerData, entryPrice, direction) {
   return null;
 }
 
+function selectPostTrimProtectiveStop(tickerData, entryPrice, direction, opts = null) {
+  const entry = Number(entryPrice);
+  const dir = String(direction || "").toUpperCase();
+  if (!Number.isFinite(entry) || entry <= 0 || (dir !== "LONG" && dir !== "SHORT")) return null;
+  const mark = Number(opts?.currentPrice);
+  const fallbackStop = Number(opts?.fallbackStop);
+  const positionAgeMin = Math.max(0, Number(opts?.positionAgeMin) || 0);
+  const moveTravelPctRaw = Number(opts?.moveTravelPct);
+  const moveTravelPct = Number.isFinite(moveTravelPctRaw)
+    ? Math.max(0, Math.min(1, moveTravelPctRaw))
+    : 0;
+  const realizedMove = Number.isFinite(mark) && mark > 0 ? Math.abs(mark - entry) : 0;
+  const matureMove = positionAgeMin >= 180 || moveTravelPct >= 0.5;
+  const extendedMove = positionAgeMin >= 360 || moveTravelPct >= 0.75;
+  const protectFrac = extendedMove ? 0.5 : matureMove ? 0.25 : 0;
+  const progressiveStop = realizedMove > 0
+    ? (dir === "LONG" ? entry + realizedMove * protectFrac : entry - realizedMove * protectFrac)
+    : null;
+
+  const supportsLong = [
+    Number(tickerData?.ichimoku_d?.kijunSL_long),
+    Number(tickerData?.ichimoku_d?.cloudSL_long),
+    Number(tickerData?.daily_ema_cloud?.lower),
+    progressiveStop,
+    fallbackStop,
+    entry,
+  ].filter((v) => Number.isFinite(v) && v > 0 && v >= entry && (!Number.isFinite(mark) || v < mark));
+
+  const supportsShort = [
+    Number(tickerData?.ichimoku_d?.kijunSL_short),
+    Number(tickerData?.ichimoku_d?.cloudSL_short),
+    Number(tickerData?.daily_ema_cloud?.upper),
+    progressiveStop,
+    fallbackStop,
+    entry,
+  ].filter((v) => Number.isFinite(v) && v > 0 && v <= entry && (!Number.isFinite(mark) || v > mark));
+
+  const stop = dir === "LONG"
+    ? (supportsLong.length ? Math.max(...supportsLong) : entry)
+    : (supportsShort.length ? Math.min(...supportsShort) : entry);
+
+  return Math.round(stop * 100) / 100;
+}
+
 // Calculate RR at entry price (for trade creation) using intelligent TP array
 function calculateRRAtEntry(tickerData, entryPrice) {
   const direction = getTradeDirection(tickerData.state);
@@ -8504,24 +8590,40 @@ async function processTradeSimulation(
         }
       }
 
-      // Tier 1: TRIM TP hit (33%) -> Move SL to entry minus 0.5 ATR buffer
-      // Exact breakeven is too tight — normal pullbacks wick through entry and shake out runners.
-      // 0.5 ATR gives breathing room while still protecting from full reversals.
+      // Tier 1: TRIM TP hit (33%) -> Move SL to breakeven or better structural support.
+      // Once we've locked profit with a trim, do not let the remaining runner turn
+      // the overall trade into a loser. Prefer nearby structure only when it is
+      // at/through breakeven; otherwise default to entry.
       if (tgt >= THREE_TIER_CONFIG.TRIM.trimPct && oldTrim < THREE_TIER_CONFIG.TRIM.trimPct) {
         if (Number.isFinite(entryPrice) && entryPrice > 0) {
-          const atrVal = Number(tickerData?.atr) || 0;
-          const buffer = atrVal > 0 ? atrVal * 0.5 : entryPrice * 0.005;
-          const beStop = dir === "LONG"
-            ? entryPrice - buffer
-            : entryPrice + buffer;
+          const tradeEntryTs = Number(trade.entry_ts || trade.created_at) || 0;
+          const nowMs = Number.isFinite(asOfMs) ? asOfMs : Date.now();
+          const positionAgeMin = tradeEntryTs > 0 ? Math.max(0, (nowMs - tradeEntryTs) / 60000) : 0;
+          const protectTarget = (() => {
+            const runnerTp = tpArray.find((tp) => tp.tier === "RUNNER")?.price;
+            const exitTp = tpArray.find((tp) => tp.tier === "EXIT")?.price;
+            const trimTp = tpArray.find((tp) => tp.tier === "TRIM")?.price;
+            return Number(runnerTp || exitTp || trimTp);
+          })();
+          const moveTravelPct = (() => {
+            if (!Number.isFinite(p) || !Number.isFinite(entryPrice) || !Number.isFinite(protectTarget) || protectTarget === entryPrice) return 0;
+            if (dir === "LONG") return (p - entryPrice) / (protectTarget - entryPrice);
+            return (entryPrice - p) / (entryPrice - protectTarget);
+          })();
+          const beStop = selectPostTrimProtectiveStop(tickerData, entryPrice, dir, {
+            currentPrice: p,
+            fallbackStop: trade.sl,
+            positionAgeMin,
+            moveTravelPct,
+          });
           const shouldTighten = dir === "LONG"
             ? beStop > oldSl || !Number.isFinite(oldSl)
             : beStop < oldSl || !Number.isFinite(oldSl);
           if (shouldTighten) {
             trade.sl = beStop;
             slAdjusted = true;
-            slAdjustReason = "TRIM_TP_HIT_SL_NEAR_BE";
-            console.log(`[3-TIER] ${sym} TRIM TP hit: SL moved to BE-buffer at $${beStop.toFixed(2)} (entry=$${entryPrice.toFixed(2)}, buffer=$${buffer.toFixed(2)})`);
+            slAdjustReason = "TRIM_TP_HIT_SL_PROTECT_WINNER";
+            console.log(`[3-TIER] ${sym} TRIM TP hit: SL moved to protected stop at $${beStop.toFixed(2)} (entry=$${entryPrice.toFixed(2)}, age=${positionAgeMin.toFixed(0)}m, travel=${(Math.max(0, Math.min(1, moveTravelPct)) * 100).toFixed(0)}%)`);
           }
         }
       }
@@ -31955,6 +32057,12 @@ export default {
         const trailOnly = url.searchParams.get("trailOnly") === "1";
         const skipInvestor = url.searchParams.get("skipInvestor") === "1" || url.searchParams.get("traderOnly") === "1";
         const tickerFilter = url.searchParams.get("tickers"); // comma-separated filter
+        const replayEnv = { ...env };
+        for (const overrideKey of ["LEADING_LTF", "TT_EXIT_DEBOUNCE_BARS", "TT_TUNE_V2", "RIPSTER_TUNE_V2", "ENTRY_ENGINE", "MANAGEMENT_ENGINE"]) {
+          const overrideValue = url.searchParams.get(overrideKey);
+          if (overrideValue != null && overrideValue !== "") replayEnv[overrideKey] = overrideValue;
+        }
+        const replayLeadingLtf = normalizeTfKey(replayEnv.LEADING_LTF || "10") || "10";
 
         let allTickers;
         if (tickerFilter) {
@@ -32024,8 +32132,8 @@ export default {
         // candles up to this date. Without this, d1GetCandlesAllTfs returns the
         // latest 1500 candles (e.g. from Dec 2025+) which are ALL after a Jul 2025
         // replay date, causing ltf_score=0 and zero trades.
-        const REPLAY_TFS = ["M", "W", "D", "240", "60", "30", "10"];
-        const REPLAY_TF_LIMITS = { M: 200, W: 300, D: 600, "240": 600, "60": 600, "30": 600, "10": 500 };
+        const REPLAY_TFS = [...new Set(["M", "W", "D", "240", "60", "30", replayLeadingLtf])];
+        const REPLAY_TF_LIMITS = { M: 200, W: 300, D: 600, "240": 600, "60": 600, "30": 600, "15": 600, "10": 500 };
         const candleCache = {}; // { TICKER: { TF: [candles sorted asc by ts] } }
 
         await Promise.all(
@@ -32033,7 +32141,7 @@ export default {
             candleCache[ticker] = {};
             try {
               const tfConfigs = REPLAY_TFS.map(tf => ({ tf, limit: REPLAY_TF_LIMITS[tf] || 600 }));
-              const batchResult = await d1GetCandlesAllTfs(env, ticker, tfConfigs, { beforeTs: marketCloseMs });
+              const batchResult = await d1GetCandlesAllTfs(replayEnv, ticker, tfConfigs, { beforeTs: marketCloseMs });
               for (const tf of REPLAY_TFS) {
                 const res = batchResult[tf];
                 candleCache[ticker][tf] = (res?.ok && Array.isArray(res.candles)) ? res.candles : [];
@@ -32107,7 +32215,7 @@ export default {
           for (const r of daRows) {
             try { _daConfig[r.config_key] = JSON.parse(r.config_value); } catch { _daConfig[r.config_key] = r.config_value; }
           }
-          env._deepAuditConfig = _daConfig;
+          replayEnv._deepAuditConfig = _daConfig;
         } catch {}
         try {
           const gpData = await kvGetJSON(KV, "timed:calibration:golden-profiles");
@@ -32169,6 +32277,7 @@ export default {
                 "240": bundles["240"] || null,
                 "60": bundles["60"] || null,
                 "30": bundles["30"] || null,
+                "15": bundles["15"] || null,
                 "10": bundles["10"] || null,
               };
 
@@ -32181,7 +32290,7 @@ export default {
               }
 
               const existing = stateMap[ticker] || {};
-              const result = assembleTickerData(ticker, bundleMap, existing, { rawBars });
+              const result = assembleTickerData(ticker, bundleMap, existing, { rawBars, leadingLtf: replayLeadingLtf });
               if (!result) { skipped++; continue; }
 
               // Inject golden profiles + adaptive gates + three-tier regime for entry parity
@@ -32202,8 +32311,9 @@ export default {
                   _adaptiveRegimeGates: _replayAdaptiveRegimeGates,
                   _marketRegime: _rMktRegime,
                   _sectorRegime: _rSecRegime,
-                  _deepAuditConfig: env._deepAuditConfig || null,
-                  _calibratedRankMin: env._calibratedRankMin || 0,
+                  _deepAuditConfig: replayEnv._deepAuditConfig || null,
+                  _calibratedRankMin: replayEnv._calibratedRankMin || 0,
+                  _leadingLtf: replayLeadingLtf,
                 };
               }
               if (_replayCurrentVix != null) result._vix = _replayCurrentVix;
