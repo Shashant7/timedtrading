@@ -74,6 +74,9 @@ npm run deploy:worker   # worker only (skip right-rail)
 - `exit_ts` on ALL exit paths
 - Replay: load candles with `beforeTs` (ts <= replay date), not latest
 - Backfill before replay; 10m candles required for trades
+- Replay loads VIX daily candles from D1 for per-day VIX (requires VIX backfill); falls back to static KV
+- Replay loads `ticker_profiles` from D1 for personality-aware SL/TP and lineage enrichment
+- `signal_snapshot_json.lineage` includes `ticker_character` and `vix_at_entry` for post-trade analysis
 
 **Breakout Entry Paths**
 - Three detectors in `indicators.js`: `detectDailyLevelBreak`, `detectATRBreakout`, `detectEMAStackBreakout`
@@ -104,13 +107,15 @@ npm run deploy:worker   # worker only (skip right-rail)
 - `window._ttIsPro` for feature gating
 - Admin-gate live prices
 
-**Backtest Run Registry**
-- D1 tables: `backtest_runs` (metadata), `backtest_run_metrics` (aggregated stats), `backtest_run_trades` (archived trade copies)
+**Backtest Run Registry & Archival**
+- D1 tables: `backtest_runs` (metadata), `backtest_run_metrics` (aggregated stats), `backtest_run_trades` (archived trade copies), `backtest_run_direction_accuracy` (archived DA), `backtest_run_annotations` (archived classifications), `backtest_run_config` (model_config snapshot per run)
 - Schema managed by `d1EnsureBacktestRunsSchema(env)` with `_backtestRunsSchemaReady` flag
-- Routes: `GET /timed/admin/runs` (list), `GET /timed/admin/runs/live`, `GET /timed/admin/runs/detail`, `POST /timed/admin/runs/register`, `POST /timed/admin/runs/finalize`, `POST /timed/admin/runs/mark-live`, `POST /timed/admin/runs/archive`, `POST /timed/admin/runs/update`, `POST /timed/admin/runs/delete`
+- Routes: `GET /timed/admin/runs` (list), `GET /timed/admin/runs/live`, `GET /timed/admin/runs/detail`, `GET /timed/admin/runs/trades`, `GET /timed/admin/runs/config`, `POST /timed/admin/runs/register`, `POST /timed/admin/runs/finalize`, `POST /timed/admin/runs/mark-live`, `POST /timed/admin/runs/archive`, `POST /timed/admin/runs/update`, `POST /timed/admin/runs/delete`
 - All routes use `requireKeyOrAdmin` (accepts API key OR CF Access JWT)
+- **Finalize archives everything**: `POST /timed/admin/runs/finalize` computes metrics AND copies trades → `backtest_run_trades`, DA → `backtest_run_direction_accuracy`, annotations → `backtest_run_annotations`, model_config → `backtest_run_config`. This data survives `reset`.
 - `summarizeRunMetrics(db, runId)` — scoped by `run_id`, checks `backtest_run_trades` first (archived), falls back to `trades` table
-- `full-backtest.sh` calls `register` at start and `finalize` at end
+- `full-backtest.sh` calls `register` at start and `finalize` at end; both snapshot `model_config` (register: INSERT OR IGNORE for initial state, finalize: INSERT OR REPLACE for end state)
+- `calibrate.js --run-id <id>` reads from archived tables when available
 - UI: System Intelligence → Runs tab (`react-app/system-intelligence.html`)
 
 **Code Hygiene**

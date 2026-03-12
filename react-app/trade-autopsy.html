@@ -443,6 +443,10 @@
         }, [intradaySessionMode, isRegularSessionBar]);
 
         useEffect(() => {
+          let cancelled = false;
+          setError(null);
+          setLoading(true);
+
           if (!containerRef.current || !ticker || typeof LightweightCharts === "undefined") {
             setLoading(false);
             setError("Charts unavailable");
@@ -463,10 +467,11 @@
           const limit = 3000; // Max supported by API; covers ~77 trading days of 15m bars
           const container = containerRef.current;
           const initialWidth = Math.max(container.clientWidth || 400, 200);
+          const chartH = container.clientHeight > 50 ? container.clientHeight : height;
 
           const chart = LightweightCharts.createChart(container, {
             width: initialWidth,
-            height: height,
+            height: chartH,
             layout: {
               background: { type: "solid", color: "#0b0e11" },
               textColor: "#6b7280",
@@ -492,6 +497,8 @@
               secondsVisible: false,
               barSpacing: 4,
               rightOffset: 3,
+              fixLeftEdge: true,
+              fixRightEdge: true,
               tickMarkFormatter: (time) => {
                 try {
                   if (typeof time === "string") {
@@ -550,6 +557,7 @@
           if (asOfTsParam) url += `&asOfTs=${asOfTsParam}`;
 
           const doRender = (candles) => {
+            if (cancelled) return;
             if (!candles || candles.length === 0) {
               setError("No chart data for this ticker");
               setLoading(false);
@@ -731,6 +739,7 @@
           fetch(url, { cache: "no-store" })
             .then(r => r.json())
             .then(data => {
+              if (cancelled) return;
               if (!data.ok || !data.candles) {
                 setError("No chart data for this ticker");
                 setLoading(false);
@@ -742,6 +751,7 @@
                 return fetch(fallbackUrl, { cache: "no-store" })
                   .then(r => r.json())
                   .then(d => {
+                    if (cancelled) return;
                     if (d.ok && d.candles && d.candles.length >= 2) candles = d.candles;
                     if (candles.length < 2) {
                       setError("Insufficient chart data (try a different timeframe)");
@@ -751,6 +761,7 @@
                     doRender(candles);
                   })
                   .catch(() => {
+                    if (cancelled) return;
                     if (candles.length < 2) {
                       setError("Insufficient chart data (try a different timeframe)");
                       setLoading(false);
@@ -762,6 +773,8 @@
               doRender(candles);
             })
             .catch(e => {
+              if (cancelled) return;
+              console.warn("[AutopsyChart] Failed to load chart:", e);
               setError("Failed to load chart");
               setLoading(false);
             });
@@ -778,6 +791,7 @@
           window.addEventListener("resize", handleResize);
 
           return () => {
+            cancelled = true;
             if (ro) ro.disconnect();
             window.removeEventListener("resize", handleResize);
             priceLinesRef.current = [];
@@ -824,11 +838,11 @@
         };
 
         return (
-          <div className="tt-card overflow-hidden">
-            <div className="px-3 py-2 flex items-center justify-between border-b border-white/[0.04]">
+          <div className="tt-card flex flex-col flex-1 min-h-0">
+            <div className="shrink-0 px-3 py-2 flex items-center justify-between border-b border-white/[0.04]">
               <span className="text-[13px] font-semibold text-[#14b8a6]">{ticker}</span>
               <div className="flex items-center gap-0.5 sm:gap-1">
-                {["5", "15", "60", "D"].map(t => (
+                {["5", "15", "30", "60", "D"].map(t => (
                   <button
                     key={t}
                     onClick={() => setTf(t)}
@@ -839,7 +853,7 @@
                 ))}
               </div>
             </div>
-            <div ref={containerRef} style={{ height, minWidth: 200, width: "100%" }} className="w-full">
+            <div ref={containerRef} style={{ minHeight: Math.max(height * 0.4, 180), minWidth: 200, width: "100%" }} className="w-full flex-1 min-h-0">
               {error && !loading && (
                 <div className="flex items-center justify-center h-full text-[#6b7280] text-[13px]">{error}</div>
               )}
@@ -849,7 +863,7 @@
                 </div>
               )}
             </div>
-            <div className="px-2 sm:px-3 py-2 flex flex-wrap items-center gap-x-2 sm:gap-x-4 gap-y-1 border-t border-white/[0.04] bg-white/[0.02] text-[10px] sm:text-[11px] text-[#9ca3af]">
+            <div className="shrink-0 px-2 sm:px-3 py-2 flex flex-wrap items-center gap-x-2 sm:gap-x-4 gap-y-1 border-t border-white/[0.04] bg-white/[0.02] text-[10px] sm:text-[11px] text-[#9ca3af]">
               <span className="flex items-center gap-1.5"><span className="inline-block w-3 h-0.5 rounded bg-[#60a5fa]" /> Entry</span>
               <span className="flex items-center gap-1.5"><span className="inline-block w-3 h-0.5 rounded bg-[#f59e0b]" /> Exit</span>
               {INDICATOR_KEYS.map(key => {

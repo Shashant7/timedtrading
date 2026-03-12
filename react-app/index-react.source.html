@@ -11798,6 +11798,7 @@
                       {(() => { const o = registerMarker(tslActive ? slOrig : null, "SL"); return tslActive && <Marker val={slOrig} label="SL" color="bg-rose-500/40" textColor="text-rose-400" dashed bottom={o.bottom} />; })()}
                       {/* Current stop: labeled TSL when trailing is active, SL otherwise */}
                       {(() => { const o = registerMarker(slP, tslActive ? "TSL" : "SL"); return <Marker val={slP} label={tslActive ? "TSL" : "SL"} color={slMovedPastEntry ? "bg-teal-500" : "bg-rose-500/80"} textColor={slMovedPastEntry ? "text-teal-400" : "text-rose-400"} bold={slMovedPastEntry} bottom={o.bottom} />; })()}
+                      {(() => { const pkVal = Number(openTrade?.runnerPeakPrice ?? openTrade?.runner_peak_price); const trimPct = Number(openTrade?.trimmed_pct ?? openTrade?.trimmedPct ?? 0); if (!Number.isFinite(pkVal) || pkVal <= 0 || trimPct <= 0) return null; const o = registerMarker(pkVal, "PK"); return <Marker val={pkVal} label="PK" color="bg-purple-500/70" textColor="text-purple-300" bottom={o.bottom} />; })()}
                       {(() => { const o = registerMarker(ep, "EP"); return <Marker val={ep} label="EP" color="bg-yellow-400/80" textColor="text-yellow-300" bottom={o.bottom} />; })()}
                       {(() => { const o = registerMarker(tp1, "TP"); return <Marker val={tp1} label="TP" color="bg-teal-400/80" textColor="text-teal-300" bottom={o.bottom} />; })()}
                       {(() => { const o = registerMarker(tp2, "TP2"); return <Marker val={tp2} label="TP2" color="bg-teal-400/80" textColor="text-teal-300" bottom={o.bottom} />; })()}
@@ -12451,6 +12452,7 @@
                 )}
                 {tslActive && <Mk val={slOrig} label="SL" color="bg-rose-500/40" tc="text-rose-400" dimmed />}
                 <Mk val={sl} label={tslActive ? "TSL" : "SL"} color={slMovedPastEntry ? "bg-teal-500" : "bg-rose-500/80"} tc={slMovedPastEntry ? "text-teal-400" : "text-rose-400"} />
+                {(() => { const pkv = Number(trade?.runnerPeakPrice ?? trade?.runner_peak_price); const tp = Number(trade?.trimmed_pct ?? trade?.trimmedPct ?? 0); return Number.isFinite(pkv) && pkv > 0 && tp > 0 ? <Mk val={pkv} label="PK" color="bg-purple-500/70" tc="text-purple-300" /> : null; })()}
                 <Mk val={ep} label="EP" color="bg-yellow-400/80" tc="text-yellow-300" />
                 <Mk val={tp1} label="TP" color="bg-teal-400/80" tc="text-teal-300" />
                 <Mk val={tp2} label="TP2" color="bg-teal-400/80" tc="text-teal-300" bottom />

@@ -128,13 +128,22 @@ if not rows:
 db = '$OUT'
 conn = sqlite3.connect(db)
 cur = conn.cursor()
-cur.execute('CREATE TABLE IF NOT EXISTS trades (trade_id TEXT PRIMARY KEY, ticker TEXT, direction TEXT, entry_ts INTEGER, entry_price REAL, rank INTEGER, rr REAL, status TEXT, exit_ts INTEGER, exit_price REAL, exit_reason TEXT, pnl_pct REAL)')
+cols = list(rows[0].keys())
+col_defs = ', '.join('\"'+c+'\" TEXT' for c in cols)
+cur.execute('CREATE TABLE IF NOT EXISTS trades (trade_id TEXT PRIMARY KEY, ' + col_defs + ')')
+# Add any missing columns from D1 that local table doesn't have
+existing = set(r[1] for r in cur.execute('PRAGMA table_info(trades)').fetchall())
+for c in cols:
+    if c not in existing:
+        cur.execute('ALTER TABLE trades ADD COLUMN \"' + c + '\" TEXT')
 max_ts = 0
+ph = ','.join(['?']*len(cols))
+col_names = ','.join('\"'+c+'\"' for c in cols)
 for r in rows:
     ets = int(r.get('entry_ts') or 0)
     if ets > max_ts: max_ts = ets
-    cur.execute('INSERT OR REPLACE INTO trades (trade_id, ticker, direction, entry_ts, entry_price, rank, rr, status, exit_ts, exit_price, exit_reason, pnl_pct) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
-        (r.get('trade_id'), r.get('ticker'), r.get('direction'), ets, r.get('entry_price'), r.get('rank'), r.get('rr'), r.get('status'), r.get('exit_ts'), r.get('exit_price'), r.get('exit_reason'), r.get('pnl_pct')))
+    cur.execute('INSERT OR REPLACE INTO trades (' + col_names + ') VALUES (' + ph + ')',
+        [r.get(c) for c in cols])
 conn.commit()
 cur.execute('INSERT OR REPLACE INTO _sync_meta (table_name, last_ts, last_sync_at) VALUES (?,?,?)', ('trades', max_ts if max_ts else 0, int(__import__('time').time()*1000)))
 conn.commit()
@@ -162,13 +171,21 @@ if not rows:
 db = '$OUT'
 conn = sqlite3.connect(db)
 cur = conn.cursor()
-cur.execute('CREATE TABLE IF NOT EXISTS direction_accuracy (trade_id TEXT PRIMARY KEY, ticker TEXT, ts INTEGER, signal_snapshot_json TEXT, regime_daily TEXT, regime_weekly TEXT, regime_combined TEXT, entry_path TEXT)')
+cols = list(rows[0].keys())
+col_defs = ', '.join('\"'+c+'\" TEXT' for c in cols)
+cur.execute('CREATE TABLE IF NOT EXISTS direction_accuracy (trade_id TEXT PRIMARY KEY, ' + col_defs + ')')
+existing = set(r[1] for r in cur.execute('PRAGMA table_info(direction_accuracy)').fetchall())
+for c in cols:
+    if c not in existing:
+        cur.execute('ALTER TABLE direction_accuracy ADD COLUMN \"' + c + '\" TEXT')
 max_ts = 0
+ph = ','.join(['?']*len(cols))
+col_names = ','.join('\"'+c+'\"' for c in cols)
 for r in rows:
     ts = int(r.get('ts') or 0)
     if ts > max_ts: max_ts = ts
-    cur.execute('INSERT OR REPLACE INTO direction_accuracy (trade_id, ticker, ts, signal_snapshot_json, regime_daily, regime_weekly, regime_combined, entry_path) VALUES (?,?,?,?,?,?,?,?)',
-        (r.get('trade_id'), r.get('ticker'), ts, r.get('signal_snapshot_json'), r.get('regime_daily'), r.get('regime_weekly'), r.get('regime_combined'), r.get('entry_path')))
+    cur.execute('INSERT OR REPLACE INTO direction_accuracy (' + col_names + ') VALUES (' + ph + ')',
+        [r.get(c) for c in cols])
 conn.commit()
 cur.execute('INSERT OR REPLACE INTO _sync_meta (table_name, last_ts, last_sync_at) VALUES (?,?,?)', ('direction_accuracy', max_ts if max_ts else 0, int(__import__('time').time()*1000)))
 conn.commit()
@@ -177,10 +194,62 @@ print('   Fetched:', len(rows), 'rows')
 " 2>/dev/null || true
 }
 
+# Archive-table sync: full upsert (tables are small, < 10K rows)
+sync_archive_table() {
+  local table_name="$1"
+  local pk_cols="$2"  # e.g. "run_id,trade_id"
+  local local_count
+  local_count=$(sqlite3 "$OUT" "SELECT COUNT(*) FROM ${table_name};" 2>/dev/null || echo "0")
+  echo "── $table_name (local=$local_count)"
+  local json
+  json=$(query_d1 "SELECT * FROM $table_name ORDER BY 1 LIMIT 10000") || true
+  echo "$json" | python3 -c "
+import sys, json, sqlite3
+raw = sys.stdin.read()
+try:
+    d = json.loads(raw)
+    rows = d[0]['results'] if isinstance(d, list) and d and 'results' in d[0] else (d.get('results') or [])
+except: rows = []
+if not rows:
+    print('   Remote: 0 rows (no new data)')
+    sys.exit(0)
+db = '$OUT'
+conn = sqlite3.connect(db)
+cur = conn.cursor()
+table = '$table_name'
+cols = list(rows[0].keys())
+col_defs = ', '.join('\"'+c+'\" TEXT' for c in cols)
+pk = '$pk_cols'
+pk_clause = 'PRIMARY KEY (' + pk + ')' if pk else ''
+create_cols = col_defs + (', ' + pk_clause if pk_clause else '')
+cur.execute('CREATE TABLE IF NOT EXISTS ' + table + ' (' + create_cols + ')')
+existing = set(r[1] for r in cur.execute('PRAGMA table_info(' + table + ')').fetchall())
+for c in cols:
+    if c not in existing:
+        cur.execute('ALTER TABLE ' + table + ' ADD COLUMN \"' + c + '\" TEXT')
+ph = ','.join(['?']*len(cols))
+col_names = ','.join('\"'+c+'\"' for c in cols)
+new_count = 0
+for r in rows:
+    cur.execute('INSERT OR REPLACE INTO ' + table + ' (' + col_names + ') VALUES (' + ph + ')',
+        [r.get(c) for c in cols])
+    new_count += 1
+conn.commit()
+conn.close()
+print('   Synced:', new_count, 'rows')
+" 2>/dev/null || true
+}
+
 sync_ticker_candles
 sync_trail_5m_facts
 sync_trades
 sync_direction_accuracy
+sync_archive_table "backtest_run_trades" "run_id,trade_id"
+sync_archive_table "backtest_run_direction_accuracy" "run_id,trade_id"
+sync_archive_table "backtest_run_annotations" "run_id,trade_id"
+sync_archive_table "backtest_run_config" "run_id,config_key"
+sync_archive_table "backtest_runs" "run_id"
+sync_archive_table "backtest_run_metrics" "run_id"
 
 echo ""
 echo "╚══════════════════════════════════════════════════════╝"

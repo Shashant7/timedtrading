@@ -459,16 +459,55 @@ if (!SKIP_AUTOPSY) {
 
   const tickerWhere = TICKER_FILTER ? `AND t.ticker='${TICKER_FILTER}'` : "";
   const sinceWhere = `AND t.entry_ts >= ${SINCE_TS_SEC}`;
+
+  // Detect available DA columns (execution_profile_* may not exist in local DB)
+  let daExtraCols = "";
+  if (db) {
+    try {
+      const cols = db.prepare("PRAGMA table_info(direction_accuracy)").all().map(r => r.name);
+      if (cols.includes("execution_profile_name")) {
+        daExtraCols = ", da.execution_profile_name, da.execution_profile_confidence, da.market_state, da.execution_profile_json";
+      }
+    } catch {}
+  } else {
+    daExtraCols = ", da.execution_profile_name, da.execution_profile_confidence, da.market_state, da.execution_profile_json";
+  }
+
+  // Choose source table — backtest_run_trades for archived runs, trades for live
+  let tradeTable = "trades";
+  let daTable = "direction_accuracy";
+  let runFilter = "";
+  if (CALIBRATION_RUN_ID) {
+    if (db) {
+      try {
+        const cnt = db.prepare("SELECT COUNT(*) AS cnt FROM backtest_run_trades WHERE run_id = ?").get(CALIBRATION_RUN_ID);
+        if (Number(cnt?.cnt || 0) > 0) {
+          tradeTable = "backtest_run_trades";
+          runFilter = `AND t.run_id = '${CALIBRATION_RUN_ID.replace(/'/g, "''")}'`;
+          // Only use archive DA table if it exists and has data
+          try {
+            const daCnt = db.prepare("SELECT COUNT(*) AS cnt FROM backtest_run_direction_accuracy WHERE run_id = ?").get(CALIBRATION_RUN_ID);
+            if (Number(daCnt?.cnt || 0) > 0) daTable = "backtest_run_direction_accuracy";
+          } catch {}
+          console.log(`  Using archived run data from ${tradeTable} (run_id=${CALIBRATION_RUN_ID}), DA from ${daTable}`);
+        }
+      } catch { /* table may not exist yet */ }
+    }
+    if (!runFilter) {
+      runFilter = `AND t.run_id = '${CALIBRATION_RUN_ID.replace(/'/g, "''")}'`;
+    }
+  }
+
   console.log(`  [${elapsed()}] Fetching closed trades (on or after ${SINCE_DATE})...`);
   const trades = queryChunked(
     `SELECT t.trade_id, t.ticker, t.direction, t.entry_ts, t.exit_ts,
             t.entry_price, t.exit_price, t.pnl_pct, t.rank, t.rr, t.status,
             da.signal_snapshot_json, da.regime_daily, da.regime_weekly, da.regime_combined,
-            da.entry_path AS da_entry_path,
-            da.execution_profile_name, da.execution_profile_confidence, da.market_state, da.execution_profile_json
-     FROM trades t
-     LEFT JOIN direction_accuracy da ON da.trade_id = t.trade_id
-     WHERE t.status IN ('WIN','LOSS','FLAT') ${tickerWhere} ${sinceWhere}
+            da.entry_path AS da_entry_path
+            ${daExtraCols}
+     FROM ${tradeTable} t
+     LEFT JOIN ${daTable} da ON da.trade_id = t.trade_id
+     WHERE t.status IN ('WIN','LOSS','FLAT') ${tickerWhere} ${sinceWhere} ${runFilter}
      ORDER BY t.entry_ts`
   );
   console.log(`  Closed trades: ${trades.length}`);

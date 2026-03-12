@@ -5369,6 +5369,7 @@
                                                 <span className="text-white font-medium">{slVal > 0 ? `$${slVal.toFixed(2)}` : "—"}</span>
                                               </span>
                                               <span><span className="text-[#6b7280]">EP</span> <span className="text-white font-medium">${entryPrice > 0 ? entryPrice.toFixed(2) : "—"}</span></span>
+                                              {(() => { const pk = Number(t?.runnerPeakPrice ?? t?.runner_peak_price ?? src?.runnerPeakPrice); return Number.isFinite(pk) && pk > 0 ? <span><span className="text-purple-400" title="Peak Since Trim">PK</span> <span className="text-white font-medium">${pk.toFixed(2)}</span></span> : null; })()}
                                               <span><span className="text-teal-400">TP</span> <span className="text-white font-medium">{tpVal > 0 ? `$${tpVal.toFixed(2)}` : "—"}</span></span>
                                             </div>
                                           );

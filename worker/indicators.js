@@ -3836,7 +3836,7 @@ const TF_TO_ALPACA = {
 
 // All timeframes we need for scoring
 // M (Monthly) included for investor-grade scoring (computeInvestorScore)
-const ALL_TFS = ["M", "W", "D", "240", "60", "30", "10"];
+const ALL_TFS = ["M", "W", "D", "240", "60", "30", "15", "10"];
 
 // All timeframes we fetch from Alpaca for candle storage (5m dropped — swing focus)
 const CRON_FETCH_TFS = ["M", "W", "D", "240", "60", "30", "10"];
