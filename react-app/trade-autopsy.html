@@ -541,13 +541,16 @@
           });
           chartRef.current = chart;
 
-          // Cloud area fills created FIRST so they render behind candles (widest→narrowest)
+          // Cloud area fills created FIRST so they render behind candles (widest→narrowest).
+          // Each cloud pair: upper fills max(short,long)→bottom with cloud color,
+          // lower fills min(short,long)→bottom with semi-transparent BG to "erase" below.
+          // Semi-transparent (82%) lets wider clouds show through narrower erasers.
           const noLine = { lastValueVisible: false, priceLineVisible: false, crosshairMarkerVisible: false };
-          const BG = '#0b0e11';
+          const BG_SEMI = 'rgba(11,14,17,0.82)';
           const cloudAreas = CLOUD_CONFIG.map(cloud => ({
             key: cloud.key,
             upper: chart.addAreaSeries({ topColor: cloud.fill, bottomColor: cloud.fill, lineColor: 'transparent', lineWidth: 0, ...noLine }),
-            lower: chart.addAreaSeries({ topColor: BG, bottomColor: BG, lineColor: 'transparent', lineWidth: 0, ...noLine }),
+            lower: chart.addAreaSeries({ topColor: BG_SEMI, bottomColor: BG_SEMI, lineColor: 'transparent', lineWidth: 0, ...noLine }),
           }));
           cloudAreaRef.current = cloudAreas;
 
@@ -1072,8 +1075,14 @@
                             <span className="text-[10px] text-[#9ca3af] uppercase tracking-wider">Setup</span>
                             <div className="text-[13px] font-semibold text-white mt-0.5 flex items-center gap-2">
                               {formatPath(trade.entry_path)}
-                              {trade.setup_grade && <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">{trade.setup_grade}</span>}
-                              {Number(trade.risk_budget) > 0 && <span className="text-[10px] text-[#6b7280]">${trade.risk_budget} risk</span>}
+                              {trade.setup_grade && (() => {
+                                const t = String(trade.setup_grade);
+                                const cls = t === "Prime" ? "bg-amber-500/20 text-amber-300 border-amber-500/30"
+                                  : t === "Confirmed" ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/30"
+                                  : "bg-blue-500/20 text-blue-300 border-blue-500/30";
+                                return <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold border ${cls}`}>TT {t}</span>;
+                              })()}
+                              {Number(trade.risk_budget) > 0 && <span className="text-[10px] text-[#6b7280]">{Number(trade.risk_budget) < 1 ? `${(Number(trade.risk_budget) * 100).toFixed(2)}% risk` : `$${trade.risk_budget} risk`}</span>}
                             </div>
                           </div>
                         )}
@@ -1206,10 +1215,10 @@
                       </div>
                     )}
                     {(exitReason != null || Number.isFinite(mfe) || Number.isFinite(mae)) && (
-                      <div className="tt-card p-3 shrink-0">
+                      <div className="tt-card p-3 shrink-0 max-h-[160px] overflow-y-auto">
                         <div className="text-[11px] font-semibold text-[#f59e0b] uppercase tracking-wider mb-2">Exit context</div>
                         <div className="text-[12px] text-[#d1d5db] space-y-1">
-                          {exitReason && <div className="break-words"><span className="text-[#9ca3af]">Reason:</span> {exitReason}</div>}
+                          {exitReason && <div style={{ overflowWrap: "anywhere" }}><span className="text-[#9ca3af]">Reason:</span> {exitReason.replace(/,/g, ", ")}</div>}
                           {Number.isFinite(mfe) && <div><span className="text-[#9ca3af]">MFE:</span> <span className="text-[#22c55e]">{mfe.toFixed(2)}%</span></div>}
                           {Number.isFinite(mae) && <div><span className="text-[#9ca3af]">MAE:</span> <span className="text-[#ef4444]">{mae.toFixed(2)}%</span></div>}
                         </div>

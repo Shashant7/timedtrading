@@ -1075,6 +1075,9 @@
         const [tpExpanded, setTpExpanded] = useState(true);
         // Trade History: which trade's chart is shown (for embedded entry/exit/SL/TP chart)
         const [tradeChartSelection, setTradeChartSelection] = useState(null);
+        const [autopsyModal, setAutopsyModal] = useState(null);
+        const [autopsyModalData, setAutopsyModalData] = useState(null);
+        const [autopsyModalLoading, setAutopsyModalLoading] = useState(false);
 
         // Price source: always use the ticker prop (same object the Card renders)
         // for price/change display. latestTicker is only for context/scoring data.
@@ -1537,6 +1540,11 @@
           // 2. Server-provided position direction
           const posDirStr = String(ticker?.position_direction || "").toUpperCase();
           if (ticker?.has_open_position && (posDirStr === "LONG" || posDirStr === "SHORT")) return posDirStr;
+          // 2b. Prediction contract direction (system recommendation when no position open)
+          if (predictionContract?.direction) {
+            const pcDir = String(predictionContract.direction).toUpperCase();
+            if (pcDir === "LONG" || pcDir === "SHORT") return pcDir;
+          }
           // 3. HTF state (primary trend)
           const state = String(ticker?.state || "");
           if (state.startsWith("HTF_BULL")) return "LONG";
@@ -1883,83 +1891,6 @@
                     })()}
                   </div>
 
-                  {/* ── Indicator Pills — with inline descriptions ── */}
-                  {(() => {
-                    const flags = ticker?.flags || {};
-                    const pills = [];
-
-                    // ── Indicator Pills ──
-
-                    // Entry Quality score
-                    const eqScore = Number(ticker?.entry_quality?.score) || 0;
-                    if (eqScore > 0) {
-                      const eqColor = eqScore >= 70 ? "bg-[#00c853]/20 text-[#69f0ae] border-[#00e676]/40" : eqScore >= 50 ? "bg-amber-500/20 text-amber-300 border-amber-400/40" : "bg-rose-500/20 text-rose-300 border-rose-400/40";
-                      pills.push({ label: `Q:${eqScore}`, cls: eqColor, desc: "Entry Quality", tip: `Entry Quality: Structure=${ticker?.entry_quality?.structure || 0} Momentum=${ticker?.entry_quality?.momentum || 0} Confirm=${ticker?.entry_quality?.confirmation || 0}` });
-                    }
-
-                    // Swing Consensus (multi-timeframe alignment)
-                    const swingBullCt = Number(ticker?.swing_consensus?.bullish_count) || 0;
-                    const swingBearCt = Number(ticker?.swing_consensus?.bearish_count) || 0;
-                    const swingDir = ticker?.swing_consensus?.direction || null;
-                    const freshCrossTf = ticker?.swing_consensus?.freshest_cross_tf || null;
-                    if (swingBullCt > 0 || swingBearCt > 0) {
-                      const tfColor = swingDir === "LONG" ? "bg-cyan-500/20 text-cyan-300 border-cyan-400/40" : swingDir === "SHORT" ? "bg-rose-500/20 text-rose-300 border-rose-400/40" : "bg-slate-500/20 text-slate-300 border-slate-400/40";
-                      pills.push({ label: `${swingBullCt}/5 TF`, cls: tfColor, desc: "Bullish Timeframes", tip: `Swing Consensus: ${swingBullCt}/5 bullish, ${swingBearCt}/5 bearish${freshCrossTf ? `, fresh ${freshCrossTf} cross` : ""}` });
-                    }
-
-                    // Volatility Tier
-                    const volTier = String(ticker?.volatility_tier || "");
-                    if (volTier) {
-                      const vColor = volTier === "LOW" ? "bg-blue-500/15 text-blue-300 border-blue-400/30" : volTier === "MEDIUM" ? "bg-slate-500/15 text-slate-300 border-slate-400/30" : volTier === "HIGH" ? "bg-orange-500/15 text-orange-300 border-orange-400/30" : "bg-red-500/15 text-red-300 border-red-400/30";
-                      pills.push({ label: volTier, cls: vColor, desc: "Volatility", tip: `Volatility: ${ticker?.volatility_atr_pct || "?"}% daily ATR` });
-                    }
-
-                    // Regime
-                    const regimeCombined = ticker?.regime?.combined || null;
-                    const regimeLabel = {
-                      STRONG_BULL: "Strong Bull", EARLY_BULL: "Early Bull", LATE_BULL: "Late Bull",
-                      COUNTER_TREND_BULL: "CT Bull", NEUTRAL: "Neutral", COUNTER_TREND_BEAR: "CT Bear",
-                      EARLY_BEAR: "Early Bear", LATE_BEAR: "Late Bear", STRONG_BEAR: "Strong Bear",
-                    }[regimeCombined] || null;
-                    if (regimeLabel) {
-                      const rColor = regimeCombined?.includes("BULL") ? "bg-[#00c853]/15 text-[#69f0ae] border-[#00e676]/30" : regimeCombined?.includes("BEAR") ? "bg-rose-500/15 text-rose-300 border-rose-400/30" : "bg-slate-500/15 text-slate-300 border-slate-400/30";
-                      pills.push({ label: regimeLabel, cls: rColor, desc: "Regime", tip: `Regime: Daily=${ticker?.regime?.daily || "?"}, Weekly=${ticker?.regime?.weekly || "?"}` });
-                    }
-
-                    // Fresh EMA Cross
-                    if (freshCrossTf) {
-                      pills.push({ label: `${freshCrossTf}x`, cls: "bg-purple-500/15 text-purple-300 border-purple-400/30", desc: "Fresh Cross", tip: `Fresh EMA cross on ${freshCrossTf}` });
-                    }
-
-                    // Strength / exhaustion
-                    const strength = String(ticker?.strength || ticker?.move_strength || "").toUpperCase();
-                    if (strength) {
-                      const sColor = strength === "EXTREME" ? "bg-purple-500/15 text-purple-300 border-purple-500/40" : strength === "STRONG" ? "bg-blue-500/15 text-blue-300 border-blue-500/30" : "bg-white/5 text-[#6b7280] border-white/10";
-                      pills.push({ label: strength, cls: sColor, desc: "Strength", tip: `Move Strength: ${strength} — intensity of the current move` });
-                    }
-
-                    // Trend
-                    const trend = String(ticker?.trend || ticker?.weekly_trend || "").replace(/_/g, " ");
-                    if (trend) {
-                      const tU = trend.toUpperCase();
-                      const tColor = tU.includes("BULL") ? "bg-green-500/15 text-green-300 border-green-500/30" : tU.includes("BEAR") ? "bg-red-500/15 text-red-300 border-red-500/30" : "bg-white/5 text-[#6b7280] border-white/10";
-                      const tLabel = trend.split(" ").map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(" ");
-                      pills.push({ label: tLabel, cls: tColor, desc: "Trend", tip: `Weekly Trend: ${tLabel}` });
-                    }
-
-                    if (pills.length === 0) return null;
-                    return (
-                      <div className="mt-1.5 flex gap-3 flex-wrap text-[10px]">
-                        {pills.map((p, i) => (
-                          <div key={`ip-${i}`} className="flex flex-col items-center gap-0.5 cursor-default" title={p.tip}>
-                            <span className={`px-1.5 py-0.5 rounded border font-semibold ${p.cls}`}>{p.label}</span>
-                            <span className="text-[#6b7280] text-[8px] leading-none">{p.desc}</span>
-                          </div>
-                        ))}
-                      </div>
-                    );
-                  })()}
-
                   {/* Right Rail Tabs — single row, scrollable on mobile */}
                   <div className="mt-3 flex items-center gap-1 overflow-x-auto" style={{ scrollbarWidth: "none", WebkitOverflowScrolling: "touch" }}>
                     {[
@@ -2096,13 +2027,13 @@
 
                           {predictionContractLoading ? (
                             <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-3 text-[11px] text-[#6b7280]">
-                              Building prediction contract...
+                              Building model guidance...
                             </div>
                           ) : predictionContract ? (
                             <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-3">
                               <div className="flex items-start justify-between gap-3">
                                 <div>
-                                  <div className="text-[10px] uppercase tracking-[0.16em] text-[#6b7280]">Current Prediction</div>
+                                  <div className="text-[10px] uppercase tracking-[0.16em] text-[#6b7280]">Model Guidance</div>
                                   <div className="mt-1 text-sm font-semibold text-white">{predictionContract.action_label || "Monitor"}</div>
                                 </div>
                                 <div className="flex flex-wrap items-center justify-end gap-1.5">
@@ -2232,95 +2163,6 @@
                     })()
                   ) : railTab === "ANALYSIS" ? (
                     <>
-                      {predictionContractLoading ? (
-                        <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-3 mb-4 text-[11px] text-[#6b7280]">
-                          Building prediction contract...
-                        </div>
-                      ) : predictionContract ? (
-                        <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-3 mb-4">
-                          <div className="flex items-start justify-between gap-3">
-                            <div>
-                              <div className="text-[10px] uppercase tracking-[0.16em] text-[#6b7280]">Current Prediction</div>
-                              <div className="mt-1 text-sm font-semibold text-white">{predictionContract.action_label || "Monitor"}</div>
-                            </div>
-                            <div className="flex flex-wrap items-center justify-end gap-1.5">
-                              {predictionContract.direction && (
-                                <span className={`px-2 py-0.5 rounded-md text-[10px] font-semibold border ${
-                                  predictionContract.direction === "LONG"
-                                    ? "bg-[#00c853]/12 text-[#34d399] border-[#00c853]/25"
-                                    : "bg-red-500/12 text-red-300 border-red-500/25"
-                                }`}>
-                                  {predictionContract.direction}
-                                </span>
-                              )}
-                              <span className={`px-2 py-0.5 rounded-md text-[10px] font-semibold border ${
-                                predictionContract.confidence === "high"
-                                  ? "bg-[#00c853]/12 text-[#34d399] border-[#00c853]/25"
-                                  : predictionContract.confidence === "medium"
-                                    ? "bg-amber-500/12 text-amber-300 border-amber-500/25"
-                                    : "bg-red-500/12 text-red-300 border-red-500/25"
-                              }`}>
-                                {String(predictionContract.confidence || "low").toUpperCase()}
-                              </span>
-                            </div>
-                          </div>
-                          {predictionContract.thesis && (
-                            <div className="mt-2 text-[12px] text-[#d1d5db] leading-relaxed">{predictionContract.thesis}</div>
-                          )}
-                          {predictionContract.why_now && (
-                            <div className="mt-2 text-[11px] text-[#9ca3af] leading-relaxed">{predictionContract.why_now}</div>
-                          )}
-                          {Array.isArray(predictionContract.supporting) && predictionContract.supporting.length > 0 && (
-                            <div className="mt-2 flex flex-wrap gap-1.5">
-                              {predictionContract.supporting.map((item, idx) => (
-                                <span key={idx} className="px-1.5 py-0.5 rounded bg-white/[0.04] text-[10px] text-[#9ca3af] border border-white/[0.05]">
-                                  {item}
-                                </span>
-                              ))}
-                            </div>
-                          )}
-                          <div className="mt-3 grid grid-cols-2 gap-2">
-                            {predictionContract?.risk?.stop_loss != null && (
-                              <div className="rounded-lg border border-red-500/20 bg-red-500/8 p-2">
-                                <div className="text-[10px] text-[#6b7280] uppercase">Stop Loss</div>
-                                <div className="text-sm font-semibold text-red-300 tabular-nums">${Number(predictionContract.risk.stop_loss).toFixed(2)}</div>
-                              </div>
-                            )}
-                            {predictionContract?.risk?.rr != null && (
-                              <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-2">
-                                <div className="text-[10px] text-[#6b7280] uppercase">Risk / Reward</div>
-                                <div className="text-sm font-semibold text-white tabular-nums">{Number(predictionContract.risk.rr).toFixed(2)}x</div>
-                              </div>
-                            )}
-                          </div>
-                          {Array.isArray(predictionContract.targets) && predictionContract.targets.length > 0 && (
-                            <div className="mt-3">
-                              <div className="text-[10px] text-[#6b7280] mb-1 uppercase">Management Levels</div>
-                              <div className="space-y-1.5">
-                                {predictionContract.targets.slice(0, 3).map((target, idx) => (
-                                  <div key={idx} className="flex items-center justify-between rounded-lg border border-[#00c853]/18 bg-[#00c853]/8 px-2.5 py-1.5">
-                                    <span className="text-[11px] text-[#9ca3af]">{target.label}</span>
-                                    <span className="text-[12px] font-semibold text-[#d1fae5] tabular-nums">${Number(target.price).toFixed(2)}</span>
-                                  </div>
-                                ))}
-                              </div>
-                            </div>
-                          )}
-                          {Array.isArray(predictionContract.invalidation) && predictionContract.invalidation.length > 0 && (
-                            <div className="mt-3">
-                              <div className="text-[10px] text-[#6b7280] mb-1 uppercase">Invalidation</div>
-                              {predictionContract.invalidation.slice(0, 3).map((item, idx) => (
-                                <div key={idx} className="text-[11px] text-red-300/80 leading-relaxed">• {item}</div>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      ) : predictionContractError ? (
-                        <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-3 mb-4 text-[11px] text-[#6b7280]">
-                          Prediction contract unavailable.
-                        </div>
-                      ) : null}
-
                       {/* ═══════════════════════════════════════════════════════════ */}
                       {/* 1. CONTEXT                                                  */}
                       {/* ═══════════════════════════════════════════════════════════ */}
@@ -2461,139 +2303,139 @@
                         );
                       })()}
 
-                      {/* ═══════════════════════════════════════════════════════════ */}
-                      {/* 2. PRIME SETUP BANNER                                      */}
-                      {/* ═══════════════════════════════════════════════════════════ */}
-                      {prime && (
-                        <div className="mb-4 p-3 bg-green-500/20 border-2 border-green-500 rounded-lg text-center font-bold text-green-500 prime-glow">
-                          💎 PRIME SETUP 💎
-                        </div>
-                      )}
-
-                      {/* ═══════════════════════════════════════════════════════════ */}
-                      {/* 3. SYSTEM GUIDANCE                                          */}
-                      {/* ═══════════════════════════════════════════════════════════ */}
-                      <div
-                        className={`mb-4 p-4 rounded-lg border-2 ${actionInfo.bg} border-current/30`}
-                      >
-                        <div className="flex items-center justify-between mb-3">
-                          <div className="text-sm text-[#6b7280] font-semibold">
-                            System Guidance
+                      {prime && (() => {
+                        const _primeLabels = { aligned: "Full Alignment", thesis: "Thesis Match", winner: "Winner Pattern", squeeze_release: "Squeeze Release", momentum: "Momentum Elite", phase_change: "Phase Shift" };
+                        const _primeReason = _primeLabels[prime.reason] || "High Conviction";
+                        return (
+                          <div className="mb-3 flex items-center gap-2.5 px-3 py-2 rounded-lg border border-amber-500/30 bg-amber-500/10">
+                            <span className="text-base">💎</span>
+                            <div className="min-w-0">
+                              <div className="text-[11px] font-bold text-amber-300 tracking-wide uppercase">Prime Setup</div>
+                              <div className="text-[10px] text-amber-300/60">{_primeReason}</div>
+                            </div>
                           </div>
+                        );
+                      })()}
+
+                      {predictionContractLoading ? (
+                        <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-3 mb-4 text-[11px] text-[#6b7280]">
+                          Building model guidance...
+                        </div>
+                      ) : predictionContract ? (
+                        <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-3 mb-4">
+                          <div className="flex items-start justify-between gap-3">
+                            <div>
+                              <div className="text-[10px] uppercase tracking-[0.16em] text-[#6b7280]">Model Guidance</div>
+                              <div className="mt-1 flex items-center gap-2">
+                                <span className="text-sm font-semibold text-white">{predictionContract.action_label || "Monitor"}</span>
+                                {predictionContract.setup_tier && (() => {
+                                  const _t = predictionContract.setup_tier;
+                                  const _cls = _t === "Prime" ? "bg-amber-500/15 text-amber-300 border-amber-500/30" : _t === "Confirmed" ? "bg-emerald-500/15 text-emerald-300 border-emerald-500/30" : "bg-blue-500/15 text-blue-300 border-blue-500/30";
+                                  return <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold border ${_cls}`}>{predictionContract.setup_tier_icon || ""} {_t}</span>;
+                                })()}
+                              </div>
+                            </div>
+                            <div className="flex flex-wrap items-center justify-end gap-1.5">
+                              {predictionContract.direction && (
+                                <span className={`px-2 py-0.5 rounded-md text-[10px] font-semibold border ${
+                                  predictionContract.direction === "LONG"
+                                    ? "bg-[#00c853]/12 text-[#34d399] border-[#00c853]/25"
+                                    : "bg-red-500/12 text-red-300 border-red-500/25"
+                                }`}>
+                                  {predictionContract.direction}
+                                </span>
+                              )}
+                              <span className={`px-2 py-0.5 rounded-md text-[10px] font-semibold border ${
+                                predictionContract.confidence === "high"
+                                  ? "bg-[#00c853]/12 text-[#34d399] border-[#00c853]/25"
+                                  : predictionContract.confidence === "medium"
+                                    ? "bg-amber-500/12 text-amber-300 border-amber-500/25"
+                                    : "bg-red-500/12 text-red-300 border-red-500/25"
+                              }`}>
+                                {String(predictionContract.confidence || "low").toUpperCase()}
+                              </span>
+                            </div>
+                          </div>
+                          {predictionContract.thesis && (
+                            <div className="mt-2 text-[12px] text-[#d1d5db] leading-relaxed">{predictionContract.thesis}</div>
+                          )}
+                          {predictionContract.why_now && (
+                            <div className="mt-2 text-[11px] text-[#9ca3af] leading-relaxed italic">{predictionContract.why_now}</div>
+                          )}
+                          {Array.isArray(predictionContract.supporting) && predictionContract.supporting.length > 0 && (
+                            <div className="mt-2 flex flex-wrap gap-1.5">
+                              {predictionContract.supporting.map((item, idx) => (
+                                <span key={idx} className="px-1.5 py-0.5 rounded bg-white/[0.04] text-[10px] text-[#9ca3af] border border-white/[0.05]">
+                                  {item}
+                                </span>
+                              ))}
+                            </div>
+                          )}
                           {(() => {
-                            const stage = String(ticker?.kanban_stage || "").toLowerCase();
-                            const isEnterLane = stage === "enter_now" || stage === "enter";
-                            const blockReason = ticker?.__execution_block_reason || ticker?.__entry_block_reason;
-                            if (isEnterLane && blockReason) {
-                              return (
-                                <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-amber-500/20 text-amber-400">
-                                  Blocked
-                                </span>
-                              );
-                            }
-                            if (isEnterLane) {
-                              return (
-                                <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-green-500/20 text-green-400">
-                                  Enter
-                                </span>
-                              );
-                            }
-                            if (decisionSummary) {
-                              return (
-                                <span className={`px-2 py-0.5 rounded text-[10px] font-semibold ${decisionSummary.bg} ${decisionSummary.tone}`}>
-                                  {decisionSummary.status}
-                                </span>
-                              );
-                            }
-                            return null;
-                          })()}
-                        </div>
-                        <div
-                          className={`text-lg font-bold mb-2 ${actionInfo.color}`}
-                        >
-                          {actionInfo.action}
-                        </div>
-                        <div className="text-sm text-[#cbd5ff] leading-relaxed">
-                          {actionInfo.description}
-                        </div>
-
-                        {(() => {
-                          const raw = ticker?.__execution_block_reason || ticker?.__entry_block_reason;
-                          if (!raw) return null;
-                          const rrStage = String(ticker?.kanban_stage || "").toLowerCase();
-                          if (rrStage !== "enter" && rrStage !== "enter_now") return null;
-                          const formatted = String(raw).split("+").map(r => {
-                            const sm = r.match(/^sector_full:(\d+)\/(\d+)\s*(.*)/);
-                            if (sm) return `Max ${sm[3] || "sector"} positions reached (${sm[1]}/${sm[2]})`;
-                            const dm = r.match(/^direction_full:(\d+)\/(\d+)\s*(LONG|SHORT)/i);
-                            if (dm) return `Max ${dm[3].toLowerCase()} positions reached (${dm[1]}/${dm[2]})`;
-                            const cm = r.match(/^correlated:(\d+)\s+in\s+(.*)/);
-                            if (cm) return `Too many correlated positions in ${cm[2]} (${cm[1]})`;
-                            const dl = r.match(/^daily_limit:(\d+)\/(\d+)/);
-                            if (dl) return `Daily entry limit reached (${dl[1]}/${dl[2]})`;
-                            if (r === "cooldown") return "Entry cooldown active";
-                            if (r === "smart_gate") return "Risk management gate";
-                            if (r === "outside_RTH") return "Outside regular trading hours";
-                            if (r === "weekend") return "Market closed (weekend)";
-                            if (r === "same_cycle") return "Already attempted this cycle";
-                            if (r === "existing_position") return "Position already open";
-                            if (r === "recent_trade") return "Recent trade on this ticker";
-                            return r.replace(/_/g, " ");
-                          }).join(", ");
-                          return (
-                            <div className="mt-3 px-3 py-2 rounded bg-amber-500/10 border border-amber-500/30">
-                              <span className="text-[10px] text-amber-300/70 font-semibold">Blocked: </span>
-                              <span className="text-xs text-amber-200 font-semibold">{formatted}</span>
-                            </div>
-                          );
-                        })()}
-
-                        {/* Plain English Reasons */}
-                        {(() => {
-                          const ms = ticker?.move_status && typeof ticker.move_status === "object" ? ticker.move_status : null;
-                          const reasonsRaw = Array.isArray(ms?.reasons) ? ms.reasons : [];
-                          const reasons = reasonsRaw.filter((x) => x != null && String(x).trim()).slice(0, 5);
-                          
-                          const translateReason = (r) => {
-                            const key = String(r || "").trim().toLowerCase();
-                            const translations = {
-                              'sl_breached': 'Stop loss price was hit',
-                              'tp_reached': 'Target price was reached',
-                              'daily_ema_regime_break': 'Price broke below key moving average support',
-                              'ichimoku_regime_break': 'Trend structure weakened significantly',
-                              'late_cycle': 'Move is in late stage, risk of reversal',
-                              'overextended': 'Price stretched too far too fast',
-                              'left_entry_corridor': 'Price moved outside ideal entry zone',
-                              'corridor': 'Price is in ideal entry zone',
-                              'aligned': 'All timeframes show same direction',
-                              'prime': 'Setup meets all quality criteria',
-                              'sq30_release': 'Consolidation breakout detected',
-                              'momentum_elite': 'Stock has strong fundamental momentum',
-                              'high_rank': 'Ranks highly vs other opportunities',
-                              'good_rr': 'Favorable risk vs reward ratio'
-                            };
-                            return translations[key] || key.replace(/_/g, ' ');
-                          };
-                          
-                          if (reasons.length === 0) return null;
-                          
-                          return (
-                            <div className="mt-3 pt-3 border-t border-current/20">
-                              <div className="text-xs text-[#6b7280] mb-2 font-semibold">
-                                Key Factors:
-                              </div>
-                              <div className="space-y-1.5">
-                                {reasons.map((reason, idx) => (
-                                  <div key={`reason-${idx}`} className="flex gap-2 text-xs text-[#cbd5ff]">
-                                    <span className="text-cyan-400">•</span>
-                                    <span>{translateReason(reason)}</span>
+                            const _sl = predictionContract?.risk?.stop_loss != null ? Number(predictionContract.risk.stop_loss) : NaN;
+                            const _rr = predictionContract?.risk?.rr != null ? Number(predictionContract.risk.rr) : NaN;
+                            const _entry = Number(ticker?.position_entry || ticker?.entry_price || ticker?.entry_ref || ticker?.trigger_price || ticker?.price) || 0;
+                            const _slPct = Number.isFinite(_sl) && _entry > 0 ? Math.abs((_sl - _entry) / _entry) * 100 : NaN;
+                            const _hasSl = Number.isFinite(_sl) && _sl > 0;
+                            const _hasRr = Number.isFinite(_rr) && _rr > 0;
+                            if (!_hasSl && !_hasRr) return null;
+                            return (
+                              <div className="mt-3 grid grid-cols-2 gap-2">
+                                {_hasSl && (
+                                  <div className="rounded-lg border border-red-500/20 bg-red-500/8 p-2">
+                                    <div className="text-[10px] text-[#6b7280] uppercase">Stop Loss</div>
+                                    <div className="flex items-baseline gap-1.5">
+                                      <span className="text-sm font-semibold text-red-300 tabular-nums">${_sl.toFixed(2)}</span>
+                                      {Number.isFinite(_slPct) && <span className="text-[9px] text-red-300/60">{_slPct.toFixed(1)}%</span>}
+                                    </div>
                                   </div>
-                                ))}
+                                )}
+                                {_hasRr && (
+                                  <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-2">
+                                    <div className="text-[10px] text-[#6b7280] uppercase">Risk / Reward</div>
+                                    <div className="text-sm font-semibold text-white tabular-nums">{_rr.toFixed(2)}x</div>
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })()}
+                          {Array.isArray(predictionContract.targets) && predictionContract.targets.length > 0 && (
+                            <div className="mt-3">
+                              <div className="text-[10px] text-[#6b7280] mb-1 uppercase">Management Levels</div>
+                              <div className="space-y-1.5">
+                                {predictionContract.targets.slice(0, 3).map((target, idx) => {
+                                  const _tpPx = Number(target.price);
+                                  const _eRef = Number(ticker?.position_entry || ticker?.entry_price || ticker?.entry_ref || ticker?.trigger_price || ticker?.price) || 0;
+                                  const _pct = Number.isFinite(_tpPx) && _eRef > 0 ? Math.abs((_tpPx - _eRef) / _eRef) * 100 : NaN;
+                                  return (
+                                    <div key={idx} className="flex items-center justify-between rounded-lg border border-[#00c853]/18 bg-[#00c853]/8 px-2.5 py-1.5">
+                                      <span className="text-[11px] text-[#9ca3af]">{target.label}</span>
+                                      <div className="flex items-center gap-1.5">
+                                        <span className="text-[12px] font-semibold text-[#d1fae5] tabular-nums">${_tpPx.toFixed(2)}</span>
+                                        {Number.isFinite(_pct) && <span className="text-[9px] text-[#6b7280]">{_pct.toFixed(1)}%</span>}
+                                      </div>
+                                    </div>
+                                  );
+                                })}
                               </div>
                             </div>
-                          );
-                        })()}
-                      </div>
+                          )}
+                          {Array.isArray(predictionContract.invalidation) && predictionContract.invalidation.length > 0 && (
+                            <div className="mt-3">
+                              <div className="text-[10px] text-[#6b7280] mb-1 uppercase">Invalidation</div>
+                              {predictionContract.invalidation.slice(0, 3).map((item, idx) => (
+                                <div key={idx} className="text-[11px] text-red-300/80 leading-relaxed">• {item}</div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      ) : predictionContractError ? (
+                        <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-3 mb-4 text-[11px] text-[#6b7280]">
+                          Model guidance unavailable.
+                        </div>
+                      ) : null}
+
+                      {/* Prime Setup banner moved above Model Guidance */}
 
                       {/* ═══════════════════════════════════════════════════════════ */}
                       {/* 5. RISK / REWARD LEVELS                                    */}
@@ -2681,9 +2523,10 @@
                         if (!hasSl && !has3Tier && !hasLegacy && !Number.isFinite(rr)) return null;
 
                         const dir = resolvedDir; // unified direction from top of component
-                        // SL% = absolute risk distance from current price
-                        const slDistPct = hasSl && Number.isFinite(price) && price > 0
-                          ? Math.abs((sl - price) / price) * 100
+                        // SL% = absolute risk distance from entry price (fall back to current price)
+                        const _entryRef = Number(ticker?.position_entry || trade?.entry_price || trade?.entryPrice || ticker?.entry_price || ticker?.entry_ref || ticker?.trigger_price) || price;
+                        const slDistPct = hasSl && Number.isFinite(_entryRef) && _entryRef > 0
+                          ? Math.abs((sl - _entryRef) / _entryRef) * 100
                           : null;
 
                         // Compute per-target R:R from current price (requires known direction)
@@ -2695,10 +2538,11 @@
                           return gain / risk;
                         };
 
-                        // Per-target % distance from current price
+                        // Per-target % distance from entry price (fallback to current price)
                         const tpPct = (tpVal) => {
-                          if (!Number.isFinite(price) || price <= 0 || !Number.isFinite(tpVal) || tpVal <= 0) return null;
-                          return Math.abs((tpVal - price) / price) * 100;
+                          const ref = Number.isFinite(_entryRef) && _entryRef > 0 ? _entryRef : price;
+                          if (!Number.isFinite(ref) || ref <= 0 || !Number.isFinite(tpVal) || tpVal <= 0) return null;
+                          return Math.abs((tpVal - ref) / ref) * 100;
                         };
 
                         const rrTrim = has3Tier ? computeTargetRR(tpTrim) : null;
@@ -2727,9 +2571,12 @@
                                 {(() => { const slFromKijun = Number.isFinite(kijunSL) && kijunSL > 0 && slRaw === kijunSL; return (
                                 <div className={`p-2.5 rounded border flex items-center justify-between ${tslActive ? "bg-white/[0.02] border-white/[0.08]" : "bg-red-500/10 border-red-500/30"}`} title={slFromKijun ? "Kijun-Sen (Ichimoku Cloud) reference" : undefined}>
                                   <span className={`text-xs font-semibold ${tslActive ? "text-[#6b7280]" : "text-red-400"}`}>Stop Loss{slFromKijun ? " (Kijun)" : ""}</span>
-                                  <span className={`text-xs font-bold ${tslActive ? "text-[#6b7280]" : "text-red-400"}`}>{tslActive && slOrig ? `$${slOrig.toFixed(2)}` : `$${sl.toFixed(2)}`}</span>
-                                  {!tslActive && Number.isFinite(slDistPct) && <span className="text-[9px] text-red-300/70">{slDistPct.toFixed(1)}% risk</span>}
-                                  {tslActive && <span className="text-[9px] text-[#4b5563]">original</span>}
+                                  <div className="flex items-center gap-2">
+                                    <span className={`text-xs font-bold ${tslActive ? "text-[#6b7280]" : "text-red-400"}`}>{tslActive && slOrig ? `$${slOrig.toFixed(2)}` : `$${sl.toFixed(2)}`}</span>
+                                    {!tslActive && Number.isFinite(slDistPct) && <span className="text-[9px] text-red-300/70">{slDistPct.toFixed(1)}%</span>}
+                                    {!tslActive && Number.isFinite(rr) && rr > 0 && <span className="text-[9px] font-semibold text-blue-400">{Number(rr).toFixed(1)}:1</span>}
+                                    {tslActive && <span className="text-[9px] text-[#4b5563]">original</span>}
+                                  </div>
                                 </div>
                                 ); })()}
                                 {/* TSL — only shown when stop has been trailed */}
@@ -2756,6 +2603,7 @@
                                         </div>
                                         <div className="flex items-center gap-2">
                                           <span className={`text-xs font-bold ${tier.text}`}>${tier.tp.toFixed(2)}</span>
+                                          {Number.isFinite(tpPct(tier.tp)) && <span className="text-[9px] text-[#6b7280]">{tpPct(tier.tp).toFixed(1)}%</span>}
                                           {window._ttIsPro && Number.isFinite(tier.rr) && <span className="text-[10px] font-semibold text-blue-400">{tier.rr.toFixed(2)}:1</span>}
                                         </div>
                                       </div>
@@ -2979,71 +2827,6 @@
                                 <div className="text-[8px] text-slate-500">Target</div>
                                 <div className={`font-bold tabular-nums ${tpM > 1.05 ? "text-emerald-300" : tpM < 0.95 ? "text-amber-300" : "text-white"}`}>{tpM > 1.05 ? "Extended" : tpM < 0.95 ? "Closer" : "Standard"}</div>
                               </div>
-                            </div>
-                          </div>
-                        );
-                      })()}
-
-                      {/* ═══════════════════════════════════════════════════════════ */}
-                      {/* 3b. SYSTEM ALIGNMENT (calibration-derived)                  */}
-                      {/* ═══════════════════════════════════════════════════════════ */}
-                      {(() => {
-                        const al = (latestTicker || ticker)?._alignment;
-                        if (!al || (al.path_win_rate == null && al.rank_bucket_wr == null)) return null;
-                        const wr = al.path_win_rate != null ? Number(al.path_win_rate) : null;
-                        const wrCls = wr != null ? (wr >= 60 ? "text-emerald-400" : wr >= 45 ? "text-amber-400" : "text-rose-400") : "text-slate-400";
-                        const _snMap = { ema_regime_confirmed_long: "TT Confirmed Long", ema_regime_confirmed_short: "TT Confirmed Short", ema_regime_early_long: "TT Early Long", ema_regime_early_short: "TT Early Short", gold_long: "TT Breakout Long", gold_short: "TT Reversal Short" };
-                        const pathLabel = al.entry_path ? (_snMap[al.entry_path] || ("TT " + al.entry_path.replace(/_/g, " "))) : null;
-                        const rBucketWr = al.rank_bucket_wr != null ? Number(al.rank_bucket_wr) : null;
-                        const pathAction = al.path_action;
-                        const pathEnabled = al.path_enabled !== false;
-                        return (
-                          <div className="mb-4 p-3 rounded-2xl border border-white/[0.08]" style={{background:"rgba(255,255,255,0.03)",backdropFilter:"blur(12px) saturate(1.2)",WebkitBackdropFilter:"blur(12px) saturate(1.2)",boxShadow:"0 2px 12px rgba(0,0,0,0.25), inset 0 0.5px 0 rgba(255,255,255,0.06)"}}>
-                            <div className="flex items-center gap-2 mb-3">
-                              <div className="w-5 h-5 rounded-md bg-purple-500/20 flex items-center justify-center text-[10px]">📊</div>
-                              <span className="text-xs font-bold text-slate-300 uppercase tracking-wider">System Alignment</span>
-                            </div>
-                            <div className="space-y-2 text-xs">
-                              {pathLabel && (
-                                <div className="flex items-center justify-between">
-                                  <span className="text-slate-400">Entry path</span>
-                                  <div className="flex items-center gap-2">
-                                    <span className="text-white font-medium capitalize">{pathLabel}</span>
-                                    {pathAction && (
-                                      <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${pathAction === "BOOST" ? "bg-emerald-500/20 text-emerald-400" : pathAction === "DISABLE" ? "bg-rose-500/20 text-rose-400" : pathAction === "RESTRICT" ? "bg-amber-500/20 text-amber-400" : "bg-slate-500/20 text-slate-400"}`}>{pathAction}</span>
-                                    )}
-                                  </div>
-                                </div>
-                              )}
-                              {wr != null && (
-                                <div className="flex items-center justify-between">
-                                  <span className="text-slate-400">Path win rate</span>
-                                  <span className={`font-bold ${wrCls}`}>{wr.toFixed(0)}%</span>
-                                </div>
-                              )}
-                              {al.path_expectancy != null && (
-                                <div className="flex items-center justify-between">
-                                  <span className="text-slate-400">Path expectancy</span>
-                                  <span className={`font-medium ${Number(al.path_expectancy) >= 0 ? "text-emerald-400" : "text-rose-400"}`}>{al.path_expectancy}</span>
-                                </div>
-                              )}
-                              {al.path_sqn != null && (
-                                <div className="flex items-center justify-between">
-                                  <span className="text-slate-400">Path SQN</span>
-                                  <span className="text-white font-medium">{Number(al.path_sqn).toFixed(2)}</span>
-                                </div>
-                              )}
-                              {rBucketWr != null && (
-                                <div className="flex items-center justify-between">
-                                  <span className="text-slate-400">Rank bucket win rate</span>
-                                  <span className={`font-bold ${rBucketWr >= 60 ? "text-emerald-400" : rBucketWr >= 45 ? "text-amber-400" : "text-rose-400"}`}>{rBucketWr.toFixed(0)}%</span>
-                                </div>
-                              )}
-                              {!pathEnabled && (
-                                <div className="mt-2 px-2 py-1.5 rounded bg-rose-500/10 border border-rose-500/30 text-[10px] text-rose-300 font-semibold">
-                                  This entry path is disabled by calibration — proceed with caution.
-                                </div>
-                              )}
                             </div>
                           </div>
                         );
@@ -5308,9 +5091,7 @@
                                       <span className={`text-[11px] font-semibold ${t.direction === "LONG" ? "text-green-400" : "text-red-400"}`}>
                                         {t.direction}
                                       </span>
-                                      {(t.setup_grade || t.setupGrade) && (
-                                        <span className="px-1 py-0.5 rounded text-[8px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30" title={t.setup_name || t.setupName || ""}>{t.setup_grade || t.setupGrade}</span>
-                                      )}
+                                      {(() => { const _g = t.setup_grade || t.setupGrade; if (!_g) return null; const cls = _g === "Prime" ? "bg-amber-500/20 text-amber-300 border-amber-500/30" : _g === "Confirmed" ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/30" : "bg-blue-500/20 text-blue-300 border-blue-500/30"; return <span className={`px-1 py-0.5 rounded text-[8px] font-bold border ${cls}`} title={t.setup_name || t.setupName || ""}>TT {_g}</span>; })()}
                                       {entryQty > 0 && (
                                         <span className="text-[9px] text-[#6b7280]">
                                           {entryQty % 1 === 0 ? entryQty : entryQty.toFixed(2)} shares
@@ -5467,16 +5248,33 @@
                                     )}
                                   </div>
 
-                                  {/* View chart (entry/trim/exit) — same as Trade Autopsy + Discord link */}
-                                  <div className="mt-2 pt-2 border-t border-white/[0.06]">
+                                  {/* View chart — inline modal or full page */}
+                                  <div className="mt-2 pt-2 border-t border-white/[0.06] flex items-center gap-2">
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setAutopsyModal(t);
+                                        setAutopsyModalLoading(true);
+                                        setAutopsyModalData(null);
+                                        fetch(`${API_BASE}/timed/admin/trade-autopsy/trades?trade_id=${encodeURIComponent(t.trade_id || t.id || "")}&key=${encodeURIComponent(window._ttApiKey || "")}`)
+                                          .then(r => r.json())
+                                          .then(d => { setAutopsyModalData(d?.trades?.[0] || d?.trade || t); setAutopsyModalLoading(false); })
+                                          .catch(() => { setAutopsyModalData(t); setAutopsyModalLoading(false); });
+                                      }}
+                                      className="text-[10px] px-2 py-1 rounded bg-white/[0.06] border border-white/[0.08] text-[#93b8f7] hover:text-white hover:bg-white/[0.1] transition-colors inline-flex items-center gap-1"
+                                      title="View trade details"
+                                    >
+                                      Trade Autopsy
+                                    </button>
                                     <a
                                       href={`trade-autopsy.html?trade_id=${encodeURIComponent(t.trade_id || t.id || "")}`}
                                       target="_blank"
                                       rel="noopener noreferrer"
-                                      className="text-[10px] px-2 py-1 rounded bg-white/[0.06] border border-white/[0.08] text-[#93b8f7] hover:text-white hover:bg-white/[0.1] transition-colors inline-flex items-center gap-1"
-                                      title="Open Trade Autopsy chart (entry, trim, exit)"
+                                      className="text-[10px] text-[#6b7280] hover:text-[#9ca3af] transition-colors"
+                                      title="Open full Trade Autopsy page"
+                                      onClick={(e) => e.stopPropagation()}
                                     >
-                                      View chart
+                                      Full page &rarr;
                                     </a>
                                   </div>
                                 </div>
@@ -6142,6 +5940,133 @@
                         />
                       )}
                     </div>
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* ═══════════════════════════════════════════════════════════════ */}
+            {/* TRADE AUTOPSY INLINE MODAL                                      */}
+            {/* ═══════════════════════════════════════════════════════════════ */}
+            {autopsyModal && (() => {
+              const mt = autopsyModalData || autopsyModal;
+              const _dir = String(mt.direction || "").toUpperCase();
+              const _ticker = mt.ticker || "";
+              const _entry = Number(mt.entryPrice || mt.entry_price) || 0;
+              const _exit = Number(mt.exitPrice || mt.exit_price) || 0;
+              const _pnl = Number(mt.pnl || mt.realized_pnl) || 0;
+              const _pnlPct = Number(mt.pnlPct || mt.pnl_pct) || 0;
+              const _status = String(mt.status || "").toUpperCase();
+              const _grade = mt.setup_grade || mt.setupGrade || "";
+              const _setupName = mt.setup_name || mt.setupName || "";
+              const _riskBudget = mt.risk_budget || mt.riskBudget || "";
+              const _exitReason = mt.exitReason || mt.exit_reason || "";
+              const _entryTime = mt.entryTime || mt.entry_time || "";
+              const _exitTime = mt.exitTime || mt.exit_time || "";
+              const _snap = (() => {
+                try {
+                  const raw = mt.signal_snapshot_json || mt.signalSnapshot;
+                  return typeof raw === "string" ? JSON.parse(raw) : raw;
+                } catch { return null; }
+              })();
+              const _gradeCls = _grade === "Prime" ? "bg-amber-500/20 text-amber-300 border-amber-500/30" : _grade === "Confirmed" ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/30" : _grade === "Speculative" ? "bg-blue-500/20 text-blue-300 border-blue-500/30" : "bg-white/10 text-white/60 border-white/10";
+              const _statusCls = _status === "WIN" ? "text-green-400" : _status === "LOSS" ? "text-red-400" : "text-[#93b8f7]";
+              const fmtDt = (v) => { if (!v) return "\u2014"; try { const d = typeof v === "number" ? new Date(v > 1e12 ? v : v * 1000) : new Date(v); return d.toLocaleDateString("en-US", { month: "short", day: "numeric" }) + " " + d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }); } catch { return "\u2014"; } };
+
+              return (
+                <div
+                  className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/70 backdrop-blur-sm"
+                  onClick={() => setAutopsyModal(null)}
+                >
+                  <div
+                    className="w-full max-w-[680px] max-h-[90vh] overflow-y-auto rounded-2xl border border-white/[0.1] bg-[#0b0e11] shadow-2xl"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    {/* Header */}
+                    <div className="flex items-center justify-between px-5 py-3 border-b border-white/[0.06]">
+                      <div className="flex items-center gap-3">
+                        <span className="text-base font-bold text-white">{_ticker}</span>
+                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${_dir === "LONG" ? "bg-green-500/15 text-green-400 border-green-500/30" : "bg-red-500/15 text-red-400 border-red-500/30"}`}>{_dir}</span>
+                        <span className={`text-sm font-bold ${_statusCls}`}>{_status === "WIN" ? "+$" : _status === "LOSS" ? "-$" : "$"}{Math.abs(_pnl).toFixed(2)}</span>
+                        {_pnlPct ? <span className={`text-[11px] ${_statusCls}`}>({_pnlPct > 0 ? "+" : ""}{_pnlPct.toFixed(2)}%)</span> : null}
+                      </div>
+                      <button onClick={() => setAutopsyModal(null)} className="w-7 h-7 flex items-center justify-center rounded hover:bg-white/10 text-white/50 hover:text-white text-sm">&times;</button>
+                    </div>
+
+                    {autopsyModalLoading ? (
+                      <div className="p-8 text-center text-white/40 text-sm">Loading trade details...</div>
+                    ) : (
+                      <div className="p-4 space-y-4">
+                        {/* Setup Info */}
+                        <div className="flex items-center gap-2 flex-wrap">
+                          {_setupName && <span className="text-[12px] font-semibold text-white">{_setupName}</span>}
+                          {_grade && <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold border ${_gradeCls}`}>TT {_grade}</span>}
+                          {_riskBudget && <span className="text-[10px] text-[#6b7280]">{_riskBudget}% risk</span>}
+                        </div>
+
+                        {/* Entry/Exit */}
+                        <div className="grid grid-cols-2 gap-2 text-[11px]">
+                          <div className="p-2 rounded-lg bg-green-500/8 border border-green-500/15">
+                            <div className="text-[9px] text-[#6b7280] uppercase">Entry</div>
+                            <div className="text-green-300 font-semibold">${_entry.toFixed(2)}</div>
+                            <div className="text-[9px] text-[#6b7280]">{fmtDt(_entryTime || mt.entry_ts)}</div>
+                          </div>
+                          {(_exit > 0 || _exitTime) && (
+                            <div className="p-2 rounded-lg bg-red-500/8 border border-red-500/15">
+                              <div className="text-[9px] text-[#6b7280] uppercase">Exit</div>
+                              <div className="text-red-300 font-semibold">{_exit > 0 ? `$${_exit.toFixed(2)}` : "\u2014"}</div>
+                              <div className="text-[9px] text-[#6b7280]">{fmtDt(_exitTime || mt.exit_ts)}</div>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Chart */}
+                        <TradeEventChart trade={mt} height={250} apiBase={API_BASE} />
+
+                        {/* Signal Snapshot */}
+                        {_snap && (
+                          <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-3">
+                            <div className="text-[10px] uppercase tracking-wider text-[#6b7280] mb-2">Signal Snapshot at Entry</div>
+                            {_snap.bias && (
+                              <div className="flex flex-wrap gap-1 mb-2">
+                                {Object.entries(_snap.bias).map(([tf, b]) => {
+                                  const bull = String(b).toLowerCase().includes("bull");
+                                  return <span key={tf} className={`px-1.5 py-0.5 rounded text-[9px] font-bold border ${bull ? "bg-green-500/15 text-green-400 border-green-500/20" : "bg-red-500/15 text-red-400 border-red-500/20"}`}>{tf} {bull ? "Bullish" : "Bearish"}</span>;
+                                })}
+                              </div>
+                            )}
+                            {_snap.indicators && typeof _snap.indicators === "object" && Object.entries(_snap.indicators).map(([tf, ind]) => (
+                              <div key={tf} className="mb-1.5">
+                                <div className="text-[10px] font-semibold text-white/70 mb-0.5">{tf}</div>
+                                <div className="text-[10px] text-[#6b7280] leading-snug">
+                                  {typeof ind === "object" ? Object.entries(ind).map(([k, v]) => `${k}: ${v}`).join(" \u00B7 ") : String(ind)}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+
+                        {/* Exit Context */}
+                        {_exitReason && (
+                          <div className="rounded-lg border border-purple-500/15 bg-purple-500/5 p-3">
+                            <div className="text-[10px] uppercase tracking-wider text-[#6b7280] mb-1">Exit Context</div>
+                            <div className="text-[11px] text-purple-300">{String(_exitReason).replace(/,/g, " \u2022 ").replace(/_/g, " ")}</div>
+                          </div>
+                        )}
+
+                        {/* Full page link */}
+                        <div className="text-center pt-2 border-t border-white/[0.06]">
+                          <a
+                            href={`trade-autopsy.html?trade_id=${encodeURIComponent(mt.trade_id || mt.id || "")}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-[11px] text-[#93b8f7] hover:text-white transition-colors"
+                          >
+                            Open full Trade Autopsy &rarr;
+                          </a>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
               );

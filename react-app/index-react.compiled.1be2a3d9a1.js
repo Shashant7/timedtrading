@@ -3389,6 +3389,7 @@ function useAllTrails(tickers, enabled = true) {
 function BubbleChart({
   tickers,
   onBubbleClick,
+  onBackgroundClick,
   hoveredTicker,
   onHover,
   selectedTicker,
@@ -3691,6 +3692,13 @@ function BubbleChart({
       preserveAspectRatio: "xMidYMid meet",
       onMouseMove: handleMouseMove,
       onMouseLeave: handleMouseLeave,
+      onClick: e => {
+        const tag = e.target.tagName?.toLowerCase();
+        const isBg = e.target === e.currentTarget || tag === "rect" || tag === "line" || tag === "text";
+        if (isBg && typeof onBackgroundClick === "function") {
+          onBackgroundClick();
+        }
+      },
       onTouchMove: e => {
         const touch = e.touches[0];
         if (touch) {
@@ -8847,7 +8855,14 @@ const CompactCard = React.memo(function CompactCard({
     title: "TT Selected"
   }, "TT"), React.createElement("span", {
     className: `inline-flex items-center justify-center px-1.5 py-px rounded text-[9px] font-black shrink-0 tracking-wide ${dir === "LONG" ? "bg-cyan-500/80 text-white ring-1 ring-cyan-300/60" : "bg-rose-600/80 text-white ring-1 ring-rose-400/60"}`
-  }, dir), badgesText && React.createElement("span", {
+  }, dir), (() => {
+    const _g = openTrade?.setupGrade || openTrade?.setup_grade;
+    if (!_g) return null;
+    const cls = _g === "Prime" ? "bg-amber-500/25 text-amber-200 border-amber-400/40" : _g === "Confirmed" ? "bg-emerald-500/25 text-emerald-200 border-emerald-400/40" : "bg-blue-500/25 text-blue-200 border-blue-400/40";
+    return React.createElement("span", {
+      className: `px-1 py-px rounded text-[8px] font-bold border shrink-0 ${cls}`
+    }, "TT ", _g);
+  })(), badgesText && React.createElement("span", {
     className: "text-[10px] shrink-0"
   }, badgesText)), window._ttIsPro && React.createElement("div", {
     className: "flex flex-col items-end shrink-0 ml-1"
@@ -9141,6 +9156,18 @@ const CompactCard = React.memo(function CompactCard({
         color: slMovedPastEntry ? "bg-teal-500" : "bg-rose-500/80",
         textColor: slMovedPastEntry ? "text-teal-400" : "text-rose-400",
         bold: slMovedPastEntry,
+        bottom: o.bottom
+      });
+    })(), (() => {
+      const pkVal = Number(openTrade?.runnerPeakPrice ?? openTrade?.runner_peak_price);
+      const trimPct = Number(openTrade?.trimmed_pct ?? openTrade?.trimmedPct ?? 0);
+      if (!Number.isFinite(pkVal) || pkVal <= 0 || trimPct <= 0) return null;
+      const o = registerMarker(pkVal, "PK");
+      return React.createElement(Marker, {
+        val: pkVal,
+        label: "PK",
+        color: "bg-purple-500/70",
+        textColor: "text-purple-300",
         bottom: o.bottom
       });
     })(), (() => {
@@ -9886,7 +9913,16 @@ function SimpleKanbanTable({
       label: tslActive ? "TSL" : "SL",
       color: slMovedPastEntry ? "bg-teal-500" : "bg-rose-500/80",
       tc: slMovedPastEntry ? "text-teal-400" : "text-rose-400"
-    }), React.createElement(Mk, {
+    }), (() => {
+      const pkv = Number(trade?.runnerPeakPrice ?? trade?.runner_peak_price);
+      const tp = Number(trade?.trimmed_pct ?? trade?.trimmedPct ?? 0);
+      return Number.isFinite(pkv) && pkv > 0 && tp > 0 ? React.createElement(Mk, {
+        val: pkv,
+        label: "PK",
+        color: "bg-purple-500/70",
+        tc: "text-purple-300"
+      }) : null;
+    })(), React.createElement(Mk, {
       val: ep,
       label: "EP",
       color: "bg-yellow-400/80",
@@ -13219,6 +13255,7 @@ function App() {
   const [timeTravelForwardReturns, setTimeTravelForwardReturns] = useState(null);
   const [activeInsight, setActiveInsight] = useState(null);
   const [activeSubInsight, setActiveSubInsight] = useState(null);
+  const [bubbleSearchOpen, setBubbleSearchOpen] = useState(false);
   const insightChips = useMemo(() => {
     const all = Object.values(data || {}).filter(t => t && Number.isFinite(Number(t.ltf_score)));
     const allTickers = Object.values(data || {});
@@ -13889,14 +13926,13 @@ function App() {
       if (hl === "dmh" || hl === "during market hours") return "DMH";
       return String(h).toUpperCase();
     };
-    const formatMacroTime = ts => {
-      if (!Number.isFinite(Number(ts))) return "";
+    const formatMacroTime = tsMs => {
+      if (!tsMs) return "";
       try {
-        return new Date(Number(ts)).toLocaleTimeString("en-US", {
-          timeZone: "America/New_York",
+        return new Date(tsMs).toLocaleTimeString("en-US", {
           hour: "numeric",
           minute: "2-digit",
-          hour12: true
+          timeZone: "America/New_York"
         });
       } catch {
         return "";
@@ -13910,7 +13946,14 @@ function App() {
       GDP: "border-emerald-500/30 bg-emerald-500/10 text-emerald-300",
       PCE: "border-fuchsia-500/30 bg-fuchsia-500/10 text-fuchsia-300"
     })[type] || "border-white/[0.08] bg-white/[0.03] text-gray-300";
-    const macroItems = (Array.isArray(macroEvents) ? macroEvents : []).slice(0, 8);
+    const macroItems = (() => {
+      const seen = new Set();
+      return (Array.isArray(macroEvents) ? macroEvents : []).filter(ev => {
+        if (seen.has(ev.type)) return false;
+        seen.add(ev.type);
+        return true;
+      });
+    })();
     const earningItems = (Array.isArray(earningsEvents) ? earningsEvents : []).slice(0, 12);
     if (macroItems.length === 0 && earningItems.length === 0) return null;
     return React.createElement("div", {
@@ -14162,10 +14205,16 @@ function App() {
     }, "Top Movers")), React.createElement("div", {
       className: "space-y-1.5"
     }, React.createElement("div", {
-      className: "flex flex-col xl:flex-row xl:items-start gap-2 xl:gap-3"
-    }, moversBucket("RTH Gainers", "bg-cyan-500/15 text-cyan-400 border-cyan-500/30", rthGainers, true, "_pct", "_price"), moversBucket("RTH Losers", "bg-rose-500/15 text-rose-400 border-rose-500/30", rthLosers, false, "_pct", "_price")), hasEth && React.createElement("div", {
-      className: "flex flex-col xl:flex-row xl:items-start gap-2 xl:gap-3"
-    }, moversBucket("EXT Gainers", "bg-amber-500/15 text-amber-400 border-amber-500/30", ethGainers, true, "_ethPct", "_ethPrice"), moversBucket("EXT Losers", "bg-orange-500/15 text-orange-400 border-orange-500/30", ethLosers, false, "_ethPct", "_ethPrice"))));
+      className: "flex items-center gap-1.5 flex-wrap"
+    }, React.createElement("span", {
+      className: "px-1.5 py-px rounded text-[9px] font-bold tracking-wide border shrink-0 bg-cyan-500/15 text-cyan-400 border-cyan-500/30"
+    }, "RTH"), rthGainers.map(t => chip(t, true, "_pct", "_price")), rthLosers.map(t => chip(t, false, "_pct", "_price")), rthGainers.length === 0 && rthLosers.length === 0 && React.createElement("span", {
+      className: "text-[10px] text-[#6b7280]"
+    }, "No movers")), hasEth && React.createElement("div", {
+      className: "flex items-center gap-1.5 flex-wrap"
+    }, React.createElement("span", {
+      className: "px-1.5 py-px rounded text-[9px] font-bold tracking-wide border shrink-0 bg-amber-500/15 text-amber-400 border-amber-500/30"
+    }, "EXT"), ethGainers.map(t => chip(t, true, "_ethPct", "_ethPrice")), ethLosers.map(t => chip(t, false, "_ethPct", "_ethPrice")))));
   })(), (dashboardMode === "trader" || dashboardMode === "investor") && React.createElement("div", {
     className: "mb-4"
   }, React.createElement(ActionCenterPanel, {
@@ -14844,6 +14893,7 @@ function App() {
   }, "Loading tickers..."))) : React.createElement(BubbleChart, {
     tickers: tickers,
     onBubbleClick: handleTickerSelect,
+    onBackgroundClick: () => setBubbleSearchOpen(true),
     hoveredTicker: hoveredTicker,
     onHover: setHoveredTicker,
     selectedTicker: selectedTicker,
@@ -14856,7 +14906,79 @@ function App() {
     thesisMode: isThesisModeActive(filters),
     forwardReturns: timeTravelForwardReturns,
     activeInsightTickers: activeInsightTickers
-  }), !window._ttIsPro && React.createElement("div", {
+  }), bubbleSearchOpen && React.createElement("div", {
+    className: "absolute inset-0 z-20 flex items-center justify-center",
+    onClick: e => {
+      if (e.target === e.currentTarget) setBubbleSearchOpen(false);
+    }
+  }, React.createElement("div", {
+    className: "relative w-[340px] bg-[#0f1117]/95 border border-white/[0.12] rounded-xl shadow-2xl p-4 backdrop-blur-lg",
+    onClick: e => e.stopPropagation()
+  }, React.createElement("div", {
+    className: "flex items-center justify-between mb-3"
+  }, React.createElement("span", {
+    className: "text-xs font-semibold text-slate-300 uppercase tracking-wider"
+  }, "Search Tickers"), React.createElement("button", {
+    onClick: () => setBubbleSearchOpen(false),
+    className: "text-slate-500 hover:text-white transition-colors text-lg leading-none"
+  }, "\xD7")), React.createElement("div", {
+    className: "relative"
+  }, React.createElement("svg", {
+    className: "absolute left-3 top-1/2 pointer-events-none",
+    style: {
+      transform: "translateY(-50%)"
+    },
+    width: "14",
+    height: "14",
+    viewBox: "0 0 24 24",
+    fill: "none",
+    stroke: "#6b7280",
+    strokeWidth: "2.5",
+    strokeLinecap: "round",
+    strokeLinejoin: "round"
+  }, React.createElement("circle", {
+    cx: "11",
+    cy: "11",
+    r: "8"
+  }), React.createElement("line", {
+    x1: "21",
+    y1: "21",
+    x2: "16.65",
+    y2: "16.65"
+  })), React.createElement("input", {
+    ref: el => el && setTimeout(() => el.focus(), 50),
+    type: "text",
+    placeholder: "Search tickers (e.g. AAPL, MSFT, TSLA)",
+    defaultValue: filters.search || "",
+    onChange: e => {
+      const value = e.target.value;
+      handleFilterChange({
+        search: value
+      });
+      if (value.includes(",") && !value.match(/rank|rr|risk|reward|phase|completion|moved|points|prime|squeeze|corridor|momentum|top|long|short|setup|above|over|below|under/)) {
+        handleFilterChange({
+          tickerFilter: value
+        });
+      } else if (!value.trim()) {
+        handleFilterChange({
+          tickerFilter: ""
+        });
+      }
+    },
+    onKeyDown: e => {
+      if (e.key === "Escape") setBubbleSearchOpen(false);
+      if (e.key === "Enter") {
+        const v = e.target.value.trim().toUpperCase();
+        if (v && !v.includes(",") && tickers.some(t => t.ticker === v)) {
+          handleTickerSelect(v);
+          setBubbleSearchOpen(false);
+        }
+      }
+    },
+    className: "w-full pl-9 pr-3 py-2 bg-white/[0.04] border border-white/[0.10] rounded-lg text-white text-sm placeholder-[#6b7280] focus:border-white/[0.20] focus:outline-none transition-colors"
+  })), React.createElement("p", {
+    className: "text-[10px] text-[#4b5563] mt-2"
+  }, "Type a ticker and press Enter, or use filters like \"rank > 80\", \"top 5 long setup\""))), !window._ttIsPro && React.createElement("div", {
     className: "absolute bottom-3 left-1/2 -translate-x-1/2 z-10"
   }, React.createElement("button", {
     className: "flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[#0d1117]/90 border border-amber-500/40 backdrop-blur-sm hover:border-amber-400/60 transition-colors",
