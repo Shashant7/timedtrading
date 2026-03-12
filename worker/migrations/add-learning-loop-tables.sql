@@ -38,7 +38,11 @@ CREATE TABLE IF NOT EXISTS direction_accuracy (
   direction_correct INTEGER,                       -- 1 if price moved in traded direction, 0 if not
   max_favorable_excursion REAL,                    -- best price move in traded direction (%)
   max_adverse_excursion REAL,                      -- worst price move against traded direction (%)
-  status TEXT                                      -- WIN/LOSS/FLAT/OPEN
+  status TEXT,                                     -- WIN/LOSS/FLAT/OPEN
+
+  setup_name TEXT,
+  setup_grade TEXT,
+  risk_budget REAL
 );
 
 CREATE INDEX IF NOT EXISTS idx_da_ticker_ts ON direction_accuracy (ticker, ts);

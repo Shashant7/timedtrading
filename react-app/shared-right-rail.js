@@ -2992,7 +2992,8 @@
                         if (!al || (al.path_win_rate == null && al.rank_bucket_wr == null)) return null;
                         const wr = al.path_win_rate != null ? Number(al.path_win_rate) : null;
                         const wrCls = wr != null ? (wr >= 60 ? "text-emerald-400" : wr >= 45 ? "text-amber-400" : "text-rose-400") : "text-slate-400";
-                        const pathLabel = al.entry_path ? al.entry_path.replace(/_/g, " ") : null;
+                        const _snMap = { ema_regime_confirmed_long: "TT Confirmed Long", ema_regime_confirmed_short: "TT Confirmed Short", ema_regime_early_long: "TT Early Long", ema_regime_early_short: "TT Early Short", gold_long: "TT Breakout Long", gold_short: "TT Reversal Short" };
+                        const pathLabel = al.entry_path ? (_snMap[al.entry_path] || ("TT " + al.entry_path.replace(/_/g, " "))) : null;
                         const rBucketWr = al.rank_bucket_wr != null ? Number(al.rank_bucket_wr) : null;
                         const pathAction = al.path_action;
                         const pathEnabled = al.path_enabled !== false;
@@ -5307,6 +5308,9 @@
                                       <span className={`text-[11px] font-semibold ${t.direction === "LONG" ? "text-green-400" : "text-red-400"}`}>
                                         {t.direction}
                                       </span>
+                                      {(t.setup_grade || t.setupGrade) && (
+                                        <span className="px-1 py-0.5 rounded text-[8px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30" title={t.setup_name || t.setupName || ""}>{t.setup_grade || t.setupGrade}</span>
+                                      )}
                                       {entryQty > 0 && (
                                         <span className="text-[9px] text-[#6b7280]">
                                           {entryQty % 1 === 0 ? entryQty : entryQty.toFixed(2)} shares

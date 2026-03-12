@@ -4565,6 +4565,7 @@
       function BubbleChart({
         tickers,
         onBubbleClick,
+        onBackgroundClick,
         hoveredTicker,
         onHover,
         selectedTicker,
@@ -4948,6 +4949,13 @@
                 preserveAspectRatio="xMidYMid meet"
                 onMouseMove={handleMouseMove}
                 onMouseLeave={handleMouseLeave}
+                onClick={(e) => {
+                  const tag = e.target.tagName?.toLowerCase();
+                  const isBg = e.target === e.currentTarget || tag === "rect" || tag === "line" || tag === "text";
+                  if (isBg && typeof onBackgroundClick === "function") {
+                    onBackgroundClick();
+                  }
+                }}
                 onTouchMove={(e) => {
                   // Convert touch event to mouse-like coordinates for mobile
                   const touch = e.touches[0];
@@ -11581,6 +11589,7 @@
                     <span className="inline-flex items-center justify-center px-1.5 py-px rounded text-[9px] font-bold shrink-0 tracking-wide bg-emerald-500/35 text-emerald-200 border border-emerald-400/50" style={{ textShadow: "0 0 6px rgba(16,185,129,0.4)" }} title="TT Selected">TT</span>
                   )}
                   <span className={`inline-flex items-center justify-center px-1.5 py-px rounded text-[9px] font-black shrink-0 tracking-wide ${dir === "LONG" ? "bg-cyan-500/80 text-white ring-1 ring-cyan-300/60" : "bg-rose-600/80 text-white ring-1 ring-rose-400/60"}`}>{dir}</span>
+                  {(() => { const _g = openTrade?.setupGrade || openTrade?.setup_grade; return _g ? <span className="px-1 py-px rounded text-[8px] font-bold bg-amber-500/25 text-amber-200 border border-amber-400/40 shrink-0">{_g}</span> : null; })()}
                   {badgesText && <span className="text-[10px] shrink-0">{badgesText}</span>}
                 </div>
                 {window._ttIsPro && (
@@ -16706,6 +16715,7 @@
 
         const [activeInsight, setActiveInsight] = useState(null);
         const [activeSubInsight, setActiveSubInsight] = useState(null);
+        const [bubbleSearchOpen, setBubbleSearchOpen] = useState(false);
 
         const insightChips = useMemo(() => {
           const all = Object.values(data || {}).filter(t => t && Number.isFinite(Number(t.ltf_score)));
@@ -17467,14 +17477,17 @@
                           <span className="text-[10px] text-[#6b7280] font-semibold tracking-wide uppercase">Top Movers</span>
                         </div>
                         <div className="space-y-1.5">
-                          <div className="flex flex-col xl:flex-row xl:items-start gap-2 xl:gap-3">
-                            {moversBucket("RTH Gainers", "bg-cyan-500/15 text-cyan-400 border-cyan-500/30", rthGainers, true, "_pct", "_price")}
-                            {moversBucket("RTH Losers", "bg-rose-500/15 text-rose-400 border-rose-500/30", rthLosers, false, "_pct", "_price")}
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="px-1.5 py-px rounded text-[9px] font-bold tracking-wide border shrink-0 bg-cyan-500/15 text-cyan-400 border-cyan-500/30">RTH</span>
+                            {rthGainers.map(t => chip(t, true, "_pct", "_price"))}
+                            {rthLosers.map(t => chip(t, false, "_pct", "_price"))}
+                            {rthGainers.length === 0 && rthLosers.length === 0 && <span className="text-[10px] text-[#6b7280]">No movers</span>}
                           </div>
                           {hasEth && (
-                            <div className="flex flex-col xl:flex-row xl:items-start gap-2 xl:gap-3">
-                              {moversBucket("EXT Gainers", "bg-amber-500/15 text-amber-400 border-amber-500/30", ethGainers, true, "_ethPct", "_ethPrice")}
-                              {moversBucket("EXT Losers", "bg-orange-500/15 text-orange-400 border-orange-500/30", ethLosers, false, "_ethPct", "_ethPrice")}
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className="px-1.5 py-px rounded text-[9px] font-bold tracking-wide border shrink-0 bg-amber-500/15 text-amber-400 border-amber-500/30">EXT</span>
+                              {ethGainers.map(t => chip(t, true, "_ethPct", "_ethPrice"))}
+                              {ethLosers.map(t => chip(t, false, "_ethPct", "_ethPrice"))}
                             </div>
                           )}
                         </div>
@@ -18053,6 +18066,7 @@
                             <BubbleChart
                               tickers={tickers}
                               onBubbleClick={handleTickerSelect}
+                              onBackgroundClick={() => setBubbleSearchOpen(true)}
                               hoveredTicker={hoveredTicker}
                               onHover={setHoveredTicker}
                               selectedTicker={selectedTicker}
@@ -18068,6 +18082,46 @@
                               forwardReturns={timeTravelForwardReturns}
                               activeInsightTickers={activeInsightTickers}
                             />
+                          )}
+                          {bubbleSearchOpen && (
+                            <div className="absolute inset-0 z-20 flex items-center justify-center" onClick={(e) => { if (e.target === e.currentTarget) setBubbleSearchOpen(false); }}>
+                              <div className="relative w-[340px] bg-[#0f1117]/95 border border-white/[0.12] rounded-xl shadow-2xl p-4 backdrop-blur-lg" onClick={(e) => e.stopPropagation()}>
+                                <div className="flex items-center justify-between mb-3">
+                                  <span className="text-xs font-semibold text-slate-300 uppercase tracking-wider">Search Tickers</span>
+                                  <button onClick={() => setBubbleSearchOpen(false)} className="text-slate-500 hover:text-white transition-colors text-lg leading-none">&times;</button>
+                                </div>
+                                <div className="relative">
+                                  <svg className="absolute left-3 top-1/2 pointer-events-none" style={{transform:"translateY(-50%)"}} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#6b7280" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                                  <input
+                                    ref={(el) => el && setTimeout(() => el.focus(), 50)}
+                                    type="text"
+                                    placeholder="Search tickers (e.g. AAPL, MSFT, TSLA)"
+                                    defaultValue={filters.search || ""}
+                                    onChange={(e) => {
+                                      const value = e.target.value;
+                                      handleFilterChange({ search: value });
+                                      if (value.includes(",") && !value.match(/rank|rr|risk|reward|phase|completion|moved|points|prime|squeeze|corridor|momentum|top|long|short|setup|above|over|below|under/)) {
+                                        handleFilterChange({ tickerFilter: value });
+                                      } else if (!value.trim()) {
+                                        handleFilterChange({ tickerFilter: "" });
+                                      }
+                                    }}
+                                    onKeyDown={(e) => {
+                                      if (e.key === "Escape") setBubbleSearchOpen(false);
+                                      if (e.key === "Enter") {
+                                        const v = e.target.value.trim().toUpperCase();
+                                        if (v && !v.includes(",") && tickers.some(t => t.ticker === v)) {
+                                          handleTickerSelect(v);
+                                          setBubbleSearchOpen(false);
+                                        }
+                                      }
+                                    }}
+                                    className="w-full pl-9 pr-3 py-2 bg-white/[0.04] border border-white/[0.10] rounded-lg text-white text-sm placeholder-[#6b7280] focus:border-white/[0.20] focus:outline-none transition-colors"
+                                  />
+                                </div>
+                                <p className="text-[10px] text-[#4b5563] mt-2">Type a ticker and press Enter, or use filters like "rank > 80", "top 5 long setup"</p>
+                              </div>
+                            </div>
                           )}
                           {!window._ttIsPro && (
                             <div className="absolute bottom-3 left-1/2 -translate-x-1/2 z-10">

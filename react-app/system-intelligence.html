@@ -3137,6 +3137,158 @@ function MoveDiscoveryTab({ report, loading, error }) {
 }
 
 // ═══════════════════════════════════════════════════════════════
+// TRADE GRADING TAB (admin-only)
+// ═══════════════════════════════════════════════════════════════
+const DEFAULT_GRADE_RISK = { "A+": 1000, "A": 850, "A-": 700, "B+": 550, "B": 400, "B-": 250 };
+const GRADE_ORDER = ["A+", "A", "A-", "B+", "B", "B-"];
+const GRADE_COLORS = { "A+": "#22c55e", "A": "#4ade80", "A-": "#86efac", "B+": "#facc15", "B": "#fbbf24", "B-": "#f97316" };
+
+function TradeGradingTab() {
+  const [riskMap, setRiskMap] = useState({ ...DEFAULT_GRADE_RISK });
+  const [origMap, setOrigMap] = useState({ ...DEFAULT_GRADE_RISK });
+  const [stats, setStats] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState(null);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch(`${API_BASE}/timed/admin/grade-config`);
+        const data = await res.json();
+        if (data.ok) {
+          const merged = { ...DEFAULT_GRADE_RISK, ...(data.gradeRiskMap || {}) };
+          setRiskMap(merged);
+          setOrigMap(merged);
+          if (Array.isArray(data.gradeStats)) setStats(data.gradeStats);
+        }
+      } catch {}
+      setLoading(false);
+    })();
+  }, []);
+
+  const hasChanges = GRADE_ORDER.some(g => Number(riskMap[g]) !== Number(origMap[g]));
+
+  const validate = () => {
+    for (const g of GRADE_ORDER) {
+      const v = Number(riskMap[g]);
+      if (!Number.isFinite(v) || v < 100 || v > 2000) return `${g}: must be $100–$2,000`;
+    }
+    for (let i = 0; i < GRADE_ORDER.length - 1; i++) {
+      if (Number(riskMap[GRADE_ORDER[i]]) < Number(riskMap[GRADE_ORDER[i + 1]])) {
+        return `${GRADE_ORDER[i]} ($${riskMap[GRADE_ORDER[i]]}) must be >= ${GRADE_ORDER[i + 1]} ($${riskMap[GRADE_ORDER[i + 1]]})`;
+      }
+    }
+    return null;
+  };
+
+  const handleSave = async () => {
+    const err = validate();
+    if (err) { setMsg({ type: "error", text: err }); return; }
+    setSaving(true); setMsg(null);
+    try {
+      const res = await fetch(`${API_BASE}/timed/admin/model-config`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ updates: [{ key: "grade_risk_map", value: JSON.stringify(riskMap), description: "Trade grading: grade-to-risk dollar mapping" }] }),
+      });
+      const data = await res.json();
+      if (data.ok) { setOrigMap({ ...riskMap }); setMsg({ type: "ok", text: "Saved successfully" }); }
+      else setMsg({ type: "error", text: data.error || "Save failed" });
+    } catch (e) { setMsg({ type: "error", text: String(e) }); }
+    setSaving(false);
+  };
+
+  if (loading) return <div className="flex justify-center py-12"><div className="w-6 h-6 border-2 border-white/20 border-t-amber-500 rounded-full" style={{animation:"spin 0.7s linear infinite"}} /></div>;
+
+  return (
+    <div className="space-y-6">
+      <div className="card p-5">
+        <h3 className="text-sm font-semibold text-white mb-1">Grade-to-Risk Configuration</h3>
+        <p className="text-xs text-slate-400 mb-4">Set the fixed dollar risk for each trade grade. Higher grades get larger risk budgets. Position size = Risk / |Entry - SL|.</p>
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+          {GRADE_ORDER.map(grade => (
+            <div key={grade} className="rounded-lg border border-white/[0.08] p-3 bg-white/[0.02]">
+              <div className="flex items-center gap-2 mb-2">
+                <span className="px-2 py-0.5 rounded text-xs font-bold" style={{ background: GRADE_COLORS[grade] + "30", color: GRADE_COLORS[grade], border: `1px solid ${GRADE_COLORS[grade]}50` }}>{grade}</span>
+              </div>
+              <div className="relative">
+                <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-500 text-xs">$</span>
+                <input
+                  type="number"
+                  min="100" max="2000" step="50"
+                  value={riskMap[grade]}
+                  onChange={(e) => setRiskMap(prev => ({ ...prev, [grade]: Number(e.target.value) || 0 }))}
+                  className="w-full pl-6 pr-2 py-1.5 bg-white/[0.04] border border-white/[0.10] rounded-md text-white text-sm font-medium focus:border-amber-500/50 focus:outline-none"
+                  placeholder={String(DEFAULT_GRADE_RISK[grade])}
+                />
+              </div>
+              <div className="text-[10px] text-slate-500 mt-1">Default: ${DEFAULT_GRADE_RISK[grade]}</div>
+            </div>
+          ))}
+        </div>
+        <div className="flex items-center gap-3 mt-4">
+          <button
+            onClick={handleSave}
+            disabled={!hasChanges || saving}
+            className={`px-4 py-2 rounded-lg text-xs font-semibold transition-colors ${hasChanges ? "bg-amber-500/20 text-amber-300 border border-amber-500/40 hover:bg-amber-500/30" : "bg-white/[0.04] text-slate-500 border border-white/[0.06] cursor-not-allowed"}`}
+          >
+            {saving ? "Saving..." : "Save Changes"}
+          </button>
+          {hasChanges && (
+            <button onClick={() => setRiskMap({ ...origMap })} className="px-3 py-2 rounded-lg text-xs text-slate-400 hover:text-white border border-white/[0.06] hover:border-white/[0.12] transition-colors">Reset</button>
+          )}
+          {msg && (
+            <span className={`text-xs font-medium ${msg.type === "ok" ? "text-emerald-400" : "text-rose-400"}`}>{msg.text}</span>
+          )}
+        </div>
+      </div>
+
+      {stats.length > 0 && (
+        <div className="card p-5">
+          <h3 className="text-sm font-semibold text-white mb-3">Grade Distribution (Closed Trades)</h3>
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead><tr className="text-slate-500 border-b border-white/[0.05]">
+                <th className="text-left py-1.5 font-medium">Grade</th>
+                <th className="text-right px-3 font-medium">Trades</th>
+                <th className="text-right px-3 font-medium">Wins</th>
+                <th className="text-right px-3 font-medium">Losses</th>
+                <th className="text-right px-3 font-medium">Win Rate</th>
+                <th className="text-right px-3 font-medium">Avg P&L</th>
+                <th className="text-right pl-3 font-medium">Avg P&L %</th>
+              </tr></thead>
+              <tbody>
+                {stats.map(s => {
+                  const wr = s.total > 0 ? ((s.wins / s.total) * 100) : 0;
+                  const wrCls = wr >= 60 ? "text-emerald-400" : wr >= 45 ? "text-amber-400" : "text-rose-400";
+                  return (
+                    <tr key={s.setup_grade} className="border-b border-white/[0.03] hover:bg-white/[0.02]">
+                      <td className="py-1.5"><span className="px-1.5 py-0.5 rounded text-[10px] font-bold" style={{ background: (GRADE_COLORS[s.setup_grade] || "#6b7280") + "30", color: GRADE_COLORS[s.setup_grade] || "#6b7280" }}>{s.setup_grade}</span></td>
+                      <td className="text-right px-3 text-slate-300">{s.total}</td>
+                      <td className="text-right px-3 text-emerald-400">{s.wins}</td>
+                      <td className="text-right px-3 text-rose-400">{s.losses}</td>
+                      <td className={`text-right px-3 font-medium ${wrCls}`}>{wr.toFixed(1)}%</td>
+                      <td className={`text-right px-3 ${(s.avg_pnl || 0) >= 0 ? "text-emerald-400" : "text-rose-400"}`}>${(s.avg_pnl || 0).toFixed(2)}</td>
+                      <td className={`text-right pl-3 ${(s.avg_pnl_pct || 0) >= 0 ? "text-emerald-400" : "text-rose-400"}`}>{(s.avg_pnl_pct || 0).toFixed(2)}%</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {stats.length === 0 && (
+        <div className="card p-5 text-center">
+          <p className="text-xs text-slate-500">No graded trades yet. Grade statistics will appear here once trades are taken with the grading system active.</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
 // MAIN APP
 // ═══════════════════════════════════════════════════════════════
 function App() {
@@ -3324,6 +3476,7 @@ function App() {
     { id: "moves", label: "Move Discovery" },
     { id: "patterns", label: "Patterns & Learning" },
     { id: "history", label: "History" },
+    ...(isAdmin ? [{ id: "grading", label: "Trade Grading" }] : []),
   ];
 
   return (
@@ -3376,6 +3529,7 @@ function App() {
             {tab === "moves" && <MoveDiscoveryTab report={moveReport} loading={moveLoading} error={moveError} />}
             {tab === "patterns" && <PatternsTab />}
             {tab === "history" && <HistoryTab onViewReport={handleViewReport} />}
+            {tab === "grading" && isAdmin && <TradeGradingTab />}
           </>
         )}
       </div>

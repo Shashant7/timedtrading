@@ -101,9 +101,18 @@
         ema5_48: "EMA 5/48",
         s1_slope: "Slope",
       };
+      const SETUP_NAME_MAP = {
+        ema_regime_confirmed_long: "TT Confirmed Long",
+        ema_regime_confirmed_short: "TT Confirmed Short",
+        ema_regime_early_long: "TT Early Long",
+        ema_regime_early_short: "TT Early Short",
+        gold_long: "TT Breakout Long",
+        gold_short: "TT Reversal Short",
+      };
       function formatPath(path) {
         if (!path || typeof path !== "string") return null;
-        return path.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase()).replace(/\bTt\b/g, "TT");
+        if (SETUP_NAME_MAP[path]) return SETUP_NAME_MAP[path];
+        return "TT " + path.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
       }
       function parseSnapshot(snap) {
         if (!snap) return null;
@@ -1060,8 +1069,12 @@
                         <div className="text-[11px] font-semibold text-[#14b8a6] uppercase tracking-wider mb-2">Signal snapshot at entry</div>
                         {trade?.entry_path && (
                           <div className="mb-3 px-2.5 py-1.5 rounded-lg bg-[#14b8a6]/10 border border-[#14b8a6]/20">
-                            <span className="text-[10px] text-[#9ca3af] uppercase tracking-wider">Regime</span>
-                            <div className="text-[13px] font-semibold text-white mt-0.5">{formatPath(trade.entry_path)}</div>
+                            <span className="text-[10px] text-[#9ca3af] uppercase tracking-wider">Setup</span>
+                            <div className="text-[13px] font-semibold text-white mt-0.5 flex items-center gap-2">
+                              {formatPath(trade.entry_path)}
+                              {trade.setup_grade && <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">{trade.setup_grade}</span>}
+                              {Number(trade.risk_budget) > 0 && <span className="text-[10px] text-[#6b7280]">${trade.risk_budget} risk</span>}
+                            </div>
                           </div>
                         )}
                         {parseTfStack(tfStack)?.length > 0 && (

@@ -622,6 +622,7 @@ const ROUTES = [
   ["POST", "/timed/calibration/rollback",       "POST /timed/calibration/rollback"],
   ["POST", "/timed/trades/reset", "POST /timed/trades/reset"],
   ["POST", "/timed/admin/model-config", "POST /timed/admin/model-config"],
+  ["GET",  "/timed/admin/grade-config",  "GET /timed/admin/grade-config"],
   // ── System Intelligence (unified Calibration + Model) ──
   ["GET", "/timed/system/dashboard", "GET /timed/system/dashboard"],
   ["GET", "/timed/system/history", "GET /timed/system/history"],
@@ -5575,16 +5576,63 @@ function computeTradeConfidence(tickerData, opts = {}) {
   return { confidence, breakdown };
 }
 
+// ── Setup Grade + Display Name ────────────────────────────────────────
+// Derives a letter grade (A+ through B-) from the composite confidence
+// score and entry path quality.  Grade drives fixed-dollar risk sizing.
+const DEFAULT_GRADE_RISK_MAP = { "A+": 1000, "A": 850, "A-": 700, "B+": 550, "B": 400, "B-": 250 };
+const GRADE_TIERS = [
+  { min: 0.85, grade: "A+" },
+  { min: 0.72, grade: "A"  },
+  { min: 0.60, grade: "A-" },
+  { min: 0.48, grade: "B+" },
+  { min: 0.36, grade: "B"  },
+  { min: 0.00, grade: "B-" },
+];
+
+function computeSetupGrade(entryResult, tradeConfidence, gradeRiskMap) {
+  let score = clamp(tradeConfidence, 0, 1);
+
+  // Confirmed paths get a reliability bonus; early paths get a smaller one
+  const path = entryResult?.path || "";
+  if (path.includes("confirmed")) score += 0.08;
+  else if (path.includes("early")) score += 0.03;
+
+  // High qualitative confidence from qualifiesForEnter adds a bump
+  const qConf = entryResult?.confidence;
+  if (qConf === "high") score += 0.05;
+  else if (qConf === "medium") score += 0.02;
+
+  score = clamp(score, 0, 1);
+
+  const grade = (GRADE_TIERS.find(t => score >= t.min) || GRADE_TIERS[GRADE_TIERS.length - 1]).grade;
+  const riskMap = (gradeRiskMap && typeof gradeRiskMap === "object") ? gradeRiskMap : DEFAULT_GRADE_RISK_MAP;
+  const riskBudget = Number(riskMap[grade]) || DEFAULT_GRADE_RISK_MAP[grade] || 250;
+  return { grade, riskBudget, gradeScore: score };
+}
+
+const SETUP_NAME_MAP = {
+  ema_regime_confirmed_long:  "TT Confirmed Long",
+  ema_regime_confirmed_short: "TT Confirmed Short",
+  ema_regime_early_long:      "TT Early Long",
+  ema_regime_early_short:     "TT Early Short",
+  gold_long:                  "TT Breakout Long",
+  gold_short:                 "TT Reversal Short",
+};
+
+function formatSetupName(entryPath) {
+  if (!entryPath) return "TT Setup";
+  if (SETUP_NAME_MAP[entryPath]) return SETUP_NAME_MAP[entryPath];
+  return "TT " + String(entryPath).replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+}
+
 // ── Risk-Based Position Sizing ────────────────────────────────────────
 // Sizes positions so that if the stop-loss is hit, the account loses
-// confidence-scaled risk % of its value, capped by notional limits.
-function computeRiskBasedSize(confidence, accountValue, entryPrice, stopLoss, vixLevel, env) {
+// a grade-driven fixed dollar amount, capped by notional limits.
+// When gradeRiskBudget is provided, it overrides the old confidence-to-% mapping.
+function computeRiskBasedSize(confidence, accountValue, entryPrice, stopLoss, vixLevel, env, gradeRiskBudget) {
   const cfg = getSizingConfig(env);
 
-  // 1. Map confidence (0-1) to risk % (MIN_RISK_PCT → MAX_RISK_PCT)
-  const riskPct = cfg.MIN_RISK_PCT + (cfg.MAX_RISK_PCT - cfg.MIN_RISK_PCT) * clamp(confidence, 0, 1);
-
-  // 2. VIX dampener (reduce size in high-volatility regimes)
+  // 1. VIX dampener (reduce size in high-volatility regimes)
   let vixMultiplier = 1.0;
   const vix = Number(vixLevel);
   if (Number.isFinite(vix) && vix > 0) {
@@ -5592,9 +5640,17 @@ function computeRiskBasedSize(confidence, accountValue, entryPrice, stopLoss, vi
     else if (vix > cfg.VIX_HIGH) vixMultiplier = 0.75;
   }
 
-  // 3. Max dollar risk for this trade
-  const acctVal = Number.isFinite(accountValue) && accountValue > 0 ? accountValue : PORTFOLIO_START_CASH;
-  const maxDollarRisk = acctVal * riskPct * vixMultiplier;
+  // 2. Max dollar risk — use grade-based fixed budget when available, else legacy confidence-to-%
+  let riskPct, maxDollarRisk;
+  if (Number.isFinite(gradeRiskBudget) && gradeRiskBudget > 0) {
+    maxDollarRisk = gradeRiskBudget * vixMultiplier;
+    const acctVal = Number.isFinite(accountValue) && accountValue > 0 ? accountValue : PORTFOLIO_START_CASH;
+    riskPct = acctVal > 0 ? maxDollarRisk / acctVal : 0;
+  } else {
+    riskPct = cfg.MIN_RISK_PCT + (cfg.MAX_RISK_PCT - cfg.MIN_RISK_PCT) * clamp(confidence, 0, 1);
+    const acctVal = Number.isFinite(accountValue) && accountValue > 0 ? accountValue : PORTFOLIO_START_CASH;
+    maxDollarRisk = acctVal * riskPct * vixMultiplier;
+  }
 
   // 4. Risk per share = distance from entry to stop loss
   const riskPerShare = Math.abs(Number(entryPrice) - Number(stopLoss));
@@ -10082,6 +10138,12 @@ async function processTradeSimulation(
           : await gatherSizingSignals(env, sym, tickerData, allTrades);
         const { confidence, breakdown: confidenceBreakdown } = computeTradeConfidence(tickerData, sizingSignals);
 
+        // ── Step 2b: Setup grade + display name ──
+        const _gradeRiskMap = tickerData?._env?._deepAuditConfig?.grade_risk_map || null;
+        const entryResult = { path: entryPath, confidence: tickerData?.__entry_confidence };
+        const { grade: setupGrade, riskBudget: gradeRiskBudget, gradeScore } = computeSetupGrade(entryResult, confidence, _gradeRiskMap);
+        const setupName = formatSetupName(entryPath);
+
         // ── Step 3: Risk-based position sizing ──
         const cash = Number(portfolio.cash);
         const cfg = getSizingConfig(env);
@@ -10098,7 +10160,7 @@ async function processTradeSimulation(
           // Stocks/crypto: risk-based sizing
           const accountValue = Number(portfolio.startCash || PORTFOLIO_START_CASH) +
             (allTrades || []).filter(t => t.status === "WIN" || t.status === "LOSS").reduce((sum, t) => sum + (Number(t.realizedPnl) || 0), 0);
-          const sizing = computeRiskBasedSize(confidence, accountValue, entryPx, finalSL, sizingSignals.vixLevel, env);
+          const sizing = computeRiskBasedSize(confidence, accountValue, entryPx, finalSL, sizingSignals.vixLevel, env, gradeRiskBudget);
           // v3: Regime-adaptive position sizing — scale down in chop
           const regimePosMultiplier = tickerData?.regime_params?.positionSizeMultiplier ?? 1.0;
           const regimeAdjustedNotional = sizing.notional * regimePosMultiplier;
@@ -10128,7 +10190,7 @@ async function processTradeSimulation(
               shares: shares,
               value: entryPx * shares,
               reason: reason,
-              note: `Entry from ENTER_NOW at $${entryPx.toFixed(2)} (${sizingMeta.method}, risk=${((sizingMeta.riskPct || 0) * 100).toFixed(1)}%)`,
+              note: `Entry from ENTER_NOW at $${entryPx.toFixed(2)} (${setupName} ${setupGrade}, risk=$${gradeRiskBudget})`,
             };
 
             const trade = {
@@ -10176,6 +10238,10 @@ async function processTradeSimulation(
               currentPrice: pxNow,
               lastUpdate: eventTs(),
               source: "KANBAN_ENTER_NOW",
+              setupName,
+              setupGrade,
+              riskBudget: gradeRiskBudget,
+              gradeScore,
               sectorAtEntry: (() => {
                 const sa = getSectorAlignmentCached(sym);
                 return sa ? { sector: sa.sector, aligned: sa.aligned, direction: sa.direction, strength: sa.strength } : null;
@@ -10267,6 +10333,9 @@ async function processTradeSimulation(
                     rank: Number(trade.rank || 0),
                     momentumElite: !!trade.flags?.momentum_elite,
                   });
+                  tickerData.__setupName = trade.setupName;
+                  tickerData.__setupGrade = trade.setupGrade;
+                  tickerData.__riskBudget = trade.riskBudget;
                   const embed = createTradeEntryEmbed(
                     sym,
                     direction,
@@ -17277,9 +17346,10 @@ async function d1LogDirectionAccuracy(env, trade, tickerData, entryPath) {
         ichimoku_score_d, ichimoku_position_d, cloud_thickness_d, tk_cross_d,
         entry_quality_score, vol_tier, position_size_mult,
         execution_profile_name, execution_profile_confidence, market_state, execution_profile_json,
+        setup_name, setup_grade, risk_budget,
         status)
        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21,
-               ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32, ?33, ?34, ?35, 'OPEN')`
+               ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32, ?33, ?34, ?35, ?36, ?37, ?38, 'OPEN')`
     ).bind(
       trade.id,
       trade.ticker,
@@ -17316,6 +17386,9 @@ async function d1LogDirectionAccuracy(env, trade, tickerData, entryPath) {
       executionProfileConfidence,
       marketState,
       executionProfileJson,
+      trade.setupName || null,
+      trade.setupGrade || null,
+      Number(trade.riskBudget) || null,
     ).run();
   } catch (e) {
     console.warn("[LEARNING] d1LogDirectionAccuracy failed:", String(e).slice(0, 150));
@@ -18516,15 +18589,17 @@ async function d1UpsertTrade(env, trade) {
   const insertWithTrimPrice = `INSERT OR IGNORE INTO trades
           (trade_id, ticker, direction, entry_ts, entry_price, rank, rr, status,
            exit_ts, exit_price, exit_reason, trimmed_pct, pnl, pnl_pct, script_version,
-           created_at, updated_at, trim_ts, trim_price, run_id)
+           created_at, updated_at, trim_ts, trim_price, run_id,
+           setup_name, setup_grade, risk_budget)
          VALUES
-          (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20)`;
+          (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23)`;
   const insertWithoutTrimPrice = `INSERT OR IGNORE INTO trades
           (trade_id, ticker, direction, entry_ts, entry_price, rank, rr, status,
            exit_ts, exit_price, exit_reason, trimmed_pct, pnl, pnl_pct, script_version,
-           created_at, updated_at, trim_ts, run_id)
+           created_at, updated_at, trim_ts, run_id,
+           setup_name, setup_grade, risk_budget)
          VALUES
-          (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)`;
+          (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22)`;
 
   const resolvedEntryPrice = trade.entryPrice != null ? Number(trade.entryPrice)
     : trade.entry_price != null ? Number(trade.entry_price) : null;
@@ -18563,6 +18638,9 @@ async function d1UpsertTrade(env, trade) {
         Number.isFinite(trimTs) ? trimTs : null,
         Number.isFinite(trimPrice) ? trimPrice : null,
         resolvedRunId != null ? String(resolvedRunId) : null,
+        trade.setupName ?? trade.setup_name ?? null,
+        trade.setupGrade ?? trade.setup_grade ?? null,
+        Number(trade.riskBudget ?? trade.risk_budget) || null,
       )
       .run();
 
@@ -18572,7 +18650,8 @@ async function d1UpsertTrade(env, trade) {
           ticker=?2, direction=?3, entry_ts=?4, entry_price=?5, rank=?6, rr=?7, status=?8,
           exit_ts=?9, exit_price=?10, exit_reason=?11,
           trimmed_pct=?12, pnl=?13, pnl_pct=?14, script_version=?15,
-          updated_at=?16, trim_ts=?17, trim_price=?18, run_id=COALESCE(?19, run_id)
+          updated_at=?16, trim_ts=?17, trim_price=?18, run_id=COALESCE(?19, run_id),
+          setup_name=COALESCE(?20, setup_name), setup_grade=COALESCE(?21, setup_grade), risk_budget=COALESCE(?22, risk_budget)
          WHERE trade_id=?1`,
       )
       .bind(
@@ -18599,6 +18678,9 @@ async function d1UpsertTrade(env, trade) {
         Number.isFinite(trimTs) ? trimTs : null,
         Number.isFinite(trimPrice) ? trimPrice : null,
         resolvedRunId != null ? String(resolvedRunId) : null,
+        trade.setupName ?? trade.setup_name ?? null,
+        trade.setupGrade ?? trade.setup_grade ?? null,
+        Number(trade.riskBudget ?? trade.risk_budget) || null,
       )
       .run();
 
@@ -20389,6 +20471,12 @@ function createTradeEntryEmbed(
   if (execution && Number.isFinite(execution.qty)) {
     summaryLines.push(`Qty:  **${execution.qty.toFixed(4)}**  |  Value:  **$${Number(execution.value || 0).toFixed(2)}**`);
   }
+  const _setupName = tickerData?.__setupName || tickerData?.setupName || null;
+  const _setupGrade = tickerData?.__setupGrade || tickerData?.setupGrade || null;
+  const _riskBudget = Number(tickerData?.__riskBudget || tickerData?.riskBudget) || 0;
+  if (_setupName || _setupGrade) {
+    summaryLines.push(`Setup:  **${_setupName || "TT Setup"}** ${_setupGrade ? `(${_setupGrade})` : ""}${_riskBudget > 0 ? `  |  Risk:  **$${_riskBudget}**` : ""}`);
+  }
   fields.push({ name: "Trade Details", value: summaryLines.join("\n"), inline: false });
 
   // 2. Signal Quality — translated to plain English
@@ -20669,6 +20757,9 @@ function createKanbanStageEmbed(ticker, stage, prevStage, tickerData = null, ope
     if (Number.isFinite(sl)) defendLines.push(`Stop Loss:  **$${sl.toFixed(2)}**`);
     const peakPx = Number(openTrade.runnerPeakPrice);
     if (Number.isFinite(peakPx) && peakPx > 0) defendLines.push(`Peak Since Trim:  **$${peakPx.toFixed(2)}**`);
+    const _dGrade = openTrade.setupGrade || openTrade.setup_grade;
+    const _dName = openTrade.setupName || openTrade.setup_name;
+    if (_dGrade) defendLines.push(`Setup:  **${_dName || "TT Setup"}** (${_dGrade})`);
     if (defendLines.length > 0) {
       fields.push({ name: "Position", value: defendLines.join("\n"), inline: false });
     }
@@ -33837,7 +33928,7 @@ export default {
         } catch {}
         // Load deep audit config for replay parity with live
         try {
-          const daKeys = ["deep_audit_short_min_rank", "deep_audit_ticker_blacklist", "deep_audit_max_loss_pct", "deep_audit_sl_cap_mult", "deep_audit_sl_floor_mult", "deep_audit_rsi_tp_delay", "deep_audit_avoid_hours", "deep_audit_block_regime", "deep_audit_min_hold_regime_exit_hours", "deep_audit_loss_cooldown_hours", "deep_audit_min_htf_score", "deep_audit_momentum_elite_rank_boost", "deep_audit_breakout_daily_level_enabled", "deep_audit_breakout_atr_breakout_enabled", "deep_audit_breakout_ema_stack_enabled", "deep_audit_breakout_min_rr", "deep_audit_breakout_min_entry_quality", "deep_audit_opening_noise_end_minute", "deep_audit_min_1h_bias", "deep_audit_min_4h_bias", "deep_audit_ltf_momentum_min_bias", "deep_audit_ltf_momentum_min_rsi", "deep_audit_ripster_opening_noise_end_minute", "deep_audit_ltf_rsi_floor", "deep_audit_min_ltf_ema_depth", "deep_audit_post_trim_breakeven", "deep_audit_stall_max_hours", "deep_audit_stall_breakeven_pnl_pct", "deep_audit_soft_fuse_defer_min_1h_depth", "deep_audit_runner_trail_pct"];
+          const daKeys = ["deep_audit_short_min_rank", "deep_audit_ticker_blacklist", "deep_audit_max_loss_pct", "deep_audit_sl_cap_mult", "deep_audit_sl_floor_mult", "deep_audit_rsi_tp_delay", "deep_audit_avoid_hours", "deep_audit_block_regime", "deep_audit_min_hold_regime_exit_hours", "deep_audit_loss_cooldown_hours", "deep_audit_min_htf_score", "deep_audit_momentum_elite_rank_boost", "deep_audit_breakout_daily_level_enabled", "deep_audit_breakout_atr_breakout_enabled", "deep_audit_breakout_ema_stack_enabled", "deep_audit_breakout_min_rr", "deep_audit_breakout_min_entry_quality", "deep_audit_opening_noise_end_minute", "deep_audit_min_1h_bias", "deep_audit_min_4h_bias", "deep_audit_ltf_momentum_min_bias", "deep_audit_ltf_momentum_min_rsi", "deep_audit_ripster_opening_noise_end_minute", "deep_audit_ltf_rsi_floor", "deep_audit_min_ltf_ema_depth", "deep_audit_post_trim_breakeven", "deep_audit_stall_max_hours", "deep_audit_stall_breakeven_pnl_pct", "deep_audit_soft_fuse_defer_min_1h_depth", "deep_audit_runner_trail_pct", "grade_risk_map"];
           const daRows = (await db.prepare(
             `SELECT config_key, config_value FROM model_config WHERE config_key IN (${daKeys.map((_, i) => `?${i + 1}`).join(",")})`
           ).bind(...daKeys).all())?.results || [];
@@ -38327,6 +38418,38 @@ export default {
             await db.batch(stmts);
           }
           return sendJSON({ ok: true, written: stmts.length }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // ═══════════════════════════════════════════════════════════════════════
+      // GET /timed/admin/grade-config — fetch grade risk map + trade stats by grade
+      // ═══════════════════════════════════════════════════════════════════════
+      if (routeKey === "GET /timed/admin/grade-config") {
+        try {
+          const db = env?.DB;
+          if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
+          let gradeRiskMap = DEFAULT_GRADE_RISK_MAP;
+          try {
+            const row = await db.prepare(`SELECT config_value FROM model_config WHERE config_key = 'grade_risk_map'`).first();
+            if (row?.config_value) {
+              const parsed = JSON.parse(row.config_value);
+              if (parsed && typeof parsed === "object") gradeRiskMap = { ...DEFAULT_GRADE_RISK_MAP, ...parsed };
+            }
+          } catch {}
+          let gradeStats = [];
+          try {
+            const statsRows = (await db.prepare(
+              `SELECT setup_grade, COUNT(*) as total, SUM(CASE WHEN status='WIN' THEN 1 ELSE 0 END) as wins,
+                      SUM(CASE WHEN status='LOSS' THEN 1 ELSE 0 END) as losses,
+                      AVG(pnl) as avg_pnl, AVG(pnl_pct) as avg_pnl_pct
+               FROM direction_accuracy WHERE setup_grade IS NOT NULL AND status IN ('WIN','LOSS')
+               GROUP BY setup_grade ORDER BY setup_grade`
+            ).all())?.results || [];
+            gradeStats = statsRows;
+          } catch {}
+          return sendJSON({ ok: true, gradeRiskMap, defaults: DEFAULT_GRADE_RISK_MAP, gradeStats }, 200, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
         }
@@ -47607,7 +47730,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
         try {
           const db2 = env?.DB;
           if (db2) {
-            const daKeys = ["deep_audit_short_min_rank", "deep_audit_ticker_blacklist", "deep_audit_max_loss_pct", "deep_audit_sl_cap_mult", "deep_audit_sl_floor_mult", "deep_audit_rsi_tp_delay", "deep_audit_avoid_hours", "deep_audit_block_regime", "deep_audit_min_hold_regime_exit_hours", "deep_audit_loss_cooldown_hours", "deep_audit_min_htf_score", "deep_audit_momentum_elite_rank_boost", "deep_audit_breakout_daily_level_enabled", "deep_audit_breakout_atr_breakout_enabled", "deep_audit_breakout_ema_stack_enabled", "deep_audit_breakout_min_rr", "deep_audit_breakout_min_entry_quality", "deep_audit_opening_noise_end_minute", "deep_audit_min_1h_bias", "deep_audit_min_4h_bias", "deep_audit_ltf_momentum_min_bias", "deep_audit_ltf_momentum_min_rsi", "deep_audit_ripster_opening_noise_end_minute", "deep_audit_ltf_rsi_floor", "deep_audit_min_ltf_ema_depth", "deep_audit_post_trim_breakeven", "deep_audit_stall_max_hours", "deep_audit_stall_breakeven_pnl_pct", "deep_audit_soft_fuse_defer_min_1h_depth", "deep_audit_runner_trail_pct"];
+            const daKeys = ["deep_audit_short_min_rank", "deep_audit_ticker_blacklist", "deep_audit_max_loss_pct", "deep_audit_sl_cap_mult", "deep_audit_sl_floor_mult", "deep_audit_rsi_tp_delay", "deep_audit_avoid_hours", "deep_audit_block_regime", "deep_audit_min_hold_regime_exit_hours", "deep_audit_loss_cooldown_hours", "deep_audit_min_htf_score", "deep_audit_momentum_elite_rank_boost", "deep_audit_breakout_daily_level_enabled", "deep_audit_breakout_atr_breakout_enabled", "deep_audit_breakout_ema_stack_enabled", "deep_audit_breakout_min_rr", "deep_audit_breakout_min_entry_quality", "deep_audit_opening_noise_end_minute", "deep_audit_min_1h_bias", "deep_audit_min_4h_bias", "deep_audit_ltf_momentum_min_bias", "deep_audit_ltf_momentum_min_rsi", "deep_audit_ripster_opening_noise_end_minute", "deep_audit_ltf_rsi_floor", "deep_audit_min_ltf_ema_depth", "deep_audit_post_trim_breakeven", "deep_audit_stall_max_hours", "deep_audit_stall_breakeven_pnl_pct", "deep_audit_soft_fuse_defer_min_1h_depth", "deep_audit_runner_trail_pct", "grade_risk_map"];
             const daRows = (await db2.prepare(
               `SELECT config_key, config_value FROM model_config WHERE config_key IN (${daKeys.map((_, i) => `?${i + 1}`).join(",")})`
             ).bind(...daKeys).all())?.results || [];
