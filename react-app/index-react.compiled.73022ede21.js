@@ -246,6 +246,7 @@ function useTickerData() {
   const [loading, setLoading] = useState(Object.keys(initialData).length === 0);
   const [error, setError] = useState(null);
   const [lastUpdate, setLastUpdate] = useState(initialSnapshot?.cachedAt ? new Date(initialSnapshot.cachedAt) : null);
+  const [freshnessTs, setFreshnessTs] = useState(null);
   const [versionInfo, setVersionInfo] = useState(initialSnapshot?.versionInfo && typeof initialSnapshot.versionInfo === "object" ? initialSnapshot.versionInfo : null);
   const [tickersWithoutScores, setTickersWithoutScores] = useState(Array.isArray(initialSnapshot?.tickersWithoutScores) ? initialSnapshot.tickersWithoutScores : collectTickersWithoutScores(initialData));
   const kanbanPrevLocalRef = React.useRef({});
@@ -397,6 +398,7 @@ function useTickerData() {
         dataRef.current = nextData;
         const nextLastUpdate = new Date();
         setLastUpdate(nextLastUpdate);
+        if (dataJson.freshness_ts) setFreshnessTs(dataJson.freshness_ts);
         setError(null);
         sessionStorage.removeItem("fetchData_abortRetry");
         const tickersWithData = Object.keys(mergedData).filter(t => {
@@ -541,6 +543,7 @@ function useTickerData() {
     loading,
     error,
     lastUpdate,
+    freshnessTs,
     versionInfo,
     tickersWithoutScores,
     refetch: fetchData
@@ -12823,11 +12826,24 @@ function App() {
     loading,
     error,
     lastUpdate,
+    freshnessTs,
     versionInfo,
     tickersWithoutScores,
     refetch,
     setData: setTickerData
   } = useTickerData();
+  const _dataStaleMinutes = freshnessTs ? Math.floor((Date.now() - freshnessTs) / 60000) : 0;
+  const _dataIsStale = _dataStaleMinutes > 10;
+  const [_secondaryReady, _setSecondaryReady] = useState(false);
+  useEffect(() => {
+    if (loading || !data) return;
+    const id = typeof requestIdleCallback === "function" ? requestIdleCallback(() => _setSecondaryReady(true), {
+      timeout: 2000
+    }) : setTimeout(() => _setSecondaryReady(true), 800);
+    return () => {
+      if (typeof cancelIdleCallback === "function" && typeof id === "number") cancelIdleCallback(id);else clearTimeout(id);
+    };
+  }, [loading, !!data]);
   useEffect(() => {
     fetch(`${API_BASE}/timed/usage`, {
       method: "POST",
@@ -13261,7 +13277,20 @@ function App() {
     const allTickers = Object.values(data || {});
     if (all.length === 0) return [];
     const ENTRY_STAGES = new Set(["setup", "setup_watch", "enter", "enter_now", "flip_watch", "just_flipped"]);
+    const ACTIONABLE_STAGES = new Set(["enter", "enter_now", "trim", "exit", "defend"]);
     const chips = [];
+    const actionable = allTickers.filter(t => ACTIONABLE_STAGES.has(String(t.kanban_stage || "").toLowerCase()));
+    if (actionable.length > 0) {
+      chips.push({
+        id: "actionable",
+        icon: "\u26A1",
+        label: "Actionable",
+        count: actionable.length,
+        color: "amber",
+        tickers: actionable.map(t => t.ticker),
+        tooltip: `Tickers in enter/trim/exit/defend stages\n${actionable.slice(0, 8).map(t => `${t.ticker} (${t.kanban_stage})`).join(", ")}`
+      });
+    }
     const conviction = all.filter(t => {
       const htf = Number(t.htf_score),
         ltf = Number(t.ltf_score);
@@ -13900,7 +13929,12 @@ function App() {
     className: "mx-auto w-full px-2 sm:px-4 lg:px-5"
   }, React.createElement("header", {
     className: "mb-4 pt-3"
-  }, (() => {
+  }, _dataIsStale && React.createElement("div", {
+    className: "mb-2 px-3 py-1.5 rounded-lg border border-amber-500/30 bg-amber-500/10 flex items-center gap-2 text-[11px] text-amber-300"
+  }, React.createElement("span", null, "\u26A0"), React.createElement("span", null, "Data may be stale (", _dataStaleMinutes, "m old) \u2014"), React.createElement("button", {
+    onClick: () => refetch && refetch(),
+    className: "underline hover:text-white"
+  }, "Refresh now")), _secondaryReady && (() => {
     const now = Date.now();
     const todayStr = new Date().toLocaleDateString("en-CA", {
       timeZone: "America/New_York"
@@ -14095,7 +14129,7 @@ function App() {
     }, "Indices & Sector ETFs"), React.createElement("div", {
       className: "flex flex-wrap gap-1.5"
     }, row2Chips))));
-  })(), (() => {
+  })(), _secondaryReady && (() => {
     const allArr = data && typeof data === 'object' ? Object.values(data) : [];
     const CRYPTO_24H = new Set(["BTCUSD", "ETHUSD"]);
     const chipIntensity = absPct => {
@@ -14879,7 +14913,7 @@ function App() {
     }, "\u2715")));
   })(), React.createElement("div", {
     className: "flex-1 min-h-0"
-  }, loading && tickers.length === 0 ? React.createElement("div", {
+  }, loading && tickers.length === 0 || !_secondaryReady ? React.createElement("div", {
     className: "w-full h-full bg-white/[0.02] rounded-xl border border-white/[0.06] flex items-center justify-center",
     style: {
       animation: "fadeIn 0.3s ease-out"
@@ -14890,7 +14924,7 @@ function App() {
     className: "loading-spinner loading-spinner-lg mx-auto mb-4"
   }), React.createElement("div", {
     className: "text-[#6b7280] text-sm"
-  }, "Loading tickers..."))) : React.createElement(BubbleChart, {
+  }, loading ? "Loading tickers..." : "Preparing chart..."))) : React.createElement(BubbleChart, {
     tickers: tickers,
     onBubbleClick: handleTickerSelect,
     onBackgroundClick: () => setBubbleSearchOpen(true),

@@ -1423,6 +1423,9 @@
       const [tpExpanded, setTpExpanded] = useState(true);
       // Trade History: which trade's chart is shown (for embedded entry/exit/SL/TP chart)
       const [tradeChartSelection, setTradeChartSelection] = useState(null);
+      const [autopsyModal, setAutopsyModal] = useState(null);
+      const [autopsyModalData, setAutopsyModalData] = useState(null);
+      const [autopsyModalLoading, setAutopsyModalLoading] = useState(false);
 
       // Price source: always use the ticker prop (same object the Card renders)
       // for price/change display. latestTicker is only for context/scoring data.
@@ -2759,8 +2762,16 @@
       }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
         className: "text-[10px] uppercase tracking-[0.16em] text-[#6b7280]"
       }, "Model Guidance"), /*#__PURE__*/React.createElement("div", {
-        className: "mt-1 text-sm font-semibold text-white"
-      }, predictionContract.action_label || "Monitor")), /*#__PURE__*/React.createElement("div", {
+        className: "mt-1 flex items-center gap-2"
+      }, /*#__PURE__*/React.createElement("span", {
+        className: "text-sm font-semibold text-white"
+      }, predictionContract.action_label || "Monitor"), predictionContract.setup_tier && (() => {
+        const _t = predictionContract.setup_tier;
+        const _cls = _t === "Prime" ? "bg-amber-500/15 text-amber-300 border-amber-500/30" : _t === "Confirmed" ? "bg-emerald-500/15 text-emerald-300 border-emerald-500/30" : "bg-blue-500/15 text-blue-300 border-blue-500/30";
+        return /*#__PURE__*/React.createElement("span", {
+          className: `px-1.5 py-0.5 rounded text-[9px] font-bold border ${_cls}`
+        }, predictionContract.setup_tier_icon || "", " ", _t);
+      })())), /*#__PURE__*/React.createElement("div", {
         className: "flex flex-wrap items-center justify-end gap-1.5"
       }, predictionContract.direction && /*#__PURE__*/React.createElement("span", {
         className: `px-2 py-0.5 rounded-md text-[10px] font-semibold border ${predictionContract.direction === "LONG" ? "bg-[#00c853]/12 text-[#34d399] border-[#00c853]/25" : "bg-red-500/12 text-red-300 border-red-500/25"}`
@@ -5389,14 +5400,31 @@
           className: "text-purple-300 font-medium",
           title: exitReasonRaw
         }, exitReasonLabel)))), /*#__PURE__*/React.createElement("div", {
-          className: "mt-2 pt-2 border-t border-white/[0.06]"
-        }, /*#__PURE__*/React.createElement("a", {
+          className: "mt-2 pt-2 border-t border-white/[0.06] flex items-center gap-2"
+        }, /*#__PURE__*/React.createElement("button", {
+          onClick: e => {
+            e.stopPropagation();
+            setAutopsyModal(t);
+            setAutopsyModalLoading(true);
+            setAutopsyModalData(null);
+            fetch(`${API_BASE}/timed/admin/trade-autopsy/trades?trade_id=${encodeURIComponent(t.trade_id || t.id || "")}&key=${encodeURIComponent(window._ttApiKey || "")}`).then(r => r.json()).then(d => {
+              setAutopsyModalData(d?.trades?.[0] || d?.trade || t);
+              setAutopsyModalLoading(false);
+            }).catch(() => {
+              setAutopsyModalData(t);
+              setAutopsyModalLoading(false);
+            });
+          },
+          className: "text-[10px] px-2 py-1 rounded bg-white/[0.06] border border-white/[0.08] text-[#93b8f7] hover:text-white hover:bg-white/[0.1] transition-colors inline-flex items-center gap-1",
+          title: "View trade details"
+        }, "Trade Autopsy"), /*#__PURE__*/React.createElement("a", {
           href: `trade-autopsy.html?trade_id=${encodeURIComponent(t.trade_id || t.id || "")}`,
           target: "_blank",
           rel: "noopener noreferrer",
-          className: "text-[10px] px-2 py-1 rounded bg-white/[0.06] border border-white/[0.08] text-[#93b8f7] hover:text-white hover:bg-white/[0.1] transition-colors inline-flex items-center gap-1",
-          title: "Open Trade Autopsy chart (entry, trim, exit)"
-        }, "View chart")));
+          className: "text-[10px] text-[#6b7280] hover:text-[#9ca3af] transition-colors",
+          title: "Open full Trade Autopsy page",
+          onClick: e => e.stopPropagation()
+        }, "Full page \u2192")));
       }), ledgerTrades.length > 8 && /*#__PURE__*/React.createElement("div", {
         className: "text-[10px] text-[#4b5563] text-center"
       }, "Showing 8 of ", ledgerTrades.length, " trades")))) : null, railTab === "MODEL" ? /*#__PURE__*/React.createElement(React.Fragment, null, (() => {
@@ -6016,6 +6044,134 @@
           priceLines: modalPriceLines,
           markers: modalMarkers
         }))));
+      })(), autopsyModal && (() => {
+        const mt = autopsyModalData || autopsyModal;
+        const _dir = String(mt.direction || "").toUpperCase();
+        const _ticker = mt.ticker || "";
+        const _entry = Number(mt.entryPrice || mt.entry_price) || 0;
+        const _exit = Number(mt.exitPrice || mt.exit_price) || 0;
+        const _pnl = Number(mt.pnl || mt.realized_pnl) || 0;
+        const _pnlPct = Number(mt.pnlPct || mt.pnl_pct) || 0;
+        const _status = String(mt.status || "").toUpperCase();
+        const _grade = mt.setup_grade || mt.setupGrade || "";
+        const _setupName = mt.setup_name || mt.setupName || "";
+        const _riskBudget = mt.risk_budget || mt.riskBudget || "";
+        const _exitReason = mt.exitReason || mt.exit_reason || "";
+        const _entryTime = mt.entryTime || mt.entry_time || "";
+        const _exitTime = mt.exitTime || mt.exit_time || "";
+        const _snap = (() => {
+          try {
+            const raw = mt.signal_snapshot_json || mt.signalSnapshot;
+            return typeof raw === "string" ? JSON.parse(raw) : raw;
+          } catch {
+            return null;
+          }
+        })();
+        const _gradeCls = _grade === "Prime" ? "bg-amber-500/20 text-amber-300 border-amber-500/30" : _grade === "Confirmed" ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/30" : _grade === "Speculative" ? "bg-blue-500/20 text-blue-300 border-blue-500/30" : "bg-white/10 text-white/60 border-white/10";
+        const _statusCls = _status === "WIN" ? "text-green-400" : _status === "LOSS" ? "text-red-400" : "text-[#93b8f7]";
+        const fmtDt = v => {
+          if (!v) return "\u2014";
+          try {
+            const d = typeof v === "number" ? new Date(v > 1e12 ? v : v * 1000) : new Date(v);
+            return d.toLocaleDateString("en-US", {
+              month: "short",
+              day: "numeric"
+            }) + " " + d.toLocaleTimeString("en-US", {
+              hour: "numeric",
+              minute: "2-digit"
+            });
+          } catch {
+            return "\u2014";
+          }
+        };
+        return /*#__PURE__*/React.createElement("div", {
+          className: "fixed inset-0 z-[9999] flex items-center justify-center bg-black/70 backdrop-blur-sm",
+          onClick: () => setAutopsyModal(null)
+        }, /*#__PURE__*/React.createElement("div", {
+          className: "w-full max-w-[680px] max-h-[90vh] overflow-y-auto rounded-2xl border border-white/[0.1] bg-[#0b0e11] shadow-2xl",
+          onClick: e => e.stopPropagation()
+        }, /*#__PURE__*/React.createElement("div", {
+          className: "flex items-center justify-between px-5 py-3 border-b border-white/[0.06]"
+        }, /*#__PURE__*/React.createElement("div", {
+          className: "flex items-center gap-3"
+        }, /*#__PURE__*/React.createElement("span", {
+          className: "text-base font-bold text-white"
+        }, _ticker), /*#__PURE__*/React.createElement("span", {
+          className: `px-2 py-0.5 rounded text-[10px] font-bold border ${_dir === "LONG" ? "bg-green-500/15 text-green-400 border-green-500/30" : "bg-red-500/15 text-red-400 border-red-500/30"}`
+        }, _dir), /*#__PURE__*/React.createElement("span", {
+          className: `text-sm font-bold ${_statusCls}`
+        }, _status === "WIN" ? "+$" : _status === "LOSS" ? "-$" : "$", Math.abs(_pnl).toFixed(2)), _pnlPct ? /*#__PURE__*/React.createElement("span", {
+          className: `text-[11px] ${_statusCls}`
+        }, "(", _pnlPct > 0 ? "+" : "", _pnlPct.toFixed(2), "%)") : null), /*#__PURE__*/React.createElement("button", {
+          onClick: () => setAutopsyModal(null),
+          className: "w-7 h-7 flex items-center justify-center rounded hover:bg-white/10 text-white/50 hover:text-white text-sm"
+        }, "\xD7")), autopsyModalLoading ? /*#__PURE__*/React.createElement("div", {
+          className: "p-8 text-center text-white/40 text-sm"
+        }, "Loading trade details...") : /*#__PURE__*/React.createElement("div", {
+          className: "p-4 space-y-4"
+        }, /*#__PURE__*/React.createElement("div", {
+          className: "flex items-center gap-2 flex-wrap"
+        }, _setupName && /*#__PURE__*/React.createElement("span", {
+          className: "text-[12px] font-semibold text-white"
+        }, _setupName), _grade && /*#__PURE__*/React.createElement("span", {
+          className: `px-1.5 py-0.5 rounded text-[9px] font-bold border ${_gradeCls}`
+        }, "TT ", _grade), _riskBudget && /*#__PURE__*/React.createElement("span", {
+          className: "text-[10px] text-[#6b7280]"
+        }, _riskBudget, "% risk")), /*#__PURE__*/React.createElement("div", {
+          className: "grid grid-cols-2 gap-2 text-[11px]"
+        }, /*#__PURE__*/React.createElement("div", {
+          className: "p-2 rounded-lg bg-green-500/8 border border-green-500/15"
+        }, /*#__PURE__*/React.createElement("div", {
+          className: "text-[9px] text-[#6b7280] uppercase"
+        }, "Entry"), /*#__PURE__*/React.createElement("div", {
+          className: "text-green-300 font-semibold"
+        }, "$", _entry.toFixed(2)), /*#__PURE__*/React.createElement("div", {
+          className: "text-[9px] text-[#6b7280]"
+        }, fmtDt(_entryTime || mt.entry_ts))), (_exit > 0 || _exitTime) && /*#__PURE__*/React.createElement("div", {
+          className: "p-2 rounded-lg bg-red-500/8 border border-red-500/15"
+        }, /*#__PURE__*/React.createElement("div", {
+          className: "text-[9px] text-[#6b7280] uppercase"
+        }, "Exit"), /*#__PURE__*/React.createElement("div", {
+          className: "text-red-300 font-semibold"
+        }, _exit > 0 ? `$${_exit.toFixed(2)}` : "\u2014"), /*#__PURE__*/React.createElement("div", {
+          className: "text-[9px] text-[#6b7280]"
+        }, fmtDt(_exitTime || mt.exit_ts)))), /*#__PURE__*/React.createElement(TradeEventChart, {
+          trade: mt,
+          height: 250,
+          apiBase: API_BASE
+        }), _snap && /*#__PURE__*/React.createElement("div", {
+          className: "rounded-lg border border-white/[0.06] bg-white/[0.02] p-3"
+        }, /*#__PURE__*/React.createElement("div", {
+          className: "text-[10px] uppercase tracking-wider text-[#6b7280] mb-2"
+        }, "Signal Snapshot at Entry"), _snap.bias && /*#__PURE__*/React.createElement("div", {
+          className: "flex flex-wrap gap-1 mb-2"
+        }, Object.entries(_snap.bias).map(([tf, b]) => {
+          const bull = String(b).toLowerCase().includes("bull");
+          return /*#__PURE__*/React.createElement("span", {
+            key: tf,
+            className: `px-1.5 py-0.5 rounded text-[9px] font-bold border ${bull ? "bg-green-500/15 text-green-400 border-green-500/20" : "bg-red-500/15 text-red-400 border-red-500/20"}`
+          }, tf, " ", bull ? "Bullish" : "Bearish");
+        })), _snap.indicators && typeof _snap.indicators === "object" && Object.entries(_snap.indicators).map(([tf, ind]) => /*#__PURE__*/React.createElement("div", {
+          key: tf,
+          className: "mb-1.5"
+        }, /*#__PURE__*/React.createElement("div", {
+          className: "text-[10px] font-semibold text-white/70 mb-0.5"
+        }, tf), /*#__PURE__*/React.createElement("div", {
+          className: "text-[10px] text-[#6b7280] leading-snug"
+        }, typeof ind === "object" ? Object.entries(ind).map(([k, v]) => `${k}: ${v}`).join(" \u00B7 ") : String(ind))))), _exitReason && /*#__PURE__*/React.createElement("div", {
+          className: "rounded-lg border border-purple-500/15 bg-purple-500/5 p-3"
+        }, /*#__PURE__*/React.createElement("div", {
+          className: "text-[10px] uppercase tracking-wider text-[#6b7280] mb-1"
+        }, "Exit Context"), /*#__PURE__*/React.createElement("div", {
+          className: "text-[11px] text-purple-300"
+        }, String(_exitReason).replace(/,/g, " \u2022 ").replace(/_/g, " "))), /*#__PURE__*/React.createElement("div", {
+          className: "text-center pt-2 border-t border-white/[0.06]"
+        }, /*#__PURE__*/React.createElement("a", {
+          href: `trade-autopsy.html?trade_id=${encodeURIComponent(mt.trade_id || mt.id || "")}`,
+          target: "_blank",
+          rel: "noopener noreferrer",
+          className: "text-[11px] text-[#93b8f7] hover:text-white transition-colors"
+        }, "Open full Trade Autopsy \u2192")))));
       })());
     };
   };
