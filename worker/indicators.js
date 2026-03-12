@@ -783,26 +783,36 @@ export function computeTfBundle(bars, anchors = null) {
   // Track the timestamp of the most recent bar for freshness comparison
   const lastTs = bars[last]?.ts || bars[last]?.t || 0;
 
-  // EMAs — 10-EMA gradient ribbon
+  // EMAs — full Ripster cloud set + gradient ribbon
   const e3s = emaSeries(closes, 3);
   const e5s = emaSeries(closes, 5);
   const e8s = emaSeries(closes, 8);
+  const e9s = emaSeries(closes, 9);
+  const e12s = emaSeries(closes, 12);
   const e13s = emaSeries(closes, 13);
   const e21s = emaSeries(closes, 21);
   const e34s = emaSeries(closes, 34);
   const e48s = emaSeries(closes, 48);
+  const e50s = emaSeries(closes, 50);
+  const e72s = emaSeries(closes, 72);
   const e89s = emaSeries(closes, 89);
+  const e180s = emaSeries(closes, 180);
   const e200s = emaSeries(closes, 200);
   const e233s = emaSeries(closes, 233);
 
   const e3 = e3s[last];
   const e5 = e5s[last];
   const e8 = e8s[last];
+  const e9 = e9s[last];
+  const e12 = e12s[last];
   const e13 = e13s[last]; // eFast (emaFastLen=13)
   const e21 = e21s[last];
   const e34 = e34s[last];
   const e48 = e48s[last]; // eSlow (emaSlowLen=48)
+  const e50 = e50s[last];
+  const e72 = e72s[last];
   const e89 = e89s[last];
+  const e180 = e180s[last];
   const e200 = e200s[last];
   const e233 = e233s[last];
   const eFast = e13; // Pine default emaFastLen=13
@@ -826,7 +836,7 @@ export function computeTfBundle(bars, anchors = null) {
   //   Structure > 0.5 AND Momentum < 0 = bullish pullback (gold_long zone)
   //   Structure < -0.5 AND Momentum > 0 = bearish pullback (gold_short zone)
 
-  const ALL_EMAS = [e3, e5, e8, e13, e21, e34, e48, e89, e200, e233];
+  const ALL_EMAS = [e3, e5, e8, e9, e12, e13, e21, e34, e48, e50, e72, e89, e180, e200, e233];
   let emaDepth = 0;
   for (const val of ALL_EMAS) {
     if (Number.isFinite(val) && px > val) emaDepth++;
@@ -1106,9 +1116,44 @@ export function computeTfBundle(bars, anchors = null) {
   // ── Ichimoku Kinko Hyo (native computation) ──
   const ichimoku = computeIchimoku(bars, atr14);
 
+  // ── Ripster EMA Cloud primitives ──
+  const cloudState = (fastNow, slowNow, fastPrev, slowPrev) => {
+    if (!Number.isFinite(fastNow) || !Number.isFinite(slowNow)) return null;
+    const lo = Math.min(fastNow, slowNow);
+    const hi = Math.max(fastNow, slowNow);
+    const inCloud = Number.isFinite(px) && px >= lo && px <= hi;
+    const above = Number.isFinite(px) && px > hi;
+    const below = Number.isFinite(px) && px < lo;
+    const spread = Math.abs(fastNow - slowNow);
+    const distToCloudPct = Number.isFinite(px) && px > 0
+      ? Math.max(0, (above ? (px - hi) : below ? (lo - px) : 0) / px)
+      : 0;
+    const fastSlope = Number.isFinite(fastPrev) ? fastNow - fastPrev : 0;
+    const slowSlope = Number.isFinite(slowPrev) ? slowNow - slowPrev : 0;
+    const crossUp = Number.isFinite(fastPrev) && Number.isFinite(slowPrev) && fastPrev <= slowPrev && fastNow > slowNow;
+    const crossDn = Number.isFinite(fastPrev) && Number.isFinite(slowPrev) && fastPrev >= slowPrev && fastNow < slowNow;
+    return {
+      bull: fastNow >= slowNow,
+      bear: fastNow < slowNow,
+      above, below, inCloud,
+      lo, hi,
+      spreadPct: Number.isFinite(px) && px > 0 ? spread / px : 0,
+      distToCloudPct,
+      fastSlope, slowSlope,
+      crossUp, crossDn,
+    };
+  };
+  const ripsterClouds = {
+    c5_12: cloudState(e5, e12, e5s[last - 1], e12s[last - 1]),
+    c8_9: cloudState(e8, e9, e8s[last - 1], e9s[last - 1]),
+    c34_50: cloudState(e34, e50, e34s[last - 1], e50s[last - 1]),
+    c72_89: cloudState(e72, e89, e72s[last - 1], e89s[last - 1]),
+    c180_200: cloudState(e180, e200, e180s[last - 1], e200s[last - 1]),
+  };
+
   return {
     px, lastTs,
-    e3, e5, e8, e13, e21, e34, e48, e89, e200, e233,
+    e3, e5, e8, e9, e12, e13, e21, e34, e48, e50, e72, e89, e180, e200, e233,
     eFast, eSlow,
     emaDepth, emaStructure, emaMomentum, ribbonSpread,
     stLine, stDir, stLinePrev, stSlopeUp, stSlopeDn,
@@ -1126,6 +1171,7 @@ export function computeTfBundle(bars, anchors = null) {
     emaCross13_21_up, emaCross13_21_dn, emaCross13_21_up_ts, emaCross13_21_dn_ts,
     emaCross13_48_up, emaCross13_48_dn, emaCross13_48_up_ts, emaCross13_48_dn_ts,
     ema5above48, ema13above21, ema8above21, emaRegime,
+    ripsterClouds,
     pdz, fvg, liq,
     ichimoku,
   };
@@ -3185,6 +3231,7 @@ export function assembleTickerData(ticker, bundles, existingData = null, opts = 
       atr: atrBand ? { ...atrBand, ...(atrCross || {}) } : (atrCross || undefined),
       sq: { s: b.sqOn ? 1 : 0, r: b.sqRelease ? 1 : 0, c: b.compressed ? 1 : 0 },
       rsi: { r5: Number.isFinite(b.rsi) ? Math.round(b.rsi * 10) / 10 : undefined },
+      ripster: b.ripsterClouds || undefined,
       ph: {
         v: Number.isFinite(b.phaseOsc) ? Math.round(b.phaseOsc * 10) / 10 : undefined,
         z: b.phaseZone || undefined,

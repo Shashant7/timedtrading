@@ -536,6 +536,15 @@ const ROUTES = [
   ["POST", "/timed/admin/reconcile-replay", "POST /timed/admin/reconcile-replay"],
   ["POST", "/timed/admin/replay-lock", "POST /timed/admin/replay-lock"],
   ["DELETE", "/timed/admin/replay-lock", "DELETE /timed/admin/replay-lock"],
+  ["POST", "/timed/admin/runs/register", "POST /timed/admin/runs/register"],
+  ["POST", "/timed/admin/runs/finalize", "POST /timed/admin/runs/finalize"],
+  ["POST", "/timed/admin/runs/mark-live", "POST /timed/admin/runs/mark-live"],
+  ["POST", "/timed/admin/runs/archive", "POST /timed/admin/runs/archive"],
+  ["POST", "/timed/admin/runs/update", "POST /timed/admin/runs/update"],
+  ["POST", "/timed/admin/runs/delete", "POST /timed/admin/runs/delete"],
+  ["GET", "/timed/admin/runs", "GET /timed/admin/runs"],
+  ["GET", "/timed/admin/runs/live", "GET /timed/admin/runs/live"],
+  ["GET", "/timed/admin/runs/detail", "GET /timed/admin/runs/detail"],
   ["POST", "/timed/admin/run-lifecycle", "POST /timed/admin/run-lifecycle"],
   ["POST", "/timed/admin/model-resolve", "POST /timed/admin/model-resolve"],
   ["POST", "/timed/admin/model-retro", "POST /timed/admin/model-retro"],
@@ -2505,6 +2514,34 @@ function qualifiesForEnter(d, asOfTs = null) {
     return { qualifies: false, reason: "rsi_1h_oversold", rsi1H };
   }
 
+  // ── TD SEQUENTIAL EXHAUSTION GUARD ──
+  // When multiple HTF timeframes show high Demark counts aligned with the
+  // entry direction, buyers/sellers are exhausted → skip the entry.
+  // E.g., if 1H shows bearish prep 7+ and 4H shows bearish prep 6+,
+  // a LONG entry is chasing exhausted buying.
+  const _tdPerTf = d?.td_sequential?.per_tf;
+  if (_tdPerTf && !_regimeBypass) {
+    const _tdSide = inferredSideForRSI;
+    let exhaustionHits = 0;
+    let maxCount = 0;
+    for (const _tf of ["60", "240", "D", "W"]) {
+      const _tfTd = _tdPerTf[_tf];
+      if (!_tfTd) continue;
+      if (_tdSide === "LONG") {
+        const bc = Number(_tfTd.bearish_prep_count) || 0;
+        const bl = Number(_tfTd.bearish_leadup_count) || 0;
+        if (bc >= 7 || bl >= 8) { exhaustionHits++; maxCount = Math.max(maxCount, bc, bl); }
+      } else {
+        const bc = Number(_tfTd.bullish_prep_count) || 0;
+        const bl = Number(_tfTd.bullish_leadup_count) || 0;
+        if (bc >= 7 || bl >= 8) { exhaustionHits++; maxCount = Math.max(maxCount, bc, bl); }
+      }
+    }
+    if (exhaustionHits >= 2) {
+      return { qualifies: false, reason: "td_exhaustion_multi_tf", side: _tdSide, hits: exhaustionHits, maxCount };
+    }
+  }
+
   // ── ADAPTIVE GATES (loaded from calibration Apply) ──
   const _aeg = d?._env?._adaptiveEntryGates || null;
   const _arg = d?._env?._adaptiveRegimeGates || null;
@@ -3238,15 +3275,38 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
       const slBreached = direction === "LONG"
         ? currentPrice <= positionSL
         : currentPrice >= positionSL;
-      // In favorable zone with regime + FVG support: give one more chance (SL must breach by 0.5%)
       if (slBreached) {
         const slOvershoot = direction === "LONG"
           ? (positionSL - currentPrice) / positionSL
           : (currentPrice - positionSL) / positionSL;
-        const allowSlCushion = _inFavorableZone && _regimeConfirms && _hasFvgSupport && slOvershoot < 0.005;
-        if (!allowSlCushion) {
+
+        // HTF trend guard: if higher-TF structure still supports the trade,
+        // allow a wider cushion before hard-exiting on SL.
+        // Checks 1H SuperTrend direction + whether price is above key Ripster clouds.
+        const _htfTech1H = tickerData?.tf_tech?.["1H"];
+        const _htfRipster = _htfTech1H?.ripster;
+        const _htfStBull = _htfTech1H?.stDir === -1 || _htfTech1H?.stDir < 0;
+        const _htfStBear = _htfTech1H?.stDir === 1 || _htfTech1H?.stDir > 0;
+        const _cloud3450 = _htfRipster?.c34_50;
+        const _cloud7289 = _htfRipster?.c72_89;
+        const _htfCloudSupportsLong = _cloud3450?.above || _cloud7289?.above || _cloud3450?.inCloud || _cloud7289?.inCloud;
+        const _htfCloudSupportsShort = _cloud3450?.below || _cloud7289?.below || _cloud3450?.inCloud || _cloud7289?.inCloud;
+        const _htfTrendSupports =
+          (direction === "LONG" && _htfStBull && _htfCloudSupportsLong) ||
+          (direction === "SHORT" && _htfStBear && _htfCloudSupportsShort);
+
+        const baseCushion = _inFavorableZone && _regimeConfirms && _hasFvgSupport ? 0.005 : 0;
+        const htfCushion = _htfTrendSupports ? 0.012 : 0;
+        const allowedOvershoot = Math.max(baseCushion, htfCushion);
+
+        if (slOvershoot >= allowedOvershoot) {
           tickerData.__exit_reason = "sl_breached";
           return "exit";
+        }
+        if (_htfTrendSupports && slOvershoot < allowedOvershoot) {
+          tickerData.__defend_reason = "sl_htf_trend_cushion";
+          console.log(`[HTF GUARD] ${tickerData?.ticker}: SL breached by ${(slOvershoot * 100).toFixed(2)}% but 1H trend supports (ST=${_htfStBull ? "bull" : "bear"}, cloud34=${_cloud3450?.above ? "above" : _cloud3450?.inCloud ? "in" : "below"}, cloud72=${_cloud7289?.above ? "above" : _cloud7289?.inCloud ? "in" : "below"}). Defending.`);
+          return "defend";
         }
       }
     }
@@ -10284,19 +10344,27 @@ async function processTradeSimulation(
               candidate = entry;
             }
 
-            // Candidate 2: use Daily EMA cloud boundary when available (acts as dynamic support/resistance)
-            const dailyCloud =
-              tickerData?.daily_ema_cloud && typeof tickerData.daily_ema_cloud === "object"
-                ? tickerData.daily_ema_cloud
-                : null;
-            if (dailyCloud) {
-              const upper = Number(dailyCloud.upper);
-              const lower = Number(dailyCloud.lower);
-              if (dir === "LONG" && Number.isFinite(lower) && lower > 0) {
-                candidate = candidate == null ? lower : Math.max(candidate, lower);
+            // Candidate 2: use Ripster EMA cloud boundaries as dynamic support/resistance.
+            // Check 1H clouds (34-50, 72-89) — the lower boundary of the nearest
+            // supportive cloud acts as a natural floor for LONG stops.
+            const _slRipster1H = tickerData?.tf_tech?.["1H"]?.ripster;
+            const _slRipsterD = tickerData?.tf_tech?.D?.ripster;
+            const _slClouds = [
+              _slRipster1H?.c34_50, _slRipster1H?.c72_89,
+              _slRipsterD?.c34_50, _slRipsterD?.c72_89,
+            ].filter(Boolean);
+            for (const cl of _slClouds) {
+              if (dir === "LONG" && (cl.above || cl.inCloud)) {
+                const lo = Number(cl.lo);
+                if (Number.isFinite(lo) && lo > 0 && lo < mark) {
+                  candidate = candidate == null ? lo : Math.max(candidate, lo);
+                }
               }
-              if (dir === "SHORT" && Number.isFinite(upper) && upper > 0) {
-                candidate = candidate == null ? upper : Math.min(candidate, upper);
+              if (dir === "SHORT" && (cl.below || cl.inCloud)) {
+                const hi = Number(cl.hi);
+                if (Number.isFinite(hi) && hi > 0 && hi > mark) {
+                  candidate = candidate == null ? hi : Math.min(candidate, hi);
+                }
               }
             }
           }
@@ -14809,6 +14877,105 @@ async function d1EnsureUserTickersSchema(env) {
 // Learning Loop Schema — direction accuracy, path performance, model config
 // ═══════════════════════════════════════════════════════════════════════
 
+let _backtestRunsSchemaReady = false;
+async function d1EnsureBacktestRunsSchema(env) {
+  if (_backtestRunsSchemaReady) return;
+  const db = env?.DB;
+  if (!db) return;
+  try {
+    await db.batch([
+      db.prepare(`CREATE TABLE IF NOT EXISTS backtest_runs (run_id TEXT PRIMARY KEY, label TEXT, description TEXT, start_date TEXT, end_date TEXT, interval_min INTEGER, ticker_batch INTEGER, ticker_universe_count INTEGER, trader_only INTEGER DEFAULT 0, keep_open_at_end INTEGER DEFAULT 0, low_write INTEGER DEFAULT 0, status TEXT DEFAULT 'registered', status_note TEXT, live_config_slot INTEGER DEFAULT 0, active_experiment_slot INTEGER DEFAULT 0, is_protected_baseline INTEGER DEFAULT 0, archived_at INTEGER, archived_by TEXT, archived_reason TEXT, tags_json TEXT, params_json TEXT, metrics_json TEXT, created_at INTEGER NOT NULL, started_at INTEGER, ended_at INTEGER, updated_at INTEGER NOT NULL)`),
+      db.prepare(`CREATE TABLE IF NOT EXISTS backtest_run_metrics (run_id TEXT PRIMARY KEY, total_tickers_traded INTEGER DEFAULT 0, total_trades INTEGER DEFAULT 0, wins INTEGER DEFAULT 0, losses INTEGER DEFAULT 0, breakevens INTEGER DEFAULT 0, open_trades INTEGER DEFAULT 0, closed_trades INTEGER DEFAULT 0, win_rate REAL DEFAULT 0, realized_pnl REAL DEFAULT 0, realized_pnl_pct REAL DEFAULT 0, avg_win_pct REAL DEFAULT 0, avg_loss_pct REAL DEFAULT 0, classifications_json TEXT, by_status_json TEXT, autopsy_url TEXT, updated_at INTEGER NOT NULL)`),
+    ]);
+    try {
+      await db.batch([
+        db.prepare(`CREATE INDEX IF NOT EXISTS idx_backtest_runs_created ON backtest_runs(created_at DESC)`),
+        db.prepare(`CREATE INDEX IF NOT EXISTS idx_backtest_runs_status ON backtest_runs(status)`),
+        db.prepare(`CREATE INDEX IF NOT EXISTS idx_backtest_runs_live ON backtest_runs(live_config_slot, updated_at DESC)`),
+      ]);
+    } catch {}
+    _backtestRunsSchemaReady = true;
+  } catch (e) {
+    console.error("[BACKTEST RUNS] Schema migration failed:", String(e).slice(0, 200));
+  }
+}
+
+function parseBool01(v) {
+  if (typeof v === "boolean") return v ? 1 : 0;
+  const s = String(v ?? "").trim().toLowerCase();
+  return (s === "1" || s === "true" || s === "yes" || s === "y" || s === "on") ? 1 : 0;
+}
+
+function buildTradeAutopsyRunUrl(runId) {
+  const safe = encodeURIComponent(String(runId || "").trim());
+  return safe ? `trade-autopsy.html?run_id=${safe}` : "trade-autopsy.html";
+}
+
+async function summarizeRunMetrics(db, runId) {
+  const rid = String(runId || "").trim();
+  if (!rid) return null;
+  let tradeTable = "trades";
+  try {
+    const archivedRow = await db.prepare(`SELECT COUNT(*) AS cnt FROM backtest_run_trades WHERE run_id = ?1`).bind(rid).first();
+    if (Number(archivedRow?.cnt || 0) > 0) tradeTable = "backtest_run_trades";
+  } catch {}
+  const runFilter = tradeTable === "backtest_run_trades" ? `WHERE run_id = ?1` : `WHERE run_id = ?1`;
+  const totals = await db.prepare(
+    `SELECT
+      COUNT(*) AS total_trades,
+      COUNT(DISTINCT ticker) AS total_tickers_traded,
+      SUM(CASE WHEN status='WIN' THEN 1 ELSE 0 END) AS wins,
+      SUM(CASE WHEN status='LOSS' THEN 1 ELSE 0 END) AS losses,
+      SUM(CASE WHEN status='FLAT' THEN 1 ELSE 0 END) AS breakevens,
+      SUM(CASE WHEN status='OPEN' OR status='TP_HIT_TRIM' THEN 1 ELSE 0 END) AS open_trades,
+      SUM(CASE WHEN status IN ('WIN','LOSS','FLAT') THEN 1 ELSE 0 END) AS closed_trades,
+      SUM(CASE WHEN status IN ('WIN','LOSS','FLAT') THEN COALESCE(pnl,0) ELSE 0 END) AS realized_pnl,
+      AVG(CASE WHEN status='WIN' THEN COALESCE(pnl_pct,0) ELSE NULL END) AS avg_win_pct,
+      AVG(CASE WHEN status='LOSS' THEN COALESCE(pnl_pct,0) ELSE NULL END) AS avg_loss_pct
+     FROM ${tradeTable} ${runFilter}`
+  ).bind(rid).first();
+
+  let classifications = {};
+  try {
+    const classRows = await db.prepare(
+      `SELECT COALESCE(NULLIF(a.classification,''), 'unclassified') AS classification, COUNT(*) AS count
+       FROM ${tradeTable} t LEFT JOIN trade_autopsy_annotations a ON a.trade_id = t.trade_id
+       WHERE t.run_id = ?1 GROUP BY classification ORDER BY count DESC`
+    ).bind(rid).all();
+    for (const r of (classRows?.results || [])) classifications[String(r.classification || "unclassified")] = Number(r.count || 0);
+  } catch {}
+
+  let byStatus = {};
+  try {
+    const statusRows = await db.prepare(
+      `SELECT COALESCE(status,'UNKNOWN') AS status, COUNT(*) AS count FROM ${tradeTable} WHERE run_id = ?1 GROUP BY status ORDER BY count DESC`
+    ).bind(rid).all();
+    for (const r of (statusRows?.results || [])) byStatus[String(r.status || "UNKNOWN")] = Number(r.count || 0);
+  } catch {}
+
+  const wins = Number(totals?.wins || 0);
+  const losses = Number(totals?.losses || 0);
+  const closedTrades = Number(totals?.closed_trades || 0);
+  const winRate = closedTrades > 0 ? (wins / closedTrades) * 100 : 0;
+  return {
+    run_id: rid,
+    total_tickers_traded: Number(totals?.total_tickers_traded || 0),
+    total_trades: Number(totals?.total_trades || 0),
+    wins, losses,
+    breakevens: Number(totals?.breakevens || 0),
+    open_trades: Number(totals?.open_trades || 0),
+    closed_trades: closedTrades,
+    win_rate: winRate,
+    realized_pnl: Number(totals?.realized_pnl || 0),
+    realized_pnl_pct: 0,
+    avg_win_pct: Number(totals?.avg_win_pct || 0),
+    avg_loss_pct: Number(totals?.avg_loss_pct || 0),
+    classifications_json: JSON.stringify(classifications),
+    by_status_json: JSON.stringify(byStatus),
+    autopsy_url: buildTradeAutopsyRunUrl(rid),
+  };
+}
+
 let _learningSchemaReady = false;
 async function d1EnsureLearningSchema(env) {
   if (_learningSchemaReady) return;
@@ -16613,6 +16780,27 @@ function buildTradeLineageSnapshot(tickerData, entryPathOverride = null) {
           : null,
       }
     : null;
+  // Compact Ripster cloud state for key HTFs at trade entry
+  const ripsterClouds = (() => {
+    const tt = tickerData?.tf_tech;
+    if (!tt) return null;
+    const out = {};
+    for (const tf of ["D", "4H", "1H", "W"]) {
+      const rc = tt[tf]?.ripster;
+      if (!rc) continue;
+      const compact = {};
+      for (const [ck, cv] of Object.entries(rc)) {
+        if (!cv) continue;
+        compact[ck] = { b: cv.bull ? 1 : 0, ab: cv.above ? 1 : 0, sp: Math.round((cv.spreadPct || 0) * 10000) / 10000 };
+        if (cv.inCloud) compact[ck].ic = 1;
+        if (cv.crossUp) compact[ck].xu = 1;
+        if (cv.crossDn) compact[ck].xd = 1;
+      }
+      if (Object.keys(compact).length) out[tf] = compact;
+    }
+    return Object.keys(out).length ? out : null;
+  })();
+
   return {
     entry_path: entryPathOverride || tickerData?.__entry_path || tickerData?.entry_path || null,
     direction_source: tickerData?.direction_source || null,
@@ -16621,6 +16809,7 @@ function buildTradeLineageSnapshot(tickerData, entryPathOverride = null) {
     regime_score: Number.isFinite(Number(tickerData?.regime_score)) ? Number(tickerData.regime_score) : null,
     execution_profile: executionProfile,
     market_internals: internals,
+    ripster_clouds: ripsterClouds,
     regime_params: tickerData?.regime_params
       ? {
           minHTFScore: Number.isFinite(Number(tickerData.regime_params.minHTFScore)) ? Number(tickerData.regime_params.minHTFScore) : null,
@@ -33362,20 +33551,40 @@ export default {
           stateMap[ticker] = existing || {};
         }
 
-        // Load golden profiles, adaptive gates, and VIX for entry gate parity with live cron.
-        // Without this, qualifiesForEnter bypasses golden profile floors + adaptive gates,
-        // making replay entries far looser than live.
+        // Load calibration + adaptive config from model_config for replay parity with live cron.
+        // Without this, replay uses default SL/TP, no rank floor, and no adaptive gates.
         let _replayGoldenProfiles = null;
         let _replayAdaptiveEntryGates = null;
         let _replayAdaptiveRegimeGates = null;
+        let _replayAdaptiveSLTP = null;
+        let _replayCalibratedSlAtr = 0;
+        let _replayCalibratedRankMin = 0;
         let _replayCurrentVix = null;
         try {
           const cfgRows = await db.batch([
             db.prepare(`SELECT config_value FROM model_config WHERE config_key='adaptive_entry_gates'`),
             db.prepare(`SELECT config_value FROM model_config WHERE config_key='adaptive_regime_gates'`),
+            db.prepare(`SELECT config_value FROM model_config WHERE config_key='adaptive_sl_tp'`),
+            db.prepare(`SELECT config_value FROM model_config WHERE config_key='calibrated_sl_atr'`),
+            db.prepare(`SELECT config_value FROM model_config WHERE config_key='calibrated_tp_tiers'`),
+            db.prepare(`SELECT config_value FROM model_config WHERE config_key='calibrated_rank_min'`),
+            db.prepare(`SELECT config_value FROM model_config WHERE config_key='adaptive_rank_weights'`),
           ]);
           if (cfgRows[0]?.results?.[0]?.config_value) _replayAdaptiveEntryGates = JSON.parse(cfgRows[0].results[0].config_value);
           if (cfgRows[1]?.results?.[0]?.config_value) _replayAdaptiveRegimeGates = JSON.parse(cfgRows[1].results[0].config_value);
+          if (cfgRows[2]?.results?.[0]?.config_value) _replayAdaptiveSLTP = JSON.parse(cfgRows[2].results[0].config_value);
+          if (cfgRows[3]?.results?.[0]?.config_value) _replayCalibratedSlAtr = Number(cfgRows[3].results[0].config_value) || 0;
+          if (cfgRows[4]?.results?.[0]?.config_value) {
+            const _tpRaw = JSON.parse(cfgRows[4].results[0].config_value);
+            const _sltpDef = _replayAdaptiveSLTP?.["_default"] || {};
+            if (_sltpDef.tp_trim_atr && _sltpDef.tp_exit_atr && _sltpDef.tp_runner_atr) {
+              _calibratedTPTiers = { trim: _sltpDef.tp_trim_atr, exit: _sltpDef.tp_exit_atr, runner: _sltpDef.tp_runner_atr };
+            } else if (_tpRaw) {
+              _calibratedTPTiers = _tpRaw;
+            }
+          }
+          if (cfgRows[5]?.results?.[0]?.config_value) _replayCalibratedRankMin = Number(cfgRows[5].results[0].config_value) || 0;
+          // cfgRows[6] = adaptive_rank_weights — loaded for parity but applied via scoring
         } catch {}
         // Load deep audit config for replay parity with live
         try {
@@ -33397,6 +33606,12 @@ export default {
           const vixData = await kvGetJSON(KV, "timed:latest:VIX");
           if (vixData?.price) _replayCurrentVix = Number(vixData.price);
         } catch {}
+
+        // Propagate calibration to Worker env so processTradeSimulation receives them
+        // via replayEnv = { ...env, ... } spread (mirrors live cron env setup).
+        env._adaptiveSLTP = _replayAdaptiveSLTP;
+        env._calibratedSlAtr = _replayCalibratedSlAtr;
+        env._calibratedRankMin = _replayCalibratedRankMin;
 
         let processed = 0;
         let tradesCreated = 0;
@@ -33481,10 +33696,12 @@ export default {
                   _goldenProfiles: _replayGoldenProfiles,
                   _adaptiveEntryGates: _replayAdaptiveEntryGates,
                   _adaptiveRegimeGates: _replayAdaptiveRegimeGates,
+                  _adaptiveSLTP: _replayAdaptiveSLTP,
+                  _calibratedSlAtr: _replayCalibratedSlAtr,
+                  _calibratedRankMin: _replayCalibratedRankMin,
                   _marketRegime: _rMktRegime,
                   _sectorRegime: _rSecRegime,
                   _deepAuditConfig: replayEnv._deepAuditConfig || null,
-                  _calibratedRankMin: replayEnv._calibratedRankMin || 0,
                   _leadingLtf: replayLeadingLtf,
                 };
               }
@@ -34446,6 +34663,210 @@ export default {
         if (!KV) return sendJSON({ ok: false, error: "no_kv" }, 500, corsHeaders(env, req));
         await KV.delete("timed:replay:lock");
         return sendJSON({ ok: true, released: true }, 200, corsHeaders(env, req));
+      }
+
+      // ═══════════════════════════════════════════════════════════════════════
+      // BACKTEST RUN REGISTRY — CRUD for tracking backtest runs
+      // ═══════════════════════════════════════════════════════════════════════
+      if (routeKey === "POST /timed/admin/runs/register") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const db = env?.DB;
+        if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
+        await d1EnsureBacktestRunsSchema(env);
+        try {
+          const body = await req.json().catch(() => ({}));
+          const runId = String(body?.run_id || "").trim();
+          if (!runId) return sendJSON({ ok: false, error: "run_id_required" }, 400, corsHeaders(env, req));
+          const now = Date.now();
+          const status = String(body?.status || "running").trim().toLowerCase();
+          const label = body?.label != null ? String(body.label).trim() : null;
+          const description = body?.description != null ? String(body.description).trim() : null;
+          const tags = Array.isArray(body?.tags) ? body.tags : [];
+          const params = body?.params && typeof body.params === "object" ? body.params : null;
+          const activeSlot = parseBool01(body?.active_experiment_slot ?? (status === "running" ? 1 : 0));
+          if (activeSlot) {
+            try { await db.prepare(`UPDATE backtest_runs SET active_experiment_slot = 0 WHERE active_experiment_slot = 1`).run(); } catch {}
+          }
+          await db.prepare(`INSERT OR REPLACE INTO backtest_runs (run_id, label, description, start_date, end_date, interval_min, ticker_batch, ticker_universe_count, trader_only, keep_open_at_end, low_write, status, status_note, live_config_slot, active_experiment_slot, is_protected_baseline, tags_json, params_json, created_at, updated_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20)`).bind(
+            runId, label, description, body?.start_date || null, body?.end_date || null,
+            Number(body?.interval_min) || 15, Number(body?.ticker_batch) || 15,
+            Number(body?.ticker_universe_count) || 0,
+            body?.trader_only ? 1 : 0, body?.keep_open_at_end ? 1 : 0, body?.low_write ? 1 : 0,
+            status, body?.status_note || null,
+            parseBool01(body?.live_config_slot), activeSlot,
+            parseBool01(body?.is_protected_baseline),
+            tags.length ? JSON.stringify(tags) : null,
+            params ? JSON.stringify(params) : null,
+            now, now,
+          ).run();
+          return sendJSON({ ok: true, run_id: runId, status }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      if (routeKey === "POST /timed/admin/runs/finalize") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const db = env?.DB;
+        if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
+        await d1EnsureBacktestRunsSchema(env);
+        try {
+          const body = await req.json().catch(() => ({}));
+          const runId = String(body?.run_id || "").trim();
+          if (!runId) return sendJSON({ ok: false, error: "run_id_required" }, 400, corsHeaders(env, req));
+          const now = Date.now();
+          const status = String(body?.status || "completed").trim().toLowerCase();
+          const summary = await summarizeRunMetrics(db, runId);
+          if (!summary) return sendJSON({ ok: false, error: "summary_failed" }, 500, corsHeaders(env, req));
+          const metricsPayload = {
+            run_id: summary.run_id,
+            tickers: { traded: summary.total_tickers_traded },
+            trades: { total: summary.total_trades, wins: summary.wins, losses: summary.losses, breakevens: summary.breakevens, open: summary.open_trades, closed: summary.closed_trades, win_rate: summary.win_rate },
+            pnl: { realized_pnl: summary.realized_pnl, realized_pnl_pct: summary.realized_pnl_pct, avg_win_pct: summary.avg_win_pct, avg_loss_pct: summary.avg_loss_pct },
+            classifications: (() => { try { return JSON.parse(summary.classifications_json || "{}"); } catch { return {}; } })(),
+            by_status: (() => { try { return JSON.parse(summary.by_status_json || "{}"); } catch { return {}; } })(),
+            autopsy_url: summary.autopsy_url,
+          };
+          await db.prepare(`UPDATE backtest_runs SET status = ?2, status_note = ?3, metrics_json = ?4, ended_at = COALESCE(ended_at, ?5), updated_at = ?5, label = COALESCE(?6, label), description = COALESCE(?7, description) WHERE run_id = ?1`).bind(
+            runId, status, body?.status_note || "Finalized",
+            JSON.stringify(metricsPayload), now, body?.label || null, body?.description || null,
+          ).run();
+          try {
+            await db.prepare(`INSERT OR REPLACE INTO backtest_run_metrics (run_id, total_tickers_traded, total_trades, wins, losses, breakevens, open_trades, closed_trades, win_rate, realized_pnl, realized_pnl_pct, avg_win_pct, avg_loss_pct, classifications_json, by_status_json, autopsy_url, updated_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17)`).bind(
+              summary.run_id, summary.total_tickers_traded, summary.total_trades, summary.wins, summary.losses, summary.breakevens, summary.open_trades, summary.closed_trades, summary.win_rate, summary.realized_pnl, summary.realized_pnl_pct, summary.avg_win_pct, summary.avg_loss_pct, summary.classifications_json, summary.by_status_json, summary.autopsy_url, now,
+            ).run();
+          } catch {}
+          return sendJSON({ ok: true, run_id: runId, status, summary: metricsPayload }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      if (routeKey === "POST /timed/admin/runs/mark-live") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const db = env?.DB;
+        if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
+        await d1EnsureBacktestRunsSchema(env);
+        try {
+          const body = await req.json().catch(() => ({}));
+          if (!body?.run_id) return sendJSON({ ok: false, error: "run_id_required" }, 400, corsHeaders(env, req));
+          await db.prepare(`UPDATE backtest_runs SET live_config_slot = 0 WHERE live_config_slot = 1`).run();
+          await db.prepare(`UPDATE backtest_runs SET live_config_slot = 1, updated_at = ?2 WHERE run_id = ?1`).bind(body.run_id, Date.now()).run();
+          return sendJSON({ ok: true, run_id: body.run_id }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      if (routeKey === "POST /timed/admin/runs/archive") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const db = env?.DB;
+        if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
+        await d1EnsureBacktestRunsSchema(env);
+        try {
+          const body = await req.json().catch(() => ({}));
+          if (!body?.run_id) return sendJSON({ ok: false, error: "run_id_required" }, 400, corsHeaders(env, req));
+          await db.prepare(`UPDATE backtest_runs SET archived_at = ?2, archived_reason = ?3, updated_at = ?2 WHERE run_id = ?1`).bind(body.run_id, Date.now(), body?.reason || null).run();
+          return sendJSON({ ok: true }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      if (routeKey === "POST /timed/admin/runs/update") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const db = env?.DB;
+        if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
+        await d1EnsureBacktestRunsSchema(env);
+        try {
+          const body = await req.json().catch(() => ({}));
+          if (!body?.run_id) return sendJSON({ ok: false, error: "run_id_required" }, 400, corsHeaders(env, req));
+          await db.prepare(`UPDATE backtest_runs SET description = ?2, updated_at = ?3 WHERE run_id = ?1`).bind(body.run_id, body?.description || null, Date.now()).run();
+          return sendJSON({ ok: true }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      if (routeKey === "POST /timed/admin/runs/delete") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const db = env?.DB;
+        if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
+        await d1EnsureBacktestRunsSchema(env);
+        try {
+          const body = await req.json().catch(() => ({}));
+          if (!body?.run_id) return sendJSON({ ok: false, error: "run_id_required" }, 400, corsHeaders(env, req));
+          await db.prepare(`DELETE FROM backtest_runs WHERE run_id = ?1`).bind(body.run_id).run();
+          try { await db.prepare(`DELETE FROM backtest_run_metrics WHERE run_id = ?1`).bind(body.run_id).run(); } catch {}
+          return sendJSON({ ok: true }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      if (routeKey === "GET /timed/admin/runs/live") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const db = env?.DB;
+        if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
+        await d1EnsureBacktestRunsSchema(env);
+        try {
+          const row = await db.prepare(`SELECT r.*, m.total_trades, m.wins, m.losses, m.win_rate, m.realized_pnl, m.realized_pnl_pct, m.avg_win_pct, m.avg_loss_pct FROM backtest_runs r LEFT JOIN backtest_run_metrics m ON r.run_id = m.run_id WHERE r.live_config_slot = 1 ORDER BY r.updated_at DESC LIMIT 1`).first();
+          return sendJSON({ ok: true, live: row || null }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      if (routeKey === "GET /timed/admin/runs/detail") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const db = env?.DB;
+        if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
+        await d1EnsureBacktestRunsSchema(env);
+        try {
+          const runId = url.searchParams.get("run_id");
+          if (!runId) return sendJSON({ ok: false, error: "run_id_required" }, 400, corsHeaders(env, req));
+          const row = await db.prepare(`SELECT r.*, m.total_trades, m.wins, m.losses, m.win_rate, m.realized_pnl, m.realized_pnl_pct, m.avg_win_pct, m.avg_loss_pct FROM backtest_runs r LEFT JOIN backtest_run_metrics m ON r.run_id = m.run_id WHERE r.run_id = ?1`).bind(runId).first();
+          if (!row) return sendJSON({ ok: false, error: "not_found" }, 404, corsHeaders(env, req));
+          const parsed = { ...row };
+          try { parsed.tags = row.tags_json ? JSON.parse(row.tags_json) : null; } catch { parsed.tags = null; }
+          try { parsed.params = row.params_json ? JSON.parse(row.params_json) : null; } catch { parsed.params = null; }
+          try { parsed.metrics = row.metrics_json ? JSON.parse(row.metrics_json) : null; } catch { parsed.metrics = null; }
+          return sendJSON({ ok: true, ...parsed }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      if (routeKey === "GET /timed/admin/runs") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const db = env?.DB;
+        if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
+        await d1EnsureBacktestRunsSchema(env);
+        try {
+          const limit = Math.min(Number(url.searchParams.get("limit")) || 60, 200);
+          const includeArchived = url.searchParams.get("include_archived") === "1";
+          const where = includeArchived ? "" : "WHERE (r.archived_at IS NULL OR r.archived_at = 0)";
+          const rows = (await db.prepare(`SELECT r.*, m.total_trades, m.wins, m.losses, m.win_rate, m.realized_pnl, m.realized_pnl_pct, m.avg_win_pct, m.avg_loss_pct FROM backtest_runs r LEFT JOIN backtest_run_metrics m ON r.run_id = m.run_id ${where} ORDER BY r.created_at DESC LIMIT ?1`).bind(limit).all())?.results || [];
+          const summaries = rows.map(r => {
+            const out = { ...r };
+            try { out.tags = r.tags_json ? JSON.parse(r.tags_json) : null; } catch { out.tags = null; }
+            try { out.params = r.params_json ? JSON.parse(r.params_json) : null; } catch { out.params = null; }
+            try { out.metrics = r.metrics_json ? JSON.parse(r.metrics_json) : null; } catch { out.metrics = null; }
+            return out;
+          });
+          return sendJSON({ ok: true, runs: summaries, summaries }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
+        }
       }
 
       // POST /timed/admin/run-lifecycle?key=...

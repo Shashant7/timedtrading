@@ -104,6 +104,20 @@ npm run deploy:worker   # worker only (skip right-rail)
 - `window._ttIsPro` for feature gating
 - Admin-gate live prices
 
+**Backtest Run Registry**
+- D1 tables: `backtest_runs` (metadata), `backtest_run_metrics` (aggregated stats), `backtest_run_trades` (archived trade copies)
+- Schema managed by `d1EnsureBacktestRunsSchema(env)` with `_backtestRunsSchemaReady` flag
+- Routes: `GET /timed/admin/runs` (list), `GET /timed/admin/runs/live`, `GET /timed/admin/runs/detail`, `POST /timed/admin/runs/register`, `POST /timed/admin/runs/finalize`, `POST /timed/admin/runs/mark-live`, `POST /timed/admin/runs/archive`, `POST /timed/admin/runs/update`, `POST /timed/admin/runs/delete`
+- All routes use `requireKeyOrAdmin` (accepts API key OR CF Access JWT)
+- `summarizeRunMetrics(db, runId)` — scoped by `run_id`, checks `backtest_run_trades` first (archived), falls back to `trades` table
+- `full-backtest.sh` calls `register` at start and `finalize` at end
+- UI: System Intelligence → Runs tab (`react-app/system-intelligence.html`)
+
+**Code Hygiene**
+- After `git merge` / `git pull`: run `grep -r '<<<<<<<' react-app/ worker/` before committing
+- Pages (git-connected): production deploys only via `git push main`, NOT `wrangler pages deploy`
+- When restoring old code: diff ROUTES array to verify no endpoints were dropped
+
 ## Full Lessons
 
 See `tasks/lessons.md` for the complete list (170+ items). Use CONTEXT for quick refresh.

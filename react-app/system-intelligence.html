@@ -2307,28 +2307,99 @@ function RunsTab({ isAdmin }) {
       {error && <div className="p-3 rounded-lg bg-rose-500/10 border border-rose-500/20 text-xs text-rose-300">{error}</div>}
 
       {detailRunId && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={() => setDetailRunId(null)}>
-          <div className="card max-w-2xl max-h-[85vh] overflow-hidden flex flex-col" onClick={e => e.stopPropagation()}>
-            <div className="flex items-center justify-between p-3 border-b border-white/[0.06]">
-              <h3 className="text-sm font-semibold text-white">Run Details: {detailRunId?.slice(0, 40)}…</h3>
-              <button className="text-slate-400 hover:text-white text-lg" onClick={() => setDetailRunId(null)}>×</button>
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-6" style={{background:"rgba(0,0,0,0.7)",backdropFilter:"blur(4px)"}} onClick={() => setDetailRunId(null)}>
+          <div style={{background:"rgba(15,17,23,0.98)",border:"1px solid rgba(255,255,255,0.08)",borderRadius:14,maxWidth:620,width:"100%",maxHeight:"82vh",display:"flex",flexDirection:"column",boxShadow:"0 25px 60px rgba(0,0,0,0.6)"}} onClick={e => e.stopPropagation()}>
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"14px 18px",borderBottom:"1px solid rgba(255,255,255,0.06)"}}>
+              <span style={{fontSize:13,fontWeight:600,color:"#fff"}}>Run Details</span>
+              <button style={{color:"#94a3b8",fontSize:18,cursor:"pointer",background:"none",border:"none",lineHeight:1}} onClick={() => setDetailRunId(null)}>×</button>
             </div>
-            <div className="p-3 overflow-auto flex-1 text-xs font-mono text-slate-300 bg-slate-900/50 rounded">
+            <div style={{padding:18,overflowY:"auto",flex:1}}>
               {detailData ? (
                 detailData.error ? (
-                  <p className="text-rose-400">{detailData.error}</p>
-                ) : (
-                  <pre className="whitespace-pre-wrap break-words">{JSON.stringify({
-                    summary: detailData.summary,
-                    rule_snapshot_meta: detailData.rule_snapshot_meta,
-                    rule_snapshot_type: detailData.rule_snapshot?.snapshot_type,
-                    rule_snapshot_note: detailData.rule_snapshot?.note,
-                    env_flags: detailData.rule_snapshot?.env_flags,
-                    tags: detailData.tags,
-                  }, null, 2)}</pre>
-                )
+                  <p style={{color:"#f87171",fontSize:12}}>{detailData.error}</p>
+                ) : (() => {
+                  const d = detailData;
+                  const m = d.metrics || {};
+                  const statusColor = {completed:"#34d399",running:"#fbbf24",failed:"#f87171",archived:"#64748b"}[d.status] || "#cbd5e1";
+                  const fmt = v => v != null ? String(v) : "—";
+                  const fmtPct = v => v != null ? `${Number(v).toFixed(2)}%` : "—";
+                  const fmtDollars = v => v != null ? `$${Number(v).toFixed(2)}` : "—";
+                  const fmtDate = v => { if (!v) return "—"; const n = Number(v); if (n > 1e12) return new Date(n).toLocaleString(); if (n > 1e9) return new Date(n * 1000).toLocaleString(); return String(v); };
+                  const Row = ({label, children}) => (
+                    <div style={{display:"flex",gap:12,padding:"3px 0",fontSize:11}}>
+                      <span style={{color:"#64748b",minWidth:90,flexShrink:0}}>{label}</span>
+                      <span style={{color:"#e2e8f0"}}>{children}</span>
+                    </div>
+                  );
+                  const Section = ({title, children}) => (
+                    <div style={{marginBottom:16}}>
+                      <div style={{fontSize:9,textTransform:"uppercase",letterSpacing:"0.12em",color:"#475569",marginBottom:8,fontWeight:600}}>{title}</div>
+                      {children}
+                    </div>
+                  );
+                  const wr = Number(m.win_rate ?? d.win_rate ?? 0);
+                  const pnl = Number(m.realized_pnl ?? d.realized_pnl ?? 0);
+                  return (
+                    <div>
+                      <Section title="Identity">
+                        <Row label="Run ID"><span style={{fontFamily:"monospace",fontSize:10,wordBreak:"break-all"}}>{d.run_id}</span></Row>
+                        <Row label="Label">{fmt(d.label)}</Row>
+                        <Row label="Status"><span style={{color:statusColor,fontWeight:600}}>{fmt(d.status)}</span></Row>
+                        {d.status_note && <Row label="Note">{d.status_note}</Row>}
+                        {d.description && <Row label="Description">{d.description}</Row>}
+                      </Section>
+                      <Section title="Window & Config">
+                        <Row label="Date Range">{fmt(d.start_date)} → {fmt(d.end_date)}</Row>
+                        <Row label="Interval">{d.interval_min ? `${d.interval_min}m` : "—"}</Row>
+                        <Row label="Ticker Batch">{fmt(d.ticker_batch)}</Row>
+                        <Row label="Universe">{fmt(d.ticker_universe_count)} tickers</Row>
+                        <Row label="Trader Only">{d.trader_only ? "Yes" : "No"}</Row>
+                        <Row label="Keep Open">{d.keep_open_at_end ? "Yes" : "No"}</Row>
+                      </Section>
+                      <Section title="Metrics">
+                        <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:10,marginBottom:10}}>
+                          {[
+                            {v: fmt(m.total_trades ?? d.total_trades), l:"Total Trades", c:"#fff"},
+                            {v: fmtPct(m.win_rate ?? d.win_rate), l:"Win Rate", c: wr >= 50 ? "#34d399" : "#f87171"},
+                            {v: fmt(m.wins ?? d.wins), l:"Wins", c:"#34d399"},
+                            {v: fmt(m.losses ?? d.losses), l:"Losses", c:"#f87171"},
+                          ].map((card,i) => (
+                            <div key={i} style={{background:"rgba(255,255,255,0.04)",borderRadius:8,padding:"10px 6px",textAlign:"center"}}>
+                              <div style={{fontSize:18,fontWeight:700,color:card.c}}>{card.v}</div>
+                              <div style={{fontSize:9,color:"#64748b",marginTop:2}}>{card.l}</div>
+                            </div>
+                          ))}
+                        </div>
+                        <Row label="Realized P&L"><span style={{color: pnl >= 0 ? "#34d399" : "#f87171", fontWeight:600}}>{fmtDollars(m.realized_pnl ?? d.realized_pnl)}</span></Row>
+                        <Row label="Avg Win"><span style={{color:"#34d399"}}>{fmtPct(m.avg_win_pct ?? d.avg_win_pct)}</span></Row>
+                        <Row label="Avg Loss"><span style={{color:"#f87171"}}>{fmtPct(m.avg_loss_pct ?? d.avg_loss_pct)}</span></Row>
+                      </Section>
+                      <Section title="Timestamps">
+                        <Row label="Created">{fmtDate(d.created_at)}</Row>
+                        <Row label="Started">{fmtDate(d.started_at)}</Row>
+                        <Row label="Ended">{fmtDate(d.ended_at)}</Row>
+                        <Row label="Updated">{fmtDate(d.updated_at)}</Row>
+                      </Section>
+                      {(d.tags && d.tags.length > 0) && (
+                        <Section title="Tags">
+                          <div style={{display:"flex",flexWrap:"wrap",gap:6}}>{d.tags.map((t,i) => <span key={i} style={{padding:"2px 8px",borderRadius:4,background:"rgba(255,255,255,0.06)",color:"#cbd5e1",fontSize:10}}>{t}</span>)}</div>
+                        </Section>
+                      )}
+                      {d.params && (
+                        <Section title="Parameters">
+                          <pre style={{fontSize:10,color:"#94a3b8",fontFamily:"monospace",whiteSpace:"pre-wrap",wordBreak:"break-word",background:"rgba(255,255,255,0.03)",borderRadius:6,padding:8,margin:0}}>{JSON.stringify(d.params, null, 2)}</pre>
+                        </Section>
+                      )}
+                      <div style={{display:"flex",gap:14,paddingTop:10,borderTop:"1px solid rgba(255,255,255,0.06)",fontSize:10,color:"#64748b"}}>
+                        <span>Live Slot: {d.live_config_slot ? "Yes" : "—"}</span>
+                        <span>Protected: {d.is_protected_baseline ? "Yes" : "—"}</span>
+                        <span>Experiment: {d.active_experiment_slot ? "Yes" : "—"}</span>
+                      </div>
+                    </div>
+                  );
+                })()
               ) : (
-                <p className="text-slate-500">Loading…</p>
+                <p style={{color:"#64748b",fontSize:12}}>Loading…</p>
               )}
             </div>
           </div>
@@ -2376,7 +2447,7 @@ function RunsTab({ isAdmin }) {
         ) : filteredRuns.length === 0 ? (
           <div className="p-5 text-center text-xs text-slate-500">No runs found.</div>
         ) : (
-          <div className="runs-table-wrap overflow-auto max-h-[60vh]">
+          <div className="runs-table-wrap overflow-x-auto">
             <table className="runs-table">
               <thead className="sticky top-0 z-20 bg-[rgba(15,17,23,0.98)] text-slate-500 backdrop-blur">
                 <tr>
@@ -2742,55 +2813,6 @@ function RunsTab({ isAdmin }) {
         </div>
       )}
 
-      {detailRunId && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={() => { setDetailRunId(null); setDetailData(null); }}>
-          <div className="bg-slate-800 border border-white/10 rounded-lg shadow-xl max-w-2xl w-full max-h-[85vh] overflow-hidden flex flex-col" onClick={e => e.stopPropagation()}>
-            <div className="px-4 py-3 border-b border-white/10 flex items-center justify-between">
-              <h3 className="text-sm font-semibold text-white">Run details: {shortRunId(detailRunId)}</h3>
-              <button className="text-slate-400 hover:text-white text-lg leading-none" onClick={() => { setDetailRunId(null); setDetailData(null); }}>&times;</button>
-            </div>
-            <div className="p-4 overflow-auto flex-1 text-xs">
-              {loadingDetail ? (
-                <p className="text-slate-500">Loading...</p>
-              ) : detailData ? (
-                <div className="space-y-3">
-                  {detailData.summary && (
-                    <div>
-                      <div className="text-slate-500 mb-1">Summary</div>
-                      <div className="text-slate-300 font-mono bg-slate-900/50 p-3 rounded overflow-x-auto">
-                        {JSON.stringify(detailData.summary, null, 2)}
-                      </div>
-                    </div>
-                  )}
-                  {detailData.rule_snapshot_meta && (
-                    <div>
-                      <div className="text-slate-500 mb-1">Rule snapshot</div>
-                      <div className="text-slate-300 font-mono bg-slate-900/50 p-3 rounded">
-                        Ready: {detailData.rule_snapshot_meta.ready ? "Yes" : "No"}
-                        {detailData.rule_snapshot_meta.source && ` · Source: ${detailData.rule_snapshot_meta.source}`}
-                        {detailData.rule_snapshot_meta.stage && ` · Stage: ${detailData.rule_snapshot_meta.stage}`}
-                        {detailData.rule_snapshot?.note && (
-                          <div className="mt-2 text-amber-300/90">{detailData.rule_snapshot.note}</div>
-                        )}
-                      </div>
-                    </div>
-                  )}
-                  {detailData.rule_snapshot && detailData.rule_snapshot.env_flags && (
-                    <div>
-                      <div className="text-slate-500 mb-1">Env flags (at capture)</div>
-                      <div className="text-slate-300 font-mono bg-slate-900/50 p-3 rounded overflow-x-auto">
-                        {JSON.stringify(detailData.rule_snapshot.env_flags, null, 2)}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              ) : (
-                <p className="text-slate-500">No data</p>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
