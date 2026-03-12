@@ -2844,7 +2844,7 @@
         className: "text-[11px] text-red-300/80 leading-relaxed"
       }, "\u2022 ", item)))) : predictionContractError ? /*#__PURE__*/React.createElement("div", {
         className: "rounded-xl border border-white/[0.08] bg-white/[0.03] p-3 mb-4 text-[11px] text-[#6b7280]"
-      }, "Model guidance unavailable.") : null, (() => {
+      }, "Model guidance unavailable.") : null, false && (() => {
         // Use position SL/TP when available (correct for SHORT trades)
         const posSlRaw = ticker?.has_open_position ? Number(ticker?.position_sl) : NaN;
         const posTpRaw = ticker?.has_open_position ? Number(ticker?.position_tp) : NaN;
@@ -5094,14 +5094,7 @@
         href: `simulation-dashboard.html?ticker=${encodeURIComponent(String(tickerSymbol).toUpperCase())}`,
         className: "text-xs px-2 py-1 rounded bg-blue-500/20 border border-blue-500/30 text-blue-300 hover:bg-blue-500/30",
         title: "Open full Trade Tracker"
-      }, "Open")), !ledgerTradesLoading && ledgerTrades.length > 0 && tradeChartSelection && /*#__PURE__*/React.createElement("div", {
-        className: "mb-3"
-      }, /*#__PURE__*/React.createElement(TradeEventChart, {
-        trade: tradeChartSelection,
-        currentPrice: tradeChartSelection.status !== "WIN" && tradeChartSelection.status !== "LOSS" && tradeChartSelection.status !== "FLAT" ? Number(priceSrc?.price ?? priceSrc?.currentPrice ?? 0) || 0 : undefined,
-        height: 280,
-        apiBase: API_BASE
-      })), ledgerTradesLoading ? /*#__PURE__*/React.createElement("div", {
+      }, "Open")), ledgerTradesLoading ? /*#__PURE__*/React.createElement("div", {
         className: "text-xs text-[#6b7280] flex items-center gap-2"
       }, /*#__PURE__*/React.createElement("div", {
         className: "loading-spinner"

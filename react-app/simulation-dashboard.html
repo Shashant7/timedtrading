@@ -6164,10 +6164,10 @@
                             key=${i}
                             className="border-b border-white/[0.04] hover:bg-[var(--tt-bg-hover)] cursor-pointer transition-colors"
                             onClick=${() => {
-                              if (tradeId) {
+                              if (onSelectTrade && h.raw) {
+                                onSelectTrade(h.raw);
+                              } else if (tradeId) {
                                 window.open("trade-autopsy.html?trade_id=" + encodeURIComponent(tradeId) + "&readonly=1", "_blank");
-                              } else {
-                                onSelectTrade && onSelectTrade(h.raw);
                               }
                             }}
                           >

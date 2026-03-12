@@ -2438,9 +2438,10 @@
                       {/* Prime Setup banner moved above Model Guidance */}
 
                       {/* ═══════════════════════════════════════════════════════════ */}
-                      {/* 5. RISK / REWARD LEVELS                                    */}
+                      {/* 5. RISK / REWARD LEVELS — REMOVED (redundant with Model    */}
+                      {/*    Guidance targets above)                                  */}
                       {/* ═══════════════════════════════════════════════════════════ */}
-                      {(() => {
+                      {false && (() => {
                         // Use position SL/TP when available (correct for SHORT trades)
                         const posSlRaw = ticker?.has_open_position ? Number(ticker?.position_sl) : NaN;
                         const posTpRaw = ticker?.has_open_position ? Number(ticker?.position_tp) : NaN;
@@ -4893,22 +4894,6 @@
                             Open
                           </a>
                         </div>
-
-                        {/* Embedded trade chart: entry, exit, trim, SL, TP (and live current for open) */}
-                        {!ledgerTradesLoading && ledgerTrades.length > 0 && tradeChartSelection && (
-                          <div className="mb-3">
-                            <TradeEventChart
-                              trade={tradeChartSelection}
-                              currentPrice={
-                                (tradeChartSelection.status !== "WIN" && tradeChartSelection.status !== "LOSS" && tradeChartSelection.status !== "FLAT")
-                                  ? (Number(priceSrc?.price ?? priceSrc?.currentPrice ?? 0) || 0)
-                                  : undefined
-                              }
-                              height={280}
-                              apiBase={API_BASE}
-                            />
-                          </div>
-                        )}
 
                         {ledgerTradesLoading ? (
                           <div className="text-xs text-[#6b7280] flex items-center gap-2">
