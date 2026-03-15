@@ -18,6 +18,7 @@
  *   - Accumulation Signal (15 pts)
  *   - Trend Durability (10 pts)
  *   - Sector Context (10 pts)
+ *   - Daily SuperTrend Alignment (up to +5 bonus pts)
  *
  * @param {object} tickerData - assembled ticker payload from assembleTickerData
  * @param {object} opts - { rsRank, sectorRsRank, marketHealth, sectorMap }
@@ -161,6 +162,45 @@ export function computeInvestorScore(tickerData, opts = {}) {
   }
   components.ichimokuConfirm = Math.max(-10, Math.min(15, components.ichimokuConfirm));
 
+  // ── Momentum Health adjustment (-10 to +5 pts) ──
+  // Penalize exhaustion/divergence, reward accumulation phase timing
+  components.momentumHealth = 0;
+  const _rsiDivW = tickerData?.rsi_divergence?.W || tickerData?.tf_tech?.W?.rsiDiv;
+  const _rsiDivD = tickerData?.rsi_divergence?.D || tickerData?.tf_tech?.D?.rsiDiv;
+  if (_rsiDivW?.bear?.active) components.momentumHealth -= 8;
+
+  // bearish_prep counts while price RISES → buyer exhaustion → rally may top out
+  const _tdPerTf = tickerData?.td_sequential?.per_tf;
+  const _tdW = _tdPerTf?.W || _tdPerTf?.["1W"];
+  const _tdD = _tdPerTf?.D || _tdPerTf?.["1D"];
+  if ((_tdW?.bearish_prep_count >= 7) || (_tdD?.bearish_prep_count >= 7)) components.momentumHealth -= 5;
+
+  const _satyW = tickerData?.tf_tech?.W?.saty;
+  if (_satyW) {
+    const wPhaseVal = Number(_satyW.v) || 0;
+    const wPhaseZone = _satyW.z || "";
+    if (wPhaseZone === "DISTRIBUTION" || (wPhaseVal > 80 && _satyW.l)) components.momentumHealth -= 3;
+    if (wPhaseZone === "ACCUMULATION" || (wPhaseVal < -80 && _satyW.l)) components.momentumHealth += 5;
+  }
+
+  const _emaRegD = Number(tickerData?.ema_regime_daily) || 0;
+  if (_emaRegD <= -2) components.momentumHealth -= 4;
+
+  components.momentumHealth = Math.max(-10, Math.min(5, components.momentumHealth));
+
+  // ── Daily SuperTrend Alignment (bonus up to +5 pts) ──
+  components.dailySuperTrendBonus = 0;
+  const dStDir = tickerData?.tf_tech?.D?.stDir;
+  const wStDirRaw = tickerData?.tf_tech?.W?.stDir;
+  if (dStDir === -1) {
+    // Daily SuperTrend bullish (Pine convention: -1 = bullish)
+    if (wStDirRaw === -1) {
+      components.dailySuperTrendBonus = 5; // D+W both bullish
+    } else {
+      components.dailySuperTrendBonus = 3; // D bullish, W neutral/bearish
+    }
+  }
+
   const score = Math.max(0, Math.min(100,
     components.weeklyTrend +
     components.monthlyTrend +
@@ -168,7 +208,9 @@ export function computeInvestorScore(tickerData, opts = {}) {
     components.accumulationSignal +
     components.trendDurability +
     components.sectorContext +
-    components.ichimokuConfirm
+    components.ichimokuConfirm +
+    components.momentumHealth +
+    components.dailySuperTrendBonus
   ));
 
   return { score: Math.round(score), components, accumZone };
@@ -451,8 +493,10 @@ export function classifyInvestorStage(tickerData, investorScore, existingPositio
       return { stage: "reduce", reason: "weekly_ichimoku_inside_cloud" };
     }
 
-    // Reduce: investor score < 50 or weekly SuperTrend bearish or RS rank < 30th pct
-    if (investorScore < 50) {
+    // Reduce: investor score < 40 or weekly SuperTrend bearish or RS rank < 30th pct
+    // Backtest finding: score < 50 caused 1-2 day churn (enter at 70+, reduce next day at 49).
+    // Lowered to 40 to give positions room to breathe through normal score fluctuations.
+    if (investorScore < 40) {
       return { stage: "reduce", reason: "investor_score_low" };
     }
     if (wStDir === -1) {
@@ -469,7 +513,32 @@ export function classifyInvestorStage(tickerData, investorScore, existingPositio
 
     // Watch: score dropping (50-65) or RS rank declining
     if (investorScore < 65 || rsRank < 50) {
+      // BUT: if weekly bullish divergence is active, selling pressure is weakening — hold, don't downgrade
+      const _stgDivW = tickerData?.rsi_divergence?.W || tickerData?.tf_tech?.W?.rsiDiv;
+      if (_stgDivW?.bull?.active && investorScore >= 50) {
+        return { stage: "core_hold", reason: "bullish_divergence_hold" };
+      }
       return { stage: "watch", reason: investorScore < 65 ? "score_declining" : "rs_rank_moderate" };
+    }
+
+    // Signal-based downgrades for core_hold positions
+    const _stgDivWBear = tickerData?.rsi_divergence?.W || tickerData?.tf_tech?.W?.rsiDiv;
+    if (_stgDivWBear?.bear?.active) {
+      return { stage: "watch", reason: "weekly_bearish_divergence" };
+    }
+
+    const _stgTdPerTf = tickerData?.td_sequential?.per_tf;
+    const _stgTdW = _stgTdPerTf?.W || _stgTdPerTf?.["1W"];
+    if (_stgTdW?.bullish_prep_count >= 8) {
+      return { stage: "watch", reason: "weekly_seller_exhaustion" };
+    }
+
+    const _stgSatyW = tickerData?.tf_tech?.W?.saty;
+    if (_stgSatyW) {
+      const wVal = Number(_stgSatyW.v) || 0;
+      if ((_stgSatyW.z === "DISTRIBUTION" || wVal > 80) && _stgSatyW.l) {
+        return { stage: "watch", reason: "weekly_phase_distribution" };
+      }
     }
 
     // Core Hold: weekly + monthly trends intact, RS rank > 50th pct
@@ -589,6 +658,43 @@ export function detectAccumulationZone(tickerData) {
     signals.push("monthly_trend_bullish");
   }
 
+  // ── RSI Divergence confirmation / penalty ──
+  const _azDivW = tickerData?.rsi_divergence?.W || tickerData?.tf_tech?.W?.rsiDiv;
+  const _azDivD = tickerData?.rsi_divergence?.D || tickerData?.tf_tech?.D?.rsiDiv;
+  if (_azDivW?.bull?.active) {
+    signals.push("weekly_bullish_divergence");
+    confidence += 25;
+  }
+  if (_azDivW?.bear?.active || _azDivD?.bear?.active) {
+    signals.push("bearish_divergence_active");
+    confidence -= 20;
+  }
+
+  // ── TD Sequential buyer exhaustion (contrarian buy zone) ──
+  // bearish_prep counts while price RISES → buyer exhaustion → potential drop
+  const _azTdPerTf = tickerData?.td_sequential?.per_tf;
+  const _azTdW = _azTdPerTf?.W || _azTdPerTf?.["1W"];
+  const _azTdD = _azTdPerTf?.D || _azTdPerTf?.["1D"];
+  if ((_azTdW?.bearish_prep_count >= 7) || (_azTdD?.bearish_prep_count >= 7)) {
+    signals.push("td_buyer_exhaustion");
+    confidence += 15;
+  }
+  // bullish_prep counts while price FALLS → seller exhaustion → bounce may be stretched
+  if ((_azTdD?.bullish_prep_count >= 8)) {
+    signals.push("td_seller_exhaustion_bounce_stretched");
+    confidence -= 15;
+  }
+
+  // ── Saty Phase leaving accumulation (institutional buying starting) ──
+  const _azSatyW = tickerData?.tf_tech?.W?.saty;
+  if (_azSatyW) {
+    const wVal = Number(_azSatyW.v) || 0;
+    if (_azSatyW.z === "ACCUMULATION" || (wVal < -60 && _azSatyW.l)) {
+      signals.push("phase_accumulation");
+      confidence += 20;
+    }
+  }
+
   confidence = Math.max(0, Math.min(100, confidence));
   const inZone = confidence >= 40 && signals.length >= 2;
   const zoneType = signals.length > 0 ? signals[0] : "none";
@@ -652,8 +758,41 @@ export function generateThesis(tickerData, rsRank = 50) {
     else if (mb.rsi < 35) conditions.push(`Monthly RSI ${mb.rsi.toFixed(0)} (oversold — contrarian)`);
   }
 
+  // Momentum signals
+  const _thDivW = tickerData?.rsi_divergence?.W || tickerData?.tf_tech?.W?.rsiDiv;
+  if (_thDivW?.bear?.active) {
+    conditions.push("Momentum divergence detected on weekly — the uptrend may be losing steam");
+    invalidation.push("Weekly momentum divergence confirms with price breakdown");
+  }
+  if (_thDivW?.bull?.active) {
+    conditions.push("Bullish divergence on weekly — selling pressure weakening");
+  }
+
+  const _thTdPerTf = tickerData?.td_sequential?.per_tf;
+  const _thTdW = _thTdPerTf?.W || _thTdPerTf?.["1W"];
+  const _thTdD = _thTdPerTf?.D || _thTdPerTf?.["1D"];
+  if (_thTdW?.bearish_prep_count >= 7) {
+    conditions.push("Weekly buying pressure elevated — buyers may be near exhaustion (bearish prep rising)");
+  }
+  if (_thTdW?.bullish_prep_count >= 7) {
+    conditions.push("Weekly selling pressure elevated — sellers may be near exhaustion (bullish prep rising)");
+    invalidation.push("TD Sequential shows seller exhaustion on both daily and weekly");
+  }
+
+  const _thSatyW = tickerData?.tf_tech?.W?.saty;
+  if (_thSatyW) {
+    const wVal = Number(_thSatyW.v) || 0;
+    if (_thSatyW.z === "ACCUMULATION" || (wVal < -60 && _thSatyW.l)) {
+      conditions.push("Institutional accumulation phase detected — favorable entry timing");
+    }
+    if (_thSatyW.z === "DISTRIBUTION" || (wVal > 80 && _thSatyW.l)) {
+      conditions.push("Institutional distribution phase detected — caution warranted");
+      invalidation.push("Weekly Phase confirms distribution with trend breakdown");
+    }
+  }
+
   const thesis = conditions.length > 0
-    ? `${ticker}: ${conditions.join(", ")}`
+    ? `${ticker}: ${conditions.join(". ")}`
     : `${ticker}: Insufficient data for thesis`;
 
   return {
@@ -700,6 +839,20 @@ export function checkThesisHealth(thesisCriteria, currentTickerData, currentRsRa
   // RS Rank collapse
   if (thesisCriteria.rsRank >= 50 && currentRsRank < 25) {
     reasons.push(`RS Rank collapsed from ${thesisCriteria.rsRank} to ${currentRsRank}`);
+  }
+
+  // Weekly bearish divergence confirmed with price below Weekly SuperTrend
+  const _chkDivW = currentTickerData?.rsi_divergence?.W || currentTickerData?.tf_tech?.W?.rsiDiv;
+  if (_chkDivW?.bear?.active && tfW?.atr?.xs === -1) {
+    reasons.push("Weekly momentum divergence confirmed — SuperTrend flipped bearish");
+  }
+
+  // TD seller exhaustion on both D and W (bullish prep = price falling = sellers tiring)
+  const _chkTdPerTf = currentTickerData?.td_sequential?.per_tf;
+  const _chkTdW = _chkTdPerTf?.W || _chkTdPerTf?.["1W"];
+  const _chkTdD = _chkTdPerTf?.D || _chkTdPerTf?.["1D"];
+  if ((_chkTdW?.bullish_prep_count >= 8) && (_chkTdD?.bullish_prep_count >= 7)) {
+    reasons.push("TD Sequential shows seller exhaustion on both daily and weekly");
   }
 
   return { invalidated: reasons.length > 0, reasons };

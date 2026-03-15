@@ -17,7 +17,8 @@
       useState,
       useEffect,
       useMemo,
-      useRef
+      useRef,
+      useCallback
     } = React;
     const API_BASE = deps.API_BASE;
     const getTickerSector = deps.getTickerSector || (() => "");
@@ -59,6 +60,272 @@
     const getStaleInfo = deps.getStaleInfo;
     const isNyRegularMarketOpen = deps.isNyRegularMarketOpen;
     const downsampleByInterval = deps.downsampleByInterval;
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // Shared Signal Snapshot & Trade Autopsy Helpers
+    // ═══════════════════════════════════════════════════════════════════════
+    const TF_ORDER = ["15m", "30m", "1H", "4H", "D"];
+    const SIGNAL_LABELS = {
+      ema_cross: "EMA cross",
+      supertrend: "SuperTrend",
+      ema_structure: "EMA structure",
+      ema_depth: "EMA depth",
+      rsi: "RSI",
+      ema5_48: "EMA 5/48",
+      s1_slope: "Slope"
+    };
+    const SETUP_NAME_MAP = {
+      ema_regime_confirmed_long: "TT Confirmed Long",
+      ema_regime_confirmed_short: "TT Confirmed Short",
+      ema_regime_early_long: "TT Early Long",
+      ema_regime_early_short: "TT Early Short",
+      gold_long: "TT Breakout Long",
+      gold_short: "TT Reversal Short"
+    };
+    function _formatPath(path) {
+      if (!path || typeof path !== "string") return null;
+      if (SETUP_NAME_MAP[path]) return SETUP_NAME_MAP[path];
+      return "TT " + path.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+    }
+    function _parseSnapshot(snap) {
+      if (!snap) return null;
+      try {
+        const parsed = typeof snap === "string" ? JSON.parse(snap) : snap;
+        if (!parsed?.tf || typeof parsed.tf !== "object") return null;
+        return TF_ORDER.filter(tf => parsed.tf[tf]).map(tf => ({
+          tf,
+          signals: parsed.tf[tf]?.signals || {}
+        }));
+      } catch {
+        return null;
+      }
+    }
+    function _parseTfStack(tfStackJson) {
+      if (!tfStackJson) return null;
+      try {
+        const parsed = typeof tfStackJson === "string" ? JSON.parse(tfStackJson) : tfStackJson;
+        if (!Array.isArray(parsed)) return null;
+        return parsed.filter(e => e?.tf);
+      } catch {
+        return null;
+      }
+    }
+    function _signalValueLabel(key, value) {
+      if (value == null || !Number.isFinite(value)) return null;
+      if (key === "ema_cross") return value === 1 ? "Bullish" : "Bearish";
+      if (key === "supertrend") return value === 1 ? "Bullish" : value === -1 ? "Bearish" : "Flat";
+      if (key === "rsi") return String(value);
+      return String(value);
+    }
+    function _signalValueColor(key, value) {
+      if (key === "ema_cross") return value === 1 ? "text-[#22c55e]" : "text-[#ef4444]";
+      if (key === "supertrend") return value === 1 ? "text-[#22c55e]" : value === -1 ? "text-[#ef4444]" : "text-[#9ca3af]";
+      if (key === "rsi") return value >= 70 ? "text-[#ef4444]" : value <= 30 ? "text-[#22c55e]" : "text-[#d1d5db]";
+      return "text-[#d1d5db]";
+    }
+    function _fmtPct(n, digits = 1) {
+      if (!Number.isFinite(Number(n))) return "\u2014";
+      return `${Number(n).toFixed(digits)}%`;
+    }
+    function _formatDate(ms) {
+      if (!Number.isFinite(ms)) return "\u2014";
+      const d = new Date(ms);
+      return d.toLocaleString("en-US", {
+        timeZone: "America/New_York",
+        month: "short",
+        day: "numeric",
+        hour: "numeric",
+        minute: "2-digit",
+        hour12: true
+      });
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // Indicator Computation Helpers (from OHLC)
+    // ═══════════════════════════════════════════════════════════════════════
+    function computeEMA(data, period, source = 'close') {
+      const k = 2 / (period + 1);
+      const out = [];
+      let ema = null;
+      const val = bar => source === 'hl2' ? (bar.high + bar.low) / 2 : bar.close;
+      for (let i = 0; i < data.length; i++) {
+        const v = val(data[i]);
+        if (ema == null) {
+          let sum = 0;
+          for (let j = 0; j < Math.min(period, i + 1); j++) sum += val(data[j]);
+          ema = sum / Math.min(period, i + 1);
+        } else {
+          ema = v * k + ema * (1 - k);
+        }
+        out.push({
+          time: data[i].time,
+          value: ema
+        });
+      }
+      return out;
+    }
+    function computeSuperTrendSegments(data, period = 10, multiplier = 3) {
+      const segments = [];
+      if (!data || data.length < period + 1) return segments;
+      let atr = 0,
+        trSum = 0;
+      let upperBand = Infinity,
+        lowerBand = 0;
+      let dir = 1,
+        prevDir = 1;
+      let currentSeg = null;
+      for (let i = 0; i < data.length; i++) {
+        const t = data[i].time;
+        const h = data[i].high,
+          l = data[i].low,
+          c = data[i].close;
+        const prevC = i > 0 ? data[i - 1].close : c;
+        const tr = Math.max(h - l, Math.abs(h - prevC), Math.abs(l - prevC));
+        if (i < period) {
+          trSum += tr;
+          continue;
+        }
+        atr = i === period ? trSum / period : (atr * (period - 1) + tr) / period;
+        const hl2 = (h + l) / 2;
+        const bU = hl2 + multiplier * atr,
+          bL = hl2 - multiplier * atr;
+        upperBand = bU < upperBand || prevC > upperBand ? bU : upperBand;
+        lowerBand = bL > lowerBand || prevC < lowerBand ? bL : lowerBand;
+        prevDir = dir;
+        if (dir === 1 && c > upperBand) dir = -1;else if (dir === -1 && c < lowerBand) dir = 1;
+        const stVal = dir === -1 ? lowerBand : upperBand;
+        const color = dir === -1 ? '#22c55e' : '#ef4444';
+        if (dir !== prevDir || !currentSeg) {
+          currentSeg = {
+            color,
+            data: []
+          };
+          segments.push(currentSeg);
+        }
+        currentSeg.data.push({
+          time: t,
+          value: stVal
+        });
+      }
+      return segments;
+    }
+    function computeTDSequential(data, prepComp = 4, leadComp = 2) {
+      const markers = [];
+      let bullPrep = 0,
+        bearPrep = 0;
+      let bullLead = null,
+        bearLead = null;
+      for (let i = 0; i < data.length; i++) {
+        if (i < prepComp) continue;
+        const c = data[i].close;
+        const cComp = data[i - prepComp].close;
+        bullPrep = c < cComp ? bullPrep + 1 : 0;
+        bearPrep = c > cComp ? bearPrep + 1 : 0;
+        if (bullPrep >= 1 && bullPrep <= 9) markers.push({
+          time: data[i].time,
+          position: 'belowBar',
+          color: bullPrep === 9 ? '#089981' : 'rgba(8,153,129,0.65)',
+          shape: 'circle',
+          text: String(bullPrep),
+          size: 0
+        });
+        if (bearPrep >= 1 && bearPrep <= 9) markers.push({
+          time: data[i].time,
+          position: 'aboveBar',
+          color: bearPrep === 9 ? '#f23645' : 'rgba(242,54,69,0.65)',
+          shape: 'circle',
+          text: String(bearPrep),
+          size: 0
+        });
+        if (bullPrep === 9) {
+          bullLead = 0;
+          bearLead = null;
+        }
+        if (bearPrep === 9) {
+          bearLead = 0;
+          bullLead = null;
+        }
+        if (bullLead !== null && i >= leadComp && data[i].close < data[i - leadComp].low) {
+          bullLead++;
+          if (bullLead <= 13) markers.push({
+            time: data[i].time,
+            position: 'belowBar',
+            color: bullLead === 13 ? '#2962ff' : 'rgba(41,98,255,0.65)',
+            shape: 'circle',
+            text: String(bullLead),
+            size: 0
+          });
+          if (bullLead >= 13) bullLead = null;
+        }
+        if (bearLead !== null && i >= leadComp && data[i].close > data[i - leadComp].high) {
+          bearLead++;
+          if (bearLead <= 13) markers.push({
+            time: data[i].time,
+            position: 'aboveBar',
+            color: bearLead === 13 ? '#ff5d00' : 'rgba(255,93,0,0.65)',
+            shape: 'circle',
+            text: String(bearLead),
+            size: 0
+          });
+          if (bearLead >= 13) bearLead = null;
+        }
+      }
+      return markers;
+    }
+    function _findBarTime(mapped, tsMs) {
+      if (!mapped?.length || !Number.isFinite(tsMs)) return null;
+      const tsSec = tsMs > 1e12 ? Math.floor(tsMs / 1000) : tsMs;
+      const isDaily = typeof mapped[0].time === "string";
+      if (isDaily) {
+        const dayStr = new Date(tsSec * 1000).toLocaleDateString("en-CA", {
+          timeZone: "America/New_York"
+        });
+        let best = null;
+        for (const b of mapped) {
+          if (String(b.time) <= dayStr && (best === null || String(b.time) > String(best.time))) best = b;
+        }
+        if (best) return best.time;
+        if (String(mapped[0].time) > dayStr) return mapped[0].time;
+        return null;
+      }
+      let best = null;
+      for (const b of mapped) {
+        if (b.time <= tsSec && (best === null || b.time > best.time)) best = b;
+      }
+      if (best) return best.time;
+      if (mapped[0].time > tsSec) return mapped[0].time;
+      return null;
+    }
+    const CLOUD_CONFIG = [{
+      key: 'cloud180200',
+      s: 180,
+      l: 200,
+      color: '#26c6da',
+      fill: 'rgba(38,198,218,0.18)',
+      label: '180-200'
+    }, {
+      key: 'cloud7289',
+      s: 72,
+      l: 89,
+      color: '#26a69a',
+      fill: 'rgba(38,166,154,0.22)',
+      label: '72-89'
+    }, {
+      key: 'cloud3450',
+      s: 34,
+      l: 50,
+      color: '#42a5f5',
+      fill: 'rgba(66,165,245,0.28)',
+      label: '34-50'
+    }, {
+      key: 'cloud512',
+      s: 5,
+      l: 12,
+      color: '#4caf50',
+      fill: 'rgba(76,175,80,0.32)',
+      label: '5-12'
+    }];
+    const INDICATOR_KEYS = ["cloud512", "cloud3450", "cloud7289", "cloud180200", "superTrend", "tdSeq"];
 
     // ═══════════════════════════════════════════════════════════════════════
     // TradingView Lightweight Charts Sub-Component for Right Rail
@@ -587,91 +854,124 @@
       }, "scroll to zoom • drag to pan")));
     }
 
-    // ── Trade chart (entry/trim/exit + SL/TP, for users in Right Rail Trade History) ──
-    function TradeEventChart({
-      trade,
-      currentPrice,
-      height = 280,
-      apiBase
+    // ── Full AutopsyChart (EMA clouds, SuperTrend, TD Seq, TF selector) ──
+    function AutopsyChart({
+      ticker: rawTicker,
+      entryPrice,
+      exitPrice,
+      entryTs,
+      exitTs,
+      trimTs,
+      slPrice,
+      tpPrices,
+      height = 360,
+      compact = false
     }) {
       const containerRef = useRef(null);
       const chartRef = useRef(null);
       const seriesRef = useRef(null);
       const priceLinesRef = useRef([]);
+      const cloudAreaRef = useRef([]);
+      const emaSeriesRef = useRef([]);
+      const indicatorDataRef = useRef(null);
+      const tradeMarkersRef = useRef([]);
       const [loading, setLoading] = useState(true);
       const [error, setError] = useState(null);
+      const [tf, setTf] = useState("15");
+      const [showIndicators, setShowIndicators] = useState({
+        cloud512: true,
+        cloud3450: true,
+        cloud7289: false,
+        cloud180200: false,
+        superTrend: false,
+        tdSeq: false
+      });
+      const ticker = rawTicker ? String(rawTicker).toUpperCase() : "";
       const LWC = typeof LightweightCharts !== "undefined" ? LightweightCharts : null;
-      const ticker = trade?.ticker ? String(trade.ticker).toUpperCase() : "";
-      const entryPrice = Number(trade?.entry_price || 0);
-      const exitPrice = Number(trade?.exit_price || 0);
-      const entryTs = trade?.entry_ts;
-      const exitTs = trade?.exit_ts;
-      const trimTs = trade?.trim_ts;
-      const trimPrice = Number(trade?.trim_price || 0);
-      const sl = Number(trade?.sl ?? trade?.sl_price ?? 0);
-      const tp = Number(trade?.tp ?? 0);
-      const isClosed = trade?.status === "WIN" || trade?.status === "LOSS" || trade?.status === "FLAT";
-      const hasTrimmed = Number(trade?.trimmed_pct || trade?.trimmedPct || 0) > 0;
+      const intradaySessionMode = useMemo(() => {
+        if (!ticker) return "rth";
+        if (ticker.endsWith("USD") || ticker.endsWith("USDT") || ticker.endsWith("1!")) return "extended";
+        if (["SPX", "US500", "DXY", "GOLD", "SILVER", "USOIL"].includes(ticker)) return "extended";
+        return "rth";
+      }, [ticker]);
+      const isRegularSessionBar = useCallback(tsSec => {
+        if (!Number.isFinite(tsSec) || tsSec <= 0) return false;
+        try {
+          const parts = new Intl.DateTimeFormat("en-US", {
+            timeZone: "America/New_York",
+            weekday: "short",
+            hour: "2-digit",
+            minute: "2-digit",
+            hour12: false
+          }).formatToParts(new Date(tsSec * 1000));
+          const map = {};
+          for (const p of parts) map[p.type] = p.value;
+          if (String(map.weekday || "") === "Sat" || String(map.weekday || "") === "Sun") return false;
+          const mins = Number(map.hour || 0) * 60 + Number(map.minute || 0);
+          return mins >= 570 && mins < 960;
+        } catch {
+          return true;
+        }
+      }, []);
+      const mapCandles = useCallback((candles, timeframe) => {
+        const mapped = candles.map(c => {
+          const rawTs = Number(c.ts);
+          const ts = rawTs > 1e12 ? Math.floor(rawTs / 1000) : rawTs;
+          return {
+            time: ts,
+            open: Number(c.o),
+            high: Number(c.h),
+            low: Number(c.l),
+            close: Number(c.c)
+          };
+        }).filter(c => c.open > 0 && c.high > 0).sort((a, b) => a.time - b.time);
+        const seen = new Set();
+        const deduped = mapped.filter(x => {
+          if (seen.has(x.time)) return false;
+          seen.add(x.time);
+          return true;
+        });
+        if (timeframe === "D") {
+          const dayKey = ts => new Date(ts * 1000).toLocaleDateString("en-CA", {
+            timeZone: "America/New_York"
+          });
+          const byDay = new Map();
+          for (const b of deduped) {
+            const key = dayKey(b.time);
+            const existing = byDay.get(key);
+            if (!existing || b.time >= existing.time) byDay.set(key, {
+              ...b,
+              time: key
+            });
+          }
+          return Array.from(byDay.entries()).sort((a, b) => a[0].localeCompare(b[0])).map(([, b]) => b);
+        }
+        if (intradaySessionMode === "rth") {
+          const rthOnly = deduped.filter(b => isRegularSessionBar(b.time));
+          if (rthOnly.length >= 2) return rthOnly;
+        }
+        return deduped;
+      }, [intradaySessionMode, isRegularSessionBar]);
       useEffect(() => {
-        if (!containerRef.current || !ticker || !LWC || !apiBase) {
+        let cancelled = false;
+        setError(null);
+        setLoading(true);
+        if (!containerRef.current || !ticker || !LWC) {
           setLoading(false);
-          if (!ticker) setError("No trade selected");else if (!LWC) setError("Charts unavailable");
+          setError("Charts unavailable");
           return;
         }
-        function findBarTime(mapped, tsMs) {
-          if (!mapped?.length || !Number.isFinite(tsMs)) return null;
-          const tsSec = tsMs > 1e12 ? Math.floor(tsMs / 1000) : tsMs;
-          const isDaily = typeof mapped[0].time === "string";
-          if (isDaily) {
-            const dayStr = new Date(tsSec * 1000).toLocaleDateString("en-CA", {
-              timeZone: "America/New_York"
-            });
-            let best = null;
-            for (const b of mapped) {
-              if (String(b.time) <= dayStr && (best === null || String(b.time) > String(best.time))) best = b;
-            }
-            if (best) return best.time;
-            if (String(mapped[0].time) > dayStr) return mapped[0].time;
-            return null;
-          }
-          let best = null;
-          for (const b of mapped) {
-            if (b.time <= tsSec && (best === null || b.time > best.time)) best = b;
-          }
-          if (best) return best.time;
-          if (mapped[0].time > tsSec) return mapped[0].time;
-          return null;
-        }
-        function mapCandles(candles, tf) {
-          const mapped = (candles || []).map(c => {
-            const rawTs = Number(c.ts);
-            const ts = rawTs > 1e12 ? Math.floor(rawTs / 1000) : rawTs;
-            return {
-              time: ts,
-              open: Number(c.o),
-              high: Number(c.h),
-              low: Number(c.l),
-              close: Number(c.c)
-            };
-          }).filter(c => c.open > 0 && c.high > 0).sort((a, b) => a.time - b.time);
-          const seen = new Set();
-          const deduped = mapped.filter(x => {
-            if (seen.has(x.time)) return false;
-            seen.add(x.time);
-            return true;
-          });
-          return deduped;
-        }
-        const entryMs = entryTs ? Number(entryTs) < 1e12 ? Number(entryTs) * 1000 : Number(entryTs) : null;
-        const exitMs = exitTs ? Number(exitTs) < 1e12 ? Number(exitTs) * 1000 : Number(exitTs) : null;
-        const threeDaysMs = 3 * 24 * 60 * 60 * 1000;
+        const entryMs = Number.isFinite(Number(entryTs)) && entryTs ? Number(entryTs) < 1e12 ? Number(entryTs) * 1000 : Number(entryTs) : null;
+        const exitMs = Number.isFinite(Number(exitTs)) && exitTs ? Number(exitTs) < 1e12 ? Number(exitTs) * 1000 : Number(exitTs) : null;
+        const threeDaysMs = 3 * 24 * 3600 * 1000;
         const asOfMs = exitMs ? exitMs + threeDaysMs : entryMs || Date.now();
-        const limit = 800;
+        const limit = 3000;
         const container = containerRef.current;
-        const w = Math.max(container.clientWidth || 320, 200);
+        const initialWidth = Math.max(container.clientWidth || 400, 200);
+        const chartH = container.clientHeight > 50 ? container.clientHeight : height;
         const chart = LWC.createChart(container, {
-          width: w,
-          height: height,
+          width: initialWidth,
+          height: chartH,
           layout: {
             background: {
               type: "solid",
@@ -689,25 +989,115 @@
             }
           },
           crosshair: {
-            mode: LWC.CrosshairMode.Normal
+            mode: LWC.CrosshairMode.Normal,
+            vertLine: {
+              color: "rgba(255,255,255,0.15)",
+              width: 1,
+              style: 2,
+              labelBackgroundColor: "#1e293b"
+            },
+            horzLine: {
+              color: "rgba(255,255,255,0.15)",
+              width: 1,
+              style: 2,
+              labelBackgroundColor: "#1e293b"
+            }
           },
           rightPriceScale: {
             borderColor: "rgba(38,50,95,0.5)",
             scaleMargins: {
               top: 0.08,
               bottom: 0.08
-            }
+            },
+            autoScale: true
           },
           timeScale: {
             borderColor: "rgba(38,50,95,0.5)",
             timeVisible: true,
-            rightOffset: 3
+            secondsVisible: false,
+            barSpacing: 4,
+            rightOffset: 3,
+            fixLeftEdge: true,
+            fixRightEdge: true,
+            tickMarkFormatter: time => {
+              try {
+                if (typeof time === "string") {
+                  const [y, m, d] = time.split("-").map(Number);
+                  return new Date(y, (m || 1) - 1, d || 1).toLocaleDateString("en-US", {
+                    month: "short",
+                    day: "numeric"
+                  });
+                }
+                const dd = new Date(time * 1000);
+                return dd.toLocaleDateString("en-US", {
+                  month: "short",
+                  day: "numeric",
+                  timeZone: "America/New_York"
+                }) + " " + dd.toLocaleTimeString("en-US", {
+                  hour: "numeric",
+                  minute: "2-digit",
+                  timeZone: "America/New_York"
+                });
+              } catch {
+                return "";
+              }
+            }
+          },
+          localization: {
+            timeFormatter: time => {
+              try {
+                if (typeof time === "string") {
+                  const [y, m, d] = time.split("-").map(Number);
+                  return new Date(y, (m || 1) - 1, d || 1).toLocaleDateString("en-US", {
+                    month: "short",
+                    day: "numeric"
+                  });
+                }
+                const dd = new Date(time * 1000);
+                return dd.toLocaleDateString("en-US", {
+                  month: "short",
+                  day: "numeric",
+                  timeZone: "America/New_York"
+                }) + " " + dd.toLocaleTimeString("en-US", {
+                  hour: "numeric",
+                  minute: "2-digit",
+                  second: "2-digit",
+                  timeZone: "America/New_York"
+                });
+              } catch {
+                return "";
+              }
+            }
           },
           handleScroll: {
             vertTouchDrag: false
           }
         });
         chartRef.current = chart;
+        const noLine = {
+          lastValueVisible: false,
+          priceLineVisible: false,
+          crosshairMarkerVisible: false
+        };
+        const BG_SEMI = 'rgba(11,14,17,0.82)';
+        const cloudAreas = CLOUD_CONFIG.map(cloud => ({
+          key: cloud.key,
+          upper: chart.addAreaSeries({
+            topColor: cloud.fill,
+            bottomColor: cloud.fill,
+            lineColor: 'transparent',
+            lineWidth: 0,
+            ...noLine
+          }),
+          lower: chart.addAreaSeries({
+            topColor: BG_SEMI,
+            bottomColor: BG_SEMI,
+            lineColor: 'transparent',
+            lineWidth: 0,
+            ...noLine
+          })
+        }));
+        cloudAreaRef.current = cloudAreas;
         const candleSeries = chart.addCandlestickSeries({
           upColor: "#22c55e",
           downColor: "#ef4444",
@@ -717,94 +1107,132 @@
           wickDownColor: "#ef4444"
         });
         seriesRef.current = candleSeries;
-        const noLine = {
-          lastValueVisible: false,
-          priceLineVisible: false
-        };
-        const url = `${apiBase}/timed/candles?ticker=${encodeURIComponent(ticker)}&tf=15&limit=${limit}&asOfTs=${asOfMs}`;
-        fetch(url, {
-          cache: "no-store"
-        }).then(r => r.json()).then(data => {
-          if (!data.ok || !data.candles || (data.candles || []).length < 2) {
+        let url = `${API_BASE}/timed/candles?ticker=${encodeURIComponent(ticker)}&tf=${tf}&limit=${limit}`;
+        if (asOfMs) url += `&asOfTs=${asOfMs}`;
+        const doRender = candles => {
+          if (cancelled) return;
+          if (!candles || candles.length === 0) {
             setError("No chart data");
             setLoading(false);
             return;
           }
-          const mapped = mapCandles(data.candles, "15");
+          const mapped = mapCandles(candles, tf);
+          if (mapped.length < 2) {
+            setError("Insufficient candle data");
+            setLoading(false);
+            return;
+          }
           candleSeries.setData(mapped);
+          for (const s of emaSeriesRef.current) {
+            try {
+              chart.removeSeries(s);
+            } catch (_) {}
+          }
+          emaSeriesRef.current = [];
+          const noPriceLine = {
+            lastValueVisible: false,
+            priceLineVisible: false,
+            crosshairMarkerVisible: false
+          };
+          const allSeries = [];
+          const allData = {};
+          for (let ci = 0; ci < CLOUD_CONFIG.length; ci++) {
+            const cloud = CLOUD_CONFIG[ci];
+            const shortData = computeEMA(mapped, cloud.s, 'hl2');
+            const longData = computeEMA(mapped, cloud.l, 'hl2');
+            const upperData = [],
+              lowerData = [];
+            for (let j = 0; j < shortData.length; j++) {
+              const sv = shortData[j].value,
+                lv = longData[j].value,
+                t = shortData[j].time;
+              upperData.push({
+                time: t,
+                value: Math.max(sv, lv)
+              });
+              lowerData.push({
+                time: t,
+                value: Math.min(sv, lv)
+              });
+            }
+            allData[cloud.key] = {
+              upper: upperData,
+              lower: lowerData
+            };
+            const vis = showIndicators[cloud.key];
+            const ca = cloudAreaRef.current[ci];
+            if (ca) {
+              ca.upper.setData(vis ? upperData : []);
+              ca.lower.setData(vis ? lowerData : []);
+            }
+          }
+          const stSegments = computeSuperTrendSegments(mapped, 10, 3);
+          allData.superTrend = stSegments;
+          for (const seg of stSegments) {
+            const s = chart.addLineSeries({
+              color: seg.color,
+              lineWidth: 2,
+              title: '',
+              ...noPriceLine
+            });
+            s.setData(showIndicators.superTrend ? seg.data : []);
+            allSeries.push(s);
+          }
+          allData.tdSeq = computeTDSequential(mapped);
+          indicatorDataRef.current = allData;
+          emaSeriesRef.current = allSeries;
           for (const pl of priceLinesRef.current) {
             try {
               candleSeries.removePriceLine(pl);
             } catch (_) {}
           }
           priceLinesRef.current = [];
-          const rnd = v => Number.isFinite(v) && v > 0 ? v : null;
-          if (rnd(entryPrice)) {
-            priceLinesRef.current.push(candleSeries.createPriceLine({
-              price: entryPrice,
-              color: "#60a5fa",
-              lineWidth: 2,
-              lineStyle: LWC.LineStyle.Solid,
-              axisLabelVisible: true,
-              title: "Entry"
-            }));
+          const ep = Number(entryPrice);
+          const xp = Number(exitPrice);
+          if (Number.isFinite(ep) && ep > 0) priceLinesRef.current.push(candleSeries.createPriceLine({
+            price: ep,
+            color: "#60a5fa",
+            lineWidth: 2,
+            lineStyle: LWC.LineStyle.Solid,
+            axisLabelVisible: true,
+            title: "Entry"
+          }));
+          if (Number.isFinite(xp) && xp > 0 && xp !== ep) priceLinesRef.current.push(candleSeries.createPriceLine({
+            price: xp,
+            color: "#f59e0b",
+            lineWidth: 2,
+            lineStyle: LWC.LineStyle.Solid,
+            axisLabelVisible: true,
+            title: "Exit"
+          }));
+          const sl = Number(slPrice);
+          if (Number.isFinite(sl) && sl > 0) priceLinesRef.current.push(candleSeries.createPriceLine({
+            price: sl,
+            color: "#ef4444",
+            lineWidth: 1,
+            lineStyle: LWC.LineStyle.Dashed,
+            axisLabelVisible: true,
+            title: "SL"
+          }));
+          if (Array.isArray(tpPrices)) {
+            tpPrices.forEach((tp, i) => {
+              const tpVal = Number(typeof tp === "object" ? tp.price : tp);
+              if (Number.isFinite(tpVal) && tpVal > 0) priceLinesRef.current.push(candleSeries.createPriceLine({
+                price: tpVal,
+                color: "#22c55e",
+                lineWidth: 1,
+                lineStyle: LWC.LineStyle.Dashed,
+                axisLabelVisible: true,
+                title: typeof tp === "object" && tp.label || `TP${i + 1}`
+              }));
+            });
           }
-          if (isClosed && rnd(exitPrice) && exitPrice !== entryPrice) {
-            priceLinesRef.current.push(candleSeries.createPriceLine({
-              price: exitPrice,
-              color: "#f59e0b",
-              lineWidth: 2,
-              lineStyle: LWC.LineStyle.Solid,
-              axisLabelVisible: true,
-              title: "Exit"
-            }));
-          }
-          if (hasTrimmed && rnd(trimPrice)) {
-            priceLinesRef.current.push(candleSeries.createPriceLine({
-              price: trimPrice,
-              color: "#a78bfa",
-              lineWidth: 1.5,
-              lineStyle: LWC.LineStyle.Dashed,
-              axisLabelVisible: true,
-              title: "Trim"
-            }));
-          }
-          if (rnd(sl)) {
-            priceLinesRef.current.push(candleSeries.createPriceLine({
-              price: sl,
-              color: "#ef4444",
-              lineWidth: 2,
-              lineStyle: LWC.LineStyle.Solid,
-              axisLabelVisible: true,
-              title: "SL"
-            }));
-          }
-          if (rnd(tp)) {
-            priceLinesRef.current.push(candleSeries.createPriceLine({
-              price: tp,
-              color: "#22c55e",
-              lineWidth: 2,
-              lineStyle: LWC.LineStyle.Solid,
-              axisLabelVisible: true,
-              title: "TP"
-            }));
-          }
-          const curPrice = Number(currentPrice);
-          if (!isClosed && rnd(curPrice)) {
-            priceLinesRef.current.push(candleSeries.createPriceLine({
-              price: curPrice,
-              color: "#e5e7eb",
-              lineWidth: 1.5,
-              lineStyle: LWC.LineStyle.LargeDashed,
-              axisLabelVisible: true,
-              title: "Current"
-            }));
-          }
-          const entryBar = findBarTime(mapped, entryMs);
-          const exitBar = exitMs ? findBarTime(mapped, exitMs) : null;
-          const trimBar = trimTs ? findBarTime(mapped, Number(trimTs) < 1e12 ? Number(trimTs) * 1000 : Number(trimTs)) : null;
-          const markers = [];
-          if (entryBar) markers.push({
+          const entryBarMs = Number(entryTs);
+          const exitBarMs = Number(exitTs);
+          const trimBarMs = Number(trimTs);
+          const tradeMarkers = [];
+          const entryBar = _findBarTime(mapped, entryBarMs);
+          if (entryBar != null) tradeMarkers.push({
             time: entryBar,
             position: "inBar",
             color: "#60a5fa",
@@ -812,7 +1240,8 @@
             text: "Entry",
             size: 2
           });
-          if (exitBar && exitBar !== entryBar) markers.push({
+          const exitBar = _findBarTime(mapped, exitBarMs);
+          if (exitBar != null && exitBar !== entryBar) tradeMarkers.push({
             time: exitBar,
             position: "aboveBar",
             color: "#f59e0b",
@@ -820,68 +1249,255 @@
             text: "Exit",
             size: 2
           });
-          if (trimBar && trimBar !== entryBar && trimBar !== exitBar) markers.push({
-            time: trimBar,
-            position: "aboveBar",
-            color: "#a78bfa",
-            shape: "circle",
-            text: "Trim",
-            size: 1.5
-          });
+          if (Number.isFinite(trimBarMs) && trimBarMs > 0) {
+            const trimBar = _findBarTime(mapped, trimBarMs);
+            if (trimBar != null && trimBar !== entryBar && trimBar !== exitBar) tradeMarkers.push({
+              time: trimBar,
+              position: "aboveBar",
+              color: "#a78bfa",
+              shape: "circle",
+              text: "Trim",
+              size: 1.5
+            });
+          }
+          tradeMarkersRef.current = tradeMarkers;
+          const markers = [...tradeMarkers, ...(showIndicators.tdSeq ? allData.tdSeq : [])];
+          markers.sort((a, b) => a.time < b.time ? -1 : a.time > b.time ? 1 : 0);
           try {
             candleSeries.setMarkers(markers);
           } catch (_) {}
           chart.timeScale().fitContent();
-          const oneWeekSec = 5 * 24 * 3600;
-          const visibleFrom = entryBar != null ? Math.max(mapped[0].time, entryBar - oneWeekSec) : mapped[0].time;
-          const visibleTo = exitBar != null ? Math.min(mapped[mapped.length - 1].time, exitBar + oneWeekSec) : mapped[mapped.length - 1].time;
-          try {
-            chart.timeScale().setVisibleRange({
-              from: visibleFrom,
-              to: visibleTo
-            });
-          } catch (_) {}
-          const visibleCandles = mapped.filter(b => b.time >= visibleFrom && b.time <= visibleTo);
-          const priceVals = [...visibleCandles.flatMap(b => [b.low, b.high])];
-          if (entryPrice > 0) priceVals.push(entryPrice);
-          if (exitPrice > 0) priceVals.push(exitPrice);
-          if (sl > 0) priceVals.push(sl);
-          if (tp > 0) priceVals.push(tp);
-          if (curPrice > 0) priceVals.push(curPrice);
-          if (priceVals.length > 0) {
-            let mn = Math.min(...priceVals),
-              mx = Math.max(...priceVals);
-            const pad = (mx - mn) * 0.1 || 1;
+          const entryBarTime = _findBarTime(mapped, entryTs);
+          const exitBarTime = _findBarTime(mapped, exitTs);
+          const hasTradeRange = entryBarTime != null && exitBarTime != null;
+          const isDailyTime = typeof mapped[0].time === "string";
+          let visibleFrom = mapped[0].time,
+            visibleTo = mapped[mapped.length - 1].time;
+          if (hasTradeRange) {
+            if (isDailyTime) {
+              const idxEntry = mapped.findIndex(b => b.time === entryBarTime);
+              const idxExit = mapped.findIndex(b => b.time === exitBarTime);
+              if (idxEntry >= 0 && idxExit >= 0) {
+                const pad = 10;
+                visibleFrom = mapped[Math.max(0, idxEntry - pad)].time;
+                visibleTo = mapped[Math.min(mapped.length - 1, idxExit + pad)].time;
+              }
+            } else {
+              const twoWeekSec = 10 * 24 * 3600;
+              visibleFrom = Math.max(mapped[0].time, entryBarTime - twoWeekSec);
+              visibleTo = Math.min(mapped[mapped.length - 1].time, exitBarTime + twoWeekSec);
+            }
             try {
-              candleSeries.priceScale().setVisibleRange({
-                from: mn - pad,
-                to: mx + pad
+              chart.timeScale().setVisibleRange({
+                from: visibleFrom,
+                to: visibleTo
               });
             } catch (_) {}
           }
+          const visibleCandles = mapped.filter(b => isDailyTime ? String(b.time) >= String(visibleFrom) && String(b.time) <= String(visibleTo) : b.time >= visibleFrom && b.time <= visibleTo);
+          const priceValues = [...visibleCandles.flatMap(b => [b.low, b.high])];
+          if (Number.isFinite(ep)) priceValues.push(ep);
+          if (Number.isFinite(xp)) priceValues.push(xp);
+          if (priceValues.length > 0) {
+            let mn = Math.min(...priceValues),
+              mx = Math.max(...priceValues);
+            const range = Math.max(mx - mn, 1) * 1.16;
+            const center = (mn + mx) / 2;
+            try {
+              candleSeries.priceScale().setVisibleRange({
+                from: center - range / 2,
+                to: center + range / 2
+              });
+            } catch (_) {}
+          }
+          requestAnimationFrame(() => {
+            if (chartRef.current && containerRef.current) {
+              const w = containerRef.current.clientWidth,
+                h = containerRef.current.clientHeight;
+              if (w > 0 && h > 0) chartRef.current.resize(w, h);
+            }
+          });
           setLoading(false);
-        }).catch(() => {
-          setError("Failed to load chart");
-          setLoading(false);
+        };
+        fetch(url, {
+          cache: "no-store"
+        }).then(r => r.json()).then(data => {
+          if (cancelled) return;
+          if (!data.ok || !data.candles) {
+            setError("No chart data");
+            setLoading(false);
+            return;
+          }
+          let candles = data.candles;
+          if (candles.length < 2 && asOfMs) {
+            return fetch(`${API_BASE}/timed/candles?ticker=${encodeURIComponent(ticker)}&tf=${tf}&limit=${limit}`, {
+              cache: "no-store"
+            }).then(r => r.json()).then(d => {
+              if (!cancelled) {
+                if (d.ok && d.candles && d.candles.length >= 2) candles = d.candles;
+                if (candles.length < 2) {
+                  setError("Insufficient chart data");
+                  setLoading(false);
+                } else doRender(candles);
+              }
+            }).catch(() => {
+              if (!cancelled) {
+                if (candles.length < 2) {
+                  setError("Insufficient chart data");
+                  setLoading(false);
+                } else doRender(candles);
+              }
+            });
+          }
+          doRender(candles);
+        }).catch(e => {
+          if (!cancelled) {
+            setError("Failed to load chart");
+            setLoading(false);
+          }
         });
+        const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(() => {
+          if (containerRef.current && chartRef.current) {
+            const w = containerRef.current.clientWidth,
+              h = containerRef.current.clientHeight;
+            if (w > 0 && h > 0) chartRef.current.resize(w, h);
+          }
+        }) : null;
+        if (ro) ro.observe(containerRef.current);
         return () => {
-          try {
-            if (chartRef.current) chartRef.current.remove();
-          } catch (_) {}
+          cancelled = true;
+          if (ro) ro.disconnect();
+          priceLinesRef.current = [];
+          emaSeriesRef.current = [];
+          cloudAreaRef.current = [];
+          chart.remove();
           chartRef.current = null;
           seriesRef.current = null;
-          priceLinesRef.current = [];
         };
-      }, [ticker, trade?.trade_id || trade?.entry_ts, entryPrice, exitPrice, entryTs, exitTs, trimTs, trimPrice, sl, tp, isClosed, hasTrimmed, currentPrice, height, apiBase, LWC]);
+      }, [ticker, tf, entryPrice, exitPrice, entryTs, exitTs, trimTs, height, mapCandles]);
       useEffect(() => {
-        const el = containerRef.current;
-        if (!el) return;
-        const ro = new ResizeObserver(() => {
-          if (chartRef.current && el.clientWidth > 0) chartRef.current.resize(el.clientWidth, height);
+        const series = emaSeriesRef.current;
+        const data = indicatorDataRef.current;
+        if (!data) return;
+        CLOUD_CONFIG.forEach((cloud, idx) => {
+          const d = data[cloud.key];
+          if (!d) return;
+          const vis = showIndicators[cloud.key];
+          const ca = cloudAreaRef.current[idx];
+          if (ca) {
+            ca.upper.setData(vis ? d.upper : []);
+            ca.lower.setData(vis ? d.lower : []);
+          }
         });
-        ro.observe(el);
-        return () => ro.disconnect();
-      }, [height]);
+        if (series && data.superTrend) {
+          const stVis = showIndicators.superTrend;
+          for (let si = 0; si < series.length; si++) {
+            if (si < data.superTrend.length) series[si].setData(stVis ? data.superTrend[si].data : []);
+          }
+        }
+        if (seriesRef.current && data.tdSeq) {
+          const tm = tradeMarkersRef.current || [];
+          const td = showIndicators.tdSeq ? data.tdSeq : [];
+          const all = [...tm, ...td].sort((a, b) => a.time < b.time ? -1 : a.time > b.time ? 1 : 0);
+          try {
+            seriesRef.current.setMarkers(all);
+          } catch (_) {}
+        }
+      }, [showIndicators]);
+      if (!ticker) {
+        return /*#__PURE__*/React.createElement("div", {
+          className: "rounded-lg bg-white/[0.03] border border-white/[0.06] p-4 text-center text-[12px] text-[#6b7280]",
+          style: {
+            minHeight: height
+          }
+        }, "Select a trade to view chart");
+      }
+      return /*#__PURE__*/React.createElement("div", {
+        className: "rounded-lg border border-white/[0.06] bg-[#0b0e11] flex flex-col",
+        style: {
+          minHeight: compact ? 220 : undefined
+        }
+      }, /*#__PURE__*/React.createElement("div", {
+        className: "shrink-0 px-3 py-2 flex items-center justify-between border-b border-white/[0.04]"
+      }, /*#__PURE__*/React.createElement("span", {
+        className: "text-[13px] font-semibold text-[#14b8a6]"
+      }, ticker), /*#__PURE__*/React.createElement("div", {
+        className: "flex items-center gap-0.5"
+      }, ["5", "15", "30", "60", "D"].map(t => /*#__PURE__*/React.createElement("button", {
+        key: t,
+        onClick: () => setTf(t),
+        className: `px-2 py-1 rounded text-[11px] font-medium ${tf === t ? "bg-white/10 text-white" : "text-[#6b7280] hover:text-white"}`
+      }, t === "D" ? "1D" : t + "m")))), /*#__PURE__*/React.createElement("div", {
+        ref: containerRef,
+        style: {
+          minHeight: compact ? 180 : Math.max(height * 0.4, 180),
+          minWidth: 200,
+          width: "100%"
+        },
+        className: "w-full flex-1 min-h-0"
+      }, error && !loading && /*#__PURE__*/React.createElement("div", {
+        className: "flex items-center justify-center h-full text-[#6b7280] text-[13px]"
+      }, error), loading && /*#__PURE__*/React.createElement("div", {
+        className: "flex items-center justify-center h-full"
+      }, /*#__PURE__*/React.createElement("div", {
+        className: "loading-spinner",
+        style: {
+          width: 24,
+          height: 24
+        }
+      }))), /*#__PURE__*/React.createElement("div", {
+        className: "shrink-0 px-2 py-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 border-t border-white/[0.04] bg-white/[0.02] text-[10px] text-[#9ca3af]"
+      }, /*#__PURE__*/React.createElement("span", {
+        className: "flex items-center gap-1.5"
+      }, /*#__PURE__*/React.createElement("span", {
+        className: "inline-block w-3 h-0.5 rounded bg-[#60a5fa]"
+      }), " Entry"), /*#__PURE__*/React.createElement("span", {
+        className: "flex items-center gap-1.5"
+      }, /*#__PURE__*/React.createElement("span", {
+        className: "inline-block w-3 h-0.5 rounded bg-[#f59e0b]"
+      }), " Exit"), INDICATOR_KEYS.map(key => {
+        const labels = {
+          cloud512: "5-12",
+          cloud3450: "34-50",
+          cloud7289: "72-89",
+          cloud180200: "180-200",
+          superTrend: "ST",
+          tdSeq: "TD"
+        };
+        const colors = {
+          cloud512: "#4caf50",
+          cloud3450: "#42a5f5",
+          cloud7289: "#26a69a",
+          cloud180200: "#26c6da",
+          superTrend: "#f97316",
+          tdSeq: "#2962ff"
+        };
+        const on = showIndicators[key];
+        return /*#__PURE__*/React.createElement("button", {
+          key: key,
+          type: "button",
+          onClick: () => setShowIndicators(prev => ({
+            ...prev,
+            [key]: !prev[key]
+          })),
+          className: `flex items-center gap-1 rounded px-1.5 py-0.5 -m-0.5 hover:bg-white/[0.06] transition-all ${on ? "opacity-100" : "opacity-45"}`,
+          title: on ? "Hide" : "Show"
+        }, /*#__PURE__*/React.createElement("span", {
+          className: "inline-block w-3 h-0.5 rounded shrink-0",
+          style: {
+            background: colors[key]
+          }
+        }), /*#__PURE__*/React.createElement("span", null, labels[key]));
+      })));
+    }
+
+    // Wrapper that accepts a `trade` prop (backward-compatible with old TradeEventChart callers)
+    function TradeEventChart({
+      trade,
+      currentPrice,
+      height = 260,
+      apiBase
+    }) {
       if (!trade?.ticker) {
         return /*#__PURE__*/React.createElement("div", {
           className: "rounded-lg bg-white/[0.03] border border-white/[0.06] p-4 text-center text-[12px] text-[#6b7280]",
@@ -890,339 +1506,16 @@
           }
         }, "Select a trade to view chart");
       }
-      if (error) {
-        return /*#__PURE__*/React.createElement("div", {
-          className: "rounded-lg bg-white/[0.03] border border-white/[0.06] p-4 text-center text-[12px] text-amber-400",
-          style: {
-            minHeight: height
-          }
-        }, error);
-      }
-      return /*#__PURE__*/React.createElement("div", {
-        className: "rounded-lg overflow-hidden border border-white/[0.06]"
-      }, /*#__PURE__*/React.createElement("div", {
-        className: "px-2 py-1 flex items-center justify-between bg-white/[0.03] border-b border-white/[0.06] text-[10px] text-[#6b7280]"
-      }, /*#__PURE__*/React.createElement("span", null, "Entry \xB7 Exit \xB7 Trim \xB7 SL \xB7 TP", !isClosed && " · Current")), /*#__PURE__*/React.createElement("div", {
-        ref: containerRef,
-        style: {
-          width: "100%",
-          height: height,
-          background: "#0b0e11"
-        }
-      }), loading && /*#__PURE__*/React.createElement("div", {
-        className: "absolute inset-0 flex items-center justify-center bg-[#0b0e11]/80 text-[12px] text-[#6b7280]",
-        style: {
-          marginTop: -height
-        }
-      }, "Loading\u2026"));
-    }
-
-    // ── Trade chart (entry/trim/exit + SL/TP) for Right Rail Trade History ──
-    function TradeEventChart({
-      trade,
-      currentPrice,
-      height = 280,
-      apiBase
-    }) {
-      const containerRef = useRef(null);
-      const chartRef = useRef(null);
-      const seriesRef = useRef(null);
-      const priceLinesRef = useRef([]);
-      const [loading, setLoading] = useState(true);
-      const [error, setError] = useState(null);
-      const LWC = typeof LightweightCharts !== "undefined" ? LightweightCharts : null;
-      const findBarTime = (mapped, tsMs) => {
-        if (!mapped?.length || !Number.isFinite(tsMs)) return null;
-        const tsSec = tsMs > 1e12 ? Math.floor(tsMs / 1000) : tsMs;
-        const isDaily = typeof mapped[0].time === "string";
-        if (isDaily) {
-          const dayStr = new Date(tsSec * 1000).toLocaleDateString("en-CA", {
-            timeZone: "America/New_York"
-          });
-          let best = null;
-          for (const b of mapped) {
-            if (String(b.time) <= dayStr && (best === null || String(b.time) > String(best.time))) best = b;
-          }
-          if (best) return best.time;
-          if (String(mapped[0].time) > dayStr) return mapped[0].time;
-          return null;
-        }
-        let best = null;
-        for (const b of mapped) {
-          if (b.time <= tsSec && (best === null || b.time > best.time)) best = b;
-        }
-        if (best) return best.time;
-        if (mapped[0].time > tsSec) return mapped[0].time;
-        return null;
-      };
-      const mapCandles = (candles, tf) => {
-        if (!candles?.length) return [];
-        const mapped = candles.map(c => {
-          const rawTs = Number(c.ts);
-          const ts = rawTs > 1e12 ? Math.floor(rawTs / 1000) : rawTs;
-          return {
-            time: ts,
-            open: Number(c.o),
-            high: Number(c.h),
-            low: Number(c.l),
-            close: Number(c.c)
-          };
-        }).filter(c => c.open > 0 && c.high > 0).sort((a, b) => a.time - b.time);
-        const seen = new Set();
-        return mapped.filter(x => {
-          if (seen.has(x.time)) return false;
-          seen.add(x.time);
-          return true;
-        });
-      };
-      useEffect(() => {
-        if (!containerRef.current || !trade?.ticker || !apiBase || !LWC) {
-          setLoading(false);
-          if (!LWC) setError("Charts unavailable");
-          return;
-        }
-        const tickerSym = String(trade.ticker).toUpperCase();
-        const entryMs = Number(trade.entry_ts);
-        const exitMs = Number(trade.exit_ts) || null;
-        const isClosed = trade.status === "WIN" || trade.status === "LOSS" || trade.status === "FLAT";
-        const asOfMs = isClosed && exitMs ? exitMs + 3 * 24 * 60 * 60 * 1000 : Date.now();
-        const limit = 800;
-        const url = `${apiBase}/timed/candles?ticker=${encodeURIComponent(tickerSym)}&tf=15&limit=${limit}&asOfTs=${asOfMs}`;
-        fetch(url, {
-          cache: "no-store"
-        }).then(r => r.json()).then(data => {
-          if (!data.ok || !data.candles?.length) {
-            setError("No chart data");
-            setLoading(false);
-            return;
-          }
-          const mapped = mapCandles(data.candles, "15");
-          if (mapped.length < 2) {
-            setError("Insufficient data");
-            setLoading(false);
-            return;
-          }
-          const container = containerRef.current;
-          const chart = LWC.createChart(container, {
-            width: Math.max(container.clientWidth || 320, 200),
-            height,
-            layout: {
-              background: {
-                type: "solid",
-                color: "#0b0e11"
-              },
-              textColor: "#6b7280",
-              fontSize: 10
-            },
-            grid: {
-              vertLines: {
-                color: "rgba(38,50,95,0.35)"
-              },
-              horzLines: {
-                color: "rgba(38,50,95,0.35)"
-              }
-            },
-            crosshair: {
-              mode: LWC.CrosshairMode.Normal
-            },
-            rightPriceScale: {
-              borderColor: "rgba(38,50,95,0.5)",
-              scaleMargins: {
-                top: 0.08,
-                bottom: 0.08
-              }
-            },
-            timeScale: {
-              borderColor: "rgba(38,50,95,0.5)",
-              timeVisible: true,
-              rightOffset: 3
-            },
-            handleScroll: {
-              vertTouchDrag: false
-            }
-          });
-          chartRef.current = chart;
-          const candleSeries = chart.addCandlestickSeries({
-            upColor: "#22c55e",
-            downColor: "#ef4444",
-            borderUpColor: "#22c55e",
-            borderDownColor: "#ef4444",
-            wickUpColor: "#22c55e",
-            wickDownColor: "#ef4444"
-          });
-          seriesRef.current = candleSeries;
-          candleSeries.setData(mapped);
-          const lines = [];
-          const ep = Number(trade.entry_price || 0);
-          const xp = Number(trade.exit_price || 0);
-          const trimPx = Number(trade.trim_price || 0);
-          const sl = Number(trade.sl || trade.sl_price || 0);
-          const tp = Number(trade.tp || 0);
-          const curPx = Number.isFinite(Number(currentPrice)) ? Number(currentPrice) : 0;
-          if (Number.isFinite(ep) && ep > 0) {
-            const pl = candleSeries.createPriceLine({
-              price: ep,
-              color: "#60a5fa",
-              lineWidth: 2,
-              lineStyle: LWC.LineStyle.Solid,
-              axisLabelVisible: true,
-              title: "Entry"
-            });
-            lines.push(pl);
-          }
-          if (Number.isFinite(xp) && xp > 0 && xp !== ep) {
-            const pl = candleSeries.createPriceLine({
-              price: xp,
-              color: "#f59e0b",
-              lineWidth: 2,
-              lineStyle: LWC.LineStyle.Solid,
-              axisLabelVisible: true,
-              title: "Exit"
-            });
-            lines.push(pl);
-          }
-          if (Number.isFinite(trimPx) && trimPx > 0 && trimPx !== ep && trimPx !== xp) {
-            const pl = candleSeries.createPriceLine({
-              price: trimPx,
-              color: "#a78bfa",
-              lineWidth: 1.5,
-              lineStyle: LWC.LineStyle.Dashed,
-              axisLabelVisible: true,
-              title: "Trim"
-            });
-            lines.push(pl);
-          }
-          if (Number.isFinite(sl) && sl > 0) {
-            const pl = candleSeries.createPriceLine({
-              price: sl,
-              color: "#ef4444",
-              lineWidth: 1.5,
-              lineStyle: LWC.LineStyle.Dashed,
-              axisLabelVisible: true,
-              title: "SL"
-            });
-            lines.push(pl);
-          }
-          if (Number.isFinite(tp) && tp > 0) {
-            const pl = candleSeries.createPriceLine({
-              price: tp,
-              color: "#22c55e",
-              lineWidth: 1.5,
-              lineStyle: LWC.LineStyle.Dashed,
-              axisLabelVisible: true,
-              title: "TP"
-            });
-            lines.push(pl);
-          }
-          if (!isClosed && curPx > 0) {
-            const pl = candleSeries.createPriceLine({
-              price: curPx,
-              color: "#e5e7eb",
-              lineWidth: 1,
-              lineStyle: LWC.LineStyle.LargeDashed,
-              axisLabelVisible: true,
-              title: "Current"
-            });
-            lines.push(pl);
-          }
-          priceLinesRef.current = lines;
-          const entryBar = findBarTime(mapped, entryMs);
-          const exitBar = exitMs ? findBarTime(mapped, exitMs) : null;
-          const trimMs = Number(trade.trim_ts);
-          const trimBar = Number.isFinite(trimMs) && trimMs > 0 ? findBarTime(mapped, trimMs) : null;
-          const markers = [];
-          if (entryBar != null) markers.push({
-            time: entryBar,
-            position: "inBar",
-            color: "#60a5fa",
-            shape: "arrowUp",
-            text: "Entry",
-            size: 2
-          });
-          if (exitBar != null && exitBar !== entryBar) markers.push({
-            time: exitBar,
-            position: "aboveBar",
-            color: "#f59e0b",
-            shape: "arrowDown",
-            text: "Exit",
-            size: 2
-          });
-          if (trimBar != null && trimBar !== entryBar && trimBar !== exitBar) markers.push({
-            time: trimBar,
-            position: "aboveBar",
-            color: "#a78bfa",
-            shape: "circle",
-            text: "Trim",
-            size: 1.5
-          });
-          try {
-            candleSeries.setMarkers(markers);
-          } catch (_) {}
-          chart.timeScale().fitContent();
-          const oneWeekSec = 5 * 24 * 3600;
-          const visibleFrom = entryBar != null ? Math.max(mapped[0].time, entryBar - oneWeekSec) : mapped[0].time;
-          const visibleTo = exitBar != null ? Math.min(mapped[mapped.length - 1].time, exitBar + oneWeekSec) : mapped[mapped.length - 1].time;
-          try {
-            chart.timeScale().setVisibleRange({
-              from: visibleFrom,
-              to: visibleTo
-            });
-          } catch (_) {}
-          const priceValues = mapped.filter(b => b.time >= visibleFrom && b.time <= visibleTo).flatMap(b => [b.low, b.high]);
-          if (ep > 0) priceValues.push(ep);
-          if (xp > 0) priceValues.push(xp);
-          if (curPx > 0) priceValues.push(curPx);
-          if (sl > 0) priceValues.push(sl);
-          if (tp > 0) priceValues.push(tp);
-          if (priceValues.length > 0) {
-            let mn = Math.min(...priceValues),
-              mx = Math.max(...priceValues);
-            const pad = (mx - mn) * 0.1 || 1;
-            try {
-              candleSeries.priceScale().setVisibleRange({
-                from: mn - pad,
-                to: mx + pad
-              });
-            } catch (_) {}
-          }
-          setLoading(false);
-        }).catch(() => {
-          setError("Failed to load chart");
-          setLoading(false);
-        });
-        return () => {
-          try {
-            if (chartRef.current) chartRef.current.remove();
-          } catch (_) {}
-          chartRef.current = null;
-          seriesRef.current = null;
-          priceLinesRef.current = [];
-        };
-      }, [trade?.ticker, trade?.entry_ts, trade?.exit_ts, trade?.entry_price, trade?.exit_price, trade?.trim_ts, trade?.trim_price, trade?.sl, trade?.tp, trade?.status, currentPrice, height, apiBase]);
-      if (!trade?.ticker) return null;
-      return /*#__PURE__*/React.createElement("div", {
-        className: "rounded-lg overflow-hidden border border-white/[0.08] bg-[#0b0e11] relative"
-      }, /*#__PURE__*/React.createElement("div", {
-        className: "px-2 py-1.5 flex items-center justify-between border-b border-white/[0.06]"
-      }, /*#__PURE__*/React.createElement("span", {
-        className: "text-[10px] text-[#6b7280] font-medium"
-      }, trade.ticker, " ", trade.direction || "", " \u2014 Entry \xB7 Exit \xB7 SL \xB7 TP")), /*#__PURE__*/React.createElement("div", {
-        ref: containerRef,
-        style: {
-          height
-        },
-        className: "w-full"
-      }), loading && /*#__PURE__*/React.createElement("div", {
-        className: "absolute inset-0 flex items-center justify-center bg-[#0b0e11]/80 text-[12px] text-[#6b7280]",
-        style: {
-          marginTop: 40
-        }
-      }, "Loading chart\u2026"), error && /*#__PURE__*/React.createElement("div", {
-        className: "absolute inset-0 flex items-center justify-center bg-[#0b0e11]/90 text-[12px] text-amber-400",
-        style: {
-          marginTop: 40
-        }
-      }, error));
+      return /*#__PURE__*/React.createElement(AutopsyChart, {
+        ticker: trade.ticker,
+        entryPrice: Number(trade.entry_price || 0),
+        exitPrice: Number(trade.exit_price || 0),
+        entryTs: trade.entry_ts,
+        exitTs: trade.exit_ts,
+        trimTs: trade.trim_ts,
+        height: height,
+        compact: true
+      });
     }
     return function TickerDetailRightRail({
       ticker,
@@ -1239,7 +1532,9 @@
       initialRailTab = null,
       effectiveStage = null,
       earningsMap = null,
-      addingTicker = null
+      addingTicker = null,
+      openAutopsyForTrade = null,
+      modalOnly = false
     }) {
       const tickerSymbol = ticker?.ticker ? String(ticker.ticker) : "";
       const isAdding = addingTicker && String(addingTicker).toUpperCase() === tickerSymbol;
@@ -1426,6 +1721,36 @@
       const [autopsyModal, setAutopsyModal] = useState(null);
       const [autopsyModalData, setAutopsyModalData] = useState(null);
       const [autopsyModalLoading, setAutopsyModalLoading] = useState(false);
+      const [autopsyModalProfile, setAutopsyModalProfile] = useState(null);
+
+      // Auto-open autopsy modal when parent passes a closed trade via openAutopsyForTrade
+      useEffect(() => {
+        if (!openAutopsyForTrade) return;
+        const t = openAutopsyForTrade;
+        setAutopsyModal(t);
+        setAutopsyModalLoading(true);
+        setAutopsyModalData(null);
+        setAutopsyModalProfile(null);
+        const _tid = t.trade_id || t.id || "";
+        const _tk = String(t.ticker || "").toUpperCase();
+        fetch(`${API_BASE}/timed/admin/trade-autopsy/trades?key=${encodeURIComponent(window._ttApiKey || "")}`).then(r => r.json()).then(d => {
+          const allTrades = Array.isArray(d?.trades) ? d.trades : [];
+          const match = _tid ? allTrades.find(tr => String(tr.trade_id || "") === String(_tid)) : null;
+          setAutopsyModalData(match || d?.trade || t);
+          setAutopsyModalLoading(false);
+        }).catch(() => {
+          setAutopsyModalData(t);
+          setAutopsyModalLoading(false);
+        });
+        if (_tk) fetch(`${API_BASE}/timed/profile/${encodeURIComponent(_tk)}`, {
+          cache: "no-store"
+        }).then(r => {
+          if (!r.ok) return null;
+          return r.json();
+        }).then(d => {
+          if (d?.ok) setAutopsyModalProfile(d.profile || d);
+        }).catch(() => {});
+      }, [openAutopsyForTrade]);
 
       // Price source: always use the ticker prop (same object the Card renders)
       // for price/change display. latestTicker is only for context/scoring data.
@@ -1499,8 +1824,8 @@
       }, [railTab, tickerSymbol]);
       useEffect(() => {
         const sym = String(tickerSymbol || "").trim().toUpperCase();
-        const mode = railTab === "INVESTOR" ? "investor" : railTab === "ANALYSIS" ? "trader" : null;
-        if (!sym || !mode) {
+        const mode = railTab === "INVESTOR" ? "investor" : "trader";
+        if (!sym) {
           setPredictionContract(null);
           setPredictionContractError(null);
           setPredictionContractLoading(false);
@@ -1851,26 +2176,25 @@
       if (!safeTicker || !tickerSymbol) return null;
 
       // ── Unified direction — single source of truth for the entire Right Rail ──
-      // Priority: 1) trade.direction  2) ticker.position_direction  3) HTF state  4) state fallback
+      // Priority: 1) prediction contract  2) ticker.position_direction  3) trade.direction  4) HTF state
       const resolvedDir = (() => {
-        // 1. Explicit trade direction (most authoritative)
-        const tradeDirStr = String(trade?.direction || "").toUpperCase();
-        const tradeStatus = String(trade?.status || "").toUpperCase();
-        const tradeIsOpen = trade && (tradeStatus === "OPEN" || tradeStatus === "TP_HIT_TRIM" || !(trade?.exit_ts ?? trade?.exitTs) && tradeStatus !== "WIN" && tradeStatus !== "LOSS");
-        if (tradeIsOpen && (tradeDirStr === "LONG" || tradeDirStr === "SHORT")) return tradeDirStr;
-        // 2. Server-provided position direction
-        const posDirStr = String(ticker?.position_direction || "").toUpperCase();
-        if (ticker?.has_open_position && (posDirStr === "LONG" || posDirStr === "SHORT")) return posDirStr;
-        // 2b. Prediction contract direction (system recommendation when no position open)
+        // 1. Prediction contract direction (system recommendation — always highest priority)
         if (predictionContract?.direction) {
           const pcDir = String(predictionContract.direction).toUpperCase();
           if (pcDir === "LONG" || pcDir === "SHORT") return pcDir;
         }
-        // 3. HTF state (primary trend)
+        // 2. Server-provided position direction
+        const posDirStr = String(ticker?.position_direction || "").toUpperCase();
+        if (ticker?.has_open_position && (posDirStr === "LONG" || posDirStr === "SHORT")) return posDirStr;
+        // 3. Open trade direction (fallback when no prediction available)
+        const tradeDirStr = String(trade?.direction || "").toUpperCase();
+        const tradeStatus = String(trade?.status || "").toUpperCase();
+        const tradeIsOpen = trade && (tradeStatus === "OPEN" || tradeStatus === "TP_HIT_TRIM" || !(trade?.exit_ts ?? trade?.exitTs) && tradeStatus !== "WIN" && tradeStatus !== "LOSS");
+        if (tradeIsOpen && (tradeDirStr === "LONG" || tradeDirStr === "SHORT")) return tradeDirStr;
+        // 4. HTF state (primary trend)
         const state = String(ticker?.state || "");
         if (state.startsWith("HTF_BULL")) return "LONG";
         if (state.startsWith("HTF_BEAR")) return "SHORT";
-        // 4. Fallback for non-standard states
         if (state.includes("BULL")) return "LONG";
         if (state.includes("BEAR")) return "SHORT";
         return null;
@@ -1969,8 +2293,16 @@
           return null;
         }
       })();
-      return /*#__PURE__*/React.createElement("div", {
-        className: "w-full h-full flex flex-col"
+      return /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
+        className: "w-full h-full flex flex-col",
+        style: modalOnly ? {
+          position: "absolute",
+          width: 1,
+          height: 1,
+          overflow: "hidden",
+          opacity: 0,
+          pointerEvents: "none"
+        } : undefined
       }, /*#__PURE__*/React.createElement("div", {
         className: "bg-[#0b0e11] border border-white/[0.04] rounded-xl w-full h-full flex flex-col shadow-xl",
         onClick: e => e.stopPropagation()
@@ -5090,11 +5422,7 @@
         className: "flex items-center justify-between mb-2"
       }, /*#__PURE__*/React.createElement("div", {
         className: "text-sm text-[#6b7280]"
-      }, "Trade History"), /*#__PURE__*/React.createElement("a", {
-        href: `simulation-dashboard.html?ticker=${encodeURIComponent(String(tickerSymbol).toUpperCase())}`,
-        className: "text-xs px-2 py-1 rounded bg-blue-500/20 border border-blue-500/30 text-blue-300 hover:bg-blue-500/30",
-        title: "Open full Trade Tracker"
-      }, "Open")), ledgerTradesLoading ? /*#__PURE__*/React.createElement("div", {
+      }, "Trade History")), ledgerTradesLoading ? /*#__PURE__*/React.createElement("div", {
         className: "text-xs text-[#6b7280] flex items-center gap-2"
       }, /*#__PURE__*/React.createElement("div", {
         className: "loading-spinner"
@@ -5104,14 +5432,7 @@
         className: "text-xs text-[#6b7280]"
       }, "No trades found for this ticker.") : /*#__PURE__*/React.createElement("div", {
         className: "space-y-3"
-      }, /*#__PURE__*/React.createElement("div", {
-        className: "mb-3"
-      }, /*#__PURE__*/React.createElement(TradeEventChart, {
-        trade: tradeChartSelection || undefined,
-        currentPrice: tradeChartSelection && tradeChartSelection.status !== "WIN" && tradeChartSelection.status !== "LOSS" && tradeChartSelection.status !== "FLAT" ? Number(priceSrc?.price ?? priceSrc?.currentPrice ?? priceSrc?.cp) || null : null,
-        height: 280,
-        apiBase: API_BASE
-      })), (() => {
+      }, (() => {
         const openTrades = ledgerTrades.filter(t => t.status !== "WIN" && t.status !== "LOSS");
         const closedTrades = ledgerTrades.filter(t => t.status === "WIN" || t.status === "LOSS");
         const totalClosedPnl = closedTrades.reduce((s, t) => s + Number(t.pnl || t.pnl_pct || 0), 0);
@@ -5139,7 +5460,7 @@
         }, losses, "L"), flat > 0 && /*#__PURE__*/React.createElement("span", {
           className: "text-[#6b7280]"
         }, flat, " flat")));
-      })(), ledgerTrades.slice(0, 8).map(t => {
+      })(), ledgerTrades.slice(0, 10).map(t => {
         const trimmedPct = Number(t.trimmed_pct || t.trimmedPct || 0);
         const isClosed = t.status === "WIN" || t.status === "LOSS" || t.status === "FLAT" || trimmedPct >= 0.9999;
         const rawExitPrice = Number(t.exit_price || 0);
@@ -5151,13 +5472,9 @@
         const trimPrice = Number(t.trim_price || 0);
         const trimTs = t.trim_ts;
         const hasTrimmed = trimmedPct > 0;
-
-        // Qty fields (enriched by backend from positions table)
         const remainingQty = Number(t.quantity ?? t.shares ?? 0);
         const entryQty = hasTrimmed && trimmedPct < 1 && remainingQty > 0 ? Math.round(remainingQty / (1 - trimmedPct) * 100) / 100 : remainingQty;
         const trimmedQty = hasTrimmed ? Math.round(entryQty * trimmedPct * 100) / 100 : 0;
-
-        // Human-readable exit reason
         const exitReasonRaw = String(t.exit_reason || "").toLowerCase();
         const exitReasonLabel = (() => {
           if (!exitReasonRaw || !isClosed) return null;
@@ -5173,8 +5490,6 @@
           if (exitReasonRaw) return exitReasonRaw.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
           return null;
         })();
-
-        // Compute P&L% from prices if pnl_pct not available
         const computedPnlPct = (() => {
           if (Math.abs(pnlPct) > 0.001) return pnlPct;
           if (!isClosed || entryPrice <= 0 || exitPrice <= 0) return 0;
@@ -5182,40 +5497,39 @@
           return dir === "LONG" ? (exitPrice - entryPrice) / entryPrice * 100 : (entryPrice - exitPrice) / entryPrice * 100;
         })();
         const isFlat = isClosed && Math.abs(computedPnlPct) < 0.01;
-
-        // Status label — FLAT if backend says so OR computed P&L ~ 0
-        const statusLabel = exitPriceMissing ? "ERROR" : t.status === "FLAT" || isFlat ? "FLAT" : t.status === "WIN" ? "WIN" : t.status === "LOSS" ? "LOSS" : null;
-        const statusCls = exitPriceMissing ? "bg-amber-500/20 text-amber-400 border border-amber-500/30" : t.status === "FLAT" || isFlat ? "bg-[#6b7280]/20 text-[#9ca3af] border border-[#6b7280]/30" : t.status === "WIN" ? "bg-green-500/20 text-green-400 border border-green-500/30" : t.status === "LOSS" ? "bg-red-500/20 text-red-400 border border-red-500/30" : null;
-        const formatDateTime = ts => {
-          if (!ts) return "—";
+        const statusLabel = exitPriceMissing ? "ERR" : t.status === "FLAT" || isFlat ? "FLAT" : t.status === "WIN" ? "WIN" : t.status === "LOSS" ? "LOSS" : null;
+        const statusCls = exitPriceMissing ? "bg-amber-500/20 text-amber-400 border-amber-500/30" : t.status === "FLAT" || isFlat ? "bg-[#6b7280]/20 text-[#9ca3af] border-[#6b7280]/30" : t.status === "WIN" ? "bg-green-500/20 text-green-400 border-green-500/30" : t.status === "LOSS" ? "bg-red-500/20 text-red-400 border-red-500/30" : "";
+        const formatDt = ts => {
+          if (!ts) return "\u2014";
           try {
             const d = new Date(Number(ts));
-            return d.toLocaleString('en-US', {
+            return d.toLocaleDateString('en-US', {
               month: 'short',
-              day: 'numeric',
+              day: 'numeric'
+            }) + ", " + d.toLocaleTimeString('en-US', {
               hour: 'numeric',
               minute: '2-digit',
               hour12: true
             });
           } catch {
-            return "—";
+            return "\u2014";
           }
         };
-
-        // Duration
         const duration = (() => {
-          const entryMs = Number(t.entry_ts);
-          const exitMs = isClosed ? Number(t.exit_ts) : Date.now();
-          if (!entryMs || !exitMs) return null;
-          const diffMin = Math.round((exitMs - entryMs) / 60000);
-          if (diffMin < 60) return `${diffMin}m`;
-          const h = Math.floor(diffMin / 60);
-          const m = diffMin % 60;
+          const ems = Number(t.entry_ts);
+          const xms = isClosed ? Number(t.exit_ts) : Date.now();
+          if (!ems || !xms) return null;
+          const dm = Math.round((xms - ems) / 60000);
+          if (dm < 60) return `${dm}m`;
+          const h = Math.floor(dm / 60);
+          const m = dm % 60;
           return m > 0 ? `${h}h ${m}m` : `${h}h`;
         })();
+        const _grade = t.setup_grade || t.setupGrade || "";
+        const gradeCls = _grade === "Prime" ? "bg-amber-500/20 text-amber-300 border-amber-500/30" : _grade === "Confirmed" ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/30" : _grade === "Speculative" ? "bg-blue-500/20 text-blue-300 border-blue-500/30" : "";
         const isChartSelected = tradeChartSelection && (tradeChartSelection.trade_id || tradeChartSelection.id) === (t.trade_id || t.id);
         return /*#__PURE__*/React.createElement("div", {
-          key: t.trade_id,
+          key: t.trade_id || t.id,
           role: "button",
           tabIndex: 0,
           onClick: () => setTradeChartSelection(t),
@@ -5225,98 +5539,78 @@
               setTradeChartSelection(t);
             }
           },
-          className: `p-2.5 rounded cursor-pointer transition-all ${isChartSelected ? "bg-white/[0.08] border-2 border-[#60a5fa]/50" : "bg-white/[0.02] border border-white/[0.06] hover:bg-white/[0.04] hover:border-white/[0.1]"}`,
-          title: "Click to show this trade on the chart above"
+          className: `rounded-lg cursor-pointer transition-all ${isChartSelected ? "ring-2 ring-[#60a5fa]/60 bg-white/[0.06]" : "bg-white/[0.02] border border-white/[0.06] hover:bg-white/[0.05] hover:border-white/[0.12]"}`,
+          title: "Click to show on chart"
         }, /*#__PURE__*/React.createElement("div", {
-          className: "flex items-center justify-between mb-1.5"
+          className: "flex items-center justify-between px-3 pt-2.5 pb-1"
         }, /*#__PURE__*/React.createElement("div", {
           className: "flex items-center gap-1.5"
         }, isClosed ? /*#__PURE__*/React.createElement("span", {
-          className: `px-1.5 py-0.5 rounded text-[9px] font-semibold ${statusCls}`
+          className: `px-1.5 py-0.5 rounded text-[9px] font-bold border ${statusCls}`
         }, statusLabel) : /*#__PURE__*/React.createElement("span", {
-          className: "px-1.5 py-0.5 rounded text-[9px] font-semibold bg-blue-500/15 text-blue-300 border border-blue-500/30"
+          className: "px-1.5 py-0.5 rounded text-[9px] font-bold bg-blue-500/15 text-blue-300 border border-blue-500/30"
         }, "OPEN"), /*#__PURE__*/React.createElement("span", {
-          className: `text-[11px] font-semibold ${t.direction === "LONG" ? "text-green-400" : "text-red-400"}`
-        }, t.direction), (() => {
-          const _g = t.setup_grade || t.setupGrade;
-          if (!_g) return null;
-          const cls = _g === "Prime" ? "bg-amber-500/20 text-amber-300 border-amber-500/30" : _g === "Confirmed" ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/30" : "bg-blue-500/20 text-blue-300 border-blue-500/30";
-          return /*#__PURE__*/React.createElement("span", {
-            className: `px-1 py-0.5 rounded text-[8px] font-bold border ${cls}`,
-            title: t.setup_name || t.setupName || ""
-          }, "TT ", _g);
-        })(), entryQty > 0 && /*#__PURE__*/React.createElement("span", {
+          className: `text-[11px] font-bold ${t.direction === "LONG" ? "text-green-400" : "text-red-400"}`
+        }, t.direction), _grade && /*#__PURE__*/React.createElement("span", {
+          className: `px-1 py-0.5 rounded text-[8px] font-bold border ${gradeCls}`,
+          title: t.setup_name || t.setupName || ""
+        }, "TT ", _grade)), /*#__PURE__*/React.createElement("div", {
+          className: "flex items-center gap-1.5"
+        }, isClosed && Math.abs(pnl) > 0.01 && /*#__PURE__*/React.createElement("span", {
+          className: `text-[11px] font-bold ${computedPnlPct >= 0 ? "text-green-400" : "text-red-400"}`
+        }, pnl >= 0 ? "+" : "", pnl < 0 ? "-" : "", "$", Math.abs(pnl).toFixed(2)), isClosed && /*#__PURE__*/React.createElement("span", {
+          className: `text-[10px] font-semibold ${isFlat ? "text-[#6b7280]" : computedPnlPct >= 0 ? "text-green-400/70" : "text-red-400/70"}`
+        }, "(", computedPnlPct >= 0 ? "+" : "", computedPnlPct.toFixed(2), "%)"))), /*#__PURE__*/React.createElement("div", {
+          className: "flex items-center gap-1.5 px-3 pb-2 flex-wrap"
+        }, exitReasonLabel && /*#__PURE__*/React.createElement("span", {
+          className: "px-1 py-0.5 rounded text-[8px] font-semibold bg-purple-500/15 text-purple-300 border border-purple-500/25"
+        }, exitReasonLabel), hasTrimmed && /*#__PURE__*/React.createElement("span", {
+          className: "px-1 py-0.5 rounded text-[8px] font-semibold bg-yellow-500/15 text-yellow-300 border border-yellow-500/25"
+        }, Math.round(trimmedPct * 100), "% trimmed"), duration && /*#__PURE__*/React.createElement("span", {
           className: "text-[9px] text-[#6b7280]"
-        }, entryQty % 1 === 0 ? entryQty : entryQty.toFixed(2), " shares"), hasTrimmed && /*#__PURE__*/React.createElement("span", {
-          className: "px-1 py-0.5 rounded text-[8px] font-semibold bg-yellow-500/20 text-yellow-300 border border-yellow-500/30"
-        }, Math.round(trimmedPct * 100), "% trimmed", trimmedQty > 0 ? ` (${trimmedQty % 1 === 0 ? trimmedQty : trimmedQty.toFixed(2)} sh)` : ""), exitReasonLabel && /*#__PURE__*/React.createElement("span", {
-          className: "px-1 py-0.5 rounded text-[8px] font-semibold bg-purple-500/20 text-purple-300 border border-purple-500/30",
-          title: exitReasonRaw
-        }, exitReasonLabel), duration && /*#__PURE__*/React.createElement("span", {
+        }, duration), entryQty > 0 && /*#__PURE__*/React.createElement("span", {
           className: "text-[9px] text-[#4b5563]"
-        }, duration)), isClosed && /*#__PURE__*/React.createElement("span", {
-          className: `text-xs font-bold ${isFlat ? "text-[#6b7280]" : computedPnlPct >= 0 ? "text-green-400" : "text-red-400"}`
-        }, computedPnlPct >= 0 ? "+" : "", computedPnlPct.toFixed(2), "%")), !isClosed && document.body.dataset.userRole === "admin" && (() => {
+        }, entryQty % 1 === 0 ? entryQty : entryQty.toFixed(1), " sh")), !isClosed && document.body.dataset.userRole === "admin" && (() => {
           const src = priceSrc;
           const cp = Number(src?.currentPrice ?? src?.cp ?? 0);
-          const dayPct = Number(src?.dayPct ?? src?.dailyChangePct ?? 0);
-          const dayChg = Number(src?.dayChg ?? src?.dailyChange ?? 0);
           const slVal = Number(src?.sl ?? t?.sl ?? 0);
           const tpVal = Number(src?.tp ?? t?.tp ?? 0);
           const isLong = String(t.direction || "").toUpperCase() === "LONG";
-          const dayUp = dayPct >= 0;
+          if (cp <= 0 && slVal <= 0 && tpVal <= 0) return null;
           return /*#__PURE__*/React.createElement("div", {
-            className: "mb-1.5"
+            className: "mx-3 mb-2 p-2 rounded bg-white/[0.03] border border-white/[0.06] space-y-1"
           }, /*#__PURE__*/React.createElement("div", {
-            className: "flex items-center justify-between mb-1"
+            className: "flex items-center justify-between text-[10px]"
           }, /*#__PURE__*/React.createElement("span", {
-            className: "text-[10px] text-[#6b7280]"
-          }, "Current"), /*#__PURE__*/React.createElement("div", {
-            className: "flex items-center gap-1.5"
+            className: "text-[#6b7280]"
+          }, "Current"), /*#__PURE__*/React.createElement("span", {
+            className: "text-white font-bold"
+          }, cp > 0 ? `$${cp.toFixed(2)}` : "\u2014")), /*#__PURE__*/React.createElement("div", {
+            className: "flex items-center justify-between text-[10px]"
           }, /*#__PURE__*/React.createElement("span", {
-            className: "text-xs text-white font-bold"
-          }, cp > 0 ? `$${cp.toFixed(2)}` : "—"), /*#__PURE__*/React.createElement("span", {
-            className: `text-[10px] font-semibold ${dayUp ? "text-teal-400" : "text-rose-400"}`
-          }, dayUp ? "+" : "", dayPct.toFixed(2), "%", Number.isFinite(dayChg) && dayChg !== 0 ? ` ($${Math.abs(dayChg).toFixed(2)})` : ""))), (() => {
-            const slOrigVal = Number(t?.sl_original ?? src?.position_sl_original ?? 0);
-            const slTrailing = slOrigVal > 0 && slVal > 0 && Math.abs(slVal - slOrigVal) / slOrigVal > 0.005;
-            return /*#__PURE__*/React.createElement("div", {
-              className: "flex items-center justify-between text-[10px] mb-1"
-            }, /*#__PURE__*/React.createElement("span", null, /*#__PURE__*/React.createElement("span", {
-              className: "text-rose-400",
-              title: slTrailing ? "Trailing Stop Loss" : "Stop Loss"
-            }, slTrailing ? "TSL" : "SL"), " ", /*#__PURE__*/React.createElement("span", {
-              className: "text-white font-medium"
-            }, slVal > 0 ? `$${slVal.toFixed(2)}` : "—")), /*#__PURE__*/React.createElement("span", null, /*#__PURE__*/React.createElement("span", {
-              className: "text-[#6b7280]"
-            }, "EP"), " ", /*#__PURE__*/React.createElement("span", {
-              className: "text-white font-medium"
-            }, "$", entryPrice > 0 ? entryPrice.toFixed(2) : "—")), (() => {
-              const pk = Number(t?.runnerPeakPrice ?? t?.runner_peak_price ?? src?.runnerPeakPrice);
-              return Number.isFinite(pk) && pk > 0 ? /*#__PURE__*/React.createElement("span", null, /*#__PURE__*/React.createElement("span", {
-                className: "text-purple-400",
-                title: "Peak Since Trim"
-              }, "PK"), " ", /*#__PURE__*/React.createElement("span", {
-                className: "text-white font-medium"
-              }, "$", pk.toFixed(2))) : null;
-            })(), /*#__PURE__*/React.createElement("span", null, /*#__PURE__*/React.createElement("span", {
-              className: "text-teal-400"
-            }, "TP"), " ", /*#__PURE__*/React.createElement("span", {
-              className: "text-white font-medium"
-            }, tpVal > 0 ? `$${tpVal.toFixed(2)}` : "—")));
-          })(), slVal > 0 && tpVal > 0 && cp > 0 && entryPrice > 0 && (() => {
-            const lo = Math.min(slVal, tpVal);
-            const hi = Math.max(slVal, tpVal);
-            const range = hi - lo;
+            className: "text-rose-400"
+          }, "SL"), /*#__PURE__*/React.createElement("span", {
+            className: "text-white font-medium"
+          }, slVal > 0 ? `$${slVal.toFixed(2)}` : "\u2014"), /*#__PURE__*/React.createElement("span", {
+            className: "text-[#6b7280]"
+          }, "EP"), /*#__PURE__*/React.createElement("span", {
+            className: "text-white font-medium"
+          }, "$", entryPrice > 0 ? entryPrice.toFixed(2) : "\u2014"), /*#__PURE__*/React.createElement("span", {
+            className: "text-teal-400"
+          }, "TP"), /*#__PURE__*/React.createElement("span", {
+            className: "text-white font-medium"
+          }, tpVal > 0 ? `$${tpVal.toFixed(2)}` : "\u2014")), slVal > 0 && tpVal > 0 && cp > 0 && entryPrice > 0 && (() => {
+            const lo = Math.min(slVal, tpVal),
+              hi = Math.max(slVal, tpVal),
+              range = hi - lo;
             if (range <= 0) return null;
-            // For SHORT: mirror so SL=left, TP=right (progress toward target)
             const rawCpPct = Math.max(0, Math.min(100, (cp - lo) / range * 100));
             const rawEpPct = Math.max(0, Math.min(100, (entryPrice - lo) / range * 100));
             const cpPct = isLong ? rawCpPct : 100 - rawCpPct;
             const epPct = isLong ? rawEpPct : 100 - rawEpPct;
             const isProfit = isLong ? cp >= entryPrice : cp <= entryPrice;
             return /*#__PURE__*/React.createElement("div", {
-              className: "relative h-2 rounded-full bg-white/[0.06] border border-white/[0.08] overflow-visible"
+              className: "relative h-1.5 rounded-full bg-white/[0.06] overflow-visible mt-1"
             }, /*#__PURE__*/React.createElement("div", {
               className: `absolute top-0 bottom-0 left-0 rounded-full ${isProfit ? "bg-teal-500/50" : "bg-rose-500/40"}`,
               style: {
@@ -5326,101 +5620,87 @@
               className: "absolute top-[-2px] bottom-[-2px] w-[2px] bg-white/60 rounded",
               style: {
                 left: `${epPct}%`
-              },
-              title: `Entry $${entryPrice.toFixed(2)}`
+              }
             }), /*#__PURE__*/React.createElement("div", {
-              className: `absolute top-[-3px] w-[6px] h-[6px] rounded-full border ${isProfit ? "bg-teal-400 border-teal-300" : "bg-rose-400 border-rose-300"}`,
+              className: `absolute w-[5px] h-[5px] rounded-full border ${isProfit ? "bg-teal-400 border-teal-300" : "bg-rose-400 border-rose-300"}`,
               style: {
-                left: `calc(${cpPct}% - 3px)`,
+                left: `calc(${cpPct}% - 2.5px)`,
                 top: "-1px"
-              },
-              title: `Current $${cp.toFixed(2)}`
+              }
             }));
           })());
         })(), /*#__PURE__*/React.createElement("div", {
-          className: "grid grid-cols-2 gap-x-3 gap-y-0.5 text-[10px]"
-        }, /*#__PURE__*/React.createElement("div", {
-          className: "flex justify-between"
-        }, /*#__PURE__*/React.createElement("span", {
-          className: "text-[#6b7280]"
-        }, "Entry:"), /*#__PURE__*/React.createElement("span", {
-          className: "text-white font-medium"
-        }, "$", entryPrice > 0 ? entryPrice.toFixed(2) : "—")), /*#__PURE__*/React.createElement("div", {
-          className: "flex justify-between"
-        }, /*#__PURE__*/React.createElement("span", {
-          className: "text-[#6b7280]"
-        }, "Date:"), /*#__PURE__*/React.createElement("span", {
-          className: "text-[#9ca3af]"
-        }, formatDateTime(t.entry_ts))), !isClosed && remainingQty > 0 && /*#__PURE__*/React.createElement("div", {
-          className: "flex justify-between col-span-2"
-        }, /*#__PURE__*/React.createElement("span", {
-          className: "text-[#6b7280]"
-        }, "Qty:"), /*#__PURE__*/React.createElement("span", {
-          className: "text-white font-medium"
-        }, remainingQty % 1 === 0 ? remainingQty : remainingQty.toFixed(2), " shares", hasTrimmed && /*#__PURE__*/React.createElement("span", {
-          className: "text-yellow-400 ml-1"
-        }, "(", Math.round(trimmedPct * 100), "% trimmed)"))), hasTrimmed && trimPrice > 0 && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
-          className: "flex justify-between"
-        }, /*#__PURE__*/React.createElement("span", {
-          className: "text-yellow-500"
-        }, "Trim:"), /*#__PURE__*/React.createElement("span", {
-          className: "text-yellow-300 font-medium"
-        }, "$", trimPrice.toFixed(2), trimmedQty > 0 && /*#__PURE__*/React.createElement("span", {
-          className: "text-yellow-400/70 ml-1"
-        }, "(", trimmedQty % 1 === 0 ? trimmedQty : trimmedQty.toFixed(2), " sh)"))), /*#__PURE__*/React.createElement("div", {
-          className: "flex justify-between"
-        }, /*#__PURE__*/React.createElement("span", {
-          className: "text-yellow-500"
-        }, "Date:"), /*#__PURE__*/React.createElement("span", {
-          className: "text-yellow-300/70"
-        }, formatDateTime(trimTs)))), isClosed && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
-          className: "flex justify-between"
-        }, /*#__PURE__*/React.createElement("span", {
-          className: "text-[#6b7280]"
-        }, "Exit:"), /*#__PURE__*/React.createElement("span", {
-          className: `font-medium ${computedPnlPct >= 0 ? "text-green-400" : "text-red-400"}`
-        }, "$", exitPrice > 0 ? exitPrice.toFixed(2) : "—")), /*#__PURE__*/React.createElement("div", {
-          className: "flex justify-between"
-        }, /*#__PURE__*/React.createElement("span", {
-          className: "text-[#6b7280]"
-        }, "Date:"), /*#__PURE__*/React.createElement("span", {
-          className: "text-[#9ca3af]"
-        }, formatDateTime(t.exit_ts))), exitReasonLabel && /*#__PURE__*/React.createElement("div", {
-          className: "flex justify-between col-span-2"
-        }, /*#__PURE__*/React.createElement("span", {
-          className: "text-purple-400"
-        }, "Reason:"), /*#__PURE__*/React.createElement("span", {
-          className: "text-purple-300 font-medium",
-          title: exitReasonRaw
-        }, exitReasonLabel)))), /*#__PURE__*/React.createElement("div", {
-          className: "mt-2 pt-2 border-t border-white/[0.06] flex items-center gap-2"
+          className: "px-3 pb-2"
+        }, /*#__PURE__*/React.createElement("table", {
+          className: "w-full text-[10px]"
+        }, /*#__PURE__*/React.createElement("tbody", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("td", {
+          className: "text-[#6b7280] py-0.5 pr-2"
+        }, "Entry"), /*#__PURE__*/React.createElement("td", {
+          className: "text-white font-medium py-0.5"
+        }, "$", entryPrice > 0 ? entryPrice.toFixed(2) : "\u2014"), /*#__PURE__*/React.createElement("td", {
+          className: "text-[#6b7280] py-0.5 text-right"
+        }, formatDt(t.entry_ts))), hasTrimmed && trimPrice > 0 && /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("td", {
+          className: "text-yellow-500 py-0.5 pr-2"
+        }, "Trim"), /*#__PURE__*/React.createElement("td", {
+          className: "text-yellow-300 font-medium py-0.5"
+        }, "$", trimPrice.toFixed(2), trimmedQty > 0 ? ` (${trimmedQty % 1 === 0 ? trimmedQty : trimmedQty.toFixed(1)} sh)` : ""), /*#__PURE__*/React.createElement("td", {
+          className: "text-yellow-300/60 py-0.5 text-right"
+        }, formatDt(trimTs))), isClosed && /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("td", {
+          className: "text-[#6b7280] py-0.5 pr-2"
+        }, "Exit"), /*#__PURE__*/React.createElement("td", {
+          className: `font-medium py-0.5 ${computedPnlPct >= 0 ? "text-green-400" : "text-red-400"}`
+        }, exitPrice > 0 ? `$${exitPrice.toFixed(2)}` : "\u2014"), /*#__PURE__*/React.createElement("td", {
+          className: "text-[#6b7280] py-0.5 text-right"
+        }, formatDt(t.exit_ts)))))), /*#__PURE__*/React.createElement("div", {
+          className: "px-3 pb-2.5 pt-1 border-t border-white/[0.05] flex items-center justify-between"
         }, /*#__PURE__*/React.createElement("button", {
           onClick: e => {
             e.stopPropagation();
             setAutopsyModal(t);
             setAutopsyModalLoading(true);
             setAutopsyModalData(null);
-            fetch(`${API_BASE}/timed/admin/trade-autopsy/trades?trade_id=${encodeURIComponent(t.trade_id || t.id || "")}&key=${encodeURIComponent(window._ttApiKey || "")}`).then(r => r.json()).then(d => {
-              setAutopsyModalData(d?.trades?.[0] || d?.trade || t);
+            setAutopsyModalProfile(null);
+            const _tid = t.trade_id || t.id || "";
+            const _tk = String(t.ticker || "").toUpperCase();
+            fetch(`${API_BASE}/timed/admin/trade-autopsy/trades?key=${encodeURIComponent(window._ttApiKey || "")}`).then(r => r.json()).then(d => {
+              const allTrades = Array.isArray(d?.trades) ? d.trades : [];
+              const match = _tid ? allTrades.find(tr => String(tr.trade_id || "") === String(_tid)) : null;
+              setAutopsyModalData(match || d?.trade || t);
               setAutopsyModalLoading(false);
             }).catch(() => {
               setAutopsyModalData(t);
               setAutopsyModalLoading(false);
             });
+            if (_tk) fetch(`${API_BASE}/timed/profile/${encodeURIComponent(_tk)}`, {
+              cache: "no-store"
+            }).then(r => {
+              if (!r.ok) return null;
+              return r.json();
+            }).then(d => {
+              if (d?.ok) setAutopsyModalProfile(d.profile || d);
+            }).catch(() => {});
           },
-          className: "text-[10px] px-2 py-1 rounded bg-white/[0.06] border border-white/[0.08] text-[#93b8f7] hover:text-white hover:bg-white/[0.1] transition-colors inline-flex items-center gap-1",
-          title: "View trade details"
-        }, "Trade Autopsy"), /*#__PURE__*/React.createElement("a", {
+          className: "text-[10px] px-2.5 py-1 rounded-md bg-[#1a2332] border border-[#60a5fa]/20 text-[#93b8f7] hover:text-white hover:bg-[#60a5fa]/15 hover:border-[#60a5fa]/40 transition-all inline-flex items-center gap-1"
+        }, /*#__PURE__*/React.createElement("svg", {
+          className: "w-3 h-3",
+          fill: "none",
+          stroke: "currentColor",
+          viewBox: "0 0 24 24"
+        }, /*#__PURE__*/React.createElement("path", {
+          strokeLinecap: "round",
+          strokeLinejoin: "round",
+          strokeWidth: 2,
+          d: "M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
+        })), "Trade Autopsy"), /*#__PURE__*/React.createElement("a", {
           href: `trade-autopsy.html?trade_id=${encodeURIComponent(t.trade_id || t.id || "")}`,
           target: "_blank",
           rel: "noopener noreferrer",
-          className: "text-[10px] text-[#6b7280] hover:text-[#9ca3af] transition-colors",
-          title: "Open full Trade Autopsy page",
+          className: "text-[9px] text-[#4b5563] hover:text-[#9ca3af] transition-colors",
           onClick: e => e.stopPropagation()
         }, "Full page \u2192")));
-      }), ledgerTrades.length > 8 && /*#__PURE__*/React.createElement("div", {
-        className: "text-[10px] text-[#4b5563] text-center"
-      }, "Showing 8 of ", ledgerTrades.length, " trades")))) : null, railTab === "MODEL" ? /*#__PURE__*/React.createElement(React.Fragment, null, (() => {
+      }), ledgerTrades.length > 10 && /*#__PURE__*/React.createElement("div", {
+        className: "text-[10px] text-[#4b5563] text-center py-1"
+      }, "Showing 10 of ", ledgerTrades.length, " trades")))) : null, railTab === "MODEL" ? /*#__PURE__*/React.createElement(React.Fragment, null, (() => {
         const ms = modelSignal;
         const ts = ms?.ticker;
         const ss = ms?.sector;
@@ -6037,134 +6317,316 @@
           priceLines: modalPriceLines,
           markers: modalMarkers
         }))));
-      })(), autopsyModal && (() => {
+      })()), autopsyModal && (() => {
         const mt = autopsyModalData || autopsyModal;
         const _dir = String(mt.direction || "").toUpperCase();
-        const _ticker = mt.ticker || "";
+        const _ticker = String(mt.ticker || "").toUpperCase();
         const _entry = Number(mt.entryPrice || mt.entry_price) || 0;
         const _exit = Number(mt.exitPrice || mt.exit_price) || 0;
         const _pnl = Number(mt.pnl || mt.realized_pnl) || 0;
         const _pnlPct = Number(mt.pnlPct || mt.pnl_pct) || 0;
         const _status = String(mt.status || "").toUpperCase();
         const _grade = mt.setup_grade || mt.setupGrade || "";
-        const _setupName = mt.setup_name || mt.setupName || "";
         const _riskBudget = mt.risk_budget || mt.riskBudget || "";
         const _exitReason = mt.exitReason || mt.exit_reason || "";
-        const _entryTime = mt.entryTime || mt.entry_time || "";
-        const _exitTime = mt.exitTime || mt.exit_time || "";
-        const _snap = (() => {
+        const _mfe = Number(mt.max_favorable_excursion);
+        const _mae = Number(mt.max_adverse_excursion);
+        const _entryPath = mt.entry_path || "";
+        const _statusCls = _status === "WIN" ? "text-green-400" : _status === "LOSS" ? "text-red-400" : "text-[#93b8f7]";
+        const _gradeCls = _grade === "Prime" ? "bg-amber-500/20 text-amber-300 border-amber-500/30" : _grade === "Confirmed" ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/30" : _grade === "Speculative" ? "bg-blue-500/20 text-blue-300 border-blue-500/30" : "bg-white/10 text-white/60 border-white/10";
+        const entrySnap = _parseSnapshot(mt.signal_snapshot_json || mt.signalSnapshot);
+        const tfStack = _parseTfStack(mt.tf_stack_json || mt.tfStack);
+        const learningCtx = (() => {
           try {
             const raw = mt.signal_snapshot_json || mt.signalSnapshot;
-            return typeof raw === "string" ? JSON.parse(raw) : raw;
+            const parsed = typeof raw === "string" ? JSON.parse(raw) : raw;
+            return parsed?.precision?.learningContext || parsed?.learningContext || null;
           } catch {
             return null;
           }
         })();
-        const _gradeCls = _grade === "Prime" ? "bg-amber-500/20 text-amber-300 border-amber-500/30" : _grade === "Confirmed" ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/30" : _grade === "Speculative" ? "bg-blue-500/20 text-blue-300 border-blue-500/30" : "bg-white/10 text-white/60 border-white/10";
-        const _statusCls = _status === "WIN" ? "text-green-400" : _status === "LOSS" ? "text-red-400" : "text-[#93b8f7]";
-        const fmtDt = v => {
-          if (!v) return "\u2014";
+        const _lineage = (() => {
           try {
-            const d = typeof v === "number" ? new Date(v > 1e12 ? v : v * 1000) : new Date(v);
-            return d.toLocaleDateString("en-US", {
-              month: "short",
-              day: "numeric"
-            }) + " " + d.toLocaleTimeString("en-US", {
-              hour: "numeric",
-              minute: "2-digit"
-            });
+            const raw = mt.signal_snapshot_json || mt.signalSnapshot;
+            const parsed = typeof raw === "string" ? JSON.parse(raw) : raw;
+            return parsed?.lineage || null;
           } catch {
-            return "\u2014";
+            return null;
           }
+        })();
+        const closeAutopsyModal = () => {
+          setAutopsyModal(null);
+          if (modalOnly && typeof onClose === "function") onClose();
         };
         return /*#__PURE__*/React.createElement("div", {
-          className: "fixed inset-0 z-[9999] flex items-center justify-center bg-black/70 backdrop-blur-sm",
-          onClick: () => setAutopsyModal(null)
+          className: "fixed inset-0 z-[9999] flex items-center justify-center md:p-4",
+          style: {
+            background: "rgba(0,0,0,0.7)",
+            backdropFilter: "blur(4px)"
+          },
+          onClick: closeAutopsyModal
         }, /*#__PURE__*/React.createElement("div", {
-          className: "w-full max-w-[680px] max-h-[90vh] overflow-y-auto rounded-2xl border border-white/[0.1] bg-[#0b0e11] shadow-2xl",
+          className: "w-full h-full md:h-auto md:max-w-[85vw] md:max-h-[88vh] overflow-hidden flex flex-col rounded-none md:rounded-2xl border-0 md:border border-white/[0.1] bg-[#0b0e11] shadow-2xl",
           onClick: e => e.stopPropagation()
         }, /*#__PURE__*/React.createElement("div", {
-          className: "flex items-center justify-between px-5 py-3 border-b border-white/[0.06]"
-        }, /*#__PURE__*/React.createElement("div", {
-          className: "flex items-center gap-3"
-        }, /*#__PURE__*/React.createElement("span", {
-          className: "text-base font-bold text-white"
-        }, _ticker), /*#__PURE__*/React.createElement("span", {
-          className: `px-2 py-0.5 rounded text-[10px] font-bold border ${_dir === "LONG" ? "bg-green-500/15 text-green-400 border-green-500/30" : "bg-red-500/15 text-red-400 border-red-500/30"}`
-        }, _dir), /*#__PURE__*/React.createElement("span", {
-          className: `text-sm font-bold ${_statusCls}`
-        }, _status === "WIN" ? "+$" : _status === "LOSS" ? "-$" : "$", Math.abs(_pnl).toFixed(2)), _pnlPct ? /*#__PURE__*/React.createElement("span", {
-          className: `text-[11px] ${_statusCls}`
-        }, "(", _pnlPct > 0 ? "+" : "", _pnlPct.toFixed(2), "%)") : null), /*#__PURE__*/React.createElement("button", {
-          onClick: () => setAutopsyModal(null),
-          className: "w-7 h-7 flex items-center justify-center rounded hover:bg-white/10 text-white/50 hover:text-white text-sm"
-        }, "\xD7")), autopsyModalLoading ? /*#__PURE__*/React.createElement("div", {
-          className: "p-8 text-center text-white/40 text-sm"
+          className: "flex items-center justify-between px-4 py-2.5 border-b border-white/[0.06] shrink-0",
+          style: {
+            background: "var(--tt-bg-surface, #0b0e11)"
+          }
+        }, /*#__PURE__*/React.createElement("h2", {
+          className: "text-[15px] font-semibold text-white truncate mr-2"
+        }, _ticker, " ", _dir, " \u2014 Trade Review"), /*#__PURE__*/React.createElement("button", {
+          onClick: closeAutopsyModal,
+          className: "p-2 -mr-1 rounded-md text-[#6b7280] hover:text-white hover:bg-white/[0.06] shrink-0"
+        }, "\u2715")), autopsyModalLoading ? /*#__PURE__*/React.createElement("div", {
+          className: "p-8 text-center text-white/40 text-sm flex-1 flex items-center justify-center"
         }, "Loading trade details...") : /*#__PURE__*/React.createElement("div", {
-          className: "p-4 space-y-4"
+          className: "p-3 md:p-4 flex-1 min-h-0 overflow-y-auto flex flex-col gap-3"
         }, /*#__PURE__*/React.createElement("div", {
-          className: "flex items-center gap-2 flex-wrap"
-        }, _setupName && /*#__PURE__*/React.createElement("span", {
-          className: "text-[12px] font-semibold text-white"
-        }, _setupName), _grade && /*#__PURE__*/React.createElement("span", {
-          className: `px-1.5 py-0.5 rounded text-[9px] font-bold border ${_gradeCls}`
-        }, "TT ", _grade), _riskBudget && /*#__PURE__*/React.createElement("span", {
+          className: "flex flex-col sm:flex-row flex-wrap items-start sm:items-center gap-2 sm:gap-3 shrink-0"
+        }, /*#__PURE__*/React.createElement("div", {
+          className: "flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#60a5fa]/15 border border-[#60a5fa]/30"
+        }, /*#__PURE__*/React.createElement("span", {
+          className: "text-[10px] font-semibold text-[#60a5fa] uppercase tracking-wider shrink-0"
+        }, "Entry"), /*#__PURE__*/React.createElement("span", {
+          className: "text-[13px] font-semibold text-white truncate"
+        }, _formatDate(mt.entry_ts), " @ ", fmtUsd(_entry))), (_exit > 0 || mt.exit_ts) && /*#__PURE__*/React.createElement("div", {
+          className: "flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#f59e0b]/15 border border-[#f59e0b]/30"
+        }, /*#__PURE__*/React.createElement("span", {
+          className: "text-[10px] font-semibold text-[#f59e0b] uppercase tracking-wider shrink-0"
+        }, "Exit"), /*#__PURE__*/React.createElement("span", {
+          className: "text-[13px] font-semibold text-white truncate"
+        }, _formatDate(mt.exit_ts), " @ ", _exit > 0 ? fmtUsd(_exit) : "\u2014")), /*#__PURE__*/React.createElement("div", {
+          className: "flex items-center gap-3"
+        }, /*#__PURE__*/React.createElement("div", {
+          className: "text-[12px] text-[#9ca3af]"
+        }, "P&L: ", /*#__PURE__*/React.createElement("span", {
+          className: _pnl >= 0 ? "text-[#22c55e] font-semibold" : "text-[#ef4444] font-semibold"
+        }, fmtUsd(_pnl))), _pnlPct ? /*#__PURE__*/React.createElement("span", {
+          className: `text-[11px] ${_statusCls}`
+        }, "(", _pnlPct > 0 ? "+" : "", _pnlPct.toFixed(2), "%)") : null, _status && /*#__PURE__*/React.createElement("span", {
+          className: `text-[12px] font-semibold ${_statusCls}`
+        }, _status))), /*#__PURE__*/React.createElement("div", {
+          className: "grid grid-cols-1 lg:grid-cols-3 gap-3 md:gap-4 lg:flex-1 lg:min-h-0"
+        }, /*#__PURE__*/React.createElement("div", {
+          className: "lg:col-span-1 flex flex-col gap-3 min-h-0 lg:overflow-y-auto order-2 lg:order-1"
+        }, (entrySnap || tfStack || _entryPath || _grade) && /*#__PURE__*/React.createElement("div", {
+          className: "rounded-lg border border-white/[0.06] bg-white/[0.02] p-3 shrink-0"
+        }, /*#__PURE__*/React.createElement("div", {
+          className: "text-[11px] font-semibold text-[#14b8a6] uppercase tracking-wider mb-2"
+        }, "Signal snapshot at entry"), (_entryPath || _grade) && /*#__PURE__*/React.createElement("div", {
+          className: "mb-3 px-2.5 py-1.5 rounded-lg bg-[#14b8a6]/10 border border-[#14b8a6]/20"
+        }, /*#__PURE__*/React.createElement("span", {
+          className: "text-[10px] text-[#9ca3af] uppercase tracking-wider"
+        }, "Setup"), /*#__PURE__*/React.createElement("div", {
+          className: "text-[13px] font-semibold text-white mt-0.5 flex items-center gap-2 flex-wrap"
+        }, _entryPath ? _formatPath(_entryPath) : mt.setup_name ? _formatPath(mt.setup_name) : null, _grade && /*#__PURE__*/React.createElement("span", {
+          className: `px-1.5 py-0.5 rounded text-[10px] font-bold border ${_gradeCls}`
+        }, "TT ", _grade), Number(_riskBudget) > 0 && /*#__PURE__*/React.createElement("span", {
           className: "text-[10px] text-[#6b7280]"
-        }, _riskBudget, "% risk")), /*#__PURE__*/React.createElement("div", {
-          className: "grid grid-cols-2 gap-2 text-[11px]"
-        }, /*#__PURE__*/React.createElement("div", {
-          className: "p-2 rounded-lg bg-green-500/8 border border-green-500/15"
-        }, /*#__PURE__*/React.createElement("div", {
-          className: "text-[9px] text-[#6b7280] uppercase"
-        }, "Entry"), /*#__PURE__*/React.createElement("div", {
-          className: "text-green-300 font-semibold"
-        }, "$", _entry.toFixed(2)), /*#__PURE__*/React.createElement("div", {
-          className: "text-[9px] text-[#6b7280]"
-        }, fmtDt(_entryTime || mt.entry_ts))), (_exit > 0 || _exitTime) && /*#__PURE__*/React.createElement("div", {
-          className: "p-2 rounded-lg bg-red-500/8 border border-red-500/15"
-        }, /*#__PURE__*/React.createElement("div", {
-          className: "text-[9px] text-[#6b7280] uppercase"
-        }, "Exit"), /*#__PURE__*/React.createElement("div", {
-          className: "text-red-300 font-semibold"
-        }, _exit > 0 ? `$${_exit.toFixed(2)}` : "\u2014"), /*#__PURE__*/React.createElement("div", {
-          className: "text-[9px] text-[#6b7280]"
-        }, fmtDt(_exitTime || mt.exit_ts)))), /*#__PURE__*/React.createElement(TradeEventChart, {
-          trade: mt,
-          height: 250,
-          apiBase: API_BASE
-        }), _snap && /*#__PURE__*/React.createElement("div", {
-          className: "rounded-lg border border-white/[0.06] bg-white/[0.02] p-3"
-        }, /*#__PURE__*/React.createElement("div", {
-          className: "text-[10px] uppercase tracking-wider text-[#6b7280] mb-2"
-        }, "Signal Snapshot at Entry"), _snap.bias && /*#__PURE__*/React.createElement("div", {
-          className: "flex flex-wrap gap-1 mb-2"
-        }, Object.entries(_snap.bias).map(([tf, b]) => {
-          const bull = String(b).toLowerCase().includes("bull");
+        }, Number(_riskBudget) < 1 ? `${(Number(_riskBudget) * 100).toFixed(2)}% risk` : `$${_riskBudget} risk`))), tfStack && tfStack.length > 0 && /*#__PURE__*/React.createElement("div", {
+          className: "mb-3"
+        }, /*#__PURE__*/React.createElement("span", {
+          className: "text-[10px] text-[#9ca3af] uppercase tracking-wider block mb-1.5"
+        }, "Timeframe bias"), /*#__PURE__*/React.createElement("div", {
+          className: "flex flex-wrap gap-1.5"
+        }, tfStack.map(({
+          tf: tfLabel,
+          bias
+        }) => {
+          const b = String(bias || "").toLowerCase();
+          const isBull = b === "bullish";
+          const isBear = b === "bearish";
+          const label = isBull ? "Bullish" : isBear ? "Bearish" : bias || "\u2014";
+          const style = isBull ? "bg-[#22c55e]/15 text-[#22c55e]" : isBear ? "bg-[#ef4444]/15 text-[#ef4444]" : "bg-white/[0.06] text-[#9ca3af]";
           return /*#__PURE__*/React.createElement("span", {
-            key: tf,
-            className: `px-1.5 py-0.5 rounded text-[9px] font-bold border ${bull ? "bg-green-500/15 text-green-400 border-green-500/20" : "bg-red-500/15 text-red-400 border-red-500/20"}`
-          }, tf, " ", bull ? "Bullish" : "Bearish");
-        })), _snap.indicators && typeof _snap.indicators === "object" && Object.entries(_snap.indicators).map(([tf, ind]) => /*#__PURE__*/React.createElement("div", {
-          key: tf,
-          className: "mb-1.5"
+            key: tfLabel,
+            className: `inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium ${style}`
+          }, /*#__PURE__*/React.createElement("span", {
+            className: "opacity-80"
+          }, tfLabel), /*#__PURE__*/React.createElement("span", null, label));
+        }))), entrySnap && entrySnap.length > 0 && /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", {
+          className: "text-[10px] text-[#9ca3af] uppercase tracking-wider block mb-1.5"
+        }, "Indicators by timeframe"), /*#__PURE__*/React.createElement("div", {
+          className: "space-y-2"
+        }, entrySnap.map(({
+          tf: tfLabel,
+          signals
+        }) => /*#__PURE__*/React.createElement("div", {
+          key: tfLabel,
+          className: "px-2 py-1.5 rounded-md bg-white/[0.03] border border-white/[0.06]"
         }, /*#__PURE__*/React.createElement("div", {
-          className: "text-[10px] font-semibold text-white/70 mb-0.5"
-        }, tf), /*#__PURE__*/React.createElement("div", {
-          className: "text-[10px] text-[#6b7280] leading-snug"
-        }, typeof ind === "object" ? Object.entries(ind).map(([k, v]) => `${k}: ${v}`).join(" \u00B7 ") : String(ind))))), _exitReason && /*#__PURE__*/React.createElement("div", {
-          className: "rounded-lg border border-purple-500/15 bg-purple-500/5 p-3"
+          className: "text-[10px] font-medium text-[#9ca3af] mb-1"
+        }, tfLabel), /*#__PURE__*/React.createElement("div", {
+          className: "flex flex-wrap gap-x-3 gap-y-0.5 text-[11px]"
+        }, Object.entries(signals).filter(([, v]) => v != null && Number.isFinite(v)).map(([k, v]) => /*#__PURE__*/React.createElement("span", {
+          key: k,
+          className: "flex items-center gap-1"
+        }, /*#__PURE__*/React.createElement("span", {
+          className: "text-[#6b7280]"
+        }, SIGNAL_LABELS[k] || k, ":"), /*#__PURE__*/React.createElement("span", {
+          className: _signalValueColor(k, v)
+        }, _signalValueLabel(k, v)))))))))), _lineage && (_lineage.regime_class || _lineage.execution_profile || _lineage.vix_at_entry) && /*#__PURE__*/React.createElement("div", {
+          className: "rounded-lg border border-white/[0.06] bg-white/[0.02] p-3 shrink-0"
         }, /*#__PURE__*/React.createElement("div", {
-          className: "text-[10px] uppercase tracking-wider text-[#6b7280] mb-1"
-        }, "Exit Context"), /*#__PURE__*/React.createElement("div", {
-          className: "text-[11px] text-purple-300"
-        }, String(_exitReason).replace(/,/g, " \u2022 ").replace(/_/g, " "))), /*#__PURE__*/React.createElement("div", {
-          className: "text-center pt-2 border-t border-white/[0.06]"
-        }, /*#__PURE__*/React.createElement("a", {
-          href: `trade-autopsy.html?trade_id=${encodeURIComponent(mt.trade_id || mt.id || "")}`,
-          target: "_blank",
-          rel: "noopener noreferrer",
-          className: "text-[11px] text-[#93b8f7] hover:text-white transition-colors"
-        }, "Open full Trade Autopsy \u2192")))));
+          className: "text-[11px] font-semibold text-[#f59e0b] uppercase tracking-wider mb-2"
+        }, "Context at entry"), /*#__PURE__*/React.createElement("div", {
+          className: "grid grid-cols-2 gap-2 text-[12px]"
+        }, _lineage.regime_class && (() => {
+          const rc = _lineage.regime_class;
+          const rcColor = rc === "TRENDING" ? "#22c55e" : rc === "TRANSITIONAL" ? "#f59e0b" : rc === "CHOPPY" ? "#ef4444" : "#9ca3af";
+          return /*#__PURE__*/React.createElement("div", {
+            className: "px-2.5 py-2 rounded-lg bg-white/[0.03] border border-white/[0.06]"
+          }, /*#__PURE__*/React.createElement("div", {
+            className: "text-[10px] text-[#6b7280] uppercase tracking-wider"
+          }, "Regime"), /*#__PURE__*/React.createElement("div", {
+            className: "mt-0.5"
+          }, /*#__PURE__*/React.createElement("span", {
+            className: "px-1.5 py-0.5 rounded text-[10px] font-bold",
+            style: {
+              background: rcColor + "22",
+              color: rcColor,
+              border: `1px solid ${rcColor}44`
+            }
+          }, rc)), _lineage.regime_score != null && /*#__PURE__*/React.createElement("div", {
+            className: "text-[10px] text-[#6b7280] mt-1"
+          }, "Score: ", _lineage.regime_score));
+        })(), _lineage.execution_profile && /*#__PURE__*/React.createElement("div", {
+          className: "px-2.5 py-2 rounded-lg bg-white/[0.03] border border-white/[0.06]"
+        }, /*#__PURE__*/React.createElement("div", {
+          className: "text-[10px] text-[#6b7280] uppercase tracking-wider"
+        }, "Execution Profile"), /*#__PURE__*/React.createElement("div", {
+          className: "text-white font-semibold mt-0.5 text-[11px]"
+        }, (_lineage.execution_profile.active_profile || "").replace(/_/g, " ")), _lineage.execution_profile.confidence && /*#__PURE__*/React.createElement("div", {
+          className: "text-[10px] text-[#6b7280] mt-1"
+        }, Math.round(_lineage.execution_profile.confidence * 100), "% conf")), _lineage.market_internals && /*#__PURE__*/React.createElement("div", {
+          className: "px-2.5 py-2 rounded-lg bg-white/[0.03] border border-white/[0.06]"
+        }, /*#__PURE__*/React.createElement("div", {
+          className: "text-[10px] text-[#6b7280] uppercase tracking-wider"
+        }, "Market State"), /*#__PURE__*/React.createElement("div", {
+          className: "text-white font-semibold mt-0.5 text-[11px]"
+        }, (_lineage.market_internals.overall || "").replace(/_/g, " ")), _lineage.market_internals.score != null && /*#__PURE__*/React.createElement("div", {
+          className: "text-[10px] text-[#6b7280] mt-1"
+        }, "Score: ", _lineage.market_internals.score)), _lineage.vix_at_entry && /*#__PURE__*/React.createElement("div", {
+          className: "px-2.5 py-2 rounded-lg bg-white/[0.03] border border-white/[0.06]"
+        }, /*#__PURE__*/React.createElement("div", {
+          className: "text-[10px] text-[#6b7280] uppercase tracking-wider"
+        }, "VIX at Entry"), /*#__PURE__*/React.createElement("div", {
+          className: "text-white font-semibold mt-0.5"
+        }, Number(_lineage.vix_at_entry).toFixed(1)), /*#__PURE__*/React.createElement("div", {
+          className: "text-[10px] text-[#6b7280] mt-1"
+        }, _lineage.vix_at_entry < 15 ? "Low" : _lineage.vix_at_entry < 22 ? "Medium" : _lineage.vix_at_entry < 30 ? "High" : "Extreme")), _lineage.state && /*#__PURE__*/React.createElement("div", {
+          className: "px-2.5 py-2 rounded-lg bg-white/[0.03] border border-white/[0.06] col-span-2"
+        }, /*#__PURE__*/React.createElement("div", {
+          className: "text-[10px] text-[#6b7280] uppercase tracking-wider"
+        }, "HTF/LTF State"), /*#__PURE__*/React.createElement("div", {
+          className: "text-white font-semibold mt-0.5 text-[11px]"
+        }, _lineage.state.replace(/_/g, " "))))), learningCtx && /*#__PURE__*/React.createElement("div", {
+          className: "rounded-lg border border-white/[0.06] bg-white/[0.02] p-3 shrink-0"
+        }, /*#__PURE__*/React.createElement("div", {
+          className: "text-[11px] font-semibold text-[#a78bfa] uppercase tracking-wider mb-2"
+        }, "Ticker Learning Profile"), /*#__PURE__*/React.createElement("div", {
+          className: "text-[12px] text-[#d1d5db] space-y-1.5"
+        }, learningCtx.personality && (() => {
+          const pColor = learningCtx.personality === "VOLATILE_RUNNER" ? "#ef4444" : learningCtx.personality === "PULLBACK_PLAYER" ? "#f59e0b" : learningCtx.personality === "SLOW_GRINDER" ? "#60a5fa" : "#a78bfa";
+          return /*#__PURE__*/React.createElement("div", {
+            className: "flex items-center gap-2"
+          }, /*#__PURE__*/React.createElement("span", {
+            className: "text-[#9ca3af]"
+          }, "Personality:"), /*#__PURE__*/React.createElement("span", {
+            className: "px-1.5 py-0.5 rounded text-[10px] font-semibold",
+            style: {
+              background: pColor + "22",
+              color: pColor,
+              border: `1px solid ${pColor}44`
+            }
+          }, learningCtx.personality.replace(/_/g, " ")));
+        })(), learningCtx.trail_style && /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", {
+          className: "text-[#9ca3af]"
+        }, "Trail style:"), " ", learningCtx.trail_style), learningCtx.tp_mult && /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", {
+          className: "text-[#9ca3af]"
+        }, "Expected TP:"), " ", learningCtx.tp_mult, "x ATR"), learningCtx.sl_mult && /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", {
+          className: "text-[#9ca3af]"
+        }, "Expected SL:"), " ", learningCtx.sl_mult, "x ATR"), learningCtx.boost != null && learningCtx.boost !== 0 && /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", {
+          className: "text-[#9ca3af]"
+        }, "Learning boost:"), " ", /*#__PURE__*/React.createElement("span", {
+          className: learningCtx.boost > 0 ? "text-[#22c55e]" : "text-[#ef4444]"
+        }, learningCtx.boost > 0 ? "+" : "", learningCtx.boost)))), autopsyModalProfile && /*#__PURE__*/React.createElement("div", {
+          className: "rounded-lg border border-white/[0.06] bg-white/[0.02] p-3 shrink-0"
+        }, /*#__PURE__*/React.createElement("div", {
+          className: "text-[11px] font-semibold text-[#60a5fa] uppercase tracking-wider mb-2"
+        }, "Canonical ticker context"), /*#__PURE__*/React.createElement("div", {
+          className: "space-y-2"
+        }, /*#__PURE__*/React.createElement("div", {
+          className: "grid grid-cols-2 gap-2 text-[12px]"
+        }, /*#__PURE__*/React.createElement("div", {
+          className: "px-2.5 py-2 rounded-lg bg-white/[0.03] border border-white/[0.06]"
+        }, /*#__PURE__*/React.createElement("div", {
+          className: "text-[10px] text-[#6b7280] uppercase tracking-wider"
+        }, "Personality"), /*#__PURE__*/React.createElement("div", {
+          className: "text-white font-semibold mt-0.5"
+        }, (autopsyModalProfile.personality || "\u2014").replace(/_/g, " ")), /*#__PURE__*/React.createElement("div", {
+          className: "text-[10px] text-[#6b7280] mt-1"
+        }, (autopsyModalProfile.behavior_type || "\u2014").replace(/_/g, " "))), /*#__PURE__*/React.createElement("div", {
+          className: "px-2.5 py-2 rounded-lg bg-white/[0.03] border border-white/[0.06]"
+        }, /*#__PURE__*/React.createElement("div", {
+          className: "text-[10px] text-[#6b7280] uppercase tracking-wider"
+        }, "Context sample"), /*#__PURE__*/React.createElement("div", {
+          className: "text-white font-semibold mt-0.5"
+        }, autopsyModalProfile.contract?.context?.sample_count ?? "\u2014", " trades"), /*#__PURE__*/React.createElement("div", {
+          className: "text-[10px] text-[#6b7280] mt-1"
+        }, _fmtPct(autopsyModalProfile.contract?.context?.win_rate), " WR"))), (() => {
+          const ctx = autopsyModalProfile.contract?.context;
+          const exec = autopsyModalProfile.contract?.execution;
+          if (!ctx && !exec) return null;
+          const favRegime = ctx?.favored_regime || "\u2014";
+          const favVix = ctx?.favored_vix_bucket || "\u2014";
+          const favPath = ctx?.favored_entry_path || null;
+          return /*#__PURE__*/React.createElement("div", {
+            className: "flex flex-wrap gap-1.5"
+          }, /*#__PURE__*/React.createElement("span", {
+            className: "px-2 py-1 rounded-md bg-[#22c55e]/10 border border-[#22c55e]/20 text-[#86efac] text-[11px]"
+          }, "Regime: ", favRegime), /*#__PURE__*/React.createElement("span", {
+            className: "px-2 py-1 rounded-md bg-[#a78bfa]/10 border border-[#a78bfa]/20 text-[#c4b5fd] text-[11px]"
+          }, "VIX: ", favVix), favPath && /*#__PURE__*/React.createElement("span", {
+            className: "px-2 py-1 rounded-md bg-[#14b8a6]/10 border border-[#14b8a6]/20 text-[#5eead4] text-[11px]"
+          }, "Path: ", _formatPath(favPath)));
+        })())), (_exitReason || Number.isFinite(_mfe) || Number.isFinite(_mae)) && /*#__PURE__*/React.createElement("div", {
+          className: "rounded-lg border border-white/[0.06] bg-white/[0.02] p-3 shrink-0"
+        }, /*#__PURE__*/React.createElement("div", {
+          className: "text-[11px] font-semibold text-[#f59e0b] uppercase tracking-wider mb-2"
+        }, "Exit context"), /*#__PURE__*/React.createElement("div", {
+          className: "text-[12px] text-[#d1d5db] space-y-1"
+        }, _exitReason && /*#__PURE__*/React.createElement("div", {
+          style: {
+            overflowWrap: "anywhere"
+          }
+        }, /*#__PURE__*/React.createElement("span", {
+          className: "text-[#9ca3af]"
+        }, "Reason:"), " ", _exitReason.replace(/,/g, ", ")), Number.isFinite(_mfe) && /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", {
+          className: "text-[#9ca3af]"
+        }, "MFE:"), " ", /*#__PURE__*/React.createElement("span", {
+          className: "text-[#22c55e]"
+        }, _mfe.toFixed(2), "%")), Number.isFinite(_mae) && /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", {
+          className: "text-[#9ca3af]"
+        }, "MAE:"), " ", /*#__PURE__*/React.createElement("span", {
+          className: "text-[#ef4444]"
+        }, _mae.toFixed(2), "%"))))), /*#__PURE__*/React.createElement("div", {
+          className: "lg:col-span-2 min-h-[280px] md:min-h-[400px] flex flex-col order-1 lg:order-2"
+        }, /*#__PURE__*/React.createElement(AutopsyChart, {
+          ticker: _ticker,
+          entryPrice: _entry,
+          exitPrice: _exit,
+          entryTs: mt.entry_ts,
+          exitTs: mt.exit_ts,
+          trimTs: mt.trim_ts,
+          slPrice: mt.sl || mt.stop_loss || mt.sl_price,
+          tpPrices: mt.tpArray || mt.tp_array || (mt.tp_price ? [{
+            price: mt.tp_price,
+            label: "TP"
+          }] : null),
+          height: typeof window !== "undefined" && window.innerWidth < 768 ? 240 : 420
+        }))))));
       })());
     };
   };

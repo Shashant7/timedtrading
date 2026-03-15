@@ -627,6 +627,8 @@ const ROUTES = [
   ["GET", "/timed/system/dashboard", "GET /timed/system/dashboard"],
   ["GET", "/timed/system/history", "GET /timed/system/history"],
   ["GET", "/timed/system/ticker-profiles", "GET /timed/system/ticker-profiles"],
+  ["GET", "/timed/system/regime-profiles", "GET /timed/system/regime-profiles"],
+  ["GET", "/timed/system/context-history", "GET /timed/system/context-history"],
   // ── Move Discovery ──
   ["GET", "/timed/move-discovery", "GET /timed/move-discovery"],
   ["POST", "/timed/move-discovery", "POST /timed/move-discovery"],
@@ -2358,12 +2360,47 @@ function qualifiesForEnter(d, asOfTs = null) {
     }
   }
 
-  // DA-4: Minimum HTF score gate
+  // DA-3b: Regime block (combined swing regime, e.g. EARLY_BEAR)
+  // Separate from size reduction: blocked regimes are hard-blocked, reduced regimes get smaller size.
+  const daBlockRegimes = _daConfig.deep_audit_block_regime;
+  const tickerSwingRegime = String(d?.regime?.combined || "").toUpperCase();
+  if (daBlockRegimes && tickerSwingRegime) {
+    const blockedArr = Array.isArray(daBlockRegimes) ? daBlockRegimes : [daBlockRegimes];
+    if (blockedArr.some(r => String(r).toUpperCase() === tickerSwingRegime)) {
+      return { qualifies: false, reason: "da_regime_blocked", regime: tickerSwingRegime };
+    }
+  }
+  // DA-3b2: Regime size reduction (e.g. LATE_BULL → 0.25x size)
+  const daRegimeSizeMult = _daConfig.deep_audit_regime_size_mult;
+  if (daRegimeSizeMult && typeof daRegimeSizeMult === "object" && tickerSwingRegime) {
+    const mult = Number(daRegimeSizeMult[tickerSwingRegime]);
+    if (Number.isFinite(mult) && mult > 0 && mult < 1) {
+      d.__da_regime_size_mult = mult;
+    }
+  }
+
+  // DA-3c: VIX ceiling guard — block or reduce size when VIX is elevated
+  const daVixCeiling = Number(_daConfig.deep_audit_vix_ceiling) || 0;
+  if (daVixCeiling > 0 && d?._vix != null) {
+    const vx = Number(d._vix);
+    if (vx > daVixCeiling) {
+      return { qualifies: false, reason: "da_vix_ceiling", vix: vx, ceiling: daVixCeiling };
+    }
+  }
+
+  // DA-4: Minimum HTF score gate (direction-aware)
   // Move discovery: captured moves avg HTF 27.9 vs missed 20.8 at entry.
   // Filtering out low-HTF entries reduces noise trades.
+  // SHORT requires negative HTF, so check absolute value for SHORT side.
   const daMinHtf = Number(_daConfig.deep_audit_min_htf_score) || 0;
-  if (daMinHtf > 0 && htf < daMinHtf) {
+  if (daMinHtf > 0) {
+    if (inferredSide === "SHORT") {
+      if (htf > -daMinHtf) {
+        return { qualifies: false, reason: "da_htf_too_high_for_short", htf, required: -daMinHtf };
+      }
+    } else if (htf < daMinHtf) {
       return { qualifies: false, reason: "da_htf_too_low", htf, required: daMinHtf };
+    }
   }
 
   // DA-5: Momentum elite rank boost
@@ -2475,6 +2512,140 @@ function qualifiesForEnter(d, asOfTs = null) {
       if (leadDepth < daMinEmaDepth) {
         return { qualifies: false, reason: "da_ltf_ema_depth_too_low", depth: leadDepth, required: daMinEmaDepth, tf: leadingLtfLabel };
       }
+    }
+  }
+
+  // DA-11: RVOL Ceiling Gate
+  // Analysis of 1,630 trades: RVOL 1.0–1.3 = 65.2% WR; >1.8 = 49.3% WR; >2.5 = 51.6% WR.
+  // High RVOL signals institutional battle / volatility, not clean direction.
+  // SHORTs with RVOL ≥1.3 had 42.2% WR vs 58.6% for low-RVOL shorts.
+  const daRvolCeiling = Number(_daConfig.deep_audit_rvol_ceiling) || 0;
+  const daRvolCeilingShort = Number(_daConfig.deep_audit_rvol_ceiling_short) || 0;
+  if (daRvolCeilingShort > 0 && inferredSide === "SHORT" && rvolBest > daRvolCeilingShort) {
+    return { qualifies: false, reason: "da_rvol_ceiling_short", rvol: rvolBest, ceiling: daRvolCeilingShort };
+  }
+  if (daRvolCeiling > 0 && rvolBest > daRvolCeiling) {
+    return { qualifies: false, reason: "da_rvol_ceiling", rvol: rvolBest, ceiling: daRvolCeiling };
+  }
+  // RVOL high zone: above threshold but below ceiling → reduce position size
+  const daRvolHighThreshold = Number(_daConfig.deep_audit_rvol_high_threshold) || 0;
+  const daRvolHighSizeMult = Number(_daConfig.deep_audit_rvol_high_size_mult) || 0.5;
+  if (daRvolHighThreshold > 0 && rvolBest > daRvolHighThreshold) {
+    d.__da_rvol_high_size_mult = daRvolHighSizeMult;
+  }
+
+  // DA-12: Multi-Factor Danger Score
+  // Deep analysis of 431 trades: 0–1 danger signals → 73.9% WR; 3+ → 45.8% WR.
+  // Danger factors from the analysis (weighted by impact):
+  //   Daily ST not aligned (-25pp), 30m ST not sloping (-18.7pp),
+  //   1H EMA depth < 5 (-17pp), 4H ST not aligned (-16.5pp),
+  //   15m ST not sloping (-16pp), VIX > 25 (-7.4pp).
+  const daDangerMaxSignals = Number(_daConfig.deep_audit_danger_max_signals);
+  const daDangerEnabled = Number.isFinite(daDangerMaxSignals) && daDangerMaxSignals > 0;
+  if (daDangerEnabled) {
+    const tt = d?.tf_tech || {};
+    const isLong = inferredSide === "LONG";
+    const dirSign = isLong ? 1 : -1;
+    let dangerCount = 0;
+    const dangerFlags = [];
+
+    // Factor 1: Daily ST not aligned with trade direction (-25pp)
+    const dST = tt.D?.stDir ?? 0;
+    if (dST !== 0 && dST !== dirSign) {
+      dangerCount++;
+      dangerFlags.push("D_st_against");
+    }
+
+    // Factor 2: 30m ST not sloping in its own direction (-18.7pp)
+    const st30Dir = tt["30"]?.stDir ?? 0;
+    const st30Slope = tt["30"]?.stSlope ?? 0;
+    if (st30Dir !== 0 && st30Slope !== st30Dir) {
+      dangerCount++;
+      dangerFlags.push("30m_st_flat");
+    }
+
+    // Factor 3: 1H EMA depth < 5 (-17pp)
+    const emaDepth1H = tt["1H"]?.ema?.depth ?? 0;
+    const daDangerEmaDepthMin = Number(_daConfig.deep_audit_danger_ema_depth_min) || 5;
+    if (emaDepth1H < daDangerEmaDepthMin) {
+      dangerCount++;
+      dangerFlags.push("1H_ema_shallow");
+    }
+
+    // Factor 4: 4H ST not aligned with trade direction (-16.5pp)
+    const st4H = tt["4H"]?.stDir ?? 0;
+    if (st4H !== 0 && st4H !== dirSign) {
+      dangerCount++;
+      dangerFlags.push("4H_st_against");
+    }
+
+    // Factor 5: Leading LTF ST not sloping in its own direction (-16pp)
+    const ltfKey = leadingLtfLabel === "10m" ? "10" : leadingLtfLabel === "15m" ? "15" : leadingLtfLabel;
+    const stLtfDir = tt[ltfKey]?.stDir ?? 0;
+    const stLtfSlope = tt[ltfKey]?.stSlope ?? 0;
+    if (stLtfDir !== 0 && stLtfSlope !== stLtfDir) {
+      dangerCount++;
+      dangerFlags.push(`${leadingLtfLabel}_st_flat`);
+    }
+
+    // Factor 6: VIX elevated (-7.4pp at >25, -10.2pp at >30)
+    const vixVal = Number(d?._vix) || 0;
+    const daDangerVixThreshold = Number(_daConfig.deep_audit_danger_vix_threshold) || 25;
+    if (vixVal > daDangerVixThreshold) {
+      dangerCount++;
+      dangerFlags.push("vix_elevated");
+    }
+
+    // Factor 7: ST momentum — fewer than N of 5 core TFs aligned
+    const stTFs = ["D", "4H", "1H", "30", ltfKey];
+    let stAlignedCount = 0;
+    for (const tf of stTFs) {
+      if ((tt[tf]?.stDir ?? 0) === dirSign) stAlignedCount++;
+    }
+    const daDangerMinStAligned = Number(_daConfig.deep_audit_danger_min_st_aligned) || 3;
+    if (stAlignedCount < daDangerMinStAligned) {
+      dangerCount++;
+      dangerFlags.push(`st_momentum_low_${stAlignedCount}of${stTFs.length}`);
+    }
+
+    // Factor 8: RSI Divergence opposing trade direction
+    const daDangerDivEnabled = String(_daConfig.deep_audit_danger_div_enabled ?? "true") === "true";
+    if (daDangerDivEnabled) {
+      const rsiDivData = d?.rsi_divergence || {};
+      const divTFs = ["1H", "30"];
+      for (const tf of divTFs) {
+        const divTf = rsiDivData[tf];
+        if (!divTf) continue;
+        if (isLong && divTf.bear?.active) {
+          dangerCount++;
+          dangerFlags.push(`${tf}_rsi_div_bear`);
+          break;
+        }
+        if (!isLong && divTf.bull?.active) {
+          dangerCount++;
+          dangerFlags.push(`${tf}_rsi_div_bull`);
+          break;
+        }
+      }
+    }
+
+    // Store for diagnostics / position sizing
+    d.__danger_score = dangerCount;
+    d.__danger_flags = dangerFlags;
+
+    if (dangerCount > daDangerMaxSignals) {
+      return {
+        qualifies: false, reason: "da_danger_score_exceeded",
+        dangerCount, maxAllowed: daDangerMaxSignals,
+        flags: dangerFlags.join("|"),
+      };
+    }
+
+    // Danger zone 2+ signals: reduce position size
+    const daDangerSizeMult = Number(_daConfig.deep_audit_danger_size_mult) || 0.5;
+    const daDangerSizeThreshold = Number(_daConfig.deep_audit_danger_size_threshold) || 2;
+    if (dangerCount >= daDangerSizeThreshold) {
+      d.__da_danger_size_mult = daDangerSizeMult;
     }
   }
 
@@ -2622,30 +2793,50 @@ function qualifiesForEnter(d, asOfTs = null) {
   }
 
   // ── TD SEQUENTIAL EXHAUSTION GUARD ──
-  // When multiple HTF timeframes show high Demark counts aligned with the
-  // entry direction, buyers/sellers are exhausted → skip the entry.
-  // E.g., if 1H shows bearish prep 7+ and 4H shows bearish prep 6+,
-  // a LONG entry is chasing exhausted buying.
+  // Multi-TF analysis (82 trades) revealed asymmetric behavior:
+  //   LTF (30m/1H): bearish prep 4-6 at LONG entry → 26%/25% WR (counter-momentum, BAD)
+  //   HTF (D/W):    bearish prep 7-9 at LONG entry → 61%/58% WR (seller exhaustion, GOOD)
+  // So for LONGs: only count LTF (1H, 4H) exhaustion; D/W bearish exhaustion is favorable.
+  // For SHORTs: only count LTF bullish exhaustion; D/W bullish exhaustion helps shorts.
   const _tdPerTf = d?.td_sequential?.per_tf;
   if (_tdPerTf && !_regimeBypass) {
     const _tdSide = inferredSideForRSI;
-    let exhaustionHits = 0;
-    let maxCount = 0;
-    for (const _tf of ["60", "240", "D", "W"]) {
+
+    // LTF counter-momentum guard (1H/4H only — these hurt when against our direction)
+    let ltfExhaustionHits = 0;
+    let ltfMaxCount = 0;
+    for (const _tf of ["60", "240"]) {
       const _tfTd = _tdPerTf[_tf];
       if (!_tfTd) continue;
       if (_tdSide === "LONG") {
         const bc = Number(_tfTd.bearish_prep_count) || 0;
         const bl = Number(_tfTd.bearish_leadup_count) || 0;
-        if (bc >= 7 || bl >= 8) { exhaustionHits++; maxCount = Math.max(maxCount, bc, bl); }
+        if (bc >= 7 || bl >= 8) { ltfExhaustionHits++; ltfMaxCount = Math.max(ltfMaxCount, bc, bl); }
       } else {
         const bc = Number(_tfTd.bullish_prep_count) || 0;
         const bl = Number(_tfTd.bullish_leadup_count) || 0;
-        if (bc >= 7 || bl >= 8) { exhaustionHits++; maxCount = Math.max(maxCount, bc, bl); }
+        if (bc >= 7 || bl >= 8) { ltfExhaustionHits++; ltfMaxCount = Math.max(ltfMaxCount, bc, bl); }
       }
     }
-    if (exhaustionHits >= 2) {
-      return { qualifies: false, reason: "td_exhaustion_multi_tf", side: _tdSide, hits: exhaustionHits, maxCount };
+    if (ltfExhaustionHits >= 1) {
+      return { qualifies: false, reason: "td_exhaustion_ltf", side: _tdSide, hits: ltfExhaustionHits, maxCount: ltfMaxCount };
+    }
+
+    // 3+ TFs showing counter-direction exhaustion is panic territory (41.2% WR, -1.05% PnL)
+    let totalExhaustionHits = 0;
+    for (const _tf of ["30", "60", "240", "D", "W"]) {
+      const _tfTd = _tdPerTf[_tf];
+      if (!_tfTd) continue;
+      if (_tdSide === "LONG") {
+        const bc = Number(_tfTd.bearish_prep_count) || 0;
+        if (bc >= 5) totalExhaustionHits++;
+      } else {
+        const bc = Number(_tfTd.bullish_prep_count) || 0;
+        if (bc >= 5) totalExhaustionHits++;
+      }
+    }
+    if (totalExhaustionHits >= 4) {
+      return { qualifies: false, reason: "td_exhaustion_panic", side: _tdSide, tfsExhausted: totalExhaustionHits };
     }
   }
 
@@ -2678,10 +2869,20 @@ function qualifiesForEnter(d, asOfTs = null) {
   }
 
   // Adaptive per-state rank minimum (with calibrated global fallback)
+  // Scales with universe size: full universe (155) uses configured thresholds,
+  // smaller universes scale down proportionally so signals become the primary gate.
+  // rank_gate_mode in deepAuditConfig: "absolute" (legacy), "relative" (default), "bypass" (off)
   const _calibRankMin = Number(d?._env?._calibratedRankMin) || 0;
-  const effectiveRankMin = stateGate?.min_rank > 0 ? stateGate.min_rank : (_calibRankMin > 0 ? _calibRankMin : 0);
+  const _rankGateMode = String(d?._env?._deepAuditConfig?.rank_gate_mode || "relative");
+  const _rawRankMin = stateGate?.min_rank > 0 ? stateGate.min_rank : (_calibRankMin > 0 ? _calibRankMin : 0);
+  const REFERENCE_UNIVERSE = 155;
+  const _universeSize = Number(d?._env?._universeSize) || REFERENCE_UNIVERSE;
+  const _universeScale = Math.min(1.0, Math.max(0.10, _universeSize / REFERENCE_UNIVERSE));
+  const effectiveRankMin = _rankGateMode === "bypass" ? 0
+    : _rankGateMode === "absolute" ? _rawRankMin
+    : Math.round(_rawRankMin * _universeScale);
   if (effectiveRankMin > 0 && score < effectiveRankMin) {
-      return { qualifies: false, reason: "adaptive_rank_below_min", rank: score, required: effectiveRankMin, state };
+      return { qualifies: false, reason: "adaptive_rank_below_min", rank: score, required: effectiveRankMin, rawRequired: _rawRankMin, universeSize: _universeSize, state };
   }
 
   // Golden Profile gates: enforce HTF/LTF score floors from hindsight oracle
@@ -2900,7 +3101,7 @@ function qualifiesForEnter(d, asOfTs = null) {
     // EMA regime paths: bypass quality gate (regime IS the quality signal)
     const isRegimePath = result.path?.startsWith("ema_regime_");
     if (isRegimePath) {
-      result.precision = { fuelPct: primaryFuel, supportScore: stSupportScore, emaDepth30, emaDepthD, emaStruct30, emaStructD, emaMom30, emaMomD, activeGateCount: activeGates.length, ewContext };
+      result.precision = { fuelPct: primaryFuel, supportScore: stSupportScore, emaDepth30, emaDepthD, emaStruct30, emaStructD, emaMom30, emaMomD, activeGateCount: activeGates.length, ewContext, rvolBest, dangerScore: d.__danger_score ?? null, dangerFlags: d.__danger_flags ?? null };
       result.entryQuality = eqScore;
       return result;
     }
@@ -2936,6 +3137,30 @@ function qualifiesForEnter(d, asOfTs = null) {
       return { qualifies: false, reason: "entry_quality_too_low", eqScore, minQuality, sectorAdj: sectorForEntry };
     }
 
+    // DA-LIQ: Liquidity zone congestion rejection
+    // Block entries within 0.5 ATR of a strong (3+ pivot) liquidity zone when momentum is weak
+    const _liq4h = d?.liq_4h;
+    const _liqD = d?.liq_D;
+    const _liqPrimary = _liq4h || _liqD;
+    if (_liqPrimary) {
+      const _liqDist = inferredSide === "LONG" ? _liqPrimary.nearestBuysideDist : _liqPrimary.nearestSellsideDist;
+      if (_liqDist > 0 && _liqDist < 0.5) {
+        const _liqZones = inferredSide === "LONG" ? (_liqPrimary.buyside || []) : (_liqPrimary.sellside || []);
+        const _liqStrong = _liqZones.some(z => z.count >= 3);
+        if (_liqStrong) {
+          const _liqFuel = d?.fuel?.["30"]?.pct ?? d?.fuel?.["15"]?.pct ?? 50;
+          const _liqRsi1H = Number(d?.tf_tech?.["1H"]?.rsi?.r5) || 50;
+          const _liqMomWeak = _liqFuel < 50 || (inferredSide === "LONG" ? _liqRsi1H > 65 : _liqRsi1H < 35);
+          if (_liqMomWeak) {
+            if (isReplay && replayCtx?._replayBlockedEntries) {
+              replayCtx._replayBlockedEntries.push({ ticker: sym, reason: "da_liq_congestion", dist: _liqDist, fuel: _liqFuel, rsi1H: _liqRsi1H });
+            }
+            return { qualifies: false, reason: "da_liq_congestion", liqDist: _liqDist, liqFuel: _liqFuel };
+          }
+        }
+      }
+    }
+
     // Golden Gate confidence boost
     const isLong = !result.path?.includes("short");
     const gateMatch = isLong ? hasActiveBullGate : hasActiveBearGate;
@@ -2960,6 +3185,8 @@ function qualifiesForEnter(d, asOfTs = null) {
       positionSizeMultiplier: rParams.positionSizeMultiplier ?? 1.0,
       ewContext,
       learningContext,
+      dangerScore: d.__danger_score ?? null,
+      dangerFlags: d.__danger_flags ?? null,
     };
     // Phase 1a: attach entry quality for model learning and dashboard
     result.entryQuality = eqScore;
@@ -3008,14 +3235,13 @@ function qualifiesForEnter(d, asOfTs = null) {
   const ltfStrongBear = (ltf10mDepth >= 8 && ltf10mStruct <= -0.5) || (ltf10mRsi < 40 && ltf30mRsi < 45);
 
   // Overbought/oversold gate: block entries at RSI exhaustion across multiple timeframes.
-  // When 2+ of (30m, 1H, 4H, D) show RSI > 68, a LONG is chasing at the top.
-  // When 2+ show RSI < 32, a SHORT is chasing at the bottom.
+  // Backtest finding: late_entry+chasing = 38-46% WR. Tightened from 68/32 to 65/35.
   const _rsi30m = d?.tf_tech?.["30"]?.rsi?.r5 ?? 50;
   const _rsi1H = d?.tf_tech?.["1H"]?.rsi?.r5 ?? 50;
   const _rsi4H = d?.tf_tech?.["4H"]?.rsi?.r5 ?? 50;
   const _rsiD = d?.tf_tech?.D?.rsi?.r5 ?? 50;
-  const _obCount = (_rsi30m > 68 ? 1 : 0) + (_rsi1H > 68 ? 1 : 0) + (_rsi4H > 68 ? 1 : 0) + (_rsiD > 68 ? 1 : 0);
-  const _osCount = (_rsi30m < 32 ? 1 : 0) + (_rsi1H < 32 ? 1 : 0) + (_rsi4H < 32 ? 1 : 0) + (_rsiD < 32 ? 1 : 0);
+  const _obCount = (_rsi30m > 65 ? 1 : 0) + (_rsi1H > 65 ? 1 : 0) + (_rsi4H > 65 ? 1 : 0) + (_rsiD > 65 ? 1 : 0);
+  const _osCount = (_rsi30m < 35 ? 1 : 0) + (_rsi1H < 35 ? 1 : 0) + (_rsi4H < 35 ? 1 : 0) + (_rsiD < 35 ? 1 : 0);
   if (inferredSide !== "SHORT" && _obCount >= 2) {
     return { qualifies: false, reason: "overbought_exhaustion", rsi30m: _rsi30m, rsi1H: _rsi1H, rsi4H: _rsi4H, rsiD: _rsiD, obCount: _obCount };
   }
@@ -3053,19 +3279,31 @@ function qualifiesForEnter(d, asOfTs = null) {
       return { qualifies: false, reason: "ltf_opposing_long", ltf10mDepth, ltf10mStruct, regime: regimeClass };
     }
     if (htf >= 5) {
+      // Late-entry awareness: when 1H + 30m ST are BOTH already bullish, the move is extended.
+      // Data: 83% of Confirmed losers entered with 1H ST bullish vs 65% of winners.
+      // Downgrade confidence (affects sizing/grade) rather than blocking entirely.
+      const _st1H = d?.tf_tech?.["1H"]?.stDir ?? 0;
+      const _st30m = d?.tf_tech?.["30"]?.stDir ?? 0;
+      const _fullyExtended = _st1H === -1 && _st30m === -1; // both bullish
+
       let conf;
       if (stBullConfirms) {
         conf = (regime4H >= 2 && regime1H >= 1) ? "high" : "high";
       } else {
         conf = (regime4H >= 1) ? "medium" : "low";
       }
+      // Downgrade fully-extended entries: when both 1H+30m are bullish, the move is mature
+      if (_fullyExtended) {
+        conf = conf === "high" ? "medium" : "low";
+      }
       return enrichResult({
         qualifies: true,
         path: "ema_regime_confirmed_long",
-        confidence: (sectorBull && sectorStrength >= 60) ? "high" : conf,
+        confidence: (sectorBull && sectorStrength >= 60 && !_fullyExtended) ? "high" : conf,
         reason: stBullConfirms ? "daily_ema_regime_confirmed_with_st" : "daily_ema_regime_confirmed_st_pending",
         emaRegime: dailyRegime,
         sectorStrength,
+        _fullyExtended,
       });
     }
   }
@@ -3116,7 +3354,7 @@ function qualifiesForEnter(d, asOfTs = null) {
     if (ltfStrongBull) {
       return { qualifies: false, reason: "ltf_opposing_short", ltf10mDepth, ltf10mStruct, regime: regimeClass };
     }
-    const hasConf = stBearConfirms || regime4H <= -2 || hasStFlipBull || hasEmaCrossBear || hasSqRelease;
+    const hasConf = stBearConfirms || regime4H <= -2 || (flags?.st_flip_bear) || hasEmaCrossBear || hasSqRelease;
     if (htf <= -8 && hasConf) {
       return enrichResult({
         qualifies: true,
@@ -3151,18 +3389,18 @@ function qualifiesForEnter(d, asOfTs = null) {
   // ═══════════════════════════════════════════════════════════════════════════
   if (state === "HTF_BULL_LTF_BULL") {
     // High confidence: extreme overextension (clear blow-off top)
-    if (htf >= 35 && ltf >= 25) {
+    if (htf >= 30 && ltf >= 22) {
       return enrichResult({ qualifies: true, path: "gold_short", confidence: "high", reason: "extreme_blowoff" });
     }
     // High confidence: moderate overextension WITH bearish signal confirmation
-    if (htf >= 28 && ltf >= 18 && (hasEmaCrossBear || hasSqRelease)) {
+    if (htf >= 25 && ltf >= 15 && (hasEmaCrossBear || hasSqRelease)) {
       return enrichResult({ qualifies: true, path: "gold_short_confirmed", confidence: "high", reason: "blowoff_with_signal" });
     }
-    // Medium confidence: at the blow-off level
-    // DATA (candle replay Jan 13-Feb 7): HTF_BULL_LTF_BULL had 29.3% WR overall.
-    // Tighten: require BOTH high thresholds AND signal confirmation (no "ltf >= 25" fallback)
-    if (htf >= 30 && ltf >= 22 && (hasEmaCrossBear || hasSqRelease)) {
-      return enrichResult({ qualifies: true, path: "gold_short_medium", confidence: "medium", reason: "near_blowoff" });
+    // Medium confidence: overextended with RSI divergence as confirmation
+    const _rsiDiv1H = d?.rsi_divergence?.["1H"];
+    const _rsiBearDiv = _rsiDiv1H?.bear;
+    if (htf >= 22 && ltf >= 12 && (_rsiBearDiv || hasEmaCrossBear || hasSqRelease)) {
+      return enrichResult({ qualifies: true, path: "gold_short_medium", confidence: "medium", reason: "overextended_with_divergence" });
     }
   }
   
@@ -3203,9 +3441,13 @@ function qualifiesForEnter(d, asOfTs = null) {
   // ═══════════════════════════════════════════════════════════════════════════
   // DATA (candle replay Jan 13-Feb 7): HTF_BULL_LTF_BULL had 29.3% WR.
   // Tighten momentum: require RR >= 3.0 (RR 3-5 had 66.2% WR) and higher score
-  const isMomentum = state === "HTF_BULL_LTF_BULL" || state === "HTF_BEAR_LTF_BEAR";
-  if (isMomentum && score >= 85 && rr >= 3.0 && (hasStFlipBull || hasEmaCrossBull || hasSqRelease)) {
+  const isMomentumBull = state === "HTF_BULL_LTF_BULL";
+  const isMomentumBear = state === "HTF_BEAR_LTF_BEAR";
+  if (isMomentumBull && score >= 85 && rr >= 3.0 && (hasStFlipBull || hasEmaCrossBull || hasSqRelease)) {
     return enrichResult({ qualifies: true, path: "momentum_score", confidence: "medium", reason: "momentum_with_signal" });
+  }
+  if (isMomentumBear && score >= 85 && rr >= 3.0 && (flags.st_flip_bear || hasEmaCrossBear || hasSqRelease)) {
+    return enrichResult({ qualifies: true, path: "momentum_score_short", confidence: "medium", reason: "momentum_bear_with_signal" });
   }
   
   // ═══════════════════════════════════════════════════════════════════════════
@@ -3258,6 +3500,23 @@ function qualifiesForEnter(d, asOfTs = null) {
         });
       }
     }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // PATH: MEAN REVERSION TD9 ALIGNED (counter-trend reversal)
+  // Feature-flagged: only activates when deep_audit_mean_revert_td9_enabled = true
+  // ═══════════════════════════════════════════════════════════════════════════
+  const _mrEnabled = String(_daConfig?.deep_audit_mean_revert_td9_enabled ?? "false") === "true";
+  if (_mrEnabled && d?.mean_revert_td9?.active) {
+    const mr = d.mean_revert_td9;
+    d.__da_mean_revert_size_mult = 0.5;
+    return enrichResult({
+      qualifies: true,
+      path: "mean_revert_td9_aligned",
+      confidence: mr.support_score >= 3 ? "medium" : "low",
+      reason: `td9_aligned_reversal_support_${mr.support_score}`,
+      mean_revert: mr,
+    });
   }
 
   return { qualifies: false, reason: "criteria_not_met" };
@@ -3446,6 +3705,12 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
     if (tradeRegime === "CHOPPY" && pnlPct < -2 && positionAgeDays >= maxHoldDaysLosing / 2) {
       tickerData.__exit_reason = "time_exit_chop_accelerated";
       return "exit";
+    }
+
+    // DA: Minimum hold time before management exits (SL/max_loss still fire above)
+    const _daMinHoldMgmt = Number(tickerData?._env?._deepAuditConfig?.deep_audit_min_hold_before_mgmt_exit_min) || 0;
+    if (_daMinHoldMgmt > 0 && positionAgeMin < _daMinHoldMgmt && pnlPct > -3) {
+      return "hold";
     }
 
     // Check move status for critical issues
@@ -3700,6 +3965,12 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
   // Check entry qualification using consolidated criteria
   // Pass asOfTs for replay support (historical trigger freshness check)
   const entry = qualifiesForEnter(tickerData, asOfTs);
+  // Track blocked entries for diagnostics during replay
+  if (!entry.qualifies && entry.reason && tickerData?._env?._replayBlockedEntries) {
+    const _rbe = tickerData._env._replayBlockedEntries;
+    _rbe[entry.reason] = (_rbe[entry.reason] || 0) + 1;
+    _rbe._total = (_rbe._total || 0) + 1;
+  }
   if (entry.qualifies) {
     // Store entry context for UI display
     tickerData.__entry_path = entry.path;
@@ -4936,8 +5207,8 @@ function getSizingConfig(env) {
     BASE_RISK_PCT: e("SIZING_BASE_RISK_PCT", 0.01),     // 1% baseline
     MIN_RISK_PCT: e("SIZING_MIN_RISK_PCT", 0.005),      // 0.5% floor
     MAX_RISK_PCT: e("SIZING_MAX_RISK_PCT", 0.02),       // 2% ceiling
-    MIN_NOTIONAL: e("SIZING_MIN_NOTIONAL", 500),         // $500 floor
-    MAX_NOTIONAL: e("SIZING_MAX_NOTIONAL", 8000),        // $8,000 ceiling
+    MIN_NOTIONAL: e("SIZING_MIN_NOTIONAL", 1000),        // $1,000 floor
+    MAX_NOTIONAL: e("SIZING_MAX_NOTIONAL", 20000),       // $20,000 ceiling
     VIX_HIGH: e("SIZING_VIX_HIGH", 25),
     VIX_EXTREME: e("SIZING_VIX_EXTREME", 35),
   };
@@ -5580,11 +5851,11 @@ function computeTradeConfidence(tickerData, opts = {}) {
 // Three branded tiers drive portfolio-% risk sizing. Users see a single
 // badge (Prime / Confirmed / Speculative) and know exactly how to size.
 const TT_TIERS = [
-  { min: 0.70, tier: "Prime",       riskPct: 0.010  },
-  { min: 0.45, tier: "Confirmed",   riskPct: 0.005  },
-  { min: 0.00, tier: "Speculative", riskPct: 0.0025 },
+  { min: 0.70, tier: "Prime",       riskPct: 0.020  },
+  { min: 0.45, tier: "Confirmed",   riskPct: 0.010  },
+  { min: 0.00, tier: "Speculative", riskPct: 0.005  },
 ];
-const DEFAULT_TIER_RISK_MAP = { Prime: 0.010, Confirmed: 0.005, Speculative: 0.0025 };
+const DEFAULT_TIER_RISK_MAP = { Prime: 0.020, Confirmed: 0.010, Speculative: 0.005 };
 
 function computeSetupTier(entryResult, tradeConfidence, tierRiskMap) {
   let score = clamp(tradeConfidence, 0, 1);
@@ -5943,9 +6214,12 @@ function shouldTriggerTradeSimulation(ticker, tickerData, prevData) {
     ? Math.min(0.80, baseMaxPhase * 1.15)
     : baseMaxPhase;
 
-  // Relaxed rank threshold for testing (will tighten after validating exit system)
   const rank = Number(tickerData.rank ?? tickerData.rank_position ?? tickerData.position) || 0;
-  const minRank = momentumElite ? 40 : 50;
+  const _uSize = Number(tickerData?._env?._universeSize) || 155;
+  const _uScale = Math.min(1.0, Math.max(0.10, _uSize / 155));
+  const _rgm = String(tickerData?._env?._deepAuditConfig?.rank_gate_mode || "relative");
+  const _baseMinRank = momentumElite ? 25 : 35;
+  const minRank = _rgm === "bypass" ? 0 : _rgm === "absolute" ? _baseMinRank : Math.round(_baseMinRank * _uScale);
   const rankOk = rank >= minRank;
 
   const rr = Number(tickerData.rr) || 0;
@@ -6059,9 +6333,12 @@ function getEntryBlockers(ticker, tickerData, prevData) {
     (trigOk || sqRelease || flipWatch || justEnteredCorridor);
   const enhancedTrigger = shouldConsiderAlert || momentumEliteTrigger;
 
-  // Phase 1c: tightened thresholds for swing trading
   const rank = Number(tickerData.rank ?? tickerData.rank_position ?? tickerData.position) || 0;
-  const minRank = momentumElite ? 40 : 50;
+  const _uSize2 = Number(tickerData?._env?._universeSize) || 155;
+  const _uScale2 = Math.min(1.0, Math.max(0.10, _uSize2 / 155));
+  const _rgm2 = String(tickerData?._env?._deepAuditConfig?.rank_gate_mode || "relative");
+  const _baseMinRank2 = momentumElite ? 25 : 35;
+  const minRank = _rgm2 === "bypass" ? 0 : _rgm2 === "absolute" ? _baseMinRank2 : Math.round(_baseMinRank2 * _uScale2);
   if (rank < minRank) blockers.push(`rank_below_min(${rank}<${minRank})`);
 
   const rr = Number(tickerData.rr) || 0;
@@ -6269,7 +6546,11 @@ function buildEntryDecision(ticker, tickerData, prevState) {
   const phaseOk = phase <= maxPhase;
 
   const rank = Number(tickerData.rank ?? tickerData.rank_position ?? tickerData.position) || 0;
-  const minRank = momentumElite ? 60 : 70;
+  const _uSize3 = Number(tickerData?._env?._universeSize) || 155;
+  const _uScale3 = Math.min(1.0, Math.max(0.10, _uSize3 / 155));
+  const _rgm3 = String(tickerData?._env?._deepAuditConfig?.rank_gate_mode || "relative");
+  const _baseMinRank3 = momentumElite ? 40 : 50;
+  const minRank = _rgm3 === "bypass" ? 0 : _rgm3 === "absolute" ? _baseMinRank3 : Math.round(_baseMinRank3 * _uScale3);
   const rankOk = rank >= minRank;
 
   if (FUTURES_TICKERS.has(tickerUpper)) blockers.push("futures_disabled");
@@ -6802,8 +7083,8 @@ function computeDirectionAwareSL(tickerData, baseSL, direction, entryPrice) {
 // NOTE: These are now direction-aware via GOLD_STANDARD_PATTERNS.tpMultipliers
 // Default TP tier multipliers (overridden by calibrated values when available)
 const THREE_TIER_DEFAULTS = {
-  TRIM:   { minMult: 1.5, maxMult: 2.5, trimPct: 0.33, label: "TRIM TP" },
-  EXIT:   { minMult: 2.5, maxMult: 4.0, trimPct: 0.66, label: "EXIT TP" },
+  TRIM:   { minMult: 1.5, maxMult: 2.5, trimPct: 0.66, label: "TRIM TP" },
+  EXIT:   { minMult: 2.5, maxMult: 4.0, trimPct: 0.90, label: "EXIT TP" },
   RUNNER: { minMult: 4.0, maxMult: 7.0, trimPct: 1.0,  label: "RUNNER TP" },
 };
 
@@ -6859,6 +7140,248 @@ function _getTrailStyleMults(tickerData) {
     standard: { preTrim: 1.0,  postTrimBuf: 0.5,  runner: 2.5,  style: "standard" },
   };
   return map[style] || map.standard;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// SMART RUNNER EXIT ENGINE
+// Evaluates 5 price-action conditions every bar after trim to decide whether
+// the remaining runner should be held, closed, or tightened. Replaces blind
+// trailing SL as the primary post-trim exit mechanism.
+// ═══════════════════════════════════════════════════════════════════════════════
+function evaluateRunnerExit(tickerData, openTrade, execState, dir, mark, entry, asOfNow) {
+  const isLong = dir === "LONG";
+  const cfg = tickerData?._env?._deepAuditConfig || {};
+  const atr = Number(tickerData?.atr) || (entry * 0.02);
+
+  // Gate: minimum bars after trim before smart exit can fire
+  const minBars = Number(cfg.smart_runner_min_bars_post_trim) || 4;
+  const trimTs = Number(execState.lastTrimMs || openTrade.trim_ts || 0);
+  const now = asOfNow || Date.now();
+  const BAR_MS = 15 * 60 * 1000;
+  const barsSinceTrim = trimTs > 0 ? Math.floor((now - trimTs) / BAR_MS) : 999;
+  if (barsSinceTrim < minBars) {
+    return { action: "hold", reason: "min_bars_grace", barsSinceTrim };
+  }
+
+  // ── Pullback Support Shield ──
+  // Before any close signal fires, check if price is still holding key
+  // intraday support: 15m SuperTrend line and/or 15m 72-89 Ripster cloud.
+  // If either level holds, the pullback is healthy and we keep holding.
+  const tf15 = tickerData?.tf_tech?.["15"];
+  const tf30 = tickerData?.tf_tech?.["30"];
+  const stDir15 = tf15?.stDir ?? 0;
+  const stLine15 = Number(tf15?.stLine) || 0;
+  const ripster15 = tf15?.ripster;
+  const cloud7289_15 = ripster15?.c72_89;
+  const cloud3450_15 = ripster15?.c34_50;
+  const cloud7289_30 = tf30?.ripster?.c72_89;
+
+  // 15m SuperTrend still aligned with trade direction and price above/below it
+  const st15Holding = stLine15 > 0 && (
+    (isLong  && stDir15 === -1 && mark >= stLine15 - atr * 0.1) ||
+    (!isLong && stDir15 ===  1 && mark <= stLine15 + atr * 0.1)
+  );
+  // Price within or supported by 15m 72-89 cloud
+  const c7289_15_lo = Number(cloud7289_15?.lo) || 0;
+  const c7289_15_hi = Number(cloud7289_15?.hi) || 0;
+  const cloud7289_15_holding = c7289_15_lo > 0 && c7289_15_hi > 0 && (
+    (isLong  && mark >= c7289_15_lo - atr * 0.1) ||
+    (!isLong && mark <= c7289_15_hi + atr * 0.1)
+  );
+  // 15m 34-50 cloud support (secondary)
+  const c3450_15_lo = Number(cloud3450_15?.lo) || 0;
+  const c3450_15_hi = Number(cloud3450_15?.hi) || 0;
+  const cloud3450_15_holding = c3450_15_lo > 0 && c3450_15_hi > 0 && (
+    (isLong  && mark >= c3450_15_lo - atr * 0.05) ||
+    (!isLong && mark <= c3450_15_hi + atr * 0.05)
+  );
+  // 30m 72-89 cloud support (broader structure)
+  const c7289_30_lo = Number(cloud7289_30?.lo) || 0;
+  const c7289_30_hi = Number(cloud7289_30?.hi) || 0;
+  const cloud7289_30_holding = c7289_30_lo > 0 && c7289_30_hi > 0 && (
+    (isLong  && mark >= c7289_30_lo - atr * 0.1) ||
+    (!isLong && mark <= c7289_30_hi + atr * 0.1)
+  );
+
+  const pullbackSupportHolding = st15Holding || cloud7289_15_holding || cloud3450_15_holding || cloud7289_30_holding;
+  const supportDetails = { st15Holding, cloud7289_15_holding, cloud3450_15_holding, cloud7289_30_holding, mark, stLine15, stDir15 };
+
+  // ── HTF (4H) SuperTrend gate — used by CLOUD_BREAK and SQUEEZE_RELEASE ──
+  const st4HDir = tickerData?.tf_tech?.["4H"]?.stDir ?? 0;
+  const htf4HSupports = (isLong && st4HDir === -1) || (!isLong && st4HDir === 1);
+
+  // ── Liquidity Zone Awareness ──
+  // Use 4H buyside (LONG) / sellside (SHORT) as structural target for runner
+  const liq4h = tickerData?.liq_4h;
+  const liqD = tickerData?.liq_D;
+  let liqTarget = 0;
+  let liqTargetDist = -1;
+  let liqTargetTf = "";
+  if (isLong) {
+    const bs4h = liq4h?.buyside;
+    const bsD = liqD?.buyside;
+    if (Array.isArray(bs4h)) {
+      const above = bs4h.filter(z => z.level > entry).sort((a, b) => a.level - b.level);
+      if (above.length > 0) { liqTarget = above[0].level; liqTargetTf = "4H"; }
+    }
+    if (!liqTarget && Array.isArray(bsD)) {
+      const above = bsD.filter(z => z.level > entry).sort((a, b) => a.level - b.level);
+      if (above.length > 0) { liqTarget = above[0].level; liqTargetTf = "D"; }
+    }
+  } else {
+    const ss4h = liq4h?.sellside;
+    const ssD = liqD?.sellside;
+    if (Array.isArray(ss4h)) {
+      const below = ss4h.filter(z => z.level < entry).sort((a, b) => b.level - a.level);
+      if (below.length > 0) { liqTarget = below[0].level; liqTargetTf = "4H"; }
+    }
+    if (!liqTarget && Array.isArray(ssD)) {
+      const below = ssD.filter(z => z.level < entry).sort((a, b) => b.level - a.level);
+      if (below.length > 0) { liqTarget = below[0].level; liqTargetTf = "D"; }
+    }
+  }
+  if (liqTarget > 0 && atr > 0) {
+    liqTargetDist = isLong ? (liqTarget - mark) / atr : (mark - liqTarget) / atr;
+  }
+
+  // Liquidity zone approach: tighten trail when nearing zone
+  if (liqTarget > 0 && liqTargetDist >= -0.2 && liqTargetDist < 0.3) {
+    return { action: "defend", reason: "liq_zone_approach", liqTarget, liqTargetDist, liqTargetTf };
+  }
+  // Liquidity zone swept: price moved past zone — the magnet is consumed
+  if (liqTarget > 0 && liqTargetDist < -0.5) {
+    return { action: "defend", reason: "liq_zone_swept", liqTarget, liqTargetDist, liqTargetTf };
+  }
+
+  // ── Condition 3 (checked first): Compression → HOLD ──
+  const sq30 = tf30?.sq;
+  const sq1H = tickerData?.tf_tech?.["1H"]?.sq;
+  const sq15 = tf15?.sq;
+  const squeezeOn = (sq15?.s === 1) || (sq30?.s === 1) || (sq1H?.s === 1);
+  if (squeezeOn) {
+    const sqRelease30 = sq30?.r === 1;
+    const sqRelease1H = sq1H?.r === 1;
+    if (sqRelease30 || sqRelease1H) {
+      const st30Dir = tf30?.stDir ?? 0;
+      const releaseAgainst = (isLong && st30Dir === 1) || (!isLong && st30Dir === -1);
+      if (releaseAgainst && !pullbackSupportHolding) {
+        if (htf4HSupports) {
+          return { action: "defend", reason: "squeeze_release_htf_hold", st4HDir, ...supportDetails };
+        }
+        return { action: "close", reason: "squeeze_release_against" };
+      }
+    }
+    return { action: "hold", reason: "compression_active" };
+  }
+
+  // ── Condition 1: Swing High/Low Failure → CLOSE (only if support also broken) ──
+  const swingProximity = Number(cfg.smart_runner_swing_atr_proximity) || 0.5;
+  const pivots = tickerData?.regime?.pivots?.daily;
+  if (pivots) {
+    if (isLong) {
+      const swingHigh = Number(pivots.lastHigh?.price) || 0;
+      if (swingHigh > entry) {
+        const peakPx = Number(execState.runnerPeakPrice) || mark;
+        const approached = peakPx >= (swingHigh - swingProximity * atr);
+        const failedBreak = mark < swingHigh && mark < peakPx;
+        const rsi1H = Number(tickerData?.tf_tech?.["1H"]?.rsi?.r5) || 50;
+        const stDir1H = tickerData?.tf_tech?.["1H"]?.stDir ?? 0;
+        const confirmed = stDir1H === 1 || rsi1H < 45;
+        if (approached && failedBreak && confirmed && !pullbackSupportHolding) {
+          return { action: "close", reason: "swing_high_failure", swingHigh, peak: peakPx, mark, ...supportDetails };
+        }
+      }
+    } else {
+      const swingLow = Number(pivots.lastLow?.price) || 0;
+      if (swingLow > 0 && swingLow < entry) {
+        const peakPx = Number(execState.runnerPeakPrice) || mark;
+        const approached = peakPx <= (swingLow + swingProximity * atr);
+        const failedBreak = mark > swingLow && mark > peakPx;
+        const rsi1H = Number(tickerData?.tf_tech?.["1H"]?.rsi?.r5) || 50;
+        const stDir1H = tickerData?.tf_tech?.["1H"]?.stDir ?? 0;
+        const confirmed = stDir1H === -1 || rsi1H > 55;
+        if (approached && failedBreak && confirmed && !pullbackSupportHolding) {
+          return { action: "close", reason: "swing_low_failure", swingLow, peak: peakPx, mark, ...supportDetails };
+        }
+      }
+    }
+  }
+
+  // ── Condition 2: Support/Resistance Break → CLOSE (only if LTF support also broken) ──
+  // HTF gate: if 4H SuperTrend still supports, demote to "defend" (tighten trail)
+  const ripster1H = tickerData?.tf_tech?.["1H"]?.ripster;
+  const cloud3450_1H = ripster1H?.c34_50;
+  const st30Dir = tf30?.stDir ?? 0;
+  if (isLong && cloud3450_1H) {
+    const cloudLo = Number(cloud3450_1H.lo) || 0;
+    const belowCloud = cloudLo > 0 && mark < cloudLo;
+    const st30Bear = st30Dir === 1;
+    if (belowCloud && st30Bear && !pullbackSupportHolding) {
+      if (htf4HSupports) {
+        return { action: "defend", reason: "cloud_break_htf_hold", cloudLo, mark, st4HDir, ...supportDetails };
+      }
+      return { action: "close", reason: "support_break_cloud", cloudLo, mark, ...supportDetails };
+    }
+  }
+  if (!isLong && cloud3450_1H) {
+    const cloudHi = Number(cloud3450_1H.hi) || 0;
+    const aboveCloud = cloudHi > 0 && mark > cloudHi;
+    const st30Bull = st30Dir === -1;
+    if (aboveCloud && st30Bull && !pullbackSupportHolding) {
+      if (htf4HSupports) {
+        return { action: "defend", reason: "cloud_break_htf_hold", cloudHi, mark, st4HDir, ...supportDetails };
+      }
+      return { action: "close", reason: "resistance_break_cloud", cloudHi, mark, ...supportDetails };
+    }
+  }
+
+  // ── Condition 4: TD Sequential Exhaustion + RSI confirmation → CLOSE ──
+  // (Not overridden by pullback support — exhaustion signals are structural)
+  const tdPerTf = tickerData?.td_sequential?.per_tf || {};
+  const td1H = tdPerTf["60"];
+  const td4H = tdPerTf["240"];
+  const rsi1H = Number(tickerData?.tf_tech?.["1H"]?.rsi?.r5) || 50;
+  const phaseOsc1H = tickerData?.saty_phase_exit?.value1H ?? 0;
+  const phasePeak = Number(execState.satyPhasePeak1H) || 0;
+  const phaseDeclining = phasePeak > 0 && (isLong ? phaseOsc1H : -phaseOsc1H) < phasePeak * 0.7;
+
+  let tdExhausted = false;
+  if (isLong) {
+    const bc1H = Number(td1H?.bearish_prep_count) || 0;
+    const bc4H = Number(td4H?.bearish_prep_count) || 0;
+    tdExhausted = bc1H >= 7 || bc4H >= 7;
+  } else {
+    const bc1H = Number(td1H?.bullish_prep_count) || 0;
+    const bc4H = Number(td4H?.bullish_prep_count) || 0;
+    tdExhausted = bc1H >= 7 || bc4H >= 7;
+  }
+  const rsiConfirms = isLong ? rsi1H >= 65 : rsi1H <= 35;
+  if (tdExhausted && (rsiConfirms || phaseDeclining)) {
+    return { action: "close", reason: "td_exhaustion_runner", rsi1H, phaseDeclining };
+  }
+
+  // ── Condition 5: Momentum Consensus Flip + Fuel Critical → CLOSE ──
+  // Only fires if pullback support is also broken (fuel critical during a
+  // healthy pullback to 15m ST / 72-89 cloud is not a reversal signal)
+  const sc = tickerData?.swing_consensus || {};
+  const scDir = String(sc.direction || "").toUpperCase();
+  const scBias = Number(sc.avgBias || sc.avg_bias) || 0;
+  const dirFlipped = (isLong && (scDir === "SHORT" || (scDir !== "LONG" && scBias < -0.15)))
+    || (!isLong && (scDir === "LONG" || (scDir !== "SHORT" && scBias > 0.15)));
+  const fuel30 = tickerData?.fuel?.["30"] || tickerData?.fuel?.["15"];
+  const fuel10 = tickerData?.fuel?.["10"] || tickerData?.fuel?.["15"];
+  const fuelCritical = fuel30?.status === "critical" || fuel10?.status === "critical";
+  if (dirFlipped && fuelCritical && !pullbackSupportHolding) {
+    return { action: "close", reason: "momentum_flip_fuel_critical", scDir, scBias, ...supportDetails };
+  }
+
+  // If we reach here and support is holding during what other conditions
+  // wanted to flag, log it for diagnostics
+  if (pullbackSupportHolding) {
+    return { action: "hold", reason: "pullback_support_holding", ...supportDetails };
+  }
+
+  return { action: "hold", reason: "no_exit_signal" };
 }
 
 // Helper: Infer ATR from TP levels when not directly available
@@ -7070,9 +7593,14 @@ function build3TierTPArray(tickerData, entryPrice, direction) {
   // ─────────────────────────────────────────────────────────────────────────────
   // GOLD STANDARD: Direction-specific TP multipliers
   // Based on historical analysis: LONG median +5.94%, SHORT median -6.34%
+  // DA override: deep_audit_tp_atr_override = { trim: 2.5, exit: 3.5, runner: 5.0 }
+  // Widen TPs to give RSI fuse exits room to fire before fixed TP.
   // ─────────────────────────────────────────────────────────────────────────────
   const gsConfig = isLong ? GOLD_STANDARD_PATTERNS.LONG : GOLD_STANDARD_PATTERNS.SHORT;
-  const gsTpMult = gsConfig.tpMultipliers;
+  const _daTpOverride = tickerData?._env?._deepAuditConfig?.deep_audit_tp_atr_override;
+  const gsTpMult = _daTpOverride && typeof _daTpOverride === "object"
+    ? { trim: Number(_daTpOverride.trim) || gsConfig.tpMultipliers.trim, exit: Number(_daTpOverride.exit) || gsConfig.tpMultipliers.exit, runner: Number(_daTpOverride.runner) || gsConfig.tpMultipliers.runner }
+    : gsConfig.tpMultipliers;
   
   // Build the 3-tier array, interpolating missing tiers
   const result = [];
@@ -8251,14 +8779,13 @@ async function processTradeSimulation(
     const entryPath = String(tickerData?.__entry_path || tickerData?.entry_path || "").toLowerCase();
     const stateDirection = getTradeDirection(tickerData.state); // BULL->LONG, BEAR->SHORT
     let direction;
-    if (entryPath.includes("short")) {
-      // gold_short, gold_short_medium: SHORT
+    if (entryPath.includes("mean_revert")) {
+      direction = "LONG";
+    } else if (entryPath.includes("short")) {
       direction = "SHORT";
     } else if (entryPath.includes("long")) {
-      // gold_long, gold_long_shallow: LONG
       direction = "LONG";
     } else {
-      // Fall back to state-based direction (momentum, squeeze, etc.)
       direction = stateDirection;
     }
     if (!direction) {
@@ -8538,20 +9065,22 @@ async function processTradeSimulation(
       lastEnterSide === direction;
 
     let pxNow = Number(tickerData?.price);
-    // REPLAY exit fix: Prefer 10m candle close at exit interval (mirrors entry fix).
-    // When 10m bundle was missing, result.price could be daily/4H; use candleCache when available.
-    if (isReplay && Number.isFinite(asOfMs) && replayCtx?.candleCache?.[sym]?.["10"]?.length > 0) {
-      const allCandles10 = replayCtx.candleCache[sym]["10"];
-      const last10m = allCandles10.filter((c) => c.ts <= asOfMs).pop();
-      const exit10m = last10m ? Number(last10m.c) : null;
-      if (Number.isFinite(exit10m) && exit10m > 0) {
-        pxNow = exit10m;
+    // REPLAY price fix: Prefer leading LTF candle close (matches scoring TF).
+    // tickerData.price comes from assembleTickerData which picks the freshest bundle,
+    // but when bundles are sparse, fall back to the leading LTF candleCache directly.
+    const _replayLtf = replayCtx?._leadingLtf || tickerData?._env?._leadingLtf || "15";
+    if (isReplay && Number.isFinite(asOfMs) && replayCtx?.candleCache?.[sym]?.[_replayLtf]?.length > 0) {
+      const ltfCandles = replayCtx.candleCache[sym][_replayLtf];
+      const lastLtf = ltfCandles.filter((c) => c.ts <= asOfMs).pop();
+      const exitLtf = lastLtf ? Number(lastLtf.c) : null;
+      if (Number.isFinite(exitLtf) && exitLtf > 0) {
+        pxNow = exitLtf;
       }
     }
     // CRITICAL: Always prefer current market price (pxNow) for entry.
     // tickerData.entry_price is set when the signal first fires and can be
     // hours/days stale by the time the trade is actually opened.
-    // In REPLAY, pxNow = 10m candle close at the processing interval = the price
+    // In REPLAY, pxNow = leading LTF candle close at the processing interval = the price
     // the system would actually execute at. Using stale entry_price caused large
     // entry-price divergences (e.g. CSX: stored $33.94 vs actual $32.81).
     let entryPxCandidate;
@@ -8657,6 +9186,18 @@ async function processTradeSimulation(
         _ef.swing_consensus_dir = _swCon?.direction || null;
         _ef.swing_consensus_bias = Number(_swCon?.avgBias || _swCon?.avg_bias || 0);
         trade.exit_flags = _ef;
+      } catch (_) {}
+
+      // Capture full signal snapshot at exit for autopsy comparison
+      try {
+        const _exitSc = tickerData?.swing_consensus || {};
+        const _exitSnap = buildDirectionSignalSnapshot(_exitSc, tickerData, trade.entryPath || null);
+        if (_exitSnap && env?.DB) {
+          env.DB.prepare(`UPDATE direction_accuracy SET exit_snapshot_json = ? WHERE trade_id = ?`)
+            .bind(_exitSnap, trade.id || trade.trade_id)
+            .run()
+            .catch(e => console.warn("[EXIT_SNAP] write failed:", String(e).slice(0, 100)));
+        }
       } catch (_) {}
 
       // Portfolio cash increases by proceeds
@@ -9193,6 +9734,24 @@ async function processTradeSimulation(
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
+    // MFE/MAE TRACKING: Update high-water (MFE) and low-water (MAE) marks
+    // on every bar for open positions. Persisted on close via d1UpdateDirectionOutcome.
+    // ═══════════════════════════════════════════════════════════════════════════
+    if (openTrade && isOpenTradeStatus(openTrade.status) && Number.isFinite(pxNow) && pxNow > 0) {
+      const _entryPxMfe = Number(openTrade.entryPrice);
+      if (Number.isFinite(_entryPxMfe) && _entryPxMfe > 0) {
+        const _isLongMfe = String(openTrade.direction || "").toUpperCase() === "LONG";
+        const _curPnlPct = _isLongMfe
+          ? ((pxNow - _entryPxMfe) / _entryPxMfe) * 100
+          : ((_entryPxMfe - pxNow) / _entryPxMfe) * 100;
+        const prevMfe = Number(openTrade.maxFavorableExcursion) || 0;
+        const prevMae = Number(openTrade.maxAdverseExcursion) || 0;
+        if (_curPnlPct > prevMfe) openTrade.maxFavorableExcursion = Math.round(_curPnlPct * 10000) / 10000;
+        if (_curPnlPct < prevMae) openTrade.maxAdverseExcursion = Math.round(_curPnlPct * 10000) / 10000;
+      }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
     // Phase 4a/4b/4c: FUSE EXIT ENGINE — Swing-adapted exit system
     // Fires independently of kanban stage, based on structural signals.
     // Hard fuse: extreme RSI on 1H+4H → close immediately
@@ -9200,8 +9759,16 @@ async function processTradeSimulation(
     // Trailing: after TP1, trail SL using Daily EMA(21)
     // ═══════════════════════════════════════════════════════════════════════════
     let fuseExitFired = false;
+    // SAME-INTERVAL EXIT GUARD: Never close a trade on the same interval it was entered.
+    // During replay, entry and exit sharing the same asOfMs creates phantom losses from
+    // price mismatches between the scoring/indicator price and the execution price.
+    const _tradeEntryTs = openTrade ? (Number(openTrade.entry_ts) || 0) : 0;
+    const _sameIntervalAsTrade = isReplay && Number.isFinite(asOfMs) && _tradeEntryTs > 0 && Math.abs(asOfMs - _tradeEntryTs) < 60000;
+    if (_sameIntervalAsTrade) {
+      console.log(`[SAME_INTERVAL_GUARD] ${sym}: skipping all exits — trade entered at ${_tradeEntryTs}, current interval ${asOfMs}`);
+    }
     // FUSE EXITS are signal-based (RSI extremes), NOT price-driven — block outside RTH
-    if (openTrade && isOpenTradeStatus(openTrade.status) && Number.isFinite(pxNow) && !weekendNow && !outsideRTH) {
+    if (!_sameIntervalAsTrade && openTrade && isOpenTradeStatus(openTrade.status) && Number.isFinite(pxNow) && !weekendNow && !outsideRTH) {
       const tradeDir = String(openTrade.direction || "").toUpperCase();
       const isLong = tradeDir === "LONG";
       const entryPx = Number(openTrade.entryPrice);
@@ -9228,8 +9795,8 @@ async function processTradeSimulation(
       // Phase 4b: SOFT FUSE — arm on moderate RSI, confirm with structure break
       // Respects 3-tier system: trim first if untrimmed, only full exit if already trimmed
       if (!fuseExitFired) {
-        const softArmLong = isLong && rsi1H >= 75;
-        const softArmShort = !isLong && rsi1H <= 25;
+        const softArmLong = isLong && rsi1H >= 70;
+        const softArmShort = !isLong && rsi1H <= 30;
 
         if (softArmLong || softArmShort) {
           const dailyEma21 = tickerData?.tf_tech?.D?.ema?.depth ?? 5;
@@ -9288,6 +9855,358 @@ async function processTradeSimulation(
       // Position age (shared across Phase 4c, DEFEND, and 3-tier)
       const _posAgeMin = Number.isFinite(entryMsNorm) ? (now - entryMsNorm) / 60000 : 999;
 
+      // SATY PHASE EXIT: Peak-decline tracking for persistent zone-exit detection.
+      // Old approach relied on single-bar "leaving" flags which fire for one bar only.
+      // New approach: track the peak oscillator value during the trade in execState,
+      // then fire when it has declined meaningfully from that peak.
+      if (!fuseExitFired) {
+        const _spCfg = tickerData?._env?._deepAuditConfig;
+        const _spEnabled = _spCfg?.deep_audit_phase_exit_enabled !== false && _spCfg?.deep_audit_phase_exit_enabled !== "false";
+        if (_spEnabled) {
+          const _spSignal = tickerData?.saty_phase_exit;
+          const _spCurr1H = _spSignal?.value1H ?? 0;
+          const _spCurr30 = _spSignal?.value30 ?? 0;
+
+          // Directional value: positive for longs, negative for shorts, reflecting "in our favor"
+          const _spDir1H = isLong ? _spCurr1H : -_spCurr1H;
+          const _spDir30 = isLong ? _spCurr30 : -_spCurr30;
+
+          // Update peak tracking in execState (max directional value seen during trade)
+          const _prevPeak1H = Number(execState.satyPhasePeak1H) || 0;
+          const _prevPeak30 = Number(execState.satyPhasePeak30) || 0;
+          const _newPeak1H = Math.max(_prevPeak1H, _spDir1H);
+          const _newPeak30 = Math.max(_prevPeak30, _spDir30);
+          let _peakUpdated = false;
+          if (_newPeak1H > _prevPeak1H || _newPeak30 > _prevPeak30) {
+            execState.satyPhasePeak1H = _newPeak1H;
+            execState.satyPhasePeak30 = _newPeak30;
+            _peakUpdated = true;
+          }
+
+          // Decline from peak: how much has the oscillator dropped from the best value
+          const _decline1H = _newPeak1H - _spDir1H;
+          const _decline30 = _newPeak30 - _spDir30;
+          const _bestPeak = Math.max(_newPeak1H, _newPeak30);
+          const _maxDecline = Math.max(_decline1H, _decline30);
+
+          // Signal thresholds (configurable via model_config):
+          // Peak >= 70 + declined by 25 → PHASE_LEAVE_100 (extreme reversal)
+          // Peak >= 40 + declined by 20 → PHASE_LEAVE_618 (distribution/accumulation)
+          // Backtest finding: PHASE_LEAVE_100 was the best single trade ($252). Lowered
+          // thresholds to fire more often and catch momentum exhaustion earlier.
+          const _phExtrThresh = Number(_spCfg?.deep_audit_phase_peak_extreme) || 70;
+          const _phExtrDecline = Number(_spCfg?.deep_audit_phase_decline_extreme) || 25;
+          const _phDistThresh = Number(_spCfg?.deep_audit_phase_peak_distrib) || 40;
+          const _phDistDecline = Number(_spCfg?.deep_audit_phase_decline_distrib) || 20;
+
+          const isExtremeDecline = _bestPeak >= _phExtrThresh && _maxDecline >= _phExtrDecline;
+          const isDistribDecline = _bestPeak >= _phDistThresh && _maxDecline >= _phDistDecline;
+
+          if (isExtremeDecline || isDistribDecline) {
+            const _spLabel = isExtremeDecline ? "PHASE_LEAVE_100" : "PHASE_LEAVE_618";
+            const _spTrimPct = clamp(Number(openTrade?.trimmedPct || 0), 0, 1);
+            const _spPnlPct = isLong
+              ? ((pxNow - entryPx) / entryPx) * 100
+              : ((entryPx - pxNow) / entryPx) * 100;
+
+            if (_spPnlPct > 0.5) {
+              if (_spTrimPct < THREE_TIER_CONFIG.TRIM.trimPct - 0.01) {
+                console.log(`[${_spLabel}] ${sym} Phase peak-decline: peak=${_bestPeak.toFixed(1)} now1H=${_spCurr1H.toFixed(1)} now30=${_spCurr30.toFixed(1)} decline=${_maxDecline.toFixed(1)} pnl=${_spPnlPct.toFixed(1)}%`);
+                await trimTradeToPct(openTrade, THREE_TIER_CONFIG.TRIM.trimPct, pxNow, _spLabel);
+                const _spExecUpdate = { ...execState, lastTrimMs: now, runnerPeakPrice: pxNow };
+                if (isReplay && replayCtx?.execStates) replayCtx.execStates.set(sym, _spExecUpdate);
+                else if (!isReplay) await kvPutJSON(KV, execKey, _spExecUpdate);
+                fuseExitFired = true;
+              } else if (isExtremeDecline && _spTrimPct >= THREE_TIER_CONFIG.TRIM.trimPct - 0.01) {
+                // Close runner on extreme phase decline — previously required EXIT-level trim (66%),
+                // now fires after any trim (33%+). Catches "exit too late" after swing high.
+                console.log(`[${_spLabel}] ${sym} Phase peak-decline: closing runner peak=${_bestPeak.toFixed(1)} decline=${_maxDecline.toFixed(1)} pnl=${_spPnlPct.toFixed(1)}% trimmed=${(_spTrimPct * 100).toFixed(0)}%`);
+                tickerData.__exit_reason = _spLabel.toLowerCase();
+                await closeTradeAtPrice(openTrade, pxNow, _spLabel);
+                const _spExecUpdate = { ...execState, lastExitMs: now };
+                if (isReplay && replayCtx?.execStates) replayCtx.execStates.set(sym, _spExecUpdate);
+                else if (!isReplay) await kvPutJSON(KV, execKey, _spExecUpdate);
+                fuseExitFired = true;
+              }
+            }
+          }
+
+          // Persist peak updates even when no exit fires
+          if (_peakUpdated && !fuseExitFired) {
+            if (isReplay && replayCtx?.execStates) replayCtx.execStates.set(sym, { ...execState });
+            else if (!isReplay) await kvPutJSON(KV, execKey, execState);
+          }
+        }
+      }
+
+      // ATR RANGE EXHAUSTION: Trim when ATR displacement + range exhaustion signal
+      // overextension. Checks both weekly (multiday) and daily horizons.
+      if (!fuseExitFired) {
+        const _atrCfg = tickerData?._env?._deepAuditConfig;
+        const _atrExhEnabled = _atrCfg?.deep_audit_atr_exhaustion_exit !== false && _atrCfg?.deep_audit_atr_exhaustion_exit !== "false";
+        if (_atrExhEnabled) {
+          const _atrLevels = tickerData?.atr_levels;
+          const _weeklyATR = _atrLevels?.week;
+          const _dailyATR = _atrLevels?.day;
+
+          let exhausted = false;
+          let _exhDebug = "";
+
+          // Weekly horizon: large displacement from prev-week close
+          if (_weeklyATR) {
+            const wDisp = Math.abs(_weeklyATR.disp || 0);
+            const wCorrectSide = isLong ? (_weeklyATR.disp > 0) : (_weeklyATR.disp < 0);
+            const dRangeOfATR = _dailyATR?.rangeOfATR || 0;
+            const wGateCompleted = _weeklyATR.gate?.completed === true;
+
+            if (wCorrectSide && (
+              (wDisp >= 0.786) ||
+              (wDisp >= 0.500 && dRangeOfATR >= 70) ||
+              (wGateCompleted && dRangeOfATR >= 60)
+            )) {
+              exhausted = true;
+              _exhDebug = `wDisp=${wDisp.toFixed(2)} wBand=${_weeklyATR.band} dRange=${dRangeOfATR.toFixed(0)}% wGate=${wGateCompleted}`;
+            }
+          }
+
+          // Daily horizon: significant intraday displacement + range exhaustion
+          if (!exhausted && _dailyATR) {
+            const dDisp = Math.abs(_dailyATR.disp || 0);
+            const dCorrectSide = isLong ? (_dailyATR.disp > 0) : (_dailyATR.disp < 0);
+            const dRangeOfATR = _dailyATR.rangeOfATR || 0;
+            const dGateCompleted = _dailyATR.gate?.completed === true;
+
+            if (dCorrectSide && (
+              (dDisp >= 0.786 && dRangeOfATR >= 70) ||
+              (dGateCompleted && dRangeOfATR >= 80)
+            )) {
+              exhausted = true;
+              _exhDebug = `dDisp=${dDisp.toFixed(2)} dBand=${_dailyATR.band} dRange=${dRangeOfATR.toFixed(0)}% dGate=${dGateCompleted}`;
+            }
+          }
+
+          if (exhausted) {
+            const _exhTrimPct = clamp(Number(openTrade?.trimmedPct || 0), 0, 1);
+            const _exhPnlPct = isLong
+              ? ((pxNow - entryPx) / entryPx) * 100
+              : ((entryPx - pxNow) / entryPx) * 100;
+
+            if (_exhPnlPct > 0.5 && _exhTrimPct < THREE_TIER_CONFIG.TRIM.trimPct - 0.01) {
+              console.log(`[ATR_EXHAUST] ${sym} ATR exhaustion trim: ${_exhDebug} pnl=${_exhPnlPct.toFixed(1)}%`);
+              await trimTradeToPct(openTrade, THREE_TIER_CONFIG.TRIM.trimPct, pxNow, "ATR_RANGE_EXHAUST");
+              const _exhExecUpdate = { ...execState, lastTrimMs: now, runnerPeakPrice: pxNow };
+              if (isReplay && replayCtx?.execStates) replayCtx.execStates.set(sym, _exhExecUpdate);
+              else if (!isReplay) await kvPutJSON(KV, execKey, _exhExecUpdate);
+              fuseExitFired = true;
+            }
+          }
+        }
+      }
+
+      // RSI_DIVERGENCE fuse exit: when divergence fires against our direction on 1H/30m,
+      // trim if untrimmed+profitable, or tighten trail aggressively if post-trim runner.
+      // Sticky flag: once divergence is detected, execState.rsiDivSeen stays true.
+      if (!fuseExitFired) {
+        const _divCfg = tickerData?._env?._deepAuditConfig;
+        const _divEnabled = String(_divCfg?.deep_audit_div_exit_enabled ?? "true") === "true";
+        if (_divEnabled) {
+          const _divMinStr = Number(_divCfg?.deep_audit_div_exit_min_strength) || 2;
+          const _divTrailPct = Number(_divCfg?.deep_audit_div_runner_trail_pct) || 0.01;
+          const rsiDivData = tickerData?.rsi_divergence || {};
+
+          let _divActive = false;
+          let _divStrength = 0;
+          let _divTfLabel = "";
+          for (const tf of ["4H", "1H", "30"]) {
+            const d = rsiDivData[tf];
+            if (!d) continue;
+            const opposing = isLong ? d.bear : d.bull;
+            if (opposing?.active && opposing.strength >= _divMinStr) {
+              _divActive = true;
+              _divStrength = opposing.strength;
+              _divTfLabel = tf;
+              break;
+            }
+          }
+
+          if (_divActive && !execState.rsiDivSeen) {
+            execState.rsiDivSeen = true;
+            execState.rsiDivTf = _divTfLabel;
+            execState.rsiDivStrength = _divStrength;
+            if (isReplay && replayCtx?.execStates) replayCtx.execStates.set(sym, execState);
+            else if (!isReplay) await kvPutJSON(KV, execKey, execState);
+          }
+
+          if (execState.rsiDivSeen) {
+            const _divTrimPct = clamp(Number(openTrade?.trimmedPct || 0), 0, 1);
+            const _divPnlPct = isLong
+              ? ((pxNow - entryPx) / entryPx) * 100
+              : ((entryPx - pxNow) / entryPx) * 100;
+
+            if (_divTrimPct < THREE_TIER_CONFIG.TRIM.trimPct - 0.01 && _divPnlPct > 0.3 && trimMinAgeOk) {
+              console.log(`[RSI_DIVERGENCE] ${sym} div on ${execState.rsiDivTf} str=${execState.rsiDivStrength}: trimming (pnl=${_divPnlPct.toFixed(1)}%)`);
+              await trimTradeToPct(openTrade, THREE_TIER_CONFIG.TRIM.trimPct, pxNow, "RSI_DIVERGENCE");
+              const _divExec = { ...execState, lastTrimMs: now, runnerPeakPrice: pxNow };
+              if (isReplay && replayCtx?.execStates) replayCtx.execStates.set(sym, _divExec);
+              else if (!isReplay) await kvPutJSON(KV, execKey, _divExec);
+              fuseExitFired = true;
+            } else if (_divTrimPct >= THREE_TIER_CONFIG.TRIM.trimPct - 0.01) {
+              const currentSL = Number(openTrade.sl);
+              if (Number.isFinite(currentSL) && Number.isFinite(pxNow) && pxNow > 0) {
+                let tightSL;
+                if (isLong) {
+                  tightSL = Math.round(pxNow * (1 - _divTrailPct) * 100) / 100;
+                  if (tightSL > currentSL) {
+                    openTrade.sl = tightSL;
+                    console.log(`[RSI_DIVERGENCE_TRAIL] ${sym} tightening SL: ${currentSL.toFixed(2)} → ${tightSL.toFixed(2)} (div on ${execState.rsiDivTf})`);
+                  }
+                } else {
+                  tightSL = Math.round(pxNow * (1 + _divTrailPct) * 100) / 100;
+                  if (tightSL < currentSL) {
+                    openTrade.sl = tightSL;
+                    console.log(`[RSI_DIVERGENCE_TRAIL] ${sym} tightening SL: ${currentSL.toFixed(2)} → ${tightSL.toFixed(2)} (div on ${execState.rsiDivTf})`);
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+
+      // ST_FLIP_FUSE: 4H SuperTrend flip against direction triggers trim or close runner.
+      // This extends the Kanban TRIM-stage st_flip_against (which only does a trim) by adding
+      // a runner close when already trimmed. 4H ST flip is a strong structural break signal.
+      if (!fuseExitFired) {
+        const _stFlags = tickerData?.flags;
+        const _stFlipAgainst = (isLong && _stFlags?.st_flip_bear) || (!isLong && _stFlags?.st_flip_bull);
+        const _stFlip4H = _stFlags?.st_flip_4h;
+        if (_stFlipAgainst && _stFlip4H) {
+          const _stTrimPct = clamp(Number(openTrade?.trimmedPct || 0), 0, 1);
+          const _stPnl = isLong
+            ? ((pxNow - entryPx) / entryPx) * 100
+            : ((entryPx - pxNow) / entryPx) * 100;
+          if (_stTrimPct >= THREE_TIER_CONFIG.TRIM.trimPct - 0.01 && _stPnl > 0) {
+            console.log(`[ST_FLIP_FUSE] ${sym} 4H ST flip against ${isLong ? "LONG" : "SHORT"}: closing runner (pnl=${_stPnl.toFixed(1)}% trimmed=${(_stTrimPct * 100).toFixed(0)}%)`);
+            tickerData.__exit_reason = "st_flip_4h_close";
+            await closeTradeAtPrice(openTrade, pxNow, "ST_FLIP_4H_CLOSE");
+            const _stExec = { ...execState, lastExitMs: now };
+            if (isReplay && replayCtx?.execStates) replayCtx.execStates.set(sym, _stExec);
+            else if (!isReplay) await kvPutJSON(KV, execKey, _stExec);
+            fuseExitFired = true;
+          } else if (_stTrimPct < THREE_TIER_CONFIG.TRIM.trimPct - 0.01 && _stPnl > 0.3) {
+            console.log(`[ST_FLIP_FUSE] ${sym} 4H ST flip against ${isLong ? "LONG" : "SHORT"}: trimming (pnl=${_stPnl.toFixed(1)}%)`);
+            await trimTradeToPct(openTrade, THREE_TIER_CONFIG.TRIM.trimPct, pxNow, "ST_FLIP_4H_TRIM");
+            const _stExec = { ...execState, lastTrimMs: now, runnerPeakPrice: pxNow };
+            if (isReplay && replayCtx?.execStates) replayCtx.execStates.set(sym, _stExec);
+            else if (!isReplay) await kvPutJSON(KV, execKey, _stExec);
+            fuseExitFired = true;
+          }
+        }
+      }
+
+      // TD_EXHAUSTION_EXIT: Multi-TF TD Sequential awareness for yield optimization.
+      // Analysis: wins exit when D bearish prep avg=4.9 vs losses at 2.2. Winners ride until
+      // sellers push back on HTF. Use per-TF TD counts for granular trim/trail decisions.
+      //
+      // Signals:
+      //  1) D/W buyer exhaustion (bearish TD9) during LONG → trim if untrimmed, tighten trail
+      //  2) LTF (30m/1H) counter-prep building (bearish >= 5 for LONG) → early warning tighten
+      //  3) 4H favorable prep reaching golden zone (4-6) → hold signal (don't exit early)
+      if (!fuseExitFired) {
+        const _tdExitCfg = tickerData?._env?._deepAuditConfig;
+        const _tdExitEnabled = String(_tdExitCfg?.deep_audit_td_exit_enabled ?? "true") === "true";
+        if (_tdExitEnabled) {
+          const _tdPerTf = tickerData?.td_sequential?.per_tf || {};
+          const _tdTrimPct = clamp(Number(openTrade?.trimmedPct || 0), 0, 1);
+          const _tdPnlPct = isLong
+            ? ((pxNow - entryPx) / entryPx) * 100
+            : ((entryPx - pxNow) / entryPx) * 100;
+
+          // Signal 1: D/W buyer exhaustion (bearish TD9 fires against our LONG)
+          // This is the INTU top signal — TD9 fires on buyers, time to trim
+          const dTd = _tdPerTf.D || _tdPerTf["1D"];
+          const wTd = _tdPerTf.W || _tdPerTf["1W"];
+          let htfExhaustionFired = false;
+          if (isLong) {
+            htfExhaustionFired = (dTd?.bearish_prep_count >= 9) || (wTd?.bearish_prep_count >= 9);
+          } else {
+            htfExhaustionFired = (dTd?.bullish_prep_count >= 9) || (wTd?.bullish_prep_count >= 9);
+          }
+
+          if (htfExhaustionFired && !execState.tdHtfExhSeen) {
+            execState.tdHtfExhSeen = true;
+            execState.tdHtfExhTs = now;
+            if (isReplay && replayCtx?.execStates) replayCtx.execStates.set(sym, execState);
+            else if (!isReplay) await kvPutJSON(KV, execKey, execState);
+          }
+
+          if (execState.tdHtfExhSeen && _tdPnlPct > 0.5) {
+            if (_tdTrimPct < THREE_TIER_CONFIG.TRIM.trimPct - 0.01 && trimMinAgeOk) {
+              console.log(`[TD_HTF_EXHAUST] ${sym} D/W buyer exhaustion → trimming (pnl=${_tdPnlPct.toFixed(1)}%)`);
+              await trimTradeToPct(openTrade, THREE_TIER_CONFIG.TRIM.trimPct, pxNow, "TD_HTF_EXHAUSTION");
+              const _tdExec = { ...execState, lastTrimMs: now, runnerPeakPrice: pxNow };
+              if (isReplay && replayCtx?.execStates) replayCtx.execStates.set(sym, _tdExec);
+              else if (!isReplay) await kvPutJSON(KV, execKey, _tdExec);
+              fuseExitFired = true;
+            } else if (_tdTrimPct >= THREE_TIER_CONFIG.TRIM.trimPct - 0.01) {
+              // Post-trim: tighten trail — the move is topping
+              const _tdTrailPct = Number(_tdExitCfg?.deep_audit_td_exit_trail_pct) || 1.5;
+              const currentSL = Number(openTrade.sl);
+              if (Number.isFinite(currentSL) && pxNow > 0) {
+                const tightSL = isLong
+                  ? Math.round(pxNow * (1 - _tdTrailPct / 100) * 100) / 100
+                  : Math.round(pxNow * (1 + _tdTrailPct / 100) * 100) / 100;
+                if ((isLong && tightSL > currentSL) || (!isLong && tightSL < currentSL)) {
+                  openTrade.sl = tightSL;
+                  console.log(`[TD_HTF_TRAIL] ${sym} D/W exhaustion trail: SL ${currentSL.toFixed(2)} → ${tightSL.toFixed(2)}`);
+                }
+              }
+            }
+          }
+
+          // Signal 2: LTF counter-prep building (30m/1H bearish >= 5 for LONG)
+          // Analysis: 30m bearish 4-6 at entry = 26% WR. Same pattern mid-trade = early warning.
+          if (!fuseExitFired && !execState.tdHtfExhSeen) {
+            const td30 = _tdPerTf["30"];
+            const td1H = _tdPerTf["60"];
+            let ltfCounterPrep = 0;
+            if (isLong) {
+              ltfCounterPrep = Math.max(td30?.bearish_prep_count || 0, td1H?.bearish_prep_count || 0);
+            } else {
+              ltfCounterPrep = Math.max(td30?.bullish_prep_count || 0, td1H?.bullish_prep_count || 0);
+            }
+
+            if (ltfCounterPrep >= 6 && _tdTrimPct >= THREE_TIER_CONFIG.TRIM.trimPct - 0.01 && _tdPnlPct > 0) {
+              // LTF selling building against our runner — tighten, don't hold blindly
+              const currentSL = Number(openTrade.sl);
+              const _ltfTrailPct = Number(_tdExitCfg?.deep_audit_td_ltf_trail_pct) || 2.0;
+              if (Number.isFinite(currentSL) && pxNow > 0) {
+                const tightSL = isLong
+                  ? Math.round(pxNow * (1 - _ltfTrailPct / 100) * 100) / 100
+                  : Math.round(pxNow * (1 + _ltfTrailPct / 100) * 100) / 100;
+                if ((isLong && tightSL > currentSL) || (!isLong && tightSL < currentSL)) {
+                  openTrade.sl = tightSL;
+                  console.log(`[TD_LTF_COUNTER] ${sym} 30m/1H counter-prep=${ltfCounterPrep} → SL ${currentSL.toFixed(2)} → ${tightSL.toFixed(2)}`);
+                }
+              }
+            }
+          }
+
+          // Signal 3: 4H favorable prep golden zone (4-6) — HOLD signal
+          // Analysis: 4H bullish prep 4-6 during LONG = 75% WR, 0.88% avg PnL.
+          // When in this zone, don't let other signals force premature exit.
+          // We track this in execState so downstream logic can read it.
+          const td4H = _tdPerTf["240"];
+          const favPrep4H = isLong ? (td4H?.bullish_prep_count || 0) : (td4H?.bearish_prep_count || 0);
+          if (favPrep4H >= 4 && favPrep4H <= 6) {
+            execState.td4hGoldenZone = true;
+            execState.td4hGoldenZoneTs = now;
+          } else if (execState.td4hGoldenZone && favPrep4H < 2) {
+            execState.td4hGoldenZone = false;
+          }
+        }
+      }
+
       // Phase 4c: DYNAMIC TRAILING — for profitable untrimmed trades
       // When pnl > 2%: trigger a trim to lock in profit and activate post-trim protections
       // (Phase 4c skip, DEFEND skip, ATR-buffered SL). This is more robust than hoping
@@ -9329,6 +10248,118 @@ async function processTradeSimulation(
           }
         }
       }
+      // RUNNER MAX DRAWDOWN CIRCUIT BREAKER: directly close the trade if
+      // the runner has drawn down >= N% from its post-trim peak. This must run
+      // before evaluateRunnerExit because the SL-tightening path can't move SL
+      // downward, so catastrophic crashes (RKLB -31%) slip through.
+      const _sreTrimmedPct = clamp(Number(openTrade?.trimmedPct || 0), 0, 1);
+      if (!_sameIntervalAsTrade && !fuseExitFired && openTrade && isOpenTradeStatus(openTrade.status) && _sreTrimmedPct > 0) {
+        const _cbMaxDD = Number(tickerData?._env?._deepAuditConfig?.deep_audit_max_runner_drawdown_pct) || 0;
+        if (_cbMaxDD > 0) {
+          const _cbPeak = Number(execState.runnerPeakPrice) || Number(openTrade.runnerPeakPrice) || 0;
+          if (_cbPeak > 0 && Number.isFinite(pxNow)) {
+            const _cbDD = isLong
+              ? ((_cbPeak - pxNow) / _cbPeak) * 100
+              : ((pxNow - _cbPeak) / _cbPeak) * 100;
+            if (_cbDD >= _cbMaxDD) {
+              const _cbReason = "RUNNER_MAX_DRAWDOWN_BREAKER";
+              console.log(`[CIRCUIT BREAKER] ${sym} drawdown ${_cbDD.toFixed(1)}% from peak $${_cbPeak.toFixed(2)} >= ${_cbMaxDD}% → closing at $${pxNow.toFixed(2)}`);
+              tickerData.__exit_reason = _cbReason;
+              await closeTradeAtPrice(openTrade, pxNow, _cbReason);
+              const _cbExec = { ...execState, lastExitMs: now };
+              if (isReplay && replayCtx?.execStates) replayCtx.execStates.set(sym, _cbExec);
+              else if (!isReplay) await kvPutJSON(KV, execKey, _cbExec);
+              fuseExitFired = true;
+            }
+          }
+        }
+      }
+      // PER-TRADE HARD LOSS CAP: close if unrealized dollar loss exceeds cap.
+      // Requires minimum 30-minute hold to avoid false exits from signal price
+      // vs candle close misalignment (e.g., CAT entered $420 but candle close $401).
+      if (!_sameIntervalAsTrade && !fuseExitFired && openTrade && isOpenTradeStatus(openTrade.status) && Number.isFinite(pxNow)) {
+        const _hlcCap = Number(tickerData?._env?._deepAuditConfig?.deep_audit_hard_loss_cap) || 300;
+        const _hlcEntryTs = Number(openTrade.entry_ts || openTrade.created_at) || 0;
+        const _hlcAgeMs = _hlcEntryTs > 0 ? (now - _hlcEntryTs) : 0;
+        const _hlcMinHoldMs = 30 * 60 * 1000;
+        if (_hlcCap > 0 && _hlcAgeMs >= _hlcMinHoldMs) {
+          const _hlcEntry = Number(openTrade.entryPrice);
+          const _hlcDir = String(openTrade.direction || "").toUpperCase();
+          const _hlcSign = _hlcDir === "LONG" ? 1 : -1;
+          const _hlcShares = Number(openTrade.shares) || Number(openTrade.quantity) || 1;
+          const _hlcRemainingPct = 1 - clamp(Number(openTrade.trimmedPct || 0), 0, 1);
+          const _hlcActiveShares = _hlcShares * _hlcRemainingPct;
+          const _hlcPnl = (pxNow - _hlcEntry) * _hlcSign * _hlcActiveShares;
+          if (_hlcPnl <= -_hlcCap) {
+            const _hlcReason = "HARD_LOSS_CAP";
+            console.log(`[HARD_LOSS_CAP] ${sym} unrealized P&L $${_hlcPnl.toFixed(0)} breaches -$${_hlcCap} cap (${_hlcActiveShares.toFixed(1)} shares @ $${pxNow.toFixed(2)}) → closing`);
+            tickerData.__exit_reason = _hlcReason;
+            await closeTradeAtPrice(openTrade, pxNow, _hlcReason);
+            const _hlcExec = { ...execState, lastExitMs: now };
+            if (isReplay && replayCtx?.execStates) replayCtx.execStates.set(sym, _hlcExec);
+            else if (!isReplay) await kvPutJSON(KV, execKey, _hlcExec);
+            fuseExitFired = true;
+          }
+        }
+      }
+      // STALL FORCE-CLOSE: Untrimmed trades that haven't moved after N hours are dead weight.
+      // Data shows untrimmed trades have 14% WR — if a trade can't reach trim in 36h, close it.
+      if (!fuseExitFired && openTrade && isOpenTradeStatus(openTrade.status)) {
+        const _sfcMaxH = Number(tickerData?._env?._deepAuditConfig?.deep_audit_stall_force_close_hours) || 36;
+        const _sfcUntrimmed = _sreTrimmedPct < 0.01;
+        if (_sfcMaxH > 0 && _sfcUntrimmed) {
+          const _sfcEntryTs = Number(openTrade.entry_ts || openTrade.created_at) || 0;
+          const _sfcEntryMs = _sfcEntryTs > 1e12 ? _sfcEntryTs : _sfcEntryTs * 1000;
+          const _sfcHoldH = _sfcEntryMs > 0 ? (now - _sfcEntryMs) / 3600000 : 0;
+          if (_sfcHoldH >= _sfcMaxH) {
+            const _sfcReason = "STALL_FORCE_CLOSE";
+            const _sfcPnlPct = entryPx > 0 ? ((pxNow - entryPx) / entryPx * 100 * (isLong ? 1 : -1)) : 0;
+            console.log(`[STALL_FORCE_CLOSE] ${sym} untrimmed for ${_sfcHoldH.toFixed(0)}h (${_sfcPnlPct.toFixed(1)}% P&L) → force closing`);
+            tickerData.__exit_reason = _sfcReason;
+            await closeTradeAtPrice(openTrade, pxNow, _sfcReason);
+            const _sfcExec = { ...execState, lastExitMs: now };
+            if (isReplay && replayCtx?.execStates) replayCtx.execStates.set(sym, _sfcExec);
+            else if (!isReplay) await kvPutJSON(KV, execKey, _sfcExec);
+            fuseExitFired = true;
+          }
+        }
+      }
+      // SMART RUNNER EXIT ENGINE: for trimmed positions not closed by fuse exits.
+      // Evaluates 5 price-action conditions to decide hold/close/tighten.
+      const _sreEnabled = String(tickerData?._env?._deepAuditConfig?.smart_runner_exit_enabled ?? "true") === "true";
+      if (!fuseExitFired && _sreEnabled && openTrade && isOpenTradeStatus(openTrade.status)
+          && _sreTrimmedPct >= THREE_TIER_CONFIG.TRIM.trimPct - 0.01) {
+        const _sreResult = evaluateRunnerExit(
+          tickerData, openTrade, execState,
+          isLong ? "LONG" : "SHORT", pxNow, entryPx, now
+        );
+        if (_sreResult.action === "close") {
+          const _sreReason = `SMART_RUNNER_${(_sreResult.reason || "exit").toUpperCase()}`;
+          console.log(`[SMART_RUNNER] ${sym} ${_sreReason}: ${JSON.stringify(_sreResult)}`);
+          tickerData.__exit_reason = _sreReason.toLowerCase();
+          await closeTradeAtPrice(openTrade, pxNow, _sreReason);
+          const _sreExec = { ...execState, lastExitMs: now };
+          if (isReplay && replayCtx?.execStates) replayCtx.execStates.set(sym, _sreExec);
+          else if (!isReplay) await kvPutJSON(KV, execKey, _sreExec);
+          fuseExitFired = true;
+        } else if (_sreResult.action === "defend") {
+          // HTF still supports but LTF/1H structure broke — tighten trail to 1x ATR
+          const _defAtr = Number(tickerData?.atr) || (entryPx * 0.02);
+          const _defSL = isLong ? pxNow - _defAtr : pxNow + _defAtr;
+          const _defCurSL = Number(openTrade.sl);
+          if ((isLong && _defSL > _defCurSL) || (!isLong && _defSL < _defCurSL)) {
+            openTrade.sl = Math.round(_defSL * 100) / 100;
+            console.log(`[SMART_RUNNER] ${sym} DEFEND mode (${_sreResult.reason}): SL ${_defCurSL.toFixed(2)} → ${_defSL.toFixed(2)} (1x ATR=$${_defAtr.toFixed(2)}, 4H ST still supports)`);
+          }
+        } else if (_sreResult.action === "tighten" && _sreResult.sl) {
+          const _sreCurSL = Number(openTrade.sl);
+          const _sreNewSL = _sreResult.sl;
+          if ((isLong && _sreNewSL > _sreCurSL) || (!isLong && _sreNewSL < _sreCurSL)) {
+            openTrade.sl = _sreNewSL;
+            console.log(`[SMART_RUNNER] ${sym} tighten SL: ${_sreCurSL.toFixed(2)} → ${_sreNewSL.toFixed(2)} (${_sreResult.reason})`);
+          }
+        }
+      }
     } else if (openTrade && isOpenTradeStatus(openTrade.status) && !weekendNow && outsideRTH) {
       // Log when fuse checks would have run but were blocked by RTH
       const rsi1H = tickerData?.tf_tech?.["1H"]?.rsi?.r5 ?? 50;
@@ -9354,7 +10385,69 @@ async function processTradeSimulation(
     const isSLExit = /\bSL\b|stop.?loss|max.?loss/i.test(String(exitReasonRaw));
     // Outside RTH: only allow price-driven exits (SL breach, max loss). Signal-based exits wait for RTH.
     const exitAllowedOutsideRTH = isSLExit;
-    if (isExit && !weekendNow && (!outsideRTH || exitAllowedOutsideRTH) && exitCooldownOk && exitMinAgeOk && !fuseExitFired && openTrade && isOpenTradeStatus(openTrade.status) && clamp(Number(openTrade.trimmedPct || 0), 0, 1) < 0.9999) {
+
+    // PULLBACK SUPPORT SHIELD for trimmed runners in EXIT lane:
+    // If the runner has been trimmed and 15m intraday support is intact, don't let
+    // the EXIT lane close the runner during a healthy pullback — let the SL handle it.
+    const _exitTrimmedPct = clamp(Number(openTrade?.trimmedPct || 0), 0, 1);
+    let _exitPullbackShield = false;
+    if (_exitTrimmedPct >= THREE_TIER_CONFIG.TRIM.trimPct - 0.01 && !isSLExit && openTrade && isOpenTradeStatus(openTrade.status)) {
+      const _eTf15 = tickerData?.tf_tech?.["15"];
+      const _eTf30 = tickerData?.tf_tech?.["30"];
+      const _eStDir15 = _eTf15?.stDir ?? 0;
+      const _eStLine15 = Number(_eTf15?.stLine) || 0;
+      const _eAtr = Number(tickerData?.atr) || (entryPx * 0.02);
+      const _eSt15Hold = _eStLine15 > 0 && (
+        (isLong  && _eStDir15 === -1 && pxNow >= _eStLine15 - _eAtr * 0.1) ||
+        (!isLong && _eStDir15 ===  1 && pxNow <= _eStLine15 + _eAtr * 0.1)
+      );
+      const _eC7289_15 = _eTf15?.ripster?.c72_89;
+      const _eC7289_15lo = Number(_eC7289_15?.lo) || 0;
+      const _eC7289_15hi = Number(_eC7289_15?.hi) || 0;
+      const _eCloud7289_15 = _eC7289_15lo > 0 && _eC7289_15hi > 0 && (
+        (isLong  && pxNow >= _eC7289_15lo - _eAtr * 0.1) ||
+        (!isLong && pxNow <= _eC7289_15hi + _eAtr * 0.1)
+      );
+      const _eC3450_15 = _eTf15?.ripster?.c34_50;
+      const _eC3450_15lo = Number(_eC3450_15?.lo) || 0;
+      const _eC3450_15hi = Number(_eC3450_15?.hi) || 0;
+      const _eCloud3450_15 = _eC3450_15lo > 0 && _eC3450_15hi > 0 && (
+        (isLong  && pxNow >= _eC3450_15lo - _eAtr * 0.05) ||
+        (!isLong && pxNow <= _eC3450_15hi + _eAtr * 0.05)
+      );
+      const _eC7289_30 = _eTf30?.ripster?.c72_89;
+      const _eC7289_30lo = Number(_eC7289_30?.lo) || 0;
+      const _eC7289_30hi = Number(_eC7289_30?.hi) || 0;
+      const _eCloud7289_30 = _eC7289_30lo > 0 && _eC7289_30hi > 0 && (
+        (isLong  && pxNow >= _eC7289_30lo - _eAtr * 0.1) ||
+        (!isLong && pxNow <= _eC7289_30hi + _eAtr * 0.1)
+      );
+      // TD SEQUENTIAL SHIELD: If TD setup count is still building (BP < 7 for long,
+      // SP < 7 for short), the move hasn't peaked — defer exit to let it run.
+      // DCI LONG exited at BP=5, missing the peak at BP=9. This shield prevents that.
+      const _eTd15 = _eTf15?.td;
+      const _eTd30 = _eTf30?.td;
+      const _eBP15 = Number(_eTd15?.bp) || 0;
+      const _eSP15 = Number(_eTd15?.sp) || 0;
+      const _eBP30 = Number(_eTd30?.bp) || 0;
+      const _eSP30 = Number(_eTd30?.sp) || 0;
+      const _eTdActive = isLong
+        ? ((_eBP15 >= 3 && _eBP15 <= 7) || (_eBP30 >= 3 && _eBP30 <= 7))
+        : ((_eSP15 >= 3 && _eSP15 <= 7) || (_eSP30 >= 3 && _eSP30 <= 7));
+
+      _exitPullbackShield = _eSt15Hold || _eCloud7289_15 || _eCloud3450_15 || _eCloud7289_30 || _eTdActive;
+      if (_exitPullbackShield) {
+        const shieldReasons = [];
+        if (_eSt15Hold) shieldReasons.push("st15");
+        if (_eCloud7289_15) shieldReasons.push("c7289_15");
+        if (_eCloud3450_15) shieldReasons.push("c3450_15");
+        if (_eCloud7289_30) shieldReasons.push("c7289_30");
+        if (_eTdActive) shieldReasons.push(`td_active(bp15=${_eBP15} sp15=${_eSP15} bp30=${_eBP30} sp30=${_eSP30})`);
+        console.log(`[EXIT SHIELD] ${sym} runner EXIT blocked: ${shieldReasons.join(",")} reason=${exitReasonRaw}`);
+      }
+    }
+
+    if (isExit && !_sameIntervalAsTrade && !weekendNow && (!outsideRTH || exitAllowedOutsideRTH) && exitCooldownOk && exitMinAgeOk && !fuseExitFired && !_exitPullbackShield && openTrade && isOpenTradeStatus(openTrade.status) && clamp(Number(openTrade.trimmedPct || 0), 0, 1) < 0.9999) {
       if (flatPriceExit && !isSLExit) {
         // Price hasn't moved — keep holding instead of closing at $0 P&L
         console.log(`[TRADE SIM] ${sym} exit skipped: flat price (entry=$${Number(openTrade.entryPrice).toFixed(2)} exit=$${pxNow.toFixed(2)}), holding`);
@@ -9577,6 +10670,44 @@ async function processTradeSimulation(
         const trimExecUpdate = { ...execState, lastTrimMs: now, runnerPeakPrice: pxNow };
         if (isReplay && replayCtx?.execStates) replayCtx.execStates.set(sym, trimExecUpdate);
         else if (!isReplay) await kvPutJSON(KV, execKey, trimExecUpdate);
+      }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // MFE SAFETY TRIM: Force 66% trim when unrealized P&L >= threshold and
+    // position is still untrimmed. Catches trades that reach 1%+ MFE but
+    // never hit TP (set at 1.5x ATR ≈ 3%), preventing reversals into losses.
+    // ─────────────────────────────────────────────────────────────────────────
+    if (!isTrim && !weekendNow && openTrade && isOpenTradeStatus(openTrade.status) && Number.isFinite(pxNow)) {
+      const _mfeTrimPct = clamp(Number(openTrade.trimmedPct || 0), 0, 1);
+      if (_mfeTrimPct < 0.01) {
+        const _mfeSafetyThresh = Number(tickerData?._env?._deepAuditConfig?.deep_audit_mfe_safety_trim_pct) || 0;
+        if (_mfeSafetyThresh > 0) {
+          const _mfeEntry = Number(openTrade.entryPrice);
+          const _mfeDir = String(openTrade.direction || "").toUpperCase();
+          const _mfeDirSign = _mfeDir === "LONG" ? 1 : -1;
+          const _mfePnlPct = Number.isFinite(_mfeEntry) && _mfeEntry > 0
+            ? ((pxNow - _mfeEntry) / _mfeEntry) * 100 * _mfeDirSign : 0;
+          if (_mfePnlPct >= _mfeSafetyThresh) {
+            console.log(`[MFE_SAFETY] ${sym} P&L ${_mfePnlPct.toFixed(2)}% >= ${_mfeSafetyThresh}% threshold, forcing 66% trim`);
+            await trimTradeToPct(openTrade, THREE_TIER_CONFIG.TRIM.trimPct, pxNow, "MFE_SAFETY_TRIM");
+            // Set post-trim protective stop at minimum breakeven
+            const _mfeBEStop = selectPostTrimProtectiveStop(tickerData, _mfeEntry, _mfeDir, {
+              currentPrice: pxNow, fallbackStop: openTrade.sl, positionAgeMin: 0, moveTravelPct: 0,
+            });
+            if (Number.isFinite(_mfeBEStop) && _mfeBEStop > 0) {
+              const _mfePrevSL = Number(openTrade.sl) || 0;
+              openTrade.sl = Math.max(_mfeBEStop, _mfeEntry);
+              console.log(`[MFE_SAFETY] ${sym} post-trim SL: $${_mfePrevSL.toFixed(2)} → $${openTrade.sl.toFixed(2)} (entry=$${_mfeEntry.toFixed(2)})`);
+            } else {
+              openTrade.sl = _mfeEntry;
+              console.log(`[MFE_SAFETY] ${sym} post-trim SL set to entry: $${_mfeEntry.toFixed(2)}`);
+            }
+            const _mfeExecUpdate = { ...execState, lastTrimMs: now, runnerPeakPrice: pxNow };
+            if (isReplay && replayCtx?.execStates) replayCtx.execStates.set(sym, _mfeExecUpdate);
+            else if (!isReplay) await kvPutJSON(KV, execKey, _mfeExecUpdate);
+          }
+        }
       }
     }
 
@@ -9822,6 +10953,11 @@ async function processTradeSimulation(
       if (smartGateBlocked) blockReasons.push(smartGateReason || "smart_gate");
       const blockReason = blockReasons.join("+");
       console.log(`[ENTRY_BLOCKED→SETUP] ${sym} downgrading enter→setup: ${blockReason}`);
+      if (isReplay && replayCtx?._blockedEntries) {
+        const _rbeKey = smartGateBlocked ? `smart_gate:${smartGateReason?.split(":")[0] || "unknown"}` : blockReason;
+        replayCtx._blockedEntries[_rbeKey] = (replayCtx._blockedEntries[_rbeKey] || 0) + 1;
+        replayCtx._blockedEntries._total_exec_blocked = (replayCtx._blockedEntries._total_exec_blocked || 0) + 1;
+      }
       
       // Update the live KV payload so UI sees "setup" instead of stale "enter"
       if (!isReplay && KV) {
@@ -10169,9 +11305,15 @@ async function processTradeSimulation(
           const accountValue = Number(portfolio.startCash || PORTFOLIO_START_CASH) +
             (allTrades || []).filter(t => t.status === "WIN" || t.status === "LOSS").reduce((sum, t) => sum + (Number(t.realizedPnl) || 0), 0);
           const sizing = computeRiskBasedSize(confidence, accountValue, entryPx, finalSL, sizingSignals.vixLevel, env, tierRiskPct);
-          // v3: Regime-adaptive position sizing — scale down in chop
           const regimePosMultiplier = tickerData?.regime_params?.positionSizeMultiplier ?? 1.0;
-          const regimeAdjustedNotional = sizing.notional * regimePosMultiplier;
+          const _daRegimeSizeMult = Number(tickerData?.__da_regime_size_mult) || 1.0;
+          const _daRvolHighMult = Number(tickerData?.__da_rvol_high_size_mult) || 1.0;
+          const _daDangerMult = Number(tickerData?.__da_danger_size_mult) || 1.0;
+          const _daMeanRevertMult = Number(tickerData?.__da_mean_revert_size_mult) || 1.0;
+          const _rawCombinedMult = regimePosMultiplier * _daRegimeSizeMult * _daRvolHighMult * _daDangerMult * _daMeanRevertMult;
+          const SIZING_MULT_FLOOR = 0.30;
+          const _effectiveMult = Math.max(SIZING_MULT_FLOOR, _rawCombinedMult);
+          const regimeAdjustedNotional = sizing.notional * _effectiveMult;
           // Cap by available cash
           notional = Math.min(regimeAdjustedNotional, cash);
           shares = notional / entryPx;
@@ -10537,35 +11679,34 @@ async function processTradeSimulation(
           let slReason = "PROTECT_GAINS";
 
           // ─────────────────────────────────────────────────────────────────────
-          // RUNNER PHASE: ATR-based trailing stop (2.5x ATR below current high)
+          // RUNNER PHASE: Adaptive ATR-based trailing stop
+          // Wide (3.0x ATR) when 4H SuperTrend supports the trade direction,
+          // tight (1.5x ATR) when 4H flips — early warning before structure break.
           // ─────────────────────────────────────────────────────────────────────
           if (isRunnerPhase) {
-            // Get ATR from ticker data or infer from TP levels
             let atr = Number(tickerData?.atr);
             if (!Number.isFinite(atr) || atr <= 0) {
               atr = inferAtrFromTPLevels(tickerData, entry);
             }
             if (!Number.isFinite(atr) || atr <= 0) {
-              // Fallback: use 2% of entry as ATR proxy
               atr = entry * 0.02;
             }
 
-            // ATR trailing: personality-scaled ATR from current high/low
-            const _runnerTsm = _getTrailStyleMults(tickerData);
-            const atrMultiplier = _runnerTsm.runner;
+            const _st4HDirTrail = tickerData?.tf_tech?.["4H"]?.stDir ?? 0;
+            const _htf4HSupportsTrail = (dir === "LONG" && _st4HDirTrail === -1) || (dir === "SHORT" && _st4HDirTrail === 1);
+            const atrMultiplier = _htf4HSupportsTrail ? 3.0 : 1.5;
             const trailStop = dir === "LONG"
               ? mark - (atr * atrMultiplier)
               : mark + (atr * atrMultiplier);
 
-            // Only use ATR trail if it's better than current SL
             if (dir === "LONG" && trailStop > oldSl) {
               candidate = trailStop;
               slReason = "ATR_TRAILING_RUNNER";
-              console.log(`[3-TIER] ${sym} RUNNER ATR trail: $${trailStop.toFixed(2)} (${atrMultiplier}x ATR=$${(atr * atrMultiplier).toFixed(2)}, style=${_runnerTsm.style})`);
+              console.log(`[3-TIER] ${sym} RUNNER ATR trail: $${trailStop.toFixed(2)} (${atrMultiplier}x ATR=$${(atr * atrMultiplier).toFixed(2)}, 4H=${_htf4HSupportsTrail ? "supports" : "against"})`);
             } else if (dir === "SHORT" && trailStop < oldSl) {
               candidate = trailStop;
               slReason = "ATR_TRAILING_RUNNER";
-              console.log(`[3-TIER] ${sym} RUNNER ATR trail: $${trailStop.toFixed(2)} (${atrMultiplier}x ATR=$${(atr * atrMultiplier).toFixed(2)}, style=${_runnerTsm.style})`);
+              console.log(`[3-TIER] ${sym} RUNNER ATR trail: $${trailStop.toFixed(2)} (${atrMultiplier}x ATR=$${(atr * atrMultiplier).toFixed(2)}, 4H=${_htf4HSupportsTrail ? "supports" : "against"})`);
             }
           }
 
@@ -10708,7 +11849,9 @@ async function processTradeSimulation(
             if (dir === "LONG" && (_tdSeqFade.td9_bearish === true || _tdSeqFade.td9_bearish === "true")) _fadeSignals++;
             if (dir === "SHORT" && (_tdSeqFade.td9_bullish === true || _tdSeqFade.td9_bullish === "true")) _fadeSignals++;
 
-            if (_fadeSignals >= 2) {
+            // 4H golden zone (prep 4-6) = 75% WR — raise threshold to protect the hold
+            const _fadeThreshold = execState.td4hGoldenZone ? 3 : 2;
+            if (_fadeSignals >= _fadeThreshold) {
               const _fadePeak = Number(execState.runnerPeakPrice) || Number(openTrade.runnerPeakPrice) || mark;
               const _realizedMove = dir === "LONG" ? _fadePeak - entry : entry - _fadePeak;
               const _fadeSL = dir === "LONG"
@@ -14178,7 +15321,7 @@ async function d1EnsureCandleSchema(env) {
 // ─────────────────────────────────────────────────────────────
 
 async function ensureInvestorPositionsSchema(db, KV) {
-  const throttleKey = "timed:schema:investor_positions:v1";
+  const throttleKey = "timed:schema:investor_positions:v2";
   try {
     if (KV) {
       const last = Number(await KV.get(throttleKey));
@@ -14212,8 +15355,11 @@ async function ensureInvestorPositionsSchema(db, KV) {
       dca_num_buys INTEGER DEFAULT 0,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL,
-      closed_at INTEGER
+      closed_at INTEGER,
+      peak_price REAL DEFAULT 0
     )`).run();
+
+    await db.prepare("ALTER TABLE investor_positions ADD COLUMN peak_price REAL DEFAULT 0").run().catch(() => {});
 
     await db.prepare(`CREATE INDEX IF NOT EXISTS idx_inv_pos_ticker ON investor_positions (ticker)`).run();
     await db.prepare(`CREATE INDEX IF NOT EXISTS idx_inv_pos_status ON investor_positions (status)`).run();
@@ -15275,7 +16421,7 @@ async function d1EnsureBacktestRunsSchema(env) {
     try {
       await db.batch([
         db.prepare(`CREATE TABLE IF NOT EXISTS backtest_run_trades (run_id TEXT NOT NULL, trade_id TEXT NOT NULL, ticker TEXT, direction TEXT, entry_ts INTEGER, entry_price REAL, rank INTEGER, rr REAL, status TEXT, exit_ts INTEGER, exit_price REAL, exit_reason TEXT, trimmed_pct REAL, pnl REAL, pnl_pct REAL, script_version TEXT, created_at INTEGER, updated_at INTEGER, trim_ts INTEGER, trim_price REAL, PRIMARY KEY (run_id, trade_id))`),
-        db.prepare(`CREATE TABLE IF NOT EXISTS backtest_run_direction_accuracy (run_id TEXT NOT NULL, trade_id TEXT NOT NULL, ticker TEXT, ts INTEGER, signal_snapshot_json TEXT, regime_daily TEXT, regime_weekly TEXT, regime_combined TEXT, entry_path TEXT, execution_profile_name TEXT, execution_profile_confidence REAL, market_state TEXT, execution_profile_json TEXT, PRIMARY KEY (run_id, trade_id))`),
+        db.prepare(`CREATE TABLE IF NOT EXISTS backtest_run_direction_accuracy (run_id TEXT NOT NULL, trade_id TEXT NOT NULL, ticker TEXT, ts INTEGER, signal_snapshot_json TEXT, regime_daily TEXT, regime_weekly TEXT, regime_combined TEXT, entry_path TEXT, execution_profile_name TEXT, execution_profile_confidence REAL, market_state TEXT, execution_profile_json TEXT, rvol_best REAL, entry_quality_score REAL, PRIMARY KEY (run_id, trade_id))`),
         db.prepare(`CREATE TABLE IF NOT EXISTS backtest_run_annotations (run_id TEXT NOT NULL, trade_id TEXT NOT NULL, classification TEXT, notes TEXT, updated_at INTEGER, PRIMARY KEY (run_id, trade_id))`),
         db.prepare(`CREATE TABLE IF NOT EXISTS backtest_run_config (run_id TEXT NOT NULL, config_key TEXT NOT NULL, config_value TEXT, PRIMARY KEY (run_id, config_key))`),
       ]);
@@ -15287,6 +16433,12 @@ async function d1EnsureBacktestRunsSchema(env) {
         db.prepare(`CREATE INDEX IF NOT EXISTS idx_backtest_runs_live ON backtest_runs(live_config_slot, updated_at DESC)`),
         db.prepare(`CREATE INDEX IF NOT EXISTS idx_brt_run ON backtest_run_trades(run_id)`),
         db.prepare(`CREATE INDEX IF NOT EXISTS idx_brda_run ON backtest_run_direction_accuracy(run_id)`),
+      ]);
+    } catch {}
+    try {
+      await db.batch([
+        db.prepare(`ALTER TABLE backtest_run_direction_accuracy ADD COLUMN rvol_best REAL`),
+        db.prepare(`ALTER TABLE backtest_run_direction_accuracy ADD COLUMN entry_quality_score REAL`),
       ]);
     } catch {}
     _backtestRunsSchemaReady = true;
@@ -15418,6 +16570,9 @@ async function d1EnsureLearningSchema(env) {
     } catch { /* indexes may already exist */ }
     try {
       await db.prepare(`ALTER TABLE direction_accuracy ADD COLUMN signal_snapshot_json TEXT`).run();
+    } catch { /* column may already exist */ }
+    try {
+      await db.prepare(`ALTER TABLE direction_accuracy ADD COLUMN exit_snapshot_json TEXT`).run();
     } catch { /* column may already exist */ }
     try {
       await db.prepare(`ALTER TABLE trade_autopsy_annotations ADD COLUMN entry_grade TEXT DEFAULT '[]'`).run();
@@ -17215,6 +18370,23 @@ function buildTradeLineageSnapshot(tickerData, entryPathOverride = null) {
       }
     : null;
 
+  const rvolMap = tickerData?.rvol_map;
+  const rvol30 = rvolMap?.["30"]?.vr ?? rvolMap?.["60"]?.vr ?? null;
+  const rvol1H = rvolMap?.["60"]?.vr ?? null;
+  const rvolD = rvolMap?.D?.vr ?? null;
+
+  const liqSnapshot = (() => {
+    const liq4h = tickerData?.liq_4h;
+    const liqD = tickerData?.liq_D;
+    const liqW = tickerData?.liq_W;
+    if (!liq4h && !liqD && !liqW) return null;
+    const out = {};
+    if (liq4h) out["4H"] = { bsd: liq4h.nearestBuysideDist, ssd: liq4h.nearestSellsideDist, bc: liq4h.buysideCount, sc: liq4h.sellsideCount };
+    if (liqD) out.D = { bsd: liqD.nearestBuysideDist, ssd: liqD.nearestSellsideDist, bc: liqD.buysideCount, sc: liqD.sellsideCount };
+    if (liqW) out.W = { bsd: liqW.nearestBuysideDist, ssd: liqW.nearestSellsideDist, bc: liqW.buysideCount, sc: liqW.sellsideCount };
+    return out;
+  })();
+
   return {
     entry_path: entryPathOverride || tickerData?.__entry_path || tickerData?.entry_path || null,
     direction_source: tickerData?.direction_source || null,
@@ -17226,6 +18398,10 @@ function buildTradeLineageSnapshot(tickerData, entryPathOverride = null) {
     ticker_character: tickerCharacter,
     ripster_clouds: ripsterClouds,
     vix_at_entry: Number.isFinite(Number(tickerData?._vix)) ? Number(tickerData._vix) : null,
+    rvol: { "30m": rvol30, "1H": rvol1H, D: rvolD },
+    entry_quality_score: Number.isFinite(Number(tickerData?.entry_quality?.score)) ? Number(tickerData.entry_quality.score) : null,
+    danger_score: tickerData?.__danger_score ?? null,
+    danger_flags: tickerData?.__danger_flags ?? null,
     regime_params: tickerData?.regime_params
       ? {
           minHTFScore: Number.isFinite(Number(tickerData.regime_params.minHTFScore)) ? Number(tickerData.regime_params.minHTFScore) : null,
@@ -17236,6 +18412,91 @@ function buildTradeLineageSnapshot(tickerData, entryPathOverride = null) {
           defendWinnerBias: tickerData.regime_params.defendWinnerBias || null,
         }
       : null,
+    rsi_divergence: tickerData?.rsi_divergence || null,
+    td_counts: (() => {
+      const ptf = tickerData?.td_sequential?.per_tf;
+      if (!ptf) return null;
+      const out = {};
+      for (const tf of ["15", "30", "60", "240", "D", "W"]) {
+        const k = tf === "15" ? "10" : tf;
+        const t = ptf[k];
+        if (!t) continue;
+        out[tf] = {
+          bp: t.bullish_prep_count || 0,
+          bl: t.bullish_leadup_count || 0,
+          xp: t.bearish_prep_count || 0,
+          xl: t.bearish_leadup_count || 0,
+        };
+      }
+      return Object.keys(out).length > 0 ? out : null;
+    })(),
+    // Saty Phase oscillator values at entry — needed to validate Phase-based exits
+    saty_phase: (() => {
+      const tt = tickerData?.tf_tech;
+      if (!tt) return null;
+      const out = {};
+      for (const tf of ["1H", "30", "D"]) {
+        const sp = tt[tf]?.saty;
+        if (!sp) continue;
+        out[tf] = { v: sp.v, z: sp.z, l: sp.l || undefined };
+      }
+      return Object.keys(out).length > 0 ? out : null;
+    })(),
+    // SuperTrend direction + slope + bars-since-flip per TF
+    supertrend: (() => {
+      const tt = tickerData?.tf_tech;
+      if (!tt) return null;
+      const out = {};
+      for (const tf of ["D", "4H", "1H", "30"]) {
+        const t = tt[tf];
+        if (!t) continue;
+        out[tf] = { d: t.stDir || 0, s: t.stSlope || 0 };
+      }
+      return Object.keys(out).length > 0 ? out : null;
+    })(),
+    st_bars_since_flip_D: tickerData?.st_bars_since_flip_D ?? null,
+    // Swing consensus at entry
+    swing_consensus: tickerData?.swing_consensus ? {
+      dir: tickerData.swing_consensus.direction || null,
+      bias: tickerData.swing_consensus.avg_bias ?? null,
+      bull: tickerData.swing_consensus.bullish_count ?? null,
+      bear: tickerData.swing_consensus.bearish_count ?? null,
+    } : null,
+    // ATR displacement at entry — validates ATR exhaust exits
+    atr_disp: (() => {
+      const al = tickerData?.atr_levels;
+      if (!al) return null;
+      const out = {};
+      for (const hz of ["day", "week"]) {
+        const h = al[hz];
+        if (!h) continue;
+        out[hz] = { d: Math.round((h.disp || 0) * 1000) / 1000, b: h.band, r: h.rangeOfATR || 0 };
+      }
+      return Object.keys(out).length > 0 ? out : null;
+    })(),
+    volatility_tier: tickerData?.volatility_tier || null,
+    // EMA depth per TF (used in danger score, but wasn't recorded)
+    ema_depth: (() => {
+      const em = tickerData?.ema_map;
+      if (!em) return null;
+      const out = {};
+      for (const tf of ["D", "240", "60", "30"]) {
+        if (em[tf]?.depth != null) out[tf] = em[tf].depth;
+      }
+      return Object.keys(out).length > 0 ? out : null;
+    })(),
+    // Fuel gauge at entry — validates momentum fade exits
+    fuel: (() => {
+      const f = tickerData?.fuel;
+      if (!f) return null;
+      const out = {};
+      for (const tf of ["30", "60"]) {
+        if (f[tf]) out[tf] = { s: f[tf].status, p: Math.round((f[tf].pct || 0) * 100) / 100 };
+      }
+      return Object.keys(out).length > 0 ? out : null;
+    })(),
+    mean_revert_td9: tickerData?.mean_revert_td9 || null,
+    liq: liqSnapshot,
   };
 }
 
@@ -18696,16 +19957,16 @@ async function d1UpsertTrade(env, trade) {
           (trade_id, ticker, direction, entry_ts, entry_price, rank, rr, status,
            exit_ts, exit_price, exit_reason, trimmed_pct, pnl, pnl_pct, script_version,
            created_at, updated_at, trim_ts, trim_price, run_id,
-           setup_name, setup_grade, risk_budget)
+           setup_name, setup_grade, risk_budget, shares, notional)
          VALUES
-          (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23)`;
+          (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25)`;
   const insertWithoutTrimPrice = `INSERT OR IGNORE INTO trades
           (trade_id, ticker, direction, entry_ts, entry_price, rank, rr, status,
            exit_ts, exit_price, exit_reason, trimmed_pct, pnl, pnl_pct, script_version,
            created_at, updated_at, trim_ts, run_id,
-           setup_name, setup_grade, risk_budget)
+           setup_name, setup_grade, risk_budget, shares, notional)
          VALUES
-          (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22)`;
+          (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24)`;
 
   const resolvedEntryPrice = trade.entryPrice != null ? Number(trade.entryPrice)
     : trade.entry_price != null ? Number(trade.entry_price) : null;
@@ -18747,6 +20008,8 @@ async function d1UpsertTrade(env, trade) {
         trade.setupName ?? trade.setup_name ?? null,
         trade.setupGrade ?? trade.setup_grade ?? null,
         Number(trade.riskBudget ?? trade.risk_budget) || null,
+        Number(trade.shares) || null,
+        Number(trade.notional ?? (Number(trade.shares) * resolvedEntryPrice)) || null,
       )
       .run();
 
@@ -18757,7 +20020,8 @@ async function d1UpsertTrade(env, trade) {
           exit_ts=?9, exit_price=?10, exit_reason=?11,
           trimmed_pct=?12, pnl=?13, pnl_pct=?14, script_version=?15,
           updated_at=?16, trim_ts=?17, trim_price=?18, run_id=COALESCE(?19, run_id),
-          setup_name=COALESCE(?20, setup_name), setup_grade=COALESCE(?21, setup_grade), risk_budget=COALESCE(?22, risk_budget)
+          setup_name=COALESCE(?20, setup_name), setup_grade=COALESCE(?21, setup_grade), risk_budget=COALESCE(?22, risk_budget),
+          shares=COALESCE(?23, shares), notional=COALESCE(?24, notional)
          WHERE trade_id=?1`,
       )
       .bind(
@@ -18787,6 +20051,8 @@ async function d1UpsertTrade(env, trade) {
         trade.setupName ?? trade.setup_name ?? null,
         trade.setupGrade ?? trade.setup_grade ?? null,
         Number(trade.riskBudget ?? trade.risk_budget) || null,
+        Number(trade.shares) || null,
+        Number(trade.notional ?? (Number(trade.shares) * resolvedEntryPrice)) || null,
       )
       .run();
 
@@ -19133,27 +20399,44 @@ async function runInvestorDailyReplay(env, KV, replayCtx, dayDate, tickerDataMap
     // Track high watermark for trailing stop (use price or cost-adjusted peak)
     const costBasis = Number(pos.cost_basis) || (avgEntry * shares);
     const currentValue = price * shares;
-    const peakPrice = Math.max(price, avgEntry); // simplified — real HWM would track in a column
+    const peakPrice = Math.max(Number(pos.peak_price) || 0, price, avgEntry);
 
     // Hybrid exit check 1: regime reversal (classifyInvestorStage returns "reduce")
     const regimeExit = (stage === "reduce" || stage === "exited");
 
-    // Hybrid exit check 2: wider trailing stop (3x ATR or 10% fixed)
+    // Hybrid exit check 2: adaptive trailing stop
+    // Default: 3x ATR. Tighten to 2x ATR when weekly exhaustion/divergence signals fire.
     const atr = Number(td.atr_D || td.atr || td.tf_tech?.D?.atr?.v);
+    let trailMult = INVESTOR_TRAILING_STOP_ATR_MULT; // default 3x
+    const _invTdPerTf = td?.td_sequential?.per_tf;
+    const _invTdW = _invTdPerTf?.W || _invTdPerTf?.["1W"];
+    const _invDivW = td?.rsi_divergence?.W || td?.tf_tech?.W?.rsiDiv;
+    const _invSatyW = td?.tf_tech?.W?.saty;
+    const toppingSignal = (_invTdW?.bullish_prep_count >= 7)
+      || (_invDivW?.bear?.active)
+      || (_invSatyW?.z === "DISTRIBUTION" && _invSatyW?.l);
+    if (toppingSignal) trailMult = 2.0;
+
     let trailingStopPrice;
     if (Number.isFinite(atr) && atr > 0) {
-      trailingStopPrice = peakPrice - (INVESTOR_TRAILING_STOP_ATR_MULT * atr);
+      trailingStopPrice = peakPrice - (trailMult * atr);
     } else {
       trailingStopPrice = peakPrice * (1 - INVESTOR_TRAILING_STOP_FIXED_PCT);
     }
     const trailingStopHit = price < trailingStopPrice;
 
     const shouldExit = regimeExit || trailingStopHit;
-    const exitReason = regimeExit ? `regime_${stage}` : "trailing_stop";
+    const exitReason = regimeExit ? `regime_${stage}` : (toppingSignal ? "trailing_stop_tightened" : "trailing_stop");
 
     // Trim check: watch stage with large position (> 6% of capital)
     const allocPct = costBasis / INVESTOR_REPLAY_CAPITAL;
     const shouldTrim = !shouldExit && stage === "watch" && allocPct > 0.06;
+
+    // Signal-based profit trim: core_hold with >= 5% profit + exhaustion signals → trim 20%
+    const posPnlPct = avgEntry > 0 ? ((price - avgEntry) / avgEntry) * 100 : 0;
+    const signalTrim = !shouldExit && !shouldTrim
+      && stage === "core_hold" && posPnlPct >= 5.0
+      && toppingSignal;
 
     if (shouldExit) {
       // Full exit
@@ -19179,9 +20462,10 @@ async function runInvestorDailyReplay(env, KV, replayCtx, dayDate, tickerDataMap
       }).catch(() => {});
       closed++;
 
-    } else if (shouldTrim) {
-      // Trim 25%
-      const trimShares = shares * 0.25;
+    } else if (shouldTrim || signalTrim) {
+      const trimReason = shouldTrim ? "trim_overweight" : "signal_exhaustion_trim";
+      const trimPct = shouldTrim ? 0.25 : 0.20;
+      const trimShares = shares * trimPct;
       const trimValue = price * trimShares;
       const pnl = (price - avgEntry) * trimShares;
       const lotId = `inv-lot-${sym}-trim-${dayDate}`;
@@ -19189,12 +20473,12 @@ async function runInvestorDailyReplay(env, KV, replayCtx, dayDate, tickerDataMap
       const newCost = avgEntry * newShares;
 
       await db.prepare(
-        "INSERT OR IGNORE INTO investor_lots (id, position_id, ticker, action, shares, price, value, ts, reason, created_at) VALUES (?1, ?2, ?3, 'SELL', ?4, ?5, ?6, ?7, 'trim_overweight', ?7)"
-      ).bind(lotId, pos.id, sym, trimShares, price, trimValue, dayMs).run();
+        "INSERT OR IGNORE INTO investor_lots (id, position_id, ticker, action, shares, price, value, ts, reason, created_at) VALUES (?1, ?2, ?3, 'SELL', ?4, ?5, ?6, ?7, ?8, ?7)"
+      ).bind(lotId, pos.id, sym, trimShares, price, trimValue, dayMs, trimReason).run();
 
       await db.prepare(
-        "UPDATE investor_positions SET total_shares = ?1, cost_basis = ?2, updated_at = ?3, investor_stage = 'watch' WHERE id = ?4"
-      ).bind(newShares, newCost, dayMs, pos.id).run();
+        "UPDATE investor_positions SET total_shares = ?1, cost_basis = ?2, updated_at = ?3, investor_stage = 'watch', peak_price = ?5 WHERE id = ?4"
+      ).bind(newShares, newCost, dayMs, pos.id, peakPrice).run();
 
       investorCash += trimValue;
       await d1InsertLedgerEntry(env, {
@@ -19202,16 +20486,16 @@ async function runInvestorDailyReplay(env, KV, replayCtx, dayDate, tickerDataMap
         position_id: pos.id, ticker: sym, direction: "LONG",
         qty: trimShares, price, cash_delta: trimValue,
         realized_pnl: pnl, balance: investorCash,
-        note: `Trim ${sym} ${trimShares.toFixed(1)}sh @$${price.toFixed(2)} (overweight) PnL=$${pnl.toFixed(2)}`,
+        note: `Trim ${sym} ${trimShares.toFixed(1)}sh @$${price.toFixed(2)} (${trimReason}) PnL=$${pnl.toFixed(2)}`,
       }).catch(() => {});
       trimmed++;
 
     } else {
-      // Update stage
+      // Update stage + persist peak_price high-water mark
       if (scored) {
         await db.prepare(
-          "UPDATE investor_positions SET investor_stage = ?1, updated_at = ?2 WHERE id = ?3"
-        ).bind(scored.stage, dayMs, pos.id).run().catch(() => {});
+          "UPDATE investor_positions SET investor_stage = ?1, updated_at = ?2, peak_price = ?4 WHERE id = ?3"
+        ).bind(scored.stage, dayMs, pos.id, peakPrice).run().catch(() => {});
       }
     }
   }
@@ -19235,6 +20519,13 @@ async function runInvestorDailyReplay(env, KV, replayCtx, dayDate, tickerDataMap
     const dcaRvolDeadZone = scored.td?.regime_params?.rvolDeadZone ?? 0.4;
     if (dcaRvol > 0 && dcaRvol < dcaRvolDeadZone) {
       console.log(`[INVESTOR_DCA_SKIP] ${sym}: RVOL ${dcaRvol.toFixed(2)} below dead zone ${dcaRvolDeadZone}`);
+      continue;
+    }
+
+    // Divergence gate — skip DCA when daily bearish divergence is active
+    const _dcaDivD = scored.td?.rsi_divergence?.D || scored.td?.tf_tech?.D?.rsiDiv;
+    if (_dcaDivD?.bear?.active) {
+      console.log(`[INVESTOR_DCA_SKIP] ${sym}: daily bearish RSI divergence active — momentum deteriorating`);
       continue;
     }
 
@@ -19281,6 +20572,14 @@ async function runInvestorDailyReplay(env, KV, replayCtx, dayDate, tickerDataMap
 
   for (const c of candidates) {
     if (currentPosCount + opened >= INVESTOR_MAX_POSITIONS) break;
+
+    // D/W/M SuperTrend alignment gate (Pine convention: stDir === -1 = bullish)
+    const _stDBull = c.td?.tf_tech?.D?.stDir === -1;
+    const _stWBull = c.td?.tf_tech?.W?.stDir === -1;
+    const _stMBull = c.td?.monthly_bundle?.supertrend_dir === -1;
+    const _stBullCount = (_stDBull ? 1 : 0) + (_stWBull ? 1 : 0) + (_stMBull ? 1 : 0);
+    if (!_stMBull) continue;
+    if (_stBullCount < 2) continue;
 
     const price = Number(c.td.price);
     if (!Number.isFinite(price) || price <= 0) continue;
@@ -19882,6 +21181,7 @@ async function d1LoadTradesForSimulation(env) {
         `SELECT t.trade_id, t.ticker, t.direction, t.entry_ts, t.entry_price, t.rank, t.rr, t.status,
           t.exit_ts, t.exit_price, t.exit_reason, t.trimmed_pct, t.pnl, t.pnl_pct,
           t.script_version, t.created_at, t.updated_at, t.trim_ts, t.trim_price,
+          t.shares AS t_shares, t.notional AS t_notional, t.setup_grade, t.setup_name, t.risk_budget,
           COALESCE(p.total_qty, 0) AS pos_qty
          FROM trades t
          LEFT JOIN positions p ON p.position_id = t.trade_id
@@ -19929,10 +21229,11 @@ async function d1LoadTradesForSimulation(env) {
       const history = eventsByTradeId[r.trade_id] || [];
       const entryTs = r.entry_ts != null ? Number(r.entry_ts) : null;
       const posQty = Number(r.pos_qty) || 0;
+      const tShares = Number(r.t_shares) || 0;
       const trimmedPct = r.trimmed_pct != null ? Number(r.trimmed_pct) : 0;
-      const shares = trimmedPct > 0 && trimmedPct < 1 && posQty > 0
-        ? posQty / (1 - trimmedPct)
-        : posQty;
+      const shares = tShares > 0 ? tShares
+        : (trimmedPct > 0 && trimmedPct < 1 && posQty > 0 ? posQty / (1 - trimmedPct) : posQty);
+      const notionalVal = Number(r.t_notional) || (shares > 0 && Number(r.entry_price) > 0 ? shares * Number(r.entry_price) : 0);
       return {
         id: r.trade_id,
         trade_id: r.trade_id,
@@ -19958,6 +21259,10 @@ async function d1LoadTradesForSimulation(env) {
         created_at: r.created_at,
         updated_at: r.updated_at,
         shares: Number.isFinite(shares) && shares > 0 ? shares : undefined,
+        notional: notionalVal > 0 ? notionalVal : undefined,
+        setup_grade: r.setup_grade || undefined,
+        setup_name: r.setup_name || undefined,
+        risk_budget: r.risk_budget || undefined,
         history,
       };
     });
@@ -20727,7 +22032,11 @@ function createTradeClosedEmbed(
     "tp reached": "Profit target reached",
     below_trigger: "Dropped below entry trigger",
     RUNNER_PEAK_TRAIL: "Runner trailing stop from peak",
+    RUNNER_MAX_DRAWDOWN_BREAKER: "Runner max drawdown breaker",
+    HARD_LOSS_CAP: "Per-trade hard loss cap breached",
+    MFE_SAFETY_TRIM: "MFE safety trim locked in profit",
     STALL_BREAKEVEN: "Position stalled — closed at breakeven",
+    STALL_FORCE_CLOSE: "Untrimmed position stalled — force closed after time limit",
   };
   const rawReason = exitReason || "";
   const humanExitReason = exitReasonMap[rawReason]
@@ -33443,9 +34752,10 @@ export default {
                 const chunk = tradeIds.slice(ci, ci + CHUNK);
                 const placeholders = chunk.map((_, i) => `?${i + 1}`).join(",");
                 const { results: daRows } = await db.prepare(
-                  `SELECT trade_id, signal_snapshot_json, entry_path, consensus_direction,
+                  `SELECT trade_id, signal_snapshot_json, exit_snapshot_json, entry_path, consensus_direction,
                         max_favorable_excursion, max_adverse_excursion, tf_stack_json,
-                          execution_profile_name, execution_profile_confidence, market_state, execution_profile_json
+                          execution_profile_name, execution_profile_confidence, market_state, execution_profile_json,
+                          rvol_best, entry_quality_score
                    FROM direction_accuracy
                    WHERE trade_id IN (${placeholders})`
                 ).bind(...chunk).all();
@@ -33474,7 +34784,10 @@ export default {
                   setup_name: t?.setupName ?? t?.setup_name ?? da.setup_name ?? null,
                   setup_grade: t?.setupGrade ?? t?.setup_grade ?? da.setup_grade ?? null,
                   risk_budget: t?.riskBudget ?? t?.risk_budget ?? da.risk_budget ?? null,
+                  shares: t?.shares ?? null,
+                  notional: t?.notional ?? (Number(t?.shares) > 0 && Number(t?.entryPrice || t?.entry_price) > 0 ? Number(t.shares) * Number(t.entryPrice || t.entry_price) : null),
                   signal_snapshot_json: da.signal_snapshot_json || null,
+                  exit_snapshot_json: da.exit_snapshot_json || null,
                   entry_path: da.entry_path || t?.entryPath || null,
                   consensus_direction: da.consensus_direction || null,
                   max_favorable_excursion: da.max_favorable_excursion ?? null,
@@ -33484,6 +34797,8 @@ export default {
                   execution_profile_confidence: da.execution_profile_confidence ?? null,
                   market_state: da.market_state || null,
                   execution_profile_json: da.execution_profile_json || null,
+                  rvol_best: da.rvol_best ?? null,
+                  entry_quality_score: da.entry_quality_score ?? null,
                 };
               })
               .sort((a, b) => Number(b?.entry_ts || 0) - Number(a?.entry_ts || 0));
@@ -33499,9 +34814,11 @@ export default {
             `SELECT t.trade_id, t.ticker, t.direction, t.status, t.entry_ts, t.exit_ts, t.trim_ts,
                     t.entry_price, t.exit_price, t.pnl, t.pnl_pct, t.exit_reason, t.run_id,
                     t.trimmed_pct, t.trim_price, t.setup_name, t.setup_grade, t.risk_budget,
-                      da.signal_snapshot_json, da.entry_path, da.consensus_direction,
+                    t.shares, t.notional,
+                      da.signal_snapshot_json, da.exit_snapshot_json, da.entry_path, da.consensus_direction,
                     da.max_favorable_excursion, da.max_adverse_excursion, da.tf_stack_json,
-                    da.execution_profile_name, da.execution_profile_confidence, da.market_state, da.execution_profile_json
+                    da.execution_profile_name, da.execution_profile_confidence, da.market_state, da.execution_profile_json,
+                    da.rvol_best, da.entry_quality_score
                FROM trades t
                LEFT JOIN direction_accuracy da ON da.trade_id = t.trade_id
              WHERE t.status NOT IN ('OPEN', 'TP_HIT_TRIM')
@@ -33526,7 +34843,10 @@ export default {
             setup_name: r.setup_name,
             setup_grade: r.setup_grade,
             risk_budget: r.risk_budget,
+            shares: r.shares ?? null,
+            notional: r.notional ?? null,
             signal_snapshot_json: r.signal_snapshot_json,
+            exit_snapshot_json: r.exit_snapshot_json,
             entry_path: r.entry_path,
             consensus_direction: r.consensus_direction,
             max_favorable_excursion: r.max_favorable_excursion,
@@ -33536,6 +34856,8 @@ export default {
             execution_profile_confidence: r.execution_profile_confidence,
             market_state: r.market_state,
             execution_profile_json: r.execution_profile_json,
+            rvol_best: r.rvol_best ?? null,
+            entry_quality_score: r.entry_quality_score ?? null,
           }));
           return sendJSON({ ok: true, count: trades.length, trades }, 200, corsHeaders(env, req));
         } catch (e) {
@@ -34075,7 +35397,7 @@ export default {
 
         // Load existing trades for trade simulation (KV first, D1 fallback)
         let allTrades = (await kvGetJSON(KV, REPLAY_TRADES_KV_KEY)) || [];
-        const replayCtx = { allTrades, execStates: new Map(), processDebug: [], candleCache };
+        const replayCtx = { allTrades, execStates: new Map(), processDebug: [], candleCache, _blockedEntries: {}, _leadingLtf: replayLeadingLtf };
 
         // State map: track evolving ticker state across intervals
         // Primary: KV, Fallback: D1 ticker_latest (KV writes can silently fail)
@@ -34133,7 +35455,7 @@ export default {
         } catch {}
         // Load deep audit config for replay parity with live
         try {
-          const daKeys = ["deep_audit_short_min_rank", "deep_audit_ticker_blacklist", "deep_audit_max_loss_pct", "deep_audit_sl_cap_mult", "deep_audit_sl_floor_mult", "deep_audit_rsi_tp_delay", "deep_audit_avoid_hours", "deep_audit_block_regime", "deep_audit_min_hold_regime_exit_hours", "deep_audit_loss_cooldown_hours", "deep_audit_min_htf_score", "deep_audit_momentum_elite_rank_boost", "deep_audit_breakout_daily_level_enabled", "deep_audit_breakout_atr_breakout_enabled", "deep_audit_breakout_ema_stack_enabled", "deep_audit_breakout_min_rr", "deep_audit_breakout_min_entry_quality", "deep_audit_opening_noise_end_minute", "deep_audit_min_1h_bias", "deep_audit_min_4h_bias", "deep_audit_ltf_momentum_min_bias", "deep_audit_ltf_momentum_min_rsi", "deep_audit_ripster_opening_noise_end_minute", "deep_audit_ltf_rsi_floor", "deep_audit_min_ltf_ema_depth", "deep_audit_post_trim_breakeven", "deep_audit_stall_max_hours", "deep_audit_stall_breakeven_pnl_pct", "deep_audit_soft_fuse_defer_min_1h_depth", "deep_audit_runner_trail_pct", "deep_audit_post_trim_trail_pct", "deep_audit_stale_runner_bars", "deep_audit_momentum_fade_exit", "tier_risk_map", "grade_risk_map"];
+          const daKeys = ["deep_audit_short_min_rank", "deep_audit_ticker_blacklist", "deep_audit_max_loss_pct", "deep_audit_sl_cap_mult", "deep_audit_sl_floor_mult", "deep_audit_rsi_tp_delay", "deep_audit_avoid_hours", "deep_audit_block_regime", "deep_audit_vix_ceiling", "deep_audit_regime_size_mult", "deep_audit_min_hold_regime_exit_hours", "deep_audit_loss_cooldown_hours", "deep_audit_min_htf_score", "deep_audit_momentum_elite_rank_boost", "deep_audit_breakout_daily_level_enabled", "deep_audit_breakout_atr_breakout_enabled", "deep_audit_breakout_ema_stack_enabled", "deep_audit_breakout_min_rr", "deep_audit_breakout_min_entry_quality", "deep_audit_opening_noise_end_minute", "deep_audit_min_1h_bias", "deep_audit_min_4h_bias", "deep_audit_ltf_momentum_min_bias", "deep_audit_ltf_momentum_min_rsi", "deep_audit_ripster_opening_noise_end_minute", "deep_audit_ltf_rsi_floor", "deep_audit_min_ltf_ema_depth", "deep_audit_post_trim_breakeven", "deep_audit_stall_max_hours", "deep_audit_stall_breakeven_pnl_pct", "deep_audit_stall_force_close_hours", "deep_audit_soft_fuse_defer_min_1h_depth", "deep_audit_runner_trail_pct", "deep_audit_post_trim_trail_pct", "deep_audit_stale_runner_bars", "deep_audit_momentum_fade_exit", "deep_audit_min_hold_before_mgmt_exit_min", "deep_audit_tp_atr_override", "deep_audit_phase_exit_enabled", "deep_audit_atr_exhaustion_exit", "deep_audit_rvol_ceiling", "deep_audit_rvol_ceiling_short", "deep_audit_rvol_high_threshold", "deep_audit_rvol_high_size_mult", "deep_audit_danger_max_signals", "deep_audit_danger_ema_depth_min", "deep_audit_danger_vix_threshold", "deep_audit_danger_min_st_aligned", "deep_audit_danger_size_mult", "deep_audit_danger_size_threshold", "deep_audit_danger_div_enabled", "deep_audit_div_exit_enabled", "deep_audit_div_exit_min_strength", "deep_audit_div_pivot_lookback", "deep_audit_div_max_age_bars", "deep_audit_div_runner_trail_pct", "deep_audit_mean_revert_td9_enabled", "deep_audit_td_exit_enabled", "deep_audit_td_exit_trail_pct", "deep_audit_td_ltf_trail_pct", "deep_audit_mfe_safety_trim_pct", "deep_audit_max_runner_drawdown_pct", "deep_audit_min_entry_quality", "deep_audit_hard_loss_cap", "tier_risk_map", "grade_risk_map", "smart_runner_exit_enabled", "smart_runner_swing_atr_proximity", "smart_runner_min_bars_post_trim", "rank_gate_mode"];
           const daRows = (await db.prepare(
             `SELECT config_key, config_value FROM model_config WHERE config_key IN (${daKeys.map((_, i) => `?${i + 1}`).join(",")})`
           ).bind(...daKeys).all())?.results || [];
@@ -34283,6 +35605,8 @@ export default {
                   _sectorRegime: _rSecRegime,
                   _deepAuditConfig: replayEnv._deepAuditConfig || null,
                   _leadingLtf: replayLeadingLtf,
+                  _universeSize: allTickers.length,
+                  _replayBlockedEntries: replayCtx._blockedEntries || null,
                 };
               }
               // Inject per-day VIX from historical candles (or static fallback)
@@ -34378,21 +35702,20 @@ export default {
                 result.kanban_cycle_side = null;
               }
 
-              // Track entry price on stage transitions
-              // CAT bug fix: Prefer 10m candle close for replay entry (most granular intraday).
-              // When 10m bundle is missing (endIdx < 50), use last 10m bar from candleCache directly
-              // instead of result.price (which can be daily/4H from wrong bar).
+              // Track entry price on stage transitions.
+              // Use the leading LTF candle close (matches scoring TF) for entry price.
+              // Fallback chain: leading LTF bundle → leading LTF candle cache → result.price
               const isNewEntry = (finalStage === "enter_now" || finalStage === "enter") && prevStage !== "enter_now" && prevStage !== "enter";
               if (isNewEntry) {
-                const b10 = bundleMap["10"];
-                let price10m = Number(b10?.px);
-                if (!(Number.isFinite(price10m) && price10m > 0)) {
-                  const allCandles10 = candleCache[ticker]?.["10"] || [];
-                  const last10m = allCandles10.filter((c) => c.ts <= intervalTs).pop();
-                  price10m = last10m ? Number(last10m.c) : null;
+                const bLtf = bundleMap[replayLeadingLtf];
+                let priceLtf = Number(bLtf?.px);
+                if (!(Number.isFinite(priceLtf) && priceLtf > 0)) {
+                  const ltfCandles = candleCache[ticker]?.[replayLeadingLtf] || [];
+                  const lastLtf = ltfCandles.filter((c) => c.ts <= intervalTs).pop();
+                  priceLtf = lastLtf ? Number(lastLtf.c) : null;
                 }
                 const priceFallback = Number(result?.price);
-                const price = (Number.isFinite(price10m) && price10m > 0) ? price10m : priceFallback;
+                const price = (Number.isFinite(priceLtf) && priceLtf > 0) ? priceLtf : priceFallback;
                 if (Number.isFinite(price) && price > 0) {
                   result.entry_price = price;
                   result.entry_ts = intervalTs;
@@ -34653,6 +35976,7 @@ export default {
           trailWritten: fullDay ? dayTrailWritten : trailWritten,
           lastSnapshot,
           processDebug: replayCtx?.processDebug?.slice(0, 30) || [],
+          blockedEntryGates: replayCtx?._blockedEntries || {},
           fullDay: !!fullDay,
         }, 200, corsHeaders(env, req));
         }
@@ -35351,7 +36675,7 @@ export default {
           } catch (ae) { console.error("[ARCHIVE] trades:", String(ae).slice(0, 200)); }
           try {
             const daRes = await db.prepare(
-              `INSERT OR IGNORE INTO backtest_run_direction_accuracy (run_id, trade_id, ticker, ts, signal_snapshot_json, regime_daily, regime_weekly, regime_combined, entry_path, execution_profile_name, execution_profile_confidence, market_state, execution_profile_json) SELECT ?1, da.trade_id, da.ticker, da.ts, da.signal_snapshot_json, da.regime_daily, da.regime_weekly, da.regime_combined, da.entry_path, da.execution_profile_name, da.execution_profile_confidence, da.market_state, da.execution_profile_json FROM direction_accuracy da INNER JOIN trades t ON da.trade_id = t.trade_id WHERE t.run_id = ?1 OR t.run_id IS NULL`
+              `INSERT OR IGNORE INTO backtest_run_direction_accuracy (run_id, trade_id, ticker, ts, signal_snapshot_json, regime_daily, regime_weekly, regime_combined, entry_path, execution_profile_name, execution_profile_confidence, market_state, execution_profile_json, rvol_best, entry_quality_score) SELECT ?1, da.trade_id, da.ticker, da.ts, da.signal_snapshot_json, da.regime_daily, da.regime_weekly, da.regime_combined, da.entry_path, da.execution_profile_name, da.execution_profile_confidence, da.market_state, da.execution_profile_json, da.rvol_best, da.entry_quality_score FROM direction_accuracy da INNER JOIN trades t ON da.trade_id = t.trade_id WHERE t.run_id = ?1 OR t.run_id IS NULL`
             ).bind(runId).run();
             archived.da = daRes?.meta?.changes ?? 0;
           } catch (ae) { console.error("[ARCHIVE] da:", String(ae).slice(0, 200)); }
@@ -37696,12 +39020,18 @@ export default {
           let tradesRaw = [];
           try {
             tradesRaw = (await db.prepare(`
-              SELECT * FROM trades WHERE status IN ('WIN','LOSS','FLAT') AND pnl IS NOT NULL ORDER BY entry_ts ASC
+              SELECT t.*, da.entry_path AS da_entry_path, da.signal_snapshot_json AS da_snapshot,
+                     da.execution_profile_name, da.execution_profile_confidence, da.market_state,
+                     da.regime_combined, da.regime_daily, da.consensus_direction
+              FROM trades t
+              LEFT JOIN direction_accuracy da ON da.trade_id = t.trade_id
+              WHERE t.status IN ('WIN','LOSS','FLAT') AND t.pnl IS NOT NULL
+              ORDER BY t.entry_ts ASC
             `).all())?.results || [];
           } catch (e1) {
             try {
               tradesRaw = (await db.prepare(`
-                SELECT * FROM positions WHERE status IN ('WIN','LOSS','FLAT') AND pnl IS NOT NULL ORDER BY entry_ts ASC
+                SELECT * FROM trades WHERE status IN ('WIN','LOSS','FLAT') AND pnl IS NOT NULL ORDER BY entry_ts ASC
               `).all())?.results || [];
             } catch { tradesRaw = []; }
           }
@@ -37715,7 +39045,10 @@ export default {
             const cb = Number(t.cost_basis) || 0;
             const pnlPct = Number(t.pnl_pct || t.pnlPct) || (cb > 0 ? (pnlVal / cb) * 100 : 0);
             let snap = null;
-            try { if (t.signal_snapshot) snap = JSON.parse(t.signal_snapshot); } catch {}
+            try { if (t.da_snapshot) snap = JSON.parse(t.da_snapshot); } catch {}
+            if (!snap) { try { if (t.signal_snapshot) snap = JSON.parse(t.signal_snapshot); } catch {} }
+            const lineage = snap?.lineage || {};
+            const _tk = String(t.ticker || "").toUpperCase();
             return {
               ...t,
               pnl: pnlVal,
@@ -37728,12 +39061,15 @@ export default {
               exit_ts: Number(t.exit_ts) || 0,
               rank: Number(t.rank_at_entry || t.rank || snap?.rank) || 0,
               direction: String(t.direction || "LONG").toUpperCase(),
-              entry_path: t.entry_path || snap?.entry_path || "unknown",
+              entry_path: t.da_entry_path || snap?.entry_path || lineage?.entry_path || "unknown",
               exit_reason: t.exit_reason || t.exitReason || "unknown",
-              ticker: String(t.ticker || "").toUpperCase(),
-              sector: t.sector || snap?.sector || "Unknown",
-              regime: t.regime_at_entry || snap?.regime_class || "unknown",
-              signal_snapshot: t.signal_snapshot || null,
+              ticker: _tk,
+              sector: t.sector || snap?.sector || getSector(_tk) || "Unknown",
+              regime: t.regime_combined || t.regime_at_entry || lineage?.regime_class || "unknown",
+              execution_profile: t.execution_profile_name || lineage?.execution_profile?.active_profile || null,
+              market_state: t.market_state || lineage?.market_internals?.overall || null,
+              vix_at_entry: lineage?.vix_at_entry || null,
+              signal_snapshot: t.da_snapshot || t.signal_snapshot || null,
             };
           });
 
@@ -38891,26 +40227,242 @@ export default {
         try {
           const db = env?.DB;
           if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
-          const rows = (await db.prepare(
-            `SELECT ticker, learning_json FROM ticker_profiles WHERE learning_json IS NOT NULL ORDER BY ticker`
-          ).all()).results || [];
 
-          const profiles = rows.map(row => {
+          const [profileRows, tradeRows] = await Promise.all([
+            db.prepare(`SELECT ticker, learning_json FROM ticker_profiles WHERE learning_json IS NOT NULL ORDER BY ticker`).all().then(r => r?.results || []),
+            db.prepare(`
+              SELECT t.ticker, t.direction, t.status, t.pnl, t.pnl_pct,
+                     da.entry_path, da.regime_combined, da.consensus_direction, da.signal_snapshot_json
+              FROM trades t LEFT JOIN direction_accuracy da ON da.trade_id = t.trade_id
+              WHERE t.status IN ('WIN','LOSS','FLAT') AND t.pnl IS NOT NULL
+            `).all().then(r => r?.results || []),
+          ]);
+
+          const tradesByTicker = {};
+          for (const tr of tradeRows) {
+            const tk = String(tr.ticker || "").toUpperCase();
+            if (!tradesByTicker[tk]) tradesByTicker[tk] = [];
+            tradesByTicker[tk].push(tr);
+          }
+
+          function vixBucket(v) { if (v < 15) return "low"; if (v < 22) return "medium"; if (v < 30) return "high"; return "extreme"; }
+
+          function buildContext(tkTrades) {
+            if (!tkTrades || !tkTrades.length) return null;
+            const n = tkTrades.length;
+            const wins = tkTrades.filter(t => t.status === "WIN").length;
+            const totalPnlPct = tkTrades.reduce((s, t) => s + (Number(t.pnl_pct) || 0), 0);
+            const byRegime = {}, byVix = {}, byPath = {};
+            let counterConsensus = 0;
+            for (const t of tkTrades) {
+              let lineage = null;
+              try { const s = typeof t.signal_snapshot_json === "string" ? JSON.parse(t.signal_snapshot_json) : t.signal_snapshot_json; lineage = s?.lineage || {}; } catch {}
+              const regime = t.regime_combined || lineage?.regime_class || "unknown";
+              const vix = lineage?.vix_at_entry ? vixBucket(lineage.vix_at_entry) : "unknown";
+              const path = t.entry_path || lineage?.entry_path || "unknown";
+              const isWin = t.status === "WIN";
+              const pnlPct = Number(t.pnl_pct) || 0;
+              for (const [map, key] of [[byRegime, regime], [byVix, vix], [byPath, path]]) {
+                if (!map[key]) map[key] = { n: 0, wins: 0, totalPnl: 0 };
+                map[key].n++; if (isWin) map[key].wins++; map[key].totalPnl += pnlPct;
+              }
+              if (t.consensus_direction && String(t.direction).toUpperCase() !== String(t.consensus_direction).toUpperCase()) counterConsensus++;
+            }
+            const bestBucket = (map, minN = 2) => {
+              let best = null;
+              for (const [k, v] of Object.entries(map)) {
+                if (k === "unknown" || v.n < minN) continue;
+                const wr = v.wins / v.n;
+                if (!best || wr > best.wr || (wr === best.wr && v.n > best.n)) best = { key: k, wr, n: v.n };
+              }
+              return best?.key || null;
+            };
+            const toArr = (map) => Object.entries(map).filter(([k]) => k !== "unknown").map(([k, v]) => ({
+              regime: k, bucket: k, n: v.n, win_rate: Math.round(v.wins / v.n * 1000) / 10, avg_pnl_pct: Math.round(v.totalPnl / v.n * 100) / 100,
+            })).sort((a, b) => b.n - a.n);
+
+            return {
+              sample_count: n,
+              win_rate: Math.round(wins / n * 1000) / 10,
+              avg_pnl_pct: Math.round(totalPnlPct / n * 100) / 100,
+              by_regime: toArr(byRegime),
+              by_vix_bucket: toArr(byVix),
+              by_entry_path: toArr(byPath),
+              favored_regime: bestBucket(byRegime),
+              favored_vix_bucket: bestBucket(byVix),
+              favored_entry_path: bestBucket(byPath),
+              counter_consensus_rate: n > 0 ? Math.round(counterConsensus / n * 1000) / 10 : null,
+            };
+          }
+
+          const profiles = profileRows.map(row => {
             let learning = null;
             try { learning = JSON.parse(row.learning_json); } catch (_) {}
+            const ctx = buildContext(tradesByTicker[row.ticker]);
             return {
               ticker: row.ticker,
               personality: learning?.personality || null,
+              behavior_type: learning?.behavior_type || learning?.personality || null,
               move_count: learning?.move_count || 0,
               avg_move_pct: learning?.avg_move_pct || null,
               avg_duration: learning?.avg_duration || null,
               entry_params: learning?.entry_params || null,
               long_profile: learning?.long_profile || null,
               short_profile: learning?.short_profile || null,
+              contract: {
+                learning: { personality: learning?.personality, entry_params: learning?.entry_params, long_profile: learning?.long_profile, short_profile: learning?.short_profile },
+                context: ctx,
+                execution: learning?.entry_params ? { merged_sl_mult: learning.entry_params.sl_atr_mult, merged_tp_mult: learning.entry_params.tp_atr_mult } : null,
+              },
+              merged: learning?.entry_params ? { slMult: learning.entry_params.sl_atr_mult || 1, tpMult: learning.entry_params.tp_atr_mult || 1 } : null,
             };
           });
 
           return sendJSON({ ok: true, count: profiles.length, profiles }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      if (routeKey === "GET /timed/system/regime-profiles") {
+        try {
+          const db = env?.DB;
+          if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
+          const limit = Math.min(50, Math.max(1, Number(url.searchParams.get("limit")) || 24));
+
+          const [runsRaw, metricsRaw] = await Promise.all([
+            db.prepare(`SELECT run_id, label, description, start_date, end_date, status, created_at FROM backtest_runs ORDER BY created_at DESC LIMIT ?`).bind(limit).all().then(r => r?.results || []).catch(() => []),
+            db.prepare(`SELECT run_id, total_trades, wins, losses, win_rate, realized_pnl, realized_pnl_pct FROM backtest_run_metrics ORDER BY updated_at DESC LIMIT ?`).bind(limit).all().then(r => r?.results || []).catch(() => []),
+          ]);
+
+          const metricsMap = {};
+          for (const m of metricsRaw) metricsMap[m.run_id] = m;
+
+          const runs = [];
+          const profileBuckets = {};
+
+          for (const run of runsRaw) {
+            const m = metricsMap[run.run_id] || {};
+            let daRows = [];
+            try {
+              daRows = (await db.prepare(
+                `SELECT regime_combined, regime_daily, signal_snapshot_json
+                 FROM backtest_run_direction_accuracy WHERE run_id = ? LIMIT 500`
+              ).bind(run.run_id).all())?.results || [];
+            } catch {}
+
+            const byRegime = {}, byVix = {};
+            for (const da of daRows) {
+              const regime = da.regime_combined || da.regime_daily || "unknown";
+              if (!byRegime[regime]) byRegime[regime] = { n: 0 };
+              byRegime[regime].n++;
+              try {
+                const snap = typeof da.signal_snapshot_json === "string" ? JSON.parse(da.signal_snapshot_json) : null;
+                const vix = snap?.lineage?.vix_at_entry;
+                if (vix) {
+                  const bucket = vix < 15 ? "low" : vix < 22 ? "medium" : vix < 30 ? "high" : "extreme";
+                  if (!byVix[bucket]) byVix[bucket] = { n: 0 };
+                  byVix[bucket].n++;
+                }
+              } catch {}
+            }
+
+            const topRegime = Object.entries(byRegime).sort((a, b) => b[1].n - a[1].n)[0]?.[0] || null;
+            const topVix = Object.entries(byVix).sort((a, b) => b[1].n - a[1].n)[0]?.[0] || null;
+
+            const profileKey = `${(topRegime || "unknown").toLowerCase()}_${(topVix || "unknown").toLowerCase()}`;
+            if (!profileBuckets[profileKey]) profileBuckets[profileKey] = { title: `${topRegime || "Unknown"} / ${topVix || "Unknown"} VIX`, profile_key: profileKey, why: `Runs that predominantly traded in ${topRegime || "unknown"} regime with ${topVix || "unknown"} VIX.`, candidate_runs: [] };
+            profileBuckets[profileKey].candidate_runs.push({
+              run_id: run.run_id, label: run.label || run.run_id,
+              realized_pnl: m.realized_pnl || 0, win_rate: m.win_rate || 0, trades: m.total_trades || 0,
+              top_regime: topRegime, top_vix_bucket: topVix,
+            });
+
+            runs.push({
+              run_id: run.run_id, label: run.label || run.run_id,
+              start_date: run.start_date, end_date: run.end_date,
+              win_rate: m.win_rate || 0, realized_pnl: m.realized_pnl || 0,
+              recommendation: { title: `${topRegime || "Unknown"} / ${topVix || "Unknown"} VIX`, why: `Dominant regime: ${topRegime}, VIX bucket: ${topVix}` },
+              context: {
+                by_regime: Object.entries(byRegime).map(([k, v]) => ({ regime: k, n: v.n })).sort((a, b) => b.n - a.n),
+                by_vix_bucket: Object.entries(byVix).map(([k, v]) => ({ bucket: k, n: v.n })).sort((a, b) => b.n - a.n),
+              },
+            });
+          }
+
+          return sendJSON({ ok: true, count: runs.length, profiles: Object.values(profileBuckets), runs }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      if (routeKey === "GET /timed/system/context-history") {
+        try {
+          const db = env?.DB;
+          if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
+          const limit = Math.min(60, Math.max(1, Number(url.searchParams.get("limit")) || 20));
+
+          const market = [];
+          try {
+            const vixRows = (await db.prepare(
+              `SELECT ts, open, high, low, close FROM ticker_candles WHERE ticker = 'VIX' AND tf = 'D' ORDER BY ts DESC LIMIT ?`
+            ).bind(limit).all())?.results || [];
+            const spyRows = (await db.prepare(
+              `SELECT ts, open, high, low, close FROM ticker_candles WHERE ticker = 'SPY' AND tf = 'D' ORDER BY ts DESC LIMIT ?`
+            ).bind(limit).all())?.results || [];
+            const qqqRows = (await db.prepare(
+              `SELECT ts, open, high, low, close FROM ticker_candles WHERE ticker = 'QQQ' AND tf = 'D' ORDER BY ts DESC LIMIT ?`
+            ).bind(limit).all())?.results || [];
+
+            const spyByDate = {}, qqqByDate = {};
+            for (const r of spyRows) { const d = new Date(Number(r.ts)).toISOString().slice(0, 10); spyByDate[d] = r; }
+            for (const r of qqqRows) { const d = new Date(Number(r.ts)).toISOString().slice(0, 10); qqqByDate[d] = r; }
+
+            const simpleRegime = (row) => {
+              if (!row) return "UNKNOWN";
+              return Number(row.close) > Number(row.open) ? "BULLISH" : "BEARISH";
+            };
+            const vixBucketFn = (v) => { if (v < 15) return "low"; if (v < 22) return "medium"; if (v < 30) return "high"; return "extreme"; };
+
+            for (const vr of vixRows) {
+              const d = new Date(Number(vr.ts)).toISOString().slice(0, 10);
+              const spy = spyByDate[d];
+              const qqq = qqqByDate[d];
+              const vixClose = Number(vr.close) || 0;
+              market.push({
+                context_date: d,
+                market_regime_class: vixClose > 25 ? "RISK_OFF" : vixClose > 18 ? "CAUTIOUS" : "RISK_ON",
+                spy_regime_combined: simpleRegime(spy),
+                qqq_regime_combined: simpleRegime(qqq),
+                market_health_regime: vixClose < 20 ? "HEALTHY" : vixClose < 28 ? "STRESSED" : "CRISIS",
+                market_health_score: Math.max(0, Math.round((40 - vixClose) * 2.5)),
+                breadth_pct_above_w200: null,
+                breadth_pct_above_d50: null,
+                vix_close: Math.round(vixClose * 100) / 100,
+                vix_bucket: vixBucketFn(vixClose),
+              });
+            }
+          } catch {}
+
+          const sectors = [];
+          try {
+            const sectorNames = [...new Set(Object.values(SECTOR_MAP))].filter(Boolean).sort();
+            for (const sector of sectorNames.slice(0, 12)) {
+              const tickers = Object.keys(SECTOR_MAP).filter(t => SECTOR_MAP[t] === sector);
+              sectors.push({
+                context_date: new Date().toISOString().slice(0, 10),
+                sector,
+                regime_class: null,
+                regime_score: null,
+                bullish_member_pct: null,
+                member_count: tickers.length,
+                avg_weekly_structure: null,
+                avg_daily_structure: null,
+              });
+            }
+          } catch {}
+
+          return sendJSON({ ok: true, market, sectors }, 200, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
         }
@@ -41810,6 +43362,46 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             const thesis = generateThesis(td, rsRank);
             allTheses[ticker] = thesis;
 
+            // Compact trend/momentum signals for investor UI
+            const _invSignals = (() => {
+              const tt = td?.tf_tech;
+              if (!tt) return undefined;
+              const stD = tt.D?.stDir ?? 0;
+              const stW = tt.W?.stDir ?? 0;
+              const phD = tt.D?.saty ? { v: tt.D.saty.v, z: tt.D.saty.z } : null;
+              const phW = tt.W?.saty ? { v: tt.W.saty.v, z: tt.W.saty.z } : null;
+
+              const tdPerTf = td?.td_sequential?.per_tf;
+              let tdSummary = null;
+              if (tdPerTf) {
+                const dTd = tdPerTf.D || tdPerTf["1D"];
+                const wTd = tdPerTf.W || tdPerTf["1W"];
+                if (dTd || wTd) {
+                  tdSummary = {};
+                  if (dTd) tdSummary.D = { bp: dTd.bullish_prep_count || 0, xp: dTd.bearish_prep_count || 0 };
+                  if (wTd) tdSummary.W = { bp: wTd.bullish_prep_count || 0, xp: wTd.bearish_prep_count || 0 };
+                }
+              }
+
+              const divD = td?.rsi_divergence?.D;
+              const hasBearDiv = divD?.bear?.active;
+              const hasBullDiv = divD?.bull?.active;
+
+              const emaRegD = td?.ema_regime_daily ?? 0;
+              const volTier = td?.volatility_tier || null;
+
+              return {
+                trendD: stD > 0 ? "up" : stD < 0 ? "down" : "flat",
+                trendW: stW > 0 ? "up" : stW < 0 ? "down" : "flat",
+                phaseD: phD,
+                phaseW: phW,
+                td: tdSummary,
+                divergence: hasBearDiv ? "bearish" : hasBullDiv ? "bullish" : null,
+                emaRegime: emaRegD,
+                volTier,
+              };
+            })();
+
             investorResults[ticker] = {
               score, components, accumZone, sector,
               companyName: td?.context?.name || td?.name || null,
@@ -41824,6 +43416,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
               stageReason: stage.reason,
               thesis: thesis.thesis,
               thesisInvalidation: thesis.invalidation,
+              signals: _invSignals,
             };
           }
 
@@ -47945,7 +49538,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
         try {
           const db2 = env?.DB;
           if (db2) {
-            const daKeys = ["deep_audit_short_min_rank", "deep_audit_ticker_blacklist", "deep_audit_max_loss_pct", "deep_audit_sl_cap_mult", "deep_audit_sl_floor_mult", "deep_audit_rsi_tp_delay", "deep_audit_avoid_hours", "deep_audit_block_regime", "deep_audit_min_hold_regime_exit_hours", "deep_audit_loss_cooldown_hours", "deep_audit_min_htf_score", "deep_audit_momentum_elite_rank_boost", "deep_audit_breakout_daily_level_enabled", "deep_audit_breakout_atr_breakout_enabled", "deep_audit_breakout_ema_stack_enabled", "deep_audit_breakout_min_rr", "deep_audit_breakout_min_entry_quality", "deep_audit_opening_noise_end_minute", "deep_audit_min_1h_bias", "deep_audit_min_4h_bias", "deep_audit_ltf_momentum_min_bias", "deep_audit_ltf_momentum_min_rsi", "deep_audit_ripster_opening_noise_end_minute", "deep_audit_ltf_rsi_floor", "deep_audit_min_ltf_ema_depth", "deep_audit_post_trim_breakeven", "deep_audit_stall_max_hours", "deep_audit_stall_breakeven_pnl_pct", "deep_audit_soft_fuse_defer_min_1h_depth", "deep_audit_runner_trail_pct", "deep_audit_post_trim_trail_pct", "deep_audit_stale_runner_bars", "deep_audit_momentum_fade_exit", "tier_risk_map", "grade_risk_map"];
+            const daKeys = ["deep_audit_short_min_rank", "deep_audit_ticker_blacklist", "deep_audit_max_loss_pct", "deep_audit_sl_cap_mult", "deep_audit_sl_floor_mult", "deep_audit_rsi_tp_delay", "deep_audit_avoid_hours", "deep_audit_block_regime", "deep_audit_vix_ceiling", "deep_audit_regime_size_mult", "deep_audit_min_hold_regime_exit_hours", "deep_audit_loss_cooldown_hours", "deep_audit_min_htf_score", "deep_audit_momentum_elite_rank_boost", "deep_audit_breakout_daily_level_enabled", "deep_audit_breakout_atr_breakout_enabled", "deep_audit_breakout_ema_stack_enabled", "deep_audit_breakout_min_rr", "deep_audit_breakout_min_entry_quality", "deep_audit_opening_noise_end_minute", "deep_audit_min_1h_bias", "deep_audit_min_4h_bias", "deep_audit_ltf_momentum_min_bias", "deep_audit_ltf_momentum_min_rsi", "deep_audit_ripster_opening_noise_end_minute", "deep_audit_ltf_rsi_floor", "deep_audit_min_ltf_ema_depth", "deep_audit_post_trim_breakeven", "deep_audit_stall_max_hours", "deep_audit_stall_breakeven_pnl_pct", "deep_audit_stall_force_close_hours", "deep_audit_soft_fuse_defer_min_1h_depth", "deep_audit_runner_trail_pct", "deep_audit_post_trim_trail_pct", "deep_audit_stale_runner_bars", "deep_audit_momentum_fade_exit", "deep_audit_min_hold_before_mgmt_exit_min", "deep_audit_tp_atr_override", "deep_audit_phase_exit_enabled", "deep_audit_atr_exhaustion_exit", "deep_audit_rvol_ceiling", "deep_audit_rvol_ceiling_short", "deep_audit_rvol_high_threshold", "deep_audit_rvol_high_size_mult", "deep_audit_danger_max_signals", "deep_audit_danger_ema_depth_min", "deep_audit_danger_vix_threshold", "deep_audit_danger_min_st_aligned", "deep_audit_danger_size_mult", "deep_audit_danger_size_threshold", "deep_audit_danger_div_enabled", "deep_audit_div_exit_enabled", "deep_audit_div_exit_min_strength", "deep_audit_div_pivot_lookback", "deep_audit_div_max_age_bars", "deep_audit_div_runner_trail_pct", "deep_audit_mean_revert_td9_enabled", "deep_audit_td_exit_enabled", "deep_audit_td_exit_trail_pct", "deep_audit_td_ltf_trail_pct", "deep_audit_mfe_safety_trim_pct", "deep_audit_max_runner_drawdown_pct", "deep_audit_min_entry_quality", "deep_audit_hard_loss_cap", "tier_risk_map", "grade_risk_map", "smart_runner_exit_enabled", "smart_runner_swing_atr_proximity", "smart_runner_min_bars_post_trim", "rank_gate_mode"];
             const daRows = (await db2.prepare(
               `SELECT config_key, config_value FROM model_config WHERE config_key IN (${daKeys.map((_, i) => `?${i + 1}`).join(",")})`
             ).bind(...daKeys).all())?.results || [];
@@ -48111,6 +49704,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
               _sectorRegime: env._sectorRegimeCache?.[tickerSector] || null,
               _deepAuditConfig: env._deepAuditConfig || null,
               _calibratedRankMin: env._calibratedRankMin || 0,
+              _universeSize: env._tickerUniverseSize || Object.keys(SECTOR_MAP).length,
             };
             if (env._currentVix != null) result._vix = env._currentVix;
 

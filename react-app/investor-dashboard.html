@@ -706,6 +706,174 @@
                 )
               : React.createElement("div", { className: "text-[11px] text-[#6b7280] leading-relaxed" }, "Not in a buy zone right now. The stock hasn't pulled back to a favorable entry point yet."),
           ),
+          // ── System Signals (investor-friendly view of technical indicators) ──
+          data.signals && React.createElement("div", null,
+            React.createElement("h3", { className: "text-xs font-semibold text-[#9ca3af] mb-1 uppercase tracking-wide" }, "System Signals"),
+            React.createElement("div", { className: "text-[10px] text-[#4b5563] mb-2.5" }, "What the system's automated analysis is seeing right now."),
+            React.createElement("div", { className: "space-y-2" },
+              // Trend Direction
+              React.createElement("div", { className: "card p-2.5" },
+                React.createElement("div", { className: "flex items-center justify-between mb-1" },
+                  React.createElement("span", { className: "text-[10px] text-[#6b7280] uppercase tracking-wide" }, "Trend Direction"),
+                ),
+                React.createElement("div", { className: "flex items-center gap-3" },
+                  React.createElement("div", { className: "flex items-center gap-1.5" },
+                    React.createElement("span", { className: "text-[10px] text-[#6b7280]" }, "Weekly"),
+                    React.createElement("span", { className: `text-sm font-semibold ${data.signals.trendW === "up" ? "text-[#00e676]" : data.signals.trendW === "down" ? "text-red-400" : "text-[#6b7280]"}` },
+                      data.signals.trendW === "up" ? "▲ Uptrend" : data.signals.trendW === "down" ? "▼ Downtrend" : "● Sideways"
+                    ),
+                  ),
+                  React.createElement("div", { className: "flex items-center gap-1.5" },
+                    React.createElement("span", { className: "text-[10px] text-[#6b7280]" }, "Daily"),
+                    React.createElement("span", { className: `text-sm font-semibold ${data.signals.trendD === "up" ? "text-[#00e676]" : data.signals.trendD === "down" ? "text-red-400" : "text-[#6b7280]"}` },
+                      data.signals.trendD === "up" ? "▲ Uptrend" : data.signals.trendD === "down" ? "▼ Downtrend" : "● Sideways"
+                    ),
+                  ),
+                ),
+                React.createElement("div", { className: "text-[10px] text-[#4b5563] mt-1" },
+                  data.signals.trendW === "up" && data.signals.trendD === "up"
+                    ? "Both timeframes trending up — strong structural support."
+                    : data.signals.trendW === "up" && data.signals.trendD !== "up"
+                    ? "Weekly trend is up but daily is wavering — normal pullback or early caution sign."
+                    : data.signals.trendW === "down"
+                    ? "Weekly trend is down — the bigger picture suggests caution."
+                    : "Sideways movement — no clear direction yet."
+                ),
+              ),
+              // Momentum Phase
+              (data.signals.phaseD || data.signals.phaseW) && React.createElement("div", { className: "card p-2.5" },
+                React.createElement("div", { className: "text-[10px] text-[#6b7280] uppercase tracking-wide mb-1" }, "Momentum Phase"),
+                React.createElement("div", { className: "flex items-center gap-4" },
+                  data.signals.phaseW && React.createElement("div", null,
+                    React.createElement("div", { className: "text-[10px] text-[#6b7280]" }, "Weekly"),
+                    React.createElement("div", { className: `text-sm font-semibold ${(data.signals.phaseW.v || 0) > 0 ? "text-[#00e676]" : (data.signals.phaseW.v || 0) < 0 ? "text-red-400" : "text-[#6b7280]"}` },
+                      (data.signals.phaseW.v || 0) > 50 ? "Strong Buying" : (data.signals.phaseW.v || 0) > 0 ? "Mild Buying" : (data.signals.phaseW.v || 0) > -50 ? "Mild Selling" : "Strong Selling"
+                    ),
+                  ),
+                  data.signals.phaseD && React.createElement("div", null,
+                    React.createElement("div", { className: "text-[10px] text-[#6b7280]" }, "Daily"),
+                    React.createElement("div", { className: `text-sm font-semibold ${(data.signals.phaseD.v || 0) > 0 ? "text-[#00e676]" : (data.signals.phaseD.v || 0) < 0 ? "text-red-400" : "text-[#6b7280]"}` },
+                      (data.signals.phaseD.v || 0) > 50 ? "Strong Buying" : (data.signals.phaseD.v || 0) > 0 ? "Mild Buying" : (data.signals.phaseD.v || 0) > -50 ? "Mild Selling" : "Strong Selling"
+                    ),
+                  ),
+                ),
+                React.createElement("div", { className: "text-[10px] text-[#4b5563] mt-1" },
+                  (() => {
+                    const dv = data.signals.phaseD?.v || 0;
+                    const wv = data.signals.phaseW?.v || 0;
+                    if (wv > 50 && dv > 50) return "Both weekly and daily showing strong buying pressure — institutions are likely accumulating.";
+                    if (wv > 0 && dv > 0) return "Buying pressure present on both timeframes. Trend is healthy.";
+                    if (wv > 0 && dv < 0) return "Weekly buyers still in control, but daily is cooling off — possible short-term pullback.";
+                    if (wv < -50) return "Significant selling pressure on the weekly timeframe — the trend may be weakening.";
+                    if (dv < -50) return "Daily selling pressure is high — near-term caution warranted.";
+                    return "Momentum is mixed across timeframes.";
+                  })()
+                ),
+              ),
+              // EMA Regime
+              data.signals.emaRegime != null && data.signals.emaRegime !== 0 && React.createElement("div", { className: "card p-2.5" },
+                React.createElement("div", { className: "text-[10px] text-[#6b7280] uppercase tracking-wide mb-1" }, "Trend Strength"),
+                React.createElement("div", { className: "flex items-center gap-2" },
+                  React.createElement("div", { className: "flex-1" },
+                    React.createElement("div", { className: "w-full h-2 rounded-full bg-white/[0.06] overflow-hidden relative" },
+                      React.createElement("div", {
+                        className: "absolute top-0 h-full rounded-full transition-all duration-500",
+                        style: {
+                          left: data.signals.emaRegime >= 0 ? "50%" : `${50 + (data.signals.emaRegime / 3) * 50}%`,
+                          width: `${Math.abs(data.signals.emaRegime / 3) * 50}%`,
+                          background: data.signals.emaRegime >= 2 ? "#00e676" : data.signals.emaRegime >= 1 ? "#22c55e88" : data.signals.emaRegime <= -2 ? "#ef4444" : "#ef444488",
+                        },
+                      }),
+                    ),
+                  ),
+                  React.createElement("span", { className: "text-xs font-semibold shrink-0", style: { color: data.signals.emaRegime >= 2 ? "#00e676" : data.signals.emaRegime >= 1 ? "#22c55e" : data.signals.emaRegime <= -2 ? "#ef4444" : data.signals.emaRegime <= -1 ? "#f87171" : "#6b7280" } },
+                    data.signals.emaRegime >= 2 ? "Strong Uptrend" : data.signals.emaRegime >= 1 ? "Mild Uptrend" : data.signals.emaRegime <= -2 ? "Strong Downtrend" : data.signals.emaRegime <= -1 ? "Mild Downtrend" : "Neutral"
+                  ),
+                ),
+                React.createElement("div", { className: "text-[10px] text-[#4b5563] mt-1" },
+                  data.signals.emaRegime >= 2
+                    ? "Moving averages are stacked bullish — the trend is confirmed and strong."
+                    : data.signals.emaRegime <= -2
+                    ? "Moving averages are stacked bearish — the trend is confirmed to the downside."
+                    : "Moving averages are transitioning — no strong directional commitment."
+                ),
+              ),
+              // Divergence
+              data.signals.divergence && React.createElement("div", { className: `card p-2.5 ${data.signals.divergence === "bearish" ? "border-red-500/20" : "border-[#00c853]/20"}` },
+                React.createElement("div", { className: "flex items-center gap-2" },
+                  React.createElement("span", { className: `w-2 h-2 rounded-full ${data.signals.divergence === "bearish" ? "bg-red-400 animate-pulse" : "bg-[#00e676] animate-pulse"}` }),
+                  React.createElement("span", { className: "text-[10px] text-[#6b7280] uppercase tracking-wide" }, "Divergence Alert"),
+                ),
+                React.createElement("div", { className: `text-xs font-semibold mt-1 ${data.signals.divergence === "bearish" ? "text-red-400" : "text-[#00e676]"}` },
+                  data.signals.divergence === "bearish"
+                    ? "Bearish Divergence — price is making new highs but momentum is fading"
+                    : "Bullish Divergence — price is making new lows but selling momentum is weakening"
+                ),
+                React.createElement("div", { className: "text-[10px] text-[#4b5563] mt-1" },
+                  data.signals.divergence === "bearish"
+                    ? "This often precedes a pullback. If you're considering adding, wait for the divergence to resolve."
+                    : "This can signal a potential bottoming process. Watch for the trend to confirm a reversal before acting."
+                ),
+              ),
+              // TD Sequential
+              data.signals.td && React.createElement("div", { className: "card p-2.5" },
+                React.createElement("div", { className: "text-[10px] text-[#6b7280] uppercase tracking-wide mb-1" }, "Exhaustion Meter"),
+                React.createElement("div", { className: "text-[10px] text-[#4b5563] mb-1.5" }, "How stretched is the current move? Higher counts suggest the move may be running out of steam."),
+                React.createElement("div", { className: "flex items-center gap-4" },
+                  data.signals.td.W && React.createElement("div", null,
+                    React.createElement("div", { className: "text-[10px] text-[#6b7280]" }, "Weekly"),
+                    (() => {
+                      const selling = data.signals.td.W.xp || 0;
+                      const buying = data.signals.td.W.bp || 0;
+                      const dominant = selling > buying ? selling : buying;
+                      const label = selling > buying ? "Seller" : "Buyer";
+                      const color = dominant >= 7 ? "#ef4444" : dominant >= 4 ? "#f59e0b" : "#22c55e";
+                      const desc = dominant >= 7 ? "Near Exhaustion" : dominant >= 4 ? "Building" : "Fresh";
+                      return React.createElement("div", { className: "flex items-center gap-1.5" },
+                        React.createElement("div", { className: "w-[48px] h-[6px] rounded-full bg-white/[0.06] overflow-hidden" },
+                          React.createElement("div", { className: "h-full rounded-full", style: { width: `${Math.min(100, (dominant / 9) * 100)}%`, background: color } }),
+                        ),
+                        React.createElement("span", { className: "text-[10px] font-medium", style: { color } }, `${label} ${desc}`),
+                      );
+                    })(),
+                  ),
+                  data.signals.td.D && React.createElement("div", null,
+                    React.createElement("div", { className: "text-[10px] text-[#6b7280]" }, "Daily"),
+                    (() => {
+                      const selling = data.signals.td.D.xp || 0;
+                      const buying = data.signals.td.D.bp || 0;
+                      const dominant = selling > buying ? selling : buying;
+                      const label = selling > buying ? "Seller" : "Buyer";
+                      const color = dominant >= 7 ? "#ef4444" : dominant >= 4 ? "#f59e0b" : "#22c55e";
+                      const desc = dominant >= 7 ? "Near Exhaustion" : dominant >= 4 ? "Building" : "Fresh";
+                      return React.createElement("div", { className: "flex items-center gap-1.5" },
+                        React.createElement("div", { className: "w-[48px] h-[6px] rounded-full bg-white/[0.06] overflow-hidden" },
+                          React.createElement("div", { className: "h-full rounded-full", style: { width: `${Math.min(100, (dominant / 9) * 100)}%`, background: color } }),
+                        ),
+                        React.createElement("span", { className: "text-[10px] font-medium", style: { color } }, `${label} ${desc}`),
+                      );
+                    })(),
+                  ),
+                ),
+                (() => {
+                  const wSell = data.signals.td?.W?.xp || 0;
+                  const dSell = data.signals.td?.D?.xp || 0;
+                  const wBuy = data.signals.td?.W?.bp || 0;
+                  const dBuy = data.signals.td?.D?.bp || 0;
+                  if (wSell >= 7 || dSell >= 7) return React.createElement("div", { className: "text-[10px] text-red-400/80 mt-1" }, "Selling pressure is elevated — the decline may be nearing exhaustion (potential bounce ahead).");
+                  if (wBuy >= 7 || dBuy >= 7) return React.createElement("div", { className: "text-[10px] text-amber-400/80 mt-1" }, "Buying pressure is elevated — the rally may be nearing exhaustion (potential pullback ahead).");
+                  return null;
+                })(),
+              ),
+              // Volatility Tier
+              data.signals.volTier && React.createElement("div", { className: "flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-white/[0.02] border border-white/[0.05]" },
+                React.createElement("span", { className: "text-[10px] text-[#6b7280] uppercase tracking-wide" }, "Volatility"),
+                React.createElement("span", { className: `text-[11px] font-semibold ${data.signals.volTier === "LOW" ? "text-blue-400" : data.signals.volTier === "MEDIUM" ? "text-[#14b8a6]" : data.signals.volTier === "HIGH" ? "text-amber-400" : "text-red-400"}` },
+                  data.signals.volTier === "LOW" ? "Low — steady mover" : data.signals.volTier === "MEDIUM" ? "Moderate" : data.signals.volTier === "HIGH" ? "High — wider swings expected" : "Extreme — very volatile"
+                ),
+              ),
+            ),
+          ),
           // ── Thesis ──
           data.thesis && React.createElement("div", null,
             React.createElement("h3", { className: "text-xs font-semibold text-[#9ca3af] mb-1 uppercase tracking-wide" }, "Investment Thesis"),

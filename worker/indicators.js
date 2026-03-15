@@ -116,6 +116,110 @@ export function rmaSeries(values, period) {
 }
 
 /**
+ * Saty Phase Oscillator series — pure price-displacement formula:
+ *   raw[i] = ((close[i] - EMA(close,21)[i]) / (3 * ATR(14)[i])) * 100
+ *   osc = EMA(raw, smoothPeriod)
+ * Returns { series, zones } where zones has zone-exit flags for the latest bar.
+ * @param {Array<{h:number,l:number,c:number}>} bars - OHLC bars
+ * @param {number[]} closes
+ * @param {number[]|null} ema21Arr - pre-computed EMA(21) series (or null to compute)
+ * @param {number[]|null} atr14Arr - pre-computed ATR(14) series (or null to compute)
+ * @param {number} smoothPeriod - EMA smoothing for raw oscillator (default 3)
+ */
+export function satyPhaseSeries(bars, closes, ema21Arr, atr14Arr, smoothPeriod = 3) {
+  const len = closes.length;
+  const e21 = ema21Arr || emaSeries(closes, 21);
+  const atr = atr14Arr || atrSeries(bars, 14);
+  const raw = new Array(len).fill(NaN);
+  for (let i = 0; i < len; i++) {
+    if (Number.isFinite(e21[i]) && Number.isFinite(atr[i]) && atr[i] > 0) {
+      raw[i] = ((closes[i] - e21[i]) / (3.0 * atr[i])) * 100.0;
+    }
+  }
+  const osc = emaSeries(raw.map(v => Number.isFinite(v) ? v : 0), smoothPeriod);
+
+  const last = len - 1;
+  const curr = last >= 0 ? osc[last] : NaN;
+  const prev = last >= 1 ? osc[last - 1] : NaN;
+
+  const zone = !Number.isFinite(curr) ? "NEUTRAL"
+    : Math.abs(curr) >= 100 ? "EXTREME"
+    : Math.abs(curr) >= 61.8 ? "HIGH"
+    : Math.abs(curr) >= 23.6 ? "MEDIUM"
+    : "LOW";
+
+  const leavingExtUp  = Number.isFinite(prev) && Number.isFinite(curr) && prev >= 100  && curr < 100;
+  const leavingDistrib = Number.isFinite(prev) && Number.isFinite(curr) && prev >= 61.8 && curr < 61.8;
+  const leavingAccum  = Number.isFinite(prev) && Number.isFinite(curr) && prev <= -61.8 && curr > -61.8;
+  const leavingExtDn  = Number.isFinite(prev) && Number.isFinite(curr) && prev <= -100  && curr > -100;
+
+  return {
+    series: osc,
+    value: Number.isFinite(curr) ? Math.round(curr * 100) / 100 : 0,
+    prev: Number.isFinite(prev) ? Math.round(prev * 100) / 100 : 0,
+    zone,
+    leaving: {
+      extUp: leavingExtUp,
+      distrib: leavingDistrib,
+      accum: leavingAccum,
+      extDn: leavingExtDn,
+    },
+  };
+}
+
+/**
+ * Detect RSI divergence by comparing last two swing pivots (price vs RSI).
+ *
+ * Bearish regular: price higher-high + RSI lower-high → reversal down likely
+ * Bullish regular: price lower-low  + RSI higher-low  → reversal up likely
+ *
+ * @param {Array} bars       - OHLC bars sorted ascending { o, h, l, c, ts }
+ * @param {number[]} rsiArr  - full RSI array aligned with bars
+ * @param {number} pivotLookback - bars on each side for swing pivot (default 5)
+ * @param {number} maxAge    - max bars since most-recent pivot to consider "active"
+ * @returns {{ bear: {active,strength,barsSince}|null, bull: {active,strength,barsSince}|null }}
+ */
+export function detectRsiDivergence(bars, rsiArr, pivotLookback = 5, maxAge = 10) {
+  const result = { bear: null, bull: null };
+  if (!bars || !rsiArr || bars.length < pivotLookback * 2 + 2) return result;
+
+  const pivots = findSwingPivots(bars, pivotLookback);
+  const lastIdx = bars.length - 1;
+
+  if (pivots.highs.length >= 2) {
+    const h1 = pivots.highs[pivots.highs.length - 2];
+    const h2 = pivots.highs[pivots.highs.length - 1];
+    const barsSince = lastIdx - h2.idx;
+    const rsi1 = rsiArr[h1.idx];
+    const rsi2 = rsiArr[h2.idx];
+    if (Number.isFinite(rsi1) && Number.isFinite(rsi2) && h2.price > h1.price && rsi2 < rsi1) {
+      result.bear = {
+        active: barsSince <= maxAge,
+        strength: Math.round((rsi1 - rsi2) * 10) / 10,
+        barsSince,
+      };
+    }
+  }
+
+  if (pivots.lows.length >= 2) {
+    const l1 = pivots.lows[pivots.lows.length - 2];
+    const l2 = pivots.lows[pivots.lows.length - 1];
+    const barsSince = lastIdx - l2.idx;
+    const rsi1 = rsiArr[l1.idx];
+    const rsi2 = rsiArr[l2.idx];
+    if (Number.isFinite(rsi1) && Number.isFinite(rsi2) && l2.price < l1.price && rsi2 > rsi1) {
+      result.bull = {
+        active: barsSince <= maxAge,
+        strength: Math.round((rsi2 - rsi1) * 10) / 10,
+        barsSince,
+      };
+    }
+  }
+
+  return result;
+}
+
+/**
  * Standard deviation series (population stdev, matching Pine ta.stdev).
  */
 export function stdevSeries(values, period) {
@@ -957,6 +1061,9 @@ export function computeTfBundle(bars, anchors = null) {
   const rsiArr = rsiSeries(closes, 14);
   const rsi = rsiArr[last];
 
+  // RSI Divergence
+  const rsiDiv = detectRsiDivergence(bars, rsiArr, 5, 10);
+
   // Multi-factor Phase
   const piv = e21;
   const atr14Arr = atrSeries(bars, 14);
@@ -980,6 +1087,10 @@ export function computeTfBundle(bars, anchors = null) {
 
   // Phase velocity (approximate)
   const phaseVelocity = 0; // Would need previous rawPhase; set to 0
+
+  // Saty Phase Oscillator — pure price-displacement with EMA(3) smoothing
+  // Computes full series for proper zone-exit detection (prev bar vs current bar)
+  const satyPhase = satyPhaseSeries(bars, closes, e21s, atr14Arr, 3);
 
   // Compression (Bollinger expansion logic from Pine)
   let compressed = false;
@@ -1151,8 +1262,32 @@ export function computeTfBundle(bars, anchors = null) {
     c180_200: cloudState(e180, e200, e180s[last - 1], e200s[last - 1]),
   };
 
+  // Previous bar close and current bar high/low for ATR Levels anchor data
+  const pxPrev = last >= 1 ? closes[last - 1] : px;
+  const barHigh = bars[last]?.h || px;
+  const barLow = bars[last]?.l || px;
+
+  // ── Lookback features for setup stalking ──
+  const lookbackFeatures = {};
+
+  // RSI extreme in last 15 bars
+  if (rsiArr && rsiArr.length >= 15) {
+    const recentRsi = rsiArr.slice(-15);
+    const wasExtremeLo = recentRsi.some(r => r < 30);
+    const wasExtremeHi = recentRsi.some(r => r > 70);
+    const currentRsi = rsiArr[rsiArr.length - 1];
+    lookbackFeatures.rsiWasExtremeLo15 = wasExtremeLo && currentRsi >= 35;
+    lookbackFeatures.rsiWasExtremeHi15 = wasExtremeHi && currentRsi <= 65;
+  }
+
+  // ST flip freshness
+  if (Number.isFinite(stBarsSinceFlip)) {
+    lookbackFeatures.stFlipFresh = stBarsSinceFlip >= 3 && stBarsSinceFlip <= 15;
+    lookbackFeatures.stBarsSinceFlip = stBarsSinceFlip;
+  }
+
   return {
-    px, lastTs,
+    px, pxPrev, barHigh, barLow, lastTs,
     e3, e5, e8, e9, e12, e13, e21, e34, e48, e50, e72, e89, e180, e200, e233,
     eFast, eSlow,
     emaDepth, emaStructure, emaMomentum, ribbonSpread,
@@ -1160,10 +1295,11 @@ export function computeTfBundle(bars, anchors = null) {
     stFlip, stFlipDir, stFlip_ts, stBarsSinceFlip,
     sqOn, sqOnPrev, sqRelease, sqRelease_ts, mom, momStd,
     phaseOsc, phaseVelocity, phaseZone,
+    satyPhase,
     compressed,
     atr14, atrRatio,
     volRatio, rvol5, rvolSpike,
-    rsi,
+    rsi, rsiDiv,
     ggUpCross, ggDnCross, ggDist,
     ggUpCross_ts, ggDnCross_ts,
     emaStack,
@@ -1174,6 +1310,7 @@ export function computeTfBundle(bars, anchors = null) {
     ripsterClouds,
     pdz, fvg, liq,
     ichimoku,
+    lookback: lookbackFeatures,
   };
 }
 
@@ -1705,7 +1842,7 @@ export function getRegimeParams(tickerRegime, marketRegime = null, marketInterna
       maxCompletion: 0.45,
       positionSizeMultiplier: 0.75,
       shortsAllowed: true,
-      shortRvolMin: 1.3,     // SHORTs need elevated volume
+      shortRvolMin: 0.7,
       maxDailyEntries: 5,
       maxWeeklyEntries: 8,
       slCushionMultiplier: 1.15,  // 15% wider stops
@@ -1720,8 +1857,8 @@ export function getRegimeParams(tickerRegime, marketRegime = null, marketInterna
       minRR: 3.0,
       maxCompletion: 0.30,
       positionSizeMultiplier: 0.50,
-      shortsAllowed: false,   // No SHORTs in chop — they have negative EV
-      shortRvolMin: Infinity,
+      shortsAllowed: true,
+      shortRvolMin: 1.5,
       maxDailyEntries: 2,
       maxWeeklyEntries: 3,
       slCushionMultiplier: 1.30,  // 30% wider stops
@@ -1899,9 +2036,8 @@ export function selectExecutionProfile({
  * @param {object} regime - { daily, weekly, combined } from computeSwingRegime
  * @returns {{ score: number, structure: number, momentum: number, confirmation: number, details: object }}
  */
-export function computeEntryQualityScore(bundles, side, regime = null) {
+export function computeEntryQualityScore(bundles, side, regime = null, liqData = null) {
   const isLong = side === "LONG";
-  const mult = isLong ? 1 : -1; // flip comparisons for SHORT
 
   const leadingTf = bundles?.["15"] ? "15" : "10";
   const leadLabel = leadingTf === "15" ? "15m" : "10m";
@@ -1911,51 +2047,95 @@ export function computeEntryQualityScore(bundles, side, regime = null) {
   const b4H  = bundles?.["240"];
   const bD   = bundles?.D;
 
-  // ── STRUCTURE (35 pts): Multi-TF EMA(13)/EMA(48) alignment ──
-  let structure = 0;
-  const emaChecks = [
-    { b: b10,  pts: 5,  label: leadLabel },
-    { b: b30,  pts: 7,  label: "30m" },
-    { b: b1H,  pts: 8,  label: "1H"  },
-    { b: b4H,  pts: 8,  label: "4H"  },
-    { b: bD,   pts: 7,  label: "D"   },
-  ];
+  // ── HTF FOUNDATION (30 pts): 4H + D alignment ──
+  // Best entries have strong HTF structure. Only count the anchor timeframes
+  // that define the macro trend — NOT the LTF which should be in pullback.
+  let htfFoundation = 0;
   const emaAligned = {};
-  for (const { b, pts, label } of emaChecks) {
+
+  const htfChecks = [
+    { b: b4H,  pts: 13,  label: "4H"  },
+    { b: bD,   pts: 12,  label: "D"   },
+  ];
+  for (const { b, pts, label } of htfChecks) {
     if (!b || !Number.isFinite(b.e13) || !Number.isFinite(b.e48)) continue;
     const bullish = b.e13 > b.e48;
     const aligned = isLong ? bullish : !bullish;
     emaAligned[label] = aligned;
-    if (aligned) structure += pts;
+    if (aligned) htfFoundation += pts;
+  }
+  // 4H SuperTrend supportive = +5
+  if (b4H && Number.isFinite(b4H.stDir)) {
+    const st4HBull = b4H.stDir < 0;
+    const st4HSupport = isLong ? st4HBull : !st4HBull;
+    if (st4HSupport) htfFoundation += 5;
   }
 
-  // ── MOMENTUM (35 pts): SuperTrend Matrix across 10m/30m/1H/4H ──
-  // Each TF: supportive + sloping = +9, supportive + flat = +5,
-  //           opposing + flat = -2, opposing + sloping = -5
-  let momentumRaw = 0;
-  const stChecks = [
-    { b: b10,  label: leadLabel },
-    { b: b30,  label: "30m" },
-    { b: b1H,  label: "1H"  },
-    { b: b4H,  label: "4H"  },
-  ];
-  for (const { b } of stChecks) {
-    if (!b || !Number.isFinite(b.stDir)) continue;
-    // Pine convention: stDir < 0 = bullish (price above ST), stDir > 0 = bearish
-    const stBull = b.stDir < 0;
-    const supportive = isLong ? stBull : !stBull;
-    const sloping = isLong
-      ? (b.stSlopeUp || false)
-      : (b.stSlopeDn || false);
-    if (supportive && sloping) momentumRaw += 9;
-    else if (supportive) momentumRaw += 5;
-    else if (!sloping) momentumRaw -= 2;
-    else momentumRaw -= 5;
-  }
-  // Range: theoretical -20 to +36, normalize to 0-35
-  const momentum = Math.max(0, Math.min(35, Math.round(((momentumRaw + 20) / 56) * 35)));
+  // ── LTF RECOVERY (35 pts): Reward pullback recovery, NOT full alignment ──
+  // The best entries are when LTF is recovering FROM a pullback into HTF support.
+  // Penalize full LTF alignment (late entry). Reward recent ST flips, RSI bounce.
+  let ltfRecovery = 0;
+  const recoveryDetails = {};
 
-  // ── CONFIRMATION (30 pts): Regime + Phase + RSI ──
+  // 15m/30m SuperTrend: supportive = moderate points, but opposing = actually fine
+  // (means we're entering on the pullback itself, which is ideal IF recovering)
+  const stLead = b10 && Number.isFinite(b10.stDir) ? (isLong ? b10.stDir < 0 : b10.stDir > 0) : null;
+  const st30   = b30 && Number.isFinite(b30.stDir) ? (isLong ? b30.stDir < 0 : b30.stDir > 0) : null;
+  const st1H   = b1H && Number.isFinite(b1H.stDir) ? (isLong ? b1H.stDir < 0 : b1H.stDir > 0) : null;
+
+  // Ideal pattern: 1H ST bearish (pullback in progress) while 15m flips bullish (recovery)
+  if (stLead === true && st1H === false) {
+    ltfRecovery += 15; // pullback recovery — highest conviction entry
+    recoveryDetails.pattern = "pullback_recovery";
+  } else if (stLead === true && st30 === false) {
+    ltfRecovery += 12; // partial recovery — 15m leading while 30m still pulling back
+    recoveryDetails.pattern = "partial_recovery";
+  } else if (stLead === true && st30 === true && st1H === true) {
+    ltfRecovery += 5; // full alignment = late entry — minimal points
+    recoveryDetails.pattern = "full_alignment_late";
+  } else if (stLead === true) {
+    ltfRecovery += 8;
+    recoveryDetails.pattern = "lead_supportive";
+  } else {
+    ltfRecovery += 2; // lead TF opposing — very early or failing
+    recoveryDetails.pattern = "early_or_failing";
+  }
+
+  // 15m EMA(13)/EMA(48) alignment: points for LTF structure
+  if (b10 && Number.isFinite(b10.e13) && Number.isFinite(b10.e48)) {
+    const ltfEmaBull = b10.e13 > b10.e48;
+    const ltfEmaAligned = isLong ? ltfEmaBull : !ltfEmaBull;
+    emaAligned[leadLabel] = ltfEmaAligned;
+    if (ltfEmaAligned) ltfRecovery += 5;
+  }
+
+  // 30m structure
+  if (b30 && Number.isFinite(b30.e13) && Number.isFinite(b30.e48)) {
+    const m30Bull = b30.e13 > b30.e48;
+    const m30Aligned = isLong ? m30Bull : !m30Bull;
+    emaAligned["30m"] = m30Aligned;
+    if (m30Aligned) ltfRecovery += 5;
+  }
+
+  // 1H EMA alignment — moderate weight (transition TF between LTF and HTF)
+  if (b1H && Number.isFinite(b1H.e13) && Number.isFinite(b1H.e48)) {
+    const h1Bull = b1H.e13 > b1H.e48;
+    const h1Aligned = isLong ? h1Bull : !h1Bull;
+    emaAligned["1H"] = h1Aligned;
+    if (h1Aligned) ltfRecovery += 5;
+  }
+
+  // RSI recovery bonus: 15m RSI bouncing from oversold (LONG) or overbought (SHORT)
+  const rsi15 = b10?.rsi ?? 50;
+  if (isLong) {
+    if (rsi15 >= 40 && rsi15 <= 60) { ltfRecovery += 5; recoveryDetails.rsi15 = "recovery_zone"; }
+    else if (rsi15 >= 30 && rsi15 < 40) { ltfRecovery += 3; recoveryDetails.rsi15 = "oversold_bounce"; }
+  } else {
+    if (rsi15 >= 40 && rsi15 <= 60) { ltfRecovery += 5; recoveryDetails.rsi15 = "recovery_zone"; }
+    else if (rsi15 > 60 && rsi15 <= 70) { ltfRecovery += 3; recoveryDetails.rsi15 = "overbought_bounce"; }
+  }
+
+  // ── CONFIRMATION (35 pts): Regime + Phase + RSI 1H + Squeeze ──
   let confirmation = 0;
   const confirmDetails = {};
 
@@ -1973,7 +2153,6 @@ export function computeEntryQualityScore(bundles, side, regime = null) {
       confirmDetails.regime = "opposing";
     }
   } else {
-    // Fallback: use HTF score direction as proxy
     const htfScore = computeWeightedHTFScore(bundles?.M, bundles?.W, bD, b4H);
     if ((isLong && htfScore > 10) || (!isLong && htfScore < -10)) {
       confirmation += 10;
@@ -1984,7 +2163,7 @@ export function computeEntryQualityScore(bundles, side, regime = null) {
     }
   }
 
-  // Phase oscillator not at extreme (8 pts) — use 1H phase as decision TF
+  // Phase oscillator not at extreme (8 pts)
   const phaseOsc1H = b1H?.phaseOsc ?? 0;
   const phaseAbs = Math.abs(phaseOsc1H);
   if (phaseAbs < 61.8) {
@@ -1998,50 +2177,91 @@ export function computeEntryQualityScore(bundles, side, regime = null) {
   }
 
   // 1H RSI positioning (10 pts)
-  // LONG: 40-65 ideal (not overbought, room to run)
-  // SHORT: 35-60 ideal (not oversold, room to drop)
   const rsi1H = b1H?.rsi ?? 50;
   if (isLong) {
-    if (rsi1H >= 40 && rsi1H <= 65) {
-      confirmation += 10;
-      confirmDetails.rsi = "ideal";
-    } else if (rsi1H >= 30 && rsi1H <= 72) {
-      confirmation += 5;
-      confirmDetails.rsi = "acceptable";
-    } else {
-      confirmDetails.rsi = "extreme";
-    }
+    if (rsi1H >= 40 && rsi1H <= 65) { confirmation += 10; confirmDetails.rsi = "ideal"; }
+    else if (rsi1H >= 30 && rsi1H <= 72) { confirmation += 5; confirmDetails.rsi = "acceptable"; }
+    else { confirmDetails.rsi = "extreme"; }
   } else {
-    if (rsi1H >= 35 && rsi1H <= 60) {
-      confirmation += 10;
-      confirmDetails.rsi = "ideal";
-    } else if (rsi1H >= 28 && rsi1H <= 70) {
-      confirmation += 5;
-      confirmDetails.rsi = "acceptable";
-    } else {
-      confirmDetails.rsi = "extreme";
-    }
+    if (rsi1H >= 35 && rsi1H <= 60) { confirmation += 10; confirmDetails.rsi = "ideal"; }
+    else if (rsi1H >= 28 && rsi1H <= 70) { confirmation += 5; confirmDetails.rsi = "acceptable"; }
+    else { confirmDetails.rsi = "extreme"; }
   }
 
-  // Bonus: recent squeeze release on 30m or 1H (replaces some confirmation pts)
+  // Squeeze release bonus (5 pts)
   const sq30Release = b30?.sqRelease || false;
   const sq1HRelease = b1H?.sqRelease || false;
   if (sq30Release || sq1HRelease) {
-    confirmation = Math.min(30, confirmation + 5);
+    confirmation = Math.min(35, confirmation + 5);
     confirmDetails.squeeze_release = true;
   }
 
-  const total = structure + momentum + confirmation;
+  // ── LIQUIDITY ZONE ADJUSTMENT (±10 pts): Penalize congestion, reward room ──
+  let liqAdj = 0;
+  const liqDetails = {};
+  if (liqData) {
+    const liq4H = liqData.liq_4h;
+    const liqD = liqData.liq_D;
+    const primaryLiq = liq4H || liqD;
+    if (primaryLiq) {
+      const targetDist = isLong ? primaryLiq.nearestBuysideDist : primaryLiq.nearestSellsideDist;
+      if (targetDist > 0) {
+        if (targetDist < 0.5) {
+          liqAdj = -10;
+          liqDetails.zone = "congested";
+        } else if (targetDist < 1.0) {
+          liqAdj = -5;
+          liqDetails.zone = "near_zone";
+        } else if (targetDist >= 1.5 && targetDist <= 4.0) {
+          liqAdj = 5;
+          liqDetails.zone = "room_to_run";
+        } else {
+          liqDetails.zone = "far";
+        }
+        liqDetails.dist = Math.round(targetDist * 100) / 100;
+        liqDetails.tf = liq4H ? "4H" : "D";
+      }
+    }
+  }
+
+  // ── LOOKBACK BONUS (up to +12 pts): Reward setup stalking signals ──
+  let lookbackBonus = 0;
+  const lookbackDetails = {};
+  const b10Lb = b10?.lookback;
+  const b30Lb = b30?.lookback;
+  const b1HLb = b1H?.lookback;
+
+  const td9Opposite = isLong
+    ? (b1HLb?.td9BearIn20 || b30Lb?.td9BearIn20)
+    : (b1HLb?.td9BullIn20 || b30Lb?.td9BullIn20);
+  if (td9Opposite) { lookbackBonus += 5; lookbackDetails.td9_opposite = true; }
+
+  const rsiRecovery = isLong
+    ? (b10Lb?.rsiWasExtremeLo15 || b30Lb?.rsiWasExtremeLo15)
+    : (b10Lb?.rsiWasExtremeHi15 || b30Lb?.rsiWasExtremeHi15);
+  if (rsiRecovery) { lookbackBonus += 4; lookbackDetails.rsi_recovery = true; }
+
+  if (b10Lb?.stFlipFresh) { lookbackBonus += 3; lookbackDetails.st_flip_fresh = true; }
+
+  lookbackBonus = Math.min(12, lookbackBonus);
+
+  const total = htfFoundation + ltfRecovery + confirmation + liqAdj + lookbackBonus;
 
   return {
-    score: Math.min(100, total),
-    structure,
-    momentum,
+    score: Math.min(100, Math.max(0, total)),
+    structure: htfFoundation,
+    momentum: ltfRecovery,
     confirmation,
+    liqAdj,
+    lookbackBonus,
     details: {
       emaAligned,
       confirmDetails,
+      recoveryDetails,
+      liqDetails,
+      lookbackDetails,
       rsi1H: Math.round(rsi1H * 10) / 10,
+      rsi15: Math.round(rsi15 * 10) / 10,
       phaseOsc1H: Math.round(phaseOsc1H * 10) / 10,
     },
   };
@@ -2496,13 +2716,24 @@ export function detectFlags(bundles) {
   // SuperTrend flips (with timestamps)
   if (b30?.stFlip) { flags.st_flip_30m = true; flags.st_flip_30m_ts = b30.stFlip_ts; }
   if (b60?.stFlip) { flags.st_flip_1h = true; flags.st_flip_1h_ts = b60.stFlip_ts; }
+  if (b4H?.stFlip) { flags.st_flip_4h = true; flags.st_flip_4h_ts = b4H.stFlip_ts; }
   if (b10?.stFlip) { flags.st_flip_10m = true; flags.st_flip_10m_ts = b10.stFlip_ts; }
-  // Bear-side ST flip (timestamp is the most recent bear flip)
-  if (b30?.stFlipDir === -1 || b60?.stFlipDir === -1) {
+  // Bear-side ST flip (30m/1H/4H — timestamp is the most recent bear flip)
+  if (b30?.stFlipDir === -1 || b60?.stFlipDir === -1 || b4H?.stFlipDir === -1) {
     flags.st_flip_bear = true;
     flags.st_flip_bear_ts = Math.max(
       b30?.stFlipDir === -1 ? (b30.stFlip_ts || 0) : 0,
-      b60?.stFlipDir === -1 ? (b60.stFlip_ts || 0) : 0
+      b60?.stFlipDir === -1 ? (b60.stFlip_ts || 0) : 0,
+      b4H?.stFlipDir === -1 ? (b4H.stFlip_ts || 0) : 0
+    );
+  }
+  // Bull-side ST flip (30m/1H/4H — needed for SHORT exit logic)
+  if (b30?.stFlipDir === 1 || b60?.stFlipDir === 1 || b4H?.stFlipDir === 1) {
+    flags.st_flip_bull = true;
+    flags.st_flip_bull_ts = Math.max(
+      b30?.stFlipDir === 1 ? (b30.stFlip_ts || 0) : 0,
+      b60?.stFlipDir === 1 ? (b60.stFlip_ts || 0) : 0,
+      b4H?.stFlipDir === 1 ? (b4H.stFlip_ts || 0) : 0
     );
   }
 
@@ -2628,17 +2859,23 @@ export function buildSTSupportMap(bundles) {
 const FIB_RATIOS = [0.236, 0.382, 0.500, 0.618, 0.786, 1.000, 1.236, 1.618, 2.000, 2.618, 3.000];
 
 /**
- * Compute Fibonacci-based ATR levels for a given horizon.
+ * Compute Fibonacci-based ATR levels for a given horizon (Saty ATR Levels).
  *
- * @param {number} prevClose - previous period close price
+ * Modes map scoring TF → anchor TF:
+ *   Day (15m → Daily), Multiday (30m → Weekly), Swing (1H → Monthly),
+ *   Position (4H → Quarterly), Long-term (D/W → Yearly)
+ *
+ * @param {number} prevClose - previous period close of the anchor TF
  * @param {number} atr - ATR(14) for this horizon's timeframe
- * @param {number} currentPrice - current price for gate detection
+ * @param {number} currentPrice - current price for gate/band detection
  * @param {string} horizonLabel - "day"|"week"|"month"|"quarter"|"longterm"
- * @returns {object} { prevClose, atr, levels_up, levels_dn, gate }
+ * @param {number} [periodHigh=0] - high of current anchor period (for range exhaustion)
+ * @param {number} [periodLow=0] - low of current anchor period (for range exhaustion)
+ * @returns {object}
  */
-export function computeATRLevels(prevClose, atr, currentPrice, horizonLabel) {
+export function computeATRLevels(prevClose, atr, currentPrice, horizonLabel, periodHigh = 0, periodLow = 0) {
   if (!Number.isFinite(prevClose) || !Number.isFinite(atr) || atr <= 0) {
-    return { prevClose: 0, atr: 0, levels_up: [], levels_dn: [], gate: null };
+    return { prevClose: 0, atr: 0, levels_up: [], levels_dn: [], gate: null, disp: 0, band: "NEUTRAL", rangeOfATR: 0 };
   }
 
   const levels_up = [];
@@ -2650,6 +2887,24 @@ export function computeATRLevels(prevClose, atr, currentPrice, horizonLabel) {
     levels_dn.push({ ratio, price: dn, label: `-${(ratio * 100).toFixed(1)}%` });
   }
 
+  // Displacement: how far price has moved from anchor in ATR multiples
+  const displacement = Number.isFinite(currentPrice) ? (currentPrice - prevClose) / atr : 0;
+  const absDisp = Math.abs(displacement);
+
+  // Current band classification
+  let band = "NEUTRAL";
+  if (absDisp >= 3.0) band = "EXT_300";
+  else if (absDisp >= 2.0) band = "EXT_200";
+  else if (absDisp >= 1.0) band = "ATR_100";
+  else if (absDisp >= 0.618) band = "KEY_618";
+  else if (absDisp >= 0.382) band = "GATE_382";
+  else if (absDisp >= 0.236) band = "TRIGGER";
+
+  // Range exhaustion: what % of ATR has the period's range consumed
+  const periodRange = (Number.isFinite(periodHigh) && Number.isFinite(periodLow) && periodHigh > periodLow)
+    ? periodHigh - periodLow : 0;
+  const rangeOfATR = periodRange > 0 ? Math.round((periodRange / atr) * 1000) / 10 : 0;
+
   // Golden Gate tracker: 38.2% entry → 61.8% completion
   const gate382_up = prevClose + 0.382 * atr;
   const gate618_up = prevClose + 0.618 * atr;
@@ -2659,7 +2914,6 @@ export function computeATRLevels(prevClose, atr, currentPrice, horizonLabel) {
   let gate = null;
   if (Number.isFinite(currentPrice)) {
     const px = currentPrice;
-    // Bull gate: price crossed above 38.2%
     if (px >= gate382_up) {
       const completed = px >= gate618_up;
       const range = gate618_up - gate382_up;
@@ -2673,9 +2927,7 @@ export function computeATRLevels(prevClose, atr, currentPrice, horizonLabel) {
         progress_pct: Math.round(progress * 1000) / 1000,
         horizon: horizonLabel,
       };
-    }
-    // Bear gate: price crossed below -38.2%
-    else if (px <= gate382_dn) {
+    } else if (px <= gate382_dn) {
       const completed = px <= gate618_dn;
       const range = gate382_dn - gate618_dn;
       const progress = range > 0 ? Math.min(1, Math.max(0, (gate382_dn - px) / range)) : 0;
@@ -2696,6 +2948,9 @@ export function computeATRLevels(prevClose, atr, currentPrice, horizonLabel) {
     atr: Math.round(atr * 100) / 100,
     trigger_up: Math.round((prevClose + 0.236 * atr) * 100) / 100,
     trigger_dn: Math.round((prevClose - 0.236 * atr) * 100) / 100,
+    disp: Math.round(displacement * 1000) / 1000,
+    band,
+    rangeOfATR,
     levels_up,
     levels_dn,
     gate,
@@ -2711,43 +2966,46 @@ export function computeATRLevels(prevClose, atr, currentPrice, horizonLabel) {
  * @returns {object} { day, week, month, quarter, longterm }
  */
 export function buildATRLevelMaps(bundles, currentPrice) {
-  // Map horizons to timeframe bundles
-  // Day uses Daily ATR, Week uses Weekly ATR, etc.
-  // For Month/Quarter/Longterm we approximate from higher TFs
   const bD = bundles?.D;
   const bW = bundles?.W;
+  const bM = bundles?.M;
 
   const maps = {};
 
-  // Day: Daily ATR, previous day close (approximated as daily bundle's px)
+  // Day mode (15m anchor): previous daily close + Daily ATR(14)
   if (bD && Number.isFinite(bD.atr14)) {
-    // prevClose: ideally the prior bar close, but we approximate with current daily px
-    // since computeTfBundle uses the latest bar. A more precise approach would
-    // pass in the second-to-last daily bar explicitly.
-    maps.day = computeATRLevels(bD.px, bD.atr14, currentPrice, "day");
+    const pc = Number.isFinite(bD.pxPrev) ? bD.pxPrev : bD.px;
+    maps.day = computeATRLevels(pc, bD.atr14, currentPrice, "day", bD.barHigh, bD.barLow);
   }
 
-  // Week: Weekly ATR
+  // Multiday mode (30m anchor): previous weekly close + Weekly ATR(14)
   if (bW && Number.isFinite(bW.atr14)) {
-    maps.week = computeATRLevels(bW.px, bW.atr14, currentPrice, "week");
+    const pc = Number.isFinite(bW.pxPrev) ? bW.pxPrev : bW.px;
+    maps.week = computeATRLevels(pc, bW.atr14, currentPrice, "week", bW.barHigh, bW.barLow);
   }
 
-  // Month: approximate as 4.33x Weekly ATR (sqrt(4.33) scaling for ATR)
-  if (bW && Number.isFinite(bW.atr14)) {
+  // Swing mode (1H anchor): Monthly close + Monthly ATR
+  if (bM && Number.isFinite(bM.atr14)) {
+    const pc = Number.isFinite(bM.pxPrev) ? bM.pxPrev : bM.px;
+    maps.month = computeATRLevels(pc, bM.atr14, currentPrice, "month", bM.barHigh, bM.barLow);
+  } else if (bW && Number.isFinite(bW.atr14)) {
     const monthlyATR = bW.atr14 * Math.sqrt(4.33);
-    maps.month = computeATRLevels(bW.px, monthlyATR, currentPrice, "month");
+    const pc = Number.isFinite(bW.pxPrev) ? bW.pxPrev : bW.px;
+    maps.month = computeATRLevels(pc, monthlyATR, currentPrice, "month");
   }
 
-  // Quarter: approximate as 13x Weekly ATR (sqrt(13) scaling)
+  // Position mode (4H anchor): Quarterly ≈ sqrt(13) × Weekly ATR
   if (bW && Number.isFinite(bW.atr14)) {
     const quarterlyATR = bW.atr14 * Math.sqrt(13);
-    maps.quarter = computeATRLevels(bW.px, quarterlyATR, currentPrice, "quarter");
+    const pc = Number.isFinite(bW.pxPrev) ? bW.pxPrev : bW.px;
+    maps.quarter = computeATRLevels(pc, quarterlyATR, currentPrice, "quarter");
   }
 
-  // Long-term: approximate as 52x Weekly ATR (sqrt(52) scaling)
+  // Long-term mode (D/W anchor): Yearly ≈ sqrt(52) × Weekly ATR
   if (bW && Number.isFinite(bW.atr14)) {
     const yearlyATR = bW.atr14 * Math.sqrt(52);
-    maps.longterm = computeATRLevels(bW.px, yearlyATR, currentPrice, "longterm");
+    const pc = Number.isFinite(bW.pxPrev) ? bW.pxPrev : bW.px;
+    maps.longterm = computeATRLevels(pc, yearlyATR, currentPrice, "longterm");
   }
 
   return maps;
@@ -2765,25 +3023,27 @@ export function buildATRLevelMaps(bundles, currentPrice) {
  * @returns {{ fuelPct: number, phaseFuel: number, rsiFuel: number, status: string }}
  */
 export function computeFuelGauge(bundle) {
-  if (!bundle) return { fuelPct: 50, phaseFuel: 50, rsiFuel: 50, status: "healthy" };
+  if (!bundle) return { fuelPct: 50, phaseFuel: 50, rsiFuel: 50, satyFuel: 50, status: "healthy" };
 
-  const { phaseOsc, rsi } = bundle;
+  const { phaseOsc, rsi, satyPhase } = bundle;
 
-  // Phase fuel: phase near 0 = full tank, near ±100 = empty
-  // Map |phaseOsc| from 0..100+ to fuel 100..0
+  // Saty Phase fuel: pure price-displacement from EMA21 normalized by ATR
+  // |satyPhase| near 0 = full tank, near ±100+ = empty
+  const satyVal = Math.abs(satyPhase?.value ?? 0);
+  const satyFuel = Math.max(0, Math.min(100, 100 - satyVal));
+
+  // Multi-factor Phase fuel (legacy)
   const phaseAbs = Math.abs(Number.isFinite(phaseOsc) ? phaseOsc : 0);
   const phaseFuel = Math.max(0, Math.min(100, 100 - phaseAbs));
 
   // RSI fuel: RSI near 50 = full tank, RSI near 20 or 80 = empty
-  // Map distance from 50 (range 0..50) to fuel 100..0
   const rsiVal = Number.isFinite(rsi) ? rsi : 50;
   const rsiDistFromCenter = Math.abs(rsiVal - 50);
   const rsiFuel = Math.max(0, Math.min(100, 100 - (rsiDistFromCenter * 2)));
 
-  // Combined: phase 60%, RSI 40%
-  const fuelPct = Math.round(phaseFuel * 0.6 + rsiFuel * 0.4);
+  // Combined: Saty Phase 40%, multi-factor Phase 20%, RSI 40%
+  const fuelPct = Math.round(satyFuel * 0.4 + phaseFuel * 0.2 + rsiFuel * 0.4);
 
-  // Status thresholds
   let status;
   if (fuelPct >= 50) status = "healthy";
   else if (fuelPct >= 25) status = "low";
@@ -2793,6 +3053,7 @@ export function computeFuelGauge(bundle) {
     fuelPct,
     phaseFuel: Math.round(phaseFuel),
     rsiFuel: Math.round(rsiFuel),
+    satyFuel: Math.round(satyFuel),
     status,
   };
 }
@@ -3000,6 +3261,96 @@ function detectBreakout(dailyBundle, regime, price, dailyBars) {
       || detectEMAStackBreakout(dailyBundle, price);
 }
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// Mean Reversion TD9 Alignment — Primitives
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function isNearPsychLevel(price, pctTolerance = 0.01) {
+  const levels = [50, 100, 150, 200, 250, 300, 400, 500, 750, 1000, 1500, 2000];
+  for (const lvl of levels) {
+    if (Math.abs(price - lvl) / lvl <= pctTolerance) return { near: true, level: lvl };
+  }
+  return { near: false, level: null };
+}
+
+function td9AlignedLong(tdSeq) {
+  const ptf = tdSeq?.per_tf;
+  if (!ptf) return false;
+  return !!(ptf.D?.td9_bullish && ptf.W?.td9_bullish && ptf["60"]?.td9_bullish);
+}
+
+function td9AlignedShort(tdSeq) {
+  const ptf = tdSeq?.per_tf;
+  if (!ptf) return false;
+  return !!(ptf.D?.td9_bearish && ptf.W?.td9_bearish && ptf["60"]?.td9_bearish);
+}
+
+function countRecentBearishFVGs(fvgResult, lookbackBars) {
+  if (!fvgResult?.fvgs) return 0;
+  return fvgResult.fvgs.filter(g => g.type === "bear").length;
+}
+
+function detectMeanReversionTD9(bundles, tdSeq, price) {
+  const bD = bundles?.D;
+  const b1H = bundles?.["60"];
+  const b4H = bundles?.["240"];
+  const bW = bundles?.W;
+  if (!bD || !b1H) return null;
+
+  const aligned = td9AlignedLong(tdSeq);
+  if (!aligned) return null;
+
+  const rsiD = bD.rsi;
+  const rsi4H = b4H?.rsi;
+  const rsi1H = b1H.rsi;
+  if (!Number.isFinite(rsiD) || rsiD > 30) return null;
+  if (Number.isFinite(rsi1H) && rsi1H > 40) return null;
+
+  // Phase leaving dot: Saty Phase was in ext-down zone and is now recovering
+  const spD = bD.satyPhase;
+  const sp1H = b1H.satyPhase;
+  let phaseLeavingDot = false;
+  if (spD?.leaving?.extDn || spD?.leaving?.accum) phaseLeavingDot = true;
+  if (sp1H?.leaving?.extDn || sp1H?.leaving?.accum) phaseLeavingDot = true;
+  if (!phaseLeavingDot) return null;
+
+  // Support confluence: at least 2 of 3 conditions
+  let supportScore = 0;
+  const reasons = [];
+
+  const fvgD = bD.fvg;
+  if (fvgD && (fvgD.inBullGap || (Number.isFinite(fvgD.nearestBullDist) && fvgD.nearestBullDist >= 0 && fvgD.nearestBullDist < 0.5))) {
+    supportScore++;
+    reasons.push("fvg_daily");
+  }
+
+  const liqW = bW?.liq;
+  if (liqW && Number.isFinite(liqW.nearestSellsideDist) && liqW.nearestSellsideDist >= 0 && liqW.nearestSellsideDist < 0.5) {
+    supportScore++;
+    reasons.push("ssl_weekly");
+  }
+
+  const psych = isNearPsychLevel(price);
+  if (psych.near) {
+    supportScore++;
+    reasons.push(`psych_${psych.level}`);
+  }
+
+  if (supportScore < 2) return null;
+
+  return {
+    active: true,
+    td9_aligned: true,
+    phase_leaving: true,
+    rsi_d: Math.round(rsiD * 10) / 10,
+    rsi_1h: Number.isFinite(rsi1H) ? Math.round(rsi1H * 10) / 10 : null,
+    rsi_4h: Number.isFinite(rsi4H) ? Math.round(rsi4H * 10) / 10 : null,
+    support_score: supportScore,
+    support_reasons: reasons,
+    psych_level: psych.level,
+  };
+}
+
 export function assembleTickerData(ticker, bundles, existingData = null, opts = null) {
   const bM = bundles?.M;
   const bW = bundles?.W;
@@ -3057,6 +3408,29 @@ export function assembleTickerData(ticker, bundles, existingData = null, opts = 
   const phasePct = Math.min(1, Math.abs(phaseOsc) / 100);
   const phaseDir = phaseOsc > 0 ? "bull" : phaseOsc < 0 ? "bear" : "flat";
   const phaseZone = bD?.phaseZone || "LOW";
+
+  // Saty Phase completion: pure price-displacement metric from multiple TFs
+  // Uses leading LTF for immediate signal, 1H for intermediate, Daily for macro
+  const _spLead = bLead?.satyPhase;
+  const _sp1H = b1H?.satyPhase;
+  const _sp30 = b30?.satyPhase;
+  const _spD = bD?.satyPhase;
+  const satyPhasePct = (() => {
+    const v1H = Math.abs(_sp1H?.value ?? 0);
+    const v30 = Math.abs(_sp30?.value ?? 0);
+    const vD = Math.abs(_spD?.value ?? 0);
+    const primary = Math.max(v1H, v30);
+    const pct = primary > 0 ? Math.min(1, primary / 100) : Math.min(1, vD / 100);
+    return Math.round(pct * 1000) / 1000;
+  })();
+
+  // Saty Phase zone-exit aggregation: check 1H and 30m for leaving signals
+  const satyPhaseExitSignal = {
+    leaving1H: _sp1H?.leaving || null,
+    leaving30: _sp30?.leaving || null,
+    value1H: _sp1H?.value ?? null,
+    value30: _sp30?.value ?? null,
+  };
 
   // ── Price: use the most recent close across all timeframes (by timestamp).
   // Previously `b30?.px || b10?.px || bD?.px` which silently used stale intraday
@@ -3231,12 +3605,29 @@ export function assembleTickerData(ticker, bundles, existingData = null, opts = 
       atr: atrBand ? { ...atrBand, ...(atrCross || {}) } : (atrCross || undefined),
       sq: { s: b.sqOn ? 1 : 0, r: b.sqRelease ? 1 : 0, c: b.compressed ? 1 : 0 },
       rsi: { r5: Number.isFinite(b.rsi) ? Math.round(b.rsi * 10) / 10 : undefined },
+      rsiDiv: b.rsiDiv && (b.rsiDiv.bear || b.rsiDiv.bull) ? {
+        bear: b.rsiDiv.bear ? { s: b.rsiDiv.bear.strength, bs: b.rsiDiv.bear.barsSince, a: b.rsiDiv.bear.active } : undefined,
+        bull: b.rsiDiv.bull ? { s: b.rsiDiv.bull.strength, bs: b.rsiDiv.bull.barsSince, a: b.rsiDiv.bull.active } : undefined,
+      } : undefined,
       ripster: b.ripsterClouds || undefined,
       ph: {
         v: Number.isFinite(b.phaseOsc) ? Math.round(b.phaseOsc * 10) / 10 : undefined,
         z: b.phaseZone || undefined,
         dots: phaseDotCode ? [phaseDotCode] : [],
       },
+      saty: b.satyPhase ? {
+        v: b.satyPhase.value,
+        p: b.satyPhase.prev,
+        z: b.satyPhase.zone,
+        l: b.satyPhase.leaving,
+      } : undefined,
+      satyATR: (() => {
+        const anchorMap = { "15": "day", "10": "day", "30": "week", "1H": "month", "4H": "quarter", D: "longterm", W: "longterm" };
+        const anchor = anchorMap[tfLabel];
+        if (!anchor || !atrLevels?.[anchor]) return undefined;
+        const al = atrLevels[anchor];
+        return { disp: al.disp, band: al.band, gg: al.gate?.entered || false, rangeOfATR: al.rangeOfATR, horizon: anchor };
+      })(),
       fuel: fuel[tfLabel] || undefined,
       pdz: b.pdz ? { zone: b.pdz.zone, pct: b.pdz.pct } : undefined,
       fvg: b.fvg ? {
@@ -3279,7 +3670,11 @@ export function assembleTickerData(ticker, bundles, existingData = null, opts = 
   // Fall back to HTF score if consensus has no opinion.
   const eqSide = swingConsensus.direction
     || (htfScore >= 0 ? "LONG" : "SHORT");
-  const entryQuality = computeEntryQualityScore(bundles, eqSide, regime);
+  const liqData = {
+    liq_4h: b4H?.liq ? { nearestBuysideDist: b4H.liq.nearestBuysideDist, nearestSellsideDist: b4H.liq.nearestSellsideDist } : null,
+    liq_D: bD?.liq ? { nearestBuysideDist: bD.liq.nearestBuysideDist, nearestSellsideDist: bD.liq.nearestSellsideDist } : null,
+  };
+  const entryQuality = computeEntryQualityScore(bundles, eqSide, regime, liqData);
 
   // ── Regime Classification (v3 chop filter) ──
   const runtimeMarketInternals = enableExecutionProfileRuntime ? marketInternals : null;
@@ -3337,8 +3732,17 @@ export function assembleTickerData(ticker, bundles, existingData = null, opts = 
       return Math.max(0, Math.min(1, Math.round((progress / totalRange) * 1000) / 1000));
     })(),
     phase_pct: Math.round(phasePct * 1000) / 1000,
+    saty_phase_pct: satyPhasePct,
     phase_dir: phaseDir,
     phase_zone: phaseZone,
+    saty_phase_exit: satyPhaseExitSignal,
+    rsi_divergence: (() => {
+      const out = {};
+      for (const [label, b] of [["1H", b1H], ["30", b30], ["D", bD]]) {
+        if (b?.rsiDiv && (b.rsiDiv.bear || b.rsiDiv.bull)) out[label] = b.rsiDiv;
+      }
+      return Object.keys(out).length > 0 ? out : undefined;
+    })(),
     leading_ltf: leadingLtf,
     lead_intraday_tf: leadingLtf,
     flags,
@@ -3372,7 +3776,11 @@ export function assembleTickerData(ticker, bundles, existingData = null, opts = 
       nearestBuysideDist: bD.liq.nearestBuysideDist, nearestSellsideDist: bD.liq.nearestSellsideDist,
       buyside: bD.liq.buyside, sellside: bD.liq.sellside } : undefined,
     liq_4h: b4H?.liq ? { buysideCount: b4H.liq.buysideCount, sellsideCount: b4H.liq.sellsideCount,
-      nearestBuysideDist: b4H.liq.nearestBuysideDist, nearestSellsideDist: b4H.liq.nearestSellsideDist } : undefined,
+      nearestBuysideDist: b4H.liq.nearestBuysideDist, nearestSellsideDist: b4H.liq.nearestSellsideDist,
+      buyside: b4H.liq.buyside, sellside: b4H.liq.sellside } : undefined,
+    liq_W: bW?.liq ? { buysideCount: bW.liq.buysideCount, sellsideCount: bW.liq.sellsideCount,
+      nearestBuysideDist: bW.liq.nearestBuysideDist, nearestSellsideDist: bW.liq.nearestSellsideDist,
+      buyside: bW.liq.buyside, sellside: bW.liq.sellside } : undefined,
     // ── Phoenix-inspired swing fields (Phase 1a, 2b, 3a) ──
     entry_quality: {
       score: entryQuality.score,
@@ -4886,6 +5294,13 @@ export async function computeServerSideScores(ticker, getCandles, env, existingD
     const htfBull = (tickerData.htf_score || 0) >= 0;
     const tdSeq = computeTDSequentialMultiTF(tdSeqCandles, htfBull);
     tickerData.td_sequential = tdSeq;
+
+    // Mean Reversion TD9 Aligned setup detection
+    const price = bundleMap?.D?.px || bundleMap?.["60"]?.px;
+    if (price) {
+      const mrSignal = detectMeanReversionTD9(bundleMap, tdSeq, price);
+      if (mrSignal) tickerData.mean_revert_td9 = mrSignal;
+    }
   }
 
   return tickerData;

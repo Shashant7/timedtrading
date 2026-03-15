@@ -490,7 +490,7 @@
     <script src="shared-price-utils.js?v=20260211a"></script>
     <script src="investor-panel.js?v=20260226a"></script>
     <script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
-    <script src="shared-right-rail.compiled.js?v=20260311b"></script>
+    <script src="shared-right-rail.compiled.js?v=20260313a"></script>
     <script type="text/babel">
       const { useState, useEffect, useMemo, useCallback, useRef, memo } = React;
 
@@ -11270,12 +11270,18 @@
             ["OPEN", "TP_HIT_TRIM"].includes(statusUp) ||
             (!(openTrade.exit_ts ?? openTrade.exitTs) && statusUp !== "WIN" && statusUp !== "LOSS")
           );
-          let dir = isBullish ? "LONG" : "SHORT";
+          let dir = (() => {
+            const scDir = String(t?.swing_consensus?.direction || "").toUpperCase();
+            if (scDir === "BULLISH" || scDir === "LONG") return "LONG";
+            if (scDir === "BEARISH" || scDir === "SHORT") return "SHORT";
+            const trigDir = String(t?.trigger_dir || "").toUpperCase();
+            if (trigDir === "LONG" || trigDir === "SHORT") return trigDir;
+            return isBullish ? "LONG" : "SHORT";
+          })();
           if (hasOpenTrade) {
             const d = String(openTrade.direction || "").toUpperCase();
             if (d === "LONG" || d === "SHORT") dir = d;
           }
-          // Also check ticker-level position direction (from server)
           if (!hasOpenTrade && t?.has_open_position) {
             const pd = String(t?.position_direction || "").toUpperCase();
             if (pd === "LONG" || pd === "SHORT") dir = pd;
@@ -11592,7 +11598,7 @@
                     <span className="inline-flex items-center justify-center px-1.5 py-px rounded text-[9px] font-bold shrink-0 tracking-wide bg-emerald-500/35 text-emerald-200 border border-emerald-400/50" style={{ textShadow: "0 0 6px rgba(16,185,129,0.4)" }} title="TT Selected">TT</span>
                   )}
                   <span className={`inline-flex items-center justify-center px-1.5 py-px rounded text-[9px] font-black shrink-0 tracking-wide ${dir === "LONG" ? "bg-cyan-500/80 text-white ring-1 ring-cyan-300/60" : "bg-rose-600/80 text-white ring-1 ring-rose-400/60"}`}>{dir}</span>
-                  {(() => { const _g = openTrade?.setupGrade || openTrade?.setup_grade; if (!_g) return null; const cls = _g === "Prime" ? "bg-amber-500/25 text-amber-200 border-amber-400/40" : _g === "Confirmed" ? "bg-emerald-500/25 text-emerald-200 border-emerald-400/40" : "bg-blue-500/25 text-blue-200 border-blue-400/40"; return <span className={`px-1 py-px rounded text-[8px] font-bold border shrink-0 ${cls}`}>TT {_g}</span>; })()}
+                  {(() => { const _g = openTrade?.setupGrade || openTrade?.setup_grade || t?.setup_grade || t?.setupGrade; if (!_g) return null; const cls = _g === "Prime" ? "bg-amber-500/25 text-amber-200 border-amber-400/40" : _g === "Confirmed" ? "bg-emerald-500/25 text-emerald-200 border-emerald-400/40" : "bg-blue-500/25 text-blue-200 border-blue-400/40"; return <span className={`px-1 py-px rounded text-[8px] font-bold border shrink-0 ${cls}`}>TT {_g}</span>; })()}
                   {badgesText && <span className="text-[10px] shrink-0">{badgesText}</span>}
                 </div>
                 {window._ttIsPro && (
@@ -12368,7 +12374,12 @@
           const isBullish = state.startsWith("HTF_BULL");
           const statusUp = String(trade?.status || "").toUpperCase();
           const hasOpen = trade && (["OPEN", "TP_HIT_TRIM"].includes(statusUp) || (!(trade?.exit_ts ?? trade?.exitTs) && statusUp !== "WIN" && statusUp !== "LOSS"));
-          let dir = isBullish ? "LONG" : "SHORT";
+          let dir = (() => {
+            const scDir = String(t?.swing_consensus?.direction || "").toUpperCase();
+            if (scDir === "BULLISH" || scDir === "LONG") return "LONG";
+            if (scDir === "BEARISH" || scDir === "SHORT") return "SHORT";
+            return isBullish ? "LONG" : "SHORT";
+          })();
           if (hasOpen) { const d = String(trade?.direction || "").toUpperCase(); if (d === "LONG" || d === "SHORT") dir = d; }
           if (!hasOpen && t?.has_open_position) { const pd = String(t?.position_direction || "").toUpperCase(); if (pd === "LONG" || pd === "SHORT") dir = pd; }
           // effectiveDir for SL/TP sanity uses position direction when available

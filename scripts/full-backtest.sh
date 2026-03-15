@@ -291,6 +291,14 @@ else
   echo "Step 1: Resetting all trade state (D1 + KV)..."
   RESET_RESULT=$(curl -s -m 300 -X POST "$API_BASE/timed/admin/reset?resetLedger=1&key=$API_KEY")
   echo "Reset: $(echo "$RESET_RESULT" | jq -c '{ok, kvCleared}' 2>/dev/null || echo "$RESET_RESULT")"
+  # Verify D1 trades are actually deleted (admin/reset may silently fail on D1)
+  D1_CHECK=$(echo "$RESET_RESULT" | jq -r '.d1Cleared[] | select(.sql == "DELETE FROM trades") | .changes // 0' 2>/dev/null || echo "?")
+  echo "D1 trades deleted: $D1_CHECK"
+  if [[ "$D1_CHECK" == "?" ]] || [[ -z "$D1_CHECK" ]]; then
+    echo "WARNING: Could not verify D1 trade deletion. Forcing explicit cleanup..."
+    FORCE_RESET=$(curl -s -m 60 "$API_BASE/timed/admin/candle-replay?action=force-d1-cleanup&key=$API_KEY" 2>&1)
+    echo "Force cleanup: $(echo "$FORCE_RESET" | jq -c '{ok}' 2>/dev/null || echo "$FORCE_RESET")"
+  fi
   echo ""
 
   TOTAL_TICKERS=$(curl -s "$API_BASE/timed/admin/alpaca-status?key=$API_KEY" | jq -r '.total_tickers // 200' 2>/dev/null || echo "200")
@@ -566,6 +574,11 @@ while [[ "$CURRENT_DATE" < "$END_DATE" ]] || [[ "$CURRENT_DATE" == "$END_DATE" ]
   TOTAL_SCORED=$((TOTAL_SCORED + DAY_SCORED))
 
   echo "  Day complete: scored=$DAY_SCORED trades=$DAY_TRADES total=$DAY_TOTAL_TR errors=$DAY_ERRS ($BATCH_NUM batches)"
+  # Capture blocked entry gate diagnostics from last batch of the day
+  B_BLOCKED=$(echo "$RESULT" | jq -c '.blockedEntryGates // {}' 2>/dev/null || echo "{}")
+  if [[ "$B_BLOCKED" != "{}" ]] && [[ "$B_BLOCKED" != "null" ]]; then
+    LAST_BLOCKED_GATES="$B_BLOCKED"
+  fi
   echo ""
 
   # Periodic lifecycle: aggregate timed_trail → trail_5m_facts every 5 replayed days
@@ -637,19 +650,23 @@ echo "║  Days processed: $DAY_COUNT (skipped $SKIP_COUNT holidays)"
 echo "║  Total scored: $TOTAL_SCORED"
 echo "║  Total trades: $TOTAL_TRADES"
 echo "╚══════════════════════════════════════════════════════╝"
+
+if [[ -n "${LAST_BLOCKED_GATES:-}" ]] && [[ "$LAST_BLOCKED_GATES" != "{}" ]]; then
+  echo ""
+  echo "=== Blocked Entry Gate Diagnostics ==="
+  echo "$LAST_BLOCKED_GATES" | jq -r 'to_entries | sort_by(-.value) | .[] | "  \(.key): \(.value)"' 2>/dev/null || echo "$LAST_BLOCKED_GATES"
+fi
 echo ""
 
 # ─── Step 2b: Close open positions at replay end (optional) ─────────────────
 TODAY_KEY=$(date "+%Y-%m-%d")
 if $KEEP_OPEN_AT_END; then
   echo "=== Keeping open positions at replay end (--keep-open-at-end enabled) ==="
-elif [[ "$END_DATE" < "$TODAY_KEY" ]]; then
+else
   echo "=== Closing open positions at replay end ($END_DATE) ==="
   CLOSE_RESULT=$(curl -s -m 120 -X POST "$API_BASE/timed/admin/close-replay-positions?date=$END_DATE&key=$API_KEY" 2>&1)
   CLOSED_COUNT=$(echo "$CLOSE_RESULT" | jq -r '.closed // 0' 2>/dev/null || echo "0")
   echo "Closed $CLOSED_COUNT open positions at $END_DATE market close"
-else
-  echo "=== End date is today ($END_DATE) — keeping open positions as-is ==="
 fi
 echo ""
 

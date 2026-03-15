@@ -20,6 +20,7 @@ END_DATE=""
 RUN_LABEL=""
 INTERVAL_MIN=5
 FROM_LOSSES=0
+SKIP_BACKFILL=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -29,6 +30,7 @@ while [[ $# -gt 0 ]]; do
     --label) RUN_LABEL="$2"; shift 2 ;;
     --interval) INTERVAL_MIN="$2"; shift 2 ;;
     --from-losses) FROM_LOSSES="$2"; shift 2 ;;
+    --skip-backfill) SKIP_BACKFILL=1; shift ;;
     *) echo "Unknown arg: $1"; exit 1 ;;
   esac
 done
@@ -71,17 +73,22 @@ echo "╚═══════════════════════�
 echo ""
 
 # Step 1: Ensure candle data exists for these tickers
-echo "Step 1: Checking/backfilling candle data..."
-IFS=',' read -ra TICKER_ARR <<< "$TICKERS"
-BF_START=$(date -j -v-60d -f "%Y-%m-%d" "$START_DATE" "+%Y-%m-%d" 2>/dev/null || date -d "$START_DATE 60 days ago" "+%Y-%m-%d" 2>/dev/null || echo "$START_DATE")
-for t in "${TICKER_ARR[@]}"; do
-  echo -n "  $t ... "
-  BF_RES=$(curl -s -m 300 -X POST "$API_BASE/timed/admin/alpaca-backfill?startDate=$BF_START&endDate=$END_DATE&tf=all&ticker=$t&key=$API_KEY" 2>&1)
-  UPSERTED=$(echo "$BF_RES" | jq -r '.upserted // 0' 2>/dev/null || echo "?")
-  echo "ok (${UPSERTED} candles)"
-  sleep 1
-done
-echo ""
+if [[ "$SKIP_BACKFILL" -eq 1 ]]; then
+  echo "Step 1: Skipping backfill (--skip-backfill). Candle data assumed present in D1."
+  echo ""
+else
+  echo "Step 1: Checking/backfilling candle data..."
+  IFS=',' read -ra TICKER_ARR <<< "$TICKERS"
+  BF_START=$(date -j -v-60d -f "%Y-%m-%d" "$START_DATE" "+%Y-%m-%d" 2>/dev/null || date -d "$START_DATE 60 days ago" "+%Y-%m-%d" 2>/dev/null || echo "$START_DATE")
+  for t in "${TICKER_ARR[@]}"; do
+    echo -n "  $t ... "
+    BF_RES=$(curl -s -m 300 -X POST "$API_BASE/timed/admin/alpaca-backfill?startDate=$BF_START&endDate=$END_DATE&tf=all&ticker=$t&key=$API_KEY" 2>&1)
+    UPSERTED=$(echo "$BF_RES" | jq -r '.upserted // 0' 2>/dev/null || echo "?")
+    echo "ok (${UPSERTED} candles)"
+    sleep 1
+  done
+  echo ""
+fi
 
 # Step 2: Replay each day (ticker-filtered)
 echo "Step 2: Replaying..."

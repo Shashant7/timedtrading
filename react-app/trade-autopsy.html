@@ -63,30 +63,32 @@
       const API_BASE = "";
 
       const CLASSIFICATION_OPTIONS = [
-        { value: "", label: "— Classify —" },
-        { value: "good_trade", label: "Good Trade", hint: "Entry + exit both solid — reinforces path", color: "#22c55e", icon: "✓" },
-        { value: "ok_trade", label: "Ok Trade", hint: "Acceptable, small win/loss — neutral weight", color: "#8b5cf6", icon: "~" },
-        { value: "early_entry", label: "Early Entry", hint: "Right thesis, bad timing — tunes confirmation", color: "#06b6d4", icon: "⏱" },
-        { value: "bad_exit", label: "Bad Exit", hint: "Good entry, cut early or held too long — tunes TP", color: "#f59e0b", icon: "↗" },
-        { value: "bad_trade", label: "Bad Trade", hint: "Should not have entered — penalizes path", color: "#ef4444", icon: "✗" },
+        { value: "", label: "— Grade —" },
+        { value: "a_plus", label: "A+", hint: "Perfect trade end to end — learn from this to repeat consistently", color: "#22c55e", icon: "★" },
+        { value: "a_grade", label: "A", hint: "Great trade, no issues — add to our list of things to learn from", color: "#4ade80", icon: "✓" },
+        { value: "b_plus", label: "B+", hint: "Good trade, but we could have improved aspects of it", color: "#60a5fa", icon: "↗" },
+        { value: "c_grade", label: "C", hint: "Ok trade — got by, but many mistakes to clean up or avoid", color: "#f59e0b", icon: "~" },
+        { value: "d_grade", label: "D", hint: "Bad trade, many issues — add to our list of things to clean up", color: "#ef4444", icon: "✗" },
+        { value: "f_grade", label: "F", hint: "Horrible trade — prioritize for analysis and remediation", color: "#dc2626", icon: "⛔" },
         { value: "data_error", label: "Bad Data", hint: "Stale price, glitch — excluded from analysis", color: "#6b7280", icon: "⚠" },
       ];
 
       var ENTRY_GRADE_OPTIONS = [
-        { value: "chasing", label: "Chasing", hint: "Entered after move stretched — tunes 15m weight" },
-        { value: "move_stretched", label: "Move Stretched", hint: "Entry too late in the move" },
-        { value: "not_enough_confirmation", label: "Not Enough Confirmation", hint: "Entered before signals aligned" },
-        { value: "fake_out", label: "Fake Out", hint: "Signal reversed quickly — ticker personality" },
-        { value: "good_entry", label: "Good Entry", hint: "Timing and confirmation solid" },
+        { value: "early_entry", label: "Early Entry", hint: "Right thesis but jumped in before the move established" },
+        { value: "perfect_timing", label: "Perfect Timing", hint: "Entered at the ideal moment with full confirmation" },
+        { value: "late_entry", label: "Late Entry", hint: "Correct read but entered after the bulk of the move" },
+        { value: "chasing", label: "Chasing", hint: "The move is done but we entered hoping for continuation" },
+        { value: "not_enough_confirmation", label: "Not Enough Confirmation", hint: "The move hasn't been established — entered on hope" },
       ];
 
       var TRADE_MANAGEMENT_OPTIONS = [
-        { value: "should_have_trimmed", label: "Should Have Trimmed", hint: "Left gains on table" },
-        { value: "should_have_held", label: "Should Have Held", hint: "Exited too early" },
-        { value: "should_have_cut_early", label: "Should Have Cut Early", hint: "Held loser too long" },
-        { value: "should_protect_gains", label: "Should Protect Gains Better", hint: "Gave back profit" },
-        { value: "sl_too_tight", label: "SL Too Tight", hint: "Stopped out by noise" },
-        { value: "sl_too_loose", label: "SL Too Loose", hint: "Risked more than needed" },
+        { value: "should_have_trimmed", label: "Should Have Trimmed", hint: "Had gains but didn't take partial profit" },
+        { value: "trimmed_too_early", label: "Trimmed Too Early", hint: "Took profit before the move completed" },
+        { value: "perfect_trim", label: "Perfect Trim", hint: "Trimmed at the right level — textbook execution" },
+        { value: "trimmed_too_late", label: "Trimmed Too Late", hint: "Gave back gains before trimming" },
+        { value: "exited_too_early", label: "Exited Too Early", hint: "Closed the trade before the move played out" },
+        { value: "perfect_exit", label: "Perfect Exit", hint: "Closed at the right time — nothing to improve" },
+        { value: "exited_too_late", label: "Exited Too Late", hint: "Held too long and gave back profit or took extra loss" },
       ];
 
       const fetchOpts = { cache: "no-store", credentials: "include" };
@@ -365,12 +367,12 @@
       }
 
       // ── Interactive Chart (TradingView Lightweight Charts) ───────────────────
-      // Ordered widest→narrowest so narrower clouds render on top
+      // Cloud config matching TradingView EMA Clouds Pine Script (Ripster)
       const CLOUD_CONFIG = [
-        { key: 'cloud180200', s: 180, l: 200, color: '#26c6da', fill: 'rgba(38,198,218,0.18)', label: '180-200' },
-        { key: 'cloud7289', s: 72, l: 89, color: '#26a69a', fill: 'rgba(38,166,154,0.22)', label: '72-89' },
-        { key: 'cloud3450', s: 34, l: 50, color: '#42a5f5', fill: 'rgba(66,165,245,0.28)', label: '34-50' },
-        { key: 'cloud512', s: 5, l: 12, color: '#4caf50', fill: 'rgba(76,175,80,0.32)', label: '5-12' },
+        { key: 'cloud180200', s: 180, l: 200, color: '#05bed5', bullFill: 'rgba(5,190,213,0.35)', bearFill: 'rgba(230,81,0,0.35)', label: '180-200' },
+        { key: 'cloud7289', s: 72, l: 89, color: '#009688', bullFill: 'rgba(0,150,136,0.35)', bearFill: 'rgba(240,98,146,0.35)', label: '72-89' },
+        { key: 'cloud3450', s: 34, l: 50, color: '#2196f3', bullFill: 'rgba(33,150,243,0.30)', bearFill: 'rgba(255,183,77,0.30)', label: '34-50' },
+        { key: 'cloud512', s: 5, l: 12, color: '#4caf50', bullFill: 'rgba(3,97,3,0.55)', bearFill: 'rgba(136,14,79,0.55)', label: '5-12' },
       ];
       const INDICATOR_KEYS = ["cloud512", "cloud3450", "cloud7289", "cloud180200", "superTrend", "tdSeq"];
       function AutopsyChart({ ticker, entryPrice, exitPrice, entryTs, exitTs, trimTs, height = 360 }) {
@@ -379,13 +381,73 @@
         const seriesRef = useRef(null);
         const priceLinesRef = useRef([]);
         const cloudAreaRef = useRef([]);
+        const cloudCanvasRef = useRef(null);
         const emaSeriesRef = useRef([]);
         const indicatorDataRef = useRef(null);
+        const showIndicatorsRef = useRef(null);
         const tradeMarkersRef = useRef([]);
         const [loading, setLoading] = useState(true);
         const [error, setError] = useState(null);
         const [tf, setTf] = useState("15");
-        const [showIndicators, setShowIndicators] = useState({ cloud512: true, cloud3450: true, cloud7289: false, cloud180200: false, superTrend: false, tdSeq: false });
+        const [showIndicators, setShowIndicators] = useState({ cloud512: true, cloud3450: true, cloud7289: true, cloud180200: true, superTrend: true, tdSeq: false });
+        showIndicatorsRef.current = showIndicators;
+
+        const drawCloudFills = useCallback(() => {
+          const canvas = cloudCanvasRef.current;
+          const chart = chartRef.current;
+          const container = containerRef.current;
+          if (!canvas || !chart || !container) return;
+          const dpr = window.devicePixelRatio || 1;
+          const rect = container.getBoundingClientRect();
+          canvas.width = Math.round(rect.width * dpr);
+          canvas.height = Math.round(rect.height * dpr);
+          canvas.style.width = rect.width + 'px';
+          canvas.style.height = rect.height + 'px';
+          const ctx = canvas.getContext('2d');
+          ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+          ctx.clearRect(0, 0, rect.width, rect.height);
+          const ts = chart.timeScale();
+          const si = showIndicatorsRef.current || {};
+          CLOUD_CONFIG.forEach((cloud, idx) => {
+            if (!si[cloud.key]) return;
+            const d = indicatorDataRef.current?.[cloud.key];
+            if (!d?.shortEma || !d?.longEma) return;
+            const shortD = d.shortEma;
+            const longD = d.longEma;
+            const ca = cloudAreaRef.current[idx];
+            if (!ca?.upper) return;
+            const n = Math.min(shortD.length, longD.length);
+            if (n < 2) return;
+            let segStart = 0;
+            let prevBull = shortD[0].value >= longD[0].value;
+            for (let i = 1; i <= n; i++) {
+              const bull = i < n ? shortD[i].value >= longD[i].value : !prevBull;
+              if (bull !== prevBull || i === n) {
+                const from = segStart, to = Math.min(i, n - 1);
+                ctx.beginPath();
+                let started = false;
+                for (let j = from; j <= to; j++) {
+                  const x = ts.timeToCoordinate(shortD[j].time);
+                  const y = ca.upper.priceToCoordinate(shortD[j].value);
+                  if (x == null || y == null) continue;
+                  if (!started) { ctx.moveTo(x, y); started = true; } else ctx.lineTo(x, y);
+                }
+                for (let j = to; j >= from; j--) {
+                  const x = ts.timeToCoordinate(longD[j].time);
+                  const y = ca.upper.priceToCoordinate(longD[j].value);
+                  if (x == null || y == null) continue;
+                  ctx.lineTo(x, y);
+                }
+                ctx.closePath();
+                ctx.fillStyle = prevBull ? cloud.bullFill : cloud.bearFill;
+                ctx.fill();
+                segStart = i;
+                prevBull = bull;
+              }
+            }
+          });
+        }, []);
+
         const intradaySessionMode = useMemo(() => {
           const sym = String(ticker || "").toUpperCase();
           if (!sym) return "rth";
@@ -487,8 +549,8 @@
               fontSize: 10,
             },
             grid: {
-              vertLines: { color: "rgba(38,50,95,0.35)" },
-              horzLines: { color: "rgba(38,50,95,0.35)" },
+              vertLines: { color: "rgba(38,50,95,0.5)" },
+              horzLines: { color: "rgba(38,50,95,0.5)" },
             },
             crosshair: {
               mode: LightweightCharts.CrosshairMode.Normal,
@@ -541,18 +603,21 @@
           });
           chartRef.current = chart;
 
-          // Cloud area fills created FIRST so they render behind candles (widest→narrowest).
-          // Each cloud pair: upper fills max(short,long)→bottom with cloud color,
-          // lower fills min(short,long)→bottom with semi-transparent BG to "erase" below.
-          // Semi-transparent (82%) lets wider clouds show through narrower erasers.
+          // Cloud bands: two thin boundary lines per cloud + canvas overlay for fills
           const noLine = { lastValueVisible: false, priceLineVisible: false, crosshairMarkerVisible: false };
-          const BG_SEMI = 'rgba(11,14,17,0.82)';
           const cloudAreas = CLOUD_CONFIG.map(cloud => ({
             key: cloud.key,
-            upper: chart.addAreaSeries({ topColor: cloud.fill, bottomColor: cloud.fill, lineColor: 'transparent', lineWidth: 0, ...noLine }),
-            lower: chart.addAreaSeries({ topColor: BG_SEMI, bottomColor: BG_SEMI, lineColor: 'transparent', lineWidth: 0, ...noLine }),
+            upper: chart.addLineSeries({ color: cloud.color + '66', lineWidth: 1, ...noLine }),
+            lower: chart.addLineSeries({ color: cloud.color + '66', lineWidth: 1, ...noLine }),
           }));
           cloudAreaRef.current = cloudAreas;
+
+          // Create canvas overlay for cloud fills (positioned over chart area)
+          const overlay = document.createElement('canvas');
+          overlay.style.cssText = 'position:absolute;left:0;top:0;width:100%;height:100%;pointer-events:none;z-index:1;';
+          container.style.position = 'relative';
+          container.appendChild(overlay);
+          cloudCanvasRef.current = overlay;
 
           const candleSeries = chart.addCandlestickSeries({
             upColor: "#22c55e",
@@ -601,7 +666,7 @@
                 upperData.push({ time: t, value: Math.max(sv, lv) });
                 lowerData.push({ time: t, value: Math.min(sv, lv) });
               }
-              allData[cloud.key] = { upper: upperData, lower: lowerData };
+              allData[cloud.key] = { upper: upperData, lower: lowerData, shortEma: shortData, longEma: longData };
               const vis = showIndicators[cloud.key];
               const ca = cloudAreaRef.current[ci];
               if (ca) {
@@ -737,6 +802,7 @@
                 const h = containerRef.current.clientHeight;
                 if (w > 0 && h > 0) chartRef.current.resize(w, h);
               }
+              drawCloudFills();
             });
             setTimeout(() => {
               if (chartRef.current && containerRef.current) {
@@ -797,18 +863,27 @@
               const h = containerRef.current.clientHeight;
               if (w > 0 && h > 0) chartRef.current.resize(w, h);
             }
+            requestAnimationFrame(drawCloudFills);
           };
           const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(handleResize) : null;
           if (ro) ro.observe(containerRef.current);
           window.addEventListener("resize", handleResize);
 
+          const onRangeChange = () => requestAnimationFrame(drawCloudFills);
+          chart.timeScale().subscribeVisibleLogicalRangeChange(onRangeChange);
+
           return () => {
             cancelled = true;
+            try { chart.timeScale().unsubscribeVisibleLogicalRangeChange(onRangeChange); } catch (_) {}
             if (ro) ro.disconnect();
             window.removeEventListener("resize", handleResize);
             priceLinesRef.current = [];
             emaSeriesRef.current = [];
             cloudAreaRef.current = [];
+            if (cloudCanvasRef.current) {
+              try { cloudCanvasRef.current.remove(); } catch (_) {}
+              cloudCanvasRef.current = null;
+            }
             chart.remove();
             chartRef.current = null;
             seriesRef.current = null;
@@ -843,7 +918,8 @@
             const all = [...tm, ...td].sort((a, b) => (a.time < b.time ? -1 : a.time > b.time ? 1 : 0));
             try { seriesRef.current.setMarkers(all); } catch (_) {}
           }
-        }, [showIndicators]);
+          requestAnimationFrame(drawCloudFills);
+        }, [showIndicators, drawCloudFills]);
 
         const toggleIndicator = (key) => {
           setShowIndicators(prev => ({ ...prev, [key]: !prev[key] }));
@@ -865,7 +941,7 @@
                 ))}
               </div>
             </div>
-            <div ref={containerRef} style={{ minHeight: Math.max(height * 0.4, 180), minWidth: 200, width: "100%" }} className="w-full flex-1 min-h-0">
+            <div ref={containerRef} style={{ minHeight: 180, minWidth: 200, width: "100%", height: "100%" }} className="w-full flex-1 min-h-0">
               {error && !loading && (
                 <div className="flex items-center justify-center h-full text-[#6b7280] text-[13px]">{error}</div>
               )}
@@ -880,7 +956,7 @@
               <span className="flex items-center gap-1.5"><span className="inline-block w-3 h-0.5 rounded bg-[#f59e0b]" /> Exit</span>
               {INDICATOR_KEYS.map(key => {
                 const labels = { cloud512: "5-12", cloud3450: "34-50", cloud7289: "72-89", cloud180200: "180-200", superTrend: "ST", tdSeq: "TD" };
-                const colors = { cloud512: "#4caf50", cloud3450: "#42a5f5", cloud7289: "#26a69a", cloud180200: "#26c6da", superTrend: "#f97316", tdSeq: "#2962ff" };
+                const colors = { cloud512: "#4caf50", cloud3450: "#2196f3", cloud7289: "#009688", cloud180200: "#05bed5", superTrend: "#f97316", tdSeq: "#2962ff" };
                 const on = showIndicators[key];
                 return (
                   <button key={key} type="button" onClick={() => toggleIndicator(key)} className={`flex items-center gap-1 sm:gap-1.5 rounded px-1.5 py-1 sm:py-0.5 -m-0.5 hover:bg-white/[0.06] transition-all ${on ? "opacity-100" : "opacity-45"}`} title={on ? "Hide" : "Show"}>
@@ -1011,6 +1087,7 @@
         };
 
         const entrySnap = trade?.signal_snapshot_json;
+        const exitSnap = trade?.exit_snapshot_json;
         const tfStack = trade?.tf_stack_json;
         const mfe = trade?.max_favorable_excursion;
         const mae = trade?.max_adverse_excursion;
@@ -1025,207 +1102,351 @@
         const topVixRow = contextProfile?.by_vix_bucket?.[0] || null;
         const topPathRow = contextProfile?.by_entry_path?.[0] || null;
 
+        const parsedSnap = useMemo(() => {
+          if (!entrySnap) return null;
+          try { return typeof entrySnap === "string" ? JSON.parse(entrySnap) : entrySnap; } catch { return null; }
+        }, [entrySnap]);
+        const parsedExitSnap = useMemo(() => {
+          if (!exitSnap) return null;
+          try { return typeof exitSnap === "string" ? JSON.parse(exitSnap) : exitSnap; } catch { return null; }
+        }, [exitSnap]);
+        const ln = parsedSnap?.lineage || null;
+        const exitLn = parsedExitSnap?.lineage || null;
+        const lc = parsedSnap?.precision?.learningContext || parsedSnap?.learningContext || null;
+
+        const rcColor = ln?.regime_class === "TRENDING" ? "#22c55e" : ln?.regime_class === "TRANSITIONAL" ? "#f59e0b" : ln?.regime_class === "CHOPPY" ? "#ef4444" : "#9ca3af";
+        const vtColor = ln?.volatility_tier === "LOW" ? "#60a5fa" : ln?.volatility_tier === "MEDIUM" ? "#14b8a6" : ln?.volatility_tier === "HIGH" ? "#f59e0b" : ln?.volatility_tier === "EXTREME" ? "#ef4444" : "#9ca3af";
+        const vixVal = Number(ln?.vix_at_entry) || 0;
+        const vixLabel = vixVal < 15 ? "Low" : vixVal < 22 ? "Medium" : vixVal < 30 ? "High" : "Extreme";
+        const vixColor = vixVal < 15 ? "#22c55e" : vixVal < 22 ? "#14b8a6" : vixVal < 30 ? "#f59e0b" : "#ef4444";
+        const stDirIcon = (d) => d > 0 ? "▲" : d < 0 ? "▼" : "—";
+        const stDirColor = (d) => d > 0 ? "#22c55e" : d < 0 ? "#ef4444" : "#6b7280";
+        const phaseZColor = (z) => z === "EXTREME_UP" || z === "DISTRIBUTION" ? "#22c55e" : z === "EXTREME_DOWN" || z === "ACCUMULATION" ? "#ef4444" : z === "TRANSITION" ? "#f59e0b" : "#9ca3af";
+        const fuelColor = (s) => s === "full" ? "#22c55e" : s === "fading" ? "#f59e0b" : s === "critical" ? "#ef4444" : "#6b7280";
+        const tdCountColor = (v) => v >= 7 ? "#ef4444" : v >= 4 ? "#f59e0b" : "#9ca3af";
+        const tradeDir = (trade?.direction || "").toUpperCase();
+
+        const Pill = ({ color, children }) => (
+          <span className="px-1 py-px rounded text-[9px] font-bold inline-block" style={{ background: color + "1a", color, border: `1px solid ${color}33` }}>{children}</span>
+        );
+        const SectionLabel = ({ color, children }) => (
+          <div className="text-[8px] font-bold uppercase tracking-wider mb-0.5 flex items-center gap-0.5" style={{ color }}>
+            <span className="w-1 h-1 rounded-full inline-block" style={{ background: color }} />{children}
+          </div>
+        );
+        const DashCell = ({ children }) => (
+          <div className="px-1.5 py-1 rounded-md bg-white/[0.02] border border-white/[0.04] min-w-0">{children}</div>
+        );
+
         return (
           <div className="fixed inset-0 z-[100] flex items-center justify-center md:p-4" style={{ background: "rgba(0,0,0,0.7)", backdropFilter: "blur(4px)" }} onClick={onClose}>
             <div className="autopsy-modal-card w-full h-full md:h-auto md:max-w-[95vw] md:max-h-[95vh] overflow-hidden flex flex-col" onClick={e => e.stopPropagation()}>
-              <div className="flex items-center justify-between px-4 py-2.5 border-b border-white/[0.06] shrink-0" style={{ background: "var(--tt-bg-surface)" }}>
-                <h2 className="text-[15px] font-semibold text-white truncate mr-2">
+              <div className="flex items-center justify-between px-3 py-1.5 border-b border-white/[0.06] shrink-0" style={{ background: "var(--tt-bg-surface)" }}>
+                <h2 className="text-[14px] font-semibold text-white truncate mr-2">
                   {trade?.ticker} {trade?.direction || ""} — {readonly ? "Trade Review" : "Trade Autopsy"}
                 </h2>
-                <button onClick={onClose} className="p-2 -mr-1 rounded-md text-[#6b7280] hover:text-white hover:bg-white/[0.06] shrink-0">✕</button>
+                <button onClick={onClose} className="p-1.5 -mr-1 rounded-md text-[#6b7280] hover:text-white hover:bg-white/[0.06] shrink-0">✕</button>
               </div>
 
               <div
-                className="p-3 md:p-4 flex-1 min-h-0 overflow-y-auto flex flex-col gap-3"
-                style={{ paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 0.75rem)" }}
+                className="px-2.5 py-2 md:px-3 flex-1 min-h-0 overflow-y-auto flex flex-col gap-1.5"
+                style={{ paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 0.25rem)" }}
               >
-                <div className="flex flex-col sm:flex-row flex-wrap items-start sm:items-center gap-2 sm:gap-3 shrink-0">
-                  <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#60a5fa]/15 border border-[#60a5fa]/30 w-full sm:w-auto">
-                    <span className="text-[10px] font-semibold text-[#60a5fa] uppercase tracking-wider shrink-0">Entry</span>
-                    <span className="text-[13px] font-semibold text-white truncate">{formatDate(trade?.entry_ts)} @ {fmtUsd(storedEntry)}</span>
+                {/* ── Header pills ── */}
+                <div className="flex flex-wrap items-center gap-1 shrink-0">
+                  <div className="flex items-center gap-1 px-2 py-0.5 rounded bg-[#60a5fa]/10 border border-[#60a5fa]/20">
+                    <span className="text-[8px] font-bold text-[#60a5fa] uppercase">Entry</span>
+                    <span className="text-[11px] font-semibold text-white">{formatDate(trade?.entry_ts)} @ {fmtUsd(storedEntry)}</span>
                   </div>
-                  <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#f59e0b]/15 border border-[#f59e0b]/30 w-full sm:w-auto">
-                    <span className="text-[10px] font-semibold text-[#f59e0b] uppercase tracking-wider shrink-0">Exit</span>
-                    <span className="text-[13px] font-semibold text-white truncate">{formatDate(trade?.exit_ts)} @ {fmtUsd(storedExit)}</span>
+                  <div className="flex items-center gap-1 px-2 py-0.5 rounded bg-[#f59e0b]/10 border border-[#f59e0b]/20">
+                    <span className="text-[8px] font-bold text-[#f59e0b] uppercase">Exit</span>
+                    <span className="text-[11px] font-semibold text-white">{formatDate(trade?.exit_ts)} @ {fmtUsd(storedExit)}</span>
                   </div>
-                  <div className="flex items-center gap-3">
-                    <div className="text-[12px] text-[#9ca3af]">
-                      P&L: <span className={Number(trade?.pnl) >= 0 ? "text-[#22c55e] font-semibold" : "text-[#ef4444] font-semibold"}>{fmtUsd(trade?.pnl)}</span>
-                    </div>
-                    {trade?.status && <div className="text-[12px] text-[#9ca3af]">Status: {trade.status}</div>}
+                  <div className="flex items-center gap-1 px-2 py-0.5 rounded" style={{ background: Number(trade?.pnl) >= 0 ? "rgba(34,197,94,0.08)" : "rgba(239,68,72,0.08)", border: `1px solid ${Number(trade?.pnl) >= 0 ? "rgba(34,197,94,0.2)" : "rgba(239,68,72,0.2)"}` }}>
+                    <span className="text-[8px] font-bold uppercase" style={{ color: Number(trade?.pnl) >= 0 ? "#22c55e" : "#ef4444" }}>P&L</span>
+                    <span className="text-[11px] font-bold" style={{ color: Number(trade?.pnl) >= 0 ? "#22c55e" : "#ef4444" }}>{fmtUsd(trade?.pnl)}</span>
                   </div>
-                  <div className="w-full sm:w-auto px-2.5 py-1 rounded-md bg-white/[0.03] border border-white/[0.06]">
-                    <span className="text-[10px] text-[#6b7280] uppercase tracking-wider mr-2">Run</span>
-                    <span className="text-[11px] font-mono text-[#d1d5db] break-all" title={trade?.run_id || ""}>
-                      {trade?.run_id || "—"}
-                    </span>
-                  </div>
-                </div>
-                <div className="text-[11px] text-[#9ca3af] px-1 hidden sm:block">
-                  Markers time-aligned to the nearest 15m bar. Price lines and header show the actual execution price.
+                  {(() => {
+                    const _sh = Number(trade?.shares);
+                    if (!_sh || !Number.isFinite(_sh) || _sh <= 0) return null;
+                    const _trimPct = Number(trade?.trimmed_pct || trade?.trimmedPct || 0);
+                    const _trimmed = Math.round(_sh * Math.min(_trimPct, 1));
+                    const _remaining = Math.max(0, Math.round(_sh) - _trimmed);
+                    return (
+                      <div className="flex items-center gap-1 px-2 py-0.5 rounded bg-[#a78bfa]/10 border border-[#a78bfa]/20">
+                        <span className="text-[8px] font-bold text-[#a78bfa] uppercase">Shares</span>
+                        <span className="text-[11px] font-semibold text-white">{Math.round(_sh)}</span>
+                        {_trimmed > 0 && (
+                          <span className="text-[9px] text-[#a78bfa]/70">({_trimmed} trimmed · {_remaining} left)</span>
+                        )}
+                      </div>
+                    );
+                  })()}
+                  {trade?.status && <span className="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase" style={{ background: trade.status === "WIN" ? "#22c55e1a" : trade.status === "LOSS" ? "#ef44441a" : "#9ca3af1a", color: trade.status === "WIN" ? "#22c55e" : trade.status === "LOSS" ? "#ef4444" : "#9ca3af" }}>{trade.status}</span>}
+                  <span className="ml-auto text-[9px] font-mono text-[#4b5563] hidden sm:inline" title={trade?.run_id || ""}>{shortRunId(trade?.run_id)}</span>
                 </div>
 
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 md:gap-4 lg:flex-1 lg:min-h-0">
-                  <div className="lg:col-span-1 flex flex-col gap-3 min-h-0 lg:overflow-y-auto order-2 lg:order-1">
-                    {(entrySnap || tfStack || trade?.entry_path) && (
-                      <div className="tt-card p-3 shrink-0">
-                        <div className="text-[11px] font-semibold text-[#14b8a6] uppercase tracking-wider mb-2">Signal snapshot at entry</div>
-                        {trade?.entry_path && (
-                          <div className="mb-3 px-2.5 py-1.5 rounded-lg bg-[#14b8a6]/10 border border-[#14b8a6]/20">
-                            <span className="text-[10px] text-[#9ca3af] uppercase tracking-wider">Setup</span>
-                            <div className="text-[13px] font-semibold text-white mt-0.5 flex items-center gap-2">
-                              {formatPath(trade.entry_path)}
-                              {trade.setup_grade && (() => {
-                                const t = String(trade.setup_grade);
-                                const cls = t === "Prime" ? "bg-amber-500/20 text-amber-300 border-amber-500/30"
-                                  : t === "Confirmed" ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/30"
-                                  : "bg-blue-500/20 text-blue-300 border-blue-500/30";
-                                return <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold border ${cls}`}>TT {t}</span>;
-                              })()}
-                              {Number(trade.risk_budget) > 0 && <span className="text-[10px] text-[#6b7280]">{Number(trade.risk_budget) < 1 ? `${(Number(trade.risk_budget) * 100).toFixed(2)}% risk` : `$${trade.risk_budget} risk`}</span>}
-                            </div>
-                          </div>
-                        )}
-                        {parseTfStack(tfStack)?.length > 0 && (
-                          <div className="mb-3">
-                            <span className="text-[10px] text-[#9ca3af] uppercase tracking-wider block mb-1.5">Timeframe bias</span>
-                            <div className="flex flex-wrap gap-1.5">
-                              {parseTfStack(tfStack).map(({ tf, bias }) => {
-                                const b = String(bias || "").toLowerCase();
-                                const isBull = b === "bullish";
-                                const isBear = b === "bearish";
-                                const label = isBull ? "Bullish" : isBear ? "Bearish" : (bias || "—");
-                                const style = isBull ? "bg-[#22c55e]/15 text-[#22c55e]" : isBear ? "bg-[#ef4444]/15 text-[#ef4444]" : "bg-white/[0.06] text-[#9ca3af]";
+                {/* ══════════ 2. SIGNAL SNAPSHOT DASHBOARD ══════════ */}
+                <div className="tt-card px-2.5 py-2 shrink-0">
+                  {/* ── Row 1: Setup Name + Grade + Risk (prominent) ── */}
+                  <div className="flex flex-wrap items-center gap-2 mb-1.5 pb-1.5 border-b border-white/[0.06]">
+                    {trade?.setup_name && (
+                      <span className="text-[13px] font-bold text-white tracking-wide">{trade.setup_name}</span>
+                    )}
+                    {trade?.entry_path && (
+                      <span className={`text-[12px] font-semibold ${trade?.setup_name ? "text-[#9ca3af]" : "text-white"}`}>{formatPath(trade.entry_path)}</span>
+                    )}
+                    {trade?.setup_grade && (() => {
+                      const t = String(trade.setup_grade);
+                      const cls = t === "Prime" ? "bg-amber-500/20 text-amber-300 border-amber-500/30" : t === "Confirmed" ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/30" : "bg-blue-500/20 text-blue-300 border-blue-500/30";
+                      return <span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${cls}`}>TT {t}</span>;
+                    })()}
+                    {Number(trade?.risk_budget) > 0 && (
+                      <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-white/[0.04] border border-white/[0.08] text-[#d1d5db]">
+                        {Number(trade.risk_budget) < 1 ? `${(Number(trade.risk_budget) * 100).toFixed(2)}% Risk` : `$${trade.risk_budget} Risk`}
+                      </span>
+                    )}
+                    {Number(trade?.notional) > 0 && (
+                      <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-[#a78bfa]/10 border border-[#a78bfa]/20 text-[#a78bfa]">
+                        ${Number(trade.notional).toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 0 })} Notional
+                      </span>
+                    )}
+                    <span className="w-px h-3.5 bg-white/[0.08] mx-0.5 hidden sm:block" />
+                    {parseTfStack(tfStack)?.map(({ tf, bias }) => {
+                      const b = String(bias || "").toLowerCase();
+                      const isBull = b === "bullish"; const isBear = b === "bearish";
+                      const style = isBull ? "bg-[#22c55e]/15 text-[#22c55e]" : isBear ? "bg-[#ef4444]/15 text-[#ef4444]" : "bg-white/[0.06] text-[#9ca3af]";
+                      return <span key={tf} className={`inline-flex items-center gap-0.5 px-1 py-0.5 rounded text-[9px] font-medium ${style}`}><span className="opacity-70">{tf}</span>{isBull ? "Bull" : isBear ? "Bear" : (bias || "—")}</span>;
+                    })}
+                    {ln?.danger_score != null && (<>
+                      <span className="w-px h-3 bg-white/[0.08] mx-0.5 hidden sm:block" />
+                      <span className="text-[9px] font-bold text-[#ef4444] uppercase">Danger</span>
+                      <span className="font-bold text-[12px]" style={{color: ln.danger_score>=3?"#ef4444":ln.danger_score>=2?"#f59e0b":"#22c55e"}}>{ln.danger_score}</span>
+                      {ln.danger_flags?.length > 0 && ln.danger_flags.map((f,i) => <span key={i} className="px-1 py-0.5 rounded text-[7px] bg-[#ef4444]/10 text-[#fca5a5]">{f.replace(/_/g," ")}</span>)}
+                    </>)}
+                  </div>
+
+                  {/* ── Row 2: Side-by-side Entry Signals + Exit Signals tables ── */}
+                  {(() => {
+                    const tdTfMap = { "W":"W","D":"D","4H":"240","1H":"60","30m":"30","15m":"15" };
+                    const allTFs = ["15m","30m","1H","4H","D","W"];
+                    const renderSignalTable = (snapRaw, lineageData, label, accentColor) => {
+                      const snapTFs = parseSnapshot(snapRaw) || [];
+                      const hasSnap = snapTFs.length > 0;
+                      const hasTD = lineageData?.td_counts;
+                      const hasDiv = lineageData?.rsi_divergence;
+                      if (!hasSnap && !hasTD) return (
+                        <div className="flex-1 min-w-0">
+                          <div className="text-[8px] font-bold uppercase tracking-widest mb-1" style={{color: accentColor + "b3"}}>{label}</div>
+                          <div className="text-[9px] text-[#4b5563] italic py-4 text-center">No snapshot data captured</div>
+                        </div>
+                      );
+                      const snapMap = {};
+                      snapTFs.forEach(s => { snapMap[s.tf] = s.signals; });
+                      return (
+                        <div className="flex-1 min-w-0">
+                          <div className="text-[8px] font-bold uppercase tracking-widest mb-1" style={{color: accentColor + "b3"}}>{label}</div>
+                          <table className="text-[11px] w-full" style={{borderSpacing:0}}>
+                            <thead>
+                              <tr className="text-[8px] text-[#6b7280] uppercase border-b border-white/[0.06]">
+                                <th className="text-left pr-2 pb-1 font-semibold">TF</th>
+                                <th className="text-left pr-2 pb-1 font-semibold">EMA</th>
+                                <th className="text-left pr-2 pb-1 font-semibold">ST</th>
+                                <th className="text-left pr-2 pb-1 font-semibold">Depth</th>
+                                <th className="text-left pr-1 pb-1 font-semibold">RSI</th>
+                                <th className="text-center px-1 pb-1 font-semibold" title="Bullish Prep — seller exhaustion" style={{color:"#22c55e88"}}>BP</th>
+                                <th className="text-center px-1 pb-1 font-semibold" title="Bullish Leadup — seller exhaustion countdown" style={{color:"#22c55e88"}}>BL</th>
+                                <th className="text-center px-1 pb-1 font-semibold" title="Bearish Prep — buyer exhaustion" style={{color:"#ef444488"}}>XP</th>
+                                <th className="text-center px-1 pb-1 font-semibold" title="Bearish Leadup — buyer exhaustion countdown" style={{color:"#ef444488"}}>XL</th>
+                                <th className="text-center pb-1 font-semibold" title="RSI Divergence">D</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {allTFs.map(tf => {
+                                const sig = snapMap[tf] || {};
+                                const tdKey = tdTfMap[tf];
+                                const tc = hasTD ? (lineageData.td_counts[tdKey] || lineageData.td_counts[tf]) : null;
+                                const dv = hasDiv ? (lineageData.rsi_divergence[tf] || lineageData.rsi_divergence[tdKey]) : null;
+                                const emaCross = sig.ema_cross;
+                                const st = sig.supertrend;
+                                const stSlope = sig.st_slope;
+                                const emaD = sig.ema_depth != null ? Number(sig.ema_depth) : null;
+                                const rsi = sig.rsi;
+                                const stColor = st === 1 ? "#22c55e" : st === -1 ? "#ef4444" : "#9ca3af";
+                                const stIcon = st === 1 ? "▲" : st === -1 ? "▼" : "";
+                                const stLabel = st === 1 ? "Bull" : st === -1 ? "Bear" : "";
+                                const slopeTag = stSlope != null ? " ↗" : (st != null ? " —" : "");
+                                const depthColor = emaD != null ? (emaD >= 12 ? "#22c55e" : emaD >= 8 ? "#14b8a6" : emaD >= 5 ? "#f59e0b" : "#ef4444") : null;
+                                const hasAny = emaCross != null || st != null || emaD != null || rsi != null || tc || dv;
+                                if (!hasAny) return null;
+                                const hB = dv?.bear?.active !== false && dv?.bear;
+                                const hU = dv?.bull?.active !== false && dv?.bull;
+                                const isHTF = tf === "W" || tf === "D";
                                 return (
-                                  <span key={tf} className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium ${style}`}>
-                                    <span className="opacity-80">{tf}</span>
-                                    <span>{label}</span>
-                                  </span>
+                                  <tr key={tf} className={`border-t border-white/[0.05] ${isHTF ? "bg-white/[0.015]" : ""}`}>
+                                    <td className="pr-2 py-1 text-[#9ca3af] font-semibold">{tf}</td>
+                                    <td className="pr-2 py-1">{emaCross != null ? <span className={emaCross === 1 ? "text-[#22c55e] font-semibold" : "text-[#ef4444] font-semibold"}>{emaCross === 1 ? "▲ Bull" : "▼ Bear"}</span> : <span className="text-[#4b5563]">·</span>}</td>
+                                    <td className="pr-2 py-1">{stLabel ? <span style={{color: stColor}} className="font-semibold">{stIcon} {stLabel}<span className="opacity-50 ml-0.5">{slopeTag}</span></span> : <span className="text-[#4b5563]">·</span>}</td>
+                                    <td className="pr-2 py-1">{emaD != null ? <span className="font-semibold" style={{color: depthColor}}>{emaD}/15</span> : <span className="text-[#4b5563]">·</span>}</td>
+                                    <td className="pr-1 py-1">{rsi != null ? (() => { const v = Number(rsi); const c = v >= 70 ? "#ef4444" : v <= 30 ? "#22c55e" : "#d1d5db"; return <span style={{color: c}} className={v >= 70 || v <= 30 ? "font-semibold" : ""}>{v.toFixed(1)}</span>; })() : <span className="text-[#4b5563]">·</span>}</td>
+                                    <td className="text-center px-1 py-1"><span style={{color:tdCountColor(tc?.bp)}}>{tc?.bp || "·"}</span></td>
+                                    <td className="text-center px-1 py-1"><span style={{color:tdCountColor(tc?.bl)}}>{tc?.bl || "·"}</span></td>
+                                    <td className="text-center px-1 py-1"><span style={{color:tdCountColor(tc?.xp)}}>{tc?.xp || "·"}</span></td>
+                                    <td className="text-center px-1 py-1"><span style={{color:tdCountColor(tc?.xl)}}>{tc?.xl || "·"}</span></td>
+                                    <td className="text-center py-1">{(hB || hU) ? <span>{hB && <span className="text-[#ef4444] font-bold">B</span>}{hU && <span className="text-[#22c55e] font-bold">U</span>}</span> : <span className="text-[#4b5563]">·</span>}</td>
+                                  </tr>
                                 );
                               })}
-                            </div>
-                          </div>
-                        )}
-                        {parseSnapshot(entrySnap)?.length > 0 && (
-                          <div>
-                            <span className="text-[10px] text-[#9ca3af] uppercase tracking-wider block mb-1.5">Indicators by timeframe</span>
-                            <div className="space-y-2">
-                              {parseSnapshot(entrySnap).map(({ tf, signals }) => (
-                                <div key={tf} className="px-2 py-1.5 rounded-md bg-white/[0.03] border border-white/[0.06]">
-                                  <div className="text-[10px] font-medium text-[#9ca3af] mb-1">{tf}</div>
-                                  <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-[11px]">
-                                    {Object.entries(signals).filter(([, v]) => v != null && Number.isFinite(v)).map(([k, v]) => (
-                                      <span key={k} className="flex items-center gap-1">
-                                        <span className="text-[#6b7280]">{SIGNAL_LABELS[k] || k}:</span>
-                                        <span className={signalValueColor(k, v)}>{signalValueLabel(k, v)}</span>
-                                      </span>
-                                    ))}
-                                  </div>
+                            </tbody>
+                          </table>
+                        </div>
+                      );
+                    };
+                    return (
+                      <div className="flex flex-col lg:flex-row gap-3 mb-2">
+                        {renderSignalTable(entrySnap, ln, "Signals at Entry", "#60a5fa")}
+                        <div className="hidden lg:block w-px bg-white/[0.06] self-stretch" />
+                        {renderSignalTable(exitSnap, exitLn, "Signals at Exit", "#f59e0b")}
+                      </div>
+                    );
+                  })()}
+
+                  {ln?.mean_revert_td9?.active && (
+                    <div className="px-2 py-1 rounded border inline-flex items-center gap-1.5 text-[10px] mb-2" style={{background:"#a78bfa0d",borderColor:"#a78bfa33"}}>
+                      <span className="w-1.5 h-1.5 rounded-full bg-[#a78bfa] animate-pulse" />
+                      <span className="font-bold text-[#c4b5fd] uppercase tracking-wider">MR TD9</span>
+                      <Pill color="#a78bfa">Active</Pill>
+                      {ln.mean_revert_td9.support_score != null && <span className="text-[9px] text-[#6b7280]">support {ln.mean_revert_td9.support_score}/3</span>}
+                    </div>
+                  )}
+
+                  {/* ── Row 3: Context cards + Exit Analysis ── */}
+                  <div className="flex flex-col lg:flex-row gap-3 items-start">
+                    {/* LEFT: Entry Context cards */}
+                    {ln && (
+                      <div className="flex-1 min-w-0">
+                        <div className="grid grid-cols-2 lg:grid-cols-4 gap-1.5">
+                          {(ln.regime_class || ln.volatility_tier || vixVal > 0) && (
+                            <DashCell>
+                              <SectionLabel color="#f59e0b">Market Context</SectionLabel>
+                              <div className="flex flex-wrap gap-0.5">
+                                {ln.regime_class && <Pill color={rcColor}>{ln.regime_class}</Pill>}
+                                {ln.volatility_tier && <Pill color={vtColor}>{ln.volatility_tier}</Pill>}
+                              </div>
+                              {vixVal > 0 && <div className="text-[9px] mt-0.5"><span className="text-[#6b7280]">VIX</span> <span className="font-semibold text-white">{vixVal.toFixed(1)}</span> <span style={{color: vixColor}} className="text-[8px]">{vixLabel}</span></div>}
+                              {ln.state && <div className="text-[8px] text-[#9ca3af] mt-0.5">{ln.state.replace(/_/g, " ")}</div>}
+                            </DashCell>
+                          )}
+                          {(ln.swing_consensus || ln.st_bars_since_flip_D != null) && (
+                            <DashCell>
+                              <SectionLabel color="#60a5fa">Trend Structure</SectionLabel>
+                              {ln.swing_consensus && (
+                                <div className="flex items-center gap-1">
+                                  <Pill color={ln.swing_consensus.dir === "LONG" ? "#22c55e" : ln.swing_consensus.dir === "SHORT" ? "#ef4444" : "#9ca3af"}>{ln.swing_consensus.dir || "—"}</Pill>
+                                  {ln.swing_consensus.bias != null && <span className="text-[8px] text-[#6b7280]">bias {Number(ln.swing_consensus.bias).toFixed(2)}</span>}
+                                </div>
+                              )}
+                              {ln.st_bars_since_flip_D != null && <div className="text-[8px] text-[#6b7280] mt-0.5">{ln.st_bars_since_flip_D} bars since D flip</div>}
+                            </DashCell>
+                          )}
+                          {(ln.saty_phase || ln.fuel) && (
+                            <DashCell>
+                              <SectionLabel color="#a78bfa">Phase & Momentum</SectionLabel>
+                              {ln.saty_phase && <div className="flex flex-wrap gap-0.5">{["D","1H","30"].map(tf => { const sp = ln.saty_phase?.[tf]; if(!sp) return null; const l = tf==="30"?"30m":tf; const v = Number(sp.v)||0; const vc = v>50?"#22c55e":v>0?"#86efac":v>-50?"#fca5a5":"#ef4444"; return <div key={tf} className="px-1 py-0.5 rounded bg-white/[0.03] border border-white/[0.05] text-[8px]"><span className="text-[#6b7280]">{l}</span> <span className="font-bold" style={{color:vc}}>{v>0?"+":""}{v.toFixed(0)}</span>{sp.z && <div className="text-[7px]" style={{color:phaseZColor(sp.z)}}>{sp.z.replace(/_/g," ")}</div>}</div>; })}</div>}
+                              {ln.fuel && <div className="flex flex-wrap gap-1 mt-0.5">{["30","60"].map(tf => { const f = ln.fuel?.[tf]; if(!f) return null; const l = tf==="60"?"1H":"30m"; const fc = fuelColor(f.s); return <span key={tf} className="text-[8px]"><span className="text-[#6b7280]">{l}</span> <span style={{color:fc}} className="font-semibold">{f.s||"—"}</span></span>; })}</div>}
+                            </DashCell>
+                          )}
+                          {(ln.atr_disp || ln.rvol) && (
+                            <DashCell>
+                              <SectionLabel color="#14b8a6">ATR & Volume</SectionLabel>
+                              {ln.atr_disp && Object.entries(ln.atr_disp).map(([hz, a]) => {
+                                const dAbs = Math.abs(Number(a.d)||0); const dc = dAbs>0.786?"#ef4444":dAbs>0.5?"#f59e0b":"#14b8a6";
+                                return <div key={hz} className="text-[8px]"><span className="text-[#6b7280]">{hz}</span> <span className="font-semibold" style={{color:dc}}>{Number(a.d).toFixed(3)}</span></div>;
+                              })}
+                              {ln.rvol && (() => {
+                                const rv30 = ln.rvol["30m"]!=null ? Number(ln.rvol["30m"]) : null;
+                                const rv1H = ln.rvol["1H"]!=null ? Number(ln.rvol["1H"]) : null;
+                                const best = rv30 ?? rv1H; if(best==null) return null;
+                                const rc = best>=1.8?"#ef4444":best>=1.3?"#f59e0b":best>=1.0?"#22c55e":"#6b7280";
+                                const rl = best>=1.8?"Spike":best>=1.3?"High":best>=1.0?"Goldilocks":"Low";
+                                return <div className="text-[8px] mt-0.5"><span className="text-[#6b7280]">RVOL</span> <span className="font-semibold" style={{color:rc}}>{best.toFixed(2)}</span> <span style={{color:rc}} className="text-[7px]">{rl}</span></div>;
+                              })()}
+                            </DashCell>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* RIGHT: Exit Analysis */}
+                    <div className="lg:w-[280px] shrink-0 flex flex-col gap-1.5">
+                      <div className="text-[8px] font-bold uppercase tracking-widest text-[#f59e0b]/70">Exit Analysis</div>
+                      {exitReason && (
+                        <div className="rounded-md bg-white/[0.02] border border-white/[0.04] px-2.5 py-1.5">
+                          <div className="text-[8px] text-[#6b7280] uppercase mb-1">Exit Trigger</div>
+                          <div className="flex flex-wrap gap-1">{exitReason.split(",").map((r,i) => { const rt = r.trim(); const ec = rt.includes("SL")||rt.includes("sl")||rt.includes("max_loss")?"#ef4444":rt.includes("TP")||rt.includes("tp")?"#22c55e":rt.includes("FUSE")||rt.includes("DIVERGENCE")||rt.includes("EXHAUST")?"#f59e0b":rt.includes("TDSEQ")||rt.includes("TD_HTF")?"#a78bfa":rt.includes("PHASE")||rt.includes("MOMENTUM")?"#60a5fa":"#9ca3af"; return <span key={i} className="px-1.5 py-0.5 rounded text-[9px] font-semibold" style={{background:ec+"18",color:ec,border:`1px solid ${ec}35`}}>{rt.replace(/_/g," ")}</span>; })}</div>
+                        </div>
+                      )}
+                      {(Number.isFinite(mfe) || Number.isFinite(mae)) && (
+                        <div className="grid grid-cols-3 gap-1.5">
+                          {Number.isFinite(mfe) && <div className="rounded-md bg-white/[0.02] border border-white/[0.04] px-2 py-1.5 text-center"><div className="text-[7px] text-[#6b7280] uppercase">MFE</div><div className="text-[13px] font-bold text-[#22c55e]">+{mfe.toFixed(2)}%</div></div>}
+                          {Number.isFinite(mae) && <div className="rounded-md bg-white/[0.02] border border-white/[0.04] px-2 py-1.5 text-center"><div className="text-[7px] text-[#6b7280] uppercase">MAE</div><div className="text-[13px] font-bold text-[#ef4444]">{mae.toFixed(2)}%</div></div>}
+                          {Number.isFinite(mfe) && Number.isFinite(mae) && Math.abs(mae)>0 && <div className="rounded-md bg-white/[0.02] border border-white/[0.04] px-2 py-1.5 text-center"><div className="text-[7px] text-[#6b7280] uppercase">Capture</div><div className="text-[13px] font-bold" style={{color:(mfe/Math.abs(mae))>=2?"#22c55e":(mfe/Math.abs(mae))>=1?"#14b8a6":"#f59e0b"}}>{(mfe/Math.abs(mae)).toFixed(1)}x</div></div>}
+                        </div>
+                      )}
+                      {exitReason && (() => {
+                        const reasons = exitReason.split(",").map(r => r.trim().toLowerCase());
+                        const interpretations = [];
+                        for (const r of reasons) {
+                          if (r.includes("sl") || r.includes("max_loss") || r.includes("stop"))
+                            interpretations.push({ icon: "🛑", text: "Stop loss hit — price moved against position beyond risk threshold", color: "#ef4444" });
+                          else if (r.includes("tp") || r.includes("take_profit") || r.includes("target"))
+                            interpretations.push({ icon: "🎯", text: "Take profit target reached — captured planned reward", color: "#22c55e" });
+                          else if (r.includes("phase") && r.includes("momentum"))
+                            interpretations.push({ icon: "📉", text: "Phase oscillator faded — momentum shifted against position", color: "#60a5fa" });
+                          else if (r.includes("phase"))
+                            interpretations.push({ icon: "🔄", text: "Phase exit — SATY phase signaled exhaustion or zone transition", color: "#a78bfa" });
+                          else if (r.includes("momentum"))
+                            interpretations.push({ icon: "⚡", text: "Momentum fade — multiple momentum indicators deteriorated", color: "#60a5fa" });
+                          else if (r.includes("fuse") || r.includes("stacked"))
+                            interpretations.push({ icon: "🔥", text: "Fuse stacked — multiple exit signals fired together", color: "#f59e0b" });
+                          else if (r.includes("divergence") || r.includes("rsi_div"))
+                            interpretations.push({ icon: "↔️", text: "RSI divergence — price made new extreme but RSI didn't confirm", color: "#f59e0b" });
+                          else if (r.includes("td") && (r.includes("exhaust") || r.includes("seq")))
+                            interpretations.push({ icon: "9️⃣", text: "TD Sequential exhaustion count completed (TD9/TD13)", color: "#a78bfa" });
+                          else if (r.includes("td_htf"))
+                            interpretations.push({ icon: "📊", text: "HTF TD exhaustion — higher TF reversal signal", color: "#a78bfa" });
+                          else if (r.includes("trail"))
+                            interpretations.push({ icon: "📏", text: "Trailing stop — retraced from peak, locked in gains", color: "#14b8a6" });
+                          else if (r.includes("time") || r.includes("eod") || r.includes("close"))
+                            interpretations.push({ icon: "⏰", text: "Time-based exit — max duration or end-of-day close", color: "#9ca3af" });
+                          else if (r.includes("supertrend") || r.includes("st_flip"))
+                            interpretations.push({ icon: "🔀", text: "SuperTrend flipped — trend reversed on key timeframe", color: "#ef4444" });
+                          else
+                            interpretations.push({ icon: "📋", text: r.replace(/_/g, " "), color: "#9ca3af" });
+                        }
+                        if (interpretations.length === 0) return null;
+                        return (
+                          <div className="rounded-md bg-white/[0.02] border border-white/[0.04] px-2.5 py-1.5">
+                            <div className="text-[8px] text-[#6b7280] uppercase mb-1">Why We Exited</div>
+                            <div className="flex flex-col gap-1">
+                              {interpretations.map((itp, i) => (
+                                <div key={i} className="flex items-start gap-1.5">
+                                  <span className="text-[10px] shrink-0 mt-px">{itp.icon}</span>
+                                  <span className="text-[9px] leading-snug" style={{color: itp.color}}>{itp.text}</span>
                                 </div>
                               ))}
                             </div>
                           </div>
-                        )}
-                      </div>
-                    )}
-                    {(() => {
-                      const snap = entrySnap ? (typeof entrySnap === "string" ? (() => { try { return JSON.parse(entrySnap); } catch { return null; } })() : entrySnap) : null;
-                      const lc = snap?.precision?.learningContext || snap?.learningContext;
-                      if (!lc) return null;
-                      const pColor = lc.personality === "VOLATILE_RUNNER" ? "#ef4444" : lc.personality === "PULLBACK_PLAYER" ? "#f59e0b" : lc.personality === "SLOW_GRINDER" ? "#60a5fa" : "#a78bfa";
-                      return (
-                        <div className="tt-card p-3 shrink-0">
-                          <div className="text-[11px] font-semibold text-[#a78bfa] uppercase tracking-wider mb-2">Ticker Learning Profile</div>
-                          <div className="text-[12px] text-[#d1d5db] space-y-1.5">
-                            <div className="flex items-center gap-2">
-                              <span className="text-[#9ca3af]">Personality:</span>
-                              <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold" style={{ background: pColor + "22", color: pColor, border: `1px solid ${pColor}44` }}>{lc.personality?.replace(/_/g, " ")}</span>
-                            </div>
-                            {lc.trail_style && <div><span className="text-[#9ca3af]">Trail style:</span> {lc.trail_style}</div>}
-                            {lc.tp_mult && <div><span className="text-[#9ca3af]">Expected TP:</span> {lc.tp_mult}x ATR</div>}
-                            {lc.sl_mult && <div><span className="text-[#9ca3af]">Expected SL:</span> {lc.sl_mult}x ATR</div>}
-                            {lc.boost != null && lc.boost !== 0 && <div><span className="text-[#9ca3af]">Learning boost:</span> <span className={lc.boost > 0 ? "text-[#22c55e]" : "text-[#ef4444]"}>{lc.boost > 0 ? "+" : ""}{lc.boost}</span></div>}
-                          </div>
-                        </div>
-                      );
-                    })()}
-                    {(tickerProfileLoading || tickerProfile?.contract) && (
-                      <div className="tt-card p-3 shrink-0">
-                        <div className="text-[11px] font-semibold text-[#60a5fa] uppercase tracking-wider mb-2">Canonical ticker context</div>
-                        {tickerProfileLoading ? (
-                          <div className="text-[12px] text-[#6b7280]">Loading profile evidence…</div>
-                        ) : (
-                          <div className="space-y-3">
-                            <div className="grid grid-cols-2 gap-2 text-[12px]">
-                              <div className="px-2.5 py-2 rounded-lg bg-white/[0.03] border border-white/[0.06]">
-                                <div className="text-[10px] text-[#6b7280] uppercase tracking-wider">Personality</div>
-                                <div className="text-white font-semibold mt-0.5">{(tickerProfile?.personality || "—").replace(/_/g, " ")}</div>
-                                <div className="text-[10px] text-[#6b7280] mt-1">{(tickerProfile?.behavior_type || "—").replace(/_/g, " ")}</div>
-                              </div>
-                              <div className="px-2.5 py-2 rounded-lg bg-white/[0.03] border border-white/[0.06]">
-                                <div className="text-[10px] text-[#6b7280] uppercase tracking-wider">Context sample</div>
-                                <div className="text-white font-semibold mt-0.5">{contextProfile?.sample_count ?? "—"} trades</div>
-                                <div className="text-[10px] text-[#6b7280] mt-1">{fmtPct(contextProfile?.win_rate)} WR</div>
-                              </div>
-                              <div className="px-2.5 py-2 rounded-lg bg-white/[0.03] border border-white/[0.06]">
-                                <div className="text-[10px] text-[#6b7280] uppercase tracking-wider">Avg outcome</div>
-                                <div className={Number(contextProfile?.avg_pnl_pct || 0) >= 0 ? "text-[#22c55e] font-semibold mt-0.5" : "text-[#ef4444] font-semibold mt-0.5"}>{fmtPct(contextProfile?.avg_pnl_pct, 2)}</div>
-                                <div className="text-[10px] text-[#6b7280] mt-1">MAE {fmtPct(contextProfile?.avg_mae_pct, 2)}</div>
-                              </div>
-                              <div className="px-2.5 py-2 rounded-lg bg-white/[0.03] border border-white/[0.06]">
-                                <div className="text-[10px] text-[#6b7280] uppercase tracking-wider">Merged risk</div>
-                                <div className="text-white font-semibold mt-0.5">{executionProfile?.merged_sl_mult ? `${executionProfile.merged_sl_mult}x` : "—"} / {executionProfile?.merged_tp_mult ? `${executionProfile.merged_tp_mult}x` : "—"}</div>
-                                <div className="text-[10px] text-[#6b7280] mt-1">SL / TP ATR</div>
-                              </div>
-                            </div>
-                            <div className="space-y-2 text-[12px] text-[#d1d5db]">
-                              <div className="flex flex-wrap gap-2">
-                                <span className="px-2 py-1 rounded-md bg-[#22c55e]/10 border border-[#22c55e]/20 text-[#86efac] text-[11px]">
-                                  Regime: {favoredRegime || "—"}
-                                </span>
-                                <span className="px-2 py-1 rounded-md bg-[#a78bfa]/10 border border-[#a78bfa]/20 text-[#c4b5fd] text-[11px]">
-                                  VIX: {favoredVix || "—"}
-                                </span>
-                                <span className="px-2 py-1 rounded-md bg-[#14b8a6]/10 border border-[#14b8a6]/20 text-[#5eead4] text-[11px]">
-                                  Path: {formatPath(favoredPath) || "—"}
-                                </span>
-                              </div>
-                              <div className="text-[11px] text-[#9ca3af] leading-relaxed">
-                                Counter-consensus rate: <span className="text-white">{fmtPct(contextProfile?.counter_consensus_rate)}</span>
-                                {learningProfile?.entry_params?.trail_style ? <> • Trail style: <span className="text-white">{learningProfile.entry_params.trail_style}</span></> : null}
-                                {learningProfile?.entry_params?.long_rsi_sweet_spot ? <> • Long RSI: <span className="text-white">{learningProfile.entry_params.long_rsi_sweet_spot}</span></> : null}
-                              </div>
-                              <div className="grid grid-cols-1 gap-2 text-[11px]">
-                                <div className="px-2.5 py-2 rounded-md bg-white/[0.025] border border-white/[0.05]">
-                                  <div className="text-[#6b7280] uppercase tracking-wider text-[10px] mb-1">Best regime bucket</div>
-                                  <div className="text-white">{topRegimeRow?.regime || "—"} {topRegimeRow ? `• ${fmtPct(topRegimeRow.win_rate)} WR • ${fmtPct(topRegimeRow.avg_pnl_pct, 2)} avg` : ""}</div>
-                                </div>
-                                <div className="px-2.5 py-2 rounded-md bg-white/[0.025] border border-white/[0.05]">
-                                  <div className="text-[#6b7280] uppercase tracking-wider text-[10px] mb-1">Best VIX bucket</div>
-                                  <div className="text-white">{topVixRow?.bucket || "—"} {topVixRow ? `• ${fmtPct(topVixRow.win_rate)} WR • ${fmtPct(topVixRow.avg_pnl_pct, 2)} avg` : ""}</div>
-                                </div>
-                                <div className="px-2.5 py-2 rounded-md bg-white/[0.025] border border-white/[0.05]">
-                                  <div className="text-[#6b7280] uppercase tracking-wider text-[10px] mb-1">Best entry path</div>
-                                  <div className="text-white">{formatPath(topPathRow?.entry_path) || "—"} {topPathRow ? `• ${fmtPct(topPathRow.win_rate)} WR • ${fmtPct(topPathRow.avg_pnl_pct, 2)} avg` : ""}</div>
-                                </div>
-                              </div>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    )}
-                    {(exitReason != null || Number.isFinite(mfe) || Number.isFinite(mae)) && (
-                      <div className="tt-card p-3 shrink-0 max-h-[160px] overflow-y-auto">
-                        <div className="text-[11px] font-semibold text-[#f59e0b] uppercase tracking-wider mb-2">Exit context</div>
-                        <div className="text-[12px] text-[#d1d5db] space-y-1">
-                          {exitReason && <div style={{ overflowWrap: "anywhere" }}><span className="text-[#9ca3af]">Reason:</span> {exitReason.replace(/,/g, ", ")}</div>}
-                          {Number.isFinite(mfe) && <div><span className="text-[#9ca3af]">MFE:</span> <span className="text-[#22c55e]">{mfe.toFixed(2)}%</span></div>}
-                          {Number.isFinite(mae) && <div><span className="text-[#9ca3af]">MAE:</span> <span className="text-[#ef4444]">{mae.toFixed(2)}%</span></div>}
-                        </div>
-                      </div>
-                    )}
+                        );
+                      })()}
+                    </div>
                   </div>
-                  <div className="lg:col-span-2 min-h-[280px] md:min-h-[500px] flex flex-col order-1 lg:order-2">
+                </div>
+
+                {/* ══════════ 3. CHART + CLASSIFICATIONS (side-by-side) ══════════ */}
+                <div className="flex-1 min-h-0 flex flex-col md:flex-row gap-2 -mt-1" style={{ height: "250px" }}>
+                  {/* Chart — 2/3 */}
+                  <div className="flex-[2] min-w-0 h-full">
                     <AutopsyChart
                       ticker={trade?.ticker}
                       entryPrice={storedEntry}
@@ -1233,92 +1454,158 @@
                       entryTs={chartEntryTs}
                       exitTs={chartExitTs}
                       trimTs={chartTrimTs}
-                      height={typeof window !== "undefined" && window.innerWidth < 768 ? 240 : 500}
+                      height={250}
                     />
                   </div>
-                </div>
 
-                {!readonly && <div className="space-y-3 shrink-0 order-3">
-                  <div>
-                    <label className="block text-[11px] font-medium text-[#9ca3af] mb-1">Notes</label>
-                    <textarea
-                      value={notes}
-                      onChange={e => setNotes(e.target.value)}
-                      placeholder="Optional notes..."
-                      rows={1}
-                      className="w-full px-2.5 py-1.5 rounded-lg bg-white/[0.04] border border-white/[0.06] text-[12px] text-white placeholder-[#4b5563] focus:outline-none focus:ring-1 focus:ring-[#14b8a6]/50 resize-none"
-                    />
-                  </div>
-                </div>}
-
-                {!readonly && <div className="shrink-0 order-4 mt-1 static bg-[#0b0e11]/95 rounded-lg border border-white/[0.06] p-2 overflow-y-auto max-h-[40vh] overflow-x-hidden">
-                  <div className="text-[10px] font-semibold text-[#9ca3af] uppercase tracking-wider mb-1.5">Primary classification</div>
-                  <div className="grid grid-cols-2 sm:grid-cols-3 md:flex md:flex-wrap gap-1.5 sm:gap-2 mb-3">
-                    {CLASSIFICATION_OPTIONS.filter(o => o.value).map(opt => {
-                      const selected = classification === opt.value;
-                      return (
-                        <button
-                          key={opt.value}
-                          onClick={() => setClassification(selected ? "" : opt.value)}
-                          title={opt.hint}
-                          className="flex items-center justify-center gap-1 sm:gap-1.5 px-1.5 sm:px-3 py-2.5 sm:py-1.5 rounded-lg text-[11px] sm:text-[12px] font-medium transition-all duration-150 min-w-0 shrink-0 overflow-hidden"
-                          style={{
-                            background: selected ? opt.color + "22" : "rgba(255,255,255,0.03)",
-                            border: `1.5px solid ${selected ? opt.color + "90" : "rgba(255,255,255,0.06)"}`,
-                            color: selected ? opt.color : "#9ca3af",
-                          }}
-                        >
-                          <span className="text-[13px] shrink-0">{opt.icon}</span>
-                          <span className="truncate min-w-0">{opt.label}</span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                  {classification && CLASSIFICATION_OPTIONS.find(o => o.value === classification)?.hint && (
-                    <div className="text-[10px] text-[#6b7280] mb-3 px-0.5">{CLASSIFICATION_OPTIONS.find(o => o.value === classification).hint}</div>
+                  {/* Classifications (admin) OR Trade Narrative (readonly) — 1/3, matches chart height */}
+                  {!readonly ? (
+                    <div className="flex-1 min-w-[220px] max-w-[300px] shrink-0 tt-card px-2.5 py-2 flex flex-col gap-2 overflow-y-auto h-full">
+                      <div>
+                        <div className="text-[9px] font-bold text-[#9ca3af] uppercase tracking-wider mb-1.5">Trade Grade</div>
+                        <div className="flex flex-wrap gap-1">
+                          {CLASSIFICATION_OPTIONS.filter(o => o.value).map(opt => {
+                            const selected = classification === opt.value;
+                            return (
+                              <button key={opt.value} onClick={() => setClassification(selected ? "" : opt.value)} title={opt.hint}
+                                className="flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-medium transition-all"
+                                style={{ background: selected ? opt.color+"22" : "rgba(255,255,255,0.03)", border: `1.5px solid ${selected ? opt.color+"90" : "rgba(255,255,255,0.06)"}`, color: selected ? opt.color : "#9ca3af" }}>
+                                <span className="text-[11px]">{opt.icon}</span><span>{opt.label}</span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                        {classification && CLASSIFICATION_OPTIONS.find(o => o.value === classification)?.hint && (
+                          <div className="text-[8px] text-[#6b7280] mt-1 px-0.5">{CLASSIFICATION_OPTIONS.find(o => o.value === classification).hint}</div>
+                        )}
+                      </div>
+                      <div>
+                        <div className="text-[9px] font-bold text-[#9ca3af] uppercase tracking-wider mb-1.5">Entry Evaluation</div>
+                        <div className="flex flex-wrap gap-1">
+                          {ENTRY_GRADE_OPTIONS.map(opt => {
+                            const selected = entryGrade.includes(opt.value);
+                            return (
+                              <button key={opt.value} type="button" onClick={() => setEntryGrade(prev => selected ? prev.filter(v => v !== opt.value) : [...prev, opt.value])} title={opt.hint}
+                                className={`px-1.5 py-0.5 rounded-md text-[9px] font-medium transition-all ${selected ? "bg-[#14b8a6]/20 border border-[#14b8a6]/50 text-[#14b8a6]" : "bg-white/[0.03] border border-white/[0.06] text-[#9ca3af] hover:border-white/[0.1]"}`}>
+                                {opt.label}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-[9px] font-bold text-[#9ca3af] uppercase tracking-wider mb-1.5">Exit Evaluation</div>
+                        <div className="flex flex-wrap gap-1">
+                          {TRADE_MANAGEMENT_OPTIONS.map(opt => {
+                            const selected = tradeManagement.includes(opt.value);
+                            return (
+                              <button key={opt.value} type="button" onClick={() => setTradeManagement(prev => selected ? prev.filter(v => v !== opt.value) : [...prev, opt.value])} title={opt.hint}
+                                className={`px-1.5 py-0.5 rounded-md text-[9px] font-medium transition-all ${selected ? "bg-[#f59e0b]/20 border border-[#f59e0b]/50 text-[#f59e0b]" : "bg-white/[0.03] border border-white/[0.06] text-[#9ca3af] hover:border-white/[0.1]"}`}>
+                                {opt.label}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                      <div className="mt-auto pt-1.5 border-t border-white/[0.06] flex flex-col gap-1.5">
+                        <textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="Notes..." rows={2}
+                          className="w-full px-2 py-1 rounded-md bg-white/[0.04] border border-white/[0.06] text-[10px] text-white placeholder-[#4b5563] focus:outline-none focus:ring-1 focus:ring-[#14b8a6]/50 resize-none" />
+                        <div className="flex items-center gap-1.5">
+                          <button onClick={onClose} className="flex-1 px-2 py-1 rounded-md text-[10px] text-[#9ca3af] hover:bg-white/[0.04] border border-white/[0.06]" disabled={saving}>Cancel</button>
+                          <button onClick={handleSave} disabled={saving} className="flex-1 px-2 py-1 rounded-md text-[10px] font-medium bg-[#14b8a6]/20 text-[#14b8a6] hover:bg-[#14b8a6]/30 border border-[#14b8a6]/30 disabled:opacity-50">{saving ? "Saving…" : "Save"}</button>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex-1 min-w-[220px] max-w-[300px] shrink-0 tt-card px-2.5 py-2 flex flex-col gap-2 overflow-y-auto h-full">
+                      <div className="text-[9px] font-bold text-[#9ca3af] uppercase tracking-widest mb-0.5">Trade Narrative</div>
+                      {/* Why Entered */}
+                      <div className="rounded-md bg-white/[0.02] border border-white/[0.04] px-2.5 py-1.5">
+                        <div className="text-[8px] text-[#60a5fa] uppercase font-bold mb-1">Why We Entered</div>
+                        <div className="text-[10px] text-[#d1d5db] leading-relaxed">
+                          {trade?.entry_path ? (
+                            <span>Setup: <span className="font-semibold text-white">{formatPath(trade.entry_path)}</span></span>
+                          ) : (
+                            <span className="text-[#6b7280]">Entry path not recorded</span>
+                          )}
+                          {trade?.setup_grade && <span className="ml-1.5 text-[9px] text-[#9ca3af]">({trade.setup_grade})</span>}
+                        </div>
+                        {Number(trade?.rank) > 0 && (
+                          <div className="text-[9px] text-[#9ca3af] mt-0.5">Ranked #{trade.rank} at entry</div>
+                        )}
+                      </div>
+                      {/* Why Trimmed */}
+                      {Number(trade?.trimmed_pct || trade?.trimmedPct || 0) > 0 && (
+                        <div className="rounded-md bg-white/[0.02] border border-white/[0.04] px-2.5 py-1.5">
+                          <div className="text-[8px] text-[#14b8a6] uppercase font-bold mb-1">Why We Trimmed</div>
+                          <div className="text-[10px] text-[#d1d5db] leading-relaxed">
+                            Trimmed <span className="font-semibold text-white">{Math.round((Number(trade?.trimmed_pct || trade?.trimmedPct || 0)) * 100)}%</span> of position
+                            {trade?.trim_price ? (<span> at <span className="font-semibold text-white">{fmtUsd(trade.trim_price)}</span></span>) : null}
+                          </div>
+                          {(() => {
+                            const _sh = Number(trade?.shares);
+                            const _tp = Number(trade?.trimmed_pct || trade?.trimmedPct || 0);
+                            if (!_sh || _sh <= 0) return null;
+                            const trimmed = Math.round(_sh * Math.min(_tp, 1));
+                            const remaining = Math.max(0, Math.round(_sh) - trimmed);
+                            return <div className="text-[9px] text-[#9ca3af] mt-0.5">{trimmed} shares trimmed, {remaining} remaining as runner</div>;
+                          })()}
+                        </div>
+                      )}
+                      {/* Why Exited */}
+                      <div className="rounded-md bg-white/[0.02] border border-white/[0.04] px-2.5 py-1.5">
+                        <div className="text-[8px] text-[#f59e0b] uppercase font-bold mb-1">Why We Exited</div>
+                        {exitReason ? (() => {
+                          const reasonMap = {
+                            sl_breached: "Stop loss was hit — price moved against us beyond the risk threshold.",
+                            SL: "Stop loss was hit — price moved against us beyond the risk threshold.",
+                            max_loss: "Maximum loss threshold reached — defensive exit to limit damage.",
+                            HARD_FUSE_RSI_EXTREME: "RSI reached extreme levels — likely reversal imminent.",
+                            SOFT_FUSE_RSI_CONFIRMED: "RSI reversal confirmed by multiple timeframes.",
+                            RUNNER_PEAK_TRAIL: "Runner trailing stop triggered — price retraced from peak, locking in gains.",
+                            RUNNER_MAX_DRAWDOWN_BREAKER: "Runner drew down too far from its peak — circuit breaker fired.",
+                            HARD_LOSS_CAP: "Per-trade hard loss cap breached — absolute safety limit.",
+                            MFE_SAFETY_TRIM: "Unrealized profit hit safety threshold — forced trim to lock in gains.",
+                            PHASE_LEAVE_100: "Phase oscillator left extreme zone — momentum exhausted.",
+                            PHASE_LEAVE_618: "Phase oscillator faded — distribution/accumulation shift.",
+                            STALL_BREAKEVEN: "Trade stalled with no momentum — closed at breakeven.",
+                            STALL_FORCE_CLOSE: "Untrimmed position stalled past time limit — force closed to free capital.",
+                          };
+                          const raw = exitReason.trim();
+                          const mapped = reasonMap[raw];
+                          if (mapped) return <div className="text-[10px] text-[#d1d5db] leading-relaxed">{mapped}</div>;
+                          const parts = raw.split(",").map(r => r.trim());
+                          return (
+                            <div className="flex flex-col gap-1">
+                              {parts.map((r, i) => {
+                                const hr = reasonMap[r] || r.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+                                const ec = r.includes("SL")||r.includes("sl")||r.includes("max_loss")||r.includes("HARD_LOSS") ? "#ef4444"
+                                  : r.includes("TP")||r.includes("tp")||r.includes("TRAIL")||r.includes("TRIM") ? "#22c55e"
+                                  : r.includes("FUSE")||r.includes("PHASE") ? "#f59e0b" : "#9ca3af";
+                                return <div key={i} className="text-[10px] leading-relaxed" style={{color: ec}}>{hr}</div>;
+                              })}
+                            </div>
+                          );
+                        })() : <div className="text-[10px] text-[#6b7280]">Exit reason not recorded</div>}
+                      </div>
+                      {/* Duration */}
+                      {trade?.entry_ts && trade?.exit_ts && (() => {
+                        const dur = Number(trade.exit_ts) - Number(trade.entry_ts);
+                        if (dur <= 0) return null;
+                        const mins = Math.round(dur / 60000);
+                        const hrs = Math.floor(mins / 60);
+                        const days = Math.floor(hrs / 24);
+                        const label = days > 0 ? `${days}d ${hrs % 24}h` : hrs > 0 ? `${hrs}h ${mins % 60}m` : `${mins}m`;
+                        return (
+                          <div className="rounded-md bg-white/[0.02] border border-white/[0.04] px-2.5 py-1.5">
+                            <div className="text-[8px] text-[#a78bfa] uppercase font-bold mb-0.5">Duration</div>
+                            <div className="text-[12px] font-semibold text-white">{label}</div>
+                          </div>
+                        );
+                      })()}
+                    </div>
                   )}
-                  <div className="text-[10px] font-semibold text-[#9ca3af] uppercase tracking-wider mb-1.5">Entry grade (multi-select)</div>
-                  <div className="flex flex-wrap gap-1.5 mb-3 min-w-0">
-                    {ENTRY_GRADE_OPTIONS.map(opt => {
-                      const selected = entryGrade.includes(opt.value);
-                      return (
-                        <button
-                          key={opt.value}
-                          type="button"
-                          onClick={() => setEntryGrade(prev => selected ? prev.filter(v => v !== opt.value) : [...prev, opt.value])}
-                          title={opt.hint}
-                          className={`px-2.5 py-1.5 rounded-lg text-[11px] font-medium transition-all shrink-0 ${selected ? "bg-[#14b8a6]/20 border border-[#14b8a6]/50 text-[#14b8a6]" : "bg-white/[0.03] border border-white/[0.06] text-[#9ca3af] hover:border-white/[0.1]"}`}
-                        >
-                          {opt.label}
-                        </button>
-                      );
-                    })}
-                  </div>
-                  <div className="text-[10px] font-semibold text-[#9ca3af] uppercase tracking-wider mb-1.5">Trade management (multi-select)</div>
-                  <div className="flex flex-wrap gap-1.5 mb-3 min-w-0">
-                    {TRADE_MANAGEMENT_OPTIONS.map(opt => {
-                      const selected = tradeManagement.includes(opt.value);
-                      return (
-                        <button
-                          key={opt.value}
-                          type="button"
-                          onClick={() => setTradeManagement(prev => selected ? prev.filter(v => v !== opt.value) : [...prev, opt.value])}
-                          title={opt.hint}
-                          className={`px-2.5 py-1.5 rounded-lg text-[11px] font-medium transition-all shrink-0 ${selected ? "bg-[#f59e0b]/20 border border-[#f59e0b]/50 text-[#f59e0b]" : "bg-white/[0.03] border border-white/[0.06] text-[#9ca3af] hover:border-white/[0.1]"}`}
-                        >
-                          {opt.label}
-                        </button>
-                      );
-                    })}
-                  </div>
-                  <div
-                    className="sticky bottom-0 flex items-center justify-end gap-2 pt-2 mt-2 border-t border-white/[0.06] bg-[#0b0e11]/95"
-                    style={{ paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 0.25rem)" }}
-                  >
-                    <button onClick={onClose} className="px-4 py-2.5 sm:py-1.5 rounded-lg text-[12px] text-[#9ca3af] hover:bg-white/[0.04]" disabled={saving}>Cancel</button>
-                    <button onClick={handleSave} disabled={saving} className="px-5 py-2.5 sm:py-1.5 rounded-lg text-[12px] font-medium bg-[#14b8a6]/20 text-[#14b8a6] hover:bg-[#14b8a6]/30 disabled:opacity-50">{saving ? "Saving…" : "Save"}</button>
-                  </div>
-                </div>}
+                </div>
               </div>
             </div>
           </div>
@@ -1672,7 +1959,7 @@
                         onChange={e => setFilterClassification(e.target.value)}
                         className="px-3 py-2 sm:py-1.5 rounded-lg bg-white/[0.04] border border-white/[0.06] text-[13px] text-white col-span-1"
                       >
-                        <option value="">All classes</option>
+                        <option value="">All grades</option>
                         {CLASSIFICATION_OPTIONS.filter(o => o.value).map(o => (
                           <option key={o.value} value={o.value}>{o.label}</option>
                         ))}
@@ -1787,6 +2074,7 @@
                             <th className="px-4 py-3 text-left font-semibold text-[#6b7280]">Entry</th>
                             <th className="px-4 py-3 text-left font-semibold text-[#6b7280]">Exit</th>
                             <th className="px-4 py-3 text-left font-semibold text-[#6b7280]">Run ID</th>
+                            <th className="px-4 py-3 text-right font-semibold text-[#6b7280]">Shares</th>
                             <th className="px-4 py-3 text-right font-semibold text-[#6b7280]">P&L</th>
                             <th className="px-4 py-3 text-left font-semibold text-[#6b7280]">Status</th>
                             <th className="px-4 py-3 text-left font-semibold text-[#6b7280]">Classification</th>
@@ -1807,6 +2095,7 @@
                                 <td className="px-4 py-2.5 text-[#9ca3af]">{formatDate(t.entry_ts)}</td>
                                 <td className="px-4 py-2.5 text-[#9ca3af]">{formatDate(t.exit_ts)}</td>
                                 <td className="px-4 py-2.5 text-[#9ca3af] font-mono text-[11px]" title={t.run_id || ""}>{shortRunId(t.run_id)}</td>
+                                <td className="px-4 py-2.5 text-right font-medium text-[#a78bfa]">{Number(t.shares) > 0 ? Math.round(Number(t.shares)) : "—"}</td>
                                 <td className={`px-4 py-2.5 text-right font-medium ${Number(t.pnl) >= 0 ? "text-[#22c55e]" : "text-[#ef4444]"}`}>{fmtUsd(t.pnl)}</td>
                                 <td className="px-4 py-2.5 text-[#9ca3af]">{t.status || "—"}</td>
                                 <td className="px-4 py-2.5">
@@ -1817,8 +2106,8 @@
                                       </span>
                                     )}
                                     {(ann.entry_grade?.length > 0 || ann.trade_management?.length > 0) && (
-                                      <span className="text-[10px] text-[#6b7280]" title={`Entry: ${(ann.entry_grade || []).join(", ") || "—"}\nMgmt: ${(ann.trade_management || []).join(", ") || "—"}`}>
-                                        +{(ann.entry_grade?.length || 0) + (ann.trade_management?.length || 0)} tags
+                                      <span className="text-[10px] text-[#6b7280]" title={`Entry: ${(ann.entry_grade || []).join(", ") || "—"}\nExit: ${(ann.trade_management || []).join(", ") || "—"}`}>
+                                        +{(ann.entry_grade?.length || 0) + (ann.trade_management?.length || 0)} evals
                                       </span>
                                     )}
                                     {!clsOpt?.value && !ann.entry_grade?.length && !ann.trade_management?.length && <span className="text-[#4b5563]">—</span>}
@@ -1853,6 +2142,7 @@
                             <span>{formatDate(t.entry_ts)}</span>
                             <span className="text-[#4b5563]">→</span>
                             <span>{formatDate(t.exit_ts)}</span>
+                            {Number(t.shares) > 0 && <span className="text-[#a78bfa] font-medium">{Math.round(Number(t.shares))} shares</span>}
                           </div>
                           <div className="mt-1 text-[10px] text-[#4b5563] font-mono break-all" title={t.run_id || ""}>Run: {shortRunId(t.run_id)}</div>
                           <div className="flex items-center justify-between mt-1.5 flex-wrap gap-1">
@@ -1864,9 +2154,9 @@
                                 </span>
                               )}
                               {(ann.entry_grade?.length > 0 || ann.trade_management?.length > 0) && (
-                                <span className="text-[10px] text-[#6b7280]">+{(ann.entry_grade?.length || 0) + (ann.trade_management?.length || 0)} tags</span>
+                                <span className="text-[10px] text-[#6b7280]">+{(ann.entry_grade?.length || 0) + (ann.trade_management?.length || 0)} evals</span>
                               )}
-                              {!clsOpt?.value && !ann.entry_grade?.length && !ann.trade_management?.length && <span className="text-[11px] text-[#4b5563]">Unclassified</span>}
+                              {!clsOpt?.value && !ann.entry_grade?.length && !ann.trade_management?.length && <span className="text-[11px] text-[#4b5563]">Ungraded</span>}
                             </div>
                           </div>
                         </div>
