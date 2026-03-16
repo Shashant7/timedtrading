@@ -10,10 +10,13 @@
 # Trader-only (faster, no investor/snapshots): add --trader-only
 # Investor-only backfill (after trader-only): ./scripts/full-backtest.sh --investor-only 2025-07-01 2026-03-04
 # Sequence (trader-only then investor-only): ./scripts/full-backtest.sh --sequence 2025-07-01 2026-03-04 20
+# --skip-backfill: Skip gap detection + backfill entirely (use when candles exist from prior runs)
+# --force-backfill: Force full-universe backfill even if gap check fails or returns no ticker list
 # Interval: 4th arg defaults to 5 (minutes). We use 5 min for replay fidelity; 10 is optional for faster runs.
 # Each day is processed in batch-by-batch requests (tickerBatch tickers per request) to stay
 # within Cloudflare Worker CPU/wall-time limits. Investor replay runs on the last batch.
-# Note: Backfill automatically detects candle gaps and only fills what's missing.
+# Note: Backfill detects candle gaps and only fills what's missing. On gap-check failure,
+# it retries 3 times, then skips (safe default). Use --force-backfill to override.
 
 set -e
 
@@ -31,6 +34,8 @@ INVESTOR_ONLY=false
 SEQUENCE=false
 KEEP_OPEN_AT_END=false
 LOW_WRITE=false
+SKIP_BACKFILL=false
+FORCE_BACKFILL=false
 RUN_LABEL=""
 RUN_DESCRIPTION=""
 SNAPSHOT_BEFORE_RESET=true
@@ -47,6 +52,8 @@ while [[ $# -gt 0 ]]; do
     --sequence) SEQUENCE=true ;;
     --keep-open-at-end) KEEP_OPEN_AT_END=true ;;
     --low-write) LOW_WRITE=true ;;
+    --skip-backfill) SKIP_BACKFILL=true ;;
+    --force-backfill) FORCE_BACKFILL=true ;;
     --no-snapshot-before-reset) SNAPSHOT_BEFORE_RESET=false ;;
     --frozen-dataset=*) FROZEN_DATASET="${arg#--frozen-dataset=}" ;;
     --dataset-manifest=*) FROZEN_DATASET="${arg#--dataset-manifest=}" ;;
@@ -351,19 +358,44 @@ else
     echo "  Supported tickers with gaps remaining: 0"
     echo ""
   else
+    # ─── Step 1.5: Candle gap detection + backfill ─────────────────────────────
+    if $SKIP_BACKFILL; then
+      echo "Step 1.5: SKIPPED (--skip-backfill)"
+      echo ""
+    else
     echo "Step 1.5: Checking candle coverage (gap detection, range $BF_START_DATE → $END_DATE)..."
-    GAP_RESULT=$(curl -s -m 120 \
-      "$API_BASE/timed/admin/candle-gaps?startDate=$BF_START_DATE&endDate=$END_DATE&key=$API_KEY" 2>&1)
-    GAP_OK=$(echo "$GAP_RESULT" | jq -r '.ok // false' 2>/dev/null || echo "false")
+
+    # Retry gap check up to 3 times (transient failures during deployment are common)
+    GAP_OK="false"
+    ALL_CLEAR="false"
+    for GAP_ATTEMPT in 1 2 3; do
+      GAP_RESULT=$(curl -s -m 120 \
+        "$API_BASE/timed/admin/candle-gaps?startDate=$BF_START_DATE&endDate=$END_DATE&key=$API_KEY" 2>&1)
+      GAP_OK=$(echo "$GAP_RESULT" | jq -r '.ok // false' 2>/dev/null || echo "false")
+      if [[ "$GAP_OK" == "true" ]]; then
+        break
+      fi
+      if [[ "$GAP_ATTEMPT" -lt 3 ]]; then
+        echo "  Gap check attempt $GAP_ATTEMPT failed, retrying in 10s..."
+        sleep 10
+      fi
+    done
+
     ALL_CLEAR=$(echo "$GAP_RESULT" | jq -r '.allClear // false' 2>/dev/null || echo "false")
     TICKERS_WITH_GAPS=$(echo "$GAP_RESULT" | jq -r '.tickersWithGaps // 0' 2>/dev/null || echo "0")
     GAP_COUNT=$(echo "$GAP_RESULT" | jq -r '.gapCount // 0' 2>/dev/null || echo "0")
 
     if [[ "$GAP_OK" != "true" ]]; then
-      echo "  WARNING: Gap check failed ($(echo "$GAP_RESULT" | head -c 200))"
-      echo "  Falling back to full backfill..."
-      ALL_CLEAR="false"
-      TICKERS_WITH_GAPS="$TOTAL_TICKERS"
+      echo "  WARNING: Gap check failed after 3 attempts ($(echo "$GAP_RESULT" | head -c 200))"
+      if $FORCE_BACKFILL; then
+        echo "  --force-backfill set: proceeding with full universe backfill..."
+        ALL_CLEAR="false"
+        TICKERS_WITH_GAPS="$TOTAL_TICKERS"
+      else
+        echo "  SKIPPING backfill (candles likely already exist from prior runs)."
+        echo "  Use --force-backfill to override, or fix the candle-gaps endpoint."
+        ALL_CLEAR="true"
+      fi
     fi
 
     if [[ "$ALL_CLEAR" == "true" ]]; then
@@ -416,7 +448,6 @@ else
 
         echo -n "  [$BF_ROUND] $BATCH_TICKERS ... "
 
-        # Backfill each ticker in the batch individually
         BATCH_UPSERTED=0
         BATCH_ERRS=0
         IFS=',' read -ra BTICKERS <<< "$BATCH_TICKERS"
@@ -437,8 +468,8 @@ else
 
         sleep 2
       done
-    else
-      # Fallback: full universe backfill (gap check returned no ticker list)
+    elif $FORCE_BACKFILL; then
+      # Full universe backfill only when explicitly forced
       BF_OFFSET=0
       while [ "$BF_OFFSET" -lt "$TOTAL_TICKERS" ]; do
         BF_ROUND=$((BF_ROUND + 1))
@@ -467,12 +498,16 @@ else
         BF_OFFSET=$((BF_OFFSET + BF_BATCH))
         sleep 2
       done
+    else
+      echo "  Gap check returned gaps but no ticker list. Skipping full-universe backfill."
+      echo "  Use --force-backfill to re-download all candles."
     fi
 
     BF_ELAPSED=$(( $(date +%s) - BF_START_TS ))
     echo ""
     echo "  Backfill complete: ${BF_TOTAL_UPSERTED} total candles, ${BF_TOTAL_ERRORS} errors (${BF_ELAPSED}s)"
     echo ""
+    fi
     fi
   fi
 fi

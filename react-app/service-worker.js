@@ -20,8 +20,8 @@ self.addEventListener("push", (event) => {
 
   const options = {
     body: data.body || "",
-    icon: "/logo.png",
-    badge: "/logo.png",
+    icon: "/logo.svg",
+    badge: "/logo.svg",
     tag: data.tag || `timed-${Date.now()}`,
     data: {
       url: data.link || data.url || "/index-react.html",

@@ -154,10 +154,15 @@
       h("path", { d: "M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z", fill: "#EA4335" }),
     );
 
-    // Chart icon SVG for logo
-    const chartIcon = h("svg", { width: "36", height: "36", viewBox: "0 0 24 24", fill: "none", stroke: "white", strokeWidth: "2", strokeLinecap: "round", strokeLinejoin: "round" },
-      h("polyline", { points: "22 7 13.5 15.5 8.5 10.5 2 17" }),
-      h("polyline", { points: "16 7 22 7 22 13" }),
+    // New Timed Trading logo SVG (48x48 for auth screen)
+    const logoIcon = h("svg", { width: "48", height: "48", viewBox: "0 0 48 48", fill: "none" },
+      h("circle", { cx: "24", cy: "24", r: "21", stroke: "white", strokeWidth: "2" }),
+      h("rect", { x: "9", y: "15", width: "13", height: "3", rx: ".5", fill: "white" }),
+      h("rect", { x: "13.5", y: "15", width: "4", height: "20", rx: ".5", fill: "white" }),
+      h("rect", { x: "26", y: "15", width: "13", height: "3", rx: ".5", fill: "white" }),
+      h("rect", { x: "30.5", y: "15", width: "4", height: "20", rx: ".5", fill: "white" }),
+      h("polyline", { points: "8,38 15,30 20,33 29,20 38,11", stroke: "#00c853", strokeWidth: "2.5", strokeLinecap: "round", strokeLinejoin: "round" }),
+      h("path", { d: "M36,13 L38,11 L36,15Z", fill: "#00c853" }),
     );
 
     return h("div", { style: { minHeight: "100vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", background: "radial-gradient(ellipse at 50% 0%, #111820 0%, #0b0e11 60%)", fontFamily: font, position: "relative", overflow: "hidden" } },
@@ -175,7 +180,7 @@
 
         // Logo + branding
         h("div", { style: { textAlign: "center", marginBottom: "32px" } },
-          h("div", { style: { width: "72px", height: "72px", borderRadius: "20px", background: "linear-gradient(135deg, #00c853 0%, #00e676 50%, #69f0ae 100%)", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 24px", animation: "tt-glow 4s ease-in-out infinite" } }, chartIcon),
+          h("div", { style: { width: "72px", height: "72px", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 24px", animation: "tt-glow 4s ease-in-out infinite" } }, logoIcon),
           h("h1", { style: { fontSize: "28px", fontWeight: "700", color: "#f0f2f5", margin: "0 0 8px", letterSpacing: "-0.03em" } }, "Timed Trading"),
           h("p", { style: { fontSize: "14px", color: "#6b7280", margin: "0", lineHeight: "1.5" } }, "Active trading and investing intelligence"),
         ),
@@ -522,9 +527,14 @@
       window.location.href = "/logout.html";
     };
 
-    const chartIcon = h("svg", { width: "36", height: "36", viewBox: "0 0 24 24", fill: "none", stroke: "white", strokeWidth: "2", strokeLinecap: "round", strokeLinejoin: "round" },
-      h("polyline", { points: "22 7 13.5 15.5 8.5 10.5 2 17" }),
-      h("polyline", { points: "16 7 22 7 22 13" }),
+    const logoIcon = h("svg", { width: "48", height: "48", viewBox: "0 0 48 48", fill: "none" },
+      h("circle", { cx: "24", cy: "24", r: "21", stroke: "white", strokeWidth: "2" }),
+      h("rect", { x: "9", y: "15", width: "13", height: "3", rx: ".5", fill: "white" }),
+      h("rect", { x: "13.5", y: "15", width: "4", height: "20", rx: ".5", fill: "white" }),
+      h("rect", { x: "26", y: "15", width: "13", height: "3", rx: ".5", fill: "white" }),
+      h("rect", { x: "30.5", y: "15", width: "4", height: "20", rx: ".5", fill: "white" }),
+      h("polyline", { points: "8,38 15,30 20,33 29,20 38,11", stroke: "#00c853", strokeWidth: "2.5", strokeLinecap: "round", strokeLinejoin: "round" }),
+      h("path", { d: "M36,13 L38,11 L36,15Z", fill: "#00c853" }),
     );
 
     return h("div", { style: { minHeight: "100vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", background: "radial-gradient(ellipse at 50% 0%, #111820 0%, #0b0e11 60%)", fontFamily: font, position: "relative", overflow: "hidden", padding: "24px" } },
@@ -539,7 +549,7 @@
       h("div", { style: { position: "relative", zIndex: 1, width: "100%", maxWidth: "520px", animation: "tt-fade-in 0.5s ease-out" } },
         // Logo
         h("div", { style: { textAlign: "center", marginBottom: "24px" } },
-          h("div", { style: { width: "64px", height: "64px", borderRadius: "18px", background: "linear-gradient(135deg, #00c853 0%, #00e676 50%, #69f0ae 100%)", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 16px", animation: "tt-glow 4s ease-in-out infinite" } }, chartIcon),
+          h("div", { style: { width: "64px", height: "64px", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 16px", animation: "tt-glow 4s ease-in-out infinite" } }, logoIcon),
           h("h1", { style: { fontSize: "24px", fontWeight: "700", color: "#f0f2f5", margin: "0 0 4px", letterSpacing: "-0.03em" } }, "Terms of Use Agreement"),
           h("p", { style: { fontSize: "13px", color: "#6b7280", margin: 0 } }, "Signed in as ", h("span", { style: { color: "#9ca3af", fontWeight: "500" } }, user?.email || "Unknown")),
         ),

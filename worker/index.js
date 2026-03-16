@@ -2688,28 +2688,43 @@ function qualifiesForEnter(d, asOfTs = null) {
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // SPY DIRECTIONAL REGIME GATE: Block LONG when SPY is bearish, block SHORT when SPY is bullish.
-  // Uses SPY's daily EMA regime and HTF score from the market regime overlay.
-  // This prevents entering LONG during market-wide pullbacks (Oct/Nov/Dec pattern).
+  // SPY DIRECTIONAL REGIME GATE: Graduated sizing reducer, not a binary block.
+  // Strong signal: block. Moderate signal: 0.5x position size.
+  // This allows the model to trade both directions during transitions while
+  // still respecting strong directional regimes.
   // ═══════════════════════════════════════════════════════════════════════════
   const _spyMktData = d?._env?._marketRegime;
   if (_spyMktData) {
     const _spyHtf = Number(_spyMktData.htf_score);
     const _spyEmaRegD = Number(_spyMktData.ema_regime_daily) || 0;
     const _spyCombined = String(_spyMktData.combined || "").toUpperCase();
-    const _spyIsBearish = (Number.isFinite(_spyHtf) && _spyHtf < -15) || _spyEmaRegD <= -1 || _spyCombined.includes("BEAR");
-    const _spyIsBullish = (Number.isFinite(_spyHtf) && _spyHtf > 15) || _spyEmaRegD >= 1 || _spyCombined.includes("BULL");
+    const _spyHtfValid = Number.isFinite(_spyHtf);
 
-    if (_spyIsBearish && inferredSide === "LONG") {
+    // Strong bearish: multiple confirming signals → block LONGs entirely
+    const _spyStrongBear = _spyHtfValid && _spyHtf < -30 && (_spyEmaRegD <= -1 || _spyCombined.includes("BEAR"));
+    // Moderate bearish: any single signal → reduce LONG size
+    const _spyModBear = !_spyStrongBear && ((_spyHtfValid && _spyHtf < -15) || _spyEmaRegD <= -1 || _spyCombined.includes("BEAR"));
+    // Strong bullish: multiple confirming signals → block SHORTs
+    const _spyStrongBull = _spyHtfValid && _spyHtf > 30 && (_spyEmaRegD >= 1 || _spyCombined.includes("BULL"));
+    // Moderate bullish: any single signal → reduce SHORT size
+    const _spyModBull = !_spyStrongBull && ((_spyHtfValid && _spyHtf > 15) || _spyEmaRegD >= 1 || _spyCombined.includes("BULL"));
+
+    if (inferredSide === "LONG") {
       const _isGoldLong = String(d?.__entry_path || "").includes("gold_long");
-      if (!_isGoldLong) {
+      if (_spyStrongBear && !_isGoldLong) {
         return { qualifies: false, reason: "spy_bearish_long_blocked", spyHtf: _spyHtf, spyEmaReg: _spyEmaRegD, spyCombined: _spyCombined };
       }
+      if (_spyModBear && !_isGoldLong) {
+        d.__spy_size_mult = 0.5;
+      }
     }
-    if (_spyIsBullish && inferredSide === "SHORT") {
+    if (inferredSide === "SHORT") {
       const _isGoldShort = String(d?.__entry_path || "").includes("gold_short");
-      if (!_isGoldShort) {
+      if (_spyStrongBull && !_isGoldShort) {
         return { qualifies: false, reason: "spy_bullish_short_blocked", spyHtf: _spyHtf, spyEmaReg: _spyEmaRegD, spyCombined: _spyCombined };
+      }
+      if (_spyModBull && !_isGoldShort) {
+        d.__spy_size_mult = 0.5;
       }
     }
   }
@@ -2830,20 +2845,20 @@ function qualifiesForEnter(d, asOfTs = null) {
   }
 
   // ── TD SEQUENTIAL EXHAUSTION GUARD ──
-  // Same-direction exhaustion: entering LONG when bearish_prep (XP) is high means
-  // the bullish move has been running for many bars and a TD9 Sell is approaching.
-  // LRN, NXT, BE all showed this pattern: XP 5-6 on 4H/D at entry → immediate reversal.
+  // TD exhaustion is a LEADING indicator — it detects trend exhaustion BEFORE reversal.
+  // Must NOT be bypassed by _regimeBypass (lagging EMA indicator stays bullish weeks into
+  // a correction). 92% of Oct-Dec losses had regime bypass active, disabling this gate.
   const _tdPerTf = d?.td_sequential?.per_tf;
-  if (_tdPerTf && !_regimeBypass) {
+  if (_tdPerTf) {
     const _tdSide = inferredSideForRSI;
 
     // Guard 1: Same-direction exhaustion (move topping/bottoming).
     // LONG: bearish_prep >= 5 means bullish trend nearing TD9 Sell.
     // SHORT: bullish_prep >= 5 means bearish trend nearing TD9 Buy.
-    // Block when 2+ TFs show this pattern (1H/4H/D considered).
+    // Block when 2+ TFs show this pattern (1H/4H/D/W considered).
     let sameDirExhaustionHits = 0;
     let sameDirMaxCount = 0;
-    for (const _tf of ["60", "240", "D"]) {
+    for (const _tf of ["60", "240", "D", "W"]) {
       const _tfTd = _tdPerTf[_tf];
       if (!_tfTd) continue;
       if (_tdSide === "LONG") {
@@ -2856,6 +2871,34 @@ function qualifiesForEnter(d, asOfTs = null) {
     }
     if (sameDirExhaustionHits >= 2) {
       return { qualifies: false, reason: "td_exhaustion_topping", side: _tdSide, hits: sameDirExhaustionHits, maxCount: sameDirMaxCount };
+    }
+
+    // Guard 1b: Single extreme exhaustion — any TF at prep >= 8 is one bar from TD9.
+    if (sameDirMaxCount >= 8) {
+      return { qualifies: false, reason: "td_exhaustion_extreme_single", side: _tdSide, maxCount: sameDirMaxCount };
+    }
+
+    // Guard 1c: Multi-TF downtrend — buying LONG into an active multi-TF sell-off.
+    // LONG: bullish_prep (BP) high = price falling (consecutive closes below close[4]).
+    // SHORT: bearish_prep (XP) high = price rising.
+    // Block when 3+ TFs show the opposing trend in full force.
+    {
+      let downtrendHits = 0;
+      let downtrendMaxCount = 0;
+      for (const _tf of ["10", "30", "60", "240", "D"]) {
+        const _tfTd = _tdPerTf[_tf];
+        if (!_tfTd) continue;
+        if (_tdSide === "LONG") {
+          const bc = Number(_tfTd.bullish_prep_count) || 0;
+          if (bc >= 5) { downtrendHits++; downtrendMaxCount = Math.max(downtrendMaxCount, bc); }
+        } else {
+          const bc = Number(_tfTd.bearish_prep_count) || 0;
+          if (bc >= 5) { downtrendHits++; downtrendMaxCount = Math.max(downtrendMaxCount, bc); }
+        }
+      }
+      if (downtrendHits >= 3) {
+        return { qualifies: false, reason: "td_multi_tf_downtrend", side: _tdSide, hits: downtrendHits, maxCount: downtrendMaxCount };
+      }
     }
 
     // Guard 2: LTF counter-momentum (1H/4H show opposite-direction exhaustion)
@@ -2878,7 +2921,7 @@ function qualifiesForEnter(d, asOfTs = null) {
       return { qualifies: false, reason: "td_exhaustion_ltf", side: _tdSide, hits: ltfExhaustionHits, maxCount: ltfMaxCount };
     }
 
-    // Guard 3: Multi-TF panic — 3+ TFs showing counter-direction exhaustion
+    // Guard 3: Multi-TF panic — 3+ TFs showing same-direction exhaustion (topping/bottoming)
     let totalExhaustionHits = 0;
     for (const _tf of ["30", "60", "240", "D", "W"]) {
       const _tfTd = _tdPerTf[_tf];
@@ -3499,6 +3542,24 @@ function qualifiesForEnter(d, asOfTs = null) {
   }
   
   // ═══════════════════════════════════════════════════════════════════════════
+  // PATH 2C: PULLBACK SHORT (non-gold, accessible bearish pullback short)
+  // When SPY is bearish and ticker HTF is bearish, short the LTF recovery.
+  // Mirrors the successful HTF_BULL_LTF_PULLBACK LONG logic.
+  // ═══════════════════════════════════════════════════════════════════════════
+  if (state === "HTF_BEAR_LTF_PULLBACK" && inferredSide === "SHORT") {
+    const _spyBearForShort = _spyMktData && (
+      (Number.isFinite(Number(_spyMktData.htf_score)) && Number(_spyMktData.htf_score) < -10) ||
+      (Number(_spyMktData.ema_regime_daily) || 0) <= -1
+    );
+    if (_spyBearForShort && htf <= -5 && ltf >= -5 && ltf <= 20) {
+      const hasShortConf = flags.st_flip_bear || hasEmaCrossBear || hasSqRelease;
+      if (hasShortConf && rr >= 2.0) {
+        return enrichResult({ qualifies: true, path: "pullback_short", confidence: "medium", reason: "spy_bear_ticker_pullback_short", sectorStrength });
+      }
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
   // PATH 3: MOMENTUM (aligned HTF+LTF with confirmation signal)
   // Both HTF and LTF aligned + SuperTrend/EMA/Squeeze confirmation
   // ═══════════════════════════════════════════════════════════════════════════
@@ -3509,7 +3570,7 @@ function qualifiesForEnter(d, asOfTs = null) {
   if (isMomentumBull && score >= 85 && rr >= 3.0 && (hasStFlipBull || hasEmaCrossBull || hasSqRelease)) {
     return enrichResult({ qualifies: true, path: "momentum_score", confidence: "medium", reason: "momentum_with_signal" });
   }
-  if (isMomentumBear && score >= 85 && rr >= 3.0 && (flags.st_flip_bear || hasEmaCrossBear || hasSqRelease)) {
+  if (isMomentumBear && score >= 70 && rr >= 2.0 && (flags.st_flip_bear || hasEmaCrossBear || hasSqRelease)) {
     return enrichResult({ qualifies: true, path: "momentum_score_short", confidence: "medium", reason: "momentum_bear_with_signal" });
   }
   
@@ -4161,12 +4222,12 @@ function deriveKanbanMeta(tickerData, stage) {
     const defendReason = tickerData?.__defend_reason || "warning";
     const emoji = "🛡";
     const reasonMap = {
-      adverse_move: "Price moving against",
-      below_trigger: "Below entry anchor",
-      left_corridor: "Left entry corridor",
-      rsi_weakening: "RSI divergence",
-      phase_against: "Phase turning",
-      warning: "Warning signals",
+      adverse_move: "Price moving against us",
+      below_trigger: "Dropped below entry level",
+      left_corridor: "Left the entry zone",
+      rsi_weakening: "Momentum fading",
+      phase_against: "Trend shifting direction",
+      warning: "Warning signals detected",
     };
     return {
       bucket: "tighten_sl",
@@ -4181,10 +4242,10 @@ function deriveKanbanMeta(tickerData, stage) {
     const trimReason = tickerData?.__trim_reason || "extreme";
     const emoji = "✂️";
     const reasonMap = {
-      rsi_extreme: "RSI at extreme",
-      phase_extreme: "Phase at extreme",
-      near_tp: "Near TP target",
-      pnl_extreme: "P&L > 6%",
+      rsi_extreme: "Momentum at extreme — locking in gains",
+      phase_extreme: "Trend indicator peaked — taking profit",
+      near_tp: "Approaching profit target",
+      pnl_extreme: "Strong gains — securing profit",
     };
     return {
       bucket: "take_profit",
@@ -4199,16 +4260,16 @@ function deriveKanbanMeta(tickerData, stage) {
     const exitReason = tickerData?.__exit_reason || reasons[0] || "exit_signal";
     const emoji = severity === "CRITICAL" ? "🚨" : "🚪";
     const reasonMap = {
-      sl_breached: "SL hit",
-      max_loss: "Max loss (-8%)",
-      critical: "Critical issue",
-      left_entry_corridor: "Left corridor",
-      large_adverse_move: "Large adverse move",
+      sl_breached: "Safety exit hit",
+      max_loss: "Max acceptable loss reached",
+      critical: "Trade thesis broke down",
+      left_entry_corridor: "Moved out of entry zone",
+      large_adverse_move: "Sharp move against us",
     };
     return {
       bucket: "close_now",
       emoji,
-      reason: reasonMap[exitReason] || exitReason,
+      reason: reasonMap[exitReason] || exitReason.replace(/_/g, " "),
       reasons: [exitReason],
     };
   }
@@ -9910,8 +9971,8 @@ async function processTradeSimulation(
               const fuseExecUpdate = { ...execState, lastTrimMs: now, runnerPeakPrice: pxNow };
               if (isReplay && replayCtx?.execStates) replayCtx.execStates.set(sym, fuseExecUpdate);
               else if (!isReplay) await kvPutJSON(KV, execKey, fuseExecUpdate);
-              fuseExitFired = true;
-            } else {
+                fuseExitFired = true;
+              } else {
                 console.log(`[FUSE EXIT] ${sym} SOFT FUSE: closing runner (rsi1H=${rsi1H} dEma21Break=${dEma21Break} stConfirm=${stConfirm} trimmedPct=${(currentTrimPct * 100).toFixed(0)}%)`);
                 tickerData.__exit_reason = `soft_fuse_rsi_confirmed`;
                 await closeTradeAtPrice(openTrade, pxNow, "SOFT_FUSE_RSI_CONFIRMED");
@@ -9919,7 +9980,7 @@ async function processTradeSimulation(
                 if (isReplay && replayCtx?.execStates) replayCtx.execStates.set(sym, fuseExecUpdate);
                 else if (!isReplay) await kvPutJSON(KV, execKey, fuseExecUpdate);
                 fuseExitFired = true;
-            }
+              }
             }
           }
         }
@@ -11409,7 +11470,8 @@ async function processTradeSimulation(
           const _daRvolHighMult = Number(tickerData?.__da_rvol_high_size_mult) || 1.0;
           const _daDangerMult = Number(tickerData?.__da_danger_size_mult) || 1.0;
           const _daMeanRevertMult = Number(tickerData?.__da_mean_revert_size_mult) || 1.0;
-          const _rawCombinedMult = regimePosMultiplier * _daRegimeSizeMult * _daRvolHighMult * _daDangerMult * _daMeanRevertMult;
+          const _spySizeMult = Number(tickerData?.__spy_size_mult) || 1.0;
+          const _rawCombinedMult = regimePosMultiplier * _daRegimeSizeMult * _daRvolHighMult * _daDangerMult * _daMeanRevertMult * _spySizeMult;
           const SIZING_MULT_FLOOR = 0.30;
           const _effectiveMult = Math.max(SIZING_MULT_FLOOR, _rawCombinedMult);
           const regimeAdjustedNotional = sizing.notional * _effectiveMult;
@@ -12031,8 +12093,8 @@ async function processTradeSimulation(
                 : slReason === "STALL_BREAKEVEN"
                   ? `Position stalled — SL moved to breakeven (${pnlPct.toFixed(2)}% unrealized)`
                   : isRunnerPhase
-                    ? `ATR trailing SL for RUNNER (${pnlPct.toFixed(2)}% unrealized)`
-                    : `Tightened SL to protect gains (${pnlPct.toFixed(2)}% unrealized)`,
+                ? `ATR trailing SL for RUNNER (${pnlPct.toFixed(2)}% unrealized)`
+                : `Tightened SL to protect gains (${pnlPct.toFixed(2)}% unrealized)`,
             };
             openTrade.history = Array.isArray(openTrade.history)
               ? [...openTrade.history, ev]
@@ -13681,14 +13743,16 @@ async function processTradeSimulation(
 
             // v3: Regime-adaptive position sizing (live path)
             const _regimePosM = tickerData?.regime_params?.positionSizeMultiplier ?? 1.0;
-            if (_regimePosM < 1.0 && trade.shares > 0) {
-              trade.shares = trade.shares * _regimePosM;
-              trade.regimePosMultiplier = _regimePosM;
+            const _spySizeM = Number(tickerData?.__spy_size_mult) || 1.0;
+            const _combinedPosM = _regimePosM * _spySizeM;
+            if (_combinedPosM < 1.0 && trade.shares > 0) {
+              trade.shares = trade.shares * _combinedPosM;
+              trade.regimePosMultiplier = _combinedPosM;
               if (trade.history?.[0]) {
                 trade.history[0].shares = trade.shares;
                 trade.history[0].value = entryPrice * trade.shares;
               }
-              console.log(`[REGIME_SIZE] ${ticker} ${direction}: shares scaled by ${_regimePosM}x (regime=${tickerData?.regime_class})`);
+              console.log(`[REGIME_SIZE] ${ticker} ${direction}: shares scaled by ${_combinedPosM}x (regime=${tickerData?.regime_class}, spy=${_spySizeM})`);
             }
 
             allTrades.push(trade);
@@ -21564,7 +21628,7 @@ async function appendActivity(KV, event) {
 }
 
 // Version management and migration
-const CURRENT_DATA_VERSION = "2.5.0"; // Must match SCRIPT_VERSION in Pine Script
+const CURRENT_DATA_VERSION = "3.0.0"; // Must match SCRIPT_VERSION in Pine Script
 
 async function getStoredVersion(KV) {
   const versionKey = "timed:data_version";
@@ -22126,9 +22190,9 @@ function createTradeTrimmedEmbed(
   // 4. Why We Trimmed
   const trimReason = trade?.exitReason || tickerData?.__exit_reason || null;
   const trimReasonMap = {
-    MFE_SAFETY_TRIM: "Price reached safety trim threshold — locking in unrealized gains",
-    PHASE_LEAVE_100: "TT Phase left extreme zone — momentum fading, securing profit",
-    RUNNER_PEAK_TRAIL: "Runner trailing stop triggered — protecting gains from peak",
+    MFE_SAFETY_TRIM: "Locked in profits while the trade was ahead — taking money off the table",
+    PHASE_LEAVE_100: "Momentum peaked and is starting to fade — securing gains before reversal",
+    RUNNER_PEAK_TRAIL: "Letting the winner run paid off — trailed up and trimmed after pullback from peak",
   };
   const humanTrimReason = trimReason ? (trimReasonMap[trimReason] || `Trim triggered: ${trimReason.replace(/_/g, " ")}`) : null;
   if (humanTrimReason) {
@@ -22179,28 +22243,28 @@ function createTradeClosedEmbed(
   // Map exit reason to human-readable text
   const exitReason = trade?.exitReason || null;
   const exitReasonMap = {
-    sl_breached: "Hit the stop loss",
-    SL: "Hit the stop loss",
-    "sl breached": "Hit the stop loss",
-    TDSEQ: "Exhaustion signal triggered exit",
-    TP_FULL: "All profit targets reached",
-    max_loss: "Maximum loss threshold reached",
-    critical: "Trade thesis invalidated",
-    HARD_FUSE_RSI_EXTREME: "RSI reached extreme levels",
-    SOFT_FUSE_RSI_CONFIRMED: "RSI reversal confirmed",
-    "tp reached": "Profit target reached",
-    below_trigger: "Dropped below entry trigger",
-    RUNNER_PEAK_TRAIL: "Runner trailing stop from peak",
-    RUNNER_MAX_DRAWDOWN_BREAKER: "Runner max drawdown breaker",
-    HARD_LOSS_CAP: "Per-trade hard loss cap breached",
-    MFE_SAFETY_TRIM: "MFE safety trim locked in profit",
-    STALL_BREAKEVEN: "Position stalled — closed at breakeven",
-    STALL_FORCE_CLOSE: "Untrimmed position stalled — force closed after time limit",
+    sl_breached: "Price moved against us and hit our safety exit",
+    SL: "Price moved against us and hit our safety exit",
+    "sl breached": "Price moved against us and hit our safety exit",
+    TDSEQ: "Trend exhaustion detected — exiting before likely reversal",
+    TP_FULL: "All profit targets hit — full exit with gains locked in",
+    max_loss: "Position reached our maximum acceptable loss — exited to protect capital",
+    critical: "Trade thesis invalidated — exiting immediately",
+    HARD_FUSE_RSI_EXTREME: "Momentum indicators hit extreme levels — high chance of reversal, exiting now",
+    SOFT_FUSE_RSI_CONFIRMED: "Multiple signals confirmed momentum is reversing — exiting to protect gains",
+    "tp reached": "Profit target reached — securing gains",
+    below_trigger: "Dropped below entry trigger — exiting to limit risk",
+    RUNNER_PEAK_TRAIL: "Letting the winner run paid off — trailed up and exited after pullback from peak",
+    RUNNER_MAX_DRAWDOWN_BREAKER: "The remaining position pulled back too far from its high — closed to protect gains",
+    HARD_LOSS_CAP: "Hard safety limit hit — exited to prevent further damage",
+    MFE_SAFETY_TRIM: "Locked in profits while the trade was ahead — taking money off the table",
+    STALL_BREAKEVEN: "Position stalled with no momentum — closed near breakeven",
+    STALL_FORCE_CLOSE: "Position went nowhere for too long — closed to free up capital for better setups",
   };
-  exitReasonMap.SMART_RUNNER_TD_EXHAUSTION_RUNNER = "TD exhaustion exit on runner portion";
-  exitReasonMap.SMART_RUNNER_SUPPORT_BREAK_CLOUD = "Support broke below key cloud level";
-  exitReasonMap.SMART_RUNNER_SQUEEZE_RELEASE_AGAINST = "Squeeze released against the position";
-  exitReasonMap.PHASE_LEAVE_100 = "TT Phase left extreme zone — momentum exhausted";
+  exitReasonMap.SMART_RUNNER_TD_EXHAUSTION_RUNNER = "Trend exhaustion detected — exiting remaining shares before likely reversal";
+  exitReasonMap.SMART_RUNNER_SUPPORT_BREAK_CLOUD = "Key support level broke down — exiting to avoid further downside";
+  exitReasonMap.SMART_RUNNER_SQUEEZE_RELEASE_AGAINST = "Volatility squeeze fired against our direction — exiting before the move accelerates";
+  exitReasonMap.PHASE_LEAVE_100 = "Momentum peaked and is starting to fade — securing gains before reversal";
   const rawReason = exitReason || "";
   const humanExitReason = exitReasonMap[rawReason]
     || (rawReason.includes("sl") || rawReason.includes("SL") ? "Hit the stop loss" : null)
@@ -28067,12 +28131,12 @@ export default {
                   __execution_ready: obj.__execution_ready, __execution_block_reason: obj.__execution_block_reason,
                 };
               }
-              return sendJSON(
+            return sendJSON(
                 { ok: true, data: slimData, count: Object.keys(slimData).length, source: "kv_snapshot_slim", built_at: snapshot.built_at, freshness_ts: _snapFreshTs },
-                200,
-                { ...corsHeaders(env, req), "Cache-Control": "public, max-age=15" },
-              );
-            }
+              200,
+              { ...corsHeaders(env, req), "Cache-Control": "public, max-age=15" },
+            );
+          }
 
             return sendJSON(
               { ok: true, data, count: Object.keys(data).length, source: "kv_snapshot", built_at: snapshot.built_at, freshness_ts: _snapFreshTs },
@@ -34936,7 +35000,7 @@ export default {
                 const placeholders = chunk.map((_, i) => `?${i + 1}`).join(",");
                 const { results: daRows } = await db.prepare(
                   `SELECT trade_id, signal_snapshot_json, exit_snapshot_json, entry_path, consensus_direction,
-                        max_favorable_excursion, max_adverse_excursion, tf_stack_json,
+                      max_favorable_excursion, max_adverse_excursion, tf_stack_json,
                           execution_profile_name, execution_profile_confidence, market_state, execution_profile_json,
                           rvol_best, entry_quality_score
                    FROM direction_accuracy
@@ -35712,6 +35776,94 @@ export default {
         const bundleCache = {}; // { `${ticker}:${tf}`: { endIdx, bundle } }
         const tdSeqCache = {}; // { `${ticker}`: { endIdxKey, tdSeq } }
 
+        // Compute replay market internals once per day from sector ETF D1 candles + VIX.
+        // This replaces the always-null market_internals that caused every trade to show
+        // static risk_off and execution_profile always resolving to choppy_selective.
+        let _replayMarketInternals = null;
+        {
+          const _avg = (arr) => arr.length ? arr.reduce((s, n) => s + n, 0) / arr.length : null;
+          const _getSectorPctChange = (sym) => {
+            const dCandles = candleCache[sym]?.D;
+            if (!dCandles || dCandles.length < 2) return null;
+            let lastIdx = dCandles.length - 1;
+            while (lastIdx >= 0 && dCandles[lastIdx].ts > marketCloseMs) lastIdx--;
+            if (lastIdx < 1) return null;
+            const curr = dCandles[lastIdx];
+            const prev = dCandles[lastIdx - 1];
+            if (!prev?.c || !curr?.c || prev.c === 0) return null;
+            return ((curr.c - prev.c) / prev.c) * 100;
+          };
+          const offenseVals = CARTER_OFFENSE_SECTORS.map(_getSectorPctChange).filter(Number.isFinite);
+          const defenseVals = CARTER_DEFENSE_SECTORS.map(_getSectorPctChange).filter(Number.isFinite);
+          const offenseAvg = _avg(offenseVals);
+          const defenseAvg = _avg(defenseVals);
+
+          let miScore = 0;
+          const miEvidence = [];
+          let vixState = null;
+
+          // VIX state from historical candles
+          if (_replayVixCandles.length > 0) {
+            let lo = 0, hi = _replayVixCandles.length - 1;
+            while (lo <= hi) { const mid = (lo + hi) >> 1; if (_replayVixCandles[mid].ts <= marketCloseMs) lo = mid + 1; else hi = mid - 1; }
+            const vixCandle = _replayVixCandles[Math.max(0, lo - 1)];
+            const vixPrice = vixCandle?.c ? Number(vixCandle.c) : null;
+            if (Number.isFinite(vixPrice)) {
+              if (vixPrice < 15) { vixState = "low_fear"; miScore += 1; miEvidence.push(`VIX ${vixPrice.toFixed(1)} is low-fear`); }
+              else if (vixPrice >= 25) { vixState = "fear"; miScore -= 2; miEvidence.push(`VIX ${vixPrice.toFixed(1)} is in fear mode`); }
+              else if (vixPrice >= 20) { vixState = "elevated"; miScore -= 1; miEvidence.push(`VIX ${vixPrice.toFixed(1)} is elevated`); }
+              else { vixState = "normal"; miEvidence.push(`VIX ${vixPrice.toFixed(1)} is neutral`); }
+            }
+          } else if (_replayCurrentVix != null) {
+            const vp = _replayCurrentVix;
+            if (vp < 15) { vixState = "low_fear"; miScore += 1; }
+            else if (vp >= 25) { vixState = "fear"; miScore -= 2; }
+            else if (vp >= 20) { vixState = "elevated"; miScore -= 1; }
+            else { vixState = "normal"; }
+          }
+
+          let sectorRotation = "unknown";
+          if (Number.isFinite(offenseAvg) && Number.isFinite(defenseAvg)) {
+            const spread = offenseAvg - defenseAvg;
+            if (spread >= 0.25) {
+              sectorRotation = "risk_on"; miScore += 1;
+              miEvidence.push(`Offense sectors lead defense by ${spread.toFixed(2)}%`);
+            } else if (spread <= -0.25) {
+              sectorRotation = "risk_off"; miScore -= 1;
+              miEvidence.push(`Defense sectors lead offense by ${Math.abs(spread).toFixed(2)}%`);
+            } else {
+              sectorRotation = "balanced";
+              miEvidence.push("Sector rotation is balanced");
+            }
+          }
+
+          const miOverall = miScore >= 2 ? "risk_on" : miScore <= -2 ? "risk_off" : "balanced";
+          let _miVixPrice = _replayCurrentVix;
+          if (!_miVixPrice && _replayVixCandles.length > 0) {
+            let _vlo = 0, _vhi = _replayVixCandles.length - 1;
+            while (_vlo <= _vhi) { const mid = (_vlo + _vhi) >> 1; if (_replayVixCandles[mid].ts <= marketCloseMs) _vlo = mid + 1; else _vhi = mid - 1; }
+            const _vc = _replayVixCandles[Math.max(0, _vlo - 1)];
+            if (_vc?.c) _miVixPrice = Number(_vc.c);
+          }
+          _replayMarketInternals = {
+            overall: miOverall,
+            score: miScore,
+            vix: { state: vixState, price: _miVixPrice },
+            tick: null,
+            fx_barometer: null,
+            sector_rotation: {
+              state: sectorRotation,
+              offense_avg_pct: offenseAvg,
+              defense_avg_pct: defenseAvg,
+              offense_symbols: CARTER_OFFENSE_SECTORS,
+              defense_symbols: CARTER_DEFENSE_SECTORS,
+            },
+            squeeze: {},
+            evidence: miEvidence,
+          };
+          console.log(`[REPLAY_INTERNALS] ${dateParam}: overall=${miOverall} score=${miScore} vix=${vixState} rotation=${sectorRotation}`);
+        }
+
         for (const intervalTs of intervals) {
           for (const ticker of batchTickers) {
             try {
@@ -35766,6 +35918,7 @@ export default {
               if (_replayTickerProfiles[ticker] && !existing._tickerProfile) {
                 existing._tickerProfile = _replayTickerProfiles[ticker];
               }
+              if (_replayMarketInternals) existing._marketInternals = _replayMarketInternals;
               const result = assembleTickerData(ticker, bundleMap, existing, { rawBars, leadingLtf: replayLeadingLtf });
               if (!result) { skipped++; continue; }
 
@@ -35794,6 +35947,11 @@ export default {
                   const _tdSeq = computeTDSequentialMultiTF(_tdSeqCandles, _htfBull);
                   result.td_sequential = _tdSeq;
                   tdSeqCache[_tdCacheKey] = { endIdxKey: _tdEndIdxKey, tdSeq: _tdSeq };
+                } else if (result.td_sequential) {
+                  // No candle data available for any TD TF — clear stale td_sequential
+                  // carried from stateMap to prevent stale exhaustion counts persisting
+                  // across days (WAL showed identical counts Jul→Dec due to this).
+                  delete result.td_sequential;
                 }
               }
 
@@ -35825,6 +35983,7 @@ export default {
                   _calibratedRankMin: _replayCalibratedRankMin,
                   _marketRegime: _rMktRegime,
                   _sectorRegime: _rSecRegime,
+                  _marketInternals: _replayMarketInternals,
                   _deepAuditConfig: replayEnv._deepAuditConfig || null,
                   _leadingLtf: replayLeadingLtf,
                   _universeSize: allTickers.length,

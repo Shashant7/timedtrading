@@ -4,6 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>FAQ — Timed Trading</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48' fill='none'%3E%3Ccircle cx='24' cy='24' r='23' fill='%230b0e11'/%3E%3Ccircle cx='24' cy='24' r='21' stroke='white' stroke-width='2'/%3E%3Crect x='9' y='15' width='13' height='3' rx='.5' fill='white'/%3E%3Crect x='13.5' y='15' width='4' height='20' rx='.5' fill='white'/%3E%3Crect x='26' y='15' width='13' height='3' rx='.5' fill='white'/%3E%3Crect x='30.5' y='15' width='4' height='20' rx='.5' fill='white'/%3E%3Cpolyline points='8,38 15,30 20,33 29,20 38,11' stroke='%2300c853' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3Cpath d='M36,13 L38,11 L36,15Z' fill='%2300c853'/%3E%3C/svg%3E" />
   <meta name="description" content="Frequently asked questions about Timed Trading — scoring, the Kanban board, subscriptions, and more." />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -282,8 +283,14 @@
     <div class="nav-inner">
       <a href="/splash.html" class="nav-brand">
         <span class="nav-logo">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#0b0e11" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-            <polyline points="22 7 13.5 15.5 8.5 10.5 2 17" /><polyline points="16 7 22 7 22 13" />
+          <svg width="24" height="24" viewBox="0 0 48 48" fill="none">
+            <circle cx="24" cy="24" r="21" stroke="white" stroke-width="2"/>
+            <rect x="9" y="15" width="13" height="3" rx=".5" fill="white"/>
+            <rect x="13.5" y="15" width="4" height="20" rx=".5" fill="white"/>
+            <rect x="26" y="15" width="13" height="3" rx=".5" fill="white"/>
+            <rect x="30.5" y="15" width="4" height="20" rx=".5" fill="white"/>
+            <polyline points="8,38 15,30 20,33 29,20 38,11" stroke="#00c853" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M36,13 L38,11 L36,15Z" fill="#00c853"/>
           </svg>
         </span>
         Timed Trading
@@ -351,6 +358,70 @@
           </button>
           <div class="faq-a">
             <p>Tickers are selected based on a combination of sector rotation signals, relative strength, momentum profiles, and volume characteristics. The system draws from curated screening processes to identify names that are positioned to outperform. The universe is not static &mdash; it rotates periodically as market conditions shift, so the focus stays on what matters now.</p>
+          </div>
+        </div>
+
+        <div class="faq-item">
+          <button class="faq-q" onclick="this.parentElement.classList.toggle('open')">
+            How does adding or removing tickers work?
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+          </button>
+          <div class="faq-a">
+            <p>The ticker universe is actively managed. The system periodically evaluates which names offer the best opportunities based on sector rotation, relative strength, and momentum characteristics. Tickers that no longer meet the criteria are rotated out, and new names with stronger setups are rotated in.</p>
+            <p>As a subscriber, you can also request tickers to be added through the watchlist feature. When a ticker is added, the system automatically backfills its historical data, begins scoring it across all 8 timeframes, and includes it in the model&rsquo;s evaluation. You can focus on specific names while the system handles the analysis.</p>
+          </div>
+        </div>
+
+        <div class="faq-item">
+          <button class="faq-q" onclick="this.parentElement.classList.toggle('open')">
+            How does the system adapt to market conditions?
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+          </button>
+          <div class="faq-a">
+            <p>The model is not static &mdash; it reads the market environment and adjusts how aggressively it trades. It monitors:</p>
+            <ul>
+              <li><strong>Market regime</strong> &mdash; Is the broad market trending, transitioning, or choppy? The system detects this from SPY, VIX, and sector rotation data, then adjusts position sizing and entry thresholds accordingly.</li>
+              <li><strong>Volatility</strong> &mdash; When fear spikes (VIX elevated), the model tightens its criteria and reduces exposure. In calm markets, it can be more aggressive with higher conviction setups.</li>
+              <li><strong>Sector rotation</strong> &mdash; The system tracks whether offensive sectors (tech, consumer discretionary) or defensive sectors (utilities, staples, healthcare) are leading. This helps determine the overall risk appetite of the market.</li>
+            </ul>
+            <p>The result is a system that trades more carefully during uncertainty and more decisively when conditions are favorable &mdash; without requiring the user to make those judgment calls manually.</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Using the System ── -->
+      <div class="faq-section">
+        <h2>Using the System</h2>
+
+        <div class="faq-item">
+          <button class="faq-q" onclick="this.parentElement.classList.toggle('open')">
+            How should I use the system day-to-day?
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+          </button>
+          <div class="faq-a">
+            <p>Here&rsquo;s a typical daily workflow:</p>
+            <ul>
+              <li><strong>Morning</strong> &mdash; Read the Daily Brief for a pre-market summary of top setups, sector themes, and any overnight changes. Check the Active Trader board for tickers in the &ldquo;Enter&rdquo; lane.</li>
+              <li><strong>During the day</strong> &mdash; The system scores continuously. Watch for tickers moving from Setup to Enter (new opportunities) or from Hold to Defend/Trim/Exit (positions that need attention).</li>
+              <li><strong>Evening</strong> &mdash; Review the Evening Brief for a recap of what happened. Check the Investor Dashboard for portfolio-level health and overall market conditions.</li>
+            </ul>
+            <p>The system does the heavy lifting &mdash; scanning, scoring, and alerting. Your job is to review, decide, and act when the signals align with your own conviction.</p>
+          </div>
+        </div>
+
+        <div class="faq-item">
+          <button class="faq-q" onclick="this.parentElement.classList.toggle('open')">
+            What is the simulated portfolio?
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+          </button>
+          <div class="faq-a">
+            <p>The system runs a paper-trading portfolio that executes trades based on its own signals &mdash; entering, trimming, and exiting positions automatically. No real money is involved.</p>
+            <p>This simulated portfolio serves two purposes:</p>
+            <ul>
+              <li><strong>Track record</strong> &mdash; It provides a transparent, auditable history of every trade the system has taken, including entry/exit levels, P&amp;L, and win rates.</li>
+              <li><strong>Signal validation</strong> &mdash; By putting its own signals to the test in real-time, the system demonstrates conviction. You can see exactly how the model performs before deciding to follow any given signal.</li>
+            </ul>
+            <p>You can view the full trade history, equity curve, and performance metrics on the Trades page.</p>
           </div>
         </div>
       </div>

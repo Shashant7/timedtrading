@@ -1853,12 +1853,12 @@ export function getRegimeParams(tickerRegime, marketRegime = null, marketInterna
     },
     CHOPPY: {
       regime: "CHOPPY",
-      minHTFScore: 25,
+      minHTFScore: 15,
       minRR: 3.0,
       maxCompletion: 0.30,
       positionSizeMultiplier: 0.50,
       shortsAllowed: true,
-      shortRvolMin: 1.5,
+      shortRvolMin: 1.0,
       maxDailyEntries: 2,
       maxWeeklyEntries: 3,
       slCushionMultiplier: 1.30,  // 30% wider stops

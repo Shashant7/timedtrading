@@ -7,7 +7,7 @@
     <meta http-equiv="Pragma" content="no-cache" />
     <meta http-equiv="Expires" content="0" />
     <title>Timed Trading - Trade Tracker</title>
-    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' stop-color='%2300c853'/%3E%3Cstop offset='50%25' stop-color='%2300e676'/%3E%3Cstop offset='100%25' stop-color='%2369f0ae'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='24' height='24' rx='5.5' fill='url(%23g)'/%3E%3Cpolyline points='22 7 13.5 15.5 8.5 10.5 2 17' fill='none' stroke='white' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3Cpolyline points='16 7 22 7 22 13' fill='none' stroke='white' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E" />
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48' fill='none'%3E%3Ccircle cx='24' cy='24' r='23' fill='%230b0e11'/%3E%3Ccircle cx='24' cy='24' r='21' stroke='white' stroke-width='2'/%3E%3Crect x='9' y='15' width='13' height='3' rx='.5' fill='white'/%3E%3Crect x='13.5' y='15' width='4' height='20' rx='.5' fill='white'/%3E%3Crect x='26' y='15' width='13' height='3' rx='.5' fill='white'/%3E%3Crect x='30.5' y='15' width='4' height='20' rx='.5' fill='white'/%3E%3Cpolyline points='8,38 15,30 20,33 29,20 38,11' stroke='%2300c853' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3Cpath d='M36,13 L38,11 L36,15Z' fill='%2300c853'/%3E%3C/svg%3E" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="" />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
@@ -199,31 +199,42 @@
         if (!raw) return "—";
         const s = String(raw).trim();
         const map = {
-          ema_regime_reversed: "Regime Reversed",
-          sl_breached: "Stop Loss Hit",
-          max_loss: "Max Loss Reached",
-          tp_reached: "Take Profit Hit",
-          TP_FULL: "Take Profit Hit",
-          replay_end_close: "Sim Period End",
-          bias_flip_full_bull_vs_short: "Bias Flip (Bull vs Short)",
-          bias_flip_full_bear_vs_long: "Bias Flip (Bear vs Long)",
-          bias_flip_htf_bull_vs_short: "HTF Bias Flip (Bull)",
-          bias_flip_htf_bear_vs_long: "HTF Bias Flip (Bear)",
-          critical_downgraded_to_defend: "Critical — Defend Mode",
-          hard_fuse_rsi_extreme: "RSI Fuse (Extreme)",
-          soft_fuse_rsi_confirmed: "RSI Fuse (Confirmed)",
-          SOFT_FUSE_RSI_CONFIRMED: "RSI Fuse (Confirmed)",
-          KANBAN_EXIT: "Exit Signal",
-          exit_signal: "Exit Signal",
-          overextended: "Overextended",
-          adverse_move_warning: "Adverse Move",
-          large_adverse_move: "Large Adverse Move",
-          left_entry_corridor: "Left Entry Corridor",
-          daily_ema_regime_break: "Daily EMA Break",
-          ichimoku_regime_break: "Ichimoku Break",
-          trigger_breached_5pct: "Trigger Breached 5%",
-          above_trigger: "Above Trigger",
-          below_trigger: "Below Trigger",
+          ema_regime_reversed: "Market trend reversed",
+          sl_breached: "Safety exit hit",
+          max_loss: "Max loss reached",
+          tp_reached: "Profit target hit",
+          TP_FULL: "All targets hit",
+          replay_end_close: "Sim period ended",
+          bias_flip_full_bull_vs_short: "Market flipped bullish (was short)",
+          bias_flip_full_bear_vs_long: "Market flipped bearish (was long)",
+          bias_flip_htf_bull_vs_short: "Longer-term trend turned bullish",
+          bias_flip_htf_bear_vs_long: "Longer-term trend turned bearish",
+          critical_downgraded_to_defend: "Trade under pressure — defending",
+          hard_fuse_rsi_extreme: "Momentum extreme — forced exit",
+          soft_fuse_rsi_confirmed: "Momentum reversal confirmed",
+          SOFT_FUSE_RSI_CONFIRMED: "Momentum reversal confirmed",
+          HARD_FUSE_RSI_EXTREME: "Momentum extreme — forced exit",
+          KANBAN_EXIT: "Exit signal",
+          exit_signal: "Exit signal",
+          overextended: "Price overextended",
+          adverse_move_warning: "Sharp move against us",
+          large_adverse_move: "Large move against us",
+          left_entry_corridor: "Left the entry zone",
+          daily_ema_regime_break: "Daily trend broke down",
+          ichimoku_regime_break: "Key trend level broke",
+          trigger_breached_5pct: "Dropped 5% below trigger",
+          above_trigger: "Above entry trigger",
+          below_trigger: "Below entry trigger",
+          RUNNER_PEAK_TRAIL: "Trailed from peak — gains locked",
+          RUNNER_MAX_DRAWDOWN_BREAKER: "Pulled back too far — gains protected",
+          HARD_LOSS_CAP: "Hard safety limit hit",
+          MFE_SAFETY_TRIM: "Profits locked in",
+          PHASE_LEAVE_100: "Momentum fading — gains secured",
+          STALL_BREAKEVEN: "Stalled — closed flat",
+          STALL_FORCE_CLOSE: "Stalled too long — capital freed",
+          SMART_RUNNER_TD_EXHAUSTION_RUNNER: "Trend exhaustion — exited runner",
+          SMART_RUNNER_SUPPORT_BREAK_CLOUD: "Support broke — exited",
+          SMART_RUNNER_SQUEEZE_RELEASE_AGAINST: "Squeeze fired against us",
         };
         if (map[s]) return map[s];
         const parts = s.split(",").map(p => p.trim()).filter(Boolean);
@@ -7691,12 +7702,7 @@
                 <div className="flex items-center justify-between px-4 py-2.5">
                   <div className="flex items-center gap-3 md:gap-5 min-w-0">
                     <a href="index-react.html" className="flex items-center gap-2 no-underline shrink-0">
-                      <div className="w-[28px] h-[28px] md:w-[32px] md:h-[32px] rounded-[8px] flex items-center justify-center" style={{background:"linear-gradient(135deg, #00c853, #00e676, #69f0ae)"}}>
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                          <polyline points="22 7 13.5 15.5 8.5 10.5 2 17" />
-                          <polyline points="16 7 22 7 22 13" />
-                        </svg>
-                      </div>
+                      <svg width="28" height="28" viewBox="0 0 48 48" fill="none"><circle cx="24" cy="24" r="21" stroke="white" strokeWidth="2"/><rect x="9" y="15" width="13" height="3" rx=".5" fill="white"/><rect x="13.5" y="15" width="4" height="20" rx=".5" fill="white"/><rect x="26" y="15" width="13" height="3" rx=".5" fill="white"/><rect x="30.5" y="15" width="4" height="20" rx=".5" fill="white"/><polyline points="8,38 15,30 20,33 29,20 38,11" stroke="#00c853" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/><path d="M36,13 L38,11 L36,15Z" fill="#00c853"/></svg>
                       <span className="text-[14px] md:text-[15px] font-bold text-white hidden sm:inline" style={{letterSpacing:"-0.03em"}}>Timed Trading</span>
                     </a>
                     <div className="hidden md:flex items-center gap-0.5">
@@ -7953,7 +7959,7 @@
                     const durLabel = (() => { if (dur <= 0) return null; const m=Math.round(dur/60000); const h=Math.floor(m/60); const d=Math.floor(h/24); return d>0?`${d}d ${h%24}h`:h>0?`${h}h ${m%60}m`:`${m}m`; })();
                     const SETUP_MAP = { ema_regime_confirmed_long:"TT Confirmed Long", ema_regime_confirmed_short:"TT Confirmed Short", ema_regime_early_long:"TT Early Long", ema_regime_early_short:"TT Early Short", gold_long:"TT Breakout Long", gold_short:"TT Reversal Short", gold_short_pullback:"TT Reversal Short Pullback", momentum_score:"TT Momentum", squeeze_setup:"TT Squeeze", elite:"TT Elite", breakout:"TT Breakout", mean_revert_td9:"TT Mean Revert TD9", ripster_momentum:"TT Momentum", ripster_pullback:"TT Pullback", ripster_short_pivot_reclaimed:"TT Pivot Reclaimed" };
                     const fmtPath = (p) => SETUP_MAP[p] || ("TT " + p.replace(/^ripster_?/i,"").replace(/^saty_?/i,"").replace(/_/g," ").replace(/\b\w/g,c=>c.toUpperCase()));
-                    const EXIT_MAP = { sl_breached:"Stop loss was hit — price moved against us beyond the risk threshold.", SL:"Stop loss was hit.", max_loss:"Maximum loss threshold reached.", HARD_FUSE_RSI_EXTREME:"RSI reached extreme levels.", SOFT_FUSE_RSI_CONFIRMED:"RSI reversal confirmed.", RUNNER_PEAK_TRAIL:"Runner trailing stop triggered — locked in gains.", RUNNER_MAX_DRAWDOWN_BREAKER:"Runner max drawdown breaker fired.", HARD_LOSS_CAP:"Per-trade hard loss cap breached.", MFE_SAFETY_TRIM:"Forced trim to lock in unrealized gains.", PHASE_LEAVE_100:"Phase oscillator left extreme zone.", STALL_BREAKEVEN:"Trade stalled — closed at breakeven.", STALL_FORCE_CLOSE:"Untrimmed position stalled past time limit — force closed.", SMART_RUNNER_TD_EXHAUSTION_RUNNER:"TD exhaustion exit on runner.", SMART_RUNNER_SUPPORT_BREAK_CLOUD:"Support break below cloud.", SMART_RUNNER_SQUEEZE_RELEASE_AGAINST:"Squeeze release against position." };
+                    const EXIT_MAP = { sl_breached:"Price moved against us and hit our safety exit.", SL:"Price moved against us and hit our safety exit.", max_loss:"Position reached our maximum acceptable loss — exited to protect capital.", HARD_FUSE_RSI_EXTREME:"Momentum indicators hit extreme levels — high chance of reversal, exiting now.", SOFT_FUSE_RSI_CONFIRMED:"Multiple signals confirmed momentum is reversing — exiting to protect gains.", RUNNER_PEAK_TRAIL:"Letting the winner run paid off — trailed up and exited after pullback from peak.", RUNNER_MAX_DRAWDOWN_BREAKER:"The remaining position pulled back too far from its high — closed to protect gains.", HARD_LOSS_CAP:"Hard safety limit hit — exited to prevent further damage.", MFE_SAFETY_TRIM:"Locked in profits while the trade was ahead — taking money off the table.", PHASE_LEAVE_100:"Momentum peaked and is starting to fade — securing gains before reversal.", STALL_BREAKEVEN:"Position stalled with no momentum — closed near breakeven.", STALL_FORCE_CLOSE:"Position went nowhere for too long — closed to free up capital for better setups.", SMART_RUNNER_TD_EXHAUSTION_RUNNER:"Trend exhaustion detected — exiting remaining shares before likely reversal.", SMART_RUNNER_SUPPORT_BREAK_CLOUD:"Key support level broke down — exiting to avoid further downside.", SMART_RUNNER_SQUEEZE_RELEASE_AGAINST:"Volatility squeeze fired against our direction — exiting before the move accelerates.", TP_FULL:"All profit targets hit — full exit with gains locked in." };
                     return html`<${TradeReviewModal} trade=${t} closeModal=${closeModal} _fmt=${_fmt} entryPx=${entryPx} exitPx=${exitPx} pnl=${pnl} shares=${shares} trimPct=${trimPct} trimmed=${trimmed} remaining=${remaining} exitReason=${exitReason} entryPath=${entryPath} setupGrade=${setupGrade} rank=${rank} riskBudget=${riskBudget} notional=${notional} durLabel=${durLabel} fmtPath=${fmtPath} EXIT_MAP=${EXIT_MAP} />`;
                   })()}
               </div>
