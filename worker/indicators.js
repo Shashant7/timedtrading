@@ -116,7 +116,7 @@ export function rmaSeries(values, period) {
 }
 
 /**
- * Saty Phase Oscillator series — pure price-displacement formula:
+ * TT Phase Oscillator series (internal name: satyPhase) — pure price-displacement formula:
  *   raw[i] = ((close[i] - EMA(close,21)[i]) / (3 * ATR(14)[i])) * 100
  *   osc = EMA(raw, smoothPeriod)
  * Returns { series, zones } where zones has zone-exit flags for the latest bar.
@@ -887,7 +887,7 @@ export function computeTfBundle(bars, anchors = null) {
   // Track the timestamp of the most recent bar for freshness comparison
   const lastTs = bars[last]?.ts || bars[last]?.t || 0;
 
-  // EMAs — full Ripster cloud set + gradient ribbon
+  // EMAs — full TT EMA cloud set + gradient ribbon
   const e3s = emaSeries(closes, 3);
   const e5s = emaSeries(closes, 5);
   const e8s = emaSeries(closes, 8);
@@ -1088,7 +1088,7 @@ export function computeTfBundle(bars, anchors = null) {
   // Phase velocity (approximate)
   const phaseVelocity = 0; // Would need previous rawPhase; set to 0
 
-  // Saty Phase Oscillator — pure price-displacement with EMA(3) smoothing
+  // TT Phase Oscillator — pure price-displacement with EMA(3) smoothing
   // Computes full series for proper zone-exit detection (prev bar vs current bar)
   const satyPhase = satyPhaseSeries(bars, closes, e21s, atr14Arr, 3);
 
@@ -1227,7 +1227,7 @@ export function computeTfBundle(bars, anchors = null) {
   // ── Ichimoku Kinko Hyo (native computation) ──
   const ichimoku = computeIchimoku(bars, atr14);
 
-  // ── Ripster EMA Cloud primitives ──
+  // ── TT EMA Cloud primitives ──
   const cloudState = (fastNow, slowNow, fastPrev, slowPrev) => {
     if (!Number.isFinite(fastNow) || !Number.isFinite(slowNow)) return null;
     const lo = Math.min(fastNow, slowNow);
@@ -2853,13 +2853,13 @@ export function buildSTSupportMap(bundles) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// LAYER 3: ATR FIBONACCI LEVEL MAPS (Saty ATR Levels)
+// LAYER 3: ATR FIBONACCI LEVEL MAPS (TT ATR Levels)
 // ═══════════════════════════════════════════════════════════════════════════════
 
 const FIB_RATIOS = [0.236, 0.382, 0.500, 0.618, 0.786, 1.000, 1.236, 1.618, 2.000, 2.618, 3.000];
 
 /**
- * Compute Fibonacci-based ATR levels for a given horizon (Saty ATR Levels).
+ * Compute Fibonacci-based ATR levels for a given horizon (TT ATR Levels).
  *
  * Modes map scoring TF → anchor TF:
  *   Day (15m → Daily), Multiday (30m → Weekly), Swing (1H → Monthly),
@@ -3340,6 +3340,7 @@ function detectMeanReversionTD9(bundles, tdSeq, price) {
 
   return {
     active: true,
+    direction: "LONG",
     td9_aligned: true,
     phase_leaving: true,
     rsi_d: Math.round(rsiD * 10) / 10,
@@ -3347,6 +3348,66 @@ function detectMeanReversionTD9(bundles, tdSeq, price) {
     rsi_4h: Number.isFinite(rsi4H) ? Math.round(rsi4H * 10) / 10 : null,
     support_score: supportScore,
     support_reasons: reasons,
+    psych_level: psych.level,
+  };
+}
+
+function detectMeanReversionTD9Short(bundles, tdSeq, price) {
+  const bD = bundles?.D;
+  const b1H = bundles?.["60"];
+  const b4H = bundles?.["240"];
+  const bW = bundles?.W;
+  if (!bD || !b1H) return null;
+
+  const aligned = td9AlignedShort(tdSeq);
+  if (!aligned) return null;
+
+  const rsiD = bD.rsi;
+  const rsi4H = b4H?.rsi;
+  const rsi1H = b1H.rsi;
+  if (!Number.isFinite(rsiD) || rsiD < 70) return null;
+  if (Number.isFinite(rsi1H) && rsi1H < 60) return null;
+
+  const spD = bD.satyPhase;
+  const sp1H = b1H.satyPhase;
+  let phaseLeavingDot = false;
+  if (spD?.leaving?.extUp || spD?.leaving?.dist) phaseLeavingDot = true;
+  if (sp1H?.leaving?.extUp || sp1H?.leaving?.dist) phaseLeavingDot = true;
+  if (!phaseLeavingDot) return null;
+
+  let resistanceScore = 0;
+  const reasons = [];
+
+  const fvgD = bD.fvg;
+  if (fvgD && (fvgD.inBearGap || (Number.isFinite(fvgD.nearestBearDist) && fvgD.nearestBearDist >= 0 && fvgD.nearestBearDist < 0.5))) {
+    resistanceScore++;
+    reasons.push("fvg_daily");
+  }
+
+  const liqW = bW?.liq;
+  if (liqW && Number.isFinite(liqW.nearestBuysideDist) && liqW.nearestBuysideDist >= 0 && liqW.nearestBuysideDist < 0.5) {
+    resistanceScore++;
+    reasons.push("bsl_weekly");
+  }
+
+  const psych = isNearPsychLevel(price);
+  if (psych.near) {
+    resistanceScore++;
+    reasons.push(`psych_${psych.level}`);
+  }
+
+  if (resistanceScore < 2) return null;
+
+  return {
+    active: true,
+    direction: "SHORT",
+    td9_aligned: true,
+    phase_leaving: true,
+    rsi_d: Math.round(rsiD * 10) / 10,
+    rsi_1h: Number.isFinite(rsi1H) ? Math.round(rsi1H * 10) / 10 : null,
+    rsi_4h: Number.isFinite(rsi4H) ? Math.round(rsi4H * 10) / 10 : null,
+    resistance_score: resistanceScore,
+    resistance_reasons: reasons,
     psych_level: psych.level,
   };
 }
@@ -5295,11 +5356,15 @@ export async function computeServerSideScores(ticker, getCandles, env, existingD
     const tdSeq = computeTDSequentialMultiTF(tdSeqCandles, htfBull);
     tickerData.td_sequential = tdSeq;
 
-    // Mean Reversion TD9 Aligned setup detection
+    // Mean Reversion TD9 Aligned setup detection (LONG and SHORT)
     const price = bundleMap?.D?.px || bundleMap?.["60"]?.px;
     if (price) {
-      const mrSignal = detectMeanReversionTD9(bundleMap, tdSeq, price);
-      if (mrSignal) tickerData.mean_revert_td9 = mrSignal;
+      const mrLong = detectMeanReversionTD9(bundleMap, tdSeq, price);
+      if (mrLong) { tickerData.mean_revert_td9 = mrLong; }
+      else {
+        const mrShort = detectMeanReversionTD9Short(bundleMap, tdSeq, price);
+        if (mrShort) tickerData.mean_revert_td9 = mrShort;
+      }
     }
   }
 

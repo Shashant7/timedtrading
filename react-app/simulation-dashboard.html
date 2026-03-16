@@ -6377,6 +6377,224 @@
         </div>`;
       }
 
+      function TradeReviewChart({ ticker, entryPrice, exitPrice, entryTs, exitTs, trimTs }) {
+        const containerRef = useRef(null);
+        const chartRef = useRef(null);
+        const [tf, setTf] = useState("15");
+        const [loading, setLoading] = useState(true);
+        const [error, setError] = useState(null);
+        const TFS = ["5", "15", "30", "60", "240", "D"];
+        const TF_LABELS = { "5": "5m", "15": "15m", "30": "30m", "60": "1H", "240": "4H", "D": "1D" };
+
+        function isWeekendBar(ts) { const d = new Date(Number(ts)); const day = d.getUTCDay(); return day === 0 || day === 6; }
+
+        function snapToBar(tsMs, bars) {
+          if (!bars || !bars.length) return 0;
+          const tsSec = Math.floor(Number(tsMs) / 1000);
+          let closest = bars[0].time, minDiff = Math.abs(tsSec - bars[0].time);
+          for (const b of bars) {
+            const diff = Math.abs(tsSec - b.time);
+            if (diff < minDiff) { minDiff = diff; closest = b.time; }
+          }
+          return closest;
+        }
+
+        useEffect(() => {
+          if (!containerRef.current || !ticker) return;
+          let cancelled = false;
+          setLoading(true);
+          setError(null);
+
+          const chart = LightweightCharts.createChart(containerRef.current, {
+            width: containerRef.current.clientWidth,
+            height: 320,
+            layout: { background: { type: "solid", color: "#0b0e11" }, textColor: "#6b7280", fontSize: 10 },
+            grid: { vertLines: { color: "rgba(255,255,255,0.03)" }, horzLines: { color: "rgba(255,255,255,0.03)" } },
+            crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
+            rightPriceScale: { borderColor: "rgba(255,255,255,0.06)" },
+            timeScale: { borderColor: "rgba(255,255,255,0.06)", timeVisible: tf !== "D", secondsVisible: false },
+          });
+          chartRef.current = chart;
+
+          const candleSeries = chart.addCandlestickSeries({
+            upColor: "#22c55e", downColor: "#ef4444", borderUpColor: "#22c55e", borderDownColor: "#ef4444",
+            wickUpColor: "#22c55e80", wickDownColor: "#ef444480",
+          });
+
+          const exitMs = Number(exitTs) || Date.now();
+          const asOfMs = exitMs + 3 * 24 * 3600000;
+          const limit = tf === "D" ? 120 : tf === "240" ? 250 : 800;
+          let url = `${API_BASE}/timed/candles?ticker=${encodeURIComponent(ticker)}&tf=${tf}&limit=${limit}&asOfTs=${asOfMs}`;
+
+          fetch(url, { cache: "no-store" })
+            .then(r => r.json())
+            .then(data => {
+              if (cancelled) return;
+              if (!data.ok || !data.candles?.length) { setError("No candle data"); setLoading(false); return; }
+              const CRYPTO = ["BTCUSD","ETHUSD","SOLUSD"];
+              const isCrypto = CRYPTO.includes(ticker.toUpperCase());
+              const bars = data.candles
+                .filter(c => {
+                  const ts = Number(c.ts || c.t);
+                  return ts > 0 && (isCrypto || !isWeekendBar(ts));
+                })
+                .map(c => ({
+                  time: Math.floor(Number(c.ts || c.t) / 1000),
+                  open: Number(c.o), high: Number(c.h), low: Number(c.l), close: Number(c.c),
+                }))
+                .sort((a, b) => a.time - b.time);
+              if (bars.length === 0) { setError("No data"); setLoading(false); return; }
+              candleSeries.setData(bars);
+
+              if (Number(entryPrice) > 0) {
+                candleSeries.createPriceLine({ price: Number(entryPrice), color: "#60a5fa", lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: "Entry" });
+              }
+              if (Number(exitPrice) > 0) {
+                candleSeries.createPriceLine({ price: Number(exitPrice), color: "#f59e0b", lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: "Exit" });
+              }
+
+              const markers = [];
+              if (entryTs && Number(entryTs) > 0) {
+                const t = snapToBar(entryTs, bars);
+                if (t) markers.push({ time: t, position: "belowBar", color: "#60a5fa", shape: "arrowUp", text: "Entry" });
+              }
+              if (trimTs && Number(trimTs) > 0) {
+                const t = snapToBar(trimTs, bars);
+                if (t) markers.push({ time: t, position: "aboveBar", color: "#14b8a6", shape: "arrowDown", text: "Trim" });
+              }
+              if (exitTs && Number(exitTs) > 0) {
+                const t = snapToBar(exitTs, bars);
+                if (t) markers.push({ time: t, position: "aboveBar", color: "#f59e0b", shape: "arrowDown", text: "Exit" });
+              }
+              if (markers.length) candleSeries.setMarkers(markers.sort((a, b) => a.time - b.time));
+
+              const entryTime = entryTs ? snapToBar(entryTs, bars) : 0;
+              const exitTime = exitTs ? snapToBar(exitTs, bars) : 0;
+              if (entryTime && exitTime) {
+                const span = exitTime - entryTime;
+                const pad = Math.max(Math.round(span * 0.5), 7200);
+                chart.timeScale().setVisibleRange({ from: entryTime - pad, to: exitTime + pad });
+              } else {
+                chart.timeScale().fitContent();
+              }
+              setLoading(false);
+            })
+            .catch(() => { if (!cancelled) { setError("Failed to load"); setLoading(false); } });
+
+          const ro = new ResizeObserver(() => { if (containerRef.current) chart.applyOptions({ width: containerRef.current.clientWidth }); });
+          ro.observe(containerRef.current);
+
+          return () => { cancelled = true; ro.disconnect(); chart.remove(); chartRef.current = null; };
+        }, [ticker, tf, entryTs, exitTs]);
+
+        return html`
+          <div className="rounded-md border border-white/[0.04] overflow-hidden">
+            <div className="flex items-center justify-between px-3 py-1.5 bg-white/[0.02] border-b border-white/[0.04]">
+              <span className="text-[11px] font-semibold text-[#14b8a6]">${ticker}</span>
+              <div className="flex items-center gap-0.5">
+                ${TFS.map(t => html`
+                  <button key=${t} onClick=${() => setTf(t)}
+                    className=${`px-2 py-1 rounded text-[10px] font-medium ${tf === t ? "bg-white/10 text-white" : "text-[#6b7280] hover:text-white"}`}>
+                    ${TF_LABELS[t]}
+                  </button>
+                `)}
+              </div>
+            </div>
+            <div ref=${containerRef} style=${{ position: "relative", height: "320px", background: "#0b0e11" }}>
+              ${loading && html`<div className="absolute inset-0 flex items-center justify-center"><span className="text-[10px] text-[#6b7280]">Loading chart…</span></div>`}
+              ${error && html`<div className="absolute inset-0 flex items-center justify-center"><span className="text-[10px] text-red-400">${error}</span></div>`}
+            </div>
+          </div>
+        `;
+      }
+
+      function TradeReviewModal({ trade: t, closeModal, _fmt, entryPx, exitPx, pnl, shares, trimPct, trimmed, remaining, exitReason, entryPath, setupGrade, rank, riskBudget, notional, durLabel, fmtPath, EXIT_MAP }) {
+        return html`
+          <div className="fixed inset-0 z-[100] flex items-center justify-center md:p-4" style=${{background:"rgba(0,0,0,0.7)",backdropFilter:"blur(4px)"}} onClick=${closeModal}>
+            <div className="bg-[#0b0e11] border border-white/[0.04] w-full h-full md:h-auto md:max-w-[860px] md:max-h-[94vh] md:rounded-xl overflow-hidden flex flex-col" onClick=${e=>e.stopPropagation()}>
+              <div className="flex items-center justify-between px-4 py-2.5 border-b border-white/[0.06]" style=${{background:"rgba(255,255,255,0.02)"}}>
+                <h2 className="text-[15px] font-semibold text-white truncate">${t.ticker} ${(t.direction||"").toUpperCase()} — Trade Review</h2>
+                <button onClick=${closeModal} className="p-1.5 -mr-1 rounded-md text-[#6b7280] hover:text-white hover:bg-white/[0.06]">✕</button>
+              </div>
+              <div className="px-4 py-3 flex-1 min-h-0 overflow-y-auto flex flex-col gap-2.5">
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <div className="flex items-center gap-1 px-2 py-0.5 rounded bg-[#60a5fa]/10 border border-[#60a5fa]/20">
+                    <span className="text-[8px] font-bold text-[#60a5fa] uppercase">Entry</span>
+                    <span className="text-[11px] font-semibold text-white">${_fmt(t.entry_ts)} @ ${fmtUsd(entryPx)}</span>
+                  </div>
+                  <div className="flex items-center gap-1 px-2 py-0.5 rounded bg-[#f59e0b]/10 border border-[#f59e0b]/20">
+                    <span className="text-[8px] font-bold text-[#f59e0b] uppercase">Exit</span>
+                    <span className="text-[11px] font-semibold text-white">${_fmt(t.exit_ts)} @ ${fmtUsd(exitPx)}</span>
+                  </div>
+                  <div className="flex items-center gap-1 px-2 py-0.5 rounded" style=${{background:pnl>=0?"rgba(34,197,94,0.08)":"rgba(239,68,72,0.08)",border:`1px solid ${pnl>=0?"rgba(34,197,94,0.2)":"rgba(239,68,72,0.2)"}`}}>
+                    <span className="text-[8px] font-bold uppercase" style=${{color:pnl>=0?"#22c55e":"#ef4444"}}>P&L</span>
+                    <span className="text-[11px] font-bold" style=${{color:pnl>=0?"#22c55e":"#ef4444"}}>${fmtUsd(pnl)}</span>
+                  </div>
+                  ${(t.status === "WIN" || t.status === "LOSS") && html`
+                    <span className=${`px-1.5 py-0.5 rounded text-[9px] font-bold border ${t.status==="WIN"?"bg-green-500/20 text-green-400 border-green-500/30":"bg-red-500/20 text-red-400 border-red-500/30"}`}>${t.status}</span>
+                  `}
+                  ${durLabel && html`<span className="text-[10px] text-[#a78bfa] ml-auto">${durLabel}</span>`}
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2 px-3 py-1.5 rounded-md bg-white/[0.02] border border-white/[0.04]">
+                  ${entryPath ? html`<span className="text-[12px] font-semibold text-white">${fmtPath(entryPath)}</span>` : html`<span className="text-[12px] text-[#6b7280]">Setup not recorded</span>`}
+                  ${setupGrade && (() => {
+                    const cls = setupGrade==="Prime"?"bg-amber-500/20 text-amber-300 border-amber-500/30":setupGrade==="Confirmed"?"bg-emerald-500/20 text-emerald-300 border-emerald-500/30":"bg-blue-500/20 text-blue-300 border-blue-500/30";
+                    return html`<span className=${`px-2 py-0.5 rounded text-[10px] font-bold border ${cls}`}>TT ${setupGrade}</span>`;
+                  })()}
+                  ${shares > 0 && html`<span className="text-[10px] text-[#a78bfa]">${Math.round(shares)} shares</span>`}
+                  ${riskBudget > 0 && html`<span className="text-[10px] text-[#9ca3af]">Risk ${riskBudget.toFixed(1)}%</span>`}
+                  ${notional > 0 && html`<span className="text-[10px] text-[#9ca3af]">${fmtUsd(notional)} notional</span>`}
+                  ${rank > 0 && html`<span className="text-[10px] text-[#9ca3af] ml-auto">Rank #${rank}</span>`}
+                </div>
+
+                <${TradeReviewChart} ticker=${t.ticker} entryPrice=${entryPx} exitPrice=${exitPx} entryTs=${t.entry_ts} exitTs=${t.exit_ts} trimTs=${t.trim_ts} />
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+                  <div className="rounded-md bg-white/[0.02] border border-white/[0.04] px-3 py-2">
+                    <div className="text-[8px] text-[#60a5fa] uppercase font-bold mb-1">Why We Entered</div>
+                    <div className="text-[10px] text-[#d1d5db] leading-relaxed">
+                      ${entryPath ? html`<span>${fmtPath(entryPath)}</span>` : html`<span className="text-[#6b7280]">Not recorded</span>`}
+                      ${setupGrade && html`<div className="text-[9px] text-[#9ca3af] mt-0.5">${setupGrade} grade setup</div>`}
+                      ${shares > 0 && html`<div className="text-[9px] text-[#9ca3af] mt-0.5">${Math.round(shares)} shares · ${fmtUsd(notional)} notional</div>`}
+                      ${riskBudget > 0 && html`<div className="text-[9px] text-[#9ca3af] mt-0.5">Risk: ${riskBudget.toFixed(2)}%</div>`}
+                    </div>
+                  </div>
+                  <div className="rounded-md bg-white/[0.02] border border-white/[0.04] px-3 py-2">
+                    <div className="text-[8px] text-[#14b8a6] uppercase font-bold mb-1">Trim Details</div>
+                    ${trimPct > 0 ? html`
+                      <div className="text-[10px] text-[#d1d5db] leading-relaxed">
+                        Trimmed <span className="font-semibold text-white">${Math.round(trimPct*100)}%</span>
+                        ${t.trim_price ? html` at <span className="font-semibold text-white">${fmtUsd(t.trim_price)}</span>` : null}
+                        ${trimmed > 0 && html`<div className="text-[9px] text-[#9ca3af] mt-0.5">${trimmed} shares trimmed, ${remaining} as runner</div>`}
+                      </div>
+                    ` : html`<div className="text-[10px] text-[#6b7280]">No trim on this trade</div>`}
+                  </div>
+                  <div className="rounded-md bg-white/[0.02] border border-white/[0.04] px-3 py-2">
+                    <div className="text-[8px] text-[#f59e0b] uppercase font-bold mb-1">Why We Exited</div>
+                    ${exitReason ? (() => {
+                      const mapped = EXIT_MAP[exitReason.trim()];
+                      if (mapped) return html`<div className="text-[10px] text-[#d1d5db] leading-relaxed">${mapped}</div>`;
+                      return html`<div className="text-[10px] text-[#d1d5db] leading-relaxed">${exitReason.replace(/^ripster[_ ]?/i,"TT ").replace(/^saty[_ ]?/i,"TT ").replace(/_/g," ").replace(/\b\w/g,c=>c.toUpperCase())}</div>`;
+                    })() : html`<div className="text-[10px] text-[#6b7280]">Not recorded</div>`}
+                  </div>
+                </div>
+
+                ${(t.trade_id || t.id) && html`
+                  <div className="text-center pt-1">
+                    <a href=${`trade-autopsy.html?trade_id=${encodeURIComponent(t.trade_id || t.id)}&readonly=1`}
+                      target="_blank" rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[11px] font-medium text-[#14b8a6] bg-[#14b8a6]/10 hover:bg-[#14b8a6]/20 border border-[#14b8a6]/20 transition-colors">
+                      View Full Trade Autopsy →
+                    </a>
+                  </div>
+                `}
+              </div>
+            </div>
+          </div>
+        `;
+      }
+
       function App() {
         const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
         const [goProOpen, setGoProOpen] = useState(false);
@@ -7726,109 +7944,17 @@
                     const trimmed = shares > 0 ? Math.round(shares * Math.min(trimPct, 1)) : 0;
                     const remaining = Math.max(0, Math.round(shares) - trimmed);
                     const exitReason = t.exit_reason || t.exitReason || "";
-                    const entryPath = t.entry_path || t.entryPath || "";
+                    const entryPath = t.entry_path || t.entryPath || t.setup_name || t.setupName || "";
                     const setupGrade = t.setup_grade || t.setupGrade || "";
                     const rank = Number(t.rank) || 0;
+                    const riskBudget = Number(t.risk_budget || t.riskBudget) || 0;
+                    const notional = Number(t.notional) || (shares > 0 && entryPx > 0 ? shares * entryPx : 0);
                     const dur = (Number(t.exit_ts) || 0) - (Number(t.entry_ts) || 0);
                     const durLabel = (() => { if (dur <= 0) return null; const m=Math.round(dur/60000); const h=Math.floor(m/60); const d=Math.floor(h/24); return d>0?`${d}d ${h%24}h`:h>0?`${h}h ${m%60}m`:`${m}m`; })();
-                    const SETUP_MAP = { ema_regime_confirmed_long:"TT Confirmed Long", ema_regime_confirmed_short:"TT Confirmed Short", ema_regime_early_long:"TT Early Long", ema_regime_early_short:"TT Early Short", gold_long:"TT Breakout Long", gold_short:"TT Reversal Short" };
-                    const fmtPath = (p) => SETUP_MAP[p] || ("TT " + p.replace(/_/g," ").replace(/\b\w/g,c=>c.toUpperCase()));
-                    const EXIT_MAP = { sl_breached:"Stop loss was hit — price moved against us beyond the risk threshold.", SL:"Stop loss was hit.", max_loss:"Maximum loss threshold reached.", HARD_FUSE_RSI_EXTREME:"RSI reached extreme levels.", SOFT_FUSE_RSI_CONFIRMED:"RSI reversal confirmed.", RUNNER_PEAK_TRAIL:"Runner trailing stop triggered — locked in gains.", RUNNER_MAX_DRAWDOWN_BREAKER:"Runner max drawdown breaker fired.", HARD_LOSS_CAP:"Per-trade hard loss cap breached.", MFE_SAFETY_TRIM:"Forced trim to lock in unrealized gains.", PHASE_LEAVE_100:"Phase oscillator left extreme zone.", STALL_BREAKEVEN:"Trade stalled — closed at breakeven.", STALL_FORCE_CLOSE:"Untrimmed position stalled past time limit — force closed." };
-                    return (
-                      <div className="fixed inset-0 z-[100] flex items-center justify-center md:p-4" style={{background:"rgba(0,0,0,0.7)",backdropFilter:"blur(4px)"}} onClick={closeModal}>
-                        <div className="bg-[#0b0e11] border border-white/[0.04] w-full h-full md:h-auto md:max-w-[700px] md:max-h-[90vh] md:rounded-xl overflow-hidden flex flex-col" onClick={e=>e.stopPropagation()}>
-                          {/* Header */}
-                          <div className="flex items-center justify-between px-4 py-2.5 border-b border-white/[0.06]" style={{background:"rgba(255,255,255,0.02)"}}>
-                            <h2 className="text-[15px] font-semibold text-white truncate">{t.ticker} {(t.direction||"").toUpperCase()} — Trade Review</h2>
-                            <button onClick={closeModal} className="p-1.5 -mr-1 rounded-md text-[#6b7280] hover:text-white hover:bg-white/[0.06]">✕</button>
-                          </div>
-                          {/* Body */}
-                          <div className="px-4 py-3 flex-1 min-h-0 overflow-y-auto flex flex-col gap-3">
-                            {/* Header pills */}
-                            <div className="flex flex-wrap items-center gap-1.5">
-                              <div className="flex items-center gap-1 px-2 py-0.5 rounded bg-[#60a5fa]/10 border border-[#60a5fa]/20">
-                                <span className="text-[8px] font-bold text-[#60a5fa] uppercase">Entry</span>
-                                <span className="text-[11px] font-semibold text-white">{_fmt(t.entry_ts)} @ {fmtUsd(entryPx)}</span>
-                              </div>
-                              <div className="flex items-center gap-1 px-2 py-0.5 rounded bg-[#f59e0b]/10 border border-[#f59e0b]/20">
-                                <span className="text-[8px] font-bold text-[#f59e0b] uppercase">Exit</span>
-                                <span className="text-[11px] font-semibold text-white">{_fmt(t.exit_ts)} @ {fmtUsd(exitPx)}</span>
-                              </div>
-                              <div className="flex items-center gap-1 px-2 py-0.5 rounded" style={{background:pnl>=0?"rgba(34,197,94,0.08)":"rgba(239,68,72,0.08)",border:`1px solid ${pnl>=0?"rgba(34,197,94,0.2)":"rgba(239,68,72,0.2)"}`}}>
-                                <span className="text-[8px] font-bold uppercase" style={{color:pnl>=0?"#22c55e":"#ef4444"}}>P&L</span>
-                                <span className="text-[11px] font-bold" style={{color:pnl>=0?"#22c55e":"#ef4444"}}>{fmtUsd(pnl)}</span>
-                              </div>
-                              {shares > 0 && (
-                                <div className="flex items-center gap-1 px-2 py-0.5 rounded bg-[#a78bfa]/10 border border-[#a78bfa]/20">
-                                  <span className="text-[8px] font-bold text-[#a78bfa] uppercase">Shares</span>
-                                  <span className="text-[11px] font-semibold text-white">{Math.round(shares)}</span>
-                                  {trimmed > 0 && <span className="text-[9px] text-[#a78bfa]/70">({trimmed} trimmed · {remaining} left)</span>}
-                                </div>
-                              )}
-                              {(t.status === "WIN" || t.status === "LOSS") && (
-                                <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold border ${t.status==="WIN"?"bg-green-500/20 text-green-400 border-green-500/30":"bg-red-500/20 text-red-400 border-red-500/30"}`}>{t.status}</span>
-                              )}
-                            </div>
-
-                            {/* Setup info row */}
-                            {(entryPath || setupGrade) && (
-                              <div className="flex flex-wrap items-center gap-2 px-3 py-1.5 rounded-md bg-white/[0.02] border border-white/[0.04]">
-                                {entryPath && <span className="text-[12px] font-semibold text-white">{fmtPath(entryPath)}</span>}
-                                {setupGrade && (() => {
-                                  const cls = setupGrade==="Prime"?"bg-amber-500/20 text-amber-300 border-amber-500/30":setupGrade==="Confirmed"?"bg-emerald-500/20 text-emerald-300 border-emerald-500/30":"bg-blue-500/20 text-blue-300 border-blue-500/30";
-                                  return <span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${cls}`}>TT {setupGrade}</span>;
-                                })()}
-                                {rank > 0 && <span className="text-[10px] text-[#9ca3af]">Rank #{rank}</span>}
-                                {durLabel && <span className="text-[10px] text-[#a78bfa] ml-auto">{durLabel}</span>}
-                              </div>
-                            )}
-
-                            {/* Trade Narrative */}
-                            <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
-                              {/* Why Entered */}
-                              <div className="rounded-md bg-white/[0.02] border border-white/[0.04] px-3 py-2">
-                                <div className="text-[8px] text-[#60a5fa] uppercase font-bold mb-1">Why We Entered</div>
-                                <div className="text-[10px] text-[#d1d5db] leading-relaxed">
-                                  {entryPath ? <span>{fmtPath(entryPath)}</span> : <span className="text-[#6b7280]">Not recorded</span>}
-                                  {setupGrade && <div className="text-[9px] text-[#9ca3af] mt-0.5">{setupGrade} grade setup</div>}
-                                </div>
-                              </div>
-                              {/* Why Trimmed */}
-                              <div className="rounded-md bg-white/[0.02] border border-white/[0.04] px-3 py-2">
-                                <div className="text-[8px] text-[#14b8a6] uppercase font-bold mb-1">Trim Details</div>
-                                {trimPct > 0 ? (
-                                  <div className="text-[10px] text-[#d1d5db] leading-relaxed">
-                                    Trimmed <span className="font-semibold text-white">{Math.round(trimPct*100)}%</span>
-                                    {t.trim_price ? <span> at <span className="font-semibold text-white">{fmtUsd(t.trim_price)}</span></span> : null}
-                                    {trimmed > 0 && <div className="text-[9px] text-[#9ca3af] mt-0.5">{trimmed} shares trimmed, {remaining} as runner</div>}
-                                  </div>
-                                ) : <div className="text-[10px] text-[#6b7280]">No trim on this trade</div>}
-                              </div>
-                              {/* Why Exited */}
-                              <div className="rounded-md bg-white/[0.02] border border-white/[0.04] px-3 py-2">
-                                <div className="text-[8px] text-[#f59e0b] uppercase font-bold mb-1">Why We Exited</div>
-                                {exitReason ? (() => {
-                                  const mapped = EXIT_MAP[exitReason.trim()];
-                                  if (mapped) return <div className="text-[10px] text-[#d1d5db] leading-relaxed">{mapped}</div>;
-                                  return <div className="text-[10px] text-[#d1d5db] leading-relaxed">{exitReason.replace(/_/g," ").replace(/\b\w/g,c=>c.toUpperCase())}</div>;
-                                })() : <div className="text-[10px] text-[#6b7280]">Not recorded</div>}
-                              </div>
-                            </div>
-
-                            {/* Open full autopsy link */}
-                            {(t.trade_id || t.id) && (
-                              <div className="text-center pt-1">
-                                <a href={`trade-autopsy.html?trade_id=${encodeURIComponent(t.trade_id || t.id)}&readonly=1`}
-                                  target="_blank" rel="noopener noreferrer"
-                                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[11px] font-medium text-[#14b8a6] bg-[#14b8a6]/10 hover:bg-[#14b8a6]/20 border border-[#14b8a6]/20 transition-colors">
-                                  View Full Trade Autopsy →
-                                </a>
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    );
+                    const SETUP_MAP = { ema_regime_confirmed_long:"TT Confirmed Long", ema_regime_confirmed_short:"TT Confirmed Short", ema_regime_early_long:"TT Early Long", ema_regime_early_short:"TT Early Short", gold_long:"TT Breakout Long", gold_short:"TT Reversal Short", gold_short_pullback:"TT Reversal Short Pullback", momentum_score:"TT Momentum", squeeze_setup:"TT Squeeze", elite:"TT Elite", breakout:"TT Breakout", mean_revert_td9:"TT Mean Revert TD9", ripster_momentum:"TT Momentum", ripster_pullback:"TT Pullback", ripster_short_pivot_reclaimed:"TT Pivot Reclaimed" };
+                    const fmtPath = (p) => SETUP_MAP[p] || ("TT " + p.replace(/^ripster_?/i,"").replace(/^saty_?/i,"").replace(/_/g," ").replace(/\b\w/g,c=>c.toUpperCase()));
+                    const EXIT_MAP = { sl_breached:"Stop loss was hit — price moved against us beyond the risk threshold.", SL:"Stop loss was hit.", max_loss:"Maximum loss threshold reached.", HARD_FUSE_RSI_EXTREME:"RSI reached extreme levels.", SOFT_FUSE_RSI_CONFIRMED:"RSI reversal confirmed.", RUNNER_PEAK_TRAIL:"Runner trailing stop triggered — locked in gains.", RUNNER_MAX_DRAWDOWN_BREAKER:"Runner max drawdown breaker fired.", HARD_LOSS_CAP:"Per-trade hard loss cap breached.", MFE_SAFETY_TRIM:"Forced trim to lock in unrealized gains.", PHASE_LEAVE_100:"Phase oscillator left extreme zone.", STALL_BREAKEVEN:"Trade stalled — closed at breakeven.", STALL_FORCE_CLOSE:"Untrimmed position stalled past time limit — force closed.", SMART_RUNNER_TD_EXHAUSTION_RUNNER:"TD exhaustion exit on runner.", SMART_RUNNER_SUPPORT_BREAK_CLOUD:"Support break below cloud.", SMART_RUNNER_SQUEEZE_RELEASE_AGAINST:"Squeeze release against position." };
+                    return html`<${TradeReviewModal} trade=${t} closeModal=${closeModal} _fmt=${_fmt} entryPx=${entryPx} exitPx=${exitPx} pnl=${pnl} shares=${shares} trimPct=${trimPct} trimmed=${trimmed} remaining=${remaining} exitReason=${exitReason} entryPath=${entryPath} setupGrade=${setupGrade} rank=${rank} riskBudget=${riskBudget} notional=${notional} durLabel=${durLabel} fmtPath=${fmtPath} EXIT_MAP=${EXIT_MAP} />`;
                   })()}
               </div>
             </div>

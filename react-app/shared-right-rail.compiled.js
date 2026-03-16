@@ -80,12 +80,21 @@
       ema_regime_early_long: "TT Early Long",
       ema_regime_early_short: "TT Early Short",
       gold_long: "TT Breakout Long",
-      gold_short: "TT Reversal Short"
+      gold_short: "TT Reversal Short",
+      gold_short_pullback: "TT Reversal Short Pullback",
+      momentum_score: "TT Momentum",
+      squeeze_setup: "TT Squeeze",
+      elite: "TT Elite",
+      breakout: "TT Breakout",
+      mean_revert_td9: "TT Mean Revert TD9",
+      ripster_momentum: "TT Momentum",
+      ripster_pullback: "TT Pullback",
+      ripster_short_pivot_reclaimed: "TT Pivot Reclaimed"
     };
     function _formatPath(path) {
       if (!path || typeof path !== "string") return null;
       if (SETUP_NAME_MAP[path]) return SETUP_NAME_MAP[path];
-      return "TT " + path.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+      return "TT " + path.replace(/^ripster_?/i, "").replace(/^saty_?/i, "").replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
     }
     function _parseSnapshot(snap) {
       if (!snap) return null;
@@ -5487,7 +5496,7 @@
           if (exitReasonRaw.includes("large_adverse")) return "Adverse Move";
           if (exitReasonRaw.includes("tp_hit")) return "TP Hit";
           if (exitReasonRaw.includes("critical")) return "Critical";
-          if (exitReasonRaw) return exitReasonRaw.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+          if (exitReasonRaw) return exitReasonRaw.replace(/^ripster[_ ]?/i, "TT ").replace(/^saty[_ ]?/i, "TT ").replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
           return null;
         })();
         const computedPnlPct = (() => {

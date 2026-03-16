@@ -540,7 +540,7 @@ function LearningLoopPanel({ retro, dirAccuracy }) {
                   const enabled = p.enabled !== 0;
                   return (
                     <tr key={p.entry_path} className={`border-t border-white/[0.04] ${!enabled ? "opacity-50" : ""}`}>
-                      <td className="py-1.5 pr-3 font-medium text-xs">{p.entry_path}</td>
+                      <td className="py-1.5 pr-3 font-medium text-xs">{(() => { const m = { ema_regime_confirmed_long:"TT Confirmed Long", ema_regime_confirmed_short:"TT Confirmed Short", ema_regime_early_long:"TT Early Long", ema_regime_early_short:"TT Early Short", gold_long:"TT Breakout Long", gold_short:"TT Reversal Short", ripster_momentum:"TT Momentum", ripster_pullback:"TT Pullback" }; return m[p.entry_path] || ("TT " + (p.entry_path||"").replace(/^ripster_?/i,"").replace(/_/g," ").replace(/\b\w/g,c=>c.toUpperCase())); })()}</td>
                       <td className="text-right py-1.5 px-2 text-slate-400">{p.total_trades || p.total || 0}</td>
                       <td className={`text-right py-1.5 px-2 font-semibold ${parseFloat(wr) > 50 ? "text-[#00e676]" : parseFloat(wr) > 35 ? "text-amber-400" : "text-red-400"}`}>{wr}%</td>
                       <td className={`text-right py-1.5 px-2 ${parseFloat(rwr) > 50 ? "text-[#00e676]" : parseFloat(rwr) > 35 ? "text-amber-400" : "text-red-400"}`}>{rwr}%</td>
@@ -586,7 +586,7 @@ function LearningLoopPanel({ retro, dirAccuracy }) {
                       <span className={`px-1.5 py-0.5 rounded text-xs font-semibold ${r.traded_direction === "LONG" ? "badge-bull" : "badge-bear"}`}>{r.traded_direction}</span>
                     </td>
                     <td className="py-1.5 px-2 text-xs text-slate-400">{r.direction_source || "—"}</td>
-                    <td className="py-1.5 px-2 text-xs text-slate-400">{r.entry_path || "—"}</td>
+                    <td className="py-1.5 px-2 text-xs text-slate-400">{(() => { const m = { ema_regime_confirmed_long:"TT Confirmed Long", ema_regime_confirmed_short:"TT Confirmed Short", ema_regime_early_long:"TT Early Long", ema_regime_early_short:"TT Early Short", gold_long:"TT Breakout Long", gold_short:"TT Reversal Short", ripster_momentum:"TT Momentum", ripster_pullback:"TT Pullback" }; return r.entry_path ? (m[r.entry_path] || ("TT " + r.entry_path.replace(/^ripster_?/i,"").replace(/_/g," ").replace(/\b\w/g,c=>c.toUpperCase()))) : "—"; })()}</td>
                     <td className={`text-right py-1.5 px-2 text-xs ${(r.htf_score || 0) >= 0 ? "text-[#00e676]" : "text-red-400"}`}>{r.htf_score?.toFixed(1) || "—"}</td>
                     <td className={`text-right py-1.5 px-2 text-xs ${(r.ltf_score || 0) >= 0 ? "text-[#00e676]" : "text-red-400"}`}>{r.ltf_score?.toFixed(1) || "—"}</td>
                     <td className={`text-right py-1.5 px-2 text-xs font-semibold ${(r.pnl_pct || 0) > 0 ? "text-[#00e676]" : (r.pnl_pct || 0) < 0 ? "text-red-400" : "text-slate-400"}`}>

@@ -818,6 +818,65 @@ Current system only captures signals AT entry, not the build-up before. Missing:
 2. **Persistent peak_price**: Schema migration (`v2`), high-water mark tracked across all scoring cycles for accurate trailing stop
 3. **D/W/M SuperTrend alignment gate**: Monthly bearish = hard block on new entries, require 2/3 bullish minimum
 
+#### TD Sequential Replay Gap (FIXED — 2026-03-16)
+
+**Critical bug discovered**: `computeTDSequentialMultiTF()` was NEVER called during candle-replay backtests. Only the synchronous `assembleTickerData()` was used (line 3354, indicators.js), which does NOT compute TD Sequential. The async `computeServerSideScores()` (which DOES compute it) was only used in live scoring.
+
+**Impact**:
+1. TD exhaustion entry gate was completely bypassed during all backtests (always null `td_sequential.per_tf`)
+2. TD-based exit logic (runner TD exhaustion, deep audit TD exit) operated on empty/stale data
+3. Entry + exit snapshots had stale td_counts carried from initial KV state via `...base` spread — **this is why exit TD counts matched entry counts exactly** (user spotted this on LRN, NXT, BE trades)
+4. All TD Sequential exhaustion signals were invisible to the backtest engine
+
+**Fix**: Added `computeTDSequentialMultiTF()` call in the replay loop right after `assembleTickerData()`, using sliced candles from `candleCache`. Added endIdx-based cache to skip recomputation when candle counts haven't changed (avoids performance hit on 5min intervals where D/W/M candles don't change).
+
+#### Same-Direction Exhaustion Gate (ADDED — 2026-03-16)
+
+**Pattern observed**: LRN LONG (9/9/25), NXT LONG (9/11/25), BE LONG (9/29/25) all entered when XP (bearish_prep) was 5-6 on 4H/D. This means the bullish move had been running for 5-6 bars of higher closes — approaching TD9 Sell. All three reversed immediately after entry, hitting max_loss.
+
+**Root cause**: The existing TD guard only blocked counter-direction exhaustion with threshold >= 7 on 1H/4H. LRN had XP=5 (below 7) and only 2 TFs hit (needed 4 for panic gate).
+
+**Fix**: Added **Guard 1 (Same-direction exhaustion / move topping)**: For LONG, blocks when bearish_prep >= 5 on 2+ of 1H/4H/D. For SHORT, blocks when bullish_prep >= 5 on 2+ of 1H/4H/D. Also lowered LTF counter-momentum threshold from 7 to 6, and panic gate threshold from 4 TFs to 3.
+
+**Key learning**: `bearish_prep_count` counts consecutive bars closing higher than 4 bars ago. High XP at LONG entry = entering late in an up move that's approaching TD9 Sell. The model must detect "topping" before entering, not just look for counter-direction signals.
+
+#### Zero SHORT Trades — Comprehensive Fix (2026-03-16)
+
+**Problem**: Across 6+ months of backtesting (multiple runs), the model produced ZERO short trades despite having SHORT entry paths defined.
+
+**Root causes found (5 issues)**:
+1. **BEARISH pattern boost missing**: `classifyKanbanStage` only promoted watch→setup for BULLISH patterns. Bearish patterns never got the confidence boost needed to reach "enter" stage.
+2. **`deep_audit_block_regime: ["EARLY_BEAR"]`** blocked ALL entries in EARLY_BEAR regime — the exact regime where SHORT opportunities appear. Gate was direction-blind.
+3. **`mean_revert_td9` hardcoded to LONG**: Direction resolution in `processTradeSimulation` forced all mean_revert paths to LONG regardless of signal direction. `detectMeanReversionTD9` also had no SHORT counterpart.
+4. **Sector-specific EQ adjustments only for LONG**: SHORT entries in historically bearish sectors (Financials, Growth, Tech) got no EQ relaxation.
+5. **Cumulative SHORT gates too restrictive**: RVOL ceiling, 21-EMA gate, short rank minimum all stack up.
+
+**Fixes applied**:
+- Added BEARISH pattern boost + watch→setup promotion in `classifyKanbanStage`
+- Made `deep_audit_block_regime` direction-aware: bear regimes allow SHORT, block LONG
+- Added `detectMeanReversionTD9Short()` in indicators.js (mirrors LONG version with RSI > 70, phase leaving ext-up, resistance confluence)
+- Direction resolution now reads `mean_revert_td9.direction` instead of hardcoding LONG
+- Added sector-specific EQ adjustments for SHORT entries (Financials -5, Growth/Tech -3)
+- Fixed kanban meta to display bearish pattern names (was always showing `bestBull.name`)
+
+#### SPY Directional Regime Gate (ADDED — 2026-03-16)
+
+**Problem**: The model kept entering LONG trades during market-wide pullbacks (Oct/Nov/Dec pattern). The regime system was direction-agnostic — a strong bear trend was classified as "TRENDING" (not blocked), and SPY's swing regime direction was never checked.
+
+**Root causes**:
+1. `regime_class` only measures trend strength (TRENDING/CHOPPY), not direction
+2. Three-tier gate only blocks CHOPPY, never BEAR
+3. SPY's `regime.combined` (EARLY_BEAR, STRONG_BEAR) was never used to gate entries
+4. VIX ceiling defaulted to 0 (disabled)
+
+**Fixes applied**:
+- Added SPY directional regime gate: blocks LONG when SPY HTF < -15, EMA regime daily <= -1, or swing combined includes "BEAR". Blocks SHORT when SPY is bullish. Gold paths exempt (counter-trend by design).
+- Enriched `_marketRegime` object with SPY's `htf_score`, `ema_regime_daily`, `swing_dir`, and `combined` (both live and replay paths)
+- Ensured SPY is always processed first in replay (`allTickers.unshift("SPY")`)
+- Set default VIX ceiling to 32 (blocks all entries in extreme fear)
+
+**Key learning**: A direction-agnostic regime system is fundamentally insufficient. "TRENDING" must distinguish bull vs bear. The model needs a market-level directional overlay that prevents entering LONG when the broad market is bearish, regardless of individual ticker signals.
+
 #### Remaining (Future Phases)
 - Phase 2 (Liquidity Sweep as Setup Signal): Track zone sweep + recovery events as entry catalyst
 - Phase 2D (Ticker Personality Profiles): Per-ticker SL width, hold duration, preferred entry path

@@ -215,7 +215,7 @@ function EntryPathsCard({ paths }) {
               const actionColor = m.action === "DISABLE" ? "badge-bad" : m.action === "RESTRICT" ? "badge-warn" : m.action === "BOOST" ? "badge-good" : "badge-info";
               return (
                 <tr key={path} className="border-b border-white/[0.02]">
-                  <td className="py-1.5 text-slate-300 font-mono text-[11px]">{path}</td>
+                  <td className="py-1.5 text-slate-300 font-mono text-[11px]">{(() => { const m = { ema_regime_confirmed_long:"TT Confirmed Long", ema_regime_confirmed_short:"TT Confirmed Short", ema_regime_early_long:"TT Early Long", ema_regime_early_short:"TT Early Short", gold_long:"TT Breakout Long", gold_short:"TT Reversal Short", momentum_score:"TT Momentum", ripster_momentum:"TT Momentum", ripster_pullback:"TT Pullback" }; return m[path] || ("TT " + path.replace(/^ripster_?/i,"").replace(/^saty_?/i,"").replace(/_/g," ").replace(/\b\w/g,c=>c.toUpperCase())); })()}</td>
                   <td className="text-right">{m.n}</td>
                   <td className="text-right">{m.win_rate}%</td>
                   <td className={`text-right ${m.expectancy >= 0 ? "text-emerald-400" : "text-rose-400"}`}>{m.expectancy}</td>

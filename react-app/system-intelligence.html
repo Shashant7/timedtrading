@@ -75,6 +75,21 @@
 const { useState, useEffect, useCallback, useMemo } = React;
 const API_BASE = "";
 
+const SETUP_NAME_MAP = {
+  ema_regime_confirmed_long: "TT Confirmed Long", ema_regime_confirmed_short: "TT Confirmed Short",
+  ema_regime_early_long: "TT Early Long", ema_regime_early_short: "TT Early Short",
+  gold_long: "TT Breakout Long", gold_short: "TT Reversal Short", gold_short_pullback: "TT Reversal Short Pullback",
+  momentum_score: "TT Momentum", squeeze_setup: "TT Squeeze", elite: "TT Elite",
+  breakout: "TT Breakout", mean_revert_td9: "TT Mean Revert TD9",
+  ripster_momentum: "TT Momentum", ripster_pullback: "TT Pullback",
+  ripster_short_pivot_reclaimed: "TT Pivot Reclaimed",
+};
+function formatPath(path) {
+  if (!path || typeof path !== "string") return path;
+  if (SETUP_NAME_MAP[path]) return SETUP_NAME_MAP[path];
+  return "TT " + path.replace(/^ripster_?/i, "").replace(/^saty_?/i, "").replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+}
+
 function NavHeader() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const UserBadge = window.TimedUserBadge;
@@ -257,7 +272,7 @@ function DashboardTab({ dashboard }) {
               )}
               {dashboard.whats_working.map((p, i) => (
                 <div key={i} className="flex items-center justify-between text-xs">
-                  <span className="font-mono text-slate-300">{p.path}</span>
+                  <span className="font-mono text-slate-300">{formatPath(p.path)}</span>
                   <div className="flex items-center gap-3">
                     <span className="text-slate-400">{(p.n || 0).toLocaleString()} {p.source === "moves" ? "moves" : "trades"}</span>
                     {p.source === "moves" ? (
@@ -280,7 +295,7 @@ function DashboardTab({ dashboard }) {
             <div className="space-y-2">
               {dashboard.proceed_with_caution.map((p, i) => (
                 <div key={i} className="flex items-center justify-between text-xs">
-                  <span className="font-mono text-slate-300">{p.path}</span>
+                  <span className="font-mono text-slate-300">{formatPath(p.path)}</span>
                   <div className="flex items-center gap-3">
                     <span className="text-slate-400">{(p.n || 0).toLocaleString()} {p.source === "trades" ? "trades" : "trades"}</span>
                     <span className="text-rose-400 font-medium">{p.win_rate}% WR</span>
@@ -1242,7 +1257,7 @@ function PatternsTab() {
                 </tr></thead><tbody>
                   {retro.by_path.map((p, i) => (
                     <tr key={i} className="border-b border-white/[0.03]">
-                      <td className="py-1.5 font-mono text-slate-300">{p.entry_path}</td>
+                      <td className="py-1.5 font-mono text-slate-300">{formatPath(p.entry_path)}</td>
                       <td className="text-right px-2">{p.total}</td><td className="text-right px-2 text-emerald-400">{p.correct}</td>
                       <td className="text-right px-2">{p.total > 0 ? ((p.correct / p.total) * 100).toFixed(0) + "%" : "—"}</td>
                       <td className={`text-right pl-2 ${(p.avg_pnl_pct || 0) >= 0 ? "text-emerald-400" : "text-rose-400"}`}>{p.avg_pnl_pct || 0}%</td>
@@ -1498,7 +1513,7 @@ function PatternsTab() {
                             <td className="px-2 text-slate-300">{ctx.favored_regime || "—"}</td>
                             <td className="px-2 text-slate-300">{ctx.favored_vix_bucket || "—"}</td>
                             <td className="px-2">
-                              <div className="text-slate-300">{ctx.favored_entry_path || "—"}</div>
+                              <div className="text-slate-300">{ctx.favored_entry_path ? formatPath(ctx.favored_entry_path) : "—"}</div>
                               <div className="text-[10px] text-slate-500">{ep.trail_style || "—"} trail</div>
                             </td>
                             <td className="text-right px-2 text-slate-300">{fmtPctValue(ctx.counter_consensus_rate)}</td>
@@ -1859,7 +1874,7 @@ function DeepAuditTab() {
             return (
               <div key={path} className={cardCls} style={{background:"rgba(255,255,255,0.02)", borderColor:"rgba(255,255,255,0.06)"}}>
                 <div className="flex items-center justify-between mb-1">
-                  <span className="text-xs font-semibold text-white">{path}</span>
+                  <span className="text-xs font-semibold text-white">{formatPath(path)}</span>
                   <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${actionColors[d.action] || actionColors.KEEP}`}>{d.action}</span>
                 </div>
                 <div className="grid grid-cols-3 md:grid-cols-6 gap-2 text-center text-[11px]">

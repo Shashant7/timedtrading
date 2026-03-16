@@ -70,12 +70,16 @@
     const SETUP_NAME_MAP = {
       ema_regime_confirmed_long: "TT Confirmed Long", ema_regime_confirmed_short: "TT Confirmed Short",
       ema_regime_early_long: "TT Early Long", ema_regime_early_short: "TT Early Short",
-      gold_long: "TT Breakout Long", gold_short: "TT Reversal Short",
+      gold_long: "TT Breakout Long", gold_short: "TT Reversal Short", gold_short_pullback: "TT Reversal Short Pullback",
+      momentum_score: "TT Momentum", squeeze_setup: "TT Squeeze", elite: "TT Elite",
+      breakout: "TT Breakout", mean_revert_td9: "TT Mean Revert TD9",
+      ripster_momentum: "TT Momentum", ripster_pullback: "TT Pullback",
+      ripster_short_pivot_reclaimed: "TT Pivot Reclaimed",
     };
     function _formatPath(path) {
       if (!path || typeof path !== "string") return null;
       if (SETUP_NAME_MAP[path]) return SETUP_NAME_MAP[path];
-      return "TT " + path.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+      return "TT " + path.replace(/^ripster_?/i, "").replace(/^saty_?/i, "").replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
     }
     function _parseSnapshot(snap) {
       if (!snap) return null;
@@ -2956,6 +2960,61 @@
                               </div>
                             )}
                           </div>
+
+                          {/* Active Position Guidance */}
+                          {(() => {
+                            if (!trade || trade.status === "closed" || trade.status === "exited") return null;
+                            const _tDir = trade.direction || "";
+                            const _tEntry = Number(trade.entry_price || trade.entryPrice) || 0;
+                            const _tShares = Number(trade.shares) || 0;
+                            const _tSetup = trade.setup_name || trade.setupName || trade.entry_path || "";
+                            const _tGrade = trade.setup_grade || trade.setupGrade || "";
+                            const _tPx = Number(ticker?.price) || 0;
+                            const _tPnlPct = _tEntry > 0 && _tPx > 0 ? ((_tPx - _tEntry) / _tEntry * 100 * (_tDir === "SHORT" ? -1 : 1)) : 0;
+                            const _tTrimPct = Number(trade.trimmed_pct || trade.trimmedPct) || 0;
+                            const _tSl = Number(trade.stop_loss || trade.sl) || 0;
+                            const _tTp = Number(trade.take_profit || trade.tp) || 0;
+                            return (
+                              <div className="mt-2 rounded-lg p-2.5 border border-[#14b8a6]/20 bg-[#14b8a6]/5">
+                                <div className="text-[9px] text-[#14b8a6] uppercase font-bold tracking-wider mb-1">Active Position</div>
+                                <div className="text-[11px] text-white font-semibold">{_tDir} @ ${_tEntry.toFixed(2)} · {_tShares > 0 ? `${Math.round(_tShares)} shares` : ""}</div>
+                                <div className={`text-[11px] font-bold mt-0.5 ${_tPnlPct >= 0 ? "text-[#22c55e]" : "text-[#ef4444]"}`}>
+                                  {_tPnlPct >= 0 ? "+" : ""}{_tPnlPct.toFixed(2)}% P&L
+                                  {_tTrimPct > 0 ? ` · ${Math.round(_tTrimPct * 100)}% trimmed` : ""}
+                                </div>
+                                {(_tSl > 0 || _tTp > 0) && (
+                                  <div className="text-[10px] text-slate-400 mt-1">
+                                    {_tSl > 0 && <span>Defend @ <span className="text-[#ef4444] font-medium">${_tSl.toFixed(2)}</span></span>}
+                                    {_tSl > 0 && _tTp > 0 && " · "}
+                                    {_tTp > 0 && <span>Target @ <span className="text-[#22c55e] font-medium">${_tTp.toFixed(2)}</span></span>}
+                                  </div>
+                                )}
+                                {_tSetup && <div className="text-[9px] text-slate-500 mt-1">{_formatPath(_tSetup)}{_tGrade ? ` · TT ${_tGrade}` : ""}</div>}
+                              </div>
+                            );
+                          })()}
+
+                          {/* Phase & Move Status */}
+                          {(() => {
+                            const _phase = Number(ticker?.phase_pct) || 0;
+                            if (_phase === 0) return null;
+                            const _phaseStage = _phase < 25 ? "Early" : _phase < 50 ? "Building" : _phase < 75 ? "Mature" : "Late/Extended";
+                            const _phaseColor = _phase < 25 ? "#22c55e" : _phase < 50 ? "#86efac" : _phase < 75 ? "#fbbf24" : "#ef4444";
+                            const _phaseDesc = _phase < 25 ? "Fresh move — room to develop" : _phase < 50 ? "Gaining momentum — setup thesis intact" : _phase < 75 ? "Move maturing — watch for trim signals" : "Extended — high probability of pullback or reversal";
+                            return (
+                              <div className="mt-2 rounded-lg p-2 border border-white/[0.06] bg-white/[0.02]">
+                                <div className="flex items-center justify-between">
+                                  <span className="text-[9px] text-slate-400 uppercase font-semibold">TT Phase</span>
+                                  <span className="text-[11px] font-bold" style={{color: _phaseColor}}>{_phase.toFixed(0)}% — {_phaseStage}</span>
+                                </div>
+                                <div className="mt-1 h-1.5 rounded-full bg-white/[0.06] overflow-hidden">
+                                  <div className="h-full rounded-full transition-all" style={{width: `${Math.min(_phase, 100)}%`, background: _phaseColor}} />
+                                </div>
+                                <div className="text-[9px] text-slate-400/80 italic mt-1">{_phaseDesc}</div>
+                              </div>
+                            );
+                          })()}
+                        </div>
                         );
                       })()}
 
@@ -4988,7 +5047,7 @@
                                 if (exitReasonRaw.includes("large_adverse")) return "Adverse Move";
                                 if (exitReasonRaw.includes("tp_hit")) return "TP Hit";
                                 if (exitReasonRaw.includes("critical")) return "Critical";
-                                if (exitReasonRaw) return exitReasonRaw.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+                                if (exitReasonRaw) return exitReasonRaw.replace(/^ripster[_ ]?/i, "TT ").replace(/^saty[_ ]?/i, "TT ").replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
                                 return null;
                               })();
 

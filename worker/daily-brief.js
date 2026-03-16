@@ -802,6 +802,13 @@ export async function gatherDailyBriefData(env, type, opts = {}) {
     openTrades: openTrades.map(t => ({
       ticker: t.ticker, direction: t.direction, pnlPct: t.pnlPct,
       entryPrice: t.entryPrice, status: t.status,
+      setupName: t.setupName || t.setup_name || "",
+      setupGrade: t.setupGrade || t.setup_grade || "",
+      shares: t.shares || 0,
+      riskBudget: t.riskBudget || t.risk_budget || 0,
+      trimmedPct: t.trimmedPct || t.trimmed_pct || 0,
+      sl: t.sl || t.stop_loss || 0,
+      tp: t.tp || t.take_profit || 0,
     })).slice(0, 15),
     // Today's trade activity (Active Trader)
     todayEntries: todayTradeEntries.map(e => ({
@@ -1319,6 +1326,56 @@ Your analysis style:
 - ES/NQ (futures) are secondary — mention them as "for futures traders, the equivalent ES level is X" or in a compact futures reference section.
 - Do NOT lead with ES/NQ analysis and then translate to SPY/QQQ. Lead with SPY/QQQ and optionally note futures equivalents.
 
+## SPY/QQQ Hyper-Profile (DATA-BACKED — use these real statistics to contextualize guidance)
+
+### SPY Behavioral DNA
+- **Daily Range**: Average 1.14% ($7.05). Median 0.88%. In high-vol regimes, ranges expand to 1.89x normal (avg range ~1.88%).
+- **ATR(14)**: Typically $8-10. When elevated above $10, expect wider intraday swings.
+- **Gap Behavior**: Gaps fill same-day 56.5% of the time. Large gaps (>0.3%) fill only 34-46%. Gap-down days close above their open 62% of the time (strong gap-fade tendency for shorts).
+- **Intraday Structure**: First hour captures 61% of daily range. First-hour direction predicts the day's direction 85% of the time. Activity decays sharply into the 12-1pm lunch lull (range drops 50% from open). Last hour (3pm) shows slight positive bias.
+- **Hourly Sweet Spots**: 9:30-10:30 ET is the action zone (0.60% avg range). 10-11 AM often sees continuation. 12-2 PM is dead zone. 3-4 PM can see late squeezes.
+- **Day-of-Week**: Monday is strongest (+0.36%, 70% win rate). Thursday is weakest (-0.23%). Wednesday has widest ranges.
+- **After Big Moves**: After a >1% down day, next day averages +0.80% with 76% win rate (strong mean-reversion bounce). After a >1% up day, next day is still slightly positive (+0.10%).
+- **Calendar**: Last 3 days of month slightly negative. March historically weakest (37% win rate). May-June strongest stretch.
+- **Streaks**: Average winning streak 2.3 days, losing streak 1.9 days. Max winning streak 9 days.
+
+### QQQ Behavioral DNA
+- **Daily Range**: Average 1.46% ($8.02). 1.28x wider than SPY. In high-vol, ranges expand similarly.
+- **Beta to SPY**: 1.16. Correlation 0.97. Same-direction days: 91%. QQQ has the bigger move 76% of those days.
+- **Gap Behavior**: Gaps fill 53% same-day. Gap-down fade tendency: 59% close above open.
+- **Intraday Structure**: First hour captures 67% of daily range. First-hour direction predicts day 81%. Even more front-loaded than SPY.
+- **Big Move Amplification**: On SPY >+1% days, QQQ amplifies 1.20x. On SPY <-1% days, QQQ amplifies 1.21x. Tech fear drives QQQ harder on down days.
+- **Day-of-Week**: Monday strongest (+0.51%, 70% WR). Thursday weakest (-0.29%). Wednesday has widest ranges (1.62%).
+- **When QQQ leads SPY higher**: Risk-on signal — institutional money rotating into growth/tech. When QQQ lags: defensive rally, be cautious with longs.
+
+### Futures Proxy Translation
+- **ES (S&P 500 futures)**: Tracks SPY almost 1:1 but trades 23 hours/day. Overnight ES moves set the gap for SPY at open. ES levels = SPY × 10 (approximately).
+- **NQ (Nasdaq futures)**: Tracks QQQ. NQ levels ≈ QQQ × 40. NQ is the "fear amplifier" — when NQ gaps down hard pre-market, expect QQQ weakness at open.
+- **SPX**: Cash index, not directly tradeable. Use for level references when options traders reference strike prices.
+
+### Day-Trader Translation Rules
+- ALWAYS state the expected ATR-based range: "SPY's 14-day ATR is $X, implying a $LOW-$HIGH range from yesterday's close of $Y"
+- Reference the first-hour predictive power: "If SPY holds above $X by 10:30 AM, history says the day closes in that direction 85% of the time"
+- After big down days (>1%), explicitly note the mean-reversion setup: "After yesterday's -X% drop, SPY has historically bounced +0.8% the next day with 76% probability"
+- Note the Monday strength bias when applicable
+- In high-vol regimes, warn traders to widen their targets and stops: "With ATR elevated at $X, expect a wider-than-normal $Y range today"
+
+## Phase Completion Context
+When the Timed Trading model shows a "Phase" percentage for SPY or QQQ:
+- Phase < 25%: Early in the move — trend-following setups are highest probability.
+- Phase 25-50%: Move is building momentum — look for pullback entries to join the trend.
+- Phase 50-75%: Move is maturing — tighten stops, look for trim opportunities.
+- Phase > 75%: Extended — expect mean reversion. Fade signals become valid.
+Reference Phase when discussing whether to initiate new positions or tighten existing ones.
+
+## Active Position Guidance (CRITICAL)
+When open trades are provided, you MUST discuss each one:
+- Is the thesis still intact based on today's price action?
+- What should the trader watch for: hold, trim, or exit?
+- Reference the trade's setup grade (Prime/Confirmed/Early) — Prime setups deserve more patience.
+- If P&L is significantly positive (>2%), suggest whether to lock in partial profits.
+- If P&L is negative, assess whether the stop level is still appropriate.
+
 ## VIX / Volatility Context (ALWAYS INCLUDE)
 - VIX is your best friend — it tells the larger story. ALWAYS reference VIX levels and what they imply:
   - VIX below 15: Low fear, trend-following works, breakouts are clean
@@ -1345,10 +1402,13 @@ Timed Trading Scoring Model Reference (ALWAYS reference these signals):
 - **htf_score**: Higher-Timeframe score (0-100). Above 65 = strong bullish trend, below 40 = bearish pressure
 - **ltf_score**: Lower-Timeframe score (0-100). Divergence between HTF and LTF indicates potential reversals
 - **phase_zone**: Market phase — "markup" (trending up), "distribution" (topping), "markdown" (trending down), "accumulation" (bottoming), "recovery" (early reversal)
+- **phase_pct**: How far along the current move is (0% = just started, 100% = fully extended). Use this to calibrate risk.
 - **rank**: Ticker strength relative to universe (higher = stronger)
-- **flags**: Active signals — golden_gate_up/down, supertrend_flip, ema_cross, rs_new_high, accum_zone
+- **flags**: Active signals — golden_gate_up/down, supertrend_flip, ema_cross, rs_new_high, accum_zone, st_flip_bull/bear, rsi_div_bull/bear, momentum_elite, squeeze_release
+- **setup_grade**: Trade quality grading — "Prime" (highest confidence, full alignment), "Confirmed" (solid setup, standard management), "Early" (speculative, tighter management)
+- **liquidity zones**: Buyside (resistance ceilings where longs target) and Sellside (support floors where shorts target) detected on 4H, Daily, Weekly charts
 
-CRITICAL: Reference scoring model signals (state, HTF/LTF scores, phase zone) when analyzing direction. When HTF is strong but LTF is weak (or vice versa), discuss the divergence.
+CRITICAL: Reference scoring model signals (state, HTF/LTF scores, phase zone, phase_pct) when analyzing direction. When HTF is strong but LTF is weak (or vice versa), discuss the divergence. When phase_pct is above 75%, note the extended nature of the move.
 
 ## ANTI-HALLUCINATION RULES (ABSOLUTE — NEVER VIOLATE):
 1. **ONLY use numbers from the provided data.** If a field is null, 0, or missing — say "data unavailable."
@@ -1557,7 +1617,13 @@ ${data.openTrades.length > 0
         const _td = _pf[t.ticker] || {};
         const _dayPct = Number(_td.dp) || 0;
         const _price = Number(_td.p) || 0;
-        return `${t.ticker} (${t.direction}, Entry: $${t.entryPrice ?? "N/A"}, Current: $${_price > 0 ? _price.toFixed(2) : "N/A"}, Today: ${_dayPct !== 0 ? (_dayPct >= 0 ? "+" : "") + _dayPct.toFixed(2) + "%" : "N/A"}, P&L: ${t.pnlPct != null ? t.pnlPct.toFixed(1) + "%" : "N/A"}, Status: ${t.status})`;
+        const _setup = t.setupName || "N/A";
+        const _grade = t.setupGrade || "N/A";
+        const _shares = Number(t.shares) || 0;
+        const _trimPct = Number(t.trimmedPct) || 0;
+        const _sl = Number(t.sl) || 0;
+        const _tp = Number(t.tp) || 0;
+        return `${t.ticker} (${t.direction}, Setup: ${_setup}, Grade: ${_grade}, Entry: $${t.entryPrice ?? "N/A"}, Current: $${_price > 0 ? _price.toFixed(2) : "N/A"}, Today: ${_dayPct !== 0 ? (_dayPct >= 0 ? "+" : "") + _dayPct.toFixed(2) + "%" : "N/A"}, P&L: ${t.pnlPct != null ? t.pnlPct.toFixed(1) + "%" : "N/A"}, Shares: ${_shares > 0 ? Math.round(_shares) : "N/A"}${_trimPct > 0 ? `, Trimmed: ${Math.round(_trimPct * 100)}%` : ""}${_sl > 0 ? `, SL: $${_sl.toFixed(2)}` : ""}${_tp > 0 ? `, TP: $${_tp.toFixed(2)}` : ""})`;
       }).join("\n")
     : "No open Active Trader positions."}
 
@@ -1634,9 +1700,12 @@ ${(data.investorPositions || []).length > 0
 7. **Trader's Almanac** — Seasonal patterns, OPEX effects, historical tendencies.
 
 8. **Active Trader Book** — MUST include daily change% for each ticker mentioned:
-   - Open positions: ticker, direction, entry price, current price, today's change%, total P&L. Is the thesis intact? Hold/trim/exit?
-   - New entries: Why did we enter? What setup triggered it?
-   - Yesterday's exits: Winners or losers? Lessons?
+   - Open positions: For each trade, include: ticker, direction, setup name, grade (Prime/Confirmed/Early), entry price, current price, today's change%, total P&L, shares, SL/TP if available. For each:
+     - Is the thesis still intact based on today's action?
+     - What should the trader do: hold, prepare to trim, or tighten stops?
+     - Prime grade setups deserve more patience; Early grade setups should be managed tighter.
+   - New entries: What setup triggered it? What grade? How many shares?
+   - Yesterday's exits: Winners or losers? What was the exit reason?
    - Trims/Defends: Risk management logic.
    - IMPORTANT: For each ticker, always note TODAY'S daily change% so traders can see how their positions are moving right now.
 
@@ -1759,7 +1828,13 @@ ${data.openTrades.length > 0
         const _td = _pf[t.ticker] || {};
         const _dayPct = Number(_td.dp) || 0;
         const _price = Number(_td.p) || 0;
-        return `${t.ticker} (${t.direction}, Entry: $${t.entryPrice ?? "N/A"}, Close: $${_price > 0 ? _price.toFixed(2) : "N/A"}, Today: ${_dayPct !== 0 ? (_dayPct >= 0 ? "+" : "") + _dayPct.toFixed(2) + "%" : "N/A"}, P&L: ${t.pnlPct != null ? t.pnlPct.toFixed(1) + "%" : "N/A"}, Status: ${t.status})`;
+        const _setup = t.setupName || "N/A";
+        const _grade = t.setupGrade || "N/A";
+        const _shares = Number(t.shares) || 0;
+        const _trimPct = Number(t.trimmedPct) || 0;
+        const _sl = Number(t.sl) || 0;
+        const _tp = Number(t.tp) || 0;
+        return `${t.ticker} (${t.direction}, Setup: ${_setup}, Grade: ${_grade}, Entry: $${t.entryPrice ?? "N/A"}, Close: $${_price > 0 ? _price.toFixed(2) : "N/A"}, Today: ${_dayPct !== 0 ? (_dayPct >= 0 ? "+" : "") + _dayPct.toFixed(2) + "%" : "N/A"}, P&L: ${t.pnlPct != null ? t.pnlPct.toFixed(1) + "%" : "N/A"}, Shares: ${_shares > 0 ? Math.round(_shares) : "N/A"}${_trimPct > 0 ? `, Trimmed: ${Math.round(_trimPct * 100)}%` : ""}${_sl > 0 ? `, SL: $${_sl.toFixed(2)}` : ""}${_tp > 0 ? `, TP: $${_tp.toFixed(2)}` : ""})`;
       }).join("\n")
     : "No open Active Trader positions."}
 

@@ -55,8 +55,8 @@ ALPACA_BASE_URL = "https://paper-api.alpaca.markets"
 DATA_PROVIDER = "twelvedata"
 TWELVEDATA_PLAN = "pro"
 # ── Engine Selection ──
-# ENTRY_ENGINE: legacy | ripster_core
-# MANAGEMENT_ENGINE: legacy | ripster_core
+# ENTRY_ENGINE: legacy | tt_core (formerly ripster_core)
+# MANAGEMENT_ENGINE: legacy | tt_core (formerly ripster_core)
 ENTRY_ENGINE = "ripster_core"
 MANAGEMENT_ENGINE = "ripster_core"
 LEADING_LTF = "15"

@@ -501,58 +501,66 @@
     .bmap-bubble.yellow { background: rgba(234,179,8,0.15); border: 1.5px solid rgba(234,179,8,0.35); color: #fde68a; }
     .bmap-bubble.pulsing { animation: bubble-pulse 2.5s ease-in-out infinite; }
 
-    /* ── Pipeline / Kanban ────────────────────────────────────── */
-    .pipeline-row {
+    /* ── Pipeline / Kanban (horizontal rows matching actual app) ── */
+    .pipeline-stack {
       display: flex;
-      gap: 12px;
+      flex-direction: column;
+      gap: 0;
       margin-top: 32px;
-      overflow-x: auto;
-      padding-bottom: 8px;
-      scrollbar-width: thin;
-      scrollbar-color: rgba(255,255,255,0.1) transparent;
     }
     .pipeline-lane {
-      flex: 1;
-      min-width: 150px;
-      background: var(--bg-surface);
-      border: 1px solid var(--border);
-      border-radius: 14px;
-      padding: 14px 12px;
+      display: flex;
+      align-items: stretch;
+      border-bottom: 1px solid var(--border);
     }
-    .pipeline-lane-header {
-      font-size: 11px;
+    .pipeline-lane:last-child { border-bottom: none; }
+    .pipeline-lane-label {
+      width: 72px;
+      min-width: 72px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      font-size: 10px;
       font-weight: 700;
       text-transform: uppercase;
       letter-spacing: 0.06em;
-      padding-bottom: 10px;
-      margin-bottom: 10px;
-      border-bottom: 1px solid var(--border);
+      border-right: 2px solid var(--border);
+      padding: 10px 4px;
     }
-    .lane-setup .pipeline-lane-header { color: #94a3b8; }
-    .lane-enter .pipeline-lane-header { color: #60a5fa; }
-    .lane-hold .pipeline-lane-header { color: #34d399; }
-    .lane-trim .pipeline-lane-header { color: #fbbf24; }
-    .lane-exit .pipeline-lane-header { color: #f87171; }
-    .lane-accumulate .pipeline-lane-header { color: #34d399; }
-    .lane-core .pipeline-lane-header { color: #60a5fa; }
-    .lane-watch .pipeline-lane-header { color: #fbbf24; }
-    .lane-reduce .pipeline-lane-header { color: #f87171; }
+    .lane-setup .pipeline-lane-label { color: #94a3b8; border-right-color: #94a3b8; }
+    .lane-enter .pipeline-lane-label { color: #60a5fa; border-right-color: #60a5fa; }
+    .lane-hold .pipeline-lane-label { color: #34d399; border-right-color: #34d399; }
+    .lane-trim .pipeline-lane-label { color: #fbbf24; border-right-color: #fbbf24; }
+    .lane-exit .pipeline-lane-label { color: #f87171; border-right-color: #f87171; }
+    .lane-accumulate .pipeline-lane-label { color: #34d399; border-right-color: #34d399; }
+    .lane-core .pipeline-lane-label { color: #60a5fa; border-right-color: #60a5fa; }
+    .lane-watch .pipeline-lane-label { color: #fbbf24; border-right-color: #fbbf24; }
+    .lane-reduce .pipeline-lane-label { color: #f87171; border-right-color: #f87171; }
+    .pipeline-lane-cards {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      flex: 1;
+      overflow-x: auto;
+    }
     .kanban-card {
       background: rgba(255,255,255,0.02);
       border: 1px solid rgba(255,255,255,0.05);
       border-radius: 10px;
-      padding: 10px 12px;
-      margin-bottom: 8px;
+      padding: 8px 12px;
+      flex-shrink: 0;
     }
-    .kanban-card:last-child { margin-bottom: 0; }
     .kanban-card .ticker { font-size: 13px; font-weight: 700; color: var(--text-primary); }
-    .kanban-card .meta { display: flex; align-items: center; gap: 6px; margin-top: 4px; }
+    .kanban-card .meta { display: flex; align-items: center; gap: 6px; margin-top: 3px; }
     .kanban-card .dir {
       font-size: 9px; font-weight: 700; padding: 2px 6px; border-radius: 4px;
       text-transform: uppercase; letter-spacing: 0.04em;
     }
     .kanban-card .dir.long { color: #34d399; background: rgba(16,185,129,0.12); }
     .kanban-card .dir.short { color: #f87171; background: rgba(239,68,68,0.12); }
+    .kanban-card .grade { font-size: 9px; font-weight: 600; padding: 2px 6px; border-radius: 4px; color: #fbbf24; background: rgba(251,191,36,0.1); }
     .kanban-card .score { font-size: 10px; color: var(--text-muted); }
     .pipeline-sub-label {
       font-size: 13px; font-weight: 600; color: var(--text-secondary);
@@ -1039,8 +1047,8 @@
       </a>
       <div class="hero-stats">
         <div class="hero-stat">
-          <div class="num">Self-Learning</div>
-          <div class="label">Model</div>
+          <div class="num">Adaptive</div>
+          <div class="label">Intelligence</div>
         </div>
         <div class="hero-stat">
           <div class="num">155+</div>
@@ -1095,7 +1103,7 @@
     <div class="container">
       <div class="reveal" style="text-align:center">
         <span class="section-label">The Map</span>
-        <h2 class="section-title">150+ tickers. One glance.</h2>
+        <h2 class="section-title">155+ tickers. One glance.</h2>
         <p class="section-desc" style="margin:0 auto">
           Every ticker is scored and plotted by momentum and trend strength.
           Pulsing means the model sees something forming. This is where attention starts.
@@ -1139,99 +1147,72 @@
 
       <div class="reveal">
         <div class="pipeline-sub-label">Active Trader</div>
-        <div class="pipeline-row">
+        <div class="pipeline-stack" style="background:var(--bg-surface);border:1px solid var(--border);border-radius:14px;overflow:hidden">
           <div class="pipeline-lane lane-setup">
-            <div class="pipeline-lane-header">Setup</div>
-            <div class="kanban-card">
-              <div class="ticker">PLTR</div>
-              <div class="meta"><span class="dir long">Long</span><span class="score">Score 58</span></div>
-            </div>
-            <div class="kanban-card">
-              <div class="ticker">AMD</div>
-              <div class="meta"><span class="dir long">Long</span><span class="score">Score 62</span></div>
+            <div class="pipeline-lane-label">Setup</div>
+            <div class="pipeline-lane-cards">
+              <div class="kanban-card"><div class="ticker">PLTR</div><div class="meta"><span class="dir long">Long</span><span class="grade">TT Early</span><span class="score">Score 58</span></div></div>
+              <div class="kanban-card"><div class="ticker">AMD</div><div class="meta"><span class="dir long">Long</span><span class="grade">TT Early</span><span class="score">Score 62</span></div></div>
             </div>
           </div>
           <div class="pipeline-lane lane-enter">
-            <div class="pipeline-lane-header">Enter</div>
-            <div class="kanban-card">
-              <div class="ticker">NVDA</div>
-              <div class="meta"><span class="dir long">Long</span><span class="score">Score 78</span></div>
-            </div>
-            <div class="kanban-card">
-              <div class="ticker">GS</div>
-              <div class="meta"><span class="dir long">Long</span><span class="score">Score 71</span></div>
+            <div class="pipeline-lane-label">Enter</div>
+            <div class="pipeline-lane-cards">
+              <div class="kanban-card"><div class="ticker">NVDA</div><div class="meta"><span class="dir long">Long</span><span class="grade">TT Prime</span><span class="score">Score 78</span></div></div>
+              <div class="kanban-card"><div class="ticker">GS</div><div class="meta"><span class="dir long">Long</span><span class="grade">TT Confirmed</span><span class="score">Score 71</span></div></div>
             </div>
           </div>
           <div class="pipeline-lane lane-hold">
-            <div class="pipeline-lane-header">Hold</div>
-            <div class="kanban-card">
-              <div class="ticker">AAPL</div>
-              <div class="meta"><span class="dir long">Long</span><span class="score">Score 65</span></div>
-            </div>
-            <div class="kanban-card">
-              <div class="ticker">MSFT</div>
-              <div class="meta"><span class="dir long">Long</span><span class="score">Score 68</span></div>
+            <div class="pipeline-lane-label">Hold</div>
+            <div class="pipeline-lane-cards">
+              <div class="kanban-card"><div class="ticker">AAPL</div><div class="meta"><span class="dir long">Long</span><span class="grade">TT Confirmed</span><span class="score">+1.8%</span></div></div>
+              <div class="kanban-card"><div class="ticker">MSFT</div><div class="meta"><span class="dir long">Long</span><span class="grade">TT Prime</span><span class="score">+2.4%</span></div></div>
             </div>
           </div>
           <div class="pipeline-lane lane-trim">
-            <div class="pipeline-lane-header">Trim</div>
-            <div class="kanban-card">
-              <div class="ticker">META</div>
-              <div class="meta"><span class="dir long">Long</span><span class="score">Score 54</span></div>
+            <div class="pipeline-lane-label">Trim</div>
+            <div class="pipeline-lane-cards">
+              <div class="kanban-card"><div class="ticker">META</div><div class="meta"><span class="dir long">Long</span><span class="score">+3.1% locked</span></div></div>
             </div>
           </div>
           <div class="pipeline-lane lane-exit">
-            <div class="pipeline-lane-header">Exit</div>
-            <div class="kanban-card">
-              <div class="ticker">NFLX</div>
-              <div class="meta"><span class="dir long">Long</span><span class="score">Score 41</span></div>
+            <div class="pipeline-lane-label">Exit</div>
+            <div class="pipeline-lane-cards">
+              <div class="kanban-card"><div class="ticker">NFLX</div><div class="meta"><span class="dir long">Long</span><span class="score">+4.2% closed</span></div></div>
             </div>
           </div>
         </div>
-        <div class="pipeline-tagline">Built for swing traders who want structure.</div>
+        <div class="pipeline-tagline">Built for swing traders who want structure. Every trade has a grade, a plan, and an exit.</div>
       </div>
 
       <div class="reveal" style="margin-top:40px">
         <div class="pipeline-sub-label">Investor</div>
-        <div class="pipeline-row">
+        <div class="pipeline-stack" style="background:var(--bg-surface);border:1px solid var(--border);border-radius:14px;overflow:hidden">
           <div class="pipeline-lane lane-accumulate">
-            <div class="pipeline-lane-header">Accumulate</div>
-            <div class="kanban-card">
-              <div class="ticker">NVDA</div>
-              <div class="meta"><span class="dir long">Strong</span><span class="score">RS #4</span></div>
-            </div>
-            <div class="kanban-card">
-              <div class="ticker">AMZN</div>
-              <div class="meta"><span class="dir long">Strong</span><span class="score">RS #8</span></div>
+            <div class="pipeline-lane-label">Accum.</div>
+            <div class="pipeline-lane-cards">
+              <div class="kanban-card"><div class="ticker">NVDA</div><div class="meta"><span class="dir long">Strong</span><span class="score">RS #4</span></div></div>
+              <div class="kanban-card"><div class="ticker">AMZN</div><div class="meta"><span class="dir long">Strong</span><span class="score">RS #8</span></div></div>
             </div>
           </div>
           <div class="pipeline-lane lane-core">
-            <div class="pipeline-lane-header">Core Hold</div>
-            <div class="kanban-card">
-              <div class="ticker">AAPL</div>
-              <div class="meta"><span class="dir long">Steady</span><span class="score">RS #12</span></div>
-            </div>
-            <div class="kanban-card">
-              <div class="ticker">MSFT</div>
-              <div class="meta"><span class="dir long">Steady</span><span class="score">RS #6</span></div>
-            </div>
-            <div class="kanban-card">
-              <div class="ticker">GOOGL</div>
-              <div class="meta"><span class="dir long">Steady</span><span class="score">RS #15</span></div>
+            <div class="pipeline-lane-label">Core</div>
+            <div class="pipeline-lane-cards">
+              <div class="kanban-card"><div class="ticker">AAPL</div><div class="meta"><span class="dir long">Steady</span><span class="score">RS #12</span></div></div>
+              <div class="kanban-card"><div class="ticker">MSFT</div><div class="meta"><span class="dir long">Steady</span><span class="score">RS #6</span></div></div>
+              <div class="kanban-card"><div class="ticker">GOOGL</div><div class="meta"><span class="dir long">Steady</span><span class="score">RS #15</span></div></div>
             </div>
           </div>
           <div class="pipeline-lane lane-watch">
-            <div class="pipeline-lane-header">Watch</div>
-            <div class="kanban-card">
-              <div class="ticker">META</div>
-              <div class="meta"><span class="score">RS #22</span></div>
+            <div class="pipeline-lane-label">Watch</div>
+            <div class="pipeline-lane-cards">
+              <div class="kanban-card"><div class="ticker">META</div><div class="meta"><span class="score">RS #22</span></div></div>
             </div>
           </div>
           <div class="pipeline-lane lane-reduce">
-            <div class="pipeline-lane-header">Reduce</div>
-            <div class="kanban-card">
-              <div class="ticker">DIS</div>
-              <div class="meta"><span class="score">RS #45</span></div>
+            <div class="pipeline-lane-label">Reduce</div>
+            <div class="pipeline-lane-cards">
+              <div class="kanban-card"><div class="ticker">DIS</div><div class="meta"><span class="score">RS #45</span></div></div>
             </div>
           </div>
         </div>
@@ -1338,34 +1319,44 @@
     </div>
   </section>
 
-  <!-- THE ENGINE — Self-Learning Model -->
+  <!-- THE ENGINE — Multi-Timeframe Intelligence -->
   <section>
     <div class="container">
       <div class="reveal" style="text-align:center">
         <span class="section-label">The Engine</span>
-        <h2 class="section-title">It learns. It adapts. It doesn't forget.</h2>
+        <h2 class="section-title">It learns. It adapts. It stalks every move.</h2>
+        <p class="section-desc" style="margin:0 auto">
+          The model scans 8 timeframes simultaneously, detects liquidity zones where price is likely to gravitate, and grades every setup before entering. When it's time to exit, grade-aware management gives winning trades room to run while cutting losers fast.
+        </p>
       </div>
       <div class="engine-grid reveal">
         <div class="engine-card">
           <div class="engine-icon">
             <svg viewBox="0 0 24 24"><path d="M12 2v4m0 12v4M4.93 4.93l2.83 2.83m8.48 8.48l2.83 2.83M2 12h4m12 0h4M4.93 19.07l2.83-2.83m8.48-8.48l2.83-2.83"/></svg>
           </div>
-          <h3>Constantly Calibrating</h3>
-          <p>Every outcome feeds back. Win, loss, scratch &mdash; the system stores detailed profiles on 155+ tickers and adapts its parameters with each cycle.</p>
+          <h3>Multi-Timeframe Analysis</h3>
+          <p>8 timeframes from 5-minute to Weekly. Higher timeframes set the direction, lower timeframes find the entry. The model waits for alignment before acting.</p>
         </div>
         <div class="engine-card">
           <div class="engine-icon">
             <svg viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
           </div>
-          <h3>Regime Adaptive</h3>
-          <p>Bull, bear, chop. The model detects the current regime and recalibrates. No single playbook applied to every environment.</p>
+          <h3>Ticker Personality Engine</h3>
+          <p>Every ticker gets a deep profile &mdash; how it reacts to setups, preferred pullback patterns, sector sensitivity, and volatility behavior. The model applies ticker-specific rules, not generic playbooks.</p>
         </div>
         <div class="engine-card">
           <div class="engine-icon">
             <svg viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
           </div>
-          <h3>Expert-Governed</h3>
-          <p>Powerful, but not autonomous. A team reviews, tunes, and validates every calibration to maintain quality and integrity.</p>
+          <h3>Grade-Aware Management</h3>
+          <p>Every trade gets a grade: Prime, Confirmed, or Early. Prime setups get wider stops and more time. Early setups are managed tightly. The model adapts its management to the quality of the setup.</p>
+        </div>
+        <div class="engine-card">
+          <div class="engine-icon">
+            <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+          </div>
+          <h3>Continuous Self-Calibration</h3>
+          <p>Every outcome feeds back. Win rates, entry paths, exit patterns &mdash; the system continuously recalibrates. Parameters shift, weights adjust, and the model evolves with each market cycle.</p>
         </div>
       </div>
       <div class="engine-stats reveal">
@@ -1374,8 +1365,12 @@
           <div class="es-label">Ticker Profiles</div>
         </div>
         <div class="engine-stat">
-          <div class="es-num">6</div>
-          <div class="es-label">Regime Types</div>
+          <div class="es-num">8</div>
+          <div class="es-label">Timeframes</div>
+        </div>
+        <div class="engine-stat">
+          <div class="es-num">3</div>
+          <div class="es-label">Trade Grades</div>
         </div>
         <div class="engine-stat">
           <div class="es-num">24/5</div>
@@ -1424,11 +1419,11 @@
                 <span class="tc-ticker">KLAC</span>
                 <span class="tc-status win">WIN</span>
               </div>
-              <div class="trade-card-row"><span>Direction</span><span class="tc-val">LONG</span></div>
+              <div class="trade-card-row"><span>Direction</span><span class="tc-val">LONG &middot; TT Prime</span></div>
               <div class="trade-card-row"><span>Entry</span><span class="tc-val">Jul 2 &middot; $742.18</span></div>
               <div class="trade-card-row"><span>Exit</span><span class="tc-val">Jul 2 &middot; $759.74</span></div>
               <div class="trade-card-pnl">+$177.06</div>
-              <div class="trade-card-caption">Multi-timeframe momentum alignment. Trimmed at first target. Exited at trailing stop.</div>
+              <div class="trade-card-caption">Multi-timeframe alignment confirmed. Fresh ST flip + RSI recovery. Trimmed 50% at TP1, runner exited at trailing stop.</div>
             </div>
           </div>
 
@@ -1454,11 +1449,11 @@
                 <span class="tc-ticker">CSX</span>
                 <span class="tc-status win">WIN</span>
               </div>
-              <div class="trade-card-row"><span>Direction</span><span class="tc-val">LONG</span></div>
+              <div class="trade-card-row"><span>Direction</span><span class="tc-val">LONG &middot; TT Confirmed</span></div>
               <div class="trade-card-row"><span>Entry</span><span class="tc-val">Jul 1 &middot; $34.82</span></div>
               <div class="trade-card-row"><span>Exit</span><span class="tc-val">Jul 1 &middot; $35.83</span></div>
               <div class="trade-card-pnl">+$146.30</div>
-              <div class="trade-card-caption">Squeeze release detected. Entry on breakout confirmation. Full exit at target.</div>
+              <div class="trade-card-caption">Squeeze release detected with TT Phase at 18%. Entry on breakout confirmation. Exited as Phase reached exhaustion zone.</div>
             </div>
           </div>
 
@@ -1486,11 +1481,11 @@
                 <span class="tc-ticker">ITT</span>
                 <span class="tc-status win">WIN</span>
               </div>
-              <div class="trade-card-row"><span>Direction</span><span class="tc-val">LONG</span></div>
+              <div class="trade-card-row"><span>Direction</span><span class="tc-val">LONG &middot; TT Early</span></div>
               <div class="trade-card-row"><span>Entry</span><span class="tc-val">Jul 1 &middot; $148.20</span></div>
               <div class="trade-card-row"><span>Exit</span><span class="tc-val">Jul 1 &middot; $153.72</span></div>
               <div class="trade-card-pnl">+$79.61</div>
-              <div class="trade-card-caption">Higher-timeframe trend confirmed. Entry on pullback completion. Exited at TP2.</div>
+              <div class="trade-card-caption">HTF trend confirmed with EMA regime alignment. LTF pullback recovery entry. Trimmed at TP1, runner exited at cloud support break.</div>
             </div>
           </div>
         </div>
@@ -1500,13 +1495,13 @@
       <div class="portfolio-card reveal">
         <h4>Equity Curve</h4>
         <div class="equity-header">
-          <span class="equity-val">$107,842</span>
-          <span class="equity-pct">+7.8%</span>
+          <span class="equity-val">Backtesting in Progress</span>
+          <span class="equity-pct">Targeting 70%+ WR</span>
         </div>
         <div class="equity-stats">
-          <span>Max DD: -3.2%</span>
-          <span>Sharpe: 1.4</span>
-          <span>245 days</span>
+          <span>Grade-Aware Exits</span>
+          <span>Liquidity Zones</span>
+          <span>8 Timeframes</span>
         </div>
         <svg class="equity-chart-area" viewBox="0 0 800 120" preserveAspectRatio="none">
           <defs>
@@ -1523,24 +1518,24 @@
 
         <div class="metrics-row">
           <div class="metric-card">
-            <div class="mc-label">Account</div>
-            <div class="mc-val white">$107,842</div>
+            <div class="mc-label">Win Rate</div>
+            <div class="mc-val green">70%+</div>
           </div>
           <div class="metric-card">
-            <div class="mc-label">Total P&amp;L</div>
-            <div class="mc-val green">+$7,842</div>
+            <div class="mc-label">Target Yield</div>
+            <div class="mc-val green">50%+ / yr</div>
           </div>
           <div class="metric-card">
-            <div class="mc-label">Open P&amp;L</div>
-            <div class="mc-val green">+$1,230</div>
+            <div class="mc-label">Grades</div>
+            <div class="mc-val white">Prime &middot; Confirmed &middot; Early</div>
           </div>
           <div class="metric-card">
-            <div class="mc-label">Closed</div>
-            <div class="mc-val white">84 <span style="font-size:10px;color:var(--text-muted)">52W 32L</span></div>
+            <div class="mc-label">Exit Types</div>
+            <div class="mc-val white">Trim &middot; Runner &middot; Stop</div>
           </div>
           <div class="metric-card">
-            <div class="mc-label">Realized</div>
-            <div class="mc-val green">+$6,612</div>
+            <div class="mc-label">Timeframes</div>
+            <div class="mc-val white">8 TFs</div>
           </div>
         </div>
 
@@ -1570,14 +1565,14 @@
           <h4>Trade History</h4>
           <table class="history-table">
             <thead>
-              <tr><th>Entry</th><th>Ticker</th><th>Dir</th><th>Exit</th><th>P&amp;L</th><th>Status</th></tr>
+              <tr><th>Entry</th><th>Ticker</th><th>Grade</th><th>Dir</th><th>Exit</th><th>P&amp;L</th><th>Status</th></tr>
             </thead>
             <tbody>
-              <tr><td>Jul 2</td><td>KLAC</td><td>LONG</td><td>Jul 2</td><td class="win">+$177.06</td><td class="win">WIN</td></tr>
-              <tr><td>Jul 1</td><td>CSX</td><td>LONG</td><td>Jul 1</td><td class="win">+$146.30</td><td class="win">WIN</td></tr>
-              <tr><td>Jul 1</td><td>ITT</td><td>LONG</td><td>Jul 1</td><td class="win">+$79.61</td><td class="win">WIN</td></tr>
-              <tr><td>Jul 3</td><td>PLTR</td><td>LONG</td><td>Jul 5</td><td class="loss">-$42.10</td><td class="loss">LOSS</td></tr>
-              <tr><td>Jul 5</td><td>NVDA</td><td>LONG</td><td>&mdash;</td><td class="open-status">+$195.10</td><td class="open-status">OPEN</td></tr>
+              <tr><td>Jul 2</td><td>KLAC</td><td>Prime</td><td>LONG</td><td>Jul 2</td><td class="win">+$177.06</td><td class="win">WIN</td></tr>
+              <tr><td>Jul 1</td><td>CSX</td><td>Confirmed</td><td>LONG</td><td>Jul 1</td><td class="win">+$146.30</td><td class="win">WIN</td></tr>
+              <tr><td>Jul 1</td><td>ITT</td><td>Early</td><td>LONG</td><td>Jul 1</td><td class="win">+$79.61</td><td class="win">WIN</td></tr>
+              <tr><td>Jul 3</td><td>PLTR</td><td>Early</td><td>LONG</td><td>Jul 5</td><td class="loss">-$42.10</td><td class="loss">LOSS</td></tr>
+              <tr><td>Jul 5</td><td>NVDA</td><td>Prime</td><td>LONG</td><td>&mdash;</td><td class="open-status">+$195.10</td><td class="open-status">OPEN</td></tr>
             </tbody>
           </table>
         </div>
@@ -1598,28 +1593,40 @@
       </div>
       <div class="diff-grid reveal">
         <div class="diff-card">
-          <h3>Rotating Universe</h3>
-          <p>The watchlist isn't static. It adapts to the current market, surfacing names with real momentum &mdash; not last week's headlines.</p>
+          <h3>Curated Universe</h3>
+          <p>155+ tickers, hand-picked and periodically refreshed to match the current market backdrop. Not a random screener &mdash; a living, evolving watchlist that rotates with momentum and relative strength.</p>
         </div>
         <div class="diff-card">
-          <h3>Multi-Factor Scoring</h3>
-          <p>Not one indicator. A fusion of strategies across 8 timeframes, powered by a self-learning model, governed by experts.</p>
+          <h3>Ticker Personality Profiles</h3>
+          <p>The model builds deep profiles on every ticker &mdash; how it reacts to setups, its preferred pullback patterns, volatility behavior, and sector sensitivity. Each trade is managed with that ticker's personality in mind.</p>
+        </div>
+        <div class="diff-card">
+          <h3>Self-Learning Calibration</h3>
+          <p>Every outcome feeds back into the model. Win rates, entry paths, exit patterns &mdash; the system continuously recalibrates its parameters. It learns what works, what doesn't, and adapts to evolving conditions.</p>
+        </div>
+        <div class="diff-card">
+          <h3>Liquidity Zone Intelligence</h3>
+          <p>The model maps where institutional money clusters &mdash; buyside and sellside liquidity zones on 4H, Daily, and Weekly. These are price magnets the crowd can't see.</p>
         </div>
         <div class="diff-card">
           <h3>Full Transparency</h3>
-          <p>Scores, stages, levels, reasoning. The model doesn't just output a signal &mdash; it shows the entire thought process.</p>
+          <p>Every trade shows: why we entered, what grade it earned, how many shares, risk %, and the exit reasoning. The model shows its entire thought process.</p>
         </div>
         <div class="diff-card">
           <h3>Daily Brief</h3>
-          <p>AI-generated market intelligence. Macro backdrop, cross-asset correlations, and how they relate to current positioning.</p>
+          <p>AI-generated market intelligence hyper-focused on SPY and QQQ. Key levels, ATR-based ranges, conditional game plans, and cross-asset correlations &mdash; delivered before the bell.</p>
         </div>
         <div class="diff-card">
-          <h3>Always Evolving</h3>
-          <p>The system recalibrates continuously. Parameters shift. Weights adjust. Every outcome teaches.</p>
+          <h3>Setup Stalking</h3>
+          <p>The model doesn't chase. It waits for TD9 reversals, RSI extreme recoveries, SuperTrend flips, and Phase completions &mdash; then strikes when conditions align.</p>
         </div>
         <div class="diff-card">
-          <h3>Strategy Fusion</h3>
-          <p>No single strategy. Multiple backtested approaches, fused and balanced to adapt regardless of market regime.</p>
+          <h3>Grade-Aware Exits</h3>
+          <p>Prime setups get 72 hours to develop. Early setups are cut at 36 hours. The model manages each trade based on its quality, not a one-size-fits-all timer.</p>
+        </div>
+        <div class="diff-card">
+          <h3>SPY &amp; QQQ Mastery</h3>
+          <p>The model knows SPY and QQQ like the back of its hand &mdash; intraday ATR patterns, gap-fill tendencies, weekly rhythms, and how futures (ES, NQ) track as proxies. Day traders get precise, actionable levels.</p>
         </div>
       </div>
     </div>

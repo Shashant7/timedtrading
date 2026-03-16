@@ -2360,14 +2360,23 @@ function qualifiesForEnter(d, asOfTs = null) {
     }
   }
 
-  // DA-3b: Regime block (combined swing regime, e.g. EARLY_BEAR)
-  // Separate from size reduction: blocked regimes are hard-blocked, reduced regimes get smaller size.
+  // DA-3b: Regime block — direction-aware.
+  // Bear regimes (EARLY_BEAR, STRONG_BEAR) block LONG entries but ALLOW SHORT entries.
+  // Bull regimes (EARLY_BULL, STRONG_BULL) would block SHORT entries but allow LONG.
   const daBlockRegimes = _daConfig.deep_audit_block_regime;
   const tickerSwingRegime = String(d?.regime?.combined || "").toUpperCase();
   if (daBlockRegimes && tickerSwingRegime) {
     const blockedArr = Array.isArray(daBlockRegimes) ? daBlockRegimes : [daBlockRegimes];
+    const isBearRegime = tickerSwingRegime.includes("BEAR");
+    const isBullRegime = tickerSwingRegime.includes("BULL") && !tickerSwingRegime.includes("BEAR");
     if (blockedArr.some(r => String(r).toUpperCase() === tickerSwingRegime)) {
-      return { qualifies: false, reason: "da_regime_blocked", regime: tickerSwingRegime };
+      if (isBearRegime && inferredSide === "SHORT") {
+        // Allow SHORT in bear regimes — this is exactly when shorts should fire
+      } else if (isBullRegime && inferredSide === "LONG") {
+        // Allow LONG in bull regimes
+      } else {
+        return { qualifies: false, reason: "da_regime_blocked", regime: tickerSwingRegime, side: inferredSide };
+      }
     }
   }
   // DA-3b2: Regime size reduction (e.g. LATE_BULL → 0.25x size)
@@ -2379,8 +2388,9 @@ function qualifiesForEnter(d, asOfTs = null) {
     }
   }
 
-  // DA-3c: VIX ceiling guard — block or reduce size when VIX is elevated
-  const daVixCeiling = Number(_daConfig.deep_audit_vix_ceiling) || 0;
+  // DA-3c: VIX ceiling guard — block entries when VIX is extremely elevated.
+  // Default 32 if not configured (extreme fear regime, most entries are losers).
+  const daVixCeiling = Number(_daConfig.deep_audit_vix_ceiling) || 32;
   if (daVixCeiling > 0 && d?._vix != null) {
     const vx = Number(d._vix);
     if (vx > daVixCeiling) {
@@ -2678,6 +2688,33 @@ function qualifiesForEnter(d, asOfTs = null) {
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
+  // SPY DIRECTIONAL REGIME GATE: Block LONG when SPY is bearish, block SHORT when SPY is bullish.
+  // Uses SPY's daily EMA regime and HTF score from the market regime overlay.
+  // This prevents entering LONG during market-wide pullbacks (Oct/Nov/Dec pattern).
+  // ═══════════════════════════════════════════════════════════════════════════
+  const _spyMktData = d?._env?._marketRegime;
+  if (_spyMktData) {
+    const _spyHtf = Number(_spyMktData.htf_score);
+    const _spyEmaRegD = Number(_spyMktData.ema_regime_daily) || 0;
+    const _spyCombined = String(_spyMktData.combined || "").toUpperCase();
+    const _spyIsBearish = (Number.isFinite(_spyHtf) && _spyHtf < -15) || _spyEmaRegD <= -1 || _spyCombined.includes("BEAR");
+    const _spyIsBullish = (Number.isFinite(_spyHtf) && _spyHtf > 15) || _spyEmaRegD >= 1 || _spyCombined.includes("BULL");
+
+    if (_spyIsBearish && inferredSide === "LONG") {
+      const _isGoldLong = String(d?.__entry_path || "").includes("gold_long");
+      if (!_isGoldLong) {
+        return { qualifies: false, reason: "spy_bearish_long_blocked", spyHtf: _spyHtf, spyEmaReg: _spyEmaRegD, spyCombined: _spyCombined };
+      }
+    }
+    if (_spyIsBullish && inferredSide === "SHORT") {
+      const _isGoldShort = String(d?.__entry_path || "").includes("gold_short");
+      if (!_isGoldShort) {
+        return { qualifies: false, reason: "spy_bullish_short_blocked", spyHtf: _spyHtf, spyEmaReg: _spyEmaRegD, spyCombined: _spyCombined };
+      }
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
   // Leading-LTF PRICE vs 21 EMA GATE: Never enter LONG if price below 21 EMA on
   // the leading intraday TF; never enter SHORT if price above it.
   // EXCEPTION: Daily regime confirmed (ema_regime_daily ±2) — we're buying/selling
@@ -2793,36 +2830,55 @@ function qualifiesForEnter(d, asOfTs = null) {
   }
 
   // ── TD SEQUENTIAL EXHAUSTION GUARD ──
-  // Multi-TF analysis (82 trades) revealed asymmetric behavior:
-  //   LTF (30m/1H): bearish prep 4-6 at LONG entry → 26%/25% WR (counter-momentum, BAD)
-  //   HTF (D/W):    bearish prep 7-9 at LONG entry → 61%/58% WR (seller exhaustion, GOOD)
-  // So for LONGs: only count LTF (1H, 4H) exhaustion; D/W bearish exhaustion is favorable.
-  // For SHORTs: only count LTF bullish exhaustion; D/W bullish exhaustion helps shorts.
+  // Same-direction exhaustion: entering LONG when bearish_prep (XP) is high means
+  // the bullish move has been running for many bars and a TD9 Sell is approaching.
+  // LRN, NXT, BE all showed this pattern: XP 5-6 on 4H/D at entry → immediate reversal.
   const _tdPerTf = d?.td_sequential?.per_tf;
   if (_tdPerTf && !_regimeBypass) {
     const _tdSide = inferredSideForRSI;
 
-    // LTF counter-momentum guard (1H/4H only — these hurt when against our direction)
+    // Guard 1: Same-direction exhaustion (move topping/bottoming).
+    // LONG: bearish_prep >= 5 means bullish trend nearing TD9 Sell.
+    // SHORT: bullish_prep >= 5 means bearish trend nearing TD9 Buy.
+    // Block when 2+ TFs show this pattern (1H/4H/D considered).
+    let sameDirExhaustionHits = 0;
+    let sameDirMaxCount = 0;
+    for (const _tf of ["60", "240", "D"]) {
+      const _tfTd = _tdPerTf[_tf];
+      if (!_tfTd) continue;
+      if (_tdSide === "LONG") {
+        const bc = Number(_tfTd.bearish_prep_count) || 0;
+        if (bc >= 5) { sameDirExhaustionHits++; sameDirMaxCount = Math.max(sameDirMaxCount, bc); }
+      } else {
+        const bc = Number(_tfTd.bullish_prep_count) || 0;
+        if (bc >= 5) { sameDirExhaustionHits++; sameDirMaxCount = Math.max(sameDirMaxCount, bc); }
+      }
+    }
+    if (sameDirExhaustionHits >= 2) {
+      return { qualifies: false, reason: "td_exhaustion_topping", side: _tdSide, hits: sameDirExhaustionHits, maxCount: sameDirMaxCount };
+    }
+
+    // Guard 2: LTF counter-momentum (1H/4H show opposite-direction exhaustion)
     let ltfExhaustionHits = 0;
     let ltfMaxCount = 0;
     for (const _tf of ["60", "240"]) {
       const _tfTd = _tdPerTf[_tf];
       if (!_tfTd) continue;
       if (_tdSide === "LONG") {
-        const bc = Number(_tfTd.bearish_prep_count) || 0;
-        const bl = Number(_tfTd.bearish_leadup_count) || 0;
-        if (bc >= 7 || bl >= 8) { ltfExhaustionHits++; ltfMaxCount = Math.max(ltfMaxCount, bc, bl); }
-      } else {
         const bc = Number(_tfTd.bullish_prep_count) || 0;
         const bl = Number(_tfTd.bullish_leadup_count) || 0;
-        if (bc >= 7 || bl >= 8) { ltfExhaustionHits++; ltfMaxCount = Math.max(ltfMaxCount, bc, bl); }
+        if (bc >= 6 || bl >= 7) { ltfExhaustionHits++; ltfMaxCount = Math.max(ltfMaxCount, bc, bl); }
+      } else {
+        const bc = Number(_tfTd.bearish_prep_count) || 0;
+        const bl = Number(_tfTd.bearish_leadup_count) || 0;
+        if (bc >= 6 || bl >= 7) { ltfExhaustionHits++; ltfMaxCount = Math.max(ltfMaxCount, bc, bl); }
       }
     }
     if (ltfExhaustionHits >= 1) {
       return { qualifies: false, reason: "td_exhaustion_ltf", side: _tdSide, hits: ltfExhaustionHits, maxCount: ltfMaxCount };
     }
 
-    // 3+ TFs showing counter-direction exhaustion is panic territory (41.2% WR, -1.05% PnL)
+    // Guard 3: Multi-TF panic — 3+ TFs showing counter-direction exhaustion
     let totalExhaustionHits = 0;
     for (const _tf of ["30", "60", "240", "D", "W"]) {
       const _tfTd = _tdPerTf[_tf];
@@ -2835,7 +2891,7 @@ function qualifiesForEnter(d, asOfTs = null) {
         if (bc >= 5) totalExhaustionHits++;
       }
     }
-    if (totalExhaustionHits >= 4) {
+    if (totalExhaustionHits >= 3) {
       return { qualifies: false, reason: "td_exhaustion_panic", side: _tdSide, tfsExhausted: totalExhaustionHits };
     }
   }
@@ -3125,11 +3181,18 @@ function qualifiesForEnter(d, asOfTs = null) {
     const sectorForEntry = SECTOR_MAP[tickerForSector] || "";
     if (isLongEntry) {
       if (sectorForEntry === "Financials") {
-        minQuality = Math.max(minQuality, minQuality + 12); // Financials LONG: much higher bar
+        minQuality = Math.max(minQuality, minQuality + 12);
       } else if (sectorForEntry === "Crypto") {
-        minQuality = Math.max(minQuality, minQuality + 8);  // Crypto LONG: higher bar
+        minQuality = Math.max(minQuality, minQuality + 8);
       } else if (sectorForEntry === "Basic Materials" || sectorForEntry === "Precious Metals" || sectorForEntry === "Energy") {
-        minQuality = Math.max(35, minQuality - 5);          // Bullish sectors: slightly easier
+        minQuality = Math.max(35, minQuality - 5);
+      }
+    } else {
+      // SHORT sector adjustments: relax bar in sectors that trend bearish
+      if (sectorForEntry === "Financials") {
+        minQuality = Math.max(35, minQuality - 5);
+      } else if (sectorForEntry === "Growth" || sectorForEntry === "Technology") {
+        minQuality = Math.max(35, minQuality - 3);
       }
     }
 
@@ -3982,6 +4045,9 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
     if (pm && pm.direction === "BULLISH" && pm.bestBull?.conf > 0.6) {
       tickerData.__entry_confidence = "high";
       tickerData.__entry_reason = (tickerData.__entry_reason || "") + ` +pattern:${pm.bestBull.name}`;
+    } else if (pm && pm.direction === "BEARISH" && pm.bestBear?.conf > 0.6) {
+      tickerData.__entry_confidence = "high";
+      tickerData.__entry_reason = (tickerData.__entry_reason || "") + ` +pattern:${pm.bestBear.name}`;
     }
     // ── Execution readiness (informational only) ──
     // Execution gates (RTH, position limits, concentration) are tracked on the
@@ -4017,9 +4083,16 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
   if (pmDiscovery && pmDiscovery.direction === "BULLISH" && pmDiscovery.bullCount >= 2 && pmDiscovery.bestBull?.conf > 0.55) {
     const htfScore = Number(tickerData?.htf_score) || 0;
     const ltfScore = Number(tickerData?.ltf_score) || 0;
-    // Only promote if scores are reasonably positive (model + scores agree)
     if (htfScore > 40 && ltfScore > 30) {
       tickerData.__setup_reason = `pattern_model:${pmDiscovery.bestBull.name}(${pmDiscovery.bullCount} bull patterns)`;
+      return "setup";
+    }
+  }
+  if (pmDiscovery && pmDiscovery.direction === "BEARISH" && pmDiscovery.bearCount >= 2 && pmDiscovery.bestBear?.conf > 0.55) {
+    const htfScore = Number(tickerData?.htf_score) || 0;
+    const ltfScore = Number(tickerData?.ltf_score) || 0;
+    if (htfScore < -40 && ltfScore < -30) {
+      tickerData.__setup_reason = `pattern_model:${pmDiscovery.bestBear.name}(${pmDiscovery.bearCount} bear patterns)`;
       return "setup";
     }
   }
@@ -4149,7 +4222,7 @@ function deriveKanbanMeta(tickerData, stage) {
       return {
         bucket: "pattern_setup",
         emoji: "🧠",
-        reason: `Model: ${pm?.bestBull?.name || "pattern match"}`,
+        reason: `Model: ${(pm?.direction === "BEARISH" ? pm?.bestBear?.name : pm?.bestBull?.name) || "pattern match"}`,
         reasons: ["pattern_model", ...(pm?.matched?.map(m => m.id) || [])],
         patternMatch: pm,
       };
@@ -8780,7 +8853,7 @@ async function processTradeSimulation(
     const stateDirection = getTradeDirection(tickerData.state); // BULL->LONG, BEAR->SHORT
     let direction;
     if (entryPath.includes("mean_revert")) {
-      direction = "LONG";
+      direction = tickerData?.mean_revert_td9?.direction || "LONG";
     } else if (entryPath.includes("short")) {
       direction = "SHORT";
     } else if (entryPath.includes("long")) {
@@ -10303,18 +10376,44 @@ async function processTradeSimulation(
         }
       }
       // STALL FORCE-CLOSE: Untrimmed trades that haven't moved after N hours are dead weight.
-      // Data shows untrimmed trades have 14% WR — if a trade can't reach trim in 36h, close it.
+      // Data shows untrimmed trades have 14% WR — if a trade can't reach trim, close it.
+      // Grade-aware: Prime gets 72h, Confirmed 48h, Early/unknown 36h.
+      // Thesis-intact shield: if price is still above the 15m SuperTrend (LONG) or below (SHORT),
+      // the setup thesis is intact — extend the timer by 50%.
       if (!fuseExitFired && openTrade && isOpenTradeStatus(openTrade.status)) {
-        const _sfcMaxH = Number(tickerData?._env?._deepAuditConfig?.deep_audit_stall_force_close_hours) || 36;
+        const _sfcBaseH = Number(tickerData?._env?._deepAuditConfig?.deep_audit_stall_force_close_hours) || 36;
         const _sfcUntrimmed = _sreTrimmedPct < 0.01;
-        if (_sfcMaxH > 0 && _sfcUntrimmed) {
+        if (_sfcBaseH > 0 && _sfcUntrimmed) {
+          const _sfcGrade = String(openTrade.setup_grade || openTrade.setupGrade || "").toLowerCase();
+          let _sfcMaxH = _sfcBaseH;
+          if (_sfcGrade === "prime") _sfcMaxH = Math.max(_sfcBaseH, 72);
+          else if (_sfcGrade === "confirmed") _sfcMaxH = Math.max(_sfcBaseH, 48);
+
           const _sfcEntryTs = Number(openTrade.entry_ts || openTrade.created_at) || 0;
           const _sfcEntryMs = _sfcEntryTs > 1e12 ? _sfcEntryTs : _sfcEntryTs * 1000;
           const _sfcHoldH = _sfcEntryMs > 0 ? (now - _sfcEntryMs) / 3600000 : 0;
+
+          // Thesis-intact shield: check if price holds above key structure
+          let _sfcThesisIntact = false;
+          if (_sfcHoldH >= _sfcMaxH) {
+            const _sfcStLine15 = Number(tickerData?.tf_tech?.["15"]?.stLine) || 0;
+            const _sfcStDir15 = Number(tickerData?.tf_tech?.["15"]?.stDir) || 0;
+            const _sfcPnlPct = entryPx > 0 ? ((pxNow - entryPx) / entryPx * 100 * (isLong ? 1 : -1)) : 0;
+            if (isLong && _sfcStDir15 === -1 && pxNow > _sfcStLine15 && _sfcPnlPct > -1.0) {
+              _sfcThesisIntact = true;
+            } else if (!isLong && _sfcStDir15 === 1 && pxNow < _sfcStLine15 && _sfcPnlPct > -1.0) {
+              _sfcThesisIntact = true;
+            }
+            if (_sfcThesisIntact) {
+              _sfcMaxH = Math.round(_sfcMaxH * 1.5);
+              console.log(`[STALL_SHIELD] ${sym} thesis intact (price ${isLong ? "above" : "below"} 15m ST, PnL ${_sfcPnlPct.toFixed(1)}%) → extending to ${_sfcMaxH}h`);
+            }
+          }
+
           if (_sfcHoldH >= _sfcMaxH) {
             const _sfcReason = "STALL_FORCE_CLOSE";
             const _sfcPnlPct = entryPx > 0 ? ((pxNow - entryPx) / entryPx * 100 * (isLong ? 1 : -1)) : 0;
-            console.log(`[STALL_FORCE_CLOSE] ${sym} untrimmed for ${_sfcHoldH.toFixed(0)}h (${_sfcPnlPct.toFixed(1)}% P&L) → force closing`);
+            console.log(`[STALL_FORCE_CLOSE] ${sym} (${_sfcGrade || "unknown"}) untrimmed for ${_sfcHoldH.toFixed(0)}h (${_sfcPnlPct.toFixed(1)}% P&L) → force closing`);
             tickerData.__exit_reason = _sfcReason;
             await closeTradeAtPrice(openTrade, pxNow, _sfcReason);
             const _sfcExec = { ...execState, lastExitMs: now };
@@ -13291,7 +13390,7 @@ async function processTradeSimulation(
                       },
                     ],
                     footer: {
-                      text: "Timed Trading Simulator",
+                      text: "Timed Trading Model",
                     },
                     timestamp: new Date().toISOString(),
                   };
@@ -21885,9 +21984,23 @@ function createTradeEntryEmbed(
   const _setupName = tickerData?.__setupName || tickerData?.setupName || null;
   const _setupGrade = tickerData?.__setupGrade || tickerData?.setupGrade || null;
   const _riskPct = Number(tickerData?.__riskBudget || tickerData?.riskBudget) || 0;
+  const _shares = execution?.qty || Number(tickerData?.__shares) || 0;
+  const _notional = execution?.value || (_shares > 0 && entryPrice > 0 ? _shares * entryPrice : 0);
+  const _SETUP_MAP = {
+    ema_regime_confirmed_long: "TT Confirmed Long", ema_regime_confirmed_short: "TT Confirmed Short",
+    ema_regime_early_long: "TT Early Long", ema_regime_early_short: "TT Early Short",
+    gold_long: "TT Breakout Long", gold_short: "TT Reversal Short", gold_short_pullback: "TT Reversal Short Pullback",
+    momentum_score: "TT Momentum", squeeze_setup: "TT Squeeze", elite: "TT Elite",
+    breakout: "TT Breakout", mean_revert_td9: "TT Mean Revert TD9",
+    ripster_momentum: "TT Momentum", ripster_pullback: "TT Pullback",
+  };
+  const _fmtSetup = (n) => _SETUP_MAP[n] || (n ? "TT " + n.replace(/^ripster_?/i, "").replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase()) : "TT Setup");
   if (_setupName || _setupGrade) {
     const riskLabel = _riskPct > 0 && _riskPct < 1 ? `${(_riskPct * 100).toFixed(2)}% risk` : (_riskPct >= 1 ? `$${_riskPct} risk` : "");
-    summaryLines.push(`Setup:  **${_setupName || "TT Setup"}** ${_setupGrade ? `(TT ${_setupGrade})` : ""}${riskLabel ? `  |  **${riskLabel}**` : ""}`);
+    summaryLines.push(`Setup:  **${_fmtSetup(_setupName)}** ${_setupGrade ? `(TT ${_setupGrade})` : ""}${riskLabel ? `  |  **${riskLabel}**` : ""}`);
+  }
+  if (_shares > 0) {
+    summaryLines.push(`Shares:  **${Math.round(_shares)}**  |  Notional:  **$${_notional.toFixed(0)}**`);
   }
   fields.push({ name: "Trade Details", value: summaryLines.join("\n"), inline: false });
 
@@ -21895,7 +22008,6 @@ function createTradeEntryEmbed(
   const qualParts = [];
   if (Number.isFinite(rank) && rank > 0) qualParts.push(`Signal Strength: **${rank}**/100`);
   if (Number.isFinite(rr) && rr > 0) qualParts.push(`Risk/Reward: **${rr.toFixed(1)}:1**`);
-  // Active signals in plain language
   const sigs = [];
   if (tickerData?.flags?.momentum_elite) sigs.push("Strong Momentum");
   if (tickerData?.flags?.sq30_release) sigs.push("Squeeze Breakout");
@@ -21904,9 +22016,22 @@ function createTradeEntryEmbed(
     if (tickerData.td_sequential.td9_bullish || tickerData.td_sequential.td9_bearish) sigs.push("Exhaustion Signal (TD9)");
     if (tickerData.td_sequential.td13_bullish || tickerData.td_sequential.td13_bearish) sigs.push("Extended Exhaustion (TD13)");
   }
+  if (tickerData?.flags?.st_flip_bull || tickerData?.flags?.st_flip_bear) sigs.push("Fresh SuperTrend Flip");
+  if (tickerData?.flags?.rsi_div_bull || tickerData?.flags?.rsi_div_bear) sigs.push("RSI Divergence");
   if (sigs.length > 0) qualParts.push(`Signals: ${sigs.join(", ")}`);
   if (qualParts.length > 0) {
     fields.push({ name: "Signal Quality", value: qualParts.join("\n"), inline: false });
+  }
+
+  // 3. Why We Entered — human-readable narrative
+  const whyParts = [];
+  if (_setupName) whyParts.push(_fmtSetup(_setupName));
+  if (tickerData?.flags?.st_flip_bull || tickerData?.flags?.st_flip_bear) whyParts.push("Fresh ST Flip");
+  if (tickerData?.flags?.momentum_elite) whyParts.push("Elite Momentum");
+  if (tickerData?.flags?.sq30_release) whyParts.push("Squeeze Release");
+  if (_setupGrade) whyParts.push(`${_setupGrade} Grade`);
+  if (whyParts.length > 0) {
+    fields.push({ name: "Why We Entered", value: whyParts.join(" + "), inline: false });
   }
 
   return {
@@ -21915,7 +22040,7 @@ function createTradeEntryEmbed(
     color,
     fields,
     timestamp: new Date().toISOString(),
-    footer: { text: "Timed Trading Simulator • Not financial advice" },
+    footer: { text: "Timed Trading Model • Not financial advice" },
   };
 }
 
@@ -21970,12 +22095,46 @@ function createTradeTrimmedEmbed(
 
   // 2. Trim Status
   const statusLines = [`Trimmed:  **${trimPercent}%**  |  Remaining:  **${remainingPct}%**`];
+  if (execution && Number.isFinite(execution.qty)) {
+    const totalShares = Number(trade?.shares) || 0;
+    const trimmedShares = Number(execution.qty) || 0;
+    const remainShares = Math.max(0, Math.round(totalShares) - Math.round(trimmedShares));
+    if (totalShares > 0) statusLines.push(`Shares trimmed:  **${Math.round(trimmedShares)}**  |  Remaining:  **${remainShares}**`);
+  }
   if (nextTp) {
     statusLines.push(`Next target:  **$${nextTp.price.toFixed(2)}** (${nextTp.label || "next tier"})`);
   }
   fields.push({ name: "Trim Status", value: statusLines.join("\n"), inline: false });
 
-  // Use accurate title based on actual P&L (don't say "Taking Profit" when P&L is negative)
+  // 3. Setup context
+  const _trimSetup = trade?.setupName || trade?.setup_name || tickerData?.__setupName || null;
+  const _trimGrade = trade?.setupGrade || trade?.setup_grade || tickerData?.__setupGrade || null;
+  if (_trimSetup || _trimGrade) {
+    const _SETUP_MAP = {
+      ema_regime_confirmed_long: "TT Confirmed Long", ema_regime_confirmed_short: "TT Confirmed Short",
+      ema_regime_early_long: "TT Early Long", ema_regime_early_short: "TT Early Short",
+      gold_long: "TT Breakout Long", gold_short: "TT Reversal Short",
+      momentum_score: "TT Momentum", ripster_momentum: "TT Momentum", ripster_pullback: "TT Pullback",
+    };
+    const fmtS = (n) => _SETUP_MAP[n] || (n ? "TT " + n.replace(/^ripster_?/i, "").replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase()) : null);
+    const parts = [];
+    if (_trimSetup) parts.push(`Setup: **${fmtS(_trimSetup)}**`);
+    if (_trimGrade) parts.push(`Grade: **TT ${_trimGrade}**`);
+    fields.push({ name: "Setup", value: parts.join("  |  "), inline: false });
+  }
+
+  // 4. Why We Trimmed
+  const trimReason = trade?.exitReason || tickerData?.__exit_reason || null;
+  const trimReasonMap = {
+    MFE_SAFETY_TRIM: "Price reached safety trim threshold — locking in unrealized gains",
+    PHASE_LEAVE_100: "TT Phase left extreme zone — momentum fading, securing profit",
+    RUNNER_PEAK_TRAIL: "Runner trailing stop triggered — protecting gains from peak",
+  };
+  const humanTrimReason = trimReason ? (trimReasonMap[trimReason] || `Trim triggered: ${trimReason.replace(/_/g, " ")}`) : null;
+  if (humanTrimReason) {
+    fields.push({ name: "Why We Trimmed", value: humanTrimReason, inline: false });
+  }
+
   const isProfit = pnl >= 0;
   const titleEmoji = isProfit ? "💰" : "✂️";
   const titleAction = isProfit ? "Taking Profit" : "Trimming Position";
@@ -21986,7 +22145,7 @@ function createTradeTrimmedEmbed(
     color: isProfit ? 0xf59e0b : 0xef4444,
     fields,
     timestamp: new Date().toISOString(),
-    footer: { text: "Timed Trading Simulator • Not financial advice" },
+    footer: { text: "Timed Trading Model • Not financial advice" },
   };
 }
 
@@ -22038,11 +22197,15 @@ function createTradeClosedEmbed(
     STALL_BREAKEVEN: "Position stalled — closed at breakeven",
     STALL_FORCE_CLOSE: "Untrimmed position stalled — force closed after time limit",
   };
+  exitReasonMap.SMART_RUNNER_TD_EXHAUSTION_RUNNER = "TD exhaustion exit on runner portion";
+  exitReasonMap.SMART_RUNNER_SUPPORT_BREAK_CLOUD = "Support broke below key cloud level";
+  exitReasonMap.SMART_RUNNER_SQUEEZE_RELEASE_AGAINST = "Squeeze released against the position";
+  exitReasonMap.PHASE_LEAVE_100 = "TT Phase left extreme zone — momentum exhausted";
   const rawReason = exitReason || "";
   const humanExitReason = exitReasonMap[rawReason]
     || (rawReason.includes("sl") || rawReason.includes("SL") ? "Hit the stop loss" : null)
     || (rawReason.includes("tp") || rawReason.includes("TP") ? "Profit target reached" : null)
-    || (rawReason ? rawReason.replace(/_/g, " ").replace(/,/g, ", ") : null);
+    || (rawReason ? rawReason.replace(/ripster[_ ]?/gi, "TT ").replace(/_/g, " ").replace(/,/g, ", ") : null);
 
   // Build human-readable description
   const pnlLabel = pnl >= 0 ? `+$${pnl.toFixed(2)}` : `-$${Math.abs(pnl).toFixed(2)}`;
@@ -22073,7 +22236,24 @@ function createTradeClosedEmbed(
     fields.push({ name: "Exit Reason", value: humanExitReason, inline: true });
   }
 
-  // 3. Price Movement
+  // 3. Setup context
+  const _exitSetup = trade?.setupName || trade?.setup_name || tickerData?.__setupName || null;
+  const _exitGrade = trade?.setupGrade || trade?.setup_grade || tickerData?.__setupGrade || null;
+  if (_exitSetup || _exitGrade) {
+    const _SETUP_MAP = {
+      ema_regime_confirmed_long: "TT Confirmed Long", ema_regime_confirmed_short: "TT Confirmed Short",
+      ema_regime_early_long: "TT Early Long", ema_regime_early_short: "TT Early Short",
+      gold_long: "TT Breakout Long", gold_short: "TT Reversal Short",
+      momentum_score: "TT Momentum", ripster_momentum: "TT Momentum", ripster_pullback: "TT Pullback",
+    };
+    const fmtS = (n) => _SETUP_MAP[n] || (n ? "TT " + n.replace(/^ripster_?/i, "").replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase()) : null);
+    const parts = [];
+    if (_exitSetup) parts.push(`Setup: **${fmtS(_exitSetup)}**`);
+    if (_exitGrade) parts.push(`Grade: **TT ${_exitGrade}**`);
+    fields.push({ name: "Setup", value: parts.join("  |  "), inline: false });
+  }
+
+  // 4. Price Movement
   const priceChange = exitPrice - entryPrice;
   fields.push({
     name: "Price Movement",
@@ -22081,7 +22261,6 @@ function createTradeClosedEmbed(
     inline: true,
   });
 
-  // Choose title based on outcome
   let title;
   if (isWin) {
     title = `🏆  Winner: ${ticker} ${direction}  —  ${pctLabel}`;
@@ -22097,7 +22276,7 @@ function createTradeClosedEmbed(
     color,
     fields,
     timestamp: new Date().toISOString(),
-    footer: { text: "Timed Trading Simulator • Not financial advice" },
+    footer: { text: "Timed Trading Model • Not financial advice" },
   };
 }
 
@@ -22203,7 +22382,7 @@ function createKanbanStageEmbed(ticker, stage, prevStage, tickerData = null, ope
     color: cfg.color,
     fields,
     timestamp: new Date().toISOString(),
-    footer: { text: "Timed Trading Simulator • Not financial advice" },
+    footer: { text: "Timed Trading Model • Not financial advice" },
   };
 }
 
@@ -25801,7 +25980,7 @@ export default {
                   fields: fields,
                   timestamp: new Date().toISOString(),
                   footer: {
-                    text: "Timed Trading Simulator",
+                    text: "Timed Trading Model",
                   },
                   url: tv, // Make the title clickable to open TradingView
                 };
@@ -32817,7 +32996,8 @@ export default {
         const sqlFull = `SELECT
             trade_id, ticker, direction, entry_ts, entry_price, rank, rr, status,
             exit_ts, exit_price, exit_reason, trimmed_pct, pnl, pnl_pct,
-            script_version, created_at, updated_at, trim_ts, trim_price
+            script_version, created_at, updated_at, trim_ts, trim_price,
+            setup_name, setup_grade, risk_budget, shares, notional
           FROM trades
           ${where}
           ORDER BY entry_ts DESC, trade_id DESC
@@ -32825,7 +33005,8 @@ export default {
         const sqlWithoutTrimPrice = `SELECT
             trade_id, ticker, direction, entry_ts, entry_price, rank, rr, status,
             exit_ts, exit_price, exit_reason, trimmed_pct, pnl, pnl_pct,
-            script_version, created_at, updated_at, trim_ts
+            script_version, created_at, updated_at, trim_ts,
+            setup_name, setup_grade, risk_budget, shares, notional
           FROM trades
           ${where}
           ORDER BY entry_ts DESC, trade_id DESC
@@ -32833,7 +33014,8 @@ export default {
         const sqlWithoutTrimTs = `SELECT
             trade_id, ticker, direction, entry_ts, entry_price, rank, rr, status,
             exit_ts, exit_price, exit_reason, trimmed_pct, pnl, pnl_pct,
-            script_version, created_at, updated_at
+            script_version, created_at, updated_at,
+            setup_name, setup_grade, risk_budget, shares, notional
           FROM trades
           ${where}
           ORDER BY entry_ts DESC, trade_id DESC
@@ -33182,7 +33364,8 @@ export default {
             `SELECT
               trade_id, ticker, direction, entry_ts, entry_price, rank, rr, status,
               exit_ts, exit_price, exit_reason, trimmed_pct, pnl, pnl_pct,
-              script_version, created_at, updated_at
+              script_version, created_at, updated_at,
+              setup_name, setup_grade, risk_budget, shares, notional
              FROM trades WHERE trade_id = ?1 LIMIT 1`,
           )
           .bind(tradeId)
@@ -35311,6 +35494,9 @@ export default {
         } else {
           allTickers = Object.keys(SECTOR_MAP);
         }
+        // Ensure SPY is always first so market regime is available for all other tickers
+        const spyIdx = allTickers.indexOf("SPY");
+        if (spyIdx > 0) { allTickers.splice(spyIdx, 1); allTickers.unshift("SPY"); }
 
         // Market hours: 9:30 AM to 4:00 PM ET
         const marketOpenMs = nyWallTimeToUtcMs(dateParam, 9, 30, 0);
@@ -35524,6 +35710,7 @@ export default {
         // Bundle cache: skip recomputation when candle count hasn't changed
         // HTF bundles (M/W/D) are identical across all intraday intervals; 4H changes ~twice/day
         const bundleCache = {}; // { `${ticker}:${tf}`: { endIdx, bundle } }
+        const tdSeqCache = {}; // { `${ticker}`: { endIdxKey, tdSeq } }
 
         for (const intervalTs of intervals) {
           for (const ticker of batchTickers) {
@@ -35582,13 +35769,48 @@ export default {
               const result = assembleTickerData(ticker, bundleMap, existing, { rawBars, leadingLtf: replayLeadingLtf });
               if (!result) { skipped++; continue; }
 
+              // Compute TD Sequential from replay candle cache (was missing — caused stale
+              // td_counts in snapshots and bypassed TD exhaustion entry gates entirely).
+              // Uses endIdx-based cache to skip recomputation when candle counts are unchanged.
+              {
+                const _tdSeqTfs = ["10", "30", "60", "240", "D", "W", "M"];
+                let _tdEndIdxKey = "";
+                const _tdSeqCandles = {};
+                for (const tf of _tdSeqTfs) {
+                  const _allC = candleCache[ticker]?.[tf];
+                  if (!_allC || _allC.length < 14) continue;
+                  let _lo = 0, _hi = _allC.length - 1;
+                  while (_lo <= _hi) { const mid = (_lo + _hi) >> 1; if (_allC[mid].ts <= intervalTs) _lo = mid + 1; else _hi = mid - 1; }
+                  const _endIdx = _hi + 1;
+                  _tdEndIdxKey += `${tf}:${_endIdx},`;
+                  if (_endIdx >= 14) _tdSeqCandles[tf] = _allC.slice(Math.max(0, _endIdx - 60), _endIdx);
+                }
+                const _tdCacheKey = ticker;
+                const _tdCached = tdSeqCache[_tdCacheKey];
+                if (_tdCached && _tdCached.endIdxKey === _tdEndIdxKey) {
+                  result.td_sequential = _tdCached.tdSeq;
+                } else if (Object.keys(_tdSeqCandles).length > 0) {
+                  const _htfBull = (result.htf_score || 0) >= 0;
+                  const _tdSeq = computeTDSequentialMultiTF(_tdSeqCandles, _htfBull);
+                  result.td_sequential = _tdSeq;
+                  tdSeqCache[_tdCacheKey] = { endIdxKey: _tdEndIdxKey, tdSeq: _tdSeq };
+                }
+              }
+
               // Inject golden profiles + adaptive gates + three-tier regime for entry parity
               {
                 const _rSector = SECTOR_MAP[ticker] || "Unknown";
                 // In replay, derive market/sector regime from stateMap (latest scored data per ticker)
                 const _rSpyData = stateMap["SPY"];
                 const _rMktRegime = _rSpyData?.regime_class
-                  ? { regime: _rSpyData.regime_class, score: _rSpyData.regime_score || 0 } : null;
+                  ? {
+                    regime: _rSpyData.regime_class,
+                    score: _rSpyData.regime_score || 0,
+                    htf_score: _rSpyData.htf_score ?? null,
+                    ema_regime_daily: _rSpyData.ema_regime_daily ?? 0,
+                    swing_dir: _rSpyData.swing_consensus?.direction || null,
+                    combined: _rSpyData.regime?.combined || null,
+                  } : null;
                 const _sectorETFs = require("./sector-mapping.js").SECTOR_ETF_MAP || {};
                 const _rSectorETF = _sectorETFs[_rSector];
                 const _rSectorData = _rSectorETF ? stateMap[_rSectorETF] : null;
@@ -49574,7 +49796,14 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
         try {
           const spyData = await kvGetJSON(KV, "timed:latest:SPY");
           if (spyData?.regime_class) {
-            _marketRegimeObj = { regime: spyData.regime_class, score: spyData.regime_score || 0 };
+            _marketRegimeObj = {
+              regime: spyData.regime_class,
+              score: spyData.regime_score || 0,
+              htf_score: spyData.htf_score ?? null,
+              ema_regime_daily: spyData.ema_regime_daily ?? 0,
+              swing_dir: spyData.swing_consensus?.direction || null,
+              combined: spyData.regime?.combined || null,
+            };
           }
         } catch (_) {}
         env._marketRegime = _marketRegimeObj;
