@@ -11471,7 +11471,9 @@ async function processTradeSimulation(
           const _daDangerMult = Number(tickerData?.__da_danger_size_mult) || 1.0;
           const _daMeanRevertMult = Number(tickerData?.__da_mean_revert_size_mult) || 1.0;
           const _spySizeMult = Number(tickerData?.__spy_size_mult) || 1.0;
-          const _rawCombinedMult = regimePosMultiplier * _daRegimeSizeMult * _daRvolHighMult * _daDangerMult * _daMeanRevertMult * _spySizeMult;
+          const _miOverall = String(tickerData?._marketInternals?.overall || tickerData?._env?._marketInternals?.overall || "");
+          const _miSizeMult = _miOverall === "risk_off" ? 0.5 : _miOverall === "balanced" ? 0.8 : 1.0;
+          const _rawCombinedMult = regimePosMultiplier * _daRegimeSizeMult * _daRvolHighMult * _daDangerMult * _daMeanRevertMult * _spySizeMult * _miSizeMult;
           const SIZING_MULT_FLOOR = 0.30;
           const _effectiveMult = Math.max(SIZING_MULT_FLOOR, _rawCombinedMult);
           const regimeAdjustedNotional = sizing.notional * _effectiveMult;
@@ -11479,7 +11481,7 @@ async function processTradeSimulation(
           notional = Math.min(regimeAdjustedNotional, cash);
           shares = notional / entryPx;
           pointValue = 1;
-          sizingMeta = { ...sizing, regimePosMultiplier };
+          sizingMeta = { ...sizing, regimePosMultiplier, miSizeMult: _miSizeMult, effectiveMult: _effectiveMult };
         } else {
           shares = null;
           notional = null;
@@ -13744,7 +13746,9 @@ async function processTradeSimulation(
             // v3: Regime-adaptive position sizing (live path)
             const _regimePosM = tickerData?.regime_params?.positionSizeMultiplier ?? 1.0;
             const _spySizeM = Number(tickerData?.__spy_size_mult) || 1.0;
-            const _combinedPosM = _regimePosM * _spySizeM;
+            const _liveMiOverall = String(tickerData?._marketInternals?.overall || tickerData?._env?._marketInternals?.overall || "");
+            const _liveMiSizeM = _liveMiOverall === "risk_off" ? 0.5 : _liveMiOverall === "balanced" ? 0.8 : 1.0;
+            const _combinedPosM = _regimePosM * _spySizeM * _liveMiSizeM;
             if (_combinedPosM < 1.0 && trade.shares > 0) {
               trade.shares = trade.shares * _combinedPosM;
               trade.regimePosMultiplier = _combinedPosM;
@@ -13752,7 +13756,7 @@ async function processTradeSimulation(
                 trade.history[0].shares = trade.shares;
                 trade.history[0].value = entryPrice * trade.shares;
               }
-              console.log(`[REGIME_SIZE] ${ticker} ${direction}: shares scaled by ${_combinedPosM}x (regime=${tickerData?.regime_class}, spy=${_spySizeM})`);
+              console.log(`[REGIME_SIZE] ${ticker} ${direction}: shares scaled by ${_combinedPosM}x (regime=${tickerData?.regime_class}, spy=${_spySizeM}, mi=${_liveMiOverall || "n/a"})`);
             }
 
             allTrades.push(trade);
@@ -23339,6 +23343,25 @@ async function loadLatestPredictionTicker(env, ticker) {
   let d1Stage = null;
   let d1PrevStage = null;
   let d1UpdatedAt = null;
+  // Prefer scoring cron's snapshot (timed:all:snapshot) — it's the authoritative source
+  // for the /timed/all endpoint and the viewport cards. Using the same source ensures
+  // the right rail direction matches the viewport. timed:latest:* KV can flip-flop
+  // between scoring cron and ingest handler writes which disagree on state.
+  try {
+    const snapshot = await kvGetJSON(env?.KV_TIMED, "timed:all:snapshot");
+    if (snapshot?.data?.[sym] && typeof snapshot.data[sym] === "object") {
+      data = snapshot.data[sym];
+    }
+  } catch (_) {}
+  // Fallback: timed:latest:* KV
+  if (!data) {
+    try {
+      const kvData = await kvGetJSON(env?.KV_TIMED, `timed:latest:${sym}`);
+      if (kvData && typeof kvData === "object" && Number(kvData.ingest_ts) > 0) {
+        data = kvData;
+      }
+    } catch (_) {}
+  }
   try {
     if (env?.DB) {
       await d1EnsureLatestSchema(env);
@@ -23352,12 +23375,11 @@ async function loadLatestPredictionTicker(env, ticker) {
         d1PrevStage = row.prev_kanban_stage != null ? String(row.prev_kanban_stage) : null;
         d1UpdatedAt = Number(row.updated_at);
       }
-      if (row?.payload_json) {
+      if (!data && row?.payload_json) {
         try { data = JSON.parse(String(row.payload_json)); } catch { data = null; }
       }
     }
   } catch (_) {}
-  if (!data) data = await kvGetJSON(env?.KV_TIMED, `timed:latest:${sym}`);
   if (!data || typeof data !== "object") return null;
 
   const capture = await kvGetJSON(env?.KV_TIMED, `timed:capture:latest:${sym}`);
@@ -23803,21 +23825,6 @@ export default {
               );
             },
           );
-
-          // ── Replay lock: skip KV latest writes if a replay is in progress ──
-          // Candle D1 writes and receipt logging still happen, but we don't
-          // overwrite the replay's scored KV state with raw capture data.
-          let _replayLockActive = false;
-          try {
-            const replayLock = await kvGetJSON(KV, "timed:replay:running");
-            if (replayLock && typeof replayLock === "object" && replayLock.since) {
-              const lockAge = Date.now() - replayLock.since;
-              if (lockAge < 15 * 60 * 1000) { // 15 min expiry
-                _replayLockActive = true;
-                console.log(`[INGEST] ${ticker} — replay in progress, skipping KV latest write`);
-              }
-            }
-          } catch { /* non-critical */ }
 
           // Migrate BRK.B to BRK-B if needed (TradingView sends BRK.B, but we use BRK-B)
           // Check BEFORE normalization to catch BRK.B from TradingView
@@ -25186,9 +25193,10 @@ export default {
 
           // Store latest (do this BEFORE alert so UI has it)
           // Delta-based write: skip if no meaningful change to reduce KV write pressure
-          // ALSO skip if replay is in progress (replay's scored state takes precedence)
+          // NOTE: replay uses its own in-memory state (replayCtx) + D1, never timed:latest:* KV,
+          // so live scoring must always write here to keep the frontend current.
           const _kvWriteNeeded = hasPayloadChangedMeaningfully(existing, payload);
-          if (_kvWriteNeeded && !_replayLockActive) {
+          if (_kvWriteNeeded) {
             await kvPutJSON(KV, `timed:latest:${ticker}`, payload);
           }
 
@@ -26568,19 +26576,6 @@ export default {
             }
           }
 
-          // ── Replay lock: skip KV latest writes if a replay is in progress ──
-          let _replayLockActive = false;
-          try {
-            const replayLock = await kvGetJSON(KV, "timed:replay:running");
-            if (replayLock && typeof replayLock === "object" && replayLock.since) {
-              const lockAge = Date.now() - replayLock.since;
-              if (lockAge < 15 * 60 * 1000) {
-                _replayLockActive = true;
-                console.log(`[CAPTURE] ${ticker} — replay in progress, skipping KV latest write`);
-              }
-            }
-          } catch { /* non-critical */ }
-
           // --- Server-side re-score when capture has candles but no scores ---
           // The Capture Heartbeat sends OHLCV but not scores. After upserting candles
           // to D1, re-compute scores from the full candle history so timed:latest stays fresh.
@@ -26607,10 +26602,7 @@ export default {
                 scored.ingest_ts = payload.ingest_ts;
                 scored.ingest_time = payload.ingest_time;
                 scored.ingest_kind = "capture+server_score";
-                // Save to KV + D1 (skip KV if replay in progress)
-                if (!_replayLockActive) {
-                  await kvPutJSON(KV, `timed:latest:${ticker}`, scored);
-                }
+                await kvPutJSON(KV, `timed:latest:${ticker}`, scored);
                 ctx.waitUntil(d1UpsertTickerLatest(env, ticker, scored));
                 captureServerScored = true;
                 console.log(`[CAPTURE SCORE] ${ticker}: server-side re-scored, price=${scored.price}, htf=${scored.htf_score}, ltf=${scored.ltf_score}`);
@@ -26910,9 +26902,7 @@ export default {
                 );
               }
 
-              if (!_replayLockActive) {
-                await kvPutJSON(KV, `timed:latest:${ticker}`, payload);
-              }
+              await kvPutJSON(KV, `timed:latest:${ticker}`, payload);
 
               // Upsert latest snapshot to D1 for fast UI reads (best-effort)
               try {
@@ -27852,16 +27842,16 @@ export default {
                     }
                   }
 
-                  // Pick best prev_close: daily candle > pf.pc (if divergent) > stored
+                  // Pick best prev_close: TwelveData pf.pc (authoritative) > daily candle > stored
                   const dailyCandlePc = pcCache[sym] || 0;
                   const pfPc = Number(pf.pc);
                   const pfP = Number(pf.p);
                   const pfPcUsable = Number.isFinite(pfPc) && pfPc > 0 && pfP > 0
                     && (Math.abs(pfPc - pfP) / pfP * 100) > 0.05;
-                  let bestPc = dailyCandlePc > 0
-                    ? dailyCandlePc
-                    : pfPcUsable
-                      ? pfPc
+                  let bestPc = pfPcUsable
+                    ? pfPc
+                    : dailyCandlePc > 0
+                      ? dailyCandlePc
                       : (obj.prev_close || obj._live_prev_close || 0);
                   // Sanity: skip extreme daily change (>25%)
                   if (bestPc > 0 && pfP > 0 && Math.abs((pfP - bestPc) / bestPc * 100) > 25) {
@@ -27872,7 +27862,6 @@ export default {
                   // Apply daily change from price feed if non-zero
                   const pfDc = Number(pf.dc);
                   const pfDp = Number(pf.dp);
-                  if (sym === "MSFT") data._debug_msft = { pfDp, pfDc, pfPc: Number(pf.pc), pfPcUsable, bestPc, dailyCandlePc: pcCache[sym] || 0 };
                   if (Number.isFinite(pfDp) && pfDp !== 0) {
                     obj.day_change_pct = pfDp;
                     obj.change_pct = pfDp;
@@ -27882,7 +27871,7 @@ export default {
                     }
                     // Trust pfPc when price feed has session-aware daily change
                     const feedPc = pfPcUsable ? pfPc : bestPc;
-                    if (feedPc > 0) { obj.prev_close = feedPc; obj._live_prev_close = feedPc; }
+                    if (feedPc > 0) { obj.prev_close = feedPc; obj._live_prev_close = feedPc; obj._td_pc_set = true; }
                   } else if (!Number.isFinite(Number(obj.day_change_pct)) || Number(obj.day_change_pct) === 0) {
                     // Price feed has no daily change AND snapshot has none — compute from bestPc
                     if (bestPc > 0 && pfP > 0) {
@@ -27894,6 +27883,7 @@ export default {
                         obj.change = computedDc;
                         obj.change_pct = computedDp;
                         obj.prev_close = bestPc;
+                        if (pfPcUsable) obj._td_pc_set = true;
                       }
                     }
                   }
@@ -28034,7 +28024,7 @@ export default {
                       obj.close = todayClose;
                     }
                   }
-                  if (pc > 0) {
+                  if (pc > 0 && !obj._td_pc_set) {
                     const effectivePrice = Number(obj.price) || obj.close || 0;
                     if (effectivePrice > 0 && Math.abs((effectivePrice - pc) / pc * 100) < 30) {
                       obj.prev_close = pc;
@@ -28718,17 +28708,16 @@ export default {
                 // ONLY update live price from timed:prices.
                 obj.price = pf.p;
                 obj._live_price = pf.p;
-                // Pick best prev_close: daily candle > price feed pc > D1 stored > fallback
-                // Daily candle is the authoritative source (yesterday's actual 4pm ET close).
+                // Pick best prev_close: TwelveData pf.pc (authoritative) > daily candle > stored
                 const dailyCandlePc = allDailyPcMap[sym] || 0;
                 const pfPc = Number(pf.pc);
                 const pfP = Number(pf.p);
                 const pfPcUsable = Number.isFinite(pfPc) && pfPc > 0 && pfP > 0
                   && (Math.abs(pfPc - pfP) / pfP * 100) > 0.05;
-                let bestPc = dailyCandlePc > 0
-                  ? dailyCandlePc
-                  : pfPcUsable
-                    ? pfPc
+                let bestPc = pfPcUsable
+                  ? pfPc
+                  : dailyCandlePc > 0
+                    ? dailyCandlePc
                     : (obj.prev_close || obj._live_prev_close || undefined);
                 // Sanity check: if bestPc gives extreme daily change (>25%), skip it
                 if (bestPc > 0 && pf.p > 0 && Math.abs((pf.p - bestPc) / bestPc * 100) > 25) {
@@ -29903,9 +29892,15 @@ export default {
             );
           }
 
-          // Most recent candle close = reference price
-          const latestClose = Number(candles[0].close);
+          // Use live price from KV when available (captures intraday moves)
+          const candleClose = Number(candles[0].close);
           const latestTs = Number(candles[0].ts);
+          let latestClose = candleClose;
+          try {
+            const pf = await kvGetJSON(env.KV_TIMED, "timed:prices");
+            const livePrice = pf?.[t]?.p || pf?.[t]?.price;
+            if (livePrice && Number(livePrice) > 0) latestClose = Number(livePrice);
+          } catch { /* fall back to candle close */ }
 
           // Build performance for each period
           const periods = [
@@ -35730,6 +35725,22 @@ export default {
             console.log(`[REPLAY] Loaded ${vixCandles.length} VIX daily candles for historical VIX injection`);
           }
         } catch {}
+
+        // Pre-load sector ETF D1 candles for market internals (sector rotation).
+        // candleCache only contains the current batch's tickers — sector ETFs may
+        // not be in the batch, so we load them explicitly here.
+        const _replaySectorCandles = {}; // { SYM: [D candles asc] }
+        try {
+          const sectorSyms = [...new Set([...CARTER_OFFENSE_SECTORS, ...CARTER_DEFENSE_SECTORS])];
+          await Promise.all(sectorSyms.map(async (sym) => {
+            try {
+              const res = await d1GetCandlesAllTfs(replayEnv, sym, [{ tf: "D", limit: 600 }], {});
+              const candles = res?.D?.ok ? (res.D.candles || []) : [];
+              if (candles.length > 10) _replaySectorCandles[sym] = candles;
+            } catch {}
+          }));
+          console.log(`[REPLAY] Loaded sector ETF D1 candles: ${Object.entries(_replaySectorCandles).map(([s,c]) => `${s}=${c.length}`).join(", ")}`);
+        } catch {}
         if (_replayVixCandles.length === 0) {
         try {
           const vixData = await kvGetJSON(KV, "timed:latest:VIX");
@@ -35783,7 +35794,8 @@ export default {
         {
           const _avg = (arr) => arr.length ? arr.reduce((s, n) => s + n, 0) / arr.length : null;
           const _getSectorPctChange = (sym) => {
-            const dCandles = candleCache[sym]?.D;
+            // Use pre-loaded sector ETF candles (loaded outside the batch loop)
+            const dCandles = _replaySectorCandles[sym] || candleCache[sym]?.D;
             if (!dCandles || dCandles.length < 2) return null;
             let lastIdx = dCandles.length - 1;
             while (lastIdx >= 0 && dCandles[lastIdx].ts > marketCloseMs) lastIdx--;
@@ -38298,6 +38310,47 @@ export default {
             } catch (scoreErr) {
               console.warn(`[USER_TICKERS] Score-only failed for ${rawTicker}:`, String(scoreErr?.message || scoreErr).slice(0, 150));
             }
+          }
+
+          // Kick off investor scoring in background so the Investor tab works immediately
+          if (!isInCore) {
+            ctx.waitUntil((async () => {
+              try {
+                const td = scoredData || seedPayload || await kvGetJSON(KV, `timed:latest:${rawTicker}`);
+                if (!td || !(Number(td.price) > 0)) return;
+                let spyCandles = [];
+                try {
+                  const spyResp = await env.DB.prepare(
+                    "SELECT ts, c FROM ticker_candles WHERE ticker = 'SPY' AND tf = 'D' ORDER BY ts ASC LIMIT 300"
+                  ).all();
+                  spyCandles = spyResp?.results || [];
+                } catch {}
+                let tickerCandles = [];
+                try {
+                  const tcResp = await env.DB.prepare(
+                    "SELECT ts, c FROM ticker_candles WHERE ticker = ?1 AND tf = 'D' ORDER BY ts ASC LIMIT 300"
+                  ).bind(rawTicker).all();
+                  tickerCandles = tcResp?.results || [];
+                } catch {}
+                const rs = computeRelativeStrength(tickerCandles, spyCandles);
+                const existingScores = await kvGetJSON(KV, "timed:investor:scores") || {};
+                const health = await kvGetJSON(KV, "timed:investor:market-health");
+                const { score, components, accumZone } = computeInvestorScore(td, {
+                  rsRank: 50, sectorRsRank: 50, marketHealth: health?.score || 50,
+                });
+                existingScores[rawTicker] = {
+                  score, components, accumZone,
+                  rsRank: 50,
+                  rs3m: rs.rs3m,
+                  sector: SECTOR_MAP[rawTicker] || "Unknown",
+                  price: Number(td.price),
+                };
+                await kvPutJSON(KV, "timed:investor:scores", existingScores);
+                console.log(`[USER_TICKERS] Investor scored ${rawTicker}: score=${score}`);
+              } catch (e) {
+                console.warn(`[USER_TICKERS] Investor scoring failed for ${rawTicker}:`, String(e?.message || e).slice(0, 200));
+              }
+            })());
           }
 
           console.log(`[USER_TICKERS] ${user.email} ${isReseed ? "re-seeded" : "added"} ${rawTicker} (core: ${isInCore}, backfill: ${backfillTriggered}, scored: ${!!scoredData}, seeded: ${seeded})`);
@@ -43643,14 +43696,14 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
       // This runs the full investor scoring pipeline and stores results in KV
       if (routeKey === "POST /timed/investor/compute") {
         try {
-          // Use same universe as replay (SECTOR_MAP ~152) so Investor page count matches replay
           const canonicalTickers = Object.keys(SECTOR_MAP);
           const kvTickers = (await kvGetJSON(env.KV_TIMED, "timed:tickers")) || [];
           const tickerListResp = url.searchParams.get("universe") === "all"
             ? kvTickers
             : canonicalTickers;
-          const allTickers = Array.isArray(tickerListResp) ? tickerListResp : [];
-          const tickerSyms = allTickers.map(t => typeof t === "string" ? t : t.ticker).filter(Boolean);
+          const baseTickers = (Array.isArray(tickerListResp) ? tickerListResp : []).map(t => typeof t === "string" ? t : t.ticker).filter(Boolean);
+          const userTickers = await d1GetActiveUserTickersCached(env);
+          const tickerSyms = [...new Set([...baseTickers, ...userTickers])];
 
           // Get SPY candles for relative strength
           let spyCandles = [];
@@ -48820,8 +48873,8 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
     const vc = new Set();
 
     if (_isEveryMin) {
-      // Price feed
-      if (_isWeekday && _utcH >= 9 && _utcH <= 23) vc.add("*/1 9-23 * * 1-5");
+      // Price feed — UTC 8-23 covers both EDT (4AM=08 UTC) and EST (4AM=09 UTC)
+      if (_isWeekday && _utcH >= 8 && _utcH <= 23) vc.add("*/1 9-23 * * 1-5");
       if (_utcDay >= 2 && _utcDay <= 6 && _utcH <= 1)  vc.add("*/1 0-1 * * 2-6");
       if (_utcDay === 0 && _utcH >= 22)                 vc.add("*/5 22-23 * * 7");
       // Overnight crypto: fills the UTC 2-8 gap (9 PM - 3 AM ET) for 24/7 crypto prices.
@@ -48830,26 +48883,27 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
     }
     if (_isEvery5Min) {
       vc.add("*/5 * * * *");
-      // Alpaca bars: unified 5-min cadence during operating hours (4AM-8PM ET = 9-23 UTC + 0-1 UTC next day)
-      if (_isWeekday && _utcH >= 9 && _utcH <= 23)                vc.add("*/5 9-23 * * 1-5");
+      // Alpaca bars: operating hours 4AM-8PM ET = UTC 8-23 (EDT) / 9-23 (EST) + 0-1 next day
+      if (_isWeekday && _utcH >= 8 && _utcH <= 23)                vc.add("*/5 9-23 * * 1-5");
       if (_utcDay >= 2 && _utcDay <= 6 && _utcH <= 1)             vc.add("*/5 0-1 * * 2-6");
       if (_isWeekday && _utcM % 15 === 0)                          vc.add("*/15 * * * 1-5");
       if (_utcH % 6 === 0 && _utcM === 0)                          vc.add("0 */6 * * *");
-      if (_isWeekday && _utcH === 14 && _utcM === 45)              vc.add("45 14 * * 1-5");
-      if (_isWeekday && _utcH === 17 && _utcM === 0)               vc.add("0 17 * * 1-5");
-      if (_isWeekday && _utcH === 20 && _utcM === 30)              vc.add("30 20 * * 1-5");
-      if (_utcDay === 5 && _utcH === 21 && _utcM === 15)           vc.add("15 21 * * 5");
-      if (_isWeekday && _utcH === 21 && _utcM === 30)              vc.add("30 21 * * 1-5");
+      if (_isWeekday && (_utcH === 13 || _utcH === 14) && _utcM === 45) vc.add("45 14 * * 1-5");
+      if (_isWeekday && (_utcH === 16 || _utcH === 17) && _utcM === 0)  vc.add("0 17 * * 1-5");
+      if (_isWeekday && (_utcH === 19 || _utcH === 20) && _utcM === 30) vc.add("30 20 * * 1-5");
+      if (_utcDay === 5 && (_utcH === 20 || _utcH === 21) && _utcM === 15) vc.add("15 21 * * 5");
+      if (_isWeekday && (_utcH === 20 || _utcH === 21) && _utcM === 30)    vc.add("30 21 * * 1-5");
     }
     if (_isHourly) {
-      if (_isWeekday && _utcH >= 14 && _utcH <= 21)                vc.add("0 14-21 * * 1-5");
-      if (_utcDay === 6 && _utcH === 15)                           vc.add("0 15 * * 6");
-      if (_isWeekday && _utcH === 14)                               vc.add("0 14 * * 1-5");
-      if (_isWeekday && _utcH === 22)                               vc.add("0 22 * * 1-5");
-      if (_isWeekday && _utcH === 8)                                vc.add("0 8 * * 1-5");
-      if (_isWeekday && _utcH === 12)                               vc.add("0 12 * * 1-5");
+      // DST-safe: fire on both EST and EDT UTC hours; ET sanity checks in handlers deduplicate
+      if (_isWeekday && _utcH >= 13 && _utcH <= 21)                vc.add("0 14-21 * * 1-5");
+      if (_utcDay === 6 && (_utcH === 14 || _utcH === 15))         vc.add("0 15 * * 6");
+      if (_isWeekday && (_utcH === 13 || _utcH === 14))             vc.add("0 14 * * 1-5");
+      if (_isWeekday && (_utcH === 21 || _utcH === 22))             vc.add("0 22 * * 1-5");
+      if (_isWeekday && (_utcH === 7 || _utcH === 8))               vc.add("0 8 * * 1-5");
+      if (_isWeekday && (_utcH === 11 || _utcH === 12))             vc.add("0 12 * * 1-5");
       if (_utcH === 4)                                              vc.add("0 4 * * *");
-      if (_utcDay === 1 && _utcH === 15)                            vc.add("0 15 * * 1");
+      if (_utcDay === 1 && (_utcH === 14 || _utcH === 15))          vc.add("0 15 * * 1");
     }
 
     console.log(`[CRON] ${event.cron} → [${[...vc].join(", ")}] at ${_utcH}:${String(_utcM).padStart(2,"0")} day=${_utcDay}`);
@@ -48879,10 +48933,10 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
     // The cron-based pipeline was removed because it exceeded Worker timeout limits
     // and overloaded D1. See tasks/lessons.md for details.
 
-    // Weekly Retrospective: Fridays at 9:15 PM UTC (4:15 PM ET, after market close)
-    // Evaluates pattern performance, detects regime shifts, writes proposals.
-    if (vc.has("15 21 * * 5")) {
-      if (env?.DB) {
+    // Weekly Retrospective: Fridays at 4:15 PM ET (20:15 UTC in EDT, 21:15 UTC in EST)
+    if (vc.has("15 20 * * 5") || vc.has("15 21 * * 5")) {
+      const _retroEtH = parseInt(new Date().toLocaleString("en-US", { timeZone: "America/New_York", hour: "numeric", hour12: false }), 10);
+      if (_retroEtH === 16 && env?.DB) {
         ctx.waitUntil(
           runWeeklyRetrospective(env.DB)
             .then((r) => console.log(`[MODEL RETRO] Weekly retrospective: ${r.resolved} resolved, ${r.proposals.length} proposals, ${r.regimeShifts.length} regime shifts`))
@@ -48911,9 +48965,9 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
       }
     }
 
-    // ── Investor Intelligence: hourly scoring refresh (top of hour, 9AM-4PM ET = 14-21 UTC, Mon-Fri) ──
-    // Keeps investor scores fresh during market hours. Does NOT trigger DCA (that's daily only).
-    if (vc.has("0 14-21 * * 1-5")) {
+    // ── Investor Intelligence: hourly scoring refresh (top of hour, 9AM-4PM ET, Mon-Fri) ──
+    // 13-21 UTC covers both EDT (13=9AM) and EST (14=9AM) through close.
+    if (vc.has("0 13-21 * * 1-5")) {
       ctx.waitUntil((async () => {
         try {
           const selfUrl = env.WORKER_URL || "https://timed-trading-ingest.shashant.workers.dev";
@@ -48928,10 +48982,10 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
       // Don't return — let other cron handlers run too if they match
     }
 
-    // ── Investor Intelligence: daily scoring + DCA execution (4:30 PM ET = 21:30 UTC, Mon-Fri) ──
-    // Self-invokes the existing POST endpoints to reuse all logic.
-    if (vc.has("30 21 * * 1-5")) {
-      ctx.waitUntil((async () => {
+    // ── Investor Intelligence: daily scoring + DCA execution (4:30 PM ET — 20:30 UTC in EDT, 21:30 UTC in EST) ──
+    if (vc.has("30 20 * * 1-5") || vc.has("30 21 * * 1-5")) {
+      const _dcaEtH = parseInt(new Date().toLocaleString("en-US", { timeZone: "America/New_York", hour: "numeric", hour12: false }), 10);
+      if (_dcaEtH === 16) ctx.waitUntil((async () => {
         try {
           const selfUrl = env.WORKER_URL || "https://timed-trading-ingest.shashant.workers.dev";
 
@@ -48959,9 +49013,10 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
       // Don't return — let other cron handlers run too if they match
     }
 
-    // ── Investor Intelligence: weekly digest (Saturday 10 AM ET = 15:00 UTC) ──
-    if (vc.has("0 15 * * 6")) {
-      ctx.waitUntil((async () => {
+    // ── Investor Intelligence: weekly digest (Saturday 10 AM ET — 14:00 UTC in EDT, 15:00 UTC in EST) ──
+    if (vc.has("0 14 * * 6") || vc.has("0 15 * * 6")) {
+      const _digEtH = parseInt(new Date().toLocaleString("en-US", { timeZone: "America/New_York", hour: "numeric", hour12: false }), 10);
+      if (_digEtH === 10) ctx.waitUntil((async () => {
         try {
           console.log("[INVESTOR DIGEST] Triggering weekly digest...");
           const selfUrl = env.WORKER_URL || "https://timed-trading-ingest.shashant.workers.dev";
@@ -48975,9 +49030,10 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
       // Don't return — allow other handlers
     }
 
-    // ── Re-engagement Emails: Monday 10 AM ET (15:00 UTC) ──
-    if (vc.has("0 15 * * 1")) {
-      ctx.waitUntil((async () => {
+    // ── Re-engagement Emails: Monday 10 AM ET (14:00 UTC in EDT, 15:00 UTC in EST) ──
+    if (vc.has("0 14 * * 1") || vc.has("0 15 * * 1")) {
+      const _reEngEtH = parseInt(new Date().toLocaleString("en-US", { timeZone: "America/New_York", hour: "numeric", hour12: false }), 10);
+      if (_reEngEtH === 10) ctx.waitUntil((async () => {
         try {
           if (!env?.DB || !env?.SENDGRID_API_KEY || env?.EMAIL_ENABLED !== "true") return;
           const KV = env?.KV_TIMED;
@@ -49029,12 +49085,11 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
       })());
     }
 
-    // ── Daily Brief: Morning (9 AM ET = 14:00 UTC) ──
-    if (vc.has("0 14 * * 1-5")) {
-      // Check if it's actually morning in ET (handles EST vs EDT)
+    // ── Daily Brief: Morning (9 AM ET — 13:00 UTC in EDT, 14:00 UTC in EST) ──
+    if (vc.has("0 13 * * 1-5") || vc.has("0 14 * * 1-5")) {
       const etHour = new Date().toLocaleString("en-US", { timeZone: "America/New_York", hour: "numeric", hour12: false });
       const h = parseInt(etHour, 10);
-      if (h >= 8 && h <= 10) {
+      if (h === 9) {
         ctx.waitUntil((async () => {
           try {
             console.log("[DAILY BRIEF CRON] Generating morning brief...");
@@ -49053,11 +49108,11 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
       // Don't return — allow other handlers
     }
 
-    // ── Daily Brief: Evening (5 PM ET = 22:00 UTC) ──
-    if (vc.has("0 22 * * 1-5")) {
+    // ── Daily Brief: Evening (5 PM ET — 21:00 UTC in EDT, 22:00 UTC in EST) ──
+    if (vc.has("0 21 * * 1-5") || vc.has("0 22 * * 1-5")) {
       const etHour = new Date().toLocaleString("en-US", { timeZone: "America/New_York", hour: "numeric", hour12: false });
       const h = parseInt(etHour, 10);
-      if (h >= 16 && h <= 18) {
+      if (h === 17) {
         ctx.waitUntil((async () => {
           try {
             console.log("[DAILY BRIEF CRON] Generating evening brief...");
@@ -49075,20 +49130,21 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
       }
     }
 
-    // ── Daily Brief: Cleanup (3 AM ET = 08:00 UTC) ──
-    if (vc.has("0 8 * * 1-5")) {
+    // ── Daily Brief: Cleanup (3 AM ET — 07:00 UTC in EDT, 08:00 UTC in EST) ──
+    if (vc.has("0 7 * * 1-5") || vc.has("0 8 * * 1-5")) {
       const etHour = new Date().toLocaleString("en-US", { timeZone: "America/New_York", hour: "numeric", hour12: false });
       const h = parseInt(etHour, 10);
-      if (h >= 2 && h <= 4) {
+      if (h === 3) {
         ctx.waitUntil(cleanupDailyBrief(env));
       }
     }
 
     // ── ETF Holdings Sync (7 AM ET = 12:00 UTC) ──
-    if (vc.has("0 12 * * 1-5")) {
+    // ── ETF Holdings Sync (7 AM ET — 11:00 UTC in EDT, 12:00 UTC in EST) ──
+    if (vc.has("0 11 * * 1-5") || vc.has("0 12 * * 1-5")) {
       const etHour = new Date().toLocaleString("en-US", { timeZone: "America/New_York", hour: "numeric", hour12: false });
       const h = parseInt(etHour, 10);
-      if (h >= 6 && h <= 8) {
+      if (h === 7) {
         ctx.waitUntil((async () => {
           try {
             console.log("[ETF SYNC CRON] Syncing ETF holdings from grannyshots.com...");
@@ -49798,14 +49854,16 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           return;
         }
 
-        // Skip scoring if a replay is in progress (prevents overwriting replay trades)
+        // When a replay/backtest is running, still score + rebuild the KV snapshot
+        // (so the frontend stays fast), but skip trade execution to avoid interfering
+        // with replay trades. Stale locks (>15 min) are auto-cleared.
+        let _replayActive = false;
         const replayLock = await kvGetJSON(KV, "timed:replay:running");
         if (replayLock && typeof replayLock === "object" && replayLock.since) {
           const lockAge = Date.now() - replayLock.since;
-          // Auto-expire stale locks after 15 minutes (multi-batch replay can take 3-5 min)
           if (lockAge < 15 * 60 * 1000) {
-            console.log(`[SCORING CRON] Skipping — replay in progress (started ${Math.round(lockAge / 1000)}s ago)`);
-            return;
+            _replayActive = true;
+            console.log(`[SCORING CRON] Replay in progress (${Math.round(lockAge / 1000)}s) — scoring + snapshot only, no trade execution`);
           } else {
             console.warn(`[SCORING CRON] Stale replay lock (${Math.round(lockAge / 1000)}s old), clearing and proceeding`);
             await kvPutJSON(KV, "timed:replay:running", null);
@@ -50446,16 +50504,25 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                 if (!lp || !(Number(lp.p) > 0)) continue;
                 const obj = snapshot[sym];
                 const existingPx = Number(obj.price) || 0;
-                if (existingPx > 0 && Math.abs(Number(lp.p) - existingPx) / existingPx < 0.001) continue;
-                obj.price = lp.p;
-                obj.close = lp.p;
-                obj._price_updated_at = lp.t || Date.now();
-                if (Number(lp.pc) > 0) obj.prev_close = lp.pc;
+                const priceChanged = !(existingPx > 0 && Math.abs(Number(lp.p) - existingPx) / existingPx < 0.001);
+                if (priceChanged) {
+                  obj.price = lp.p;
+                  obj.close = lp.p;
+                  obj._price_updated_at = lp.t || Date.now();
+                }
+                // Always sync prev_close and day_change from KV — these can be stale
+                // in the snapshot even when the price hasn't moved (e.g. after market open
+                // when prev_close shifts but price is similar to yesterday's close).
+                if (Number(lp.pc) > 0 && lp.pc !== obj.prev_close) {
+                  obj.prev_close = lp.pc;
+                  overlaidCount++;
+                }
                 if (Number.isFinite(lp.dc) && lp.dc !== 0) {
                   obj.day_change = lp.dc;
                   obj.day_change_pct = lp.dp;
+                } else if (priceChanged) {
+                  overlaidCount++;
                 }
-                overlaidCount++;
               }
               if (overlaidCount > 0) console.log(`[SCORING] Snapshot price overlay: ${overlaidCount} tickers updated from timed:prices`);
             } catch (overlayErr) {

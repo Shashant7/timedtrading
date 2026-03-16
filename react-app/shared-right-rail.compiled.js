@@ -2084,6 +2084,7 @@
         fetchLedgerTrades();
         return () => {
           cancelled = true;
+          setLedgerTradesLoading(false);
         };
       }, [tickerSymbol, railTab]);
 
@@ -2724,13 +2725,16 @@
         }), /*#__PURE__*/React.createElement("span", {
           className: "ml-2 text-[#6b7280] text-sm"
         }, "Loading investor data\u2026"));
-        if (investorError) return /*#__PURE__*/React.createElement("div", {
-          className: "py-8 text-center"
-        }, /*#__PURE__*/React.createElement("p", {
-          className: "text-red-400 text-sm mb-2"
-        }, investorError), /*#__PURE__*/React.createElement("p", {
-          className: "text-[#6b7280] text-xs"
-        }, "Investor scores are computed hourly. Try again later."));
+        if (investorError) {
+          const _is404 = investorError.includes("404");
+          return /*#__PURE__*/React.createElement("div", {
+            className: "py-8 text-center"
+          }, /*#__PURE__*/React.createElement("p", {
+            className: "text-[#6b7280] text-sm mb-2"
+          }, _is404 ? "This ticker is not in the investor universe." : investorError), /*#__PURE__*/React.createElement("p", {
+            className: "text-[#6b7280] text-xs"
+          }, _is404 ? "Add it via Ticker Management to enable investor scoring." : "Investor scores are computed hourly. Try again later."));
+        }
         const d = investorData;
         if (!d) return /*#__PURE__*/React.createElement("div", {
           className: "py-8 text-center text-[#6b7280] text-sm"

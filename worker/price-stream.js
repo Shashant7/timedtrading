@@ -416,24 +416,42 @@ export class PriceStream {
       if (symbolsToSubscribe.length === 0) return;
     }
 
+    const wsUrl = `${TD_WS_BASE}?apikey=${apiKey}`;
+
+    // Try fetch-upgrade first (Cloudflare native), fall back to standard WebSocket
     try {
-      const wsUrl = `${TD_WS_BASE}?apikey=${apiKey}`;
-      const resp = await fetch(wsUrl, { headers: { Upgrade: "websocket" } });
-      const ws = resp.webSocket;
-      if (!ws) {
-        console.error(`[PriceStream] Connection ${index}: no webSocket on response`);
-        return;
+      let ws = null;
+      try {
+        const resp = await fetch(wsUrl, { headers: { Upgrade: "websocket" } });
+        if (resp.webSocket) {
+          ws = resp.webSocket;
+          ws.accept();
+        } else {
+          console.warn(`[PriceStream] Connection ${index}: fetch upgrade returned HTTP ${resp.status}, trying new WebSocket()`);
+        }
+      } catch (fetchErr) {
+        console.warn(`[PriceStream] Connection ${index}: fetch upgrade failed (${String(fetchErr).slice(0, 100)}), trying new WebSocket()`);
       }
-      ws.accept();
+
+      if (!ws) {
+        ws = new WebSocket(wsUrl);
+        // Standard WebSocket starts in CONNECTING state; wait for open
+        await new Promise((resolve, reject) => {
+          const timeout = setTimeout(() => reject(new Error("WebSocket connect timeout (10s)")), 10_000);
+          ws.addEventListener("open", () => { clearTimeout(timeout); resolve(); });
+          ws.addEventListener("error", (e) => { clearTimeout(timeout); reject(e); });
+        });
+      }
+
       this.connections[index] = ws;
 
       ws.addEventListener("message", (event) => this._onMessage(event.data));
       ws.addEventListener("close", (event) => {
-        console.log(`[PriceStream] Connection ${index} closed: code=${event.code}`);
+        console.log(`[PriceStream] Connection ${index} closed: code=${event.code} reason=${event.reason || ""}`);
         this.connections[index] = null;
       });
       ws.addEventListener("error", (event) => {
-        console.error(`[PriceStream] Connection ${index} error:`, event);
+        console.error(`[PriceStream] Connection ${index} error:`, String(event?.message || event).slice(0, 200));
       });
 
       // Subscribe to symbols
@@ -451,9 +469,10 @@ export class PriceStream {
         } catch (_) {}
       }, HEARTBEAT_INTERVAL_MS);
 
-      console.log(`[PriceStream] Connection ${index}: subscribed to ${symbolsToSubscribe.length} symbols`);
+      console.log(`[PriceStream] Connection ${index}: subscribed to ${symbolsToSubscribe.length} symbols (readyState=${ws.readyState})`);
     } catch (e) {
-      console.error(`[PriceStream] Connection ${index} failed:`, String(e).slice(0, 200));
+      console.error(`[PriceStream] Connection ${index} failed:`, String(e).slice(0, 300));
+      this.connections[index] = null;
     }
   }
 

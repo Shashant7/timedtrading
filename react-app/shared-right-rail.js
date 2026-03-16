@@ -1433,6 +1433,7 @@
           fetchLedgerTrades();
           return () => {
             cancelled = true;
+            setLedgerTradesLoading(false);
           };
         }, [tickerSymbol, railTab]);
 
@@ -2020,7 +2021,13 @@
                       const SIGNAL_LABELS = { rsi_oversold: "RSI is low (oversold)", above_monthly_ema: "Price above monthly trend line", monthly_trend_intact: "Monthly trend still healthy", weekly_trend_intact: "Weekly trend still healthy", above_weekly_ema: "Price above weekly trend line", rsi_divergence: "Momentum divergence detected", volume_climax: "Unusual selling volume (capitulation)", near_support: "Price near a support level" };
 
                       if (investorLoading) return <div className="flex items-center justify-center py-12"><div className="loading-spinner" /><span className="ml-2 text-[#6b7280] text-sm">Loading investor data…</span></div>;
-                      if (investorError) return <div className="py-8 text-center"><p className="text-red-400 text-sm mb-2">{investorError}</p><p className="text-[#6b7280] text-xs">Investor scores are computed hourly. Try again later.</p></div>;
+                      if (investorError) {
+                        const is404 = investorError.includes("404");
+                        return <div className="py-8 text-center">
+                          <p className="text-[#6b7280] text-sm mb-2">{is404 ? "This ticker is not in the investor universe." : investorError}</p>
+                          <p className="text-[#6b7280] text-xs">{is404 ? "Add it via Ticker Management to enable investor scoring." : "Investor scores are computed hourly. Try again later."}</p>
+                        </div>;
+                      }
                       const d = investorData;
                       if (!d) return <div className="py-8 text-center text-[#6b7280] text-sm">No investor data for this ticker yet.</div>;
 

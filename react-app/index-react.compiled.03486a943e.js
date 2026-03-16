@@ -3406,14 +3406,6 @@ function BubbleChart({
   forwardReturns = null,
   activeInsightTickers = null
 }) {
-  React.useEffect(() => {
-    console.log(`[BUBBLE CHART] Props received:`, {
-      selectedTicker,
-      hasSelectedTrail: !!selectedTrail,
-      selectedTrailLength: Array.isArray(selectedTrail) ? selectedTrail.length : 0,
-      tickersCount: tickers ? tickers.length : 0
-    });
-  }, [selectedTicker, selectedTrail, tickers]);
   const displayTickers = React.useMemo(() => {
     const list = Array.isArray(tickers) ? tickers : [];
     if (!selectedTicker) return list;
@@ -3507,11 +3499,6 @@ function BubbleChart({
   }
   const FORCE_NATIVE_SVG = true;
   if (FORCE_NATIVE_SVG) currentRechartsComponents = null;
-  console.log(`[BUBBLE CHART RENDER] Using ${currentRechartsComponents ? "Recharts" : "Native SVG"} mode`, {
-    selectedTicker,
-    hasSelectedTrail: !!selectedTrail,
-    selectedTrailLength: Array.isArray(selectedTrail) ? selectedTrail.length : 0
-  });
   if (!currentRechartsComponents) {
     const chartWidth = dimensions.width;
     const chartHeight = dimensions.height;
@@ -8572,7 +8559,14 @@ const CompactCard = React.memo(function CompactCard({
   const openTrade = tradeByTicker?.get?.(sym) || null;
   const statusUp = String(openTrade?.status || "").toUpperCase();
   const hasOpenTrade = openTrade && (["OPEN", "TP_HIT_TRIM"].includes(statusUp) || !(openTrade.exit_ts ?? openTrade.exitTs) && statusUp !== "WIN" && statusUp !== "LOSS");
-  let dir = isBullish ? "LONG" : "SHORT";
+  let dir = (() => {
+    const scDir = String(t?.swing_consensus?.direction || "").toUpperCase();
+    if (scDir === "BULLISH" || scDir === "LONG") return "LONG";
+    if (scDir === "BEARISH" || scDir === "SHORT") return "SHORT";
+    const trigDir = String(t?.trigger_dir || "").toUpperCase();
+    if (trigDir === "LONG" || trigDir === "SHORT") return trigDir;
+    return isBullish ? "LONG" : "SHORT";
+  })();
   if (hasOpenTrade) {
     const d = String(openTrade.direction || "").toUpperCase();
     if (d === "LONG" || d === "SHORT") dir = d;
@@ -8859,7 +8853,7 @@ const CompactCard = React.memo(function CompactCard({
   }, "TT"), React.createElement("span", {
     className: `inline-flex items-center justify-center px-1.5 py-px rounded text-[9px] font-black shrink-0 tracking-wide ${dir === "LONG" ? "bg-cyan-500/80 text-white ring-1 ring-cyan-300/60" : "bg-rose-600/80 text-white ring-1 ring-rose-400/60"}`
   }, dir), (() => {
-    const _g = openTrade?.setupGrade || openTrade?.setup_grade;
+    const _g = openTrade?.setupGrade || openTrade?.setup_grade || t?.setup_grade || t?.setupGrade;
     if (!_g) return null;
     const cls = _g === "Prime" ? "bg-amber-500/25 text-amber-200 border-amber-400/40" : _g === "Confirmed" ? "bg-emerald-500/25 text-emerald-200 border-emerald-400/40" : "bg-blue-500/25 text-blue-200 border-blue-400/40";
     return React.createElement("span", {
@@ -9786,7 +9780,12 @@ function SimpleKanbanTable({
     const isBullish = state.startsWith("HTF_BULL");
     const statusUp = String(trade?.status || "").toUpperCase();
     const hasOpen = trade && (["OPEN", "TP_HIT_TRIM"].includes(statusUp) || !(trade?.exit_ts ?? trade?.exitTs) && statusUp !== "WIN" && statusUp !== "LOSS");
-    let dir = isBullish ? "LONG" : "SHORT";
+    let dir = (() => {
+      const scDir = String(t?.swing_consensus?.direction || "").toUpperCase();
+      if (scDir === "BULLISH" || scDir === "LONG") return "LONG";
+      if (scDir === "BEARISH" || scDir === "SHORT") return "SHORT";
+      return isBullish ? "LONG" : "SHORT";
+    })();
     if (hasOpen) {
       const d = String(trade?.direction || "").toUpperCase();
       if (d === "LONG" || d === "SHORT") dir = d;
@@ -13699,25 +13698,58 @@ function App() {
   }, React.createElement("a", {
     href: "index-react.html",
     className: "flex items-center gap-2 no-underline shrink-0"
-  }, React.createElement("div", {
-    className: "w-[28px] h-[28px] md:w-[32px] md:h-[32px] rounded-[8px] flex items-center justify-center",
-    style: {
-      background: "linear-gradient(135deg, #00c853, #00e676, #69f0ae)"
-    }
   }, React.createElement("svg", {
-    width: "16",
-    height: "16",
-    viewBox: "0 0 24 24",
-    fill: "none",
-    stroke: "white",
+    width: "28",
+    height: "28",
+    viewBox: "0 0 48 48",
+    fill: "none"
+  }, React.createElement("rect", {
+    x: "2",
+    y: "2",
+    width: "44",
+    height: "44",
+    rx: "10",
+    fill: "#151a21",
+    stroke: "#2a3140",
+    strokeWidth: "1.5"
+  }), React.createElement("rect", {
+    x: "9",
+    y: "14",
+    width: "13",
+    height: "3",
+    rx: ".5",
+    fill: "white"
+  }), React.createElement("rect", {
+    x: "13.5",
+    y: "14",
+    width: "4",
+    height: "20",
+    rx: ".5",
+    fill: "white"
+  }), React.createElement("rect", {
+    x: "26",
+    y: "14",
+    width: "13",
+    height: "3",
+    rx: ".5",
+    fill: "white"
+  }), React.createElement("rect", {
+    x: "30.5",
+    y: "14",
+    width: "4",
+    height: "20",
+    rx: ".5",
+    fill: "white"
+  }), React.createElement("polyline", {
+    points: "8,38 15,30 20,33 29,20 38,11",
+    stroke: "#00c853",
     strokeWidth: "2.5",
     strokeLinecap: "round",
     strokeLinejoin: "round"
-  }, React.createElement("polyline", {
-    points: "22 7 13.5 15.5 8.5 10.5 2 17"
-  }), React.createElement("polyline", {
-    points: "16 7 22 7 22 13"
-  }))), React.createElement("span", {
+  }), React.createElement("path", {
+    d: "M36,13 L38,11 L36,15Z",
+    fill: "#00c853"
+  })), React.createElement("span", {
     className: "text-[14px] md:text-[15px] font-bold text-white hidden sm:inline",
     style: {
       letterSpacing: "-0.03em"
