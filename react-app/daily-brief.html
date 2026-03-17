@@ -408,32 +408,50 @@
 
         // Map raw API candles to chart format
         // ETH candles (outside 9:30am-4pm ET) get dimmer colors
+        // Clamp H/L to remove stray wicks from bad data
         const mapCandles = useCallback((candles) => {
-          return candles.map(c => {
+          const raw = candles.map(c => {
             const ts = c.ts / 1000;
-            const d = new Date(ts * 1000);
-            // Convert to ET minutes-of-day
+            const o = Number(c.o), h = Number(c.h), l = Number(c.l), cl = Number(c.c);
+            return { ts, o, h, l, c: cl };
+          }).filter(c => c.o > 0 && c.h > 0 && c.l > 0 && c.c > 0);
+
+          // Compute median close to detect and clamp extreme outlier wicks
+          if (raw.length < 3) return raw.map(c => ({ time: c.ts, open: c.o, high: c.h, low: c.l, close: c.c }));
+          const closes = raw.map(c => c.c).sort((a, b) => a - b);
+          const median = closes[Math.floor(closes.length / 2)];
+          const maxDeviation = median * 0.05; // 5% from median is the max allowed wick
+
+          return raw.map(c => {
+            const d = new Date(c.ts * 1000);
             const etStr = d.toLocaleString("en-US", { timeZone: "America/New_York", hour12: false, hour: "2-digit", minute: "2-digit" });
             const [hh, mm] = etStr.split(":").map(Number);
             const etMin = hh * 60 + mm;
-            // RTH: 9:30am (570min) to 4:00pm (960min) ET
             const isRTH = etMin >= 570 && etMin < 960;
-            const up = Number(c.c) >= Number(c.o);
+
+            // Clamp H/L: wicks shouldn't extend more than 5% beyond the candle body range
+            const bodyHigh = Math.max(c.o, c.c);
+            const bodyLow = Math.min(c.o, c.c);
+            const bodyRange = bodyHigh - bodyLow || median * 0.001;
+            const maxWick = Math.max(bodyRange * 4, maxDeviation);
+            const clampedH = Math.min(c.h, bodyHigh + maxWick);
+            const clampedL = Math.max(c.l, bodyLow - maxWick);
+
+            const up = c.c >= c.o;
             const mapped = {
-              time: ts,
-              open: Number(c.o),
-              high: Number(c.h),
-              low: Number(c.l),
-              close: Number(c.c),
+              time: c.ts,
+              open: c.o,
+              high: clampedH,
+              low: clampedL,
+              close: c.c,
             };
             if (!isRTH && tf !== "D" && tf !== "W") {
-              // ETH: dimmer, slightly desaturated candles
               mapped.color = up ? "rgba(34,197,94,0.35)" : "rgba(239,68,68,0.35)";
               mapped.borderColor = up ? "rgba(34,197,94,0.45)" : "rgba(239,68,68,0.45)";
               mapped.wickColor = up ? "rgba(34,197,94,0.30)" : "rgba(239,68,68,0.30)";
             }
             return mapped;
-          }).filter(c => c.open > 0 && c.high > 0);
+          });
         }, [tf]);
 
         // Fetch candle data from API
@@ -460,7 +478,7 @@
           // Create chart — styled to match Right Rail (shared-right-rail.js)
           const chart = LightweightCharts.createChart(containerRef.current, {
             width: containerRef.current.clientWidth,
-            height: 340,
+            height: 480,
             layout: {
               background: { type: "solid", color: "#0b0e11" },
               textColor: "#6b7280",
@@ -477,8 +495,9 @@
             },
             rightPriceScale: {
               borderColor: "rgba(38,50,95,0.5)",
-              scaleMargins: { top: 0.08, bottom: 0.08 },
+              scaleMargins: { top: 0.05, bottom: 0.05 },
               autoScale: true,
+              minimumWidth: 60,
             },
             timeScale: {
               borderColor: "rgba(38,50,95,0.5)",
@@ -705,7 +724,7 @@
                 </span>
               )}
             </div>
-            <div ref={containerRef} style={{ height: 340 }}>
+            <div ref={containerRef} style={{ height: 480 }}>
               {error && (
                 <div className="flex items-center justify-center h-full">
                   <span className="text-[11px] text-[#4b5563]">{error}</span>
