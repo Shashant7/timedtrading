@@ -2212,7 +2212,7 @@
       const prime = isPrimeBubble(ticker);
       const ent = entryType(ticker);
       const flags = patternFlags;
-      const phase = Number(ticker.saty_phase_pct ?? ticker.phase_pct) || 0;
+      const phase = Number(ticker.phase_pct) || 0;
       const phaseColor = phaseToColor(phase);
       const actionInfo = getActionDescription(ticker, trade);
       const decisionSummary = summarizeEntryDecision(ticker);
@@ -2441,7 +2441,7 @@
         }, "EXT"), ahPct >= 0 ? "+" : "", ahPct.toFixed(2), "%")));
       })(), (() => {
         const stage = String(ticker?.kanban_stage || "");
-        const showEntryStats = ["enter_now", "hold", "just_entered", "trim", "exit"].includes(stage);
+        const showEntryStats = ["enter_now", "hold", "just_entered", "trim", "exit", "tp_hit_trim"].includes(stage);
         if (!showEntryStats) return null;
         const price = numFromAny(ticker?.price);
         const entryPriceRaw = numFromAny(ticker?.entry_price);
@@ -2565,6 +2565,11 @@
           icon: "⚡",
           label: "Release",
           tip: "Release: Squeeze has fired — momentum breakout in progress"
+        });
+        if (flags.saty_compression_multi_tf) badges.push({
+          icon: "🗜️",
+          label: "Compressed",
+          tip: `Compressed: Phase oscillator near zero across ${flags.saty_compression_count || ""}/${flags.saty_compression_total || ""} timeframes — coiled for a move`
         });
         if (badges.length === 0) return null;
         return badges.map((b, i) => /*#__PURE__*/React.createElement("span", {
@@ -2726,14 +2731,14 @@
           className: "ml-2 text-[#6b7280] text-sm"
         }, "Loading investor data\u2026"));
         if (investorError) {
-          const _is404 = investorError.includes("404");
+          const is404 = investorError.includes("404");
           return /*#__PURE__*/React.createElement("div", {
             className: "py-8 text-center"
           }, /*#__PURE__*/React.createElement("p", {
             className: "text-[#6b7280] text-sm mb-2"
-          }, _is404 ? "This ticker is not in the investor universe." : investorError), /*#__PURE__*/React.createElement("p", {
+          }, is404 ? "This ticker is not in the investor universe." : investorError), /*#__PURE__*/React.createElement("p", {
             className: "text-[#6b7280] text-xs"
-          }, _is404 ? "Add it via Ticker Management to enable investor scoring." : "Investor scores are computed hourly. Try again later."));
+          }, is404 ? "Add it via Ticker Management to enable investor scoring." : "Investor scores are computed hourly. Try again later."));
         }
         const d = investorData;
         if (!d) return /*#__PURE__*/React.createElement("div", {
@@ -3713,7 +3718,65 @@
           className: "text-[9px] text-slate-400/80 italic mt-0.5"
         }, describeMarket(mk.signal, mk.breadthBullPct)))), mk?.riskFlag && (mk.totalTickers || 0) > 5 && /*#__PURE__*/React.createElement("div", {
           className: "mt-2 text-[10px] text-amber-300/80 bg-amber-500/10 border border-amber-500/20 rounded px-2 py-1"
-        }, mk.riskFlag));
+        }, mk.riskFlag), (() => {
+          if (!trade || trade.status === "closed" || trade.status === "exited") return null;
+          const _tDir = trade.direction || "";
+          const _tEntry = Number(trade.entry_price || trade.entryPrice) || 0;
+          const _tShares = Number(trade.shares) || 0;
+          const _tSetup = trade.setup_name || trade.setupName || trade.entry_path || "";
+          const _tGrade = trade.setup_grade || trade.setupGrade || "";
+          const _tPx = Number(ticker?.price) || 0;
+          const _tPnlPct = _tEntry > 0 && _tPx > 0 ? (_tPx - _tEntry) / _tEntry * 100 * (_tDir === "SHORT" ? -1 : 1) : 0;
+          const _tTrimPct = Number(trade.trimmed_pct || trade.trimmedPct) || 0;
+          const _tSl = Number(trade.stop_loss || trade.sl) || 0;
+          const _tTp = Number(trade.take_profit || trade.tp) || 0;
+          return /*#__PURE__*/React.createElement("div", {
+            className: "mt-2 rounded-lg p-2.5 border border-[#14b8a6]/20 bg-[#14b8a6]/5"
+          }, /*#__PURE__*/React.createElement("div", {
+            className: "text-[9px] text-[#14b8a6] uppercase font-bold tracking-wider mb-1"
+          }, "Active Position"), /*#__PURE__*/React.createElement("div", {
+            className: "text-[11px] text-white font-semibold"
+          }, _tDir, " @ $", _tEntry.toFixed(2), " \xB7 ", _tShares > 0 ? `${Math.round(_tShares)} shares` : ""), /*#__PURE__*/React.createElement("div", {
+            className: `text-[11px] font-bold mt-0.5 ${_tPnlPct >= 0 ? "text-[#22c55e]" : "text-[#ef4444]"}`
+          }, _tPnlPct >= 0 ? "+" : "", _tPnlPct.toFixed(2), "% P&L", _tTrimPct > 0 ? ` · ${Math.round(_tTrimPct * 100)}% trimmed` : ""), (_tSl > 0 || _tTp > 0) && /*#__PURE__*/React.createElement("div", {
+            className: "text-[10px] text-slate-400 mt-1"
+          }, _tSl > 0 && /*#__PURE__*/React.createElement("span", null, "Defend @ ", /*#__PURE__*/React.createElement("span", {
+            className: "text-[#ef4444] font-medium"
+          }, "$", _tSl.toFixed(2))), _tSl > 0 && _tTp > 0 && " · ", _tTp > 0 && /*#__PURE__*/React.createElement("span", null, "Target @ ", /*#__PURE__*/React.createElement("span", {
+            className: "text-[#22c55e] font-medium"
+          }, "$", _tTp.toFixed(2)))), _tSetup && /*#__PURE__*/React.createElement("div", {
+            className: "text-[9px] text-slate-500 mt-1"
+          }, _formatPath(_tSetup), _tGrade ? ` · TT ${_tGrade}` : ""));
+        })(), (() => {
+          const _raw = Number(ticker?.saty_phase_pct ?? ticker?.phase_pct) || 0;
+          if (_raw === 0) return null;
+          const _phase = _raw <= 1 ? _raw * 100 : _raw;
+          const _phaseStage = _phase < 25 ? "Early" : _phase < 50 ? "Building" : _phase < 75 ? "Mature" : "Late/Extended";
+          const _phaseColor = _phase < 25 ? "#22c55e" : _phase < 50 ? "#86efac" : _phase < 75 ? "#fbbf24" : "#ef4444";
+          const _phaseDesc = _phase < 25 ? "Fresh move — room to develop" : _phase < 50 ? "Gaining momentum — setup thesis intact" : _phase < 75 ? "Move maturing — watch for trim signals" : "Extended — high probability of pullback or reversal";
+          return /*#__PURE__*/React.createElement("div", {
+            className: "mt-2 rounded-lg p-2 border border-white/[0.06] bg-white/[0.02]"
+          }, /*#__PURE__*/React.createElement("div", {
+            className: "flex items-center justify-between"
+          }, /*#__PURE__*/React.createElement("span", {
+            className: "text-[9px] text-slate-400 uppercase font-semibold"
+          }, "TT Phase"), /*#__PURE__*/React.createElement("span", {
+            className: "text-[11px] font-bold",
+            style: {
+              color: _phaseColor
+            }
+          }, Math.round(_phase), "% \u2014 ", _phaseStage)), /*#__PURE__*/React.createElement("div", {
+            className: "mt-1 h-1.5 rounded-full bg-white/[0.06] overflow-hidden"
+          }, /*#__PURE__*/React.createElement("div", {
+            className: "h-full rounded-full transition-all",
+            style: {
+              width: `${Math.min(_phase, 100)}%`,
+              background: _phaseColor
+            }
+          })), /*#__PURE__*/React.createElement("div", {
+            className: "text-[9px] text-slate-400/80 italic mt-1"
+          }, _phaseDesc));
+        })());
       })(), /*#__PURE__*/React.createElement("div", {
         className: "space-y-2.5 text-sm"
       }, (() => {
@@ -5646,7 +5709,12 @@
           className: "px-3 pb-2"
         }, /*#__PURE__*/React.createElement("table", {
           className: "w-full text-[10px]"
-        }, /*#__PURE__*/React.createElement("tbody", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("td", {
+        }, /*#__PURE__*/React.createElement("tbody", null, entryQty > 0 && /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("td", {
+          className: "text-[#a78bfa] py-0.5 pr-2"
+        }, "Shares"), /*#__PURE__*/React.createElement("td", {
+          className: "text-[#a78bfa] font-medium py-0.5",
+          colSpan: "2"
+        }, Math.round(entryQty), " bought", hasTrimmed ? ` · ${Math.round(trimmedQty)} trimmed · ${Math.round(entryQty - trimmedQty)} left` : "")), /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("td", {
           className: "text-[#6b7280] py-0.5 pr-2"
         }, "Entry"), /*#__PURE__*/React.createElement("td", {
           className: "text-white font-medium py-0.5"
@@ -6409,7 +6477,22 @@
           className: "text-[10px] font-semibold text-[#f59e0b] uppercase tracking-wider shrink-0"
         }, "Exit"), /*#__PURE__*/React.createElement("span", {
           className: "text-[13px] font-semibold text-white truncate"
-        }, _formatDate(mt.exit_ts), " @ ", _exit > 0 ? fmtUsd(_exit) : "\u2014")), /*#__PURE__*/React.createElement("div", {
+        }, _formatDate(mt.exit_ts), " @ ", _exit > 0 ? fmtUsd(_exit) : "\u2014")), (() => {
+          const _sh = Number(mt.shares ?? mt.quantity ?? 0);
+          if (!_sh || !Number.isFinite(_sh) || _sh <= 0) return null;
+          const _trimPct = Number(mt.trimmed_pct || mt.trimmedPct || 0);
+          const _trimmed = Math.round(_sh * Math.min(_trimPct, 1));
+          const _remaining = Math.max(0, Math.round(_sh) - _trimmed);
+          return /*#__PURE__*/React.createElement("div", {
+            className: "flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#a78bfa]/15 border border-[#a78bfa]/30"
+          }, /*#__PURE__*/React.createElement("span", {
+            className: "text-[10px] font-semibold text-[#a78bfa] uppercase tracking-wider shrink-0"
+          }, "Shares"), /*#__PURE__*/React.createElement("span", {
+            className: "text-[13px] font-semibold text-white"
+          }, Math.round(_sh)), _trimmed > 0 && /*#__PURE__*/React.createElement("span", {
+            className: "text-[11px] text-[#a78bfa]/70"
+          }, "(", _trimmed, " trimmed \xB7 ", _remaining, " left)"));
+        })(), /*#__PURE__*/React.createElement("div", {
           className: "flex items-center gap-3"
         }, /*#__PURE__*/React.createElement("div", {
           className: "text-[12px] text-[#9ca3af]"
@@ -6625,7 +6708,7 @@
         }, "MAE:"), " ", /*#__PURE__*/React.createElement("span", {
           className: "text-[#ef4444]"
         }, _mae.toFixed(2), "%"))))), /*#__PURE__*/React.createElement("div", {
-          className: "lg:col-span-2 min-h-[280px] md:min-h-[400px] flex flex-col order-1 lg:order-2"
+          className: "lg:col-span-2 min-h-[240px] md:min-h-[300px] flex flex-col order-1 lg:order-2"
         }, /*#__PURE__*/React.createElement(AutopsyChart, {
           ticker: _ticker,
           entryPrice: _entry,
@@ -6638,7 +6721,7 @@
             price: mt.tp_price,
             label: "TP"
           }] : null),
-          height: typeof window !== "undefined" && window.innerWidth < 768 ? 240 : 420
+          height: typeof window !== "undefined" && window.innerWidth < 768 ? 220 : 320
         }))))));
       })());
     };

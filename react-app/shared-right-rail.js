@@ -2967,7 +2967,6 @@
                                 {mk.riskFlag}
                               </div>
                             )}
-                          </div>
 
                           {/* Active Position Guidance */}
                           {(() => {
