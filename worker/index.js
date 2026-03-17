@@ -40575,7 +40575,11 @@ export default {
           // Create a 100%-off repeating coupon in Stripe (repeating so subscriber keeps $0 billing)
           const couponResp = await fetch("https://api.stripe.com/v1/coupons", {
             method: "POST",
-            headers: { "Authorization": `Bearer ${stripeKey}`, "Content-Type": "application/x-www-form-urlencoded" },
+            headers: {
+              "Authorization": `Bearer ${stripeKey}`,
+              "Content-Type": "application/x-www-form-urlencoded",
+              "Stripe-Version": "2024-04-10",
+            },
             body: new URLSearchParams({
               percent_off: "100",
               duration: "repeating",
@@ -40590,13 +40594,16 @@ export default {
           }
 
           // Create a single-use promotion code for the coupon
+          const couponId = coupon.id;
+          console.log(`[VIP] Coupon created: ${couponId}, creating promo code...`);
           const promoResp = await fetch("https://api.stripe.com/v1/promotion_codes", {
             method: "POST",
-            headers: { "Authorization": `Bearer ${stripeKey}`, "Content-Type": "application/x-www-form-urlencoded" },
-            body: new URLSearchParams({
-              coupon: coupon.id,
-              max_redemptions: "1",
-            }).toString(),
+            headers: {
+              "Authorization": `Bearer ${stripeKey}`,
+              "Content-Type": "application/x-www-form-urlencoded",
+              "Stripe-Version": "2024-04-10",
+            },
+            body: `coupon=${encodeURIComponent(couponId)}&max_redemptions=1`,
           });
           const promo = await promoResp.json();
           if (!promoResp.ok) {
