@@ -649,6 +649,7 @@ const ROUTES = [
   ["POST", "/timed/admin/users/remove", "POST /timed/admin/users/remove"],
   ["POST", "/timed/admin/users/block", "POST /timed/admin/users/block"],
   ["POST", "/timed/admin/users/unblock", "POST /timed/admin/users/unblock"],
+  ["POST", "/timed/admin/users/restore", "POST /timed/admin/users/restore"],
   ["POST", "/timed/admin/users/resend-welcome", "POST /timed/admin/users/resend-welcome"],
   // ── Admin: VIP Codes ──
   ["POST", "/timed/admin/vip-code", "POST /timed/admin/vip-code"],
@@ -40457,13 +40458,25 @@ export default {
           if (authErr) return authErr;
           const db = env?.DB;
           if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
-          await d1EnsureUserStatusSchema(env);
           const body = await readBodyAsJSON(req);
           const email = (body?.obj?.email || "").toLowerCase();
+          const permanent = !!body?.obj?.permanent;
           if (!email) return sendJSON({ ok: false, error: "email_required" }, 400, corsHeaders(env, req));
-          await db.prepare(`UPDATE users SET status = 'removed', updated_at = ?1 WHERE email = ?2`).bind(Date.now(), email).run();
-          console.log(`[ADMIN] User removed: ${email}`);
-          return sendJSON({ ok: true, action: "removed", email }, 200, corsHeaders(env, req));
+          if (permanent) {
+            await db.prepare(`DELETE FROM users WHERE email = ?1`).bind(email).run();
+            // Also clean up related data
+            try { await db.prepare(`DELETE FROM user_tickers WHERE user_email = ?1`).bind(email).run(); } catch {}
+            try { await db.prepare(`DELETE FROM user_notifications WHERE email = ?1`).bind(email).run(); } catch {}
+            try { await db.prepare(`DELETE FROM sessions WHERE user_email = ?1`).bind(email).run(); } catch {}
+            try { await db.prepare(`DELETE FROM feature_usage WHERE user_email = ?1`).bind(email).run(); } catch {}
+            console.log(`[ADMIN] User permanently deleted: ${email}`);
+            return sendJSON({ ok: true, action: "deleted", email }, 200, corsHeaders(env, req));
+          } else {
+            await d1EnsureUserStatusSchema(env);
+            await db.prepare(`UPDATE users SET status = 'removed', updated_at = ?1 WHERE email = ?2`).bind(Date.now(), email).run();
+            console.log(`[ADMIN] User removed: ${email}`);
+            return sendJSON({ ok: true, action: "removed", email }, 200, corsHeaders(env, req));
+          }
         } catch (e) {
           return sendJSON({ ok: false, error: String(e?.message || e) }, 500, corsHeaders(env, req));
         }
@@ -40505,6 +40518,24 @@ export default {
         }
       }
 
+      if (routeKey === "POST /timed/admin/users/restore") {
+        try {
+          const authErr = await requireKeyOrAdmin(req, env);
+          if (authErr) return authErr;
+          const db = env?.DB;
+          if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
+          await d1EnsureUserStatusSchema(env);
+          const body = await readBodyAsJSON(req);
+          const email = (body?.obj?.email || "").toLowerCase();
+          if (!email) return sendJSON({ ok: false, error: "email_required" }, 400, corsHeaders(env, req));
+          await db.prepare(`UPDATE users SET status = 'active', updated_at = ?1 WHERE email = ?2`).bind(Date.now(), email).run();
+          console.log(`[ADMIN] User restored: ${email}`);
+          return sendJSON({ ok: true, action: "restored", email }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e) }, 500, corsHeaders(env, req));
+        }
+      }
+
       if (routeKey === "POST /timed/admin/users/resend-welcome") {
         try {
           const authErr = await requireKeyOrAdmin(req, env);
@@ -40541,24 +40572,24 @@ export default {
           const label = (body?.obj?.label || "").trim() || "VIP Invite";
           const adminEmail = (body?.obj?.admin_email || "admin").toLowerCase();
 
-          // Create a 100%-off forever coupon in Stripe
+          // Create a 100%-off repeating coupon in Stripe (repeating so subscriber keeps $0 billing)
           const couponResp = await fetch("https://api.stripe.com/v1/coupons", {
             method: "POST",
             headers: { "Authorization": `Bearer ${stripeKey}`, "Content-Type": "application/x-www-form-urlencoded" },
             body: new URLSearchParams({
               percent_off: "100",
-              duration: "forever",
-              max_redemptions: "1",
+              duration: "repeating",
+              duration_in_months: "12",
               name: label,
             }).toString(),
           });
           const coupon = await couponResp.json();
           if (!couponResp.ok) {
             console.error("[VIP] Coupon creation failed:", JSON.stringify(coupon).slice(0, 300));
-            return sendJSON({ ok: false, error: "coupon_creation_failed", details: coupon.error?.message }, 500, corsHeaders(env, req));
+            return sendJSON({ ok: false, error: `Coupon failed: ${coupon.error?.message || "unknown"}` }, 500, corsHeaders(env, req));
           }
 
-          // Create a promotion code for the coupon
+          // Create a single-use promotion code for the coupon
           const promoResp = await fetch("https://api.stripe.com/v1/promotion_codes", {
             method: "POST",
             headers: { "Authorization": `Bearer ${stripeKey}`, "Content-Type": "application/x-www-form-urlencoded" },
@@ -40570,7 +40601,7 @@ export default {
           const promo = await promoResp.json();
           if (!promoResp.ok) {
             console.error("[VIP] Promo code creation failed:", JSON.stringify(promo).slice(0, 300));
-            return sendJSON({ ok: false, error: "promo_creation_failed", details: promo.error?.message }, 500, corsHeaders(env, req));
+            return sendJSON({ ok: false, error: `Promo failed: ${promo.error?.message || "unknown"}` }, 500, corsHeaders(env, req));
           }
 
           // Store in D1

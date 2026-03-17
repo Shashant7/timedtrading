@@ -619,11 +619,31 @@
                                     Unblock
                                   </button>
                                 )}
-                                {u.email !== user?.email && (
-                                  <button onClick={() => { if (confirm(`Remove ${u.email}? This cannot be easily undone.`)) adminAction("remove", u.email, "Removed"); }}
+                                {u.email !== user?.email && u.status !== "removed" && (
+                                  <button onClick={() => { if (confirm(`Remove ${u.email}?`)) adminAction("remove", u.email, "Removed"); }}
                                     disabled={actionLoading === u.email}
                                     className="px-2 py-0.5 rounded text-[10px] font-semibold bg-red-600/[0.10] border border-red-600/[0.20] text-red-400 hover:bg-red-600/[0.20] transition-all disabled:opacity-50">
                                     Remove
+                                  </button>
+                                )}
+                                {u.status === "removed" && (
+                                  <button onClick={() => adminAction("restore", u.email, "Restored")}
+                                    disabled={actionLoading === u.email}
+                                    className="px-2 py-0.5 rounded text-[10px] font-semibold bg-[#22c55e]/[0.10] border border-[#22c55e]/[0.20] text-[#22c55e] hover:bg-[#22c55e]/[0.20] transition-all disabled:opacity-50">
+                                    Restore
+                                  </button>
+                                )}
+                                {u.status === "removed" && (
+                                  <button onClick={() => { if (confirm(`PERMANENTLY delete ${u.email}? This will erase all data and allow re-registration.`)) {
+                                    setActionLoading(u.email);
+                                    fetch(`${API_BASE}/timed/admin/users/remove`, { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: u.email, permanent: true }) })
+                                      .then(r => r.json()).then(json => { if (json.ok) { setMessage({ type: "success", text: `${u.email}: Permanently deleted` }); fetchUsers(); } else { setMessage({ type: "error", text: json.error || "Failed" }); } })
+                                      .catch(e => setMessage({ type: "error", text: String(e.message || e) }))
+                                      .finally(() => setActionLoading(null));
+                                  }}}
+                                    disabled={actionLoading === u.email}
+                                    className="px-2 py-0.5 rounded text-[10px] font-semibold bg-red-700/[0.15] border border-red-700/[0.25] text-red-300 hover:bg-red-700/[0.30] transition-all disabled:opacity-50">
+                                    Delete Forever
                                   </button>
                                 )}
                               </div>
