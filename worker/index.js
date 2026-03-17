@@ -2671,6 +2671,33 @@ function qualifiesForEnter(d, asOfTs = null) {
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
+  // SWING REGIME DIRECTIONAL GATES (backtest-validated):
+  // LATE_BEAR LONGs: 34.8% WR, -$1,659 → block entirely
+  // STRONG_BULL LONGs (completion>0.40): 37.2% WR, -$1,173 → block extended entries
+  // NEUTRAL SHORTs: 33.3% WR, -$947 → block
+  // LATE_BULL: 45.2% WR, -$793 → halve position size
+  // ═══════════════════════════════════════════════════════════════════════════
+  const _swingRegime = tickerSwingRegime || String(d?.regime?.combined || "").toUpperCase();
+  if (_swingRegime === "LATE_BEAR" && inferredSide === "LONG") {
+    return { qualifies: false, reason: "late_bear_long_blocked", regime: _swingRegime };
+  }
+  if (_swingRegime === "STRONG_BEAR" && inferredSide === "LONG") {
+    return { qualifies: false, reason: "strong_bear_long_blocked", regime: _swingRegime };
+  }
+  if (_swingRegime === "STRONG_BULL" && inferredSide === "LONG") {
+    const _sbCompletion = Number(d?.completion) || 0;
+    if (_sbCompletion > 0.40) {
+      return { qualifies: false, reason: "strong_bull_overextended", regime: _swingRegime, completion: _sbCompletion };
+    }
+  }
+  if (_swingRegime === "NEUTRAL" && inferredSide === "SHORT") {
+    return { qualifies: false, reason: "neutral_short_blocked", regime: _swingRegime };
+  }
+  if (_swingRegime === "LATE_BULL") {
+    d.__da_regime_size_mult = Math.min(d.__da_regime_size_mult || 1, 0.50);
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
   // THREE-TIER REGIME GATE: Market + Sector + Ticker
   // Entry requires no more than 1 of 3 layers in CHOPPY
   // ═══════════════════════════════════════════════════════════════════════════
@@ -3829,6 +3856,21 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
     if (tradeRegime === "CHOPPY" && pnlPct < -2 && positionAgeDays >= maxHoldDaysLosing / 2) {
       tickerData.__exit_reason = "time_exit_chop_accelerated";
       return "exit";
+    }
+
+    // 4-HOUR TIME-DECAY DEFENSE: The 4-24hr hold bucket showed 35% WR and -$4,973 in backtesting.
+    // If a trade is underwater after 4 hours and hasn't reached 25% of its target, exit early.
+    const positionAgeHours = positionAgeMin / 60;
+    if (positionAgeHours >= 4 && positionAgeHours <= 24 && pnlPct < -0.5) {
+      const _tdMfeTarget = Number(tickerData?._env?._deepAuditConfig?.deep_audit_tp_trim_atr_mult) || 1.0;
+      const _tdAtr = Number(tickerData?.atr) || Number(tickerData?.tf_tech?.["15"]?.atr?.v) || 0;
+      const _tdEntryPx = Number(tickerData?.__entryPrice) || 0;
+      const _tdTargetPct = _tdEntryPx > 0 && _tdAtr > 0 ? ((_tdMfeTarget * _tdAtr) / _tdEntryPx * 100) : 2.0;
+      const _tdProgressPct = _tdTargetPct > 0 ? (Math.max(0, pnlPct) / _tdTargetPct) : 0;
+      if (_tdProgressPct < 0.25) {
+        tickerData.__exit_reason = "time_decay_4hr";
+        return "exit";
+      }
     }
 
     // DA: Minimum hold time before management exits (SL/max_loss still fire above)
@@ -7402,7 +7444,7 @@ function evaluateRunnerExit(tickerData, openTrade, execState, dir, mark, entry, 
         if (htf4HSupports) {
           return { action: "defend", reason: "squeeze_release_htf_hold", st4HDir, ...supportDetails };
         }
-        return { action: "close", reason: "squeeze_release_against" };
+        return { action: "defend", reason: "squeeze_release_against" };
       }
     }
     return { action: "hold", reason: "compression_active" };
@@ -9989,6 +10031,34 @@ async function processTradeSimulation(
       // Position age (shared across Phase 4c, DEFEND, and 3-tier)
       const _posAgeMin = Number.isFinite(entryMsNorm) ? (now - entryMsNorm) / 60000 : 999;
 
+      // PHASE-LEAVE TRAILING STOP: If a tight trail was set by PHASE_LEAVE_100/618,
+      // check if price has breached it. Also ratchet the trail tighter on each bar.
+      if (!fuseExitFired && execState.phaseLeaveTrailStop) {
+        const _pltStop = Number(execState.phaseLeaveTrailStop);
+        const _pltLabel = execState.phaseLeaveTrailLabel || "PHASE_LEAVE_100";
+        const _pltHit = isLong ? (pxNow <= _pltStop) : (pxNow >= _pltStop);
+        if (_pltHit) {
+          console.log(`[${_pltLabel}_TRAIL_HIT] ${sym} price $${pxNow.toFixed(2)} hit trail $${_pltStop.toFixed(2)} → closing`);
+          tickerData.__exit_reason = _pltLabel;
+          await closeTradeAtPrice(openTrade, pxNow, _pltLabel);
+          const _pltExec = { ...execState, lastExitMs: now };
+          if (isReplay && replayCtx?.execStates) replayCtx.execStates.set(sym, _pltExec);
+          else if (!isReplay) await kvPutJSON(KV, execKey, _pltExec);
+          fuseExitFired = true;
+        } else {
+          const _pltAtr = Number(tickerData?.atr || tickerData?.tf_tech?.["15"]?.atr?.v) || 0;
+          const _pltDist = _pltAtr > 0 ? _pltAtr * 0.5 : pxNow * 0.005;
+          const _pltNewStop = isLong
+            ? Math.max(_pltStop, pxNow - _pltDist)
+            : Math.min(_pltStop, pxNow + _pltDist);
+          if (_pltNewStop !== _pltStop) {
+            execState.phaseLeaveTrailStop = _pltNewStop;
+            if (isReplay && replayCtx?.execStates) replayCtx.execStates.set(sym, { ...execState });
+            else if (!isReplay) await kvPutJSON(KV, execKey, execState);
+          }
+        }
+      }
+
       // SATY PHASE EXIT: Peak-decline tracking for persistent zone-exit detection.
       // Old approach relied on single-bar "leaving" flags which fire for one bar only.
       // New approach: track the peak oscillator value during the trade in execState,
@@ -10052,15 +10122,18 @@ async function processTradeSimulation(
                 else if (!isReplay) await kvPutJSON(KV, execKey, _spExecUpdate);
                 fuseExitFired = true;
               } else if (isExtremeDecline && _spTrimPct >= THREE_TIER_CONFIG.TRIM.trimPct - 0.01) {
-                // Close runner on extreme phase decline — previously required EXIT-level trim (66%),
-                // now fires after any trim (33%+). Catches "exit too late" after swing high.
-                console.log(`[${_spLabel}] ${sym} Phase peak-decline: closing runner peak=${_bestPeak.toFixed(1)} decline=${_maxDecline.toFixed(1)} pnl=${_spPnlPct.toFixed(1)}% trimmed=${(_spTrimPct * 100).toFixed(0)}%`);
-                tickerData.__exit_reason = _spLabel.toLowerCase();
-                await closeTradeAtPrice(openTrade, pxNow, _spLabel);
-                const _spExecUpdate = { ...execState, lastExitMs: now };
+                // Phase peak-decline on runner: instead of hard close, set a tight trailing stop
+                // at current price minus 0.5 ATR. This captures more of the remaining move while
+                // still protecting profits. Backtesting showed 1.58% avg left on table for PHASE_LEAVE_100.
+                const _plAtr = Number(tickerData?.atr || tickerData?.tf_tech?.["15"]?.atr?.v) || 0;
+                const _plTrailDist = _plAtr > 0 ? _plAtr * 0.5 : pxNow * 0.005;
+                const _plTrailStop = isLong ? (pxNow - _plTrailDist) : (pxNow + _plTrailDist);
+                console.log(`[${_spLabel}_TRAIL] ${sym} Phase peak-decline: setting tight trail at $${_plTrailStop.toFixed(2)} (${_plTrailDist.toFixed(2)} from $${pxNow.toFixed(2)}) peak=${_bestPeak.toFixed(1)} decline=${_maxDecline.toFixed(1)} pnl=${_spPnlPct.toFixed(1)}%`);
+                execState.phaseLeaveTrailStop = _plTrailStop;
+                execState.phaseLeaveTrailLabel = _spLabel;
+                const _spExecUpdate = { ...execState };
                 if (isReplay && replayCtx?.execStates) replayCtx.execStates.set(sym, _spExecUpdate);
                 else if (!isReplay) await kvPutJSON(KV, execKey, _spExecUpdate);
-                fuseExitFired = true;
               }
             }
           }
@@ -20563,13 +20636,58 @@ async function runInvestorDailyReplay(env, KV, replayCtx, dayDate, tickerDataMap
     const shares = Number(pos.total_shares) || 0;
     if (shares <= 0 || avgEntry <= 0) continue;
 
+    // Parse reduce-days counter from position notes
+    try {
+      const _notesStr = pos.notes;
+      if (_notesStr) {
+        const _notesParsed = typeof _notesStr === "string" ? JSON.parse(_notesStr) : _notesStr;
+        if (_notesParsed?._reduce_consecutive_days != null) {
+          pos._reduce_consecutive_days = Number(_notesParsed._reduce_consecutive_days) || 0;
+        }
+      }
+    } catch { /* notes may not be JSON */ }
+
     // Track high watermark for trailing stop (use price or cost-adjusted peak)
     const costBasis = Number(pos.cost_basis) || (avgEntry * shares);
     const currentValue = price * shares;
     const peakPrice = Math.max(Number(pos.peak_price) || 0, price, avgEntry);
 
     // Hybrid exit check 1: regime reversal (classifyInvestorStage returns "reduce")
-    const regimeExit = (stage === "reduce" || stage === "exited");
+    // INVESTOR FIX: Require 2+ consecutive days of "reduce" stage before actually exiting.
+    // Daily score volatility caused 1-day churn (enter → reduce next day) in backtesting.
+    // Only monthly_supertrend_bearish bypasses the cooldown (hard thesis invalidation).
+    let regimeExit = false;
+    if (stage === "exited") {
+      regimeExit = true;
+    } else if (stage === "reduce") {
+      const _stageReason = scored?.stageReason || "";
+      const _isHardInvalidation = _stageReason === "monthly_supertrend_bearish";
+      if (_isHardInvalidation) {
+        regimeExit = true;
+      } else {
+        const _reduceDaysKey = `inv_reduce_days_${sym}`;
+        const _prevReduceDays = Number(pos._reduce_consecutive_days || 0);
+        const _newReduceDays = _prevReduceDays + 1;
+        if (_newReduceDays >= 2) {
+          regimeExit = true;
+          console.log(`[INVESTOR_EXIT] ${sym} reduce stage confirmed for ${_newReduceDays} consecutive days → exiting`);
+        } else {
+          console.log(`[INVESTOR_HOLD] ${sym} reduce stage day ${_newReduceDays}/2 — holding for confirmation`);
+          try {
+            await db.prepare("UPDATE investor_positions SET notes = ?1 WHERE id = ?2")
+              .bind(JSON.stringify({ _reduce_consecutive_days: _newReduceDays }), pos.id).run();
+          } catch (_e) { /* best effort */ }
+        }
+      }
+    }
+    if (stage !== "reduce" && stage !== "exited") {
+      if (Number(pos._reduce_consecutive_days || 0) > 0) {
+        try {
+          await db.prepare("UPDATE investor_positions SET notes = ?1 WHERE id = ?2")
+            .bind(JSON.stringify({ _reduce_consecutive_days: 0 }), pos.id).run();
+        } catch (_e) { /* best effort */ }
+      }
+    }
 
     // Hybrid exit check 2: adaptive trailing stop
     // Default: 3x ATR. Tighten to 2x ATR when weekly exhaustion/divergence signals fire.

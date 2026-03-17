@@ -1923,6 +1923,7 @@ export function selectExecutionProfile({
   state = "unknown",
   flags = {},
   entryQuality = null,
+  regimeScore = null,
 } = {}) {
   const internals = normalizeMarketInternals(marketInternals);
   const profile = normalizeTickerProfileForSelection(tickerProfile);
@@ -1959,9 +1960,16 @@ export function selectExecutionProfile({
     if (internals?.vix?.state === "fear") reasons.push("VIX is in fear mode");
     if (internals?.sector_rotation?.state === "risk_off") reasons.push("Defense sectors are leading");
   } else {
-    activeProfile = "correction_transition";
-    confidence = 0.68;
-    reasons.push("Mixed trend and transition evidence");
+    const _rs = Number(regimeScore);
+    if (Number.isFinite(_rs) && _rs < 3) {
+      activeProfile = "choppy_selective";
+      confidence = 0.76;
+      reasons.push("Regime score below 3 — promote to choppy_selective for capital protection");
+    } else {
+      activeProfile = "correction_transition";
+      confidence = 0.68;
+      reasons.push("Mixed trend and transition evidence");
+    }
     if (tickerRegime === "TRANSITIONAL") reasons.push("Ticker regime is transitional");
     if (riskState === "balanced") reasons.push("Market internals are balanced");
     if (personality === "PULLBACK_PLAYER" || personality === "MEAN_REVERT") reasons.push("Ticker character favors pullback entries");
@@ -3764,6 +3772,7 @@ export function assembleTickerData(ticker, bundles, existingData = null, opts = 
     state,
     flags,
     entryQuality,
+    regimeScore: regimeClass.score,
   });
   const regimeParams = getRegimeParams(
     regimeClass.regime,

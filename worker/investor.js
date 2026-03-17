@@ -483,26 +483,30 @@ export function classifyInvestorStage(tickerData, investorScore, existingPositio
     const curPrice = Number(tickerData?.price || 0);
     const posPnlPct = posEntry > 0 && curPrice > 0 ? ((curPrice - posEntry) / posEntry) * 100 : 0;
 
-    // v3: CHOPPY regime + losing → exit earlier
-    if (tickerRegime === "CHOPPY" && posPnlPct < -5) {
+    // v3: CHOPPY regime + significant loss → exit earlier
+    // Relaxed from -5% to -8% to avoid premature exits on normal pullbacks
+    if (tickerRegime === "CHOPPY" && posPnlPct < -8) {
       return { stage: "reduce", reason: "choppy_regime_losing" };
     }
 
-    // v3: Weekly Ichimoku price inside cloud → reduce (trend uncertain)
-    if (ichW?.priceVsCloud === "inside" && posPnlPct < 0) {
+    // v3: Weekly Ichimoku price inside cloud + meaningful loss → reduce (trend uncertain)
+    // Added -3% threshold to prevent exit on minor dips while in cloud
+    if (ichW?.priceVsCloud === "inside" && posPnlPct < -3) {
       return { stage: "reduce", reason: "weekly_ichimoku_inside_cloud" };
     }
 
-    // Reduce: investor score < 40 or weekly SuperTrend bearish or RS rank < 30th pct
-    // Backtest finding: score < 50 caused 1-2 day churn (enter at 70+, reduce next day at 49).
-    // Lowered to 40 to give positions room to breathe through normal score fluctuations.
-    if (investorScore < 40) {
-      return { stage: "reduce", reason: "investor_score_low" };
+    // Reduce: investor score < 30 or weekly SuperTrend bearish or RS rank < 20th pct
+    // Backtest fix: previous threshold of 40 caused immediate 1-day churn. Positions entered
+    // at 70+ score, then daily fluctuations dropped them below 40 the next day → instant sell.
+    // Lowered all thresholds significantly and require weekly/monthly confirmation for sells.
+    // The 2-consecutive-reduce-days gate in runInvestorDailyReplay provides additional protection.
+    if (investorScore < 30 && wStDir !== 1) {
+      return { stage: "reduce", reason: "investor_score_very_low" };
     }
-    if (wStDir === -1) {
+    if (wStDir === -1 && mb?.supertrend_dir !== 1) {
       return { stage: "reduce", reason: "weekly_supertrend_bearish" };
     }
-    if (rsRank < 30) {
+    if (rsRank < 20 && investorScore < 40) {
       return { stage: "reduce", reason: "rs_rank_declining" };
     }
 
