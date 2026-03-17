@@ -73,6 +73,7 @@
         const [users, setUsers] = useState([]);
         const [loading, setLoading] = useState(true);
         const [filter, setFilter] = useState("");
+        const [showRemoved, setShowRemoved] = useState(false);
         const [actionLoading, setActionLoading] = useState(null);
         const [message, setMessage] = useState(null);
         const [sortCol, setSortCol] = useState("last_login_at");
@@ -235,6 +236,9 @@
         // Filter + sort
         const processed = useMemo(() => {
           let list = users;
+          if (!showRemoved) {
+            list = list.filter(u => u.status !== "removed");
+          }
           if (filter) {
             const q = filter.toLowerCase();
             list = list.filter(u =>
@@ -257,7 +261,7 @@
             return sortDir === "asc" ? va.localeCompare(vb) : vb.localeCompare(va);
           });
           return list;
-        }, [users, filter, sortCol, sortDir]);
+        }, [users, filter, sortCol, sortDir, showRemoved]);
 
         // CSV export
         const exportCSV = () => {
@@ -486,9 +490,15 @@
 
               {/* Search + Message (only when Clients tab) */}
               {tab === "clients" && <div className="mb-4">
-                <input type="text" placeholder="Search by email, name, or type..."
-                  value={filter} onChange={(e) => setFilter(e.target.value)}
-                  className="w-full max-w-md px-4 py-2.5 rounded-xl text-[13px] bg-white/[0.03] border border-white/[0.08] text-[#e5e7eb] placeholder-[#4b5563] outline-none focus:border-[#a78bfa]/30 transition-all" />
+                <div className="flex items-center gap-4 flex-wrap">
+                  <input type="text" placeholder="Search by email, name, or type..."
+                    value={filter} onChange={(e) => setFilter(e.target.value)}
+                    className="w-full max-w-md px-4 py-2.5 rounded-xl text-[13px] bg-white/[0.03] border border-white/[0.08] text-[#e5e7eb] placeholder-[#4b5563] outline-none focus:border-[#a78bfa]/30 transition-all" />
+                  <label className="flex items-center gap-1.5 text-[11px] text-[#6b7280] cursor-pointer select-none">
+                    <input type="checkbox" checked={showRemoved} onChange={(e) => setShowRemoved(e.target.checked)} className="accent-[#a78bfa]" />
+                    Show removed ({users.filter(u => u.status === "removed").length})
+                  </label>
+                </div>
                 {message && (
                   <div className={`mt-2 inline-block px-3 py-1.5 rounded-lg text-[12px] font-medium ${message.type === "success" ? "text-[#00c853] bg-[#00c853]/[0.08]" : "text-[#ff5252] bg-[#ff5252]/[0.08]"}`}>
                     {message.text}
@@ -528,7 +538,7 @@
                         const daysSince = u.last_login_at ? (Date.now() - u.last_login_at) / 86400000 : Infinity;
                         const isCurrentUser = u.email === user?.email;
                         return (
-                          <tr key={u.email} className={`border-b border-white/[0.03] hover:bg-white/[0.02] transition-colors ${isCurrentUser ? "bg-[#a78bfa]/[0.04]" : ""}`}>
+                          <tr key={u.email} className={`border-b border-white/[0.03] hover:bg-white/[0.02] transition-colors ${isCurrentUser ? "bg-[#a78bfa]/[0.04]" : ""} ${u.status === "removed" ? "opacity-40" : ""}`}>
                             <td className={`${tdClass} text-[#4b5563]`}>{idx + 1}</td>
                             <td className={tdClass}><ClientType tier={u.tier} subStatus={u.subscription_status} /></td>
                             <td className={`${tdClass} text-[#e5e7eb] font-medium max-w-[160px] truncate`}>{u.display_name || "—"}</td>
@@ -555,6 +565,9 @@
                                 )}
                                 {u.status === "blocked" && (
                                   <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-red-500/[0.15] border border-red-500/[0.25] text-red-400">BLOCKED</span>
+                                )}
+                                {u.status === "removed" && (
+                                  <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-gray-500/[0.15] border border-gray-500/[0.25] text-gray-400">REMOVED</span>
                                 )}
                                 {u.tier !== "pro" && (
                                   <button onClick={() => setTier(u.email, "pro")}
