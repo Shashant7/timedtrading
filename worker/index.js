@@ -19037,7 +19037,7 @@ async function d1UpdateDirectionAccuracyOnExit(env, trade) {
   }
 }
 
-const USER_TICKER_SLOT_LIMITS = { free: 3, member: 3, pro: 10, vip: 10, admin: 50 };
+const USER_TICKER_SLOT_LIMITS = { free: 3, member: 3, pro: 10, vip: 20, admin: 50 };
 const USER_TICKER_SYSTEM_CAP = 200;
 const USER_TICKER_HOLD_DAYS = 7;
 const USER_TICKER_DAILY_SWAPS = 1;
@@ -34755,7 +34755,8 @@ export default {
           await kvPutJSON(env.KV_TIMED, "timed:prices", { prices, updated_at: Date.now(), ticker_count: Object.keys(prices).length });
           return sendJSON({ ok: true, ticker_count: Object.keys(prices).length, snapshot_count: Object.keys(snapshots).length, input_count: allTickers.length }, 200, corsHeaders(env, req));
         } catch (e) {
-          return sendJSON({ ok: false, error: String(e?.message || e), stack: String(e?.stack || "").slice(0, 500) }, 500, corsHeaders(env, req));
+          console.error("[alpaca-status]", e?.stack || e);
+          return sendJSON({ ok: false, error: "internal_error" }, 500, corsHeaders(env, req));
         }
       }
 
@@ -39141,6 +39142,12 @@ export default {
           if (!timestamp || !signature) {
             return sendJSON({ ok: false, error: "invalid_signature" }, 400);
           }
+          // Reject events older than 5 minutes to prevent replay attacks
+          const webhookAge = Math.floor(Date.now() / 1000) - parseInt(timestamp, 10);
+          if (isNaN(webhookAge) || webhookAge > 300) {
+            console.warn("[STRIPE WEBHOOK] Timestamp too old:", webhookAge, "seconds");
+            return sendJSON({ ok: false, error: "timestamp_too_old" }, 400);
+          }
           // Compute expected signature
           const signedPayload = `${timestamp}.${rawBody}`;
           const key = await crypto.subtle.importKey(
@@ -42285,6 +42292,21 @@ export default {
 
         // Wrap entire handler in try-catch to ensure CORS headers are always returned
         try {
+          // Auth: require authenticated user
+          const [aiUser, aiAuthErr] = await requireUser(req, env);
+          if (aiAuthErr) return aiAuthErr;
+
+          // Rate limit: 30 requests per hour per user
+          const aiRateKey = aiUser?.email || ip;
+          const aiRate = await checkRateLimit(KV, aiRateKey, "/timed/ai/chat", 30, 3600);
+          if (!aiRate.allowed) {
+            return sendJSON(
+              { ok: false, error: "rate_limit_exceeded", retryAfter: 3600 },
+              429,
+              aiChatCorsHeaders,
+            );
+          }
+
           // Handle JSON parsing errors with CORS headers
           let body;
           try {
@@ -42356,9 +42378,16 @@ export default {
                         rr: latestData.rr || 0,
                         price: latestData.price || 0,
                         state: latestData.state || "",
+                        direction: latestData.direction || latestData.dir || "",
                         phase_pct: latestData.phase_pct || 0,
+                        saty_phase_pct: latestData.saty_phase_pct || 0,
                         completion: latestData.completion || 0,
                         flags: latestData.flags || {},
+                        regime: latestData.regime_class || latestData.regime || "",
+                        squeeze: latestData.flags?.squeeze_active ? "active" : (latestData.flags?.squeeze_release ? "release" : ""),
+                        compression: latestData.flags?.saty_compressed ? "compressed" : "",
+                        ema_structure: latestData.flags?.ema_structure || "",
+                        supertrend: latestData.flags?.supertrend || "",
                         setup_reason: latestData.setup_reason || latestData.__setup_reason || null,
                         block_reason: latestData.__entry_block_reason || latestData.entry_block_reason || null,
                         kanban_stage: latestData.kanban_stage || null,
@@ -42477,13 +42506,19 @@ ${
             const stage = t.kanban_stage ? ` Stage: ${String(t.kanban_stage)}.` : "";
             const setup = t.setup_reason ? ` Setup: ${String(t.setup_reason).slice(0, 80)}.` : "";
             const block = t.block_reason ? ` Block: ${String(t.block_reason).slice(0, 80)}.` : "";
+            const dir = t.direction ? ` Dir: ${String(t.direction).toUpperCase()}.` : "";
+            const satyPhase = Number(t.saty_phase_pct) || 0;
+            const satyStr = satyPhase > 0 ? `, Saty Phase: ${(satyPhase * 100).toFixed(0)}%` : "";
+            const regime = t.regime ? ` Regime: ${String(t.regime)}.` : "";
+            const squeeze = t.squeeze ? ` Squeeze: ${t.squeeze}.` : "";
+            const compress = t.compression ? ` Compressed.` : "";
             return `- **${String(t.ticker || "UNKNOWN")}**: Rank ${
               Number(t.rank) || 0
             }, RR ${rr.toFixed(2)}:1, Price $${price.toFixed(
               2,
-            )}, State: ${String(t.state || "UNKNOWN")}, Phase: ${(
+            )}, State: ${String(t.state || "UNKNOWN")}${dir}, Phase: ${(
               phasePct * 100
-            ).toFixed(0)}%, Completion: ${(completion * 100).toFixed(0)}%${stage}${setup}${block}`;
+            ).toFixed(0)}%${satyStr}, Completion: ${(completion * 100).toFixed(0)}%${stage}${regime}${squeeze}${compress}${setup}${block}`;
           } catch (e) {
             console.error("[AI CHAT] Error formatting ticker:", t, e);
             return `- **${String(t.ticker || "UNKNOWN")}**: Data unavailable`;
@@ -42528,13 +42563,29 @@ The platform uses a quadrant-based approach combining Higher Timeframe (HTF) and
 - **Prime Setup**: High rank (≥75), excellent RR (≥1.5), low completion (<40%), favorable phase (<60%). Highest quality setups.
 - **Momentum Elite**: High-quality momentum stock with strong fundamentals (volume, ADR, momentum metrics).
 - **In Corridor**: Price is in the optimal entry zone for the directional setup (LTF score between -8 to +12 for LONG, -12 to +8 for SHORT).
-- **Squeeze Release**: Momentum indicator suggesting a directional move is beginning (pent-up energy releasing).
+- **Squeeze Release**: Bollinger Bands have contracted inside Keltner Channels (squeeze), then expanded (release), indicating a directional move is beginning.
+- **Compression**: Multiple timeframes show Saty Phase alignment in a tight range, signaling pent-up energy that may soon break out.
 
 ### Key Metrics:
 - **Rank**: Composite score (0-100) based on multiple factors. Higher = better setup quality.
 - **RR (Risk/Reward)**: Ratio of potential profit to potential loss. ≥1.5 is considered good.
-- **Phase %**: Position in the market cycle (0-100%). Lower (<40%) = early, higher (>60%) = late.
+- **Phase %**: Multi-factor Phase Oscillator position in the market cycle (0-100%). Lower (<40%) = early, higher (>60%) = late.
+- **Saty Phase %**: Independent oscillator measuring trend maturity across timeframes. Used alongside Phase % to detect compression (when phases align tightly).
 - **Completion %**: How far price has moved toward target (0-100%). Lower = more upside potential.
+- **Direction**: LONG or SHORT — the system's directional bias based on multi-timeframe alignment.
+
+### Market Regime Classification:
+The system classifies the current market environment to adapt behavior:
+- **TRENDING** — Strong directional trend; system trades aggressively with trend.
+- **TRANSITIONAL** — Regime is shifting; system is cautious, waits for confirmation.
+- **CHOPPY** — Range-bound, whipsaw risk; system reduces position sizing and raises entry bar.
+- Specific regime labels include: STRONG_BULL, EARLY_BULL, LATE_BULL, NEUTRAL, COUNTER_TREND_BULL, STRONG_BEAR, EARLY_BEAR, LATE_BEAR, COUNTER_TREND_BEAR.
+
+### Signal Flags:
+- **Squeeze Active/Release**: Bollinger-Keltner squeeze detection. "Active" = bands are contracting. "Release" = expansion with directional move.
+- **Compressed**: Saty Phase Oscillator values across majority of timeframes are aligned tightly, signaling imminent directional break.
+- **EMA Structure**: Describes EMA alignment (bullish stacked, bearish stacked, neutral, etc.).
+- **SuperTrend**: Trend-following indicator state (bullish or bearish flip signals).
 
 ## APPLICATION GUIDE (How to Use the System)
 
@@ -42548,12 +42599,12 @@ The platform uses a quadrant-based approach combining Higher Timeframe (HTF) and
 
 ### Kanban Board (Active Trader)
 Tickers flow through horizontal lanes based on their scoring signals:
-- **Discovery**: Tickers being monitored but not yet in a trade setup.
-- **Flip Watch**: Showing early signs of a directional change.
-- **Enter Now**: Active entry signal — highest conviction setups. Look here for trade ideas.
-- **Manage**: Open positions being actively managed.
-- **Trim**: Partial exit signals (take profits, reduce risk).
-- **Exit**: Full exit signals.
+- **Setup**: Building a case. Early signs of a potential move forming.
+- **Enter**: Time to act. Score and conditions align for a new position.
+- **Hold**: The trade thesis is intact. Stay the course.
+- **Defend**: Caution. The trade is under pressure — tighten stops or reduce exposure.
+- **Trim**: Take partial profits. Momentum is fading but the trend may continue.
+- **Exit**: Close the position. The thesis is invalidated.
 
 ### Right Rail
 Click any ticker card to open the Right Rail panel showing:
@@ -42637,10 +42688,11 @@ As an active monitor, you should:
 
 5. **Formatting**:
    - Use **bold** for tickers and key terms
-   - Use \`code\` for technical terms
-   - Use bullet points for lists
+   - Use \`code\` for technical terms sparingly
+   - Use "- " bullet points for lists (NOT markdown ### headings for every section — keep headings to a minimum)
    - Use emojis for quick scanning: 🎯 Opportunities, ⚠️ Warnings, 📊 Insights, 💡 Recommendations
    - Keep paragraphs short (2-3 sentences max)
+   - For Market Pulse: use a clean summary paragraph first, then bulleted lists for recommendations. Avoid using multiple ### headings — use **bold** section labels instead.
 
 6. **Educational approach**:
    - Explain concepts if user seems unfamiliar
@@ -42783,7 +42835,6 @@ Remember: Be professional, accurate, and prioritize user safety. Use plain langu
                 {
                   ok: false,
                   error: error.message || "AI service error",
-                  details: error.stack,
                 },
                 500,
                 aiChatCorsHeaders,
@@ -42830,7 +42881,6 @@ Remember: Be professional, accurate, and prioritize user safety. Use plain langu
               {
                 ok: false,
                 error: "Internal server error",
-                details: fatalError?.message || "Unknown error",
               },
               500,
               fatalCorsHeaders,
@@ -43424,6 +43474,21 @@ Based on today's data:
           "Access-Control-Allow-Headers": "Content-Type",
           Vary: "Origin",
         };
+
+        // Auth: require authenticated user
+        const [monUser, monAuthErr] = await requireUser(req, env);
+        if (monAuthErr) return monAuthErr;
+
+        // Rate limit: 15 requests per hour per user
+        const monRateKey = monUser?.email || ip;
+        const monRate = await checkRateLimit(KV, monRateKey, "/timed/ai/monitor", 15, 3600);
+        if (!monRate.allowed) {
+          return sendJSON(
+            { ok: false, error: "rate_limit_exceeded", retryAfter: 3600 },
+            429,
+            aiChatCorsHeaders,
+          );
+        }
 
         try {
           const openaiApiKey = env.OPENAI_API_KEY;

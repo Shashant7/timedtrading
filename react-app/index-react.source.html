@@ -15710,31 +15710,84 @@
         };
 
         const formatMessage = (content) => {
-          // Simple markdown-like formatting
-          const lines = content.split("\n");
-          return lines.map((line, i) => {
-            let formatted = line;
-            // Bold
-            formatted = formatted.replace(
-              /\*\*(.+?)\*\*/g,
-              '<strong class="font-semibold">$1</strong>',
-            );
-            // Code blocks
-            formatted = formatted.replace(
-              /`(.+?)`/g,
-              '<code class="bg-white/[0.04] px-1 py-0.5 rounded text-xs">$1</code>',
-            );
-            // Links
-            formatted = formatted.replace(
-              /\[(.+?)\]\((.+?)\)/g,
-              '<a href="$2" target="_blank" class="text-blue-400 hover:underline">$1</a>',
-            );
-            // Use React.createElement instead of JSX for better Babel compatibility
-            return React.createElement("p", {
-              key: i,
-              dangerouslySetInnerHTML: { __html: formatted },
+          const inlineFormat = (text) => {
+            let s = text;
+            s = s.replace(/\*\*(.+?)\*\*/g, '<strong class="font-semibold text-[#e2e8f0]">$1</strong>');
+            s = s.replace(/`(.+?)`/g, '<code class="bg-white/[0.06] px-1.5 py-0.5 rounded text-[12px] text-emerald-300/90">$1</code>');
+            s = s.replace(/\[(.+?)\]\((.+?)\)/g, (_, label, url) => {
+              const safeUrl = /^https?:\/\/|^mailto:/i.test(url) ? url : "#";
+              return `<a href="${safeUrl}" target="_blank" rel="noopener noreferrer" class="text-emerald-400 hover:underline">${label}</a>`;
             });
-          });
+            s = s.replace(/<[^>]*\bon\w+\s*=/gi, '');
+            return s;
+          };
+
+          const elements = [];
+          const lines = content.split("\n");
+          let bulletBuffer = [];
+          let key = 0;
+
+          const flushBullets = () => {
+            if (bulletBuffer.length === 0) return;
+            elements.push(React.createElement("ul", {
+              key: key++,
+              className: "space-y-1.5 my-2 pl-1",
+            }, bulletBuffer.map((b, j) => React.createElement("li", {
+              key: j,
+              className: "flex items-start gap-2 text-[13px] leading-relaxed",
+            },
+              React.createElement("span", { className: "text-emerald-400/70 mt-[3px] shrink-0 text-[10px]" }, "\u25CF"),
+              React.createElement("span", { dangerouslySetInnerHTML: { __html: inlineFormat(b) } }),
+            ))));
+            bulletBuffer = [];
+          };
+
+          for (let i = 0; i < lines.length; i++) {
+            const line = lines[i];
+            const trimmed = line.trim();
+
+            if (trimmed === "" || trimmed === "---") {
+              flushBullets();
+              if (trimmed === "---") {
+                elements.push(React.createElement("hr", { key: key++, className: "border-white/[0.06] my-3" }));
+              }
+              continue;
+            }
+
+            const headingMatch = trimmed.match(/^(#{1,4})\s+(.+)/);
+            if (headingMatch) {
+              flushBullets();
+              const level = headingMatch[1].length;
+              const cls = level <= 2
+                ? "text-[14px] font-bold text-white mt-3 mb-1.5"
+                : "text-[13px] font-semibold text-[#d1d5db] mt-2.5 mb-1";
+              elements.push(React.createElement("div", {
+                key: key++, className: cls,
+                dangerouslySetInnerHTML: { __html: inlineFormat(headingMatch[2]) },
+              }));
+              continue;
+            }
+
+            const bulletMatch = trimmed.match(/^[-*•]\s+(.+)/);
+            const numBulletMatch = !bulletMatch && trimmed.match(/^\d+[.)]\s+(.+)/);
+            if (bulletMatch) {
+              bulletBuffer.push(bulletMatch[1]);
+              continue;
+            }
+            if (numBulletMatch) {
+              bulletBuffer.push(numBulletMatch[1]);
+              continue;
+            }
+
+            flushBullets();
+            elements.push(React.createElement("p", {
+              key: key++,
+              className: "text-[13px] leading-relaxed mb-1.5",
+              dangerouslySetInnerHTML: { __html: inlineFormat(trimmed) },
+            }));
+          }
+          flushBullets();
+          return elements;
         };
 
         if (!isOpen) return null;
@@ -17216,7 +17269,7 @@
                     <div className="hidden md:flex items-center gap-0.5" data-coachmark="nav-modes">
                       <a href="index-react.html" className="px-3 py-1 rounded-md text-[13px] text-white bg-white/[0.07] font-medium">Analysis</a>
                       <a href="simulation-dashboard.html" className="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Trades</a>
-                      <a href="system-intelligence.html" className="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">System Intelligence</a>
+                      <a href="system-intelligence.html" data-admin-only="true" className="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">System Intelligence</a>
                       <a href="screener.html" data-admin-only="true" className="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Screener</a>
                       <a href="ticker-management.html" data-admin-only="true" className="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Tickers</a>
                       <a href="trade-autopsy.html" data-admin-only="true" className="px-3 py-1 rounded-md text-[13px] text-[#14b8a6]/80 hover:text-[#14b8a6] hover:bg-[#14b8a6]/[0.06] transition-all font-medium">Trade Autopsy</a>
@@ -17252,7 +17305,7 @@
                   <div className="md:hidden border-t border-white/[0.06] px-4 py-2 flex flex-col gap-0.5" style={{background:"rgba(10,10,15,0.98)"}}>
                     <a href="index-react.html" className="px-3 py-2 rounded-md text-[13px] text-white bg-white/[0.07] font-medium" onClick={() => setMobileMenuOpen(false)}>Analysis</a>
                     <a href="simulation-dashboard.html" className="px-3 py-2 rounded-md text-[13px] text-[#9ca3af] hover:text-white hover:bg-white/[0.04] transition-all" onClick={() => setMobileMenuOpen(false)}>Trades</a>
-                    <a href="system-intelligence.html" className="px-3 py-2 rounded-md text-[13px] text-[#9ca3af] hover:text-white hover:bg-white/[0.04] transition-all" onClick={() => setMobileMenuOpen(false)}>System Intelligence</a>
+                    <a href="system-intelligence.html" data-admin-only="true" className="px-3 py-2 rounded-md text-[13px] text-[#9ca3af] hover:text-white hover:bg-white/[0.04] transition-all" onClick={() => setMobileMenuOpen(false)}>System Intelligence</a>
                     <a href="screener.html" data-admin-only="true" className="px-3 py-2 rounded-md text-[13px] text-[#9ca3af] hover:text-white hover:bg-white/[0.04] transition-all" onClick={() => setMobileMenuOpen(false)}>Screener</a>
                     <a href="ticker-management.html" data-admin-only="true" className="px-3 py-2 rounded-md text-[13px] text-[#9ca3af] hover:text-white hover:bg-white/[0.04] transition-all" onClick={() => setMobileMenuOpen(false)}>Tickers</a>
                     <a href="trade-autopsy.html" data-admin-only="true" className="px-3 py-2 rounded-md text-[13px] text-[#14b8a6]/80 hover:text-[#14b8a6] font-medium" onClick={() => setMobileMenuOpen(false)}>Trade Autopsy</a>
@@ -18373,7 +18426,7 @@
         {
           target: "[data-coachmark='nav-modes']",
           title: "Navigation",
-          body: "Analysis is your command center. Daily Brief delivers AI market commentary each morning and evening. Trade Autopsy reviews every trade. System Intelligence shows how the model is calibrated. Switch between Active Trader and Investor views here.",
+          body: "Analysis is your command center. Daily Brief delivers AI market commentary each morning and evening. Trades shows your active positions and portfolio performance. Switch between Active Trader and Investor views here.",
           position: "bottom",
           icon: "compass",
         },
@@ -18827,7 +18880,7 @@
           // Check if React 18 createRoot is available
           const AuthGate = window.TimedAuthGate;
           const wrappedApp = AuthGate
-            ? React.createElement(AuthGate, { apiBase: "", requiredTier: "free" },
+            ? React.createElement(AuthGate, { apiBase: "", requiredTier: "pro" },
                 (user) => React.createElement(window.App, { user }))
             : React.createElement(window.App);
           if (ReactDOM.createRoot) {

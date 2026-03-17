@@ -12412,19 +12412,56 @@ const AIChatInterface = ({
     }
   };
   const formatMessage = content => {
-    const lines = content.split("\n");
-    return lines.map((line, i) => {
-      let formatted = line;
-      formatted = formatted.replace(/\*\*(.+?)\*\*/g, '<strong class="font-semibold">$1</strong>');
-      formatted = formatted.replace(/`(.+?)`/g, '<code class="bg-white/[0.04] px-1 py-0.5 rounded text-xs">$1</code>');
-      formatted = formatted.replace(/\[(.+?)\]\((.+?)\)/g, '<a href="$2" target="_blank" class="text-blue-400 hover:underline">$1</a>');
-      return React.createElement("p", {
-        key: i,
-        dangerouslySetInnerHTML: {
-          __html: formatted
-        }
+    const inlineFormat = text => {
+      let s = text;
+      s = s.replace(/\*\*(.+?)\*\*/g, '<strong class="font-semibold text-[#e2e8f0]">$1</strong>');
+      s = s.replace(/`(.+?)`/g, '<code class="bg-white/[0.06] px-1.5 py-0.5 rounded text-[12px] text-emerald-300/90">$1</code>');
+      s = s.replace(/\[(.+?)\]\((.+?)\)/g, (_, label, url) => {
+        const safeUrl = /^https?:\/\/|^mailto:/i.test(url) ? url : "#";
+        return `<a href="${safeUrl}" target="_blank" rel="noopener noreferrer" class="text-emerald-400 hover:underline">${label}</a>`;
       });
-    });
+      s = s.replace(/<[^>]*\bon\w+\s*=/gi, '');
+      return s;
+    };
+    const elements = [];
+    const lines = content.split("\n");
+    let bulletBuffer = [];
+    let key = 0;
+    const flushBullets = () => {
+      if (bulletBuffer.length === 0) return;
+      elements.push(React.createElement("ul", { key: key++, className: "space-y-1.5 my-2 pl-1" },
+        bulletBuffer.map((b, j) => React.createElement("li", { key: j, className: "flex items-start gap-2 text-[13px] leading-relaxed" },
+          React.createElement("span", { className: "text-emerald-400/70 mt-[3px] shrink-0 text-[10px]" }, "\u25CF"),
+          React.createElement("span", { dangerouslySetInnerHTML: { __html: inlineFormat(b) } })
+        ))
+      ));
+      bulletBuffer = [];
+    };
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      const trimmed = line.trim();
+      if (trimmed === "" || trimmed === "---") {
+        flushBullets();
+        if (trimmed === "---") elements.push(React.createElement("hr", { key: key++, className: "border-white/[0.06] my-3" }));
+        continue;
+      }
+      const headingMatch = trimmed.match(/^(#{1,4})\s+(.+)/);
+      if (headingMatch) {
+        flushBullets();
+        const level = headingMatch[1].length;
+        const cls = level <= 2 ? "text-[14px] font-bold text-white mt-3 mb-1.5" : "text-[13px] font-semibold text-[#d1d5db] mt-2.5 mb-1";
+        elements.push(React.createElement("div", { key: key++, className: cls, dangerouslySetInnerHTML: { __html: inlineFormat(headingMatch[2]) } }));
+        continue;
+      }
+      const bulletMatch = trimmed.match(/^[-*•]\s+(.+)/);
+      const numBulletMatch = !bulletMatch && trimmed.match(/^\d+[.)]\s+(.+)/);
+      if (bulletMatch) { bulletBuffer.push(bulletMatch[1]); continue; }
+      if (numBulletMatch) { bulletBuffer.push(numBulletMatch[1]); continue; }
+      flushBullets();
+      elements.push(React.createElement("p", { key: key++, className: "text-[13px] leading-relaxed mb-1.5", dangerouslySetInnerHTML: { __html: inlineFormat(trimmed) } }));
+    }
+    flushBullets();
+    return elements;
   };
   if (!isOpen) return null;
   return React.createElement("div", {
@@ -13871,6 +13908,7 @@ function App() {
     className: "px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all"
   }, "Trades"), React.createElement("a", {
     href: "system-intelligence.html",
+    "data-admin-only": "true",
     className: "px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all"
   }, "System Intelligence"), React.createElement("a", {
     href: "screener.html",
@@ -13989,6 +14027,7 @@ function App() {
     onClick: () => setMobileMenuOpen(false)
   }, "Trades"), React.createElement("a", {
     href: "system-intelligence.html",
+    "data-admin-only": "true",
     className: "px-3 py-2 rounded-md text-[13px] text-[#9ca3af] hover:text-white hover:bg-white/[0.04] transition-all",
     onClick: () => setMobileMenuOpen(false)
   }, "System Intelligence"), React.createElement("a", {
@@ -15305,7 +15344,7 @@ function App() {
 const COACHMARK_STEPS = [{
   target: "[data-coachmark='nav-modes']",
   title: "Navigation",
-  body: "Analysis is your command center. Daily Brief delivers AI market commentary each morning and evening. Trade Autopsy reviews every trade. System Intelligence shows how the model is calibrated. Switch between Active Trader and Investor views here.",
+  body: "Analysis is your command center. Daily Brief delivers AI market commentary each morning and evening. Trades shows your active positions and portfolio performance. Switch between Active Trader and Investor views here.",
   position: "bottom",
   icon: "compass"
 }, {

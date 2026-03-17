@@ -515,7 +515,7 @@
           // Check if React 18 createRoot is available
           const AuthGate = window.TimedAuthGate;
           const wrappedApp = AuthGate
-            ? React.createElement(AuthGate, { apiBase: "", requiredTier: "free" },
+            ? React.createElement(AuthGate, { apiBase: "", requiredTier: "pro" },
                 (user) => React.createElement(window.App, { user }))
             : React.createElement(window.App);
           if (ReactDOM.createRoot) {
