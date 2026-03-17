@@ -383,6 +383,20 @@ export async function tdFetchEarningsCalendar(env, startDate, endDate) {
   return tdFetch(url, 15000);
 }
 
+// Per-symbol earnings — returns upcoming/recent earnings for a specific ticker
+// Returns: { earnings: [ { date, time, eps_estimate, eps_actual, ... } ] }
+export async function tdFetchTickerEarnings(env, symbol) {
+  const apiKey = getApiKey(env);
+  if (!apiKey) return { _error: "missing_credentials" };
+
+  const params = new URLSearchParams({
+    symbol: toTdSymbol(symbol),
+    apikey: apiKey,
+  });
+  const url = `${TD_BASE}/earnings?${params}`;
+  return tdFetch(url, 10000);
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // Exports for data-provider layer
 // ═══════════════════════════════════════════════════════════════════════════════

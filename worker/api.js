@@ -339,6 +339,9 @@ export async function authenticateUser(req, env) {
       .first();
 
     if (existing) {
+      if (existing.status === "blocked" || existing.status === "removed") {
+        return null;
+      }
       // Update last login + session tracking (login_count, login_days)
       const now = Date.now();
       const todayNY = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" }); // "YYYY-MM-DD"
@@ -519,7 +522,7 @@ export async function requireKeyOrAdmin(req, env) {
 
   // Try JWT auth (human via Cloudflare Access)
   const user = await authenticateUser(req, env);
-  if (user && (user.role === "admin" || user.email === env.ADMIN_EMAIL)) {
+  if (user && (user.role === "admin" || user.tier === "admin" || user.email === env.ADMIN_EMAIL)) {
     return null; // Admin user authenticated
   }
 

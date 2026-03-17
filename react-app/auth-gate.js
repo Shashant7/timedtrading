@@ -1728,6 +1728,18 @@
                 ),
               ),
         ),
+        // "View All Alerts" footer link
+        h("a", {
+          href: "/alerts.html",
+          style: {
+            display: "block", textAlign: "center", padding: "10px 16px",
+            borderTop: "1px solid rgba(255,255,255,0.06)", fontSize: "12px",
+            fontWeight: "500", color: "#14b8a6", textDecoration: "none",
+            transition: "background 0.15s",
+          },
+          onMouseEnter: (e) => { e.currentTarget.style.background = "rgba(20,184,166,0.06)"; },
+          onMouseLeave: (e) => { e.currentTarget.style.background = "transparent"; },
+        }, "View All Alerts \u2192"),
       ),
       // Notification Detail Modal — rendered via portal to document.body
       // so it's not clipped by parent overflow/transform/backdrop-filter.
@@ -2001,11 +2013,188 @@
     }
   }
 
+  // ═══════════════════════════════════════════════════════════════════
+  // Discord Connect Button + Modal
+  // ═══════════════════════════════════════════════════════════════════
+
+  function DiscordButton({ apiBase }) {
+    const h = React.createElement;
+    const [open, setOpen] = React.useState(false);
+    const [status, setStatus] = React.useState(null); // null = loading, { connected, discord_username, guild_id }
+    const [loading, setLoading] = React.useState(false);
+    const [error, setError] = React.useState(null);
+    const btnRef = React.useRef(null);
+
+    const fetchStatus = React.useCallback(async () => {
+      try {
+        const res = await fetch(`${apiBase}/timed/discord/status`, { credentials: "include" });
+        if (res.ok) {
+          const json = await res.json();
+          if (json.ok) setStatus(json);
+        }
+      } catch {}
+    }, [apiBase]);
+
+    React.useEffect(() => { fetchStatus(); }, [fetchStatus]);
+
+    // Listen for postMessage from OAuth popup
+    React.useEffect(() => {
+      const handler = (e) => {
+        if (e.data?.type === "discord-connected") {
+          setStatus(prev => ({ ...prev, connected: true, discord_username: e.data.username }));
+          setError(null);
+          setOpen(true);
+        } else if (e.data?.type === "discord-error") {
+          setError(e.data.error || "Connection failed");
+        }
+      };
+      window.addEventListener("message", handler);
+      return () => window.removeEventListener("message", handler);
+    }, []);
+
+    // Click outside to close
+    React.useEffect(() => {
+      if (!open) return;
+      const handler = (e) => {
+        if (btnRef.current && !btnRef.current.contains(e.target)) setOpen(false);
+      };
+      document.addEventListener("mousedown", handler);
+      return () => document.removeEventListener("mousedown", handler);
+    }, [open]);
+
+    const handleConnect = async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const res = await fetch(`${apiBase}/timed/discord/connect`, { credentials: "include" });
+        const json = await res.json();
+        if (json.ok && json.url) {
+          window.open(json.url, "discord-oauth", "width=500,height=700,left=200,top=100");
+        } else {
+          setError(json.error || "Failed to start connection");
+        }
+      } catch (e) {
+        setError("Network error");
+      }
+      setLoading(false);
+    };
+
+    const handleDisconnect = async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const res = await fetch(`${apiBase}/timed/discord/disconnect`, { method: "POST", credentials: "include" });
+        const json = await res.json();
+        if (json.ok) {
+          setStatus({ connected: false, discord_username: null, discord_id: null });
+        } else {
+          setError(json.error || "Failed to disconnect");
+        }
+      } catch (e) {
+        setError("Network error");
+      }
+      setLoading(false);
+    };
+
+    const discordSvg = h("svg", { width: 18, height: 18, viewBox: "0 0 24 24", fill: "currentColor", style: { flexShrink: 0 } },
+      h("path", { d: "M20.317 4.37a19.791 19.791 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 0 0 .031.057 19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028c.462-.63.874-1.295 1.226-1.994a.076.076 0 0 0-.041-.106 13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128 10.2 10.2 0 0 0 .372-.292.074.074 0 0 1 .077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 0 1 .078.01c.12.098.246.198.373.292a.077.077 0 0 1-.006.127 12.299 12.299 0 0 1-1.873.892.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.03z" })
+    );
+
+    const panelStyle = {
+      position: "absolute", top: "calc(100% + 8px)", right: 0, zIndex: 1000,
+      width: 320, background: "#111318", border: "1px solid #1e2128", borderRadius: 12,
+      boxShadow: "0 8px 32px rgba(0,0,0,.5)", padding: "20px", color: "#e5e7eb",
+    };
+
+    return h("div", { ref: btnRef, style: { position: "relative" } },
+      h("button", {
+        onClick: () => setOpen(v => !v),
+        title: "Discord Community",
+        style: {
+          background: "none", border: "none", cursor: "pointer", padding: "6px",
+          color: status?.connected ? "#5865F2" : "#6b7280", display: "flex", alignItems: "center",
+          borderRadius: 6, transition: "all 0.15s",
+        },
+        onMouseEnter: (e) => { e.currentTarget.style.color = "#5865F2"; e.currentTarget.style.background = "rgba(88,101,242,0.06)"; },
+        onMouseLeave: (e) => { e.currentTarget.style.color = status?.connected ? "#5865F2" : "#6b7280"; e.currentTarget.style.background = "none"; },
+      }, discordSvg),
+      open && h("div", { style: panelStyle },
+        h("div", { style: { display: "flex", alignItems: "center", gap: 8, marginBottom: 16 } },
+          h("div", { style: { color: "#5865F2" } }, discordSvg),
+          h("span", { style: { fontWeight: 600, fontSize: 15 } }, "Discord Community"),
+        ),
+        status?.connected ? h(React.Fragment, null,
+          h("div", { style: { background: "#0d1117", borderRadius: 8, padding: "12px 14px", marginBottom: 14, border: "1px solid #1e2128" } },
+            h("div", { style: { fontSize: 11, color: "#6b7280", marginBottom: 4 } }, "Connected as"),
+            h("div", { style: { fontSize: 14, fontWeight: 600, color: "#5865F2" } }, status.discord_username),
+          ),
+          h("div", { style: { display: "flex", gap: 8 } },
+            h("a", {
+              href: status.guild_id ? `https://discord.com/channels/${status.guild_id}` : "https://discord.com",
+              target: "_blank", rel: "noopener",
+              style: { flex: 1, display: "inline-flex", justifyContent: "center", padding: "8px 16px", borderRadius: 8, background: "#5865F2", color: "white", fontSize: 13, fontWeight: 600, textDecoration: "none", transition: "opacity 0.15s" },
+            }, "Open Discord"),
+            h("button", {
+              onClick: handleDisconnect, disabled: loading,
+              style: { padding: "8px 14px", borderRadius: 8, background: "transparent", border: "1px solid #374151", color: "#9ca3af", fontSize: 12, cursor: loading ? "wait" : "pointer", transition: "all 0.15s" },
+            }, loading ? "..." : "Disconnect"),
+          ),
+        ) : h(React.Fragment, null,
+          h("p", { style: { fontSize: 13, color: "#9ca3af", lineHeight: 1.5, marginBottom: 16 } },
+            "Connect your Discord account to join the Timed Trading community server. Get real-time trade alerts, share setups, and connect with other traders."
+          ),
+          error && h("div", { style: { fontSize: 12, color: "#ff5252", marginBottom: 12, padding: "8px 10px", background: "rgba(255,82,82,0.08)", borderRadius: 6 } }, error),
+          h("button", {
+            onClick: handleConnect, disabled: loading,
+            style: { width: "100%", padding: "10px 16px", borderRadius: 8, background: "#5865F2", color: "white", fontSize: 14, fontWeight: 600, border: "none", cursor: loading ? "wait" : "pointer", transition: "opacity 0.15s", opacity: loading ? 0.6 : 1 },
+          }, loading ? "Connecting..." : "Connect Discord"),
+        ),
+      ),
+    );
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // Session Heartbeat
+  // ═══════════════════════════════════════════════════════════════════
+
+  function startSessionHeartbeat(apiBase) {
+    let sessionId = null;
+    try { sessionId = sessionStorage.getItem("tt_session_id"); } catch {}
+    if (!sessionId) {
+      sessionId = crypto.randomUUID ? crypto.randomUUID() : (Date.now().toString(36) + Math.random().toString(36).slice(2));
+      try { sessionStorage.setItem("tt_session_id", sessionId); } catch {}
+    }
+
+    const sendHeartbeat = () => {
+      try {
+        const body = JSON.stringify({
+          session_id: sessionId,
+          screen_width: window.screen?.width || window.innerWidth,
+          path: window.location.pathname,
+        });
+        if (navigator.sendBeacon) {
+          navigator.sendBeacon(`${apiBase}/timed/session/heartbeat`, new Blob([body], { type: "application/json" }));
+        } else {
+          fetch(`${apiBase}/timed/session/heartbeat`, {
+            method: "POST", body, headers: { "Content-Type": "application/json" },
+            credentials: "include", keepalive: true,
+          }).catch(() => {});
+        }
+      } catch {}
+    };
+
+    sendHeartbeat();
+    const intervalId = setInterval(sendHeartbeat, 60000);
+    return () => clearInterval(intervalId);
+  }
+
   // Export to window
   window.TimedAuthGate = AuthGate;
   window.TimedUserBadge = UserBadge;
   window.TimedNotificationCenter = NotificationCenter;
+  window.TimedDiscordButton = DiscordButton;
   window.TimedVIPAdminPanel = VIPAdminPanel;
+  window.TimedSessionHeartbeat = startSessionHeartbeat;
   window.TimedAuthHelpers = {
     getStoredSession,
     storeSession,

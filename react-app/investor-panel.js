@@ -7,17 +7,17 @@
   const { useState, useEffect, useCallback, useMemo, useRef } = React;
   const getDailyChange = window.TimedPriceUtils?.getDailyChange || (() => ({ dayPct: null, dayChg: null }));
 
-  function ScoreBar({ score, max, color }) {
+  function ScoreBar({ score, max }) {
     const pct = Math.max(0, Math.min(100, ((score || 0) / (max || 100)) * 100));
-    return React.createElement("div", { className: "w-full h-1.5 rounded-full bg-white/[0.06] overflow-hidden" },
-      React.createElement("div", { style: { width: `${pct}%`, background: color || "#3b82f6" }, className: "h-full rounded-full transition-all duration-500" })
+    return React.createElement("div", { className: "w-full h-[3px] bg-white/[0.04] overflow-hidden", style: { borderRadius: "1px" } },
+      React.createElement("div", { style: { width: `${pct}%`, background: "rgba(255,255,255,0.2)" }, className: "h-full transition-all duration-500", style2: { borderRadius: "1px" } })
     );
   }
 
   function RegimeBadge({ regime }) {
-    const colors = { RISK_ON: "text-[#00e676] bg-[#00c853]/10 border-[#00c853]/25", CAUTIOUS: "text-amber-400 bg-amber-500/10 border-amber-500/25", RISK_OFF: "text-red-400 bg-red-500/10 border-red-500/25" };
+    const colors = { RISK_ON: "text-[#4ade80]", CAUTIOUS: "text-[#d4a017]", RISK_OFF: "text-[#f87171]" };
     const friendly = { RISK_ON: "Bullish", CAUTIOUS: "Cautious", RISK_OFF: "Bearish" };
-    return React.createElement("span", { className: `px-2 py-0.5 rounded-md text-[11px] font-semibold border ${colors[regime] || colors.CAUTIOUS}`, title: regime }, friendly[regime] || regime);
+    return React.createElement("span", { className: `text-[10px] font-bold uppercase tracking-wider ${colors[regime] || colors.CAUTIOUS}`, title: regime }, friendly[regime] || regime);
   }
 
   function InvestorCard({ t, onSelect, selectedTicker, savedTickers, toggleSavedTicker }) {
@@ -25,20 +25,14 @@
     const sym = String(t?.ticker || "").toUpperCase();
     const stage = t.stage || "research_avoid";
     const score = Number(t.score) || 0;
-    const scoreCls = score >= 70 ? "text-[#00e676]" : score >= 50 ? "text-amber-400" : "text-red-400";
+    const scoreCls = score >= 70 ? "text-[#e5e7eb]" : score >= 50 ? "text-[#9ca3af]" : "text-[#6b7280]";
     const _dc = getDailyChange(t);
     const dayPct = _dc?.dayPct;
     const dayChg = _dc?.dayChg;
     const price = t.price != null && Number.isFinite(t.price) ? t.price : null;
     const isSelected = selectedTicker === sym;
-    const glassBg = "rgba(10,16,28,0.45)";
-    const cardBgImage = [
-      "linear-gradient(170deg, rgba(255,255,255,0.07) 0%, rgba(255,255,255,0.02) 25%, transparent 55%)",
-      "linear-gradient(to bottom, rgba(120,160,255,0.04) 0%, transparent 40%, rgba(0,0,0,0.15) 100%)",
-      `linear-gradient(0deg, ${glassBg}, ${glassBg})`,
-    ].join(", ");
-    const stageColors = { accumulate: "#10b981", core_hold: "#3b82f6", watch: "#f59e0b", reduce: "#ef4444", research_on_watch: "#a78bfa", research_low: "#8b5cf6", research_avoid: "#6b7280", research: "#6b7280", exited: "#6b7280" };
-    const accentColor = stageColors[stage] || "#6b7280";
+    const cardBgImage = "none";
+    const accentColor = "#4b5563";
     const stageLabels = { accumulate: "Accum", core_hold: "Core", watch: "Watch", reduce: "Reduce", research_on_watch: "On Watch", research_low: "Low Conv", research_avoid: "Avoid", research: "Research", exited: "Exited" };
 
     return React.createElement("div", {
@@ -104,10 +98,10 @@
             t.rs?.rs1m != null && React.createElement("span", { className: `font-semibold tabular-nums ${t.rs.rs1m >= 0 ? "text-[#00e676]" : "text-rose-400"}` }, `1M:${t.rs.rs1m >= 0 ? "+" : ""}${Number(t.rs.rs1m).toFixed(1)}%`),
             t.rs?.rs3m != null && React.createElement("span", { className: `font-semibold tabular-nums ${t.rs.rs3m >= 0 ? "text-[#00e676]" : "text-rose-400"}` }, `3M:${t.rs.rs3m >= 0 ? "+" : ""}${Number(t.rs.rs3m).toFixed(1)}%`),
           ),
-          stage === "accumulate" && React.createElement("span", { className: "text-[8px] text-[#00e676]/80 font-semibold" }, "Consider buying"),
-          stage === "reduce" && React.createElement("span", { className: "text-[8px] text-rose-400/80 font-semibold" }, "Consider trimming"),
-          stage === "research_on_watch" && React.createElement("span", { className: "text-[8px] text-violet-400/80 font-semibold" }, "On radar"),
-          stage === "research_avoid" && React.createElement("span", { className: "text-[8px] text-[#6b7280]/80 font-semibold" }, "Caution"),
+          stage === "accumulate" && React.createElement("span", { className: "text-[8px] text-[#6b7280] font-semibold uppercase tracking-wider" }, "Consider buying"),
+          stage === "reduce" && React.createElement("span", { className: "text-[8px] text-[#6b7280] font-semibold uppercase tracking-wider" }, "Consider trimming"),
+          stage === "research_on_watch" && React.createElement("span", { className: "text-[8px] text-[#4b5563] font-semibold uppercase tracking-wider" }, "On radar"),
+          stage === "research_avoid" && React.createElement("span", { className: "text-[8px] text-[#374151] font-semibold uppercase tracking-wider" }, "Caution"),
         ),
 
         
@@ -126,19 +120,19 @@
       } catch {}
     }, [laneKey, items?.map(i => i.ticker).join(",")]);
 
-    return React.createElement("div", { className: "flex items-stretch gap-0 mb-1 kanban-lane" },
+    return React.createElement("div", { className: "flex items-stretch gap-0 mb-0.5 kanban-lane" },
       React.createElement("div", {
-        className: "flex flex-col justify-center items-center min-w-[72px] w-[72px] shrink-0 rounded-l-xl border-l-2 border-t border-b border-t-white/[0.04] border-b-white/[0.04] px-1.5 py-2",
-        style: { borderLeftColor: color, background: "linear-gradient(180deg, rgba(255,255,255,0.04) 0%, rgba(255,255,255,0.015) 100%)" },
+        className: "flex flex-col justify-center items-center min-w-[56px] w-[56px] shrink-0 border-r border-r-white/[0.04] px-1 py-2",
+        style: { background: "transparent" },
         title: title,
       },
-        React.createElement("span", { className: "text-[11px] font-semibold text-white/90 tracking-wide text-center leading-tight break-words" }, icon, React.createElement("br"), title),
-        React.createElement("span", { className: `text-[10px] font-bold tabular-nums mt-0.5 ${count > 0 ? "text-white/80" : "text-[#4b5563]"}` }, count),
+        React.createElement("span", { className: "text-[9px] font-bold uppercase tracking-widest text-[#4b5563] text-center leading-tight break-words" }, title),
+        React.createElement("span", { className: `text-[11px] font-bold tabular-nums mt-0.5 ${count > 0 ? "text-[#e5e7eb]" : "text-[#2a2e35]"}` }, count),
       ),
       React.createElement("div", {
         ref: listRef,
-        className: "flex-1 rounded-r-xl border-t border-r border-b border-white/[0.04] p-1.5 overflow-x-auto scrollbar-hide",
-        style: { overflowAnchor: "none", WebkitOverflowScrolling: "touch", background: "rgba(255,255,255,0.01)" },
+        className: "flex-1 p-1.5 overflow-x-auto scrollbar-hide",
+        style: { overflowAnchor: "none", WebkitOverflowScrolling: "touch" },
         onScroll: () => {
           try {
             const el = listRef.current;
@@ -159,13 +153,13 @@
     const laneScrollRef = useRef({});
     const stages = ["accumulate", "core_hold", "watch", "reduce", "research_on_watch", "research_low", "research_avoid"];
     const stageMeta = {
-      accumulate: { label: "Accumulate", icon: "📈", color: "#10b981", title: "Consider buying — price is in a favorable zone" },
-      core_hold: { label: "Core Hold", icon: "📊", color: "#3b82f6", title: "Keep holding — trend and strength are solid" },
-      watch: { label: "Watch", icon: "👁", color: "#f59e0b", title: "Wait and monitor — signals are mixed" },
-      reduce: { label: "Reduce", icon: "📉", color: "#ef4444", title: "Consider selling — showing signs of weakness" },
-      research_on_watch: { label: "On Watch", icon: "🔍", color: "#a78bfa", title: "On the radar — moderate score, worth tracking" },
-      research_low: { label: "Low Conviction", icon: "📋", color: "#8b5cf6", title: "Low conviction — not actionable yet" },
-      research_avoid: { label: "Avoid", icon: "⛔", color: "#6b7280", title: "Weak signals — system advises caution" },
+      accumulate: { label: "Accumulate", icon: "", color: "transparent", title: "Consider buying — price is in a favorable zone" },
+      core_hold: { label: "Core Hold", icon: "", color: "transparent", title: "Keep holding — trend and strength are solid" },
+      watch: { label: "Watch", icon: "", color: "transparent", title: "Wait and monitor — signals are mixed" },
+      reduce: { label: "Reduce", icon: "", color: "transparent", title: "Consider selling — showing signs of weakness" },
+      research_on_watch: { label: "On Watch", icon: "", color: "transparent", title: "On the radar — moderate score, worth tracking" },
+      research_low: { label: "Low Conv", icon: "", color: "transparent", title: "Low conviction — not actionable yet" },
+      research_avoid: { label: "Avoid", icon: "", color: "transparent", title: "Weak signals — system advises caution" },
     };
     const grouped = {};
     for (const s of stages) grouped[s] = [];

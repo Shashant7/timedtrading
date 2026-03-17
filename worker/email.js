@@ -225,6 +225,64 @@ export async function sendSubscriptionEmail(env, email, isTrial) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════
+// Farewell Email (subscription ended)
+// ═══════════════════════════════════════════════════════════════════════
+
+export async function sendFarewellEmail(env, email) {
+  const html = emailLayout(`
+    <h1 style="margin:0 0 16px;font-size:22px;font-weight:700;color:white">We're Sorry to See You Go</h1>
+    <p style="margin:0 0 16px;font-size:15px;color:${BRAND.textSecondary};line-height:1.6">
+      Your Timed Trading Pro subscription has ended. We appreciate the time you spent with us.
+    </p>
+    <p style="margin:0 0 16px;font-size:14px;color:${BRAND.textSecondary};line-height:1.6">
+      Your account is still active on the free tier, so you can browse the dashboard anytime.
+      If you'd like to resubscribe, you can do so in one click from the app.
+    </p>
+    <p style="margin:0 0 24px;font-size:14px;color:${BRAND.textSecondary};line-height:1.6">
+      If there's anything we could have done better, we'd love to hear from you — just reply to this email.
+    </p>
+    <table role="presentation" cellpadding="0" cellspacing="0">
+      <tr><td style="background:${BRAND.green};border-radius:8px;padding:12px 28px">
+        <a href="https://timed-trading.com/splash.html" style="color:white;font-size:14px;font-weight:600;text-decoration:none;display:inline-block">Resubscribe</a>
+      </td></tr>
+    </table>
+  `, { preheader: "Your Pro access has ended. We'd love to have you back." });
+
+  const text = "Your Timed Trading Pro subscription has ended. Your free-tier account is still active. Resubscribe anytime at https://timed-trading.com/splash.html";
+  return sendEmail(env, { to: email, subject: "Your Timed Trading Pro Subscription Has Ended", html, text, category: "subscription" });
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// Discord Welcome Email
+// ═══════════════════════════════════════════════════════════════════════
+
+export async function sendDiscordWelcomeEmail(env, email, discordUsername) {
+  const html = emailLayout(`
+    <h1 style="margin:0 0 16px;font-size:22px;font-weight:700;color:white">Welcome to the TT Discord</h1>
+    <p style="margin:0 0 16px;font-size:15px;color:${BRAND.textSecondary};line-height:1.6">
+      Your Discord account <strong style="color:white">${discordUsername}</strong> has been linked and you've been added to the Timed Trading community server.
+    </p>
+    <p style="margin:0 0 16px;font-size:14px;color:${BRAND.textSecondary};line-height:1.6">
+      Here's how to get started:
+    </p>
+    <ul style="margin:0 0 16px;padding:0 0 0 20px;color:${BRAND.textSecondary};font-size:14px;line-height:1.8">
+      <li>Check out <strong style="color:white">#general</strong> to introduce yourself</li>
+      <li>Follow <strong style="color:white">#trade-signals</strong> for real-time alerts from the scoring engine</li>
+      <li>Share your setups in <strong style="color:white">#trade-ideas</strong></li>
+      <li>Ask questions or report issues in <strong style="color:white">#support</strong></li>
+    </ul>
+    <table role="presentation" cellpadding="0" cellspacing="0">
+      <tr><td style="background:#5865F2;border-radius:8px;padding:12px 28px">
+        <a href="https://discord.com/channels/${env.DISCORD_GUILD_ID || ''}" style="color:white;font-size:14px;font-weight:600;text-decoration:none;display:inline-block">Open Discord</a>
+      </td></tr>
+    </table>
+  `, { preheader: "You've been added to the Timed Trading Discord community." });
+
+  const text = `Your Discord account (${discordUsername}) has been linked to Timed Trading. You've been added to the community server. Open Discord to start chatting.`;
+  return sendEmail(env, { to: email, subject: "Welcome to the Timed Trading Discord", html, text, category: "discord" });
+}
+
+// ═══════════════════════════════════════════════════════════════════════
 // Daily Brief Email
 // ═══════════════════════════════════════════════════════════════════════
 

@@ -66,7 +66,7 @@ import {
 } from "./indicators.js";
 import { createExecutionAdapter } from "./execution.js";
 import * as DataProvider from "./data-provider.js";
-import { tdFetchEarningsCalendar, tdSearchSymbol, toTdSymbol } from "./twelvedata.js";
+import { tdFetchEarningsCalendar, tdFetchTickerEarnings, tdSearchSymbol, toTdSymbol } from "./twelvedata.js";
 import { onboardTicker, loadTickerProfile, loadSectorProfile, mergeProfileWeights } from "./onboard-ticker.js";
 import {
   loadCalendar,
@@ -126,7 +126,10 @@ import {
   handleGetArchive,
   handleGetArchiveBrief,
   handleMarkPrediction,
+  generateIntradayBrief,
+  handleGetIntradayBriefs,
   fetchFinnhubEarnings,
+  fetchFinnhubSymbolEarnings,
   fetchFinnhubEconomicCalendar,
   fetchForexFactoryCalendar,
 } from "./daily-brief.js";
@@ -137,6 +140,8 @@ import {
   sendDailyBriefEmail,
   sendTradeAlertEmail,
   sendReEngagementEmail,
+  sendFarewellEmail,
+  sendDiscordWelcomeEmail,
   getUserEmailPrefs,
   getEmailOptedInUsers,
   hmacVerify,
@@ -394,6 +399,7 @@ const ROUTES = [
   ["GET", "/timed/all", "GET /timed/all"],
   ["GET", "/timed/prices", "GET /timed/prices"],
   ["GET", "/timed/earnings/upcoming", "GET /timed/earnings/upcoming"],
+  ["GET", (p) => /^\/timed\/earnings\/check\/[A-Z0-9._!-]+$/i.test(p), "GET /timed/earnings/check/:ticker"],
   ["GET", "/timed/time-travel/events", "GET /timed/time-travel/events"],
   ["GET", "/timed/candles", "GET /timed/candles"],
   ["GET", "/timed/market-calendar", "GET /timed/market-calendar"],
@@ -452,6 +458,7 @@ const ROUTES = [
   ["GET", "/timed/daily-brief/badge", "GET /timed/daily-brief/badge"],
   ["GET", "/timed/daily-brief/archive", "GET /timed/daily-brief/archive"],
   ["GET", (p) => p.startsWith("/timed/daily-brief/archive/"), "GET /timed/daily-brief/archive/:id"],
+  ["GET", "/timed/daily-brief/intraday", "GET /timed/daily-brief/intraday"],
   ["POST", "/timed/daily-brief/predict", "POST /timed/daily-brief/predict"],
   ["POST", "/timed/daily-brief/generate", "POST /timed/daily-brief/generate"],
   // ── Investor Intelligence endpoints ──
@@ -598,6 +605,8 @@ const ROUTES = [
   ["GET", "/timed/email/preferences", "GET /timed/email/preferences"],
   ["POST", "/timed/email/preferences", "POST /timed/email/preferences"],
   ["POST", "/timed/admin/send-sample-emails", "POST /timed/admin/send-sample-emails"],
+  // ── Trade Alerts ──
+  ["GET", "/timed/alerts", "GET /timed/alerts"],
   // ── Notifications ──
   ["POST", "/timed/push/subscribe", "POST /timed/push/subscribe"],
   ["GET", "/timed/notifications", "GET /timed/notifications"],
@@ -629,6 +638,25 @@ const ROUTES = [
   ["GET", "/timed/system/ticker-profiles", "GET /timed/system/ticker-profiles"],
   ["GET", "/timed/system/regime-profiles", "GET /timed/system/regime-profiles"],
   ["GET", "/timed/system/context-history", "GET /timed/system/context-history"],
+  // ── Discord ──
+  ["GET", "/timed/discord/connect", "GET /timed/discord/connect"],
+  ["GET", "/timed/discord/callback", "GET /timed/discord/callback"],
+  ["POST", "/timed/discord/disconnect", "POST /timed/discord/disconnect"],
+  ["GET", "/timed/discord/status", "GET /timed/discord/status"],
+  // ── Session Analytics ──
+  ["POST", "/timed/session/heartbeat", "POST /timed/session/heartbeat"],
+  // ── Admin: User Management ──
+  ["POST", "/timed/admin/users/remove", "POST /timed/admin/users/remove"],
+  ["POST", "/timed/admin/users/block", "POST /timed/admin/users/block"],
+  ["POST", "/timed/admin/users/unblock", "POST /timed/admin/users/unblock"],
+  ["POST", "/timed/admin/users/resend-welcome", "POST /timed/admin/users/resend-welcome"],
+  // ── Admin: VIP Codes ──
+  ["POST", "/timed/admin/vip-code", "POST /timed/admin/vip-code"],
+  ["GET", "/timed/admin/vip-codes", "GET /timed/admin/vip-codes"],
+  // ── Admin: Analytics ──
+  ["GET", "/timed/admin/analytics", "GET /timed/admin/analytics"],
+  // ── Admin: System Health ──
+  ["GET", "/timed/admin/system-health", "GET /timed/admin/system-health"],
   // ── Move Discovery ──
   ["GET", "/timed/move-discovery", "GET /timed/move-discovery"],
   ["POST", "/timed/move-discovery", "POST /timed/move-discovery"],
@@ -1209,6 +1237,7 @@ async function etfAutoAddTickers(env, tickers, weightMap, ctx) {
 const MARKET_PULSE_SYMS = [
   "SPX","US500","ES1!","NQ1!","RTY1!","YM1!","VX1!",
   "CL1!","GC1!","SI1!","HG1!","NG1!",
+  "GLD","SLV","USO","VIXY","DIA",
   "BTCUSD","ETHUSD",
 ];
 
@@ -3950,26 +3979,7 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
       return "exit";
     }
 
-    // 4-HOUR TIME-DECAY DEFENSE: Uses MARKET HOURS (not wall-clock) so overnight
-    // holds aren't penalized. ATR-relative threshold. Signal-aware.
     const positionAgeMarketHours = positionAgeMarketMin / 60;
-    if (positionAgeMarketHours >= 4 && positionAgeMarketHours <= 24) {
-      const _tdAtr = Number(tickerData?.atr) || Number(tickerData?.tf_tech?.["15"]?.atr?.v) || 0;
-      const _tdEntryPx = Number(tickerData?.__entryPrice) || 0;
-      const _tdAtrPct = (_tdEntryPx > 0 && _tdAtr > 0) ? (_tdAtr / _tdEntryPx * 100) : 1.0;
-      const _tdThreshold = Math.max(1.5 * _tdAtrPct, 1.0);
-      if (pnlPct < -_tdThreshold) {
-        const _tdSwDir = String(tickerData?.swing_consensus?.direction || "").toUpperCase();
-        const _tdTradeSide = String(tickerData?.__trade_direction || "").toUpperCase();
-        const _tdAligned = (_tdSwDir === _tdTradeSide) || (_tdSwDir === "BULLISH" && _tdTradeSide === "LONG") || (_tdSwDir === "BEARISH" && _tdTradeSide === "SHORT");
-        if (_tdAligned) {
-          tickerData.__exit_reason = "time_decay_4hr_defend";
-          return "defend";
-        }
-        tickerData.__exit_reason = "time_decay_4hr";
-        return "exit";
-      }
-    }
 
     // DA: Minimum hold time before management exits (SL/max_loss still fire above)
     const _daMinHoldMgmt = Number(tickerData?._env?._deepAuditConfig?.deep_audit_min_hold_before_mgmt_exit_min) || 0;
@@ -9430,6 +9440,23 @@ async function processTradeSimulation(
         dirSign;
       trade.realizedPnl = Number(trade.realizedPnl || 0) + pnlRemaining;
 
+      const _exitPnlPctMain = trade.entryPrice > 0 ? ((p - trade.entryPrice) / trade.entryPrice) * 100 * dirSign : 0;
+      const _exitReasonHumanMap = {
+        sl_breached: "Hit the stop loss", SL: "Hit the stop loss",
+        TP_FULL: "All profit targets hit", max_loss: "Maximum acceptable loss reached",
+        HARD_FUSE_RSI_EXTREME: "Momentum at extreme levels — exiting",
+        SOFT_FUSE_RSI_CONFIRMED: "Momentum reversal confirmed — protecting gains",
+        RUNNER_MAX_DRAWDOWN_BREAKER: "Runner pulled back too far from peak",
+        HARD_LOSS_CAP: "Hard safety limit hit", STALL_FORCE_CLOSE: "Position stalled — freeing capital",
+        PHASE_LEAVE_100: "Momentum peaked — securing gains",
+        bias_flip_full: "Bias flipped against position",
+        critical_invalidation: "Trade thesis invalidated",
+        td_exhaustion_runner: "Trend exhaustion detected",
+      };
+      _exitReasonHumanMap.SMART_RUNNER_TD_EXHAUSTION_RUNNER = "Trend exhaustion detected on runner";
+      _exitReasonHumanMap.SMART_RUNNER_SUPPORT_BREAK_CLOUD = "Key support broke down";
+      const _exitReasonHuman = _exitReasonHumanMap[closeReason] || (closeReason ? closeReason.replace(/_/g, " ") : null);
+      const _remainingPctClose = Math.round(remainingPct * 100);
       const ev = {
         type: "EXIT",
         timestamp: eventTs(),
@@ -9439,6 +9466,16 @@ async function processTradeSimulation(
         reason: closeReason,
         pnl_realized: pnlRemaining,
         note: `Exit at $${p.toFixed(2)} (${closeReason})`,
+        setup_grade: trade.setupGrade || trade.setup_grade || null,
+        setup_name: trade.setupName || trade.setup_name || null,
+        risk_pct: trade.riskBudget ? (Number(trade.riskBudget) * 100).toFixed(2) : null,
+        entry_price: trade.entryPrice,
+        exit_price: p,
+        pnl_dollar: pnlRemaining,
+        pnl_pct: _exitPnlPctMain.toFixed(2),
+        exited_pct: _remainingPctClose,
+        direction: trade.direction,
+        exit_reason_human: _exitReasonHuman,
       };
       trade.history = Array.isArray(trade.history)
         ? [...trade.history, ev]
@@ -9817,6 +9854,7 @@ async function processTradeSimulation(
       trade.runnerPeakPrice = p;
 
       const tsNow = eventTs();
+      const _trimReasonHuman = trimReason ? trimReason.replace(/_/g, " ") : null;
       const ev = {
         type: "TRIM",
         timestamp: tsNow,
@@ -9831,11 +9869,23 @@ async function processTradeSimulation(
         sl_adjust_reason: slAdjustReason,
         new_sl: slAdjusted ? trade.sl : null,
         note: `Trimmed ${Math.round(delta * 100)}% at $${p.toFixed(2)} (${trimReason})${slAdjusted ? ` - SL moved to $${trade.sl.toFixed(2)}` : ""}`,
+        setup_grade: trade.setupGrade || trade.setup_grade || null,
+        setup_name: trade.setupName || trade.setup_name || null,
+        risk_pct: trade.riskBudget ? (Number(trade.riskBudget) * 100).toFixed(2) : null,
+        entry_price: trade.entryPrice,
+        current_price: p,
+        trim_price: p,
+        trimmed_pct: Math.round(delta * 100),
+        remaining_pct: Math.round((1 - tgt) * 100),
+        pnl_pct: trade.entryPrice > 0 ? (((p - trade.entryPrice) / trade.entryPrice) * 100 * (trade.direction === "SHORT" ? -1 : 1)).toFixed(2) : null,
+        direction: trade.direction,
+        reason_human: _trimReasonHuman,
       };
       trade.history = Array.isArray(trade.history)
         ? [...trade.history, ev]
         : [ev];
       if (isFullClose) {
+        const _exitPnlPct = trade.entryPrice > 0 ? ((p - trade.entryPrice) / trade.entryPrice) * 100 * (trade.direction === "SHORT" ? -1 : 1) : 0;
         const exitEv = {
           type: "EXIT",
           timestamp: tsNow,
@@ -9845,6 +9895,16 @@ async function processTradeSimulation(
           reason: "TP_FULL",
           pnl_realized: pnlRealized,
           note: `Closed at $${p.toFixed(2)} (TP_FULL)`,
+          setup_grade: trade.setupGrade || trade.setup_grade || null,
+          setup_name: trade.setupName || trade.setup_name || null,
+          risk_pct: trade.riskBudget ? (Number(trade.riskBudget) * 100).toFixed(2) : null,
+          entry_price: trade.entryPrice,
+          exit_price: p,
+          pnl_dollar: pnlRealized,
+          pnl_pct: _exitPnlPct.toFixed(2),
+          exited_pct: 100,
+          direction: trade.direction,
+          exit_reason_human: "All profit targets hit — full exit with gains locked in",
         };
         trade.history.push(exitEv);
         trade.exit_ts = isoToMs(tsNow) || Date.now();
@@ -10170,7 +10230,7 @@ async function processTradeSimulation(
           fuseExitFired = true;
         } else {
           const _pltAtr = Number(tickerData?.atr || tickerData?.tf_tech?.["15"]?.atr?.v) || 0;
-          const _pltDist = _pltAtr > 0 ? _pltAtr * 1.2 : pxNow * 0.012;
+          const _pltDist = _pltAtr > 0 ? _pltAtr * 0.5 : pxNow * 0.005;
           const _pltNewStop = isLong
             ? Math.max(_pltStop, pxNow - _pltDist)
             : Math.min(_pltStop, pxNow + _pltDist);
@@ -10249,7 +10309,7 @@ async function processTradeSimulation(
                 // at current price minus 0.5 ATR. This captures more of the remaining move while
                 // still protecting profits. Backtesting showed 1.58% avg left on table for PHASE_LEAVE_100.
                 const _plAtr = Number(tickerData?.atr || tickerData?.tf_tech?.["15"]?.atr?.v) || 0;
-                const _plTrailDist = _plAtr > 0 ? _plAtr * 1.2 : pxNow * 0.012;
+                const _plTrailDist = _plAtr > 0 ? _plAtr * 0.5 : pxNow * 0.005;
                 const _plTrailStop = isLong ? (pxNow - _plTrailDist) : (pxNow + _plTrailDist);
                 console.log(`[${_spLabel}_TRAIL] ${sym} Phase peak-decline: setting tight trail at $${_plTrailStop.toFixed(2)} (${_plTrailDist.toFixed(2)} from $${pxNow.toFixed(2)}) peak=${_bestPeak.toFixed(1)} decline=${_maxDecline.toFixed(1)} pnl=${_spPnlPct.toFixed(1)}%`);
                 execState.phaseLeaveTrailStop = _plTrailStop;
@@ -11743,6 +11803,11 @@ async function processTradeSimulation(
             const tradeId = `${sym}-${now}-${Math.random().toString(36).substr(2, 9)}`;
             const entryTime = eventTs();
             const entryTsMs = Number.isFinite(asOfMs) ? asOfMs : (entryTime ? new Date(entryTime).getTime() : null);
+            const _whyParts = [];
+            if (setupName) _whyParts.push(setupName.replace(/_/g, " "));
+            if (tickerData?.flags?.st_flip_bull || tickerData?.flags?.st_flip_bear) _whyParts.push("Fresh ST Flip");
+            if (tickerData?.flags?.momentum_elite) _whyParts.push("Elite Momentum");
+            if (tickerData?.flags?.sq30_release) _whyParts.push("Squeeze Release");
             const ev = {
               type: "ENTRY",
               timestamp: entryTime,
@@ -11751,6 +11816,16 @@ async function processTradeSimulation(
               value: entryPx * shares,
               reason: reason,
               note: `Entry from ENTER_NOW at $${entryPx.toFixed(2)} (${setupName} — TT ${setupGrade}, ${(tierRiskPct * 100).toFixed(2)}% risk)`,
+              setup_grade: setupGrade || null,
+              setup_name: setupName || null,
+              risk_pct: tierRiskPct > 0 ? (tierRiskPct * 100).toFixed(2) : null,
+              entry_price: entryPx,
+              sl_price: finalSL,
+              tp_price: validTP,
+              rank: rank || null,
+              rr: rr || null,
+              direction: direction,
+              thesis: _whyParts.length > 0 ? _whyParts.join(" + ") : null,
             };
 
             const trade = {
@@ -12992,6 +13067,10 @@ async function processTradeSimulation(
             const trimShares =
               (correctedShares || existingOpenTrade.shares || 0) *
               trimDeltaPctRaw; // Allow fractional shares
+            const _tpReason = tradeCalc.decisionCategory || tradeCalc.exitCategory || "PROFIT_MANAGEMENT";
+            const _tpEntryP = correctedEntryPrice || existingOpenTrade.entryPrice;
+            const _tpDir = String(existingOpenTrade.direction || "").toUpperCase();
+            const _tpPnlPct = _tpEntryP > 0 && Number.isFinite(trimPrice) ? ((trimPrice - _tpEntryP) / _tpEntryP) * 100 * (_tpDir === "SHORT" ? -1 : 1) : null;
             const ev = {
               type: "TRIM",
               timestamp: eventTs(),
@@ -13001,18 +13080,26 @@ async function processTradeSimulation(
                 Number.isFinite(trimPrice) && Number.isFinite(trimShares)
                   ? trimPrice * trimShares
                   : null,
-              trimPct: newTrimmedPct, // total trimmed
-              trimDeltaPct: trimDeltaPctRaw, // this trim step
+              trimPct: newTrimmedPct,
+              trimDeltaPct: trimDeltaPctRaw,
               remainingPct: Math.max(0, 1 - newTrimmedPct),
-              category:
-                tradeCalc.decisionCategory ||
-                tradeCalc.exitCategory ||
-                "PROFIT_MANAGEMENT",
+              category: _tpReason,
               note: `Trimmed ${Math.round(trimDeltaPctRaw * 100)}% at TP ${
                 Number.isFinite(trimPrice)
                   ? `$${Number(trimPrice).toFixed(2)}`
                   : "—"
               } (total trimmed: ${Math.round(newTrimmedPct * 100)}%)`,
+              setup_grade: existingOpenTrade.setupGrade || existingOpenTrade.setup_grade || null,
+              setup_name: existingOpenTrade.setupName || existingOpenTrade.setup_name || null,
+              risk_pct: existingOpenTrade.riskBudget ? (Number(existingOpenTrade.riskBudget) * 100).toFixed(2) : null,
+              entry_price: _tpEntryP,
+              current_price: trimPrice,
+              trim_price: trimPrice,
+              trimmed_pct: Math.round(trimDeltaPctRaw * 100),
+              remaining_pct: Math.round((1 - newTrimmedPct) * 100),
+              pnl_pct: _tpPnlPct != null ? _tpPnlPct.toFixed(2) : null,
+              direction: _tpDir,
+              reason_human: _tpReason ? _tpReason.replace(/_/g, " ") : null,
             };
             history.push(ev);
             newHistoryEvents.push(ev);
@@ -13028,6 +13115,24 @@ async function processTradeSimulation(
           const remainingShares =
             (correctedShares || existingOpenTrade.shares || 0) *
             Math.max(0, 1 - oldTrimmedPct);
+          const _clEntryP = correctedEntryPrice || existingOpenTrade.entryPrice;
+          const _clDir = String(existingOpenTrade.direction || "").toUpperCase();
+          const _clPnlPct = _clEntryP > 0 && Number.isFinite(exitPrice) ? ((exitPrice - _clEntryP) / _clEntryP) * 100 * (_clDir === "SHORT" ? -1 : 1) : 0;
+          const _clPnlDollar = (exitPrice - _clEntryP) * remainingShares * (Number(existingOpenTrade.pointValue) || 1) * (_clDir === "SHORT" ? -1 : 1);
+          const _clExitedPct = Math.round(Math.max(0, 1 - oldTrimmedPct) * 100);
+          const _clExitHumanMap = {
+            sl_breached: "Hit the stop loss", SL: "Hit the stop loss",
+            TP_FULL: "All profit targets hit", max_loss: "Maximum acceptable loss reached",
+            HARD_FUSE_RSI_EXTREME: "Momentum at extreme levels",
+            SOFT_FUSE_RSI_CONFIRMED: "Momentum reversal confirmed",
+            RUNNER_MAX_DRAWDOWN_BREAKER: "Runner pulled back too far",
+            HARD_LOSS_CAP: "Hard safety limit hit", STALL_FORCE_CLOSE: "Position stalled",
+            PHASE_LEAVE_100: "Momentum peaked — securing gains",
+            bias_flip_full: "Bias flipped against position",
+            td_exhaustion_runner: "Trend exhaustion detected",
+          };
+          _clExitHumanMap.SMART_RUNNER_TD_EXHAUSTION_RUNNER = "Trend exhaustion on runner";
+          _clExitHumanMap.SMART_RUNNER_SUPPORT_BREAK_CLOUD = "Key support broke down";
           const ev = {
             type: "EXIT",
             timestamp: eventTs(),
@@ -13039,6 +13144,16 @@ async function processTradeSimulation(
             note: `Closed ${
               newStatus === "WIN" ? "profitably" : "at loss"
             } at $${Number(exitPrice).toFixed(2)} (${exitReason})`,
+            setup_grade: existingOpenTrade.setupGrade || existingOpenTrade.setup_grade || null,
+            setup_name: existingOpenTrade.setupName || existingOpenTrade.setup_name || null,
+            risk_pct: existingOpenTrade.riskBudget ? (Number(existingOpenTrade.riskBudget) * 100).toFixed(2) : null,
+            entry_price: _clEntryP,
+            exit_price: exitPrice,
+            pnl_dollar: _clPnlDollar,
+            pnl_pct: _clPnlPct.toFixed(2),
+            exited_pct: _clExitedPct,
+            direction: _clDir,
+            exit_reason_human: _clExitHumanMap[exitReason] || (exitReason ? exitReason.replace(/_/g, " ") : null),
           };
           history.push(ev);
           newHistoryEvents.push(ev);
@@ -13969,8 +14084,7 @@ async function processTradeSimulation(
               state: tickerData.state,
               flags: tickerData.flags || {},
               scriptVersion: tickerData.script_version || "unknown",
-              trimmedPct: 0, // Start with 0% trimmed
-              // Trade history/audit trail
+              trimmedPct: 0,
               history: [
                 {
                   type: "ENTRY",
@@ -13985,6 +14099,23 @@ async function processTradeSimulation(
                         ).toLocaleString()})`
                       : ""
                   }`,
+                  setup_grade: tickerData?.setupGrade || tickerData?.setup_grade || null,
+                  setup_name: tickerData?.setupName || tickerData?.setup_name || null,
+                  risk_pct: tradeCalc?.riskPct ? (tradeCalc.riskPct * 100).toFixed(2) : null,
+                  entry_price: entryPrice,
+                  sl_price: finalSL,
+                  tp_price: validTP,
+                  rank: Number(tickerData?.rank) || null,
+                  rr: calculatedRR || entryRR || Number(tickerData?.rr) || null,
+                  direction: direction,
+                  thesis: (() => {
+                    const p = [];
+                    if (tickerData?.setupName) p.push(tickerData.setupName.replace(/_/g, " "));
+                    if (tickerData?.flags?.st_flip_bull || tickerData?.flags?.st_flip_bear) p.push("Fresh ST Flip");
+                    if (tickerData?.flags?.momentum_elite) p.push("Elite Momentum");
+                    if (tickerData?.flags?.sq30_release) p.push("Squeeze Release");
+                    return p.length > 0 ? p.join(" + ") : null;
+                  })(),
                 },
               ],
               ...tradeCalc,
@@ -16673,6 +16804,163 @@ async function d1EnsureStripeSchema(env) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════
+// Discord — Schema, Helpers, Role Management
+// ═══════════════════════════════════════════════════════════════════════
+
+let _discordSchemaReady = false;
+async function d1EnsureDiscordSchema(env) {
+  if (_discordSchemaReady) return;
+  const db = env?.DB;
+  if (!db) return;
+  try {
+    const cols = [
+      ["discord_id", "TEXT"],
+      ["discord_username", "TEXT"],
+      ["discord_access_token", "TEXT"],
+      ["discord_refresh_token", "TEXT"],
+    ];
+    for (const [col, type] of cols) {
+      try { await db.prepare(`ALTER TABLE users ADD COLUMN ${col} ${type}`).run(); } catch { /* exists */ }
+    }
+    _discordSchemaReady = true;
+  } catch (e) {
+    console.error("[DISCORD] Schema migration failed:", String(e).slice(0, 200));
+  }
+}
+
+async function discordAddMemberAndRole(env, discordUserId, accessToken) {
+  const guildId = env.DISCORD_GUILD_ID;
+  const botToken = env.DISCORD_BOT_TOKEN;
+  const roleId = env.DISCORD_SUBSCRIBER_ROLE_ID;
+  if (!guildId || !botToken || !roleId) throw new Error("Discord config missing");
+
+  // Add user to guild (requires guilds.join scope + bot with MANAGE_ROLES)
+  const addResp = await fetch(`https://discord.com/api/v10/guilds/${guildId}/members/${discordUserId}`, {
+    method: "PUT",
+    headers: {
+      "Authorization": `Bot ${botToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      access_token: accessToken,
+      roles: [roleId],
+    }),
+  });
+  // 201 = added, 204 = already a member
+  if (addResp.status === 204) {
+    // Already in guild — assign role separately
+    await fetch(`https://discord.com/api/v10/guilds/${guildId}/members/${discordUserId}/roles/${roleId}`, {
+      method: "PUT",
+      headers: { "Authorization": `Bot ${botToken}` },
+    });
+  } else if (!addResp.ok && addResp.status !== 201) {
+    const body = await addResp.text().catch(() => "");
+    console.error("[DISCORD] Failed to add member:", addResp.status, body.slice(0, 300));
+    throw new Error(`Discord add member failed: ${addResp.status}`);
+  }
+  console.log(`[DISCORD] Added user ${discordUserId} to guild ${guildId} with role ${roleId}`);
+}
+
+async function discordRemoveRole(env, discordUserId) {
+  const guildId = env.DISCORD_GUILD_ID;
+  const botToken = env.DISCORD_BOT_TOKEN;
+  const roleId = env.DISCORD_SUBSCRIBER_ROLE_ID;
+  if (!guildId || !botToken || !roleId || !discordUserId) return;
+
+  const resp = await fetch(`https://discord.com/api/v10/guilds/${guildId}/members/${discordUserId}/roles/${roleId}`, {
+    method: "DELETE",
+    headers: { "Authorization": `Bot ${botToken}` },
+  });
+  if (resp.ok || resp.status === 404) {
+    console.log(`[DISCORD] Removed role from user ${discordUserId}`);
+  } else {
+    const body = await resp.text().catch(() => "");
+    console.warn(`[DISCORD] Role removal failed: ${resp.status}`, body.slice(0, 200));
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// Sessions — D1 Schema for Analytics
+// ═══════════════════════════════════════════════════════════════════════
+
+let _sessionsSchemaReady = false;
+async function d1EnsureSessionsSchema(env) {
+  if (_sessionsSchemaReady) return;
+  const db = env?.DB;
+  if (!db) return;
+  try {
+    await db.prepare(`
+      CREATE TABLE IF NOT EXISTS sessions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        session_id TEXT NOT NULL,
+        user_email TEXT NOT NULL,
+        started_at INTEGER NOT NULL,
+        last_seen_at INTEGER NOT NULL,
+        page_views INTEGER DEFAULT 1,
+        device TEXT,
+        browser TEXT,
+        os TEXT,
+        country TEXT,
+        city TEXT,
+        screen_width INTEGER
+      )
+    `).run();
+    try { await db.prepare(`CREATE INDEX IF NOT EXISTS idx_sessions_email ON sessions(user_email)`).run(); } catch { /* ok */ }
+    try { await db.prepare(`CREATE INDEX IF NOT EXISTS idx_sessions_started ON sessions(started_at)`).run(); } catch { /* ok */ }
+    try { await db.prepare(`CREATE UNIQUE INDEX IF NOT EXISTS idx_sessions_sid ON sessions(session_id)`).run(); } catch { /* ok */ }
+    _sessionsSchemaReady = true;
+  } catch (e) {
+    console.error("[SESSIONS] Schema migration failed:", String(e).slice(0, 200));
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// VIP Codes — D1 Schema
+// ═══════════════════════════════════════════════════════════════════════
+
+let _vipCodesSchemaReady = false;
+async function d1EnsureVipCodesSchema(env) {
+  if (_vipCodesSchemaReady) return;
+  const db = env?.DB;
+  if (!db) return;
+  try {
+    await db.prepare(`
+      CREATE TABLE IF NOT EXISTS vip_codes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        code TEXT NOT NULL UNIQUE,
+        stripe_coupon_id TEXT,
+        stripe_promo_id TEXT,
+        created_at INTEGER NOT NULL,
+        created_by TEXT,
+        used_at INTEGER,
+        used_by_email TEXT,
+        status TEXT DEFAULT 'generated'
+      )
+    `).run();
+    _vipCodesSchemaReady = true;
+  } catch (e) {
+    console.error("[VIP_CODES] Schema migration failed:", String(e).slice(0, 200));
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// User Status — D1 Schema (status column: active, blocked, removed)
+// ═══════════════════════════════════════════════════════════════════════
+
+let _userStatusSchemaReady = false;
+async function d1EnsureUserStatusSchema(env) {
+  if (_userStatusSchemaReady) return;
+  const db = env?.DB;
+  if (!db) return;
+  try {
+    try { await db.prepare(`ALTER TABLE users ADD COLUMN status TEXT DEFAULT 'active'`).run(); } catch { /* exists */ }
+    _userStatusSchemaReady = true;
+  } catch (e) {
+    console.error("[USER_STATUS] Schema migration failed:", String(e).slice(0, 200));
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
 // Admin — D1 Schema Helpers (login_count, login_days tracking)
 // ═══════════════════════════════════════════════════════════════════════
 
@@ -19227,6 +19515,22 @@ async function d1GetActiveUserTickers(env) {
     return (rows?.results || []).map(r => r.ticker);
   } catch (e) {
     console.warn("[USER_TICKERS] Failed to fetch active tickers:", String(e?.message || e).slice(0, 200));
+    return [];
+  }
+}
+
+async function d1GetActiveUserTickersForEmail(env, email) {
+  if (!email) return [];
+  const db = env?.DB;
+  if (!db) return [];
+  try {
+    await d1EnsureUserTickersSchema(env);
+    const rows = await db.prepare(
+      `SELECT DISTINCT ticker FROM user_tickers WHERE user_email = ? AND deleted_at IS NULL`
+    ).bind(email).all();
+    return (rows?.results || []).map(r => r.ticker);
+  } catch (e) {
+    console.warn("[USER_TICKERS] Failed to fetch tickers for", email, ":", String(e?.message || e).slice(0, 200));
     return [];
   }
 }
@@ -22483,6 +22787,13 @@ function createTradeTrimmedEmbed(
     fields.push({ name: "Setup", value: parts.join("  |  "), inline: false });
   }
 
+  // 3b. Risk %
+  const _trimRisk = Number(trade?.riskBudget || trade?.risk_budget || tickerData?.__riskBudget) || 0;
+  if (_trimRisk > 0) {
+    const riskLabel = _trimRisk < 1 ? `${(_trimRisk * 100).toFixed(2)}%` : `$${_trimRisk.toFixed(0)}`;
+    fields.push({ name: "Risk", value: `**${riskLabel}**`, inline: true });
+  }
+
   // 4. Why We Trimmed
   const trimReason = trade?.exitReason || tickerData?.__exit_reason || null;
   const trimReasonMap = {
@@ -22613,6 +22924,13 @@ function createTradeClosedEmbed(
     fields.push({ name: "Setup", value: parts.join("  |  "), inline: false });
   }
 
+  // 3b. Risk %
+  const _exitRisk = Number(trade?.riskBudget || trade?.risk_budget || tickerData?.__riskBudget) || 0;
+  if (_exitRisk > 0) {
+    const riskLabel = _exitRisk < 1 ? `${(_exitRisk * 100).toFixed(2)}%` : `$${_exitRisk.toFixed(0)}`;
+    fields.push({ name: "Risk", value: `**${riskLabel}**`, inline: true });
+  }
+
   // 4. Price Movement
   const priceChange = exitPrice - entryPrice;
   fields.push({
@@ -22621,13 +22939,14 @@ function createTradeClosedEmbed(
     inline: true,
   });
 
+  const closedPct = trade?.trimmedPct != null ? Math.round((1 - Number(trade.trimmedPct || 0)) * 100) : 100;
   let title;
   if (isWin) {
-    title = `🏆  Winner: ${ticker} ${direction}  —  ${pctLabel}`;
+    title = `🏆  Winner: ${ticker} ${direction} — Closed ${closedPct}%  —  ${pctLabel}`;
   } else if (isFlat) {
-    title = `➖  Flat: ${ticker} ${direction}  —  $0.00`;
+    title = `➖  Flat: ${ticker} ${direction} — Closed ${closedPct}%  —  $0.00`;
   } else {
-    title = `🛑  Stopped Out: ${ticker} ${direction}  —  ${pctLabel}`;
+    title = `🛑  Stopped Out: ${ticker} ${direction} — Closed ${closedPct}%  —  ${pctLabel}`;
   }
 
   return {
@@ -22754,152 +23073,224 @@ function createKanbanStageEmbed(ticker, stage, prevStage, tickerData = null, ope
 // ─────────────────────────────────────────────────────────────
 
 // ═══════════════════════════════════════════════════════════════════════════
-// SECTOR_MAP — Curated Ticker Universe (~152 tickers)
-// Sources: GRNY/GRNI, GRNJ, Newton Upticks (TT Selected + historical),
-//          S&P Sector ETFs, Crypto, Futures, Indices
+// SECTOR_MAP — Active Ticker Universe (229 tickers)
+// Core universe: GRNY/GRNI, GRNJ, Newton Upticks, TT Selected, rotated picks
+// Structural: S&P Sector ETFs, Commodity ETFs, Crypto, Futures, Indices
 // ═══════════════════════════════════════════════════════════════════════════
 const SECTOR_MAP = {
   // ── Consumer Discretionary ──
-  AMZN: "Consumer Discretionary",    // GRNY + TT Selected
-  TSLA: "Consumer Discretionary",    // GRNY + TT Selected
-  TJX: "Consumer Discretionary",     // GRNY
-  BABA: "Consumer Discretionary",    // TT Selected
-  ULTA: "Consumer Discretionary",    // Upticks
-  APP: "Consumer Discretionary",     // TT Selected
-  DPZ: "Consumer Discretionary",     // GRNJ
-  H: "Consumer Discretionary",       // GRNJ (Hyatt Hotels)
-  LRN: "Consumer Discretionary",     // Upticks (Stride/K12)
+  AMZN: "Consumer Discretionary",
+  TSLA: "Consumer Discretionary",
+  TJX: "Consumer Discretionary",
+  BABA: "Consumer Discretionary",
+  ULTA: "Consumer Discretionary",
+  APP: "Consumer Discretionary",
+  DPZ: "Consumer Discretionary",
+  H: "Consumer Discretionary",
+  LRN: "Consumer Discretionary",
+  NKE: "Consumer Discretionary",
+  MCD: "Consumer Discretionary",
+  EXPE: "Consumer Discretionary",
+  RBLX: "Consumer Discretionary",
+  LULU: "Consumer Discretionary",
+  DKNG: "Consumer Discretionary",
+  CVNA: "Consumer Discretionary",
+  SWK: "Consumer Discretionary",
+  JD: "Consumer Discretionary",
+  KWEB: "Consumer Discretionary",
+  XYZ: "Consumer Discretionary",
+  GRNY: "Consumer Discretionary",
   // ── Consumer Staples ──
-  KO: "Consumer Staples",            // TT Selected
-  WMT: "Consumer Staples",           // TT Selected
-  COST: "Consumer Staples",          // GRNY
-  MNST: "Consumer Staples",          // GRNY
-  ELF: "Consumer Staples",           // GRNJ (e.l.f. Beauty)
+  KO: "Consumer Staples",
+  WMT: "Consumer Staples",
+  COST: "Consumer Staples",
+  MNST: "Consumer Staples",
+  ELF: "Consumer Staples",
+  CELH: "Consumer Staples",
+  BG: "Consumer Staples",              // Bunge Global
   // ── Industrials ──
-  CAT: "Industrials",                // GRNY
-  GE: "Industrials",                 // GRNY
-  ETN: "Industrials",                // GRNY
-  DE: "Industrials",                 // GRNY + Upticks
-  PH: "Industrials",                 // Upticks
-  CSX: "Industrials",                // TT Selected
-  HII: "Industrials",                // GRNJ + TT Selected
-  GEV: "Industrials",                // GRNY + TT Selected
-  TT: "Industrials",                 // TT Selected
-  PWR: "Industrials",                // GRNY + TT Selected
-  AWI: "Industrials",                // GRNJ
-  WTS: "Industrials",                // GRNJ
-  DY: "Industrials",                 // GRNJ
-  FIX: "Industrials",                // GRNJ
-  ITT: "Industrials",                // GRNJ
-  STRL: "Industrials",               // GRNJ
-  JCI: "Industrials",                // TT Selected
-  IBP: "Industrials",                // GRNJ
-  DCI: "Industrials",                // GRNJ
-  IESC: "Industrials",               // GRNJ
-  BWXT: "Industrials",               // GRNJ
-  BE: "Industrials",                 // GRNJ
-  AVAV: "Industrials",               // GRNJ
-  AXON: "Industrials",               // Upticks
-  MLI: "Industrials",                // GRNJ
-  NXT: "Industrials",                // GRNJ
-  SGI: "Industrials",                // GRNJ
-  CARR: "Industrials",               // GRNJ (Carrier Global)
-  CW: "Industrials",                 // GRNJ (Curtiss-Wright)
-  FLR: "Industrials",                // Upticks (Fluor)
-  J: "Industrials",                  // Upticks (Jacobs Solutions)
-  VMI: "Industrials",                // GRNJ (Valmont)
-  UNP: "Industrials",                // GRNY
-  ARRY: "Industrials",               // GRNJ (Array Technologies)
+  CAT: "Industrials",
+  GE: "Industrials",
+  ETN: "Industrials",
+  DE: "Industrials",
+  PH: "Industrials",
+  CSX: "Industrials",
+  HII: "Industrials",
+  GEV: "Industrials",
+  TT: "Industrials",
+  PWR: "Industrials",
+  AWI: "Industrials",
+  WTS: "Industrials",
+  DY: "Industrials",
+  FIX: "Industrials",
+  ITT: "Industrials",
+  STRL: "Industrials",
+  JCI: "Industrials",
+  IBP: "Industrials",
+  DCI: "Industrials",
+  IESC: "Industrials",
+  BWXT: "Industrials",
+  BE: "Industrials",
+  AVAV: "Industrials",
+  AXON: "Industrials",
+  MLI: "Industrials",
+  NXT: "Industrials",
+  SGI: "Industrials",
+  CARR: "Industrials",
+  CW: "Industrials",
+  FLR: "Industrials",
+  J: "Industrials",
+  VMI: "Industrials",
+  UNP: "Industrials",
+  ARRY: "Industrials",
+  BA: "Industrials",
+  RTX: "Industrials",
+  EMR: "Industrials",
+  UPS: "Industrials",
+  EME: "Industrials",
+  MTZ: "Industrials",
+  B: "Industrials",
+  JOBY: "Industrials",
+  ASTS: "Industrials",
+  AYI: "Industrials",
+  WM: "Industrials",
+  QXO: "Industrials",                  // QXO Inc (building products)
+  ACN: "Information Technology",        // Accenture
   // ── Information Technology ──
-  AAPL: "Information Technology",     // GRNY
-  MSFT: "Information Technology",     // GRNY
-  NVDA: "Information Technology",     // GRNY
-  AVGO: "Information Technology",     // GRNY
-  AMD: "Information Technology",      // GRNY
-  ORCL: "Information Technology",     // TT Selected
-  KLAC: "Information Technology",     // GRNY
-  ANET: "Information Technology",     // GRNY
-  CDNS: "Information Technology",     // GRNY
-  PANW: "Information Technology",     // TT Selected
-  PLTR: "Information Technology",     // GRNY + Upticks
-  MDB: "Information Technology",      // GRNJ
-  PATH: "Information Technology",     // GRNJ
-  PSTG: "Information Technology",     // GRNJ
-  CLS: "Information Technology",      // TT Selected
-  CRS: "Information Technology",      // GRNJ + TT Selected
-  SANM: "Information Technology",     // GRNJ
-  IONQ: "Information Technology",     // GRNJ
-  LITE: "Information Technology",     // GRNJ
-  ON: "Information Technology",       // GRNJ
-  KTOS: "Information Technology",     // GRNJ + Upticks
-  MSTR: "Information Technology",     // GRNY
-  LSCC: "Information Technology",     // GRNJ (Lattice Semi)
-  FN: "Information Technology",       // GRNJ (Fabrinet)
-  SHOP: "Information Technology",     // Upticks
-  SMCI: "Information Technology",     // Upticks (Super Micro)
+  AAPL: "Information Technology",
+  MSFT: "Information Technology",
+  NVDA: "Information Technology",
+  AVGO: "Information Technology",
+  AMD: "Information Technology",
+  ORCL: "Information Technology",
+  KLAC: "Information Technology",
+  ANET: "Information Technology",
+  CDNS: "Information Technology",
+  PANW: "Information Technology",
+  PLTR: "Information Technology",
+  MDB: "Information Technology",
+  PATH: "Information Technology",
+  PSTG: "Information Technology",
+  CLS: "Information Technology",
+  CRS: "Information Technology",
+  SANM: "Information Technology",
+  IONQ: "Information Technology",
+  LITE: "Information Technology",
+  ON: "Information Technology",
+  KTOS: "Information Technology",
+  MSTR: "Information Technology",
+  LSCC: "Information Technology",
+  FN: "Information Technology",
+  SHOP: "Information Technology",
+  CRM: "Information Technology",
+  INTC: "Information Technology",
+  CSCO: "Information Technology",
+  LRCX: "Information Technology",
+  CRWD: "Information Technology",
+  QLYS: "Information Technology",
+  PEGA: "Information Technology",
+  IOT: "Information Technology",
+  MU: "Information Technology",
+  APLD: "Information Technology",
+  ARM: "Information Technology",
+  TSM: "Information Technology",
+  HUBS: "Information Technology",
+  INTU: "Information Technology",
+  STX: "Information Technology",
+  WDC: "Information Technology",
+  AGYS: "Information Technology",
+  IREN: "Information Technology",
+  PI: "Information Technology",
+  AEHR: "Information Technology",
+  SNDK: "Information Technology",       // Sandisk (Western Digital spin-off)
   // ── Communication Services ──
-  META: "Communication Services",     // GRNY
-  GOOGL: "Communication Services",    // GRNY
-  NFLX: "Communication Services",     // GRNY
-  RDDT: "Communication Services",     // GRNJ + TT Selected
-  SATS: "Communication Services",     // GRNJ (EchoStar)
+  META: "Communication Services",
+  GOOGL: "Communication Services",
+  NFLX: "Communication Services",
+  RDDT: "Communication Services",
+  SATS: "Communication Services",
+  TWLO: "Communication Services",
+  SPOT: "Communication Services",
+  U: "Communication Services",
   // ── Basic Materials ──
-  ALB: "Basic Materials",             // GRNJ
-  MP: "Basic Materials",              // GRNJ
-  CCJ: "Basic Materials",             // GRNJ
-  RGLD: "Basic Materials",            // GRNJ
-  SN: "Basic Materials",              // GRNJ
-  AU: "Basic Materials",              // Upticks (Barrick Gold)
-  APD: "Basic Materials",             // GRNY (Air Products)
-  PKG: "Basic Materials",             // GRNY (Packaging Corp)
-  PPG: "Basic Materials",             // GRNY (PPG Industries)
+  ALB: "Basic Materials",
+  MP: "Basic Materials",
+  CCJ: "Basic Materials",
+  RGLD: "Basic Materials",
+  SN: "Basic Materials",
+  AU: "Basic Materials",
+  APD: "Basic Materials",
+  PKG: "Basic Materials",
+  PPG: "Basic Materials",
+  NEU: "Basic Materials",
+  AA: "Basic Materials",               // Alcoa (Aluminum)
+  GOLD: "Basic Materials",             // Barrick Gold
   // ── Energy ──
-  VST: "Energy",                      // GRNY + TT Selected
-  FSLR: "Energy",                     // TT Selected
-  TLN: "Energy",                      // GRNJ
-  WFRD: "Energy",                     // GRNJ
-  ENS: "Energy",                      // GRNJ
-  CVX: "Energy",                      // GRNY
-  UUUU: "Energy",                     // GRNJ
-  DINO: "Energy",                     // GRNJ (HF Sinclair)
-  DTM: "Energy",                      // GRNJ (DT Midstream)
-  OKE: "Energy",                      // GRNY (ONEOK)
-  TPL: "Energy",                      // GRNY (Texas Pacific Land)
-  AR: "Energy",                       // Upticks (Antero Resources)
+  VST: "Energy",
+  FSLR: "Energy",
+  TLN: "Energy",
+  WFRD: "Energy",
+  ENS: "Energy",
+  CVX: "Energy",
+  UUUU: "Energy",
+  DINO: "Energy",
+  DTM: "Energy",
+  OKE: "Energy",
+  TPL: "Energy",
+  AR: "Energy",
+  XOM: "Energy",
   // ── Financials ──
-  JPM: "Financials",                  // GRNY
-  GS: "Financials",                   // GRNY
-  AXP: "Financials",                  // GRNY
-  SPGI: "Financials",                 // TT Selected
-  PNC: "Financials",                  // GRNY
-  BK: "Financials",                   // GRNY
-  ALLY: "Financials",                 // GRNJ
-  EWBC: "Financials",                 // GRNJ
-  WAL: "Financials",                  // GRNJ
-  SOFI: "Financials",                 // GRNJ
-  HOOD: "Financials",                 // GRNY
-  MTB: "Financials",                  // TT Selected
-  "BRK-B": "Financials",             // TT Selected
-  COIN: "Financials",                 // Upticks
+  JPM: "Financials",
+  GS: "Financials",
+  AXP: "Financials",
+  SPGI: "Financials",
+  PNC: "Financials",
+  BK: "Financials",
+  ALLY: "Financials",
+  EWBC: "Financials",
+  WAL: "Financials",
+  SOFI: "Financials",
+  HOOD: "Financials",
+  MTB: "Financials",
+  "BRK-B": "Financials",
+  COIN: "Financials",
+  LMND: "Financials",
   // ── Health Care ──
-  AMGN: "Health Care",                // GRNY + TT Selected
-  GILD: "Health Care",                // TT Selected
-  UTHR: "Health Care",                // GRNJ
-  NBIS: "Health Care",                // GRNJ
-  EXEL: "Health Care",                // GRNJ (Exelixis)
-  HALO: "Health Care",                // GRNJ (Halozyme)
-  UHS: "Health Care",                 // GRNJ (Universal Health)
-  VRTX: "Health Care",                // Upticks (Vertex Pharma)
-  ISRG: "Health Care",                // Upticks (Intuitive Surgical)
+  AMGN: "Health Care",
+  GILD: "Health Care",
+  UTHR: "Health Care",
+  NBIS: "Health Care",
+  EXEL: "Health Care",
+  HALO: "Health Care",
+  UHS: "Health Care",
+  VRTX: "Health Care",
+  ISRG: "Health Care",
+  UNH: "Healthcare",
+  LLY: "Healthcare",
+  MRK: "Healthcare",
+  ABT: "Healthcare",
+  HIMS: "Healthcare",
+  TEM: "Healthcare",
+  BMNR: "Healthcare",
+  CRWV: "Healthcare",
   // ── Aerospace & Defense ──
-  RKLB: "Aerospace & Defense",        // GRNJ
-  NOC: "Aerospace & Defense",         // GRNY (Northrop Grumman)
+  RKLB: "Aerospace & Defense",
+  NOC: "Aerospace & Defense",
   // ── Crypto-Related ──
-  BTCUSD: "Crypto",                   // Watch-only
-  ETHUSD: "Crypto",                   // Watch-only
-  GLXY: "Crypto",                     // GRNJ
-  RIOT: "Crypto",                     // GRNJ
-  ETHA: "Crypto",                     // TT Selected (iShares Ethereum ETF)
+  BTCUSD: "Crypto",
+  ETHUSD: "Crypto",
+  GLXY: "Crypto",
+  RIOT: "Crypto",
+  ETHA: "Crypto",
+  // ── Precious Metals ──
+  GDX: "Precious Metals",
+  IAU: "Precious Metals",
+  AGQ: "Precious Metals",
+  HL: "Precious Metals",
+  // ── Leveraged / Thematic ETFs ──
+  SOXL: "ETF",
+  TNA: "ETF",
+  XHB: "Sector ETF",                   // SPDR Homebuilders ETF
   // ── S&P Sector ETFs (tradeable) ──
   XLB: "Sector ETF",
   XLC: "Sector ETF",
@@ -22912,12 +23303,18 @@ const SECTOR_MAP = {
   XLU: "Sector ETF",
   XLV: "Sector ETF",
   XLY: "Sector ETF",
+  // ── Commodity & Volatility ETFs (non-admin equivalents of futures) ──
+  GLD: "Commodity ETF",
+  SLV: "Commodity ETF",
+  USO: "Commodity ETF",
+  VIXY: "Commodity ETF",
+  DIA: "Index ETF",
   // ── Indices (watch-only — scored but not traded) ──
   SPX: "Index",
   SPY: "Index",
   QQQ: "Index",
   IWM: "Index",
-  DIA: "Index",
+  US500: "Index",                       // S&P 500 (TradingView alias)
   // ── Futures (watch-only — scored but not traded) ──
   "ES1!": "Futures",
   "NQ1!": "Futures",
@@ -22925,14 +23322,16 @@ const SECTOR_MAP = {
   "SI1!": "Futures",
   "VX1!": "Futures",
   "CL1!": "Futures",
+  "RTY1!": "Futures",                   // Russell 2000 futures
+  "YM1!": "Futures",                    // Dow Jones futures
 };
 
 // Tickers that go through full scoring + kanban lanes but do NOT generate trades.
 // Account P&L reflects only tradeable instruments (stocks + sector ETFs).
 const WATCH_ONLY = new Set([
-  "SPX", "SPY", "QQQ", "IWM", "DIA",
+  "SPX", "SPY", "QQQ", "IWM", "US500",
   "BTCUSD", "ETHUSD",
-  "ES1!", "NQ1!", "GC1!", "SI1!", "VX1!", "CL1!",
+  "ES1!", "NQ1!", "GC1!", "SI1!", "VX1!", "CL1!", "RTY1!", "YM1!",
 ]);
 
 // Current Newton Upticks — priority picks tagged as "TT Selected"
@@ -28012,6 +28411,13 @@ export default {
         }
         const _isSlim = url.searchParams.get("slim") === "1";
 
+        // Scope user-added tickers to the requesting user (not all users)
+        let _reqUserEmail = null;
+        try { const u = await authenticateUser(req, env); _reqUserEmail = u?.email || null; } catch (_) {}
+        const userAddedForReq = _reqUserEmail
+          ? await d1GetActiveUserTickersForEmail(env, _reqUserEmail)
+          : [];
+
         // KV snapshot fast-path: serve pre-assembled snapshot if fresh (<300s old)
         // Scoring cron rebuilds the snapshot every 5 min, so 300s TTL matches the cycle.
         // Falls through to D1 if snapshot is missing or stale
@@ -28021,8 +28427,7 @@ export default {
           if (snapshot?.data && snapshot?.built_at && (Date.now() - snapshot.built_at) < SNAPSHOT_MAX_AGE) {
             const _rawRemoved = (await kvGetJSON(KV, "timed:removed")) || [];
             const removedSet = new Set(Array.isArray(_rawRemoved) ? _rawRemoved : []);
-            const userAdded = await d1GetActiveUserTickersCached(env);
-            const activeSet = new Set([...Object.keys(SECTOR_MAP), ...userAdded, ...MARKET_PULSE_SYMS]);
+            const activeSet = new Set([...Object.keys(SECTOR_MAP), ...userAddedForReq, ...MARKET_PULSE_SYMS]);
             const data = {};
             for (const [sym, payload] of Object.entries(snapshot.data)) {
               if (activeSet.has(sym)) data[sym] = payload;
@@ -28443,9 +28848,8 @@ export default {
             `SELECT ticker, payload_json, updated_at, kanban_stage, prev_kanban_stage FROM ticker_latest`,
           ).all();
 
-          // Filter: must be in SECTOR_MAP or user-added tickers
-          const userAdded2 = await d1GetActiveUserTickersCached(env);
-          const activeSet = new Set([...Object.keys(SECTOR_MAP), ...userAdded2, ...MARKET_PULSE_SYMS]);
+          // Filter: must be in SECTOR_MAP or THIS user's added tickers
+          const activeSet = new Set([...Object.keys(SECTOR_MAP), ...userAddedForReq, ...MARKET_PULSE_SYMS]);
           const results = (rows?.results || []).filter(r => {
             const sym = String(r?.ticker || "").toUpperCase();
             return sym && activeSet.has(sym);
@@ -28840,7 +29244,7 @@ export default {
           // D1 ticker_latest may have stale seed data for user tickers.
           // Always overlay KV data for user-added tickers (not just missing ones).
           try {
-            const userTickersToEnrich = userAdded2.filter(s => s && !SECTOR_MAP[s]);
+            const userTickersToEnrich = userAddedForReq.filter(s => s && !SECTOR_MAP[s]);
             if (userTickersToEnrich.length > 0) {
               const kvResults = await Promise.all(
                 userTickersToEnrich.slice(0, 30).map(async (s) => {
@@ -29117,7 +29521,7 @@ export default {
           // This progressively fills the context cache without blocking the response.
           try {
             const prioritizedMissingCtx = [
-              ...userAdded2.filter((sym) => sym && data[sym] && !data[sym]?.context?.name),
+              ...userAddedForReq.filter((sym) => sym && data[sym] && !data[sym]?.context?.name),
               ...Object.entries(data)
               .filter(([, v]) => !v?.context?.name)
               .map(([sym]) => sym)
@@ -29800,7 +30204,8 @@ export default {
               const today = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
               const future = new Date(Date.now() + 5 * 86400000).toLocaleDateString("en-CA", { timeZone: "America/New_York" });
               rawFinnhub = await fetchFinnhubEarnings(env, today, future);
-              const universeSet = new Set(Object.keys(SECTOR_MAP));
+              const userAdded = await d1GetActiveUserTickersCached(env);
+              const universeSet = new Set([...Object.keys(SECTOR_MAP), ...userAdded]);
               let filtered = rawFinnhub
                 .filter(e => e.symbol && universeSet.has(e.symbol.toUpperCase()))
                 .map(e => ({ ...e, symbol: e.symbol.toUpperCase() }));
@@ -29818,6 +30223,50 @@ export default {
                   if (tdConfirmed.size > 0) filtered = filtered.filter(e => tdConfirmed.has(`${e.symbol}|${(e.date || "").slice(0, 10)}`));
                 }
               } catch (_) {}
+
+              if (!debug) {
+                // Background: per-symbol Finnhub+TD lookup for tracked tickers not in calendar
+                const _foundSymbols = new Set(filtered.map(e => e.symbol));
+                const _allTrackedApi = [...new Set([...Object.keys(SECTOR_MAP), ...userAdded])]
+                  .filter(t => !_foundSymbols.has(t) && /^[A-Z]{1,5}$/.test(t));
+                if (_allTrackedApi.length > 0) {
+                  const _batch = _allTrackedApi.slice(0, 15);
+                  ctx.waitUntil((async () => {
+                    try {
+                      const results = await Promise.allSettled(
+                        _batch.map(async (sym) => {
+                          const fhRes = await fetchFinnhubSymbolEarnings(env, sym, today, future);
+                          if (Array.isArray(fhRes) && fhRes.length > 0) {
+                            return fhRes.filter(e => e.date && e.date >= today && e.date <= future).map(e => ({
+                              symbol: sym, date: e.date, hour: e.hour || "",
+                              epsEstimate: e.epsEstimate ?? null, epsActual: e.epsActual ?? null,
+                              revenueEstimate: e.revenueEstimate ?? null, revenueActual: e.revenueActual ?? null,
+                            }));
+                          }
+                          return [];
+                        })
+                      );
+                      let extra = [];
+                      for (const r of results) {
+                        if (r.status === "fulfilled" && Array.isArray(r.value)) extra.push(...r.value);
+                      }
+                      if (extra.length > 0) {
+                        const latest = await kvGetJSON(KV, "timed:earnings:upcoming") || { events: [], updated_at: 0 };
+                        const existingKeys = new Set((latest.events || []).map(e => `${e.symbol}|${e.date}`));
+                        for (const e of extra) {
+                          if (!existingKeys.has(`${e.symbol}|${e.date}`)) latest.events.push(e);
+                        }
+                        latest.updated_at = Date.now();
+                        await kvPutJSON(KV, "timed:earnings:upcoming", latest, 86400);
+                        console.log(`[EARNINGS] Background enrichment: +${extra.length} event(s)`);
+                      }
+                    } catch (e) {
+                      console.warn("[EARNINGS] Background enrichment error:", String(e?.message || e).slice(0, 150));
+                    }
+                  })());
+                }
+              }
+
               if (!debug) {
                 cached = { events: filtered, updated_at: Date.now() };
                 ctx.waitUntil(kvPutJSON(KV, "timed:earnings:upcoming", cached, 86400).catch(() => {}));
@@ -29832,10 +30281,13 @@ export default {
           if (debug && rawFinnhub) {
             const today = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
             const future = new Date(Date.now() + 5 * 86400000).toLocaleDateString("en-CA", { timeZone: "America/New_York" });
-            const checkTickers = ["NFLX", "TSLA", "AAPL"];
+            const checkParam = url.searchParams.get("check");
+            const checkTickers = checkParam ? checkParam.split(",").map(s => s.trim().toUpperCase()).filter(Boolean) : ["NFLX", "TSLA", "AAPL"];
+            const allFinnhubSyms = [...new Set(rawFinnhub.map(e => String(e.symbol || "").toUpperCase()).filter(Boolean))].sort();
             const debugObj = {
               finnhub_range: { today, future },
               finnhub_total: rawFinnhub.length,
+              finnhub_all_symbols: allFinnhubSyms,
               finnhub_sample: rawFinnhub.slice(0, 8).map(e => ({ symbol: e.symbol, date: e.date, hour: e.hour, epsEstimate: e.epsEstimate, epsActual: e.epsActual })),
               check_tickers_finnhub: Object.fromEntries(checkTickers.map(sym => [sym, rawFinnhub.filter(e => String(e.symbol || "").toUpperCase() === sym).map(e => ({ symbol: e.symbol, date: e.date, hour: e.hour }))])),
             };
@@ -29865,6 +30317,63 @@ export default {
         } catch (e) {
           console.error("[EARNINGS] GET error:", String(e));
           return sendJSON({ ok: false, error: "internal_error" }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // GET /timed/earnings/check/:ticker — per-symbol earnings lookup (Finnhub + TwelveData)
+      if (routeKey === "GET /timed/earnings/check/:ticker") {
+        try {
+          const keyCheck = await requireKeyOrAdmin(req, env);
+          if (keyCheck) return keyCheck;
+          const ticker = url.pathname.split("/timed/earnings/check/")[1]?.toUpperCase();
+          if (!ticker) return sendJSON({ ok: false, error: "missing_ticker" }, 400, corsHeaders(env, req));
+          const today = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+          const future = new Date(Date.now() + 14 * 86400000).toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+          const [fhCalendar, fhSymbol, tdEarnings] = await Promise.allSettled([
+            fetchFinnhubEarnings(env, today, future).then(all => all.filter(e => String(e.symbol || "").toUpperCase() === ticker)),
+            fetchFinnhubSymbolEarnings(env, ticker, today, future),
+            tdFetchTickerEarnings(env, ticker),
+          ]);
+          const result = {
+            ok: true,
+            ticker,
+            range: { from: today, to: future },
+            finnhub_calendar: fhCalendar.status === "fulfilled" ? fhCalendar.value : [],
+            finnhub_symbol: fhSymbol.status === "fulfilled" ? fhSymbol.value : [],
+            twelvedata_earnings: tdEarnings.status === "fulfilled" && !tdEarnings.value._error ? (tdEarnings.value.earnings || []) : [],
+          };
+          // Merge into cache if we found upcoming events
+          const upcoming = [
+            ...(result.finnhub_symbol || []).filter(e => e.date >= today && e.date <= future).map(e => ({
+              symbol: ticker, date: e.date, hour: e.hour || "",
+              epsEstimate: e.epsEstimate ?? null, epsActual: e.epsActual ?? null,
+            })),
+            ...(result.twelvedata_earnings || []).filter(e => e.date >= today && e.date <= future).map(e => ({
+              symbol: ticker, date: e.date,
+              hour: e.time === "Before Market Open" ? "bmo" : e.time === "After Market Close" ? "amc" : (e.time || ""),
+              epsEstimate: e.eps_estimate ?? null, epsActual: e.eps_actual ?? null,
+            })),
+          ];
+          if (upcoming.length > 0) {
+            ctx.waitUntil((async () => {
+              try {
+                const cached = await kvGetJSON(KV, "timed:earnings:upcoming") || { events: [], updated_at: 0 };
+                const keys = new Set((cached.events || []).map(e => `${e.symbol}|${e.date}`));
+                let added = 0;
+                for (const e of upcoming) {
+                  if (!keys.has(`${e.symbol}|${e.date}`)) { cached.events.push(e); added++; }
+                }
+                if (added > 0) {
+                  cached.updated_at = Date.now();
+                  await kvPutJSON(KV, "timed:earnings:upcoming", cached, 86400);
+                }
+              } catch {}
+            })());
+          }
+          result.upcoming_count = upcoming.length;
+          return sendJSON(result, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e) }, 500, corsHeaders(env, req));
         }
       }
 
@@ -38426,6 +38935,65 @@ export default {
           // Invalidate the scoring cache
           _userTickersCache = null;
 
+          // Invalidate earnings cache so next fetch includes the new ticker
+          ctx.waitUntil(KV.delete("timed:earnings:upcoming").catch(() => {}));
+
+          // Check per-ticker earnings (Finnhub + TwelveData) and merge into cache
+          ctx.waitUntil((async () => {
+            try {
+              const today = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+              const futureDate = new Date(Date.now() + 5 * 86400000).toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+              const [fhRes, tdRes] = await Promise.allSettled([
+                fetchFinnhubSymbolEarnings(env, rawTicker, today, futureDate),
+                tdFetchTickerEarnings(env, rawTicker),
+              ]);
+              const upcoming = [];
+              if (fhRes.status === "fulfilled" && Array.isArray(fhRes.value)) {
+                for (const e of fhRes.value) {
+                  if (e.date && e.date >= today && e.date <= futureDate) {
+                    upcoming.push({
+                      symbol: rawTicker, date: e.date, hour: e.hour || "",
+                      epsEstimate: e.epsEstimate ?? null, epsActual: e.epsActual ?? null,
+                      revenueEstimate: e.revenueEstimate ?? null, revenueActual: e.revenueActual ?? null,
+                    });
+                  }
+                }
+              }
+              if (upcoming.length === 0 && tdRes.status === "fulfilled") {
+                const td = tdRes.value;
+                if (!td._error && Array.isArray(td.earnings)) {
+                  for (const e of td.earnings) {
+                    if (e.date && e.date >= today && e.date <= futureDate) {
+                      upcoming.push({
+                        symbol: rawTicker, date: e.date,
+                        hour: e.time === "Before Market Open" ? "bmo" : e.time === "After Market Close" ? "amc" : (e.time || ""),
+                        epsEstimate: e.eps_estimate ?? null, epsActual: e.eps_actual ?? null,
+                        revenueEstimate: e.revenue_estimate ?? null, revenueActual: e.revenue_actual ?? null,
+                      });
+                    }
+                  }
+                }
+              }
+              if (upcoming.length === 0) return;
+              const cached = await kvGetJSON(KV, "timed:earnings:upcoming") || { events: [], updated_at: 0 };
+              const existingKeys = new Set((cached.events || []).map(e => `${e.symbol}|${e.date}`));
+              let merged = false;
+              for (const e of upcoming) {
+                if (!existingKeys.has(`${e.symbol}|${e.date}`)) {
+                  cached.events.push(e);
+                  merged = true;
+                }
+              }
+              if (merged) {
+                cached.updated_at = Date.now();
+                await kvPutJSON(KV, "timed:earnings:upcoming", cached, 86400);
+                console.log(`[USER_TICKERS] Merged ${upcoming.length} earnings event(s) for ${rawTicker}`);
+              }
+            } catch (e) {
+              console.warn(`[USER_TICKERS] Earnings check failed for ${rawTicker}:`, String(e?.message || e).slice(0, 150));
+            }
+          })());
+
           let hydratedContext = await loadMergedTickerContext(KV, rawTicker);
           if (!hydratedContext?.name && !isInCore) {
             try {
@@ -38501,15 +39069,20 @@ export default {
             backfillTriggered = true;
             const scoringStart = Date.now();
             try {
-              // Quick backfill: 400 days covers 50+ weekly candles, 90+ daily,
-              // and plenty of intraday bars. All TFs in parallel for speed.
-              const QUICK_DAYS = 400;
+              // Quick backfill: D + W + 240 + 60 at 450 days inline (enough for scoring).
+              // 30/15/10/M deferred to deep backfill in background.
+              const QUICK_DAYS = 450;
+              const QUICK_TFS = ["D", "W", "240", "60"];
               if (_usesTwelveData(env)) {
-                await DataProvider.backfill(env, [rawTicker], "all", QUICK_DAYS);
+                for (const qtf of QUICK_TFS) {
+                  await DataProvider.backfill(env, [rawTicker], qtf, QUICK_DAYS);
+                }
               } else {
-                await alpacaBackfill(env, [rawTicker], d1UpsertCandle, "all", QUICK_DAYS);
+                for (const qtf of QUICK_TFS) {
+                  await alpacaBackfill(env, [rawTicker], d1UpsertCandle, qtf, QUICK_DAYS);
+                }
               }
-              console.log(`[USER_TICKERS] Quick backfill done for ${rawTicker} (${Date.now() - scoringStart}ms)`);
+              console.log(`[USER_TICKERS] Quick backfill done for ${rawTicker} (${QUICK_TFS.join(",")}, ${Date.now() - scoringStart}ms)`);
 
               const existing = await kvGetJSON(KV, `timed:latest:${rawTicker}`);
               const result = await computeServerSideScores(rawTicker, d1GetCandles, env, existing);
@@ -38539,15 +39112,23 @@ export default {
               console.warn(`[USER_TICKERS] Inline backfill+score failed for ${rawTicker}:`, String(e?.message || e).slice(0, 200));
             }
 
-            // Fire deep backfill in background for full history
+            // Fire deep backfill in background — covers all TFs with full DEEP_START_DAYS depths
+            // D/W/4H/1H go deep (2-6 years), 30m/15m/10m get 450 days, M gets 10 years
             ctx.waitUntil((async () => {
               try {
+                const DEEP_TFS = ["M", "30", "15", "10"];
                 if (_usesTwelveData(env)) {
-                  await DataProvider.backfill(env, [rawTicker], "all", null);
+                  for (const dtf of DEEP_TFS) {
+                    await DataProvider.backfill(env, [rawTicker], dtf, null);
+                  }
+                  // Re-backfill D/W/240/60 with full depth (quick only did 450 days)
+                  for (const dtf of ["D", "W", "240", "60"]) {
+                    await DataProvider.backfill(env, [rawTicker], dtf, null);
+                  }
                 } else {
                   await alpacaBackfill(env, [rawTicker], d1UpsertCandle, "all", null);
                 }
-                console.log(`[USER_TICKERS] Deep backfill complete for ${rawTicker}`);
+                console.log(`[USER_TICKERS] Deep backfill complete for ${rawTicker} (all TFs)`);
               } catch (e) {
                 console.warn(`[USER_TICKERS] Deep backfill failed for ${rawTicker}:`, String(e?.message || e).slice(0, 200));
               }
@@ -38743,10 +39324,12 @@ export default {
           if (!DB) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
           await d1EnsureStripeSchema(env);
           await d1EnsureAdminSchema(env);
+          await d1EnsureDiscordSchema(env);
+          await d1EnsureUserStatusSchema(env);
           const { results } = await DB.prepare(
             `SELECT email, display_name, role, tier, subscription_status, stripe_customer_id,
                     created_at, last_login_at, expires_at, terms_accepted_at,
-                    login_count, login_days, trial_end
+                    login_count, login_days, trial_end, discord_username, discord_id, status
              FROM users ORDER BY last_login_at DESC`
           ).all();
           return sendJSON({ ok: true, users: results || [] }, 200, corsHeaders(env, req));
@@ -39120,6 +39703,65 @@ export default {
         }
       }
 
+      // GET /timed/alerts — Returns trade event alerts (ENTRY/TRIM/EXIT/DEFEND) joined with trade data
+      if (routeKey === "GET /timed/alerts") {
+        try {
+          let user = await authenticateUser(req, env);
+          if (!user?.email) {
+            const keyCheck = await requireKeyOrAdmin(req, env);
+            if (keyCheck) return keyCheck;
+            user = { email: "api-key" };
+          }
+          const db = env?.DB;
+          if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
+          const limit = Math.min(Number(url.searchParams.get("limit")) || 200, 500);
+          const offset = Number(url.searchParams.get("offset")) || 0;
+          const typeFilter = url.searchParams.get("type") || null;
+          const tickerFilter = url.searchParams.get("ticker") || null;
+          const dirFilter = url.searchParams.get("direction") || null;
+
+          let where = "WHERE te.type IN ('ENTRY','TRIM','EXIT','DEFEND','ENTRY_CORRECTION','SCALE_IN')";
+          const binds = [];
+          let bindIdx = 1;
+          if (typeFilter) { where += ` AND te.type = ?${bindIdx}`; binds.push(typeFilter.toUpperCase()); bindIdx++; }
+          if (tickerFilter) { where += ` AND t.ticker = ?${bindIdx}`; binds.push(tickerFilter.toUpperCase()); bindIdx++; }
+          if (dirFilter) { where += ` AND t.direction = ?${bindIdx}`; binds.push(dirFilter.toUpperCase()); bindIdx++; }
+
+          const countSql = `SELECT COUNT(*) as cnt FROM trade_events te JOIN trades t ON te.trade_id = t.trade_id ${where}`;
+          const countStmt = db.prepare(countSql);
+          const boundCount = binds.length > 0 ? countStmt.bind(...binds) : countStmt;
+          const countRow = await boundCount.first();
+
+          const dataSql = `
+            SELECT te.event_id, te.trade_id, te.ts, te.type, te.price, te.qty_pct_delta,
+                   te.qty_pct_total, te.pnl_realized, te.reason, te.meta_json,
+                   t.ticker, t.direction, t.entry_price, t.exit_price, t.rank, t.rr,
+                   t.status, t.pnl, t.pnl_pct, t.setup_name, t.setup_grade, t.risk_budget,
+                   t.entry_ts, t.exit_ts, t.trimmed_pct
+            FROM trade_events te
+            JOIN trades t ON te.trade_id = t.trade_id
+            ${where}
+            ORDER BY te.ts DESC
+            LIMIT ?${bindIdx} OFFSET ?${bindIdx + 1}
+          `;
+          const dataBinds = [...binds, limit, offset];
+          const dataStmt = db.prepare(dataSql);
+          const boundData = dataBinds.length > 0 ? dataStmt.bind(...dataBinds) : dataStmt;
+          const { results } = await boundData.all();
+
+          return sendJSON({
+            ok: true,
+            alerts: results || [],
+            total_count: countRow?.cnt || 0,
+            limit,
+            offset,
+          }, 200, corsHeaders(env, req));
+        } catch (e) {
+          console.error("[GET /timed/alerts] Error:", e);
+          return sendJSON({ ok: false, error: String(e?.message || e) }, 500, corsHeaders(env, req));
+        }
+      }
+
       // GET /timed/notifications — Returns user's notifications (unread first, paginated)
       if (routeKey === "GET /timed/notifications") {
         try {
@@ -39272,7 +39914,7 @@ export default {
             "cancel_url": cancelUrl,
             "metadata[user_email]": user.email,
           });
-          // Only include trial if user hasn't had one before
+          params.set("allow_promotion_codes", "true");
           if (trialDays > 0) {
             params.set("subscription_data[trial_period_days]", String(trialDays));
           }
@@ -39341,6 +39983,7 @@ export default {
           const db = env?.DB;
           if (!db) return sendJSON({ ok: false, error: "no_db" }, 500);
           await d1EnsureStripeSchema(env);
+          await d1EnsureDiscordSchema(env);
           const eventType = event.type;
           console.log(`[STRIPE WEBHOOK] Event: ${eventType}`);
           if (eventType === "checkout.session.completed") {
@@ -39384,33 +40027,96 @@ export default {
                   console.warn("[STRIPE] Subscription email failed:", String(e?.message || e).slice(0, 150))
                 )
               );
+              // Auto-provision Discord role if already connected
+              if (env.DISCORD_BOT_TOKEN && env.DISCORD_GUILD_ID && env.DISCORD_SUBSCRIBER_ROLE_ID) {
+                ctx.waitUntil((async () => {
+                  try {
+                    await d1EnsureDiscordSchema(env);
+                    const discRow = await db.prepare(`SELECT discord_id, discord_access_token FROM users WHERE email = ?1`).bind(email).first();
+                    if (discRow?.discord_id && discRow?.discord_access_token) {
+                      await discordAddMemberAndRole(env, discRow.discord_id, discRow.discord_access_token);
+                      console.log(`[STRIPE] Auto-provisioned Discord role for ${email}`);
+                    }
+                  } catch (e) {
+                    console.warn("[STRIPE] Discord auto-provision failed:", String(e?.message || e).slice(0, 100));
+                  }
+                })());
+              }
             }
           } else if (eventType === "customer.subscription.updated") {
             const sub = event.data.object;
             const custId = sub.customer;
-            const status = sub.status; // active, trialing, past_due, canceled, etc.
+            const status = sub.status;
             const trialEnd = sub.trial_end ? sub.trial_end * 1000 : null;
+            const cancelAtPeriodEnd = !!sub.cancel_at_period_end;
+            const periodEnd = sub.current_period_end ? sub.current_period_end * 1000 : null;
             if (custId) {
-              await db.prepare(`
-                UPDATE users SET subscription_status = ?1, trial_end = ?2, updated_at = ?3 WHERE stripe_customer_id = ?4
-              `).bind(status, trialEnd, Date.now(), custId).run();
-              console.log(`[STRIPE] subscription.updated: ${custId} → ${status}, trial_end=${trialEnd}`);
+              if (cancelAtPeriodEnd && (status === "active" || status === "trialing")) {
+                // User requested cancellation — keep access until period end
+                await db.prepare(`
+                  UPDATE users SET subscription_status = 'canceling', expires_at = ?1, trial_end = ?2, updated_at = ?3 WHERE stripe_customer_id = ?4
+                `).bind(periodEnd, trialEnd, Date.now(), custId).run();
+                console.log(`[STRIPE] subscription.updated: ${custId} → canceling (active until ${new Date(periodEnd).toISOString()})`);
+                const userRow = await db.prepare(`SELECT email FROM users WHERE stripe_customer_id = ?1`).bind(custId).first();
+                if (userRow?.email) {
+                  await d1InsertNotification(env, {
+                    email: userRow.email, type: "system",
+                    title: "Subscription Canceling",
+                    body: `Your Pro access remains active until ${new Date(periodEnd).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}. You can resubscribe anytime.`,
+                    link: "/index-react.html",
+                  });
+                }
+              } else {
+                await db.prepare(`
+                  UPDATE users SET subscription_status = ?1, trial_end = ?2, updated_at = ?3 WHERE stripe_customer_id = ?4
+                `).bind(status, trialEnd, Date.now(), custId).run();
+                console.log(`[STRIPE] subscription.updated: ${custId} → ${status}, trial_end=${trialEnd}`);
+              }
             }
           } else if (eventType === "customer.subscription.deleted") {
             const sub = event.data.object;
             const custId = sub.customer;
             if (custId) {
+              const userRow = await db.prepare(`SELECT email, discord_id, email_preferences FROM users WHERE stripe_customer_id = ?1`).bind(custId).first();
+              // Downgrade tier and status
               await db.prepare(`
                 UPDATE users SET tier = 'free', subscription_status = 'canceled', expires_at = ?1, updated_at = ?2 WHERE stripe_customer_id = ?3
               `).bind(Date.now(), Date.now(), custId).run();
               console.log(`[STRIPE] subscription.deleted: ${custId}`);
-              // Get email for notification
-              const userRow = await db.prepare(`SELECT email FROM users WHERE stripe_customer_id = ?1`).bind(custId).first();
+
               if (userRow?.email) {
+                // Downgrade email preferences: keep marketing, disable subscriber-only emails
+                try {
+                  let prefs = {};
+                  try { prefs = JSON.parse(userRow.email_preferences || "{}"); } catch { prefs = {}; }
+                  prefs.daily_brief = false;
+                  prefs.trade_alerts = false;
+                  if (prefs.marketing === undefined) prefs.marketing = true;
+                  await db.prepare(`UPDATE users SET email_preferences = ?1 WHERE email = ?2`)
+                    .bind(JSON.stringify(prefs), userRow.email).run();
+                  console.log(`[STRIPE] Downgraded email prefs for ${userRow.email}: daily_brief=off, trade_alerts=off`);
+                } catch (e) {
+                  console.warn("[STRIPE] Email pref downgrade failed:", String(e?.message || e).slice(0, 100));
+                }
+
+                // Remove Discord role if connected
+                if (userRow.discord_id && env.DISCORD_BOT_TOKEN && env.DISCORD_GUILD_ID && env.DISCORD_SUBSCRIBER_ROLE_ID) {
+                  ctx.waitUntil(discordRemoveRole(env, userRow.discord_id).catch(e =>
+                    console.warn("[STRIPE] Discord role removal failed:", String(e?.message || e).slice(0, 100))
+                  ));
+                }
+
+                // Send farewell email
+                ctx.waitUntil(
+                  sendFarewellEmail(env, userRow.email).catch(e =>
+                    console.warn("[STRIPE] Farewell email failed:", String(e?.message || e).slice(0, 100))
+                  )
+                );
+
                 await d1InsertNotification(env, {
                   email: userRow.email, type: "system",
-                  title: "Subscription Canceled",
-                  body: "Your Timed Trading Pro subscription has been canceled.",
+                  title: "Subscription Ended",
+                  body: "Your Timed Trading Pro subscription has ended. We'd love to have you back — resubscribe anytime.",
                   link: "/splash.html",
                 });
               }
@@ -39526,6 +40232,565 @@ export default {
             expires_at: row?.expires_at || null,
             trial_end: row?.trial_end || null,
           }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // ═══════════════════════════════════════════════════════════════════
+      // Discord OAuth Integration
+      // ═══════════════════════════════════════════════════════════════════
+
+      if (routeKey === "GET /timed/discord/connect") {
+        try {
+          const user = await authenticateUser(req, env);
+          if (!user?.email) return sendJSON({ ok: false, error: "auth_required" }, 401, corsHeaders(env, req));
+          const clientId = env.DISCORD_CLIENT_ID;
+          if (!clientId) return sendJSON({ ok: false, error: "discord_not_configured" }, 503, corsHeaders(env, req));
+          const redirectUri = encodeURIComponent(`${env.SITE_URL || "https://timed-trading.com"}/timed/discord/callback`);
+          const state = encodeURIComponent(user.email.toLowerCase());
+          const scopes = encodeURIComponent("identify guilds.join");
+          const url = `https://discord.com/api/oauth2/authorize?client_id=${clientId}&redirect_uri=${redirectUri}&response_type=code&scope=${scopes}&state=${state}&prompt=consent`;
+          return sendJSON({ ok: true, url }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      if (routeKey === "GET /timed/discord/callback") {
+        try {
+          const url = new URL(req.url);
+          const code = url.searchParams.get("code");
+          const stateEmail = decodeURIComponent(url.searchParams.get("state") || "").toLowerCase();
+          if (!code || !stateEmail) {
+            return new Response("Missing code or state", { status: 400, headers: { "Content-Type": "text/html" } });
+          }
+          const clientId = env.DISCORD_CLIENT_ID;
+          const clientSecret = env.DISCORD_CLIENT_SECRET;
+          const redirectUri = `${env.SITE_URL || "https://timed-trading.com"}/timed/discord/callback`;
+          if (!clientId || !clientSecret) {
+            return new Response("Discord not configured", { status: 503, headers: { "Content-Type": "text/html" } });
+          }
+
+          // Exchange code for tokens
+          const tokenResp = await fetch("https://discord.com/api/v10/oauth2/token", {
+            method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            body: new URLSearchParams({
+              client_id: clientId,
+              client_secret: clientSecret,
+              grant_type: "authorization_code",
+              code,
+              redirect_uri: redirectUri,
+            }).toString(),
+          });
+          const tokenData = await tokenResp.json();
+          if (!tokenResp.ok || !tokenData.access_token) {
+            console.error("[DISCORD] Token exchange failed:", JSON.stringify(tokenData).slice(0, 300));
+            return new Response(`<html><body><script>window.opener?.postMessage({type:'discord-error',error:'token_exchange_failed'},'*');window.close();</script></body></html>`, {
+              status: 200, headers: { "Content-Type": "text/html" },
+            });
+          }
+
+          // Get Discord user info
+          const userResp = await fetch("https://discord.com/api/v10/users/@me", {
+            headers: { "Authorization": `Bearer ${tokenData.access_token}` },
+          });
+          const discordUser = await userResp.json();
+          if (!userResp.ok || !discordUser.id) {
+            console.error("[DISCORD] User fetch failed:", JSON.stringify(discordUser).slice(0, 300));
+            return new Response(`<html><body><script>window.opener?.postMessage({type:'discord-error',error:'user_fetch_failed'},'*');window.close();</script></body></html>`, {
+              status: 200, headers: { "Content-Type": "text/html" },
+            });
+          }
+
+          const discordId = discordUser.id;
+          const discordUsername = discordUser.username;
+
+          // Save to D1
+          const db = env?.DB;
+          if (db) {
+            await d1EnsureDiscordSchema(env);
+            await db.prepare(`
+              UPDATE users SET discord_id = ?1, discord_username = ?2, discord_access_token = ?3, discord_refresh_token = ?4, updated_at = ?5
+              WHERE email = ?6
+            `).bind(discordId, discordUsername, tokenData.access_token, tokenData.refresh_token || null, Date.now(), stateEmail).run();
+          }
+
+          // Add to guild + assign role
+          try {
+            await discordAddMemberAndRole(env, discordId, tokenData.access_token);
+          } catch (e) {
+            console.error("[DISCORD] Guild add failed (non-blocking):", String(e?.message || e).slice(0, 200));
+          }
+
+          // Send welcome email
+          ctx.waitUntil(
+            sendDiscordWelcomeEmail(env, stateEmail, discordUsername).catch(e =>
+              console.warn("[DISCORD] Welcome email failed:", String(e?.message || e).slice(0, 100))
+            )
+          );
+
+          console.log(`[DISCORD] Connected: ${stateEmail} → ${discordUsername} (${discordId})`);
+          return new Response(`<html><body><script>window.opener?.postMessage({type:'discord-connected',username:'${discordUsername.replace(/'/g, "\\'")}'},'*');window.close();</script></body></html>`, {
+            status: 200, headers: { "Content-Type": "text/html" },
+          });
+        } catch (e) {
+          console.error("[DISCORD] Callback error:", String(e?.message || e).slice(0, 300));
+          return new Response(`<html><body><script>window.opener?.postMessage({type:'discord-error',error:'internal'},'*');window.close();</script></body></html>`, {
+            status: 200, headers: { "Content-Type": "text/html" },
+          });
+        }
+      }
+
+      if (routeKey === "POST /timed/discord/disconnect") {
+        try {
+          const user = await authenticateUser(req, env);
+          if (!user?.email) return sendJSON({ ok: false, error: "auth_required" }, 401, corsHeaders(env, req));
+          const db = env?.DB;
+          if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
+          await d1EnsureDiscordSchema(env);
+          const row = await db.prepare(`SELECT discord_id, discord_access_token FROM users WHERE email = ?1`).bind(user.email.toLowerCase()).first();
+          if (row?.discord_id) {
+            // Remove role (don't kick from server)
+            await discordRemoveRole(env, row.discord_id).catch(() => {});
+            // Revoke token if present
+            if (row.discord_access_token && env.DISCORD_CLIENT_ID && env.DISCORD_CLIENT_SECRET) {
+              await fetch("https://discord.com/api/v10/oauth2/token/revoke", {
+                method: "POST",
+                headers: { "Content-Type": "application/x-www-form-urlencoded" },
+                body: new URLSearchParams({
+                  client_id: env.DISCORD_CLIENT_ID,
+                  client_secret: env.DISCORD_CLIENT_SECRET,
+                  token: row.discord_access_token,
+                }).toString(),
+              }).catch(() => {});
+            }
+          }
+          await db.prepare(`
+            UPDATE users SET discord_id = NULL, discord_username = NULL, discord_access_token = NULL, discord_refresh_token = NULL, updated_at = ?1 WHERE email = ?2
+          `).bind(Date.now(), user.email.toLowerCase()).run();
+          return sendJSON({ ok: true }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      if (routeKey === "GET /timed/discord/status") {
+        try {
+          const user = await authenticateUser(req, env);
+          if (!user?.email) return sendJSON({ ok: false, error: "auth_required" }, 401, corsHeaders(env, req));
+          const db = env?.DB;
+          if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
+          await d1EnsureDiscordSchema(env);
+          const row = await db.prepare(`SELECT discord_id, discord_username FROM users WHERE email = ?1`).bind(user.email.toLowerCase()).first();
+          return sendJSON({
+            ok: true,
+            connected: !!row?.discord_id,
+            discord_username: row?.discord_username || null,
+            discord_id: row?.discord_id || null,
+            guild_id: env.DISCORD_GUILD_ID || null,
+          }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // ═══════════════════════════════════════════════════════════════════
+      // Session Heartbeat (Analytics)
+      // ═══════════════════════════════════════════════════════════════════
+
+      if (routeKey === "POST /timed/session/heartbeat") {
+        try {
+          const user = await authenticateUser(req, env);
+          if (!user?.email) return sendJSON({ ok: true }, 200, corsHeaders(env, req));
+          const db = env?.DB;
+          if (!db) return sendJSON({ ok: true }, 200, corsHeaders(env, req));
+          await d1EnsureSessionsSchema(env);
+          const body = await readBodyAsJSON(req);
+          const parsed = body?.obj || {};
+          const sessionId = parsed.session_id;
+          if (!sessionId) return sendJSON({ ok: true }, 200, corsHeaders(env, req));
+
+          const ua = req.headers.get("user-agent") || "";
+          const country = req.headers.get("cf-ipcountry") || "";
+          const city = req.headers.get("cf-ipcity") || "";
+          const now = Date.now();
+
+          let device = "desktop";
+          if (/mobile|android|iphone|ipad/i.test(ua)) device = /ipad|tablet/i.test(ua) ? "tablet" : "mobile";
+          let browser = "other";
+          if (/chrome/i.test(ua) && !/edg/i.test(ua)) browser = "chrome";
+          else if (/firefox/i.test(ua)) browser = "firefox";
+          else if (/safari/i.test(ua) && !/chrome/i.test(ua)) browser = "safari";
+          else if (/edg/i.test(ua)) browser = "edge";
+          let os = "other";
+          if (/windows/i.test(ua)) os = "windows";
+          else if (/mac/i.test(ua)) os = "macos";
+          else if (/linux/i.test(ua)) os = "linux";
+          else if (/android/i.test(ua)) os = "android";
+          else if (/iphone|ipad/i.test(ua)) os = "ios";
+
+          const existing = await db.prepare(`SELECT id FROM sessions WHERE session_id = ?1`).bind(sessionId).first();
+          if (existing) {
+            await db.prepare(`UPDATE sessions SET last_seen_at = ?1, page_views = page_views + 1 WHERE session_id = ?2`)
+              .bind(now, sessionId).run();
+          } else {
+            await db.prepare(`
+              INSERT INTO sessions (session_id, user_email, started_at, last_seen_at, page_views, device, browser, os, country, city, screen_width)
+              VALUES (?1, ?2, ?3, ?4, 1, ?5, ?6, ?7, ?8, ?9, ?10)
+            `).bind(sessionId, user.email.toLowerCase(), now, now, device, browser, os, country, city, parsed.screen_width || null).run();
+          }
+          return sendJSON({ ok: true }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: true }, 200, corsHeaders(env, req));
+        }
+      }
+
+      // ═══════════════════════════════════════════════════════════════════
+      // Admin: User Management (Remove, Block, Unblock, Resend Welcome)
+      // ═══════════════════════════════════════════════════════════════════
+
+      if (routeKey === "POST /timed/admin/users/remove") {
+        try {
+          const authErr = await requireKeyOrAdmin(req, env);
+          if (authErr) return authErr;
+          const db = env?.DB;
+          if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
+          await d1EnsureUserStatusSchema(env);
+          const body = await readBodyAsJSON(req);
+          const email = (body?.obj?.email || "").toLowerCase();
+          if (!email) return sendJSON({ ok: false, error: "email_required" }, 400, corsHeaders(env, req));
+          await db.prepare(`UPDATE users SET status = 'removed', updated_at = ?1 WHERE email = ?2`).bind(Date.now(), email).run();
+          console.log(`[ADMIN] User removed: ${email}`);
+          return sendJSON({ ok: true, action: "removed", email }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      if (routeKey === "POST /timed/admin/users/block") {
+        try {
+          const authErr = await requireKeyOrAdmin(req, env);
+          if (authErr) return authErr;
+          const db = env?.DB;
+          if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
+          await d1EnsureUserStatusSchema(env);
+          const body = await readBodyAsJSON(req);
+          const email = (body?.obj?.email || "").toLowerCase();
+          if (!email) return sendJSON({ ok: false, error: "email_required" }, 400, corsHeaders(env, req));
+          await db.prepare(`UPDATE users SET status = 'blocked', updated_at = ?1 WHERE email = ?2`).bind(Date.now(), email).run();
+          console.log(`[ADMIN] User blocked: ${email}`);
+          return sendJSON({ ok: true, action: "blocked", email }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      if (routeKey === "POST /timed/admin/users/unblock") {
+        try {
+          const authErr = await requireKeyOrAdmin(req, env);
+          if (authErr) return authErr;
+          const db = env?.DB;
+          if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
+          await d1EnsureUserStatusSchema(env);
+          const body = await readBodyAsJSON(req);
+          const email = (body?.obj?.email || "").toLowerCase();
+          if (!email) return sendJSON({ ok: false, error: "email_required" }, 400, corsHeaders(env, req));
+          await db.prepare(`UPDATE users SET status = 'active', updated_at = ?1 WHERE email = ?2`).bind(Date.now(), email).run();
+          console.log(`[ADMIN] User unblocked: ${email}`);
+          return sendJSON({ ok: true, action: "unblocked", email }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      if (routeKey === "POST /timed/admin/users/resend-welcome") {
+        try {
+          const authErr = await requireKeyOrAdmin(req, env);
+          if (authErr) return authErr;
+          const db = env?.DB;
+          if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
+          const body = await readBodyAsJSON(req);
+          const email = (body?.obj?.email || "").toLowerCase();
+          if (!email) return sendJSON({ ok: false, error: "email_required" }, 400, corsHeaders(env, req));
+          const row = await db.prepare(`SELECT email, display_name, tier FROM users WHERE email = ?1`).bind(email).first();
+          if (!row) return sendJSON({ ok: false, error: "user_not_found" }, 404, corsHeaders(env, req));
+          await sendWelcomeEmail(env, row);
+          return sendJSON({ ok: true, action: "welcome_sent", email }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // ═══════════════════════════════════════════════════════════════════
+      // Admin: VIP Code Management
+      // ═══════════════════════════════════════════════════════════════════
+
+      if (routeKey === "POST /timed/admin/vip-code") {
+        try {
+          const authErr = await requireKeyOrAdmin(req, env);
+          if (authErr) return authErr;
+          const stripeKey = env.STRIPE_SECRET_KEY;
+          if (!stripeKey) return sendJSON({ ok: false, error: "stripe_not_configured" }, 503, corsHeaders(env, req));
+          const db = env?.DB;
+          if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
+          await d1EnsureVipCodesSchema(env);
+
+          const body = await readBodyAsJSON(req);
+          const label = (body?.obj?.label || "").trim() || "VIP Invite";
+          const adminEmail = (body?.obj?.admin_email || "admin").toLowerCase();
+
+          // Create a 100%-off forever coupon in Stripe
+          const couponResp = await fetch("https://api.stripe.com/v1/coupons", {
+            method: "POST",
+            headers: { "Authorization": `Bearer ${stripeKey}`, "Content-Type": "application/x-www-form-urlencoded" },
+            body: new URLSearchParams({
+              percent_off: "100",
+              duration: "forever",
+              max_redemptions: "1",
+              name: label,
+            }).toString(),
+          });
+          const coupon = await couponResp.json();
+          if (!couponResp.ok) {
+            console.error("[VIP] Coupon creation failed:", JSON.stringify(coupon).slice(0, 300));
+            return sendJSON({ ok: false, error: "coupon_creation_failed", details: coupon.error?.message }, 500, corsHeaders(env, req));
+          }
+
+          // Create a promotion code for the coupon
+          const promoResp = await fetch("https://api.stripe.com/v1/promotion_codes", {
+            method: "POST",
+            headers: { "Authorization": `Bearer ${stripeKey}`, "Content-Type": "application/x-www-form-urlencoded" },
+            body: new URLSearchParams({
+              coupon: coupon.id,
+              max_redemptions: "1",
+            }).toString(),
+          });
+          const promo = await promoResp.json();
+          if (!promoResp.ok) {
+            console.error("[VIP] Promo code creation failed:", JSON.stringify(promo).slice(0, 300));
+            return sendJSON({ ok: false, error: "promo_creation_failed", details: promo.error?.message }, 500, corsHeaders(env, req));
+          }
+
+          // Store in D1
+          await db.prepare(`
+            INSERT INTO vip_codes (code, stripe_coupon_id, stripe_promo_id, created_at, created_by, status)
+            VALUES (?1, ?2, ?3, ?4, ?5, 'generated')
+          `).bind(promo.code, coupon.id, promo.id, Date.now(), adminEmail).run();
+
+          console.log(`[VIP] Code generated: ${promo.code} by ${adminEmail}`);
+          return sendJSON({ ok: true, code: promo.code, stripe_coupon_id: coupon.id, stripe_promo_id: promo.id }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      if (routeKey === "GET /timed/admin/vip-codes") {
+        try {
+          const authErr = await requireKeyOrAdmin(req, env);
+          if (authErr) return authErr;
+          const db = env?.DB;
+          if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
+          await d1EnsureVipCodesSchema(env);
+          const { results } = await db.prepare(`SELECT * FROM vip_codes ORDER BY created_at DESC`).all();
+
+          // Cross-reference with Stripe for usage status
+          const stripeKey = env.STRIPE_SECRET_KEY;
+          const codes = results || [];
+          if (stripeKey && codes.length > 0) {
+            for (const c of codes) {
+              if (c.status === "generated" && c.stripe_promo_id) {
+                try {
+                  const resp = await fetch(`https://api.stripe.com/v1/promotion_codes/${c.stripe_promo_id}`, {
+                    headers: { "Authorization": `Bearer ${stripeKey}` },
+                  });
+                  if (resp.ok) {
+                    const promoObj = await resp.json();
+                    if (promoObj.times_redeemed > 0) {
+                      c.status = "used";
+                      c.used_at = Date.now();
+                      await db.prepare(`UPDATE vip_codes SET status = 'used', used_at = ?1 WHERE code = ?2`).bind(Date.now(), c.code).run();
+                    }
+                  }
+                } catch { /* non-critical */ }
+              }
+            }
+          }
+          return sendJSON({ ok: true, codes }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // ═══════════════════════════════════════════════════════════════════
+      // Admin: Analytics
+      // ═══════════════════════════════════════════════════════════════════
+
+      if (routeKey === "GET /timed/admin/analytics") {
+        try {
+          const authErr = await requireKeyOrAdmin(req, env);
+          if (authErr) return authErr;
+          const db = env?.DB;
+          if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
+          await d1EnsureSessionsSchema(env);
+
+          const url = new URL(req.url);
+          const periodDays = parseInt(url.searchParams.get("days") || "7", 10);
+          const now = Date.now();
+          const cutoff = now - periodDays * 86400000;
+          const fiveMinAgo = now - 5 * 60000;
+
+          // Live active sessions
+          const liveRow = await db.prepare(`SELECT COUNT(DISTINCT user_email) as cnt FROM sessions WHERE last_seen_at >= ?1`).bind(fiveMinAgo).first();
+          // Period stats
+          const periodRow = await db.prepare(`
+            SELECT COUNT(DISTINCT user_email) as unique_users, COUNT(*) as total_sessions, SUM(page_views) as total_views,
+            AVG(last_seen_at - started_at) as avg_duration_ms
+            FROM sessions WHERE started_at >= ?1
+          `).bind(cutoff).first();
+          // Today
+          const todayStart = new Date(); todayStart.setHours(0,0,0,0);
+          const todayRow = await db.prepare(`
+            SELECT COUNT(DISTINCT user_email) as unique_users, COUNT(*) as total_sessions FROM sessions WHERE started_at >= ?1
+          `).bind(todayStart.getTime()).first();
+          // Yesterday
+          const yesterdayStart = new Date(todayStart.getTime() - 86400000);
+          const yesterdayRow = await db.prepare(`
+            SELECT COUNT(DISTINCT user_email) as unique_users, COUNT(*) as total_sessions FROM sessions WHERE started_at >= ?1 AND started_at < ?2
+          `).bind(yesterdayStart.getTime(), todayStart.getTime()).first();
+          // Devices
+          const { results: deviceRows } = await db.prepare(`
+            SELECT device, COUNT(*) as cnt FROM sessions WHERE started_at >= ?1 GROUP BY device ORDER BY cnt DESC
+          `).bind(cutoff).all();
+          // Browsers
+          const { results: browserRows } = await db.prepare(`
+            SELECT browser, COUNT(*) as cnt FROM sessions WHERE started_at >= ?1 GROUP BY browser ORDER BY cnt DESC
+          `).bind(cutoff).all();
+          // OS
+          const { results: osRows } = await db.prepare(`
+            SELECT os, COUNT(*) as cnt FROM sessions WHERE started_at >= ?1 GROUP BY os ORDER BY cnt DESC
+          `).bind(cutoff).all();
+          // Countries
+          const { results: countryRows } = await db.prepare(`
+            SELECT country, COUNT(*) as cnt FROM sessions WHERE started_at >= ?1 AND country != '' GROUP BY country ORDER BY cnt DESC LIMIT 20
+          `).bind(cutoff).all();
+          // Peak hours (hour of day distribution)
+          const { results: hourRows } = await db.prepare(`
+            SELECT CAST((started_at / 3600000) % 24 AS INTEGER) as hour, COUNT(*) as cnt
+            FROM sessions WHERE started_at >= ?1 GROUP BY hour ORDER BY hour
+          `).bind(cutoff).all();
+          // Day of week distribution
+          const { results: dowRows } = await db.prepare(`
+            SELECT CAST((started_at / 86400000 + 4) % 7 AS INTEGER) as dow, COUNT(*) as cnt
+            FROM sessions WHERE started_at >= ?1 GROUP BY dow ORDER BY dow
+          `).bind(cutoff).all();
+
+          return sendJSON({
+            ok: true,
+            period_days: periodDays,
+            live: { active_users: liveRow?.cnt || 0 },
+            today: { unique_users: todayRow?.unique_users || 0, sessions: todayRow?.total_sessions || 0 },
+            yesterday: { unique_users: yesterdayRow?.unique_users || 0, sessions: yesterdayRow?.total_sessions || 0 },
+            period: {
+              unique_users: periodRow?.unique_users || 0,
+              total_sessions: periodRow?.total_sessions || 0,
+              total_views: periodRow?.total_views || 0,
+              avg_duration_ms: Math.round(periodRow?.avg_duration_ms || 0),
+            },
+            devices: deviceRows || [],
+            browsers: browserRows || [],
+            os: osRows || [],
+            countries: countryRows || [],
+            peak_hours: hourRows || [],
+            day_of_week: dowRows || [],
+          }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // ═══════════════════════════════════════════════════════════════════
+      // Admin: System Health
+      // ═══════════════════════════════════════════════════════════════════
+
+      if (routeKey === "GET /timed/admin/system-health") {
+        try {
+          const authErr = await requireKeyOrAdmin(req, env);
+          if (authErr) return authErr;
+          const KV = env.TIMED_KV || env.TIMED_TRADING;
+          const db = env?.DB;
+          const now = Date.now();
+          const health = { ok: true, checks: {}, ts: now };
+
+          // 1. Price feed freshness
+          try {
+            const priceRaw = KV ? await KV.get("timed:prices") : null;
+            if (priceRaw) {
+              const priceData = JSON.parse(priceRaw);
+              const tickers = Object.keys(priceData);
+              const timestamps = tickers.map(t => priceData[t]?.t || 0).filter(Boolean);
+              const maxTs = Math.max(...timestamps);
+              const ageMin = Math.round((now - maxTs) / 60000);
+              health.checks.price_feed = { status: ageMin < 15 ? "ok" : ageMin < 60 ? "stale" : "error", age_min: ageMin, ticker_count: tickers.length, newest_ts: maxTs };
+            } else {
+              health.checks.price_feed = { status: "error", detail: "no_data" };
+            }
+          } catch { health.checks.price_feed = { status: "error", detail: "parse_failed" }; }
+
+          // 2. Scoring snapshot freshness
+          try {
+            const snapRaw = KV ? await KV.get("timed:all:snapshot") : null;
+            if (snapRaw) {
+              const snap = JSON.parse(snapRaw);
+              const snapTs = snap?._meta?.ts || snap?._ts || 0;
+              const ageMin = Math.round((now - snapTs) / 60000);
+              health.checks.scoring = { status: ageMin < 15 ? "ok" : ageMin < 60 ? "stale" : "error", age_min: ageMin, ts: snapTs };
+            } else {
+              health.checks.scoring = { status: "error", detail: "no_snapshot" };
+            }
+          } catch { health.checks.scoring = { status: "error", detail: "parse_failed" }; }
+
+          // 3. D1 database
+          try {
+            if (db) {
+              const testRow = await db.prepare(`SELECT COUNT(*) as cnt FROM users`).first();
+              health.checks.d1 = { status: "ok", user_count: testRow?.cnt || 0 };
+            } else {
+              health.checks.d1 = { status: "error", detail: "no_binding" };
+            }
+          } catch (e) { health.checks.d1 = { status: "error", detail: String(e?.message || e).slice(0, 100) }; }
+
+          // 4. Discord bot (check if configured)
+          health.checks.discord = {
+            status: env.DISCORD_BOT_TOKEN && env.DISCORD_GUILD_ID ? "configured" : "not_configured",
+            has_bot_token: !!env.DISCORD_BOT_TOKEN,
+            has_guild_id: !!env.DISCORD_GUILD_ID,
+            has_role_id: !!env.DISCORD_SUBSCRIBER_ROLE_ID,
+          };
+
+          // 5. Stripe
+          health.checks.stripe = {
+            status: env.STRIPE_SECRET_KEY && env.STRIPE_WEBHOOK_SECRET ? "configured" : "not_configured",
+            has_secret_key: !!env.STRIPE_SECRET_KEY,
+            has_webhook_secret: !!env.STRIPE_WEBHOOK_SECRET,
+          };
+
+          // 6. SendGrid
+          health.checks.sendgrid = {
+            status: env.SENDGRID_API_KEY ? "configured" : "not_configured",
+          };
+
+          // 7. TwelveData
+          health.checks.twelvedata = {
+            status: env.TWELVEDATA_API_KEY ? "configured" : "not_configured",
+          };
+
+          // Overall status
+          const allStatuses = Object.values(health.checks).map(c => c.status);
+          health.overall = allStatuses.includes("error") ? "degraded" : allStatuses.includes("stale") ? "stale" : "healthy";
+
+          return sendJSON(health, 200, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e?.message || e) }, 500, corsHeaders(env, req));
         }
@@ -40662,9 +41927,10 @@ export default {
           const stmts = [];
           for (const u of updates) {
             if (!u.key) continue;
+            const _cfgVal = (typeof u.value === "object" && u.value !== null) ? JSON.stringify(u.value) : String(u.value);
             stmts.push(db.prepare(
               `INSERT OR REPLACE INTO model_config (config_key, config_value, description, updated_at, updated_by) VALUES (?1, ?2, ?3, ?4, ?5)`
-            ).bind(u.key, String(u.value), u.description || `Deep audit: ${u.key}`, new Date().toISOString(), "deep_audit"));
+            ).bind(u.key, _cfgVal, u.description || `Deep audit: ${u.key}`, new Date().toISOString(), "deep_audit"));
           }
           if (stmts.length > 0) {
             await db.batch(stmts);
@@ -44322,6 +45588,15 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
         }
       }
 
+      if (routeKey === "GET /timed/daily-brief/intraday") {
+        try {
+          const result = await handleGetIntradayBriefs(env);
+          return sendJSON(result, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e).slice(0, 200) }, 500, corsHeaders(env, req));
+        }
+      }
+
       if (routeKey === "POST /timed/daily-brief/predict") {
         try {
           const url = new URL(req.url);
@@ -44337,15 +45612,18 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
         }
       }
 
-      // POST /timed/daily-brief/generate?key=...&type=morning|evening — manually trigger brief generation
       if (routeKey === "POST /timed/daily-brief/generate") {
         const authFail = requireKeyOr401(req, env);
         if (authFail) return authFail;
         try {
           const briefType = new URL(req.url).searchParams.get("type") || "morning";
           const dataOnly = new URL(req.url).searchParams.get("data_only") === "1";
+          if (briefType === "intraday") {
+            const result = await generateIntradayBrief(env, { SECTOR_MAP, d1GetCandles });
+            return sendJSON(result, 200, corsHeaders(env, req));
+          }
           if (briefType !== "morning" && briefType !== "evening") {
-            return sendJSON({ ok: false, error: "type must be morning or evening" }, 400, corsHeaders(env, req));
+            return sendJSON({ ok: false, error: "type must be morning, evening, or intraday" }, 400, corsHeaders(env, req));
           }
           if (dataOnly) {
             // Return raw gathered data for debugging (no AI call)
@@ -49488,6 +50766,26 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
       }
     }
 
+    // ── Intraday Flash Insights: Every hour during market hours (10 AM - 3 PM ET) ──
+    // Runs on the "0 * * * *" schedule; checks ET hour to limit to market hours only
+    if (vc.has("0 13 * * 1-5") || vc.has("0 14 * * 1-5") || vc.has("0 15 * * 1-5") ||
+        vc.has("0 16 * * 1-5") || vc.has("0 17 * * 1-5") || vc.has("0 18 * * 1-5") ||
+        vc.has("0 19 * * 1-5") || vc.has("0 20 * * 1-5")) {
+      const _etFlashStr = new Date().toLocaleString("en-US", { timeZone: "America/New_York", hour: "numeric", hour12: false });
+      const _etFlashH = parseInt(_etFlashStr, 10);
+      if (_etFlashH >= 10 && _etFlashH <= 15 && _etFlashH !== 9 && _etFlashH !== 17) {
+        ctx.waitUntil((async () => {
+          try {
+            console.log(`[INTRADAY FLASH CRON] Generating flash insight at ${_etFlashH}:00 ET...`);
+            const result = await generateIntradayBrief(env, { SECTOR_MAP, d1GetCandles });
+            console.log(`[INTRADAY FLASH CRON] ${result.ok ? "OK" : result.error} (${result.elapsed || 0}ms)`);
+          } catch (e) {
+            console.error("[INTRADAY FLASH CRON] Failed:", String(e).slice(0, 300));
+          }
+        })());
+      }
+    }
+
     // ── Daily Brief: Cleanup (3 AM ET — 07:00 UTC in EDT, 08:00 UTC in EST) ──
     if (vc.has("0 7 * * 1-5") || vc.has("0 8 * * 1-5")) {
       const etHour = new Date().toLocaleString("en-US", { timeZone: "America/New_York", hour: "numeric", hour12: false });
@@ -50143,7 +51441,8 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           const today = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
           const future = new Date(Date.now() + 5 * 86400000).toLocaleDateString("en-CA", { timeZone: "America/New_York" });
           const raw = await fetchFinnhubEarnings(env, today, future);
-          const universeSet = new Set(Object.keys(SECTOR_MAP));
+          const userAddedEarnings = await d1GetActiveUserTickersCached(env);
+          const universeSet = new Set([...Object.keys(SECTOR_MAP), ...userAddedEarnings]);
           const filtered = raw
             .filter(e => universeSet.has(String(e.symbol).toUpperCase()))
             .map(e => ({
@@ -50161,6 +51460,80 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             range: { from: today, to: future },
           });
           console.log(`[EARNINGS CRON] Cached ${filtered.length} earnings events (${today} → ${future})`);
+
+          // Per-symbol enrichment: Finnhub symbol-specific lookups for all tracked tickers
+          // Rotates through batches each hour to cover the full universe over time
+          const _allTracked = [...new Set([...Object.keys(SECTOR_MAP), ...userAddedEarnings])]
+            .filter(t => /^[A-Z]{1,5}(-[A-Z]{1,2})?$/.test(t));
+          const _cronFoundSyms = new Set(filtered.map(e => e.symbol));
+          const _cronMissing = _allTracked.filter(t => !_cronFoundSyms.has(t));
+          if (_cronMissing.length > 0) {
+            try {
+              const hour = new Date().getUTCHours();
+              const batchSize = 20;
+              const batchStart = (hour * batchSize) % _cronMissing.length;
+              const batch = _cronMissing.slice(batchStart, batchStart + batchSize);
+              const results = await Promise.allSettled(
+                batch.map(async (sym) => {
+                  const [fhRes, tdRes] = await Promise.allSettled([
+                    fetchFinnhubSymbolEarnings(env, sym, today, future),
+                    tdFetchTickerEarnings(env, sym),
+                  ]);
+                  const events = [];
+                  if (fhRes.status === "fulfilled" && Array.isArray(fhRes.value)) {
+                    for (const e of fhRes.value) {
+                      if (e.date && e.date >= today && e.date <= future) {
+                        events.push({
+                          symbol: sym,
+                          date: e.date,
+                          hour: e.hour || "",
+                          epsEstimate: e.epsEstimate ?? null,
+                          epsActual: e.epsActual ?? null,
+                          revenueEstimate: e.revenueEstimate ?? null,
+                          revenueActual: e.revenueActual ?? null,
+                        });
+                      }
+                    }
+                  }
+                  if (events.length === 0 && tdRes.status === "fulfilled") {
+                    const td = tdRes.value;
+                    if (!td._error && Array.isArray(td.earnings)) {
+                      for (const e of td.earnings) {
+                        if (e.date && e.date >= today && e.date <= future) {
+                          events.push({
+                            symbol: sym,
+                            date: e.date,
+                            hour: e.time === "Before Market Open" ? "bmo" : e.time === "After Market Close" ? "amc" : (e.time || ""),
+                            epsEstimate: e.eps_estimate ?? null,
+                            epsActual: e.eps_actual ?? null,
+                            revenueEstimate: e.revenue_estimate ?? null,
+                            revenueActual: e.revenue_actual ?? null,
+                          });
+                        }
+                      }
+                    }
+                  }
+                  return events;
+                })
+              );
+              let extra = [];
+              for (const r of results) {
+                if (r.status === "fulfilled" && Array.isArray(r.value)) extra.push(...r.value);
+              }
+              if (extra.length > 0) {
+                const latest = await kvGetJSON(KV, "timed:earnings:upcoming") || { events: [], updated_at: 0 };
+                const existingKeys = new Set((latest.events || []).map(e => `${e.symbol}|${e.date}`));
+                for (const e of extra) {
+                  if (!existingKeys.has(`${e.symbol}|${e.date}`)) latest.events.push(e);
+                }
+                latest.updated_at = Date.now();
+                await kvPutJSON(KV, "timed:earnings:upcoming", latest, 86400);
+                console.log(`[EARNINGS CRON] Per-symbol enrichment: +${extra.length} event(s) for ${extra.map(e => e.symbol).join(",")}`);
+              }
+            } catch (enrichErr) {
+              console.warn("[EARNINGS CRON] Per-symbol enrichment failed:", String(enrichErr?.message || enrichErr).slice(0, 150));
+            }
+          }
         } catch (e) {
           console.warn("[EARNINGS CRON] Failed:", String(e?.message || e).slice(0, 200));
         }

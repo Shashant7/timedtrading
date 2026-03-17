@@ -440,8 +440,8 @@ export async function cronFetchCrypto(env) {
 const BACKFILL_TFS = ["M", "W", "D", "240", "60", "30", "15", "10"];
 
 const DEEP_START_DAYS = {
-  "M": 365 * 10, "W": 365 * 6, "D": 450, "240": 450,
-  "60": 450, "30": 450, "15": 450, "10": 450,
+  "M": 365 * 10, "W": 365 * 6, "D": 365 * 3, "240": 365 * 2,
+  "60": 365 * 2, "30": 450, "15": 450, "10": 450,
 };
 
 export async function backfill(env, tickers, tfKey = "all", opts = null) {

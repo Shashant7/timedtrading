@@ -178,13 +178,13 @@
       }
 
       /* Investor panel stage badges */
-      .stage-badge { padding: 2px 8px; border-radius: 6px; font-size: 11px; font-weight: 600; text-transform: uppercase; }
-      .stage-accumulate { background: rgba(16,185,129,0.15); color: #34d399; border: 1px solid rgba(16,185,129,0.3); }
-      .stage-core_hold { background: rgba(59,130,246,0.15); color: #60a5fa; border: 1px solid rgba(59,130,246,0.3); }
-      .stage-watch { background: rgba(245,158,11,0.15); color: #fbbf24; border: 1px solid rgba(245,158,11,0.3); }
-      .stage-reduce { background: rgba(239,68,68,0.15); color: #f87171; border: 1px solid rgba(239,68,68,0.3); }
-      .stage-research { background: rgba(139,92,246,0.15); color: #a78bfa; border: 1px solid rgba(139,92,246,0.3); }
-      .stage-exited { background: rgba(107,114,128,0.15); color: #9ca3af; border: 1px solid rgba(107,114,128,0.3); }
+      .stage-badge { padding: 1px 6px; border-radius: 3px; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; }
+      .stage-accumulate { background: rgba(255,255,255,0.04); color: #e5e7eb; }
+      .stage-core_hold { background: rgba(255,255,255,0.04); color: #9ca3af; }
+      .stage-watch { background: rgba(255,255,255,0.03); color: #6b7280; }
+      .stage-reduce { background: rgba(255,255,255,0.03); color: #6b7280; }
+      .stage-research { background: rgba(255,255,255,0.03); color: #6b7280; }
+      .stage-exited { background: rgba(255,255,255,0.02); color: #4b5563; }
       .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
       .scrollbar-hide::-webkit-scrollbar { display: none; }
       .card { background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.06); border-radius: 12px; }
@@ -2810,10 +2810,12 @@
       const getStaleInfo = window.TimedPriceUtils.getStaleInfo;
       const getDailyChange = window.TimedPriceUtils.getDailyChange;
 
-      // Market Pulse tickers: indices + S&P sector ETFs + crypto
+      // Market Pulse tickers: indices + S&P sector ETFs + crypto + ETF equivalents
       const MARKET_PULSE_TICKERS = [
-        // Indices / futures / commodities
+        // Indices / futures / commodities (admin-only futures have ETF equivalents below)
         "SPX", "US500", "ES1!", "NQ1!", "RTY1!", "YM1!", "SPY", "QQQ", "IWM", "CL1!", "GC1!", "SI1!", "VX1!",
+        // ETF equivalents for non-admin users
+        "GLD", "SLV", "USO", "VIXY", "DIA",
         // Crypto
         "BTCUSD", "ETHUSD",
         // S&P 500 sector ETFs
@@ -2892,11 +2894,11 @@
         let edgeAlpha = 0;
         let intensityPulse = "";
         if (intensityAbs > 0.1) {
-          if (intensityAbs <= 1)       { tintAlpha = 0.10 + (intensityAbs) * 0.10; edgePx = 1; edgeAlpha = 0.25; }
-          else if (intensityAbs <= 3)  { tintAlpha = 0.20 + ((intensityAbs - 1) / 2) * 0.20; edgePx = 1.5; edgeAlpha = 0.40; }
-          else if (intensityAbs <= 6)  { tintAlpha = 0.40 + ((intensityAbs - 3) / 3) * 0.20; edgePx = 2; edgeAlpha = 0.55; }
-          else if (intensityAbs <= 12) { tintAlpha = 0.60 + ((intensityAbs - 6) / 6) * 0.15; edgePx = 2.5; edgeAlpha = 0.70; }
-          else                         { tintAlpha = 0.75; edgePx = 3; edgeAlpha = 0.85; intensityPulse = "intensity-pulse"; }
+          if (intensityAbs <= 1)       { tintAlpha = 0.06 + (intensityAbs) * 0.06; edgePx = 1; edgeAlpha = 0.15; }
+          else if (intensityAbs <= 3)  { tintAlpha = 0.12 + ((intensityAbs - 1) / 2) * 0.10; edgePx = 1; edgeAlpha = 0.25; }
+          else if (intensityAbs <= 6)  { tintAlpha = 0.22 + ((intensityAbs - 3) / 3) * 0.10; edgePx = 1.5; edgeAlpha = 0.35; }
+          else if (intensityAbs <= 12) { tintAlpha = 0.32 + ((intensityAbs - 6) / 6) * 0.08; edgePx = 2; edgeAlpha = 0.45; }
+          else                         { tintAlpha = 0.40; edgePx = 2; edgeAlpha = 0.50; }
         }
         const isUp = Number.isFinite(intensityPct) && intensityPct > 0;
         const isDown = Number.isFinite(intensityPct) && intensityPct < 0;
@@ -2951,8 +2953,8 @@
         const dotXPct = (padL + w) / width * 100;
         const dotYPct = (padTop + h - ((last - min) / range) * h) / height * 100;
         const gradId = gradIdRef.current;
-        const lineOpacity = bgMode ? 0.5 : 0.9;
-        const fillTopOpacity = bgMode ? 0.14 : 0.15;
+        const lineOpacity = bgMode ? 0.75 : 0.9;
+        const fillTopOpacity = bgMode ? 0.22 : 0.15;
         const sw = bgMode ? "2" : "1.8";
         const mktOpen = isNyRegularMarketOpen();
         return (
@@ -2986,10 +2988,10 @@
                 }} />
               )}
               <div className={`rounded-full ${mktOpen ? "sparkline-pulse-dot" : ""}`} style={{
-                width: 7, height: 7,
+                width: 6, height: 6,
                 background: lineColor,
-                boxShadow: `0 0 6px ${lineColor}, 0 0 12px ${lineColor}40`,
-                opacity: mktOpen ? 1 : 0.7,
+                boxShadow: `0 0 4px ${lineColor}80`,
+                opacity: mktOpen ? 0.9 : 0.6,
               }} />
             </div>
           </div>
@@ -6986,20 +6988,10 @@
         const isShort = dir.text === "SHORT";
 
         const borderAccent = isSelected
-          ? "border-blue-500/60"
-          : momentumElite
-            ? "border-purple-500/40"
-            : isLong
-              ? "border-cyan-500/30"
-              : isShort
-                ? "border-rose-500/30"
-                : "border-white/[0.06]";
+          ? "border-white/[0.2]"
+          : "border-white/[0.04]";
 
-        const cardBg = isLong
-          ? "rgba(6,182,212,0.06)"
-          : isShort
-            ? "rgba(225,29,72,0.06)"
-            : "rgba(255,255,255,0.03)";
+        const cardBg = "rgba(255,255,255,0.02)";
 
         return (
           <div
@@ -10055,11 +10047,11 @@
             filter: { group: "SP_Sectors" },
             icon: "📈",
           },
-          {
+          ...(window._ttIsAdmin ? [{
             label: "Futures",
             filter: { group: "Futures" },
             icon: "⚡",
-          },
+          }] : []),
           {
             label: "Added By Me",
             filter: { group: "USER_ADDED" },
@@ -10946,7 +10938,7 @@
                     group === "SP_Sectors",
                     () => onChange({ group: group === "SP_Sectors" ? "ALL" : "SP_Sectors" }),
                   )}
-                  {pill(
+                  {window._ttIsAdmin && pill(
                     pillLabelWithCount("⚡ Futures", pillCounts?.groups?.Futures),
                     group === "Futures",
                     () => onChange({ group: group === "Futures" ? "ALL" : "Futures" }),
@@ -11580,7 +11572,7 @@
               )}
               <div className="relative flex flex-col flex-1 min-h-0" style={{ zIndex: 1 }}>
               <div className="absolute inset-0 pointer-events-none rounded-lg" style={{
-                background: "linear-gradient(to bottom, rgba(0,0,0,0.30) 0%, rgba(0,0,0,0.05) 45%, rgba(0,0,0,0.40) 100%)",
+                background: "linear-gradient(to bottom, rgba(0,0,0,0.20) 0%, rgba(0,0,0,0.02) 45%, rgba(0,0,0,0.25) 100%)",
               }} />
 
               {/* ── Row 1: Star, Ticker, TT, LONG/SHORT + Badges | Price + Daily Chg ── */}
@@ -12230,14 +12222,14 @@
       // ─────────────────────────────────────────────────────────────
       const STAGE_ORDER = { watch: 0, setup: 1, enter: 2, new: 3, hold: 4, defend: 5, trim: 6, exit: 7 };
       const STAGE_META = {
-        watch:  { label: "Watch",  icon: "👁", cls: "bg-gray-700/60 text-gray-300 border-gray-500/40" },
-        setup:  { label: "Setup",  icon: "📋", cls: "bg-amber-900/40 text-amber-400 border-amber-500/40" },
-        enter:  { label: "Enter",  icon: "🎯", cls: "bg-teal-900/40 text-teal-400 border-teal-500/40" },
-        new:    { label: "New",    icon: "🆕", cls: "bg-[#00c853]/10 text-[#00e676] border-[#00c853]/40" },
-        hold:   { label: "Hold",   icon: "🔒", cls: "bg-cyan-900/40 text-cyan-400 border-cyan-500/40" },
-        defend: { label: "Defend", icon: "🛡", cls: "bg-orange-900/40 text-orange-400 border-orange-500/40" },
-        trim:   { label: "Trim",   icon: "✂️", cls: "bg-yellow-900/40 text-yellow-400 border-yellow-500/40" },
-        exit:   { label: "Exit",   icon: "🚪", cls: "bg-rose-900/40 text-rose-400 border-rose-500/40" },
+        watch:  { label: "Watch",  icon: "", cls: "text-[#6b7280]" },
+        setup:  { label: "Setup",  icon: "", cls: "text-[#9ca3af]" },
+        enter:  { label: "Enter",  icon: "", cls: "text-[#e5e7eb]" },
+        new:    { label: "New",    icon: "", cls: "text-[#e5e7eb]" },
+        hold:   { label: "Hold",   icon: "", cls: "text-[#9ca3af]" },
+        defend: { label: "Defend", icon: "", cls: "text-[#9ca3af]" },
+        trim:   { label: "Trim",   icon: "", cls: "text-[#9ca3af]" },
+        exit:   { label: "Exit",   icon: "", cls: "text-[#6b7280]" },
       };
 
       function SimpleKanbanTable({
@@ -12730,26 +12722,26 @@
                             const inv = t?.investor_action || t?.investor_stage;
                             if (inv) {
                               const invMeta = {
-                                accumulate: { label: "Accumulate", cls: "bg-emerald-900/40 text-emerald-400 border-emerald-500/40" },
-                                core_hold: { label: "Core Hold", cls: "bg-cyan-900/40 text-cyan-400 border-cyan-500/40" },
-                                watch: { label: "Watch", cls: "bg-gray-700/60 text-gray-300 border-gray-500/40" },
-                                reduce: { label: "Reduce", cls: "bg-orange-900/40 text-orange-400 border-orange-500/40" },
-                                exit: { label: "Exit", cls: "bg-rose-900/40 text-rose-400 border-rose-500/40" },
-                                research: { label: "Research", cls: "bg-purple-900/40 text-purple-400 border-purple-500/40" },
+                                accumulate: { label: "Accumulate", cls: "text-[#e5e7eb]" },
+                                core_hold: { label: "Core Hold", cls: "text-[#9ca3af]" },
+                                watch: { label: "Watch", cls: "text-[#6b7280]" },
+                                reduce: { label: "Reduce", cls: "text-[#6b7280]" },
+                                exit: { label: "Exit", cls: "text-[#4b5563]" },
+                                research: { label: "Research", cls: "text-[#6b7280]" },
                               };
                               const key = String(inv).toLowerCase().replace(/\s+/g, "_");
-                              const m = invMeta[key] || { label: inv, cls: "bg-gray-700/60 text-gray-300 border-gray-500/40" };
-                              return <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold border ${m.cls}`}>{m.label}</span>;
+                              const m = invMeta[key] || { label: inv, cls: "text-[#6b7280]" };
+                              return <span className={`inline-flex items-center px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider ${m.cls}`}>{m.label}</span>;
                             }
                             const htf = Number(t?.htf_score || 0);
                             const score = Number(t?.dynamicScore || t?.rank || 0);
                             let invLabel, invCls;
-                            if (htf > 10 && score > 60) { invLabel = "Accumulate"; invCls = "bg-emerald-900/40 text-emerald-400 border-emerald-500/40"; }
-                            else if (htf > 0 && score > 40) { invLabel = "Core Hold"; invCls = "bg-cyan-900/40 text-cyan-400 border-cyan-500/40"; }
-                            else if (htf > -5 && htf <= 0) { invLabel = "Watch"; invCls = "bg-gray-700/60 text-gray-300 border-gray-500/40"; }
-                            else if (htf <= -5) { invLabel = "Reduce"; invCls = "bg-orange-900/40 text-orange-400 border-orange-500/40"; }
-                            else { invLabel = "Watch"; invCls = "bg-gray-700/60 text-gray-300 border-gray-500/40"; }
-                            return <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold border ${invCls}`}>{invLabel}</span>;
+                            if (htf > 10 && score > 60) { invLabel = "Accumulate"; invCls = "text-[#e5e7eb]"; }
+                            else if (htf > 0 && score > 40) { invLabel = "Core Hold"; invCls = "text-[#9ca3af]"; }
+                            else if (htf > -5 && htf <= 0) { invLabel = "Watch"; invCls = "text-[#6b7280]"; }
+                            else if (htf <= -5) { invLabel = "Reduce"; invCls = "text-[#6b7280]"; }
+                            else { invLabel = "Watch"; invCls = "text-[#6b7280]"; }
+                            return <span className={`inline-flex items-center px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider ${invCls}`}>{invLabel}</span>;
                           })()}
                         </td>
                       </tr>
@@ -12813,25 +12805,25 @@
         }, [itemKeys, laneKey]);
 
         return (
-          <div className="flex items-stretch gap-0 mb-1 kanban-lane">
+          <div className="flex items-stretch gap-0 mb-0.5 kanban-lane">
             {/* Lane label */}
             <div
-              className={`flex flex-col justify-center items-center w-[52px] shrink-0 rounded-l-xl border-l-2 border-t border-b border-t-white/[0.04] border-b-white/[0.04] ${color} px-1 py-2`}
-              style={{ background: "linear-gradient(180deg, rgba(255,255,255,0.04) 0%, rgba(255,255,255,0.015) 100%)" }}
+              className="flex flex-col justify-center items-center w-[48px] shrink-0 border-r border-r-white/[0.04] px-1 py-2"
+              style={{ background: "transparent" }}
               title={subtitle || title}
             >
-              <span className="text-[11px] font-semibold text-white/90 tracking-wide text-center leading-tight">
-                {icon}<br/>{title}
+              <span className="text-[9px] font-bold uppercase tracking-widest text-[#4b5563] text-center leading-tight">
+                {title}
               </span>
-              <span className={`text-[10px] font-bold tabular-nums mt-0.5 ${count > 0 ? "text-white/80" : "text-[#4b5563]"}`}>
+              <span className={`text-[11px] font-bold tabular-nums mt-0.5 ${count > 0 ? "text-[#e5e7eb]" : "text-[#2a2e35]"}`}>
                 {count}
               </span>
             </div>
             {/* Horizontal scrollable card area */}
             <div
               ref={listRef}
-              className="flex-1 rounded-r-xl border-t border-r border-b border-white/[0.04] p-1.5 overflow-x-auto scrollbar-hide"
-              style={{ overflowAnchor: "none", WebkitOverflowScrolling: "touch", background: "rgba(255,255,255,0.01)" }}
+              className="flex-1 p-1.5 overflow-x-auto scrollbar-hide"
+              style={{ overflowAnchor: "none", WebkitOverflowScrolling: "touch" }}
               onScroll={() => {
                 try {
                   const el = listRef.current;
@@ -12851,12 +12843,12 @@
                     ))}
                   {!window._ttIsPro && (
                     <div className="w-[280px] shrink-0 kanban-card flex items-center justify-center">
-                      <div className="w-full rounded-xl border border-amber-500/30 bg-gradient-to-br from-amber-500/10 to-amber-600/5 p-4 flex flex-col items-center gap-2 text-center cursor-pointer hover:border-amber-400/50 transition-colors"
+                      <div className="w-full border border-white/[0.06] p-4 flex flex-col items-center gap-2 text-center cursor-pointer hover:border-white/[0.12] transition-colors"
+                        style={{ borderRadius: "6px" }}
                         onClick={() => window.dispatchEvent(new CustomEvent("tt-go-pro"))}>
-                        <svg className="w-6 h-6 text-amber-400" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd"/></svg>
-                        <span className="text-[11px] font-bold text-amber-300">Unlock All Tickers</span>
-                        <span className="text-[9px] text-gray-400">Upgrade to Pro for full access</span>
-                        <span className="mt-1 px-3 py-1 rounded-full bg-amber-500/20 border border-amber-500/40 text-[10px] font-bold text-amber-300 hover:bg-amber-500/30 transition-colors">Go Pro</span>
+                        <span className="text-[10px] font-bold text-[#9ca3af] uppercase tracking-widest">Unlock All Tickers</span>
+                        <span className="text-[9px] text-[#4b5563]">Upgrade to Pro for full access</span>
+                        <span className="mt-1 px-3 py-1 border border-white/[0.08] text-[10px] font-bold text-[#e5e7eb] hover:bg-white/[0.04] transition-colors" style={{ borderRadius: "4px" }}>Go Pro</span>
                       </div>
                     </div>
                   )}
@@ -12864,9 +12856,8 @@
               ) : (
                 <div className="text-[10px] text-[#4b5563] italic flex items-center h-full px-2">
                   {!window._ttIsPro ? (
-                    <span className="flex items-center gap-1 cursor-pointer text-amber-400/70 hover:text-amber-300 transition-colors" onClick={() => window.dispatchEvent(new CustomEvent("tt-go-pro"))}>
-                      <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd"/></svg>
-                      Go Pro to unlock
+                    <span className="flex items-center gap-1 cursor-pointer text-[#6b7280] hover:text-[#9ca3af] transition-colors" onClick={() => window.dispatchEvent(new CustomEvent("tt-go-pro"))}>
+                      Upgrade to unlock
                     </span>
                   ) : "No tickers"}
                 </div>
@@ -13138,8 +13129,8 @@
                   title="Setup"
                   subtitle="Entry qualified — awaiting execution window"
                   count={setup.length}
-                  icon="📋"
-                  color="border-amber-500"
+                  icon=""
+                  color=""
                   items={setup}
                   showDetails={true}
                   laneScrollTopRef={laneScrollTopRef}
@@ -13150,8 +13141,8 @@
                   title="Enter"
                   subtitle="All gates clear — system will execute"
                   count={enter.length}
-                  icon="🎯"
-                  color="border-teal-500"
+                  icon=""
+                  color=""
                   items={enter}
                   showDetails={true}
                   laneScrollTopRef={laneScrollTopRef}
@@ -13162,8 +13153,8 @@
                   title="New"
                   subtitle="Entered today — position just opened"
                   count={newEntries.length}
-                  icon="🆕"
-                  color="border-[#00c853]"
+                  icon=""
+                  color=""
                   items={newEntries}
                   showProgress={true}
                   showOpen={true}
@@ -13171,14 +13162,13 @@
                   laneScrollTopRef={laneScrollTopRef}
                   renderCompactCard={renderCompactCard}
                 />
-                {/* MANAGEMENT MODE - Has open position */}
                 <KanbanColumn
                   laneKey="hold"
                   title="Hold"
-                  subtitle="Position healthy - let it run"
+                  subtitle="Position healthy — let it run"
                   count={hold.length}
-                  icon="🔒"
-                  color="border-cyan-500"
+                  icon=""
+                  color=""
                   items={hold}
                   showProgress={true}
                   showOpen={true}
@@ -13189,10 +13179,10 @@
                 <KanbanColumn
                   laneKey="defend"
                   title="Defend"
-                  subtitle="Warning indicators - tighten stops"
+                  subtitle="Warning indicators — tighten stops"
                   count={defend.length}
-                  icon="🛡"
-                  color="border-orange-500"
+                  icon=""
+                  color=""
                   items={defend}
                   showProgress={true}
                   showOpen={true}
@@ -13203,10 +13193,10 @@
                 <KanbanColumn
                   laneKey="trim"
                   title="Trim"
-                  subtitle="Near TP - take partial profits"
+                  subtitle="Near TP — take partial profits"
                   count={trim.length}
-                  icon="✂️"
-                  color="border-yellow-500"
+                  icon=""
+                  color=""
                   items={trim}
                   showProgress={true}
                   showOpen={true}
@@ -13217,10 +13207,10 @@
                 <KanbanColumn
                   laneKey="exit"
                   title="Exit"
-                  subtitle="Stop hit or invalidated - close"
+                  subtitle="Stop hit or invalidated — close"
                   count={exit.length}
-                  icon="🚪"
-                  color="border-rose-500"
+                  icon=""
+                  color=""
                   items={exit}
                   showProgress={true}
                   showOpen={true}
@@ -16973,15 +16963,17 @@
             row: 2,
           });
 
-          // ── Futures ──
-          const FUTURES_SYMS = ["ES1!", "NQ1!", "RTY1!", "YM1!", "VX1!", "CL1!", "GC1!", "SI1!", "BTCUSD", "ETHUSD"];
-          const futTickers = allTickers.filter(t => FUTURES_SYMS.includes(String(t.ticker).toUpperCase()));
-          chips.push({
-            id: "futures", icon: "⚡", label: "Futures", count: futTickers.length, color: "amber",
-            tickers: futTickers.map(t => t.ticker),
-            tooltip: `Futures & crypto\n${FUTURES_SYMS.join(", ")}`,
-            row: 2,
-          });
+          // ── Futures (admin-only — TradingView sourced) ──
+          if (window._ttIsAdmin) {
+            const FUTURES_SYMS = ["ES1!", "NQ1!", "RTY1!", "YM1!", "VX1!", "CL1!", "GC1!", "SI1!", "BTCUSD", "ETHUSD"];
+            const futTickers = allTickers.filter(t => FUTURES_SYMS.includes(String(t.ticker).toUpperCase()));
+            chips.push({
+              id: "futures", icon: "⚡", label: "Futures", count: futTickers.length, color: "amber",
+              tickers: futTickers.map(t => t.ticker),
+              tooltip: `Futures & crypto\n${FUTURES_SYMS.join(", ")}`,
+              row: 2,
+            });
+          }
 
           // ── S&P Sectors (group — shows sector ETFs) ──
           const SP_ETF_SYMS = ["XLK", "XLF", "XLY", "XLP", "XLC", "XLI", "XLB", "XLE", "XLRE", "XLU", "XLV"];
@@ -17288,6 +17280,7 @@
                     <a href="/faq.html" className="hidden md:inline-flex px-2 py-1 rounded-md text-[11px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all" title="Frequently Asked Questions">FAQ</a>
                     <button onClick={() => setShowAiChat(true)} className="hidden md:inline-flex px-2 py-1 rounded-md text-[11px] text-[#60a5fa] hover:text-[#93bbfc] hover:bg-[#60a5fa]/[0.06] transition-all font-medium" title="Ask the AI assistant">Ask AI</button>
                     {loading && <div className="loading-spinner"></div>}
+                    {window.TimedDiscordButton && <window.TimedDiscordButton apiBase={API_BASE} />}
                     {window.TimedNotificationCenter && <window.TimedNotificationCenter apiBase={API_BASE} />}
                     {window.TimedUserBadge && <window.TimedUserBadge user={window.TimedAuthHelpers?.getStoredSession()} compact />}
                     {/* Mobile hamburger */}
@@ -17490,8 +17483,13 @@
                         </button>
                       );
                     };
-                    const row1 = ["US500", "ES1!", "NQ1!", "RTY1!", "YM1!", "VX1!", "CL1!", "GC1!", "SI1!", "BTCUSD", "ETHUSD"];
-                    const row2 = ["SPY", "QQQ", "IWM", "XLK", "XLF", "XLY", "XLP", "XLC", "XLI", "XLB", "XLE", "XLRE", "XLU", "XLV"];
+                    const _isAdminPulse = window._ttIsAdmin;
+                    const row1 = _isAdminPulse
+                      ? ["US500", "ES1!", "NQ1!", "RTY1!", "YM1!", "VX1!", "CL1!", "GC1!", "SI1!", "BTCUSD", "ETHUSD"]
+                      : ["VIXY", "USO", "GLD", "SLV", "DIA", "BTCUSD", "ETHUSD"];
+                    const row2 = _isAdminPulse
+                      ? ["SPY", "QQQ", "IWM", "XLK", "XLF", "XLY", "XLP", "XLC", "XLI", "XLB", "XLE", "XLRE", "XLU", "XLV"]
+                      : ["SPY", "QQQ", "IWM", "XLK", "XLF", "XLY", "XLP", "XLC", "XLI", "XLB", "XLE", "XLRE", "XLU", "XLV"];
                     const row1Chips = row1.map(s => renderPulseChip(s)).filter(Boolean);
                     const row2Chips = row2.map(s => renderPulseChip(s)).filter(Boolean);
                     if (row1Chips.length === 0 && row2Chips.length === 0) return null;
@@ -17511,7 +17509,7 @@
                         <div className="space-y-1.5">
                           {row1Chips.length > 0 && (
                             <div>
-                              <div className="text-[8px] uppercase tracking-wide text-[#4b5563] mb-1">Futures, Commodities, Crypto</div>
+                              <div className="text-[8px] uppercase tracking-wide text-[#4b5563] mb-1">{_isAdminPulse ? "Futures, Commodities, Crypto" : "Commodities & Crypto"}</div>
                               <div className="flex flex-wrap gap-1.5">{row1Chips}</div>
                             </div>
                           )}
@@ -18057,7 +18055,7 @@
                         </div>
                       </div>
                     ) : dashboardMode === "analysis" && (
-                    <div className="flex flex-col lg:flex-row gap-4" style={{ height: "calc(100vh - 160px)", minHeight: "600px", maxHeight: "1100px" }}>
+                    <div className="flex flex-col lg:flex-row gap-4" style={{ height: "calc(100vh - 120px)", minHeight: "700px", maxHeight: "1200px" }}>
                       {/* Viewport - Left side (shares parent height) */}
                       <div className="w-full lg:w-[320px] lg:flex-shrink-0 lg:h-full min-h-[400px] lg:min-h-0" data-coachmark="viewport">
                         <OpportunitiesPanel
@@ -18894,6 +18892,7 @@
           console.log("[App] Dashboard initialized successfully");
           // Push notification registration is handled by AuthGate after server-verified auth.
           // Do NOT call TimedPushRegister here — it would fire before auth is confirmed.
+          if (window.TimedSessionHeartbeat) window.TimedSessionHeartbeat(API_BASE);
         } catch (error) {
           console.error("Error rendering app:", error);
           const rootElement = document.getElementById("root");

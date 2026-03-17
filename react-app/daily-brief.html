@@ -33,9 +33,9 @@
         --tt-accent-dim: rgba(20, 184, 166, 0.12);
         --tt-negative: #e11d48;
         --tt-negative-dim: rgba(225, 29, 72, 0.12);
-        /* Chart candle colors — standardized across all charts */
-        --tt-candle-up: #22c55e;
-        --tt-candle-down: #ef4444;
+        /* Chart candle colors — TradingView standard palette */
+        --tt-candle-up: #26a69a;
+        --tt-candle-down: #ef5350;
         --tt-amber: #f59e0b;
         --tt-amber-dim: rgba(245, 158, 11, 0.12);
         --tt-indigo: #6366f1;
@@ -362,13 +362,18 @@
       }
 
       // ── Mini Chart Component (TradingView Lightweight Charts) ────────────
-      // Paired layout: Futures | ETF (2 columns)
-      // Primary: SPY, QQQ, VX1! (what most users trade and always need)
-      // Advanced: ES1!, NQ1! (futures proxies for experienced users)
-      const CHART_SYMBOLS_PRIMARY = [
+      // Primary: SPY, QQQ + VIX proxy (VX1! for admin, VIXY for non-admin)
+      // Advanced: ES1!, NQ1! (admin-only — TradingView futures)
+      const _isAdminCharts = () => document.body.dataset.userRole === "admin";
+      const CHART_SYMBOLS_PRIMARY_ADMIN = [
         { sym: "SPY", label: "SPY", color: "#00c853" },
         { sym: "QQQ", label: "QQQ", color: "#2196f3" },
         { sym: "VX1!", label: "VIX Futures", color: "#f59e0b" },
+      ];
+      const CHART_SYMBOLS_PRIMARY_USER = [
+        { sym: "SPY", label: "SPY", color: "#00c853" },
+        { sym: "QQQ", label: "QQQ", color: "#2196f3" },
+        { sym: "VIXY", label: "VIXY (VIX ETF)", color: "#f59e0b" },
       ];
       const CHART_SYMBOLS_ADVANCED = [
         { sym: "ES1!", label: "ES (S&P Futures)", color: "#a78bfa" },
@@ -400,15 +405,14 @@
         const seriesRef = useRef(null);
         const firstCandleRef = useRef(null);
         const priceLinesRef = useRef([]);
+        const trendlineSeriesRef = useRef([]);
         const [loading, setLoading] = useState(true);
         const [error, setError] = useState(null);
         const [lastPrice, setLastPrice] = useState(null);
         const [change, setChange] = useState(null);
         const [isLive, setIsLive] = useState(false);
+        const [patternLabel, setPatternLabel] = useState(null);
 
-        // Map raw API candles to chart format
-        // ETH candles (outside 9:30am-4pm ET) get dimmer colors
-        // Clamp H/L to remove stray wicks from bad data
         const mapCandles = useCallback((candles) => {
           const raw = candles.map(c => {
             const ts = c.ts / 1000;
@@ -416,39 +420,33 @@
             return { ts, o, h, l, c: cl };
           }).filter(c => c.o > 0 && c.h > 0 && c.l > 0 && c.c > 0);
 
-          // Compute median close to detect and clamp extreme outlier wicks
           if (raw.length < 3) return raw.map(c => ({ time: c.ts, open: c.o, high: c.h, low: c.l, close: c.c }));
-          const closes = raw.map(c => c.c).sort((a, b) => a - b);
-          const median = closes[Math.floor(closes.length / 2)];
-          const maxDeviation = median * 0.05; // 5% from median is the max allowed wick
 
-          return raw.map(c => {
-            const d = new Date(c.ts * 1000);
-            const etStr = d.toLocaleString("en-US", { timeZone: "America/New_York", hour12: false, hour: "2-digit", minute: "2-digit" });
-            const [hh, mm] = etStr.split(":").map(Number);
-            const etMin = hh * 60 + mm;
-            const isRTH = etMin >= 570 && etMin < 960;
-
-            // Clamp H/L: wicks shouldn't extend more than 5% beyond the candle body range
+          return raw.map((c, i) => {
             const bodyHigh = Math.max(c.o, c.c);
             const bodyLow = Math.min(c.o, c.c);
-            const bodyRange = bodyHigh - bodyLow || median * 0.001;
-            const maxWick = Math.max(bodyRange * 4, maxDeviation);
+            const bodyRange = bodyHigh - bodyLow || bodyHigh * 0.001;
+
+            // Context-aware wick clamping: compare to neighbor candle ranges
+            const neighbors = raw.slice(Math.max(0, i - 3), Math.min(raw.length, i + 4));
+            const avgRange = neighbors.reduce((s, n) => s + (Math.max(n.o, n.c) - Math.min(n.o, n.c)), 0) / neighbors.length || bodyRange;
+            const maxWick = Math.max(avgRange * 3, bodyRange * 3);
             const clampedH = Math.min(c.h, bodyHigh + maxWick);
             const clampedL = Math.max(c.l, bodyLow - maxWick);
 
             const up = c.c >= c.o;
-            const mapped = {
-              time: c.ts,
-              open: c.o,
-              high: clampedH,
-              low: clampedL,
-              close: c.c,
-            };
-            if (!isRTH && tf !== "D" && tf !== "W") {
-              mapped.color = up ? "rgba(34,197,94,0.35)" : "rgba(239,68,68,0.35)";
-              mapped.borderColor = up ? "rgba(34,197,94,0.45)" : "rgba(239,68,68,0.45)";
-              mapped.wickColor = up ? "rgba(34,197,94,0.30)" : "rgba(239,68,68,0.30)";
+            const mapped = { time: c.ts, open: c.o, high: clampedH, low: clampedL, close: c.c };
+
+            if (tf !== "D" && tf !== "W") {
+              const d = new Date(c.ts * 1000);
+              const etStr = d.toLocaleString("en-US", { timeZone: "America/New_York", hour12: false, hour: "2-digit", minute: "2-digit" });
+              const [hh, mm] = etStr.split(":").map(Number);
+              const etMin = hh * 60 + mm;
+              if (etMin < 570 || etMin >= 960) {
+                mapped.color = up ? "rgba(34,197,94,0.30)" : "rgba(239,68,68,0.30)";
+                mapped.borderColor = up ? "rgba(34,197,94,0.40)" : "rgba(239,68,68,0.40)";
+                mapped.wickColor = up ? "rgba(34,197,94,0.25)" : "rgba(239,68,68,0.25)";
+              }
             }
             return mapped;
           });
@@ -475,48 +473,54 @@
             return;
           }
 
-          // Create chart — styled to match Right Rail (shared-right-rail.js)
           const chart = LightweightCharts.createChart(containerRef.current, {
             width: containerRef.current.clientWidth,
-            height: 480,
+            height: 500,
             layout: {
               background: { type: "solid", color: "#0b0e11" },
-              textColor: "#6b7280",
-              fontSize: 10,
+              textColor: "#7c8493",
+              fontSize: 11,
             },
             grid: {
-              vertLines: { color: "rgba(38,50,95,0.35)" },
-              horzLines: { color: "rgba(38,50,95,0.35)" },
+              vertLines: { color: "rgba(38,50,95,0.20)" },
+              horzLines: { color: "rgba(38,50,95,0.20)" },
             },
             crosshair: {
               mode: LightweightCharts.CrosshairMode.Normal,
-              vertLine: { color: "rgba(255,255,255,0.15)", width: 1, style: 2, labelBackgroundColor: "#1e293b" },
-              horzLine: { color: "rgba(255,255,255,0.15)", width: 1, style: 2, labelBackgroundColor: "#1e293b" },
+              vertLine: { color: "rgba(255,255,255,0.12)", width: 1, style: 2, labelBackgroundColor: "#1e293b" },
+              horzLine: { color: "rgba(255,255,255,0.12)", width: 1, style: 2, labelBackgroundColor: "#1e293b" },
             },
             rightPriceScale: {
-              borderColor: "rgba(38,50,95,0.5)",
-              scaleMargins: { top: 0.05, bottom: 0.05 },
+              borderColor: "rgba(38,50,95,0.3)",
+              scaleMargins: { top: 0.08, bottom: 0.08 },
               autoScale: true,
-              minimumWidth: 60,
+              minimumWidth: 70,
+              entireTextOnly: true,
             },
             timeScale: {
-              borderColor: "rgba(38,50,95,0.5)",
+              borderColor: "rgba(38,50,95,0.3)",
               timeVisible: tf !== "D" && tf !== "W",
               secondsVisible: false,
-              rightOffset: 3,
+              rightOffset: 5,
+              barSpacing: tf === "D" ? 12 : tf === "60" ? 8 : 6,
               tickMarkFormatter: (time) => {
-                // Display in ET (America/New_York)
                 try {
                   const d = new Date(time * 1000);
+                  if (tf === "D") return d.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "America/New_York" });
                   return d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: "America/New_York" });
                 } catch { return ""; }
               },
             },
             localization: {
+              priceFormatter: (p) => {
+                if (sym === "VX1!" || sym === "VIX") return p.toFixed(2);
+                return p >= 1000 ? p.toFixed(2) : p.toFixed(2);
+              },
               timeFormatter: (time) => {
                 try {
                   const d = new Date(time * 1000);
-                  return d.toLocaleString("en-US", { hour: "numeric", minute: "2-digit", second: "2-digit", timeZone: "America/New_York" });
+                  if (tf === "D") return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "America/New_York" });
+                  return d.toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: "America/New_York" });
                 } catch { return ""; }
               },
             },
@@ -524,14 +528,13 @@
           });
           chartRef.current = chart;
 
-          // Candle colors — standardized across all charts
           const candleSeries = chart.addCandlestickSeries({
-            upColor: "#22c55e",
-            downColor: "#ef4444",
-            borderUpColor: "#22c55e",
-            borderDownColor: "#ef4444",
-            wickUpColor: "#22c55e",
-            wickDownColor: "#ef4444",
+            upColor: "#26a69a",
+            downColor: "#ef5350",
+            borderUpColor: "#26a69a",
+            borderDownColor: "#ef5350",
+            wickUpColor: "#26a69a",
+            wickDownColor: "#ef5350",
           });
           seriesRef.current = candleSeries;
 
@@ -571,22 +574,15 @@
             setLastPrice(lastCandle.close);
             setChange((lastCandle.close - mapped[0].open) / mapped[0].open * 100);
 
-            // Show approximately the last 2 trading days of data
             const settleChart = () => {
               if (!chartRef.current || !containerRef.current) return;
               const w = containerRef.current.clientWidth;
-              if (w > 0) {
-                chartRef.current.applyOptions({ width: w });
-              }
-              // 2-day visible window: for intraday TFs, show last N bars ≈ 2 trading days
-              const twoDayBars = { "5": 156, "15": 52, "30": 26, "60": 13, "D": 10 };
-              const barsToShow = twoDayBars[tf] || mapped.length;
+              if (w > 0) chartRef.current.applyOptions({ width: w });
+              const visibleBars = { "5": 156, "15": 52, "30": 26, "60": 20, "D": 30 };
+              const barsToShow = visibleBars[tf] || mapped.length;
               const from = Math.max(0, mapped.length - barsToShow);
               if (mapped.length > barsToShow) {
-                chartRef.current.timeScale().setVisibleLogicalRange({
-                  from,
-                  to: mapped.length + 3,
-                });
+                chartRef.current.timeScale().setVisibleLogicalRange({ from, to: mapped.length + 5 });
               } else {
                 chartRef.current.timeScale().fitContent();
               }
@@ -600,45 +596,73 @@
             setLoading(false);
             setIsLive(false);
 
-            // Async: fetch daily ATR levels and overlay on intraday charts
-            // Use cancelled flag to prevent stale fetches from adding duplicate levels
-            if (tf === "5" || tf === "15" || tf === "60") {
-              const applyAtrLevels = (fibData) => {
-                if (cancelled || !fibData?.levels || !seriesRef.current) return;
-                // Remove any existing price lines first
-                for (const pl of priceLinesRef.current) {
-                  try { seriesRef.current.removePriceLine(pl); } catch (_) {}
+            // Overlay levels, trendlines, and pattern annotations
+            const applyOverlays = (overlayData) => {
+              if (cancelled || !overlayData || !seriesRef.current || !chartRef.current) return;
+              // Remove existing overlays
+              for (const pl of priceLinesRef.current) {
+                try { seriesRef.current.removePriceLine(pl); } catch (_) {}
+              }
+              priceLinesRef.current = [];
+              for (const ls of trendlineSeriesRef.current) {
+                try { chartRef.current.removeSeries(ls); } catch (_) {}
+              }
+              trendlineSeriesRef.current = [];
+
+              // Price lines (support, resistance, prev close, ATR targets)
+              for (const lvl of (overlayData.levels || [])) {
+                const styleMap = { dotted: LightweightCharts.LineStyle.Dotted, dashed: LightweightCharts.LineStyle.Dashed, solid: LightweightCharts.LineStyle.Solid };
+                const pl = seriesRef.current.createPriceLine({
+                  price: lvl.price,
+                  color: lvl.color || "rgba(255,255,255,0.2)",
+                  lineWidth: lvl.lineWidth || 1,
+                  lineStyle: styleMap[lvl.style] || LightweightCharts.LineStyle.Dashed,
+                  axisLabelVisible: true,
+                  title: lvl.label || "",
+                });
+                priceLinesRef.current.push(pl);
+              }
+
+              // Trendlines as line series
+              for (const tl of (overlayData.trendlines || [])) {
+                if (!tl.points || tl.points.length < 2) continue;
+                const lineSeries = chartRef.current.addLineSeries({
+                  color: tl.color || "rgba(255,255,255,0.3)",
+                  lineWidth: 2,
+                  lineStyle: LightweightCharts.LineStyle.LargeDashed,
+                  crosshairMarkerVisible: false,
+                  priceLineVisible: false,
+                  lastValueVisible: false,
+                });
+                lineSeries.setData(tl.points);
+                trendlineSeriesRef.current.push(lineSeries);
+              }
+
+              // Pattern markers
+              if (overlayData.patterns && overlayData.patterns.length > 0 && seriesRef.current) {
+                const markers = overlayData.patterns.map(p => ({
+                  time: p.ts,
+                  position: p.bias === "bearish" ? "aboveBar" : "belowBar",
+                  color: p.bias === "bearish" ? "#ef5350" : p.bias === "bullish" ? "#26a69a" : "#7c8493",
+                  shape: p.bias === "bearish" ? "arrowDown" : p.bias === "bullish" ? "arrowUp" : "circle",
+                  text: p.type,
+                }));
+                try { seriesRef.current.setMarkers(markers); } catch (_) {}
+                setPatternLabel(overlayData.patterns[overlayData.patterns.length - 1]?.type || null);
+              }
+            };
+            const fetchOverlays = async (attempt = 0) => {
+              try {
+                const data = await fetchChartLevels(sym, tf, mapped);
+                applyOverlays(data);
+              } catch (e) {
+                if (attempt < 2 && !cancelled) {
+                  await new Promise(r => setTimeout(r, 1500 * (attempt + 1)));
+                  return fetchOverlays(attempt + 1);
                 }
-                priceLinesRef.current = [];
-                for (const lvl of fibData.levels) {
-                  const pl = seriesRef.current.createPriceLine({
-                    price: lvl.price,
-                    color: lvl.color || "rgba(255,255,255,0.2)",
-                    lineWidth: lvl.label?.startsWith("Target") || lvl.label?.startsWith("Watch") ? 2 : 1,
-                    lineStyle: lvl.label?.startsWith("Target") || lvl.label?.startsWith("Watch")
-                      ? LightweightCharts.LineStyle.LargeDashed
-                      : LightweightCharts.LineStyle.Dashed,
-                    axisLabelVisible: true,
-                    title: lvl.label || "",
-                  });
-                  priceLinesRef.current.push(pl);
-                }
-              };
-              // Fetch with retry — stagger to avoid all 8 charts hitting API simultaneously
-              const fetchWithRetry = async (attempt = 0) => {
-                try {
-                  const fibData = await fetchAtrFibLevels(sym);
-                  applyAtrLevels(fibData);
-                } catch (e) {
-                  console.warn(`[ATR] ${sym} attempt ${attempt} failed:`, e);
-                  if (attempt < 2 && !cancelled) {
-                    await new Promise(r => setTimeout(r, 1500 * (attempt + 1)));
-                    return fetchWithRetry(attempt + 1);
-                  }
-                }
-              };
-              fetchWithRetry();
-            }
+              }
+            };
+            fetchOverlays();
           }).catch(e => {
             console.error(`Chart ${sym} initial load error:`, e);
             setError("Load failed");
@@ -660,10 +684,11 @@
           window.addEventListener("resize", handleResize);
 
           return () => {
-            cancelled = true; // prevent stale async fetchAtrFibLevels from adding levels
+            cancelled = true;
             window.removeEventListener("resize", handleResize);
             if (resizeObserver) resizeObserver.disconnect();
             priceLinesRef.current = [];
+            trendlineSeriesRef.current = [];
             chart.remove();
             chartRef.current = null;
             seriesRef.current = null;
@@ -704,27 +729,34 @@
 
         return (
           <div className="tt-card overflow-hidden">
-            <div className="px-3 py-2 flex items-center justify-between border-b border-white/[0.04]">
-              <div className="flex items-center gap-2">
-                <span className="text-[13px] font-semibold" style={{ color: accentColor }}>{label}</span>
+            <div className="px-3 py-2.5 flex items-center justify-between border-b border-white/[0.04]">
+              <div className="flex items-center gap-2.5">
+                <span className="text-[14px] font-semibold" style={{ color: accentColor }}>{label}</span>
                 {lastPrice != null && (
-                  <span className="text-[12px] text-[#9ca3af]">{lastPrice.toFixed(2)}</span>
+                  <span className="text-[13px] text-[#9ca3af] font-medium">{lastPrice.toFixed(2)}</span>
                 )}
                 {change != null && (
-                  <span className={`text-[11px] font-medium ${change >= 0 ? "text-[#00c853]" : "text-[#ff5252]"}`}>
+                  <span className={`text-[12px] font-semibold ${change >= 0 ? "text-[#26a69a]" : "text-[#ef5350]"}`}>
                     {change >= 0 ? "+" : ""}{change.toFixed(2)}%
                   </span>
                 )}
+                {patternLabel && (
+                  <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-white/[0.06] text-[#7c8493] border border-white/[0.08]">
+                    {patternLabel}
+                  </span>
+                )}
               </div>
-              {loading && <div className="loading-spinner" style={{ width: 12, height: 12, borderWidth: 1.5 }} />}
-              {isLive && !loading && (
-                <span className="flex items-center gap-1 text-[9px] font-medium text-[#00c853] uppercase tracking-wider">
-                  <span className="inline-block w-1.5 h-1.5 rounded-full bg-[#00c853] badge-pulse" />
-                  Live
-                </span>
-              )}
+              <div className="flex items-center gap-2">
+                {loading && <div className="loading-spinner" style={{ width: 12, height: 12, borderWidth: 1.5 }} />}
+                {isLive && !loading && (
+                  <span className="flex items-center gap-1 text-[9px] font-medium text-[#26a69a] uppercase tracking-wider">
+                    <span className="inline-block w-1.5 h-1.5 rounded-full bg-[#26a69a] badge-pulse" />
+                    Live
+                  </span>
+                )}
+              </div>
             </div>
-            <div ref={containerRef} style={{ height: 480 }}>
+            <div ref={containerRef} style={{ height: 500 }}>
               {error && (
                 <div className="flex items-center justify-center h-full">
                   <span className="text-[11px] text-[#4b5563]">{error}</span>
@@ -735,78 +767,214 @@
         );
       }
 
-      // Fetch daily ATR and compute ATR Fibonacci levels for a symbol
-      // Uses actual daily candles for accurate day-level ATR (not scaled from intraday)
-      const atrLevelCache = {};
-      async function fetchAtrFibLevels(sym) {
-        if (atrLevelCache[sym] && Date.now() - atrLevelCache[sym].ts < 300000) {
-          return atrLevelCache[sym].data;
+      // ── Chart Levels & Pattern Detection ─────────────────────────────────
+      const chartLevelsCache = {};
+
+      function detectSwingPoints(candles, lookback = 3) {
+        const highs = [], lows = [];
+        for (let i = lookback; i < candles.length - lookback; i++) {
+          const c = candles[i];
+          let isHigh = true, isLow = true;
+          for (let j = 1; j <= lookback; j++) {
+            if (candles[i - j].h >= c.h || candles[i + j].h >= c.h) isHigh = false;
+            if (candles[i - j].l <= c.l || candles[i + j].l <= c.l) isLow = false;
+          }
+          if (isHigh) highs.push({ price: c.h, idx: i, ts: c.ts });
+          if (isLow) lows.push({ price: c.l, idx: i, ts: c.ts });
+        }
+        return { highs, lows };
+      }
+
+      function fitTrendline(points) {
+        if (points.length < 2) return null;
+        const n = points.length;
+        let sx = 0, sy = 0, sxy = 0, sxx = 0;
+        for (const p of points) { sx += p.idx; sy += p.price; sxy += p.idx * p.price; sxx += p.idx * p.idx; }
+        const denom = n * sxx - sx * sx;
+        if (Math.abs(denom) < 1e-10) return null;
+        const slope = (n * sxy - sx * sy) / denom;
+        const intercept = (sy - slope * sx) / n;
+        return { slope, intercept, points };
+      }
+
+      function detectPatterns(candles) {
+        if (candles.length < 15) return { trendlines: [], patterns: [] };
+        const { highs, lows } = detectSwingPoints(candles, 2);
+        const trendlines = [];
+        const patterns = [];
+        const rnd = v => Math.round(v * 100) / 100;
+
+        // Resistance trendline from recent swing highs (last 5)
+        const recentHighs = highs.slice(-5);
+        if (recentHighs.length >= 2) {
+          const rl = fitTrendline(recentHighs);
+          if (rl) {
+            const startIdx = recentHighs[0].idx;
+            const endIdx = Math.min(candles.length - 1, recentHighs[recentHighs.length - 1].idx + 5);
+            trendlines.push({
+              type: "resistance",
+              color: "rgba(239,83,80,0.50)",
+              points: [
+                { time: candles[startIdx].ts, value: rnd(rl.intercept + rl.slope * startIdx) },
+                { time: candles[endIdx].ts, value: rnd(rl.intercept + rl.slope * endIdx) },
+              ],
+            });
+          }
+        }
+
+        // Support trendline from recent swing lows
+        const recentLows = lows.slice(-5);
+        if (recentLows.length >= 2) {
+          const sl = fitTrendline(recentLows);
+          if (sl) {
+            const startIdx = recentLows[0].idx;
+            const endIdx = Math.min(candles.length - 1, recentLows[recentLows.length - 1].idx + 5);
+            trendlines.push({
+              type: "support",
+              color: "rgba(38,166,154,0.50)",
+              points: [
+                { time: candles[startIdx].ts, value: rnd(sl.intercept + sl.slope * startIdx) },
+                { time: candles[endIdx].ts, value: rnd(sl.intercept + sl.slope * endIdx) },
+              ],
+            });
+          }
+        }
+
+        // Pattern: Descending Triangle — lower highs + flat support
+        if (recentHighs.length >= 2 && recentLows.length >= 2) {
+          const hSlope = recentHighs.length >= 2 ? (recentHighs[recentHighs.length - 1].price - recentHighs[0].price) / (recentHighs[recentHighs.length - 1].idx - recentHighs[0].idx || 1) : 0;
+          const lSlope = recentLows.length >= 2 ? (recentLows[recentLows.length - 1].price - recentLows[0].price) / (recentLows[recentLows.length - 1].idx - recentLows[0].idx || 1) : 0;
+          const avgPrice = candles[candles.length - 1].c;
+          const slopeThreshold = avgPrice * 0.0005;
+
+          if (hSlope < -slopeThreshold && Math.abs(lSlope) < slopeThreshold) {
+            patterns.push({ type: "Descending Triangle", idx: recentLows[recentLows.length - 1].idx, ts: recentLows[recentLows.length - 1].ts, bias: "bearish" });
+          }
+          // Ascending Triangle — higher lows + flat resistance
+          if (lSlope > slopeThreshold && Math.abs(hSlope) < slopeThreshold) {
+            patterns.push({ type: "Ascending Triangle", idx: recentHighs[recentHighs.length - 1].idx, ts: recentHighs[recentHighs.length - 1].ts, bias: "bullish" });
+          }
+          // Channel / Range — both slopes are flat
+          if (Math.abs(hSlope) < slopeThreshold && Math.abs(lSlope) < slopeThreshold) {
+            const rangeHi = Math.max(...recentHighs.map(h => h.price));
+            const rangeLo = Math.min(...recentLows.map(l => l.price));
+            const rangePct = (rangeHi - rangeLo) / rangeLo * 100;
+            if (rangePct < 8) {
+              patterns.push({ type: `Range ${rnd(rangeLo)}-${rnd(rangeHi)}`, idx: candles.length - 3, ts: candles[candles.length - 3]?.ts, bias: "neutral" });
+            }
+          }
+          // Bear Flag — both slopes negative (down-sloping channel)
+          if (hSlope < -slopeThreshold && lSlope < -slopeThreshold && Math.abs(hSlope - lSlope) < slopeThreshold * 2) {
+            patterns.push({ type: "Bear Flag", idx: recentLows[recentLows.length - 1].idx, ts: recentLows[recentLows.length - 1].ts, bias: "bearish" });
+          }
+          // Bull Flag — both slopes positive
+          if (hSlope > slopeThreshold && lSlope > slopeThreshold && Math.abs(hSlope - lSlope) < slopeThreshold * 2) {
+            patterns.push({ type: "Bull Flag", idx: recentHighs[recentHighs.length - 1].idx, ts: recentHighs[recentHighs.length - 1].ts, bias: "bullish" });
+          }
+        }
+
+        // Double Top / Double Bottom
+        if (recentHighs.length >= 2) {
+          const last2H = recentHighs.slice(-2);
+          const diff = Math.abs(last2H[0].price - last2H[1].price) / last2H[0].price;
+          if (diff < 0.005 && (last2H[1].idx - last2H[0].idx) >= 5) {
+            patterns.push({ type: "Double Top", idx: last2H[1].idx, ts: last2H[1].ts, bias: "bearish" });
+          }
+        }
+        if (recentLows.length >= 2) {
+          const last2L = recentLows.slice(-2);
+          const diff = Math.abs(last2L[0].price - last2L[1].price) / last2L[0].price;
+          if (diff < 0.005 && (last2L[1].idx - last2L[0].idx) >= 5) {
+            patterns.push({ type: "Double Bottom", idx: last2L[1].idx, ts: last2L[1].ts, bias: "bullish" });
+          }
+        }
+
+        return { trendlines, patterns };
+      }
+
+      async function fetchChartLevels(sym, chartTf, chartCandles) {
+        const cacheKey = `${sym}-${chartTf}`;
+        if (chartLevelsCache[cacheKey] && Date.now() - chartLevelsCache[cacheKey].ts < 300000) {
+          return chartLevelsCache[cacheKey].data;
         }
         try {
-          // Fetch last 20 daily candles for ATR calculation
-          const res = await fetch(`${API_BASE}/timed/candles?ticker=${encodeURIComponent(sym)}&tf=D&limit=20`, { cache: "no-store" });
-          const data = await res.json();
-          if (!data.ok || !data.candles || data.candles.length < 5) return null;
+          const dailyRes = await fetch(`${API_BASE}/timed/candles?ticker=${encodeURIComponent(sym)}&tf=D&limit=40`, { cache: "no-store" });
+          const dailyData = await dailyRes.json();
+          if (!dailyData.ok || !dailyData.candles || dailyData.candles.length < 5) return null;
 
-          const dailies = data.candles;
-          // Previous day close = anchor
-          const prevDay = dailies[dailies.length - 2];
-          const lastDay = dailies[dailies.length - 1];
-          if (!prevDay || !lastDay) return null;
-          const anchor = Number(prevDay.c);
-          if (anchor <= 0) return null;
+          const dailies = dailyData.candles;
+          const rnd = v => Math.round(v * 100) / 100;
+          const levels = [];
 
-          // Compute 14-period daily ATR (true range: max of H-L, |H-prevC|, |L-prevC|)
-          let atrSum = 0;
-          let atrCount = 0;
+          // ATR computation
+          let atrSum = 0, atrCount = 0;
           for (let i = 1; i < dailies.length; i++) {
-            const h = Number(dailies[i].h);
-            const l = Number(dailies[i].l);
-            const pc = Number(dailies[i - 1].c);
+            const h = Number(dailies[i].h), l = Number(dailies[i].l), pc = Number(dailies[i - 1].c);
             const tr = Math.max(h - l, Math.abs(h - pc), Math.abs(l - pc));
             if (tr > 0) { atrSum += tr; atrCount++; }
           }
           const dayAtr = atrCount > 0 ? atrSum / atrCount : 0;
           if (dayAtr <= 0) return null;
 
-          // Get current price from /timed/latest
-          let currentPrice = Number(lastDay.c);
-          try {
-            const latestRes = await fetch(`${API_BASE}/timed/latest?ticker=${encodeURIComponent(sym)}`, { cache: "no-store" });
-            const latestData = await latestRes.json();
-            if (latestData.ok && latestData.data?.price) currentPrice = Number(latestData.data.price);
-          } catch (_) {}
+          const prevDay = dailies[dailies.length - 2];
+          const anchor = Number(prevDay.c);
 
-          const rnd = (v) => Math.round(v * 100) / 100;
-          const levels = [];
+          // Previous close
+          levels.push({ price: rnd(anchor), color: "rgba(255,255,255,0.40)", label: "Prev Close", lineWidth: 1, style: "dotted" });
 
-          // Prev Close anchor
-          levels.push({ price: rnd(anchor), color: "rgba(255,255,255,0.5)", label: "Prev Close" });
+          // Swing high/low support and resistance from daily candles
+          const dailyParsed = dailies.map(c => ({ h: Number(c.h), l: Number(c.l), c: Number(c.c), o: Number(c.o), ts: Number(c.ts) / 1000 }));
+          const { highs, lows } = detectSwingPoints(dailyParsed, 2);
 
-          // Directional assessment
-          let direction = "neutral";
-          const distFromAnchor = currentPrice - anchor;
-          const pctOfAtr = distFromAnchor / dayAtr;
-          if (pctOfAtr > 0.382) direction = "bullish";
-          else if (pctOfAtr < -0.382) direction = "bearish";
+          // Key resistance levels (top 2 swing highs near current price)
+          const currentPrice = dailyParsed[dailyParsed.length - 1].c;
+          const nearHighs = highs.filter(h => h.price > currentPrice * 0.98).sort((a, b) => a.price - b.price).slice(0, 2);
+          const nearLows = lows.filter(l => l.price < currentPrice * 1.02).sort((a, b) => b.price - a.price).slice(0, 2);
 
-          // Only show directional targets (no intermediate fib levels)
-          if (direction === "bullish") {
-            levels.push({ price: rnd(anchor + dayAtr * 0.5), color: "rgba(245,158,11,0.7)", label: "Target +50%" });
-            levels.push({ price: rnd(anchor + dayAtr * 0.618), color: "rgba(245,158,11,0.7)", label: "Target +61.8%" });
-          } else if (direction === "bearish") {
-            levels.push({ price: rnd(anchor - dayAtr * 0.5), color: "rgba(245,158,11,0.7)", label: "Target -50%" });
-            levels.push({ price: rnd(anchor - dayAtr * 0.618), color: "rgba(245,158,11,0.7)", label: "Target -61.8%" });
-          } else {
-            levels.push({ price: rnd(anchor + dayAtr * 0.382), color: "rgba(245,158,11,0.7)", label: "Watch +38.2%" });
-            levels.push({ price: rnd(anchor - dayAtr * 0.382), color: "rgba(245,158,11,0.7)", label: "Watch -38.2%" });
+          for (const h of nearHighs) {
+            levels.push({ price: rnd(h.price), color: "rgba(239,83,80,0.50)", label: `R ${rnd(h.price)}`, lineWidth: 1, style: "dashed" });
+          }
+          for (const l of nearLows) {
+            levels.push({ price: rnd(l.price), color: "rgba(38,166,154,0.50)", label: `S ${rnd(l.price)}`, lineWidth: 1, style: "dashed" });
           }
 
-          const result = { levels, dayAtr: rnd(dayAtr), anchor: rnd(anchor), currentPrice: rnd(currentPrice), direction, pctOfAtr: rnd(pctOfAtr) };
-          atrLevelCache[sym] = { data: result, ts: Date.now() };
+          // ATR targets for intraday charts only
+          if (chartTf !== "D") {
+            let currentPx = currentPrice;
+            try {
+              const latestRes = await fetch(`${API_BASE}/timed/latest?ticker=${encodeURIComponent(sym)}`, { cache: "no-store" });
+              const latestData = await latestRes.json();
+              if (latestData.ok && latestData.data?.price) currentPx = Number(latestData.data.price);
+            } catch (_) {}
+            const dist = currentPx - anchor;
+            const pctOfAtr = dist / dayAtr;
+            if (pctOfAtr > 0.382) {
+              levels.push({ price: rnd(anchor + dayAtr * 0.618), color: "rgba(245,158,11,0.50)", label: "ATR +61.8%", lineWidth: 1, style: "dashed" });
+              levels.push({ price: rnd(anchor + dayAtr * 1.0), color: "rgba(245,158,11,0.50)", label: "ATR +100%", lineWidth: 1, style: "dashed" });
+            } else if (pctOfAtr < -0.382) {
+              levels.push({ price: rnd(anchor - dayAtr * 0.618), color: "rgba(245,158,11,0.50)", label: "ATR -61.8%", lineWidth: 1, style: "dashed" });
+              levels.push({ price: rnd(anchor - dayAtr * 1.0), color: "rgba(245,158,11,0.50)", label: "ATR -100%", lineWidth: 1, style: "dashed" });
+            }
+          }
+
+          // Pattern detection from chart candles
+          let patternData = { trendlines: [], patterns: [] };
+          if (chartCandles && chartCandles.length > 15) {
+            const parsed = chartCandles.map(c => ({
+              h: typeof c.high !== "undefined" ? c.high : c.h,
+              l: typeof c.low !== "undefined" ? c.low : c.l,
+              c: typeof c.close !== "undefined" ? c.close : c.c,
+              o: typeof c.open !== "undefined" ? c.open : c.o,
+              ts: c.time || c.ts,
+            }));
+            patternData = detectPatterns(parsed);
+          }
+
+          const result = { levels, dayAtr: rnd(dayAtr), anchor: rnd(anchor), trendlines: patternData.trendlines, patterns: patternData.patterns };
+          chartLevelsCache[cacheKey] = { data: result, ts: Date.now() };
           return result;
         } catch (e) {
-          console.error(`ATR levels error for ${sym}:`, e);
+          console.error(`Chart levels error for ${sym}:`, e);
           return null;
         }
       }
@@ -815,6 +983,8 @@
         const [tf, setTf] = useState("15");
         const [showAdvanced, setShowAdvanced] = useState(false);
         const tfConfig = TF_OPTIONS.find(t => t.value === tf) || TF_OPTIONS[0];
+        const isAdmin = _isAdminCharts();
+        const primarySymbols = isAdmin ? CHART_SYMBOLS_PRIMARY_ADMIN : CHART_SYMBOLS_PRIMARY_USER;
 
         return (
           <div className="mb-6">
@@ -824,6 +994,7 @@
                 <span className="text-[10px] text-[#4b5563] font-normal">Live Charts</span>
               </h2>
               <div className="flex items-center gap-3">
+                {isAdmin && (
                 <button
                   onClick={() => setShowAdvanced(!showAdvanced)}
                   className={`px-2 py-1 rounded-md text-[10px] font-medium transition-all border ${
@@ -834,6 +1005,7 @@
                 >
                   {showAdvanced ? "Hide" : "Show"} Futures
                 </button>
+                )}
                 <div className="flex items-center gap-1 bg-white/[0.02] rounded-lg p-0.5 border border-white/[0.04]">
                   {TF_OPTIONS.map(opt => (
                     <button
@@ -851,9 +1023,9 @@
                 </div>
               </div>
             </div>
-            {/* Primary charts: SPY, QQQ, VIX — stacked full width */}
+            {/* Primary charts: SPY, QQQ, VIX proxy — stacked full width */}
             <div className="grid grid-cols-1 gap-4">
-              {CHART_SYMBOLS_PRIMARY.map(({ sym, label, color }) => (
+              {primarySymbols.map(({ sym, label, color }) => (
                 <MiniChart
                   key={`${sym}-${tf}`}
                   sym={sym}
@@ -864,8 +1036,8 @@
                 />
               ))}
             </div>
-            {/* Advanced charts: ES, NQ futures (collapsed by default) — stacked full width */}
-            {showAdvanced && (
+            {/* Advanced charts: ES, NQ futures (admin only, collapsed by default) */}
+            {isAdmin && showAdvanced && (
               <div className="grid grid-cols-1 gap-4 mt-4">
                 {CHART_SYMBOLS_ADVANCED.map(({ sym, label, color }) => (
                   <MiniChart
@@ -890,30 +1062,26 @@
         if (!entries || entries.length === 0) return null;
         const sorted = [...entries].sort((a, b) => (b.publishedAt || 0) - (a.publishedAt || 0));
         return (
-          <div className="mb-6">
+          <div className="mb-8">
             <div
-              className="flex items-center gap-2 mb-3 cursor-pointer select-none"
+              className="flex items-center gap-2.5 mb-4 cursor-pointer select-none"
               onClick={() => setExpanded(v => !v)}
             >
-              <div className="w-2 h-2 rounded-full bg-[#f59e0b] animate-pulse" />
-              <h2 className="text-[14px] font-semibold text-[#f59e0b]">Intraday Flash Insights</h2>
-              <span className="text-[11px] text-[#6b7280] bg-white/[0.04] px-1.5 py-0.5 rounded">{sorted.length} update{sorted.length !== 1 ? "s" : ""}</span>
+              <h2 className="text-[11px] font-bold text-[#e5e7eb] uppercase tracking-widest">Intraday Flash</h2>
+              <span className="text-[10px] text-[#4b5563] font-medium tabular-nums">{sorted.length}</span>
               <svg
-                width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#6b7280" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
-                style={{ transform: expanded ? "rotate(180deg)" : "rotate(0deg)", transition: "transform 0.2s" }}
+                width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#4b5563" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
+                style={{ transform: expanded ? "rotate(180deg)" : "rotate(0deg)", transition: "transform 0.15s" }}
               >
                 <polyline points="6 9 12 15 18 9" />
               </svg>
             </div>
             {expanded && sorted.map((entry, i) => (
-              <div key={entry.id || i} className="tt-card p-5 mb-3" style={{ borderLeft: "3px solid rgba(245, 158, 11, 0.5)" }}>
-                <div className="flex items-center gap-2 mb-3">
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
-                  </svg>
-                  <span className="text-[12px] font-medium text-[#f59e0b]">{entry.timeET || "Update"}</span>
+              <div key={entry.id || i} className="mb-5 pb-5" style={{ borderBottom: "1px solid rgba(255,255,255,0.04)" }}>
+                <div className="flex items-center gap-2 mb-2.5">
+                  <span className="text-[10px] font-bold text-[#6b7280] uppercase tracking-widest">{entry.timeET || "Update"}</span>
                   {entry.publishedAt && (
-                    <span className="text-[11px] text-[#4b5563]">
+                    <span className="text-[10px] text-[#374151] tabular-nums">
                       {new Date(entry.publishedAt).toLocaleTimeString("en-US", { timeZone: "America/New_York", hour: "numeric", minute: "2-digit", hour12: true })}
                     </span>
                   )}

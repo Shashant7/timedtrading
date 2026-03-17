@@ -81,6 +81,15 @@
         const [usageReport, setUsageReport] = useState(null);
         const [usageLoading, setUsageLoading] = useState(false);
         const [usageDays, setUsageDays] = useState(30);
+        const [analytics, setAnalytics] = useState(null);
+        const [analyticsLoading, setAnalyticsLoading] = useState(false);
+        const [analyticsDays, setAnalyticsDays] = useState(7);
+        const [systemHealth, setSystemHealth] = useState(null);
+        const [healthLoading, setHealthLoading] = useState(false);
+        const [vipCodes, setVipCodes] = useState([]);
+        const [vipLoading, setVipLoading] = useState(false);
+        const [vipGenLabel, setVipGenLabel] = useState("");
+        const [vipGenLoading, setVipGenLoading] = useState(false);
 
         const fetchUsers = useCallback(async () => {
           setLoading(true);
@@ -133,6 +142,80 @@
             setMessage({ type: "error", text: String(e.message || e) });
           } finally { setActionLoading(null); }
         };
+
+        const adminAction = async (endpoint, email, actionLabel) => {
+          setActionLoading(email);
+          setMessage(null);
+          try {
+            const res = await fetch(`${API_BASE}/timed/admin/users/${endpoint}`, {
+              method: "POST", credentials: "include",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ email }),
+            });
+            const json = await res.json();
+            if (json.ok) {
+              setMessage({ type: "success", text: `${email}: ${actionLabel}` });
+              fetchUsers();
+            } else {
+              setMessage({ type: "error", text: json.error || "Failed" });
+            }
+          } catch (e) {
+            setMessage({ type: "error", text: String(e.message || e) });
+          } finally { setActionLoading(null); }
+        };
+
+        const fetchAnalytics = useCallback(async () => {
+          setAnalyticsLoading(true);
+          try {
+            const res = await fetch(`${API_BASE}/timed/admin/analytics?days=${analyticsDays}`, { credentials: "include" });
+            const json = await res.json();
+            if (json.ok) setAnalytics(json);
+          } catch (e) { console.error(e); } finally { setAnalyticsLoading(false); }
+        }, [analyticsDays]);
+
+        const fetchSystemHealth = useCallback(async () => {
+          setHealthLoading(true);
+          try {
+            const res = await fetch(`${API_BASE}/timed/admin/system-health`, { credentials: "include" });
+            const json = await res.json();
+            if (json.ok) setSystemHealth(json);
+          } catch (e) { console.error(e); } finally { setHealthLoading(false); }
+        }, []);
+
+        const fetchVipCodes = useCallback(async () => {
+          setVipLoading(true);
+          try {
+            const res = await fetch(`${API_BASE}/timed/admin/vip-codes`, { credentials: "include" });
+            const json = await res.json();
+            if (json.ok) setVipCodes(json.codes || []);
+          } catch (e) { console.error(e); } finally { setVipLoading(false); }
+        }, []);
+
+        const generateVipCode = async () => {
+          setVipGenLoading(true);
+          setMessage(null);
+          try {
+            const res = await fetch(`${API_BASE}/timed/admin/vip-code`, {
+              method: "POST", credentials: "include",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ label: vipGenLabel || "VIP Invite", admin_email: user?.email }),
+            });
+            const json = await res.json();
+            if (json.ok) {
+              setMessage({ type: "success", text: `VIP code generated: ${json.code}` });
+              setVipGenLabel("");
+              fetchVipCodes();
+            } else {
+              setMessage({ type: "error", text: json.error || "Failed" });
+            }
+          } catch (e) {
+            setMessage({ type: "error", text: String(e.message || e) });
+          } finally { setVipGenLoading(false); }
+        };
+
+        useEffect(() => { if (tab === "analytics") fetchAnalytics(); }, [tab, fetchAnalytics]);
+        useEffect(() => { if (tab === "health") fetchSystemHealth(); }, [tab, fetchSystemHealth]);
+        useEffect(() => { if (tab === "vip") fetchVipCodes(); }, [tab, fetchVipCodes]);
 
         // Sorting
         const handleSort = (col) => {
@@ -289,16 +372,31 @@
             {/* Content */}
             <div className="max-w-[1600px] mx-auto px-4 py-6">
               {/* Tabs */}
-              <div className="flex gap-1 mb-6 border-b border-white/[0.06]">
-                <button onClick={() => setTab("clients")} className={`px-4 py-2 text-[13px] font-medium rounded-t-lg transition-colors ${tab === "clients" ? "bg-white/[0.06] text-white" : "text-[#6b7280] hover:text-white"}`}>Clients</button>
-                <button onClick={() => setTab("usage")} className={`px-4 py-2 text-[13px] font-medium rounded-t-lg transition-colors ${tab === "usage" ? "bg-white/[0.06] text-white" : "text-[#6b7280] hover:text-white"}`}>Usage by Feature</button>
+              <div className="flex gap-1 mb-6 border-b border-white/[0.06] overflow-x-auto">
+                {[
+                  { id: "clients", label: "Clients" },
+                  { id: "usage", label: "Usage" },
+                  { id: "analytics", label: "Analytics" },
+                  { id: "health", label: "System Health" },
+                  { id: "vip", label: "VIP Codes" },
+                ].map(t => (
+                  <button key={t.id} onClick={() => setTab(t.id)} className={`px-4 py-2 text-[13px] font-medium rounded-t-lg transition-colors whitespace-nowrap ${tab === t.id ? "bg-white/[0.06] text-white" : "text-[#6b7280] hover:text-white"}`}>{t.label}</button>
+                ))}
               </div>
 
             {/* Header */}
               <div className="flex items-center justify-between mb-6">
                 <div>
-                  <h1 className="text-xl font-bold text-white">{tab === "clients" ? "Client Management" : "Usage by Feature by User"}</h1>
-                  <p className="text-[13px] text-[#6b7280] mt-1">{tab === "clients" ? `${stats.total} total clients` : usageReport ? `Last ${usageReport.days || usageDays} days` : "Load report"}</p>
+                  <h1 className="text-xl font-bold text-white">
+                    {{ clients: "Client Management", usage: "Usage by Feature by User", analytics: "Session Analytics", health: "System Health", vip: "VIP Code Management" }[tab] || "Admin"}
+                  </h1>
+                  <p className="text-[13px] text-[#6b7280] mt-1">
+                    {tab === "clients" && `${stats.total} total clients`}
+                    {tab === "usage" && (usageReport ? `Last ${usageReport.days || usageDays} days` : "Load report")}
+                    {tab === "analytics" && (analytics ? `${analytics.period?.unique_users || 0} unique users in last ${analyticsDays}d` : "Load analytics")}
+                    {tab === "health" && (systemHealth ? `Last checked: ${new Date(systemHealth.ts).toLocaleTimeString()}` : "Run a health check")}
+                    {tab === "vip" && `${vipCodes.length} codes generated`}
+                  </p>
                 </div>
                 {tab === "clients" &&                 <button onClick={exportCSV}
                   className="px-4 py-2 rounded-lg text-[12px] font-semibold bg-white/[0.04] border border-white/[0.08] text-[#9ca3af] hover:text-white hover:bg-white/[0.08] transition-all">
@@ -449,40 +547,70 @@
                             <td className={`${tdClass} text-center text-[#9ca3af] tabular-nums`}>{u.login_count || 0}</td>
                             <td className={`${tdClass} text-center text-[#9ca3af] tabular-nums`}>{u.login_days || 0}</td>
                             <td className={`${tdClass}`}>
-                              <div className="flex gap-1 flex-wrap">
+                              <div className="flex gap-1 flex-wrap items-center">
+                                {u.discord_username && (
+                                  <span className="px-1.5 py-0.5 rounded text-[9px] font-medium bg-[#5865F2]/[0.10] border border-[#5865F2]/[0.20] text-[#5865F2]" title="Discord">
+                                    {u.discord_username}
+                                  </span>
+                                )}
+                                {u.status === "blocked" && (
+                                  <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-red-500/[0.15] border border-red-500/[0.25] text-red-400">BLOCKED</span>
+                                )}
                                 {u.tier !== "pro" && (
                                   <button onClick={() => setTier(u.email, "pro")}
                                     disabled={actionLoading === u.email}
                                     className="px-2 py-0.5 rounded text-[10px] font-semibold bg-[#00c853]/[0.10] border border-[#00c853]/[0.20] text-[#00c853] hover:bg-[#00c853]/[0.20] transition-all disabled:opacity-50">
-                                    Set Pro
+                                    Pro
                                   </button>
                                 )}
                                 {u.tier !== "vip" && (
                                   <button onClick={() => setTier(u.email, "vip")}
                                     disabled={actionLoading === u.email}
                                     className="px-2 py-0.5 rounded text-[10px] font-semibold bg-[#fbbf24]/[0.10] border border-[#fbbf24]/[0.20] text-[#fbbf24] hover:bg-[#fbbf24]/[0.20] transition-all disabled:opacity-50">
-                                    Set VIP
+                                    VIP
                                   </button>
                                 )}
                                 {u.tier !== "free" && u.tier !== "admin" && (
                                   <button onClick={() => setTier(u.email, "free")}
                                     disabled={actionLoading === u.email}
                                     className="px-2 py-0.5 rounded text-[10px] font-semibold bg-[#ff5252]/[0.10] border border-[#ff5252]/[0.20] text-[#ff5252] hover:bg-[#ff5252]/[0.20] transition-all disabled:opacity-50">
-                                    Set Member
+                                    Free
                                   </button>
                                 )}
                                 {u.tier !== "admin" && (
                                   <button onClick={() => setTier(u.email, "admin")}
                                     disabled={actionLoading === u.email}
                                     className="px-2 py-0.5 rounded text-[10px] font-semibold bg-[#a78bfa]/[0.10] border border-[#a78bfa]/[0.20] text-[#a78bfa] hover:bg-[#a78bfa]/[0.20] transition-all disabled:opacity-50">
-                                    Set Admin
+                                    Admin
                                   </button>
                                 )}
-                                {u.tier === "admin" && u.email !== user?.email && (
-                                  <button onClick={() => setTier(u.email, "free")}
+                                {u.email !== user?.email && (
+                                  <button onClick={() => adminAction("resend-welcome", u.email, "Welcome email sent")}
                                     disabled={actionLoading === u.email}
-                                    className="px-2 py-0.5 rounded text-[10px] font-semibold bg-[#ff5252]/[0.10] border border-[#ff5252]/[0.20] text-[#ff5252] hover:bg-[#ff5252]/[0.20] transition-all disabled:opacity-50">
-                                    Revoke Admin
+                                    title="Resend welcome email"
+                                    className="px-2 py-0.5 rounded text-[10px] font-semibold bg-[#38bdf8]/[0.10] border border-[#38bdf8]/[0.20] text-[#38bdf8] hover:bg-[#38bdf8]/[0.20] transition-all disabled:opacity-50">
+                                    Resend
+                                  </button>
+                                )}
+                                {u.email !== user?.email && u.status !== "blocked" && (
+                                  <button onClick={() => { if (confirm(`Block ${u.email}?`)) adminAction("block", u.email, "Blocked"); }}
+                                    disabled={actionLoading === u.email}
+                                    className="px-2 py-0.5 rounded text-[10px] font-semibold bg-orange-500/[0.10] border border-orange-500/[0.20] text-orange-400 hover:bg-orange-500/[0.20] transition-all disabled:opacity-50">
+                                    Block
+                                  </button>
+                                )}
+                                {u.status === "blocked" && (
+                                  <button onClick={() => adminAction("unblock", u.email, "Unblocked")}
+                                    disabled={actionLoading === u.email}
+                                    className="px-2 py-0.5 rounded text-[10px] font-semibold bg-[#22c55e]/[0.10] border border-[#22c55e]/[0.20] text-[#22c55e] hover:bg-[#22c55e]/[0.20] transition-all disabled:opacity-50">
+                                    Unblock
+                                  </button>
+                                )}
+                                {u.email !== user?.email && (
+                                  <button onClick={() => { if (confirm(`Remove ${u.email}? This cannot be easily undone.`)) adminAction("remove", u.email, "Removed"); }}
+                                    disabled={actionLoading === u.email}
+                                    className="px-2 py-0.5 rounded text-[10px] font-semibold bg-red-600/[0.10] border border-red-600/[0.20] text-red-400 hover:bg-red-600/[0.20] transition-all disabled:opacity-50">
+                                    Remove
                                   </button>
                                 )}
                               </div>
@@ -501,6 +629,220 @@
                   </table>
                 </div>
               ))}
+
+              {/* Analytics Tab */}
+              {tab === "analytics" && (
+                <div className="space-y-6">
+                  <div className="flex items-center gap-3">
+                    <select value={analyticsDays} onChange={(e) => setAnalyticsDays(Number(e.target.value))} className="px-3 py-1.5 rounded-lg text-[12px] bg-white/[0.04] border border-white/[0.08] text-[#e5e7eb]">
+                      <option value={1}>Today</option>
+                      <option value={7}>7 days</option>
+                      <option value={30}>30 days</option>
+                      <option value={90}>90 days</option>
+                    </select>
+                    <button onClick={fetchAnalytics} disabled={analyticsLoading} className="px-4 py-1.5 rounded-lg text-[12px] font-semibold bg-white/[0.04] border border-white/[0.08] text-[#9ca3af] hover:text-white transition-all disabled:opacity-50">
+                      {analyticsLoading ? "Loading..." : "Refresh"}
+                    </button>
+                  </div>
+                  {analyticsLoading ? (
+                    <div className="text-center py-12 text-[#6b7280]">Loading analytics...</div>
+                  ) : analytics ? (
+                    <>
+                      <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-3">
+                        {[
+                          { label: "Live Now", value: analytics.live?.active_users || 0, color: "#22c55e" },
+                          { label: "Today", value: analytics.today?.unique_users || 0, color: "#38bdf8" },
+                          { label: "Yesterday", value: analytics.yesterday?.unique_users || 0, color: "#6b7280" },
+                          { label: `${analyticsDays}d Users`, value: analytics.period?.unique_users || 0, color: "#a78bfa" },
+                          { label: `${analyticsDays}d Sessions`, value: analytics.period?.total_sessions || 0, color: "#f59e0b" },
+                          { label: "Avg Duration", value: analytics.period?.avg_duration_ms ? `${Math.round(analytics.period.avg_duration_ms / 60000)}m` : "—", color: "#e5e7eb" },
+                        ].map(s => (
+                          <div key={s.label} className="bg-white/[0.02] border border-white/[0.06] rounded-xl px-4 py-3">
+                            <div className="text-[10px] font-semibold text-[#6b7280] uppercase tracking-wide">{s.label}</div>
+                            <div className="text-2xl font-bold mt-1" style={{ color: s.color }}>{s.value}</div>
+                          </div>
+                        ))}
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        {/* Devices */}
+                        <div className="bg-white/[0.02] border border-white/[0.06] rounded-xl p-4">
+                          <h3 className="text-[12px] font-semibold text-[#9ca3af] uppercase mb-3">Devices</h3>
+                          {(analytics.devices || []).map(d => (
+                            <div key={d.device} className="flex justify-between text-[12px] py-1 border-b border-white/[0.03]">
+                              <span className="text-[#e5e7eb] capitalize">{d.device}</span>
+                              <span className="text-[#6b7280] tabular-nums">{d.cnt}</span>
+                            </div>
+                          ))}
+                        </div>
+                        {/* Browsers */}
+                        <div className="bg-white/[0.02] border border-white/[0.06] rounded-xl p-4">
+                          <h3 className="text-[12px] font-semibold text-[#9ca3af] uppercase mb-3">Browsers</h3>
+                          {(analytics.browsers || []).map(b => (
+                            <div key={b.browser} className="flex justify-between text-[12px] py-1 border-b border-white/[0.03]">
+                              <span className="text-[#e5e7eb] capitalize">{b.browser}</span>
+                              <span className="text-[#6b7280] tabular-nums">{b.cnt}</span>
+                            </div>
+                          ))}
+                        </div>
+                        {/* Countries */}
+                        <div className="bg-white/[0.02] border border-white/[0.06] rounded-xl p-4">
+                          <h3 className="text-[12px] font-semibold text-[#9ca3af] uppercase mb-3">Top Countries</h3>
+                          {(analytics.countries || []).slice(0, 10).map(c => (
+                            <div key={c.country} className="flex justify-between text-[12px] py-1 border-b border-white/[0.03]">
+                              <span className="text-[#e5e7eb]">{c.country || "Unknown"}</span>
+                              <span className="text-[#6b7280] tabular-nums">{c.cnt}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Peak Hours */}
+                      <div className="bg-white/[0.02] border border-white/[0.06] rounded-xl p-4">
+                        <h3 className="text-[12px] font-semibold text-[#9ca3af] uppercase mb-3">Activity by Hour (UTC)</h3>
+                        <div className="flex items-end gap-0.5 h-24">
+                          {Array.from({ length: 24 }, (_, i) => {
+                            const match = (analytics.peak_hours || []).find(h => h.hour === i);
+                            const cnt = match?.cnt || 0;
+                            const max = Math.max(...(analytics.peak_hours || []).map(h => h.cnt), 1);
+                            const pct = Math.max((cnt / max) * 100, 2);
+                            return (
+                              <div key={i} className="flex-1 flex flex-col items-center gap-0.5">
+                                <div style={{ height: `${pct}%`, minHeight: 2, background: cnt > max * 0.7 ? "#00c853" : cnt > max * 0.3 ? "#38bdf8" : "#374151" }}
+                                  className="w-full rounded-t" title={`${i}:00 — ${cnt} sessions`} />
+                                {i % 3 === 0 && <span className="text-[8px] text-[#4b5563]">{i}</span>}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+
+                      {/* OS */}
+                      <div className="bg-white/[0.02] border border-white/[0.06] rounded-xl p-4">
+                        <h3 className="text-[12px] font-semibold text-[#9ca3af] uppercase mb-3">Operating Systems</h3>
+                        <div className="flex gap-4 flex-wrap">
+                          {(analytics.os || []).map(o => (
+                            <div key={o.os} className="flex items-center gap-2">
+                              <span className="text-[12px] text-[#e5e7eb] capitalize">{o.os}</span>
+                              <span className="text-[11px] text-[#6b7280] tabular-nums bg-white/[0.04] px-2 py-0.5 rounded">{o.cnt}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </>
+                  ) : (
+                    <p className="text-[#6b7280] text-sm">Click Refresh to load analytics.</p>
+                  )}
+                </div>
+              )}
+
+              {/* System Health Tab */}
+              {tab === "health" && (
+                <div className="space-y-6">
+                  <div className="flex items-center gap-3">
+                    <button onClick={fetchSystemHealth} disabled={healthLoading} className="px-4 py-1.5 rounded-lg text-[12px] font-semibold bg-white/[0.04] border border-white/[0.08] text-[#9ca3af] hover:text-white transition-all disabled:opacity-50">
+                      {healthLoading ? "Checking..." : "Run Health Check"}
+                    </button>
+                    {systemHealth && (
+                      <span className={`text-[13px] font-bold ${systemHealth.overall === "healthy" ? "text-[#22c55e]" : systemHealth.overall === "stale" ? "text-[#f59e0b]" : "text-[#ff5252]"}`}>
+                        {systemHealth.overall?.toUpperCase()}
+                      </span>
+                    )}
+                  </div>
+                  {healthLoading ? (
+                    <div className="text-center py-12 text-[#6b7280]">Running health checks...</div>
+                  ) : systemHealth?.checks ? (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                      {Object.entries(systemHealth.checks).map(([key, check]) => {
+                        const statusColor = check.status === "ok" || check.status === "configured" ? "#22c55e" : check.status === "stale" ? "#f59e0b" : check.status === "not_configured" ? "#6b7280" : "#ff5252";
+                        const labels = { price_feed: "Price Feed", scoring: "Scoring Engine", d1: "Database (D1)", discord: "Discord Bot", stripe: "Stripe", sendgrid: "SendGrid", twelvedata: "TwelveData" };
+                        return (
+                          <div key={key} className="bg-white/[0.02] border border-white/[0.06] rounded-xl p-4">
+                            <div className="flex items-center justify-between mb-2">
+                              <span className="text-[13px] font-semibold text-[#e5e7eb]">{labels[key] || key}</span>
+                              <span className="px-2 py-0.5 rounded text-[10px] font-bold" style={{ color: statusColor, background: `${statusColor}15`, border: `1px solid ${statusColor}30` }}>
+                                {check.status?.toUpperCase()}
+                              </span>
+                            </div>
+                            <div className="space-y-1 text-[11px] text-[#6b7280]">
+                              {check.age_min !== undefined && <div>Age: <span className="text-[#e5e7eb]">{check.age_min}m</span></div>}
+                              {check.ticker_count !== undefined && <div>Tickers: <span className="text-[#e5e7eb]">{check.ticker_count}</span></div>}
+                              {check.user_count !== undefined && <div>Users: <span className="text-[#e5e7eb]">{check.user_count}</span></div>}
+                              {check.detail && <div className="text-[#ff5252]">{check.detail}</div>}
+                              {check.has_bot_token !== undefined && <div>Bot Token: <span className={check.has_bot_token ? "text-[#22c55e]" : "text-[#ff5252]"}>{check.has_bot_token ? "Yes" : "No"}</span></div>}
+                              {check.has_guild_id !== undefined && <div>Guild ID: <span className={check.has_guild_id ? "text-[#22c55e]" : "text-[#ff5252]"}>{check.has_guild_id ? "Yes" : "No"}</span></div>}
+                              {check.has_role_id !== undefined && <div>Role ID: <span className={check.has_role_id ? "text-[#22c55e]" : "text-[#ff5252]"}>{check.has_role_id ? "Yes" : "No"}</span></div>}
+                              {check.has_secret_key !== undefined && <div>Secret Key: <span className={check.has_secret_key ? "text-[#22c55e]" : "text-[#ff5252]"}>{check.has_secret_key ? "Yes" : "No"}</span></div>}
+                              {check.has_webhook_secret !== undefined && <div>Webhook Secret: <span className={check.has_webhook_secret ? "text-[#22c55e]" : "text-[#ff5252]"}>{check.has_webhook_secret ? "Yes" : "No"}</span></div>}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <p className="text-[#6b7280] text-sm">Click "Run Health Check" to check system status.</p>
+                  )}
+                </div>
+              )}
+
+              {/* VIP Codes Tab */}
+              {tab === "vip" && (
+                <div className="space-y-6">
+                  <div className="flex items-center gap-3 flex-wrap">
+                    <input type="text" placeholder="Label (e.g. 'John Doe - Influencer')" value={vipGenLabel} onChange={(e) => setVipGenLabel(e.target.value)}
+                      className="px-3 py-2 rounded-lg text-[13px] bg-white/[0.03] border border-white/[0.08] text-[#e5e7eb] placeholder-[#4b5563] outline-none focus:border-[#a78bfa]/30 transition-all w-72" />
+                    <button onClick={generateVipCode} disabled={vipGenLoading}
+                      className="px-5 py-2 rounded-lg text-[12px] font-semibold bg-[#a78bfa]/[0.15] border border-[#a78bfa]/[0.30] text-[#a78bfa] hover:bg-[#a78bfa]/[0.25] transition-all disabled:opacity-50">
+                      {vipGenLoading ? "Generating..." : "Generate VIP Code"}
+                    </button>
+                    <button onClick={fetchVipCodes} disabled={vipLoading}
+                      className="px-4 py-2 rounded-lg text-[12px] font-semibold bg-white/[0.04] border border-white/[0.08] text-[#9ca3af] hover:text-white transition-all disabled:opacity-50">
+                      Refresh
+                    </button>
+                  </div>
+                  {message && (
+                    <div className={`inline-block px-3 py-1.5 rounded-lg text-[12px] font-medium ${message.type === "success" ? "text-[#00c853] bg-[#00c853]/[0.08]" : "text-[#ff5252] bg-[#ff5252]/[0.08]"}`}>
+                      {message.text}
+                    </div>
+                  )}
+                  {vipLoading ? (
+                    <div className="text-center py-12 text-[#6b7280]">Loading VIP codes...</div>
+                  ) : vipCodes.length > 0 ? (
+                    <div className="overflow-x-auto rounded-xl border border-white/[0.06] bg-white/[0.01]">
+                      <table className="w-full border-collapse text-[12px]">
+                        <thead>
+                          <tr className="border-b border-white/[0.06] bg-white/[0.02]">
+                            <th className="px-3 py-2.5 text-left font-semibold text-[#6b7280] uppercase">Code</th>
+                            <th className="px-3 py-2.5 text-left font-semibold text-[#6b7280] uppercase">Status</th>
+                            <th className="px-3 py-2.5 text-left font-semibold text-[#6b7280] uppercase">Created</th>
+                            <th className="px-3 py-2.5 text-left font-semibold text-[#6b7280] uppercase">Created By</th>
+                            <th className="px-3 py-2.5 text-left font-semibold text-[#6b7280] uppercase">Used At</th>
+                            <th className="px-3 py-2.5 text-left font-semibold text-[#6b7280] uppercase">Used By</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {vipCodes.map(c => (
+                            <tr key={c.code} className="border-b border-white/[0.03] hover:bg-white/[0.02]">
+                              <td className="px-3 py-2 text-[#e5e7eb] font-mono font-semibold">{c.code}</td>
+                              <td className="px-3 py-2">
+                                <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${c.status === "used" ? "text-[#22c55e] bg-[#22c55e]/[0.10]" : "text-[#f59e0b] bg-[#f59e0b]/[0.10]"}`}>
+                                  {(c.status || "generated").toUpperCase()}
+                                </span>
+                              </td>
+                              <td className="px-3 py-2 text-[#6b7280]">{formatDateTime(c.created_at)}</td>
+                              <td className="px-3 py-2 text-[#9ca3af]">{c.created_by || "—"}</td>
+                              <td className="px-3 py-2 text-[#6b7280]">{c.used_at ? formatDateTime(c.used_at) : "—"}</td>
+                              <td className="px-3 py-2 text-[#9ca3af]">{c.used_by_email || "—"}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : (
+                    <p className="text-[#6b7280] text-sm">No VIP codes generated yet.</p>
+                  )}
+                </div>
+              )}
 
               {/* Footer note */}
               <div className="mt-4 text-[11px] text-[#4b5563]">

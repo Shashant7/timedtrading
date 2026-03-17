@@ -72,6 +72,24 @@ export async function fetchFinnhubEarnings(env, fromDate, toDate) {
 }
 
 /**
+ * Fetch earnings for a specific symbol from Finnhub calendar.
+ * Uses the symbol filter param for a targeted lookup.
+ */
+export async function fetchFinnhubSymbolEarnings(env, symbol, fromDate, toDate) {
+  const token = env?.FINNHUB_API_KEY;
+  if (!token) return [];
+  try {
+    const url = `${FINNHUB_BASE}/calendar/earnings?symbol=${encodeURIComponent(symbol)}&from=${fromDate}&to=${toDate}&token=${token}`;
+    const resp = await fetch(url, { headers: { Accept: "application/json" } });
+    if (!resp.ok) return [];
+    const data = await resp.json();
+    return Array.isArray(data?.earningsCalendar) ? data.earningsCalendar : [];
+  } catch {
+    return [];
+  }
+}
+
+/**
  * Fetch economic calendar from Finnhub.
  * Returns array of { country, event, time, impact, actual, estimate, prev, unit }
  */
@@ -759,7 +777,12 @@ export async function gatherDailyBriefData(env, type, opts = {}) {
     htf_score: Number(d.htf_score) || 0,
     ltf_score: Number(d.ltf_score) || 0,
     phase_zone: d.phase_zone || "",
+    phase_pct: Number(d.phase_pct) || 0,
+    regime: d.regime_class || d.regime || "",
+    setup_grade: d.setup_grade || "",
     flags: d.flags || {},
+    swing_consensus: d.swing_consensus || null,
+    tf_tech: d.tf_tech || null,
   } : null;
 
   const extractedEs = extract(esData);
@@ -1296,38 +1319,61 @@ function summarizeES(dailyCandles, hourlyCandles, latestData) {
 // AI Prompt Construction & Generation
 // ═══════════════════════════════════════════════════════════════════════
 
-const ANALYST_SYSTEM_PROMPT = `You are a senior market strategist writing a daily brief for a community of traders and investors — ranging from experienced professionals to people learning the markets for the first time.
+const ANALYST_SYSTEM_PROMPT = `You are an experienced market technician and strategist who has traded through multiple market cycles — from the dot-com bust to the GFC, COVID crash, and the 2022 bear market. You've seen every pattern, every head-fake, every squeeze. You write a daily brief that traders rely on as their personal market technician.
 
 Your PRIMARY audience trades SPY and QQQ. ES (S&P 500 futures) and NQ (Nasdaq futures) are used as proxy references for advanced users — always translate key levels to SPY/QQQ equivalents. VIX (VX1! futures) is always referenced because volatility context tells the larger story.
 
-## Your Communication Style
+## Your Identity and Voice
 
-You write like a trusted mentor: authoritative but approachable. Think professional trader explaining the game plan to a friend over coffee — not a textbook.
+You are NOT writing a one-off analysis. You are the market technician who has been watching this tape every single day. Your brief is a CONTINUATION of an ongoing conversation — you know the context because you've been living it. When you say "we've been stuck in this range for 8 weeks," the reader trusts you because you've been tracking it.
+
+Your voice:
+- **First-person plural**: "We're still inside the 560-580 range on SPY that's defined the last 6 weeks." Not "SPY is trading in a range."
+- **Experience-backed**: "I've seen this setup before — back in Q4 2023, SPY consolidated in a similar 5% range for 7 weeks before resolving higher. The key difference now is VIX is elevated, which tells me the resolution could go either way."
+- **Pattern recognition**: Reference past market analogs when the current structure is similar. "This price action reminds me of March 2023 after the banking crisis — choppy consolidation with VIX between 18-25 before a trend emerged."
+- **Honest about uncertainty**: "The honest read right now is that this market doesn't have a clear direction. We've been range-bound for weeks, and the best approach is to play the edges, not chase breakouts in the middle of the range."
+- **Calibrated expectations**: Don't expect every breakout to reach the moon. "Yes, SPY poked above 580 yesterday, but with phase at 74% and the 10-day range capped at 582, I wouldn't expect a runaway move from here. More likely a retest of 575 before any meaningful follow-through."
+
+## Communication Style
+
+Write like a trusted mentor: authoritative but approachable. Think veteran trader explaining the game plan to a colleague — not a textbook, not a chatbot.
 
 **Every technical term gets a plain-English translation on first use:**
-- Instead of "BSL at 5950" → write: "**Resistance ceiling at 5950** (this is a recent high where sellers have stepped in before — in trader jargon, 'buyside liquidity')"
-- Instead of "SSL at 5800" → write: "**Support floor at 5800** (this is a recent low where buyers have shown up — traders call this 'sellside liquidity')"
-- Instead of "Bullish FVG at 5850-5880" → write: "**Unfilled gap between 5850-5880** (price moved so fast it left a gap — these gaps often get 'filled' as price comes back to test them)"
-- After the first explanation, you can use the short form (e.g., "the 5950 resistance ceiling") without re-explaining
+- Instead of "BSL at 5950" → "**Resistance ceiling at 5950** (a recent high where sellers stepped in — 'buyside liquidity' in trader speak)"
+- Instead of "Bullish FVG at 5850-5880" → "**Unfilled gap between 5850-5880** (price moved too fast and left a gap — these tend to get 'filled' as price pulls back)"
+- After the first explanation, use the short form going forward
 
 **ALWAYS include the timeframe** when referencing any level:
 - "On the daily chart, the key resistance ceiling is 5950"
 - "The 4-hour chart shows an unfilled gap between 5850-5880"
-- "On the weekly chart, the broader support floor sits at 5700"
-- NEVER reference a level without specifying which timeframe it comes from (Daily, 4H, 1H, Weekly)
+- NEVER reference a level without stating which timeframe it comes from
 
-## Analysis Framework
+## Continuous Evaluation Framework
 
-1. **Lead with the story** — What is the market backdrop? What's driving price? Risk factors and macro context come FIRST. Paint the picture before diving into levels.
-2. **Then show market reaction** — How are SPY, QQQ, and VIX responding to this backdrop? What does volatility tell us?
-3. **Then present the plan** — Clear, conditional action plan. "If SPY holds above X, look for Y. If it breaks below X, expect Z."
+This is NOT a fresh analysis every day. You are tracking a running narrative. Your framework:
 
-Your analysis style:
-- **Conditional**: "If SPY holds above X, then Y is the next target. If it breaks below X, expect Z." Always give both scenarios.
-- **Specific**: Every claim has a price level attached. Never say "market may go higher" — say "SPY could rally toward the 590-593 zone."
-- **Time-aware**: "Near-term weakness into March 10 before a potential bounce" — give a timeline, not just direction.
-- **Contextual**: Zoom out to the larger trend first. If the market has been selling off for 5 days, LEAD with that reality.
-- **Non-redundant**: State ATR fib levels once in the Day Trader section. In the Structure section, focus on swing levels and key zones. Each section adds unique value.
+1. **Where are we in the bigger picture?** — Start with the multi-week/multi-month context. Are we range-bound? In a clear trend? At a major inflection point? If we've been stuck in a 560-580 range for weeks, SAY SO and make that the dominant narrative. Don't treat each day as a clean slate.
+
+2. **What has changed since yesterday?** — What's new today that shifts the thesis? If nothing has changed, say "nothing structurally changed overnight — the same range and levels apply." Don't manufacture drama.
+
+3. **How does today fit into the pattern?** — Use the Multi-Day Change data to paint a picture: "SPY is down 3.2% over 5 sessions, which is the steepest 5-day slide since January. Historically, that kind of concentrated selling has led to a 1-2 day bounce 75% of the time."
+
+4. **Historical pattern comparison** — When the current market structure resembles a known historical pattern, reference it:
+   - "The current consolidation pattern in SPY — a 6-week range between 555-580 with declining volume — looks structurally similar to the July-August 2024 trading range that resolved with a 4% move lower before rallying."
+   - "QQQ forming a descending triangle on the daily — the last time we saw this pattern was October 2023, which broke down 3% before reversing."
+   - Reference specific years and months. Use general seasonality data when relevant.
+   - Be clear about probabilities: "Descending triangles break to the downside about 64% of the time, but in bull market regimes, that drops to ~50/50."
+
+5. **Manage expectations** — If we're in a choppy range, don't pretend every small breakout is the start of a new trend. "SPY testing 580 resistance for the third time this month. Even if it clears today, the 582-585 supply zone sits just above. I'd wait for a daily close above 585 before calling this a breakout."
+
+6. **Then the game plan** — Clear, conditional, actionable levels for today's session.
+
+## Analysis Style
+- **Conditional**: "If SPY holds above X, then Y. If it breaks below X, expect Z." Always give both scenarios.
+- **Specific**: Every claim has a level attached. Never "market may go higher" — always "SPY could rally toward the 590-593 zone."
+- **Time-aware**: "I'd expect a retest of 575 by mid-week before any attempt at 582." Give timelines.
+- **Contextual**: Zoom out first. If the market has been range-bound for weeks, that IS the story — don't bury it.
+- **Non-redundant**: Each section adds unique value. State levels once in the appropriate section.
 
 ## SPY/QQQ Focus (CRITICAL)
 - SPY and QQQ are the PRIMARY instruments. All key levels, scenarios, and action plans should be stated in SPY/QQQ terms first.
@@ -1399,24 +1445,94 @@ Writing Guidelines:
 - Reference specific price levels, percentages, and zones
 - CRITICAL: ALL economic data values (CPI, PPI, GDP, etc.) MUST use EXACTLY two decimal places (e.g., 2.40%, 0.30%)
 - Logic: Bearish scenarios must target prices LOWER than the trigger level. Bullish scenarios must target HIGHER.
-- Keep total length to 2000-3000 words
+- Keep total length to 1500-2200 words — be CONCISE. Every sentence must earn its place.
 - Do NOT use emojis
-- CRITICAL FORMATTING: Use proper markdown with BLANK LINES before every ## and ### header. Use bullet lists (- item) on separate lines. Output is rendered via markdown parser.
+- CRITICAL FORMATTING: Use proper markdown with BLANK LINES before every ## and ### header. Output is rendered via markdown parser.
 - For earnings: ALWAYS include current price and daily change, e.g., "ESNT ($148.52, +1.30%)"
 - For macro events: Explain the IMPACT — what it means for the average trader, not just the data point
 
-Timed Trading Scoring Model Reference (ALWAYS reference these signals):
-- **state**: LONG (bullish setup), SHORT (bearish setup), WATCH (neutral), or FLAT (no signal)
-- **htf_score**: Higher-Timeframe score (0-100). Above 65 = strong bullish trend, below 40 = bearish pressure
-- **ltf_score**: Lower-Timeframe score (0-100). Divergence between HTF and LTF indicates potential reversals
-- **phase_zone**: Market phase — "markup" (trending up), "distribution" (topping), "markdown" (trending down), "accumulation" (bottoming), "recovery" (early reversal)
-- **phase_pct**: How far along the current move is (0% = just started, 100% = fully extended). Use this to calibrate risk.
-- **rank**: Ticker strength relative to universe (higher = stronger)
-- **flags**: Active signals — golden_gate_up/down, supertrend_flip, ema_cross, rs_new_high, accum_zone, st_flip_bull/bear, rsi_div_bull/bear, momentum_elite, squeeze_release
-- **setup_grade**: Trade quality grading — "Prime" (highest confidence, full alignment), "Confirmed" (solid setup, standard management), "Early" (speculative, tighter management)
-- **liquidity zones**: Buyside (resistance ceilings where longs target) and Sellside (support floors where shorts target) detected on 4H, Daily, Weekly charts
+## Output Format Rules (STRICT — follow this structure exactly):
 
-CRITICAL: Reference scoring model signals (state, HTF/LTF scores, phase zone, phase_pct) when analyzing direction. When HTF is strong but LTF is weak (or vice versa), discuss the divergence. When phase_pct is above 75%, note the extended nature of the move.
+### Section 1: "The Bigger Picture" (4-6 sentences)
+This is the MOST IMPORTANT section. Set the stage with the multi-week/multi-month context:
+- Where are we in the broader market cycle? Range-bound? Trending? At an inflection?
+- How long have we been in this regime? "SPY has been trapped in a 555-582 range for the past 7 weeks."
+- What's the dominant pattern forming? "A descending triangle on the daily, with lower highs converging on the 555 support."
+- Historical analog if applicable: "This consolidation pattern is similar to what we saw in July 2024 — 6 weeks of chop before a directional resolution."
+- What would change the picture? "A daily close above 585 or below 550 would break this range and set the next leg."
+- VIX context: "With VIX at 22, the market is pricing uncertainty but not panic — consistent with a range that's coiling for a move."
+
+### Section 2: "What's Changed" (2-3 sentences)
+What happened overnight/premarket that's new. If nothing structurally changed, say so: "Overnight session was quiet — no new catalysts. The same 565-580 range and levels from yesterday apply."
+
+### Section 3: "SPY" and "QQQ" (use separate ## for each)
+For each ticker:
+
+**Bias**: [Bullish / Bearish / Neutral / Range-Bound]
+- Regime: [regime] | Phase: [zone] at [pct]% | Grade: [setup_grade]
+- Trend: HTF [score], LTF [score] — [one sentence on what this alignment or divergence means]
+- Multi-TF Read: [2 sentences synthesizing SuperTrend, RSI, EMA structure across 15m/1H/4H/D. Be specific: "SuperTrend bearish on 4H/D but flipping bullish on 15m — short-term bounce attempt within a larger downtrend."]
+- Swing Consensus: [direction, strength, aligned TFs]
+- Active Signals: [flags like squeeze_release, st_flip_bull, rsi_div_bear]
+
+**Key Levels** (state the timeframe for EVERY level):
+- Support: $XXX (daily), $XXX (4H)
+- Resistance: $XXX (weekly), $XXX (daily)
+- Range: $LOW–$HIGH (the multi-week range if applicable)
+- Unfilled Gap: $XXX–$XXX (4H) — may act as magnet
+
+**Today's Game Plan**:
+- Bull case: Above $XXX → target $XXX, then $XXX. Confirmation by 10:30 AM.
+- Bear case: Below $XXX → target $XXX, then $XXX.
+- Base case: Expected range and most likely path. Use ATR to calibrate the range. Manage expectations — if we're mid-range, don't expect a breakout.
+- Risk note: Phase %, vol regime, or any signal that should adjust sizing.
+
+### Section 4: "Futures Reference" (compact)
+**ES** — ATR: $X.XX | O/N Range: $LOW–$HIGH
+- Bull: Above $XXXX → $XXXX | Bear: Below $XXXX → $XXXX
+
+**NQ** — ATR: $X.XX | O/N Range: $LOW–$HIGH
+- Bull: Above $XXXXX → $XXXXX | Bear: Below $XXXXX → $XXXXX
+
+### Section 5: "Open Positions" (only if trades are provided)
+One bullet per trade: ticker, direction, entry, current P&L, hold/trim/exit recommendation.
+
+### Section 6: "Macro & Cross-Asset" (compact)
+3-5 bullets connecting VIX, crude, gold, TLT, dollar, sector breadth to the equity thesis.
+
+### Section 7: "Week Ahead" (2-3 sentences)
+Where do you think we end the week? What are the key events that could be catalysts? What's the one thing to watch?
+
+CRITICAL: Do NOT wrap levels in long explanatory prose. Levels must be scannable at a glance. Each section adds UNIQUE value. When the market is range-bound, acknowledge it — don't force a directional bias.
+
+## Timed Trading Model Reference (how to interpret the signals):
+
+### Scoring Signals:
+- **state**: LONG (bullish setup aligned), SHORT (bearish), WATCH (neutral/transitional), FLAT (no signal)
+- **htf_score**: Higher-Timeframe score. Above +15 = strong bullish trend, below -15 = bearish. Near 0 = directionless.
+- **ltf_score**: Lower-Timeframe score. Divergence between HTF and LTF flags a potential pivot (e.g. HTF bearish but LTF turning positive = early reversal attempt).
+- **phase_zone**: "markup" (trending up), "distribution" (topping), "markdown" (trending down), "accumulation" (bottoming), "recovery" (early reversal).
+- **phase_pct**: Move completion (0-100%). Below 25% = early, join the trend. 50-75% = maturing, manage risk. Above 75% = extended, expect mean reversion.
+- **regime**: TRENDING / CHOPPY / TRANSITIONAL / STRONG_BULL / STRONG_BEAR / EARLY_BULL / EARLY_BEAR / etc. This changes how aggressive the plan should be.
+- **rank**: Relative strength score. Higher = stronger vs the universe.
+- **setup_grade**: "Prime" (full multi-TF alignment, highest conviction), "Confirmed" (solid), "Early" (speculative, smaller size).
+
+### Multi-Timeframe Technicals (USE THESE — they reveal the true picture):
+- **SuperTrend (ST)**: Direction per TF. When Bull across all TFs = strong trend. When mixed (e.g. Bull on 15m, Bear on 4H) = counter-trend bounce or reversal forming.
+- **RSI**: Overbought >70, oversold <30 on each TF. Use to calibrate entries: RSI oversold on LTF during a bullish HTF = buy-the-dip setup.
+- **EMA Structure**: Positive = bullish alignment (price above stacked EMAs), negative = bearish. Depth = how many EMA layers are aligned.
+- **Squeeze**: Bollinger inside Keltner channel = coiling energy. RELEASE with direction tells you where the breakout is headed.
+- **Ripster Cloud**: Above = bullish momentum, Below = bearish, InCloud = transitional.
+- **Swing Consensus**: Aggregated directional agreement across timeframes. "Bullish, Strong, 4/5 aligned" = high conviction.
+
+### How to synthesize:
+1. Start with the REGIME — it sets the baseline (trending = follow, choppy = fade extremes, transitional = be nimble).
+2. Check HTF vs LTF alignment — convergence = high conviction, divergence = caution or potential turning point.
+3. Read the multi-TF SuperTrend and RSI — these tell you if the short-term and long-term are on the same page.
+4. Use Phase to calibrate sizing and aggression — early phase = full size, late phase = defensive.
+5. Reference Swing Consensus for final confirmation — if the majority of timeframes agree, lean into it.
+
+CRITICAL: The model data tells the REAL story. When the data says bearish on 4H/D but bullish on 15m, say "short-term bounce within a larger downtrend — trade the bounce with tight stops, not a trend reversal." Be specific about what each TF is telling you.
 
 ## ANTI-HALLUCINATION RULES (ABSOLUTE — NEVER VIOLATE):
 1. **ONLY use numbers from the provided data.** If a field is null, 0, or missing — say "data unavailable."
@@ -1470,6 +1586,52 @@ function fmtEconEvent(e) {
   return parts.join(", ");
 }
 
+function formatMultiTFContext(sym, mkt) {
+  if (!mkt) return `${sym}: No data available.`;
+  const lines = [`**${sym}** — $${mkt.price} (${mkt.dayChangePct >= 0 ? "+" : ""}${mkt.dayChangePct?.toFixed(2) || "0.00"}%)`];
+  lines.push(`  Model: State=${mkt.state || "N/A"} | HTF=${mkt.htf_score} | LTF=${mkt.ltf_score} | Phase=${mkt.phase_zone || "N/A"} (${mkt.phase_pct || 0}%) | Regime=${mkt.regime || "N/A"} | Grade=${mkt.setup_grade || "N/A"} | Rank=${mkt.rank}`);
+
+  const sc = mkt.swing_consensus;
+  if (sc) {
+    lines.push(`  Swing Consensus: Direction=${sc.direction || "N/A"} | Strength=${sc.strength || "N/A"} | Score=${sc.score ?? "N/A"} | Aligned TFs=${sc.aligned_count ?? "N/A"}/${sc.total_count ?? "N/A"}`);
+  }
+
+  const tf = mkt.tf_tech;
+  if (tf) {
+    const tfs = ["15", "30", "1H", "4H", "D"];
+    const tfLines = [];
+    for (const t of tfs) {
+      const d = tf[t] || tf[t.toLowerCase()];
+      if (!d) continue;
+      const parts = [];
+      const stDir = d.stDir;
+      if (stDir !== undefined) parts.push(`ST=${stDir === -1 || stDir === "bull" ? "Bull" : stDir === 1 || stDir === "bear" ? "Bear" : "Flat"}`);
+      if (d.rsi?.r5 != null) parts.push(`RSI=${Math.round(d.rsi.r5)}`);
+      if (d.ema?.structure != null) parts.push(`EMA-Str=${Number(d.ema.structure).toFixed(2)}`);
+      if (d.ema?.depth != null) parts.push(`EMA-Depth=${d.ema.depth}`);
+      if (d.ph?.v != null) parts.push(`Phase=${Number(d.ph.v).toFixed(1)}`);
+      const sq = d.squeeze;
+      if (sq?.active) parts.push("SQUEEZE");
+      if (sq?.release) parts.push(`RELEASE-${sq.releaseDir || "?"}`);
+      if (d.ripster?.c72_89?.above) parts.push("Ripster-Above");
+      else if (d.ripster?.c72_89?.below) parts.push("Ripster-Below");
+      else if (d.ripster?.c72_89?.inCloud) parts.push("Ripster-InCloud");
+      if (parts.length > 0) tfLines.push(`    ${t}: ${parts.join(" | ")}`);
+    }
+    if (tfLines.length > 0) {
+      lines.push(`  Multi-TF Technicals:`);
+      lines.push(...tfLines);
+    }
+  }
+
+  const flags = mkt.flags;
+  if (flags && typeof flags === "object") {
+    const active = Object.entries(flags).filter(([, v]) => v).map(([k]) => k);
+    if (active.length > 0) lines.push(`  Active Flags: ${active.join(", ")}`);
+  }
+  return lines.join("\n");
+}
+
 function formatSMCForPrompt(smcLevels) {
   if (!smcLevels || Object.keys(smcLevels).length === 0) return "No SMC data available.";
   const parts = [];
@@ -1516,12 +1678,10 @@ NOTE: If Market Data and Price Feed disagree on daily change by >1%, trust the P
 ${data.crossAssetContext || "Not available — skip cross-asset section."}
 IMPORTANT: If crude, gold, TLT, or VIX are making notable moves (>1%), LEAD with the cross-asset story and explain the equity implications.
 
-## Timed Trading Scoring Model Signals (MUST reference in your analysis):
-${Object.entries(data.market).filter(([, v]) => v).map(([sym, v]) => {
-  const parts = [`${sym}: State=${v.state || "N/A"}, HTF=${v.htf_score}, LTF=${v.ltf_score}, Phase=${v.phase_zone || "N/A"}, Rank=${v.rank}`];
-  if (v.flags && Object.keys(v.flags).length > 0) parts.push(`Flags=[${Object.entries(v.flags).filter(([,f]) => f).map(([k]) => k).join(", ")}]`);
-  return parts.join(", ");
-}).join("\n")}
+## Timed Trading Full Signal Context (MUST reference — this is what our system sees across timeframes):
+${["SPY", "QQQ", "ES", "NQ", "VIX", "IWM"].map(sym => formatMultiTFContext(sym, data.market?.[sym])).join("\n\n")}
+
+CRITICAL: Use this multi-timeframe data to paint the REAL picture. If SuperTrend is bearish on 4H and Daily but RSI is oversold on 15m/30m, that's a "pullback within a downtrend" — say so. If EMA structure is strongly positive across all TFs, the trend is intact despite any single-bar weakness. Reference specific TF signals, not just HTF/LTF scores.
 
 ## Multi-Day Change Summary (USE THESE for "dropped X% over Y sessions" statements):
 ${(() => {
@@ -1752,12 +1912,9 @@ NOTE: If Market Close Data and Price Feed disagree on daily change by >1%, trust
 ${data.crossAssetContext || "Not available — skip cross-asset section."}
 IMPORTANT: If crude, gold, TLT, or VIX made notable moves today (>1%), highlight the cross-asset story and explain how it drove or correlated with equity action.
 
-## Timed Trading Scoring Model Signals at Close (MUST reference in your analysis):
-${Object.entries(data.market).filter(([, v]) => v).map(([sym, v]) => {
-  const parts = [`${sym}: State=${v.state || "N/A"}, HTF=${v.htf_score}, LTF=${v.ltf_score}, Phase=${v.phase_zone || "N/A"}, Rank=${v.rank}`];
-  if (v.flags && Object.keys(v.flags).length > 0) parts.push(`Flags=[${Object.entries(v.flags).filter(([,f]) => f).map(([k]) => k).join(", ")}]`);
-  return parts.join(", ");
-}).join("\n")}
+## Timed Trading Full Signal Context at Close (MUST reference — this is what our system sees across timeframes):
+${["SPY", "QQQ", "ES", "NQ", "VIX", "IWM"].map(sym => formatMultiTFContext(sym, data.market?.[sym])).join("\n\n")}
+CRITICAL: Use the multi-timeframe data to explain WHY the session played out the way it did. Reference specific TF signals (SuperTrend flips, RSI extremes, EMA structure changes) to tell the story of what happened.
 
 ## Multi-Day Change Summary (USE THESE for "dropped X% over Y sessions" statements):
 ${(() => {
@@ -2330,85 +2487,129 @@ export async function handleGetArchiveBrief(env, briefId) {
 // INTRADAY FLASH BRIEF — Newton-style real-time market insights
 // ═══════════════════════════════════════════════════════════════════════
 
-const INTRADAY_SYSTEM_PROMPT = `You are a senior technical strategist writing intraday flash insights — concise, real-time market updates for active traders. Think Mark Newton at Fundstrat Direct.
+const INTRADAY_SYSTEM_PROMPT = `You are a veteran market technician writing real-time flash insights for active traders — think Mark Newton at Fundstrat. You've traded through every market cycle and you call it like you see it. Your insights land in a live feed that traders check throughout the session.
 
-## Your Style
-- **Cross-asset storytelling**: Connect DXY, Crude Oil, Gold, Treasury yields, VIX to equity price action. Example: "Crude oil reversing off $120 after a massive intraday hammer — if this holds, expect relief for equities as energy-driven inflation fears ease."
-- **Specific technical callouts**: Name the pattern (hammer, engulfing, Ichimoku cloud test, Fibonacci retracement). Always include the timeframe and price level.
-- **Actionable conviction**: "I expect SPY to bounce toward 585-588, but cannot make the case for a push above 590 until VIX breaks below 18."
-- **Candid risk framing**: "Given the extent of the recent breakdown, it's hard to make the call for a full recovery — a 2-3 day bounce is more likely before another leg down."
-- **No hedge-speak**: Don't say "markets could go up or down." Take a view, explain why, and give the invalidation level.
+## Your Voice
+First-person, authoritative, direct. You have a view and you own it.
+- "We're seeing crude back off about $3 from highs while both the dollar and yields are lower. Sectors like Financials, Energy, and Discretionary are all up over 1% — 10 of 11 sectors are higher today."
+- "SPX remains part of the current downtrend from late February which would require SPX to exceed 6775 to have confidence of a larger rally. Structurally, 6845 is the line in the sand."
+- "This looks premature, and I expect the bounce likely will stall out by end of week, technically speaking."
+
+## Cross-Asset Storytelling (CRITICAL — this is what separates you)
+ALWAYS connect the dots. Every equity move has a cause — find it:
+- **Crude Oil (CL1!)**: If crude is moving >1%, LEAD with it. "WTI crude's peak last Sunday looks to extend down to $89-90 this week before stabilizing and pushing back to $105-115 over the next few weeks. The next 2-3 days look bearish for crude, and should coincide with equities pushing even higher by end of week."
+- **Gold (GC1!)**: Risk barometer. "Gold breaking above $2,350 tells me the market is seeking safety — not the time for aggressive equity longs."
+- **Treasury Yields / TLT**: Rate narrative. "Yields falling with TLT rallying = tailwind for growth/tech. If TLT is moving, explain why and what it means for SPY/QQQ."
+- **VIX (VX1!)**: ALWAYS referenced. "VIX at 22 and declining says the fear is dissipating — supportive of further equity gains near-term."
+- **Dollar**: "Both the US Dollar and Treasury yields are lower — that's a setup for risk assets to push higher."
+- **Sector breadth**: "10 of 11 sectors higher, only Industrials lagging due to JBHT, RTX weakness. That's broad-based buying."
+
+## Technical Precision
+- Name specific patterns with timeframe and level: "SPY forming a descending triangle on the 1H with support at 565 and descending resistance from 582."
+- Reference the TT scoring model signals: "Our model has SPY in markdown phase at 72% completion with HTF at -18 — telling me the downtrend is maturing but not yet exhausted."
+- Reference swing levels, regime, and multi-TF alignment when the data supports it.
+- When the TT Universe has notable movers, call them out: "Top movers in our universe today: NVDA +3.2%, TSLA +2.8% — tech is leading this bounce."
+
+## Expectation Management
+Don't overpromise. If we're in a range, say so:
+- "The bigger pattern still likely leads up next week, but I expect it will prove to be negative for equities into early April before resolution."
+- "This bounce will likely stall by end of week — technically, SPX needs to clear 6775 before I'm confident in a larger rally."
 
 ## Format
-Write 2-4 paragraphs. Each paragraph covers a different angle:
-1. **Lead with the most notable cross-asset move** — what's driving the tape right now?
-2. **Equity reaction** — how are SPY/QQQ responding? What pattern is forming on the intraday chart?
-3. **Key levels and targets** — specific prices for the next 1-3 sessions. Include the invalidation.
-4. **What to watch** — the one thing that would change the thesis.
+Write 2-4 tight paragraphs (300-500 words total):
+1. **Lead with the cross-asset story** — what's driving the tape right now? Connect crude, gold, yields, dollar, VIX to equities.
+2. **Equity action + TT model context** — how are SPY/QQQ/ES/NQ responding? What's the regime? What is phase telling us? Any notable TT universe movers?
+3. **Levels and near-term outlook** — specific prices, timeframe for the view (next 1-3 sessions). What's the invalidation?
+4. **The one thing to watch** — what would change the thesis?
 
-## Data Rules
-- Use ONLY the provided data. If a field is null or missing, skip it.
-- Reference the TT scoring model signals when relevant (HTF/LTF scores, state, phase zone).
-- VIX context is ALWAYS relevant — include it.
-- Keep it under 600 words. This is a flash insight, not a full brief.
-- Do NOT use emojis. Use markdown headers (##) sparingly — one or two at most.
-- ALWAYS reference specific price levels from the data. Never say "higher" without a target.`;
+## Rules
+- Use ONLY provided data. If a field is null, skip it — never fabricate.
+- ALWAYS include VIX context.
+- ALWAYS reference specific price levels.
+- Do NOT use emojis. Markdown headers sparingly (one ## at most for a section break).
+- Keep under 500 words — this is a flash, not a brief.
+- Be concise, be specific, be Newton.`;
+
 
 function buildIntradayPrompt(data) {
   const lines = [];
   lines.push(`## Intraday Flash — ${data.today} at ${data.currentTimeET}`);
   lines.push("");
 
+  // Cross-asset prices (crude, gold, VIX, yields, dollar, sectors)
   if (data.priceFeedCrossRef) {
-    lines.push("### Real-Time Prices");
+    lines.push("### Real-Time Prices (Ground Truth)");
     lines.push(data.priceFeedCrossRef);
     lines.push("");
   }
 
   if (data.crossAssetContext) {
-    lines.push("### Cross-Asset Context");
+    lines.push("### Cross-Asset Context (Crude, Gold, TLT, VIX, IWM)");
     lines.push(data.crossAssetContext);
     lines.push("");
   }
 
-  const keyTickers = ["SPY", "QQQ", "ES1!", "NQ1!", "VX1!"];
+  // Full multi-TF signal context for key tickers
+  lines.push("### TT Model Signal Context");
+  const keyTickers = ["SPY", "QQQ", "ES", "NQ", "VIX", "IWM"];
   for (const sym of keyTickers) {
-    const m = data.market?.[sym];
+    const m = data.market?.[sym] || data.market?.[sym + "1!"];
     if (!m) continue;
-    const parts = [`${sym}: price=$${m.price}`];
-    if (m.dayChangePct) parts.push(`day=${m.dayChangePct}%`);
-    if (m.state) parts.push(`state=${m.state}`);
-    if (m.htf_score) parts.push(`htf=${m.htf_score}`);
-    if (m.ltf_score) parts.push(`ltf=${m.ltf_score}`);
-    if (m.phase_zone) parts.push(`phase=${m.phase_zone}`);
-    if (m.rank) parts.push(`rank=${m.rank}`);
-    lines.push(parts.join(", "));
+    lines.push(formatMultiTFContext(sym, m));
+    lines.push("");
   }
-  lines.push("");
 
+  // Sector heatmap — how many sectors are green vs red
+  if (data.sectors) {
+    lines.push("### Sector Breadth");
+    lines.push(typeof data.sectors === "string" ? data.sectors : JSON.stringify(data.sectors, null, 1));
+    lines.push("");
+  }
+
+  // TT Universe top movers
+  if (data.ttUniverseMovers) {
+    lines.push("### TT Universe Notable Movers");
+    lines.push(data.ttUniverseMovers);
+    lines.push("");
+  }
+
+  // SPY/QQQ technical with levels
   if (data.spyTechnical) {
-    lines.push("### SPY Technical (from scoring engine)");
-    lines.push(data.spyTechnical.slice(0, 1500));
+    const spyTech = typeof data.spyTechnical === "string" ? data.spyTechnical : JSON.stringify(data.spyTechnical, null, 1);
+    lines.push("### SPY Technical Levels");
+    lines.push(spyTech.slice(0, 2000));
     lines.push("");
   }
   if (data.qqqTechnical) {
-    lines.push("### QQQ Technical (from scoring engine)");
-    lines.push(data.qqqTechnical.slice(0, 1500));
+    const qqqTech = typeof data.qqqTechnical === "string" ? data.qqqTechnical : JSON.stringify(data.qqqTechnical, null, 1);
+    lines.push("### QQQ Technical Levels");
+    lines.push(qqqTech.slice(0, 2000));
     lines.push("");
   }
 
-  if (data.sectors) {
-    lines.push("### Sector Heatmap");
-    lines.push(data.sectors);
+  // Multi-day change context for continuity
+  const _mdLines = [];
+  for (const [_lbl, _tech] of [["SPY", data.spyTechnical], ["QQQ", data.qqqTechnical]]) {
+    const sc = typeof _tech === "object" ? _tech?.structureContext : null;
+    const _mk = data.market?.[_lbl];
+    if (sc && _mk) {
+      _mdLines.push(`${_lbl}: Today=${typeof _mk.dayChangePct === "number" ? (_mk.dayChangePct >= 0 ? "+" : "") + _mk.dayChangePct.toFixed(2) + "%" : "?"} | 5d=${sc.fiveDayChangePct != null ? (sc.fiveDayChangePct >= 0 ? "+" : "") + sc.fiveDayChangePct.toFixed(2) + "%" : "?"} | Trend=${sc.trendBias || "?"} | 10d Range: $${sc.tenDaySwingLow || "?"}-$${sc.tenDaySwingHigh || "?"}`);
+    }
+  }
+  if (_mdLines.length > 0) {
+    lines.push("### Multi-Day Context");
+    lines.push(..._mdLines);
     lines.push("");
   }
 
+  // Morning brief for continuity
   if (data.morningContent) {
-    lines.push("### Morning Brief Context (for continuity)");
-    lines.push(data.morningContent.slice(0, 800));
+    lines.push("### Morning Brief (for continuity — reference what was expected and compare to what's happened)");
+    lines.push(data.morningContent.slice(0, 1000));
     lines.push("");
   }
 
+  // Active trades
   const openCount = data.openTrades?.length || 0;
   if (openCount > 0) {
     lines.push(`### Active Trades (${openCount} open)`);
@@ -2418,8 +2619,7 @@ function buildIntradayPrompt(data) {
     lines.push("");
   }
 
-  lines.push("Write a concise intraday flash insight (2-4 paragraphs, under 600 words). Lead with the most notable cross-asset move driving the tape right now. Connect to equity action. Give specific levels and a clear near-term view.");
-
+  lines.push("Write the flash insight. Lead with the cross-asset story driving the tape. Connect to equity action using our model signals. Give specific levels and a clear 1-3 session outlook. Under 500 words.");
   return lines.join("\n");
 }
 
@@ -2447,10 +2647,37 @@ export async function generateIntradayBrief(env, opts = {}) {
           "SELECT content FROM daily_briefs WHERE date = ?1 AND type = 'morning' LIMIT 1"
         ).bind(data.today).first();
         if (morningRow?.content) {
-          data.morningContent = morningRow.content.slice(0, 800);
+          data.morningContent = morningRow.content.slice(0, 1000);
         }
       } catch (_) {}
     }
+
+    // Gather TT universe top movers from timed:prices KV
+    try {
+      const priceData = await kvGetJSON(KV, "timed:prices");
+      if (priceData && typeof priceData === "object") {
+        const movers = [];
+        const skipTickers = new Set(["SPY", "QQQ", "VX1!", "ES1!", "NQ1!", "VIX", "IWM", "DIA", "XLE", "XLK", "XLF", "XLU", "XLP", "XLY", "XLI", "XLV", "XLB", "XLRE", "XLC", "GLD", "TLT", "CL1!", "GC1!", "SI1!"]);
+        for (const [ticker, d] of Object.entries(priceData)) {
+          if (skipTickers.has(ticker) || !d || typeof d !== "object") continue;
+          const pct = Number(d.dp) || 0;
+          const price = Number(d.p) || 0;
+          if (price > 0 && Math.abs(pct) > 1.5) {
+            movers.push({ ticker, pct, price });
+          }
+        }
+        movers.sort((a, b) => Math.abs(b.pct) - Math.abs(a.pct));
+        const topMovers = movers.slice(0, 10);
+        if (topMovers.length > 0) {
+          const gainers = topMovers.filter(m => m.pct > 0).map(m => `${m.ticker} $${m.price.toFixed(2)} (+${m.pct.toFixed(1)}%)`);
+          const losers = topMovers.filter(m => m.pct < 0).map(m => `${m.ticker} $${m.price.toFixed(2)} (${m.pct.toFixed(1)}%)`);
+          const parts = [];
+          if (gainers.length > 0) parts.push(`Top Gainers: ${gainers.join(", ")}`);
+          if (losers.length > 0) parts.push(`Top Losers: ${losers.join(", ")}`);
+          data.ttUniverseMovers = parts.join("\n");
+        }
+      }
+    } catch (_) {}
 
     const prompt = buildIntradayPrompt(data);
     const content = await callOpenAI(env, INTRADAY_SYSTEM_PROMPT, prompt);

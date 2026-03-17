@@ -139,7 +139,12 @@ class_name = "PriceStream"
 #
 # Required Secrets (set via Dashboard or CLI):
 # - TIMED_API_KEY: API key for POST /timed/ingest authentication
-# - DISCORD_WEBHOOK_URL: Discord webhook URL
+# - DISCORD_WEBHOOK_URL: Discord webhook URL (trade alerts)
+# - DISCORD_CLIENT_ID: Discord OAuth2 Application Client ID (community integration)
+# - DISCORD_CLIENT_SECRET: Discord OAuth2 Application Client Secret
+# - DISCORD_BOT_TOKEN: Discord Bot token (needs MANAGE_ROLES + guilds.join)
+# - DISCORD_GUILD_ID: Discord server (guild) ID for community
+# - DISCORD_SUBSCRIBER_ROLE_ID: Role ID to assign to subscribers
 # - OPENAI_API_KEY: OpenAI API key for AI Assistant
 # - ALPACA_API_KEY_ID: Alpaca Markets API Key ID (broker execution only)
 # - ALPACA_API_SECRET_KEY: Alpaca Markets API Secret Key (broker execution only)
@@ -147,6 +152,8 @@ class_name = "PriceStream"
 # - FINNHUB_API_KEY: Finnhub API key for earnings, economic calendar, and news (Daily Brief)
 # - SENDGRID_API_KEY: SendGrid API key for outbound emails
 # - EMAIL_HMAC_SECRET: HMAC secret for unsubscribe token signing
+# - STRIPE_SECRET_KEY: Stripe API secret key
+# - STRIPE_WEBHOOK_SECRET: Stripe webhook signing secret
 #
 # Environment Variables (non-sensitive - stored in wrangler.toml):
 # Required Secrets for Cloudflare Access (set via `wrangler secret put --env production`):
