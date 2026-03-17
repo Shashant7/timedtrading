@@ -33250,36 +33250,14 @@ export default {
             ? encodeCursor({ entry_ts: last.entry_ts, trade_id: last.trade_id })
             : null;
 
-        // Enrich with quantity from positions (remaining qty) for Holdings display
-        try {
-          const ids = page.map((r) => r.trade_id).filter(Boolean);
-          if (ids.length > 0) {
-            const placeholders = ids.map(() => "?").join(",");
-            const posRows = await db
-              .prepare(
-                `SELECT position_id, total_qty FROM positions WHERE position_id IN (${placeholders})`,
-              )
-              .bind(...ids)
-              .all();
-            const qtyByTrade = new Map();
-            for (const r of posRows?.results || []) {
-              qtyByTrade.set(String(r.position_id), Number(r.total_qty) || 0);
-            }
-            for (const t of page) {
-              const qty = qtyByTrade.get(String(t.trade_id));
-              if (qty != null) {
-                t.quantity = qty;
-                t.shares = qty;
-              } else if (Number(t.trimmed_pct ?? 0) >= 0.9999) {
-                t.quantity = 0;
-                t.shares = 0;
-              }
-            }
-          }
-        } catch {
-          for (const t of page) {
-            t.quantity = null;
-            t.shares = null;
+        // Ensure shares field is populated — prefer value already in trades table,
+        // only look up positions table as fallback for trades missing shares
+        for (const t of page) {
+          if (Number(t.shares) > 0) {
+            t.quantity = Number(t.shares);
+          } else if (Number(t.trimmed_pct ?? 0) >= 0.9999) {
+            t.quantity = 0;
+            t.shares = 0;
           }
         }
 
@@ -41395,11 +41373,12 @@ export default {
           let markToMarket = 0;
 
           if (mode === "trader") {
-            const openPos = (await db.prepare(
-              "SELECT position_id, ticker, direction, total_qty, cost_basis FROM positions WHERE status = 'OPEN'"
+            // Use the trades table (actual live trades) instead of positions table
+            // (which may contain stale backtest entries)
+            const openTrades = (await db.prepare(
+              "SELECT trade_id, ticker, direction, entry_price, shares, notional FROM trades WHERE status = 'OPEN'"
             ).all())?.results || [];
 
-            // Batch price lookup — KV stores prices as { p: 71.74, pc: 77.97, ... }
             const pricesRaw = await kvGetJSON(KV, "timed:prices");
             const priceMap = {};
             if (pricesRaw?.prices) {
@@ -41408,12 +41387,13 @@ export default {
               }
             }
 
-            for (const pos of openPos) {
-              const px = priceMap[pos.ticker] || 0;
-              const qty = Number(pos.total_qty) || 0;
-              const cb = Number(pos.cost_basis) || 0;
+            for (const t of openTrades) {
+              const px = priceMap[t.ticker] || 0;
+              const qty = Number(t.shares) || 0;
+              const entry = Number(t.entry_price) || 0;
+              const cb = entry * qty;
               const mtm = px * qty;
-              const dir = String(pos.direction).toUpperCase() === "SHORT" ? -1 : 1;
+              const dir = String(t.direction).toUpperCase() === "SHORT" ? -1 : 1;
               unrealized += dir * (mtm - cb);
               costBasis += cb;
               markToMarket += mtm;
