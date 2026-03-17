@@ -6069,55 +6069,97 @@ function DashboardWelcomeModal({
   const [currentStep, setCurrentStep] = useState(0);
   const universeList = Array.isArray(tickers) ? [...tickers].sort((a, b) => String(a?.ticker || a).localeCompare(String(b?.ticker || b))) : [];
   const allSteps = [{
-    title: "Welcome to the Active Trader Dashboard",
+    title: "Welcome to Timed Trading",
     content: React.createElement("div", {
       className: "space-y-4"
     }, React.createElement("p", {
       className: "text-[#d1d5db] leading-relaxed"
-    }, "This platform takes a systematic approach to picking and managing stocks. The system continuously scores every stock across multiple timeframes, then places them in ", React.createElement("strong", {
+    }, "The system continuously scores every stock across multiple timeframes and places them in ", React.createElement("strong", {
       className: "text-white"
-    }, "action lanes"), " based on where each stock is in its trend cycle."), React.createElement("div", {
-      className: "grid grid-cols-1 sm:grid-cols-2 gap-3"
+    }, "action lanes"), " based on where each stock is in its trend cycle. Click any ticker to open the ", React.createElement("strong", {
+      className: "text-white"
+    }, "Right Rail"), " with six tabs of deep analysis."), React.createElement("div", {
+      className: "grid grid-cols-1 sm:grid-cols-3 gap-3"
     }, React.createElement("div", {
-      className: "bg-white/[0.03] border border-teal-500/20 rounded-lg p-4 ring-1 ring-teal-500/10"
+      className: "bg-white/[0.03] border border-emerald-500/20 rounded-lg p-4 ring-1 ring-emerald-500/10"
     }, React.createElement("h3", {
-      className: "text-teal-400 font-semibold mb-1.5 text-sm"
-    }, "Active Trader (this page)"), React.createElement("p", {
+      className: "text-emerald-400 font-semibold mb-1.5 text-sm"
+    }, "Analysis"), React.createElement("p", {
       className: "text-xs text-[#9ca3af] leading-relaxed"
-    }, "Shorter-horizon swing trades. The system moves stocks through lanes: Setup \u2192 Enter \u2192 Hold \u2192 Defend \u2192 Trim \u2192 Exit. Each lane signals what action the system recommends right now.")), React.createElement("div", {
+    }, "The primary view. Shows real-time viewport cards, the Bubble Map, and Kanban pipeline. This is your command center.")), React.createElement("div", {
       className: "bg-white/[0.03] border border-white/[0.06] rounded-lg p-4"
     }, React.createElement("h3", {
-      className: "text-blue-400 font-semibold mb-1.5 text-sm"
-    }, "Investor"), React.createElement("p", {
+      className: "text-emerald-400 font-semibold mb-1.5 text-sm"
+    }, "Daily Brief"), React.createElement("p", {
       className: "text-xs text-[#9ca3af] leading-relaxed"
-    }, "Longer-horizon portfolio management. The system accumulates strong setups, holds through strength, and reduces when conditions weaken. Switch to it from the navigation bar."))), React.createElement("div", {
+    }, "AI-generated morning and evening market analysis. Your pre-market game plan and post-close recap.")), React.createElement("div", {
       className: "bg-white/[0.03] border border-white/[0.06] rounded-lg p-4"
     }, React.createElement("h3", {
-      className: "text-teal-400 font-semibold mb-1.5 text-sm"
-    }, "Simulation Portfolio"), React.createElement("p", {
+      className: "text-emerald-400 font-semibold mb-1.5 text-sm"
+    }, "Trade Autopsy"), React.createElement("p", {
       className: "text-xs text-[#9ca3af] leading-relaxed"
-    }, "The system runs a simulation portfolio that executes trades automatically based on scores and signals. Visit the ", React.createElement("strong", {
-      className: "text-white"
-    }, "Trades"), " page to review every entry, trim, exit, and P&L the system has generated.")))
+    }, "Every trade the system has taken \u2014 entries, trims, exits, P&L, and exit reasons. Learn from every decision."))))
   }, {
-    title: "Save tickers to follow their progress",
+    title: "The Right Rail \u2014 Your Deep Dive",
     content: React.createElement("div", {
       className: "space-y-4"
     }, React.createElement("p", {
       className: "text-[#d1d5db] leading-relaxed"
-    }, "Any ticker can be saved to a personal list for quick filtering. Use the ", React.createElement("strong", {
+    }, "Click any ticker to open the ", React.createElement("strong", {
       className: "text-white"
-    }, "Saved"), " button to show only saved tickers. Toggle the star on any card to add or remove it."), React.createElement("p", {
-      className: "text-sm text-[#6b7280]"
-    }, "Saving a ticker does not affect the system's scoring or lane placement \u2014 it simply bookmarks the ticker for faster access."))
+    }, "Right Rail"), " \u2014 six tabs that give you everything about a stock:"), React.createElement("div", {
+      className: "grid grid-cols-2 gap-2"
+    }, React.createElement("div", {
+      className: "bg-white/[0.03] border border-white/[0.06] rounded-lg p-3"
+    }, React.createElement("h3", {
+      className: "text-emerald-400 font-semibold text-xs mb-1"
+    }, "Analysis"), React.createElement("p", {
+      className: "text-[10px] text-[#9ca3af] leading-relaxed"
+    }, "Score breakdown, management levels (SL/TP), risk/reward, and the system\u2019s current recommendation.")), React.createElement("div", {
+      className: "bg-white/[0.03] border border-white/[0.06] rounded-lg p-3"
+    }, React.createElement("h3", {
+      className: "text-emerald-400 font-semibold text-xs mb-1"
+    }, "Investor"), React.createElement("p", {
+      className: "text-[10px] text-[#9ca3af] leading-relaxed"
+    }, "Longer-horizon scoring, accumulation zones, and relative strength vs. the market.")), React.createElement("div", {
+      className: "bg-white/[0.03] border border-white/[0.06] rounded-lg p-3"
+    }, React.createElement("h3", {
+      className: "text-emerald-400 font-semibold text-xs mb-1"
+    }, "Technicals"), React.createElement("p", {
+      className: "text-[10px] text-[#9ca3af] leading-relaxed"
+    }, "TD Sequential counts, market state, exhaustion signals, and trigger pattern detection.")), React.createElement("div", {
+      className: "bg-white/[0.03] border border-white/[0.06] rounded-lg p-3"
+    }, React.createElement("h3", {
+      className: "text-emerald-400 font-semibold text-xs mb-1"
+    }, "Model"), React.createElement("p", {
+      className: "text-[10px] text-[#9ca3af] leading-relaxed"
+    }, "The system\u2019s prediction confidence, pattern library matches, and forward-looking analysis.")), React.createElement("div", {
+      className: "bg-white/[0.03] border border-white/[0.06] rounded-lg p-3"
+    }, React.createElement("h3", {
+      className: "text-emerald-400 font-semibold text-xs mb-1"
+    }, "Journey"), React.createElement("p", {
+      className: "text-[10px] text-[#9ca3af] leading-relaxed"
+    }, "Scoring timeline, phase completion, and price performance across 1D to 90D windows.")), React.createElement("div", {
+      className: "bg-white/[0.03] border border-white/[0.06] rounded-lg p-3"
+    }, React.createElement("h3", {
+      className: "text-emerald-400 font-semibold text-xs mb-1"
+    }, "Trades"), React.createElement("p", {
+      className: "text-[10px] text-[#9ca3af] leading-relaxed"
+    }, "Trade history for this ticker \u2014 every entry, exit, P&L, and chart overlay."))))
   }, {
-    title: "Browse our ticker universe",
+    title: "Build your watchlist",
     content: React.createElement("div", {
       className: "space-y-4"
     }, React.createElement("p", {
-      className: "text-[#d1d5db]"
-    }, "Scroll the list below. Tap the star next to any ticker to add it to your saved list."), React.createElement("div", {
-      className: "max-h-64 overflow-y-auto border border-white/[0.08] rounded-lg p-2 space-y-0.5 bg-white/[0.02]"
+      className: "text-[#d1d5db] leading-relaxed"
+    }, "Star any ticker to save it. Use the ", React.createElement("strong", {
+      className: "text-white"
+    }, "Saved"), " filter to see only your watchlist. You can also ", React.createElement("strong", {
+      className: "text-white"
+    }, "add custom tickers"), " via the \u201c+ Add Ticker\u201d button \u2014 the system will immediately backfill, score, and start tracking them."), React.createElement("p", {
+      className: "text-sm text-[#6b7280]"
+    }, "Scroll below to browse the universe and star tickers you want to follow."), React.createElement("div", {
+      className: "max-h-52 overflow-y-auto border border-white/[0.08] rounded-lg p-2 space-y-0.5 bg-white/[0.02]"
     }, universeList.length === 0 ? React.createElement("p", {
       className: "text-sm text-[#6b7280] py-4 text-center"
     }, "No tickers loaded yet. Close and refresh the dashboard.") : universeList.map(t => {
@@ -6134,40 +6176,42 @@ function DashboardWelcomeModal({
         }
       }, sym), React.createElement("span", {
         className: "text-xs text-[#6b7280] truncate flex-1 mx-2"
-      }, name || "—"), toggleSavedTicker ? React.createElement("button", {
+      }, name || "\u2014"), toggleSavedTicker ? React.createElement("button", {
         type: "button",
         onClick: () => toggleSavedTicker(sym),
         className: "shrink-0 text-[14px] transition-colors " + (saved ? "text-amber-400" : "text-[#4b5563] hover:text-amber-300"),
         title: saved ? "Remove from Saved" : "Add to Saved"
-      }, saved ? "★" : "☆") : React.createElement("span", {
+      }, saved ? "\u2605" : "\u2606") : React.createElement("span", {
         className: "text-[#4b5563] text-sm"
       }, "\u2606"));
     })))
   }, {
-    title: "Ready to Explore",
+    title: "You're all set",
     content: React.createElement("div", {
       className: "space-y-4"
     }, React.createElement("p", {
       className: "text-[#d1d5db] leading-relaxed"
-    }, "The ", React.createElement("strong", {
+    }, "Start with the ", React.createElement("strong", {
       className: "text-white"
-    }, "Dashboard"), " shows real-time lane placements. The ", React.createElement("strong", {
+    }, "Daily Brief"), " each morning for market context. Check the ", React.createElement("strong", {
       className: "text-white"
-    }, "Trades"), " page shows every trade the simulation portfolio has taken. The ", React.createElement("strong", {
+    }, "Analysis"), " page for the system\u2019s top-ranked setups. Use the ", React.createElement("strong", {
       className: "text-white"
-    }, "Investor"), " page offers a longer-horizon view of the same universe."), React.createElement("div", {
-      className: "bg-white/[0.03] border border-white/[0.06] rounded-lg p-4"
+    }, "Bubble Map"), " to see the whole universe at a glance."), React.createElement("div", {
+      className: "bg-white/[0.03] border border-emerald-500/10 rounded-lg p-4"
     }, React.createElement("div", {
       className: "flex items-start gap-2"
     }, React.createElement("span", {
-      className: "text-blue-400 text-sm mt-0.5"
+      className: "text-emerald-400 text-sm mt-0.5"
     }, "\u2139"), React.createElement("p", {
       className: "text-xs text-[#9ca3af] leading-relaxed"
     }, "Reopen this guide anytime using the ", React.createElement("strong", {
       className: "text-white"
-    }, "Guide"), " button. Use ", React.createElement("strong", {
+    }, "Guide"), " button in the top navigation. Use ", React.createElement("strong", {
       className: "text-white"
-    }, "Tour"), " to walk through the interface step by step."))))
+    }, "Tour"), " for an interactive walkthrough of the interface. Check the ", React.createElement("strong", {
+      className: "text-white"
+    }, "FAQ"), " for detailed questions."))))
   }];
   const steps = allSteps.slice(0, 4);
   const nextStep = () => {
@@ -6185,14 +6229,14 @@ function DashboardWelcomeModal({
   }, React.createElement("div", {
     className: "bg-[#0f1117] border-2 border-white/[0.06] rounded-xl max-w-4xl w-full max-h-[90vh] overflow-hidden flex flex-col shadow-lg"
   }, React.createElement("div", {
-    className: "bg-gradient-to-r from-blue-500/20 to-purple-500/20 border-b border-white/[0.06] p-6 flex items-center justify-between"
+    className: "bg-gradient-to-r from-emerald-500/15 to-cyan-500/10 border-b border-white/[0.06] p-6 flex items-center justify-between"
   }, React.createElement("div", null, React.createElement("h2", {
     className: "text-2xl font-bold text-white mb-1"
   }, steps[currentStep].title), React.createElement("div", {
     className: "flex gap-1"
   }, steps.map((_, i) => React.createElement("div", {
     key: i,
-    className: `h-2 w-2 rounded-full transition-all ${i === currentStep ? "bg-blue-400 w-8" : i < currentStep ? "bg-teal-400" : "bg-white/[0.04]"}`
+    className: `h-2 w-2 rounded-full transition-all ${i === currentStep ? "bg-emerald-400 w-8" : i < currentStep ? "bg-emerald-500" : "bg-white/[0.04]"}`
   })))), React.createElement("button", {
     onClick: onClose,
     className: "text-[#6b7280] hover:text-white text-2xl font-bold w-8 h-8 flex items-center justify-center rounded hover:bg-white/[0.04] transition-colors",
@@ -6209,10 +6253,10 @@ function DashboardWelcomeModal({
     className: "text-sm text-[#6b7280]"
   }, "Step ", currentStep + 1, " of ", steps.length), currentStep < steps.length - 1 ? React.createElement("button", {
     onClick: nextStep,
-    className: "px-6 py-2 rounded-lg bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600 text-white font-semibold transition-all"
+    className: "px-6 py-2 rounded-lg bg-gradient-to-r from-emerald-500 to-green-500 hover:from-emerald-600 hover:to-green-600 text-white font-semibold transition-all"
   }, "Next \u2192") : React.createElement("button", {
     onClick: onClose,
-    className: "px-6 py-2 rounded-lg bg-gradient-to-r from-green-500 to-blue-500 hover:from-green-600 hover:to-blue-600 text-white font-semibold transition-all"
+    className: "px-6 py-2 rounded-lg bg-gradient-to-r from-emerald-500 to-green-500 hover:from-emerald-600 hover:to-green-600 text-white font-semibold transition-all"
   }, "Let's go"))));
 }
 function TrackerWelcomeModal({
@@ -6236,9 +6280,9 @@ function TrackerWelcomeModal({
     }, "By Day Activity"), React.createElement("br", null), "\u2022 Click any row to open the ", React.createElement("strong", {
       className: "text-white"
     }, "Right Rail"), "(it shows what lane you were in and why)")), React.createElement("div", {
-      className: "bg-teal-500/10 border border-teal-500/30 rounded-lg p-4"
+      className: "bg-emerald-500/10 border border-emerald-500/30 rounded-lg p-4"
     }, React.createElement("h3", {
-      className: "text-teal-400 font-semibold mb-2"
+      className: "text-emerald-400 font-semibold mb-2"
     }, "The compounding loop"), React.createElement("ul", {
       className: "text-sm text-[#6b7280] list-disc list-inside space-y-1"
     }, React.createElement("li", null, "Find your best lane + trigger combinations"), React.createElement("li", null, "Repeat them (raise size slowly as confidence grows)"), React.createElement("li", null, "Kill what doesn\u2019t work (stop feeding losing patterns)"))), React.createElement("div", {
@@ -6267,9 +6311,9 @@ function TrackerWelcomeModal({
     }, "By Day Activity"), " ", "to replay lane changes + entries/exits."), React.createElement("li", null, "Click any row to open the", " ", React.createElement("strong", {
       className: "text-white"
     }, "Right Rail"), " \u2014 it shows the lane + why (trigger/decision)."))), React.createElement("div", {
-      className: "bg-blue-500/10 border border-blue-500/30 rounded-lg p-4"
+      className: "bg-emerald-500/10 border border-emerald-500/30 rounded-lg p-4"
     }, React.createElement("h3", {
-      className: "text-blue-400 font-semibold mb-2"
+      className: "text-emerald-400 font-semibold mb-2"
     }, "The only question"), React.createElement("p", {
       className: "text-sm text-[#6b7280]"
     }, "\u201CIf I followed the lane + decision exactly, did it pay?\u201D If not: which lane/trigger combo should be demoted or blocked?")))
@@ -6286,9 +6330,9 @@ function TrackerWelcomeModal({
     }, "What to flag immediately"), React.createElement("ul", {
       className: "text-sm text-[#6b7280] list-disc list-inside space-y-2"
     }, React.createElement("li", null, "\u201CEnter Now\u201D when entry decision is not green-lit (should never happen)"), React.createElement("li", null, "Big adverse move after entry (exit/defend faster)"), React.createElement("li", null, "Lane backtracking (enter \u2192 just flipped \u2192 hold)"))), React.createElement("div", {
-      className: "bg-teal-500/10 border border-teal-500/30 rounded-lg p-4"
+      className: "bg-emerald-500/10 border border-emerald-500/30 rounded-lg p-4"
     }, React.createElement("h3", {
-      className: "text-teal-400 font-semibold mb-2"
+      className: "text-emerald-400 font-semibold mb-2"
     }, "What to record (so we compound)"), React.createElement("div", {
       className: "text-sm text-[#6b7280] space-y-2"
     }, React.createElement("div", null, React.createElement("strong", {
@@ -6307,9 +6351,9 @@ function TrackerWelcomeModal({
     }, React.createElement("p", {
       className: "text-[#d1d5db]"
     }, "Understanding how profit and loss is calculated helps you interpret the results:"), React.createElement("div", {
-      className: "bg-teal-500/10 border border-teal-500/30 rounded-lg p-4"
+      className: "bg-emerald-500/10 border border-emerald-500/30 rounded-lg p-4"
     }, React.createElement("h3", {
-      className: "text-teal-400 font-semibold mb-2"
+      className: "text-emerald-400 font-semibold mb-2"
     }, "\uD83D\uDCC8 For Stocks:"), React.createElement("div", {
       className: "text-sm text-[#6b7280] space-y-2"
     }, React.createElement("div", null, React.createElement("strong", {
@@ -6321,9 +6365,9 @@ function TrackerWelcomeModal({
     }, "P&L (LONG):"), " ", "(Current Price - Entry Price) \xD7 Shares"), React.createElement("div", null, React.createElement("strong", {
       className: "text-white"
     }, "P&L (SHORT):"), " ", "(Entry Price - Current Price) \xD7 Shares"))), React.createElement("div", {
-      className: "bg-blue-500/10 border border-blue-500/30 rounded-lg p-4"
+      className: "bg-emerald-500/10 border border-emerald-500/30 rounded-lg p-4"
     }, React.createElement("h3", {
-      className: "text-blue-400 font-semibold mb-2"
+      className: "text-emerald-400 font-semibold mb-2"
     }, "\uD83D\uDCCA For Futures:"), React.createElement("div", {
       className: "text-sm text-[#6b7280] space-y-2"
     }, React.createElement("div", null, React.createElement("strong", {
@@ -6347,7 +6391,7 @@ function TrackerWelcomeModal({
     }, "Shares: $1,000 \xF7 $150 = 6.67 shares"), React.createElement("div", {
       className: "ml-4"
     }, "P&L: ($155 - $150) \xD7 6.67 =", " ", React.createElement("span", {
-      className: "text-teal-400"
+      className: "text-emerald-400"
     }, "+$33.35")), React.createElement("div", {
       className: "mt-2"
     }, React.createElement("strong", {
@@ -6357,7 +6401,7 @@ function TrackerWelcomeModal({
     }, "Price Change: 15,100 - 15,000 = 100 points"), React.createElement("div", {
       className: "ml-4"
     }, "P&L: 100 \xD7 1 \xD7 $20 =", " ", React.createElement("span", {
-      className: "text-teal-400"
+      className: "text-emerald-400"
     }, "+$2,000")))))
   }, {
     title: "Tracking & Analytics 📊",
@@ -6366,9 +6410,9 @@ function TrackerWelcomeModal({
     }, React.createElement("p", {
       className: "text-[#d1d5db]"
     }, "The Trade Tracker provides powerful analytics to help you learn:"), React.createElement("div", {
-      className: "bg-teal-500/10 border border-teal-500/30 rounded-lg p-4"
+      className: "bg-emerald-500/10 border border-emerald-500/30 rounded-lg p-4"
     }, React.createElement("h3", {
-      className: "text-teal-400 font-semibold mb-2"
+      className: "text-emerald-400 font-semibold mb-2"
     }, "\uD83D\uDCC8 Performance Metrics:"), React.createElement("ul", {
       className: "text-sm text-[#6b7280] list-disc list-inside space-y-1"
     }, React.createElement("li", null, React.createElement("strong", {
@@ -6380,9 +6424,9 @@ function TrackerWelcomeModal({
     }, "Average Win/Loss:"), " ", "Average profit per win vs loss"), React.createElement("li", null, React.createElement("strong", {
       className: "text-white"
     }, "Best/Worst Trade:"), " ", "Your biggest winners and losers"))), React.createElement("div", {
-      className: "bg-blue-500/10 border border-blue-500/30 rounded-lg p-4"
+      className: "bg-emerald-500/10 border border-emerald-500/30 rounded-lg p-4"
     }, React.createElement("h3", {
-      className: "text-blue-400 font-semibold mb-2"
+      className: "text-emerald-400 font-semibold mb-2"
     }, "\uD83D\uDD0D Filter by Version:"), React.createElement("p", {
       className: "text-sm text-[#6b7280] mb-2"
     }, "Use the \"Model Version\" dropdown to compare performance across different versions of the trading model. This helps you see which improvements work best."), React.createElement("p", {
@@ -6390,9 +6434,9 @@ function TrackerWelcomeModal({
     }, React.createElement("strong", {
       className: "text-white"
     }, "Tip:"), " Newer versions often include improvements, but older versions may have proven track records.")), React.createElement("div", {
-      className: "bg-purple-500/10 border border-purple-500/30 rounded-lg p-4"
+      className: "bg-emerald-500/10 border border-emerald-500/30 rounded-lg p-4"
     }, React.createElement("h3", {
-      className: "text-purple-400 font-semibold mb-2"
+      className: "text-emerald-400 font-semibold mb-2"
     }, "\uD83D\uDCCA Daily Summary:"), React.createElement("p", {
       className: "text-sm text-[#6b7280]"
     }, "Click \"View Daily Summary\" to see performance breakdowns by:"), React.createElement("ul", {
@@ -6413,9 +6457,9 @@ function TrackerWelcomeModal({
     }, "Here's your", " ", React.createElement("strong", {
       className: "text-yellow-400"
     }, "workflow"), " for using the Trade Tracker:"), React.createElement("div", {
-      className: "bg-blue-500/10 border border-blue-500/30 rounded-lg p-4"
+      className: "bg-emerald-500/10 border border-emerald-500/30 rounded-lg p-4"
     }, React.createElement("h3", {
-      className: "text-blue-400 font-semibold mb-3"
+      className: "text-emerald-400 font-semibold mb-3"
     }, "\uD83D\uDCCB Daily Workflow:"), React.createElement("ol", {
       className: "text-sm text-[#6b7280] list-decimal list-inside space-y-3"
     }, React.createElement("li", null, React.createElement("strong", {
@@ -6451,9 +6495,9 @@ function TrackerWelcomeModal({
     }, "\u2022 Avoid setups that consistently lose"), React.createElement("br", null), React.createElement("span", {
       className: "text-xs ml-4"
     }, "\u2022 Adjust filters on the main dashboard based on results")))), React.createElement("div", {
-      className: "bg-teal-500/10 border border-teal-500/30 rounded-lg p-4"
+      className: "bg-emerald-500/10 border border-emerald-500/30 rounded-lg p-4"
     }, React.createElement("h3", {
-      className: "text-teal-400 font-semibold mb-2"
+      className: "text-emerald-400 font-semibold mb-2"
     }, "\u2B50 Key Takeaways:"), React.createElement("div", {
       className: "text-sm text-[#6b7280] space-y-1"
     }, React.createElement("div", null, "\u2705 Trades are created automatically from alerts"), React.createElement("div", null, "\u2705 Each trade uses $1,000 position size"), React.createElement("div", null, "\u2705 P&L updates in real-time for open trades"), React.createElement("div", null, "\u2705 Trades close automatically at SL or TP"), React.createElement("div", null, "\u2705 Use analytics to learn which setups work best"))), React.createElement("div", {
@@ -6480,14 +6524,14 @@ function TrackerWelcomeModal({
   }, React.createElement("div", {
     className: "bg-[#0f1117] border-2 border-white/[0.06] rounded-xl max-w-4xl w-full max-h-[90vh] overflow-hidden flex flex-col shadow-lg"
   }, React.createElement("div", {
-    className: "bg-gradient-to-r from-blue-500/20 to-purple-500/20 border-b border-white/[0.06] p-6 flex items-center justify-between"
+    className: "bg-gradient-to-r from-emerald-500/15 to-cyan-500/10 border-b border-white/[0.06] p-6 flex items-center justify-between"
   }, React.createElement("div", null, React.createElement("h2", {
     className: "text-2xl font-bold text-white mb-1"
   }, steps[currentStep].title), React.createElement("div", {
     className: "flex gap-1"
   }, steps.map((_, i) => React.createElement("div", {
     key: i,
-    className: `h-2 w-2 rounded-full transition-all ${i === currentStep ? "bg-blue-400 w-8" : i < currentStep ? "bg-teal-400" : "bg-white/[0.04]"}`
+    className: `h-2 w-2 rounded-full transition-all ${i === currentStep ? "bg-emerald-400 w-8" : i < currentStep ? "bg-emerald-500" : "bg-white/[0.04]"}`
   })))), React.createElement("button", {
     onClick: onClose,
     className: "text-[#6b7280] hover:text-white text-2xl font-bold w-8 h-8 flex items-center justify-center rounded hover:bg-white/[0.04] transition-colors",
@@ -6504,10 +6548,10 @@ function TrackerWelcomeModal({
     className: "text-sm text-[#6b7280]"
   }, "Step ", currentStep + 1, " of ", steps.length), currentStep < steps.length - 1 ? React.createElement("button", {
     onClick: nextStep,
-    className: "px-6 py-2 rounded-lg bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600 text-white font-semibold transition-all"
+    className: "px-6 py-2 rounded-lg bg-gradient-to-r from-emerald-500 to-green-500 hover:from-emerald-600 hover:to-green-600 text-white font-semibold transition-all"
   }, "Next \u2192") : React.createElement("button", {
     onClick: onClose,
-    className: "px-6 py-2 rounded-lg bg-gradient-to-r from-green-500 to-blue-500 hover:from-green-600 hover:to-blue-600 text-white font-semibold transition-all"
+    className: "px-6 py-2 rounded-lg bg-gradient-to-r from-emerald-500 to-green-500 hover:from-emerald-600 hover:to-green-600 text-white font-semibold transition-all"
   }, "Start Tracking! \uD83D\uDE80"))));
 }
 function TimeTravelSlider({
@@ -15212,38 +15256,32 @@ function App() {
 }
 const COACHMARK_STEPS = [{
   target: "[data-coachmark='nav-modes']",
-  title: "Navigation Modes",
-  body: "Active Trader is for shorter-horizon swing trades \u2014 the system enters, manages, and exits positions over days to weeks. Investor is for longer-horizon portfolio management. Trades shows every trade the simulation portfolio has executed. Each mode offers a different view of the same universe.",
+  title: "Navigation",
+  body: "Analysis is your command center. Daily Brief delivers AI market commentary each morning and evening. Trade Autopsy reviews every trade. System Intelligence shows how the model is calibrated. Switch between Active Trader and Investor views here.",
   position: "bottom",
   icon: "compass"
 }, {
   target: "[data-coachmark='search-filter']",
-  title: "Search, Filter & Discover",
-  body: "Type a ticker, a comma-separated list, or natural language filters like \"rank > 80\" or \"squeeze\". The Filters button opens advanced screening by indicators, sectors, and scoring thresholds.",
+  title: "Search & Filter",
+  body: "Type a ticker or comma-separated list. Use the filter bar to narrow by direction (Long/Short), sector, phase, or scoring thresholds. The \u201cSaved\u201d filter shows only your bookmarked tickers.",
   position: "bottom",
   icon: "search"
 }, {
-  target: "[data-coachmark='view-toggle']",
-  title: "Cards, Table & Saved",
-  body: "Toggle between Card view (visual Kanban cards) and Table view (sortable data grid). The Saved button filters to bookmarked tickers for quick access.",
-  position: "bottom",
-  icon: "layout"
-}, {
   target: "[data-coachmark='kanban-lanes']",
   title: "Kanban Pipeline",
-  body: "The system moves tickers through stages: Setup (building a case) \u2192 Enter (ready for entry) \u2192 Hold (active position) \u2192 Defend/Trim/Exit (position management). Each lane represents the system\u2019s current recommendation.",
+  body: "Tickers flow through stages: Setup \u2192 Enter \u2192 Hold \u2192 Defend \u2192 Trim \u2192 Exit. Each lane represents the system\u2019s current recommendation. Counts update in real time as conditions change.",
   position: "top",
   icon: "columns"
 }, {
   target: "[data-coachmark='viewport']",
   title: "Viewport",
-  body: "A ranked list of all tickers sorted by score and opportunity quality. Click any ticker to open the Right Rail with full analysis. Filter tags above narrow by direction, sector, or trade phase.",
+  body: "Every ticker ranked by score and opportunity. Each card shows price, daily change, mini-chart, and a quick score summary. Click any card to open the Right Rail \u2014 six tabs of deep analysis: Analysis, Investor, Technicals, Model, Journey, and Trades.",
   position: "right",
   icon: "telescope"
 }, {
   target: "[data-coachmark='bubble-chart']",
-  title: "Bubble Chart",
-  body: "The entire universe at a glance. X-axis shows short-term momentum, Y-axis shows long-term trend, and bubble size reflects risk/reward ratio. Cyan = LONG, Red = SHORT. Click any bubble for details.",
+  title: "Bubble Map",
+  body: "The full universe at a glance. X-axis is short-term momentum, Y-axis is long-term trend, and bubble size reflects risk/reward. Green = LONG setups, Red = SHORT setups. Click any bubble to drill in.",
   position: "left",
   icon: "scatter"
 }];
@@ -15561,8 +15599,8 @@ function Coachmarks() {
       width: rect.width + pad * 2 + 4,
       height: rect.height + pad * 2 + 4,
       borderRadius: 14,
-      border: "2px solid rgba(56, 189, 248, 0.5)",
-      boxShadow: "0 0 20px rgba(56, 189, 248, 0.2), inset 0 0 20px rgba(56, 189, 248, 0.05)",
+      border: "2px solid rgba(52, 211, 153, 0.5)",
+      boxShadow: "0 0 20px rgba(52, 211, 153, 0.2), inset 0 0 20px rgba(52, 211, 153, 0.05)",
       pointerEvents: "none",
       animation: "coachmark-pulse 2s ease-in-out infinite"
     }
@@ -15577,10 +15615,10 @@ function Coachmarks() {
   }, React.createElement("div", {
     style: {
       background: "linear-gradient(135deg, rgba(15, 23, 42, 0.97), rgba(15, 23, 42, 0.95))",
-      border: "1px solid rgba(56, 189, 248, 0.25)",
+      border: "1px solid rgba(52, 211, 153, 0.25)",
       borderRadius: 16,
       padding: "20px 22px 16px",
-      boxShadow: "0 25px 50px rgba(0,0,0,0.5), 0 0 40px rgba(56, 189, 248, 0.08)",
+      boxShadow: "0 25px 50px rgba(0,0,0,0.5), 0 0 40px rgba(52, 211, 153, 0.08)",
       backdropFilter: "blur(20px)"
     }
   }, React.createElement("div", {
@@ -15595,12 +15633,12 @@ function Coachmarks() {
       width: 36,
       height: 36,
       borderRadius: 10,
-      background: "linear-gradient(135deg, rgba(56, 189, 248, 0.15), rgba(59, 130, 246, 0.1))",
-      border: "1px solid rgba(56, 189, 248, 0.2)",
+      background: "linear-gradient(135deg, rgba(52, 211, 153, 0.15), rgba(16, 185, 129, 0.1))",
+      border: "1px solid rgba(52, 211, 153, 0.2)",
       display: "flex",
       alignItems: "center",
       justifyContent: "center",
-      color: "#38bdf8",
+      color: "#34d399",
       flexShrink: 0
     }
   }, COACHMARK_ICONS[currentStep.icon] || COACHMARK_ICONS.compass), React.createElement("div", {
@@ -15660,7 +15698,7 @@ function Coachmarks() {
       width: i === step ? 20 : 6,
       height: 6,
       borderRadius: 3,
-      background: i === step ? "linear-gradient(90deg, #38bdf8, #3b82f6)" : i < step ? "rgba(56, 189, 248, 0.4)" : "rgba(255,255,255,0.1)",
+      background: i === step ? "linear-gradient(90deg, #34d399, #10b981)" : i < step ? "rgba(52, 211, 153, 0.4)" : "rgba(255,255,255,0.1)",
       transition: "all 0.3s ease"
     }
   }))), React.createElement("div", {
@@ -15696,15 +15734,15 @@ function Coachmarks() {
       fontSize: 12,
       fontWeight: 600,
       color: "#0f172a",
-      background: "linear-gradient(135deg, #38bdf8, #3b82f6)",
+      background: "linear-gradient(135deg, #34d399, #10b981)",
       border: "none",
       borderRadius: 8,
       cursor: "pointer",
       transition: "all 0.2s",
-      boxShadow: "0 2px 8px rgba(56, 189, 248, 0.3)"
+      boxShadow: "0 2px 8px rgba(52, 211, 153, 0.3)"
     },
-    onMouseEnter: e => e.target.style.boxShadow = "0 4px 16px rgba(56, 189, 248, 0.5)",
-    onMouseLeave: e => e.target.style.boxShadow = "0 2px 8px rgba(56, 189, 248, 0.3)"
+    onMouseEnter: e => e.target.style.boxShadow = "0 4px 16px rgba(52, 211, 153, 0.5)",
+    onMouseLeave: e => e.target.style.boxShadow = "0 2px 8px rgba(52, 211, 153, 0.3)"
   }, step === COACHMARK_STEPS.length - 1 ? "Got it!" : "Next"))), step < COACHMARK_STEPS.length - 1 && React.createElement("div", {
     style: {
       textAlign: "center",
