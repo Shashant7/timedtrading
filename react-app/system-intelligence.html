@@ -3550,7 +3550,6 @@ function App() {
 }
 
 const _AuthGate = window.TimedAuthGate;
-const API_BASE = "";
 const siApp = _AuthGate
   ? <_AuthGate apiBase={API_BASE} requiredTier="admin">{(user) => <App user={user} />}</_AuthGate>
   : <App />;

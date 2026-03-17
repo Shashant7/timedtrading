@@ -3692,6 +3692,97 @@ function qualifiesForEnter(d, asOfTs = null) {
  * @param {object|null} openPosition - Optional: open position from D1 (for position-aware classification)
  * @returns {string|null} - Kanban stage or null
  */
+function assessTrendHealth(tickerData, direction) {
+  const dir = String(direction || "").toUpperCase();
+  const isLong = dir === "LONG";
+  const tf = tickerData?.tf_tech || {};
+  const tf4H = tf["4H"] || {};
+  const tfD = tf.D || {};
+  const tf1H = tf["1H"] || {};
+  const tf30 = tf["30"] || tf["30m"] || {};
+  const tf15 = tf["15"] || tf["15m"] || {};
+
+  const st4HDir = Number(tf4H.stDir) || 0;
+  const stDDir = Number(tfD.stDir) || 0;
+  const st1HDir = Number(tf1H.stDir) || 0;
+  const st30Dir = Number(tf30.stDir) || 0;
+  const st15Dir = Number(tf15.stDir) || 0;
+
+  const htf4HAligned = (isLong && st4HDir === -1) || (!isLong && st4HDir === 1);
+  const htfDAligned = (isLong && stDDir === -1) || (!isLong && stDDir === 1);
+  const ltf1HAligned = (isLong && st1HDir === -1) || (!isLong && st1HDir === 1);
+  const ltf30Aligned = (isLong && st30Dir === -1) || (!isLong && st30Dir === 1);
+  const ltf15Aligned = (isLong && st15Dir === -1) || (!isLong && st15Dir === 1);
+
+  const emaStr4H = Number(tf4H.ema?.structure) || 0;
+  const emaStrD = Number(tfD.ema?.structure) || 0;
+  const emaDepth4H = Number(tf4H.ema?.depth) || 5;
+  const emaDepth1H = Number(tf1H.ema?.depth) || 5;
+
+  const stBarsSince4H = Number(tf4H.stBarsSinceFlip ?? tf4H.atr?.bsf) || 0;
+
+  const htfStructureOk = isLong ? (emaStr4H > 0.2 || emaStrD > 0.2) : (emaStr4H < -0.2 || emaStrD < -0.2);
+  const htfIntact = (htf4HAligned || htfDAligned) && htfStructureOk;
+  const htfStrong = htf4HAligned && htfDAligned && htfStructureOk && stBarsSince4H > 8;
+
+  const ltfWeakCount = [ltf15Aligned, ltf30Aligned, ltf1HAligned].filter(x => !x).length;
+  const ltfWeak = ltfWeakCount >= 1;
+  const ltfBroken = ltfWeakCount >= 2 && !ltf1HAligned;
+
+  const htfBroken = !htf4HAligned && !htfDAligned;
+  const htfEmaCollapse = isLong ? (emaDepth4H < 3) : (emaDepth4H > 7);
+
+  const isPullback = htfIntact && ltfWeak && !htfEmaCollapse;
+  const isReversal = htfBroken || (htfEmaCollapse && ltfBroken);
+
+  let confidence = 0;
+  if (isPullback) {
+    confidence = 0.5;
+    if (htfStrong) confidence += 0.2;
+    if (htf4HAligned && htfDAligned) confidence += 0.1;
+    if (stBarsSince4H > 15) confidence += 0.1;
+    confidence = Math.min(1.0, confidence);
+  }
+
+  const c72_89_15 = tf15.ripster?.c72_89;
+  const c72_89_30 = tf30.ripster?.c72_89;
+  const stLine15 = Number(tf15.stLine) || 0;
+  const price = Number(tickerData?.price) || 0;
+  const structuralSupport = (isLong && stLine15 > 0 && price > stLine15)
+    || (!isLong && stLine15 > 0 && price < stLine15)
+    || (isLong && (c72_89_15?.above || c72_89_15?.inCloud))
+    || (!isLong && (c72_89_15?.below || c72_89_15?.inCloud))
+    || (isLong && (c72_89_30?.above || c72_89_30?.inCloud))
+    || (!isLong && (c72_89_30?.below || c72_89_30?.inCloud));
+
+  return { isPullback, isReversal, htfIntact, htfStrong, ltfWeak, ltfBroken, confidence, structuralSupport };
+}
+
+function computeMarketHoursMinutes(entryMs, nowMs) {
+  if (!Number.isFinite(entryMs) || !Number.isFinite(nowMs) || entryMs >= nowMs) return 0;
+  const RTH_OPEN = 570, RTH_CLOSE = 960, RTH_LEN = RTH_CLOSE - RTH_OPEN;
+  const etFmt = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour12: false, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
+  const toETMin = (ms) => { const p = {}; for (const x of etFmt.formatToParts(new Date(ms))) p[x.type] = Number(x.value); return (p.hour || 0) * 60 + (p.minute || 0); };
+  const toETDate = (ms) => { const p = {}; for (const x of etFmt.formatToParts(new Date(ms))) p[x.type] = x.value; return `${p.year}-${p.month}-${p.day}`; };
+  const entryMin = toETMin(entryMs), nowMin = toETMin(nowMs);
+  const entryDate = toETDate(entryMs), nowDate = toETDate(nowMs);
+  const entryClamp = Math.max(RTH_OPEN, Math.min(RTH_CLOSE, entryMin));
+  const nowClamp = Math.max(RTH_OPEN, Math.min(RTH_CLOSE, nowMin));
+  if (entryDate === nowDate) return Math.max(0, nowClamp - entryClamp);
+  let total = RTH_CLOSE - entryClamp;
+  let cursor = new Date(entryMs);
+  cursor.setUTCDate(cursor.getUTCDate() + 1);
+  for (let safety = 0; safety < 400; safety++) {
+    const cd = toETDate(cursor.getTime());
+    if (cd >= nowDate) break;
+    const wd = cursor.getUTCDay();
+    if (wd !== 0 && wd !== 6) total += RTH_LEN;
+    cursor.setUTCDate(cursor.getUTCDate() + 1);
+  }
+  total += nowClamp - RTH_OPEN;
+  return Math.max(0, total);
+}
+
 function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
   const state = String(tickerData?.state || "");
   const hasPosition = !!(openPosition && openPosition.status === "OPEN");
@@ -3710,6 +3801,8 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
     const entryTs = Number(openPosition.entry_ts || openPosition.created_at) || 0;
     const now = (asOfTs != null && Number.isFinite(Number(asOfTs))) ? Number(asOfTs) : Date.now();
     const positionAgeMin = entryTs > 0 ? (now - entryTs) / (1000 * 60) : 999;
+    const entryTsMs = entryTs > 1e12 ? entryTs : entryTs * 1000;
+    const positionAgeMarketMin = (entryTs > 0) ? computeMarketHoursMinutes(entryTsMs, now > 1e12 ? now : now) : positionAgeMin;
     const leadingLtf = resolveLeadingLtf(tickerData);
     const leadTfTech = tickerData?.tf_tech?.[leadingLtf] || tickerData?.tf_tech?.["10"] || {};
     const currentTrimPct = clamp(Number(openPosition?.trimmedPct ?? openPosition?.trimmed_pct ?? 0), 0, 1);
@@ -3847,27 +3940,32 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
     const tradeRegime = String(tickerData?.regime_class || "TRANSITIONAL");
     const maxHoldDaysLosing = tradeRegime === "CHOPPY" ? 7
       : tradeRegime === "TRANSITIONAL" ? 12 : 20;
-    const positionAgeDays = positionAgeMin / (60 * 24);
-    if (pnlPct < 0 && positionAgeDays >= maxHoldDaysLosing) {
+    const positionAgeMarketDays = positionAgeMarketMin / (60 * 6.5);
+    if (pnlPct < 0 && positionAgeMarketDays >= maxHoldDaysLosing) {
       tickerData.__exit_reason = `time_exit_loser_${tradeRegime.toLowerCase()}`;
       return "exit";
     }
-    // In CHOPPY regime with moderate loss: exit after half the time if losing > 2%
-    if (tradeRegime === "CHOPPY" && pnlPct < -2 && positionAgeDays >= maxHoldDaysLosing / 2) {
+    if (tradeRegime === "CHOPPY" && pnlPct < -2 && positionAgeMarketDays >= maxHoldDaysLosing / 2) {
       tickerData.__exit_reason = "time_exit_chop_accelerated";
       return "exit";
     }
 
-    // 4-HOUR TIME-DECAY DEFENSE: The 4-24hr hold bucket showed 35% WR and -$4,973 in backtesting.
-    // If a trade is underwater after 4 hours and hasn't reached 25% of its target, exit early.
-    const positionAgeHours = positionAgeMin / 60;
-    if (positionAgeHours >= 4 && positionAgeHours <= 24 && pnlPct < -0.5) {
-      const _tdMfeTarget = Number(tickerData?._env?._deepAuditConfig?.deep_audit_tp_trim_atr_mult) || 1.0;
+    // 4-HOUR TIME-DECAY DEFENSE: Uses MARKET HOURS (not wall-clock) so overnight
+    // holds aren't penalized. ATR-relative threshold. Signal-aware.
+    const positionAgeMarketHours = positionAgeMarketMin / 60;
+    if (positionAgeMarketHours >= 4 && positionAgeMarketHours <= 24) {
       const _tdAtr = Number(tickerData?.atr) || Number(tickerData?.tf_tech?.["15"]?.atr?.v) || 0;
       const _tdEntryPx = Number(tickerData?.__entryPrice) || 0;
-      const _tdTargetPct = _tdEntryPx > 0 && _tdAtr > 0 ? ((_tdMfeTarget * _tdAtr) / _tdEntryPx * 100) : 2.0;
-      const _tdProgressPct = _tdTargetPct > 0 ? (Math.max(0, pnlPct) / _tdTargetPct) : 0;
-      if (_tdProgressPct < 0.25) {
+      const _tdAtrPct = (_tdEntryPx > 0 && _tdAtr > 0) ? (_tdAtr / _tdEntryPx * 100) : 1.0;
+      const _tdThreshold = Math.max(1.5 * _tdAtrPct, 1.0);
+      if (pnlPct < -_tdThreshold) {
+        const _tdSwDir = String(tickerData?.swing_consensus?.direction || "").toUpperCase();
+        const _tdTradeSide = String(tickerData?.__trade_direction || "").toUpperCase();
+        const _tdAligned = (_tdSwDir === _tdTradeSide) || (_tdSwDir === "BULLISH" && _tdTradeSide === "LONG") || (_tdSwDir === "BEARISH" && _tdTradeSide === "SHORT");
+        if (_tdAligned) {
+          tickerData.__exit_reason = "time_decay_4hr_defend";
+          return "defend";
+        }
         tickerData.__exit_reason = "time_decay_4hr";
         return "exit";
       }
@@ -4034,6 +4132,17 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
       return "trim";
     }
     
+    // ─────────────────────────────────────────────────────────────────────────
+    // PULLBACK HOLD: If HTF trend is intact and LTF is weak, this is a healthy
+    // pullback — hold through it instead of defending/exiting on LTF noise.
+    // Requires structural support (15m ST, Ripster clouds) and PnL > -2%.
+    // ─────────────────────────────────────────────────────────────────────────
+    const _trendHealth = assessTrendHealth(tickerData, direction);
+    if (_trendHealth.isPullback && _trendHealth.confidence >= 0.6 && pnlPct > -2 && _trendHealth.structuralSupport) {
+      tickerData.__hold_reason = "pullback_htf_intact";
+      return "hold";
+    }
+
     // ─────────────────────────────────────────────────────────────────────────
     // PRIORITY 3: DEFEND - Warning signals (tighten SL, protect capital)
     // Includes: adverse P&L, below_trigger, RSI weakening, phase against
@@ -9369,9 +9478,17 @@ async function processTradeSimulation(
         const _exitSc = tickerData?.swing_consensus || {};
         const _exitSnap = buildDirectionSignalSnapshot(_exitSc, tickerData, trade.entryPath || null);
         if (_exitSnap && env?.DB) {
-          env.DB.prepare(`UPDATE direction_accuracy SET exit_snapshot_json = ? WHERE trade_id = ?`)
-            .bind(_exitSnap, trade.id || trade.trade_id)
+          const _exitTradeId = trade.id || trade.trade_id;
+          env.DB.prepare(`UPDATE direction_accuracy SET exit_snapshot_json = ?1 WHERE trade_id = ?2`)
+            .bind(_exitSnap, _exitTradeId)
             .run()
+            .then(r => {
+              if (r?.meta?.changes === 0 && _exitTradeId) {
+                return env.DB.prepare(
+                  `INSERT OR IGNORE INTO direction_accuracy (trade_id, exit_snapshot_json) VALUES (?1, ?2)`
+                ).bind(_exitTradeId, _exitSnap).run();
+              }
+            })
             .catch(e => console.warn("[EXIT_SNAP] write failed:", String(e).slice(0, 100)));
         }
       } catch (_) {}
@@ -10015,13 +10132,19 @@ async function processTradeSimulation(
               else if (!isReplay) await kvPutJSON(KV, execKey, fuseExecUpdate);
                 fuseExitFired = true;
               } else {
-                console.log(`[FUSE EXIT] ${sym} SOFT FUSE: closing runner (rsi1H=${rsi1H} dEma21Break=${dEma21Break} stConfirm=${stConfirm} trimmedPct=${(currentTrimPct * 100).toFixed(0)}%)`);
-                tickerData.__exit_reason = `soft_fuse_rsi_confirmed`;
-                await closeTradeAtPrice(openTrade, pxNow, "SOFT_FUSE_RSI_CONFIRMED");
-                const fuseExecUpdate = { ...execState, lastExitMs: now };
-                if (isReplay && replayCtx?.execStates) replayCtx.execStates.set(sym, fuseExecUpdate);
-                else if (!isReplay) await kvPutJSON(KV, execKey, fuseExecUpdate);
-                fuseExitFired = true;
+                const _sfTH = assessTrendHealth(tickerData, String(openTrade.direction || ""));
+                const _sfPnlPct = entryPx > 0 ? ((pxNow - entryPx) / entryPx * 100 * (isLong ? 1 : -1)) : 0;
+                if (_sfTH.isPullback && _sfTH.htfIntact && _sfTH.structuralSupport && _sfPnlPct > 0) {
+                  console.log(`[FUSE DEFER PB] ${sym} SOFT FUSE deferred: pullback detected (conf=${_sfTH.confidence.toFixed(2)}, pnl=${_sfPnlPct.toFixed(1)}%, support=true)`);
+                } else {
+                  console.log(`[FUSE EXIT] ${sym} SOFT FUSE: closing runner (rsi1H=${rsi1H} dEma21Break=${dEma21Break} stConfirm=${stConfirm} trimmedPct=${(currentTrimPct * 100).toFixed(0)}% pullback=${_sfTH.isPullback})`);
+                  tickerData.__exit_reason = `soft_fuse_rsi_confirmed`;
+                  await closeTradeAtPrice(openTrade, pxNow, "SOFT_FUSE_RSI_CONFIRMED");
+                  const fuseExecUpdate = { ...execState, lastExitMs: now };
+                  if (isReplay && replayCtx?.execStates) replayCtx.execStates.set(sym, fuseExecUpdate);
+                  else if (!isReplay) await kvPutJSON(KV, execKey, fuseExecUpdate);
+                  fuseExitFired = true;
+                }
               }
             }
           }
@@ -10047,7 +10170,7 @@ async function processTradeSimulation(
           fuseExitFired = true;
         } else {
           const _pltAtr = Number(tickerData?.atr || tickerData?.tf_tech?.["15"]?.atr?.v) || 0;
-          const _pltDist = _pltAtr > 0 ? _pltAtr * 0.5 : pxNow * 0.005;
+          const _pltDist = _pltAtr > 0 ? _pltAtr * 1.2 : pxNow * 0.012;
           const _pltNewStop = isLong
             ? Math.max(_pltStop, pxNow - _pltDist)
             : Math.min(_pltStop, pxNow + _pltDist);
@@ -10126,7 +10249,7 @@ async function processTradeSimulation(
                 // at current price minus 0.5 ATR. This captures more of the remaining move while
                 // still protecting profits. Backtesting showed 1.58% avg left on table for PHASE_LEAVE_100.
                 const _plAtr = Number(tickerData?.atr || tickerData?.tf_tech?.["15"]?.atr?.v) || 0;
-                const _plTrailDist = _plAtr > 0 ? _plAtr * 0.5 : pxNow * 0.005;
+                const _plTrailDist = _plAtr > 0 ? _plAtr * 1.2 : pxNow * 0.012;
                 const _plTrailStop = isLong ? (pxNow - _plTrailDist) : (pxNow + _plTrailDist);
                 console.log(`[${_spLabel}_TRAIL] ${sym} Phase peak-decline: setting tight trail at $${_plTrailStop.toFixed(2)} (${_plTrailDist.toFixed(2)} from $${pxNow.toFixed(2)}) peak=${_bestPeak.toFixed(1)} decline=${_maxDecline.toFixed(1)} pnl=${_spPnlPct.toFixed(1)}%`);
                 execState.phaseLeaveTrailStop = _plTrailStop;
@@ -10469,14 +10592,19 @@ async function processTradeSimulation(
               ? ((_cbPeak - pxNow) / _cbPeak) * 100
               : ((pxNow - _cbPeak) / _cbPeak) * 100;
             if (_cbDD >= _cbMaxDD) {
-              const _cbReason = "RUNNER_MAX_DRAWDOWN_BREAKER";
-              console.log(`[CIRCUIT BREAKER] ${sym} drawdown ${_cbDD.toFixed(1)}% from peak $${_cbPeak.toFixed(2)} >= ${_cbMaxDD}% → closing at $${pxNow.toFixed(2)}`);
-              tickerData.__exit_reason = _cbReason;
-              await closeTradeAtPrice(openTrade, pxNow, _cbReason);
-              const _cbExec = { ...execState, lastExitMs: now };
-              if (isReplay && replayCtx?.execStates) replayCtx.execStates.set(sym, _cbExec);
-              else if (!isReplay) await kvPutJSON(KV, execKey, _cbExec);
-              fuseExitFired = true;
+              const _cbTH = assessTrendHealth(tickerData, String(openTrade.direction || ""));
+              if (_cbTH.isPullback && _cbTH.htfIntact && _cbTH.structuralSupport && _cbDD < _cbMaxDD * 1.5) {
+                console.log(`[CIRCUIT BREAKER DEFERRED] ${sym} DD ${_cbDD.toFixed(1)}% from peak but pullback detected (conf=${_cbTH.confidence.toFixed(2)}, htfIntact=${_cbTH.htfIntact}) → holding`);
+              } else {
+                const _cbReason = "RUNNER_MAX_DRAWDOWN_BREAKER";
+                console.log(`[CIRCUIT BREAKER] ${sym} drawdown ${_cbDD.toFixed(1)}% from peak $${_cbPeak.toFixed(2)} >= ${_cbMaxDD}% → closing at $${pxNow.toFixed(2)} (pullback=${_cbTH.isPullback})`);
+                tickerData.__exit_reason = _cbReason;
+                await closeTradeAtPrice(openTrade, pxNow, _cbReason);
+                const _cbExec = { ...execState, lastExitMs: now };
+                if (isReplay && replayCtx?.execStates) replayCtx.execStates.set(sym, _cbExec);
+                else if (!isReplay) await kvPutJSON(KV, execKey, _cbExec);
+                fuseExitFired = true;
+              }
             }
           }
         }
@@ -10525,7 +10653,7 @@ async function processTradeSimulation(
 
           const _sfcEntryTs = Number(openTrade.entry_ts || openTrade.created_at) || 0;
           const _sfcEntryMs = _sfcEntryTs > 1e12 ? _sfcEntryTs : _sfcEntryTs * 1000;
-          const _sfcHoldH = _sfcEntryMs > 0 ? (now - _sfcEntryMs) / 3600000 : 0;
+          const _sfcHoldH = _sfcEntryMs > 0 ? computeMarketHoursMinutes(_sfcEntryMs, now) / 60 : 0;
 
           // Thesis-intact shield: check if price holds above key structure
           let _sfcThesisIntact = false;
@@ -11401,6 +11529,52 @@ async function processTradeSimulation(
           }
         }
 
+        // ── Structure-Aware SL: 4H SuperTrend + 1H Cloud ──
+        // Use structural levels (4H ST line, 1H Ripster cloud edge) as SL anchors.
+        // Only widen SL (never tighten) to ensure stops sit at meaningful support.
+        {
+          const _atr4Sl = Number(tickerData?.atr) || 0;
+          const _stLine4H = Number(tickerData?.tf_tech?.["4H"]?.stLine) || 0;
+          const _stDir4H = Number(tickerData?.tf_tech?.["4H"]?.stDir) || 0;
+          const _st4HAligned = (direction === "LONG" && _stDir4H === -1) || (direction === "SHORT" && _stDir4H === 1);
+          if (_st4HAligned && _stLine4H > 0 && _atr4Sl > 0) {
+            const _structSL4H = direction === "LONG"
+              ? Math.round((_stLine4H - _atr4Sl * 0.2) * 100) / 100
+              : Math.round((_stLine4H + _atr4Sl * 0.2) * 100) / 100;
+            const preSL = finalSL;
+            if (direction === "LONG" && _structSL4H < entryPx && _structSL4H < finalSL) {
+              finalSL = Math.round((finalSL * 0.6 + _structSL4H * 0.4) * 100) / 100;
+              if (finalSL >= entryPx) finalSL = preSL;
+            } else if (direction === "SHORT" && _structSL4H > entryPx && _structSL4H > finalSL) {
+              finalSL = Math.round((finalSL * 0.6 + _structSL4H * 0.4) * 100) / 100;
+              if (finalSL <= entryPx) finalSL = preSL;
+            }
+            if (finalSL !== preSL) {
+              console.log(`[STRUCT_SL] ${sym} ${direction}: 4H ST blend ${preSL.toFixed(2)} → ${finalSL.toFixed(2)} (stLine=${_stLine4H.toFixed(2)})`);
+            }
+          }
+          const _cloud1H = tickerData?.tf_tech?.["1H"]?.ripster?.c72_89;
+          if (_cloud1H && _atr4Sl > 0) {
+            const preSL = finalSL;
+            if (direction === "LONG" && (_cloud1H.above || _cloud1H.inCloud)) {
+              const _cLo = Number(_cloud1H.lo);
+              if (Number.isFinite(_cLo) && _cLo > 0 && _cLo < entryPx && _cLo < finalSL) {
+                finalSL = Math.round((finalSL * 0.7 + _cLo * 0.3) * 100) / 100;
+                if (finalSL >= entryPx) finalSL = preSL;
+              }
+            } else if (direction === "SHORT" && (_cloud1H.below || _cloud1H.inCloud)) {
+              const _cHi = Number(_cloud1H.hi);
+              if (Number.isFinite(_cHi) && _cHi > 0 && _cHi > entryPx && _cHi > finalSL) {
+                finalSL = Math.round((finalSL * 0.7 + _cHi * 0.3) * 100) / 100;
+                if (finalSL <= entryPx) finalSL = preSL;
+              }
+            }
+            if (finalSL !== preSL) {
+              console.log(`[STRUCT_SL] ${sym} ${direction}: 1H cloud blend ${preSL.toFixed(2)} → ${finalSL.toFixed(2)}`);
+            }
+          }
+        }
+
         // ── v3: Regime-Adaptive SL Cushion ──
         // In choppy markets, prices whipsaw more violently. Widen SL to avoid
         // getting stopped out on noise, then compensate with smaller position size.
@@ -11930,7 +12104,7 @@ async function processTradeSimulation(
 
             const _st4HDirTrail = tickerData?.tf_tech?.["4H"]?.stDir ?? 0;
             const _htf4HSupportsTrail = (dir === "LONG" && _st4HDirTrail === -1) || (dir === "SHORT" && _st4HDirTrail === 1);
-            const atrMultiplier = _htf4HSupportsTrail ? 3.0 : 1.5;
+            const atrMultiplier = _htf4HSupportsTrail ? 3.0 : 2.0;
             const trailStop = dir === "LONG"
               ? mark - (atr * atrMultiplier)
               : mark + (atr * atrMultiplier);
@@ -11992,7 +12166,7 @@ async function processTradeSimulation(
           // by a configurable %. Variant B analysis: +54% PnL improvement over
           // static SL (361.98% vs 234.79% on 75 trimmed trades).
           // ─────────────────────────────────────────────────────────────────────
-          const _trailPct = Number(tickerData?._env?._deepAuditConfig?.deep_audit_runner_trail_pct) || 0;
+          const _trailPct = Number(tickerData?._env?._deepAuditConfig?.deep_audit_runner_trail_pct) || 2.5;
           if (_trailPct > 0 && trimmedPct > 0) {
             const _peak = Number(execState.runnerPeakPrice) || Number(openTrade.runnerPeakPrice) || 0;
             if (_peak > 0) {
@@ -12016,7 +12190,7 @@ async function processTradeSimulation(
           // trades. The standard runner_trail_pct (e.g. 2%) is too loose between
           // first trim and runner phase — use a configurable tighter trail.
           // ─────────────────────────────────────────────────────────────────────
-          const _ptTightTrailPct = Number(tickerData?._env?._deepAuditConfig?.deep_audit_post_trim_trail_pct) || 0;
+          const _ptTightTrailPct = Number(tickerData?._env?._deepAuditConfig?.deep_audit_post_trim_trail_pct) || 2.0;
           if (_ptTightTrailPct > 0 && trimmedPct > 0 && !isRunnerPhase) {
             const _ptPeak = Number(execState.runnerPeakPrice) || Number(openTrade.runnerPeakPrice) || 0;
             if (_ptPeak > 0) {
@@ -12049,8 +12223,8 @@ async function processTradeSimulation(
               let _staleAtr = Number(tickerData?.atr);
               if (!Number.isFinite(_staleAtr) || _staleAtr <= 0) _staleAtr = entry * 0.02;
               const _staleSL = dir === "LONG"
-                ? mark - (_staleAtr * 0.25)
-                : mark + (_staleAtr * 0.25);
+                ? mark - (_staleAtr * 0.75)
+                : mark + (_staleAtr * 0.75);
               if (dir === "LONG" && (candidate == null || _staleSL > candidate)) {
                 candidate = _staleSL;
                 slReason = "STALE_RUNNER_EXIT";
