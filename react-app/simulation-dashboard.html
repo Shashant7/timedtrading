@@ -700,19 +700,31 @@
         return { summary, loading, refetch: fetchSummary };
       }
 
-      function useEquityCurve(mode = "both") {
+      function useEquityCurve(mode = "both", dateRange = null) {
         const [curveData, setCurveData] = useState(null);
         const [loading, setLoading] = useState(true);
 
+        const sinceStr = useMemo(() => {
+          if (!dateRange?.start) return "";
+          return dateRange.start.toISOString().slice(0, 10);
+        }, [dateRange?.start]);
+        const untilStr = useMemo(() => {
+          if (!dateRange?.end) return "";
+          return dateRange.end.toISOString().slice(0, 10);
+        }, [dateRange?.end]);
+
         const fetchCurve = useCallback(async () => {
           try {
-            const res = await fetch(`${API_BASE}/timed/portfolio/equity-curve?mode=${mode}&_t=${Date.now()}`, { cache: "no-store" });
+            let url = `${API_BASE}/timed/portfolio/equity-curve?mode=${mode}&_t=${Date.now()}`;
+            if (sinceStr) url += `&since=${sinceStr}`;
+            if (untilStr) url += `&until=${untilStr}`;
+            const res = await fetch(url, { cache: "no-store" });
             if (!res.ok) throw new Error(`HTTP ${res.status}`);
             const json = await res.json();
             if (json.ok) setCurveData(json);
           } catch { /* best-effort */ }
           finally { setLoading(false); }
-        }, [mode]);
+        }, [mode, sinceStr, untilStr]);
 
         useEffect(() => {
           fetchCurve();
@@ -5887,7 +5899,24 @@
             lineWidth: 2,
           });
 
-          const lineData = modeData.points.map(p => ({ time: p.date, value: p.equity }));
+          // Forward-fill gaps (weekends, holidays) for a smooth curve
+          const rawPoints = modeData.points.map(p => ({ time: p.date, value: p.equity }));
+          const lineData = [];
+          for (let i = 0; i < rawPoints.length; i++) {
+            lineData.push(rawPoints[i]);
+            if (i < rawPoints.length - 1) {
+              const cur = new Date(rawPoints[i].time + "T00:00:00");
+              const next = new Date(rawPoints[i + 1].time + "T00:00:00");
+              const diffDays = Math.round((next - cur) / 86400000);
+              for (let d = 1; d < diffDays; d++) {
+                const fill = new Date(cur.getTime() + d * 86400000);
+                const yyyy = fill.getFullYear();
+                const mm = String(fill.getMonth() + 1).padStart(2, "0");
+                const dd = String(fill.getDate()).padStart(2, "0");
+                lineData.push({ time: `${yyyy}-${mm}-${dd}`, value: rawPoints[i].value });
+              }
+            }
+          }
           lineSeries.setData(lineData);
           chart.timeScale().fitContent();
           chartRef.current = chart;
@@ -6554,7 +6583,7 @@
                     return html`<span className=${`px-2 py-0.5 rounded text-[10px] font-bold border ${cls}`}>TT ${setupGrade}</span>`;
                   })()}
                   ${shares > 0 && html`<span className="text-[10px] text-[#a78bfa]">${Math.round(shares)} shares</span>`}
-                  ${riskBudget > 0 && html`<span className="text-[10px] text-[#9ca3af]">Risk ${riskBudget.toFixed(1)}%</span>`}
+                  ${riskBudget > 0.001 && html`<span className="text-[10px] text-[#9ca3af]">Risk ${riskBudget < 1 ? (riskBudget * 100).toFixed(1) : riskBudget.toFixed(1)}%</span>`}
                   ${notional > 0 && html`<span className="text-[10px] text-[#9ca3af]">${fmtUsd(notional)} notional</span>`}
                   ${rank > 0 && html`<span className="text-[10px] text-[#9ca3af] ml-auto">Rank #${rank}</span>`}
                 </div>
@@ -6568,7 +6597,7 @@
                       ${entryPath ? html`<span>${fmtPath(entryPath)}</span>` : html`<span className="text-[#6b7280]">Not recorded</span>`}
                       ${setupGrade && html`<div className="text-[9px] text-[#9ca3af] mt-0.5">${setupGrade} grade setup</div>`}
                       ${shares > 0 && html`<div className="text-[9px] text-[#9ca3af] mt-0.5">${Math.round(shares)} shares · ${fmtUsd(notional)} notional</div>`}
-                      ${riskBudget > 0 && html`<div className="text-[9px] text-[#9ca3af] mt-0.5">Risk: ${riskBudget.toFixed(2)}%</div>`}
+                      ${riskBudget > 0.001 && html`<div className="text-[9px] text-[#9ca3af] mt-0.5">Risk: ${riskBudget < 1 ? (riskBudget * 100).toFixed(1) : riskBudget.toFixed(1)}%</div>`}
                     </div>
                   </div>
                   <div className="rounded-md bg-white/[0.02] border border-white/[0.04] px-3 py-2">
@@ -6630,7 +6659,15 @@
 
         // ── Investor portfolio data ──
         const { summary: investorSummary } = useAccountSummary("investor");
-        const { curveData: equityCurveData } = useEquityCurve("both");
+        const SLIDER_RANGE_DAYS = 365;
+        const [ledgerDateRange, setLedgerDateRange] = useState(() => {
+          const end = new Date();
+          end.setHours(23, 59, 59, 999);
+          const start = new Date(end.getTime() - SLIDER_RANGE_DAYS * 24 * 60 * 60 * 1000);
+          start.setHours(0, 0, 0, 0);
+          return { start, end };
+        });
+        const { curveData: equityCurveData } = useEquityCurve("both", ledgerDateRange);
         const [investorTrades, setInvestorTrades] = useState(null);
         const [investorTradesLoading, setInvestorTradesLoading] = useState(false);
         const [investorPositions, setInvestorPositions] = useState(null);
@@ -6696,14 +6733,6 @@
           useState(initialLedgerTicker);
         const [ledgerStatusFilter, setLedgerStatusFilter] = useState("all");
         const [accountChartRange, setAccountChartRange] = useState("30D");
-        const SLIDER_RANGE_DAYS = 365;
-        const [ledgerDateRange, setLedgerDateRange] = useState(() => {
-          const end = new Date();
-          end.setHours(23, 59, 59, 999);
-          const start = new Date(end.getTime() - SLIDER_RANGE_DAYS * 24 * 60 * 60 * 1000);
-          start.setHours(0, 0, 0, 0);
-          return { start, end };
-        });
         const [ledgerIncludeEvidence, setLedgerIncludeEvidence] =
           useState(true);
 

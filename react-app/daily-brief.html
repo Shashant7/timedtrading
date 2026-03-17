@@ -516,36 +516,9 @@
           });
           seriesRef.current = candleSeries;
 
-          // Initial full load with retry + multi-timeframe fallback chain
+          // Initial full load with retry (no cross-TF fallback to avoid mismatched candles)
           const loadWithRetry = async (retriesLeft = 2) => {
-            let raw = await fetchCandles(limit);
-            // If selected TF has very few candles, cascade through fallback TFs
-            if (raw.length < 5 && (tf === "5" || tf === "15" || tf === "30" || tf === "60")) {
-              // Try 1m with more data
-              const fallback1mRes = await fetch(
-                `${API_BASE}/timed/candles?ticker=${encodeURIComponent(sym)}&tf=1&limit=500`,
-                { cache: "no-store" }
-              ).catch(() => null);
-              if (fallback1mRes) {
-                const fallback1mData = await fallback1mRes.json().catch(() => ({}));
-                if (fallback1mData.ok && fallback1mData.candles?.length > raw.length) {
-                  raw = fallback1mData.candles;
-                }
-              }
-            }
-            // If still no data, try daily as last resort
-            if (raw.length < 2) {
-              const fallbackDRes = await fetch(
-                `${API_BASE}/timed/candles?ticker=${encodeURIComponent(sym)}&tf=D&limit=30`,
-                { cache: "no-store" }
-              ).catch(() => null);
-              if (fallbackDRes) {
-                const fallbackDData = await fallbackDRes.json().catch(() => ({}));
-                if (fallbackDData.ok && fallbackDData.candles?.length > raw.length) {
-                  raw = fallbackDData.candles;
-                }
-              }
-            }
+            const raw = await fetchCandles(limit);
             if (raw.length === 0 && retriesLeft > 0) {
               await new Promise(r => setTimeout(r, 3000));
               return loadWithRetry(retriesLeft - 1);
@@ -579,30 +552,29 @@
             setLastPrice(lastCandle.close);
             setChange((lastCandle.close - mapped[0].open) / mapped[0].open * 100);
 
-            // Robust viewport initialization:
-            // On first load, the CSS grid may not have finished laying out all 8 chart
-            // containers. We use a ResizeObserver to wait for the container to reach its
-            // final width, then sync the chart and scroll to the right edge.
+            // Show approximately the last 2 trading days of data
             const settleChart = () => {
               if (!chartRef.current || !containerRef.current) return;
               const w = containerRef.current.clientWidth;
               if (w > 0) {
                 chartRef.current.applyOptions({ width: w });
               }
-              chartRef.current.timeScale().fitContent();
-              // After fitContent, nudge to show latest candles near the right edge
-              requestAnimationFrame(() => {
-                if (chartRef.current) {
-                  chartRef.current.timeScale().scrollToPosition(-3, false);
-                }
-              });
+              // 2-day visible window: for intraday TFs, show last N bars ≈ 2 trading days
+              const twoDayBars = { "5": 156, "15": 52, "30": 26, "60": 13, "D": 10 };
+              const barsToShow = twoDayBars[tf] || mapped.length;
+              const from = Math.max(0, mapped.length - barsToShow);
+              if (mapped.length > barsToShow) {
+                chartRef.current.timeScale().setVisibleLogicalRange({
+                  from,
+                  to: mapped.length + 3,
+                });
+              } else {
+                chartRef.current.timeScale().fitContent();
+              }
             };
 
-            // Wait for next frame so layout is committed, then settle
             requestAnimationFrame(() => {
               settleChart();
-              // Safety net: re-settle after a short delay in case the grid is still
-              // reflowing (e.g., images / other charts are still loading)
               setTimeout(settleChart, 250);
             });
 
@@ -787,52 +759,28 @@
           } catch (_) {}
 
           const rnd = (v) => Math.round(v * 100) / 100;
-          const fibs = [0.236, 0.382, 0.5, 0.618, 1.0];
           const levels = [];
 
-          // Anchor line (previous close)
-          levels.push({ price: rnd(anchor), color: "rgba(255,255,255,0.35)", label: "Prev Close" });
+          // Prev Close anchor
+          levels.push({ price: rnd(anchor), color: "rgba(255,255,255,0.5)", label: "Prev Close" });
 
-          // Directional assessment — where is price relative to the ATR levels?
+          // Directional assessment
           let direction = "neutral";
           const distFromAnchor = currentPrice - anchor;
           const pctOfAtr = distFromAnchor / dayAtr;
-
           if (pctOfAtr > 0.382) direction = "bullish";
           else if (pctOfAtr < -0.382) direction = "bearish";
 
-          // Build fib levels — Watch/Target labels replace plain labels at the
-          // same price to avoid duplicates on the chart.
-          const levelsByPrice = new Map();
-          const addLevel = (price, color, label, priority) => {
-            const key = price.toFixed(2);
-            const existing = levelsByPrice.get(key);
-            if (!existing || priority > existing.priority) {
-              levelsByPrice.set(key, { price, color, label, priority });
-            }
-          };
-
-          // Base fib levels (priority 0)
-          for (const f of fibs) {
-            const pctLabel = (f * 100).toFixed(1).replace(/\.0$/, "");
-            addLevel(rnd(anchor + dayAtr * f), `rgba(0,200,83,${0.25 + f * 0.45})`, `+${pctLabel}%`, 0);
-            addLevel(rnd(anchor - dayAtr * f), `rgba(255,82,82,${0.25 + f * 0.45})`, `-${pctLabel}%`, 0);
-          }
-
-          // Watch/Target levels (priority 1 — override plain labels at same price)
+          // Only show directional targets (no intermediate fib levels)
           if (direction === "bullish") {
-            addLevel(rnd(anchor + dayAtr * 0.5), "rgba(245,158,11,0.7)", "Target +50%", 1);
-            addLevel(rnd(anchor + dayAtr * 0.618), "rgba(245,158,11,0.7)", "Target +61.8%", 1);
+            levels.push({ price: rnd(anchor + dayAtr * 0.5), color: "rgba(245,158,11,0.7)", label: "Target +50%" });
+            levels.push({ price: rnd(anchor + dayAtr * 0.618), color: "rgba(245,158,11,0.7)", label: "Target +61.8%" });
           } else if (direction === "bearish") {
-            addLevel(rnd(anchor - dayAtr * 0.5), "rgba(245,158,11,0.7)", "Target -50%", 1);
-            addLevel(rnd(anchor - dayAtr * 0.618), "rgba(245,158,11,0.7)", "Target -61.8%", 1);
+            levels.push({ price: rnd(anchor - dayAtr * 0.5), color: "rgba(245,158,11,0.7)", label: "Target -50%" });
+            levels.push({ price: rnd(anchor - dayAtr * 0.618), color: "rgba(245,158,11,0.7)", label: "Target -61.8%" });
           } else {
-            addLevel(rnd(anchor + dayAtr * 0.382), "rgba(245,158,11,0.7)", "Watch +38.2%", 1);
-            addLevel(rnd(anchor - dayAtr * 0.382), "rgba(245,158,11,0.7)", "Watch -38.2%", 1);
-          }
-
-          for (const entry of levelsByPrice.values()) {
-            levels.push({ price: entry.price, color: entry.color, label: entry.label });
+            levels.push({ price: rnd(anchor + dayAtr * 0.382), color: "rgba(245,158,11,0.7)", label: "Watch +38.2%" });
+            levels.push({ price: rnd(anchor - dayAtr * 0.382), color: "rgba(245,158,11,0.7)", label: "Watch -38.2%" });
           }
 
           const result = { levels, dayAtr: rnd(dayAtr), anchor: rnd(anchor), currentPrice: rnd(currentPrice), direction, pctOfAtr: rnd(pctOfAtr) };

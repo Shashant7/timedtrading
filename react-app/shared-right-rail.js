@@ -6024,7 +6024,7 @@
                                     <div className="text-[13px] font-semibold text-white mt-0.5 flex items-center gap-2 flex-wrap">
                                       {_entryPath ? _formatPath(_entryPath) : (mt.setup_name ? _formatPath(mt.setup_name) : null)}
                                       {_grade && <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold border ${_gradeCls}`}>TT {_grade}</span>}
-                                      {Number(_riskBudget) > 0 && <span className="text-[10px] text-[#6b7280]">{Number(_riskBudget) < 1 ? `${(Number(_riskBudget) * 100).toFixed(2)}% risk` : `$${_riskBudget} risk`}</span>}
+                                      {Number(_riskBudget) > 0.001 && <span className="text-[10px] text-[#6b7280]">{Number(_riskBudget) < 1 ? `${(Number(_riskBudget) * 100).toFixed(1)}% risk` : `$${_riskBudget} risk`}</span>}
                                     </div>
                                   </div>
                                 )}

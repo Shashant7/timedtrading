@@ -6518,9 +6518,9 @@
           className: "text-[13px] font-semibold text-white mt-0.5 flex items-center gap-2 flex-wrap"
         }, _entryPath ? _formatPath(_entryPath) : mt.setup_name ? _formatPath(mt.setup_name) : null, _grade && /*#__PURE__*/React.createElement("span", {
           className: `px-1.5 py-0.5 rounded text-[10px] font-bold border ${_gradeCls}`
-        }, "TT ", _grade), Number(_riskBudget) > 0 && /*#__PURE__*/React.createElement("span", {
+        }, "TT ", _grade), Number(_riskBudget) > 0.001 && /*#__PURE__*/React.createElement("span", {
           className: "text-[10px] text-[#6b7280]"
-        }, Number(_riskBudget) < 1 ? `${(Number(_riskBudget) * 100).toFixed(2)}% risk` : `$${_riskBudget} risk`))), tfStack && tfStack.length > 0 && /*#__PURE__*/React.createElement("div", {
+        }, Number(_riskBudget) < 1 ? `${(Number(_riskBudget) * 100).toFixed(1)}% risk` : `$${_riskBudget} risk`))), tfStack && tfStack.length > 0 && /*#__PURE__*/React.createElement("div", {
           className: "mb-3"
         }, /*#__PURE__*/React.createElement("span", {
           className: "text-[10px] text-[#9ca3af] uppercase tracking-wider block mb-1.5"

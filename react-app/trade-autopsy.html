@@ -1202,9 +1202,9 @@
                       const cls = t === "Prime" ? "bg-amber-500/20 text-amber-300 border-amber-500/30" : t === "Confirmed" ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/30" : "bg-blue-500/20 text-blue-300 border-blue-500/30";
                       return <span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${cls}`}>TT {t}</span>;
                     })()}
-                    {Number(trade?.risk_budget) > 0 && (
+                    {Number(trade?.risk_budget) > 0.001 && (
                       <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-white/[0.04] border border-white/[0.08] text-[#d1d5db]">
-                        {Number(trade.risk_budget) < 1 ? `${(Number(trade.risk_budget) * 100).toFixed(2)}% Risk` : `$${trade.risk_budget} Risk`}
+                        {Number(trade.risk_budget) < 1 ? `${(Number(trade.risk_budget) * 100).toFixed(1)}% Risk` : `$${trade.risk_budget} Risk`}
                       </span>
                     )}
                     {Number(trade?.notional) > 0 && (
