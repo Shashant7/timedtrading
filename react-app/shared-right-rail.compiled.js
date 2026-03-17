@@ -2212,7 +2212,7 @@
       const prime = isPrimeBubble(ticker);
       const ent = entryType(ticker);
       const flags = patternFlags;
-      const phase = Number(ticker.phase_pct) || 0;
+      const phase = Number(ticker.saty_phase_pct ?? ticker.phase_pct) || 0;
       const phaseColor = phaseToColor(phase);
       const actionInfo = getActionDescription(ticker, trade);
       const decisionSummary = summarizeEntryDecision(ticker);

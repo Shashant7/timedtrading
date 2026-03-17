@@ -119,7 +119,7 @@ export function slimPayloadForD1(obj) {
 
 /** Minimal payload for D1 when slim is still too large (replay + UI essentials). */
 const D1_MINIMAL_KEYS = [
-  "ts", "price", "close", "htf_score", "ltf_score", "completion", "phase_pct", "state", "rank",
+  "ts", "price", "close", "htf_score", "ltf_score", "completion", "phase_pct", "saty_phase_pct", "state", "rank",
   "flags", "trigger_reason", "trigger_dir", "trigger_price", "sl", "tp", "trigger_ts", "ingest_ts",
   "kanban_stage", "kanban_meta", "entry_ts", "entry_price", "prev_kanban_stage", "move_status",
   "rr", "score", "tp_levels",

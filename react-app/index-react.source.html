@@ -578,6 +578,7 @@
               p.htf_score_value;
 
             const phase =
+              p.saty_phase_pct ??
               p.phase_pct ??
               p.phasePct ??
               p.phase ??
@@ -5623,13 +5624,23 @@
                         boxShadow: "0 8px 32px rgba(0,0,0,0.45), inset 0 0.5px 0 rgba(255,255,255,0.08)",
                       }}
                     >
-                      <div className="font-bold text-base mb-2 flex items-center gap-2">
+                      <div className="font-bold text-base mb-2 flex items-center gap-2 flex-wrap">
                         <span>{tooltip.ticker}</span>
                         {tooltip.price && (
                           <span className="text-sm font-normal text-white">
                             ${Number(tooltip.price).toFixed(2)}
                           </span>
                         )}
+                        {(() => {
+                          const dc = getDailyChange(tooltip);
+                          if (!dc || !Number.isFinite(dc.dayPct)) return null;
+                          const pos = dc.dayPct >= 0;
+                          return (
+                            <span className={`text-xs font-semibold ${pos ? "text-emerald-400" : "text-rose-400"}`}>
+                              {pos ? "+" : ""}{dc.dayPct.toFixed(2)}%{Number.isFinite(dc.dayChg) ? ` (${pos ? "+" : ""}${dc.dayChg.toFixed(2)})` : ""}
+                            </span>
+                          );
+                        })()}
                         {(() => {
                           const b = tooltip.bias_direction || getDirectionFromState(tooltip);
                           if (!b) return null;
@@ -5785,11 +5796,11 @@
                                 className="font-semibold"
                                 style={{
                                   color: phaseToColor(
-                                    Number(tooltip.phase_pct) || 0,
+                                    Number(tooltip.saty_phase_pct ?? tooltip.phase_pct) || 0,
                                   ),
                                 }}
                               >
-                                {Math.round((Number(tooltip.phase_pct) || 0) * 100)}
+                                {Math.round((Number(tooltip.saty_phase_pct ?? tooltip.phase_pct) || 0) * 100)}
                                 %{tooltip.phase_zone && ` (${tooltip.phase_zone})`}
                               </span>
                             </div>
@@ -5942,6 +5953,7 @@
               if (!!flags.momentum_elite) emojis.push("🔥");
               if (flags.sq30_release) emojis.push("⚡");
               if (isInSqueeze) emojis.push("🧨");
+              if (flags.saty_compression_multi_tf) emojis.push("🗜️");
             }
             const emojiText = emojis.join("");
 
@@ -6510,10 +6522,10 @@
                             <span
                               className="font-semibold"
                               style={{
-                                color: phaseToColor(Number(t.phase_pct) || 0),
+                                color: phaseToColor(Number(t.saty_phase_pct ?? t.phase_pct) || 0),
                               }}
                             >
-                              {Math.round((Number(t.phase_pct) || 0) * 100)}%
+                              {Math.round((Number(t.saty_phase_pct ?? t.phase_pct) || 0) * 100)}%
                               {t.phase_zone && ` (${t.phase_zone})`}
                             </span>
                           </div>
@@ -11437,6 +11449,7 @@
           if (flags.momentum_elite) badges.push("🔥");
           if (flags.sq30_release) badges.push("⚡");
           if (flags.sq30_on && !flags.sq30_release) badges.push("🧨");
+          if (flags.saty_compression_multi_tf) badges.push("🗜️");
           const _earningsEvt = window._ttEarningsMap?.[sym];
           if (_earningsEvt) badges.push("📅");
 
@@ -12618,6 +12631,7 @@
                     if (flg.momentum_elite) badges.push("🔥");
                     if (flg.sq30_release) badges.push("⚡");
                     if (flg.sq30_on && !flg.sq30_release) badges.push("🧨");
+                    if (flg.saty_compression_multi_tf) badges.push("🗜️");
                     const showProgress = ["enter", "new", "hold", "defend", "trim", "exit"].includes(stg);
                     // Stage display
                     const stageMeta = STAGE_META[stg] || STAGE_META.watch;

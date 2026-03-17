@@ -1912,6 +1912,7 @@
                       if (flags.momentum_elite) badges.push({ icon: "🔥", label: "MoElite", tip: "MoElite: Elite momentum alignment across timeframes" });
                       if (flags.sq30_on && !flags.sq30_release) badges.push({ icon: "🧨", label: "Squeeze", tip: "Squeeze: Bollinger Band squeeze detected — volatility expansion expected" });
                       if (flags.sq30_release) badges.push({ icon: "⚡", label: "Release", tip: "Release: Squeeze has fired — momentum breakout in progress" });
+                      if (flags.saty_compression_multi_tf) badges.push({ icon: "🗜️", label: "Compressed", tip: `Compressed: Phase oscillator near zero across ${flags.saty_compression_count || ""}/${flags.saty_compression_total || ""} timeframes — coiled for a move` });
                       if (badges.length === 0) return null;
                       return badges.map((b, i) => (
                         <span key={`ib-${i}`} className="px-1.5 py-0.5 rounded border bg-white/5 border-white/10 text-[#d1d5db] font-semibold cursor-default" title={b.tip}>{b.icon} {b.label}</span>
@@ -3003,8 +3004,9 @@
 
                           {/* Phase & Move Status */}
                           {(() => {
-                            const _phase = Number(ticker?.phase_pct) || 0;
-                            if (_phase === 0) return null;
+                            const _raw = Number(ticker?.saty_phase_pct ?? ticker?.phase_pct) || 0;
+                            if (_raw === 0) return null;
+                            const _phase = _raw <= 1 ? _raw * 100 : _raw;
                             const _phaseStage = _phase < 25 ? "Early" : _phase < 50 ? "Building" : _phase < 75 ? "Mature" : "Late/Extended";
                             const _phaseColor = _phase < 25 ? "#22c55e" : _phase < 50 ? "#86efac" : _phase < 75 ? "#fbbf24" : "#ef4444";
                             const _phaseDesc = _phase < 25 ? "Fresh move — room to develop" : _phase < 50 ? "Gaining momentum — setup thesis intact" : _phase < 75 ? "Move maturing — watch for trim signals" : "Extended — high probability of pullback or reversal";
@@ -3012,7 +3014,7 @@
                               <div className="mt-2 rounded-lg p-2 border border-white/[0.06] bg-white/[0.02]">
                                 <div className="flex items-center justify-between">
                                   <span className="text-[9px] text-slate-400 uppercase font-semibold">TT Phase</span>
-                                  <span className="text-[11px] font-bold" style={{color: _phaseColor}}>{_phase.toFixed(0)}% — {_phaseStage}</span>
+                                  <span className="text-[11px] font-bold" style={{color: _phaseColor}}>{Math.round(_phase)}% — {_phaseStage}</span>
                                 </div>
                                 <div className="mt-1 h-1.5 rounded-full bg-white/[0.06] overflow-hidden">
                                   <div className="h-full rounded-full transition-all" style={{width: `${Math.min(_phase, 100)}%`, background: _phaseColor}} />

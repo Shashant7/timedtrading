@@ -43908,6 +43908,27 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           await kvPutJSON(env.KV_TIMED, "timed:investor:rs-ranks", rsRanks);
           await kvPutJSON(env.KV_TIMED, "timed:investor:computed-at", Date.now());
 
+          // Merge investor stages into timed:all:snapshot so Table View investor column is consistent
+          try {
+            const snapshot = await kvGetJSON(env.KV_TIMED, "timed:all:snapshot");
+            if (snapshot?.data) {
+              let merged = 0;
+              for (const [sym, result] of Object.entries(investorResults)) {
+                if (snapshot.data[sym]) {
+                  snapshot.data[sym].investor_stage = result.stage;
+                  snapshot.data[sym].investor_score = result.score;
+                  merged++;
+                }
+              }
+              if (merged > 0) {
+                await kvPutJSON(env.KV_TIMED, "timed:all:snapshot", snapshot);
+                console.log(`[INVESTOR COMPUTE] Merged investor stages into snapshot: ${merged} tickers`);
+              }
+            }
+          } catch (e) {
+            console.warn("[INVESTOR COMPUTE] Snapshot merge failed:", String(e?.message || e).slice(0, 200));
+          }
+
           return sendJSON({
             ok: true,
             tickers: Object.keys(investorResults).length,
@@ -50527,6 +50548,24 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
               if (overlaidCount > 0) console.log(`[SCORING] Snapshot price overlay: ${overlaidCount} tickers updated from timed:prices`);
             } catch (overlayErr) {
               console.warn("[SCORING] Snapshot price overlay failed:", String(overlayErr?.message || overlayErr).slice(0, 150));
+            }
+
+            // Merge investor stages so Table View investor column is consistent
+            try {
+              const invScores = await kvGetJSON(KV, "timed:investor:scores");
+              if (invScores) {
+                let invMerged = 0;
+                for (const [sym, data] of Object.entries(invScores)) {
+                  if (snapshot[sym] && data.stage) {
+                    snapshot[sym].investor_stage = data.stage;
+                    snapshot[sym].investor_score = data.score;
+                    invMerged++;
+                  }
+                }
+                if (invMerged > 0) console.log(`[SCORING] Merged ${invMerged} investor stages into snapshot`);
+              }
+            } catch (invErr) {
+              console.warn("[SCORING] Investor stage merge failed:", String(invErr?.message || invErr).slice(0, 150));
             }
 
             await kvPutJSON(KV, "timed:all:snapshot", {

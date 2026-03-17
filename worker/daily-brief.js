@@ -764,7 +764,10 @@ export async function gatherDailyBriefData(env, type, opts = {}) {
 
   const extractedEs = extract(esData);
   const esSessionClose = type === "evening"
-    ? pickCanonicalSessionClose(today, esCandles?.candles || [], esCandlesM5?.candles || [])
+    ? pickCanonicalSessionClose(today, esCandles?.candles || [], esCandlesM5?.candles || [], "ES1!")
+    : { price: null, source: null };
+  const spySessionClose = type === "evening"
+    ? pickCanonicalSessionClose(today, spyCandles?.candles || [], spyCandlesM5?.candles || [], "SPY")
     : { price: null, source: null };
 
   return {
@@ -785,7 +788,7 @@ export async function gatherDailyBriefData(env, type, opts = {}) {
       } : null,
       NQ: extract(nqData),
       VIX: extract(vixData),
-      SPY: extract(spyData),
+      SPY: { ...extract(spyData), sessionClose: spySessionClose.price },
       QQQ: extract(qqqData),
       IWM: extract(iwmData),
     },
@@ -951,7 +954,7 @@ function nyMinutesFromMs(ms) {
   return Number.isFinite(hour) && Number.isFinite(minute) ? hour * 60 + minute : null;
 }
 
-function pickCanonicalSessionClose(targetDate, dailyCandles, intradayCandles) {
+function pickCanonicalSessionClose(targetDate, dailyCandles, intradayCandles, ticker = "?") {
   const daily = Array.isArray(dailyCandles) ? dailyCandles : [];
   const intraday = Array.isArray(intradayCandles) ? intradayCandles : [];
 
@@ -962,6 +965,11 @@ function pickCanonicalSessionClose(targetDate, dailyCandles, intradayCandles) {
     })
     .filter((row) => row.dateKey === targetDate)
     .sort((a, b) => (a.tsMs || 0) - (b.tsMs || 0));
+
+  if (matchedDaily.length === 0 && daily.length > 0) {
+    const availDates = [...new Set(daily.map(c => nyDateKeyFromMs(dailyBriefTsMs(c?.ts ?? c?.t ?? c?.time ?? c?.date))))].filter(Boolean);
+    console.warn(`[DAILY BRIEF] ${ticker} no daily candle for ${targetDate}. Available: ${availDates.slice(-5).join(", ")}`);
+  }
 
   const dailyClose = Number(matchedDaily[matchedDaily.length - 1]?.candle?.c);
   if (Number.isFinite(dailyClose) && dailyClose > 0) {
@@ -2147,7 +2155,20 @@ export async function generateDailyBrief(env, type, opts = {}) {
     if (type === "evening" && data.market.ES) {
       esClose = Number(data.market.ES.sessionClose);
       if (!Number.isFinite(esClose) || esClose <= 0) {
+        console.warn(`[DAILY BRIEF] ES sessionClose missing (source: ${data.market.ES.sessionCloseSource}), falling back to live price`);
         esClose = Number(data.market.ES.price);
+      }
+      // Guard: if the live price diverges significantly from SPY-implied ES
+      // (extended-hours drift), prefer the last known RTH-session price
+      if (Number.isFinite(esClose) && data.market.SPY?.sessionClose) {
+        const spyClose = Number(data.market.SPY.sessionClose);
+        if (Number.isFinite(spyClose) && spyClose > 0) {
+          const impliedES = spyClose * 10;
+          const drift = Math.abs(esClose - impliedES) / impliedES;
+          if (drift > 0.005) {
+            console.warn(`[DAILY BRIEF] ES close ${esClose} drifts ${(drift * 100).toFixed(2)}% from SPY-implied ${impliedES.toFixed(0)} — possible extended-hours price`);
+          }
+        }
       }
     }
 

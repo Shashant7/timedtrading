@@ -460,7 +460,7 @@
           // Create chart — styled to match Right Rail (shared-right-rail.js)
           const chart = LightweightCharts.createChart(containerRef.current, {
             width: containerRef.current.clientWidth,
-            height: 220,
+            height: 340,
             layout: {
               background: { type: "solid", color: "#0b0e11" },
               textColor: "#6b7280",
@@ -733,7 +733,7 @@
                 </span>
               )}
             </div>
-            <div ref={containerRef} style={{ height: 220 }}>
+            <div ref={containerRef} style={{ height: 340 }}>
               {error && (
                 <div className="flex items-center justify-center h-full">
                   <span className="text-[11px] text-[#4b5563]">{error}</span>
@@ -884,8 +884,8 @@
                 </div>
               </div>
             </div>
-            {/* Primary row: SPY, QQQ, VIX */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            {/* Primary charts: SPY, QQQ, VIX — stacked full width */}
+            <div className="grid grid-cols-1 gap-4">
               {CHART_SYMBOLS_PRIMARY.map(({ sym, label, color }) => (
                 <MiniChart
                   key={`${sym}-${tf}`}
@@ -897,9 +897,9 @@
                 />
               ))}
             </div>
-            {/* Advanced row: ES, NQ futures (collapsed by default) */}
+            {/* Advanced charts: ES, NQ futures (collapsed by default) — stacked full width */}
             {showAdvanced && (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3">
+              <div className="grid grid-cols-1 gap-4 mt-4">
                 {CHART_SYMBOLS_ADVANCED.map(({ sym, label, color }) => (
                   <MiniChart
                     key={`${sym}-${tf}`}

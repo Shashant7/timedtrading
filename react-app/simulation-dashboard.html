@@ -3631,7 +3631,7 @@
             if (!p || typeof p !== "object") return null;
             const ltf = p.ltf_score ?? p.ltfScore ?? p.ltf ?? p.x ?? p.ltf_value ?? p.ltfValue ?? p.ltf_score_value;
             const htf = p.htf_score ?? p.htfScore ?? p.htf ?? p.y ?? p.htf_value ?? p.htfValue ?? p.htf_score_value;
-            const phase = p.phase_pct ?? p.phasePct ?? p.phase ?? p.phase_completion ?? p.phaseCompletion;
+            const phase = p.saty_phase_pct ?? p.phase_pct ?? p.phasePct ?? p.phase ?? p.phase_completion ?? p.phaseCompletion;
             const completion = p.completion ?? p.comp ?? p.completion_pct ?? p.completionPct;
             return {
               ...p,

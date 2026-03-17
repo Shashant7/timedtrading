@@ -99,7 +99,7 @@ function normalizeTrailPoints(trail) {
     if (!p || typeof p !== "object") return null;
     const ltf = p.ltf_score ?? p.ltfScore ?? p.ltf ?? p.x ?? p.ltf_value ?? p.ltfValue ?? p.ltf_score_value;
     const htf = p.htf_score ?? p.htfScore ?? p.htf ?? p.y ?? p.htf_value ?? p.htfValue ?? p.htf_score_value;
-    const phase = p.phase_pct ?? p.phasePct ?? p.phase ?? p.phase_completion ?? p.phaseCompletion;
+    const phase = p.saty_phase_pct ?? p.phase_pct ?? p.phasePct ?? p.phase ?? p.phase_completion ?? p.phaseCompletion;
     const completion = p.completion ?? p.comp ?? p.completion_pct ?? p.completionPct;
     return {
       ...p,
@@ -4207,10 +4207,17 @@ function BubbleChart({
           boxShadow: "0 8px 32px rgba(0,0,0,0.45), inset 0 0.5px 0 rgba(255,255,255,0.08)"
         }
       }, React.createElement("div", {
-        className: "font-bold text-base mb-2 flex items-center gap-2"
+        className: "font-bold text-base mb-2 flex items-center gap-2 flex-wrap"
       }, React.createElement("span", null, tooltip.ticker), tooltip.price && React.createElement("span", {
         className: "text-sm font-normal text-white"
       }, "$", Number(tooltip.price).toFixed(2)), (() => {
+        const dc = getDailyChange(tooltip);
+        if (!dc || !Number.isFinite(dc.dayPct)) return null;
+        const pos = dc.dayPct >= 0;
+        return React.createElement("span", {
+          className: `text-xs font-semibold ${pos ? "text-emerald-400" : "text-rose-400"}`
+        }, `${pos ? "+" : ""}${dc.dayPct.toFixed(2)}%${Number.isFinite(dc.dayChg) ? ` (${pos ? "+" : ""}${dc.dayChg.toFixed(2)})` : ""}`);
+      })(), (() => {
         const b = tooltip.bias_direction || getDirectionFromState(tooltip);
         if (!b) return null;
         const l = String(b).toUpperCase() === "LONG";
@@ -4331,9 +4338,9 @@ function BubbleChart({
       }, "Phase"), React.createElement("span", {
         className: "font-semibold",
         style: {
-          color: phaseToColor(Number(tooltip.phase_pct) || 0)
+          color: phaseToColor(Number(tooltip.saty_phase_pct ?? tooltip.phase_pct) || 0)
         }
-      }, Math.round((Number(tooltip.phase_pct) || 0) * 100), "%", tooltip.phase_zone && ` (${tooltip.phase_zone})`)), React.createElement("div", {
+      }, Math.round((Number(tooltip.saty_phase_pct ?? tooltip.phase_pct) || 0) * 100), "%", tooltip.phase_zone && ` (${tooltip.phase_zone})`)), React.createElement("div", {
         className: "flex justify-between"
       }, React.createElement("span", {
         className: "text-[#6b7280]"
@@ -4443,6 +4450,7 @@ function BubbleChart({
       if (!!flags.momentum_elite) emojis.push("🔥");
       if (flags.sq30_release) emojis.push("⚡");
       if (isInSqueeze) emojis.push("🧨");
+      if (flags.saty_compression_multi_tf) emojis.push("🗜️");
     }
     const emojiText = emojis.join("");
     let borderColor = waitingForData ? "#8b92a0" : dir === "LONG" ? "#22d3ee" : dir === "SHORT" ? "#e11d48" : flipWatch ? "#fbbf24" : prime ? "#14b8a6" : winnerSig ? "#a855f7" : flags.sq30_release ? "#00ffff" : flags.sq30_on ? "#ffd700" : "rgba(255,255,255,0.25)";
@@ -8739,6 +8747,7 @@ const CompactCard = React.memo(function CompactCard({
   if (flags.momentum_elite) badges.push("🔥");
   if (flags.sq30_release) badges.push("⚡");
   if (flags.sq30_on && !flags.sq30_release) badges.push("🧨");
+  if (flags.saty_compression_multi_tf) badges.push("🗜️");
   const _earningsEvt = window._ttEarningsMap?.[sym];
   if (_earningsEvt) badges.push("📅");
   const dailyResult = getDailyChange(t) || {};
@@ -10152,6 +10161,7 @@ function SimpleKanbanTable({
     if (flg.momentum_elite) badges.push("🔥");
     if (flg.sq30_release) badges.push("⚡");
     if (flg.sq30_on && !flg.sq30_release) badges.push("🧨");
+    if (flg.saty_compression_multi_tf) badges.push("🗜️");
     const showProgress = ["enter", "new", "hold", "defend", "trim", "exit"].includes(stg);
     const stageMeta = STAGE_META[stg] || STAGE_META.watch;
     const _tblPrime = isPrimeBubble(t);

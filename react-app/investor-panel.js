@@ -73,12 +73,7 @@
               React.createElement("span", { className: "text-[13px] font-bold text-white shrink-0", style: { textShadow: "0 1px 3px rgba(0,0,0,0.8)" } }, sym),
               t.companyName && React.createElement("span", { className: "text-[9px] text-[#9ca3af] truncate", title: t.companyName }, t.companyName),
             ),
-            React.createElement("span", {
-              className: "inline-flex items-center justify-center px-1.5 py-px rounded text-[9px] font-bold shrink-0 tracking-wide bg-violet-500/40 text-violet-200 border border-violet-400/60",
-              style: { textShadow: "0 0 6px rgba(139,92,246,0.5)" },
-              title: "Timed Trading Investor",
-            }, "TT"),
-            React.createElement("span", { className: `inline-flex items-center px-1.5 py-px rounded text-[8px] font-bold shrink-0 tracking-wide border`, style: { background: `${accentColor}30`, color: accentColor, borderColor: `${accentColor}60` } }, stageLabels[stage] || stage),
+            
             t._optimistic_pending && React.createElement("span", { className: "inline-flex items-center gap-1 px-1.5 py-px rounded text-[8px] font-bold shrink-0 tracking-wide border border-cyan-500/40 bg-cyan-500/10 text-cyan-300" },
               React.createElement("span", { className: "inline-block w-1.5 h-1.5 rounded-full bg-cyan-300 animate-pulse" }),
               "Loading",
@@ -115,9 +110,7 @@
           stage === "research_avoid" && React.createElement("span", { className: "text-[8px] text-[#6b7280]/80 font-semibold" }, "Caution"),
         ),
 
-        React.createElement("div", { className: "relative mt-auto px-2 pb-1.5 pt-0.5", style: { zIndex: 1 } },
-          React.createElement(ScoreBar, { score: Math.min(100, Math.max(0, score)), color: score >= 70 ? "#10b981" : score >= 50 ? "#f59e0b" : "#ef4444" }),
-        ),
+        
       ),
     );
   }

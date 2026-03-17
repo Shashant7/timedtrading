@@ -2761,8 +2761,10 @@ export function detectFlags(bundles) {
   flags.ema5above48_D = bD?.ema5above48 ?? false;
   flags.ema13above21_D = bD?.ema13above21 ?? false;
 
-  // Squeeze releases (with timestamps)
+  // Squeeze state and releases (with timestamps)
+  if (b30?.sqOn) { flags.sq30_on = true; }
   if (b30?.sqRelease) { flags.sq30_release = true; flags.sq30_release_ts = b30.sqRelease_ts; }
+  if (b60?.sqOn) { flags.sq1h_on = true; }
   if (b60?.sqRelease) { flags.sq1h_release = true; flags.sq1h_release_ts = b60.sqRelease_ts; }
 
   // Momentum elite: strong momentum across multiple TFs
@@ -3714,6 +3716,21 @@ export function assembleTickerData(ticker, bundles, existingData = null, opts = 
   if (ewWeeklyBars.length >= 25 && tfTech.W) {
     const ewW = detectEWImpulse(ewWeeklyBars, 10, 5);
     if (ewW) tfTech.W.ew = ewW;
+  }
+
+  // Multi-TF Saty Phase compression: majority of timeframes in LOW zone (|osc| < 23.6)
+  const _satyCompTfs = ["10", "15", "30", "1H", "4H", "D", "W"];
+  let _satyCompCount = 0, _satyCompTotal = 0;
+  for (const tf of _satyCompTfs) {
+    const saty = tfTech[tf]?.saty;
+    if (!saty || saty.v == null) continue;
+    _satyCompTotal++;
+    if (saty.z === "LOW" || Math.abs(saty.v) < 23.6) _satyCompCount++;
+  }
+  if (_satyCompTotal >= 3 && _satyCompCount >= Math.ceil(_satyCompTotal / 2)) {
+    flags.saty_compression_multi_tf = true;
+    flags.saty_compression_count = _satyCompCount;
+    flags.saty_compression_total = _satyCompTotal;
   }
 
   // Merge: keep existing fields that we don't compute (e.g., Ichimoku, daily EMA cloud)
