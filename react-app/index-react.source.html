@@ -462,13 +462,13 @@
         display: none; /* Chrome, Safari, Opera */
       }
 
-      /* Mobile shell spacing for fixed legal footer + iOS safe area. */
+      /* Shell spacing for fixed legal footer + iOS safe area. */
       .tt-page-shell {
         padding-bottom: calc(148px + env(safe-area-inset-bottom));
       }
       @media (min-width: 768px) {
         .tt-page-shell {
-          padding-bottom: 64px;
+          padding-bottom: 96px;
         }
       }
 
@@ -11276,22 +11276,23 @@
             ["OPEN", "TP_HIT_TRIM"].includes(statusUp) ||
             (!(openTrade.exit_ts ?? openTrade.exitTs) && statusUp !== "WIN" && statusUp !== "LOSS")
           );
+          // Direction — matches Right Rail priority (minus prediction contract which is per-ticker)
           let dir = (() => {
-            const scDir = String(t?.swing_consensus?.direction || "").toUpperCase();
-            if (scDir === "BULLISH" || scDir === "LONG") return "LONG";
-            if (scDir === "BEARISH" || scDir === "SHORT") return "SHORT";
-            const trigDir = String(t?.trigger_dir || "").toUpperCase();
-            if (trigDir === "LONG" || trigDir === "SHORT") return trigDir;
+            // 1. Server-provided position direction
+            const posDirStr = String(t?.position_direction || "").toUpperCase();
+            if (t?.has_open_position && (posDirStr === "LONG" || posDirStr === "SHORT")) return posDirStr;
+            // 2. Open trade direction
+            if (hasOpenTrade) {
+              const d = String(openTrade.direction || "").toUpperCase();
+              if (d === "LONG" || d === "SHORT") return d;
+            }
+            // 3. HTF state (primary trend)
+            if (state.startsWith("HTF_BULL")) return "LONG";
+            if (state.startsWith("HTF_BEAR")) return "SHORT";
+            if (state.includes("BULL")) return "LONG";
+            if (state.includes("BEAR")) return "SHORT";
             return isBullish ? "LONG" : "SHORT";
           })();
-          if (hasOpenTrade) {
-            const d = String(openTrade.direction || "").toUpperCase();
-            if (d === "LONG" || d === "SHORT") dir = d;
-          }
-          if (!hasOpenTrade && t?.has_open_position) {
-            const pd = String(t?.position_direction || "").toUpperCase();
-            if (pd === "LONG" || pd === "SHORT") dir = pd;
-          }
           const biasLabel = (() => {
             // When there's an open trade, show the trade direction as bias
             if (hasOpenTrade || t?.has_open_position) return dir;
@@ -12382,13 +12383,15 @@
           const statusUp = String(trade?.status || "").toUpperCase();
           const hasOpen = trade && (["OPEN", "TP_HIT_TRIM"].includes(statusUp) || (!(trade?.exit_ts ?? trade?.exitTs) && statusUp !== "WIN" && statusUp !== "LOSS"));
           let dir = (() => {
-            const scDir = String(t?.swing_consensus?.direction || "").toUpperCase();
-            if (scDir === "BULLISH" || scDir === "LONG") return "LONG";
-            if (scDir === "BEARISH" || scDir === "SHORT") return "SHORT";
+            const posDirStr = String(t?.position_direction || "").toUpperCase();
+            if (t?.has_open_position && (posDirStr === "LONG" || posDirStr === "SHORT")) return posDirStr;
+            if (hasOpen) { const d = String(trade?.direction || "").toUpperCase(); if (d === "LONG" || d === "SHORT") return d; }
+            if (state.startsWith("HTF_BULL")) return "LONG";
+            if (state.startsWith("HTF_BEAR")) return "SHORT";
+            if (state.includes("BULL")) return "LONG";
+            if (state.includes("BEAR")) return "SHORT";
             return isBullish ? "LONG" : "SHORT";
           })();
-          if (hasOpen) { const d = String(trade?.direction || "").toUpperCase(); if (d === "LONG" || d === "SHORT") dir = d; }
-          if (!hasOpen && t?.has_open_position) { const pd = String(t?.position_direction || "").toUpperCase(); if (pd === "LONG" || pd === "SHORT") dir = pd; }
           // effectiveDir for SL/TP sanity uses position direction when available
           const posDir = t?.has_open_position ? String(t?.position_direction || "").toUpperCase() : null;
           const effectiveDir = (posDir === "LONG" || posDir === "SHORT") ? posDir : dir;
@@ -16343,7 +16346,8 @@
         } = useTickerData();
 
         const _dataStaleMinutes = freshnessTs ? Math.floor((Date.now() - freshnessTs) / 60000) : 0;
-        const _dataIsStale = _dataStaleMinutes > 10;
+        const _rthOpen = window.TimedPriceUtils?.isNyRegularMarketOpen?.() ?? false;
+        const _dataIsStale = _rthOpen && _dataStaleMinutes > 10;
 
         const [_secondaryReady, _setSecondaryReady] = useState(false);
         useEffect(() => {
@@ -18302,7 +18306,7 @@
                     )}
                     {/* ═══ ACTIVE TRADER MODE: Kanban Lanes ═══ */}
                     {dashboardMode === "trader" && !noTickerResults && (
-                      <div className="relative" data-coachmark="kanban-lanes">
+                      <div className="relative pb-12" data-coachmark="kanban-lanes">
                         {viewSwitching && (
                           <div className="absolute inset-0 z-30 flex items-center justify-center bg-[#0d1117]/80 backdrop-blur-sm rounded-xl" style={{ minHeight: 200 }}>
                             <div className="flex flex-col items-center gap-2">
@@ -18329,7 +18333,7 @@
 
                     {/* ═══ INVESTOR MODE: Market Health + Investor Kanban ═══ */}
                     {dashboardMode === "investor" && !noTickerResults && (
-                      <div className="rounded-xl border border-white/[0.06] overflow-hidden p-4" style={{ minHeight: 600, background: "#0b0e11" }}>
+                      <div className="rounded-xl border border-white/[0.06] overflow-hidden p-4 mb-12" style={{ minHeight: 600, background: "#0b0e11" }}>
                         {typeof window.InvestorPanel === "function" ? (
                           React.createElement(window.InvestorPanel, {
                             apiBase: API_BASE,

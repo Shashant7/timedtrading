@@ -212,6 +212,16 @@
 - [ ] Card/spacing consistency pass
 - [ ] Verify getDailyChange usage everywhere
 
+## Backtest Exit Management Fix [2026-03-18]
+- [x] Diagnose root cause: 65 TP_HIT_TRIM trades at 66% trimmed shielded indefinitely by pullback support with no time limit
+- [x] Add `RUNNER_STALE_FORCE_CLOSE` fuse exit for trimmed trades (120 market-hours default, configurable)
+- [x] Add time-decaying ATR buffer to `evaluateRunnerExit` pullback shield (full→0 over 48h)
+- [x] Add time-decaying ATR buffer to EXIT lane `_exitPullbackShield` (matches Smart Runner)
+- [x] Add continuous `runnerPeakPrice` tracking so drawdown circuit breaker works on actual peak
+- [x] Add exit reason map entries for `RUNNER_STALE_FORCE_CLOSE`
+- [ ] Deploy worker and verify in production
+- [ ] Re-run backtest with all improvements and confirm all trades properly managed
+
 ## Backlog
 
 ### Earnings Verification (pre-secondary-check)

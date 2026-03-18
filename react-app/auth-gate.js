@@ -801,7 +801,7 @@
       setStripeActivating(true);
       let cancelled = false;
       let attempts = 0;
-      const maxAttempts = 15; // 15 * 2s = 30s max wait
+      const maxAttempts = 20; // 20 * 2s = 40s max wait
 
       const poll = async () => {
         while (!cancelled && attempts < maxAttempts) {
@@ -819,7 +819,6 @@
                   const session = storeSession(u);
                   setUser(session);
                   setStripeActivating(false);
-                  // Clean up ?stripe=success from URL
                   const cleanUrl = new URL(window.location.href);
                   cleanUrl.searchParams.delete("stripe");
                   window.history.replaceState({}, "", cleanUrl.pathname + cleanUrl.search);
@@ -829,10 +828,13 @@
             }
           } catch { /* retry */ }
         }
-        // Timeout: webhook may be slow, show message
-        setStripeActivating(false);
-        // Force one more refresh
-        verifyAuth(false).catch(() => {});
+        if (cancelled) return;
+        // Webhook still hasn't arrived — force a full page reload so the user
+        // doesn't stay stuck on the spinner forever.
+        const cleanUrl = new URL(window.location.href);
+        cleanUrl.searchParams.delete("stripe");
+        cleanUrl.searchParams.set("_ts", Date.now());
+        window.location.replace(cleanUrl.href);
       };
       poll();
       return () => { cancelled = true; };
@@ -2041,9 +2043,9 @@
     React.useEffect(() => {
       const handler = (e) => {
         if (e.data?.type === "discord-connected") {
-          setStatus(prev => ({ ...prev, connected: true, discord_username: e.data.username }));
           setError(null);
           setOpen(true);
+          fetchStatus();
         } else if (e.data?.type === "discord-error") {
           setError(e.data.error || "Connection failed");
         }
@@ -2086,7 +2088,7 @@
         const res = await fetch(`${apiBase}/timed/discord/disconnect`, { method: "POST", credentials: "include" });
         const json = await res.json();
         if (json.ok) {
-          setStatus({ connected: false, discord_username: null, discord_id: null });
+          setStatus(prev => ({ ...prev, connected: false, discord_username: null, discord_id: null }));
         } else {
           setError(json.error || "Failed to disconnect");
         }

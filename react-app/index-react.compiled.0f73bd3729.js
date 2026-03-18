@@ -2070,7 +2070,7 @@ const isNyRegularMarketOpen = window.TimedPriceUtils.isNyRegularMarketOpen;
 const ageLabelFromMinutes = window.TimedPriceUtils.ageLabelFromMinutes;
 const getStaleInfo = window.TimedPriceUtils.getStaleInfo;
 const getDailyChange = window.TimedPriceUtils.getDailyChange;
-const MARKET_PULSE_TICKERS = ["SPX", "US500", "ES1!", "NQ1!", "RTY1!", "YM1!", "SPY", "QQQ", "IWM", "CL1!", "GC1!", "SI1!", "VX1!", "BTCUSD", "ETHUSD", "XLK", "XLF", "XLY", "XLP", "XLC", "XLI", "XLB", "XLE", "XLRE", "XLU", "XLV"];
+const MARKET_PULSE_TICKERS = ["SPX", "US500", "ES1!", "NQ1!", "RTY1!", "YM1!", "SPY", "QQQ", "IWM", "CL1!", "GC1!", "SI1!", "VX1!", "GLD", "SLV", "USO", "VIXY", "DIA", "BTCUSD", "ETHUSD", "XLK", "XLF", "XLY", "XLP", "XLC", "XLI", "XLB", "XLE", "XLRE", "XLU", "XLV"];
 function getCardSkin(t) {
   const pickNum = (obj, keys) => {
     for (const k of keys) {
@@ -2105,26 +2105,25 @@ function getCardSkin(t) {
   let intensityPulse = "";
   if (intensityAbs > 0.1) {
     if (intensityAbs <= 1) {
-      tintAlpha = 0.10 + intensityAbs * 0.10;
+      tintAlpha = 0.06 + intensityAbs * 0.06;
+      edgePx = 1;
+      edgeAlpha = 0.15;
+    } else if (intensityAbs <= 3) {
+      tintAlpha = 0.12 + (intensityAbs - 1) / 2 * 0.10;
       edgePx = 1;
       edgeAlpha = 0.25;
-    } else if (intensityAbs <= 3) {
-      tintAlpha = 0.20 + (intensityAbs - 1) / 2 * 0.20;
-      edgePx = 1.5;
-      edgeAlpha = 0.40;
     } else if (intensityAbs <= 6) {
-      tintAlpha = 0.40 + (intensityAbs - 3) / 3 * 0.20;
-      edgePx = 2;
-      edgeAlpha = 0.55;
+      tintAlpha = 0.22 + (intensityAbs - 3) / 3 * 0.10;
+      edgePx = 1.5;
+      edgeAlpha = 0.35;
     } else if (intensityAbs <= 12) {
-      tintAlpha = 0.60 + (intensityAbs - 6) / 6 * 0.15;
-      edgePx = 2.5;
-      edgeAlpha = 0.70;
+      tintAlpha = 0.32 + (intensityAbs - 6) / 6 * 0.08;
+      edgePx = 2;
+      edgeAlpha = 0.45;
     } else {
-      tintAlpha = 0.75;
-      edgePx = 3;
-      edgeAlpha = 0.85;
-      intensityPulse = "intensity-pulse";
+      tintAlpha = 0.40;
+      edgePx = 2;
+      edgeAlpha = 0.50;
     }
   }
   const isUp = Number.isFinite(intensityPct) && intensityPct > 0;
@@ -2179,8 +2178,8 @@ function Sparkline({
   const dotXPct = (padL + w) / width * 100;
   const dotYPct = (padTop + h - (last - min) / range * h) / height * 100;
   const gradId = gradIdRef.current;
-  const lineOpacity = bgMode ? 0.5 : 0.9;
-  const fillTopOpacity = bgMode ? 0.14 : 0.15;
+  const lineOpacity = bgMode ? 0.75 : 0.9;
+  const fillTopOpacity = bgMode ? 0.22 : 0.15;
   const sw = bgMode ? "2" : "1.8";
   const mktOpen = isNyRegularMarketOpen();
   return React.createElement("div", {
@@ -2241,11 +2240,11 @@ function Sparkline({
   }), React.createElement("div", {
     className: `rounded-full ${mktOpen ? "sparkline-pulse-dot" : ""}`,
     style: {
-      width: 7,
-      height: 7,
+      width: 6,
+      height: 6,
       background: lineColor,
-      boxShadow: `0 0 6px ${lineColor}, 0 0 12px ${lineColor}40`,
-      opacity: mktOpen ? 1 : 0.7
+      boxShadow: `0 0 4px ${lineColor}80`,
+      opacity: mktOpen ? 0.9 : 0.6
     }
   })));
 }
@@ -5215,8 +5214,8 @@ function SetupCard({
   const decision = summarizeEntryDecision(ticker);
   const isLong = dir.text === "LONG";
   const isShort = dir.text === "SHORT";
-  const borderAccent = isSelected ? "border-blue-500/60" : momentumElite ? "border-purple-500/40" : isLong ? "border-cyan-500/30" : isShort ? "border-rose-500/30" : "border-white/[0.06]";
-  const cardBg = isLong ? "rgba(6,182,212,0.06)" : isShort ? "rgba(225,29,72,0.06)" : "rgba(255,255,255,0.03)";
+  const borderAccent = isSelected ? "border-white/[0.2]" : "border-white/[0.04]";
+  const cardBg = "rgba(255,255,255,0.02)";
   return React.createElement("div", {
     className: `p-2 rounded-lg border cursor-pointer transition-colors ${borderAccent} hover:border-white/[0.12]`,
     onClick: onClick,
@@ -7546,13 +7545,13 @@ function QuickFilters({
       group: "SP_Sectors"
     },
     icon: "📈"
-  }, {
+  }, ...(window._ttIsAdmin ? [{
     label: "Futures",
     filter: {
       group: "Futures"
     },
     icon: "⚡"
-  }, {
+  }] : []), {
     label: "Added By Me",
     filter: {
       group: "USER_ADDED"
@@ -8336,7 +8335,7 @@ function ViewportFilterTags({
     group: "TT_SELECTED"
   }), "tt-selected-pill"), pill(pillLabelWithCount("📈 SP Sectors", pillCounts?.sectors?.SP_Sectors), group === "SP_Sectors", () => onChange({
     group: group === "SP_Sectors" ? "ALL" : "SP_Sectors"
-  })), pill(pillLabelWithCount("⚡ Futures", pillCounts?.groups?.Futures), group === "Futures", () => onChange({
+  })), window._ttIsAdmin && pill(pillLabelWithCount("⚡ Futures", pillCounts?.groups?.Futures), group === "Futures", () => onChange({
     group: group === "Futures" ? "ALL" : "Futures"
   })), pill("➕ Added By Me", group === "USER_ADDED", () => onChange({
     group: group === "USER_ADDED" ? "ALL" : "USER_ADDED"
@@ -8612,21 +8611,18 @@ const CompactCard = React.memo(function CompactCard({
   const statusUp = String(openTrade?.status || "").toUpperCase();
   const hasOpenTrade = openTrade && (["OPEN", "TP_HIT_TRIM"].includes(statusUp) || !(openTrade.exit_ts ?? openTrade.exitTs) && statusUp !== "WIN" && statusUp !== "LOSS");
   let dir = (() => {
-    const scDir = String(t?.swing_consensus?.direction || "").toUpperCase();
-    if (scDir === "BULLISH" || scDir === "LONG") return "LONG";
-    if (scDir === "BEARISH" || scDir === "SHORT") return "SHORT";
-    const trigDir = String(t?.trigger_dir || "").toUpperCase();
-    if (trigDir === "LONG" || trigDir === "SHORT") return trigDir;
+    const posDirStr = String(t?.position_direction || "").toUpperCase();
+    if (t?.has_open_position && (posDirStr === "LONG" || posDirStr === "SHORT")) return posDirStr;
+    if (hasOpenTrade) {
+      const d = String(openTrade.direction || "").toUpperCase();
+      if (d === "LONG" || d === "SHORT") return d;
+    }
+    if (state.startsWith("HTF_BULL")) return "LONG";
+    if (state.startsWith("HTF_BEAR")) return "SHORT";
+    if (state.includes("BULL")) return "LONG";
+    if (state.includes("BEAR")) return "SHORT";
     return isBullish ? "LONG" : "SHORT";
   })();
-  if (hasOpenTrade) {
-    const d = String(openTrade.direction || "").toUpperCase();
-    if (d === "LONG" || d === "SHORT") dir = d;
-  }
-  if (!hasOpenTrade && t?.has_open_position) {
-    const pd = String(t?.position_direction || "").toUpperCase();
-    if (pd === "LONG" || pd === "SHORT") dir = pd;
-  }
   const biasLabel = (() => {
     if (hasOpenTrade || t?.has_open_position) return dir;
     if (htfBull && ltfBull) return "LONG";
@@ -8864,7 +8860,7 @@ const CompactCard = React.memo(function CompactCard({
   }, React.createElement("div", {
     className: "absolute inset-0 pointer-events-none rounded-lg",
     style: {
-      background: "linear-gradient(to bottom, rgba(0,0,0,0.30) 0%, rgba(0,0,0,0.05) 45%, rgba(0,0,0,0.40) 100%)"
+      background: "linear-gradient(to bottom, rgba(0,0,0,0.20) 0%, rgba(0,0,0,0.02) 45%, rgba(0,0,0,0.25) 100%)"
     }
   }), React.createElement("div", {
     className: "relative flex items-center justify-between px-2 pt-1.5 pb-0",
@@ -9589,43 +9585,43 @@ const STAGE_ORDER = {
 const STAGE_META = {
   watch: {
     label: "Watch",
-    icon: "👁",
-    cls: "bg-gray-700/60 text-gray-300 border-gray-500/40"
+    icon: "",
+    cls: "text-[#6b7280]"
   },
   setup: {
     label: "Setup",
-    icon: "📋",
-    cls: "bg-amber-900/40 text-amber-400 border-amber-500/40"
+    icon: "",
+    cls: "text-[#9ca3af]"
   },
   enter: {
     label: "Enter",
-    icon: "🎯",
-    cls: "bg-teal-900/40 text-teal-400 border-teal-500/40"
+    icon: "",
+    cls: "text-[#e5e7eb]"
   },
   new: {
     label: "New",
-    icon: "🆕",
-    cls: "bg-[#00c853]/10 text-[#00e676] border-[#00c853]/40"
+    icon: "",
+    cls: "text-[#e5e7eb]"
   },
   hold: {
     label: "Hold",
-    icon: "🔒",
-    cls: "bg-cyan-900/40 text-cyan-400 border-cyan-500/40"
+    icon: "",
+    cls: "text-[#9ca3af]"
   },
   defend: {
     label: "Defend",
-    icon: "🛡",
-    cls: "bg-orange-900/40 text-orange-400 border-orange-500/40"
+    icon: "",
+    cls: "text-[#9ca3af]"
   },
   trim: {
     label: "Trim",
-    icon: "✂️",
-    cls: "bg-yellow-900/40 text-yellow-400 border-yellow-500/40"
+    icon: "",
+    cls: "text-[#9ca3af]"
   },
   exit: {
     label: "Exit",
-    icon: "🚪",
-    cls: "bg-rose-900/40 text-rose-400 border-rose-500/40"
+    icon: "",
+    cls: "text-[#6b7280]"
   }
 };
 function SimpleKanbanTable({
@@ -9834,19 +9830,18 @@ function SimpleKanbanTable({
     const statusUp = String(trade?.status || "").toUpperCase();
     const hasOpen = trade && (["OPEN", "TP_HIT_TRIM"].includes(statusUp) || !(trade?.exit_ts ?? trade?.exitTs) && statusUp !== "WIN" && statusUp !== "LOSS");
     let dir = (() => {
-      const scDir = String(t?.swing_consensus?.direction || "").toUpperCase();
-      if (scDir === "BULLISH" || scDir === "LONG") return "LONG";
-      if (scDir === "BEARISH" || scDir === "SHORT") return "SHORT";
+      const posDirStr = String(t?.position_direction || "").toUpperCase();
+      if (t?.has_open_position && (posDirStr === "LONG" || posDirStr === "SHORT")) return posDirStr;
+      if (hasOpen) {
+        const d = String(trade?.direction || "").toUpperCase();
+        if (d === "LONG" || d === "SHORT") return d;
+      }
+      if (state.startsWith("HTF_BULL")) return "LONG";
+      if (state.startsWith("HTF_BEAR")) return "SHORT";
+      if (state.includes("BULL")) return "LONG";
+      if (state.includes("BEAR")) return "SHORT";
       return isBullish ? "LONG" : "SHORT";
     })();
-    if (hasOpen) {
-      const d = String(trade?.direction || "").toUpperCase();
-      if (d === "LONG" || d === "SHORT") dir = d;
-    }
-    if (!hasOpen && t?.has_open_position) {
-      const pd = String(t?.position_direction || "").toUpperCase();
-      if (pd === "LONG" || pd === "SHORT") dir = pd;
-    }
     const posDir = t?.has_open_position ? String(t?.position_direction || "").toUpperCase() : null;
     const effectiveDir = posDir === "LONG" || posDir === "SHORT" ? posDir : dir;
     const price = Number(t?.price ?? t?.close);
@@ -10256,36 +10251,36 @@ function SimpleKanbanTable({
         const invMeta = {
           accumulate: {
             label: "Accumulate",
-            cls: "bg-emerald-900/40 text-emerald-400 border-emerald-500/40"
+            cls: "text-[#e5e7eb]"
           },
           core_hold: {
             label: "Core Hold",
-            cls: "bg-cyan-900/40 text-cyan-400 border-cyan-500/40"
+            cls: "text-[#9ca3af]"
           },
           watch: {
             label: "Watch",
-            cls: "bg-gray-700/60 text-gray-300 border-gray-500/40"
+            cls: "text-[#6b7280]"
           },
           reduce: {
             label: "Reduce",
-            cls: "bg-orange-900/40 text-orange-400 border-orange-500/40"
+            cls: "text-[#6b7280]"
           },
           exit: {
             label: "Exit",
-            cls: "bg-rose-900/40 text-rose-400 border-rose-500/40"
+            cls: "text-[#4b5563]"
           },
           research: {
             label: "Research",
-            cls: "bg-purple-900/40 text-purple-400 border-purple-500/40"
+            cls: "text-[#6b7280]"
           }
         };
         const key = String(inv).toLowerCase().replace(/\s+/g, "_");
         const m = invMeta[key] || {
           label: inv,
-          cls: "bg-gray-700/60 text-gray-300 border-gray-500/40"
+          cls: "text-[#6b7280]"
         };
         return React.createElement("span", {
-          className: `inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold border ${m.cls}`
+          className: `inline-flex items-center px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider ${m.cls}`
         }, m.label);
       }
       const htf = Number(t?.htf_score || 0);
@@ -10293,22 +10288,22 @@ function SimpleKanbanTable({
       let invLabel, invCls;
       if (htf > 10 && score > 60) {
         invLabel = "Accumulate";
-        invCls = "bg-emerald-900/40 text-emerald-400 border-emerald-500/40";
+        invCls = "text-[#e5e7eb]";
       } else if (htf > 0 && score > 40) {
         invLabel = "Core Hold";
-        invCls = "bg-cyan-900/40 text-cyan-400 border-cyan-500/40";
+        invCls = "text-[#9ca3af]";
       } else if (htf > -5 && htf <= 0) {
         invLabel = "Watch";
-        invCls = "bg-gray-700/60 text-gray-300 border-gray-500/40";
+        invCls = "text-[#6b7280]";
       } else if (htf <= -5) {
         invLabel = "Reduce";
-        invCls = "bg-orange-900/40 text-orange-400 border-orange-500/40";
+        invCls = "text-[#6b7280]";
       } else {
         invLabel = "Watch";
-        invCls = "bg-gray-700/60 text-gray-300 border-gray-500/40";
+        invCls = "text-[#6b7280]";
       }
       return React.createElement("span", {
-        className: `inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold border ${invCls}`
+        className: `inline-flex items-center px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider ${invCls}`
       }, invLabel);
     })()));
   })))), React.createElement("div", {
@@ -10345,24 +10340,23 @@ const KanbanColumn = React.memo(function KanbanColumn({
     } catch {}
   }, [itemKeys, laneKey]);
   return React.createElement("div", {
-    className: "flex items-stretch gap-0 mb-1 kanban-lane"
+    className: "flex items-stretch gap-0 mb-0.5 kanban-lane"
   }, React.createElement("div", {
-    className: `flex flex-col justify-center items-center w-[52px] shrink-0 rounded-l-xl border-l-2 border-t border-b border-t-white/[0.04] border-b-white/[0.04] ${color} px-1 py-2`,
+    className: "flex flex-col justify-center items-center w-[48px] shrink-0 border-r border-r-white/[0.04] px-1 py-2",
     style: {
-      background: "linear-gradient(180deg, rgba(255,255,255,0.04) 0%, rgba(255,255,255,0.015) 100%)"
+      background: "transparent"
     },
     title: subtitle || title
   }, React.createElement("span", {
-    className: "text-[11px] font-semibold text-white/90 tracking-wide text-center leading-tight"
-  }, icon, React.createElement("br", null), title), React.createElement("span", {
-    className: `text-[10px] font-bold tabular-nums mt-0.5 ${count > 0 ? "text-white/80" : "text-[#4b5563]"}`
+    className: "text-[9px] font-bold uppercase tracking-widest text-[#4b5563] text-center leading-tight"
+  }, title), React.createElement("span", {
+    className: `text-[11px] font-bold tabular-nums mt-0.5 ${count > 0 ? "text-[#e5e7eb]" : "text-[#2a2e35]"}`
   }, count)), React.createElement("div", {
     ref: listRef,
-    className: "flex-1 rounded-r-xl border-t border-r border-b border-white/[0.04] p-1.5 overflow-x-auto scrollbar-hide",
+    className: "flex-1 p-1.5 overflow-x-auto scrollbar-hide",
     style: {
       overflowAnchor: "none",
-      WebkitOverflowScrolling: "touch",
-      background: "rgba(255,255,255,0.01)"
+      WebkitOverflowScrolling: "touch"
     },
     onScroll: () => {
       try {
@@ -10379,36 +10373,26 @@ const KanbanColumn = React.memo(function KanbanColumn({
   }, renderCompactCard(t))), !window._ttIsPro && React.createElement("div", {
     className: "w-[280px] shrink-0 kanban-card flex items-center justify-center"
   }, React.createElement("div", {
-    className: "w-full rounded-xl border border-amber-500/30 bg-gradient-to-br from-amber-500/10 to-amber-600/5 p-4 flex flex-col items-center gap-2 text-center cursor-pointer hover:border-amber-400/50 transition-colors",
+    className: "w-full border border-white/[0.06] p-4 flex flex-col items-center gap-2 text-center cursor-pointer hover:border-white/[0.12] transition-colors",
+    style: {
+      borderRadius: "6px"
+    },
     onClick: () => window.dispatchEvent(new CustomEvent("tt-go-pro"))
-  }, React.createElement("svg", {
-    className: "w-6 h-6 text-amber-400",
-    fill: "currentColor",
-    viewBox: "0 0 20 20"
-  }, React.createElement("path", {
-    fillRule: "evenodd",
-    d: "M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z",
-    clipRule: "evenodd"
-  })), React.createElement("span", {
-    className: "text-[11px] font-bold text-amber-300"
+  }, React.createElement("span", {
+    className: "text-[10px] font-bold text-[#9ca3af] uppercase tracking-widest"
   }, "Unlock All Tickers"), React.createElement("span", {
-    className: "text-[9px] text-gray-400"
+    className: "text-[9px] text-[#4b5563]"
   }, "Upgrade to Pro for full access"), React.createElement("span", {
-    className: "mt-1 px-3 py-1 rounded-full bg-amber-500/20 border border-amber-500/40 text-[10px] font-bold text-amber-300 hover:bg-amber-500/30 transition-colors"
+    className: "mt-1 px-3 py-1 border border-white/[0.08] text-[10px] font-bold text-[#e5e7eb] hover:bg-white/[0.04] transition-colors",
+    style: {
+      borderRadius: "4px"
+    }
   }, "Go Pro")))) : React.createElement("div", {
     className: "text-[10px] text-[#4b5563] italic flex items-center h-full px-2"
   }, !window._ttIsPro ? React.createElement("span", {
-    className: "flex items-center gap-1 cursor-pointer text-amber-400/70 hover:text-amber-300 transition-colors",
+    className: "flex items-center gap-1 cursor-pointer text-[#6b7280] hover:text-[#9ca3af] transition-colors",
     onClick: () => window.dispatchEvent(new CustomEvent("tt-go-pro"))
-  }, React.createElement("svg", {
-    className: "w-3 h-3",
-    fill: "currentColor",
-    viewBox: "0 0 20 20"
-  }, React.createElement("path", {
-    fillRule: "evenodd",
-    d: "M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z",
-    clipRule: "evenodd"
-  })), "Go Pro to unlock") : "No tickers")));
+  }, "Upgrade to unlock") : "No tickers")));
 });
 function EarlyMoversPanel({
   tickers = [],
@@ -10655,8 +10639,8 @@ function EarlyMoversPanel({
     title: "Setup",
     subtitle: "Entry qualified \u2014 awaiting execution window",
     count: setup.length,
-    icon: "\uD83D\uDCCB",
-    color: "border-amber-500",
+    icon: "",
+    color: "",
     items: setup,
     showDetails: true,
     laneScrollTopRef: laneScrollTopRef,
@@ -10666,8 +10650,8 @@ function EarlyMoversPanel({
     title: "Enter",
     subtitle: "All gates clear \u2014 system will execute",
     count: enter.length,
-    icon: "\uD83C\uDFAF",
-    color: "border-teal-500",
+    icon: "",
+    color: "",
     items: enter,
     showDetails: true,
     laneScrollTopRef: laneScrollTopRef,
@@ -10677,8 +10661,8 @@ function EarlyMoversPanel({
     title: "New",
     subtitle: "Entered today \u2014 position just opened",
     count: newEntries.length,
-    icon: "\uD83C\uDD95",
-    color: "border-[#00c853]",
+    icon: "",
+    color: "",
     items: newEntries,
     showProgress: true,
     showOpen: true,
@@ -10688,10 +10672,10 @@ function EarlyMoversPanel({
   }), React.createElement(KanbanColumn, {
     laneKey: "hold",
     title: "Hold",
-    subtitle: "Position healthy - let it run",
+    subtitle: "Position healthy \u2014 let it run",
     count: hold.length,
-    icon: "\uD83D\uDD12",
-    color: "border-cyan-500",
+    icon: "",
+    color: "",
     items: hold,
     showProgress: true,
     showOpen: true,
@@ -10701,10 +10685,10 @@ function EarlyMoversPanel({
   }), React.createElement(KanbanColumn, {
     laneKey: "defend",
     title: "Defend",
-    subtitle: "Warning indicators - tighten stops",
+    subtitle: "Warning indicators \u2014 tighten stops",
     count: defend.length,
-    icon: "\uD83D\uDEE1",
-    color: "border-orange-500",
+    icon: "",
+    color: "",
     items: defend,
     showProgress: true,
     showOpen: true,
@@ -10714,10 +10698,10 @@ function EarlyMoversPanel({
   }), React.createElement(KanbanColumn, {
     laneKey: "trim",
     title: "Trim",
-    subtitle: "Near TP - take partial profits",
+    subtitle: "Near TP \u2014 take partial profits",
     count: trim.length,
-    icon: "\u2702\uFE0F",
-    color: "border-yellow-500",
+    icon: "",
+    color: "",
     items: trim,
     showProgress: true,
     showOpen: true,
@@ -10727,10 +10711,10 @@ function EarlyMoversPanel({
   }), React.createElement(KanbanColumn, {
     laneKey: "exit",
     title: "Exit",
-    subtitle: "Stop hit or invalidated - close",
+    subtitle: "Stop hit or invalidated \u2014 close",
     count: exit.length,
-    icon: "\uD83D\uDEAA",
-    color: "border-rose-500",
+    icon: "",
+    color: "",
     items: exit,
     showProgress: true,
     showOpen: true,
@@ -12429,12 +12413,19 @@ const AIChatInterface = ({
     let key = 0;
     const flushBullets = () => {
       if (bulletBuffer.length === 0) return;
-      elements.push(React.createElement("ul", { key: key++, className: "space-y-1.5 my-2 pl-1" },
-        bulletBuffer.map((b, j) => React.createElement("li", { key: j, className: "flex items-start gap-2 text-[13px] leading-relaxed" },
-          React.createElement("span", { className: "text-emerald-400/70 mt-[3px] shrink-0 text-[10px]" }, "\u25CF"),
-          React.createElement("span", { dangerouslySetInnerHTML: { __html: inlineFormat(b) } })
-        ))
-      ));
+      elements.push(React.createElement("ul", {
+        key: key++,
+        className: "space-y-1.5 my-2 pl-1"
+      }, bulletBuffer.map((b, j) => React.createElement("li", {
+        key: j,
+        className: "flex items-start gap-2 text-[13px] leading-relaxed"
+      }, React.createElement("span", {
+        className: "text-emerald-400/70 mt-[3px] shrink-0 text-[10px]"
+      }, "\u25CF"), React.createElement("span", {
+        dangerouslySetInnerHTML: {
+          __html: inlineFormat(b)
+        }
+      })))));
       bulletBuffer = [];
     };
     for (let i = 0; i < lines.length; i++) {
@@ -12442,7 +12433,12 @@ const AIChatInterface = ({
       const trimmed = line.trim();
       if (trimmed === "" || trimmed === "---") {
         flushBullets();
-        if (trimmed === "---") elements.push(React.createElement("hr", { key: key++, className: "border-white/[0.06] my-3" }));
+        if (trimmed === "---") {
+          elements.push(React.createElement("hr", {
+            key: key++,
+            className: "border-white/[0.06] my-3"
+          }));
+        }
         continue;
       }
       const headingMatch = trimmed.match(/^(#{1,4})\s+(.+)/);
@@ -12450,15 +12446,33 @@ const AIChatInterface = ({
         flushBullets();
         const level = headingMatch[1].length;
         const cls = level <= 2 ? "text-[14px] font-bold text-white mt-3 mb-1.5" : "text-[13px] font-semibold text-[#d1d5db] mt-2.5 mb-1";
-        elements.push(React.createElement("div", { key: key++, className: cls, dangerouslySetInnerHTML: { __html: inlineFormat(headingMatch[2]) } }));
+        elements.push(React.createElement("div", {
+          key: key++,
+          className: cls,
+          dangerouslySetInnerHTML: {
+            __html: inlineFormat(headingMatch[2])
+          }
+        }));
         continue;
       }
       const bulletMatch = trimmed.match(/^[-*•]\s+(.+)/);
       const numBulletMatch = !bulletMatch && trimmed.match(/^\d+[.)]\s+(.+)/);
-      if (bulletMatch) { bulletBuffer.push(bulletMatch[1]); continue; }
-      if (numBulletMatch) { bulletBuffer.push(numBulletMatch[1]); continue; }
+      if (bulletMatch) {
+        bulletBuffer.push(bulletMatch[1]);
+        continue;
+      }
+      if (numBulletMatch) {
+        bulletBuffer.push(numBulletMatch[1]);
+        continue;
+      }
       flushBullets();
-      elements.push(React.createElement("p", { key: key++, className: "text-[13px] leading-relaxed mb-1.5", dangerouslySetInnerHTML: { __html: inlineFormat(trimmed) } }));
+      elements.push(React.createElement("p", {
+        key: key++,
+        className: "text-[13px] leading-relaxed mb-1.5",
+        dangerouslySetInnerHTML: {
+          __html: inlineFormat(trimmed)
+        }
+      }));
     }
     flushBullets();
     return elements;
@@ -12923,7 +12937,8 @@ function App() {
     setData: setTickerData
   } = useTickerData();
   const _dataStaleMinutes = freshnessTs ? Math.floor((Date.now() - freshnessTs) / 60000) : 0;
-  const _dataIsStale = _dataStaleMinutes > 10;
+  const _rthOpen = window.TimedPriceUtils?.isNyRegularMarketOpen?.() ?? false;
+  const _dataIsStale = _rthOpen && _dataStaleMinutes > 10;
   const [_secondaryReady, _setSecondaryReady] = useState(false);
   useEffect(() => {
     if (loading || !data) return;
@@ -13557,18 +13572,20 @@ function App() {
       tooltip: `Major index ETFs\n${INDEX_SYMS.join(", ")}`,
       row: 2
     });
-    const FUTURES_SYMS = ["ES1!", "NQ1!", "RTY1!", "YM1!", "VX1!", "CL1!", "GC1!", "SI1!", "BTCUSD", "ETHUSD"];
-    const futTickers = allTickers.filter(t => FUTURES_SYMS.includes(String(t.ticker).toUpperCase()));
-    chips.push({
-      id: "futures",
-      icon: "⚡",
-      label: "Futures",
-      count: futTickers.length,
-      color: "amber",
-      tickers: futTickers.map(t => t.ticker),
-      tooltip: `Futures & crypto\n${FUTURES_SYMS.join(", ")}`,
-      row: 2
-    });
+    if (window._ttIsAdmin) {
+      const FUTURES_SYMS = ["ES1!", "NQ1!", "RTY1!", "YM1!", "VX1!", "CL1!", "GC1!", "SI1!", "BTCUSD", "ETHUSD"];
+      const futTickers = allTickers.filter(t => FUTURES_SYMS.includes(String(t.ticker).toUpperCase()));
+      chips.push({
+        id: "futures",
+        icon: "⚡",
+        label: "Futures",
+        count: futTickers.length,
+        color: "amber",
+        tickers: futTickers.map(t => t.ticker),
+        tooltip: `Futures & crypto\n${FUTURES_SYMS.join(", ")}`,
+        row: 2
+      });
+    }
     const SP_ETF_SYMS = ["XLK", "XLF", "XLY", "XLP", "XLC", "XLI", "XLB", "XLE", "XLRE", "XLU", "XLV"];
     const spEtfTickers = allTickers.filter(t => SP_ETF_SYMS.includes(String(t.ticker).toUpperCase()));
     chips.push({
@@ -13960,6 +13977,8 @@ function App() {
     title: "Ask the AI assistant"
   }, "Ask AI"), loading && React.createElement("div", {
     className: "loading-spinner"
+  }), window.TimedDiscordButton && React.createElement(window.TimedDiscordButton, {
+    apiBase: API_BASE
   }), window.TimedNotificationCenter && React.createElement(window.TimedNotificationCenter, {
     apiBase: API_BASE
   }), window.TimedUserBadge && React.createElement(window.TimedUserBadge, {
@@ -14261,8 +14280,9 @@ function App() {
         className: `text-[9px] font-semibold ${up ? "text-[#00e676]" : "text-rose-400"}`
       }, pct >= 0 ? "+" : "", pct.toFixed(2), "%"));
     };
-    const row1 = ["US500", "ES1!", "NQ1!", "RTY1!", "YM1!", "VX1!", "CL1!", "GC1!", "SI1!", "BTCUSD", "ETHUSD"];
-    const row2 = ["SPY", "QQQ", "IWM", "XLK", "XLF", "XLY", "XLP", "XLC", "XLI", "XLB", "XLE", "XLRE", "XLU", "XLV"];
+    const _isAdminPulse = window._ttIsAdmin;
+    const row1 = _isAdminPulse ? ["US500", "ES1!", "NQ1!", "RTY1!", "YM1!", "VX1!", "CL1!", "GC1!", "SI1!", "BTCUSD", "ETHUSD"] : ["VIXY", "USO", "GLD", "SLV", "DIA", "BTCUSD", "ETHUSD"];
+    const row2 = _isAdminPulse ? ["SPY", "QQQ", "IWM", "XLK", "XLF", "XLY", "XLP", "XLC", "XLI", "XLB", "XLE", "XLRE", "XLU", "XLV"] : ["SPY", "QQQ", "IWM", "XLK", "XLF", "XLY", "XLP", "XLC", "XLI", "XLB", "XLE", "XLRE", "XLU", "XLV"];
     const row1Chips = row1.map(s => renderPulseChip(s)).filter(Boolean);
     const row2Chips = row2.map(s => renderPulseChip(s)).filter(Boolean);
     if (row1Chips.length === 0 && row2Chips.length === 0) return null;
@@ -14285,7 +14305,7 @@ function App() {
       className: "space-y-1.5"
     }, row1Chips.length > 0 && React.createElement("div", null, React.createElement("div", {
       className: "text-[8px] uppercase tracking-wide text-[#4b5563] mb-1"
-    }, "Futures, Commodities, Crypto"), React.createElement("div", {
+    }, _isAdminPulse ? "Futures, Commodities, Crypto" : "Commodities & Crypto"), React.createElement("div", {
       className: "flex flex-wrap gap-1.5"
     }, row1Chips)), row2Chips.length > 0 && React.createElement("div", null, React.createElement("div", {
       className: "text-[8px] uppercase tracking-wide text-[#4b5563] mb-1"
@@ -14847,9 +14867,9 @@ function App() {
   }, "Clear Search")))) : dashboardMode === "analysis" && React.createElement("div", {
     className: "flex flex-col lg:flex-row gap-4",
     style: {
-      height: "calc(100vh - 160px)",
-      minHeight: "600px",
-      maxHeight: "1100px"
+      height: "calc(100vh - 120px)",
+      minHeight: "700px",
+      maxHeight: "1200px"
     }
   }, React.createElement("div", {
     className: "w-full lg:w-[320px] lg:flex-shrink-0 lg:h-full min-h-[400px] lg:min-h-0",
@@ -15219,7 +15239,7 @@ function App() {
     dashboardMode: dashboardMode,
     addingTicker: userTickers.addingTicker
   }))), dashboardMode === "trader" && !noTickerResults && React.createElement("div", {
-    className: "relative",
+    className: "relative pb-12",
     "data-coachmark": "kanban-lanes"
   }, viewSwitching && React.createElement("div", {
     className: "absolute inset-0 z-30 flex items-center justify-center bg-[#0d1117]/80 backdrop-blur-sm rounded-xl",
@@ -15256,7 +15276,7 @@ function App() {
     toggleSavedTicker: toggleSavedTicker,
     addingTicker: userTickers.addingTicker
   })), dashboardMode === "investor" && !noTickerResults && React.createElement("div", {
-    className: "rounded-xl border border-white/[0.06] overflow-hidden p-4",
+    className: "rounded-xl border border-white/[0.06] overflow-hidden p-4 mb-12",
     style: {
       minHeight: 600,
       background: "#0b0e11"

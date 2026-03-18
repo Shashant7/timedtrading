@@ -1668,7 +1668,12 @@ function buildMorningPrompt(data) {
 ${calNote ? `\n## Calendar context (MUST acknowledge where relevant):\n${calNote}\n` : ""}
 
 ## Market Data (as of pre-market):
-${JSON.stringify(data.market, null, 1)}
+${(() => {
+  const keys = ["SPY", "QQQ", "ES", "NQ", "VIX", "IWM", "DIA", "TLT", "GLD", "SLV", "USO", "XLE", "XLF", "XLK", "XLV", "XLI", "XLP", "XLU", "XLB", "XLRE", "XLY", "XLC"];
+  const slim = {};
+  for (const k of keys) { if (data.market?.[k]) slim[k] = data.market[k]; }
+  return JSON.stringify(slim);
+})()}
 
 ## Price Feed Cross-Reference (TwelveData cron — GROUND TRUTH for daily changes):
 ${data.priceFeedCrossRef || "Unavailable."}
@@ -1697,17 +1702,17 @@ ${(() => {
 })()}
 IMPORTANT: When stating "X dropped Y% over Z sessions", use the 5-day values above. For single-day moves, use the Today value. NEVER estimate or calculate percentages yourself.
 
-## ES Technical Summary (futures; use for ES and approximate SPX — same scale):
-${JSON.stringify(data.esTechnical, null, 1)}
+## ES Technical Summary (futures):
+${JSON.stringify(data.esTechnical)}
 
 ## NQ Technical Summary (futures):
-${JSON.stringify(data.nqTechnical, null, 1)}
+${JSON.stringify(data.nqTechnical)}
 
-## SPY Technical Summary (ETF — day trader levels alongside ES/SPX):
-${JSON.stringify(data.spyTechnical, null, 1)}
+## SPY Technical Summary (ETF):
+${JSON.stringify(data.spyTechnical)}
 
-## QQQ Technical Summary (ETF — day trader levels alongside NQ):
-${JSON.stringify(data.qqqTechnical, null, 1)}
+## QQQ Technical Summary (ETF):
+${JSON.stringify(data.qqqTechnical)}
 
 ## PRE-VALIDATED Game Plan (USE THESE EXACT TRIGGERS & TARGETS):
 ${(() => {
@@ -1902,7 +1907,12 @@ function buildEveningPrompt(data) {
 ${calNote ? `\n## Calendar context (MUST acknowledge where relevant):\n${calNote}\n` : ""}
 
 ## Market Close Data:
-${JSON.stringify(data.market, null, 1)}
+${(() => {
+  const keys = ["SPY", "QQQ", "ES", "NQ", "VIX", "IWM", "DIA", "TLT", "GLD", "SLV", "USO", "XLE", "XLF", "XLK", "XLV", "XLI", "XLP", "XLU", "XLB", "XLRE", "XLY", "XLC"];
+  const slim = {};
+  for (const k of keys) { if (data.market?.[k]) slim[k] = data.market[k]; }
+  return JSON.stringify(slim);
+})()}
 
 ## Price Feed Cross-Reference (TwelveData cron — GROUND TRUTH for daily changes):
 ${data.priceFeedCrossRef || "Unavailable."}
@@ -1930,17 +1940,17 @@ ${(() => {
 })()}
 IMPORTANT: When stating "X dropped Y% over Z sessions", use the 5-day values above. For single-day moves, use the Today value. NEVER estimate or calculate percentages yourself.
 
-## ES Technical Summary (futures; use for ES and approximate SPX — same scale):
-${JSON.stringify(data.esTechnical, null, 1)}
+## ES Technical Summary (futures):
+${JSON.stringify(data.esTechnical)}
 
 ## NQ Technical Summary (futures):
-${JSON.stringify(data.nqTechnical, null, 1)}
+${JSON.stringify(data.nqTechnical)}
 
-## SPY Technical Summary (ETF — day trader levels alongside ES/SPX):
-${JSON.stringify(data.spyTechnical, null, 1)}
+## SPY Technical Summary (ETF):
+${JSON.stringify(data.spyTechnical)}
 
-## QQQ Technical Summary (ETF — day trader levels alongside NQ):
-${JSON.stringify(data.qqqTechnical, null, 1)}
+## QQQ Technical Summary (ETF):
+${JSON.stringify(data.qqqTechnical)}
 
 ## Key Levels — Support Floors & Resistance Ceilings:
 ALWAYS state the timeframe when referencing levels. SPY/QQQ first, then futures equivalents.
@@ -2088,7 +2098,7 @@ async function callOpenAI(env, systemPrompt, userPrompt) {
   const apiKey = env?.OPENAI_API_KEY;
   if (!apiKey) throw new Error("OPENAI_API_KEY not configured");
 
-  const model = env?.DAILY_BRIEF_MODEL || "gpt-4o";
+  const model = env?.DAILY_BRIEF_MODEL || "gpt-5.4";
   const resp = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
     headers: {
@@ -2102,7 +2112,7 @@ async function callOpenAI(env, systemPrompt, userPrompt) {
         { role: "user", content: userPrompt },
       ],
       temperature: 0.35,
-      max_tokens: 6000,
+      max_completion_tokens: 6000,
     }),
     signal: AbortSignal.timeout(90000), // 90s timeout for larger model
   });

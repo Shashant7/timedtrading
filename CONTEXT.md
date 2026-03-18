@@ -77,6 +77,9 @@ npm run deploy:worker   # worker only (skip right-rail)
 - Replay loads VIX daily candles from D1 for per-day VIX (requires VIX backfill); falls back to static KV
 - Replay loads `ticker_profiles` from D1 for personality-aware SL/TP and lineage enrichment
 - `signal_snapshot_json.lineage` includes `ticker_character` and `vix_at_entry` for post-trade analysis
+- **Trimmed runner stale bug (fixed)**: doa-gate-v2 had 65 `TP_HIT_TRIM` trades at 66% trimmed that never closed — pullback support shield had no time limit, so structural support (price above any cloud low) shielded them indefinitely. Fix: `RUNNER_STALE_FORCE_CLOSE` at 120 market-hours + time-decaying shield buffers (full → zero over 48h) in both `evaluateRunnerExit` and EXIT lane. Config key: `deep_audit_runner_stale_force_close_hours`.
+- **`STALL_FORCE_CLOSE` only for untrimmed**: The stall timer at `deep_audit_stall_force_close_hours` only fires when `trimmedPct < 0.01`. Trimmed trades use `RUNNER_STALE_FORCE_CLOSE` instead.
+- **DA-3e (risk-off + choppy block) uses live market internals in replay**: execution_profile reads current VIX/internals, not historical. Must be disabled or use historical data during candle replay.
 
 **Breakout Entry Paths**
 - Three detectors in `indicators.js`: `detectDailyLevelBreak`, `detectATRBreakout`, `detectEMAStackBreakout`
@@ -117,6 +120,15 @@ npm run deploy:worker   # worker only (skip right-rail)
 - `full-backtest.sh` calls `register` at start and `finalize` at end; both snapshot `model_config` (register: INSERT OR IGNORE for initial state, finalize: INSERT OR REPLACE for end state)
 - `calibrate.js --run-id <id>` reads from archived tables when available
 - UI: System Intelligence → Runs tab (`react-app/system-intelligence.html`)
+
+**Daily Brief**
+- GPT-5.4 requires `max_completion_tokens` (not `max_tokens`) — `worker/daily-brief.js`
+- Morning brief: 9 AM ET cron via `generateDailyBrief(env, "morning", ...)` at UTC 13:00
+
+**Discord**
+- Bot role must be ABOVE assigned roles in hierarchy for `PUT /roles` to work (403 otherwise)
+- `discordAddMemberAndRole` failure is caught non-blocking — user gets welcome email even if guild add fails
+- Admin fix: `POST /timed/admin/discord/fix-role` with `{"discord_id":"..."}` to diagnose and force-assign role
 
 **Code Hygiene**
 - After `git merge` / `git pull`: run `grep -r '<<<<<<<' react-app/ worker/` before committing

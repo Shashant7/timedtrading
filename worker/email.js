@@ -147,43 +147,52 @@ ${preheader ? `<span style="display:none;font-size:1px;color:${BRAND.dark};max-h
 
 export async function sendWelcomeEmail(env, user) {
   const name = user.display_name || user.email.split("@")[0];
+  const featureRow = (icon, color, title, desc) => `
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 12px">
+      <tr>
+        <td width="36" style="vertical-align:top;padding-top:2px">
+          <div style="width:28px;height:28px;border-radius:6px;background:${color}12;text-align:center;line-height:28px;font-size:14px">${icon}</div>
+        </td>
+        <td style="padding-left:10px;vertical-align:top">
+          <p style="margin:0 0 2px;font-size:13px;font-weight:700;color:white">${title}</p>
+          <p style="margin:0;font-size:12px;color:${BRAND.textSecondary};line-height:1.5">${desc}</p>
+        </td>
+      </tr>
+    </table>`;
+
   const html = emailLayout(`
-    <h1 style="margin:0 0 16px;font-size:22px;font-weight:700;color:white">Welcome${name ? `, ${name}` : ""}</h1>
-    <p style="margin:0 0 20px;font-size:15px;color:${BRAND.textSecondary};line-height:1.6">
-      You are in. The system is already watching the market, scoring tickers, and tracking momentum shifts across multiple timeframes. Here is how to get started:
+    <h1 style="margin:0 0 6px;font-size:22px;font-weight:700;color:white">Welcome${name ? `, ${name}` : ""}</h1>
+    <p style="margin:0 0 24px;font-size:15px;color:${BRAND.textSecondary};line-height:1.6">
+      You're in. The system is already watching 229 tickers across 8 timeframes, scoring momentum shifts and surfacing setups in real time.
     </p>
-    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 20px">
-      <tr><td style="padding:14px 16px;background:rgba(0,200,83,0.08);border-left:3px solid ${BRAND.green};border-radius:6px">
-        <p style="margin:0 0 4px;font-size:14px;font-weight:700;color:white">Step 1: Check the Active Trader Board</p>
-        <p style="margin:0;font-size:13px;color:${BRAND.textSecondary};line-height:1.5">See what the system is watching right now. Tickers are sorted into lanes &mdash; Setup, Enter, Hold, Trim, Exit &mdash; so you know exactly where every opportunity stands.</p>
-      </td></tr>
-    </table>
-    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 20px">
-      <tr><td style="padding:14px 16px;background:rgba(59,130,246,0.08);border-left:3px solid #3b82f6;border-radius:6px">
-        <p style="margin:0 0 4px;font-size:14px;font-weight:700;color:white">Step 2: Read Today's Daily Brief</p>
-        <p style="margin:0;font-size:13px;color:${BRAND.textSecondary};line-height:1.5">Every market morning, the system publishes a brief covering top setups, sector themes, and key levels. Think of it as your game plan for the day.</p>
-      </td></tr>
-    </table>
-    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 24px">
-      <tr><td style="padding:14px 16px;background:rgba(245,158,11,0.08);border-left:3px solid #f59e0b;border-radius:6px">
-        <p style="margin:0 0 4px;font-size:14px;font-weight:700;color:white">Step 3: Explore the Investor Dashboard</p>
-        <p style="margin:0;font-size:13px;color:${BRAND.textSecondary};line-height:1.5">See the bigger picture &mdash; portfolio health, sector heatmap, market regime, and the system's simulated trade history with full P&amp;L tracking.</p>
-      </td></tr>
-    </table>
-    <p style="margin:0 0 24px;font-size:14px;color:${BRAND.textSecondary};line-height:1.6">
-      You will receive Daily Brief emails each morning and evening on market days. The system watches continuously &mdash; you decide when to act.
+
+    <p style="margin:0 0 14px;font-size:11px;font-weight:700;color:${BRAND.textMuted};text-transform:uppercase;letter-spacing:0.08em">What you get</p>
+    ${featureRow("&#x1F4CA;", "#00c853", "Analysis Dashboard", "Multi-timeframe scoring, bubble map, sector rotation, and conviction ranks for every ticker in the universe.")}
+    ${featureRow("&#x26A1;", "#3b82f6", "Active Trader Board", "Tickers sorted into lanes &mdash; Setup, Enter, Hold, Trim, Exit &mdash; so you see exactly where each opportunity stands.")}
+    ${featureRow("&#x1F4C8;", "#f59e0b", "Investor Dashboard", "Portfolio health, sector heatmap, market regime, and simulated trade history with full P&amp;L.")}
+    ${featureRow("&#x1F4DD;", "#a78bfa", "Daily Brief", "Pre-market and post-market briefs with top setups, sector themes, and key levels. Delivered to your inbox and in-app.")}
+    ${featureRow("&#x1F4BC;", "#14b8a6", "Trades &amp; Portfolio", "Live simulated positions, entry/exit tracking, and performance analytics.")}
+    ${featureRow("&#x1F514;", "#ef4444", "Trade Alerts", "Real-time notifications when the system enters, exits, or trims a position.")}
+    ${featureRow("&#x1F4AC;", "#5865F2", "Discord Community", "Connect with other traders, share setups, and get live signal alerts in our private server.")}
+
+    <div style="height:1px;background:${BRAND.border};margin:24px 0"></div>
+
+    <p style="margin:0 0 14px;font-size:11px;font-weight:700;color:${BRAND.textMuted};text-transform:uppercase;letter-spacing:0.08em">Community Guidelines</p>
+    <p style="margin:0 0 20px;font-size:12px;color:${BRAND.textSecondary};line-height:1.6">
+      Our community is built on mutual respect. Be professional, be constructive, and treat every member the way you'd want to be treated. No spam, no personal attacks, no unsolicited promotions. We're here to learn and grow together.
     </p>
+
     <table role="presentation" cellpadding="0" cellspacing="0">
       <tr><td style="background:${BRAND.green};border-radius:8px;padding:12px 28px">
         <a href="https://timed-trading.com/index-react.html" style="color:white;font-size:14px;font-weight:600;text-decoration:none;display:inline-block">Open Your Dashboard</a>
       </td></tr>
     </table>
-    <p style="margin:24px 0 0;font-size:13px;color:${BRAND.textMuted}">
+    <p style="margin:20px 0 0;font-size:12px;color:${BRAND.textMuted}">
       Questions? Reply to this email or reach us at <a href="mailto:support@timed-trading.com" style="color:${BRAND.textSecondary}">support@timed-trading.com</a>.
     </p>
-  `, { preheader: "Your trading intelligence platform is ready. Here is how to get started." });
+  `, { preheader: "Your trading intelligence platform is ready. Here is what you get." });
 
-  const text = `Welcome to Timed Trading, ${name}!\n\nThe system is already watching the market. Here is how to get started:\n\n1. Check the Active Trader Board — see what the system is watching right now\n2. Read Today's Daily Brief — your pre-market game plan\n3. Explore the Investor Dashboard — portfolio health, market regime, and trade history\n\nVisit https://timed-trading.com/index-react.html to dive in.\n\nYou will receive Daily Brief emails each market day. The system watches continuously — you decide when to act.\n\nQuestions? Reply to this email or contact support@timed-trading.com.`;
+  const text = `Welcome to Timed Trading, ${name}!\n\nYou're in. The system is already watching 229 tickers across 8 timeframes.\n\nWhat you get:\n- Analysis Dashboard: Multi-timeframe scoring, bubble map, sector rotation\n- Active Trader Board: Tickers in lanes (Setup, Enter, Hold, Trim, Exit)\n- Investor Dashboard: Portfolio health, sector heatmap, market regime\n- Daily Brief: Pre-market and post-market briefs with top setups\n- Trades & Portfolio: Live positions and performance analytics\n- Trade Alerts: Real-time entry/exit/trim notifications\n- Discord Community: Private server for traders\n\nCommunity Guidelines: Be professional, be constructive, treat everyone with respect. No spam, no personal attacks.\n\nVisit https://timed-trading.com to get started.\n\nQuestions? Reply or email support@timed-trading.com.`;
 
   return sendEmail(env, {
     to: user.email,
@@ -199,27 +208,47 @@ export async function sendWelcomeEmail(env, user) {
 // ═══════════════════════════════════════════════════════════════════════
 
 export async function sendSubscriptionEmail(env, email, isTrial) {
+  const featureItem = (icon, title) => `
+    <tr>
+      <td style="padding:4px 0">
+        <span style="font-size:13px">${icon}</span>
+        <span style="margin-left:6px;font-size:13px;color:${BRAND.textSecondary}">${title}</span>
+      </td>
+    </tr>`;
+
   const html = emailLayout(`
-    <h1 style="margin:0 0 16px;font-size:22px;font-weight:700;color:white">${isTrial ? "Your Free Trial Has Started" : "Subscription Confirmed"}</h1>
-    <p style="margin:0 0 16px;font-size:15px;color:${BRAND.textSecondary};line-height:1.6">
+    <h1 style="margin:0 0 8px;font-size:22px;font-weight:700;color:white">${isTrial ? "Your Free Trial Has Started" : "Subscription Confirmed"}</h1>
+    <p style="margin:0 0 20px;font-size:15px;color:${BRAND.textSecondary};line-height:1.6">
       ${isTrial
-        ? "You now have 30 days of full Pro access — no charge until the trial ends."
+        ? "You now have 14 days of full Pro access &mdash; no charge until the trial ends."
         : "Your Timed Trading Pro subscription is active. Thank you for subscribing."}
     </p>
-    <p style="margin:0 0 24px;font-size:14px;color:${BRAND.textSecondary};line-height:1.6">
-      You have full access to all dashboards, the Daily Brief, trade alerts, and AI features.
+
+    <p style="margin:0 0 10px;font-size:11px;font-weight:700;color:${BRAND.textMuted};text-transform:uppercase;letter-spacing:0.08em">Full access includes</p>
+    <table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 0 20px">
+      ${featureItem("&#x1F4CA;", "Analysis Dashboard &mdash; multi-timeframe scoring &amp; sector rotation")}
+      ${featureItem("&#x26A1;", "Active Trader Board &mdash; tickers sorted by trade lane")}
+      ${featureItem("&#x1F4C8;", "Investor Dashboard &mdash; portfolio health &amp; market regime")}
+      ${featureItem("&#x1F4DD;", "Daily Brief &mdash; pre-market &amp; post-market reports")}
+      ${featureItem("&#x1F4BC;", "Trades &amp; Portfolio &mdash; live positions &amp; P&amp;L tracking")}
+      ${featureItem("&#x1F514;", "Trade Alerts &mdash; real-time entry, exit &amp; trim notifications")}
+      ${featureItem("&#x1F4AC;", "Discord Community &mdash; private server access")}
+    </table>
+
+    <p style="margin:0 0 24px;font-size:13px;color:${BRAND.textSecondary};line-height:1.6">
       Manage your subscription anytime from your account settings.
     </p>
+
     <table role="presentation" cellpadding="0" cellspacing="0">
       <tr><td style="background:${BRAND.green};border-radius:8px;padding:12px 28px">
         <a href="https://timed-trading.com/index-react.html" style="color:white;font-size:14px;font-weight:600;text-decoration:none;display:inline-block">Go to Dashboard</a>
       </td></tr>
     </table>
-  `, { preheader: isTrial ? "Your 30-day free trial is active." : "Your Pro subscription is confirmed." });
+  `, { preheader: isTrial ? "Your 14-day free trial is active." : "Your Pro subscription is confirmed." });
 
   const text = isTrial
-    ? "Your 30-day free trial of Timed Trading Pro has started. Visit https://timed-trading.com to get started."
-    : "Your Timed Trading Pro subscription is active. Visit https://timed-trading.com to continue.";
+    ? "Your 14-day free trial of Timed Trading Pro has started.\n\nFull access includes: Analysis Dashboard, Active Trader Board, Investor Dashboard, Daily Brief, Trades & Portfolio, Trade Alerts, and Discord Community.\n\nVisit https://timed-trading.com to get started."
+    : "Your Timed Trading Pro subscription is active.\n\nFull access includes: Analysis Dashboard, Active Trader Board, Investor Dashboard, Daily Brief, Trades & Portfolio, Trade Alerts, and Discord Community.\n\nVisit https://timed-trading.com to continue.";
 
   return sendEmail(env, { to: email, subject: isTrial ? "Your Free Trial Has Started" : "Subscription Confirmed", html, text, category: "subscription" });
 }
@@ -258,19 +287,28 @@ export async function sendFarewellEmail(env, email) {
 
 export async function sendDiscordWelcomeEmail(env, email, discordUsername) {
   const html = emailLayout(`
-    <h1 style="margin:0 0 16px;font-size:22px;font-weight:700;color:white">Welcome to the TT Discord</h1>
-    <p style="margin:0 0 16px;font-size:15px;color:${BRAND.textSecondary};line-height:1.6">
+    <h1 style="margin:0 0 8px;font-size:22px;font-weight:700;color:white">Welcome to the TT Discord</h1>
+    <p style="margin:0 0 20px;font-size:15px;color:${BRAND.textSecondary};line-height:1.6">
       Your Discord account <strong style="color:white">${discordUsername}</strong> has been linked and you've been added to the Timed Trading community server.
     </p>
-    <p style="margin:0 0 16px;font-size:14px;color:${BRAND.textSecondary};line-height:1.6">
-      Here's how to get started:
-    </p>
-    <ul style="margin:0 0 16px;padding:0 0 0 20px;color:${BRAND.textSecondary};font-size:14px;line-height:1.8">
-      <li>Check out <strong style="color:white">#general</strong> to introduce yourself</li>
-      <li>Follow <strong style="color:white">#trade-signals</strong> for real-time alerts from the scoring engine</li>
-      <li>Share your setups in <strong style="color:white">#trade-ideas</strong></li>
-      <li>Ask questions or report issues in <strong style="color:white">#support</strong></li>
-    </ul>
+
+    <p style="margin:0 0 10px;font-size:11px;font-weight:700;color:${BRAND.textMuted};text-transform:uppercase;letter-spacing:0.08em">Channels to explore</p>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 20px">
+      <tr><td style="padding:4px 0;font-size:13px;color:${BRAND.textSecondary}"><strong style="color:white">#general</strong> &mdash; introduce yourself and chat with the community</td></tr>
+      <tr><td style="padding:4px 0;font-size:13px;color:${BRAND.textSecondary}"><strong style="color:white">#trade-signals</strong> &mdash; real-time alerts from the scoring engine</td></tr>
+      <tr><td style="padding:4px 0;font-size:13px;color:${BRAND.textSecondary}"><strong style="color:white">#trade-ideas</strong> &mdash; share your setups and discuss plays</td></tr>
+      <tr><td style="padding:4px 0;font-size:13px;color:${BRAND.textSecondary}"><strong style="color:white">#support</strong> &mdash; questions, feedback, or bug reports</td></tr>
+    </table>
+
+    <div style="padding:14px 16px;background:rgba(88,101,242,0.06);border:1px solid rgba(88,101,242,0.15);border-radius:8px;margin:0 0 24px">
+      <p style="margin:0 0 6px;font-size:12px;font-weight:700;color:white">Community Rules</p>
+      <p style="margin:0;font-size:12px;color:${BRAND.textSecondary};line-height:1.6">
+        Be professional and respectful. No personal attacks, spam, or unsolicited promotions.
+        Share constructively, support fellow traders, and keep discussions on topic.
+        Violations may result in removal from the community.
+      </p>
+    </div>
+
     <table role="presentation" cellpadding="0" cellspacing="0">
       <tr><td style="background:#5865F2;border-radius:8px;padding:12px 28px">
         <a href="https://discord.com/channels/${env.DISCORD_GUILD_ID || ''}" style="color:white;font-size:14px;font-weight:600;text-decoration:none;display:inline-block">Open Discord</a>
@@ -278,7 +316,7 @@ export async function sendDiscordWelcomeEmail(env, email, discordUsername) {
     </table>
   `, { preheader: "You've been added to the Timed Trading Discord community." });
 
-  const text = `Your Discord account (${discordUsername}) has been linked to Timed Trading. You've been added to the community server. Open Discord to start chatting.`;
+  const text = `Your Discord account (${discordUsername}) has been linked to Timed Trading.\n\nChannels:\n- #general — introduce yourself\n- #trade-signals — real-time alerts\n- #trade-ideas — share setups\n- #support — questions & feedback\n\nCommunity Rules: Be professional and respectful. No personal attacks, spam, or unsolicited promotions. Violations may result in removal.\n\nOpen Discord to get started.`;
   return sendEmail(env, { to: email, subject: "Welcome to the Timed Trading Discord", html, text, category: "discord" });
 }
 

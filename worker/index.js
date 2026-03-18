@@ -643,6 +643,7 @@ const ROUTES = [
   ["GET", "/timed/discord/callback", "GET /timed/discord/callback"],
   ["POST", "/timed/discord/disconnect", "POST /timed/discord/disconnect"],
   ["GET", "/timed/discord/status", "GET /timed/discord/status"],
+  ["POST", "/timed/admin/discord/fix-role", "POST /timed/admin/discord/fix-role"],
   // ── Session Analytics ──
   ["POST", "/timed/session/heartbeat", "POST /timed/session/heartbeat"],
   // ── Admin: User Management ──
@@ -2428,6 +2429,21 @@ function qualifiesForEnter(d, asOfTs = null) {
     }
   }
 
+  // DA-3d: Hard entry quality floor (applies to ALL paths including regime)
+  // Loser DNA analysis: WR delta >15% between EQ >=70 vs EQ <40.
+  const daMinEQ = Number(_daConfig.deep_audit_min_entry_quality) || 0;
+  if (daMinEQ > 0) {
+    const _eqVal = Number(d?.entry_quality?.score) || 0;
+    if (_eqVal > 0 && _eqVal < daMinEQ) {
+      return { qualifies: false, reason: "da_entry_quality_floor", eqScore: _eqVal, required: daMinEQ };
+    }
+  }
+
+  // DA-3e: Risk-off + choppy regime block — DISABLED
+  // Was blocking ALL replay entries because execution_profile uses current (not historical)
+  // market internals. Needs redesign to use historical VIX before re-enabling.
+  // TODO: Re-enable for live trading only once historical VIX is available in replay.
+
   // DA-4: Minimum HTF score gate (direction-aware)
   // Move discovery: captured moves avg HTF 27.9 vs missed 20.8 at entry.
   // Filtering out low-HTF entries reduces noise trades.
@@ -2686,6 +2702,44 @@ function qualifiesForEnter(d, asOfTs = null) {
     const daDangerSizeThreshold = Number(_daConfig.deep_audit_danger_size_threshold) || 2;
     if (dangerCount >= daDangerSizeThreshold) {
       d.__da_danger_size_mult = daDangerSizeMult;
+    }
+  }
+
+  // DA-13: DOA (Dead On Arrival) Structural Trend Gate
+  // Cross-backtest analysis of 168 trades (5 backtests): 45/71 losses (63%) were DOA
+  // (MFE < 0.5%). Danger flags alone are NOT discriminative (same rate in DOA and winners).
+  // Discriminative signal: multi-TF supertrend structural disagreement.
+  // Gate: block when daily ST is against AND (4H ST also against, OR 1H ST against + shallow daily EMA).
+  // Results: blocks 42% DOA + 8 non-DOA losses, costs 10% winners → net +$3,013.
+  const _doaGateEnabled = String(_daConfig.doa_gate_enabled ?? "true") === "true";
+  if (_doaGateEnabled) {
+    const tt = d?.tf_tech || {};
+    const isLong = inferredSide === "LONG";
+    const dirSign = isLong ? 1 : -1;
+    const _stD = tt.D?.stDir ?? 0;
+    const _st4H = tt["4H"]?.stDir ?? 0;
+    const _st1H = tt["1H"]?.stDir ?? 0;
+    const _emaDDepth = tt.D?.ema?.depth ?? d?.ema_map?.D?.depth ?? 15;
+    const _doaEmaThreshold = Number(_daConfig.doa_gate_ema_depth_threshold) || 12;
+
+    const dStAgainst = _stD !== 0 && _stD !== dirSign;
+    const st4HAgainst = _st4H !== 0 && _st4H !== dirSign;
+    const st1HAgainst = _st1H !== 0 && _st1H !== dirSign;
+
+    if (dStAgainst && (st4HAgainst || (st1HAgainst && _emaDDepth <= _doaEmaThreshold))) {
+      return {
+        qualifies: false, reason: "doa_structural_trend_gate",
+        stD: _stD, st4H: _st4H, st1H: _st1H, emaDDepth: _emaDDepth, side: inferredSide,
+      };
+    }
+
+    // DA-13b: DOA ticker blacklist (repeat offenders with 70%+ DOA rate)
+    const _doaBlacklist = _daConfig.doa_gate_ticker_blacklist;
+    if (Array.isArray(_doaBlacklist) && _doaBlacklist.length > 0) {
+      const _sym = String(d?.sym || d?.ticker || "").toUpperCase();
+      if (_doaBlacklist.includes(_sym)) {
+        return { qualifies: false, reason: "doa_ticker_blacklisted", ticker: _sym };
+      }
     }
   }
 
@@ -3322,6 +3376,56 @@ function qualifiesForEnter(d, asOfTs = null) {
           }
         }
       }
+    }
+
+    // ── DA-LIQ-SWEEP: Liquidity Sweep + FVG Confirmation Bonus ──
+    // ICT strategy: 4H+ liquidity sweep followed by FVG on the reversal side.
+    // LONG: SSL swept + bullish FVG present → +5 rank
+    // SHORT: BSL swept + bearish FVG present → +5 rank
+    // Approaching unswept liquidity within 0.5 ATR → -3 rank (entering into stops is risky)
+    const _liqSweep4h = d?.liq_4h;
+    const _liqSweepD = d?.liq_D;
+    const _fvgSweep = d?.fvg_D || {};
+    const _liqSweepPrimary = _liqSweep4h || _liqSweepD;
+    let _liqSweepBoost = 0;
+    let _liqSweepFlag = null;
+    if (_liqSweepPrimary) {
+      if (inferredSide === "LONG") {
+        // LONG: check if sellside (SSL) was recently swept and bullish FVG is present
+        const _sslSwept = (_liqSweepPrimary.sellside || []).length === 0 && (_liqSweepPrimary.sellsideCount ?? 0) > 0;
+        const _sslSweptAlt = (_liqSweep4h?.sellside || []).some?.(z => z.swept) || (_liqSweepD?.sellside || []).some?.(z => z.swept);
+        const _hasBullFvg = _fvgSweep.activeBull > 0 || _fvgSweep.inBullGap;
+        if ((_sslSwept || _sslSweptAlt) && _hasBullFvg) {
+          _liqSweepBoost = 5;
+          _liqSweepFlag = "liq_sweep_fvg_long";
+        }
+        // Penalty: approaching unswept buyside liquidity (entering into stops above)
+        const _bsDist = _liqSweepPrimary.nearestBuysideDist;
+        if (_bsDist > 0 && _bsDist < 0.5 && _liqSweepBoost === 0) {
+          _liqSweepBoost = -3;
+          _liqSweepFlag = "liq_into_bsl_penalty";
+        }
+      } else {
+        // SHORT: check if buyside (BSL) was recently swept and bearish FVG is present
+        const _bslSwept = (_liqSweepPrimary.buyside || []).length === 0 && (_liqSweepPrimary.buysideCount ?? 0) > 0;
+        const _bslSweptAlt = (_liqSweep4h?.buyside || []).some?.(z => z.swept) || (_liqSweepD?.buyside || []).some?.(z => z.swept);
+        const _hasBearFvg = _fvgSweep.activeBear > 0 || _fvgSweep.inBearGap;
+        if ((_bslSwept || _bslSweptAlt) && _hasBearFvg) {
+          _liqSweepBoost = 5;
+          _liqSweepFlag = "liq_sweep_fvg_short";
+        }
+        // Penalty: approaching unswept sellside liquidity (entering into stops below)
+        const _ssDist = _liqSweepPrimary.nearestSellsideDist;
+        if (_ssDist > 0 && _ssDist < 0.5 && _liqSweepBoost === 0) {
+          _liqSweepBoost = -3;
+          _liqSweepFlag = "liq_into_ssl_penalty";
+        }
+      }
+    }
+    if (_liqSweepBoost !== 0) {
+      score = Math.max(0, Math.min(100, score + _liqSweepBoost));
+      if (result) result.liqSweepBoost = _liqSweepBoost;
+      if (result) result.liqSweepFlag = _liqSweepFlag;
     }
 
     // Golden Gate confidence boost
@@ -4263,6 +4367,7 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
     tickerData.__entry_confidence = entry.confidence;
     tickerData.__entry_reason = entry.reason;
     tickerData.__entry_quality = entry.entryQuality || 0;
+    if (entry.liqSweepFlag) tickerData.__liq_sweep_flag = entry.liqSweepFlag;
     // PATTERN BOOST: Upgrade entry confidence when patterns strongly match
     const pm = tickerData?.pattern_match;
     if (pm && pm.direction === "BULLISH" && pm.bestBull?.conf > 0.6) {
@@ -7459,10 +7564,17 @@ function evaluateRunnerExit(tickerData, openTrade, execState, dir, mark, entry, 
     return { action: "hold", reason: "min_bars_grace", barsSinceTrim };
   }
 
-  // ── Pullback Support Shield ──
-  // Before any close signal fires, check if price is still holding key
-  // intraday support: 15m SuperTrend line and/or 15m 72-89 Ripster cloud.
-  // If either level holds, the pullback is healthy and we keep holding.
+  // ── Pullback Support Shield (time-decaying) ──
+  // ATR buffer decays from full (0.1*ATR) to zero over 48 market-hours since trim.
+  // Fresh trims get full protection; stale runners get progressively less.
+  const _shieldTrimMs = trimTs > 1e12 ? trimTs : trimTs * 1000;
+  const _shieldAgeH = _shieldTrimMs > 0 ? computeMarketHoursMinutes(_shieldTrimMs, now) / 60 : 999;
+  const SHIELD_FULL_H = 8;
+  const SHIELD_DECAY_H = 48;
+  const _shieldDecay = _shieldAgeH <= SHIELD_FULL_H ? 1.0
+    : _shieldAgeH >= SHIELD_DECAY_H ? 0.0
+    : 1.0 - (_shieldAgeH - SHIELD_FULL_H) / (SHIELD_DECAY_H - SHIELD_FULL_H);
+
   const tf15 = tickerData?.tf_tech?.["15"];
   const tf30 = tickerData?.tf_tech?.["30"];
   const stDir15 = tf15?.stDir ?? 0;
@@ -7472,31 +7584,30 @@ function evaluateRunnerExit(tickerData, openTrade, execState, dir, mark, entry, 
   const cloud3450_15 = ripster15?.c34_50;
   const cloud7289_30 = tf30?.ripster?.c72_89;
 
-  // 15m SuperTrend still aligned with trade direction and price above/below it
+  const _buf10 = atr * 0.1 * _shieldDecay;
+  const _buf05 = atr * 0.05 * _shieldDecay;
+
   const st15Holding = stLine15 > 0 && (
-    (isLong  && stDir15 === -1 && mark >= stLine15 - atr * 0.1) ||
-    (!isLong && stDir15 ===  1 && mark <= stLine15 + atr * 0.1)
+    (isLong  && stDir15 === -1 && mark >= stLine15 - _buf10) ||
+    (!isLong && stDir15 ===  1 && mark <= stLine15 + _buf10)
   );
-  // Price within or supported by 15m 72-89 cloud
   const c7289_15_lo = Number(cloud7289_15?.lo) || 0;
   const c7289_15_hi = Number(cloud7289_15?.hi) || 0;
   const cloud7289_15_holding = c7289_15_lo > 0 && c7289_15_hi > 0 && (
-    (isLong  && mark >= c7289_15_lo - atr * 0.1) ||
-    (!isLong && mark <= c7289_15_hi + atr * 0.1)
+    (isLong  && mark >= c7289_15_lo - _buf10) ||
+    (!isLong && mark <= c7289_15_hi + _buf10)
   );
-  // 15m 34-50 cloud support (secondary)
   const c3450_15_lo = Number(cloud3450_15?.lo) || 0;
   const c3450_15_hi = Number(cloud3450_15?.hi) || 0;
   const cloud3450_15_holding = c3450_15_lo > 0 && c3450_15_hi > 0 && (
-    (isLong  && mark >= c3450_15_lo - atr * 0.05) ||
-    (!isLong && mark <= c3450_15_hi + atr * 0.05)
+    (isLong  && mark >= c3450_15_lo - _buf05) ||
+    (!isLong && mark <= c3450_15_hi + _buf05)
   );
-  // 30m 72-89 cloud support (broader structure)
   const c7289_30_lo = Number(cloud7289_30?.lo) || 0;
   const c7289_30_hi = Number(cloud7289_30?.hi) || 0;
   const cloud7289_30_holding = c7289_30_lo > 0 && c7289_30_hi > 0 && (
-    (isLong  && mark >= c7289_30_lo - atr * 0.1) ||
-    (!isLong && mark <= c7289_30_hi + atr * 0.1)
+    (isLong  && mark >= c7289_30_lo - _buf10) ||
+    (!isLong && mark <= c7289_30_hi + _buf10)
   );
 
   const pullbackSupportHolding = st15Holding || cloud7289_15_holding || cloud3450_15_holding || cloud7289_30_holding;
@@ -9100,7 +9211,9 @@ async function processTradeSimulation(
     // ─────────────────────────────────────────────────────────────────────────
     const isGoldShortEntry = entryPath.includes("gold_short");
     const isGoldLongEntry = entryPath.includes("gold_long");
-    const hasIntentionalEntryPath = isGoldShortEntry || isGoldLongEntry;
+    const isEmaRegimeEntry = entryPath.includes("ema_regime");
+    const isMeanRevertEntry = entryPath.includes("mean_revert");
+    const hasIntentionalEntryPath = isGoldShortEntry || isGoldLongEntry || isEmaRegimeEntry || isMeanRevertEntry;
     
     // Only block direction mismatches for entries WITHOUT a recognized entry path
     // (e.g., momentum/squeeze entries where direction must align with state)
@@ -9448,7 +9561,7 @@ async function processTradeSimulation(
         HARD_FUSE_RSI_EXTREME: "Momentum at extreme levels — exiting",
         SOFT_FUSE_RSI_CONFIRMED: "Momentum reversal confirmed — protecting gains",
         RUNNER_MAX_DRAWDOWN_BREAKER: "Runner pulled back too far from peak",
-        HARD_LOSS_CAP: "Hard safety limit hit", STALL_FORCE_CLOSE: "Position stalled — freeing capital",
+        HARD_LOSS_CAP: "Hard safety limit hit", STALL_FORCE_CLOSE: "Position stalled — freeing capital", RUNNER_STALE_FORCE_CLOSE: "Runner stale — freeing capital",
         PHASE_LEAVE_100: "Momentum peaked — securing gains",
         bias_flip_full: "Bias flipped against position",
         critical_invalidation: "Trade thesis invalidated",
@@ -10645,6 +10758,15 @@ async function processTradeSimulation(
       // downward, so catastrophic crashes (RKLB -31%) slip through.
       const _sreTrimmedPct = clamp(Number(openTrade?.trimmedPct || 0), 0, 1);
       if (!_sameIntervalAsTrade && !fuseExitFired && openTrade && isOpenTradeStatus(openTrade.status) && _sreTrimmedPct > 0) {
+        // Track running peak price for drawdown calculation
+        const _prevPeak = Number(execState.runnerPeakPrice) || Number(openTrade.runnerPeakPrice) || 0;
+        if (Number.isFinite(pxNow) && pxNow > 0) {
+          const _newPeakCandidate = isLong ? Math.max(_prevPeak, pxNow) : (_prevPeak > 0 ? Math.min(_prevPeak, pxNow) : pxNow);
+          if (_newPeakCandidate !== _prevPeak && _newPeakCandidate > 0) {
+            execState.runnerPeakPrice = _newPeakCandidate;
+            if (isReplay && replayCtx?.execStates) replayCtx.execStates.set(sym, execState);
+          }
+        }
         const _cbMaxDD = Number(tickerData?._env?._deepAuditConfig?.deep_audit_max_runner_drawdown_pct) || 0;
         if (_cbMaxDD > 0) {
           const _cbPeak = Number(execState.runnerPeakPrice) || Number(openTrade.runnerPeakPrice) || 0;
@@ -10746,6 +10868,28 @@ async function processTradeSimulation(
           }
         }
       }
+      // RUNNER STALE FORCE-CLOSE: Trimmed trades that linger past a maximum hold
+      // are dead weight — structural support shields can keep them alive indefinitely.
+      // Default: 120 market-hours (~18 trading days). Configurable via model_config.
+      if (!fuseExitFired && openTrade && isOpenTradeStatus(openTrade.status) && _sreTrimmedPct >= 0.01) {
+        const _rsfcBaseH = Number(tickerData?._env?._deepAuditConfig?.deep_audit_runner_stale_force_close_hours) || 120;
+        if (_rsfcBaseH > 0) {
+          const _rsfcTrimTs = Number(execState.lastTrimMs || openTrade.trim_ts || openTrade.entry_ts || 0);
+          const _rsfcTrimMs = _rsfcTrimTs > 1e12 ? _rsfcTrimTs : _rsfcTrimTs * 1000;
+          const _rsfcHoldH = _rsfcTrimMs > 0 ? computeMarketHoursMinutes(_rsfcTrimMs, now) / 60 : 0;
+          if (_rsfcHoldH >= _rsfcBaseH) {
+            const _rsfcPnlPct = entryPx > 0 ? ((pxNow - entryPx) / entryPx * 100 * (isLong ? 1 : -1)) : 0;
+            const _rsfcReason = "RUNNER_STALE_FORCE_CLOSE";
+            console.log(`[RUNNER_STALE] ${sym} trimmed runner held ${_rsfcHoldH.toFixed(0)} market-hours (limit=${_rsfcBaseH}h, PnL=${_rsfcPnlPct.toFixed(1)}%) → force closing`);
+            tickerData.__exit_reason = _rsfcReason;
+            await closeTradeAtPrice(openTrade, pxNow, _rsfcReason);
+            const _rsfcExec = { ...execState, lastExitMs: now };
+            if (isReplay && replayCtx?.execStates) replayCtx.execStates.set(sym, _rsfcExec);
+            else if (!isReplay) await kvPutJSON(KV, execKey, _rsfcExec);
+            fuseExitFired = true;
+          }
+        }
+      }
       // SMART RUNNER EXIT ENGINE: for trimmed positions not closed by fuse exits.
       // Evaluates 5 price-action conditions to decide hold/close/tighten.
       const _sreEnabled = String(tickerData?._env?._deepAuditConfig?.smart_runner_exit_enabled ?? "true") === "true";
@@ -10808,9 +10952,9 @@ async function processTradeSimulation(
     // Outside RTH: only allow price-driven exits (SL breach, max loss). Signal-based exits wait for RTH.
     const exitAllowedOutsideRTH = isSLExit;
 
-    // PULLBACK SUPPORT SHIELD for trimmed runners in EXIT lane:
-    // If the runner has been trimmed and 15m intraday support is intact, don't let
-    // the EXIT lane close the runner during a healthy pullback — let the SL handle it.
+    // PULLBACK SUPPORT SHIELD for trimmed runners in EXIT lane (time-decaying):
+    // Shield decays from full ATR buffer to zero over 48 market-hours since trim,
+    // preventing trimmed trades from being shielded indefinitely.
     const _exitTrimmedPct = clamp(Number(openTrade?.trimmedPct || 0), 0, 1);
     let _exitPullbackShield = false;
     if (_exitTrimmedPct >= THREE_TIER_CONFIG.TRIM.trimPct - 0.01 && !isSLExit && openTrade && isOpenTradeStatus(openTrade.status)) {
@@ -10819,43 +10963,53 @@ async function processTradeSimulation(
       const _eStDir15 = _eTf15?.stDir ?? 0;
       const _eStLine15 = Number(_eTf15?.stLine) || 0;
       const _eAtr = Number(tickerData?.atr) || (entryPx * 0.02);
+
+      const _eTrimTs = Number(execState.lastTrimMs || openTrade?.trim_ts || openTrade?.entry_ts || 0);
+      const _eTrimMs = _eTrimTs > 1e12 ? _eTrimTs : _eTrimTs * 1000;
+      const _eShieldAgeH = _eTrimMs > 0 ? computeMarketHoursMinutes(_eTrimMs, now) / 60 : 999;
+      const _E_SHIELD_FULL_H = 8;
+      const _E_SHIELD_DECAY_H = 48;
+      const _eShieldDecay = _eShieldAgeH <= _E_SHIELD_FULL_H ? 1.0
+        : _eShieldAgeH >= _E_SHIELD_DECAY_H ? 0.0
+        : 1.0 - (_eShieldAgeH - _E_SHIELD_FULL_H) / (_E_SHIELD_DECAY_H - _E_SHIELD_FULL_H);
+      const _eBuf10 = _eAtr * 0.1 * _eShieldDecay;
+      const _eBuf05 = _eAtr * 0.05 * _eShieldDecay;
+
       const _eSt15Hold = _eStLine15 > 0 && (
-        (isLong  && _eStDir15 === -1 && pxNow >= _eStLine15 - _eAtr * 0.1) ||
-        (!isLong && _eStDir15 ===  1 && pxNow <= _eStLine15 + _eAtr * 0.1)
+        (isLong  && _eStDir15 === -1 && pxNow >= _eStLine15 - _eBuf10) ||
+        (!isLong && _eStDir15 ===  1 && pxNow <= _eStLine15 + _eBuf10)
       );
       const _eC7289_15 = _eTf15?.ripster?.c72_89;
       const _eC7289_15lo = Number(_eC7289_15?.lo) || 0;
       const _eC7289_15hi = Number(_eC7289_15?.hi) || 0;
       const _eCloud7289_15 = _eC7289_15lo > 0 && _eC7289_15hi > 0 && (
-        (isLong  && pxNow >= _eC7289_15lo - _eAtr * 0.1) ||
-        (!isLong && pxNow <= _eC7289_15hi + _eAtr * 0.1)
+        (isLong  && pxNow >= _eC7289_15lo - _eBuf10) ||
+        (!isLong && pxNow <= _eC7289_15hi + _eBuf10)
       );
       const _eC3450_15 = _eTf15?.ripster?.c34_50;
       const _eC3450_15lo = Number(_eC3450_15?.lo) || 0;
       const _eC3450_15hi = Number(_eC3450_15?.hi) || 0;
       const _eCloud3450_15 = _eC3450_15lo > 0 && _eC3450_15hi > 0 && (
-        (isLong  && pxNow >= _eC3450_15lo - _eAtr * 0.05) ||
-        (!isLong && pxNow <= _eC3450_15hi + _eAtr * 0.05)
+        (isLong  && pxNow >= _eC3450_15lo - _eBuf05) ||
+        (!isLong && pxNow <= _eC3450_15hi + _eBuf05)
       );
       const _eC7289_30 = _eTf30?.ripster?.c72_89;
       const _eC7289_30lo = Number(_eC7289_30?.lo) || 0;
       const _eC7289_30hi = Number(_eC7289_30?.hi) || 0;
       const _eCloud7289_30 = _eC7289_30lo > 0 && _eC7289_30hi > 0 && (
-        (isLong  && pxNow >= _eC7289_30lo - _eAtr * 0.1) ||
-        (!isLong && pxNow <= _eC7289_30hi + _eAtr * 0.1)
+        (isLong  && pxNow >= _eC7289_30lo - _eBuf10) ||
+        (!isLong && pxNow <= _eC7289_30hi + _eBuf10)
       );
-      // TD SEQUENTIAL SHIELD: If TD setup count is still building (BP < 7 for long,
-      // SP < 7 for short), the move hasn't peaked — defer exit to let it run.
-      // DCI LONG exited at BP=5, missing the peak at BP=9. This shield prevents that.
+      // TD SEQUENTIAL SHIELD: Also time-limited — only active in first 24 market-hours
       const _eTd15 = _eTf15?.td;
       const _eTd30 = _eTf30?.td;
       const _eBP15 = Number(_eTd15?.bp) || 0;
       const _eSP15 = Number(_eTd15?.sp) || 0;
       const _eBP30 = Number(_eTd30?.bp) || 0;
       const _eSP30 = Number(_eTd30?.sp) || 0;
-      const _eTdActive = isLong
+      const _eTdActive = _eShieldAgeH < 24 && (isLong
         ? ((_eBP15 >= 3 && _eBP15 <= 7) || (_eBP30 >= 3 && _eBP30 <= 7))
-        : ((_eSP15 >= 3 && _eSP15 <= 7) || (_eSP30 >= 3 && _eSP30 <= 7));
+        : ((_eSP15 >= 3 && _eSP15 <= 7) || (_eSP30 >= 3 && _eSP30 <= 7)));
 
       _exitPullbackShield = _eSt15Hold || _eCloud7289_15 || _eCloud3450_15 || _eCloud7289_30 || _eTdActive;
       if (_exitPullbackShield) {
@@ -11461,6 +11615,40 @@ async function processTradeSimulation(
         }
       }
       
+      // ── Liquidity SL Anchor ──
+      // When a liquidity sweep is confirmed (liqSweepFlag set during entry qualification),
+      // anchor SL to the swept zone boundary for a structurally meaningful stop.
+      const _liqFlag = tickerData?.__liq_sweep_flag || tickerData?.liqSweepFlag;
+      if (_liqFlag && Number.isFinite(slCandidate) && slCandidate > 0) {
+        const _liq4hSL = tickerData?.liq_4h;
+        const _liqDSL = tickerData?.liq_D;
+        if (direction === "LONG" && (_liqFlag === "liq_sweep_fvg_long")) {
+          const _sslZones = [...(_liq4hSL?.sellside || []), ...(_liqDSL?.sellside || [])];
+          const _sweptSSL = _sslZones.filter(z => z.swept);
+          if (_sweptSSL.length > 0) {
+            const _lowestSweptSSL = Math.min(..._sweptSSL.map(z => z.lo ?? z.level));
+            if (Number.isFinite(_lowestSweptSSL) && _lowestSweptSSL > 0) {
+              const _liqSL = _lowestSweptSSL * 0.998;
+              if (_liqSL < slCandidate) {
+                slCandidate = _liqSL;
+              }
+            }
+          }
+        } else if (direction === "SHORT" && (_liqFlag === "liq_sweep_fvg_short")) {
+          const _bslZones = [...(_liq4hSL?.buyside || []), ...(_liqDSL?.buyside || [])];
+          const _sweptBSL = _bslZones.filter(z => z.swept);
+          if (_sweptBSL.length > 0) {
+            const _highestSweptBSL = Math.max(..._sweptBSL.map(z => z.hi ?? z.level));
+            if (Number.isFinite(_highestSweptBSL) && _highestSweptBSL > 0) {
+              const _liqSL = _highestSweptBSL * 1.002;
+              if (_liqSL > slCandidate) {
+                slCandidate = _liqSL;
+              }
+            }
+          }
+        }
+      }
+
       // Fallback TP if still missing: 6% from entry (2:1 R:R with 3% SL)
       if (!Number.isFinite(tpCandidate) || tpCandidate <= 0) {
         if (Number.isFinite(entryPx) && entryPx > 0) {
@@ -11823,8 +12011,8 @@ async function processTradeSimulation(
               entry_price: entryPx,
               sl_price: finalSL,
               tp_price: validTP,
-              rank: rank || null,
-              rr: rr || null,
+              rank: Number(tickerData?.rank) || null,
+              rr: calculatedRR || null,
               direction: direction,
               thesis: _whyParts.length > 0 ? _whyParts.join(" + ") : null,
             };
@@ -13127,7 +13315,7 @@ async function processTradeSimulation(
             HARD_FUSE_RSI_EXTREME: "Momentum at extreme levels",
             SOFT_FUSE_RSI_CONFIRMED: "Momentum reversal confirmed",
             RUNNER_MAX_DRAWDOWN_BREAKER: "Runner pulled back too far",
-            HARD_LOSS_CAP: "Hard safety limit hit", STALL_FORCE_CLOSE: "Position stalled",
+            HARD_LOSS_CAP: "Hard safety limit hit", STALL_FORCE_CLOSE: "Position stalled", RUNNER_STALE_FORCE_CLOSE: "Runner stale — closed",
             PHASE_LEAVE_100: "Momentum peaked — securing gains",
             bias_flip_full: "Bias flipped against position",
             td_exhaustion_runner: "Trend exhaustion detected",
@@ -16931,6 +17119,7 @@ async function d1EnsureVipCodesSchema(env) {
         code TEXT NOT NULL UNIQUE,
         stripe_coupon_id TEXT,
         stripe_promo_id TEXT,
+        label TEXT,
         created_at INTEGER NOT NULL,
         created_by TEXT,
         used_at INTEGER,
@@ -16938,6 +17127,7 @@ async function d1EnsureVipCodesSchema(env) {
         status TEXT DEFAULT 'generated'
       )
     `).run();
+    await db.prepare(`ALTER TABLE vip_codes ADD COLUMN label TEXT`).run().catch(() => {});
     _vipCodesSchemaReady = true;
   } catch (e) {
     console.error("[VIP_CODES] Schema migration failed:", String(e).slice(0, 200));
@@ -22868,6 +23058,7 @@ function createTradeClosedEmbed(
     MFE_SAFETY_TRIM: "Locked in profits while the trade was ahead — taking money off the table",
     STALL_BREAKEVEN: "Position stalled with no momentum — closed near breakeven",
     STALL_FORCE_CLOSE: "Position went nowhere for too long — closed to free up capital for better setups",
+    RUNNER_STALE_FORCE_CLOSE: "Trimmed runner held too long without resolving — closed to free capital",
   };
   exitReasonMap.SMART_RUNNER_TD_EXHAUSTION_RUNNER = "Trend exhaustion detected — exiting remaining shares before likely reversal";
   exitReasonMap.SMART_RUNNER_SUPPORT_BREAK_CLOUD = "Key support level broke down — exiting to avoid further downside";
@@ -28804,6 +28995,11 @@ export default {
               await hydrateDisplayNamesFromKv(KV, data);
             } catch (_) { /* display-name hydration non-critical */ }
 
+            const _STRIP_FIELDS = ["_env", "atr_levels", "_tickerProfile", "tf_candles", "_marketInternals", "market_internals", "ichimoku_map", "execution_profile", "fuel", "st_support", "liq_4h"];
+            for (const _tObj of Object.values(data)) {
+              for (const _sf of _STRIP_FIELDS) delete _tObj[_sf];
+            }
+
             const _snapFreshTs = Date.now();
             if (_isSlim) {
               const slimData = {};
@@ -29647,6 +29843,11 @@ export default {
           try {
             await hydrateDisplayNamesFromKv(KV, data);
           } catch (_) { /* display-name hydration non-critical */ }
+
+          const _D1_STRIP = ["_env", "atr_levels", "_tickerProfile", "tf_candles", "_marketInternals", "market_internals", "ichimoku_map", "execution_profile", "fuel", "st_support", "liq_4h"];
+          for (const _tObj of Object.values(data)) {
+            for (const _sf of _D1_STRIP) delete _tObj[_sf];
+          }
 
           return sendJSON(
             {
@@ -36481,7 +36682,7 @@ export default {
         } catch {}
         // Load deep audit config for replay parity with live
         try {
-          const daKeys = ["deep_audit_short_min_rank", "deep_audit_ticker_blacklist", "deep_audit_max_loss_pct", "deep_audit_sl_cap_mult", "deep_audit_sl_floor_mult", "deep_audit_rsi_tp_delay", "deep_audit_avoid_hours", "deep_audit_block_regime", "deep_audit_vix_ceiling", "deep_audit_regime_size_mult", "deep_audit_min_hold_regime_exit_hours", "deep_audit_loss_cooldown_hours", "deep_audit_min_htf_score", "deep_audit_momentum_elite_rank_boost", "deep_audit_breakout_daily_level_enabled", "deep_audit_breakout_atr_breakout_enabled", "deep_audit_breakout_ema_stack_enabled", "deep_audit_breakout_min_rr", "deep_audit_breakout_min_entry_quality", "deep_audit_opening_noise_end_minute", "deep_audit_min_1h_bias", "deep_audit_min_4h_bias", "deep_audit_ltf_momentum_min_bias", "deep_audit_ltf_momentum_min_rsi", "deep_audit_ripster_opening_noise_end_minute", "deep_audit_ltf_rsi_floor", "deep_audit_min_ltf_ema_depth", "deep_audit_post_trim_breakeven", "deep_audit_stall_max_hours", "deep_audit_stall_breakeven_pnl_pct", "deep_audit_stall_force_close_hours", "deep_audit_soft_fuse_defer_min_1h_depth", "deep_audit_runner_trail_pct", "deep_audit_post_trim_trail_pct", "deep_audit_stale_runner_bars", "deep_audit_momentum_fade_exit", "deep_audit_min_hold_before_mgmt_exit_min", "deep_audit_tp_atr_override", "deep_audit_phase_exit_enabled", "deep_audit_atr_exhaustion_exit", "deep_audit_rvol_ceiling", "deep_audit_rvol_ceiling_short", "deep_audit_rvol_high_threshold", "deep_audit_rvol_high_size_mult", "deep_audit_danger_max_signals", "deep_audit_danger_ema_depth_min", "deep_audit_danger_vix_threshold", "deep_audit_danger_min_st_aligned", "deep_audit_danger_size_mult", "deep_audit_danger_size_threshold", "deep_audit_danger_div_enabled", "deep_audit_div_exit_enabled", "deep_audit_div_exit_min_strength", "deep_audit_div_pivot_lookback", "deep_audit_div_max_age_bars", "deep_audit_div_runner_trail_pct", "deep_audit_mean_revert_td9_enabled", "deep_audit_td_exit_enabled", "deep_audit_td_exit_trail_pct", "deep_audit_td_ltf_trail_pct", "deep_audit_mfe_safety_trim_pct", "deep_audit_max_runner_drawdown_pct", "deep_audit_min_entry_quality", "deep_audit_hard_loss_cap", "tier_risk_map", "grade_risk_map", "smart_runner_exit_enabled", "smart_runner_swing_atr_proximity", "smart_runner_min_bars_post_trim", "rank_gate_mode"];
+          const daKeys = ["deep_audit_short_min_rank", "deep_audit_ticker_blacklist", "deep_audit_max_loss_pct", "deep_audit_sl_cap_mult", "deep_audit_sl_floor_mult", "deep_audit_rsi_tp_delay", "deep_audit_avoid_hours", "deep_audit_block_regime", "deep_audit_vix_ceiling", "deep_audit_regime_size_mult", "deep_audit_min_hold_regime_exit_hours", "deep_audit_loss_cooldown_hours", "deep_audit_min_htf_score", "deep_audit_momentum_elite_rank_boost", "deep_audit_breakout_daily_level_enabled", "deep_audit_breakout_atr_breakout_enabled", "deep_audit_breakout_ema_stack_enabled", "deep_audit_breakout_min_rr", "deep_audit_breakout_min_entry_quality", "deep_audit_opening_noise_end_minute", "deep_audit_min_1h_bias", "deep_audit_min_4h_bias", "deep_audit_ltf_momentum_min_bias", "deep_audit_ltf_momentum_min_rsi", "deep_audit_ripster_opening_noise_end_minute", "deep_audit_ltf_rsi_floor", "deep_audit_min_ltf_ema_depth", "deep_audit_post_trim_breakeven", "deep_audit_stall_max_hours", "deep_audit_stall_breakeven_pnl_pct", "deep_audit_stall_force_close_hours", "deep_audit_soft_fuse_defer_min_1h_depth", "deep_audit_runner_trail_pct", "deep_audit_post_trim_trail_pct", "deep_audit_stale_runner_bars", "deep_audit_momentum_fade_exit", "deep_audit_min_hold_before_mgmt_exit_min", "deep_audit_tp_atr_override", "deep_audit_phase_exit_enabled", "deep_audit_atr_exhaustion_exit", "deep_audit_rvol_ceiling", "deep_audit_rvol_ceiling_short", "deep_audit_rvol_high_threshold", "deep_audit_rvol_high_size_mult", "deep_audit_danger_max_signals", "deep_audit_danger_ema_depth_min", "deep_audit_danger_vix_threshold", "deep_audit_danger_min_st_aligned", "deep_audit_danger_size_mult", "deep_audit_danger_size_threshold", "deep_audit_danger_div_enabled", "deep_audit_div_exit_enabled", "deep_audit_div_exit_min_strength", "deep_audit_div_pivot_lookback", "deep_audit_div_max_age_bars", "deep_audit_div_runner_trail_pct", "deep_audit_mean_revert_td9_enabled", "deep_audit_td_exit_enabled", "deep_audit_td_exit_trail_pct", "deep_audit_td_ltf_trail_pct", "deep_audit_mfe_safety_trim_pct", "deep_audit_max_runner_drawdown_pct", "deep_audit_min_entry_quality", "deep_audit_hard_loss_cap", "tier_risk_map", "grade_risk_map", "smart_runner_exit_enabled", "smart_runner_swing_atr_proximity", "smart_runner_min_bars_post_trim", "rank_gate_mode", "doa_gate_enabled", "doa_gate_ema_depth_threshold", "doa_gate_ticker_blacklist"];
           const daRows = (await db.prepare(
             `SELECT config_key, config_value FROM model_config WHERE config_key IN (${daKeys.map((_, i) => `?${i + 1}`).join(",")})`
           ).bind(...daKeys).all())?.results || [];
@@ -40398,6 +40599,111 @@ export default {
       }
 
       // ═══════════════════════════════════════════════════════════════════
+      // Discord Admin Diagnostic & Role Fix
+      // ═══════════════════════════════════════════════════════════════════
+
+      if (routeKey === "POST /timed/admin/discord/fix-role") {
+        const authFail = requireKeyOr401(req, env);
+        if (authFail) return authFail;
+        try {
+          const guildId = env.DISCORD_GUILD_ID;
+          const botToken = env.DISCORD_BOT_TOKEN;
+          const roleId = env.DISCORD_SUBSCRIBER_ROLE_ID;
+          if (!guildId || !botToken) return sendJSON({ ok: false, error: "discord_not_configured" }, 503, corsHeaders(env, req));
+
+          const body = await readBodyAsJSON(req);
+          const discordId = body?.obj?.discord_id;
+
+          const result = { ok: true, guild_id: guildId, configured_role_id: roleId };
+
+          // Fetch guild info (owner, name)
+          const guildResp = await fetch(`https://discord.com/api/v10/guilds/${guildId}`, {
+            headers: { "Authorization": `Bot ${botToken}` },
+          });
+          if (guildResp.ok) {
+            const guild = await guildResp.json();
+            result.guild_name = guild.name;
+            result.guild_owner_id = guild.owner_id;
+            result.guild_member_count = guild.approximate_member_count;
+          }
+
+          // Fetch guild roles to verify configured role exists
+          const rolesResp = await fetch(`https://discord.com/api/v10/guilds/${guildId}/roles`, {
+            headers: { "Authorization": `Bot ${botToken}` },
+          });
+          if (rolesResp.ok) {
+            const roles = await rolesResp.json();
+            result.guild_roles = roles.map(r => ({ id: r.id, name: r.name, position: r.position }));
+            result.configured_role_exists = roles.some(r => r.id === roleId);
+          } else {
+            result.roles_error = `${rolesResp.status}: ${(await rolesResp.text()).slice(0, 200)}`;
+          }
+
+          // If discord_id provided, check member and assign role
+          if (discordId) {
+            const memberResp = await fetch(`https://discord.com/api/v10/guilds/${guildId}/members/${discordId}`, {
+              headers: { "Authorization": `Bot ${botToken}` },
+            });
+            if (memberResp.ok) {
+              const member = await memberResp.json();
+              result.member = { id: member.user?.id, username: member.user?.username, roles: member.roles, nick: member.nick };
+              result.has_subscriber_role = member.roles?.includes(roleId);
+            } else {
+              result.member_error = `${memberResp.status}: ${(await memberResp.text()).slice(0, 200)}`;
+            }
+
+            // Always try to assign role (works even if member lookup failed due to missing intent)
+            if (roleId) {
+              const assignResp = await fetch(`https://discord.com/api/v10/guilds/${guildId}/members/${discordId}/roles/${roleId}`, {
+                method: "PUT",
+                headers: { "Authorization": `Bot ${botToken}` },
+              });
+              result.role_assign_status = assignResp.status;
+              if (!assignResp.ok) {
+                result.role_assign_error = (await assignResp.text()).slice(0, 300);
+              } else {
+                result.role_assigned = true;
+              }
+            }
+          }
+
+          // Fetch guild channels to check permission overrides
+          const chResp = await fetch(`https://discord.com/api/v10/guilds/${guildId}/channels`, {
+            headers: { "Authorization": `Bot ${botToken}` },
+          });
+          if (chResp.ok) {
+            const channels = await chResp.json();
+            result.channels = channels.map(c => ({
+              id: c.id, name: c.name, type: c.type,
+              permission_overwrites: c.permission_overwrites?.map(po => ({ id: po.id, type: po.type, allow: po.allow, deny: po.deny })),
+            }));
+
+            // Create an invite if user is not in guild
+            if (result.member_error && body?.obj?.create_invite) {
+              const textChannel = channels.find(c => c.type === 0);
+              if (textChannel) {
+                const invResp = await fetch(`https://discord.com/api/v10/channels/${textChannel.id}/invites`, {
+                  method: "POST",
+                  headers: { "Authorization": `Bot ${botToken}`, "Content-Type": "application/json" },
+                  body: JSON.stringify({ max_age: 86400, max_uses: 5, unique: true }),
+                });
+                if (invResp.ok) {
+                  const inv = await invResp.json();
+                  result.invite_url = `https://discord.gg/${inv.code}`;
+                } else {
+                  result.invite_error = `${invResp.status}: ${(await invResp.text()).slice(0, 200)}`;
+                }
+              }
+            }
+          }
+
+          return sendJSON(result, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // ═══════════════════════════════════════════════════════════════════
       // Session Heartbeat (Analytics)
       // ═══════════════════════════════════════════════════════════════════
 
@@ -40613,9 +40919,9 @@ export default {
 
           // Store in D1
           await db.prepare(`
-            INSERT INTO vip_codes (code, stripe_coupon_id, stripe_promo_id, created_at, created_by, status)
-            VALUES (?1, ?2, ?3, ?4, ?5, 'generated')
-          `).bind(promo.code, coupon.id, promo.id, Date.now(), adminEmail).run();
+            INSERT INTO vip_codes (code, stripe_coupon_id, stripe_promo_id, label, created_at, created_by, status)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'generated')
+          `).bind(promo.code, coupon.id, promo.id, label, Date.now(), adminEmail).run();
 
           console.log(`[VIP] Code generated: ${promo.code} by ${adminEmail}`);
           return sendJSON({ ok: true, code: promo.code, stripe_coupon_id: coupon.id, stripe_promo_id: promo.id }, 200, corsHeaders(env, req));
@@ -40633,7 +40939,7 @@ export default {
           await d1EnsureVipCodesSchema(env);
           const { results } = await db.prepare(`SELECT * FROM vip_codes ORDER BY created_at DESC`).all();
 
-          // Cross-reference with Stripe for usage status
+          // Cross-reference with Stripe for usage status and redeemer email
           const stripeKey = env.STRIPE_SECRET_KEY;
           const codes = results || [];
           if (stripeKey && codes.length > 0) {
@@ -40648,7 +40954,31 @@ export default {
                     if (promoObj.times_redeemed > 0) {
                       c.status = "used";
                       c.used_at = Date.now();
-                      await db.prepare(`UPDATE vip_codes SET status = 'used', used_at = ?1 WHERE code = ?2`).bind(Date.now(), c.code).run();
+                      // Look up who redeemed via Stripe invoices with this promo code's coupon
+                      let redeemerEmail = null;
+                      try {
+                        const invResp = await fetch(`https://api.stripe.com/v1/invoices?limit=5&expand[]=data.customer&discount.promotion_code=${c.stripe_promo_id}`, {
+                          headers: { "Authorization": `Bearer ${stripeKey}` },
+                        });
+                        if (invResp.ok) {
+                          const invData = await invResp.json();
+                          const inv = invData.data?.find(i => i.discount?.promotion_code === c.stripe_promo_id);
+                          if (inv?.customer?.email) redeemerEmail = inv.customer.email;
+                        }
+                        if (!redeemerEmail) {
+                          const subResp = await fetch(`https://api.stripe.com/v1/subscriptions?limit=10&expand[]=data.customer&status=all`, {
+                            headers: { "Authorization": `Bearer ${stripeKey}` },
+                          });
+                          if (subResp.ok) {
+                            const subData = await subResp.json();
+                            const sub = subData.data?.find(s => s.discount?.promotion_code === c.stripe_promo_id);
+                            if (sub?.customer?.email) redeemerEmail = sub.customer.email;
+                          }
+                        }
+                      } catch { /* non-critical lookup */ }
+                      c.used_by_email = redeemerEmail;
+                      await db.prepare(`UPDATE vip_codes SET status = 'used', used_at = ?1, used_by_email = ?2 WHERE code = ?3`)
+                        .bind(Date.now(), redeemerEmail, c.code).run();
                     }
                   }
                 } catch { /* non-critical */ }
@@ -50573,7 +50903,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
       if (_isWeekday && _utcH >= 13 && _utcH <= 21)                vc.add("0 14-21 * * 1-5");
       if (_utcDay === 6 && (_utcH === 14 || _utcH === 15))         vc.add("0 15 * * 6");
       if (_isWeekday && (_utcH === 13 || _utcH === 14))             vc.add("0 14 * * 1-5");
-      if (_isWeekday && (_utcH === 21 || _utcH === 22))             vc.add("0 22 * * 1-5");
+      if (_isWeekday && (_utcH === 21 || _utcH === 22))           { vc.add("0 21 * * 1-5"); vc.add("0 22 * * 1-5"); }
       if (_isWeekday && (_utcH === 7 || _utcH === 8))               vc.add("0 8 * * 1-5");
       if (_isWeekday && (_utcH === 11 || _utcH === 12))             vc.add("0 12 * * 1-5");
       if (_utcH === 4)                                              vc.add("0 4 * * *");
@@ -51746,7 +52076,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
         try {
           const db2 = env?.DB;
           if (db2) {
-            const daKeys = ["deep_audit_short_min_rank", "deep_audit_ticker_blacklist", "deep_audit_max_loss_pct", "deep_audit_sl_cap_mult", "deep_audit_sl_floor_mult", "deep_audit_rsi_tp_delay", "deep_audit_avoid_hours", "deep_audit_block_regime", "deep_audit_vix_ceiling", "deep_audit_regime_size_mult", "deep_audit_min_hold_regime_exit_hours", "deep_audit_loss_cooldown_hours", "deep_audit_min_htf_score", "deep_audit_momentum_elite_rank_boost", "deep_audit_breakout_daily_level_enabled", "deep_audit_breakout_atr_breakout_enabled", "deep_audit_breakout_ema_stack_enabled", "deep_audit_breakout_min_rr", "deep_audit_breakout_min_entry_quality", "deep_audit_opening_noise_end_minute", "deep_audit_min_1h_bias", "deep_audit_min_4h_bias", "deep_audit_ltf_momentum_min_bias", "deep_audit_ltf_momentum_min_rsi", "deep_audit_ripster_opening_noise_end_minute", "deep_audit_ltf_rsi_floor", "deep_audit_min_ltf_ema_depth", "deep_audit_post_trim_breakeven", "deep_audit_stall_max_hours", "deep_audit_stall_breakeven_pnl_pct", "deep_audit_stall_force_close_hours", "deep_audit_soft_fuse_defer_min_1h_depth", "deep_audit_runner_trail_pct", "deep_audit_post_trim_trail_pct", "deep_audit_stale_runner_bars", "deep_audit_momentum_fade_exit", "deep_audit_min_hold_before_mgmt_exit_min", "deep_audit_tp_atr_override", "deep_audit_phase_exit_enabled", "deep_audit_atr_exhaustion_exit", "deep_audit_rvol_ceiling", "deep_audit_rvol_ceiling_short", "deep_audit_rvol_high_threshold", "deep_audit_rvol_high_size_mult", "deep_audit_danger_max_signals", "deep_audit_danger_ema_depth_min", "deep_audit_danger_vix_threshold", "deep_audit_danger_min_st_aligned", "deep_audit_danger_size_mult", "deep_audit_danger_size_threshold", "deep_audit_danger_div_enabled", "deep_audit_div_exit_enabled", "deep_audit_div_exit_min_strength", "deep_audit_div_pivot_lookback", "deep_audit_div_max_age_bars", "deep_audit_div_runner_trail_pct", "deep_audit_mean_revert_td9_enabled", "deep_audit_td_exit_enabled", "deep_audit_td_exit_trail_pct", "deep_audit_td_ltf_trail_pct", "deep_audit_mfe_safety_trim_pct", "deep_audit_max_runner_drawdown_pct", "deep_audit_min_entry_quality", "deep_audit_hard_loss_cap", "tier_risk_map", "grade_risk_map", "smart_runner_exit_enabled", "smart_runner_swing_atr_proximity", "smart_runner_min_bars_post_trim", "rank_gate_mode"];
+            const daKeys = ["deep_audit_short_min_rank", "deep_audit_ticker_blacklist", "deep_audit_max_loss_pct", "deep_audit_sl_cap_mult", "deep_audit_sl_floor_mult", "deep_audit_rsi_tp_delay", "deep_audit_avoid_hours", "deep_audit_block_regime", "deep_audit_vix_ceiling", "deep_audit_regime_size_mult", "deep_audit_min_hold_regime_exit_hours", "deep_audit_loss_cooldown_hours", "deep_audit_min_htf_score", "deep_audit_momentum_elite_rank_boost", "deep_audit_breakout_daily_level_enabled", "deep_audit_breakout_atr_breakout_enabled", "deep_audit_breakout_ema_stack_enabled", "deep_audit_breakout_min_rr", "deep_audit_breakout_min_entry_quality", "deep_audit_opening_noise_end_minute", "deep_audit_min_1h_bias", "deep_audit_min_4h_bias", "deep_audit_ltf_momentum_min_bias", "deep_audit_ltf_momentum_min_rsi", "deep_audit_ripster_opening_noise_end_minute", "deep_audit_ltf_rsi_floor", "deep_audit_min_ltf_ema_depth", "deep_audit_post_trim_breakeven", "deep_audit_stall_max_hours", "deep_audit_stall_breakeven_pnl_pct", "deep_audit_stall_force_close_hours", "deep_audit_soft_fuse_defer_min_1h_depth", "deep_audit_runner_trail_pct", "deep_audit_post_trim_trail_pct", "deep_audit_stale_runner_bars", "deep_audit_momentum_fade_exit", "deep_audit_min_hold_before_mgmt_exit_min", "deep_audit_tp_atr_override", "deep_audit_phase_exit_enabled", "deep_audit_atr_exhaustion_exit", "deep_audit_rvol_ceiling", "deep_audit_rvol_ceiling_short", "deep_audit_rvol_high_threshold", "deep_audit_rvol_high_size_mult", "deep_audit_danger_max_signals", "deep_audit_danger_ema_depth_min", "deep_audit_danger_vix_threshold", "deep_audit_danger_min_st_aligned", "deep_audit_danger_size_mult", "deep_audit_danger_size_threshold", "deep_audit_danger_div_enabled", "deep_audit_div_exit_enabled", "deep_audit_div_exit_min_strength", "deep_audit_div_pivot_lookback", "deep_audit_div_max_age_bars", "deep_audit_div_runner_trail_pct", "deep_audit_mean_revert_td9_enabled", "deep_audit_td_exit_enabled", "deep_audit_td_exit_trail_pct", "deep_audit_td_ltf_trail_pct", "deep_audit_mfe_safety_trim_pct", "deep_audit_max_runner_drawdown_pct", "deep_audit_min_entry_quality", "deep_audit_hard_loss_cap", "tier_risk_map", "grade_risk_map", "smart_runner_exit_enabled", "smart_runner_swing_atr_proximity", "smart_runner_min_bars_post_trim", "rank_gate_mode", "doa_gate_enabled", "doa_gate_ema_depth_threshold", "doa_gate_ticker_blacklist"];
             const daRows = (await db2.prepare(
               `SELECT config_key, config_value FROM model_config WHERE config_key IN (${daKeys.map((_, i) => `?${i + 1}`).join(",")})`
             ).bind(...daKeys).all())?.results || [];
