@@ -195,6 +195,70 @@
     return { dayChg: dayChg, dayPct: dayPct, stale: stale, marketOpen };
   }
 
+  // ── Volatility-normalized color intensity ──
+  // Per-type typical daily range so SPY at +0.7% looks as intense as TSLA at +3%.
+  // Override with live ATR when available for per-ticker precision.
+  var TYPICAL_DAILY_RANGE = {
+    broad_etf: 1.2,
+    sector_etf: 1.8,
+    value: 1.5,
+    large_cap: 2.0,
+    growth: 3.5,
+    small_cap: 5.0,
+    crypto: 5.0,
+    crypto_adj: 5.0,
+    precious_metal: 2.0,
+    commodity_etf: 2.0,
+    _default: 2.5,
+  };
+
+  // Client-side ticker → type classification (mirrors worker/sector-mapping.js)
+  var TICKER_TYPE_MAP = {
+    SPY:'broad_etf',QQQ:'broad_etf',IWM:'broad_etf',DIA:'broad_etf',TNA:'broad_etf',
+    XLB:'sector_etf',XLC:'sector_etf',XLE:'sector_etf',XLF:'sector_etf',XLI:'sector_etf',
+    XLK:'sector_etf',XLP:'sector_etf',XLRE:'sector_etf',XLU:'sector_etf',XLV:'sector_etf',
+    XLY:'sector_etf',SOXL:'sector_etf',XHB:'sector_etf',
+    GLD:'commodity_etf',SLV:'commodity_etf',USO:'commodity_etf',VIXY:'commodity_etf',
+    MSTR:'crypto_adj',COIN:'crypto_adj',HOOD:'crypto_adj',RIOT:'crypto_adj',
+    BTCUSD:'crypto',ETHUSD:'crypto',ETHA:'crypto',
+    GOLD:'precious_metal',GDX:'precious_metal',IAU:'precious_metal',AGQ:'precious_metal',
+    HL:'precious_metal',AU:'precious_metal',RGLD:'precious_metal',CCJ:'precious_metal',
+    TSLA:'growth',NVDA:'growth',AMD:'growth',PLTR:'growth',RBLX:'growth',IONQ:'growth',
+    APP:'growth',HIMS:'growth',SOFI:'growth',RDDT:'growth',CVNA:'growth',JOBY:'growth',
+    RKLB:'growth',NBIS:'growth',IREN:'growth',APLD:'growth',CRWD:'growth',PANW:'growth',
+    MDB:'growth',PATH:'growth',NFLX:'growth',AVGO:'growth',ANET:'growth',META:'growth',
+    TWLO:'growth',FSLR:'growth',BE:'growth',
+    WMT:'value',COST:'value',KO:'value',JPM:'value',GS:'value',PNC:'value',BK:'value',
+    MSFT:'value',AAPL:'value',GOOGL:'value',UNH:'value',AMGN:'value',GILD:'value',
+    UTHR:'value',CAT:'value',DE:'value',GE:'value',TJX:'value',INTU:'value',CSCO:'value',
+    SPGI:'value',WM:'value',TT:'value',ETN:'value',PH:'value',EMR:'value',ULTA:'value',
+    MNST:'value',NKE:'value',ACN:'value',
+    AMZN:'large_cap',ORCL:'large_cap',BA:'large_cap',LRCX:'large_cap',KLAC:'large_cap',
+    CDNS:'large_cap',MU:'large_cap',EXPE:'large_cap',STX:'large_cap',WDC:'large_cap',
+    BABA:'large_cap',TSM:'large_cap',CRM:'large_cap',ON:'large_cap',
+    BMNR:'small_cap',CRWV:'small_cap',GRNY:'small_cap',XYZ:'small_cap',
+  };
+
+  function resolveTickerType(tickerSymbol, tickerType) {
+    if (tickerType && TYPICAL_DAILY_RANGE[tickerType]) return tickerType;
+    if (tickerSymbol) {
+      var sym = String(tickerSymbol).toUpperCase();
+      if (TICKER_TYPE_MAP[sym]) return TICKER_TYPE_MAP[sym];
+    }
+    return "";
+  }
+
+  function getNormalizedIntensity(dayPct, tickerType, volatilityAtrPct, tickerSymbol) {
+    if (!Number.isFinite(dayPct)) return 0;
+    var abs = Math.abs(dayPct);
+    if (Number.isFinite(volatilityAtrPct) && volatilityAtrPct > 0.1) {
+      return abs / volatilityAtrPct;
+    }
+    var resolved = resolveTickerType(tickerSymbol, tickerType);
+    var range = TYPICAL_DAILY_RANGE[resolved] || TYPICAL_DAILY_RANGE._default;
+    return abs / range;
+  }
+
   // Expose on window for consumption by all pages
   window.TimedPriceUtils = {
     getIngestMs: getIngestMs,
@@ -203,5 +267,9 @@
     ageLabelFromMinutes: ageLabelFromMinutes,
     getStaleInfo: getStaleInfo,
     getDailyChange: getDailyChange,
+    TYPICAL_DAILY_RANGE: TYPICAL_DAILY_RANGE,
+    TICKER_TYPE_MAP: TICKER_TYPE_MAP,
+    resolveTickerType: resolveTickerType,
+    getNormalizedIntensity: getNormalizedIntensity,
   };
 })();

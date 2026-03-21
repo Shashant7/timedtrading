@@ -32,10 +32,216 @@ export async function d1EnsureBriefSchema(env) {
     await db.prepare(`
       CREATE INDEX IF NOT EXISTS idx_daily_briefs_date ON daily_briefs (date DESC)
     `).run();
+    await db.prepare(`
+      CREATE TABLE IF NOT EXISTS daily_market_snapshots (
+        date TEXT PRIMARY KEY,
+        vix_close REAL,
+        vix_state TEXT,
+        oil_pct REAL,
+        gold_pct REAL,
+        tlt_pct REAL,
+        spy_pct REAL,
+        qqq_pct REAL,
+        iwm_pct REAL,
+        sector_rotation TEXT,
+        offense_avg_pct REAL,
+        defense_avg_pct REAL,
+        regime_overall TEXT,
+        regime_score INTEGER,
+        es_prediction TEXT,
+        brief_summary TEXT,
+        econ_events TEXT,
+        created_at INTEGER
+      )
+    `).run();
+    await db.prepare(`
+      CREATE TABLE IF NOT EXISTS market_events (
+        id TEXT PRIMARY KEY,
+        date TEXT NOT NULL,
+        event_type TEXT NOT NULL,
+        event_name TEXT NOT NULL,
+        ticker TEXT,
+        impact TEXT,
+        actual TEXT,
+        estimate TEXT,
+        previous TEXT,
+        surprise_pct REAL,
+        spy_reaction_pct REAL,
+        sector_reaction_pct REAL,
+        brief_note TEXT,
+        created_at INTEGER
+      )
+    `).run();
+    await db.prepare(`CREATE INDEX IF NOT EXISTS idx_mkt_events_date ON market_events (date)`).run();
+    await db.prepare(`CREATE INDEX IF NOT EXISTS idx_mkt_events_type ON market_events (event_type, date)`).run();
+    await db.prepare(`CREATE INDEX IF NOT EXISTS idx_mkt_events_ticker ON market_events (ticker, date)`).run();
+    // Crypto leading indicators (BTC leads SPY/QQQ, ETH leads IWM/Financials)
+    try { await db.prepare(`ALTER TABLE daily_market_snapshots ADD COLUMN btc_pct REAL`).run(); } catch {}
+    try { await db.prepare(`ALTER TABLE daily_market_snapshots ADD COLUMN eth_pct REAL`).run(); } catch {}
     _briefSchemaReady = true;
   } catch (e) {
     console.error("[DAILY BRIEF] Schema init failed:", String(e).slice(0, 200));
   }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// Episodic Market Memory — Snapshot + Event Persistence
+// ═══════════════════════════════════════════════════════════════════════
+
+const OFFENSE_SECTORS = ["XLK", "XLY", "XLI"];
+const DEFENSE_SECTORS = ["XLU", "XLP", "XLV"];
+
+function classifyVixState(vix) {
+  if (vix <= 15) return "low_fear";
+  if (vix <= 22) return "normal";
+  if (vix <= 30) return "elevated";
+  return "fear";
+}
+
+function classifySectorRotation(offenseAvg, defenseAvg) {
+  const delta = offenseAvg - defenseAvg;
+  if (delta > 0.5) return "risk_on";
+  if (delta < -0.5) return "risk_off";
+  return "balanced";
+}
+
+/**
+ * Persist a structured market snapshot alongside the Daily Brief.
+ * Called from generateDailyBrief() after the brief text is stored.
+ */
+export async function persistDailyMarketSnapshot(env, data, priceFeed, esPrediction, briefContent) {
+  const db = env?.DB;
+  if (!db || !data?.today) return;
+  await d1EnsureBriefSchema(env);
+
+  const pf = (priceFeed?.prices || priceFeed) || {};
+  const num = (sym, field) => Number(pf[sym]?.[field]) || 0;
+
+  const vixClose = num("VIX", "p") || Number(data.market?.VIX?.price) || 0;
+  const oilPct = num("CL1!", "dp");
+  const goldPct = num("GC1!", "dp");
+  const tltPct = num("TLT", "dp");
+  const spyPct = num("SPY", "dp") || Number(data.market?.SPY?.day_change_pct) || 0;
+  const qqqPct = num("QQQ", "dp") || Number(data.market?.QQQ?.day_change_pct) || 0;
+  const iwmPct = num("IWM", "dp") || Number(data.market?.IWM?.day_change_pct) || 0;
+  const btcPct = num("BTCUSD", "dp") || num("BTC/USD", "dp");
+  const ethPct = num("ETHUSD", "dp") || num("ETH/USD", "dp");
+
+  const offenseAvg = OFFENSE_SECTORS.reduce((s, sym) => s + num(sym, "dp"), 0) / OFFENSE_SECTORS.length;
+  const defenseAvg = DEFENSE_SECTORS.reduce((s, sym) => s + num(sym, "dp"), 0) / DEFENSE_SECTORS.length;
+  const sectorRotation = classifySectorRotation(offenseAvg, defenseAvg);
+  const vixState = classifyVixState(vixClose);
+
+  const regimeOverall = (spyPct > 0.3 && qqqPct > 0.3) ? "risk_on"
+    : (spyPct < -0.3 && qqqPct < -0.3) ? "risk_off" : "balanced";
+  const regimeScore = Math.round((spyPct + qqqPct) * 10);
+
+  const topEcon = (data.todayEconomicEvents || []).slice(0, 3).map(e => e.event || "").filter(Boolean).join(", ");
+
+  let briefSummary = null;
+  if (briefContent) {
+    const firstPara = briefContent.split("\n").find(l => l.trim().length > 30);
+    if (firstPara) briefSummary = firstPara.trim().slice(0, 200);
+  }
+
+  try {
+    await db.prepare(`
+      INSERT INTO daily_market_snapshots (date, vix_close, vix_state, oil_pct, gold_pct, tlt_pct, spy_pct, qqq_pct, iwm_pct,
+        sector_rotation, offense_avg_pct, defense_avg_pct, regime_overall, regime_score, es_prediction, brief_summary, econ_events, btc_pct, eth_pct, created_at)
+      VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20)
+      ON CONFLICT(date) DO UPDATE SET
+        vix_close=excluded.vix_close, vix_state=excluded.vix_state, oil_pct=excluded.oil_pct,
+        gold_pct=excluded.gold_pct, tlt_pct=excluded.tlt_pct, spy_pct=excluded.spy_pct,
+        qqq_pct=excluded.qqq_pct, iwm_pct=excluded.iwm_pct, sector_rotation=excluded.sector_rotation,
+        offense_avg_pct=excluded.offense_avg_pct, defense_avg_pct=excluded.defense_avg_pct,
+        regime_overall=excluded.regime_overall, regime_score=excluded.regime_score,
+        es_prediction=excluded.es_prediction, brief_summary=excluded.brief_summary,
+        econ_events=excluded.econ_events, btc_pct=excluded.btc_pct, eth_pct=excluded.eth_pct
+    `).bind(
+      data.today, vixClose, vixState, oilPct, goldPct, tltPct, spyPct, qqqPct, iwmPct,
+      sectorRotation, Math.round(offenseAvg * 100) / 100, Math.round(defenseAvg * 100) / 100,
+      regimeOverall, regimeScore, esPrediction || null, briefSummary, topEcon || null,
+      btcPct || null, ethPct || null, Date.now()
+    ).run();
+    console.log(`[DAILY BRIEF] Persisted market snapshot for ${data.today}`);
+  } catch (e) {
+    console.warn("[DAILY BRIEF] Failed to persist market snapshot:", String(e).slice(0, 200));
+  }
+}
+
+/**
+ * Persist high-impact economic events and resolved earnings for episodic recall.
+ * Called from generateDailyBrief() after the brief text is stored.
+ */
+export async function persistMarketEvents(env, data, priceFeed) {
+  const db = env?.DB;
+  if (!db || !data?.today) return;
+  await d1EnsureBriefSchema(env);
+
+  const pf = (priceFeed?.prices || priceFeed) || {};
+  const spyPct = Number(pf["SPY"]?.dp) || Number(data.market?.SPY?.day_change_pct) || 0;
+  const stmts = [];
+
+  const econEvents = (data.todayEconomicEvents || []).filter(e => e.impact === "high" || e.impact === "medium");
+  for (const e of econEvents.slice(0, 10)) {
+    const name = (e.event || "").trim();
+    if (!name) continue;
+    const id = `${data.today}:${name.replace(/\s+/g, "_").slice(0, 40)}`;
+    stmts.push(
+      db.prepare(`
+        INSERT INTO market_events (id, date, event_type, event_name, ticker, impact, actual, estimate, previous, surprise_pct, spy_reaction_pct, sector_reaction_pct, brief_note, created_at)
+        VALUES (?1,?2,?3,?4,NULL,?5,?6,?7,?8,?9,?10,NULL,NULL,?11)
+        ON CONFLICT(id) DO UPDATE SET actual=excluded.actual, estimate=excluded.estimate, previous=excluded.previous,
+          surprise_pct=excluded.surprise_pct, spy_reaction_pct=excluded.spy_reaction_pct
+      `).bind(
+        id, data.today, "macro", name, e.impact || "medium",
+        e.actual || null, e.estimate || null, e.prev || null,
+        e.actual && e.estimate ? parseSurprise(e.actual, e.estimate) : null,
+        spyPct, Date.now()
+      )
+    );
+  }
+
+  const todayEarnings = data.todayEarnings || [];
+  for (const e of todayEarnings.slice(0, 20)) {
+    const sym = (e.symbol || "").toUpperCase().trim();
+    if (!sym) continue;
+    const id = `${data.today}:${sym}:earnings`;
+    const epsActual = Number(e.epsActual) || null;
+    const epsEst = Number(e.epsEstimate) || null;
+    const surprise = (epsActual != null && epsEst != null && epsEst !== 0)
+      ? Math.round(((epsActual - epsEst) / Math.abs(epsEst)) * 10000) / 100
+      : null;
+    const sectorEtf = pf[e._sectorEtf]?.dp || null;
+    stmts.push(
+      db.prepare(`
+        INSERT INTO market_events (id, date, event_type, event_name, ticker, impact, actual, estimate, previous, surprise_pct, spy_reaction_pct, sector_reaction_pct, brief_note, created_at)
+        VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,NULL,?13)
+        ON CONFLICT(id) DO UPDATE SET actual=excluded.actual, estimate=excluded.estimate,
+          surprise_pct=excluded.surprise_pct, spy_reaction_pct=excluded.spy_reaction_pct, sector_reaction_pct=excluded.sector_reaction_pct
+      `).bind(
+        id, data.today, "earnings", `${sym} Earnings`, sym, "high",
+        epsActual != null ? `$${epsActual} EPS` : null,
+        epsEst != null ? `$${epsEst} EPS` : null,
+        null, surprise, spyPct, sectorEtf != null ? Number(sectorEtf) : null, Date.now()
+      )
+    );
+  }
+
+  if (stmts.length === 0) return;
+  try {
+    await db.batch(stmts);
+    console.log(`[DAILY BRIEF] Persisted ${stmts.length} market events for ${data.today}`);
+  } catch (e) {
+    console.warn("[DAILY BRIEF] Failed to persist market events:", String(e).slice(0, 200));
+  }
+}
+
+function parseSurprise(actual, estimate) {
+  const a = parseFloat(String(actual).replace(/[^0-9.\-]/g, ""));
+  const e = parseFloat(String(estimate).replace(/[^0-9.\-]/g, ""));
+  if (!Number.isFinite(a) || !Number.isFinite(e) || e === 0) return null;
+  return Math.round(((a - e) / Math.abs(e)) * 10000) / 100;
 }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -451,6 +657,9 @@ export async function gatherDailyBriefData(env, type, opts = {}) {
     qqqCandles,
     qqqCandlesH1,
     qqqCandlesM5,
+    iwmCandles,
+    iwmCandlesH1,
+    iwmCandlesM5,
     finnhubEconNews,
     ffToday,
     ffYesterday,
@@ -458,6 +667,7 @@ export async function gatherDailyBriefData(env, type, opts = {}) {
     nqCandlesH4,
     spyCandlesH4,
     qqqCandlesH4,
+    iwmCandlesH4,
     esCandlesW,
     spyCandlesW,
     priceFeedRaw,
@@ -529,6 +739,16 @@ export async function gatherDailyBriefData(env, type, opts = {}) {
     db && opts.d1GetCandles
       ? opts.d1GetCandles(env, "QQQ", "5", 100).catch(() => ({ candles: [] }))
       : Promise.resolve({ candles: [] }),
+    // IWM candles (daily, hourly, 5m) — Russell 2000 Day Trader levels
+    db && opts.d1GetCandles
+      ? opts.d1GetCandles(env, "IWM", "D", 20).catch(() => ({ candles: [] }))
+      : Promise.resolve({ candles: [] }),
+    db && opts.d1GetCandles
+      ? opts.d1GetCandles(env, "IWM", "60", 50).catch(() => ({ candles: [] }))
+      : Promise.resolve({ candles: [] }),
+    db && opts.d1GetCandles
+      ? opts.d1GetCandles(env, "IWM", "5", 100).catch(() => ({ candles: [] }))
+      : Promise.resolve({ candles: [] }),
     // Finnhub economic/macro news (today + yesterday)
     fetchFinnhubMarketNews(env, yesterday, today),
     // ForexFactory economic calendar (today)
@@ -547,6 +767,9 @@ export async function gatherDailyBriefData(env, type, opts = {}) {
       : Promise.resolve({ candles: [] }),
     db && opts.d1GetCandles
       ? opts.d1GetCandles(env, "QQQ", "240", 40).catch(() => ({ candles: [] }))
+      : Promise.resolve({ candles: [] }),
+    db && opts.d1GetCandles
+      ? opts.d1GetCandles(env, "IWM", "240", 40).catch(() => ({ candles: [] }))
       : Promise.resolve({ candles: [] }),
     // Weekly candles for higher-timeframe SMC levels
     db && opts.d1GetCandles
@@ -767,6 +990,11 @@ export async function gatherDailyBriefData(env, type, opts = {}) {
     qqqCandlesM5?.candles || [], qqqData, qqqCandlesH4?.candles || [], []
   );
 
+  const iwmTechnical = summarizeTechnical(
+    iwmCandles?.candles || [], iwmCandlesH1?.candles || [],
+    iwmCandlesM5?.candles || [], iwmData, iwmCandlesH4?.candles || [], []
+  );
+
   // Build result
   const extract = (d) => d ? {
     price: Number(d.price) || 0,
@@ -819,6 +1047,7 @@ export async function gatherDailyBriefData(env, type, opts = {}) {
     nqTechnical,
     spyTechnical,
     qqqTechnical,
+    iwmTechnical,
     sectors,
     todayEarnings,
     weekEarnings: weekEarnings.slice(0, 30), // cap for prompt size
@@ -868,7 +1097,7 @@ export async function gatherDailyBriefData(env, type, opts = {}) {
 
 function buildPriceFeedCrossRef(pf) {
   if (!pf || typeof pf !== "object") return "Price feed unavailable.";
-  const tickers = ["SPY", "QQQ", "VX1!", "ES1!", "NQ1!", "XLE", "XLK", "XLF", "XLU", "XLP", "XLY", "XLI", "GLD", "TLT", "CL1!", "GC1!", "SI1!", "IWM", "DIA"];
+  const tickers = ["SPY", "QQQ", "VX1!", "ES1!", "NQ1!", "XLE", "XLK", "XLF", "XLU", "XLP", "XLY", "XLI", "GLD", "TLT", "CL1!", "GC1!", "SI1!", "IWM", "DIA", "BTCUSD", "ETHUSD"];
   const lines = [];
   for (const sym of tickers) {
     const d = pf[sym];
@@ -891,6 +1120,8 @@ function buildCrossAssetContext(pf) {
     "GLD (Gold ETF)": pf["GLD"],
     "TLT (Long Treasuries)": pf["TLT"],
     "IWM (Russell 2000)": pf["IWM"],
+    "BTCUSD (Bitcoin)": pf["BTCUSD"],
+    "ETHUSD (Ethereum)": pf["ETHUSD"],
   };
   const lines = [];
   for (const [label, d] of Object.entries(assets)) {
@@ -1691,7 +1922,7 @@ CRITICAL: Use this multi-timeframe data to paint the REAL picture. If SuperTrend
 ## Multi-Day Change Summary (USE THESE for "dropped X% over Y sessions" statements):
 ${(() => {
   const _summaries = [];
-  for (const [_lbl, _tech] of [["ES", data.esTechnical], ["NQ", data.nqTechnical], ["SPY", data.spyTechnical], ["QQQ", data.qqqTechnical]]) {
+  for (const [_lbl, _tech] of [["ES", data.esTechnical], ["NQ", data.nqTechnical], ["SPY", data.spyTechnical], ["QQQ", data.qqqTechnical], ["IWM", data.iwmTechnical]]) {
     if (!_tech?.structureContext) continue;
     const _sc = _tech.structureContext;
     const _mk = data.market?.[_lbl];
@@ -1714,31 +1945,33 @@ ${JSON.stringify(data.spyTechnical)}
 ## QQQ Technical Summary (ETF):
 ${JSON.stringify(data.qqqTechnical)}
 
-## PRE-VALIDATED Game Plan (USE THESE EXACT TRIGGERS & TARGETS):
-${(() => {
-  const gp = data.esTechnical?.atrFibLevels?.gamePlan;
-  if (!gp) return "No game plan available — use SSL/BSL levels instead.";
-  return `ES Bullish: If price opens above ${gp.bullTrigger} and holds → target ${gp.bullTarget}
-ES Bearish: If price breaks below ${gp.bearTrigger} → target ${gp.bearTarget}`;
-})()}
-${(() => {
-  const gp = data.nqTechnical?.atrFibLevels?.gamePlan;
-  if (!gp) return "";
-  return `NQ Bullish: If price opens above ${gp.bullTrigger} and holds → target ${gp.bullTarget}
-NQ Bearish: If price breaks below ${gp.bearTrigger} → target ${gp.bearTarget}`;
-})()}
+## IWM Technical Summary (Russell 2000 ETF):
+${JSON.stringify(data.iwmTechnical)}
 
-## Key Levels — Support Floors & Resistance Ceilings:
-These levels come from recent price swings and gaps on different timeframes. ALWAYS state the timeframe when referencing them.
-- "Resistance Ceilings" = recent highs where sellers stepped in (BSL in trader jargon). Price may stall or reverse here.
-- "Support Floors" = recent lows where buyers appeared (SSL). Price may bounce here.
-- "Unfilled Gaps" (FVGs) = zones where price moved too fast and left a gap. These gaps often get "filled" as price returns to test them.
+## Key Levels & Game Plan — LEAD WITH SMC LEVELS (where price ACTUALLY reacted):
+Resistance Ceilings = recent highs where sellers stepped in (BSL). Support Floors = recent lows where buyers appeared (SSL). FVGs = unfilled gaps price often revisits. ALWAYS state the timeframe.
+ATR Fib levels are SECONDARY intraday targets. ORB levels (Opening Range High/Low/Mid) add intraday context after the open — if available from the model, include them.
+
+### Game Plan Triggers:
+${(() => {
+  const lines = [];
+  for (const [sym, tech] of [["ES", data.esTechnical], ["NQ", data.nqTechnical], ["SPY", data.spyTechnical], ["IWM", data.iwmTechnical]]) {
+    const gp = tech?.atrFibLevels?.gamePlan;
+    if (!gp) continue;
+    lines.push(`${sym} Bull: above ${gp.bullTrigger} → ${gp.bullTarget} | Bear: below ${gp.bearTrigger} → ${gp.bearTarget}`);
+  }
+  return lines.length > 0 ? lines.join("\n") : "Use SMC support/resistance levels as triggers.";
+})()}
+ABSOLUTE RULE: Bearish targets MUST be LOWER than triggers. Bullish targets MUST be HIGHER.
 
 ### SPY Key Levels:
 ${formatSMCForPrompt(data.spyTechnical?.smcLevels)}
 
 ### QQQ Key Levels:
 ${formatSMCForPrompt(data.qqqTechnical?.smcLevels)}
+
+### IWM Key Levels (Russell 2000):
+${formatSMCForPrompt(data.iwmTechnical?.smcLevels)}
 
 ### ES Key Levels (for futures traders):
 ${formatSMCForPrompt(data.esTechnical?.smcLevels)}
@@ -1827,71 +2060,42 @@ ${(data.investorPositions || []).length > 0
       }).join("\n")
     : "No investor positions."}
 
+STYLE RULES: Be direct and actionable. No filler. Every sentence must inform a trading decision. Target ~800 words total.
+
 ## Required Sections (IN THIS ORDER):
 
-1. **Risk Factors & Market Backdrop** — LEAD WITH THIS. What is the backdrop story? What should traders be aware of BEFORE they look at charts?
-   - If there's a major economic release today (CPI, PPI, NFP, FOMC, GDP): explain what it means in plain English. "CPI came in at 2.40% vs the expected 2.30% — that means inflation is running slightly hotter than Wall Street expected, which makes it less likely the Fed will cut rates soon. That's typically bad for stocks."
-   - If yesterday had a major release, discuss lingering impact.
-   - List key upcoming events this week that could move markets.
-   - If news headlines mention geopolitical risks, tariffs, policy changes — explain the potential market impact.
-   - State the macro regime clearly: "We are in a risk-off environment where traders are selling stocks and buying safe havens" or "The trend is bullish and dips are being bought."
-   - REMINDER: ONLY cite data from the provided sections. If no news headlines are available, say so.
+1. **Market Context** (~150 words) — LEAD WITH THIS. Combine macro backdrop + cross-asset + VIX into one concise picture.
+   - Macro regime in one sentence ("Risk-off: selling stocks, buying safe havens").
+   - Today's key catalyst (CPI/FOMC/NFP/earnings) — what it means in plain English.
+   - VIX level and implication. Cross-asset moves (crude, gold, TLT) if notable (>1%).
+   - SPY/QQQ/IWM pre-market snapshot and multi-day trend.
+   - Breadth: sectors green vs red, broad or concentrated.
 
-2. **Cross-Asset Correlation & Volatility** — Connect the dots BEFORE diving into equities:
-   - **VIX Check**: ALWAYS start with where VIX is and what it tells us. "VIX at 18 suggests moderate anxiety — expect wider-than-normal intraday swings."
-   - **Cross-Asset Moves**: If crude oil, gold, TLT (treasuries), or other correlated assets are making notable moves, LEAD with them. "Crude oil rallying 2.3% off $80 support with an intraday hammer pattern — this is driving XLE higher and taking pressure off SPY." Be specific: name the pattern, level, and equity implication.
-   - **SPY & QQQ snapshot**: Where did they close? How are they trading pre-market? What's the multi-day trend?
-   - **Breadth**: Count sectors green vs red. Is the move broad-based or concentrated? "Only 2 of 11 sectors are green today — this is a broad selloff."
-   - **Intermarket Flows**: XLE moves = crude. XLU/XLP leading = defensive rotation. XLF leading = rate play. GLD bid = risk-off. TLT rallying = yields dropping.
+2. **Structure & Scenarios (SPY, QQQ, IWM)** (~100 words each) — Technical heart:
+   - Big picture: pullback, breakdown, or consolidation?
+   - Key support/resistance ZONES (use SMC levels from data, always state timeframe).
+   - Bull/Bear/Base case with specific levels.
+   - Futures equivalent (ES/NQ) in parentheses.
 
-3. **Structure & Scenario Analysis (SPY & QQQ)** — The technical heart of the brief. Analyze in SPY/QQQ terms FIRST:
-   - **Where are we in the bigger picture?** Is this a pullback within an uptrend? A breakdown? A consolidation?
-   - **Key Zones** (not single levels — zones): "SPY has support in the 580-583 zone where buyers showed up last week" or "QQQ faces resistance at 490-495 where it stalled twice before"
-   - **Support Floors & Resistance Ceilings**: Reference the levels from the data. ALWAYS state the timeframe. "On the daily chart, the support floor sits at 580 — this is a recent swing low where buyers stepped in. If SPY drops below this level, it could accelerate lower toward the 4-hour chart support at 575."
-   - **Unfilled Gaps**: If FVGs exist, note them with timeframe. "The 4-hour chart shows an unfilled gap between 585-588 — price may dip to test this zone before continuing higher."
-   - **Bull Case**: "If SPY holds above 583 and pushes through 590, the next target is the 595-598 zone."
-   - **Bear Case**: "If SPY breaks below 580, expect a move toward 573-575 where the next support floor sits."
-   - **Base Case**: Your most probable scenario. "My base case: SPY tests the 580-583 support zone, finds buyers, and works its way back toward 590 by end of week."
-   - **For futures traders**: Briefly note equivalent ES/NQ levels: "For futures traders: the SPY 583 support translates to approximately ES 5830."
+3. **Key Levels & Game Plan** (~80 words) — Specific numbers for today:
+   - Lead with SMC support/resistance levels (these are where price actually reacted). ATR levels are secondary targets.
+   - ORB levels add intraday context after the open.
+   - Golden Gate status if applicable.
+   - Game plan: bull/bear triggers and targets. ABSOLUTE RULE: bearish targets MUST be LOWER than triggers, bullish targets MUST be HIGHER.
+   - Note major data release timing.
 
-4. **Day Trader Levels & Game Plan** — Specific numbers for today's session:
-   - **SPY Levels**: ATR Fib levels (38.2%, 50%, 61.8%, 100%) above and below yesterday's close. These define today's intraday playing field.
-   - **QQQ Levels**: Same treatment.
-   - **For Futures Traders**: ES and NQ ATR Fib levels in a compact section.
-   - **Golden Gate Status**: If price crossed the 38.2% ATR level, call it out — "SPY opened strong, already above the 38.2% level — next targets are 50% and 61.8%."
-   - **Game Plan**: Use the PRE-VALIDATED triggers and targets translated to SPY/QQQ.
-     - ABSOLUTE RULE: Bearish targets MUST be LOWER than bearish triggers. Bullish targets MUST be HIGHER than bullish triggers.
-   - **Key Liquidity Levels**: Support floors and resistance ceilings from the key levels data, WITH timeframes.
-   - Note any major data release timing that could cause volatility spikes.
+4. **Earnings Watch** (~60 words, only if material) — Key earnings today/this week with current price and daily change.
 
-5. **Earnings Watch** — Key earnings today and this week. Include current price and daily change for each ticker.
+5. **Sector & Themes** (~80 words) — Leading/lagging sectors, WHY (map to drivers), rotation signals, seasonal patterns, breadth.
 
-6. **Sector & Cross-Asset Spotlight** — Which sectors are leading/lagging and WHY?
-   - Map moves to macro drivers. "XLE up because crude is rallying on supply concerns." "XLU outperforming suggests traders are rotating to safety."
-   - Breadth assessment: broad or narrow participation?
+6. **Active Trader Book** (~80 words) — For each position: ticker, direction, grade, today's change%, P&L, thesis status, action (hold/trim/tighten). New entries and exits briefly noted.
 
-7. **Trader's Almanac** — Seasonal patterns, OPEX effects, historical tendencies.
+7. **Investor Portfolio** (~80 words) — Each holding: ticker, today's change%, total return%, thesis status. DCA opportunities if any.
 
-8. **Active Trader Book** — MUST include daily change% for each ticker mentioned:
-   - Open positions: For each trade, include: ticker, direction, setup name, grade (Prime/Confirmed/Early), entry price, current price, today's change%, total P&L, shares, SL/TP if available. For each:
-     - Is the thesis still intact based on today's action?
-     - What should the trader do: hold, prepare to trim, or tighten stops?
-     - Prime grade setups deserve more patience; Early grade setups should be managed tighter.
-   - New entries: What setup triggered it? What grade? How many shares?
-   - Yesterday's exits: Winners or losers? What was the exit reason?
-   - Trims/Defends: Risk management logic.
-   - IMPORTANT: For each ticker, always note TODAY'S daily change% so traders can see how their positions are moving right now.
-
-9. **Investor Portfolio** — MUST include daily change% and total return for each holding:
-   - Each holding: ticker, shares, avg entry, current price, today's change%, total return%, stage, thesis status.
-   - Any DCA opportunities? Any thesis changes?
-   - IMPORTANT: Make this visually rich with callouts. "AAPL ($185.50, +1.20% today, +15.3% total return) — thesis intact."
-
-End with FOUR clear sections:
-- **Swing Trader Takeaway**: Actionable SPY/QQQ levels: "Looking to buy SPY dips at 580-583 for a rally to 590." Include a TIME target: "into end of week."
+End with THREE clear sections:
 - **ES Prediction**: One specific, falsifiable prediction for ES. Include expected range.
-- **Key Levels to Watch (SPY)**: The 3-5 most important SPY levels. For each, explain what happens there in plain English: "580 — Support floor (daily chart). If SPY holds here, buyers are in control. Below 580, expect acceleration to 573."
-- **Risk Factors**: 1-2 key risks. Explain them so anyone can understand: "If the inflation report comes in hot, the Fed is less likely to cut rates, which would pressure stocks lower."`;
+- **Key Levels to Watch (SPY/QQQ/IWM)**: 3-5 most important levels across all three. For each, plain English: "580 — Support floor (daily). Below 580 → acceleration to 573."
+- **Risk Factors**: 1-2 key risks in plain English.`;
 }
 
 function buildEveningPrompt(data) {
@@ -1929,7 +2133,7 @@ CRITICAL: Use the multi-timeframe data to explain WHY the session played out the
 ## Multi-Day Change Summary (USE THESE for "dropped X% over Y sessions" statements):
 ${(() => {
   const _s2 = [];
-  for (const [_l2, _t2] of [["ES", data.esTechnical], ["NQ", data.nqTechnical], ["SPY", data.spyTechnical], ["QQQ", data.qqqTechnical]]) {
+  for (const [_l2, _t2] of [["ES", data.esTechnical], ["NQ", data.nqTechnical], ["SPY", data.spyTechnical], ["QQQ", data.qqqTechnical], ["IWM", data.iwmTechnical]]) {
     if (!_t2?.structureContext) continue;
     const _c2 = _t2.structureContext;
     const _m2 = data.market?.[_l2];
@@ -1952,14 +2156,20 @@ ${JSON.stringify(data.spyTechnical)}
 ## QQQ Technical Summary (ETF):
 ${JSON.stringify(data.qqqTechnical)}
 
+## IWM Technical Summary (Russell 2000 ETF):
+${JSON.stringify(data.iwmTechnical)}
+
 ## Key Levels — Support Floors & Resistance Ceilings:
-ALWAYS state the timeframe when referencing levels. SPY/QQQ first, then futures equivalents.
+ALWAYS state the timeframe when referencing levels. SPY/QQQ/IWM first, then futures equivalents.
 
 ### SPY Key Levels:
 ${formatSMCForPrompt(data.spyTechnical?.smcLevels)}
 
 ### QQQ Key Levels:
 ${formatSMCForPrompt(data.qqqTechnical?.smcLevels)}
+
+### IWM Key Levels (Russell 2000):
+${formatSMCForPrompt(data.iwmTechnical?.smcLevels)}
 
 ### ES Key Levels (for futures traders):
 ${formatSMCForPrompt(data.esTechnical?.smcLevels)}
@@ -2040,54 +2250,36 @@ ${(data.investorPositions || []).length > 0
       }).join("\n")
     : "No investor positions."}
 
+STYLE RULES: Be direct and actionable. No filler. Every sentence must inform a trading decision. Target ~800 words total.
+
 ## Required Sections (IN THIS ORDER):
 
-1. **Risk Factors & Session Backdrop** — LEAD WITH THIS. What drove today's session from a macro perspective?
-   - If there was a major economic release today: explain the numbers vs consensus in plain English. "CPI came in at 2.40% vs the expected 2.30% — inflation running hotter than expected, making rate cuts less likely."
-   - Geopolitical developments, tariff changes, Fed commentary — explain the market impact.
-   - What was the narrative theme? "Risk-off day driven by tariff fears" or "Risk-on rotation as inflation cooled."
+1. **Session Recap & Context** (~150 words) — LEAD WITH THIS. Combine macro drivers + cross-asset + VIX into one picture.
+   - What drove today: narrative theme in one sentence.
+   - Key data releases: actual vs consensus in plain English.
+   - VIX close and implication for tomorrow. Cross-asset moves if notable.
+   - SPY/QQQ/IWM: close vs open, character of the move, breadth.
 
-2. **Cross-Asset Correlation & Volatility** — Connect the dots across today's session:
-   - **VIX**: Where did it close? What does it tell us for tomorrow? "VIX at 22 suggests elevated anxiety heading into tomorrow."
-   - **Cross-Asset Moves**: If crude oil, gold, TLT, or other correlated assets made notable moves today, explain how they drove or correlated with equity action. Be specific with patterns and levels.
-   - **SPY & QQQ**: Where did they close vs open? What was the character of the move?
-   - **Breadth**: Count sectors green vs red. Was it broad-based or concentrated?
+2. **ES Prediction Scorecard** (~30 words) — Grade morning prediction: HIT, PARTIAL, or MISS. One sentence.
 
-3. **ES Prediction Scorecard** — Grade the morning prediction (HIT, PARTIAL, MISS). What was predicted vs what happened?
-
-4. **Structural Update (SPY & QQQ)** — Use SPY/QQQ terms FIRST:
-   - Did today confirm or negate the morning thesis?
-   - Key levels tested — "SPY held the daily chart support floor at 580 all session" or "broke below 575, turning it into a resistance ceiling."
-   - **Unfilled Gaps**: Were any filled today? Which remain open as potential targets?
+3. **Structural Update (SPY, QQQ, IWM)** (~100 words each) — Did today confirm or negate the thesis?
+   - Key levels tested (use SMC levels, state timeframe).
    - Updated bull/bear thresholds for tomorrow.
-   - For futures traders, note ES/NQ equivalents.
+   - Futures equivalents in parentheses.
 
-5. **Day Trader Session Review** — How did ATR levels perform? Actual range vs expected ATR?
+4. **Session Review & Levels** (~60 words) — ATR performance, actual vs expected range. After-hours earnings if material.
 
-6. **Macro & Data Impact** — Deep-dive on any data released today. Upcoming releases.
+5. **Sector & Themes** (~60 words) — Leading/lagging and WHY. Rotation signals, breadth verdict.
 
-7. **After-Hours Earnings** — Reports and impact.
+6. **Looking Ahead** (~80 words) — Primary thesis for next 1-3 sessions with specific SPY/QQQ/IWM levels and time dimension.
 
-8. **Sector & Cross-Asset Analysis** — Leading/lagging sectors and WHY. Rotation signals. Breadth verdict.
+7. **Active Trader Report** (~80 words) — Each position: ticker, today's change%, P&L, thesis status, action. Entries/exits/trims briefly.
 
-9. **Looking Ahead: What Happens Next** — Most valuable section:
-   - **Primary Thesis**: Most probable scenario for next 1-3 sessions, in SPY/QQQ terms.
-   - **Risk Factors**: What could derail the thesis? Explain in plain English.
-   - **Specific Levels**: In SPY/QQQ. "Looking to buy SPY dips at 580-583 for a rally to 590."
-   - ALWAYS include a TIME DIMENSION.
+8. **Investor Portfolio** (~80 words) — Each holding: ticker, today's change%, total return%, thesis status. DCA opportunities.
 
-10. **Active Trader Session Report** — MUST include daily change% for each ticker:
-    - Each position: ticker, today's change%, total P&L, thesis status.
-    - Entries, exits, trims with context.
-
-11. **Investor Portfolio Update** — MUST include daily change% and total return for each holding:
-    - "AAPL ($185.50, +1.20% today, +15.3% total return) — thesis intact."
-    - DCA opportunities?
-
-End with THREE sections:
-- **Swing Trader Positioning**: What should position traders do going into tomorrow? Use SPY/QQQ levels.
-- **Key Levels to Watch (SPY)**: 3-5 most important SPY support/resistance levels. For each, explain in plain English: "580 — Support floor (daily chart). Held today. If it breaks tomorrow, expect acceleration to 573."
-- **Key Levels to Watch (QQQ)**: Same treatment for QQQ.`;
+End with TWO sections:
+- **Key Levels to Watch (SPY/QQQ/IWM)**: 3-5 most important levels across all three. Plain English.
+- **Risk Factors**: 1-2 key risks for tomorrow.`;
 }
 
 /**
@@ -2112,7 +2304,7 @@ async function callOpenAI(env, systemPrompt, userPrompt) {
         { role: "user", content: userPrompt },
       ],
       temperature: 0.35,
-      max_completion_tokens: 6000,
+      max_completion_tokens: 4000,
     }),
     signal: AbortSignal.timeout(90000), // 90s timeout for larger model
   });
@@ -2240,9 +2432,11 @@ function buildDiscordBriefEmbed(type, data, content, esPrediction) {
   const spyFib = data.spyTechnical?.atrFibLevels;
   const nqFib = data.nqTechnical?.atrFibLevels;
   const qqqFib = data.qqqTechnical?.atrFibLevels;
+  const iwmFib = data.iwmTechnical?.atrFibLevels;
   if (esFib?.levels) fields.push(fmtFib(esFib, "ES / SPX Day Trader Levels"));
   if (spyFib?.levels) fields.push(fmtFib(spyFib, "SPY Day Trader Levels"));
   if (nqFib?.levels) fields.push(fmtFib(nqFib, "NQ Day Trader Levels"));
+  if (iwmFib?.levels) fields.push(fmtFib(iwmFib, "IWM Day Trader Levels"));
   if (qqqFib?.levels) fields.push(fmtFib(qqqFib, "QQQ Day Trader Levels"));
 
   // Economic Events
@@ -2371,6 +2565,17 @@ export async function generateDailyBrief(env, type, opts = {}) {
       `).bind(briefId, data.today, type, content, esPrediction, esClose, now, now).run();
     }
 
+    // 7b. Persist structured market snapshot + events for CIO episodic memory
+    if (db) {
+      const _pf = data.priceFeedRaw || {};
+      persistDailyMarketSnapshot(env, data, _pf, esPrediction, content).catch(e =>
+        console.warn("[DAILY BRIEF] Snapshot persistence error:", String(e).slice(0, 100))
+      );
+      persistMarketEvents(env, data, _pf).catch(e =>
+        console.warn("[DAILY BRIEF] Events persistence error:", String(e).slice(0, 100))
+      );
+    }
+
     const elapsed = Date.now() - start;
     console.log(`[DAILY BRIEF] ${type} brief generated in ${elapsed}ms (${content.length} chars)`);
 
@@ -2396,15 +2601,14 @@ export async function generateDailyBrief(env, type, opts = {}) {
     const prefKey = type === "morning" ? "daily_brief_morning" : "daily_brief_evening";
     try {
       const optedInUsers = await getEmailOptedInUsers(env, prefKey);
-      const briefPayload = { type, content, date: data.today, esPrediction };
-      let emailSent = 0;
-      for (const u of optedInUsers) {
-        sendDailyBriefEmail(env, u.email, briefPayload)
-          .then(r => { if (r.ok) emailSent++; })
-          .catch(() => {});
-      }
       if (optedInUsers.length) {
-        console.log(`[DAILY BRIEF] Queued ${optedInUsers.length} ${prefKey} emails`);
+        const briefPayload = { type, content, date: data.today, esPrediction };
+        const results = await Promise.allSettled(
+          optedInUsers.map(u => sendDailyBriefEmail(env, u.email, briefPayload))
+        );
+        const sent = results.filter(r => r.status === "fulfilled" && r.value?.ok).length;
+        const failed = results.length - sent;
+        console.log(`[DAILY BRIEF] ${prefKey} emails: ${sent} sent, ${failed} failed (${optedInUsers.length} recipients)`);
       }
     } catch (e) {
       console.warn("[DAILY BRIEF] Email dispatch failed:", String(e?.message || e).slice(0, 150));
@@ -2596,10 +2800,16 @@ function buildIntradayPrompt(data) {
     lines.push(qqqTech.slice(0, 2000));
     lines.push("");
   }
+  if (data.iwmTechnical) {
+    const iwmTech = typeof data.iwmTechnical === "string" ? data.iwmTechnical : JSON.stringify(data.iwmTechnical, null, 1);
+    lines.push("### IWM Technical Levels");
+    lines.push(iwmTech.slice(0, 2000));
+    lines.push("");
+  }
 
   // Multi-day change context for continuity
   const _mdLines = [];
-  for (const [_lbl, _tech] of [["SPY", data.spyTechnical], ["QQQ", data.qqqTechnical]]) {
+  for (const [_lbl, _tech] of [["SPY", data.spyTechnical], ["QQQ", data.qqqTechnical], ["IWM", data.iwmTechnical]]) {
     const sc = typeof _tech === "object" ? _tech?.structureContext : null;
     const _mk = data.market?.[_lbl];
     if (sc && _mk) {

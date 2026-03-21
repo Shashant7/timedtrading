@@ -2098,30 +2098,30 @@ function getCardSkin(t) {
   }
   const weeklyPct = pickNum(t, ["weekly_change_pct"]);
   const intensityPct = Number.isFinite(dayPct) && Math.abs(dayPct) > 0.1 ? dayPct : Number.isFinite(weeklyPct) ? weeklyPct : dayPct;
-  const intensityAbs = Number.isFinite(intensityPct) ? Math.abs(intensityPct) : 0;
+  const _tickerType = t?.tickerType || t?._tickerType || t?.ticker_type || "";
+  const _volAtr = Number(t?.volatility_atr_pct || t?._volatility_atr_pct) || undefined;
+  const _tickerSym = t?.ticker || "";
+  const _normUtils = window.TimedPriceUtils;
+  const normalized = _normUtils?.getNormalizedIntensity ? _normUtils.getNormalizedIntensity(intensityPct, _tickerType, _volAtr, _tickerSym) : Number.isFinite(intensityPct) ? Math.abs(intensityPct) / 2.5 : 0;
   let tintAlpha = 0;
   let edgePx = 0;
   let edgeAlpha = 0;
   let intensityPulse = "";
-  if (intensityAbs > 0.1) {
-    if (intensityAbs <= 1) {
-      tintAlpha = 0.06 + intensityAbs * 0.06;
+  if (normalized > 0.04) {
+    if (normalized <= 0.3) {
+      tintAlpha = 0.06 + normalized * 0.20;
       edgePx = 1;
       edgeAlpha = 0.15;
-    } else if (intensityAbs <= 3) {
-      tintAlpha = 0.12 + (intensityAbs - 1) / 2 * 0.10;
+    } else if (normalized <= 0.6) {
+      tintAlpha = 0.12 + (normalized - 0.3) / 0.3 * 0.12;
       edgePx = 1;
-      edgeAlpha = 0.25;
-    } else if (intensityAbs <= 6) {
-      tintAlpha = 0.22 + (intensityAbs - 3) / 3 * 0.10;
+      edgeAlpha = 0.28;
+    } else if (normalized <= 1.0) {
+      tintAlpha = 0.24 + (normalized - 0.6) / 0.4 * 0.12;
       edgePx = 1.5;
-      edgeAlpha = 0.35;
-    } else if (intensityAbs <= 12) {
-      tintAlpha = 0.32 + (intensityAbs - 6) / 6 * 0.08;
-      edgePx = 2;
-      edgeAlpha = 0.45;
+      edgeAlpha = 0.38;
     } else {
-      tintAlpha = 0.40;
+      tintAlpha = Math.min(0.45, 0.36 + (normalized - 1) * 0.05);
       edgePx = 2;
       edgeAlpha = 0.50;
     }
@@ -2858,7 +2858,7 @@ function applyFilters(dataObj, filters, trades = [], socialAdditions = [], saved
     if (effectiveFilters.kanbanStage && typeof effectiveFilters.kanbanStage === "string") {
       const stage = String(d.kanban_stage || "");
       const wantStage = String(effectiveFilters.kanbanStage).trim();
-      const matches = wantStage === "setup" ? stage === "setup" || stage === "setup_watch" || stage === "flip_watch" : wantStage === "enter" ? stage === "enter" || stage === "enter_now" || stage === "just_flipped" : wantStage === "new" ? stage === "just_entered" : wantStage === "hold" ? stage === "active" || stage === "hold" : wantStage === "defend" ? stage === "defend" : stage === wantStage;
+      const matches = wantStage === "setup" ? stage === "setup" || stage === "setup_watch" || stage === "flip_watch" : wantStage === "enter" ? stage === "in_review" || stage === "enter" || stage === "enter_now" || stage === "just_flipped" : wantStage === "new" ? stage === "just_entered" : wantStage === "hold" ? stage === "active" || stage === "hold" : wantStage === "defend" ? stage === "defend" : stage === wantStage;
       if (!matches) continue;
     }
     if (effectiveFilters.patternGroup && typeof effectiveFilters.patternGroup === "string") {
@@ -3015,13 +3015,16 @@ const SVGBubble = memo(({
   const clampedRR = Math.min(rawRR, 6);
   const baseBubbleR = waitingForData ? MIN_R * 0.7 : MIN_R + clampedRR / 6 * (MAX_R - MIN_R);
   const ks = String(ticker?.kanban_stage || "").toLowerCase();
-  const isActionable = ["enter", "enter_now", "just_entered", "just_flipped", "flip_watch", "trim", "defend", "exit"].includes(ks);
+  const isActionable = ["in_review", "enter", "enter_now", "just_entered", "just_flipped", "flip_watch", "trim", "defend", "exit"].includes(ks);
   const finalSize = isActionable ? baseBubbleR + 2 : baseBubbleR;
   const move = getMoveStatusInfo(ticker);
   const dayPct = Number(ticker?.day_change_pct || ticker?.dailyChgPct || ticker?.dp || 0);
-  const absDay = Math.abs(dayPct);
+  const _bTickerType = ticker?.tickerType || ticker?._tickerType || ticker?.ticker_type || "";
+  const _bVolAtr = Number(ticker?.volatility_atr_pct || ticker?._volatility_atr_pct) || undefined;
+  const _bTickerSym = ticker?.ticker || "";
+  const _bNorm = window.TimedPriceUtils?.getNormalizedIntensity ? window.TimedPriceUtils.getNormalizedIntensity(dayPct, _bTickerType, _bVolAtr, _bTickerSym) : Math.abs(dayPct) / 2.5;
   let tintAlpha;
-  if (absDay <= 1) tintAlpha = 0.15 + absDay * 0.15;else if (absDay <= 3) tintAlpha = 0.30 + (absDay - 1) / 2 * 0.25;else if (absDay <= 6) tintAlpha = 0.55 + (absDay - 3) / 3 * 0.20;else if (absDay <= 12) tintAlpha = 0.75 + (absDay - 6) / 6 * 0.10;else tintAlpha = 0.85;
+  if (_bNorm <= 0.2) tintAlpha = 0.25 + _bNorm * 1.25;else if (_bNorm <= 0.5) tintAlpha = 0.50 + (_bNorm - 0.2) / 0.3 * 0.20;else if (_bNorm <= 1.0) tintAlpha = 0.70 + (_bNorm - 0.5) / 0.5 * 0.15;else tintAlpha = Math.min(0.95, 0.85 + (_bNorm - 1) * 0.05);
   const isUp = dayPct >= 0;
   const hasDayData = ticker?.day_change_pct != null || ticker?.dailyChgPct != null || ticker?.dp != null;
   const fillColor = waitingForData ? "rgba(55,65,81,0.4)" : !hasDayData ? "rgba(100,116,139,0.3)" : isUp ? `rgba(34,197,94,${tintAlpha})` : `rgba(239,68,68,${tintAlpha})`;
@@ -3037,19 +3040,19 @@ const SVGBubble = memo(({
   const y = Number.isFinite(Number(layoutY)) ? Number(layoutY) : htfScore * scaleY + offsetY;
   const hasEarnings = !!window._ttEarningsMap?.[ticker.ticker];
   const stageIconData = (() => {
-    if (ks === "enter_now" || ks === "enter") return {
-      icon: "▶",
+    if (ks === "in_review" || ks === "enter_now" || ks === "enter") return {
+      icon: "🔍",
+      fill: "#f59e0b",
+      bg: "rgba(245,158,11,0.25)",
+      border: "#f59e0b",
+      label: "REVIEW"
+    };
+    if (ks === "just_entered" || ks === "just_flipped") return {
+      icon: "✅",
       fill: "#00e676",
       bg: "rgba(0,230,118,0.25)",
       border: "#00e676",
-      label: "ENTER"
-    };
-    if (ks === "just_entered" || ks === "just_flipped") return {
-      icon: "★",
-      fill: "#60a5fa",
-      bg: "rgba(96,165,250,0.2)",
-      border: "#60a5fa",
-      label: "NEW"
+      label: "INITIATED"
     };
     if (ks === "trim") return {
       icon: "✂",
@@ -4465,7 +4468,7 @@ function BubbleChart({
     const rcGradId = `rc-bg-${ticker.ticker}`;
     const rcRenderedSize = Math.max(3, bubbleSize);
     const ks = String(ticker.kanban_stage || "").toLowerCase();
-    const isActionable = ["enter", "enter_now", "just_entered", "just_flipped", "flip_watch"].includes(ks);
+    const isActionable = ["in_review", "enter", "enter_now", "just_entered", "just_flipped", "flip_watch"].includes(ks);
     return React.createElement("g", {
       className: "bubble-g",
       "data-dir": dir || "NEUTRAL",
@@ -5508,7 +5511,7 @@ function getActionDescription(ticker, trade) {
       bg: isWin ? "bg-[#00c853]/15" : "bg-rose-500/15"
     };
   }
-  if (stage === "watch" || stage === "setup_watch" || stage === "flip_watch" || stage === "just_flipped" || stage === "enter_now" || stage === "enter") {
+  if (stage === "watch" || stage === "setup_watch" || stage === "flip_watch" || stage === "just_flipped" || stage === "in_review" || stage === "enter_now" || stage === "enter") {
     const late = Number.isFinite(phase) && phase > 0.7 || Number.isFinite(comp) && comp > 0.8;
     const cautionParts = [];
     if (Number.isFinite(phase) && phase > 0.7) cautionParts.push(`Phase ${(phase * 100).toFixed(0)}% (late-cycle)`);
@@ -5547,10 +5550,10 @@ function getActionDescription(ticker, trade) {
       };
     }
     return {
-      action: late ? "Enter Now (Late-cycle)" : "Enter Now",
-      description: `Ticker meets the system's entry criteria and is in the Enter lane. Review current price levels, SL/TP targets below, and consider position sizing based on your risk tolerance before executing. ${isPullback ? "Currently in pullback — this can offer a better entry if price holds above SL. " : ""}${caution}`.trim(),
-      color: late ? "text-yellow-300" : "text-teal-300",
-      bg: late ? "bg-yellow-500/15" : "bg-teal-500/15"
+      action: "In Review",
+      description: `Ticker meets the system's technical entry criteria and is under CIO review. The AI CIO will evaluate risk, market context, and trade quality before approving or rejecting. ${isPullback ? "Currently in pullback — may offer better entry if price holds above SL. " : ""}${caution}`.trim(),
+      color: "text-amber-300",
+      bg: "bg-amber-500/15"
     };
   }
   if (stage === "exit") {
@@ -6336,7 +6339,7 @@ function TrackerWelcomeModal({
       className: "text-rose-400 font-semibold mb-2"
     }, "What to flag immediately"), React.createElement("ul", {
       className: "text-sm text-[#6b7280] list-disc list-inside space-y-2"
-    }, React.createElement("li", null, "\u201CEnter Now\u201D when entry decision is not green-lit (should never happen)"), React.createElement("li", null, "Big adverse move after entry (exit/defend faster)"), React.createElement("li", null, "Lane backtracking (enter \u2192 just flipped \u2192 hold)"))), React.createElement("div", {
+    }, React.createElement("li", null, "CIO rejects a ticker in review \u2014 returns to Setup with reason"), React.createElement("li", null, "Big adverse move after entry (exit/defend faster)"), React.createElement("li", null, "Lane backtracking (in review \u2192 setup)"))), React.createElement("div", {
       className: "bg-emerald-500/10 border border-emerald-500/30 rounded-lg p-4"
     }, React.createElement("h3", {
       className: "text-emerald-400 font-semibold mb-2"
@@ -8734,6 +8737,9 @@ const CompactCard = React.memo(function CompactCard({
     st_support_weak_bull: "ST Weak",
     st_support_weak_bear: "ST Weak"
   }[v3BlockReason.split(",")[0]?.split(":")[0]] || null;
+  const _cioBlocked = !!t?.__cio_blocked;
+  const _cioBlockReason = t?.__cio_block_reason || "";
+  const _cioBlockFlags = t?.__cio_block_flags || "";
   const badges = [];
   const _isPrime = isPrimeBubble(t);
   const _isEntryZone = !!flags.flip_watch;
@@ -8754,7 +8760,7 @@ const CompactCard = React.memo(function CompactCard({
   const dirPillCls = biasPillCls;
   const dirAccentCls = dir === "LONG" ? "border-l-4 border-l-cyan-400" : "border-l-4 border-l-red-500";
   const dirOutlineCls = dir === "LONG" ? "border border-cyan-400/40" : "border border-rose-500/40";
-  const isActionLane = ["enter_now", "trim", "exit"].includes(stage);
+  const isActionLane = ["trim", "exit"].includes(stage);
   const pulseCls = isActionLane ? dir === "LONG" ? "card-pulse" : "card-pulse-short" : "";
   const glassBg = "rgba(10,16,28,0.45)";
   const cardBgImage = [skin?.bgImage || null, "linear-gradient(170deg, rgba(255,255,255,0.07) 0%, rgba(255,255,255,0.02) 25%, transparent 55%)", "linear-gradient(to bottom, rgba(120,160,255,0.04) 0%, transparent 40%, rgba(0,0,0,0.15) 100%)", `linear-gradient(0deg, ${glassBg}, ${glassBg})`].filter(Boolean).join(", ");
@@ -8802,7 +8808,7 @@ const CompactCard = React.memo(function CompactCard({
         };
       }
     }
-    if ((stage === "enter" || stage === "enter_now") && (t?.__execution_block_reason || t?.__entry_block_reason)) {
+    if ((stage === "in_review" || stage === "enter" || stage === "enter_now") && (t?.__execution_block_reason || t?.__entry_block_reason)) {
       return {
         text: formatBlockReason(t.__execution_block_reason || t.__entry_block_reason),
         cls: "text-amber-300/80"
@@ -8920,7 +8926,14 @@ const CompactCard = React.memo(function CompactCard({
   }, Number.isFinite(price) ? `$${price.toFixed(2)}` : "—"), Number.isFinite(dayPct) && React.createElement("span", {
     className: "text-[11px] font-bold tabular-nums leading-tight",
     style: {
-      color: dayPct >= 0 ? Math.abs(dayPct) >= 3 ? "#4ade80" : "#00e676" : Math.abs(dayPct) >= 3 ? "#fb7185" : "#f87171",
+      color: (() => {
+        const _tType = t?.tickerType || t?._tickerType || t?.ticker_type || "";
+        const _vAtr = Number(t?.volatility_atr_pct || t?._volatility_atr_pct) || undefined;
+        const _tSym = t?.ticker || "";
+        const _ni = window.TimedPriceUtils?.getNormalizedIntensity ? window.TimedPriceUtils.getNormalizedIntensity(dayPct, _tType, _vAtr, _tSym) : Math.abs(dayPct) / 2.5;
+        const bright = _ni >= 0.6;
+        return dayPct >= 0 ? bright ? "#4ade80" : "#00e676" : bright ? "#fb7185" : "#f87171";
+      })(),
       textShadow: "0 1px 4px rgba(0,0,0,0.7)"
     }
   }, dayPct >= 0 ? "+" : "", dayPct.toFixed(2), "%", Number.isFinite(dayChg) ? ` (${dayChg >= 0 ? "+" : "-"}$${Math.abs(dayChg).toFixed(2)})` : ""))), !window._ttIsPro ? React.createElement("div", {
@@ -9013,7 +9026,7 @@ const CompactCard = React.memo(function CompactCard({
     className: "text-teal-400"
   }, "TP ", React.createElement("span", {
     className: "font-bold tabular-nums"
-  }, tp != null ? `$${tp.toFixed(2)}` : "—")))), ((laneReason || v3BlockLabel) && window._ttIsPro || _earningsEvt) && React.createElement("div", {
+  }, tp != null ? `$${tp.toFixed(2)}` : "—")))), ((laneReason || v3BlockLabel || _cioBlocked) && window._ttIsPro || _earningsEvt) && React.createElement("div", {
     className: "relative flex items-center justify-between px-2 py-0.5 text-[9px] font-semibold truncate",
     style: {
       zIndex: 1
@@ -9022,10 +9035,13 @@ const CompactCard = React.memo(function CompactCard({
     className: "flex items-center gap-1 min-w-0"
   }, window._ttIsPro && laneReason ? React.createElement("span", {
     className: `truncate ${laneReason.cls}`
-  }, laneReason.text) : null, window._ttIsPro && v3BlockLabel && stage === "setup" && React.createElement("span", {
+  }, laneReason.text) : null, window._ttIsPro && v3BlockLabel && stage === "setup" && !_cioBlocked && React.createElement("span", {
     className: "px-1 py-px rounded bg-rose-500/15 text-rose-300/80 border border-rose-500/25 text-[8px]",
     title: v3BlockReason
-  }, v3BlockLabel)), _earningsEvt && React.createElement("span", {
+  }, v3BlockLabel), _cioBlocked && (stage === "setup" || stage === "in_review" || stage === "enter" || stage === "enter_now") && React.createElement("span", {
+    className: "px-1 py-px rounded bg-red-500/20 text-red-300 border border-red-500/30 text-[8px]",
+    title: _cioBlockReason
+  }, "\uD83D\uDED1 CIO Rejected", _cioBlockFlags ? `: ${_cioBlockFlags.split(",")[0]?.trim()}` : "")), _earningsEvt && React.createElement("span", {
     className: "text-amber-400/90 shrink-0 ml-1"
   }, "\uD83D\uDCC5 ", (() => {
     const d = _earningsEvt._daysAway;
@@ -9371,11 +9387,11 @@ function ActionCenterPanel({
         if (isClosed) {
           const exitMs = Number(trade.exit_ts ?? trade.exitTs ?? 0);
           const scorerStage = String(t?.kanban_stage || "");
-          const newOpportunity = ["setup", "enter", "enter_now", "just_flipped"].includes(scorerStage);
+          const newOpportunity = ["setup", "in_review", "enter", "enter_now", "just_flipped"].includes(scorerStage);
           if (exitMs > 0 && Date.now() - exitMs < 24 * 60 * 60 * 1000 && !newOpportunity) stage = "exit";
         }
       }
-      if (stage === "setup" || stage === "setup_watch" || stage === "flip_watch") counts.setup++;else if (stage === "enter" || stage === "enter_now" || stage === "just_flipped") counts.enter++;else if (stage === "active" || stage === "just_entered" || stage === "hold") counts.hold++;else if (stage === "defend") counts.defend++;else if (stage === "trim") counts.trim++;else if (stage === "exit") counts.exit++;
+      if (stage === "setup" || stage === "setup_watch" || stage === "flip_watch") counts.setup++;else if (stage === "in_review" || stage === "enter" || stage === "enter_now" || stage === "just_flipped") counts.enter++;else if (stage === "active" || stage === "just_entered" || stage === "hold") counts.hold++;else if (stage === "defend") counts.defend++;else if (stage === "trim") counts.trim++;else if (stage === "exit") counts.exit++;
     });
     return counts;
   }, [tickers, localTradeByTicker]);
@@ -9698,6 +9714,7 @@ function SimpleKanbanTable({
         case "flip_watch":
           uiStage = "setup";
           break;
+        case "in_review":
         case "enter":
         case "enter_now":
         case "just_flipped":
@@ -10471,6 +10488,7 @@ function EarlyMoversPanel({
         case "flip_watch":
           setup.push(t);
           break;
+        case "in_review":
         case "enter":
         case "enter_now":
         case "just_flipped":
@@ -10578,15 +10596,15 @@ function EarlyMoversPanel({
     className: "shrink-0"
   }, "\uD83D\uDCCB ", React.createElement("span", {
     className: "text-[#8b95a5]"
-  }, "Setup \u2014 qualified, awaiting window")), React.createElement("span", {
+  }, "Setup \u2014 building toward a trade")), React.createElement("span", {
     className: "shrink-0"
-  }, "\uD83C\uDFAF ", React.createElement("span", {
+  }, "\uD83D\uDD0D ", React.createElement("span", {
     className: "text-[#8b95a5]"
-  }, "Enter \u2014 gates clear, will execute")), React.createElement("span", {
+  }, "In Review \u2014 CIO evaluating entry")), React.createElement("span", {
     className: "shrink-0"
-  }, "\uD83C\uDD95 ", React.createElement("span", {
+  }, "\u2705 ", React.createElement("span", {
     className: "text-[#8b95a5]"
-  }, "New \u2014 just opened today")), React.createElement("span", {
+  }, "Position Initiated \u2014 trade placed")), React.createElement("span", {
     className: "text-[#4b5563] shrink-0"
   }, "\u2192"), React.createElement("span", {
     className: "shrink-0"
@@ -10647,8 +10665,8 @@ function EarlyMoversPanel({
     renderCompactCard: renderCompactCard
   }), React.createElement(KanbanColumn, {
     laneKey: "enter",
-    title: "Enter",
-    subtitle: "All gates clear \u2014 system will execute",
+    title: "In Review",
+    subtitle: "Technically qualified \u2014 CIO evaluating",
     count: enter.length,
     icon: "",
     color: "",
@@ -10658,8 +10676,8 @@ function EarlyMoversPanel({
     renderCompactCard: renderCompactCard
   }), React.createElement(KanbanColumn, {
     laneKey: "new",
-    title: "New",
-    subtitle: "Entered today \u2014 position just opened",
+    title: "Position Initiated",
+    subtitle: "CIO approved \u2014 trade placed",
     count: newEntries.length,
     icon: "",
     color: "",
@@ -11090,7 +11108,7 @@ function OpportunitiesPanel({
     })();
     const dirOutlineCls = c.dir === "LONG" ? "border border-cyan-400/40" : c.dir === "SHORT" ? "border border-rose-500/40" : "border border-white/[0.06]";
     const stage = String(t?.kanban_stage || "").toLowerCase();
-    const isActionLane = ["enter_now", "trim", "exit"].includes(stage);
+    const isActionLane = ["trim", "exit"].includes(stage);
     const pulseCls = isActionLane ? c.dir === "LONG" ? "card-pulse" : c.dir === "SHORT" ? "card-pulse-short" : "" : "";
     return React.createElement("button", {
       key: t.ticker,
@@ -15376,7 +15394,7 @@ const COACHMARK_STEPS = [{
 }, {
   target: "[data-coachmark='kanban-lanes']",
   title: "Kanban Pipeline",
-  body: "Tickers flow through stages: Setup \u2192 Enter \u2192 Hold \u2192 Defend \u2192 Trim \u2192 Exit. Each lane represents the system\u2019s current recommendation. Counts update in real time as conditions change.",
+  body: "Tickers flow through stages: Setup \u2192 In Review \u2192 Position Initiated \u2192 Hold \u2192 Defend \u2192 Trim \u2192 Exit. Each lane represents the system\u2019s current recommendation. Counts update in real time as conditions change.",
   position: "top",
   icon: "columns"
 }, {

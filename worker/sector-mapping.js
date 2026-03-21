@@ -382,15 +382,91 @@ function getSectorETF(sector) {
   return SECTOR_ETF_MAP[sector] || null;
 }
 
+const TICKER_PROXY_MAP = {
+  // Semiconductor cluster
+  NVDA: { peers: ["AMD", "AVGO", "MRVL", "QCOM"], etf: "SOXL", sector_etf: "XLK" },
+  AMD:  { peers: ["NVDA", "AVGO", "MRVL"], etf: "SOXL", sector_etf: "XLK" },
+  AVGO: { peers: ["NVDA", "AMD", "MRVL"], etf: "SOXL", sector_etf: "XLK" },
+  MRVL: { peers: ["NVDA", "AMD", "AVGO"], etf: "SOXL", sector_etf: "XLK" },
+  QCOM: { peers: ["NVDA", "AMD", "AVGO"], etf: "SOXL", sector_etf: "XLK" },
+
+  // Mega-cap tech
+  AAPL: { peers: ["MSFT", "GOOGL"], etf: "QQQ", sector_etf: "XLK" },
+  MSFT: { peers: ["AAPL", "GOOGL", "CRM"], etf: "QQQ", sector_etf: "XLK" },
+  GOOGL:{ peers: ["META", "MSFT"], etf: "QQQ", sector_etf: "XLC" },
+  META: { peers: ["GOOGL", "SNAP", "PINS"], etf: "QQQ", sector_etf: "XLC" },
+
+  // E-commerce / Cloud
+  AMZN: { peers: ["WMT", "TGT", "COST", "SHOP"], etf: "XLY", sector_etf: "XLY" },
+  SHOP: { peers: ["AMZN", "SQ", "MELI"], etf: "QQQ", sector_etf: "XLK" },
+
+  // EV / Auto
+  TSLA: { peers: ["RIVN", "NIO", "LI"], etf: "XLY", sector_etf: "XLY" },
+
+  // Energy cluster
+  XOM:  { peers: ["CVX", "COP", "SLB"], etf: "XLE", commodity: "CL1!" },
+  CVX:  { peers: ["XOM", "COP"], etf: "XLE", commodity: "CL1!" },
+  COP:  { peers: ["XOM", "CVX"], etf: "XLE", commodity: "CL1!" },
+  SLB:  { peers: ["HAL", "BKR"], etf: "XLE", commodity: "CL1!" },
+
+  // Financials cluster
+  JPM:  { peers: ["GS", "BAC", "MS"], etf: "XLF", sector_etf: "XLF" },
+  GS:   { peers: ["JPM", "MS"], etf: "XLF", sector_etf: "XLF" },
+  BAC:  { peers: ["JPM", "WFC", "C"], etf: "XLF", sector_etf: "XLF" },
+
+  // Defense / Aerospace
+  LMT:  { peers: ["RTX", "NOC", "GD", "BA"], etf: "ITA", sector_etf: "XLI" },
+  RTX:  { peers: ["LMT", "NOC", "GD"], etf: "ITA", sector_etf: "XLI" },
+  BA:   { peers: ["LMT", "RTX", "GE"], etf: "ITA", sector_etf: "XLI" },
+
+  // Healthcare / Biotech
+  LLY:  { peers: ["NVO", "ABBV", "JNJ"], etf: "XBI", sector_etf: "XLV" },
+  UNH:  { peers: ["CI", "HUM", "ELV"], etf: "XLV", sector_etf: "XLV" },
+
+  // Gold miners
+  GLD:  { peers: ["SLV", "GDX"], commodity: "GC1!" },
+  NEM:  { peers: ["GOLD", "AEM"], etf: "GDX", commodity: "GC1!" },
+  RGLD: { peers: ["NEM", "GOLD", "AEM"], etf: "GDX", commodity: "GC1!" },
+
+  // AI / Software cluster
+  PLTR: { peers: ["AI", "SNOW", "DDOG"], etf: "QQQ", sector_etf: "XLK" },
+  CRM:  { peers: ["NOW", "WDAY", "HUBS"], etf: "QQQ", sector_etf: "XLK" },
+  NOW:  { peers: ["CRM", "WDAY"], etf: "QQQ", sector_etf: "XLK" },
+
+  // Retail
+  WMT:  { peers: ["COST", "TGT", "AMZN"], etf: "XLP", sector_etf: "XLP" },
+  COST: { peers: ["WMT", "TGT"], etf: "XLP", sector_etf: "XLP" },
+
+  // Industrials / Infra
+  CAT:  { peers: ["DE", "CNH"], etf: "XLI", sector_etf: "XLI" },
+  DE:   { peers: ["CAT", "CNH"], etf: "XLI", sector_etf: "XLI" },
+
+  // Crypto — leading indicators for equities
+  // BTC leads SPY/QQQ (risk-on/risk-off barometer)
+  // ETH leads IWM/Financials (speculative risk appetite)
+  BTCUSD: { peers: ["ETHUSD"], leads: ["SPY", "QQQ"], etf: "QQQ" },
+  ETHUSD: { peers: ["BTCUSD"], leads: ["IWM", "XLF"], etf: "IWM" },
+
+  // Equities that correlate with crypto sentiment
+  COIN: { peers: ["MSTR", "MARA", "RIOT"], etf: "QQQ", sector_etf: "XLF", crypto_proxy: "BTCUSD" },
+  MSTR: { peers: ["COIN", "MARA"], etf: "QQQ", crypto_proxy: "BTCUSD" },
+};
+
+function getProxies(ticker) {
+  return TICKER_PROXY_MAP[ticker] || null;
+}
+
 module.exports = {
   SECTOR_MAP,
   SECTOR_RATINGS,
   SECTOR_ETF_MAP,
   TICKER_TYPE_MAP,
+  TICKER_PROXY_MAP,
   getSector,
   getSectorRating,
   getSectorETF,
   getTickersInSector,
   getAllSectors,
   getTickerType,
+  getProxies,
 };

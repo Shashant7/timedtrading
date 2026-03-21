@@ -135,6 +135,74 @@ npm run deploy:worker   # worker only (skip right-rail)
 - Pages (git-connected): production deploys only via `git push main`, NOT `wrangler pages deploy`
 - When restoring old code: diff ROUTES array to verify no endpoints were dropped
 
+## Cross-Run Analysis Key Findings (2026-03-18)
+
+Full report: `data/cross-run-analysis-report.md`. 12 backtests, **2,301 closed trades** from D1 archives.
+
+- **Trimmed = the edge**: 1,328 trades, 85.8% WR, **+$208,617**. Untrimmed: 973 trades, 17.8% WR, -$104,024. Net: +$104,593.
+- **max_loss is #1 destroyer**: 311 trades, 0.6% WR, **-$52,009**. Half of all untrimmed drag. Prevent at entry.
+- **Crown jewel exits**: PHASE_LEAVE (100% WR, +$33K), SOFT_FUSE_RSI (94.3% WR, +$29K), TD_EXHAUSTION (93% WR, +$9K).
+- **All rank buckets profitable** (80+ best at 59.6% WR, +$37K). Earlier small-sample finding corrected.
+- **October only losing month** — trim losses doubled. Regime transition protection needed.
+- **Blacklist**: AMZN, META, RKLB, RDDT, NVDA (combined -$17K). **Franchise**: PH, AVGO, APP, LITE, AU, CAT, RGLD (combined +$42K).
+
+## ORB Detector (Phase 4, 2026-03-18)
+
+`computeORB()` in `indicators.js` — Opening Range Breakout detection for 4 windows (5m/15m/30m/60m from 9:30 ET).
+- **Primary**: 15m OR. Multi-window consensus (`orbBias`) requires 2+ windows for strong signal.
+- **Rank boost**: +10-15 for confirmed breakout in trade direction; -5 for fakeout/reclaim.
+- **Entry gate (DA-14)**: Fakeout gate halves position size when OR was broken then reclaimed with no consensus.
+- **SL anchor**: Confirmed LONG breakout → SL at ORL; SHORT → ORH. Only if tighter than ATR SL and ≥0.3% from entry.
+- **Targets**: T1-T4 at 50%/100%/150%/200% of range width. `targetsHitUp`/`targetsHitDn` tracked.
+- **Replay**: `rawBars` includes intraday bars; `asOfTs = intervalTs` for correct session detection.
+- **Lineage**: Captured in `buildTradeLineageSnapshot()` for post-hoc analysis.
+
+## AI CIO Agent-in-the-Loop (Phase 5, 2026-03-18)
+
+Pre-execution AI review of every trade. Receives structured proposal + 7-layer memory context → returns APPROVE/ADJUST/REJECT.
+- **Toggle**: `ai_cio_enabled` in `model_config`. Replay: also requires `ai_cio_replay_enabled`.
+- **Timeout**: 15s hard limit (scoring cycles are 5 min). Fallback = APPROVE (model's original intent proceeds).
+- **Model**: `gpt-4o-mini`, temperature 0.1, JSON response format.
+- **REJECT**: Blocks trade, persists to D1, sends Discord alert with reasoning.
+- **ADJUST**: Modifies SL/TP/size with sanity checks. Size clamped 0.25x-1.5x.
+- **Accuracy tracking**: D1 `ai_cio_decisions` table. Backfilled with trade outcome on close.
+- **Admin API**: `GET /timed/admin/ai-cio/decisions`, `GET /timed/admin/ai-cio/accuracy`.
+- **Discord**: Entry embed includes CIO verdict, confidence, edge score when non-fallback.
+
+### CIO Memory Service (Phase 5b)
+Seven memory layers assembled by `buildCIOMemory()` — no D1 calls at decision time (pre-loaded caches):
+1. **Ticker history**: WR, avg PnL, exit reasons, last 3 trades for this ticker.
+2. **Regime context**: WR in current regime + direction.
+3. **Entry path track record**: From `path_performance` D1 table.
+4. **Ticker personality + franchise/blacklist**: From `ticker_profiles` + model_config.
+5. **CIO self-accuracy**: Approval WR, last 3 reject reasons, correctness.
+6. **Episodic market backdrop**: Today's VIX/oil/sector rotation + similar historical episodes via `findSimilarEpisodes()`.
+7. **Event-driven context**: Macro events (CPI/FOMC/NFP), direct + proxy earnings via `TICKER_PROXY_MAP`, post-event trade patterns.
+
+New D1 tables: `daily_market_snapshots` (macro signals per date incl. `btc_pct`/`eth_pct`, persisted from Daily Brief), `market_events` (macro + earnings results).
+`TICKER_PROXY_MAP` in `sector-mapping.js`: peer groups, ETF proxies, earnings correlations (NVDA→AMD/SOXL), crypto correlations (BTCUSD→SPY/QQQ, ETHUSD→IWM/XLF).
+
+**Crypto leading indicator**: BTC leads SPY/QQQ by 2-4 weeks; ETH leads IWM/Financials. `buildCIOMemory()` computes trailing 14-day and 28-day BTC/ETH cumulative change from market snapshots. If BTC trailing 2wk is down >5% or 4wk down >10%, the CIO is warned equity downside is likely ahead. This feeds into `findSimilarEpisodes()` as a 5th matching dimension.
+
+## Phase 6: Optimized Config (2026-03-18)
+Data-driven config from 2,301-trade Phase 3 analysis. Key changes:
+- **Blacklist**: +5 tickers (AMZN, META, RKLB, RDDT, NVDA) — -$16.9K combined drag.
+- **CIO franchise/blacklist**: Top 10 franchise tickers (PH, AVGO, APP...) get favorable CIO treatment; bottom 10 default to REJECT unless exceptional.
+- **Loss clipping**: `max_loss_pct` -2% → -1.5%, `hard_loss_cap` $500 → $350. Targets the 311 `max_loss` exits (-$52K).
+- **Entry quality**: Floor raised 45 → 55 (>15% WR delta in data).
+- **ORB fakeout bug fixed**: `__da_orb_size_mult` now wired into sizing chain.
+- **Regime size**: Added `EARLY_BEAR: 0.5x`, `BEAR: 0.4x` (October was only losing month).
+- **Runner protection**: Tighter trailing (1.5%/2.0% from 2%/2.5%).
+- **Stall close**: 36h → 24h. SHORT min rank: 55 → 50.
+
+## UI Improvements (2026-03-18)
+Five frontend/prompt changes deployed together:
+1. **Volatility-normalized colors**: `getNormalizedIntensity()` in `shared-price-utils.js`. Cards/bubbles use per-ticker-type daily range (broad_etf=1.2%, growth=3.5%, etc.) or live ATR to normalize color intensity. SPY +0.7% now appears moderate-red instead of faint.
+2. **Right-rail chart overlays**: S/R levels (swing highs/lows from daily candles), trendlines (regression on recent swings), pattern annotations (double top/bottom, triangles, flags, ranges), ATR targets, and TF-specific scaling/bar-spacing. All ported from Daily Brief chart engine.
+3. **IWM in Daily Brief**: Backend fetches D/1H/5m/4H candles, runs `summarizeTechnical()` + SMC levels. Included in both morning/evening AI prompts and Discord embeds. Frontend chart added for admin and user views.
+4. **Condensed brief**: Morning sections: Market Context (~150w), Structure & Scenarios (~100w each SPY/QQQ/IWM), Key Levels & Game Plan (~80w), Earnings (~60w), Sector & Themes (~80w), Active Trader (~80w), Investor (~80w). ~800 words total target. `max_completion_tokens` 6000→4000.
+5. **SMC-first key levels**: Renamed to "Key Levels & Game Plan". Prompt instruction: lead with SMC support/resistance, ATR secondary, ORB for intraday context.
+
 ## Full Lessons
 
 See `tasks/lessons.md` for the complete list (170+ items). Use CONTEXT for quick refresh.

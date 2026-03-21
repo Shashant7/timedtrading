@@ -5,6 +5,11 @@
 
 import { normalizeTfKey } from "./ingest.js";
 
+// Bump this whenever scoring logic changes (indicator weights, TF architecture,
+// regime classification, entry quality formula, etc.). Snapshots tagged with
+// this version let us know exactly which logic produced them.
+export const SCORING_VERSION = "2.1.0-2026-03-20";
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // PRIMITIVE INDICATORS (from OHLCV bar arrays)
 // Each bar: { ts, o, h, l, c, v }
@@ -751,6 +756,89 @@ export function detectFVGs(bars, atr) {
     nearestBullDist: Number.isFinite(nearestBullDist) ? Math.round(nearestBullDist * 100) / 100 : -1,
     nearestBearDist: Number.isFinite(nearestBearDist) ? Math.round(nearestBearDist * 100) / 100 : -1,
     fvgs: fvgs.filter(g => !g.mitigated).slice(-10), // keep last 10 active
+  };
+}
+
+/**
+ * FVG Imbalance Detector — combines unfilled FVGs and unswept liquidity
+ * with 21 EMA proximity to produce a structural imbalance score.
+ *
+ * @param {Array} bars - OHLCV candle array (Daily or 1H) sorted ascending
+ * @param {number} atr - ATR(14)
+ * @returns {{ unfilled_below: number, unfilled_above: number,
+ *             ssl_below: number, bsl_above: number,
+ *             downside_magnets: number, upside_magnets: number,
+ *             ema21_dist_pct: number, ema21_price: number,
+ *             imbalance_direction: string }}
+ */
+/**
+ * Overload 1: raw bars → compute from scratch.
+ * Overload 2: pre-computed bundle → assemble from fvg/liq/ema already on bundle.
+ */
+export function computeFVGImbalance(barsOrBundle, atrOrNull) {
+  const DEFAULT = {
+    unfilled_below: 0, unfilled_above: 0,
+    ssl_below: 0, bsl_above: 0,
+    downside_magnets: 0, upside_magnets: 0,
+    ema21_dist_pct: 0, ema21_price: 0,
+    imbalance_direction: "NEUTRAL",
+  };
+
+  if (!barsOrBundle) return DEFAULT;
+
+  let px, fvgData, liqData, ema21;
+
+  if (Array.isArray(barsOrBundle)) {
+    const bars = barsOrBundle;
+    const atr = atrOrNull || 0;
+    if (bars.length < 25) return DEFAULT;
+    px = bars[bars.length - 1].c;
+    fvgData = detectFVGs(bars, atr);
+    liqData = detectLiquidityZones(bars, atr);
+    const closes = bars.map(b => b.c);
+    const ema21Arr = emaSeries(closes, 21);
+    ema21 = ema21Arr[ema21Arr.length - 1] || px;
+  } else {
+    const b = barsOrBundle;
+    px = b.px || 0;
+    if (!px) return DEFAULT;
+    fvgData = b.fvg || {};
+    liqData = b.liq || {};
+    ema21 = b.ema21 || b.ema?.ema21 || 0;
+    if (!ema21 && b.emas) {
+      const e21 = b.emas.find(e => e.period === 21);
+      ema21 = e21?.value || px;
+    }
+  }
+
+  const ema21DistPct = ema21 > 0 ? ((px - ema21) / ema21) * 100 : 0;
+
+  const activeFvgs = fvgData.fvgs || [];
+  const unfilledBelow = activeFvgs.filter(g => g.type === "bull" && g.mid < px).length;
+  const unfilledAbove = activeFvgs.filter(g => g.type === "bear" && g.mid > px).length;
+
+  const sslBelow = (liqData.sellside || []).filter(z => !z.swept).length;
+  const bslAbove = (liqData.buyside || []).filter(z => !z.swept).length;
+
+  const downsideMagnets = unfilledBelow + sslBelow;
+  const upsideMagnets = unfilledAbove + bslAbove;
+
+  let imbalanceDir = "NEUTRAL";
+  if (downsideMagnets >= 6 && px < ema21) imbalanceDir = "SHORT_OPPORTUNITY";
+  else if (upsideMagnets >= 6 && px > ema21) imbalanceDir = "LONG_OPPORTUNITY";
+  else if (downsideMagnets >= 4 && downsideMagnets > upsideMagnets * 2) imbalanceDir = "BEARISH_LEAN";
+  else if (upsideMagnets >= 4 && upsideMagnets > downsideMagnets * 2) imbalanceDir = "BULLISH_LEAN";
+
+  return {
+    unfilled_below: unfilledBelow,
+    unfilled_above: unfilledAbove,
+    ssl_below: sslBelow,
+    bsl_above: bslAbove,
+    downside_magnets: downsideMagnets,
+    upside_magnets: upsideMagnets,
+    ema21_dist_pct: Math.round(ema21DistPct * 100) / 100,
+    ema21_price: Math.round(ema21 * 100) / 100,
+    imbalance_direction: imbalanceDir,
   };
 }
 
@@ -3272,6 +3360,277 @@ function detectBreakout(dailyBundle, regime, price, dailyBars) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
+// Opening Range Breakout (ORB) Detection
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Convert a UTC epoch-ms timestamp to ET minutes since midnight.
+ * Handles EST/EDT automatically.
+ */
+function tsToEtMinutes(tsMs) {
+  const d = new Date(tsMs);
+  const month = d.getUTCMonth();
+  const day = d.getUTCDate();
+  let isEDT = false;
+  if (month > 2 && month < 10) {
+    isEDT = true;
+  } else if (month === 2) {
+    const secondSun = 14 - ((new Date(d.getUTCFullYear(), 2, 1).getUTCDay() + 6) % 7);
+    isEDT = day > secondSun || (day === secondSun && d.getUTCHours() >= 7);
+  } else if (month === 10) {
+    const firstSun = 7 - ((new Date(d.getUTCFullYear(), 10, 1).getUTCDay() + 6) % 7);
+    isEDT = day < firstSun || (day === firstSun && d.getUTCHours() < 6);
+  }
+  const offsetHrs = isEDT ? -4 : -5;
+  const etDate = new Date(tsMs + offsetHrs * 3600000);
+  return etDate.getUTCHours() * 60 + etDate.getUTCMinutes();
+}
+
+/**
+ * Get the ET calendar date string (YYYY-MM-DD) for a UTC timestamp.
+ */
+function tsToEtDateKey(tsMs) {
+  const d = new Date(tsMs);
+  const month = d.getUTCMonth();
+  const day = d.getUTCDate();
+  let isEDT = false;
+  if (month > 2 && month < 10) {
+    isEDT = true;
+  } else if (month === 2) {
+    const secondSun = 14 - ((new Date(d.getUTCFullYear(), 2, 1).getUTCDay() + 6) % 7);
+    isEDT = day > secondSun || (day === secondSun && d.getUTCHours() >= 7);
+  } else if (month === 10) {
+    const firstSun = 7 - ((new Date(d.getUTCFullYear(), 10, 1).getUTCDay() + 6) % 7);
+    isEDT = day < firstSun || (day === firstSun && d.getUTCHours() < 6);
+  }
+  const offsetHrs = isEDT ? -4 : -5;
+  const etDate = new Date(tsMs + offsetHrs * 3600000);
+  return etDate.toISOString().slice(0, 10);
+}
+
+// ORB window durations in minutes from 9:30 AM ET
+const ORB_WINDOWS = [
+  { label: "5m",  minutes: 5 },
+  { label: "15m", minutes: 15 },
+  { label: "30m", minutes: 30 },
+  { label: "60m", minutes: 60 },
+];
+
+const RTH_OPEN_ET = 570;  // 9:30 AM ET in minutes
+const RTH_CLOSE_ET = 960; // 4:00 PM ET in minutes
+
+/**
+ * Compute Opening Range levels for the current trading day.
+ *
+ * For each ORB window (5m, 15m, 30m, 60m), tracks the high and low
+ * of the first N minutes after market open (9:30 AM ET).
+ *
+ * Returns ORB data for each window plus composite signals:
+ * - orh/orl/orm: Opening Range High, Low, Midpoint
+ * - width: range width in dollars
+ * - widthPct: range width as % of midpoint
+ * - breakout: "LONG" | "SHORT" | null — price broke above ORH or below ORL
+ * - reclaim: true if price reclaimed the range after a breakout
+ * - holdingAbove/holdingBelow: price currently above ORH / below ORL
+ * - targets: extension levels at 50%, 100%, 150%, 200% of range width
+ * - priceVsORM: 1 (above mid), -1 (below mid), 0 (inside noise band)
+ * - dayBias: 1 if today's ORM > yesterday's ORM, -1 if below, 0 if no data
+ * - resolved: true when the ORB window time has passed
+ *
+ * @param {Array} intradayBars - intraday bars (5m or 10m TF) sorted ascending by ts
+ * @param {number} price - current price
+ * @param {number} [asOfTs] - optional "now" timestamp for replay (default: Date.now())
+ * @returns {object|null} ORB data keyed by window label, or null if insufficient data
+ */
+export function computeORB(intradayBars, price, asOfTs = null) {
+  if (!Array.isArray(intradayBars) || intradayBars.length < 3 || !Number.isFinite(price) || price <= 0) return null;
+
+  const now = asOfTs || Date.now();
+  const todayKey = tsToEtDateKey(now);
+
+  // Find today's bars (same ET date) that fall within RTH
+  const todayBars = [];
+  let prevDayBars = [];
+  for (const bar of intradayBars) {
+    const ts = bar.ts || bar.t || 0;
+    if (!ts) continue;
+    const barDateKey = tsToEtDateKey(ts);
+    const etMin = tsToEtMinutes(ts);
+    if (barDateKey === todayKey && etMin >= RTH_OPEN_ET && etMin < RTH_CLOSE_ET) {
+      todayBars.push({ ...bar, _etMin: etMin });
+    } else if (barDateKey < todayKey && etMin >= RTH_OPEN_ET && etMin < RTH_CLOSE_ET) {
+      prevDayBars.push({ ...bar, _etMin: etMin, _dateKey: barDateKey });
+    }
+  }
+
+  if (todayBars.length === 0) return null;
+
+  // Compute previous day's ORM for day bias comparison
+  let prevORM = null;
+  if (prevDayBars.length > 0) {
+    const lastPrevDate = prevDayBars[prevDayBars.length - 1]._dateKey;
+    const lastDayBars = prevDayBars.filter(b => b._dateKey === lastPrevDate);
+    // Use the 30m OR window from previous day for bias
+    const prevOrBars = lastDayBars.filter(b => b._etMin >= RTH_OPEN_ET && b._etMin < RTH_OPEN_ET + 30);
+    if (prevOrBars.length > 0) {
+      let pH = -Infinity, pL = Infinity;
+      for (const b of prevOrBars) {
+        if (Number.isFinite(b.h)) pH = Math.max(pH, b.h);
+        if (Number.isFinite(b.l)) pL = Math.min(pL, b.l);
+      }
+      if (Number.isFinite(pH) && Number.isFinite(pL) && pH > pL) {
+        prevORM = (pH + pL) / 2;
+      }
+    }
+  }
+
+  const nowEtMin = tsToEtMinutes(now);
+  const result = {};
+
+  for (const win of ORB_WINDOWS) {
+    const windowEnd = RTH_OPEN_ET + win.minutes;
+    const resolved = nowEtMin >= windowEnd;
+
+    // Collect bars in the opening range window
+    const orBars = todayBars.filter(b => b._etMin >= RTH_OPEN_ET && b._etMin < windowEnd);
+    if (orBars.length === 0) {
+      result[win.label] = null;
+      continue;
+    }
+
+    let orh = -Infinity, orl = Infinity;
+    for (const b of orBars) {
+      if (Number.isFinite(b.h)) orh = Math.max(orh, b.h);
+      if (Number.isFinite(b.l)) orl = Math.min(orl, b.l);
+    }
+
+    if (!Number.isFinite(orh) || !Number.isFinite(orl) || orh <= orl) {
+      result[win.label] = null;
+      continue;
+    }
+
+    const orm = (orh + orl) / 2;
+    const width = orh - orl;
+    const widthPct = orm > 0 ? (width / orm) * 100 : 0;
+
+    // Breakout detection: only after OR window resolves
+    let breakout = null;
+    let holdingAbove = false;
+    let holdingBelow = false;
+    let reclaim = false;
+    let highSinceOR = orh;
+    let lowSinceOR = orl;
+
+    if (resolved) {
+      // Scan post-OR bars for breakout tracking
+      const postOrBars = todayBars.filter(b => b._etMin >= windowEnd);
+      let brokeAbove = false;
+      let brokeBelowOnce = false;
+
+      for (const b of postOrBars) {
+        if (Number.isFinite(b.h)) highSinceOR = Math.max(highSinceOR, b.h);
+        if (Number.isFinite(b.l)) lowSinceOR = Math.min(lowSinceOR, b.l);
+        if (b.h > orh) brokeAbove = true;
+        if (b.l < orl) brokeBelowOnce = true;
+      }
+
+      holdingAbove = price > orh;
+      holdingBelow = price < orl;
+
+      if (holdingAbove && brokeAbove) {
+        breakout = "LONG";
+      } else if (holdingBelow && brokeBelowOnce) {
+        breakout = "SHORT";
+      }
+
+      // Reclaim: price broke out but came back inside the range
+      if (brokeAbove && price < orh && price >= orl) reclaim = true;
+      if (brokeBelowOnce && price > orl && price <= orh) reclaim = true;
+    }
+
+    // Price position relative to ORM
+    const noiseBand = width * 0.1;
+    const priceVsORM = price > orm + noiseBand ? 1 : price < orm - noiseBand ? -1 : 0;
+
+    // Day bias: compare today's ORM to yesterday's ORM
+    const dayBias = prevORM != null ? (orm > prevORM ? 1 : orm < prevORM ? -1 : 0) : 0;
+
+    // Target extensions
+    const tPer = 0.5; // 50% of range per target level, matching Pine Script default
+    const targets = {
+      t1_up: Math.round((orh + width * tPer) * 100) / 100,
+      t2_up: Math.round((orh + width * tPer * 2) * 100) / 100,
+      t3_up: Math.round((orh + width * tPer * 3) * 100) / 100,
+      t4_up: Math.round((orh + width * tPer * 4) * 100) / 100,
+      t1_dn: Math.round((orl - width * tPer) * 100) / 100,
+      t2_dn: Math.round((orl - width * tPer * 2) * 100) / 100,
+      t3_dn: Math.round((orl - width * tPer * 3) * 100) / 100,
+      t4_dn: Math.round((orl - width * tPer * 4) * 100) / 100,
+    };
+
+    // Count how many upside/downside targets have been hit
+    let targetsHitUp = 0, targetsHitDn = 0;
+    if (highSinceOR >= targets.t1_up) targetsHitUp = 1;
+    if (highSinceOR >= targets.t2_up) targetsHitUp = 2;
+    if (highSinceOR >= targets.t3_up) targetsHitUp = 3;
+    if (highSinceOR >= targets.t4_up) targetsHitUp = 4;
+    if (lowSinceOR <= targets.t1_dn) targetsHitDn = 1;
+    if (lowSinceOR <= targets.t2_dn) targetsHitDn = 2;
+    if (lowSinceOR <= targets.t3_dn) targetsHitDn = 3;
+    if (lowSinceOR <= targets.t4_dn) targetsHitDn = 4;
+
+    result[win.label] = {
+      orh: Math.round(orh * 100) / 100,
+      orl: Math.round(orl * 100) / 100,
+      orm: Math.round(orm * 100) / 100,
+      width: Math.round(width * 100) / 100,
+      widthPct: Math.round(widthPct * 100) / 100,
+      resolved,
+      breakout,
+      holdingAbove,
+      holdingBelow,
+      reclaim,
+      priceVsORM,
+      dayBias,
+      targets,
+      targetsHitUp,
+      targetsHitDn,
+    };
+  }
+
+  // Composite signal: consensus across windows
+  const windows = Object.values(result).filter(Boolean);
+  if (windows.length === 0) return null;
+
+  const resolvedWindows = windows.filter(w => w.resolved);
+  const longBreakouts = resolvedWindows.filter(w => w.breakout === "LONG").length;
+  const shortBreakouts = resolvedWindows.filter(w => w.breakout === "SHORT").length;
+  const aboveCount = resolvedWindows.filter(w => w.holdingAbove).length;
+  const belowCount = resolvedWindows.filter(w => w.holdingBelow).length;
+  const reclaimCount = resolvedWindows.filter(w => w.reclaim).length;
+
+  // ORB bias: strong when multiple windows agree
+  let orbBias = 0;
+  if (longBreakouts >= 2) orbBias = 1;
+  else if (shortBreakouts >= 2) orbBias = -1;
+  else if (longBreakouts === 1 && aboveCount >= 2) orbBias = 1;
+  else if (shortBreakouts === 1 && belowCount >= 2) orbBias = -1;
+
+  // Use the 15m OR as the primary reference (balances noise vs. information)
+  const primary = result["15m"] || result["30m"] || result["5m"] || null;
+
+  return {
+    windows: result,
+    primary,
+    orbBias,
+    longBreakouts,
+    shortBreakouts,
+    reclaimCount,
+    resolvedCount: resolvedWindows.length,
+  };
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
 // Mean Reversion TD9 Alignment — Primitives
 // ═══════════════════════════════════════════════════════════════════════════════
 
@@ -3433,8 +3792,9 @@ export function assembleTickerData(ticker, bundles, existingData = null, opts = 
   const b10 = bundles?.["10"];
   const b5 = bundles?.["5"];
   const requestedLeadingLtf = normalizeTfKey(opts?.leadingLtf || existingData?.leading_ltf || "10") || "10";
-  const leadingLtf = requestedLeadingLtf === "15" && b15 ? "15" : "10";
-  const bLead = leadingLtf === "15" ? b15 : b10;
+  const leadingLtf = requestedLeadingLtf === "30" && b30 ? "30"
+    : requestedLeadingLtf === "15" && b15 ? "15" : "10";
+  const bLead = leadingLtf === "30" ? b30 : leadingLtf === "15" ? b15 : b10;
 
   // Compute daily anchors for Golden Gate
   let anchors = null;
@@ -3794,11 +4154,16 @@ export function assembleTickerData(ticker, bundles, existingData = null, opts = 
   const rawDailyBars = rawBarsEarly?.D || rawBarsEarly?.daily || [];
   const breakout = detectBreakout(bD, regime, price, rawDailyBars);
 
+  // ── Opening Range Breakout (ORB) ──
+  const orbIntradayBars = rawBarsEarly?.["10"] || rawBarsEarly?.["15"] || rawBarsEarly?.["5"] || [];
+  const orb = computeORB(orbIntradayBars, price, opts?.asOfTs || null);
+
   return {
     ...base,
     ticker: ticker.toUpperCase(),
     ts: Date.now(),
     script_version: "alpaca_server_v2.0",
+    scoring_version: SCORING_VERSION,
     htf_score: Math.round(htfScore * 10) / 10,
     ltf_score: Math.round(ltfScore * 10) / 10,
     state,
@@ -3859,6 +4224,7 @@ export function assembleTickerData(ticker, bundles, existingData = null, opts = 
     fvg_4h: b4H?.fvg ? { activeBull: b4H.fvg.activeBull, activeBear: b4H.fvg.activeBear,
       inBullGap: b4H.fvg.inBullGap, inBearGap: b4H.fvg.inBearGap,
       nearestBullDist: b4H.fvg.nearestBullDist, nearestBearDist: b4H.fvg.nearestBearDist } : undefined,
+    fvg_imbalance_D: bD ? computeFVGImbalance(bD) : undefined,
     liq_D: bD?.liq ? { buysideCount: bD.liq.buysideCount, sellsideCount: bD.liq.sellsideCount,
       nearestBuysideDist: bD.liq.nearestBuysideDist, nearestSellsideDist: bD.liq.nearestSellsideDist,
       buyside: bD.liq.buyside, sellside: bD.liq.sellside } : undefined,
@@ -3904,6 +4270,7 @@ export function assembleTickerData(ticker, bundles, existingData = null, opts = 
     market_internals: marketInternals || regimeClass.market_internals || undefined,
     execution_profile: executionProfile || undefined,
     breakout: breakout || undefined,           // breakout detection result
+    orb: orb || undefined,                     // Opening Range Breakout levels + signals
     data_source: "alpaca",
     // ── Ichimoku native data (replaces external ichimoku_d/ichimoku_w) ──
     ichimoku_d: bD?.ichimoku ? {
@@ -5265,7 +5632,7 @@ export async function computeServerSideScores(ticker, getCandles, env, existingD
   // Fetch candles for all scoring timeframes + TD Sequential timeframes in PARALLEL
   // Scoring TFs: W, D, 240, 60, 30, leading intraday TF
   // TD Sequential TFs: all 9 TFs (1, 5, 10, 30, 60, 240, D, W, M)
-  const scoringTfs = leadingLtf === "15" ? [...ALL_TFS, "15"] : ALL_TFS;
+  const scoringTfs = (leadingLtf === "15" || leadingLtf === "30") ? [...ALL_TFS, leadingLtf] : ALL_TFS;
   const allTfsToFetch = [...new Set([...scoringTfs, ...TD_SEQ_TFS])]; // union of scoring + TD TFs
   const tfResults = await Promise.all(
     allTfsToFetch.map(async (tf) => {
@@ -5300,8 +5667,8 @@ export async function computeServerSideScores(ticker, getCandles, env, existingD
       if (TD_SEQ_TFS.includes(tf) && deduped.length >= 14) {
         tdSeqCandles[tf] = deduped;
       }
-      // Collect raw Daily & Weekly bars for Phase 2a regime detection
-      if (tf === "D" || tf === "W") {
+      // Collect raw bars for regime detection (D, W) and ORB computation (intraday)
+      if (tf === "D" || tf === "W" || tf === "10" || tf === "15" || tf === "5") {
         rawBars[tf] = deduped;
       }
     }
@@ -5558,4 +5925,59 @@ export async function computeOvernightSignals(ticker, lastRTHCloseTs, currentTs,
   }
 
   return { signals, overnightFlags };
+}
+
+/**
+ * Build a full snapshot payload for timed_trail.payload_json storage.
+ *
+ * INCLUSIVE by design: stores the entire assembled ticker data so any
+ * indicator added in the future is automatically captured. Only strips:
+ *   - Double-underscore runtime fields (__entry_block_reason, etc.)
+ *   - _sparkline (large array, UI-only)
+ *   - _pathPerfCache (runtime map reference)
+ *   - Circular / non-serializable references
+ *
+ * The snapshot includes per-TF data for all timeframes:
+ *   tf_tech[TF] → EMA stack/depth/structure/momentum, SuperTrend dir/slope,
+ *     ATR bands, Squeeze, RSI, RSI divergence, Ripster clouds, Phase osc,
+ *     Saty phase, Saty ATR, Fuel gauge, PDZ zone, FVG, Liquidity, Ichimoku
+ *   Plus top-level: atr_levels, ichimoku_d, ichimoku_w, ichimoku_map,
+ *     td_sequential, orb, breakout, liq_*, fvg_*, pdz_*, ema_map, fuel,
+ *     rvol_map, st_support, active_gates, entry_quality, swing_consensus,
+ *     regime, execution_profile, market_internals, pattern_match, etc.
+ *
+ * @param {object} d - Full ticker data from assembleTickerData + replay enrichment
+ * @param {object} [meta] - Optional metadata (scoring_version override, git hash)
+ * @returns {string} JSON string ready for payload_json column
+ */
+export function buildSnapshotPayload(d, meta = {}) {
+  if (!d) return null;
+
+  // Keys to exclude: runtime-only fields that shouldn't be persisted
+  const EXCLUDE_KEYS = new Set([
+    "_sparkline",           // large UI-only array
+    "_pathPerfCache",       // runtime Map reference
+    "_learnedTfWeights",    // per-session cache
+    "_learnedScoreAdj",     // per-session cache
+    "_learnedSignalWeights",// per-session cache
+    "_tfWeights",           // per-session cache
+    "_scoreWeights",        // per-session cache
+    "_signalWeights",       // per-session cache
+  ]);
+
+  const snap = {};
+  // Inject metadata header
+  snap._snapshot_v = d.scoring_version || SCORING_VERSION;
+  snap._git = meta.gitHash || null;
+
+  for (const [key, val] of Object.entries(d)) {
+    if (val === undefined || val === null) continue;
+    if (EXCLUDE_KEYS.has(key)) continue;
+    // Skip double-underscore runtime diagnostic fields (__entry_block_reason, etc.)
+    // but preserve single-underscore context fields (_vix, _env, _marketInternals)
+    if (key.startsWith("__")) continue;
+    snap[key] = val;
+  }
+
+  return JSON.stringify(snap);
 }

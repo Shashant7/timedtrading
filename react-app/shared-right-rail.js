@@ -74,7 +74,8 @@
       momentum_score: "TT Momentum", squeeze_setup: "TT Squeeze", elite: "TT Elite",
       breakout: "TT Breakout", mean_revert_td9: "TT Mean Revert TD9",
       ripster_momentum: "TT Momentum", ripster_pullback: "TT Pullback",
-      ripster_short_pivot_reclaimed: "TT Pivot Reclaimed",
+      ripster_reclaim: "TT Reclaim", ripster_short_pivot_reclaimed: "TT Pivot Reclaimed",
+      mean_reversion_pdz: "TT Mean Reversion",
     };
     function _formatPath(path) {
       if (!path || typeof path !== "string") return null;
@@ -87,7 +88,7 @@
         const parsed = typeof snap === "string" ? JSON.parse(snap) : snap;
         if (!parsed?.tf || typeof parsed.tf !== "object") return null;
         return TF_ORDER.filter(tf => parsed.tf[tf]).map(tf => ({ tf, signals: parsed.tf[tf]?.signals || {} }));
-      } catch { return null; }
+      } catch (_) { return null; }
     }
     function _parseTfStack(tfStackJson) {
       if (!tfStackJson) return null;
@@ -95,7 +96,7 @@
         const parsed = typeof tfStackJson === "string" ? JSON.parse(tfStackJson) : tfStackJson;
         if (!Array.isArray(parsed)) return null;
         return parsed.filter(e => e?.tf);
-      } catch { return null; }
+      } catch (_) { return null; }
     }
     function _signalValueLabel(key, value) {
       if (value == null || !Number.isFinite(value)) return null;
@@ -226,18 +227,201 @@
     const INDICATOR_KEYS = ["cloud512", "cloud3450", "cloud7289", "cloud180200", "superTrend", "tdSeq"];
 
     // ═══════════════════════════════════════════════════════════════════════
+    // ── Chart Analysis Utilities (ported from Daily Brief) ──────────────
+    const _rrLevelsCache = {};
+
+    function _rrDetectSwingPoints(candles, lookback = 3) {
+      const highs = [], lows = [];
+      for (let i = lookback; i < candles.length - lookback; i++) {
+        const c = candles[i];
+        let isHigh = true, isLow = true;
+        for (let j = 1; j <= lookback; j++) {
+          if (candles[i - j].h >= c.h || candles[i + j].h >= c.h) isHigh = false;
+          if (candles[i - j].l <= c.l || candles[i + j].l <= c.l) isLow = false;
+        }
+        if (isHigh) highs.push({ price: c.h, idx: i, ts: c.ts });
+        if (isLow) lows.push({ price: c.l, idx: i, ts: c.ts });
+      }
+      return { highs, lows };
+    }
+
+    function _rrFitTrendline(points) {
+      if (points.length < 2) return null;
+      const n = points.length;
+      let sx = 0, sy = 0, sxy = 0, sxx = 0;
+      for (const p of points) { sx += p.idx; sy += p.price; sxy += p.idx * p.price; sxx += p.idx * p.idx; }
+      const denom = n * sxx - sx * sx;
+      if (Math.abs(denom) < 1e-10) return null;
+      return { slope: (n * sxy - sx * sy) / denom, intercept: (sy - ((n * sxy - sx * sy) / denom) * sx) / n };
+    }
+
+    function _rrDetectPatterns(candles) {
+      if (candles.length < 15) return { trendlines: [], patterns: [] };
+      const { highs, lows } = _rrDetectSwingPoints(candles, 2);
+      const trendlines = [], patterns = [];
+      const rnd = v => Math.round(v * 100) / 100;
+      const recentHighs = highs.slice(-5);
+      const recentLows = lows.slice(-5);
+
+      if (recentHighs.length >= 2) {
+        const rl = _rrFitTrendline(recentHighs);
+        if (rl) {
+          const si = recentHighs[0].idx, ei = Math.min(candles.length - 1, recentHighs[recentHighs.length - 1].idx + 5);
+          trendlines.push({ type: "resistance", color: "rgba(239,83,80,0.50)", points: [
+            { time: candles[si].ts, value: rnd(rl.intercept + rl.slope * si) },
+            { time: candles[ei].ts, value: rnd(rl.intercept + rl.slope * ei) },
+          ]});
+        }
+      }
+      if (recentLows.length >= 2) {
+        const sl = _rrFitTrendline(recentLows);
+        if (sl) {
+          const si = recentLows[0].idx, ei = Math.min(candles.length - 1, recentLows[recentLows.length - 1].idx + 5);
+          trendlines.push({ type: "support", color: "rgba(38,166,154,0.50)", points: [
+            { time: candles[si].ts, value: rnd(sl.intercept + sl.slope * si) },
+            { time: candles[ei].ts, value: rnd(sl.intercept + sl.slope * ei) },
+          ]});
+        }
+      }
+
+      if (recentHighs.length >= 2 && recentLows.length >= 2) {
+        const avgPrice = candles[candles.length - 1].c;
+        const slopeThreshold = avgPrice * 0.0005;
+        const hSlope = (recentHighs[recentHighs.length - 1].price - recentHighs[0].price) / (recentHighs[recentHighs.length - 1].idx - recentHighs[0].idx || 1);
+        const lSlope = (recentLows[recentLows.length - 1].price - recentLows[0].price) / (recentLows[recentLows.length - 1].idx - recentLows[0].idx || 1);
+
+        if (hSlope < -slopeThreshold && Math.abs(lSlope) < slopeThreshold)
+          patterns.push({ type: "Desc Triangle", idx: recentLows[recentLows.length - 1].idx, ts: recentLows[recentLows.length - 1].ts, bias: "bearish" });
+        if (lSlope > slopeThreshold && Math.abs(hSlope) < slopeThreshold)
+          patterns.push({ type: "Asc Triangle", idx: recentHighs[recentHighs.length - 1].idx, ts: recentHighs[recentHighs.length - 1].ts, bias: "bullish" });
+        if (Math.abs(hSlope) < slopeThreshold && Math.abs(lSlope) < slopeThreshold) {
+          const hi = Math.max(...recentHighs.map(h => h.price)), lo = Math.min(...recentLows.map(l => l.price));
+          if ((hi - lo) / lo * 100 < 8) patterns.push({ type: `Range`, idx: candles.length - 3, ts: candles[candles.length - 3]?.ts, bias: "neutral" });
+        }
+        if (hSlope < -slopeThreshold && lSlope < -slopeThreshold && Math.abs(hSlope - lSlope) < slopeThreshold * 2)
+          patterns.push({ type: "Bear Flag", idx: recentLows[recentLows.length - 1].idx, ts: recentLows[recentLows.length - 1].ts, bias: "bearish" });
+        if (hSlope > slopeThreshold && lSlope > slopeThreshold && Math.abs(hSlope - lSlope) < slopeThreshold * 2)
+          patterns.push({ type: "Bull Flag", idx: recentHighs[recentHighs.length - 1].idx, ts: recentHighs[recentHighs.length - 1].ts, bias: "bullish" });
+      }
+      if (recentHighs.length >= 2) {
+        const l2 = recentHighs.slice(-2);
+        if (Math.abs(l2[0].price - l2[1].price) / l2[0].price < 0.005 && l2[1].idx - l2[0].idx >= 5)
+          patterns.push({ type: "Double Top", idx: l2[1].idx, ts: l2[1].ts, bias: "bearish" });
+      }
+      if (recentLows.length >= 2) {
+        const l2 = recentLows.slice(-2);
+        if (Math.abs(l2[0].price - l2[1].price) / l2[0].price < 0.005 && l2[1].idx - l2[0].idx >= 5)
+          patterns.push({ type: "Double Bottom", idx: l2[1].idx, ts: l2[1].ts, bias: "bullish" });
+      }
+      return { trendlines, patterns };
+    }
+
+    async function _rrFetchChartLevels(sym, chartTf, chartCandles) {
+      const ck = `${sym}-${chartTf}`;
+      if (_rrLevelsCache[ck] && Date.now() - _rrLevelsCache[ck].ts < 300000) return _rrLevelsCache[ck].data;
+      try {
+        const res = await fetch(`${API_BASE}/timed/candles?ticker=${encodeURIComponent(sym)}&tf=D&limit=40`, { cache: "no-store" });
+        const d = await res.json();
+        if (!d.ok || !d.candles || d.candles.length < 5) return null;
+        const dailies = d.candles;
+        const rnd = v => Math.round(v * 100) / 100;
+        const levels = [];
+
+        let atrSum = 0, atrN = 0;
+        for (let i = 1; i < dailies.length; i++) {
+          const h = Number(dailies[i].h), l = Number(dailies[i].l), pc = Number(dailies[i - 1].c);
+          const tr = Math.max(h - l, Math.abs(h - pc), Math.abs(l - pc));
+          if (tr > 0) { atrSum += tr; atrN++; }
+        }
+        const dayAtr = atrN > 0 ? atrSum / atrN : 0;
+        if (dayAtr <= 0) return null;
+
+        const prevDay = dailies[dailies.length - 2];
+        const anchor = Number(prevDay.c);
+        levels.push({ price: rnd(anchor), color: "rgba(255,255,255,0.40)", label: "Prev Close", lineWidth: 1, style: "dotted" });
+
+        const dailyParsed = dailies.map(c => ({ h: Number(c.h), l: Number(c.l), c: Number(c.c), o: Number(c.o), ts: Number(c.ts) / 1000 }));
+        const { highs, lows } = _rrDetectSwingPoints(dailyParsed, 2);
+        const curPx = dailyParsed[dailyParsed.length - 1].c;
+        const nearHighs = highs.filter(h => h.price > curPx * 0.98).sort((a, b) => a.price - b.price).slice(0, 2);
+        const nearLows = lows.filter(l => l.price < curPx * 1.02).sort((a, b) => b.price - a.price).slice(0, 2);
+        for (const h of nearHighs) levels.push({ price: rnd(h.price), color: "rgba(239,83,80,0.50)", label: `R ${rnd(h.price)}`, lineWidth: 1, style: "dashed" });
+        for (const l of nearLows) levels.push({ price: rnd(l.price), color: "rgba(38,166,154,0.50)", label: `S ${rnd(l.price)}`, lineWidth: 1, style: "dashed" });
+
+        if (chartTf !== "D" && chartTf !== "W") {
+          const dist = curPx - anchor;
+          const pctOfAtr = dist / dayAtr;
+          if (pctOfAtr > 0.382) {
+            levels.push({ price: rnd(anchor + dayAtr * 0.618), color: "rgba(245,158,11,0.50)", label: "ATR +61.8%", lineWidth: 1, style: "dashed" });
+            levels.push({ price: rnd(anchor + dayAtr * 1.0), color: "rgba(245,158,11,0.50)", label: "ATR +100%", lineWidth: 1, style: "dashed" });
+          } else if (pctOfAtr < -0.382) {
+            levels.push({ price: rnd(anchor - dayAtr * 0.618), color: "rgba(245,158,11,0.50)", label: "ATR -61.8%", lineWidth: 1, style: "dashed" });
+            levels.push({ price: rnd(anchor - dayAtr * 1.0), color: "rgba(245,158,11,0.50)", label: "ATR -100%", lineWidth: 1, style: "dashed" });
+          }
+        }
+
+        let patternData = { trendlines: [], patterns: [] };
+        if (chartCandles && chartCandles.length > 15) {
+          const parsed = chartCandles.map(c => ({
+            h: c.high !== undefined ? c.high : c.h, l: c.low !== undefined ? c.low : c.l,
+            c: c.close !== undefined ? c.close : c.c, o: c.open !== undefined ? c.open : c.o,
+            ts: c.time || c.ts,
+          }));
+          patternData = _rrDetectPatterns(parsed);
+        }
+        const result = { levels, dayAtr: rnd(dayAtr), anchor: rnd(anchor), trendlines: patternData.trendlines, patterns: patternData.patterns };
+        _rrLevelsCache[ck] = { data: result, ts: Date.now() };
+        return result;
+      } catch (e) {
+        console.error(`[RR] Chart levels error ${sym}:`, e);
+        return null;
+      }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // Skeleton loading placeholder — reserves layout space while async data loads
+    // ═══════════════════════════════════════════════════════════════════════
+    const _skelStyleInjected = useRef ? { current: false } : { current: false };
+    function SkeletonBlock({ height = 80, lines = 3, style: extraStyle }) {
+      if (!_skelStyleInjected.current && typeof document !== "undefined") {
+        _skelStyleInjected.current = true;
+        const id = "tt-skeleton-shimmer-css";
+        if (!document.getElementById(id)) {
+          const el = document.createElement("style");
+          el.id = id;
+          el.textContent = `.skeleton-shimmer{background:linear-gradient(90deg,rgba(255,255,255,0.04) 25%,rgba(255,255,255,0.08) 50%,rgba(255,255,255,0.04) 75%);background-size:200% 100%;animation:tt-shimmer 1.5s infinite}@keyframes tt-shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}`;
+          document.head.appendChild(el);
+        }
+      }
+      return React.createElement("div", {
+        className: "mb-4 p-3 rounded-lg bg-white/[0.02] border border-white/[0.04]",
+        style: { minHeight: height, ...extraStyle },
+      },
+        Array.from({ length: lines }).map((_, i) =>
+          React.createElement("div", {
+            key: i,
+            className: "rounded skeleton-shimmer",
+            style: { height: 10, marginBottom: i < lines - 1 ? 10 : 0, width: `${90 - i * 12}%`, borderRadius: 4 },
+          })
+        )
+      );
+    }
+
     // TradingView Lightweight Charts Sub-Component for Right Rail
     // ═══════════════════════════════════════════════════════════════════════
-    function LWChart({ candles: rawCandles, chartTf, overlays, onCrosshair, height: propHeight, priceLines: propPriceLines, markers: propMarkers }) {
+    function LWChart({ candles: rawCandles, chartTf, overlays, onCrosshair, height: propHeight, priceLines: propPriceLines, markers: propMarkers, ticker: propTicker }) {
       const containerRef = useRef(null);
       const chartInstanceRef = useRef(null);
       const candleSeriesRef = useRef(null);
       const overlaySeriesRef = useRef({});
+      const levelPriceLinesRef = useRef([]);
+      const levelTrendSeriesRef = useRef([]);
       const [ohlcHeader, setOhlcHeader] = useState(null);
+      const [patternLabel, setPatternLabel] = useState(null);
 
       const LWC = typeof LightweightCharts !== "undefined" ? LightweightCharts : null;
 
-      // Normalize candles
+      // Normalize candles and sanitize ghost wicks
       const mapped = useMemo(() => {
         if (!rawCandles || rawCandles.length < 2) return [];
         const toSec = (v) => {
@@ -245,7 +429,7 @@
           const n = Number(v);
           return n > 1e12 ? Math.floor(n / 1000) : n > 1e9 ? n : 0;
         };
-        return rawCandles
+        const raw = rawCandles
           .map(c => {
             const ts = toSec(c.ts ?? c.t ?? c.time ?? c.timestamp);
             const o = Number(c.o ?? c.open);
@@ -257,8 +441,36 @@
           })
           .filter(Boolean)
           .sort((a, b) => a.time - b.time)
-          // Deduplicate timestamps (keep last)
           .filter((c, i, arr) => i === arr.length - 1 || c.time !== arr[i + 1].time);
+
+        // Pass 1: clamp wicks that are wildly wider than the body
+        for (let i = 0; i < raw.length; i++) {
+          const c = raw[i];
+          const body = Math.abs(c.open - c.close) || c.close * 0.001;
+          const wickRange = c.high - c.low;
+          const mid = (c.open + c.close) / 2;
+          if (mid > 0 && wickRange > body * 6 && wickRange / mid > 0.03) {
+            const cap = body * 3;
+            const top = Math.max(c.open, c.close);
+            const bot = Math.min(c.open, c.close);
+            c.high = Math.min(c.high, top + cap);
+            c.low = Math.max(c.low, bot - cap);
+          }
+        }
+
+        // Pass 2: clamp outlier highs/lows relative to neighbors
+        for (let i = 1; i < raw.length - 1; i++) {
+          const prev = raw[i - 1], cur = raw[i], next = raw[i + 1];
+          const refHigh = Math.max(prev.high, next.high, prev.close, next.close);
+          const refLow = Math.min(prev.low, next.low, prev.close, next.close);
+          const refRange = (refHigh - refLow) || refHigh * 0.01;
+          const threshold = refRange * 3;
+          if (cur.high > refHigh + threshold) cur.high = Math.max(cur.open, cur.close) + refRange * 0.5;
+          if (cur.low < refLow - threshold) cur.low = Math.min(cur.open, cur.close) - refRange * 0.5;
+          if (cur.low > cur.high) { const tmp = cur.low; cur.low = cur.high; cur.high = tmp; }
+        }
+
+        return raw;
       }, [rawCandles]);
 
       // Compute indicator overlays
@@ -299,61 +511,14 @@
           result.ema200 = mapped.map((c, i) => ema[i] != null ? { time: c.time, value: ema[i] } : null).filter(Boolean);
         }
 
-        // SuperTrend (period=10, multiplier=3)
+        // SuperTrend — use segment-based approach for proper gaps at direction flips
         if (overlays.supertrend && n >= 11) {
-          const stP = 10, stM = 3;
-          const tr = new Array(n).fill(0);
-          for (let i = 1; i < n; i++) tr[i] = Math.max(highs[i] - lows[i], Math.abs(highs[i] - closes[i-1]), Math.abs(lows[i] - closes[i-1]));
-          const atr = new Array(n).fill(0);
-          for (let i = stP; i < n; i++) {
-            let s = 0; for (let j = i - stP; j < i; j++) s += tr[j + 1]; atr[i] = s / stP;
-          }
-          const upArr = [], dnArr = [], dirArr = [];
-          for (let i = 0; i < n; i++) { upArr.push(0); dnArr.push(0); dirArr.push(1); }
-          for (let i = stP; i < n; i++) {
-            const mid = (highs[i] + lows[i]) / 2;
-            let up = mid - stM * atr[i];
-            let dn = mid + stM * atr[i];
-            if (i > stP) {
-              up = (closes[i-1] > upArr[i-1]) ? Math.max(up, upArr[i-1]) : up;
-              dn = (closes[i-1] < dnArr[i-1]) ? Math.min(dn, dnArr[i-1]) : dn;
-            }
-            upArr[i] = up; dnArr[i] = dn;
-            if (i > stP) {
-              if (dirArr[i-1] === 1) dirArr[i] = closes[i] < upArr[i] ? -1 : 1;
-              else dirArr[i] = closes[i] > dnArr[i] ? 1 : -1;
-            }
-          }
-          // SuperTrend as two separate series (bull/bear) for coloring
-          result.stBull = mapped.map((c, i) => i >= stP && dirArr[i] === 1 ? { time: c.time, value: upArr[i] } : null).filter(Boolean);
-          result.stBear = mapped.map((c, i) => i >= stP && dirArr[i] === -1 ? { time: c.time, value: dnArr[i] } : null).filter(Boolean);
+          result.stSegments = computeSuperTrendSegments(mapped, 10, 3);
         }
 
-        // TD Sequential
-        if (overlays.tdSequential && n >= 14) {
-          const PREP_COMP = 4;
-          let bullPrep = 0, bearPrep = 0;
-          const markers = [];
-          for (let i = PREP_COMP; i < n; i++) {
-            const cc = closes[i];
-            const cComp = closes[i - PREP_COMP];
-            bullPrep = cc < cComp ? bullPrep + 1 : 0;
-            bearPrep = cc > cComp ? bearPrep + 1 : 0;
-            if (bullPrep >= 7 || bearPrep >= 7) {
-              const count = bullPrep >= 7 ? bullPrep : bearPrep;
-              const isBull = bullPrep >= 7;
-              if (count >= 7 && count <= 9) {
-                markers.push({
-                  time: mapped[i].time,
-                  position: isBull ? "belowBar" : "aboveBar",
-                  color: isBull ? "#22c55e" : "#ef4444",
-                  shape: count === 9 ? "circle" : "arrowUp",
-                  text: String(count),
-                });
-              }
-            }
-          }
-          result.tdMarkers = markers;
+        // TD Sequential — full 1-9 prep + 1-13 countdown via shared helper
+        if (overlays.tdSequential && n >= 5) {
+          result.tdMarkers = computeTDSequential(mapped, 4, 2);
         }
 
         return result;
@@ -394,7 +559,7 @@
               try {
                 const d = new Date(time * 1000);
                 return d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: "America/New_York" });
-              } catch { return ""; }
+              } catch (_) { return ""; }
             },
           },
           localization: {
@@ -402,7 +567,7 @@
               try {
                 const d = new Date(time * 1000);
                 return d.toLocaleString("en-US", { hour: "numeric", minute: "2-digit", second: "2-digit", timeZone: "America/New_York" });
-              } catch { return ""; }
+              } catch (_) { return ""; }
             },
           },
           handleScroll: { vertTouchDrag: false },
@@ -438,15 +603,15 @@
           s.setData(indicatorData.ema200);
           addedSeries.ema200 = s;
         }
-        if (indicatorData.stBull?.length > 0) {
-          const s = chart.addLineSeries({ color: "#34d399", lineWidth: 2, lineStyle: LWC.LineStyle.Dotted, priceLineVisible: false, lastValueVisible: false });
-          s.setData(indicatorData.stBull);
-          addedSeries.stBull = s;
-        }
-        if (indicatorData.stBear?.length > 0) {
-          const s = chart.addLineSeries({ color: "#f87171", lineWidth: 2, lineStyle: LWC.LineStyle.Dotted, priceLineVisible: false, lastValueVisible: false });
-          s.setData(indicatorData.stBear);
-          addedSeries.stBear = s;
+        if (indicatorData.stSegments?.length > 0) {
+          const stSeriesList = [];
+          for (const seg of indicatorData.stSegments) {
+            if (!seg.data?.length) continue;
+            const s = chart.addLineSeries({ color: seg.color, lineWidth: 2, priceLineVisible: false, lastValueVisible: false });
+            s.setData(seg.data);
+            stSeriesList.push(s);
+          }
+          addedSeries.stSegments = stSeriesList;
         }
         // TD Sequential markers + external markers
         const allMarkers = [
@@ -492,7 +657,60 @@
           }
         });
 
-        chart.timeScale().fitContent();
+        // TF-specific visible range and bar spacing
+        const _visibleBars = { "5": 156, "15": 52, "30": 26, "60": 20, "240": 60, "D": 30, "W": 52 };
+        const _barsToShow = _visibleBars[String(chartTf)] || mapped.length;
+        const _tfBarSpacing = String(chartTf) === "D" ? 12 : String(chartTf) === "60" ? 8 : 6;
+        chart.applyOptions({ timeScale: { rightOffset: 5, barSpacing: _tfBarSpacing } });
+        if (mapped.length > _barsToShow) {
+          chart.timeScale().setVisibleLogicalRange({ from: mapped.length - _barsToShow, to: mapped.length + 5 });
+        } else {
+          chart.timeScale().fitContent();
+        }
+
+        // Fetch and apply S/R levels, trendlines, patterns
+        if (propTicker && overlays?.levels !== false) {
+          _rrFetchChartLevels(propTicker, String(chartTf), mapped).then(ovData => {
+            if (!ovData || !candleSeries || !chart) return;
+            // Price lines
+            for (const lvl of (ovData.levels || [])) {
+              try {
+                const styleMap = { dotted: LWC.LineStyle.Dotted, dashed: LWC.LineStyle.Dashed, solid: LWC.LineStyle.Solid };
+                const pl = candleSeries.createPriceLine({
+                  price: lvl.price, color: lvl.color || "rgba(255,255,255,0.2)", lineWidth: lvl.lineWidth || 1,
+                  lineStyle: styleMap[lvl.style] || LWC.LineStyle.Dashed, axisLabelVisible: true, title: lvl.label || "",
+                });
+                levelPriceLinesRef.current.push(pl);
+              } catch (_) {}
+            }
+            // Trendlines
+            for (const tl of (ovData.trendlines || [])) {
+              if (!tl.points || tl.points.length < 2) continue;
+              try {
+                const ls = chart.addLineSeries({
+                  color: tl.color || "rgba(255,255,255,0.3)", lineWidth: 2, lineStyle: LWC.LineStyle.LargeDashed,
+                  crosshairMarkerVisible: false, priceLineVisible: false, lastValueVisible: false,
+                });
+                ls.setData(tl.points);
+                levelTrendSeriesRef.current.push(ls);
+              } catch (_) {}
+            }
+            // Pattern markers (merge with existing)
+            if (ovData.patterns?.length > 0) {
+              const pMarkers = ovData.patterns.map(p => ({
+                time: p.ts, position: p.bias === "bearish" ? "aboveBar" : "belowBar",
+                color: p.bias === "bearish" ? "#ef5350" : p.bias === "bullish" ? "#26a69a" : "#7c8493",
+                shape: p.bias === "bearish" ? "arrowDown" : p.bias === "bullish" ? "arrowUp" : "circle",
+                text: p.type,
+              }));
+              try {
+                const existingMarkers = allMarkers || [];
+                candleSeries.setMarkers([...existingMarkers, ...pMarkers].sort((a, b) => a.time - b.time));
+              } catch (_) {}
+              setPatternLabel(ovData.patterns[ovData.patterns.length - 1]?.type || null);
+            }
+          }).catch(() => {});
+        }
 
         // Resize — use ResizeObserver for portal/modal mount detection + window fallback
         let resizeObserver = null;
@@ -534,12 +752,14 @@
         return () => {
           window.removeEventListener("resize", handleResize);
           if (resizeObserver) resizeObserver.disconnect();
+          levelPriceLinesRef.current = [];
+          levelTrendSeriesRef.current = [];
           chart.remove();
           chartInstanceRef.current = null;
           candleSeriesRef.current = null;
           overlaySeriesRef.current = {};
         };
-      }, [mapped, indicatorData, chartTf, LWC, propHeight]);
+      }, [mapped, indicatorData, chartTf, LWC, propHeight, propTicker]);
 
       if (!LWC) {
         return React.createElement("div", { className: "text-xs text-[#6b7280]" }, "Charts library not loaded.");
@@ -566,7 +786,7 @@
           hdrTimeStr = isDWM
             ? d.toLocaleString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "America/New_York" })
             : d.toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: "America/New_York" }) + " ET";
-        } catch {}
+        } catch (_) {}
       }
 
       return React.createElement("div", { className: "w-full relative -mx-3 px-3" },
@@ -600,7 +820,10 @@
           React.createElement("span", { className: "text-[#6b7280]" }, "C"),
           React.createElement("span", { className: hdrUp ? "text-teal-400 font-semibold" : "text-rose-400 font-semibold" }, hdr.c?.toFixed(2)),
           React.createElement("span", { className: hdrUp ? "text-teal-400" : "text-rose-400" },
-            `${hdrUp ? "+" : ""}${hdrChg.toFixed(2)} (${hdrUp ? "+" : ""}${hdrPct.toFixed(2)}%)`)
+            `${hdrUp ? "+" : ""}${hdrChg.toFixed(2)} (${hdrUp ? "+" : ""}${hdrPct.toFixed(2)}%)`),
+          patternLabel && React.createElement("span", {
+            className: "px-1.5 py-px rounded text-[8px] font-bold border border-violet-400/40 bg-violet-500/20 text-violet-300"
+          }, patternLabel)
         ),
         // Chart container
         React.createElement("div", {
@@ -651,7 +874,7 @@
           if (String(map.weekday || "") === "Sat" || String(map.weekday || "") === "Sun") return false;
           const mins = Number(map.hour || 0) * 60 + Number(map.minute || 0);
           return mins >= 570 && mins < 960;
-        } catch { return true; }
+        } catch (_) { return true; }
       }, []);
 
       const mapCandles = useCallback((candles, timeframe) => {
@@ -694,9 +917,9 @@
           crosshair: { mode: LWC.CrosshairMode.Normal, vertLine: { color: "rgba(255,255,255,0.15)", width: 1, style: 2, labelBackgroundColor: "#1e293b" }, horzLine: { color: "rgba(255,255,255,0.15)", width: 1, style: 2, labelBackgroundColor: "#1e293b" } },
           rightPriceScale: { borderColor: "rgba(38,50,95,0.5)", scaleMargins: { top: 0.08, bottom: 0.08 }, autoScale: true },
           timeScale: { borderColor: "rgba(38,50,95,0.5)", timeVisible: true, secondsVisible: false, barSpacing: 4, rightOffset: 3, fixLeftEdge: true, fixRightEdge: true,
-            tickMarkFormatter: (time) => { try { if (typeof time === "string") { const [y, m, d] = time.split("-").map(Number); return new Date(y, (m||1)-1, d||1).toLocaleDateString("en-US", { month: "short", day: "numeric" }); } const dd = new Date(time * 1000); return dd.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "America/New_York" }) + " " + dd.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: "America/New_York" }); } catch { return ""; } },
+            tickMarkFormatter: (time) => { try { if (typeof time === "string") { const [y, m, d] = time.split("-").map(Number); return new Date(y, (m||1)-1, d||1).toLocaleDateString("en-US", { month: "short", day: "numeric" }); } const dd = new Date(time * 1000); return dd.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "America/New_York" }) + " " + dd.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: "America/New_York" }); } catch (_) { return ""; } },
           },
-          localization: { timeFormatter: (time) => { try { if (typeof time === "string") { const [y, m, d] = time.split("-").map(Number); return new Date(y, (m||1)-1, d||1).toLocaleDateString("en-US", { month: "short", day: "numeric" }); } const dd = new Date(time * 1000); return dd.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "America/New_York" }) + " " + dd.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", second: "2-digit", timeZone: "America/New_York" }); } catch { return ""; } } },
+          localization: { timeFormatter: (time) => { try { if (typeof time === "string") { const [y, m, d] = time.split("-").map(Number); return new Date(y, (m||1)-1, d||1).toLocaleDateString("en-US", { month: "short", day: "numeric" }); } const dd = new Date(time * 1000); return dd.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "America/New_York" }) + " " + dd.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", second: "2-digit", timeZone: "America/New_York" }); } catch (_) { return ""; } } },
           handleScroll: { vertTouchDrag: false },
         });
         chartRef.current = chart;
@@ -1379,7 +1602,7 @@
                 market: json.market || null,
                 patternMatch: src?.pattern_match || null,
               });
-            } catch { /* model signals are a boost, not a gate */ }
+            } catch (_) { /* model signals are a boost, not a gate */ }
           })();
           return () => { cancelled = true; };
         }, [tickerSymbol, latestTicker, ticker]);
@@ -1528,7 +1751,7 @@
               if (json.ok && json.performance) {
                 if (!cancelled) setCandlePerf(json);
               }
-            } catch {
+            } catch (_) {
               // Non-critical: performance section will just not render
             } finally {
               if (!cancelled) setCandlePerfLoading(false);
@@ -1686,7 +1909,7 @@
               minute: "2-digit",
               hour12: true,
             });
-          } catch {
+          } catch (_) {
             return null;
           }
         })();
@@ -1730,7 +1953,7 @@
                                 if (btn) { btn.textContent = "Copied!"; setTimeout(() => { btn.textContent = ""; }, 1500); }
                               });
                             }
-                          } catch {}
+                          } catch (_) {}
                         }}
                         id="share-toast-btn"
                         className="text-[#6b7280] hover:text-teal-300 transition-colors p-1.5 rounded hover:bg-white/[0.04]"
@@ -1843,7 +2066,7 @@
                             </span>
                           );
                         }).filter(Boolean);
-                      } catch { return null; }
+                      } catch (_) { return null; }
                     })()}
 
                     {/* Ingest age pill — prefer latestTicker (freshness-merged by price feed) */}
@@ -1860,7 +2083,7 @@
                         const txt = ageMin < 60 ? `${ageMin}m` : ageH < 24 ? `${ageH}h` : `${ageD}d`;
                         const cls = ageMin < 5 ? "text-green-400 border-green-400/30" : ageMin < 60 ? "text-yellow-400 border-yellow-400/30" : "text-orange-400 border-orange-400/30";
                         return <span className={`px-1.5 py-0.5 rounded border font-semibold ${cls}`} title={`Last ingest: ${tv.toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", hour12: true })}`}>{txt}</span>;
-                      } catch { return null; }
+                      } catch (_) { return null; }
                     })()}
 
                     {/* Stage pill */}
@@ -2021,7 +2244,7 @@
                       const fmtPct = (n) => Number.isFinite(n) ? `${n >= 0 ? "+" : ""}${n.toFixed(1)}%` : "—";
                       const SIGNAL_LABELS = { rsi_oversold: "RSI is low (oversold)", above_monthly_ema: "Price above monthly trend line", monthly_trend_intact: "Monthly trend still healthy", weekly_trend_intact: "Weekly trend still healthy", above_weekly_ema: "Price above weekly trend line", rsi_divergence: "Momentum divergence detected", volume_climax: "Unusual selling volume (capitulation)", near_support: "Price near a support level" };
 
-                      if (investorLoading) return <div className="flex items-center justify-center py-12"><div className="loading-spinner" /><span className="ml-2 text-[#6b7280] text-sm">Loading investor data…</span></div>;
+                      if (investorLoading) return <SkeletonBlock height={200} lines={5} />;
                       if (investorError) {
                         const is404 = investorError.includes("404");
                         return <div className="py-8 text-center">
@@ -2061,9 +2284,7 @@
                           </div>
 
                           {predictionContractLoading ? (
-                            <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-3 text-[11px] text-[#6b7280]">
-                              Building model guidance...
-                            </div>
+                            <SkeletonBlock height={100} lines={4} />
                           ) : predictionContract ? (
                             <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-3">
                               <div className="flex items-start justify-between gap-3">
@@ -2353,9 +2574,7 @@
                       })()}
 
                       {predictionContractLoading ? (
-                        <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-3 mb-4 text-[11px] text-[#6b7280]">
-                          Building model guidance...
-                        </div>
+                        <SkeletonBlock height={120} lines={4} />
                       ) : predictionContract ? (
                         <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-3 mb-4">
                           <div className="flex items-start justify-between gap-3">
@@ -2682,7 +2901,8 @@
                       {/* 5b. MINI PRICE CHART (SL / TP1 / Entry overlay)            */}
                       {/* ═══════════════════════════════════════════════════════════ */}
                       {(() => {
-                        if (!Array.isArray(chartCandles) || chartCandles.length < 2 || chartLoading) return null;
+                        if (chartLoading) return React.createElement(SkeletonBlock, { height: 200, lines: 0, style: { background: "rgba(255,255,255,0.02)" } });
+                        if (!Array.isArray(chartCandles) || chartCandles.length < 2) return null;
 
                         const price = Number(ticker?.price);
                         const posSlRaw = ticker?.has_open_position ? Number(ticker?.position_sl) : NaN;
@@ -2753,6 +2973,7 @@
                             height: 200,
                             priceLines: miniPriceLines,
                             markers: miniMarkers,
+                            ticker: tickerSymbol,
                           })
                         );
                       })()}
@@ -3177,6 +3398,38 @@
                                     </div>
                                   </div>
                                 )}
+                              </div>
+                            </div>
+                          );
+                        })()}
+
+                        {/* AI CIO Review */}
+                        {(() => {
+                          const cioBlocked = !!ticker?.__cio_blocked;
+                          const cioReason = ticker?.__cio_block_reason || "";
+                          const cioFlags = ticker?.__cio_block_flags || "";
+                          const cioTs = ticker?.__cio_block_ts;
+                          if (!cioBlocked && !cioReason) return null;
+                          const cioDate = cioTs ? new Date(Number(cioTs)) : null;
+                          const cioTimeStr = cioDate && !isNaN(cioDate.getTime())
+                            ? cioDate.toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", hour12: true })
+                            : null;
+                          return (
+                            <div className="border-t border-red-500/20 my-3 pt-3">
+                              <div className="flex items-center justify-between mb-2">
+                                <span className="text-[11px] font-bold text-red-300">🛑 AI CIO Review</span>
+                                {cioTimeStr && <span className="text-[9px] text-slate-500">{cioTimeStr}</span>}
+                              </div>
+                              <div className="rounded-md p-2 bg-red-500/[0.08] border border-red-500/20">
+                                {cioBlocked && <div className="text-[10px] text-red-300 font-semibold mb-1">REJECTED</div>}
+                                {cioFlags && (
+                                  <div className="flex flex-wrap gap-1 mb-1.5">
+                                    {cioFlags.split(",").map((f, i) => (
+                                      <span key={i} className="px-1.5 py-0.5 rounded bg-red-500/15 text-red-300/90 text-[9px] border border-red-500/20">{f.trim()}</span>
+                                    ))}
+                                  </div>
+                                )}
+                                {cioReason && <div className="text-[10px] text-slate-300/80 leading-relaxed">{cioReason}</div>}
                               </div>
                             </div>
                           );
@@ -4485,9 +4738,7 @@
                         </div>
 
                         {chartLoading ? (
-                          <div className="text-xs text-[#6b7280]">
-                            Loading candles…
-                          </div>
+                          <SkeletonBlock height={200} lines={0} style={{ background: "rgba(255,255,255,0.02)" }} />
                         ) : chartError ? (
                           <div className="text-xs text-yellow-300">
                             Failed to load candles: {chartError}
@@ -4695,7 +4946,7 @@
                             const hO2 = Number(hc2?.o), hH2 = Number(hc2?.h), hL2 = Number(hc2?.l), hC2 = Number(hc2?.c);
                             const hChg2 = hC2 - hO2, hPct2 = hO2 > 0 ? (hChg2 / hO2) * 100 : 0, hUp2 = hChg2 >= 0;
                             let hTime2 = "";
-                            try { const hTs = Number(hc2?.__ts_ms ?? hc2?.ts); if (Number.isFinite(hTs)) { const d = new Date(hTs); const isDWM = ["D","W","M"].includes(String(chartTf)); hTime2 = isDWM ? d.toLocaleString("en-US",{month:"short",day:"numeric",year:"numeric",timeZone:"America/New_York"}) : d.toLocaleString("en-US",{month:"short",day:"numeric",hour:"numeric",minute:"2-digit",timeZone:"America/New_York"})+" ET"; } } catch {}
+                            try { const hTs = Number(hc2?.__ts_ms ?? hc2?.ts); if (Number.isFinite(hTs)) { const d = new Date(hTs); const isDWM = ["D","W","M"].includes(String(chartTf)); hTime2 = isDWM ? d.toLocaleString("en-US",{month:"short",day:"numeric",year:"numeric",timeZone:"America/New_York"}) : d.toLocaleString("en-US",{month:"short",day:"numeric",hour:"numeric",minute:"2-digit",timeZone:"America/New_York"})+" ET"; } } catch (_) {}
 
                             return (
                               <div className="w-full relative">
@@ -4900,7 +5151,7 @@
                                             hour: "numeric",
                                             minute: "2-digit",
                                           });
-                                        } catch {
+                                        } catch (_) {
                                           return "—";
                                         }
                                       })()}
@@ -4977,10 +5228,7 @@
                         </div>
 
                         {ledgerTradesLoading ? (
-                          <div className="text-xs text-[#6b7280] flex items-center gap-2">
-                            <div className="loading-spinner"></div>
-                            Loading trades…
-                          </div>
+                          <SkeletonBlock height={150} lines={4} />
                         ) : ledgerTradesError ? (
                           <div className="text-xs text-red-400">
                             Ledger unavailable: {ledgerTradesError}
@@ -5076,7 +5324,7 @@
 
                               const formatDt = (ts) => {
                                 if (!ts) return "\u2014";
-                                try { const d = new Date(Number(ts)); return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) + ", " + d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }); } catch { return "\u2014"; }
+                                try { const d = new Date(Number(ts)); return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) + ", " + d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }); } catch (_) { return "\u2014"; }
                               };
                               const duration = (() => {
                                 const ems = Number(t.entry_ts); const xms = isClosed ? Number(t.exit_ts) : Date.now();
@@ -5459,7 +5707,7 @@
                         </div>
 
                         {bubbleJourneyLoading ? (
-                          <div className="text-xs text-[#6b7280] flex items-center gap-2"><div className="loading-spinner"></div>Loading trail…</div>
+                          <SkeletonBlock height={120} lines={3} />
                         ) : bubbleJourneyError ? (
                           <div className="text-xs text-red-400">Trail unavailable: {bubbleJourneyError}</div>
                         ) : bubbleJourney.length === 0 ? (
@@ -5659,12 +5907,7 @@
                       {/* Performance Overview — powered by daily candle closes */}
                       {(() => {
                         if (candlePerfLoading) {
-                          return (
-                            <div className="mb-4 p-3 bg-white/[0.03] border border-white/[0.06] rounded-lg text-xs text-[#6b7280] flex items-center gap-2">
-                              <div className="loading-spinner"></div>
-                              Loading performance…
-                            </div>
-                          );
+                          return React.createElement(SkeletonBlock, { height: 120, lines: 4 });
                         }
 
                         const perf = candlePerf?.performance;
@@ -5890,9 +6133,7 @@
                     {/* Chart Area */}
                     <div style={{ padding: '12px 20px 20px' }}>
                       {modalLoading ? (
-                        <div style={{ height: chartH }} className="w-full flex items-center justify-center text-white/40 text-sm">
-                          Loading chart...
-                        </div>
+                        React.createElement(SkeletonBlock, { height: chartH, lines: 0, style: { background: "rgba(255,255,255,0.02)" } })
                       ) : !Array.isArray(modalCandles) || modalCandles.length < 2 ? (
                         <div style={{ height: chartH }} className="w-full flex items-center justify-center text-white/30 text-sm">
                           No candle data
@@ -5906,6 +6147,7 @@
                           height={chartH}
                           priceLines={modalPriceLines}
                           markers={modalMarkers}
+                          ticker={tickerSymbol}
                         />
                       )}
                     </div>
@@ -5940,14 +6182,14 @@
                   const raw = mt.signal_snapshot_json || mt.signalSnapshot;
                   const parsed = typeof raw === "string" ? JSON.parse(raw) : raw;
                   return parsed?.precision?.learningContext || parsed?.learningContext || null;
-                } catch { return null; }
+                } catch (_) { return null; }
               })();
               const _lineage = (() => {
                 try {
                   const raw = mt.signal_snapshot_json || mt.signalSnapshot;
                   const parsed = typeof raw === "string" ? JSON.parse(raw) : raw;
                   return parsed?.lineage || null;
-                } catch { return null; }
+                } catch (_) { return null; }
               })();
 
               const closeAutopsyModal = () => {
@@ -5974,7 +6216,7 @@
                     </div>
 
                     {autopsyModalLoading ? (
-                      <div className="p-8 text-center text-white/40 text-sm flex-1 flex items-center justify-center">Loading trade details...</div>
+                      React.createElement("div", { className: "p-4 flex-1" }, React.createElement(SkeletonBlock, { height: 200, lines: 6 }))
                     ) : (
                       <div className="p-3 md:p-4 flex-1 min-h-0 overflow-y-auto flex flex-col gap-3">
                         {/* Entry/Exit summary badges */}

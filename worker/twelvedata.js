@@ -162,33 +162,33 @@ function tdBarToAlpacaBar(tdBar) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// Aggregate 10min bars from 5min bars
-// Pairs consecutive 5min candles into 10min candles.
+// Aggregate 10min bars from 5min bars using time-boundary alignment.
+// Groups 5m bars into 10m buckets (e.g. :00+:05 → :00, :10+:15 → :10, etc.)
+// so missing bars, session edges, and odd counts don't corrupt the output.
 // ═══════════════════════════════════════════════════════════════════════════════
 
 function aggregate5mTo10m(fiveMinBars) {
   if (!Array.isArray(fiveMinBars) || fiveMinBars.length === 0) return [];
-  const sorted = [...fiveMinBars].sort((a, b) => {
-    const ta = new Date(a.t).getTime();
-    const tb = new Date(b.t).getTime();
-    return ta - tb;
-  });
-
+  const TEN_MIN_MS = 10 * 60 * 1000;
+  const groups = new Map();
+  for (const bar of fiveMinBars) {
+    const ts = new Date(bar.t).getTime();
+    if (!Number.isFinite(ts)) continue;
+    const bucket = Math.floor(ts / TEN_MIN_MS) * TEN_MIN_MS;
+    if (!groups.has(bucket)) groups.set(bucket, []);
+    groups.get(bucket).push({ ...bar, _ts: ts });
+  }
   const result = [];
-  for (let i = 0; i < sorted.length; i += 2) {
-    const bar1 = sorted[i];
-    const bar2 = sorted[i + 1];
-    if (!bar2) {
-      result.push(bar1);
-      break;
-    }
+  for (const [, bars] of [...groups.entries()].sort((a, b) => a[0] - b[0])) {
+    bars.sort((a, b) => a._ts - b._ts);
+    const first = bars[0], last = bars[bars.length - 1];
     result.push({
-      t: bar1.t,
-      o: bar1.o,
-      h: Math.max(bar1.h, bar2.h),
-      l: Math.min(bar1.l, bar2.l),
-      c: bar2.c,
-      v: (bar1.v || 0) + (bar2.v || 0),
+      t: first.t,
+      o: first.o,
+      h: Math.max(...bars.map(b => b.h)),
+      l: Math.min(...bars.map(b => b.l)),
+      c: last.c,
+      v: bars.reduce((s, b) => s + (b.v || 0), 0),
     });
   }
   return result;

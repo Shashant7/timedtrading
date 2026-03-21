@@ -490,7 +490,7 @@
     <script src="shared-price-utils.js?v=20260211a"></script>
     <script src="investor-panel.js?v=20260226a"></script>
     <script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
-    <script src="shared-right-rail.compiled.js?v=20260313a"></script>
+    <script src="shared-right-rail.compiled.js?v=20260318e"></script>
     <script type="text/babel">
       const { useState, useEffect, useMemo, useCallback, useRef, memo } = React;
 
@@ -2881,24 +2881,29 @@
           if (!Number.isFinite(dayPct)) dayPct = pct;
         }
 
-        // Card background intensity: use daily change during market hours
-        // (intraday moves matter most) with weekly as fallback off-hours.
+        // Card background intensity: normalize by ticker type so SPY +0.7% looks
+        // as intense as TSLA +3%. Uses ATR override when available.
         const weeklyPct = pickNum(t, ["weekly_change_pct"]);
         const intensityPct = Number.isFinite(dayPct) && Math.abs(dayPct) > 0.1
           ? dayPct
           : Number.isFinite(weeklyPct) ? weeklyPct : dayPct;
-        const intensityAbs = Number.isFinite(intensityPct) ? Math.abs(intensityPct) : 0;
+        const _tickerType = t?.tickerType || t?._tickerType || t?.ticker_type || "";
+        const _volAtr = Number(t?.volatility_atr_pct || t?._volatility_atr_pct) || undefined;
+        const _tickerSym = t?.ticker || "";
+        const _normUtils = window.TimedPriceUtils;
+        const normalized = _normUtils?.getNormalizedIntensity
+          ? _normUtils.getNormalizedIntensity(intensityPct, _tickerType, _volAtr, _tickerSym)
+          : (Number.isFinite(intensityPct) ? Math.abs(intensityPct) / 2.5 : 0);
 
         let tintAlpha = 0;
         let edgePx = 0;
         let edgeAlpha = 0;
         let intensityPulse = "";
-        if (intensityAbs > 0.1) {
-          if (intensityAbs <= 1)       { tintAlpha = 0.06 + (intensityAbs) * 0.06; edgePx = 1; edgeAlpha = 0.15; }
-          else if (intensityAbs <= 3)  { tintAlpha = 0.12 + ((intensityAbs - 1) / 2) * 0.10; edgePx = 1; edgeAlpha = 0.25; }
-          else if (intensityAbs <= 6)  { tintAlpha = 0.22 + ((intensityAbs - 3) / 3) * 0.10; edgePx = 1.5; edgeAlpha = 0.35; }
-          else if (intensityAbs <= 12) { tintAlpha = 0.32 + ((intensityAbs - 6) / 6) * 0.08; edgePx = 2; edgeAlpha = 0.45; }
-          else                         { tintAlpha = 0.40; edgePx = 2; edgeAlpha = 0.50; }
+        if (normalized > 0.04) {
+          if (normalized <= 0.3)      { tintAlpha = 0.06 + normalized * 0.20; edgePx = 1; edgeAlpha = 0.15; }
+          else if (normalized <= 0.6) { tintAlpha = 0.12 + ((normalized - 0.3) / 0.3) * 0.12; edgePx = 1; edgeAlpha = 0.28; }
+          else if (normalized <= 1.0) { tintAlpha = 0.24 + ((normalized - 0.6) / 0.4) * 0.12; edgePx = 1.5; edgeAlpha = 0.38; }
+          else                        { tintAlpha = Math.min(0.45, 0.36 + (normalized - 1) * 0.05); edgePx = 2; edgeAlpha = 0.50; }
         }
         const isUp = Number.isFinite(intensityPct) && intensityPct > 0;
         const isDown = Number.isFinite(intensityPct) && intensityPct < 0;
@@ -3921,7 +3926,7 @@
               wantStage === "setup"
                 ? stage === "setup" || stage === "setup_watch" || stage === "flip_watch"
                 : wantStage === "enter"
-                  ? stage === "enter" || stage === "enter_now" || stage === "just_flipped"
+                  ? stage === "in_review" || stage === "enter" || stage === "enter_now" || stage === "just_flipped"
                   : wantStage === "new"
                     ? stage === "just_entered"
                     : wantStage === "hold"
@@ -4199,20 +4204,24 @@
           const baseBubbleR = waitingForData ? MIN_R * 0.7 : MIN_R + (clampedRR / 6) * (MAX_R - MIN_R);
 
           const ks = String(ticker?.kanban_stage || "").toLowerCase();
-          const isActionable = ["enter", "enter_now", "just_entered", "just_flipped", "flip_watch", "trim", "defend", "exit"].includes(ks);
+          const isActionable = ["in_review", "enter", "enter_now", "just_entered", "just_flipped", "flip_watch", "trim", "defend", "exit"].includes(ks);
           const finalSize = isActionable ? baseBubbleR + 2 : baseBubbleR;
 
           const move = getMoveStatusInfo(ticker);
 
-          // Daily change % fill color — matches card intensity bands
+          // Daily change % fill color — normalized by ticker type
           const dayPct = Number(ticker?.day_change_pct || ticker?.dailyChgPct || ticker?.dp || 0);
-          const absDay = Math.abs(dayPct);
+          const _bTickerType = ticker?.tickerType || ticker?._tickerType || ticker?.ticker_type || "";
+          const _bVolAtr = Number(ticker?.volatility_atr_pct || ticker?._volatility_atr_pct) || undefined;
+          const _bTickerSym = ticker?.ticker || "";
+          const _bNorm = window.TimedPriceUtils?.getNormalizedIntensity
+            ? window.TimedPriceUtils.getNormalizedIntensity(dayPct, _bTickerType, _bVolAtr, _bTickerSym)
+            : Math.abs(dayPct) / 2.5;
           let tintAlpha;
-          if (absDay <= 1) tintAlpha = 0.15 + absDay * 0.15;
-          else if (absDay <= 3) tintAlpha = 0.30 + ((absDay - 1) / 2) * 0.25;
-          else if (absDay <= 6) tintAlpha = 0.55 + ((absDay - 3) / 3) * 0.20;
-          else if (absDay <= 12) tintAlpha = 0.75 + ((absDay - 6) / 6) * 0.10;
-          else tintAlpha = 0.85;
+          if (_bNorm <= 0.2) tintAlpha = 0.25 + _bNorm * 1.25;
+          else if (_bNorm <= 0.5) tintAlpha = 0.50 + ((_bNorm - 0.2) / 0.3) * 0.20;
+          else if (_bNorm <= 1.0) tintAlpha = 0.70 + ((_bNorm - 0.5) / 0.5) * 0.15;
+          else tintAlpha = Math.min(0.95, 0.85 + (_bNorm - 1) * 0.05);
 
           const isUp = dayPct >= 0;
           const hasDayData = (ticker?.day_change_pct != null || ticker?.dailyChgPct != null || ticker?.dp != null);
@@ -4262,8 +4271,8 @@
           const hasEarnings = !!window._ttEarningsMap?.[ticker.ticker];
 
           const stageIconData = (() => {
-            if (ks === "enter_now" || ks === "enter") return { icon: "▶", fill: "#00e676", bg: "rgba(0,230,118,0.25)", border: "#00e676", label: "ENTER" };
-            if (ks === "just_entered" || ks === "just_flipped") return { icon: "★", fill: "#60a5fa", bg: "rgba(96,165,250,0.2)", border: "#60a5fa", label: "NEW" };
+            if (ks === "in_review" || ks === "enter_now" || ks === "enter") return { icon: "🔍", fill: "#f59e0b", bg: "rgba(245,158,11,0.25)", border: "#f59e0b", label: "REVIEW" };
+            if (ks === "just_entered" || ks === "just_flipped") return { icon: "✅", fill: "#00e676", bg: "rgba(0,230,118,0.25)", border: "#00e676", label: "INITIATED" };
             if (ks === "trim") return { icon: "✂", fill: "#facc15", bg: "rgba(250,204,21,0.2)", border: "#facc15", label: "TRIM" };
             if (ks === "exit") return { icon: "✕", fill: "#f87171", bg: "rgba(248,113,113,0.25)", border: "#f87171", label: "EXIT" };
             if (ks === "defend") return { icon: "🛡", fill: "#fb923c", bg: "rgba(251,146,60,0.2)", border: "#fb923c", label: "DEFEND" };
@@ -5996,7 +6005,7 @@
             const rcRenderedSize = Math.max(3, bubbleSize);
 
             const ks = String(ticker.kanban_stage || "").toLowerCase();
-            const isActionable = ["enter", "enter_now", "just_entered", "just_flipped", "flip_watch"].includes(ks);
+            const isActionable = ["in_review", "enter", "enter_now", "just_entered", "just_flipped", "flip_watch"].includes(ks);
 
             return (
               <g
@@ -7333,7 +7342,7 @@
 
         // Lane-aware guidance: when the Kanban lane is explicit, keep the headline aligned
         // with the lane so the UI doesn't contradict itself. Add phase/completion as caution.
-        if (stage === "watch" || stage === "setup_watch" || stage === "flip_watch" || stage === "just_flipped" || stage === "enter_now" || stage === "enter") {
+        if (stage === "watch" || stage === "setup_watch" || stage === "flip_watch" || stage === "just_flipped" || stage === "in_review" || stage === "enter_now" || stage === "enter") {
           const late =
             (Number.isFinite(phase) && phase > 0.7) ||
             (Number.isFinite(comp) && comp > 0.8);
@@ -7379,12 +7388,12 @@
               bg: "bg-cyan-500/15",
             };
           }
-          // enter_now / enter
+          // in_review / enter_now / enter
           return {
-            action: late ? "Enter Now (Late-cycle)" : "Enter Now",
-            description: `Ticker meets the system's entry criteria and is in the Enter lane. Review current price levels, SL/TP targets below, and consider position sizing based on your risk tolerance before executing. ${isPullback ? "Currently in pullback — this can offer a better entry if price holds above SL. " : ""}${caution}`.trim(),
-            color: late ? "text-yellow-300" : "text-teal-300",
-            bg: late ? "bg-yellow-500/15" : "bg-teal-500/15",
+            action: "In Review",
+            description: `Ticker meets the system's technical entry criteria and is under CIO review. The AI CIO will evaluate risk, market context, and trade quality before approving or rejecting. ${isPullback ? "Currently in pullback — may offer better entry if price holds above SL. " : ""}${caution}`.trim(),
+            color: "text-amber-300",
+            bg: "bg-amber-500/15",
           };
         }
 
@@ -8575,11 +8584,10 @@
                   </h3>
                   <ul className="text-sm text-[#6b7280] list-disc list-inside space-y-2">
                     <li>
-                      “Enter Now” when entry decision is not green-lit (should
-                      never happen)
+                      CIO rejects a ticker in review — returns to Setup with reason
                     </li>
                     <li>Big adverse move after entry (exit/defend faster)</li>
-                    <li>Lane backtracking (enter → just flipped → hold)</li>
+                    <li>Lane backtracking (in review → setup)</li>
                   </ul>
                 </div>
 
@@ -11432,6 +11440,10 @@
             st_support_weak_bear: "ST Weak",
           }[v3BlockReason.split(",")[0]?.split(":")[0]] || null;
 
+          const _cioBlocked = !!t?.__cio_blocked;
+          const _cioBlockReason = t?.__cio_block_reason || "";
+          const _cioBlockFlags = t?.__cio_block_flags || "";
+
           // Emoji badges
           const badges = [];
           const _isPrime = isPrimeBubble(t);
@@ -11457,7 +11469,7 @@
           const dirPillCls = biasPillCls;
           const dirAccentCls = dir === "LONG" ? "border-l-4 border-l-cyan-400" : "border-l-4 border-l-red-500";
           const dirOutlineCls = dir === "LONG" ? "border border-cyan-400/40" : "border border-rose-500/40";
-          const isActionLane = ["enter_now", "trim", "exit"].includes(stage);
+          const isActionLane = ["trim", "exit"].includes(stage);
           const pulseCls = isActionLane ? (dir === "LONG" ? "card-pulse" : "card-pulse-short") : "";
 
           // ── Card background: deep glass (fish-tank) with daily-change tint ──
@@ -11517,7 +11529,7 @@
                 return { text: `${epStr}${chgStr}`, cls: Number.isFinite(entryChangePct) && entryChangePct >= 0 ? "text-[#00e676]" : "text-rose-400" };
               }
             }
-            if ((stage === "enter" || stage === "enter_now") && (t?.__execution_block_reason || t?.__entry_block_reason)) {
+            if ((stage === "in_review" || stage === "enter" || stage === "enter_now") && (t?.__execution_block_reason || t?.__entry_block_reason)) {
               return { text: formatBlockReason(t.__execution_block_reason || t.__entry_block_reason), cls: "text-amber-300/80" };
             }
             return null;
@@ -11617,9 +11629,17 @@
                     {Number.isFinite(dayPct) && (
                       <span className="text-[11px] font-bold tabular-nums leading-tight"
                         style={{
-                          color: dayPct >= 0
-                            ? (Math.abs(dayPct) >= 3 ? "#4ade80" : "#00e676")
-                            : (Math.abs(dayPct) >= 3 ? "#fb7185" : "#f87171"),
+                          color: (() => {
+                            const _tType = t?.tickerType || t?._tickerType || t?.ticker_type || "";
+                            const _vAtr = Number(t?.volatility_atr_pct || t?._volatility_atr_pct) || undefined;
+                            const _tSym = t?.ticker || "";
+                            const _ni = window.TimedPriceUtils?.getNormalizedIntensity
+                              ? window.TimedPriceUtils.getNormalizedIntensity(dayPct, _tType, _vAtr, _tSym) : Math.abs(dayPct) / 2.5;
+                            const bright = _ni >= 0.6;
+                            return dayPct >= 0
+                              ? (bright ? "#4ade80" : "#00e676")
+                              : (bright ? "#fb7185" : "#f87171");
+                          })(),
                           textShadow: "0 1px 4px rgba(0,0,0,0.7)",
                         }}>
                         {dayPct >= 0 ? "+" : ""}{dayPct.toFixed(2)}%
@@ -11676,13 +11696,18 @@
               )}
 
               {/* ── Row 4: Lane reason (Pro) + earnings callout (all) ── */}
-              {(((laneReason || v3BlockLabel) && window._ttIsPro) || _earningsEvt) && (
+              {(((laneReason || v3BlockLabel || _cioBlocked) && window._ttIsPro) || _earningsEvt) && (
                 <div className="relative flex items-center justify-between px-2 py-0.5 text-[9px] font-semibold truncate" style={{ zIndex: 1 }}>
                   <div className="flex items-center gap-1 min-w-0">
                     {window._ttIsPro && laneReason ? <span className={`truncate ${laneReason.cls}`}>{laneReason.text}</span> : null}
-                    {window._ttIsPro && v3BlockLabel && stage === "setup" && (
+                    {window._ttIsPro && v3BlockLabel && stage === "setup" && !_cioBlocked && (
                       <span className="px-1 py-px rounded bg-rose-500/15 text-rose-300/80 border border-rose-500/25 text-[8px]" title={v3BlockReason}>
                         {v3BlockLabel}
+                      </span>
+                    )}
+                    {_cioBlocked && (stage === "setup" || stage === "in_review" || stage === "enter" || stage === "enter_now") && (
+                      <span className="px-1 py-px rounded bg-red-500/20 text-red-300 border border-red-500/30 text-[8px]" title={_cioBlockReason}>
+                        🛑 CIO Rejected{_cioBlockFlags ? `: ${_cioBlockFlags.split(",")[0]?.trim()}` : ""}
                       </span>
                     )}
                   </div>
@@ -11982,12 +12007,12 @@
               if (isClosed) {
                 const exitMs = Number(trade.exit_ts ?? trade.exitTs ?? 0);
                 const scorerStage = String(t?.kanban_stage || "");
-                const newOpportunity = ["setup", "enter", "enter_now", "just_flipped"].includes(scorerStage);
+                const newOpportunity = ["setup", "in_review", "enter", "enter_now", "just_flipped"].includes(scorerStage);
                 if (exitMs > 0 && (Date.now() - exitMs) < 24 * 60 * 60 * 1000 && !newOpportunity) stage = "exit";
               }
             }
             if (stage === "setup" || stage === "setup_watch" || stage === "flip_watch") counts.setup++;
-            else if (stage === "enter" || stage === "enter_now" || stage === "just_flipped") counts.enter++;
+            else if (stage === "in_review" || stage === "enter" || stage === "enter_now" || stage === "just_flipped") counts.enter++;
             else if (stage === "active" || stage === "just_entered" || stage === "hold") counts.hold++;
             else if (stage === "defend") counts.defend++;
             else if (stage === "trim") counts.trim++;
@@ -12295,7 +12320,7 @@
             let uiStage;
             switch (stage) {
               case "setup": case "setup_watch": case "flip_watch": uiStage = "setup"; break;
-              case "enter": case "enter_now": case "just_flipped": uiStage = "enter"; break;
+              case "in_review": case "enter": case "enter_now": case "just_flipped": uiStage = "enter"; break;
               case "just_entered": uiStage = "new"; break;
               case "active": case "hold": uiStage = "hold"; break;
               case "defend": uiStage = "defend"; break;
@@ -12982,6 +13007,7 @@
               case "flip_watch":
                 setup.push(t);
                 break;
+              case "in_review":
               case "enter":
               case "enter_now":
               case "just_flipped":
@@ -13105,9 +13131,9 @@
             <div className="mb-2 space-y-1.5">
               <div className="px-2 py-1.5 rounded-lg border border-white/[0.04] bg-white/[0.015] flex items-center flex-nowrap gap-x-4 text-[10px] text-[#6b7280] overflow-x-auto">
                 <span className="text-[11px] font-semibold text-white/70 shrink-0">Pipeline</span>
-                <span className="shrink-0">📋 <span className="text-[#8b95a5]">Setup — qualified, awaiting window</span></span>
-                <span className="shrink-0">🎯 <span className="text-[#8b95a5]">Enter — gates clear, will execute</span></span>
-                <span className="shrink-0">🆕 <span className="text-[#8b95a5]">New — just opened today</span></span>
+                <span className="shrink-0">📋 <span className="text-[#8b95a5]">Setup — building toward a trade</span></span>
+                <span className="shrink-0">🔍 <span className="text-[#8b95a5]">In Review — CIO evaluating entry</span></span>
+                <span className="shrink-0">✅ <span className="text-[#8b95a5]">Position Initiated — trade placed</span></span>
                 <span className="text-[#4b5563] shrink-0">→</span>
                 <span className="shrink-0">🔒 <span className="text-[#8b95a5]">Hold — healthy, let run</span></span>
                 <span className="shrink-0">🛡 <span className="text-[#8b95a5]">Defend — tighten stops</span></span>
@@ -13141,8 +13167,8 @@
                 />
                 <KanbanColumn
                   laneKey="enter"
-                  title="Enter"
-                  subtitle="All gates clear — system will execute"
+                  title="In Review"
+                  subtitle="Technically qualified — CIO evaluating"
                   count={enter.length}
                   icon=""
                   color=""
@@ -13153,8 +13179,8 @@
                 />
                 <KanbanColumn
                   laneKey="new"
-                  title="New"
-                  subtitle="Entered today — position just opened"
+                  title="Position Initiated"
+                  subtitle="CIO approved — trade placed"
                   count={newEntries.length}
                   icon=""
                   color=""
@@ -13726,7 +13752,7 @@
 
           const dirOutlineCls = c.dir === "LONG" ? "border border-cyan-400/40" : c.dir === "SHORT" ? "border border-rose-500/40" : "border border-white/[0.06]";
           const stage = String(t?.kanban_stage || "").toLowerCase();
-          const isActionLane = ["enter_now", "trim", "exit"].includes(stage);
+          const isActionLane = ["trim", "exit"].includes(stage);
           const pulseCls = isActionLane ? (c.dir === "LONG" ? "card-pulse" : c.dir === "SHORT" ? "card-pulse-short" : "") : "";
           return (
             <button
@@ -18442,7 +18468,7 @@
         {
           target: "[data-coachmark='kanban-lanes']",
           title: "Kanban Pipeline",
-          body: "Tickers flow through stages: Setup \u2192 Enter \u2192 Hold \u2192 Defend \u2192 Trim \u2192 Exit. Each lane represents the system\u2019s current recommendation. Counts update in real time as conditions change.",
+          body: "Tickers flow through stages: Setup \u2192 In Review \u2192 Position Initiated \u2192 Hold \u2192 Defend \u2192 Trim \u2192 Exit. Each lane represents the system\u2019s current recommendation. Counts update in real time as conditions change.",
           position: "top",
           icon: "columns",
         },

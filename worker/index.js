@@ -54,6 +54,7 @@ import {
   alpacaBackfill,
   alpacaFetchSnapshots,
   alpacaFetchAllBars,
+  alpacaFetchBars,
   alpacaBarToCandle,
   computeServerSideScores,
   computeTfBundle,
@@ -63,10 +64,12 @@ import {
   computeOvernightSignals,
   computeTDSequential,
   computeTDSequentialMultiTF,
+  buildSnapshotPayload,
+  SCORING_VERSION,
 } from "./indicators.js";
 import { createExecutionAdapter } from "./execution.js";
 import * as DataProvider from "./data-provider.js";
-import { tdFetchEarningsCalendar, tdFetchTickerEarnings, tdSearchSymbol, toTdSymbol } from "./twelvedata.js";
+import { tdFetchEarningsCalendar, tdFetchTickerEarnings, tdFetchTimeSeries, tdSearchSymbol, toTdSymbol, aggregate5mTo10m } from "./twelvedata.js";
 import { onboardTicker, loadTickerProfile, loadSectorProfile, mergeProfileWeights } from "./onboard-ticker.js";
 import {
   loadCalendar,
@@ -155,6 +158,44 @@ import {
   computeETFWeightBoost,
   loadETFWeightMap,
 } from "./etf-holdings.js";
+import { buildTradeContext, parseBool as pipelineParseBool } from "./pipeline/trade-context.js";
+import { runUniversalGates } from "./pipeline/gates.js";
+import {
+  gatherSizingMultipliers,
+  computePdzSizeMult,
+  computeRiskBasedSize as pipelineComputeRiskBasedSize,
+  getSizingConfig as pipelineGetSizingConfig,
+  PORTFOLIO_START_CASH as PIPELINE_PORTFOLIO_START_CASH,
+} from "./pipeline/sizing.js";
+import { evaluateEntry, registerEntryEngine, hasEngine } from "./pipeline/entry-engine.js";
+import { evaluateExit, registerExitEngine, hasExitEngine } from "./pipeline/exit-engine.js";
+import { evaluateEntry as ttCoreEvaluateEntry } from "./pipeline/tt-core-entry.js";
+import { evaluateEntry as ripsterEvaluateEntry } from "./pipeline/ripster-entry.js";
+import { evaluateEntry as legacyEvaluateEntry } from "./pipeline/legacy-entry.js";
+import { enrichEntry } from "./pipeline/enrichment.js";
+import { evaluateExit as ttCoreEvaluateExit } from "./pipeline/tt-core-exit.js";
+import { evaluateExit as ripsterEvaluateExit } from "./pipeline/ripster-exit.js";
+import { evaluateExit as legacyEvaluateExit } from "./pipeline/legacy-exit.js";
+import {
+  buildCIOProposal as _cioBuildProposal,
+  buildCIOLifecycleProposal as _cioBuildLifecycleProposal,
+  generateCIOChartSVG as _cioGenerateChartSVG,
+  svgToBase64DataUri as _cioSvgToBase64,
+  evaluateWithAICIO as _cioEvaluateEntry,
+  evaluateCIOLifecycle as _cioEvaluateLifecycle,
+} from "./cio/cio-service.js";
+import { buildCIOMemory as _cioBuildMemory } from "./cio/cio-memory.js";
+import { AI_CIO_MODEL as _CIO_MODEL } from "./cio/cio-prompts.js";
+
+// Register all entry engines with the dispatcher
+registerEntryEngine("tt_core", { evaluateEntry: ttCoreEvaluateEntry });
+registerEntryEngine("ripster_core", { evaluateEntry: ripsterEvaluateEntry });
+registerEntryEngine("legacy", { evaluateEntry: legacyEvaluateEntry });
+
+// Register all exit engines with the dispatcher
+registerExitEngine("tt_core", { evaluateExit: ttCoreEvaluateExit });
+registerExitEngine("ripster_core", { evaluateExit: ripsterEvaluateExit });
+registerExitEngine("legacy", { evaluateExit: legacyEvaluateExit });
 
 // ─── PriceHub DO notification helper ───────────────────────────────────────
 // Fire-and-forget POST to the Durable Object to fan out data to WS clients.
@@ -537,6 +578,8 @@ const ROUTES = [
   ["POST", "/timed/admin/refresh-prices", "POST /timed/admin/refresh-prices"],
   ["POST", "/timed/admin/seed-ticker", "POST /timed/admin/seed-ticker"],
   ["POST", "/timed/admin/candle-replay", "POST /timed/admin/candle-replay"],
+  ["POST", "/timed/admin/interval-replay", "POST /timed/admin/interval-replay"],
+  ["POST", "/timed/admin/snapshot-replay", "POST /timed/admin/snapshot-replay"],
   ["POST", "/timed/admin/investor-replay", "POST /timed/admin/investor-replay"],
   ["POST", "/timed/admin/reopen-stale-exits", "POST /timed/admin/reopen-stale-exits"],
   ["POST", "/timed/admin/close-replay-positions", "POST /timed/admin/close-replay-positions"],
@@ -558,6 +601,10 @@ const ROUTES = [
   ["POST", "/timed/admin/model-resolve", "POST /timed/admin/model-resolve"],
   ["POST", "/timed/admin/model-retro", "POST /timed/admin/model-retro"],
   ["POST", "/timed/admin/model-approve", "POST /timed/admin/model-approve"],
+  ["GET", "/timed/admin/ai-cio/decisions", "GET /timed/admin/ai-cio/decisions"],
+  ["GET", "/timed/admin/ai-cio/accuracy", "GET /timed/admin/ai-cio/accuracy"],
+  ["POST", "/timed/admin/backfill-market-events", "POST /timed/admin/backfill-market-events"],
+  ["GET", "/timed/admin/validate-10m", "GET /timed/admin/validate-10m"],
   ["GET", "/timed/model/health", "GET /timed/model/health"],
   ["GET", "/timed/model/predictions", "GET /timed/model/predictions"],
   ["GET", "/timed/model/patterns", "GET /timed/model/patterns"],
@@ -2277,6 +2324,126 @@ function computeCompletionToTier(tickerData, tier = "TRIM") {
   return Math.min(1, currentMove / totalMove);
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// TICKER BEHAVIOR PROFILES — data-driven from 421-trade backtest analysis.
+// Each profile adjusts SL width, DOA speed, max hold, and min rank per ticker.
+// ═══════════════════════════════════════════════════════════════════════════
+const TICKER_BEHAVIOR_PROFILES = {
+  trend_rider: { sl_mult: 1.5, doa_hours: 8, max_hold_hours: 504, min_rank: 65, label: "Trend-Rider" },
+  high_vol:    { sl_mult: 2.0, doa_hours: 3, max_hold_hours: 168, min_rank: 75, label: "High-Vol Quick-Fail" },
+  churner:     { sl_mult: 1.2, doa_hours: 4, max_hold_hours: 336, min_rank: 80, label: "High-Freq Churner" },
+  catastrophic:{ sl_mult: 1.0, doa_hours: 4, max_hold_hours: 168, min_rank: 80, max_loss_usd: 500, label: "Catastrophic Hold" },
+  default:     { sl_mult: 1.2, doa_hours: 6, max_hold_hours: 504, min_rank: 70, label: "Default" },
+};
+
+const TICKER_PROFILE_MAP = {
+  AVGO: "trend_rider", PH: "trend_rider", KTOS: "trend_rider", MLI: "trend_rider",
+  HII: "trend_rider", TJX: "trend_rider", MNST: "trend_rider", CSX: "trend_rider",
+  FN: "trend_rider", JCI: "trend_rider", STRL: "trend_rider", DY: "trend_rider",
+
+  CLS: "high_vol", BE: "high_vol", IESC: "high_vol", LITE: "high_vol",
+  IONQ: "high_vol", PLTR: "high_vol", RKLB: "high_vol", RDDT: "high_vol", TSLA: "high_vol",
+
+  CAT: "churner", FIX: "churner", BABA: "churner", WMT: "churner", H: "churner",
+  GE: "churner", PWR: "churner", DCI: "churner", WTS: "churner",
+
+  META: "catastrophic", LRN: "catastrophic", APP: "catastrophic", CCJ: "catastrophic",
+  CDNS: "catastrophic", TT: "catastrophic", MDB: "catastrophic", ORCL: "catastrophic",
+  ON: "catastrophic", SGI: "catastrophic",
+};
+
+function getTickerProfile(sym) {
+  const key = TICKER_PROFILE_MAP[String(sym || "").toUpperCase()] || "default";
+  return { ...TICKER_BEHAVIOR_PROFILES[key], profileKey: key };
+}
+
+function parseBoolFlag(v, defaultVal = false) {
+  if (v == null) return defaultVal;
+  const s = String(v).trim().toLowerCase();
+  if (s === "true" || s === "1" || s === "yes") return true;
+  if (s === "false" || s === "0" || s === "no") return false;
+  return defaultVal;
+}
+
+function resolveEngineMode(raw) {
+  const m = String(raw || "").trim().toLowerCase();
+  if (m === "ripster_core") return "ripster_core";
+  if (m === "tt_core") return "tt_core";
+  return "legacy";
+}
+
+let _dynamicEngineRulesCache = null;
+
+function classifyVixRegime(vix) {
+  if (vix == null || !Number.isFinite(vix)) return "unknown";
+  if (vix < 15) return "low_vol";
+  if (vix < 20) return "normal";
+  if (vix < 25) return "elevated";
+  if (vix < 30) return "high_vol";
+  return "extreme";
+}
+
+function classifyMarketRegime(d) {
+  const vix = Number(d?._vix) || 0;
+  const vixR = classifyVixRegime(vix);
+  if (vixR === "high_vol" || vixR === "extreme") return "crisis";
+  const mktRegime = String(d?._env?._marketRegime?.regime || "").toUpperCase();
+  const spyHtf = Number(d?._env?._marketRegime?.htf_score);
+  let trend = "sideways";
+  if (Number.isFinite(spyHtf)) {
+    if (spyHtf > 5) trend = "uptrend";
+    else if (spyHtf < -5) trend = "downtrend";
+  } else if (mktRegime.includes("BULL") || mktRegime.includes("UPTREND")) {
+    trend = "uptrend";
+  } else if (mktRegime.includes("BEAR") || mktRegime.includes("DOWNTREND")) {
+    trend = "downtrend";
+  }
+  if (trend === "uptrend" && (vixR === "low_vol" || vixR === "normal")) return "bull_calm";
+  if (trend === "uptrend") return "bull_elevated";
+  if (trend === "downtrend" && (vixR === "low_vol" || vixR === "normal")) return "bear_calm";
+  if (trend === "downtrend") return "bear_elevated";
+  return "choppy";
+}
+
+function resolveEntryEngine(d, rules) {
+  if (!rules) rules = _dynamicEngineRulesCache;
+  const fallback = resolveEngineMode(d?._env?._entryEngine);
+  if (!rules) return { engine: fallback, source: "env_default" };
+
+  const ticker = String(d?.ticker || "").toUpperCase();
+  if (rules.blacklist_tickers?.includes(ticker)) {
+    return { engine: fallback, source: "blacklisted", blocked: true };
+  }
+
+  const direction = corridorSide(d) != null
+    ? (corridorSide(d) === "bull" ? "LONG" : "SHORT")
+    : (String(d?.state || "").includes("BEAR") ? "SHORT" : "LONG");
+  const sector = SECTOR_MAP[ticker] || "Unknown";
+  const regime = classifyMarketRegime(d);
+
+  const ruleList = rules.regime_direction_sector_rules || [];
+  let bestRule = null;
+  for (const rule of ruleList) {
+    if (rule.regime === regime && rule.direction === direction && rule.sector === sector) {
+      if (!bestRule || rule.score > bestRule.score) bestRule = rule;
+    }
+  }
+  if (bestRule && bestRule.score >= 0.3 && bestRule.sample_size >= 5) {
+    return { engine: bestRule.engine, source: "dynamic_v2", regime, sector, direction, score: bestRule.score };
+  }
+
+  for (const rule of ruleList) {
+    if (rule.regime === regime && rule.direction === direction && !rule.sector) {
+      if (!bestRule || rule.score > bestRule.score) bestRule = rule;
+    }
+  }
+  if (bestRule && bestRule.score >= 0.3) {
+    return { engine: bestRule.engine, source: "dynamic_v2_regime_dir", regime, direction, score: bestRule.score };
+  }
+
+  return { engine: fallback, source: "env_default", regime, sector, direction };
+}
+
 /**
  * Resolve the leading intraday timeframe for a ticker payload.
  * Prefer explicit metadata, but only return 15m when the payload actually
@@ -2286,10 +2453,203 @@ function resolveLeadingLtf(d) {
   const requested = normalizeTfKey(
     d?.leading_ltf || d?.lead_intraday_tf || d?._env?._leadingLtf || "10",
   ) || "10";
+  if (requested === "30" && (d?.tf_tech?.["30"] || d?.fuel?.["30"] || d?.ema_map?.["30"])) {
+    return "30";
+  }
   if (requested === "15" && (d?.tf_tech?.["15"] || d?.fuel?.["15"] || d?.ema_map?.["15"])) {
     return "15";
   }
   return "10";
+}
+
+/**
+ * Market-context gates applied to ALL engines AFTER engine qualifies.
+ * These gates (VIX, regime, danger, DOA, SPY, PDZ, SHORT quality,
+ * confidence floor, ticker blacklist, regime rank floor) are configurable
+ * via _deepAuditConfig / model_config so they can be toggled per run.
+ */
+function _applyContextGates(d, inferredSide, asOfTs, leadingLtfLabel) {
+  const daCfg = d?._env?._deepAuditConfig || {};
+
+  // Gate 1: VIX ceiling
+  const vixCeiling = Number(daCfg.deep_audit_vix_ceiling) || 32;
+  if (vixCeiling > 0 && d?._vix != null) {
+    const vx = Number(d._vix);
+    if (vx > vixCeiling) {
+      return { qualifies: false, reason: "tt_vix_ceiling", vix: vx, ceiling: vixCeiling };
+    }
+  }
+
+  // Gate 2: Regime block (direction-aware)
+  const blockRegimes = daCfg.deep_audit_block_regime;
+  const tickerSwingRegime = String(d?.regime?.combined || "").toUpperCase();
+  if (blockRegimes && tickerSwingRegime) {
+    const arr = Array.isArray(blockRegimes) ? blockRegimes : [blockRegimes];
+    const isBear = tickerSwingRegime.includes("BEAR");
+    const isBull = tickerSwingRegime.includes("BULL") && !tickerSwingRegime.includes("BEAR");
+    if (arr.some(r => String(r).toUpperCase() === tickerSwingRegime)) {
+      if (isBear && inferredSide === "SHORT") { /* allow shorts in bear */ }
+      else if (isBull && inferredSide === "LONG") { /* allow longs in bull */ }
+      else {
+        return { qualifies: false, reason: "tt_regime_blocked", regime: tickerSwingRegime, side: inferredSide };
+      }
+    }
+  }
+
+  // Gate 3: SPY directional (block LONGs when SPY bearish, SHORTs when SPY bullish)
+  if (String(daCfg.tt_spy_directional_gate ?? "false") === "true" && d?._spyData) {
+    const spyHtf = Number(d._spyData?.htf_score) || 0;
+    const spyRegime = Number(d._spyData?.ema_regime_daily) || 0;
+    if (inferredSide === "LONG" && spyHtf < -10 && spyRegime <= -1) {
+      return { qualifies: false, reason: "tt_spy_bearish_long_block", spyHtf, spyRegime };
+    }
+    if (inferredSide === "SHORT" && spyHtf > 10 && spyRegime >= 1) {
+      return { qualifies: false, reason: "tt_spy_bullish_short_block", spyHtf, spyRegime };
+    }
+  }
+
+  // Gate 4: Danger score (multi-factor)
+  const dangerMaxSignals = Number(daCfg.deep_audit_danger_max_signals);
+  if (Number.isFinite(dangerMaxSignals) && dangerMaxSignals > 0) {
+    const tt = d?.tf_tech || {};
+    const isLong = inferredSide === "LONG";
+    const dirSign = isLong ? 1 : -1;
+    let dangerCount = 0;
+    const dangerFlags = [];
+
+    const dST = tt.D?.stDir ?? 0;
+    if (dST !== 0 && dST !== dirSign) { dangerCount++; dangerFlags.push("D_st_against"); }
+
+    const st30Dir = tt["30"]?.stDir ?? 0;
+    const st30Slope = tt["30"]?.stSlope ?? 0;
+    if (st30Dir !== 0 && st30Slope !== st30Dir) { dangerCount++; dangerFlags.push("30m_st_flat"); }
+
+    const emaDepth1H = tt["1H"]?.ema?.depth ?? 0;
+    if (emaDepth1H < (Number(daCfg.deep_audit_danger_ema_depth_min) || 5)) { dangerCount++; dangerFlags.push("1H_ema_shallow"); }
+
+    const st4H = tt["4H"]?.stDir ?? 0;
+    if (st4H !== 0 && st4H !== dirSign) { dangerCount++; dangerFlags.push("4H_st_against"); }
+
+    const ltfKey = leadingLtfLabel === "10m" ? "10" : leadingLtfLabel === "15m" ? "15" : "30";
+    const stLtfDir = tt[ltfKey]?.stDir ?? 0;
+    const stLtfSlope = tt[ltfKey]?.stSlope ?? 0;
+    if (stLtfDir !== 0 && stLtfSlope !== stLtfDir) { dangerCount++; dangerFlags.push(`${leadingLtfLabel}_st_flat`); }
+
+    const vixVal = Number(d?._vix) || 0;
+    if (vixVal > (Number(daCfg.deep_audit_danger_vix_threshold) || 25)) { dangerCount++; dangerFlags.push("vix_elevated"); }
+
+    const stTFs = ["D", "4H", "1H", "30", ltfKey];
+    let stAlignedCount = 0;
+    for (const tf of stTFs) { if ((tt[tf]?.stDir ?? 0) === dirSign) stAlignedCount++; }
+    if (stAlignedCount < (Number(daCfg.deep_audit_danger_min_st_aligned) || 3)) {
+      dangerCount++; dangerFlags.push(`st_momentum_low_${stAlignedCount}of${stTFs.length}`);
+    }
+
+    if (String(daCfg.deep_audit_danger_div_enabled ?? "true") === "true") {
+      const rsiDivData = d?.rsi_divergence || {};
+      for (const tf of ["1H", "30"]) {
+        const divTf = rsiDivData[tf];
+        if (!divTf) continue;
+        if (isLong && divTf.bear?.active) { dangerCount++; dangerFlags.push(`${tf}_rsi_div_bear`); break; }
+        if (!isLong && divTf.bull?.active) { dangerCount++; dangerFlags.push(`${tf}_rsi_div_bull`); break; }
+      }
+    }
+
+    d.__danger_score = dangerCount;
+    d.__danger_flags = dangerFlags;
+
+    if (dangerCount > dangerMaxSignals) {
+      return { qualifies: false, reason: "tt_danger_score_exceeded", dangerCount, maxAllowed: dangerMaxSignals, flags: dangerFlags.join("|") };
+    }
+  }
+
+  // Gate 5: DOA structural trend gate — require D + 4H + 1H ALL against direction
+  // (softened from D+4H only, because ripster_core signals on shorter TFs that
+  // frequently diverge from D/4H but align with 1H)
+  if (String(daCfg.doa_gate_enabled ?? "true") === "true") {
+    const tt = d?.tf_tech || {};
+    const isLong = inferredSide === "LONG";
+    const dirSign = isLong ? 1 : -1;
+    const _stD = tt.D?.stDir ?? 0;
+    const _st4H = tt["4H"]?.stDir ?? 0;
+    const _st1H = tt["1H"]?.stDir ?? 0;
+
+    if (_stD !== 0 && _stD !== dirSign &&
+        _st4H !== 0 && _st4H !== dirSign &&
+        _st1H !== 0 && _st1H !== dirSign) {
+      return { qualifies: false, reason: "tt_doa_d_4h_1h_against", stD: _stD, st4H: _st4H, st1H: _st1H };
+    }
+  }
+
+  // Gate 6: PDZ hard gate (only LONG in discount, SHORT in premium)
+  if (String(daCfg.tt_pdz_hard_gate ?? "false") === "true") {
+    const pdzZone = String(d?.pdz_zone_D || "unknown").toLowerCase();
+    if (inferredSide === "LONG" && (pdzZone === "premium" || pdzZone === "premium_approach")) {
+      return { qualifies: false, reason: "tt_pdz_long_in_premium", zone: pdzZone };
+    }
+    if (inferredSide === "SHORT" && (pdzZone === "discount" || pdzZone === "discount_approach")) {
+      return { qualifies: false, reason: "tt_pdz_short_in_discount", zone: pdzZone };
+    }
+  }
+
+  // Gate 7: SHORT quality gate — shorts have >50% DOA rate across all engines;
+  // require stronger confirmation before allowing short entries.
+  if (inferredSide === "SHORT") {
+    const tt = d?.tf_tech || {};
+    const shortMinRank = Number(daCfg.short_min_rank) || 0;
+    const tickerRank = Number(d?.score ?? d?.rank) || 0;
+    if (shortMinRank > 0 && tickerRank < shortMinRank) {
+      return { qualifies: false, reason: "ctx_short_rank_low", rank: tickerRank, min: shortMinRank };
+    }
+    if (String(daCfg.short_require_daily_st_aligned ?? "false") === "true") {
+      const dailyST = tt.D?.stDir ?? 0;
+      if (dailyST !== -1) {
+        return { qualifies: false, reason: "ctx_short_daily_st_not_bear", stDir: dailyST };
+      }
+    }
+    const shortMin4hDepth = Number(daCfg.short_min_4h_ema_depth) || 0;
+    if (shortMin4hDepth > 0) {
+      const emaDepth4H = tt["4H"]?.ema?.depth ?? 10;
+      if (emaDepth4H < shortMin4hDepth) {
+        return { qualifies: false, reason: "ctx_short_4h_ema_shallow", depth: emaDepth4H, min: shortMin4hDepth };
+      }
+    }
+  }
+
+  // Gate 8: Minimum entry confidence — conf 0.4 has 60.5% DOA rate
+  const minConfidence = Number(daCfg.min_entry_confidence) || 0;
+  if (minConfidence > 0) {
+    const conf = Number(d?.__entry_confidence ?? d?.confidence) || 0.6;
+    if (conf < minConfidence) {
+      return { qualifies: false, reason: "ctx_confidence_low", confidence: conf, min: minConfidence };
+    }
+  }
+
+  // Gate 9: Ticker entry blacklist — tickers with historically >75% DOA rate
+  const entryBlacklist = daCfg.entry_ticker_blacklist;
+  if (entryBlacklist) {
+    const bl = Array.isArray(entryBlacklist) ? entryBlacklist
+      : typeof entryBlacklist === "string" ? entryBlacklist.split(",").map(s => s.trim().toUpperCase())
+      : [];
+    const sym = String(d?.ticker || "").toUpperCase();
+    if (bl.includes(sym)) {
+      return { qualifies: false, reason: "ctx_ticker_blacklisted", ticker: sym };
+    }
+  }
+
+  // Gate 10: Choppy regime rank floor — raise min rank in difficult markets
+  const choppyRankFloor = Number(daCfg.choppy_regime_rank_floor) || 0;
+  if (choppyRankFloor > 0) {
+    const regimeClass = String(d?.regime_class || "").toUpperCase();
+    if (regimeClass === "CHOPPY" || regimeClass === "TRANSITIONAL") {
+      const tickerRank = Number(d?.score ?? d?.rank) || 0;
+      if (tickerRank < choppyRankFloor) {
+        return { qualifies: false, reason: "ctx_choppy_rank_floor", rank: tickerRank, floor: choppyRankFloor, regime: regimeClass };
+      }
+    }
+  }
+
+  return null;
 }
 
 /**
@@ -2313,8 +2673,19 @@ function qualifiesForEnter(d, asOfTs = null) {
   const completion = Number(d?.completion) || 0;
   const phase = Number(d?.phase_pct) || 0;
   const rr = Number(d?.rr) || 0;
+  const tf10 = d?.tf_tech?.["10"] || d?.tf_tech?.["15"] || {};
+  const tf30 = d?.tf_tech?.["30"] || {};
+  const tf1H = d?.tf_tech?.["1H"] || d?.tf_tech?.["60"] || {};
+  const tf4H = d?.tf_tech?.["4H"] || d?.tf_tech?.["240"] || {};
+  const tfD = d?.tf_tech?.D || {};
+  const engineResolution = resolveEntryEngine(d);
+  const entryEngine = engineResolution.engine;
+  if (engineResolution.blocked) {
+    return { qualifies: false, reason: "dynamic_engine_blacklisted", path: null, confidence: 0 };
+  }
+  const ripsterTuneV2 = parseBoolFlag(d?._env?._ripsterTuneV2, false);
   const leadingLtf = resolveLeadingLtf(d);
-  const leadingLtfLabel = leadingLtf === "15" ? "15m" : "10m";
+  const leadingLtfLabel = leadingLtf === "30" ? "30m" : leadingLtf === "15" ? "15m" : "10m";
   const fuelLead = d?.fuel?.[leadingLtf]?.fuelPct ?? d?.fuel?.["10"]?.fuelPct ?? 50;
   
   // ── PRECISION SCORING ENGINE v2 fields ──
@@ -2349,39 +2720,40 @@ function qualifiesForEnter(d, asOfTs = null) {
   const rvolBest = Math.max(rvol30, rvol1H);
   const inferredSide = sideFromStateOrScores(d);
 
-  // RVOL Dead Zone: volume too thin for any reliable signal
-  const rvolDeadZone = rParams.rvolDeadZone ?? 0.4;
-  if (rvolBest < rvolDeadZone) {
-    return { qualifies: false, reason: "rvol_dead_zone", rvol: rvolBest, threshold: rvolDeadZone, regime: regimeClass };
+  const ripsterTrendConfirmed = entryEngine === "ripster_core" && ripsterTuneV2 && (
+    (inferredSide === "LONG" && (Number(d?.ema_regime_daily) || 0) >= 2) ||
+    (inferredSide === "SHORT" && (Number(d?.ema_regime_daily) || 0) <= -1)
+  );
+
+  // ── Pipeline: Build TradeContext & run universal gates ──
+  const _ctx = buildTradeContext(d, asOfTs);
+  const _gateResult = runUniversalGates(_ctx);
+  if (!_gateResult.pass) {
+    return { qualifies: false, ...(_gateResult.pass === undefined ? {} : _gateResult) };
   }
 
-  // ═══════════════════════════════════════════════════════════════════════════
-  // DEEP AUDIT GATES: Configurable gates from deep-audit recommendations
-  // Keys stored in model_config, loaded into d._env
-  // ═══════════════════════════════════════════════════════════════════════════
-  const _daConfig = d?._env?._deepAuditConfig || {};
-
-  // DA-1: SHORT minimum rank gate
-  const daShortMinRank = Number(_daConfig.deep_audit_short_min_rank) || 0;
-  if (daShortMinRank > 0 && inferredSide === "SHORT" && score < daShortMinRank) {
-    const isBearConfirmed = state.includes("BEAR") && state.includes("BEAR");
-    if (!isBearConfirmed) {
-      return { qualifies: false, reason: "da_short_rank_too_low", rank: score, required: daShortMinRank };
+  // ── Pipeline: Dispatch to registered engine (tt_core / ripster_core) ──
+  const _dispatched = evaluateEntry(_ctx);
+  if (_dispatched) {
+    if (_dispatched.qualifies) {
+      if (entryEngine === "tt_core") {
+        const _ctxGateBlock = _applyContextGates(d, inferredSide, asOfTs, leadingLtfLabel);
+        if (_ctxGateBlock) return _ctxGateBlock;
+      }
+      const _enriched = enrichEntry(_dispatched, _ctx);
+      return _enriched;
     }
+    return _dispatched;
   }
 
-  // DA-2: Ticker blacklist
-  const daBlacklist = _daConfig.deep_audit_ticker_blacklist;
-  if (Array.isArray(daBlacklist) && daBlacklist.length > 0) {
-    const sym = String(d?.sym || d?.ticker || "").toUpperCase();
-    if (daBlacklist.includes(sym)) {
-      return { qualifies: false, reason: "da_ticker_blacklisted", ticker: sym };
-    }
-  }
+  const _skipLegacyGates = entryEngine === "ripster_core" || entryEngine === "tt_core";
 
-  // DA-3: Toxic hour avoidance
+  const _daConfigFull = d?._env?._deepAuditConfig || {};
+  const _daConfig = _skipLegacyGates ? {} : _daConfigFull;
+
+  // DA-3: Toxic hour avoidance (ripster_core has its own opening-noise gate)
   const daAvoidHours = _daConfig.deep_audit_avoid_hours;
-  if (daAvoidHours != null) {
+  if (entryEngine !== "ripster_core" && daAvoidHours != null) {
     const avoidArr = Array.isArray(daAvoidHours) ? daAvoidHours : [daAvoidHours];
     const nowMs = asOfTs > 0 ? asOfTs : Date.now();
     const entryHour = new Date(nowMs).getUTCHours();
@@ -2429,10 +2801,9 @@ function qualifiesForEnter(d, asOfTs = null) {
     }
   }
 
-  // DA-3d: Hard entry quality floor (applies to ALL paths including regime)
-  // Loser DNA analysis: WR delta >15% between EQ >=70 vs EQ <40.
+  // DA-3d: Hard entry quality floor (ripster_core relies on cloud alignment instead)
   const daMinEQ = Number(_daConfig.deep_audit_min_entry_quality) || 0;
-  if (daMinEQ > 0) {
+  if (entryEngine !== "ripster_core" && daMinEQ > 0) {
     const _eqVal = Number(d?.entry_quality?.score) || 0;
     if (_eqVal > 0 && _eqVal < daMinEQ) {
       return { qualifies: false, reason: "da_entry_quality_floor", eqScore: _eqVal, required: daMinEQ };
@@ -2455,7 +2826,9 @@ function qualifiesForEnter(d, asOfTs = null) {
         return { qualifies: false, reason: "da_htf_too_high_for_short", htf, required: -daMinHtf };
       }
     } else if (htf < daMinHtf) {
-      return { qualifies: false, reason: "da_htf_too_low", htf, required: daMinHtf };
+      if (!ripsterTrendConfirmed) {
+        return { qualifies: false, reason: "da_htf_too_low", htf, required: daMinHtf };
+      }
     }
   }
 
@@ -2467,11 +2840,9 @@ function qualifiesForEnter(d, asOfTs = null) {
     score = Math.min(100, score + daMeBoost);
   }
 
-  // DA-6: Opening noise gate (minute-level)
-  // Blocks entries in the first N minutes after 9:30 AM ET.
-  // AVGO/NVDA/STRL all lost entering at 9:30 — opening bar is pure noise.
+  // DA-6: Opening noise gate (ripster_core has its own opening-noise rejection)
   const daOpeningNoiseMin = Number(_daConfig.deep_audit_opening_noise_end_minute) || Number(_daConfig.deep_audit_ripster_opening_noise_end_minute) || 0;
-  if (daOpeningNoiseMin > 0) {
+  if (entryEngine !== "ripster_core" && daOpeningNoiseMin > 0) {
     const nowMs = asOfTs > 0 ? asOfTs : Date.now();
     try {
       const etParts = new Intl.DateTimeFormat("en-US", {
@@ -2590,14 +2961,9 @@ function qualifiesForEnter(d, asOfTs = null) {
     d.__da_rvol_high_size_mult = daRvolHighSizeMult;
   }
 
-  // DA-12: Multi-Factor Danger Score
-  // Deep analysis of 431 trades: 0–1 danger signals → 73.9% WR; 3+ → 45.8% WR.
-  // Danger factors from the analysis (weighted by impact):
-  //   Daily ST not aligned (-25pp), 30m ST not sloping (-18.7pp),
-  //   1H EMA depth < 5 (-17pp), 4H ST not aligned (-16.5pp),
-  //   15m ST not sloping (-16pp), VIX > 25 (-7.4pp).
+  // DA-12: Multi-Factor Danger Score (ripster_core uses cloud alignment + RSI gates instead)
   const daDangerMaxSignals = Number(_daConfig.deep_audit_danger_max_signals);
-  const daDangerEnabled = Number.isFinite(daDangerMaxSignals) && daDangerMaxSignals > 0;
+  const daDangerEnabled = entryEngine !== "ripster_core" && Number.isFinite(daDangerMaxSignals) && daDangerMaxSignals > 0;
   if (daDangerEnabled) {
     const tt = d?.tf_tech || {};
     const isLong = inferredSide === "LONG";
@@ -2636,7 +3002,7 @@ function qualifiesForEnter(d, asOfTs = null) {
     }
 
     // Factor 5: Leading LTF ST not sloping in its own direction (-16pp)
-    const ltfKey = leadingLtfLabel === "10m" ? "10" : leadingLtfLabel === "15m" ? "15" : leadingLtfLabel;
+    const ltfKey = leadingLtfLabel === "10m" ? "10" : leadingLtfLabel === "15m" ? "15" : leadingLtfLabel === "30m" ? "30" : leadingLtfLabel;
     const stLtfDir = tt[ltfKey]?.stDir ?? 0;
     const stLtfSlope = tt[ltfKey]?.stSlope ?? 0;
     if (stLtfDir !== 0 && stLtfSlope !== stLtfDir) {
@@ -2711,7 +3077,8 @@ function qualifiesForEnter(d, asOfTs = null) {
   // Discriminative signal: multi-TF supertrend structural disagreement.
   // Gate: block when daily ST is against AND (4H ST also against, OR 1H ST against + shallow daily EMA).
   // Results: blocks 42% DOA + 8 non-DOA losses, costs 10% winners → net +$3,013.
-  const _doaGateEnabled = String(_daConfig.doa_gate_enabled ?? "true") === "true";
+  // ripster_core uses cloud bias alignment (D+1H+LTF 34/50) as its structural check
+  const _doaGateEnabled = entryEngine !== "ripster_core" && String(_daConfig.doa_gate_enabled ?? "true") === "true";
   if (_doaGateEnabled) {
     const tt = d?.tf_tech || {};
     const isLong = inferredSide === "LONG";
@@ -2743,14 +3110,47 @@ function qualifiesForEnter(d, asOfTs = null) {
     }
   }
 
+  // DA-14: ORB Fakeout Gate
+  // When price broke above/below the 15m opening range but has reclaimed back inside,
+  // the initial breakout was a fakeout. Block entries in the breakout direction.
+  // Configurable: deep_audit_orb_fakeout_gate (default "true")
+  const _orbFakeoutGate = String(_daConfig.deep_audit_orb_fakeout_gate ?? "true") === "true";
+  if (_orbFakeoutGate) {
+    const _orb = d?.orb?.primary;
+    if (_orb?.resolved && _orb.reclaim) {
+      const _orbBias = d?.orb?.orbBias || 0;
+      if (_orbBias === 0) {
+        // Reclaim with no clear multi-window bias: price whipsawed — skip
+        d.__orb_fakeout = true;
+        d.__da_orb_size_mult = Math.min(d.__da_orb_size_mult || 1, 0.5);
+      }
+    }
+  }
+
+  // ORB directional confirmation: when enabled, boost confidence for trades
+  // aligned with ORB breakout direction. Attach ORB context to ticker data.
+  const _orbData = d?.orb;
+  if (_orbData?.primary?.resolved) {
+    const _orbP = _orbData.primary;
+    if (_orbP.breakout === "LONG" && inferredSide === "LONG") {
+      d.__orb_confirmed = true;
+      d.__orb_direction = "LONG";
+    } else if (_orbP.breakout === "SHORT" && inferredSide === "SHORT") {
+      d.__orb_confirmed = true;
+      d.__orb_direction = "SHORT";
+    } else if (_orbP.breakout && _orbP.breakout !== (inferredSide === "LONG" ? "LONG" : "SHORT")) {
+      d.__orb_against = true;
+    }
+  }
+
   // Regime-based SHORT blocking: SHORTs have negative EV in chop
-  if (inferredSide === "SHORT" && rParams.shortsAllowed === false) {
+  if (!_skipLegacyGates && inferredSide === "SHORT" && rParams.shortsAllowed === false) {
     return { qualifies: false, reason: "shorts_blocked_in_chop", regime: regimeClass };
   }
 
   // SHORT volume gate: SHORTs need elevated RVOL (institutional selling must be visible)
   const shortRvolMin = rParams.shortRvolMin ?? 1.0;
-  if (inferredSide === "SHORT" && rvolBest < shortRvolMin) {
+  if (!_skipLegacyGates && inferredSide === "SHORT" && rvolBest < shortRvolMin) {
     return { qualifies: false, reason: "short_rvol_too_low", rvol: rvolBest, required: shortRvolMin, regime: regimeClass };
   }
 
@@ -2762,19 +3162,19 @@ function qualifiesForEnter(d, asOfTs = null) {
   // LATE_BULL: 45.2% WR, -$793 → halve position size
   // ═══════════════════════════════════════════════════════════════════════════
   const _swingRegime = tickerSwingRegime || String(d?.regime?.combined || "").toUpperCase();
-  if (_swingRegime === "LATE_BEAR" && inferredSide === "LONG") {
+  if (!_skipLegacyGates && _swingRegime === "LATE_BEAR" && inferredSide === "LONG") {
     return { qualifies: false, reason: "late_bear_long_blocked", regime: _swingRegime };
   }
-  if (_swingRegime === "STRONG_BEAR" && inferredSide === "LONG") {
+  if (!_skipLegacyGates && _swingRegime === "STRONG_BEAR" && inferredSide === "LONG") {
     return { qualifies: false, reason: "strong_bear_long_blocked", regime: _swingRegime };
   }
-  if (_swingRegime === "STRONG_BULL" && inferredSide === "LONG") {
+  if (!_skipLegacyGates && _swingRegime === "STRONG_BULL" && inferredSide === "LONG") {
     const _sbCompletion = Number(d?.completion) || 0;
     if (_sbCompletion > 0.40) {
       return { qualifies: false, reason: "strong_bull_overextended", regime: _swingRegime, completion: _sbCompletion };
     }
   }
-  if (_swingRegime === "NEUTRAL" && inferredSide === "SHORT") {
+  if (!_skipLegacyGates && _swingRegime === "NEUTRAL" && inferredSide === "SHORT") {
     return { qualifies: false, reason: "neutral_short_blocked", regime: _swingRegime };
   }
   if (_swingRegime === "LATE_BULL") {
@@ -2794,7 +3194,7 @@ function qualifiesForEnter(d, asOfTs = null) {
   if (sectorRegime === "CHOPPY") choppyCount++;
   if (tickerRegime === "CHOPPY") choppyCount++;
 
-  if (choppyCount >= 2) {
+  if (!_skipLegacyGates && choppyCount >= 2) {
     return { qualifies: false, reason: "multi_tier_choppy", choppyCount, market: marketRegime, sector: sectorRegime, ticker: tickerRegime };
   }
 
@@ -2822,7 +3222,7 @@ function qualifiesForEnter(d, asOfTs = null) {
 
     if (inferredSide === "LONG") {
       const _isGoldLong = String(d?.__entry_path || "").includes("gold_long");
-      if (_spyStrongBear && !_isGoldLong) {
+      if (!_skipLegacyGates && _spyStrongBear && !_isGoldLong) {
         return { qualifies: false, reason: "spy_bearish_long_blocked", spyHtf: _spyHtf, spyEmaReg: _spyEmaRegD, spyCombined: _spyCombined };
       }
       if (_spyModBear && !_isGoldLong) {
@@ -2831,7 +3231,7 @@ function qualifiesForEnter(d, asOfTs = null) {
     }
     if (inferredSide === "SHORT") {
       const _isGoldShort = String(d?.__entry_path || "").includes("gold_short");
-      if (_spyStrongBull && !_isGoldShort) {
+      if (!_skipLegacyGates && _spyStrongBull && !_isGoldShort) {
         return { qualifies: false, reason: "spy_bullish_short_blocked", spyHtf: _spyHtf, spyEmaReg: _spyEmaRegD, spyCombined: _spyCombined };
       }
       if (_spyModBull && !_isGoldShort) {
@@ -2849,7 +3249,7 @@ function qualifiesForEnter(d, asOfTs = null) {
   const emaRegimeDaily = Number(d?.ema_regime_daily) || 0;
   const isRegimeConfirmedLong = emaRegimeDaily >= 2 && inferredSide === "LONG";
   const isRegimeConfirmedShort = emaRegimeDaily <= -2 && inferredSide === "SHORT";
-  if (!isRegimeConfirmedLong && !isRegimeConfirmedShort) {
+  if (!_skipLegacyGates && !isRegimeConfirmedLong && !isRegimeConfirmedShort) {
     const priceAboveEma21_10m = d?.tf_tech?.[leadingLtf]?.ema?.priceAboveEma21;
     if (priceAboveEma21_10m === false && inferredSide === "LONG") {
       return { qualifies: false, reason: `price_below_21ema_${leadingLtfLabel}`, leadingLtf };
@@ -2929,7 +3329,7 @@ function qualifiesForEnter(d, asOfTs = null) {
   const isReplayMode = asOfTs > 0;
   const maxTriggerAgeMs = isReplayMode ? 7 * 24 * 60 * 60 * 1000 : 15 * 60 * 1000;
   const triggerAgeMs = triggerTs > 0 ? (now - triggerTs) : Infinity;
-  if (triggerAgeMs > maxTriggerAgeMs) {
+  if (!_skipLegacyGates && triggerAgeMs > maxTriggerAgeMs) {
     return { qualifies: false, reason: "trigger_stale" };
   }
   
@@ -2948,10 +3348,10 @@ function qualifiesForEnter(d, asOfTs = null) {
   const rsi1H = Number(d?.entry_quality?.details?.rsi1H) || 50;
   const inferredSideForRSI = sideFromStateOrScores(d);
   const _regimeBypass = Math.abs(Number(d?.ema_regime_daily) || 0) >= 2;
-  if (inferredSideForRSI === "LONG" && rsi1H > 72 && !_regimeBypass) {
+  if (!_skipLegacyGates && inferredSideForRSI === "LONG" && rsi1H > 72 && !_regimeBypass) {
     return { qualifies: false, reason: "rsi_1h_overbought", rsi1H };
   }
-  if (inferredSideForRSI === "SHORT" && rsi1H < 28 && !_regimeBypass) {
+  if (!_skipLegacyGates && inferredSideForRSI === "SHORT" && rsi1H < 28 && !_regimeBypass) {
     return { qualifies: false, reason: "rsi_1h_oversold", rsi1H };
   }
 
@@ -2960,7 +3360,7 @@ function qualifiesForEnter(d, asOfTs = null) {
   // Must NOT be bypassed by _regimeBypass (lagging EMA indicator stays bullish weeks into
   // a correction). 92% of Oct-Dec losses had regime bypass active, disabling this gate.
   const _tdPerTf = d?.td_sequential?.per_tf;
-  if (_tdPerTf) {
+  if (!_skipLegacyGates && _tdPerTf) {
     const _tdSide = inferredSideForRSI;
 
     // Guard 1: Same-direction exhaustion (move topping/bottoming).
@@ -3050,9 +3450,9 @@ function qualifiesForEnter(d, asOfTs = null) {
     }
   }
 
-  // ── ADAPTIVE GATES (loaded from calibration Apply) ──
-  const _aeg = d?._env?._adaptiveEntryGates || null;
-  const _arg = d?._env?._adaptiveRegimeGates || null;
+  // ── ADAPTIVE GATES (loaded from calibration Apply, skip for ripster_core) ──
+  const _aeg = _skipLegacyGates ? null : (d?._env?._adaptiveEntryGates || null);
+  const _arg = _skipLegacyGates ? null : (d?._env?._adaptiveRegimeGates || null);
   const stateGate = _aeg?.[state] || _aeg?.["_default"] || null;
 
   // Adaptive VIX regime gate
@@ -3091,7 +3491,7 @@ function qualifiesForEnter(d, asOfTs = null) {
   const effectiveRankMin = _rankGateMode === "bypass" ? 0
     : _rankGateMode === "absolute" ? _rawRankMin
     : Math.round(_rawRankMin * _universeScale);
-  if (effectiveRankMin > 0 && score < effectiveRankMin) {
+  if (!_skipLegacyGates && effectiveRankMin > 0 && score < effectiveRankMin) {
       return { qualifies: false, reason: "adaptive_rank_below_min", rank: score, required: effectiveRankMin, rawRequired: _rawRankMin, universeSize: _universeSize, state };
   }
 
@@ -3131,7 +3531,7 @@ function qualifiesForEnter(d, asOfTs = null) {
     stateGate?.max_completion ?? defaultMaxCompletion,
     regimeMaxCompletion
   );
-  if (completion > maxCompletion) {
+  if (!_skipLegacyGates && completion > maxCompletion) {
     return { qualifies: false, reason: "move_too_advanced", regime: regimeClass };
   }
   
@@ -3143,11 +3543,10 @@ function qualifiesForEnter(d, asOfTs = null) {
   const hasFuelData = d?.fuel != null;
   if (hasFuelData) {
     const minFuel = fuelRegimeConfirmed ? 25 : (isPullback ? 35 : 45);
-    if (primaryFuel < minFuel) {
+    if (!_skipLegacyGates && primaryFuel < minFuel) {
       return { qualifies: false, reason: "fuel_exhausted", fuelPct: primaryFuel };
     }
-  } else if (!hasFuelData) {
-    // Legacy phase gate — Phase 1c: tightened from 0.60/0.45 to 0.50/0.35
+  } else if (!_skipLegacyGates && !hasFuelData) {
     const maxPhase = isPullback ? 0.50 : 0.35;
     if (Math.abs(phase) > maxPhase) {
       return { qualifies: false, reason: "phase_too_late" };
@@ -3160,7 +3559,7 @@ function qualifiesForEnter(d, asOfTs = null) {
   const rrKnown = Number.isFinite(rr) && rr > 0;
   const regimeMinRR = rParams.minRR ?? 1.5;
   const rrMin = Math.max(isPullback ? 1.2 : 1.5, regimeMinRR);
-  if (rrKnown && rr < rrMin && !isPotentialGoldShort) {
+  if (!_skipLegacyGates && rrKnown && rr < rrMin && !isPotentialGoldShort) {
     return { qualifies: false, reason: "rr_too_low", regime: regimeClass };
   }
   
@@ -3189,8 +3588,7 @@ function qualifiesForEnter(d, asOfTs = null) {
     
     // Only validate SL for LONG entries from pullback states (where SL is correctly below price)
     // SHORT entries (gold_short from HTF_BULL_LTF_BULL) will have SL computed above price later
-    if (inferredDirection === "LONG" && isBullishPullback && currentPrice < sl) {
-      // Price already below SL for a LONG pullback entry - signal has failed
+    if (!_skipLegacyGates && inferredDirection === "LONG" && isBullishPullback && currentPrice < sl) {
       return { qualifies: false, reason: "price_below_sl_long" };
     }
     
@@ -3199,7 +3597,7 @@ function qualifiesForEnter(d, asOfTs = null) {
     // to survive even a small dip. Require at least 0.8% distance.
     if (inferredDirection === "LONG" && sl < currentPrice) {
       const distToSL = (currentPrice - sl) / currentPrice;
-      if (distToSL < 0.008) {
+      if (!_skipLegacyGates && distToSL < 0.008) {
         return { qualifies: false, reason: "price_too_close_to_sl" };
       }
     }
@@ -3235,10 +3633,10 @@ function qualifiesForEnter(d, asOfTs = null) {
     const isBearEntry = state.includes("BEAR_LTF_BEAR") || state === "HTF_BEAR_LTF_PULLBACK";
     const minSupport = isPullback ? 0.3 : 0.5;
     
-    if (isBullEntry && stSupportScore < minSupport && !hasActiveBullGate) {
+    if (!_skipLegacyGates && isBullEntry && stSupportScore < minSupport && !hasActiveBullGate) {
       return { qualifies: false, reason: "st_support_weak_bull", supportScore: stSupportScore };
     }
-    if (isBearEntry && (1 - stSupportScore) < minSupport && !hasActiveBearGate) {
+    if (!_skipLegacyGates && isBearEntry && (1 - stSupportScore) < minSupport && !hasActiveBearGate) {
       return { qualifies: false, reason: "st_support_weak_bear", supportScore: stSupportScore };
     }
   }
@@ -3272,7 +3670,10 @@ function qualifiesForEnter(d, asOfTs = null) {
                         flagFresh(flags.st_flip_1h, flags.st_flip_1h_ts, "structural") ||
                         flagFresh(flags.st_flip_10m, flags.st_flip_10m_ts, "momentum") ||
                         flagFresh(flags.st_flip_3m, flags.st_flip_3m_ts, "momentum");
-  
+  const hasStFlipBear = triggerSet.has("ST_FLIP_30M_BEAR") || triggerSet.has("ST_FLIP_1H_BEAR") ||
+                        triggerSet.has("ST_FLIP_10M_BEAR") || triggerSet.has("ST_FLIP_3M_BEAR") ||
+                        flagFresh(flags.st_flip_bear, flags.st_flip_bear_ts, "momentum");
+
   // EMA cross signals (confirmation of momentum)
   const hasEmaCrossBull = triggerSet.has("EMA_CROSS_1H_13_48_BULL") || triggerSet.has("EMA_CROSS_30M_13_48_BULL") ||
                           triggerSet.has("EMA_CROSS_10M_13_48_BULL") ||
@@ -3289,7 +3690,13 @@ function qualifiesForEnter(d, asOfTs = null) {
   // LTF momentum confirmation: LTF score should be turning (not deeply negative for LONG)
   // For pullback entries, we want to see LTF recovering (ltf > -10) or momentum signals
   const ltfRecovering = ltf > -10 || hasStFlipBull || hasEmaCrossBull || hasSqRelease;
-  
+
+  const hasRsiDivBull = !!(d?.tf_tech?.["10"]?.rsiDiv?.bull || d?.tf_tech?.["30"]?.rsiDiv?.bull || d?.tf_tech?.["1H"]?.rsiDiv?.bull);
+  const hasRsiDivBear = !!(d?.tf_tech?.["10"]?.rsiDiv?.bear || d?.tf_tech?.["30"]?.rsiDiv?.bear || d?.tf_tech?.["1H"]?.rsiDiv?.bear);
+  const ripsterLtfConfirm = inferredSide === "LONG"
+    ? (ltfRecovering || (inferredSide === "LONG" && hasRsiDivBull))
+    : (ltf < 10 || hasStFlipBear || hasEmaCrossBear || hasSqRelease || hasRsiDivBear);
+
   // ── PRECISION ENRICHMENT HELPER ──
   // Wraps entry path results with precision scoring context.
   // Phase 1a: Apply entry quality score gate here (after path-specific logic).
@@ -3303,6 +3710,12 @@ function qualifiesForEnter(d, asOfTs = null) {
       if (perf && perf.enabled === 0) {
         return { qualifies: false, reason: "path_auto_disabled", path: result.path, disableReason: perf.disable_reason };
       }
+    }
+
+    // Pullback Confirmation Gate: regime-confirmed entries must show LTF pullback completion
+    const _isRegimeEntry = result.path?.startsWith("ema_regime_confirmed") || result.path?.startsWith("ema_regime_early");
+    if (_isRegimeEntry && !d.__pullback_confirmed) {
+      return { qualifies: false, reason: "pullback_not_confirmed", path: result.path, details: d.__pullback_details };
     }
 
     // Phase 1a: Entry quality gate — reject low-quality setups
@@ -3350,7 +3763,7 @@ function qualifiesForEnter(d, asOfTs = null) {
       }
     }
 
-    if (eqScore > 0 && eqScore < minQuality) {
+    if (!_skipLegacyGates && eqScore > 0 && eqScore < minQuality) {
       return { qualifies: false, reason: "entry_quality_too_low", eqScore, minQuality, sectorAdj: sectorForEntry };
     }
 
@@ -3368,7 +3781,7 @@ function qualifiesForEnter(d, asOfTs = null) {
           const _liqFuel = d?.fuel?.["30"]?.pct ?? d?.fuel?.["15"]?.pct ?? 50;
           const _liqRsi1H = Number(d?.tf_tech?.["1H"]?.rsi?.r5) || 50;
           const _liqMomWeak = _liqFuel < 50 || (inferredSide === "LONG" ? _liqRsi1H > 65 : _liqRsi1H < 35);
-          if (_liqMomWeak) {
+          if (!_skipLegacyGates && _liqMomWeak) {
             if (isReplay && replayCtx?._replayBlockedEntries) {
               replayCtx._replayBlockedEntries.push({ ticker: sym, reason: "da_liq_congestion", dist: _liqDist, fuel: _liqFuel, rsi1H: _liqRsi1H });
             }
@@ -3457,6 +3870,30 @@ function qualifiesForEnter(d, asOfTs = null) {
     };
     // Phase 1a: attach entry quality for model learning and dashboard
     result.entryQuality = eqScore;
+
+    // ── PDZ ZONE-AWARE SIZING (Phase 4) ──
+    // Discount zone = favorable for LONG (1.25x), Premium = risky for LONG (0.5x)
+    // Inverse for SHORT. Applied AFTER all other sizing multipliers.
+    const _pdzZoneForSizing = String(d?.pdz_zone_D || result?.pdz_zone_D || "unknown");
+    let _pdzSizeMult = 1.0;
+    const _pdzSide = result.path?.includes("short") ? "SHORT" : inferredSide;
+    if (_pdzSide === "LONG") {
+      if (_pdzZoneForSizing === "discount") _pdzSizeMult = 1.25;
+      else if (_pdzZoneForSizing === "discount_approach") _pdzSizeMult = 1.1;
+      else if (_pdzZoneForSizing === "premium_approach") _pdzSizeMult = 0.75;
+      else if (_pdzZoneForSizing === "premium") _pdzSizeMult = 0.5;
+    } else if (_pdzSide === "SHORT") {
+      if (_pdzZoneForSizing === "premium") _pdzSizeMult = 1.25;
+      else if (_pdzZoneForSizing === "premium_approach") _pdzSizeMult = 1.1;
+      else if (_pdzZoneForSizing === "discount_approach") _pdzSizeMult = 0.75;
+      else if (_pdzZoneForSizing === "discount") _pdzSizeMult = 0.5;
+    }
+    if (_pdzSizeMult !== 1.0) {
+      d.__pdz_size_mult = _pdzSizeMult;
+      result.pdz_size_mult = _pdzSizeMult;
+    }
+    result.selectedEngine = entryEngine;
+    result.engineSource = engineResolution.source;
     return result;
   };
   
@@ -3470,8 +3907,322 @@ function qualifiesForEnter(d, asOfTs = null) {
   const rvolLowAdj = (rvolBest < rvolLowThreshold) ? (rParams.rvolLowScoreAdj ?? 5) : 0;
   const effectiveMinHTF = regimeMinHTF + rvolLowAdj;
 
-  if (Math.abs(htf) < effectiveMinHTF) {
+  if (!_skipLegacyGates && Math.abs(htf) < effectiveMinHTF) {
     return { qualifies: false, reason: "htf_below_regime_floor", htf, required: effectiveMinHTF, regime: regimeClass, rvol: rvolBest };
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // FEATURE-FLAGGED ENTRY ENGINE: Ripster-Core (TT Core)
+  // Bias: D+1H+10m 34/50 cloud alignment
+  // Trigger: 10m 5/12 reclaim/cross
+  // Pullback add: 10m 8/9 bounce while 34/50 bias holds
+  // ═══════════════════════════════════════════════════════════════════════════
+  if (entryEngine === "ripster_core") {
+    const c10_34 = tf10?.ripster?.c34_50;
+    const c1h_34 = tf1H?.ripster?.c34_50;
+    const cD_34 = tfD?.ripster?.c34_50;
+    const c10_5 = tf10?.ripster?.c5_12;
+    const c10_8 = tf10?.ripster?.c8_9;
+
+    const dAligned = inferredSide === "LONG" ? !!cD_34?.bull : !!cD_34?.bear;
+    const h1Aligned = inferredSide === "LONG" ? !!c1h_34?.bull : !!c1h_34?.bear;
+    const m10Aligned = inferredSide === "LONG" ? !!c10_34?.bull : !!c10_34?.bear;
+    const alignedCount = [dAligned, h1Aligned, m10Aligned].filter(Boolean).length;
+    const strongDailyTrend = (inferredSide === "LONG" && emaRegimeDaily >= 2) || (inferredSide === "SHORT" && emaRegimeDaily <= -2);
+    const biasAligned = ripsterTuneV2
+      ? (dAligned && h1Aligned && (strongDailyTrend ? alignedCount >= 2 : m10Aligned))
+      : (dAligned && h1Aligned && m10Aligned);
+    if (!biasAligned) {
+      return {
+        qualifies: false,
+        reason: "ripster_bias_not_aligned",
+        engine: entryEngine,
+        ripster_bias: {
+          c10_34: c10_34?.bull ? "bull" : c10_34?.bear ? "bear" : "na",
+          c1h_34: c1h_34?.bull ? "bull" : c1h_34?.bear ? "bear" : "na",
+          cD_34: cD_34?.bull ? "bull" : cD_34?.bear ? "bear" : "na",
+          aligned_count: alignedCount,
+          strong_daily_trend: strongDailyTrend,
+        },
+      };
+    }
+
+    const momentumTrigger = inferredSide === "LONG"
+      ? !!(c10_5?.crossUp || (c10_5?.bull && c10_5?.above && c10_5?.fastSlope >= 0))
+      : !!(c10_5?.crossDn || (c10_5?.bear && c10_5?.below && c10_5?.fastSlope <= 0));
+
+    const pullbackTrigger = inferredSide === "LONG"
+      ? !!((c10_8?.inCloud || c10_8?.above) && c10_8?.fastSlope >= 0 && ripsterLtfConfirm)
+      : !!((c10_8?.inCloud || c10_8?.below) && c10_8?.fastSlope <= 0 && ripsterLtfConfirm);
+    const reclaimTrigger = ripsterTuneV2 && inferredSide === "LONG"
+      ? !!((c10_8?.crossUp || (c10_8?.bull && c10_8?.above)) && hasStFlipBull && ltfRecovering && c10_8?.fastSlope >= 0)
+      : ripsterTuneV2
+        ? !!((c10_8?.crossDn || (c10_8?.bear && c10_8?.below)) && hasStFlipBear && ripsterLtfConfirm && c10_8?.fastSlope <= 0)
+        : false;
+    const nowMsRip = asOfTs > 0 ? asOfTs : Date.now();
+    const nowEtRip = getEasternParts(new Date(nowMsRip));
+    const nyHourRip = Number(nowEtRip.hour) || 0;
+    const nyMinRip = Number(nowEtRip.minute) || 0;
+    const daRipsterOpeningNoiseEndMinute = Number(_daConfigFull.deep_audit_ripster_opening_noise_end_minute);
+    const openingNoiseEndMinute = Number.isFinite(daRipsterOpeningNoiseEndMinute) ? daRipsterOpeningNoiseEndMinute : 45;
+    const inOpeningNoiseWindow = nyHourRip === 9 && nyMinRip < openingNoiseEndMinute;
+    const stDir10m = Number(tf10?.stDir) || 0;
+    const stDir30m = Number(tf30?.stDir) || 0;
+    const rsi10m = Number(tf10?.rsi?.r5) || 50;
+    const rsi30m = Number(tf30?.rsi?.r5) || 50;
+    const rsi1h = Number(tf1H?.rsi?.r5) || 50;
+    const rsi4h = Number(tf4H?.rsi?.r5) || 50;
+    const rsiD = Number(tfD?.rsi?.r5) || 50;
+    const stDirD = Number(tfD?.stDir) || 0;
+    const trendExtensionPct = Number(c10_5?.distToCloudPct) || 0;
+    const daRipsterChaseRsi10Long = Number(_daConfigFull.deep_audit_ripster_chase_rsi10_long) || 74;
+    const daRipsterChaseRsi30Long = Number(_daConfigFull.deep_audit_ripster_chase_rsi30_long) || 68;
+    const daRipsterChaseRsi10Short = Number(_daConfigFull.deep_audit_ripster_chase_rsi10_short) || 26;
+    const daRipsterChaseRsi30Short = Number(_daConfigFull.deep_audit_ripster_chase_rsi30_short) || 32;
+    const daRipsterChaseCloudDistPct = Number(_daConfigFull.deep_audit_ripster_chase_dist_to_cloud_pct) || 0.0045;
+    const daRipsterMomentumHeatRsi30 = Number(_daConfigFull.deep_audit_ripster_momentum_heat_rsi30) || 70;
+    const daRipsterMomentumHeatRsi1H = Number(_daConfigFull.deep_audit_ripster_momentum_heat_rsi1h) || 70;
+    const chasingLong = inferredSide === "LONG"
+      && rsi10m >= daRipsterChaseRsi10Long
+      && rsi30m >= daRipsterChaseRsi30Long
+      && trendExtensionPct >= daRipsterChaseCloudDistPct;
+    const chasingShort = inferredSide === "SHORT"
+      && rsi10m <= daRipsterChaseRsi10Short
+      && rsi30m <= daRipsterChaseRsi30Short
+      && trendExtensionPct >= daRipsterChaseCloudDistPct;
+    const rsi10mDailyHeatLong = inferredSide === "LONG" && rsi10m >= 77 && rsiD >= 80;
+    const rsi10mDailyHeatShort = inferredSide === "SHORT" && rsi10m <= 23 && rsiD <= 20;
+    const momentumRsiHeatLong = inferredSide === "LONG" && rsi30m >= daRipsterMomentumHeatRsi30 && rsi1h >= daRipsterMomentumHeatRsi1H;
+    const momentumRsiHeatShort = inferredSide === "SHORT" && rsi30m <= (100 - daRipsterMomentumHeatRsi30) && rsi1h <= (100 - daRipsterMomentumHeatRsi1H);
+    const dailyStConflictLong = inferredSide === "LONG" && stDirD === 1;
+    const dailyStConflictShort = inferredSide === "SHORT" && stDirD === -1;
+    const htfRsiExtremeLong = inferredSide === "LONG" && (rsi4h >= 80 || rsiD >= 82);
+    const htfRsiExtremeShort = inferredSide === "SHORT" && (rsi4h <= 20 || rsiD <= 18);
+    const daRsiAllTfExtremeGuard = parseBoolFlag(_daConfig.deep_audit_rsi_all_tf_extreme_guard, true);
+    const daRsiAllTfHigh = Number(_daConfig.deep_audit_rsi_all_tf_high) || 70;
+    const daRsiAllTfLow = Number(_daConfig.deep_audit_rsi_all_tf_low) || 30;
+    const allTfRsiExtremeLong = inferredSide === "LONG" && [rsi10m, rsi30m, rsi1h, rsi4h, rsiD].every((v) => Number(v) >= daRsiAllTfHigh);
+    const allTfRsiExtremeShort = inferredSide === "SHORT" && [rsi10m, rsi30m, rsi1h, rsi4h, rsiD].every((v) => Number(v) <= daRsiAllTfLow);
+    const daRsiExtremeProfileMinPct = Number(_daConfig.deep_audit_rsi_extreme_profile_min_pct) || 40;
+    const _dirProfile = inferredSide === "LONG" ? _learn?.long_profile : _learn?.short_profile;
+    const _entryParams = _learn?.entry_params || {};
+    const _rsiAtOrigin = _dirProfile?.rsi_at_origin || {};
+    const _learnedExtremeFriendly = inferredSide === "LONG"
+      ? (String(_entryParams.long_rsi_sweet_spot || "").toLowerCase() === "high" && Number(_rsiAtOrigin.high_zone_pct) >= daRsiExtremeProfileMinPct)
+      : (String(_entryParams.short_rsi_sweet_spot || "").toLowerCase() === "low" && Number(_rsiAtOrigin.low_zone_pct) >= daRsiExtremeProfileMinPct);
+    const ltfOpposedLong = inferredSide === "LONG" && stDir10m === 1 && stDir30m === 1;
+    const ltfOpposedShort = inferredSide === "SHORT" && stDir10m === -1 && stDir30m === -1;
+
+    if (ripsterTuneV2 && (chasingLong || chasingShort) && momentumTrigger && !pullbackTrigger && !reclaimTrigger) {
+      return {
+        qualifies: false,
+        reason: "ripster_chasing_extension",
+        engine: entryEngine,
+        rsi10m,
+        rsi30m,
+        distToCloudPct: trendExtensionPct,
+      };
+    }
+    if (ripsterTuneV2 && (rsi10mDailyHeatLong || rsi10mDailyHeatShort) && momentumTrigger && !pullbackTrigger && !reclaimTrigger) {
+      return {
+        qualifies: false,
+        reason: inferredSide === "LONG" ? "ripster_rsi_10m_daily_heat_long" : "ripster_rsi_10m_daily_heat_short",
+        engine: entryEngine,
+        rsi10m,
+        rsiD,
+      };
+    }
+    if (ripsterTuneV2 && (momentumRsiHeatLong || momentumRsiHeatShort) && momentumTrigger && !pullbackTrigger && !reclaimTrigger) {
+      return {
+        qualifies: false,
+        reason: inferredSide === "LONG" ? "ripster_rsi_heat_block_long" : "ripster_rsi_heat_block_short",
+        engine: entryEngine,
+        rsi10m,
+        rsi30m,
+        rsi1h,
+      };
+    }
+    if (ripsterTuneV2 && (dailyStConflictLong || dailyStConflictShort) && momentumTrigger && !pullbackTrigger && !reclaimTrigger) {
+      return {
+        qualifies: false,
+        reason: inferredSide === "LONG" ? "ripster_daily_st_conflict_long" : "ripster_daily_st_conflict_short",
+        engine: entryEngine,
+        stDirD,
+      };
+    }
+    if (ripsterTuneV2 && (ltfOpposedLong || ltfOpposedShort) && momentumTrigger && !pullbackTrigger && !reclaimTrigger) {
+      return {
+        qualifies: false,
+        reason: inferredSide === "LONG" ? "ripster_ltf_st_opposed_long" : "ripster_ltf_st_opposed_short",
+        engine: entryEngine,
+        stDir10m,
+        stDir30m,
+      };
+    }
+    if (ripsterTuneV2 && inOpeningNoiseWindow && momentumTrigger && !pullbackTrigger && !reclaimTrigger) {
+      return {
+        qualifies: false,
+        reason: "ripster_opening_chase_guard",
+        engine: entryEngine,
+        nyHour: nyHourRip,
+        nyMinute: nyMinRip,
+      };
+    }
+    if (ripsterTuneV2 && (htfRsiExtremeLong || htfRsiExtremeShort) && momentumTrigger && !pullbackTrigger && !reclaimTrigger) {
+      return {
+        qualifies: false,
+        reason: inferredSide === "LONG" ? "ripster_htf_rsi_extreme_long" : "ripster_htf_rsi_extreme_short",
+        engine: entryEngine,
+        rsi4h,
+        rsiD,
+      };
+    }
+    if (
+      ripsterTuneV2 &&
+      daRsiAllTfExtremeGuard &&
+      (allTfRsiExtremeLong || allTfRsiExtremeShort) &&
+      momentumTrigger &&
+      !pullbackTrigger &&
+      !reclaimTrigger &&
+      !_learnedExtremeFriendly
+    ) {
+      return {
+        qualifies: false,
+        reason: inferredSide === "LONG" ? "ripster_all_tf_rsi_extreme_long" : "ripster_all_tf_rsi_extreme_short",
+        engine: entryEngine,
+        rsi10m,
+        rsi30m,
+        rsi1h,
+        rsi4h,
+        rsiD,
+        profileExtremeAllowed: _learnedExtremeFriendly,
+      };
+    }
+    if (
+      ripsterTuneV2 &&
+      inferredSide === "LONG" &&
+      pullbackTrigger &&
+      !reclaimTrigger &&
+      rsiD >= 85 &&
+      rsi4h >= 75 &&
+      !hasEmaCrossBull
+    ) {
+      return {
+        qualifies: false,
+        reason: "ripster_pullback_daily_rsi_exhausted",
+        engine: entryEngine,
+        rsi4h,
+        rsiD,
+        hasEmaCrossBull,
+      };
+    }
+
+    // ── MEAN REVERSION TRIGGER (Phase 3: PDZ + Exhaustion + FVG Reclaim) ──
+    const _pdzD = tfD?.pdz || d?.pdz_D || {};
+    const _pdzZoneD = String(_pdzD.zone || d?.pdz_zone_D || "unknown");
+    const _pdz4h = tf4H?.pdz || {};
+    const _pdzZone4h = String(_pdz4h.zone || d?.pdz_zone_4h || "unknown");
+    const _fvgD = d?.fvg_D || {};
+    const _liqD = d?.liq_D || {};
+    const _td9 = d?.mean_revert_td9 || {};
+    const _phaseD = Number(tfD?.ph?.v) || 0;
+    const _phase4h = Number(tf4H?.ph?.v) || 0;
+    const _phase1h = Number(tf1H?.ph?.v) || 0;
+    const _phaseDLeaving = Math.abs(_phaseD) < 10 && Math.abs(Number(tfD?.ph?.prev) || 0) > 20;
+    const _phase4hLeaving = Math.abs(_phase4h) < 10 && Math.abs(Number(tf4H?.ph?.prev) || 0) > 20;
+    const _phaseOrTd9 = _phaseDLeaving || _phase4hLeaving || !!_td9?.active;
+
+    const _mrPdzLong = _pdzZoneD === "discount" || _pdzZoneD === "discount_approach";
+    const _mrPdzShort = _pdzZoneD === "premium" || _pdzZoneD === "premium_approach";
+    const _mrPdzValid = (inferredSide === "LONG" && _mrPdzLong) || (inferredSide === "SHORT" && _mrPdzShort);
+
+    const _rsiExtremes = [rsi30m, rsi1h, rsi4h, rsiD];
+    const _mrRsiExhaustedLong = _rsiExtremes.filter(r => r < 30).length >= 2;
+    const _mrRsiExhaustedShort = _rsiExtremes.filter(r => r > 70).length >= 2;
+    const _mrRsiValid = (inferredSide === "LONG" && _mrRsiExhaustedLong) || (inferredSide === "SHORT" && _mrRsiExhaustedShort);
+
+    const _mrFvgReclaim = inferredSide === "LONG"
+      ? !!(_fvgD.inBullGap || _fvgD.activeBull > 0)
+      : !!(_fvgD.inBearGap || _fvgD.activeBear > 0);
+
+    const _mrLiqSwept = inferredSide === "LONG"
+      ? ((_liqD?.sellside || []).some?.(z => z.swept) || ((_liqD?.sellsideCount ?? 0) > 0 && (_liqD?.sellside || []).length === 0))
+      : ((_liqD?.buyside || []).some?.(z => z.swept) || ((_liqD?.buysideCount ?? 0) > 0 && (_liqD?.buyside || []).length === 0));
+
+    const meanReversionTrigger = _mrPdzValid && _mrRsiValid && _phaseOrTd9 && (_mrFvgReclaim || _mrLiqSwept);
+
+    if (momentumTrigger) {
+      const _r = enrichResult({
+        qualifies: true,
+        path: "ripster_momentum",
+        confidence: "medium",
+        reason: "ripster_5_12_trend_trigger",
+        engine: entryEngine,
+        ripster_bias_state: "aligned_34_50_d_1h_10m",
+      });
+      _r.pdz_zone_D = _pdzZoneD;
+      _r.pdz_pct_D = _pdzD.pct || _pdzD.pctInRange;
+      _r.fvg_imbalance = d?.fvg_imbalance_D;
+      return _r;
+    }
+    if (pullbackTrigger) {
+      const _r = enrichResult({
+        qualifies: true,
+        path: "ripster_pullback",
+        confidence: "medium",
+        reason: "ripster_8_9_bounce",
+        engine: entryEngine,
+        ripster_bias_state: "aligned_34_50_d_1h_10m",
+      });
+      _r.pdz_zone_D = _pdzZoneD;
+      _r.pdz_pct_D = _pdzD.pct || _pdzD.pctInRange;
+      _r.fvg_imbalance = d?.fvg_imbalance_D;
+      return _r;
+    }
+    if (reclaimTrigger) {
+      const _r = enrichResult({
+        qualifies: true,
+        path: "ripster_reclaim",
+        confidence: "medium",
+        reason: "ripster_8_9_reclaim_st_flip",
+        engine: entryEngine,
+        ripster_bias_state: "aligned_34_50_d_1h_10m",
+      });
+      _r.pdz_zone_D = _pdzZoneD;
+      _r.pdz_pct_D = _pdzD.pct || _pdzD.pctInRange;
+      _r.fvg_imbalance = d?.fvg_imbalance_D;
+      return _r;
+    }
+    if (meanReversionTrigger) {
+      d.__da_mean_revert_size_mult = 0.5;
+      const _r = enrichResult({
+        qualifies: true,
+        path: "mean_reversion_pdz",
+        confidence: _td9?.active ? "medium" : "low",
+        reason: `pdz_exhaustion_reversal_${_pdzZoneD}`,
+        engine: entryEngine,
+        mean_revert: {
+          pdz_zone_D: _pdzZoneD,
+          pdz_zone_4h: _pdzZone4h,
+          rsi_extremes: _rsiExtremes.length,
+          phase_leaving: _phaseDLeaving || _phase4hLeaving,
+          td9_active: !!_td9?.active,
+          fvg_reclaim: _mrFvgReclaim,
+          liq_swept: _mrLiqSwept,
+        },
+      });
+      _r.pdz_zone_D = _pdzZoneD;
+      _r.pdz_pct_D = _pdzD.pct || _pdzD.pctInRange;
+      _r.fvg_imbalance = d?.fvg_imbalance_D;
+      return _r;
+    }
+
+    return {
+      qualifies: false,
+      reason: "ripster_no_trigger",
+      engine: entryEngine,
+      ripster_bias_state: "aligned_34_50_d_1h_10m",
+    };
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -3525,6 +4276,82 @@ function qualifiesForEnter(d, asOfTs = null) {
   }
   if (inferredSide === "SHORT" && stDir10m === -1 && stDir30m === -1) {
     return { qualifies: false, reason: isPullback ? "ltf_st_both_bullish_pullback" : "ltf_st_both_bullish", stDir10m, stDir30m, leadingLtf };
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // PULLBACK CONFIRMATION GATE (Phase 1 — Multi-TF Ladder)
+  // For regime-confirmed entries, require 15m/10m pullback completion:
+  //   - 9 EMA reclaim (price closing above 9 EMA on LTF)
+  //   - RSI 40-65 (recovered from pullback, not overbought)
+  //   - OR: LTF SuperTrend just flipped bullish (fresh flip)
+  // Without confirmation, delay entry (keep in setup stage).
+  // ═══════════════════════════════════════════════════════════════════════════
+  const _pbLtfTech = d?.tf_tech?.[leadingLtf] || d?.tf_tech?.["15"] || {};
+  const _pb15Tech = d?.tf_tech?.["15"] || {};
+  const _pbRsi = Number(_pbLtfTech?.rsi?.r5 ?? _pb15Tech?.rsi?.r5 ?? 50);
+  const _pbEma9 = _pbLtfTech?.ema?.ema9 || _pb15Tech?.ema?.ema9 || 0;
+  const _pbEma21 = _pbLtfTech?.ema?.ema21 || _pb15Tech?.ema?.ema21 || 0;
+  const _pbPrice = Number(d?.price) || 0;
+  const _pbStDir = _pbLtfTech?.stDir ?? _pb15Tech?.stDir ?? 0;
+  const _pbStFlipBull = _pbStDir === -1;
+  const _pbStFlipBear = _pbStDir === 1;
+
+  const _pb9EmaDist = _pbEma9 > 0 ? Math.abs((_pbPrice - _pbEma9) / _pbEma9) : 1;
+  const _pbEmaReclaim = inferredSide === "LONG"
+    ? (_pbEma9 > 0 && _pbPrice > _pbEma9 && _pb9EmaDist <= 0.015)
+    : (_pbEma9 > 0 && _pbPrice < _pbEma9 && _pb9EmaDist <= 0.015);
+  const _pbRsiRecovery = inferredSide === "LONG"
+    ? (_pbRsi >= 40 && _pbRsi <= 65)
+    : (_pbRsi >= 35 && _pbRsi <= 60);
+  const _pb21EmaDist = _pbEma21 > 0 ? Math.abs((_pbPrice - _pbEma21) / _pbEma21) : 1;
+  const _pbNearEma21 = _pb21EmaDist <= 0.01;
+  const _pbStConfirm = inferredSide === "LONG" ? _pbStFlipBull : _pbStFlipBear;
+
+  const _pullbackConfirmed = (_pbEmaReclaim && _pbRsiRecovery)
+    || _pbNearEma21
+    || (_pbStConfirm && _pbEmaReclaim)
+    || (_pbStConfirm && _pbRsi >= 38 && _pbRsi <= 58);
+
+  d.__pullback_confirmed = _pullbackConfirmed;
+  d.__pullback_details = { emaReclaim: _pbEmaReclaim, rsiRecovery: _pbRsiRecovery, stConfirm: _pbStConfirm, nearEma21: _pbNearEma21, rsi: _pbRsi, ema9DistPct: +(_pb9EmaDist * 100).toFixed(2) };
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // 21 EMA PROXIMITY GATE (Phase 5 — FVG Imbalance + 21 EMA)
+  // Data: 100% WR within 1% of 21 EMA; 0% WR >6% above 21 EMA.
+  // Gate adjusts position sizing and blocks overextended entries.
+  // ═══════════════════════════════════════════════════════════════════════════
+  const _fvgImbalance = d?.fvg_imbalance_D || {};
+  const _ema21DistPct = Number(_fvgImbalance.ema21_dist_pct) || 0;
+  const _absEma21Dist = Math.abs(_ema21DistPct);
+  const _imbalanceDir = _fvgImbalance.imbalance_direction || "NEUTRAL";
+
+  d.__ema21_dist_pct = _ema21DistPct;
+  d.__fvg_imbalance = _fvgImbalance;
+
+  if (inferredSide === "LONG" && _ema21DistPct > 5) {
+    return { qualifies: false, reason: "ema21_overextended_long", ema21_dist_pct: _ema21DistPct, imbalance: _imbalanceDir };
+  }
+  if (inferredSide === "SHORT" && _ema21DistPct < -5) {
+    return { qualifies: false, reason: "ema21_overextended_short", ema21_dist_pct: _ema21DistPct, imbalance: _imbalanceDir };
+  }
+
+  if (_absEma21Dist <= 1) {
+    d.__ema21_size_mult = 1.0;
+  } else if (_absEma21Dist <= 3) {
+    d.__ema21_size_mult = 1.0;
+  } else if (_absEma21Dist <= 5) {
+    d.__ema21_size_mult = 0.6;
+    if (score < 80) {
+      return { qualifies: false, reason: "ema21_extended_low_rank", ema21_dist_pct: _ema21DistPct, rank: score };
+    }
+  }
+
+  // Ticker behavior profile gate: enforce profile-specific min rank
+  const _sym = String(d?.sym || d?.ticker || "").toUpperCase();
+  const _tickerProfile = getTickerProfile(_sym);
+  d.__ticker_profile = _tickerProfile;
+  if (_tickerProfile.min_rank > 0 && score < _tickerProfile.min_rank) {
+    return { qualifies: false, reason: "ticker_profile_rank_gate", rank: score, required: _tickerProfile.min_rank, profile: _tickerProfile.profileKey };
   }
 
   // Elliott Wave context (soft annotation, not a gate).
@@ -3728,7 +4555,7 @@ function qualifiesForEnter(d, asOfTs = null) {
   // Tighten momentum: require RR >= 3.0 (RR 3-5 had 66.2% WR) and higher score
   const isMomentumBull = state === "HTF_BULL_LTF_BULL";
   const isMomentumBear = state === "HTF_BEAR_LTF_BEAR";
-  if (isMomentumBull && score >= 85 && rr >= 3.0 && (hasStFlipBull || hasEmaCrossBull || hasSqRelease)) {
+  if (isMomentumBull && score >= 70 && rr >= 2.0 && (hasStFlipBull || hasEmaCrossBull || hasSqRelease)) {
     return enrichResult({ qualifies: true, path: "momentum_score", confidence: "medium", reason: "momentum_with_signal" });
   }
   if (isMomentumBear && score >= 70 && rr >= 2.0 && (flags.st_flip_bear || hasEmaCrossBear || hasSqRelease)) {
@@ -3939,6 +4766,9 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
     const positionAgeMarketMin = (entryTs > 0) ? computeMarketHoursMinutes(entryTsMs, now > 1e12 ? now : now) : positionAgeMin;
     const leadingLtf = resolveLeadingLtf(tickerData);
     const leadTfTech = tickerData?.tf_tech?.[leadingLtf] || tickerData?.tf_tech?.["10"] || {};
+    const mgmtTfTech = tickerData?.tf_tech?.["30"] || tickerData?.tf_tech?.["15"] || leadTfTech;
+    const mgmt1HTfTech = tickerData?.tf_tech?.["1H"] || tickerData?.tf_tech?.["60"] || {};
+    const _tickerProfileMgmt = getTickerProfile(String(tickerData?.ticker || "").toUpperCase());
     const currentTrimPct = clamp(Number(openPosition?.trimmedPct ?? openPosition?.trimmed_pct ?? 0), 0, 1);
     
     // Calculate P&L
@@ -3949,11 +4779,14 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
         : ((entryPrice - currentPrice) / entryPrice) * 100;
     }
     
-    // Get RSI and Phase from ticker data for extreme detection
+    // Management uses 30m+1H (not the entry LTF) to avoid LTF noise
     const rsi5_10m = Number(leadTfTech?.rsi?.r5) || 50;
-    const rsi5_30m = Number(tickerData?.tf_tech?.["30"]?.rsi?.r5) || 50;
+    const rsi5_30m = Number(mgmtTfTech?.rsi?.r5) || 50;
+    const rsi5_1h = Number(mgmt1HTfTech?.rsi?.r5) || 50;
     const phase_10m = Number(leadTfTech?.ph?.v) || 0;
-    const phase_30m = Number(tickerData?.tf_tech?.["30"]?.ph?.v) || 0;
+    const phase_30m = Number(mgmtTfTech?.ph?.v) || 0;
+    const mgmtStDir = mgmtTfTech?.stDir ?? 0;
+    const mgmt1HStDir = mgmt1HTfTech?.stDir ?? 0;
     
     // ─────────────────────────────────────────────────────────────────────────
     // SMC / PDZ CONTEXT: Where is price in the swing range?
@@ -3989,6 +4822,191 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
     const _regimeConfirms = (direction === "LONG" && _regimeForExit >= 1) || (direction === "SHORT" && _regimeForExit <= -1);
     const _daMinHoldRegimeH = Number(tickerData?._env?._deepAuditConfig?.deep_audit_min_hold_regime_exit_hours) || 0;
     const _regimeExitMinAge = positionAgeMin >= Math.max(240, _daMinHoldRegimeH * 60);
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // RIPSTER-CORE CLOUD MANAGEMENT EXITS (feature-flagged)
+    // Cloud-based exit signals with debounce to avoid premature exits on noise.
+    // ─────────────────────────────────────────────────────────────────────────
+    const managementEngine = resolveEngineMode(tickerData?._env?._managementEngine);
+    const ripsterTuneV2 = parseBoolFlag(tickerData?._env?._ripsterTuneV2, false);
+    if (managementEngine === "ripster_core") {
+      const _tfTechRow = (td, key) => td?.tf_tech?.[key] || null;
+      const rt10 = _tfTechRow(tickerData, "10")?.ripster;
+      const rt30 = _tfTechRow(tickerData, "30")?.ripster;
+      const rt1H = _tfTechRow(tickerData, "1H")?.ripster;
+      const c5_12_10 = rt10?.c5_12;
+      const c34_50_10 = rt10?.c34_50;
+      const c72_89_10 = rt10?.c72_89;
+      const c180_200_10 = rt10?.c180_200;
+      const c34_50_1H = rt1H?.c34_50;
+      const c180_200_1H = rt1H?.c180_200;
+      const ema10 = _tfTechRow(tickerData, "10")?.ema || {};
+      const ema30 = _tfTechRow(tickerData, "30")?.ema || {};
+      const ema1H = _tfTechRow(tickerData, "1H")?.ema || {};
+      const above10m21 = Number.isFinite(ema10?.e21) ? currentPrice >= Number(ema10.e21) : true;
+      const below10m21 = Number.isFinite(ema10?.e21) ? currentPrice <= Number(ema10.e21) : true;
+      const above30m21 = Number.isFinite(ema30?.e21) ? currentPrice >= Number(ema30.e21) : true;
+      const below30m21 = Number.isFinite(ema30?.e21) ? currentPrice <= Number(ema30.e21) : true;
+      const above1h48 = Number.isFinite(ema1H?.e48) ? currentPrice >= Number(ema1H.e48) : true;
+      const below1h48 = Number.isFinite(ema1H?.e48) ? currentPrice <= Number(ema1H.e48) : true;
+      const lost72_89 = direction === "LONG"
+        ? !!(c72_89_10?.bear || c72_89_10?.below)
+        : !!(c72_89_10?.bull || c72_89_10?.above);
+      const farFrom180_200 = Number(c180_200_10?.distToCloudPct) >= 0.01 || Number(c180_200_1H?.distToCloudPct) >= 0.01;
+      const cloudCompression = Number(c72_89_10?.spreadPct) <= 0.003 && Number(c180_200_10?.spreadPct) <= 0.0035;
+      const holdPivotLong = above10m21 && above30m21 && above1h48;
+      const holdPivotShort = below10m21 && below30m21 && below1h48;
+      const _baseDebounceBars = ripsterTuneV2 ? Math.max(1, Number(tickerData?._env?._ripsterExitDebounceBars) || 2) : 1;
+      const exitDebounceBars = _inExtendedZone
+        ? Math.max(1, _baseDebounceBars - 1)  // tighter in opposing zone
+        : _inFavorableZone
+          ? _baseDebounceBars + 1              // more room in favorable zone
+          : _baseDebounceBars;
+
+      // ── PDZ-aware 30m 9 EMA trailing stop ──
+      const ema30_9 = Number(ema30?.e9);
+      const _30m9EmaTrailBreach = direction === "LONG"
+        ? (Number.isFinite(ema30_9) && currentPrice < ema30_9)
+        : (Number.isFinite(ema30_9) && currentPrice > ema30_9);
+
+      // ── MFE-based trim trigger: when MFE > 2%, be ready to protect ──
+      const _mfeHighWaterPct = Number(openPosition?.maxFavorableExcursion ?? openPosition?.mfePct) || 0;
+      const _mfeTrimReady = _mfeHighWaterPct >= 2.0;
+
+      // ── 72-89 1H cloud structural trailing stop ──
+      const c72_89_1H = rt1H?.c72_89;
+      const _lost72_89_1H = direction === "LONG"
+        ? !!(c72_89_1H?.bear || c72_89_1H?.below)
+        : !!(c72_89_1H?.bull || c72_89_1H?.above);
+
+      // ── PDZ-aware min-green window: reduce from default when in target zone ──
+      const _pdzMinGreenMin = (_inExtendedZone && positionAgeMin >= 360) ? 360 : 720;
+
+      const ripsterLose5_12 = direction === "LONG"
+        ? !!(c5_12_10?.crossDn || (c5_12_10?.bear && c5_12_10?.below))
+        : !!(c5_12_10?.crossUp || (c5_12_10?.bull && c5_12_10?.above));
+
+      const ripsterLose34_50 = direction === "LONG"
+        ? !!((c34_50_10?.bear || c34_50_10?.below) && (c34_50_1H?.bear || c34_50_1H?.below))
+        : !!((c34_50_10?.bull || c34_50_10?.above) && (c34_50_1H?.bull || c34_50_1H?.above));
+
+      const prevPending5 = Math.max(
+        Number(openPosition?.ripster_pending_5_12) || 0,
+        Number(tickerData?.__ripster_pending_5_12) || 0,
+      );
+      const prevPending34 = Math.max(
+        Number(openPosition?.ripster_pending_34_50) || 0,
+        Number(tickerData?.__ripster_pending_34_50) || 0,
+      );
+      const pending5 = ripsterLose5_12 ? prevPending5 + 1 : 0;
+      const pending34 = ripsterLose34_50 ? prevPending34 + 1 : 0;
+      openPosition.ripster_pending_5_12 = pending5;
+      openPosition.ripster_pending_34_50 = pending34;
+      tickerData.__ripster_pending_5_12 = pending5;
+      tickerData.__ripster_pending_34_50 = pending34;
+      if (openPosition?.__tradeRef && typeof openPosition.__tradeRef === "object") {
+        openPosition.__tradeRef.ripster_pending_5_12 = pending5;
+        openPosition.__tradeRef.ripster_pending_34_50 = pending34;
+      }
+
+      if (positionAgeMin >= 30 && ripsterLose5_12) {
+        if (ripsterTuneV2 && pending5 < exitDebounceBars) {
+          tickerData.__exit_reason = "ripster_5_12_pending";
+          tickerData.__exit_family = "ripster_cloud";
+          return "defend";
+        }
+        if (ripsterTuneV2) {
+          const trimmedPct = Number(openPosition?.trimmedPct ?? openPosition?.trimmed_pct) || 0;
+          if (pnlPct > 0.4 && trimmedPct < 0.33) {
+            tickerData.__exit_reason = "ripster_5_12_defend_trim";
+            tickerData.__exit_family = "ripster_cloud";
+            return "trim";
+          }
+          tickerData.__exit_reason = "ripster_5_12_lost_confirmed";
+          tickerData.__exit_family = "ripster_cloud";
+          return "defend";
+        }
+        tickerData.__exit_reason = "ripster_5_12_lost";
+        tickerData.__exit_family = "ripster_cloud";
+        return "exit";
+      }
+      if (positionAgeMin >= 60 && ripsterLose34_50) {
+        if (ripsterTuneV2 && pending34 < Math.max(2, exitDebounceBars)) {
+          tickerData.__exit_reason = "ripster_34_50_pending";
+          tickerData.__exit_family = "ripster_cloud";
+          return "defend";
+        }
+        if (ripsterTuneV2) {
+          const trimmedPct = Number(openPosition?.trimmedPct ?? openPosition?.trimmed_pct) || 0;
+          if (direction === "LONG" && (holdPivotLong || (lost72_89 && farFrom180_200) || cloudCompression)) {
+            if (pnlPct > 0.5 && trimmedPct < 0.33) {
+              tickerData.__exit_reason = "ripster_34_50_trim_then_hold";
+              tickerData.__exit_family = "ripster_cloud";
+              return "trim";
+            }
+            tickerData.__exit_reason = "ripster_34_50_defer_to_72_89";
+            tickerData.__exit_family = "ripster_cloud";
+            return "defend";
+          }
+          if (direction === "SHORT" && holdPivotShort) {
+            tickerData.__exit_reason = "ripster_34_50_short_pivot_hold";
+            tickerData.__exit_family = "ripster_cloud";
+            return "defend";
+          }
+        }
+        tickerData.__exit_reason = "ripster_34_50_lost_mtf";
+        tickerData.__exit_family = "ripster_cloud";
+        return "exit";
+      }
+      if (ripsterTuneV2 && direction === "SHORT" && positionAgeMin >= 20) {
+        const shortReclaimedPivot = !holdPivotShort && (c5_12_10?.bull || c5_12_10?.above || c34_50_10?.bull || c34_50_10?.above || rt30?.c5_12?.bull);
+        if (shortReclaimedPivot) {
+          tickerData.__exit_reason = "ripster_short_pivot_reclaimed";
+          tickerData.__exit_family = "ripster_cloud";
+          return "exit";
+        }
+      }
+
+      // ── PDZ-ENHANCED EXIT SIGNALS ──
+
+      // 1H 72-89 structural trailing stop: price closed below 72 EMA on 1H = meaningful break
+      if (ripsterTuneV2 && _lost72_89_1H && positionAgeMin >= _pdzMinGreenMin && pnlPct > 0) {
+        const trimmedPct = Number(openPosition?.trimmedPct ?? openPosition?.trimmed_pct) || 0;
+        if (trimmedPct < 0.5 && _mfeTrimReady) {
+          tickerData.__exit_reason = "ripster_72_89_1h_trim";
+          tickerData.__exit_family = "ripster_pdz";
+          return "trim";
+        }
+        tickerData.__exit_reason = "ripster_72_89_1h_structural_break";
+        tickerData.__exit_family = "ripster_pdz";
+        return "exit";
+      }
+
+      // 30m 9 EMA trailing stop when in extended zone and profitable
+      if (ripsterTuneV2 && _inExtendedZone && _30m9EmaTrailBreach && positionAgeMin >= 120 && pnlPct > 0.3) {
+        const trimmedPct = Number(openPosition?.trimmedPct ?? openPosition?.trimmed_pct) || 0;
+        if (trimmedPct < 0.5 && _mfeTrimReady) {
+          tickerData.__exit_reason = "ripster_30m_9ema_trail_trim";
+          tickerData.__exit_family = "ripster_pdz";
+          return "trim";
+        }
+        if (_mfeHighWaterPct >= 3.0) {
+          tickerData.__exit_reason = "ripster_30m_9ema_trail_exit";
+          tickerData.__exit_family = "ripster_pdz";
+          return "exit";
+        }
+      }
+
+      // MFE > 2% trim trigger: when profitable and in target zone, start protecting
+      if (ripsterTuneV2 && _inExtendedZone && _mfeTrimReady && positionAgeMin >= _pdzMinGreenMin) {
+        const trimmedPct = Number(openPosition?.trimmedPct ?? openPosition?.trimmed_pct) || 0;
+        if (trimmedPct < 0.33 && pnlPct > 0.5) {
+          tickerData.__exit_reason = "ripster_pdz_mfe_trim";
+          tickerData.__exit_family = "ripster_pdz";
+          return "trim";
+        }
+      }
+    }
 
     // ─────────────────────────────────────────────────────────────────────────
     // HIGHEST PRIORITY: EMA REGIME EXIT
@@ -4057,29 +5075,68 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
 
     // Hard exit: capital protection
     // PDZ-aware: wider tolerance in favorable zone with regime, tighter when extended
-    // Deep Audit override: if configured, use tighter thresholds
     const _daMaxLoss = tickerData?._env?._deepAuditConfig?.deep_audit_max_loss_pct;
     const maxLossPct = _daMaxLoss
-      ? ((_inFavorableZone && _regimeConfirms) ? Number(_daMaxLoss.pdz || -5) : _inExtendedZone ? Number(_daMaxLoss.normal || -2) : Number(_daMaxLoss.normal || -2) - 1)
-      : ((_inFavorableZone && _regimeConfirms) ? -8 : _inExtendedZone ? -3 : -4);
+      ? ((_inFavorableZone && _regimeConfirms) ? Number(_daMaxLoss.pdz || -3) : Number(_daMaxLoss.normal || -2))
+      : ((_inFavorableZone && _regimeConfirms) ? -5 : -3);
     if (pnlPct <= maxLossPct) {
       tickerData.__exit_reason = "max_loss";
       return "exit";
     }
 
-    // v3: Time-based exit for losers in chop
-    // If a position is losing money and the ticker's regime is choppy,
-    // don't wait for full SL hit — cut early. The longer you hold a loser
-    // in chop, the more it bleeds (mean-reverting environment).
+    // DOA early exit: ticker-profile-aware threshold (default 4h market hours, MFE < 0.3%)
+    // OVERRIDE: If 30m OR 1H SuperTrend still supports the trade direction, structure is
+    // intact — the trade is consolidating, not dead. Skip DOA and let management exits handle it.
+    const _mfePctDoa = Number(openPosition?.maxFavorableExcursion || 0);
+    const _doaThresholdH = _tickerProfileMgmt.doa_hours || 6;
+    const _doaMfeFloor = 0.3;
+    const _mgmt30mStSupports = (direction === "LONG" && (mgmtTfTech?.stDir ?? 0) === -1)
+      || (direction === "SHORT" && (mgmtTfTech?.stDir ?? 0) === 1);
+    const _mgmt1hStSupports = (direction === "LONG" && (mgmt1HTfTech?.stDir ?? 0) === -1)
+      || (direction === "SHORT" && (mgmt1HTfTech?.stDir ?? 0) === 1);
+    const _doaStructureIntact = _mgmt30mStSupports || _mgmt1hStSupports;
+    if (pnlPct < 0 && positionAgeMarketMin >= _doaThresholdH * 60 && _mfePctDoa < _doaMfeFloor && !_doaStructureIntact) {
+      tickerData.__exit_reason = "doa_early_exit";
+      return "exit";
+    }
+
+    // Hard max hold: 3 weeks (504h calendar) or ticker-profile max — catastrophic hold prevention
+    const _profileMaxHoldH = _tickerProfileMgmt.max_hold_hours || 504;
+    const _positionAgeCalendarH = positionAgeMin / 60;
+    if (_positionAgeCalendarH >= _profileMaxHoldH) {
+      tickerData.__exit_reason = `hard_max_hold_${_profileMaxHoldH}h`;
+      return "exit";
+    }
+
+    // 4H regime-reversal timeout: if 4H has been misaligned for 2+ weeks in a trend, tighten exits
+    const _st4HDir = tickerData?.tf_tech?.["4H"]?.stDir ?? 0;
+    const _4hMisaligned = (direction === "LONG" && _st4HDir === 1) || (direction === "SHORT" && _st4HDir === -1);
+    if (_4hMisaligned && _positionAgeCalendarH > 336 && pnlPct < 0) {
+      tickerData.__exit_reason = "4h_regime_misaligned_timeout";
+      return "exit";
+    }
+
+    // Per-ticker max loss for catastrophic profiles
+    if (_tickerProfileMgmt.max_loss_usd && Number.isFinite(entryPrice) && entryPrice > 0) {
+      const _shares = Number(openPosition?.qty || openPosition?.shares) || 0;
+      const _notional = _shares * entryPrice;
+      const _pnlUsd = _notional * (pnlPct / 100);
+      if (_pnlUsd < -_tickerProfileMgmt.max_loss_usd) {
+        tickerData.__exit_reason = "ticker_profile_max_loss";
+        return "exit";
+      }
+    }
+
+    // Time-based exit for losers in chop
     const tradeRegime = String(tickerData?.regime_class || "TRANSITIONAL");
-    const maxHoldDaysLosing = tradeRegime === "CHOPPY" ? 7
-      : tradeRegime === "TRANSITIONAL" ? 12 : 20;
+    const maxHoldDaysLosing = tradeRegime === "CHOPPY" ? 5
+      : tradeRegime === "TRANSITIONAL" ? 8 : 15;
     const positionAgeMarketDays = positionAgeMarketMin / (60 * 6.5);
     if (pnlPct < 0 && positionAgeMarketDays >= maxHoldDaysLosing) {
       tickerData.__exit_reason = `time_exit_loser_${tradeRegime.toLowerCase()}`;
       return "exit";
     }
-    if (tradeRegime === "CHOPPY" && pnlPct < -2 && positionAgeMarketDays >= maxHoldDaysLosing / 2) {
+    if (tradeRegime === "CHOPPY" && pnlPct < -1.5 && positionAgeMarketDays >= maxHoldDaysLosing / 2) {
       tickerData.__exit_reason = "time_exit_chop_accelerated";
       return "exit";
     }
@@ -4089,6 +5146,17 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
     // DA: Minimum hold time before management exits (SL/max_loss still fire above)
     const _daMinHoldMgmt = Number(tickerData?._env?._deepAuditConfig?.deep_audit_min_hold_before_mgmt_exit_min) || 0;
     if (_daMinHoldMgmt > 0 && positionAgeMin < _daMinHoldMgmt && pnlPct > -3) {
+      return "hold";
+    }
+
+    // Min-green window: once MFE > 0.5%, don't allow management exits for 6-12 market hours
+    // HTF OVERRIDE: When 4H+Daily confirm direction, extend to 12h to let trending trades develop
+    const _mgSt4H = tickerData?.tf_tech?.["4H"]?.stDir ?? 0;
+    const _mgStD = tickerData?.tf_tech?.D?.stDir ?? 0;
+    const _mgHtfAligned = (direction === "LONG" && _mgSt4H === -1 && _mgStD === -1)
+      || (direction === "SHORT" && _mgSt4H === 1 && _mgStD === 1);
+    const _minGreenWindowH = _mgHtfAligned ? 12 : 6;
+    if (_mfePctDoa >= 0.5 && pnlPct > 0 && positionAgeMarketMin < _minGreenWindowH * 60) {
       return "hold";
     }
 
@@ -4346,10 +5414,11 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
   // ═══════════════════════════════════════════════════════════════════════════
   // DISCOVERY MODE: No position, evaluate entry opportunity
   // Lane semantics:
-  //   SETUP  = qualifiesForEnter passes (good signal, confirmation, room to run)
-  //            BUT execution gates may block (position limits, RTH, cooldowns).
-  //   ENTER  = qualifiesForEnter passes AND execution gates are clear.
-  //            The system WILL enter on the next scoring cycle.
+  //   SETUP     = building toward a trade (corridor + pullback, patterns forming)
+  //   IN_REVIEW = qualifiesForEnter passes; CIO is evaluating (or will evaluate
+  //              in processTradeSimulation). NOT a green light for users.
+  //   → After CIO approves + trade placed → "just_entered" (Position Initiated)
+  //   → After CIO rejects → rolled back to "setup" with __cio_blocked reason
   // ═══════════════════════════════════════════════════════════════════════════
   
   // Check entry qualification using consolidated criteria
@@ -4362,11 +5431,13 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
     _rbe._total = (_rbe._total || 0) + 1;
   }
   if (entry.qualifies) {
-    // Store entry context for UI display
     tickerData.__entry_path = entry.path;
     tickerData.__entry_confidence = entry.confidence;
     tickerData.__entry_reason = entry.reason;
     tickerData.__entry_quality = entry.entryQuality || 0;
+    if (entry.engineSource) tickerData.__engine_source = entry.engineSource;
+    if (entry.selectedEngine) tickerData.__selected_engine = entry.selectedEngine;
+    if (entry.timeToTarget) tickerData.__timeToTarget = entry.timeToTarget;
     if (entry.liqSweepFlag) tickerData.__liq_sweep_flag = entry.liqSweepFlag;
     // PATTERN BOOST: Upgrade entry confidence when patterns strongly match
     const pm = tickerData?.pattern_match;
@@ -4380,10 +5451,9 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
     // ── Execution readiness (informational only) ──
     // Execution gates (RTH, position limits, concentration) are tracked on the
     // payload as __execution_ready / __execution_block_reason for the UI to
-    // display warnings, but they no longer DOWNGRADE "enter" → "setup".
-    // The Enter lane shows all qualifying entry OPPORTUNITIES.  The execution
-    // engine (processTradeSimulation) enforces the actual gates at trade time.
-    return "enter";
+    // display warnings.  The "In Review" lane shows tickers the system is
+    // evaluating; CIO approval in processTradeSimulation promotes to trade.
+    return "in_review";
   }
   
   // Check if in SETUP zone (corridor + pullback state)
@@ -4447,8 +5517,8 @@ function deriveKanbanMeta(tickerData, stage) {
   const severity = String(ms?.severity || "").toUpperCase();
   const reasons = Array.isArray(ms?.reasons) ? ms.reasons : [];
 
-  // ENTER stage: show entry path and confidence
-  if (stage === "enter" || stage === "enter_now") {
+  // IN_REVIEW / ENTER stage: show entry path and confidence
+  if (stage === "in_review" || stage === "enter" || stage === "enter_now") {
     const path = tickerData?.__entry_path || "unknown";
     const confidence = tickerData?.__entry_confidence || "medium";
     const reason = tickerData?.__entry_reason || "criteria_met";
@@ -6284,12 +7354,20 @@ const SETUP_NAME_MAP = {
   ema_regime_early_short:     "TT Early Short",
   gold_long:                  "TT Breakout Long",
   gold_short:                 "TT Reversal Short",
+  ripster_momentum:           "TT Momentum",
+  ripster_pullback:           "TT Pullback",
+  ripster_reclaim:            "TT Reclaim",
+  mean_reversion_pdz:         "TT Mean Reversion",
+  momentum_score:             "TT Momentum",
+  squeeze_setup:              "TT Squeeze",
+  elite:                      "TT Elite",
+  breakout:                   "TT Breakout",
 };
 
 function formatSetupName(entryPath) {
   if (!entryPath) return "TT Setup";
   if (SETUP_NAME_MAP[entryPath]) return SETUP_NAME_MAP[entryPath];
-  return "TT " + String(entryPath).replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+  return "TT " + String(entryPath).replace(/^ripster_?/i, "").replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
 }
 
 // ── Risk-Based Position Sizing ────────────────────────────────────────
@@ -9086,6 +10164,47 @@ function analyzeWinningPatterns(tradeHistory, currentTickers) {
   };
 }
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// AI CIO — Delegates to worker/cio/ modules (Phase 5 extraction)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+const AI_CIO_TIMEOUT_MS = 15000;
+const AI_CIO_MODEL = _CIO_MODEL;
+
+
+function buildCIOProposal(sym, direction, entryPx, finalSL, validTP, tickerData, sizingMeta, confidence, setupGrade, setupName, calculatedRR) {
+  return _cioBuildProposal(sym, direction, entryPx, finalSL, validTP, tickerData, sizingMeta, confidence, setupGrade, setupName, calculatedRR, getTickerProfile);
+}
+
+function generateCIOChartSVG(ticker, candleCache, entryAnnotation = null) {
+  return _cioGenerateChartSVG(ticker, candleCache, entryAnnotation);
+}
+
+
+function svgToBase64DataUri(svgString) {
+  return _cioSvgToBase64(svgString);
+}
+
+async function evaluateWithAICIO(env, proposal, memory, chartSvg = null) {
+  return _cioEvaluateEntry(env, proposal, memory, chartSvg);
+}
+
+// CIO Memory → worker/cio/cio-memory.js
+
+function buildCIOMemory(sym, direction, tickerData, allTrades, memoryCache) {
+  return _cioBuildMemory(sym, direction, tickerData, allTrades, memoryCache);
+}
+
+
+// CIO Lifecycle → worker/cio/cio-service.js
+function buildCIOLifecycleProposal(action, sym, openTrade, tickerData, pxNow) {
+  return _cioBuildLifecycleProposal(action, sym, openTrade, tickerData, pxNow, getTickerProfile);
+}
+
+async function evaluateCIOLifecycle(env, proposal, memory, chartSvg = null) {
+  return _cioEvaluateLifecycle(env, proposal, memory, chartSvg);
+}
+
 // Process trade simulation for a ticker (called on ingest)
 // options.replayBatchContext: { allTrades } - use pre-loaded trades, skip KV reads/writes for trades+exec (replay perf)
 async function processTradeSimulation(
@@ -9098,7 +10217,7 @@ async function processTradeSimulation(
 ) {
   const sym = String(ticker || "").toUpperCase();
   const _stage = String(tickerData?.kanban_stage || "");
-  const _isEnter = _stage === "enter" || _stage === "enter_now";
+  const _isEnter = _stage === "in_review" || _stage === "enter" || _stage === "enter_now";
   if (options?.replayBatchContext?.processDebug && _isEnter && options.replayBatchContext.processDebug.length < 2) {
     options.replayBatchContext.processDebug.push({ sym, at: "entry", stage: _stage, hasEntryPath: !!tickerData?.__entry_path });
   }
@@ -9372,13 +10491,13 @@ async function processTradeSimulation(
     // window where a ticker first enters ENTER. If the ticker remains in ENTER and there
     // is still no open trade, we should re-attempt entry on subsequent ingests (cooldown + cycle guard
     // prevent churn / duplicate entries).
-    // Support both new "enter" stage and legacy "enter_now" stage
-    const isEnter = stage === "enter" || stage === "enter_now";
+    // Support new "in_review" stage + legacy "enter" / "enter_now"
+    const isEnter = stage === "in_review" || stage === "enter" || stage === "enter_now";
     if (isReplay && isEnter && replayCtx?.processDebug && replayCtx.processDebug.length < 4) {
       replayCtx.processDebug.push({ sym, at: "isEnter", stage, storedStage });
     }
     // DEBUG: Log stage computation
-    if (isReplay && (stage === "enter" || stage === "enter_now")) {
+    if (isReplay && (stage === "in_review" || stage === "enter" || stage === "enter_now")) {
       console.log(`[REPLAY_ENTER_CHECK] ${sym} stage=${stage} storedStage=${storedStage} recomputedStage=${recomputedStage} isEnter=${isEnter} entryPath=${tickerData?.__entry_path}`);
     }
     // IMPORTANT:
@@ -9418,21 +10537,37 @@ async function processTradeSimulation(
     const _daLossCooldownH = Number(env?._deepAuditConfig?.deep_audit_loss_cooldown_hours) || 0;
 
     let ENTER_COOLDOWN_MS = BASE_ENTER_COOLDOWN_MS;
+    const _recentClosedOnTicker = allTrades
+      .filter(t => String(t?.ticker || "").toUpperCase() === sym && (t?.status === "LOSS" || t?.status === "WIN" || t?.status === "FLAT"))
+      .sort((a, b) => {
+        const ats = Number(a?.exit_ts) || Number(a?.entry_ts) || 0;
+        const bts = Number(b?.exit_ts) || Number(b?.entry_ts) || 0;
+        return bts - ats;
+      });
     if (_daLossCooldownH > 0) {
-      const lastClosedOnTicker = allTrades
-        .filter(t => String(t?.ticker || "").toUpperCase() === sym && (t?.status === "LOSS" || t?.status === "WIN" || t?.status === "FLAT"))
-        .sort((a, b) => {
-          const ats = Number(a?.exit_ts) || Number(a?.entry_ts) || 0;
-          const bts = Number(b?.exit_ts) || Number(b?.entry_ts) || 0;
-          return bts - ats;
-        })[0];
+      const lastClosedOnTicker = _recentClosedOnTicker[0];
       if (lastClosedOnTicker?.status === "LOSS") {
         ENTER_COOLDOWN_MS = Math.max(BASE_ENTER_COOLDOWN_MS, _daLossCooldownH * 60 * 60 * 1000);
       }
     }
 
+    // Consecutive max_loss cooldown: block re-entry for 48h after 2+ consecutive max_loss exits
+    const CONSECUTIVE_ML_COOLDOWN_MS = 48 * 60 * 60 * 1000;
+    let _consecutiveMlBlock = false;
+    if (_recentClosedOnTicker.length >= 2) {
+      const last2 = _recentClosedOnTicker.slice(0, 2);
+      const bothMaxLoss = last2.every(t => String(t?.exit_reason || t?.exitReason || "").includes("max_loss"));
+      if (bothMaxLoss) {
+        const lastExitTs = Number(last2[0]?.exit_ts) || 0;
+        if (lastExitTs > 0 && (now - lastExitTs) < CONSECUTIVE_ML_COOLDOWN_MS) {
+          _consecutiveMlBlock = true;
+          console.log(`[COOLDOWN] ${sym} blocked: 2 consecutive max_loss exits, ${((now - lastExitTs)/3600000).toFixed(1)}h ago (need 48h)`);
+        }
+      }
+    }
+
     const enterCooldownOk =
-      !Number.isFinite(lastEnterMs) || now - lastEnterMs >= ENTER_COOLDOWN_MS;
+      !_consecutiveMlBlock && (!Number.isFinite(lastEnterMs) || now - lastEnterMs >= ENTER_COOLDOWN_MS);
     const trimCooldownOk =
       !Number.isFinite(lastTrimMs) || now - lastTrimMs >= 5 * 60 * 1000; // 5m
     // Require position to be open at least N minutes before allowing first/next trim
@@ -9665,6 +10800,22 @@ async function processTradeSimulation(
         }).catch(e => console.error("[LEDGER] EXIT insert failed:", e));
         d1UpdateDirectionOutcome(env, trade).catch(() => {});
         d1UpdateLearningOnClose(env, trade, tickerData).catch(e => console.warn("[LEARNING_LOOP] fire-and-forget failed:", String(e).slice(0, 100)));
+        // Backfill AI CIO decision with trade outcome for accuracy evaluation
+        const _cioTradeId = trade.id || trade.trade_id;
+        if (_cioTradeId) {
+          env.DB.prepare(
+            `UPDATE ai_cio_decisions SET trade_outcome = ?1, trade_pnl_pct = ?2 WHERE trade_id = ?3`
+          ).bind(trade.status, trade.pnlPct, _cioTradeId).run().catch(() => {});
+        }
+      }
+      // Replay: backfill in-memory CIO decision with outcome
+      if (isReplay && replayCtx?.cioMemoryCache?.cioDecisions) {
+        const _cioTid = trade.id || trade.trade_id;
+        const _match = replayCtx.cioMemoryCache.cioDecisions.find(d => d.trade_id === _cioTid);
+        if (_match) {
+          _match.trade_outcome = trade.status;
+          _match.pnl_pct = trade.pnlPct;
+        }
       }
 
       // Persist via execution adapter (D1 source of truth), then Discord
@@ -10792,15 +11943,89 @@ async function processTradeSimulation(
           }
         }
       }
-      // PER-TRADE HARD LOSS CAP: close if unrealized dollar loss exceeds cap.
-      // Requires minimum 30-minute hold to avoid false exits from signal price
-      // vs candle close misalignment (e.g., CAT entered $420 but candle close $401).
+      // ── BREAKEVEN STOP: Once MFE > threshold, trade must not close below entry ──
+      // Protects "gave-back" trades that went green then lost it all.
+      // HTF OVERRIDE: When 4H+Daily strongly confirm direction, raise threshold to 2%
+      // and add a 0.3% buffer below entry so normal pullbacks don't trigger it.
       if (!_sameIntervalAsTrade && !fuseExitFired && openTrade && isOpenTradeStatus(openTrade.status) && Number.isFinite(pxNow)) {
-        const _hlcCap = Number(tickerData?._env?._deepAuditConfig?.deep_audit_hard_loss_cap) || 300;
+        const _beMfePct = Number(openTrade.maxFavorableExcursion) || 0;
+        const _beDir = String(openTrade.direction || "").toUpperCase();
+        const _be4hSt = tickerData?.tf_tech?.["4H"]?.stDir ?? 0;
+        const _beDSt = tickerData?.tf_tech?.D?.stDir ?? 0;
+        const _be30mSt = tickerData?.tf_tech?.["30"]?.stDir ?? 0;
+        const _beHtfAligned = (_beDir === "LONG" && _be4hSt === -1 && _beDSt === -1)
+          || (_beDir === "SHORT" && _be4hSt === 1 && _beDSt === 1);
+        const _beMgmtAligned = (_beDir === "LONG" && _be30mSt === -1)
+          || (_beDir === "SHORT" && _be30mSt === 1);
+        let _beThreshold = Number(tickerData?._env?._deepAuditConfig?.deep_audit_breakeven_mfe_threshold) || 1.0;
+        let _beBuffer = 0;
+        if (_beHtfAligned) {
+          _beThreshold = Math.max(_beThreshold, 2.0);
+          _beBuffer = 0.3;
+        } else if (_beMgmtAligned) {
+          _beThreshold = Math.max(_beThreshold, 1.5);
+          _beBuffer = 0.15;
+        }
+        if (_beMfePct >= _beThreshold) {
+          const _beEntry = Number(openTrade.entryPrice);
+          if (Number.isFinite(_beEntry) && _beEntry > 0) {
+            const _bePnlPct = _beDir === "LONG"
+              ? ((pxNow - _beEntry) / _beEntry) * 100
+              : ((_beEntry - pxNow) / _beEntry) * 100;
+            if (_bePnlPct <= -_beBuffer) {
+              const _beReason = "BREAKEVEN_STOP";
+              console.log(`[BREAKEVEN_STOP] ${sym} MFE +${_beMfePct.toFixed(2)}% now ${_bePnlPct.toFixed(2)}% → close (thr=${_beThreshold}% buf=${_beBuffer}% htf=${_beHtfAligned})`);
+              tickerData.__exit_reason = _beReason;
+              await closeTradeAtPrice(openTrade, pxNow, _beReason);
+              const _beExec = { ...execState, lastExitMs: now };
+              if (isReplay && replayCtx?.execStates) replayCtx.execStates.set(sym, _beExec);
+              else if (!isReplay) await kvPutJSON(KV, execKey, _beExec);
+              fuseExitFired = true;
+            }
+          }
+        }
+      }
+      // ── PROFIT GIVEBACK PROTECTION: Exit when >60% of peak profit has been surrendered ──
+      // Targets trades that reach +2%+ MFE but give back most gains (JOBY +5.28% → -6.51%).
+      // HTF OVERRIDE: When 4H+Daily aligned, require 3%+ MFE and 70% giveback to trigger.
+      if (!_sameIntervalAsTrade && !fuseExitFired && openTrade && isOpenTradeStatus(openTrade.status) && Number.isFinite(pxNow)) {
+        const _gbMfePct = Number(openTrade.maxFavorableExcursion) || 0;
+        const _gbDir = String(openTrade.direction || "").toUpperCase();
+        const _gb4hSt = tickerData?.tf_tech?.["4H"]?.stDir ?? 0;
+        const _gbDSt = tickerData?.tf_tech?.D?.stDir ?? 0;
+        const _gbHtfAligned = (_gbDir === "LONG" && _gb4hSt === -1 && _gbDSt === -1)
+          || (_gbDir === "SHORT" && _gb4hSt === 1 && _gbDSt === 1);
+        const _gbMinMfe = _gbHtfAligned ? 3.0 : 2.0;
+        const _gbGivebackRatio = _gbHtfAligned ? 0.7 : 0.6;
+        if (_gbMfePct >= _gbMinMfe) {
+          const _gbEntry = Number(openTrade.entryPrice);
+          if (Number.isFinite(_gbEntry) && _gbEntry > 0) {
+            const _gbPnlPct = _gbDir === "LONG"
+              ? ((pxNow - _gbEntry) / _gbEntry) * 100
+              : ((_gbEntry - pxNow) / _gbEntry) * 100;
+            const _gbRetained = _gbPnlPct / _gbMfePct;
+            if (_gbRetained <= (1 - _gbGivebackRatio)) {
+              const _gbReason = "PROFIT_GIVEBACK";
+              console.log(`[PROFIT_GIVEBACK] ${sym} MFE +${_gbMfePct.toFixed(2)}% now ${_gbPnlPct.toFixed(2)}% (retained ${(_gbRetained*100).toFixed(0)}% htf=${_gbHtfAligned}) → closing`);
+              tickerData.__exit_reason = _gbReason;
+              await closeTradeAtPrice(openTrade, pxNow, _gbReason);
+              const _gbExec = { ...execState, lastExitMs: now };
+              if (isReplay && replayCtx?.execStates) replayCtx.execStates.set(sym, _gbExec);
+              else if (!isReplay) await kvPutJSON(KV, execKey, _gbExec);
+              fuseExitFired = true;
+            }
+          }
+        }
+      }
+      // ── PER-TRADE HARD LOSS CAP: percentage-based + dollar-based ──
+      // Percentage cap at -5% prevents catastrophic -8% avg on HLC trades.
+      if (!_sameIntervalAsTrade && !fuseExitFired && openTrade && isOpenTradeStatus(openTrade.status) && Number.isFinite(pxNow)) {
+        const _hlcCapDollar = Number(tickerData?._env?._deepAuditConfig?.deep_audit_hard_loss_cap) || 300;
+        const _hlcCapPct = Number(tickerData?._env?._deepAuditConfig?.deep_audit_hard_loss_cap_pct) || 5;
         const _hlcEntryTs = Number(openTrade.entry_ts || openTrade.created_at) || 0;
         const _hlcAgeMs = _hlcEntryTs > 0 ? (now - _hlcEntryTs) : 0;
         const _hlcMinHoldMs = 30 * 60 * 1000;
-        if (_hlcCap > 0 && _hlcAgeMs >= _hlcMinHoldMs) {
+        if (_hlcAgeMs >= _hlcMinHoldMs) {
           const _hlcEntry = Number(openTrade.entryPrice);
           const _hlcDir = String(openTrade.direction || "").toUpperCase();
           const _hlcSign = _hlcDir === "LONG" ? 1 : -1;
@@ -10808,9 +12033,11 @@ async function processTradeSimulation(
           const _hlcRemainingPct = 1 - clamp(Number(openTrade.trimmedPct || 0), 0, 1);
           const _hlcActiveShares = _hlcShares * _hlcRemainingPct;
           const _hlcPnl = (pxNow - _hlcEntry) * _hlcSign * _hlcActiveShares;
-          if (_hlcPnl <= -_hlcCap) {
+          const _hlcPnlPct = _hlcEntry > 0 ? ((pxNow - _hlcEntry) * _hlcSign / _hlcEntry) * 100 : 0;
+          const _hlcTriggered = (_hlcCapDollar > 0 && _hlcPnl <= -_hlcCapDollar) || (_hlcCapPct > 0 && _hlcPnlPct <= -_hlcCapPct);
+          if (_hlcTriggered) {
             const _hlcReason = "HARD_LOSS_CAP";
-            console.log(`[HARD_LOSS_CAP] ${sym} unrealized P&L $${_hlcPnl.toFixed(0)} breaches -$${_hlcCap} cap (${_hlcActiveShares.toFixed(1)} shares @ $${pxNow.toFixed(2)}) → closing`);
+            console.log(`[HARD_LOSS_CAP] ${sym} P&L $${_hlcPnl.toFixed(0)} / ${_hlcPnlPct.toFixed(1)}% breaches cap ($${_hlcCapDollar} / ${_hlcCapPct}%) → closing`);
             tickerData.__exit_reason = _hlcReason;
             await closeTradeAtPrice(openTrade, pxNow, _hlcReason);
             const _hlcExec = { ...execState, lastExitMs: now };
@@ -10859,12 +12086,57 @@ async function processTradeSimulation(
             const _sfcReason = "STALL_FORCE_CLOSE";
             const _sfcPnlPct = entryPx > 0 ? ((pxNow - entryPx) / entryPx * 100 * (isLong ? 1 : -1)) : 0;
             console.log(`[STALL_FORCE_CLOSE] ${sym} (${_sfcGrade || "unknown"}) untrimmed for ${_sfcHoldH.toFixed(0)}h (${_sfcPnlPct.toFixed(1)}% P&L) → force closing`);
-            tickerData.__exit_reason = _sfcReason;
-            await closeTradeAtPrice(openTrade, pxNow, _sfcReason);
-            const _sfcExec = { ...execState, lastExitMs: now };
-            if (isReplay && replayCtx?.execStates) replayCtx.execStates.set(sym, _sfcExec);
-            else if (!isReplay) await kvPutJSON(KV, execKey, _sfcExec);
-            fuseExitFired = true;
+            // ── AI CIO Lifecycle: evaluate stale exit ──
+            let _sfcCioHold = false;
+            const _sfcCioCooldownOk = (now - Number(execState._cioExitHoldMs || 0)) >= 30 * 60000;
+            const _sfcCioEnabled = _sfcCioCooldownOk &&
+              String(env?._deepAuditConfig?.ai_cio_enabled ?? "false") === "true" &&
+              (!isReplay || String(env?._deepAuditConfig?.ai_cio_replay_enabled ?? "false") === "true");
+            if (!_sfcCioCooldownOk) _sfcCioHold = true;
+            if (_sfcCioEnabled) {
+              try {
+                const _sfcCioStart = Date.now();
+                const _sfcProposal = buildCIOLifecycleProposal("EXIT", sym, openTrade, tickerData, pxNow);
+                _sfcProposal.exit_reason = _sfcReason;
+                _sfcProposal.exit_type = "SOFT";
+                _sfcProposal.stall_hours = +_sfcHoldH.toFixed(1);
+                _sfcProposal.stall_max_hours = _sfcMaxH;
+                const _sfcMemCache = isReplay ? replayCtx?.cioMemoryCache : (env?._cioMemoryCache || null);
+                const _sfcMem = buildCIOMemory(sym, String(openTrade?.direction || "LONG"), tickerData, allTrades, _sfcMemCache);
+                const _sfcCio = await evaluateCIOLifecycle(env, _sfcProposal, _sfcMem);
+                _sfcCio.latency_ms = Date.now() - _sfcCioStart;
+                console.log(`[AI_CIO_EXIT] ${sym} STALL ${_sfcCio.decision} (conf=${_sfcCio.confidence.toFixed(2)}, edge=${_sfcCio.edge_remaining.toFixed(2)}, ${_sfcCio.latency_ms}ms${_sfcCio.fallback ? " FALLBACK" : ""})`);
+                if (env?.DB && !_sfcCio.fallback) {
+                  env.DB.prepare(
+                    `INSERT INTO ai_cio_decisions (trade_id, ticker, direction, decision, confidence, reasoning, risk_flags, edge_score, latency_ms, fallback, model, proposal_json, adjustments_json, created_at)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)`
+                  ).bind(
+                    `${sym}-${now}-stall-${_sfcCio.decision.toLowerCase()}`, sym, openTrade?.direction || "LONG",
+                    `STALL_${_sfcCio.decision}`, _sfcCio.confidence, _sfcCio.reasoning,
+                    JSON.stringify(_sfcCio.risk_flags || []), _sfcCio.edge_remaining || 0,
+                    _sfcCio.latency_ms, 0, AI_CIO_MODEL,
+                    JSON.stringify(_sfcProposal), JSON.stringify(_sfcCio.override || {}), Date.now()
+                  ).run().catch(e => console.warn("[AI_CIO_EXIT] D1 stall insert failed:", e));
+                }
+                if (_sfcCio.decision === "HOLD" && !_sfcCio.fallback) {
+                  console.log(`[AI_CIO_EXIT] ${sym} STALL HOLD — delaying close (cooldown 30m): ${_sfcCio.reasoning}`);
+                  _sfcCioHold = true;
+                  const _sfcHoldExec = { ...execState, _cioExitHoldMs: now };
+                  if (isReplay && replayCtx?.execStates) replayCtx.execStates.set(sym, _sfcHoldExec);
+                  else if (!isReplay) await kvPutJSON(KV, execKey, _sfcHoldExec);
+                }
+              } catch (_sfcCioErr) {
+                console.warn(`[AI_CIO_EXIT] STALL exception ${sym}: ${String(_sfcCioErr).slice(0, 150)}`);
+              }
+            }
+            if (!_sfcCioHold) {
+              tickerData.__exit_reason = _sfcReason;
+              await closeTradeAtPrice(openTrade, pxNow, _sfcReason);
+              const _sfcExec = { ...execState, lastExitMs: now };
+              if (isReplay && replayCtx?.execStates) replayCtx.execStates.set(sym, _sfcExec);
+              else if (!isReplay) await kvPutJSON(KV, execKey, _sfcExec);
+              fuseExitFired = true;
+            }
           }
         }
       }
@@ -10881,12 +12153,57 @@ async function processTradeSimulation(
             const _rsfcPnlPct = entryPx > 0 ? ((pxNow - entryPx) / entryPx * 100 * (isLong ? 1 : -1)) : 0;
             const _rsfcReason = "RUNNER_STALE_FORCE_CLOSE";
             console.log(`[RUNNER_STALE] ${sym} trimmed runner held ${_rsfcHoldH.toFixed(0)} market-hours (limit=${_rsfcBaseH}h, PnL=${_rsfcPnlPct.toFixed(1)}%) → force closing`);
-            tickerData.__exit_reason = _rsfcReason;
-            await closeTradeAtPrice(openTrade, pxNow, _rsfcReason);
-            const _rsfcExec = { ...execState, lastExitMs: now };
-            if (isReplay && replayCtx?.execStates) replayCtx.execStates.set(sym, _rsfcExec);
-            else if (!isReplay) await kvPutJSON(KV, execKey, _rsfcExec);
-            fuseExitFired = true;
+            // ── AI CIO Lifecycle: evaluate runner stale exit ──
+            let _rsfcCioHold = false;
+            const _rsfcCioCooldownOk = (now - Number(execState._cioExitHoldMs || 0)) >= 30 * 60000;
+            const _rsfcCioEnabled = _rsfcCioCooldownOk &&
+              String(env?._deepAuditConfig?.ai_cio_enabled ?? "false") === "true" &&
+              (!isReplay || String(env?._deepAuditConfig?.ai_cio_replay_enabled ?? "false") === "true");
+            if (!_rsfcCioCooldownOk) _rsfcCioHold = true;
+            if (_rsfcCioEnabled) {
+              try {
+                const _rsfcCioStart = Date.now();
+                const _rsfcProposal = buildCIOLifecycleProposal("EXIT", sym, openTrade, tickerData, pxNow);
+                _rsfcProposal.exit_reason = _rsfcReason;
+                _rsfcProposal.exit_type = "SOFT";
+                _rsfcProposal.runner_hold_hours = +_rsfcHoldH.toFixed(1);
+                _rsfcProposal.runner_limit_hours = _rsfcBaseH;
+                const _rsfcMemCache = isReplay ? replayCtx?.cioMemoryCache : (env?._cioMemoryCache || null);
+                const _rsfcMem = buildCIOMemory(sym, String(openTrade?.direction || "LONG"), tickerData, allTrades, _rsfcMemCache);
+                const _rsfcCio = await evaluateCIOLifecycle(env, _rsfcProposal, _rsfcMem);
+                _rsfcCio.latency_ms = Date.now() - _rsfcCioStart;
+                console.log(`[AI_CIO_EXIT] ${sym} RUNNER_STALE ${_rsfcCio.decision} (conf=${_rsfcCio.confidence.toFixed(2)}, edge=${_rsfcCio.edge_remaining.toFixed(2)}, ${_rsfcCio.latency_ms}ms${_rsfcCio.fallback ? " FALLBACK" : ""})`);
+                if (env?.DB && !_rsfcCio.fallback) {
+                  env.DB.prepare(
+                    `INSERT INTO ai_cio_decisions (trade_id, ticker, direction, decision, confidence, reasoning, risk_flags, edge_score, latency_ms, fallback, model, proposal_json, adjustments_json, created_at)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)`
+                  ).bind(
+                    `${sym}-${now}-runner-${_rsfcCio.decision.toLowerCase()}`, sym, openTrade?.direction || "LONG",
+                    `RUNNER_STALE_${_rsfcCio.decision}`, _rsfcCio.confidence, _rsfcCio.reasoning,
+                    JSON.stringify(_rsfcCio.risk_flags || []), _rsfcCio.edge_remaining || 0,
+                    _rsfcCio.latency_ms, 0, AI_CIO_MODEL,
+                    JSON.stringify(_rsfcProposal), JSON.stringify(_rsfcCio.override || {}), Date.now()
+                  ).run().catch(e => console.warn("[AI_CIO_EXIT] runner stale insert failed:", e));
+                }
+                if (_rsfcCio.decision === "HOLD" && !_rsfcCio.fallback) {
+                  console.log(`[AI_CIO_EXIT] ${sym} RUNNER_STALE HOLD — delaying close (cooldown 30m): ${_rsfcCio.reasoning}`);
+                  _rsfcCioHold = true;
+                  const _rsfcHoldExec = { ...execState, _cioExitHoldMs: now };
+                  if (isReplay && replayCtx?.execStates) replayCtx.execStates.set(sym, _rsfcHoldExec);
+                  else if (!isReplay) await kvPutJSON(KV, execKey, _rsfcHoldExec);
+                }
+              } catch (_rsfcCioErr) {
+                console.warn(`[AI_CIO_EXIT] RUNNER_STALE exception ${sym}: ${String(_rsfcCioErr).slice(0, 150)}`);
+              }
+            }
+            if (!_rsfcCioHold) {
+              tickerData.__exit_reason = _rsfcReason;
+              await closeTradeAtPrice(openTrade, pxNow, _rsfcReason);
+              const _rsfcExec = { ...execState, lastExitMs: now };
+              if (isReplay && replayCtx?.execStates) replayCtx.execStates.set(sym, _rsfcExec);
+              else if (!isReplay) await kvPutJSON(KV, execKey, _rsfcExec);
+              fuseExitFired = true;
+            }
           }
         }
       }
@@ -11028,10 +12345,65 @@ async function processTradeSimulation(
         // Price hasn't moved — keep holding instead of closing at $0 P&L
         console.log(`[TRADE SIM] ${sym} exit skipped: flat price (entry=$${Number(openTrade.entryPrice).toFixed(2)} exit=$${pxNow.toFixed(2)}), holding`);
       } else {
-        await closeTradeAtPrice(openTrade, pxNow, exitReasonRaw);
-        const exitExecUpdate = { ...execState, lastExitMs: now };
-        if (isReplay && replayCtx?.execStates) replayCtx.execStates.set(sym, exitExecUpdate);
-        else if (!isReplay) await kvPutJSON(KV, execKey, exitExecUpdate);
+        // ── AI CIO Lifecycle: evaluate EXIT decision ──
+        // Hard protective exits (SL, max loss) bypass CIO entirely — they are non-negotiable
+        const _exitIsHard = /\bSL\b|stop.?loss|max.?loss|HARD_LOSS_CAP/i.test(String(exitReasonRaw));
+        // Cooldown: if CIO already said HOLD within last 30 min for this ticker, skip re-eval
+        const _exitCioCooldownMs = 30 * 60000;
+        const _exitLastCioMs = Number(execState._cioExitHoldMs || 0);
+        const _exitCioCooldownOk = (now - _exitLastCioMs) >= _exitCioCooldownMs;
+        const _exitCioEnabled = !_exitIsHard && _exitCioCooldownOk &&
+          String(env?._deepAuditConfig?.ai_cio_enabled ?? "false") === "true" &&
+          (!isReplay || String(env?._deepAuditConfig?.ai_cio_replay_enabled ?? "false") === "true");
+        let _exitCioBlocked = false;
+        if (!_exitCioCooldownOk && !_exitIsHard) {
+          _exitCioBlocked = true;
+        }
+        if (_exitCioEnabled) {
+          try {
+            const _exitStart = Date.now();
+            const _exitProposal = buildCIOLifecycleProposal("EXIT", sym, openTrade, tickerData, pxNow);
+            _exitProposal.exit_reason = exitReasonRaw;
+            _exitProposal.exit_type = _exitIsHard ? "HARD" : "SOFT";
+            const _memCacheExit = isReplay ? replayCtx?.cioMemoryCache : (env?._cioMemoryCache || null);
+            const _exitMemory = buildCIOMemory(sym, String(openTrade?.direction || "LONG"), tickerData, allTrades, _memCacheExit);
+            let _exitChartSvg = null;
+            try {
+              const _cc = isReplay ? replayCtx?._candleCache?.[sym] : env?._candleCache?.[sym];
+              if (_cc) _exitChartSvg = generateCIOChartSVG(sym, _cc, { price: Number(openTrade?.entryPrice), label: "ENTRY" });
+            } catch (_) {}
+            const _exitCio = await evaluateCIOLifecycle(env, _exitProposal, _exitMemory, _exitChartSvg);
+            _exitCio.latency_ms = Date.now() - _exitStart;
+            console.log(`[AI_CIO_EXIT] ${sym} ${_exitCio.decision} exit reason=${exitReasonRaw} (conf=${_exitCio.confidence.toFixed(2)}, edge=${_exitCio.edge_remaining.toFixed(2)}, latency=${_exitCio.latency_ms}ms${_exitCio.fallback ? " FALLBACK" : ""})`);
+            if (env?.DB && !_exitCio.fallback) {
+              env.DB.prepare(
+                `INSERT INTO ai_cio_decisions (trade_id, ticker, direction, decision, confidence, reasoning, risk_flags, edge_score, latency_ms, fallback, model, proposal_json, adjustments_json, created_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)`
+              ).bind(
+                `${sym}-${now}-exit-${_exitCio.decision.toLowerCase()}`, sym, openTrade?.direction || "LONG",
+                `EXIT_${_exitCio.decision}`, _exitCio.confidence, _exitCio.reasoning,
+                JSON.stringify(_exitCio.risk_flags || []), _exitCio.edge_remaining || 0,
+                _exitCio.latency_ms, 0, AI_CIO_MODEL,
+                JSON.stringify(_exitProposal), JSON.stringify(_exitCio.override || {}), Date.now()
+              ).run().catch(e => console.warn("[AI_CIO_EXIT] D1 insert failed:", e));
+            }
+            if (_exitCio.decision === "HOLD" && !_exitCio.fallback) {
+              console.log(`[AI_CIO_EXIT] ${sym} HOLD — delaying exit (cooldown 30m): ${_exitCio.reasoning}`);
+              _exitCioBlocked = true;
+              const _holdExec = { ...execState, _cioExitHoldMs: now };
+              if (isReplay && replayCtx?.execStates) replayCtx.execStates.set(sym, _holdExec);
+              else if (!isReplay) await kvPutJSON(KV, execKey, _holdExec);
+            }
+          } catch (cioExitErr) {
+            console.warn(`[AI_CIO_EXIT] Exception ${sym}: ${String(cioExitErr).slice(0, 150)}`);
+          }
+        }
+        if (!_exitCioBlocked) {
+          await closeTradeAtPrice(openTrade, pxNow, exitReasonRaw);
+          const exitExecUpdate = { ...execState, lastExitMs: now };
+          if (isReplay && replayCtx?.execStates) replayCtx.execStates.set(sym, exitExecUpdate);
+          else if (!isReplay) await kvPutJSON(KV, execKey, exitExecUpdate);
+        }
       }
     } else if (isExit && openTrade && outsideRTH && !exitAllowedOutsideRTH && !fuseExitFired) {
       console.log(`[TRADE SIM] ${sym} exit blocked: outside RTH (reason=${exitReasonRaw}), only SL/max-loss exits allowed pre/post-market`);
@@ -11242,6 +12614,47 @@ async function processTradeSimulation(
       }
       
       if (target > 0) {
+        // ── AI CIO Lifecycle: evaluate TRIM decision ──
+        const _trimCioEnabled = String(env?._deepAuditConfig?.ai_cio_enabled ?? "false") === "true" &&
+          (!isReplay || String(env?._deepAuditConfig?.ai_cio_replay_enabled ?? "false") === "true");
+        if (_trimCioEnabled) {
+          try {
+            const _trimStart = Date.now();
+            const _trimProposal = buildCIOLifecycleProposal("TRIM", sym, openTrade, tickerData, pxNow);
+            _trimProposal.proposed_trim_pct = target;
+            _trimProposal.trim_tier = target >= 0.95 ? "RUNNER" : target >= 0.75 ? "EXIT" : "TRIM";
+            _trimProposal.price_driven = trimIsPriceDriven;
+            const _memCache = isReplay ? replayCtx?.cioMemoryCache : (env?._cioMemoryCache || null);
+            const _trimMemory = buildCIOMemory(sym, String(openTrade?.direction || "LONG"), tickerData, allTrades, _memCache);
+            const _trimCio = await evaluateCIOLifecycle(env, _trimProposal, _trimMemory);
+            _trimCio.latency_ms = Date.now() - _trimStart;
+            console.log(`[AI_CIO_TRIM] ${sym} ${_trimCio.decision} trim ${(target*100).toFixed(0)}%→${_trimCio.decision === "OVERRIDE" && _trimCio.override?.trim_pct != null ? ((_trimCio.override.trim_pct*100).toFixed(0)+"%") : "as-is"} (conf=${_trimCio.confidence.toFixed(2)}, latency=${_trimCio.latency_ms}ms${_trimCio.fallback ? " FALLBACK" : ""})`);
+            if (env?.DB && !_trimCio.fallback) {
+              env.DB.prepare(
+                `INSERT INTO ai_cio_decisions (trade_id, ticker, direction, decision, confidence, reasoning, risk_flags, edge_score, latency_ms, fallback, model, proposal_json, adjustments_json, created_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)`
+              ).bind(
+                `${sym}-${now}-trim-${_trimCio.decision.toLowerCase()}`, sym, openTrade?.direction || "LONG",
+                `TRIM_${_trimCio.decision}`, _trimCio.confidence, _trimCio.reasoning,
+                JSON.stringify(_trimCio.risk_flags || []), _trimCio.edge_remaining || 0,
+                _trimCio.latency_ms, 0, AI_CIO_MODEL,
+                JSON.stringify(_trimProposal), JSON.stringify(_trimCio.override || {}), Date.now()
+              ).run().catch(e => console.warn("[AI_CIO_TRIM] D1 insert failed:", e));
+            }
+            if (_trimCio.decision === "HOLD" && !_trimCio.fallback) {
+              console.log(`[AI_CIO_TRIM] ${sym} HOLD — skipping trim: ${_trimCio.reasoning}`);
+              target = 0;
+            } else if (_trimCio.decision === "OVERRIDE" && !_trimCio.fallback && _trimCio.override?.trim_pct != null) {
+              const _prevTarget = target;
+              target = Math.max(Number(openTrade?.trimmedPct) || 0, _trimCio.override.trim_pct);
+              console.log(`[AI_CIO_TRIM] ${sym} OVERRIDE trim ${(_prevTarget*100).toFixed(0)}%→${(target*100).toFixed(0)}%: ${_trimCio.reasoning}`);
+            }
+          } catch (cioTrimErr) {
+            console.warn(`[AI_CIO_TRIM] Exception ${sym}: ${String(cioTrimErr).slice(0, 150)}`);
+          }
+        }
+      }
+      if (target > 0) {
         await trimTradeToPct(openTrade, target, pxNow, reason);
         const trimExecUpdate = { ...execState, lastTrimMs: now, runnerPeakPrice: pxNow };
         if (isReplay && replayCtx?.execStates) replayCtx.execStates.set(sym, trimExecUpdate);
@@ -11313,9 +12726,9 @@ async function processTradeSimulation(
     //   Gate 2: Directional concentration — max 5 same-direction positions
     //   Gate 3: Correlation guard — block if highly correlated with existing
     //   Safety net: MAX_DAILY_ENTRIES to prevent runaway crons
-    const MAX_OPEN_POSITIONS = 15;      // hard cap on total open positions
-    const MAX_PER_SECTOR = 3;           // max open positions in one sector (was 5)
-    const MAX_SAME_DIRECTION = 8;       // max positions in same direction (was 12)
+    const MAX_OPEN_POSITIONS = 20;      // hard cap on total open positions (was 15; simulation shows 15 blocks 12-13 trades incl winners)
+    const MAX_PER_SECTOR = 4;           // max open positions in one sector (was 3; Industrials/sector_etf over-blocked at 3)
+    const MAX_SAME_DIRECTION = 12;      // max positions in same direction (was 8; trend-following is overwhelmingly LONG)
     const CORRELATION_SECTOR_THRESHOLD = 3; // if 3+ positions already in same sector, require higher quality
     // v3: Regime-adaptive daily entry cap
     const tickerRegimeClass = String(tickerData?.regime_class || "TRANSITIONAL");
@@ -11485,7 +12898,7 @@ async function processTradeSimulation(
 
     // DEBUG: Capture condition values for enter-stage tickers during replay
     const storedStageDebug = String(tickerData?.kanban_stage || "").trim().toLowerCase();
-    if (isReplay && (storedStageDebug === "enter" || storedStageDebug === "enter_now") && replayCtx?.processDebug && replayCtx.processDebug.length < 5) {
+    if (isReplay && (storedStageDebug === "in_review" || storedStageDebug === "enter" || storedStageDebug === "enter_now") && replayCtx?.processDebug && replayCtx.processDebug.length < 5) {
       replayCtx.processDebug.push({
         ts: options?.asOfTs,
         sym,
@@ -11528,19 +12941,20 @@ async function processTradeSimulation(
       if (recentTradeBlocked) blockReasons.push("recent_trade");
       if (smartGateBlocked) blockReasons.push(smartGateReason || "smart_gate");
       const blockReason = blockReasons.join("+");
-      console.log(`[ENTRY_BLOCKED→SETUP] ${sym} downgrading enter→setup: ${blockReason}`);
+      console.log(`[ENTRY_BLOCKED→SETUP] ${sym} downgrading in_review→setup: ${blockReason}`);
       if (isReplay && replayCtx?._blockedEntries) {
         const _rbeKey = smartGateBlocked ? `smart_gate:${smartGateReason?.split(":")[0] || "unknown"}` : blockReason;
         replayCtx._blockedEntries[_rbeKey] = (replayCtx._blockedEntries[_rbeKey] || 0) + 1;
         replayCtx._blockedEntries._total_exec_blocked = (replayCtx._blockedEntries._total_exec_blocked || 0) + 1;
       }
       
-      // Update the live KV payload so UI sees "setup" instead of stale "enter"
+      // Update the live KV payload so UI sees "setup" instead of stale "in_review"
       if (!isReplay && KV) {
         try {
           const latestKey = `timed:latest:${sym}`;
           const currentPayload = await kvGetJSON(KV, latestKey);
-          if (currentPayload && String(currentPayload.kanban_stage).toLowerCase() === "enter") {
+          const _ks = String(currentPayload?.kanban_stage || "").toLowerCase();
+          if (currentPayload && (_ks === "in_review" || _ks === "enter")) {
             currentPayload.kanban_stage = "setup";
             currentPayload.__setup_reason = `entry_qualified_but_blocked:${blockReason}`;
             currentPayload.__entry_block_reason = blockReason;
@@ -11603,7 +13017,8 @@ async function processTradeSimulation(
         const _sltp = env?._adaptiveSLTP;
         const _tradeState = tickerData?.state || "";
         const calibratedSlMult = Number(_sltp?.[_tradeState]?.sl_atr) || Number(_sltp?.["_default"]?.sl_atr) || Number(env?._calibratedSlAtr) || 0;
-        const slMultiplier = calibratedSlMult >= MIN_SL_ATR ? calibratedSlMult : 1.5;
+        const _profileSlMult = getTickerProfile(sym)?.sl_mult || 1.0;
+        const slMultiplier = (calibratedSlMult >= MIN_SL_ATR ? calibratedSlMult : 1.5) * _profileSlMult;
         if (Number.isFinite(atr) && atr > 0 && Number.isFinite(entryPx)) {
           slCandidate = direction === "LONG" 
             ? entryPx - (atr * slMultiplier) 
@@ -11644,6 +13059,34 @@ async function processTradeSimulation(
               if (_liqSL > slCandidate) {
                 slCandidate = _liqSL;
               }
+            }
+          }
+        }
+      }
+
+      // ── ORB SL Anchor ──
+      // When entering during an ORB breakout, use the ORB midpoint or opposite
+      // range boundary as a structural SL — tighter than ATR-only but meaningful.
+      const _orbSLData = tickerData?.orb?.primary;
+      if (_orbSLData?.resolved && Number.isFinite(slCandidate) && slCandidate > 0) {
+        if (direction === "LONG" && _orbSLData.breakout === "LONG") {
+          // LONG breakout: SL at ORL (or ORM if ORL is too far)
+          const _orbSL = _orbSLData.orl;
+          if (Number.isFinite(_orbSL) && _orbSL > 0 && _orbSL < entryPx) {
+            const _orbSlDist = entryPx - _orbSL;
+            const _atrSLDist = Math.abs(entryPx - slCandidate);
+            // Only tighten if ORB SL is tighter than ATR SL but at least 0.3% from entry
+            if (_orbSlDist < _atrSLDist && _orbSlDist / entryPx >= 0.003) {
+              slCandidate = Math.round(_orbSL * 100) / 100;
+            }
+          }
+        } else if (direction === "SHORT" && _orbSLData.breakout === "SHORT") {
+          const _orbSL = _orbSLData.orh;
+          if (Number.isFinite(_orbSL) && _orbSL > 0 && _orbSL > entryPx) {
+            const _orbSlDist = _orbSL - entryPx;
+            const _atrSLDist = Math.abs(slCandidate - entryPx);
+            if (_orbSlDist < _atrSLDist && _orbSlDist / entryPx >= 0.003) {
+              slCandidate = Math.round(_orbSL * 100) / 100;
             }
           }
         }
@@ -11705,7 +13148,7 @@ async function processTradeSimulation(
         // ── Step 1: Compute SL first (needed for risk-based sizing) ──
         // Build 3-tier TP array for this trade
         const tpArray = build3TierTPArray(tickerData, entryPx, direction);
-        const validTP = tpArray.length > 0 ? tpArray[0].price : tpCandidate;
+        let validTP = tpArray.length > 0 ? tpArray[0].price : tpCandidate;
         const runnerTp = tpArray.find(tp => tp.tier === "RUNNER");
         const trimTp = tpArray.find(tp => tp.tier === "TRIM");
         const exitTp = tpArray.find(tp => tp.tier === "EXIT");
@@ -11946,6 +13389,17 @@ async function processTradeSimulation(
         const { tier: setupGrade, riskPct: tierRiskPct, tierScore: gradeScore } = computeSetupTier(entryResult, confidence, _tierRiskMap);
         const setupName = formatSetupName(entryPath);
 
+        // ── Confirmed grade min-rank gate ──
+        // Confirmed setups with rank < 75 underperform (25% WR at rank 60-69).
+        const _confirmedMinRank = 75;
+        let _confirmedGateBlocked = false;
+        if (setupGrade === "Confirmed" && score < _confirmedMinRank) {
+          console.log(`[ENTRY GATE] ${sym} blocked: Confirmed grade with rank ${score} < ${_confirmedMinRank}`);
+          if (isReplay && replayCtx?.processDebug && replayCtx.processDebug.length < 30)
+            replayCtx.processDebug.push({ sym, gate: "confirmed_min_rank", rank: score, required: _confirmedMinRank });
+          _confirmedGateBlocked = true;
+        }
+
         // ── Step 3: Risk-based position sizing ──
         const cash = Number(portfolio.cash);
         const cfg = getSizingConfig(env);
@@ -11961,23 +13415,12 @@ async function processTradeSimulation(
           const accountValue = Number(portfolio.startCash || PORTFOLIO_START_CASH) +
             (allTrades || []).filter(t => t.status === "WIN" || t.status === "LOSS").reduce((sum, t) => sum + (Number(t.realizedPnl) || 0), 0);
           const sizing = computeRiskBasedSize(confidence, accountValue, entryPx, finalSL, sizingSignals.vixLevel, env, tierRiskPct);
-          const regimePosMultiplier = tickerData?.regime_params?.positionSizeMultiplier ?? 1.0;
-          const _daRegimeSizeMult = Number(tickerData?.__da_regime_size_mult) || 1.0;
-          const _daRvolHighMult = Number(tickerData?.__da_rvol_high_size_mult) || 1.0;
-          const _daDangerMult = Number(tickerData?.__da_danger_size_mult) || 1.0;
-          const _daMeanRevertMult = Number(tickerData?.__da_mean_revert_size_mult) || 1.0;
-          const _spySizeMult = Number(tickerData?.__spy_size_mult) || 1.0;
-          const _miOverall = String(tickerData?._marketInternals?.overall || tickerData?._env?._marketInternals?.overall || "");
-          const _miSizeMult = _miOverall === "risk_off" ? 0.5 : _miOverall === "balanced" ? 0.8 : 1.0;
-          const _rawCombinedMult = regimePosMultiplier * _daRegimeSizeMult * _daRvolHighMult * _daDangerMult * _daMeanRevertMult * _spySizeMult * _miSizeMult;
-          const SIZING_MULT_FLOOR = 0.30;
-          const _effectiveMult = Math.max(SIZING_MULT_FLOOR, _rawCombinedMult);
-          const regimeAdjustedNotional = sizing.notional * _effectiveMult;
-          // Cap by available cash
+          const _sizingMults = gatherSizingMultipliers(tickerData);
+          const regimeAdjustedNotional = sizing.notional * _sizingMults.combined;
           notional = Math.min(regimeAdjustedNotional, cash);
           shares = notional / entryPx;
           pointValue = 1;
-          sizingMeta = { ...sizing, regimePosMultiplier, miSizeMult: _miSizeMult, effectiveMult: _effectiveMult };
+          sizingMeta = { ...sizing, ..._sizingMults.breakdown, effectiveMult: _sizingMults.combined };
         } else {
           shares = null;
           notional = null;
@@ -11985,9 +13428,177 @@ async function processTradeSimulation(
           sizingMeta = { method: "insufficient_cash" };
         }
 
-        if (isReplay && replayCtx?.processDebug && replayCtx.processDebug.length < 30) {
-          replayCtx.processDebug.push({ sym, gate: "sizing", shares, notional, cash, method: sizingMeta?.method });
+        if (_confirmedGateBlocked) {
+          shares = null; notional = null;
         }
+        if (isReplay && replayCtx?.processDebug && replayCtx.processDebug.length < 30) {
+          replayCtx.processDebug.push({ sym, gate: _confirmedGateBlocked ? "confirmed_min_rank" : "sizing", shares, notional, cash, method: sizingMeta?.method });
+        }
+        if (Number.isFinite(shares) && shares > 0 && notional != null) {
+            // ── AI CIO Agent-in-the-Loop ──
+            // Configurable via model_config: ai_cio_enabled + ai_cio_replay_enabled
+            let _cioDecision = null;
+            const _cioLiveEnabled = String(env?._deepAuditConfig?.ai_cio_enabled ?? env?.AI_CIO_ENABLED ?? "false") === "true";
+            const _cioReplayEnabled = isReplay && String(env?._deepAuditConfig?.ai_cio_replay_enabled ?? "false") === "true";
+            const _cioEnabled = _cioLiveEnabled && (!isReplay || _cioReplayEnabled);
+            if (_cioEnabled) {
+              try {
+                const _cioStart = Date.now();
+                const proposal = buildCIOProposal(sym, direction, entryPx, finalSL, validTP, tickerData, sizingMeta, confidence, setupGrade, setupName, calculatedRR);
+                const _memoryCache = isReplay ? replayCtx?.cioMemoryCache : (env?._cioMemoryCache || null);
+                const _cioMemory = buildCIOMemory(sym, direction, tickerData, allTrades, _memoryCache);
+                let _cioChartSvg = null;
+                try {
+                  const _candleCache = isReplay ? replayCtx?._candleCache?.[sym] : env?._candleCache?.[sym];
+                  if (_candleCache) {
+                    _cioChartSvg = generateCIOChartSVG(sym, _candleCache, { price: entryPx, label: direction });
+                  }
+                } catch (_chartErr) { /* chart generation is best-effort */ }
+                _cioDecision = await evaluateWithAICIO(env, proposal, _cioMemory, _cioChartSvg);
+                _cioDecision.latency_ms = Date.now() - _cioStart;
+                _cioDecision.proposal = proposal;
+
+                if (_cioDecision.decision === "REJECT" && !_cioDecision.fallback) {
+                  console.log(`[AI_CIO] REJECTED ${sym} ${direction}: ${_cioDecision.reasoning} (latency=${_cioDecision.latency_ms}ms)`);
+                  // Persist rejection for accuracy tracking
+                  if (env?.DB) {
+                    env.DB.prepare(
+                      `INSERT INTO ai_cio_decisions (trade_id, ticker, direction, decision, confidence, reasoning, risk_flags, edge_score, latency_ms, fallback, model, proposal_json, adjustments_json, created_at)
+                       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)`
+                    ).bind(
+                      `${sym}-${now}-rejected`,
+                      sym, direction, "REJECT",
+                      _cioDecision.confidence,
+                      _cioDecision.reasoning,
+                      JSON.stringify(_cioDecision.risk_flags),
+                      _cioDecision.edge_score,
+                      _cioDecision.latency_ms,
+                      0, _cioDecision.model || AI_CIO_MODEL,
+                      JSON.stringify(proposal),
+                      null,
+                      Date.now()
+                    ).run().catch(e => console.warn("[AI_CIO] D1 insert failed:", e));
+                  }
+                  // Accumulate in-memory for replay CIO self-accuracy
+                  if (isReplay && replayCtx?.cioMemoryCache) {
+                    if (!replayCtx.cioMemoryCache.cioDecisions) replayCtx.cioMemoryCache.cioDecisions = [];
+                    replayCtx.cioMemoryCache.cioDecisions.push({
+                      ticker: sym, direction, decision: "REJECT",
+                      confidence: _cioDecision.confidence,
+                      reasoning: _cioDecision.reasoning,
+                      trade_outcome: undefined,
+                    });
+                  }
+                  // ── CIO REJECT → roll Kanban back to "setup" ──
+                  // The ticker was in "in_review"; CIO said no. Update KV so the
+                  // UI immediately reflects Setup (with block reason), not a stale
+                  // "In Review" card that implies the system might still act.
+                  if (!isReplay && KV) {
+                    try {
+                      const _cioLatestKey = `timed:latest:${sym}`;
+                      const _cioPayload = await kvGetJSON(KV, _cioLatestKey);
+                      const _cioKs = String(_cioPayload?.kanban_stage || "").toLowerCase();
+                      if (_cioPayload && (_cioKs === "in_review" || _cioKs === "enter")) {
+                        _cioPayload.prev_kanban_stage = _cioPayload.kanban_stage;
+                        _cioPayload.prev_kanban_stage_ts = Date.now();
+                        _cioPayload.kanban_stage = "setup";
+                        _cioPayload.__cio_blocked = true;
+                        _cioPayload.__cio_block_reason = _cioDecision.reasoning;
+                        _cioPayload.__cio_block_ts = Date.now();
+                        _cioPayload.__cio_block_flags = (_cioDecision.risk_flags || []).join(", ");
+                        _cioPayload.__setup_reason = `cio_rejected:${(_cioDecision.risk_flags || []).slice(0, 3).join("+")}`;
+                        _cioPayload.kanban_meta = deriveKanbanMeta(_cioPayload, "setup");
+                        await kvPutJSON(KV, _cioLatestKey, _cioPayload);
+                        console.log(`[CIO_REJECT→SETUP] ${sym} rolled in_review→setup: ${_cioDecision.reasoning.slice(0, 80)}`);
+                      }
+                    } catch (_cioKvErr) {
+                      console.warn(`[CIO_REJECT→SETUP] ${sym} KV update failed:`, String(_cioKvErr).slice(0, 100));
+                    }
+                  }
+                  // Notify Discord of CIO rejection (content-based dedup: suppress if same reason as last)
+                  if (env) {
+                    const _cioDedupeKey = `timed:cio:last_reject:${sym}:${direction}`;
+                    const _cioRejectFingerprint = `${(_cioDecision.risk_flags || []).sort().join(",")}|${Math.round((_cioDecision.confidence || 0) * 100)}`;
+                    let _cioDuped = false;
+                    if (KV) {
+                      try {
+                        const _lastReject = await KV.get(_cioDedupeKey);
+                        if (_lastReject === _cioRejectFingerprint) { _cioDuped = true; }
+                        else { await kvPutText(KV, _cioDedupeKey, _cioRejectFingerprint, 14400); }
+                      } catch (_) { /* best-effort */ }
+                    }
+                    if (!_cioDuped) {
+                      notifyDiscord(env, {
+                        title: `🛑 AI CIO REJECTED: ${sym} ${direction}`,
+                        description: _cioDecision.reasoning,
+                        color: 0xff4444,
+                        fields: [
+                          { name: "Confidence", value: `${(_cioDecision.confidence * 100).toFixed(0)}%`, inline: true },
+                          { name: "Edge Score", value: `${(_cioDecision.edge_score * 100).toFixed(0)}%`, inline: true },
+                          { name: "Risk Flags", value: (_cioDecision.risk_flags || []).join(", ") || "—", inline: false },
+                          { name: "Setup", value: `${setupName} (${setupGrade})`, inline: true },
+                          { name: "R:R", value: `${calculatedRR.toFixed(1)}:1`, inline: true },
+                        ],
+                      }).catch(() => {});
+                    }
+                  }
+                  // Skip trade creation — model override
+                  shares = null;
+                  notional = null;
+                }
+
+                if (_cioDecision.decision === "ADJUST" && !_cioDecision.fallback && _cioDecision.adjustments) {
+                  const adj = _cioDecision.adjustments;
+                  if (adj.sl != null && Number.isFinite(adj.sl) && adj.sl > 0) {
+                    const validSL = direction === "LONG" ? adj.sl < entryPx : adj.sl > entryPx;
+                    if (validSL) {
+                      console.log(`[AI_CIO] ADJUST SL ${sym}: ${finalSL.toFixed(2)} → ${adj.sl.toFixed(2)} (${adj.reason})`);
+                      finalSL = Math.round(adj.sl * 100) / 100;
+                    }
+                  }
+                  if (adj.tp != null && Number.isFinite(adj.tp) && adj.tp > 0) {
+                    const validTP2 = direction === "LONG" ? adj.tp > entryPx : adj.tp < entryPx;
+                    if (validTP2) {
+                      console.log(`[AI_CIO] ADJUST TP ${sym}: ${validTP.toFixed(2)} → ${adj.tp.toFixed(2)} (${adj.reason})`);
+                      validTP = Math.round(adj.tp * 100) / 100;
+                    }
+                  }
+                  if (adj.size_mult != null && Number.isFinite(adj.size_mult)) {
+                    const adjNotional = notional * adj.size_mult;
+                    const adjShares = adjNotional / entryPx;
+                    console.log(`[AI_CIO] ADJUST SIZE ${sym}: ${shares.toFixed(2)} → ${adjShares.toFixed(2)} shares (${adj.size_mult}x, ${adj.reason})`);
+                    shares = adjShares;
+                    notional = adjNotional;
+                  }
+                }
+
+                if (_cioDecision.decision === "APPROVE" || _cioDecision.decision === "ADJUST") {
+                  console.log(`[AI_CIO] ${_cioDecision.decision} ${sym} ${direction} (conf=${_cioDecision.confidence.toFixed(2)}, edge=${_cioDecision.edge_score.toFixed(2)}, latency=${_cioDecision.latency_ms}ms${_cioDecision.fallback ? ", FALLBACK" : ""})`);
+                  if (env?.DB && !_cioDecision.fallback) {
+                    env.DB.prepare(
+                      `INSERT INTO ai_cio_decisions (trade_id, ticker, direction, decision, confidence, reasoning, risk_flags, edge_score, latency_ms, fallback, model, proposal_json, adjustments_json, created_at)
+                       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)`
+                    ).bind(
+                      `${sym}-${now}-${_cioDecision.decision.toLowerCase()}`,
+                      sym, direction, _cioDecision.decision,
+                      _cioDecision.confidence,
+                      _cioDecision.reasoning,
+                      JSON.stringify(_cioDecision.risk_flags || []),
+                      _cioDecision.edge_score,
+                      _cioDecision.latency_ms,
+                      0, _cioDecision.model || AI_CIO_MODEL,
+                      JSON.stringify(_cioDecision.proposal || {}),
+                      _cioDecision.decision === "ADJUST" ? JSON.stringify(_cioDecision.adjustments || {}) : null,
+                      Date.now()
+                    ).run().catch(e => console.warn("[AI_CIO] D1 insert failed:", e));
+                  }
+                }
+              } catch (cioErr) {
+                console.warn(`[AI_CIO] Exception for ${sym}: ${String(cioErr).slice(0, 150)}`);
+                _cioDecision = { decision: "APPROVE", fallback: true, reason: "outer_exception" };
+              }
+            }
+
         if (Number.isFinite(shares) && shares > 0 && notional != null) {
             const tradeId = `${sym}-${now}-${Math.random().toString(36).substr(2, 9)}`;
             const entryTime = eventTs();
@@ -12004,7 +13615,7 @@ async function processTradeSimulation(
               shares: shares,
               value: entryPx * shares,
               reason: reason,
-              note: `Entry from ENTER_NOW at $${entryPx.toFixed(2)} (${setupName} — TT ${setupGrade}, ${(tierRiskPct * 100).toFixed(2)}% risk)`,
+              note: `Entry from ENTER_NOW at $${entryPx.toFixed(2)} (${setupName} — ${setupGrade}, ${(tierRiskPct * 100).toFixed(2)}% risk)`,
               setup_grade: setupGrade || null,
               setup_name: setupName || null,
               risk_pct: tierRiskPct > 0 ? (tierRiskPct * 100).toFixed(2) : null,
@@ -12066,10 +13677,20 @@ async function processTradeSimulation(
               setupGrade,
               riskBudget: tierRiskPct,
               gradeScore,
+              estimated_peak_hours: tickerData?.__timeToTarget?.estimatedPeakHours || null,
+              estimated_peak_bars: tickerData?.__timeToTarget?.estimatedPeakBars || null,
               sectorAtEntry: (() => {
                 const sa = getSectorAlignmentCached(sym);
                 return sa ? { sector: sa.sector, aligned: sa.aligned, direction: sa.direction, strength: sa.strength } : null;
               })(),
+              aiCIO: _cioDecision && !_cioDecision.fallback ? {
+                decision: _cioDecision.decision,
+                confidence: _cioDecision.confidence,
+                edge_score: _cioDecision.edge_score,
+                reasoning: _cioDecision.reasoning,
+                risk_flags: _cioDecision.risk_flags,
+                latency_ms: _cioDecision.latency_ms,
+              } : undefined,
             };
 
             // Portfolio cash decreases by cost
@@ -12094,8 +13715,38 @@ async function processTradeSimulation(
             }
 
             allTrades.push(trade);
-            console.log(`[ENTRY_CREATED] ${sym} dir=${direction} entry=${entryPx} sl=${finalSL} tp=${validTP} shares=${shares.toFixed(2)} notional=$${notional.toFixed(0)} conf=${confidence.toFixed(2)} method=${sizingMeta.method} risk=${((sizingMeta.riskPct || 0) * 100).toFixed(1)}% isReplay=${isReplay}`);
+            console.log(`[ENTRY_CREATED] ${sym} dir=${direction} entry=${entryPx} sl=${finalSL} tp=${validTP} shares=${shares.toFixed(2)} notional=$${notional.toFixed(0)} conf=${confidence.toFixed(2)} method=${sizingMeta.method} risk=${((sizingMeta.riskPct || 0) * 100).toFixed(1)}% isReplay=${isReplay}${_cioDecision && !_cioDecision.fallback ? ` cio=${_cioDecision.decision}` : ""}`);
             d1LogDirectionAccuracy(env, trade, tickerData, entryPath).catch(() => {});
+
+            // Persist AI CIO decision for accuracy tracking
+            if (_cioDecision && !_cioDecision.fallback && env?.DB) {
+              env.DB.prepare(
+                `INSERT INTO ai_cio_decisions (trade_id, ticker, direction, decision, confidence, reasoning, risk_flags, edge_score, latency_ms, fallback, model, proposal_json, adjustments_json, created_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)`
+              ).bind(
+                tradeId, sym, direction, _cioDecision.decision,
+                _cioDecision.confidence,
+                _cioDecision.reasoning,
+                JSON.stringify(_cioDecision.risk_flags),
+                _cioDecision.edge_score,
+                _cioDecision.latency_ms,
+                0, _cioDecision.model || AI_CIO_MODEL,
+                JSON.stringify(_cioDecision.proposal || {}),
+                _cioDecision.adjustments ? JSON.stringify(_cioDecision.adjustments) : null,
+                Date.now()
+              ).run().catch(e => console.warn("[AI_CIO] D1 insert failed:", e));
+            }
+            // Accumulate in-memory for replay CIO self-accuracy (Layer 5)
+            if (_cioDecision && !_cioDecision.fallback && isReplay && replayCtx?.cioMemoryCache) {
+              if (!replayCtx.cioMemoryCache.cioDecisions) replayCtx.cioMemoryCache.cioDecisions = [];
+              replayCtx.cioMemoryCache.cioDecisions.push({
+                trade_id: tradeId, ticker: sym, direction,
+                decision: _cioDecision.decision,
+                confidence: _cioDecision.confidence,
+                reasoning: _cioDecision.reasoning,
+                trade_outcome: undefined,
+              });
+            }
             const entryExecUpdate = {
               ...execState,
               lastEnterMs: now,
@@ -12183,6 +13834,15 @@ async function processTradeSimulation(
                     embed.fields = embed.fields || [];
                     embed.fields.push({ name: "Chart", value: `[View entry/trim/exit chart](${entryChartUrl})`, inline: false });
                   }
+                  if (_cioDecision && !_cioDecision.fallback) {
+                    embed.fields = embed.fields || [];
+                    const cioEmoji = _cioDecision.decision === "APPROVE" ? "✅" : _cioDecision.decision === "ADJUST" ? "⚙️" : "🛑";
+                    embed.fields.push({
+                      name: `${cioEmoji} AI CIO`,
+                      value: `**${_cioDecision.decision}** (${(_cioDecision.confidence * 100).toFixed(0)}% conf, edge ${(_cioDecision.edge_score * 100).toFixed(0)}%)\n${_cioDecision.reasoning || "—"}`,
+                      inline: false,
+                    });
+                  }
                   const sendRes = allow
                     ? await notifyDiscord(env, embed).catch((err) => ({
                         ok: false,
@@ -12246,7 +13906,7 @@ async function processTradeSimulation(
               }
             }
 
-            // ── Instant transition: Enter → just_entered ──
+            // ── Instant transition: In Review → Position Initiated ──
             // Update kanban_stage immediately so the UI reflects the trade within
             // seconds (instead of waiting up to 5 min for the next scoring cron).
             if (!isReplay) {
@@ -12258,21 +13918,27 @@ async function processTradeSimulation(
                   latestPayload.kanban_stage = "just_entered";
                   latestPayload.entry_price = entryPx;
                   latestPayload.entry_ts = Date.now();
+                  // Clear any stale CIO block from a prior cycle
+                  delete latestPayload.__cio_blocked;
+                  delete latestPayload.__cio_block_reason;
+                  delete latestPayload.__cio_block_ts;
+                  delete latestPayload.__cio_block_flags;
                   await kvPutJSON(KV, `timed:latest:${sym}`, latestPayload);
-                  console.log(`[INSTANT TRANSITION] ${sym} enter → just_entered @ $${entryPx}`);
+                  console.log(`[INSTANT TRANSITION] ${sym} in_review → just_entered (Position Initiated) @ $${entryPx}`);
                 }
               } catch (e) {
                 // Non-critical — next scoring cycle will correct
                 console.warn(`[INSTANT TRANSITION] ${sym} failed:`, String(e).slice(0, 100));
               }
             }
-        } else {
+        } else if (!_cioDecision || _cioDecision.decision !== "REJECT") {
           tickerData.flags =
             tickerData.flags && typeof tickerData.flags === "object"
               ? tickerData.flags
               : {};
           tickerData.flags.portfolio_no_cash = true;
         }
+        } // close outer shares-check (pre-CIO)
        } catch (entryBlockErr) {
          console.error(`[ENTRY_BLOCK_ERROR] ${sym}:`, String(entryBlockErr?.message || entryBlockErr).slice(0, 300));
          if (isReplay && replayCtx?.processDebug && replayCtx.processDebug.length < 30) {
@@ -12547,8 +14213,10 @@ async function processTradeSimulation(
           // COMPRESSION STALL TIMER: 43 Variant B trades held 24h+ with < 3% PnL.
           // Tighten SL to breakeven when a trade stalls — frees capital.
           // ─────────────────────────────────────────────────────────────────────
-          const _stallMaxH = Number(tickerData?._env?._deepAuditConfig?.deep_audit_stall_max_hours) || 0;
+          const _stallMaxHCfg = Number(tickerData?._env?._deepAuditConfig?.deep_audit_stall_max_hours) || 0;
           const _stallMinPnl = Number(tickerData?._env?._deepAuditConfig?.deep_audit_stall_breakeven_pnl_pct);
+          const _estPeakH = Number(openTrade.estimated_peak_hours) || 0;
+          const _stallMaxH = _estPeakH > 0 ? Math.min(_stallMaxHCfg || 999, _estPeakH * 1.5) : _stallMaxHCfg;
           if (_stallMaxH > 0 && Number.isFinite(_stallMinPnl)) {
             const _entryTs = Number(openTrade.entry_ts || openTrade.created_at) || 0;
             const _entryMs = _entryTs > 1e12 ? _entryTs : _entryTs * 1000;
@@ -14299,7 +15967,7 @@ async function processTradeSimulation(
                   direction: direction,
                   thesis: (() => {
                     const p = [];
-                    if (tickerData?.setupName) p.push(tickerData.setupName.replace(/_/g, " "));
+                    if (tickerData?.setupName) p.push(formatSetupName(tickerData.setupName));
                     if (tickerData?.flags?.st_flip_bull || tickerData?.flags?.st_flip_bear) p.push("Fresh ST Flip");
                     if (tickerData?.flags?.momentum_elite) p.push("Elite Momentum");
                     if (tickerData?.flags?.sq30_release) p.push("Squeeze Release");
@@ -14315,8 +15983,10 @@ async function processTradeSimulation(
             const _spySizeM = Number(tickerData?.__spy_size_mult) || 1.0;
             const _liveMiOverall = String(tickerData?._marketInternals?.overall || tickerData?._env?._marketInternals?.overall || "");
             const _liveMiSizeM = _liveMiOverall === "risk_off" ? 0.5 : _liveMiOverall === "balanced" ? 0.8 : 1.0;
-            const _combinedPosM = _regimePosM * _spySizeM * _liveMiSizeM;
-            if (_combinedPosM < 1.0 && trade.shares > 0) {
+            const _livePdzM = Number(tickerData?.__pdz_size_mult) || 1.0;
+            const _liveMrM = Number(tickerData?.__da_mean_revert_size_mult) || 1.0;
+            const _combinedPosM = _regimePosM * _spySizeM * _liveMiSizeM * _livePdzM * _liveMrM;
+            if (_combinedPosM !== 1.0 && trade.shares > 0) {
               trade.shares = trade.shares * _combinedPosM;
               trade.regimePosMultiplier = _combinedPosM;
               if (trade.history?.[0]) {
@@ -14361,7 +16031,7 @@ async function processTradeSimulation(
               );
             }
 
-            // Persist new trade + ENTRY event to D1 ledger (best-effort) — skip during replay
+            // Persist new trade + ENTRY event to D1 ledger (best-effort)
             if (!isReplay) {
               d1UpsertTrade(env, trade).catch((e) => {
                 console.error(
@@ -14369,7 +16039,6 @@ async function processTradeSimulation(
                   e,
                 );
               });
-              d1LogDirectionEntry(env, trade, tickerData).catch(() => {});
               const entryEvent =
                 Array.isArray(trade.history) && trade.history.length > 0
                   ? trade.history[0]
@@ -14383,6 +16052,8 @@ async function processTradeSimulation(
                 });
               }
             }
+            // Always log direction accuracy (needed for Trade Autopsy signal snapshots)
+            d1LogDirectionEntry(env, trade, tickerData).catch(() => {});
 
             // Send Discord notification for new trade entry
             // Only send alert if this is a real-time trade (not a backfill)
@@ -15085,6 +16756,28 @@ function computeRank(d) {
   if (bo && bo.type) {
     const boostMap = { daily_level: 20, atr_breakout: 15, ema_stack: 12 };
     score += boostMap[bo.type] || 10;
+  }
+
+  // ── Opening Range Breakout (ORB) rank adjustment ──
+  // Confirmed ORB breakouts with multi-window consensus get a boost.
+  // Failed breakouts (reclaims) get a penalty to avoid fakeouts.
+  const orb = d?.orb;
+  if (orb && orb.primary?.resolved) {
+    const p = orb.primary;
+    const side = sideFromStateOrScores(d);
+
+    if (p.breakout === "LONG" && side === "LONG" && orb.orbBias >= 1) {
+      score += 10 + (orb.longBreakouts >= 3 ? 5 : 0);
+    } else if (p.breakout === "SHORT" && side === "SHORT" && orb.orbBias <= -1) {
+      score += 10 + (orb.shortBreakouts >= 3 ? 5 : 0);
+    } else if (p.reclaim) {
+      score -= 5; // Fakeout: broke out then came back — penalize
+    }
+
+    // Day bias alignment: today's ORM vs yesterday's ORM confirms trend
+    if (p.dayBias === 1 && side === "LONG") score += 3;
+    else if (p.dayBias === -1 && side === "SHORT") score += 3;
+    else if (p.dayBias !== 0 && p.dayBias !== (side === "LONG" ? 1 : -1)) score -= 2;
   }
 
   score = Math.max(0, Math.min(100, score));
@@ -15956,31 +17649,74 @@ async function d1EnsureCandleSchema(env) {
     // These indexes were identified in the D1 audit as missing but needed by
     // frequently-executed queries.
     const missingIndexes = [
-      // ingest_receipts: retention DELETE needs to scan by received_ts
-      `CREATE INDEX IF NOT EXISTS idx_ingest_receipts_received_ts ON ingest_receipts (received_ts)`,
-      // trades: daily summary aggregation and exit-time queries
+      // ── timed_trail: snapshot-replay needs fast ts-range + payload_json filter ──
+      `CREATE INDEX IF NOT EXISTS idx_trail_ts_payload ON timed_trail (ts) WHERE payload_json IS NOT NULL`,
+      // NOTE: ticker_candles already has PK(ticker,tf,ts) + idx_candles_tf_ts(tf,ts)
+      // which covers all query patterns. Additional composite indexes exceed D1 memory limits.
+
+      // ── trades: frequent status + ticker lookups ──
+      `CREATE INDEX IF NOT EXISTS idx_trades_ticker_status ON trades (ticker, status)`,
+      // exit_ts + status for recent streak queries (SELECT ... WHERE exit_ts > ? AND status IN)
+      `CREATE INDEX IF NOT EXISTS idx_trades_exit_status ON trades (exit_ts, status)`,
       `CREATE INDEX IF NOT EXISTS idx_trades_ticker_entry_ts ON trades (ticker, entry_ts)`,
       `CREATE INDEX IF NOT EXISTS idx_trades_ticker_exit_ts ON trades (ticker, exit_ts)`,
-      // trade_events: type-filtered time queries
+
+      // ── trade_events: type-filtered time queries ──
       `CREATE INDEX IF NOT EXISTS idx_trade_events_type_ts ON trade_events (type, ts)`,
-      // positions: status-filtered ordering
+
+      // ── positions: status-filtered ordering ──
       `CREATE INDEX IF NOT EXISTS idx_positions_status_created_at ON positions (status, created_at)`,
-      // investor_positions: composite lookups + ordering
+
+      // ── account_ledger: PnL aggregate queries (mode + time range + event_type) ──
+      `CREATE INDEX IF NOT EXISTS idx_ledger_mode_ts_type ON account_ledger (mode, ts, event_type)`,
+      // Balance lookup: WHERE mode=? ORDER BY ts DESC, ledger_id DESC LIMIT 1
+      `CREATE INDEX IF NOT EXISTS idx_ledger_mode_ts_id ON account_ledger (mode, ts DESC, ledger_id DESC)`,
+
+      // ── direction_accuracy: the most complex analysis queries ──
+      // WHERE status IN ('WIN','LOSS') AND entry_path IS NOT NULL (path perf recalculation)
+      `CREATE INDEX IF NOT EXISTS idx_da_status_entry_path ON direction_accuracy (status, entry_path)`,
+      // WHERE status IN ('WIN','LOSS') AND pnl_pct IS NOT NULL (calibration queries)
+      `CREATE INDEX IF NOT EXISTS idx_da_status_pnl ON direction_accuracy (status, pnl_pct)`,
+      // WHERE ticker = ? AND status IN ('WIN','LOSS') GROUP BY ticker (per-ticker analysis)
+      `CREATE INDEX IF NOT EXISTS idx_da_ticker_status ON direction_accuracy (ticker, status)`,
+
+      // ── ai_cio_decisions: ORDER BY created_at DESC ──
+      `CREATE INDEX IF NOT EXISTS idx_cio_created ON ai_cio_decisions (created_at DESC)`,
+      `CREATE INDEX IF NOT EXISTS idx_cio_ticker ON ai_cio_decisions (ticker, created_at DESC)`,
+
+      // ── ticker_profiles: sector-based lookups ──
+      `CREATE INDEX IF NOT EXISTS idx_tp_sector ON ticker_profiles (sector)`,
+
+      // ── backtest_run_trades: per-run ticker analysis ──
+      `CREATE INDEX IF NOT EXISTS idx_brt_run_ticker ON backtest_run_trades (run_id, ticker)`,
+      `CREATE INDEX IF NOT EXISTS idx_brt_run_status ON backtest_run_trades (run_id, status)`,
+
+      // ── investor_positions: composite lookups + ordering ──
       `CREATE INDEX IF NOT EXISTS idx_inv_pos_ticker_status ON investor_positions (ticker, status)`,
       `CREATE INDEX IF NOT EXISTS idx_inv_pos_status_updated ON investor_positions (status, updated_at DESC)`,
-      // users: Stripe webhook lookups
+
+      // ── ingest_receipts: retention DELETE by received_ts ──
+      `CREATE INDEX IF NOT EXISTS idx_ingest_receipts_received_ts ON ingest_receipts (received_ts)`,
+
+      // ── users: Stripe webhook lookups ──
       `CREATE INDEX IF NOT EXISTS idx_users_stripe ON users (stripe_customer_id)`,
-      // model_predictions: unresolved prediction lookups
+
+      // ── model_predictions: unresolved prediction lookups ──
       `CREATE INDEX IF NOT EXISTS idx_mp_ticker_resolved_ts ON model_predictions (ticker, resolved, ts)`,
-      // investor_lots: position-level time ordering
+
+      // ── investor_lots: position-level time ordering ──
       `CREATE INDEX IF NOT EXISTS idx_inv_lots_pos_ts ON investor_lots (position_id, ts DESC)`,
-      // lots: position-level time ordering
+
+      // ── lots: position-level time ordering ──
       `CREATE INDEX IF NOT EXISTS idx_lots_position_ts ON lots (position_id, ts)`,
-      // daily_briefs: date + type queries
+
+      // ── daily_briefs: date + type queries ──
       `CREATE INDEX IF NOT EXISTS idx_daily_briefs_date_type ON daily_briefs (date DESC, type ASC)`,
-      // ml_v1_queue: resolution queries
+
+      // ── ml_v1_queue: resolution queries ──
       `CREATE INDEX IF NOT EXISTS idx_ml_v1_queue_y_due ON ml_v1_queue (y, label_due_ts)`,
-      // pattern_library: active patterns sorted by expected value
+
+      // ── pattern_library: active patterns sorted by expected value ──
       `CREATE INDEX IF NOT EXISTS idx_pl_status_ev ON pattern_library (status, expected_value DESC)`,
     ];
     for (const sql of missingIndexes) {
@@ -16480,7 +18216,7 @@ async function drainQueuedActions(env) {
         const currentStage = String(latestData.kanban_stage || "").toLowerCase();
 
         if (action === "enter") {
-          const stillEnter = currentStage === "enter" || currentStage === "enter_now";
+          const stillEnter = currentStage === "in_review" || currentStage === "enter" || currentStage === "enter_now";
           if (stillEnter) {
             await processTradeSimulation(KV, ticker, latestData, null, env);
             await d1ResolveQueuedAction(env, { ticker, action, status: "EXECUTED", resolution: "still_qualifies" });
@@ -17334,6 +19070,19 @@ async function d1EnsureBacktestRunsSchema(env) {
         db.prepare(`ALTER TABLE backtest_run_direction_accuracy ADD COLUMN entry_quality_score REAL`),
       ]);
     } catch {}
+    // v2: Add missing columns to backtest_run_trades for full parity with trades table
+    const brtExtraCols = [
+      `ALTER TABLE backtest_run_trades ADD COLUMN setup_name TEXT`,
+      `ALTER TABLE backtest_run_trades ADD COLUMN setup_grade TEXT`,
+      `ALTER TABLE backtest_run_trades ADD COLUMN risk_budget REAL`,
+      `ALTER TABLE backtest_run_trades ADD COLUMN shares REAL`,
+      `ALTER TABLE backtest_run_trades ADD COLUMN notional REAL`,
+    ];
+    for (const stmt of brtExtraCols) {
+      try { await db.prepare(stmt).run(); } catch {}
+    }
+    // v3: Add exit_reason to backtest_run_direction_accuracy
+    try { await db.prepare(`ALTER TABLE backtest_run_direction_accuracy ADD COLUMN exit_reason TEXT`).run(); } catch {}
     _backtestRunsSchemaReady = true;
   } catch (e) {
     console.error("[BACKTEST RUNS] Schema migration failed:", String(e).slice(0, 200));
@@ -17473,6 +19222,27 @@ async function d1EnsureLearningSchema(env) {
     try {
       await db.prepare(`ALTER TABLE trade_autopsy_annotations ADD COLUMN trade_management TEXT DEFAULT '[]'`).run();
     } catch { /* column may already exist */ }
+    // AI CIO decisions table
+    try {
+      await db.prepare(`CREATE TABLE IF NOT EXISTS ai_cio_decisions (
+        trade_id TEXT PRIMARY KEY,
+        ticker TEXT NOT NULL,
+        direction TEXT NOT NULL,
+        decision TEXT NOT NULL,
+        confidence REAL,
+        reasoning TEXT,
+        risk_flags TEXT,
+        edge_score REAL,
+        latency_ms INTEGER,
+        fallback INTEGER DEFAULT 0,
+        model TEXT,
+        proposal_json TEXT,
+        adjustments_json TEXT,
+        trade_outcome TEXT,
+        trade_pnl_pct REAL,
+        created_at INTEGER NOT NULL
+      )`).run();
+    } catch { /* table may already exist */ }
     // Three-tier awareness: ticker + sector profiles
     try {
       await db.batch([
@@ -17544,6 +19314,13 @@ async function d1EnsureLearningSchema(env) {
     ];
     for (const stmt of v3Cols) {
       try { await db.prepare(stmt).run(); } catch { /* column may already exist */ }
+    }
+    // v4: Immutable run architecture — exit_reason + run_id on direction_accuracy
+    for (const stmt of [
+      `ALTER TABLE direction_accuracy ADD COLUMN exit_reason TEXT`,
+      `ALTER TABLE direction_accuracy ADD COLUMN run_id TEXT`,
+    ]) {
+      try { await db.prepare(stmt).run(); } catch {}
     }
     // Three-tier awareness: per-ticker and per-sector profile tables
     try {
@@ -19390,6 +21167,25 @@ function buildTradeLineageSnapshot(tickerData, entryPathOverride = null) {
     })(),
     mean_revert_td9: tickerData?.mean_revert_td9 || null,
     liq: liqSnapshot,
+    // ORB snapshot at entry: captures opening range levels and breakout state
+    orb: (() => {
+      const orb = tickerData?.orb;
+      if (!orb?.primary) return null;
+      const p = orb.primary;
+      return {
+        orh: p.orh, orl: p.orl, orm: p.orm,
+        width: p.width, widthPct: p.widthPct,
+        breakout: p.breakout || null,
+        holdingAbove: p.holdingAbove, holdingBelow: p.holdingBelow,
+        reclaim: p.reclaim,
+        priceVsORM: p.priceVsORM,
+        dayBias: p.dayBias,
+        targetsHitUp: p.targetsHitUp, targetsHitDn: p.targetsHitDn,
+        orbBias: orb.orbBias,
+        confirmed: !!tickerData?.__orb_confirmed,
+        against: !!tickerData?.__orb_against,
+      };
+    })(),
   };
 }
 
@@ -19435,7 +21231,7 @@ async function d1LogDirectionEntry(env, trade, tickerData) {
         regime_combined, bullish_count, bearish_count, tf_stack_json, entry_path,
         rank, rr, entry_price, signal_snapshot_json,
         execution_profile_name, execution_profile_confidence, market_state, execution_profile_json,
-        status)
+        status, run_id)
        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
     ).bind(
       trade.id, trade.ticker, trade.entry_ts || Date.now(),
@@ -19455,7 +21251,8 @@ async function d1LogDirectionEntry(env, trade, tickerData) {
       executionProfileConfidence,
       marketState,
       executionProfileJson,
-      "OPEN"
+      "OPEN",
+      trade.run_id || trade.runId || null
     ).run();
   } catch (e) {
     console.warn("[LEARNING] Failed to log direction entry:", String(e).slice(0, 150));
@@ -19477,13 +21274,17 @@ async function d1UpdateDirectionOutcome(env, trade) {
     const mfe = Number(trade.maxFavorableExcursion) || null;
     const mae = Number(trade.maxAdverseExcursion) || null;
     const status = String(trade.status || "");
+    const exitReason = trade.exitReason || trade.exit_reason || null;
     await db.prepare(
       `UPDATE direction_accuracy SET exit_ts=?, exit_price=?, pnl=?, pnl_pct=?,
-       direction_correct=?, max_favorable_excursion=?, max_adverse_excursion=?, status=?
+       direction_correct=?, max_favorable_excursion=?, max_adverse_excursion=?, status=?,
+       exit_reason=?
        WHERE trade_id=?`
     ).bind(
       trade.exit_ts || Date.now(), exitPx, pnl, pnlPct,
-      dirCorrect, mfe, mae, status, trade.id
+      dirCorrect, mfe, mae, status,
+      exitReason != null ? String(exitReason) : null,
+      trade.id
     ).run();
   } catch (e) {
     console.warn("[LEARNING] Failed to update direction outcome:", String(e).slice(0, 150));
@@ -20969,6 +22770,70 @@ async function d1UpsertTrade(env, trade) {
   } catch (err) {
     console.error(`[D1 LEDGER] Trade upsert failed for ${tradeId}:`, err);
     return { ok: false, error: String(err) };
+  }
+}
+
+// Write-through archive: upsert trade into backtest_run_trades (immutable per-run record).
+// Uses INSERT OR REPLACE so the archive always reflects the latest state for this (run_id, trade_id).
+async function d1ArchiveRunTrade(env, runId, trade) {
+  const db = env?.DB;
+  if (!db || !runId || !trade) return;
+  const tradeId = String(trade.id || trade.trade_id || "").trim();
+  if (!tradeId) return;
+  try {
+    await d1EnsureBacktestRunsSchema(env);
+    const ticker = String(trade.ticker || "").toUpperCase();
+    const direction = String(trade.direction || "").toUpperCase();
+    let entryTs = Number(trade.entry_ts);
+    if (!Number.isFinite(entryTs) || entryTs <= 0) entryTs = isoToMs(trade.entryTime) || null;
+    if (Number.isFinite(entryTs) && entryTs < 1e12) entryTs = entryTs * 1000;
+    let exitTs = Number(trade.exit_ts);
+    if (!Number.isFinite(exitTs) || exitTs <= 0) exitTs = null;
+    if (exitTs != null && exitTs < 1e12) exitTs = exitTs * 1000;
+    let trimTs = Number(trade.trim_ts);
+    if (Number.isFinite(trimTs) && trimTs < 1e12) trimTs = trimTs * 1000;
+    if (!Number.isFinite(trimTs)) trimTs = null;
+    const exitPrice = trade.exitPrice != null ? Number(trade.exitPrice) : trade.exit_price != null ? Number(trade.exit_price) : null;
+    const entryPrice = trade.entryPrice != null ? Number(trade.entryPrice) : trade.entry_price != null ? Number(trade.entry_price) : null;
+    const exitReason = trade.exitReason || trade.exit_reason || null;
+    const pnlPct = trade.pnlPct != null ? Number(trade.pnlPct) : trade.pnl_pct != null ? Number(trade.pnl_pct) : null;
+    const trimPrice = Number(trade.trim_price ?? trade.trimPrice) || null;
+    await db.prepare(
+      `INSERT OR REPLACE INTO backtest_run_trades
+        (run_id, trade_id, ticker, direction, entry_ts, entry_price, rank, rr, status,
+         exit_ts, exit_price, exit_reason, trimmed_pct, pnl, pnl_pct, script_version,
+         created_at, updated_at, trim_ts, trim_price,
+         setup_name, setup_grade, risk_budget, shares, notional)
+       VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,?25)`
+    ).bind(
+      String(runId),
+      tradeId,
+      ticker || null,
+      direction || null,
+      entryTs != null ? Number(entryTs) : null,
+      entryPrice,
+      trade.rank != null ? Number(trade.rank) : null,
+      trade.rr != null ? Number(trade.rr) : null,
+      trade.status != null ? String(trade.status) : null,
+      exitTs,
+      Number.isFinite(exitPrice) ? exitPrice : null,
+      exitReason != null ? String(exitReason) : null,
+      trade.trimmedPct != null ? Number(trade.trimmedPct) : (trade.trimmed_pct != null ? Number(trade.trimmed_pct) : null),
+      trade.pnl != null ? Number(trade.pnl) : null,
+      pnlPct,
+      trade.scriptVersion ?? trade.script_version ?? null,
+      Number(entryTs) || Date.now(),
+      Date.now(),
+      trimTs,
+      Number.isFinite(trimPrice) ? trimPrice : null,
+      trade.setupName ?? trade.setup_name ?? null,
+      trade.setupGrade ?? trade.setup_grade ?? null,
+      Number(trade.riskBudget ?? trade.risk_budget) || null,
+      Number(trade.shares) || null,
+      Number(trade.notional ?? (Number(trade.shares) * Number(entryPrice))) || null,
+    ).run();
+  } catch (e) {
+    console.warn("[ARCHIVE] d1ArchiveRunTrade failed:", String(e).slice(0, 150));
   }
 }
 
@@ -22847,12 +24712,13 @@ function createTradeEntryEmbed(
     gold_long: "TT Breakout Long", gold_short: "TT Reversal Short", gold_short_pullback: "TT Reversal Short Pullback",
     momentum_score: "TT Momentum", squeeze_setup: "TT Squeeze", elite: "TT Elite",
     breakout: "TT Breakout", mean_revert_td9: "TT Mean Revert TD9",
-    ripster_momentum: "TT Momentum", ripster_pullback: "TT Pullback",
+    ripster_momentum: "TT Momentum", ripster_pullback: "TT Pullback", ripster_reclaim: "TT Reclaim",
+    mean_reversion_pdz: "TT Mean Reversion",
   };
   const _fmtSetup = (n) => _SETUP_MAP[n] || (n ? "TT " + n.replace(/^ripster_?/i, "").replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase()) : "TT Setup");
   if (_setupName || _setupGrade) {
     const riskLabel = _riskPct > 0 && _riskPct < 1 ? `${(_riskPct * 100).toFixed(2)}% risk` : (_riskPct >= 1 ? `$${_riskPct} risk` : "");
-    summaryLines.push(`Setup:  **${_fmtSetup(_setupName)}** ${_setupGrade ? `(TT ${_setupGrade})` : ""}${riskLabel ? `  |  **${riskLabel}**` : ""}`);
+    summaryLines.push(`Setup:  **${_fmtSetup(_setupName)}** ${_setupGrade ? `(${_setupGrade})` : ""}${riskLabel ? `  |  **${riskLabel}**` : ""}`);
   }
   if (_shares > 0) {
     summaryLines.push(`Shares:  **${Math.round(_shares)}**  |  Notional:  **$${_notional.toFixed(0)}**`);
@@ -22970,11 +24836,12 @@ function createTradeTrimmedEmbed(
       ema_regime_early_long: "TT Early Long", ema_regime_early_short: "TT Early Short",
       gold_long: "TT Breakout Long", gold_short: "TT Reversal Short",
       momentum_score: "TT Momentum", ripster_momentum: "TT Momentum", ripster_pullback: "TT Pullback",
+      ripster_reclaim: "TT Reclaim", mean_reversion_pdz: "TT Mean Reversion",
     };
     const fmtS = (n) => _SETUP_MAP[n] || (n ? "TT " + n.replace(/^ripster_?/i, "").replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase()) : null);
     const parts = [];
     if (_trimSetup) parts.push(`Setup: **${fmtS(_trimSetup)}**`);
-    if (_trimGrade) parts.push(`Grade: **TT ${_trimGrade}**`);
+    if (_trimGrade) parts.push(`Grade: **${_trimGrade}**`);
     fields.push({ name: "Setup", value: parts.join("  |  "), inline: false });
   }
 
@@ -23108,11 +24975,12 @@ function createTradeClosedEmbed(
       ema_regime_early_long: "TT Early Long", ema_regime_early_short: "TT Early Short",
       gold_long: "TT Breakout Long", gold_short: "TT Reversal Short",
       momentum_score: "TT Momentum", ripster_momentum: "TT Momentum", ripster_pullback: "TT Pullback",
+      ripster_reclaim: "TT Reclaim", mean_reversion_pdz: "TT Mean Reversion",
     };
     const fmtS = (n) => _SETUP_MAP[n] || (n ? "TT " + n.replace(/^ripster_?/i, "").replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase()) : null);
     const parts = [];
     if (_exitSetup) parts.push(`Setup: **${fmtS(_exitSetup)}**`);
-    if (_exitGrade) parts.push(`Grade: **TT ${_exitGrade}**`);
+    if (_exitGrade) parts.push(`Grade: **${_exitGrade}**`);
     fields.push({ name: "Setup", value: parts.join("  |  "), inline: false });
   }
 
@@ -23167,8 +25035,10 @@ function createKanbanStageEmbed(ticker, stage, prevStage, tickerData = null, ope
 
   // Stage config: emoji, label, color, human description
   const stageConfig = {
-    enter:     { emoji: "🎯", label: "Entry Signal",      color: 0x22c55e, verb: "is ready for entry" },
-    enter_now: { emoji: "🎯", label: "Entry Signal",      color: 0x22c55e, verb: "is ready for entry" },
+    in_review: { emoji: "🔍", label: "Under CIO Review",  color: 0xf59e0b, verb: "is under CIO review" },
+    enter:     { emoji: "🔍", label: "Under CIO Review",  color: 0xf59e0b, verb: "is under CIO review" },
+    enter_now: { emoji: "🔍", label: "Under CIO Review",  color: 0xf59e0b, verb: "is under CIO review" },
+    just_entered: { emoji: "✅", label: "Position Initiated", color: 0x22c55e, verb: "position has been initiated" },
     hold:      { emoji: "📌", label: "Holding",            color: 0x3b82f6, verb: "is being held" },
     defend:    { emoji: "🛡️", label: "Defending Position", color: 0xf59e0b, verb: "needs attention — tightening stops" },
     trim:      { emoji: "✂️", label: "Taking Profit",      color: 0x8b5cf6, verb: "is approaching profit targets" },
@@ -23183,8 +25053,8 @@ function createKanbanStageEmbed(ticker, stage, prevStage, tickerData = null, ope
 
   const fields = [];
 
-  // ENTER: signal quality in plain language
-  if (stage === "enter" || stage === "enter_now") {
+  // IN_REVIEW / ENTER: signal quality in plain language
+  if (stage === "in_review" || stage === "enter" || stage === "enter_now") {
     const entryLines = [];
     if (Number.isFinite(rr) && rr > 0) entryLines.push(`Risk/Reward:  **${rr.toFixed(1)}:1**`);
     if (Number.isFinite(rank) && rank > 0) entryLines.push(`Signal Strength:  **${rank}**/100`);
@@ -24207,7 +26077,7 @@ function inferTraderDirection(data = {}) {
 
 function traderActionFromStage(stage) {
   const s = String(stage || "").toLowerCase();
-  if (s.includes("enter")) return { action: "enter", action_label: "Enter Now" };
+  if (s === "in_review" || s.includes("enter")) return { action: "enter", action_label: "In Review" };
   if (s.includes("hold")) return { action: "hold", action_label: "Hold" };
   if (s.includes("trim")) return { action: "trim", action_label: "Trim Into Strength" };
   if (s.includes("exit")) return { action: "exit", action_label: "Exit / Avoid New Risk" };
@@ -24334,7 +26204,7 @@ async function buildTraderPredictionContract(env, ticker) {
   const rr = Number(data?.rr || 0);
 
   const _tierApprox = (() => {
-    if (stage.includes("enter")) {
+    if (stage === "in_review" || stage.includes("enter")) {
       const entryResult = { path: data?.__entry_path || "", confidence: data?.__entry_confidence || "" };
       const tradeConf = clamp((eqScore || rank || 50) / 100, 0, 1);
       return computeSetupTier(entryResult, tradeConf);
@@ -24351,7 +26221,7 @@ async function buildTraderPredictionContract(env, ticker) {
   const _confWord = confidenceScore >= 75 ? "high-conviction" : confidenceScore >= 55 ? "solid" : "developing";
   const thesis = (() => {
     const s = stage.toLowerCase();
-    if (s.includes("enter")) {
+    if (s === "in_review" || s.includes("enter")) {
       return [
         `${_strengthWord.charAt(0).toUpperCase() + _strengthWord.slice(1)} ${_dirWord} momentum across ${_voteCount > 0 ? _voteCount : "multiple"} timeframes.`,
         rr >= 2 ? `The model sees a ${_confWord} entry with ${rr.toFixed(1)}x risk/reward.` :
@@ -25249,7 +27119,7 @@ export default {
                           : {};
                       payload.flags.forced_watch_missing_trigger = true;
                     } else if (!cycleOk) {
-                      finalStage = "enter_now";
+                      finalStage = "in_review";
                       payload.flags =
                         payload.flags && typeof payload.flags === "object"
                           ? payload.flags
@@ -25259,7 +27129,7 @@ export default {
                   }
                 }
 
-                if (finalStage === "enter_now") {
+                if (finalStage === "in_review" || finalStage === "enter_now") {
                   const curTriggerTs = Number(payload?.trigger_ts);
                   const curSide = sideFromStateOrScores(payload);
                   payload.kanban_cycle_enter_now_ts = tsNow;
@@ -25341,20 +27211,28 @@ export default {
                 payload.prev_kanban_stage_ts = null;
               }
 
-              // Track entry price when entering "enter_now" stage
-              if (finalStage === "enter_now" && prevStage !== "enter_now") {
+              // Track entry price when entering "in_review" stage (or legacy enter_now)
+              const _isNewReview = (finalStage === "in_review" || finalStage === "enter_now") &&
+                                   prevStage !== "in_review" && prevStage !== "enter_now" && prevStage !== "enter";
+              if (_isNewReview) {
                 const price = Number(payload?.price);
                 if (Number.isFinite(price) && price > 0) {
                   payload.entry_price = price;
                   payload.entry_ts = payload.ts;
                   console.log(
-                    `[KANBAN] ${ticker} entered ENTER_NOW at $${price.toFixed(2)}`,
+                    `[KANBAN] ${ticker} entered IN_REVIEW at $${price.toFixed(2)}`,
                   );
                 }
+                // Clear any stale CIO block from prior rejection
+                delete payload.__cio_blocked;
+                delete payload.__cio_block_reason;
+                delete payload.__cio_block_ts;
+                delete payload.__cio_block_flags;
               }
 
               // Discord notification for kanban lane transitions
               const actionableStages = [
+                "in_review",
                 "enter",
                 "enter_now",
                 "just_entered",
@@ -25394,7 +27272,7 @@ export default {
                         );
                       });
                       // In-app notification for kanban stage transition
-                      const stageLabels = { enter_now: "Entry Signal", hold: "Holding", defend: "Defending", exit: "Exit Signal", setup: "Setup" };
+                      const stageLabels = { in_review: "Under Review", enter: "Under Review", enter_now: "Under Review", just_entered: "Position Initiated", hold: "Holding", defend: "Defending", exit: "Exit Signal", setup: "Setup" };
                       await d1InsertNotification(env, {
                         email: null, type: "kanban",
                         title: `${stageLabels[finalStage] || finalStage.toUpperCase()}: ${ticker}`,
@@ -26072,6 +27950,19 @@ export default {
             await mlV1AttachToPayload(KV, payload);
           } catch (e) {
             console.warn(`[ML_V1] attach failed for ${ticker}:`, String(e));
+          }
+
+          // Preserve CIO rejection fields if ticker was recently blocked and is still in setup
+          if (existing?.__cio_blocked && !payload.__cio_blocked) {
+            const ks = String(payload?.kanban_stage || "").toLowerCase();
+            const cioAge = Date.now() - (Number(existing.__cio_block_ts) || 0);
+            if ((ks === "setup" || ks === "watch" || ks === "discovery") && cioAge < 4 * 3600000) {
+              payload.__cio_blocked = existing.__cio_blocked;
+              payload.__cio_block_reason = existing.__cio_block_reason;
+              payload.__cio_block_ts = existing.__cio_block_ts;
+              payload.__cio_block_flags = existing.__cio_block_flags;
+              payload.__setup_reason = existing.__setup_reason;
+            }
           }
 
           // Store latest (do this BEFORE alert so UI has it)
@@ -27689,6 +29580,7 @@ export default {
 
                 // Discord notification for kanban lane transitions (capture-promote path)
                 const actionableStages = [
+                  "in_review",
                   "enter",
                   "enter_now",
                   "just_entered",
@@ -28556,7 +30448,10 @@ export default {
         const kvActive = Array.isArray(kvTickers)
           ? kvTickers.map((t) => String(t).toUpperCase()).filter((t) => t && !removedSet.has(t))
           : [];
-        const merged = [...new Set([...tickers, ...kvActive])].sort();
+        // Include user-added tickers so they appear on Ticker Management page
+        let userAdded = [];
+        try { userAdded = await d1GetActiveUserTickersCached(env); } catch (_) {}
+        const merged = [...new Set([...tickers, ...kvActive, ...userAdded.map(t => String(t).toUpperCase())])].filter(t => !removedSet.has(t)).sort();
         if (merged.length > (tickers.length || 0)) {
           tickers = merged;
           try {
@@ -28605,7 +30500,12 @@ export default {
 
         // Scope user-added tickers to the requesting user (not all users)
         let _reqUserEmail = null;
-        try { const u = await authenticateUser(req, env); _reqUserEmail = u?.email || null; } catch (_) {}
+        let _isAdminReq = false;
+        try {
+          const u = await authenticateUser(req, env);
+          _reqUserEmail = u?.email || null;
+          if (u && (u.role === "admin" || u.tier === "admin" || u.email === env.ADMIN_EMAIL)) _isAdminReq = true;
+        } catch (_) {}
         const userAddedForReq = _reqUserEmail
           ? await d1GetActiveUserTickersForEmail(env, _reqUserEmail)
           : [];
@@ -28615,7 +30515,9 @@ export default {
         // Falls through to D1 if snapshot is missing or stale
         try {
           const snapshot = await kvGetJSON(KV, "timed:all:snapshot");
-          const SNAPSHOT_MAX_AGE = isWithinOperatingHours() ? 300000 : 86400000;
+          // 360s (6 min) > 300s cron interval: snapshot never goes stale between scoring runs.
+          // Previous 300s window caused D1 fallback flicker at the boundary.
+          const SNAPSHOT_MAX_AGE = isWithinOperatingHours() ? 360000 : 86400000;
           if (snapshot?.data && snapshot?.built_at && (Date.now() - snapshot.built_at) < SNAPSHOT_MAX_AGE) {
             const _rawRemoved = (await kvGetJSON(KV, "timed:removed")) || [];
             const removedSet = new Set(Array.isArray(_rawRemoved) ? _rawRemoved : []);
@@ -28973,18 +30875,23 @@ export default {
                 for (const [sym, closes] of Object.entries(sparkMap)) {
                   if (data[sym]) data[sym]._sparkline = closes;
                 }
-                // Async-update KV snapshot so subsequent requests skip the D1 query
+                // Async-update KV snapshot with sparklines.
+                // Version guard: re-read built_at before writing to avoid
+                // overwriting a newer snapshot the scoring cron just wrote.
+                const _sparkBuiltAt = snapshot.built_at;
                 ctx.waitUntil((async () => {
                   try {
+                    const currentSnap = await kvGetJSON(KV, "timed:all:snapshot");
+                    if (!currentSnap || currentSnap.built_at !== _sparkBuiltAt) return;
                     const enrichedSnapshot = {};
-                    for (const [sym, payload] of Object.entries(snapshot.data)) {
+                    for (const [sym, payload] of Object.entries(currentSnap.data)) {
                       enrichedSnapshot[sym] = { ...payload };
                       if (sparkMap[sym]) enrichedSnapshot[sym]._sparkline = sparkMap[sym];
                     }
                     await kvPutJSON(KV, "timed:all:snapshot", {
                       data: enrichedSnapshot,
                       count: Object.keys(enrichedSnapshot).length,
-                      built_at: snapshot.built_at,
+                      built_at: _sparkBuiltAt,
                     });
                   } catch (_) {}
                 })());
@@ -28998,6 +30905,13 @@ export default {
             const _STRIP_FIELDS = ["_env", "atr_levels", "_tickerProfile", "tf_candles", "_marketInternals", "market_internals", "ichimoku_map", "execution_profile", "fuel", "st_support", "liq_4h"];
             for (const _tObj of Object.values(data)) {
               for (const _sf of _STRIP_FIELDS) delete _tObj[_sf];
+            }
+
+            if (!_isAdminReq) {
+              for (const _tObj of Object.values(data)) {
+                if (_tObj.leading_ltf === "10") _tObj.leading_ltf = "15";
+                if (_tObj.lead_intraday_tf === "10") _tObj.lead_intraday_tf = "15";
+              }
             }
 
             const _snapFreshTs = Date.now();
@@ -29847,6 +31761,13 @@ export default {
           const _D1_STRIP = ["_env", "atr_levels", "_tickerProfile", "tf_candles", "_marketInternals", "market_internals", "ichimoku_map", "execution_profile", "fuel", "st_support", "liq_4h"];
           for (const _tObj of Object.values(data)) {
             for (const _sf of _D1_STRIP) delete _tObj[_sf];
+          }
+
+          if (!_isAdminReq) {
+            for (const _tObj of Object.values(data)) {
+              if (_tObj.leading_ltf === "10") _tObj.leading_ltf = "15";
+              if (_tObj.lead_intraday_tf === "10") _tObj.lead_intraday_tf = "15";
+            }
           }
 
           return sendJSON(
@@ -30833,6 +32754,18 @@ export default {
               400,
               corsHeaders(env, req),
             );
+          }
+
+          const RESTRICTED_TFS = new Set(["1", "3", "5", "10"]);
+          if (RESTRICTED_TFS.has(String(tf))) {
+            const adminCheck = await requireKeyOrAdmin(req, env);
+            if (adminCheck) {
+              return sendJSON(
+                { ok: false, error: "timeframe_restricted", allowed: ["15", "30", "60", "240", "D", "W", "M"] },
+                403,
+                corsHeaders(env, req),
+              );
+            }
           }
 
           const res = Number.isFinite(asOfTs) && asOfTs > 0
@@ -35946,6 +37879,58 @@ export default {
         }
       }
 
+      // GET /timed/admin/ai-cio/decisions — List all AI CIO decisions
+      if (routeKey === "GET /timed/admin/ai-cio/decisions") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const db = env?.DB;
+        if (!db) return sendJSON({ ok: false, error: "d1_not_configured" }, 503, corsHeaders(env, req));
+        try {
+          const limit = Math.min(500, Number(url.searchParams.get("limit")) || 100);
+          const { results } = await db.prepare(
+            `SELECT * FROM ai_cio_decisions ORDER BY created_at DESC LIMIT ?1`
+          ).bind(limit).all();
+          return sendJSON({ ok: true, decisions: results || [] }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 200) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // GET /timed/admin/ai-cio/accuracy — AI CIO accuracy report
+      if (routeKey === "GET /timed/admin/ai-cio/accuracy") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const db = env?.DB;
+        if (!db) return sendJSON({ ok: false, error: "d1_not_configured" }, 503, corsHeaders(env, req));
+        try {
+          const { results: totals } = await db.prepare(
+            `SELECT decision,
+                    COUNT(*) as count,
+                    SUM(CASE WHEN trade_outcome = 'WIN' THEN 1 ELSE 0 END) as wins,
+                    SUM(CASE WHEN trade_outcome = 'LOSS' THEN 1 ELSE 0 END) as losses,
+                    AVG(trade_pnl_pct) as avg_pnl_pct,
+                    AVG(confidence) as avg_confidence,
+                    AVG(edge_score) as avg_edge_score,
+                    AVG(latency_ms) as avg_latency_ms
+             FROM ai_cio_decisions
+             GROUP BY decision`
+          ).all();
+          const { results: rejectedTrades } = await db.prepare(
+            `SELECT ticker, direction, reasoning, risk_flags, confidence, edge_score, created_at
+             FROM ai_cio_decisions
+             WHERE decision = 'REJECT' AND fallback = 0
+             ORDER BY created_at DESC LIMIT 20`
+          ).all();
+          return sendJSON({
+            ok: true,
+            summary: totals || [],
+            recent_rejections: rejectedTrades || [],
+          }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 200) }, 500, corsHeaders(env, req));
+        }
+      }
+
       // GET /timed/admin/trade-autopsy/trades — All closed trades with direction_accuracy (entry + exit context)
       if (routeKey === "GET /timed/admin/trade-autopsy/trades") {
         const authFail = await requireKeyOrAdmin(req, env);
@@ -36034,6 +38019,54 @@ export default {
               live_run_id: replayLock || null,
             }, 200, corsHeaders(env, req));
           }
+          // Determine which run to show: explicit run_id, or most recent completed run from archive
+          await d1EnsureBacktestRunsSchema(env);
+          let archiveRunId = requestedRunId || null;
+          let source = "trades_d1";
+          if (!archiveRunId) {
+            const latestRun = await db.prepare(
+              `SELECT run_id FROM backtest_runs WHERE status = 'completed' ORDER BY ended_at DESC, updated_at DESC LIMIT 1`
+            ).first();
+            if (latestRun?.run_id) archiveRunId = latestRun.run_id;
+          }
+
+          // If we have an archive run_id, read from the immutable backtest_run_trades archive
+          if (archiveRunId) {
+            const { results: rows } = await db.prepare(
+              `SELECT brt.trade_id, brt.ticker, brt.direction, brt.status, brt.entry_ts, brt.exit_ts, brt.trim_ts,
+                      brt.entry_price, brt.exit_price, brt.pnl, brt.pnl_pct, brt.exit_reason, brt.run_id,
+                      brt.trimmed_pct, brt.trim_price, brt.setup_name, brt.setup_grade, brt.risk_budget,
+                      brt.shares, brt.notional,
+                      da.signal_snapshot_json, da.exit_snapshot_json, da.entry_path, da.consensus_direction,
+                      da.max_favorable_excursion, da.max_adverse_excursion, da.tf_stack_json,
+                      da.execution_profile_name, da.execution_profile_confidence, da.market_state, da.execution_profile_json,
+                      da.rvol_best, da.entry_quality_score, da.exit_reason AS da_exit_reason
+                 FROM backtest_run_trades brt
+                 LEFT JOIN direction_accuracy da ON da.trade_id = brt.trade_id
+               WHERE brt.run_id = ?1 AND brt.status NOT IN ('OPEN', 'TP_HIT_TRIM')
+               ORDER BY brt.entry_ts DESC`
+            ).bind(archiveRunId).all();
+            source = "archive";
+            const trades = (rows || []).map(r => ({
+              trade_id: r.trade_id, run_id: r.run_id, ticker: r.ticker, direction: r.direction,
+              status: r.status, entry_ts: r.entry_ts, exit_ts: r.exit_ts, trim_ts: r.trim_ts,
+              entry_price: r.entry_price, exit_price: r.exit_price, pnl: r.pnl, pnl_pct: r.pnl_pct,
+              exit_reason: r.exit_reason || r.da_exit_reason || null,
+              trimmed_pct: r.trimmed_pct, trim_price: r.trim_price,
+              setup_name: r.setup_name, setup_grade: r.setup_grade, risk_budget: r.risk_budget,
+              shares: r.shares ?? null, notional: r.notional ?? null,
+              signal_snapshot_json: r.signal_snapshot_json, exit_snapshot_json: r.exit_snapshot_json,
+              entry_path: r.entry_path, consensus_direction: r.consensus_direction,
+              max_favorable_excursion: r.max_favorable_excursion, max_adverse_excursion: r.max_adverse_excursion,
+              tf_stack_json: r.tf_stack_json,
+              execution_profile_name: r.execution_profile_name, execution_profile_confidence: r.execution_profile_confidence,
+              market_state: r.market_state, execution_profile_json: r.execution_profile_json,
+              rvol_best: r.rvol_best ?? null, entry_quality_score: r.entry_quality_score ?? null,
+            }));
+            return sendJSON({ ok: true, count: trades.length, trades, source, archive_run_id: archiveRunId }, 200, corsHeaders(env, req));
+          }
+
+          // Fallback: read from trades table (live system or no archive available)
           const { results: rows } = await db.prepare(
             `SELECT t.trade_id, t.ticker, t.direction, t.status, t.entry_ts, t.exit_ts, t.trim_ts,
                     t.entry_price, t.exit_price, t.pnl, t.pnl_pct, t.exit_reason, t.run_id,
@@ -36049,41 +38082,22 @@ export default {
              ORDER BY t.entry_ts DESC`
           ).all();
           const trades = (rows || []).map(r => ({
-            trade_id: r.trade_id,
-            run_id: r.run_id,
-            ticker: r.ticker,
-            direction: r.direction,
-            status: r.status,
-            entry_ts: r.entry_ts,
-            exit_ts: r.exit_ts,
-            trim_ts: r.trim_ts,
-            entry_price: r.entry_price,
-            exit_price: r.exit_price,
-            pnl: r.pnl,
-            pnl_pct: r.pnl_pct,
+            trade_id: r.trade_id, run_id: r.run_id, ticker: r.ticker, direction: r.direction,
+            status: r.status, entry_ts: r.entry_ts, exit_ts: r.exit_ts, trim_ts: r.trim_ts,
+            entry_price: r.entry_price, exit_price: r.exit_price, pnl: r.pnl, pnl_pct: r.pnl_pct,
             exit_reason: r.exit_reason,
-            trimmed_pct: r.trimmed_pct,
-            trim_price: r.trim_price,
-            setup_name: r.setup_name,
-            setup_grade: r.setup_grade,
-            risk_budget: r.risk_budget,
-            shares: r.shares ?? null,
-            notional: r.notional ?? null,
-            signal_snapshot_json: r.signal_snapshot_json,
-            exit_snapshot_json: r.exit_snapshot_json,
-            entry_path: r.entry_path,
-            consensus_direction: r.consensus_direction,
-            max_favorable_excursion: r.max_favorable_excursion,
-            max_adverse_excursion: r.max_adverse_excursion,
+            trimmed_pct: r.trimmed_pct, trim_price: r.trim_price,
+            setup_name: r.setup_name, setup_grade: r.setup_grade, risk_budget: r.risk_budget,
+            shares: r.shares ?? null, notional: r.notional ?? null,
+            signal_snapshot_json: r.signal_snapshot_json, exit_snapshot_json: r.exit_snapshot_json,
+            entry_path: r.entry_path, consensus_direction: r.consensus_direction,
+            max_favorable_excursion: r.max_favorable_excursion, max_adverse_excursion: r.max_adverse_excursion,
             tf_stack_json: r.tf_stack_json,
-            execution_profile_name: r.execution_profile_name,
-            execution_profile_confidence: r.execution_profile_confidence,
-            market_state: r.market_state,
-            execution_profile_json: r.execution_profile_json,
-            rvol_best: r.rvol_best ?? null,
-            entry_quality_score: r.entry_quality_score ?? null,
+            execution_profile_name: r.execution_profile_name, execution_profile_confidence: r.execution_profile_confidence,
+            market_state: r.market_state, execution_profile_json: r.execution_profile_json,
+            rvol_best: r.rvol_best ?? null, entry_quality_score: r.entry_quality_score ?? null,
           }));
-          return sendJSON({ ok: true, count: trades.length, trades }, 200, corsHeaders(env, req));
+          return sendJSON({ ok: true, count: trades.length, trades, source }, 200, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 200) }, 500, corsHeaders(env, req));
         }
@@ -36520,7 +38534,9 @@ export default {
         const intervalMinutes = Math.max(1, Math.min(30, Number(url.searchParams.get("intervalMinutes")) || 10));
         const cleanSlate = url.searchParams.get("cleanSlate") === "1";
         const trailOnly = url.searchParams.get("trailOnly") === "1";
+        const skipTrail = url.searchParams.get("skipTrail") === "1" || url.searchParams.get("skipTrailWrite") === "1" || url.searchParams.get("lowWrite") === "1";
         const skipInvestor = url.searchParams.get("skipInvestor") === "1" || url.searchParams.get("traderOnly") === "1";
+        const skipPayload = url.searchParams.get("skipPayload") !== "0"; // default ON: skip heavy payload_json to avoid timeout
         const tickerFilter = url.searchParams.get("tickers"); // comma-separated filter
         const replayEnv = { ...env };
         for (const overrideKey of ["LEADING_LTF", "TT_EXIT_DEBOUNCE_BARS", "TT_TUNE_V2", "RIPSTER_TUNE_V2", "ENTRY_ENGINE", "MANAGEMENT_ENGINE"]) {
@@ -36569,26 +38585,29 @@ export default {
         const replayLockVal = await KV.get("timed:replay:lock") || null;
         await kvPutJSON(KV, "timed:replay:running", { since: Date.now(), date: dateParam, offset: tickerOffset, fullDay: !!fullDay });
 
-        // Clean slate: purge ALL trades on first batch of a day (KV + D1)
+        // Clean slate: purge working-state tables (KV + D1) for a fresh run.
+        // ╔══════════════════════════════════════════════════════════════════════╗
+        // ║  PROTECTED — NEVER delete from these archive/learning tables:      ║
+        // ║  backtest_run_trades, backtest_run_direction_accuracy,              ║
+        // ║  backtest_run_annotations, backtest_run_config, backtest_runs,      ║
+        // ║  direction_accuracy, trade_autopsy_annotations                      ║
+        // ╚══════════════════════════════════════════════════════════════════════╝
         if (cleanSlate && tickerOffset === 0) {
           await kvPutJSON(KV, "timed:trades:all", []);
           await kvPutJSON(KV, REPLAY_TRADES_KV_KEY, []);
           await kvPutJSON(KV, "timed:portfolio:v1", null);
           await kvPutJSON(KV, "timed:activity:feed", null);
 
-          // Also purge D1 trade-related tables so metrics stay in sync.
-          // Run core tables first (guaranteed to exist), optional tables separately.
           if (db) {
             try {
               await db.batch([
                 db.prepare("DELETE FROM trade_events"),
                 db.prepare("DELETE FROM trades"),
               ]);
-              console.log("[REPLAY cleanSlate] Purged D1 trade_events + trades");
+              console.log("[REPLAY cleanSlate] Purged D1 trade_events + trades (archive tables preserved)");
             } catch (d1Err) {
               console.warn("[REPLAY cleanSlate] D1 trades purge error:", String(d1Err?.message || d1Err).slice(0, 200));
             }
-            // Optional tables — may not exist; purge individually
             for (const tbl of ["positions", "execution_actions", "lots", "alerts", "ticker_latest", "account_ledger", "investor_positions", "investor_lots", "portfolio_snapshots"]) {
               try {
                 await db.prepare(`DELETE FROM ${tbl}`).run();
@@ -36622,8 +38641,41 @@ export default {
           })
         );
 
-        // Load existing trades for trade simulation (KV first, D1 fallback)
+        // Load existing trades for trade simulation (KV first, archive fallback)
         let allTrades = (await kvGetJSON(KV, REPLAY_TRADES_KV_KEY)) || [];
+        // Resume-from-archive: if KV is empty but the run has trades in backtest_run_trades, restore them
+        if ((!allTrades || allTrades.length === 0) && replayLockVal && db) {
+          try {
+            await d1EnsureBacktestRunsSchema(env);
+            const { results: archiveRows } = await db.prepare(
+              `SELECT trade_id, ticker, direction, entry_ts, entry_price, rank, rr, status,
+                      exit_ts, exit_price, exit_reason, trimmed_pct, pnl, pnl_pct,
+                      trim_ts, trim_price, setup_name, setup_grade, risk_budget, shares, notional
+               FROM backtest_run_trades WHERE run_id = ?1`
+            ).bind(replayLockVal).all();
+            if (archiveRows && archiveRows.length > 0) {
+              allTrades = archiveRows.map(r => ({
+                id: r.trade_id, trade_id: r.trade_id, ticker: r.ticker, direction: r.direction,
+                entry_ts: r.entry_ts, entryPrice: r.entry_price, entry_price: r.entry_price,
+                rank: r.rank, rr: r.rr, status: r.status,
+                exit_ts: r.exit_ts, exitPrice: r.exit_price, exit_price: r.exit_price,
+                exitReason: r.exit_reason, exit_reason: r.exit_reason,
+                trimmedPct: r.trimmed_pct, trimmed_pct: r.trimmed_pct,
+                pnl: r.pnl, pnlPct: r.pnl_pct, pnl_pct: r.pnl_pct,
+                trim_ts: r.trim_ts, trim_price: r.trim_price,
+                setupName: r.setup_name, setup_name: r.setup_name,
+                setupGrade: r.setup_grade, setup_grade: r.setup_grade,
+                riskBudget: r.risk_budget, risk_budget: r.risk_budget,
+                shares: r.shares, notional: r.notional,
+                run_id: replayLockVal,
+              }));
+              await kvPutJSON(KV, REPLAY_TRADES_KV_KEY, allTrades);
+              console.log(`[REPLAY RESUME] Restored ${allTrades.length} trades from archive for run ${replayLockVal}`);
+            }
+          } catch (e) {
+            console.warn("[REPLAY RESUME] Archive load failed:", String(e).slice(0, 150));
+          }
+        }
         const replayCtx = { allTrades, execStates: new Map(), processDebug: [], candleCache, _blockedEntries: {}, _leadingLtf: replayLeadingLtf };
 
         // State map: track evolving ticker state across intervals
@@ -36682,7 +38734,7 @@ export default {
         } catch {}
         // Load deep audit config for replay parity with live
         try {
-          const daKeys = ["deep_audit_short_min_rank", "deep_audit_ticker_blacklist", "deep_audit_max_loss_pct", "deep_audit_sl_cap_mult", "deep_audit_sl_floor_mult", "deep_audit_rsi_tp_delay", "deep_audit_avoid_hours", "deep_audit_block_regime", "deep_audit_vix_ceiling", "deep_audit_regime_size_mult", "deep_audit_min_hold_regime_exit_hours", "deep_audit_loss_cooldown_hours", "deep_audit_min_htf_score", "deep_audit_momentum_elite_rank_boost", "deep_audit_breakout_daily_level_enabled", "deep_audit_breakout_atr_breakout_enabled", "deep_audit_breakout_ema_stack_enabled", "deep_audit_breakout_min_rr", "deep_audit_breakout_min_entry_quality", "deep_audit_opening_noise_end_minute", "deep_audit_min_1h_bias", "deep_audit_min_4h_bias", "deep_audit_ltf_momentum_min_bias", "deep_audit_ltf_momentum_min_rsi", "deep_audit_ripster_opening_noise_end_minute", "deep_audit_ltf_rsi_floor", "deep_audit_min_ltf_ema_depth", "deep_audit_post_trim_breakeven", "deep_audit_stall_max_hours", "deep_audit_stall_breakeven_pnl_pct", "deep_audit_stall_force_close_hours", "deep_audit_soft_fuse_defer_min_1h_depth", "deep_audit_runner_trail_pct", "deep_audit_post_trim_trail_pct", "deep_audit_stale_runner_bars", "deep_audit_momentum_fade_exit", "deep_audit_min_hold_before_mgmt_exit_min", "deep_audit_tp_atr_override", "deep_audit_phase_exit_enabled", "deep_audit_atr_exhaustion_exit", "deep_audit_rvol_ceiling", "deep_audit_rvol_ceiling_short", "deep_audit_rvol_high_threshold", "deep_audit_rvol_high_size_mult", "deep_audit_danger_max_signals", "deep_audit_danger_ema_depth_min", "deep_audit_danger_vix_threshold", "deep_audit_danger_min_st_aligned", "deep_audit_danger_size_mult", "deep_audit_danger_size_threshold", "deep_audit_danger_div_enabled", "deep_audit_div_exit_enabled", "deep_audit_div_exit_min_strength", "deep_audit_div_pivot_lookback", "deep_audit_div_max_age_bars", "deep_audit_div_runner_trail_pct", "deep_audit_mean_revert_td9_enabled", "deep_audit_td_exit_enabled", "deep_audit_td_exit_trail_pct", "deep_audit_td_ltf_trail_pct", "deep_audit_mfe_safety_trim_pct", "deep_audit_max_runner_drawdown_pct", "deep_audit_min_entry_quality", "deep_audit_hard_loss_cap", "tier_risk_map", "grade_risk_map", "smart_runner_exit_enabled", "smart_runner_swing_atr_proximity", "smart_runner_min_bars_post_trim", "rank_gate_mode", "doa_gate_enabled", "doa_gate_ema_depth_threshold", "doa_gate_ticker_blacklist"];
+          const daKeys = ["deep_audit_short_min_rank", "deep_audit_ticker_blacklist", "deep_audit_max_loss_pct", "deep_audit_sl_cap_mult", "deep_audit_sl_floor_mult", "deep_audit_rsi_tp_delay", "deep_audit_avoid_hours", "deep_audit_block_regime", "deep_audit_vix_ceiling", "deep_audit_regime_size_mult", "deep_audit_min_hold_regime_exit_hours", "deep_audit_loss_cooldown_hours", "deep_audit_min_htf_score", "deep_audit_momentum_elite_rank_boost", "deep_audit_breakout_daily_level_enabled", "deep_audit_breakout_atr_breakout_enabled", "deep_audit_breakout_ema_stack_enabled", "deep_audit_breakout_min_rr", "deep_audit_breakout_min_entry_quality", "deep_audit_opening_noise_end_minute", "deep_audit_min_1h_bias", "deep_audit_min_4h_bias", "deep_audit_ltf_momentum_min_bias", "deep_audit_ltf_momentum_min_rsi", "deep_audit_ripster_opening_noise_end_minute", "deep_audit_ltf_rsi_floor", "deep_audit_min_ltf_ema_depth", "deep_audit_post_trim_breakeven", "deep_audit_stall_max_hours", "deep_audit_stall_breakeven_pnl_pct", "deep_audit_stall_force_close_hours", "deep_audit_soft_fuse_defer_min_1h_depth", "deep_audit_runner_trail_pct", "deep_audit_post_trim_trail_pct", "deep_audit_stale_runner_bars", "deep_audit_momentum_fade_exit", "deep_audit_min_hold_before_mgmt_exit_min", "deep_audit_tp_atr_override", "deep_audit_phase_exit_enabled", "deep_audit_atr_exhaustion_exit", "deep_audit_rvol_ceiling", "deep_audit_rvol_ceiling_short", "deep_audit_rvol_high_threshold", "deep_audit_rvol_high_size_mult", "deep_audit_danger_max_signals", "deep_audit_danger_ema_depth_min", "deep_audit_danger_vix_threshold", "deep_audit_danger_min_st_aligned", "deep_audit_danger_size_mult", "deep_audit_danger_size_threshold", "deep_audit_danger_div_enabled", "deep_audit_div_exit_enabled", "deep_audit_div_exit_min_strength", "deep_audit_div_pivot_lookback", "deep_audit_div_max_age_bars", "deep_audit_div_runner_trail_pct", "deep_audit_mean_revert_td9_enabled", "deep_audit_td_exit_enabled", "deep_audit_td_exit_trail_pct", "deep_audit_td_ltf_trail_pct", "deep_audit_mfe_safety_trim_pct", "deep_audit_max_runner_drawdown_pct", "deep_audit_min_entry_quality", "deep_audit_hard_loss_cap", "deep_audit_hard_loss_cap_pct", "deep_audit_breakeven_mfe_threshold", "tier_risk_map", "grade_risk_map", "smart_runner_exit_enabled", "smart_runner_swing_atr_proximity", "smart_runner_min_bars_post_trim", "rank_gate_mode", "doa_gate_enabled", "doa_gate_ema_depth_threshold", "doa_gate_ticker_blacklist", "ai_cio_enabled", "ai_cio_replay_enabled", "short_min_rank", "short_require_daily_st_aligned", "short_min_4h_ema_depth", "min_entry_confidence", "entry_ticker_blacklist", "choppy_regime_rank_floor", "tt_spy_directional_gate", "tt_pdz_hard_gate", "deep_audit_phase_peak_extreme", "deep_audit_phase_decline_extreme"];
           const daRows = (await db.prepare(
             `SELECT config_key, config_value FROM model_config WHERE config_key IN (${daKeys.map((_, i) => `?${i + 1}`).join(",")})`
           ).bind(...daKeys).all())?.results || [];
@@ -36693,9 +38745,58 @@ export default {
           replayEnv._deepAuditConfig = _daConfig;
         } catch {}
         try {
+          const derRow = await db.prepare(`SELECT config_value FROM model_config WHERE config_key='dynamic_engine_rules'`).first();
+          if (derRow?.config_value) {
+            _dynamicEngineRulesCache = JSON.parse(derRow.config_value);
+            console.log(`[REPLAY] Dynamic engine rules loaded: ${(_dynamicEngineRulesCache?.regime_direction_sector_rules || []).length} rules, ${(_dynamicEngineRulesCache?.blacklist_tickers || []).length} blacklisted`);
+          }
+        } catch {}
+        try {
           const gpData = await kvGetJSON(KV, "timed:calibration:golden-profiles");
           _replayGoldenProfiles = gpData?.profiles || null;
         } catch {}
+
+        // Pre-load AI CIO memory cache for replay
+        const _cioReplayEnabled = String(replayEnv._deepAuditConfig?.ai_cio_enabled ?? "false") === "true" &&
+          String(replayEnv._deepAuditConfig?.ai_cio_replay_enabled ?? "false") === "true";
+        if (_cioReplayEnabled) {
+          try {
+            const [ppRows, snapRows, eventRows, tickerSummaryRows, franchiseRow] = await Promise.all([
+              db.prepare(`SELECT * FROM path_performance WHERE total_trades >= 3`).all(),
+              db.prepare(`SELECT * FROM daily_market_snapshots ORDER BY date`).all(),
+              db.prepare(`SELECT * FROM market_events ORDER BY date`).all(),
+              db.prepare(`SELECT ticker, COUNT(*) as total,
+                SUM(CASE WHEN status='WIN' THEN 1 ELSE 0 END) as wins,
+                AVG(pnl_pct) as avg_pnl_pct
+                FROM direction_accuracy WHERE status IN ('WIN','LOSS','FLAT') GROUP BY ticker`).all(),
+              db.prepare(`SELECT config_value FROM model_config WHERE config_key='cio_franchise_blacklist'`).first(),
+            ]);
+            const pathPerf = new Map();
+            for (const r of (ppRows?.results || [])) pathPerf.set(r.entry_path, r);
+            const tickerProfiles = {};
+            try {
+              const tpRows = await db.prepare(`SELECT * FROM ticker_profiles`).all();
+              for (const r of (tpRows?.results || [])) tickerProfiles[r.ticker] = r;
+            } catch {}
+            let franchise = null;
+            if (franchiseRow?.config_value) {
+              try { franchise = JSON.parse(franchiseRow.config_value); } catch {}
+            }
+            replayCtx.cioMemoryCache = {
+              pathPerf,
+              marketSnapshots: (snapRows?.results || []),
+              marketEvents: (eventRows?.results || []),
+              tickerProfiles,
+              franchise,
+              cioDecisions: [],
+            };
+            console.log(`[REPLAY] CIO memory loaded: ${pathPerf.size} paths, ${(snapRows?.results || []).length} snapshots, ${(eventRows?.results || []).length} events, ${Object.keys(tickerProfiles).length} profiles`);
+          } catch (e) {
+            console.warn("[REPLAY] CIO memory pre-load failed:", String(e).slice(0, 200));
+            replayCtx.cioMemoryCache = { pathPerf: new Map(), marketSnapshots: [], marketEvents: [], tickerProfiles: {}, franchise: null, cioDecisions: [] };
+          }
+        }
+
         // Load historical VIX daily candles for per-day VIX during replay
         // Falls back to static KV value if no candle data available
         let _replayVixCandles = []; // sorted asc by ts
@@ -36753,6 +38854,7 @@ export default {
         env._adaptiveSLTP = _replayAdaptiveSLTP;
         env._calibratedSlAtr = _replayCalibratedSlAtr;
         env._calibratedRankMin = _replayCalibratedRankMin;
+        env._deepAuditConfig = replayEnv._deepAuditConfig;
 
         let processed = 0;
         let tradesCreated = 0;
@@ -36900,11 +39002,13 @@ export default {
               };
 
               // Pass raw Daily/Weekly candles for Phase 2a regime detection
+              // + intraday bars (leading LTF) for ORB computation
               const rawBars = {};
-              for (const tf of ["D", "W"]) {
+              for (const tf of ["D", "W", replayLeadingLtf]) {
                 const allCandles = candleCache[ticker]?.[tf] || [];
                 const sliced = allCandles.filter(c => c.ts <= intervalTs);
-                if (sliced.length >= 25) rawBars[tf] = sliced;
+                const minBars = (tf === "D" || tf === "W") ? 25 : 3;
+                if (sliced.length >= minBars) rawBars[tf] = sliced;
               }
 
               const existing = stateMap[ticker] || {};
@@ -36913,7 +39017,7 @@ export default {
                 existing._tickerProfile = _replayTickerProfiles[ticker];
               }
               if (_replayMarketInternals) existing._marketInternals = _replayMarketInternals;
-              const result = assembleTickerData(ticker, bundleMap, existing, { rawBars, leadingLtf: replayLeadingLtf });
+              const result = assembleTickerData(ticker, bundleMap, existing, { rawBars, leadingLtf: replayLeadingLtf, asOfTs: intervalTs });
               if (!result) { skipped++; continue; }
 
               // Compute TD Sequential from replay candle cache (was missing — caused stale
@@ -36982,6 +39086,10 @@ export default {
                   _leadingLtf: replayLeadingLtf,
                   _universeSize: allTickers.length,
                   _replayBlockedEntries: replayCtx._blockedEntries || null,
+                  _entryEngine: replayEnv.ENTRY_ENGINE || "ripster_core",
+                  _managementEngine: replayEnv.MANAGEMENT_ENGINE || "ripster_core",
+                  _ripsterTuneV2: replayEnv.RIPSTER_TUNE_V2 || "true",
+                  _ripsterExitDebounceBars: replayEnv.TT_EXIT_DEBOUNCE_BARS || "3",
                 };
               }
               // Inject per-day VIX from historical candles (or static fallback)
@@ -37048,7 +39156,7 @@ export default {
 
               // Diagnostic: track why qualifiesForEnter rejected (for debugging)
               // Include enter/enter_now so we capture fuel_exhausted etc when stage=enter but QFE fails
-              const needsBlockDiag = ["watch", "setup", "discovery", "enter", "enter_now"].includes(stage) && result.state;
+              const needsBlockDiag = ["watch", "setup", "discovery", "in_review", "enter", "enter_now"].includes(stage) && result.state;
               if (needsBlockDiag) {
                 const diagEntry = qualifiesForEnter(result, intervalTs);
                 if (!diagEntry.qualifies) {
@@ -37063,7 +39171,7 @@ export default {
               }
 
               // Enter gate: set cycle tracking
-              if (finalStage === "enter_now" || finalStage === "enter") {
+              if (finalStage === "in_review" || finalStage === "enter_now" || finalStage === "enter") {
                 result.kanban_cycle_enter_now_ts = intervalTs;
                 result.kanban_cycle_trigger_ts = Number.isFinite(Number(result?.trigger_ts)) ? result.trigger_ts : intervalTs;
                 result.kanban_cycle_side = sideFromStateOrScores(result);
@@ -37080,7 +39188,7 @@ export default {
               // Track entry price on stage transitions.
               // Use the leading LTF candle close (matches scoring TF) for entry price.
               // Fallback chain: leading LTF bundle → leading LTF candle cache → result.price
-              const isNewEntry = (finalStage === "enter_now" || finalStage === "enter") && prevStage !== "enter_now" && prevStage !== "enter";
+              const isNewEntry = (finalStage === "in_review" || finalStage === "enter_now" || finalStage === "enter") && prevStage !== "in_review" && prevStage !== "enter_now" && prevStage !== "enter";
               if (isNewEntry) {
                 const bLtf = bundleMap[replayLeadingLtf];
                 let priceLtf = Number(bLtf?.px);
@@ -37114,8 +39222,7 @@ export default {
               // Track stage distribution
               stageCounts[finalStage || "null"] = (stageCounts[finalStage || "null"] || 0) + 1;
 
-              // Collect trail point for batch write at end (avoids 1000+ individual D1 calls)
-                pendingTrail.push({ ticker, result: { ...result } });
+              if (!skipTrail) pendingTrail.push({ ticker, result: { ...result } });
 
               if (!trailOnly) {
                 // Run trade simulation (with Discord + email disabled, no D1 writes)
@@ -37148,6 +39255,7 @@ export default {
               const ts = Number(r?.ts);
               if (!Number.isFinite(ts)) continue;
               const flagsJson = r?.flags ? JSON.stringify(r.flags) : null;
+              const payloadJson = skipPayload ? null : buildSnapshotPayload(r);
               trailStmts.push(
                 db.prepare(
                   `INSERT OR REPLACE INTO timed_trail
@@ -37159,7 +39267,7 @@ export default {
                   r?.completion ?? null, r?.phase_pct ?? null,
                   r?.state ?? null, r?.rank ?? null, flagsJson,
                   r?.trigger_reason ?? null, r?.trigger_dir ?? null,
-                  r?.kanban_stage ?? null, null
+                  r?.kanban_stage ?? null, payloadJson
                 )
               );
             }
@@ -37215,6 +39323,17 @@ export default {
               }
             } catch (e) {
               errors.push({ ticker: "TRADES_D1_SYNC", error: String(e?.message || e).slice(0, 150) });
+            }
+
+            // Write-through to immutable archive (backtest_run_trades) — survives resets
+            if (replayLockVal) {
+              try {
+                for (const trade of batchTrades) {
+                  await d1ArchiveRunTrade(env, replayLockVal, trade).catch(() => {});
+                }
+              } catch (e) {
+                errors.push({ ticker: "TRADES_ARCHIVE_SYNC", error: String(e?.message || e).slice(0, 150) });
+              }
             }
 
             // ═══════════════════════════════════════════════════════════════════
@@ -37355,6 +39474,734 @@ export default {
           fullDay: !!fullDay,
         }, 200, corsHeaders(env, req));
         }
+      }
+
+      // ═══════════════════════════════════════════════════════════════════════════
+      // POST /timed/admin/interval-replay
+      // Single-interval replay: mirrors the live scoring cron exactly.
+      // One request = one 5-min interval for ALL tickers.
+      // Shell script drives the outer loop (interval 0..78 per day).
+      //
+      // Params:
+      //   date=YYYY-MM-DD       (required) trading day
+      //   interval=N            (required) 0-based interval index
+      //   intervalMinutes=N     replay fidelity (default 5)
+      //   cleanSlate=1          purge all trades (only on interval=0 of first day)
+      //   traderOnly=1          skip investor replay
+      //   endOfDay=1            run investor replay + portfolio snapshot
+      //   tickers=SYM1,SYM2    optional ticker filter
+      // ═══════════════════════════════════════════════════════════════════════════
+      if (routeKey === "POST /timed/admin/interval-replay") {
+        try {
+        const authFail = requireKeyOr401(req, env);
+        if (authFail) return authFail;
+        const db = env?.DB;
+        if (!db) return sendJSON({ ok: false, error: "no_db_binding" }, 500, corsHeaders(env, req));
+
+        const dateParam = url.searchParams.get("date");
+        if (!dateParam || !/^\d{4}-\d{2}-\d{2}$/.test(dateParam)) {
+          return sendJSON({ ok: false, error: "date param required (YYYY-MM-DD)" }, 400, corsHeaders(env, req));
+        }
+        const intervalIdx = Number(url.searchParams.get("interval"));
+        if (!Number.isFinite(intervalIdx) || intervalIdx < 0) {
+          return sendJSON({ ok: false, error: "interval param required (0-based index)" }, 400, corsHeaders(env, req));
+        }
+
+        const intervalMinutes = Math.max(1, Math.min(30, Number(url.searchParams.get("intervalMinutes")) || 5));
+        const cleanSlate = url.searchParams.get("cleanSlate") === "1";
+        const skipInvestor = url.searchParams.get("skipInvestor") === "1" || url.searchParams.get("traderOnly") === "1";
+        const endOfDay = url.searchParams.get("endOfDay") === "1";
+        const skipPayload = url.searchParams.get("skipPayload") !== "0";
+        const tickerFilter = url.searchParams.get("tickers");
+
+        const replayEnv = { ...env };
+        for (const overrideKey of ["LEADING_LTF", "TT_EXIT_DEBOUNCE_BARS", "TT_TUNE_V2", "RIPSTER_TUNE_V2", "ENTRY_ENGINE", "MANAGEMENT_ENGINE"]) {
+          const ov = url.searchParams.get(overrideKey);
+          if (ov != null && ov !== "") replayEnv[overrideKey] = ov;
+        }
+        const replayLeadingLtf = normalizeTfKey(replayEnv.LEADING_LTF || "10") || "10";
+
+        let allTickers;
+        if (tickerFilter) {
+          allTickers = tickerFilter.split(",").map(t => t.trim().toUpperCase()).filter(Boolean);
+        } else {
+          allTickers = Object.keys(SECTOR_MAP);
+        }
+        const spyIdx = allTickers.indexOf("SPY");
+        if (spyIdx > 0) { allTickers.splice(spyIdx, 1); allTickers.unshift("SPY"); }
+
+        const marketOpenMs = nyWallTimeToUtcMs(dateParam, 9, 30, 0);
+        const marketCloseMs = nyWallTimeToUtcMs(dateParam, 16, 0, 0);
+        if (!marketOpenMs || !marketCloseMs) {
+          return sendJSON({ ok: false, error: "failed_to_compute_market_hours" }, 500, corsHeaders(env, req));
+        }
+
+        const intervalMs = intervalMinutes * 60 * 1000;
+        const totalIntervals = Math.floor((marketCloseMs - marketOpenMs) / intervalMs) + 1;
+        const intervalTs = marketOpenMs + (intervalIdx * intervalMs);
+
+        if (intervalIdx >= totalIntervals) {
+          return sendJSON({ ok: true, scored: 0, message: "interval_out_of_range", totalIntervals }, 200, corsHeaders(env, req));
+        }
+
+        // Clean slate on first interval of first day
+        if (cleanSlate && intervalIdx === 0) {
+          await kvPutJSON(KV, "timed:trades:all", []);
+          await kvPutJSON(KV, REPLAY_TRADES_KV_KEY, []);
+          await kvPutJSON(KV, "timed:portfolio:v1", null);
+          await kvPutJSON(KV, "timed:activity:feed", null);
+          if (db) {
+            try {
+              await db.batch([
+                db.prepare("DELETE FROM trade_events"),
+                db.prepare("DELETE FROM trades"),
+              ]);
+            } catch {}
+            for (const tbl of ["positions", "execution_actions", "lots", "alerts", "ticker_latest", "account_ledger", "investor_positions", "investor_lots", "portfolio_snapshots", "timed_trail"]) {
+              try { await db.prepare(`DELETE FROM ${tbl}`).run(); } catch {}
+            }
+            for (const t of allTickers) { try { await KV.delete(`timed:latest:${t}`); } catch {} }
+          }
+        }
+
+        await kvPutJSON(KV, "timed:replay:running", { since: Date.now(), date: dateParam, interval: intervalIdx, mode: "single_interval" });
+
+        // ── Load configs (same pattern as live cron) ──
+        let _replayGoldenProfiles = null, _replayAdaptiveEntryGates = null, _replayAdaptiveRegimeGates = null;
+        let _replayAdaptiveSLTP = null, _replayCalibratedSlAtr = 0, _replayCalibratedRankMin = 0;
+        try {
+          const cfgRows = await db.batch([
+            db.prepare(`SELECT config_value FROM model_config WHERE config_key='adaptive_entry_gates'`),
+            db.prepare(`SELECT config_value FROM model_config WHERE config_key='adaptive_regime_gates'`),
+            db.prepare(`SELECT config_value FROM model_config WHERE config_key='adaptive_sl_tp'`),
+            db.prepare(`SELECT config_value FROM model_config WHERE config_key='calibrated_sl_atr'`),
+            db.prepare(`SELECT config_value FROM model_config WHERE config_key='calibrated_tp_tiers'`),
+            db.prepare(`SELECT config_value FROM model_config WHERE config_key='calibrated_rank_min'`),
+          ]);
+          if (cfgRows[0]?.results?.[0]?.config_value) _replayAdaptiveEntryGates = JSON.parse(cfgRows[0].results[0].config_value);
+          if (cfgRows[1]?.results?.[0]?.config_value) _replayAdaptiveRegimeGates = JSON.parse(cfgRows[1].results[0].config_value);
+          if (cfgRows[2]?.results?.[0]?.config_value) _replayAdaptiveSLTP = JSON.parse(cfgRows[2].results[0].config_value);
+          if (cfgRows[3]?.results?.[0]?.config_value) _replayCalibratedSlAtr = Number(cfgRows[3].results[0].config_value) || 0;
+          if (cfgRows[4]?.results?.[0]?.config_value) {
+            const _tpRaw = JSON.parse(cfgRows[4].results[0].config_value);
+            const _sltpDef = _replayAdaptiveSLTP?.["_default"] || {};
+            if (_sltpDef.tp_trim_atr && _sltpDef.tp_exit_atr && _sltpDef.tp_runner_atr) {
+              _calibratedTPTiers = { trim: _sltpDef.tp_trim_atr, exit: _sltpDef.tp_exit_atr, runner: _sltpDef.tp_runner_atr };
+            } else if (_tpRaw) { _calibratedTPTiers = _tpRaw; }
+          }
+          if (cfgRows[5]?.results?.[0]?.config_value) _replayCalibratedRankMin = Number(cfgRows[5].results[0].config_value) || 0;
+        } catch {}
+        try {
+          const daKeys = ["deep_audit_short_min_rank", "deep_audit_ticker_blacklist", "deep_audit_max_loss_pct", "deep_audit_sl_cap_mult", "deep_audit_sl_floor_mult", "deep_audit_rsi_tp_delay", "deep_audit_avoid_hours", "deep_audit_block_regime", "deep_audit_vix_ceiling", "deep_audit_regime_size_mult", "deep_audit_min_hold_regime_exit_hours", "deep_audit_loss_cooldown_hours", "deep_audit_min_htf_score", "deep_audit_momentum_elite_rank_boost", "deep_audit_breakout_daily_level_enabled", "deep_audit_breakout_atr_breakout_enabled", "deep_audit_breakout_ema_stack_enabled", "deep_audit_breakout_min_rr", "deep_audit_breakout_min_entry_quality", "deep_audit_opening_noise_end_minute", "deep_audit_min_1h_bias", "deep_audit_min_4h_bias", "deep_audit_ltf_momentum_min_bias", "deep_audit_ltf_momentum_min_rsi", "deep_audit_ripster_opening_noise_end_minute", "deep_audit_ltf_rsi_floor", "deep_audit_min_ltf_ema_depth", "deep_audit_post_trim_breakeven", "deep_audit_stall_max_hours", "deep_audit_stall_breakeven_pnl_pct", "deep_audit_stall_force_close_hours", "deep_audit_soft_fuse_defer_min_1h_depth", "deep_audit_runner_trail_pct", "deep_audit_post_trim_trail_pct", "deep_audit_stale_runner_bars", "deep_audit_momentum_fade_exit", "deep_audit_min_hold_before_mgmt_exit_min", "deep_audit_tp_atr_override", "deep_audit_phase_exit_enabled", "deep_audit_atr_exhaustion_exit", "deep_audit_rvol_ceiling", "deep_audit_rvol_ceiling_short", "deep_audit_rvol_high_threshold", "deep_audit_rvol_high_size_mult", "deep_audit_danger_max_signals", "deep_audit_danger_ema_depth_min", "deep_audit_danger_vix_threshold", "deep_audit_danger_min_st_aligned", "deep_audit_danger_size_mult", "deep_audit_danger_size_threshold", "deep_audit_danger_div_enabled", "deep_audit_div_exit_enabled", "deep_audit_div_exit_min_strength", "deep_audit_div_pivot_lookback", "deep_audit_div_max_age_bars", "deep_audit_div_runner_trail_pct", "deep_audit_mean_revert_td9_enabled", "deep_audit_td_exit_enabled", "deep_audit_td_exit_trail_pct", "deep_audit_td_ltf_trail_pct", "deep_audit_mfe_safety_trim_pct", "deep_audit_max_runner_drawdown_pct", "deep_audit_min_entry_quality", "deep_audit_hard_loss_cap", "deep_audit_hard_loss_cap_pct", "deep_audit_breakeven_mfe_threshold", "tier_risk_map", "grade_risk_map", "smart_runner_exit_enabled", "smart_runner_swing_atr_proximity", "smart_runner_min_bars_post_trim", "rank_gate_mode", "doa_gate_enabled", "doa_gate_ema_depth_threshold", "doa_gate_ticker_blacklist", "ai_cio_enabled", "ai_cio_replay_enabled", "short_min_rank", "short_require_daily_st_aligned", "short_min_4h_ema_depth", "min_entry_confidence", "entry_ticker_blacklist", "choppy_regime_rank_floor", "tt_spy_directional_gate", "tt_pdz_hard_gate", "deep_audit_phase_peak_extreme", "deep_audit_phase_decline_extreme"];
+          const daRows = (await db.prepare(
+            `SELECT config_key, config_value FROM model_config WHERE config_key IN (${daKeys.map((_, i) => `?${i + 1}`).join(",")})`
+          ).bind(...daKeys).all())?.results || [];
+          const _daConfig = {};
+          for (const r of daRows) { try { _daConfig[r.config_key] = JSON.parse(r.config_value); } catch { _daConfig[r.config_key] = r.config_value; } }
+          replayEnv._deepAuditConfig = _daConfig;
+        } catch {}
+        try {
+          const derRow = await db.prepare(`SELECT config_value FROM model_config WHERE config_key='dynamic_engine_rules'`).first();
+          if (derRow?.config_value) {
+            _dynamicEngineRulesCache = JSON.parse(derRow.config_value);
+          }
+        } catch {}
+        try { _replayGoldenProfiles = (await kvGetJSON(KV, "timed:calibration:golden-profiles"))?.profiles || null; } catch {}
+
+        let _replayTickerProfiles = {};
+        try {
+          const { results: profRows } = await db.prepare(
+            `SELECT ticker, behavior_type, sl_mult, tp_mult, entry_threshold_adj, atr_pct_p50, trend_persistence, ichimoku_responsiveness, learning_json FROM ticker_profiles`
+          ).all();
+          for (const r of (profRows || [])) _replayTickerProfiles[r.ticker] = r;
+        } catch {}
+
+        replayEnv._adaptiveEntryGates = _replayAdaptiveEntryGates;
+        replayEnv._adaptiveRegimeGates = _replayAdaptiveRegimeGates;
+        replayEnv._adaptiveSLTP = _replayAdaptiveSLTP;
+        replayEnv._calibratedSlAtr = _replayCalibratedSlAtr;
+        replayEnv._calibratedRankMin = _replayCalibratedRankMin;
+        replayEnv._goldenProfiles = _replayGoldenProfiles;
+        replayEnv._deepAuditConfig = replayEnv._deepAuditConfig || {};
+
+        // ── Load existing trades from KV (archive fallback for resume) ──
+        let allTrades = (await kvGetJSON(KV, REPLAY_TRADES_KV_KEY)) || [];
+        const replayLockVal = await KV.get("timed:replay:lock") || null;
+        if ((!allTrades || allTrades.length === 0) && replayLockVal && db) {
+          try {
+            await d1EnsureBacktestRunsSchema(env);
+            const { results: archiveRows } = await db.prepare(
+              `SELECT trade_id, ticker, direction, entry_ts, entry_price, rank, rr, status,
+                      exit_ts, exit_price, exit_reason, trimmed_pct, pnl, pnl_pct,
+                      trim_ts, trim_price, setup_name, setup_grade, risk_budget, shares, notional
+               FROM backtest_run_trades WHERE run_id = ?1`
+            ).bind(replayLockVal).all();
+            if (archiveRows && archiveRows.length > 0) {
+              allTrades = archiveRows.map(r => ({
+                id: r.trade_id, trade_id: r.trade_id, ticker: r.ticker, direction: r.direction,
+                entry_ts: r.entry_ts, entryPrice: r.entry_price, entry_price: r.entry_price,
+                rank: r.rank, rr: r.rr, status: r.status,
+                exit_ts: r.exit_ts, exitPrice: r.exit_price, exit_price: r.exit_price,
+                exitReason: r.exit_reason, exit_reason: r.exit_reason,
+                trimmedPct: r.trimmed_pct, trimmed_pct: r.trimmed_pct,
+                pnl: r.pnl, pnlPct: r.pnl_pct, pnl_pct: r.pnl_pct,
+                trim_ts: r.trim_ts, trim_price: r.trim_price,
+                setupName: r.setup_name, setupGrade: r.setup_grade,
+                riskBudget: r.risk_budget, shares: r.shares, notional: r.notional,
+                run_id: replayLockVal,
+              }));
+              await kvPutJSON(KV, REPLAY_TRADES_KV_KEY, allTrades);
+              console.log(`[REPLAY RESUME] Restored ${allTrades.length} trades from archive for run ${replayLockVal}`);
+            }
+          } catch (e) {
+            console.warn("[REPLAY RESUME] Archive load failed:", String(e).slice(0, 150));
+          }
+        }
+        const replayCtx = { allTrades, execStates: new Map(), processDebug: [], _blockedEntries: {}, _leadingLtf: replayLeadingLtf };
+
+        // ── TF configs matching the live scoring cron (small limits) ──
+        const LIVE_TF_CONFIGS = [
+          { tf: "W", limit: 100 }, { tf: "D", limit: 250 },
+          { tf: "240", limit: 250 }, { tf: "60", limit: 150 },
+          { tf: "30", limit: 100 }, { tf: replayLeadingLtf, limit: 100 },
+          { tf: "M", limit: 24 },
+        ];
+
+        // ── Score ALL tickers for this single interval ──
+        let scored = 0, tradesCreated = 0, skipped = 0;
+        const errors = [];
+        const stageCounts = {};
+        const blockReasons = {};
+        const pendingTrail = [];
+        const _sectorETFs = require("./sector-mapping.js").SECTOR_ETF_MAP || {};
+
+        // Process tickers in batches of 15 (same as live cron)
+        const TICKER_BATCH_SIZE = 15;
+        for (let batchStart = 0; batchStart < allTickers.length; batchStart += TICKER_BATCH_SIZE) {
+          const batchTickers = allTickers.slice(batchStart, batchStart + TICKER_BATCH_SIZE);
+          const batchPromises = batchTickers.map(async (ticker) => {
+            try {
+              // 1. Read existing state from KV (exactly like live cron)
+              let existing = await kvGetJSON(KV, `timed:latest:${ticker}`);
+              if (!existing || Object.keys(existing).length === 0) {
+                try {
+                  const row = await db.prepare(`SELECT payload_json FROM ticker_latest WHERE ticker = ?`).bind(ticker).first();
+                  if (row?.payload_json) existing = JSON.parse(row.payload_json);
+                } catch {}
+              }
+              if (!existing) existing = {};
+
+              // 2. Load candles from D1 (exactly like live cron: d1GetCandlesAllTfs with beforeTs)
+              const candleResult = await d1GetCandlesAllTfs(replayEnv, ticker, LIVE_TF_CONFIGS, { beforeTs: intervalTs });
+              const getCandlesCached = async (_env, _ticker, tf, _limit) => {
+                const tfKey = normalizeTfKey(tf);
+                return candleResult[tfKey] || { ok: false, candles: [] };
+              };
+
+              // 3. Inject ticker profile + market internals (same as live cron)
+              if (_replayTickerProfiles[ticker]) existing._tickerProfile = _replayTickerProfiles[ticker];
+
+              // 4. computeServerSideScores (same function live cron uses)
+              const result = await computeServerSideScores(ticker, getCandlesCached, replayEnv, existing);
+              if (!result) { skipped++; return; }
+
+              result.ts = intervalTs;
+              result.ingest_ts = intervalTs;
+              result.data_source = "interval_replay";
+              result.data_source_ts = intervalTs;
+              result.trigger_ts = intervalTs;
+
+              result.rank = computeRank(result);
+              result.score = result.rank;
+              result.rr = computeRR(result);
+              if (result.rr != null && Number(result.rr) > 25) result.rr = 25;
+              if (Number.isFinite(result.rr)) result.rr_warning = computeRRWarning(result.rr);
+              result.move_status = computeMoveStatus(result);
+              if (result.flags) {
+                result.flags.move_invalidated = result.move_status?.status === "INVALIDATED";
+                result.flags.move_completed = result.move_status?.status === "COMPLETED";
+              }
+
+              // 5. Inject regime + env context (same as live cron)
+              const tickerSector = SECTOR_MAP[ticker] || "Unknown";
+              const _rSpyData = await kvGetJSON(KV, "timed:latest:SPY");
+              const _rMktRegime = _rSpyData?.regime_class ? { regime: _rSpyData.regime_class, score: _rSpyData.regime_score || 0, htf_score: _rSpyData.htf_score ?? null, ema_regime_daily: _rSpyData.ema_regime_daily ?? 0, swing_dir: _rSpyData.swing_consensus?.direction || null, combined: _rSpyData.regime?.combined || null } : null;
+              const _rSectorETF = _sectorETFs[tickerSector];
+              const _rSectorData = _rSectorETF ? (await kvGetJSON(KV, `timed:latest:${_rSectorETF}`)) : null;
+              const _rSecRegime = _rSectorData?.regime_class ? { regime: _rSectorData.regime_class, score: _rSectorData.regime_score || 0 } : null;
+              result._env = {
+                _goldenProfiles: _replayGoldenProfiles, _adaptiveEntryGates: _replayAdaptiveEntryGates,
+                _adaptiveRegimeGates: _replayAdaptiveRegimeGates, _adaptiveSLTP: _replayAdaptiveSLTP,
+                _calibratedSlAtr: _replayCalibratedSlAtr, _calibratedRankMin: _replayCalibratedRankMin,
+                _marketRegime: _rMktRegime, _sectorRegime: _rSecRegime,
+                _deepAuditConfig: replayEnv._deepAuditConfig || null, _leadingLtf: replayLeadingLtf,
+                _universeSize: allTickers.length, _replayBlockedEntries: replayCtx._blockedEntries || null,
+                _entryEngine: replayEnv.ENTRY_ENGINE || "ripster_core", _managementEngine: replayEnv.MANAGEMENT_ENGINE || "ripster_core",
+                _ripsterTuneV2: replayEnv.RIPSTER_TUNE_V2 || "true", _ripsterExitDebounceBars: replayEnv.TT_EXIT_DEBOUNCE_BARS || "3",
+              };
+
+              // VIX injection
+              try {
+                const vixData = await kvGetJSON(KV, "timed:latest:VIX");
+                if (vixData?.price) result._vix = Number(vixData.price);
+              } catch {}
+
+              // 6. Carry forward state fields
+              if (existing?.entry_ts != null && result.entry_ts == null) result.entry_ts = existing.entry_ts;
+              if (existing?.entry_price != null && result.entry_price == null) result.entry_price = existing.entry_price;
+              if (existing?.kanban_cycle_enter_now_ts != null) result.kanban_cycle_enter_now_ts = existing.kanban_cycle_enter_now_ts;
+              if (existing?.kanban_cycle_trigger_ts != null) result.kanban_cycle_trigger_ts = existing.kanban_cycle_trigger_ts;
+              if (existing?.kanban_cycle_side != null) result.kanban_cycle_side = existing.kanban_cycle_side;
+
+              // 7. Kanban classification (same as live)
+              const openTrade = replayCtx.allTrades.find(t => String(t?.ticker || "").toUpperCase() === ticker && isOpenTradeStatus(t?.status)) || null;
+              const prevStage = existing?.kanban_stage;
+              const stage = classifyKanbanStage(result, openTrade, intervalTs);
+              let finalStage = stage;
+
+              if (["watch", "setup", "discovery", "in_review", "enter", "enter_now"].includes(stage) && result.state) {
+                const diagEntry = qualifiesForEnter(result, intervalTs);
+                if (!diagEntry.qualifies) {
+                  result.__entry_block_reason = diagEntry.reason;
+                  blockReasons[diagEntry.reason] = (blockReasons[diagEntry.reason] || 0) + 1;
+                } else { delete result.__entry_block_reason; }
+              }
+
+              if (finalStage === "in_review" || finalStage === "enter_now" || finalStage === "enter") {
+                result.kanban_cycle_enter_now_ts = intervalTs;
+                result.kanban_cycle_trigger_ts = Number.isFinite(Number(result?.trigger_ts)) ? result.trigger_ts : intervalTs;
+                result.kanban_cycle_side = sideFromStateOrScores(result);
+              } else if (["hold", "just_entered", "defend", "trim", "exit"].includes(finalStage)) {
+                result.kanban_cycle_enter_now_ts = existing?.kanban_cycle_enter_now_ts ?? null;
+                result.kanban_cycle_trigger_ts = existing?.kanban_cycle_trigger_ts ?? null;
+                result.kanban_cycle_side = existing?.kanban_cycle_side ?? null;
+              } else { result.kanban_cycle_enter_now_ts = null; result.kanban_cycle_trigger_ts = null; result.kanban_cycle_side = null; }
+
+              const isNewEntry = (finalStage === "in_review" || finalStage === "enter_now" || finalStage === "enter") && prevStage !== "in_review" && prevStage !== "enter_now" && prevStage !== "enter";
+              if (isNewEntry) {
+                const price = Number(result?.price);
+                if (Number.isFinite(price) && price > 0) { result.entry_price = price; result.entry_ts = intervalTs; }
+              }
+              if (!isNewEntry && finalStage && existing?.entry_price && result.entry_price == null) { result.entry_price = existing.entry_price; result.entry_ts = existing.entry_ts; }
+
+              if (prevStage && finalStage && String(prevStage) !== String(finalStage)) { result.prev_kanban_stage = String(prevStage); result.prev_kanban_stage_ts = intervalTs; }
+              result.kanban_stage = finalStage;
+              result.kanban_meta = deriveKanbanMeta(result, finalStage);
+              stageCounts[finalStage || "null"] = (stageCounts[finalStage || "null"] || 0) + 1;
+
+              // 8. Trade simulation
+              {
+                const simEnv = { ...replayEnv, DISCORD_ENABLE: "false", DISCORD_WEBHOOK_URL: null, EMAIL_ENABLED: "false", SENDGRID_API_KEY: null };
+                const countBefore = replayCtx.allTrades.filter(x => String(x?.ticker).toUpperCase() === ticker).length;
+                await processTradeSimulation(KV, ticker, result, existing, simEnv, { forceUseIngestTs: true, replayBatchContext: replayCtx, asOfTs: intervalTs });
+                const countAfter = replayCtx.allTrades.filter(x => String(x?.ticker).toUpperCase() === ticker).length;
+                if (countAfter > countBefore) tradesCreated += countAfter - countBefore;
+              }
+
+              // 9. Write state to KV (exactly like live cron)
+              await kvPutJSON(KV, `timed:latest:${ticker}`, result);
+
+              // Collect trail point for batch D1 write
+              pendingTrail.push({ ticker, result: { ...result } });
+
+              scored++;
+            } catch (e) {
+              errors.push({ ticker, ts: intervalTs, error: String(e?.message || e).slice(0, 150) });
+            }
+          });
+          await Promise.all(batchPromises);
+        }
+
+        // ── Batch-write trail points to D1 ──
+        let trailWritten = 0;
+        if (pendingTrail.length > 0 && db) {
+          try {
+            const trailStmts = pendingTrail.map(({ ticker: t, result: r }) => {
+              const ts = Number(r?.ts); if (!Number.isFinite(ts)) return null;
+              const flagsJson = r?.flags ? JSON.stringify(r.flags) : null;
+              const payloadJson = skipPayload ? null : buildSnapshotPayload(r);
+              return db.prepare(
+                `INSERT OR REPLACE INTO timed_trail (ticker, ts, price, htf_score, ltf_score, completion, phase_pct, state, rank, flags_json, trigger_reason, trigger_dir, kanban_stage, payload_json)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)`
+              ).bind(String(t).toUpperCase(), ts, r?.price ?? null, r?.htf_score ?? null, r?.ltf_score ?? null, r?.completion ?? null, r?.phase_pct ?? null, r?.state ?? null, r?.rank ?? null, flagsJson, r?.trigger_reason ?? null, r?.trigger_dir ?? null, r?.kanban_stage ?? null, payloadJson);
+            }).filter(Boolean);
+            const D1_BATCH_MAX = 100;
+            for (let i = 0; i < trailStmts.length; i += D1_BATCH_MAX) {
+              await db.batch(trailStmts.slice(i, i + D1_BATCH_MAX));
+              trailWritten += Math.min(D1_BATCH_MAX, trailStmts.length - i);
+            }
+          } catch (trailErr) {
+            errors.push({ ticker: "TRAIL_BATCH", error: String(trailErr?.message || trailErr).slice(0, 150) });
+          }
+        }
+
+        // ── Batch state write to D1 ticker_latest ──
+        let d1StateWritten = 0;
+        {
+          const stateStmts = [];
+          for (const { ticker, result: s } of pendingTrail) {
+            try {
+              let slim = slimPayloadForD1(s);
+              let json = JSON.stringify(slim);
+              if (json.length > 50000) { slim = minimalPayloadForD1(s); json = JSON.stringify(slim); }
+              if (json.length > 50000) continue;
+              const ts = Number(s?.ts) || Date.now();
+              stateStmts.push(
+                db.prepare(
+                  `INSERT INTO ticker_latest (ticker, ts, updated_at, kanban_stage, prev_kanban_stage, payload_json)
+                   VALUES (?1, ?2, ?3, ?4, ?5, ?6) ON CONFLICT(ticker) DO UPDATE SET
+                   ts=excluded.ts, updated_at=excluded.updated_at, kanban_stage=excluded.kanban_stage,
+                   prev_kanban_stage=excluded.prev_kanban_stage, payload_json=excluded.payload_json`
+                ).bind(ticker.toUpperCase(), ts, Date.now(), s?.kanban_stage ?? null, s?.prev_kanban_stage ?? null, json)
+              );
+            } catch {}
+          }
+          const D1_BATCH_MAX = 100;
+          for (let i = 0; i < stateStmts.length; i += D1_BATCH_MAX) {
+            try { await db.batch(stateStmts.slice(i, i + D1_BATCH_MAX)); d1StateWritten += Math.min(D1_BATCH_MAX, stateStmts.length - i); } catch {}
+          }
+        }
+
+        // ── Persist trades (replayLockVal already declared above for resume) ──
+        try { await kvPutJSON(KV, REPLAY_TRADES_KV_KEY, replayCtx.allTrades); } catch {}
+        if (db) {
+          for (const trade of replayCtx.allTrades) {
+            try { if (replayLockVal && !trade.run_id) trade.run_id = replayLockVal; await d1UpsertTrade(env, trade).catch(() => {}); } catch {}
+          }
+          // Write-through to immutable archive
+          if (replayLockVal) {
+            for (const trade of replayCtx.allTrades) {
+              try { await d1ArchiveRunTrade(env, replayLockVal, trade).catch(() => {}); } catch {}
+            }
+          }
+        }
+
+        // ── End-of-day: investor replay + portfolio snapshots ──
+        if (endOfDay) {
+          await kvPutJSON(KV, "timed:replay:running", null);
+          if (!skipInvestor) {
+            try {
+              const invResult = await runInvestorDailyReplay(env, KV, replayCtx, dateParam);
+              if (invResult?.opened || invResult?.closed) console.log(`[INTERVAL_REPLAY] Investor: +${invResult.opened} -${invResult.closed}`);
+            } catch {}
+            try { await snapshotBothPortfolios(env, KV, replayCtx, dateParam); } catch {}
+          }
+        }
+
+        return sendJSON({
+          ok: true, date: dateParam, interval: intervalIdx, intervalTs,
+          totalIntervals, tickersProcessed: allTickers.length,
+          scored, skipped, tradesCreated,
+          totalTrades: replayCtx.allTrades.length,
+          errorsCount: errors.length, errors: errors.slice(0, 10),
+          stageCounts, blockReasons, d1StateWritten, trailWritten,
+        }, 200, corsHeaders(env, req));
+        } catch (intervalReplayErr) {
+          console.error("[INTERVAL_REPLAY] Handler error:", String(intervalReplayErr?.message || intervalReplayErr).slice(0, 500), intervalReplayErr?.stack?.slice(0, 500));
+          return sendJSON({ ok: false, error: "interval_replay_error", detail: String(intervalReplayErr?.message || intervalReplayErr).slice(0, 300) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // ═══════════════════════════════════════════════════════════════════════════
+      // POST /timed/admin/snapshot-replay
+      // FAST replay from pre-scored snapshots in timed_trail.payload_json.
+      // Skips ALL candle loading + indicator computation. Only runs the trade
+      // decision pipeline (gates, engine selection, entry, exit, CIO).
+      //
+      // Params:
+      //   date=YYYY-MM-DD       (required) trading day
+      //   cleanSlate=1          purge all trades first
+      //   traderOnly=1          skip investor replay
+      //   skipInvestor=1        alias for traderOnly
+      // ═══════════════════════════════════════════════════════════════════════════
+      if (routeKey === "POST /timed/admin/snapshot-replay") {
+        const authFail = requireKeyOr401(req, env);
+        if (authFail) return authFail;
+        const db = env?.DB;
+        if (!db) return sendJSON({ ok: false, error: "no_db_binding" }, 500, corsHeaders(env, req));
+
+        const dateParam = url.searchParams.get("date");
+        if (!dateParam || !/^\d{4}-\d{2}-\d{2}$/.test(dateParam)) {
+          return sendJSON({ ok: false, error: "date param required (YYYY-MM-DD)" }, 400, corsHeaders(env, req));
+        }
+        const cleanSlate = url.searchParams.get("cleanSlate") === "1";
+        const skipInvestor = url.searchParams.get("skipInvestor") === "1" || url.searchParams.get("traderOnly") === "1";
+
+        const marketOpenMs = nyWallTimeToUtcMs(dateParam, 9, 30, 0);
+        const marketCloseMs = nyWallTimeToUtcMs(dateParam, 16, 0, 0);
+        if (!marketOpenMs || !marketCloseMs) {
+          return sendJSON({ ok: false, error: "failed_to_compute_market_hours" }, 500, corsHeaders(env, req));
+        }
+
+        // Clean slate: purge trades
+        if (cleanSlate) {
+          await kvPutJSON(KV, "timed:trades:all", []);
+          await kvPutJSON(KV, REPLAY_TRADES_KV_KEY, []);
+          await kvPutJSON(KV, "timed:portfolio:v1", null);
+          await kvPutJSON(KV, "timed:activity:feed", null);
+          try {
+            await db.batch([
+              db.prepare("DELETE FROM trade_events"),
+              db.prepare("DELETE FROM trades"),
+            ]);
+          } catch {}
+          for (const tbl of ["positions", "execution_actions", "lots", "alerts", "ticker_latest", "account_ledger", "investor_positions", "investor_lots", "portfolio_snapshots"]) {
+            try { await db.prepare(`DELETE FROM ${tbl}`).run(); } catch {}
+          }
+        }
+
+        // Paginate snapshot loading using LIMIT/OFFSET to stay within D1 response limits
+        const SNAP_PAGE_SIZE = 100;
+        let totalSnapshotRows = 0;
+        let allSnapRows = [];
+        let snapOffset = 0;
+        try {
+          while (true) {
+            const page = await db.prepare(
+              `SELECT ticker, ts, payload_json FROM timed_trail
+               WHERE ts >= ?1 AND ts <= ?2 AND payload_json IS NOT NULL
+               ORDER BY ts ASC, ticker ASC
+               LIMIT ?3 OFFSET ?4`
+            ).bind(marketOpenMs, marketCloseMs, SNAP_PAGE_SIZE, snapOffset).all();
+            const rows = page?.results || [];
+            if (rows.length === 0) break;
+            allSnapRows.push(...rows);
+            snapOffset += rows.length;
+            if (rows.length < SNAP_PAGE_SIZE) break;
+          }
+        } catch (e) {
+          return sendJSON({ ok: false, error: "d1_query_failed", detail: String(e?.message || e).slice(0, 200) }, 500, corsHeaders(env, req));
+        }
+
+        if (allSnapRows.length === 0) {
+          return sendJSON({
+            ok: false,
+            error: "no_snapshots",
+            message: `No payload_json snapshots found for ${dateParam}. Run candle-replay first with trail writes enabled to generate snapshots.`,
+            date: dateParam,
+          }, 400, corsHeaders(env, req));
+        }
+        totalSnapshotRows = allSnapRows.length;
+        const distinctIntervalCount = new Set(allSnapRows.map(r => r.ts)).size;
+
+        // Load config (same as candle-replay, but much faster — no candle loading)
+        const replayEnv = { ...env };
+        try {
+          const daKeys = ["deep_audit_short_min_rank", "deep_audit_ticker_blacklist", "deep_audit_max_loss_pct", "deep_audit_sl_cap_mult", "deep_audit_sl_floor_mult", "deep_audit_rsi_tp_delay", "deep_audit_avoid_hours", "deep_audit_block_regime", "deep_audit_vix_ceiling", "deep_audit_regime_size_mult", "deep_audit_min_hold_regime_exit_hours", "deep_audit_loss_cooldown_hours", "deep_audit_min_htf_score", "deep_audit_momentum_elite_rank_boost", "deep_audit_breakout_daily_level_enabled", "deep_audit_breakout_atr_breakout_enabled", "deep_audit_breakout_ema_stack_enabled", "deep_audit_breakout_min_rr", "deep_audit_breakout_min_entry_quality", "deep_audit_opening_noise_end_minute", "deep_audit_min_1h_bias", "deep_audit_min_4h_bias", "deep_audit_ltf_momentum_min_bias", "deep_audit_ltf_momentum_min_rsi", "deep_audit_ripster_opening_noise_end_minute", "deep_audit_ltf_rsi_floor", "deep_audit_min_ltf_ema_depth", "deep_audit_post_trim_breakeven", "deep_audit_stall_max_hours", "deep_audit_stall_breakeven_pnl_pct", "deep_audit_stall_force_close_hours", "deep_audit_soft_fuse_defer_min_1h_depth", "deep_audit_runner_trail_pct", "deep_audit_post_trim_trail_pct", "deep_audit_stale_runner_bars", "deep_audit_momentum_fade_exit", "deep_audit_min_hold_before_mgmt_exit_min", "deep_audit_tp_atr_override", "deep_audit_phase_exit_enabled", "deep_audit_atr_exhaustion_exit", "deep_audit_rvol_ceiling", "deep_audit_rvol_ceiling_short", "deep_audit_rvol_high_threshold", "deep_audit_rvol_high_size_mult", "deep_audit_danger_max_signals", "deep_audit_danger_ema_depth_min", "deep_audit_danger_vix_threshold", "deep_audit_danger_min_st_aligned", "deep_audit_danger_size_mult", "deep_audit_danger_size_threshold", "deep_audit_danger_div_enabled", "deep_audit_div_exit_enabled", "deep_audit_div_exit_min_strength", "deep_audit_div_pivot_lookback", "deep_audit_div_max_age_bars", "deep_audit_div_runner_trail_pct", "deep_audit_mean_revert_td9_enabled", "deep_audit_td_exit_enabled", "deep_audit_td_exit_trail_pct", "deep_audit_td_ltf_trail_pct", "deep_audit_mfe_safety_trim_pct", "deep_audit_max_runner_drawdown_pct", "deep_audit_min_entry_quality", "deep_audit_hard_loss_cap", "deep_audit_hard_loss_cap_pct", "deep_audit_breakeven_mfe_threshold", "tier_risk_map", "grade_risk_map", "smart_runner_exit_enabled", "smart_runner_swing_atr_proximity", "smart_runner_min_bars_post_trim", "rank_gate_mode", "doa_gate_enabled", "doa_gate_ema_depth_threshold", "doa_gate_ticker_blacklist", "ai_cio_enabled", "ai_cio_replay_enabled", "short_min_rank", "short_require_daily_st_aligned", "short_min_4h_ema_depth", "min_entry_confidence", "entry_ticker_blacklist", "choppy_regime_rank_floor", "tt_spy_directional_gate", "tt_pdz_hard_gate", "deep_audit_phase_peak_extreme", "deep_audit_phase_decline_extreme"];
+          const daRows = (await db.prepare(
+            `SELECT config_key, config_value FROM model_config WHERE config_key IN (${daKeys.map((_, i) => `?${i + 1}`).join(",")})`
+          ).bind(...daKeys).all())?.results || [];
+          const _daConfig = {};
+          for (const r of daRows) {
+            try { _daConfig[r.config_key] = JSON.parse(r.config_value); } catch { _daConfig[r.config_key] = r.config_value; }
+          }
+          replayEnv._deepAuditConfig = _daConfig;
+        } catch {}
+        try {
+          const derRow = await db.prepare(`SELECT config_value FROM model_config WHERE config_key='dynamic_engine_rules'`).first();
+          if (derRow?.config_value) _dynamicEngineRulesCache = JSON.parse(derRow.config_value);
+        } catch {}
+        try {
+          const cfgRows = await db.batch([
+            db.prepare(`SELECT config_value FROM model_config WHERE config_key='adaptive_entry_gates'`),
+            db.prepare(`SELECT config_value FROM model_config WHERE config_key='adaptive_regime_gates'`),
+            db.prepare(`SELECT config_value FROM model_config WHERE config_key='adaptive_sl_tp'`),
+            db.prepare(`SELECT config_value FROM model_config WHERE config_key='calibrated_sl_atr'`),
+            db.prepare(`SELECT config_value FROM model_config WHERE config_key='calibrated_rank_min'`),
+          ]);
+          if (cfgRows[0]?.results?.[0]?.config_value) replayEnv._adaptiveEntryGates = JSON.parse(cfgRows[0].results[0].config_value);
+          if (cfgRows[1]?.results?.[0]?.config_value) replayEnv._adaptiveRegimeGates = JSON.parse(cfgRows[1].results[0].config_value);
+          if (cfgRows[2]?.results?.[0]?.config_value) replayEnv._adaptiveSLTP = JSON.parse(cfgRows[2].results[0].config_value);
+          if (cfgRows[3]?.results?.[0]?.config_value) replayEnv._calibratedSlAtr = Number(cfgRows[3].results[0].config_value) || 0;
+          if (cfgRows[4]?.results?.[0]?.config_value) replayEnv._calibratedRankMin = Number(cfgRows[4].results[0].config_value) || 0;
+          env._adaptiveSLTP = replayEnv._adaptiveSLTP;
+          env._calibratedSlAtr = replayEnv._calibratedSlAtr;
+          env._calibratedRankMin = replayEnv._calibratedRankMin;
+          env._deepAuditConfig = replayEnv._deepAuditConfig;
+        } catch {}
+
+        // Group snapshots by timestamp, then process chronologically
+        const allTrades = (await kvGetJSON(KV, REPLAY_TRADES_KV_KEY)) || [];
+        const replayCtx = { allTrades, execStates: new Map(), processDebug: [], _blockedEntries: {} };
+        const stateMap = {};
+        const replayLockVal = await KV.get("timed:replay:lock") || null;
+        let scored = 0, tradesCreated = 0, skipped = 0;
+        const errors = [];
+        const stageCounts = {};
+        const blockReasons = {};
+
+        // Process all snapshot rows chronologically (loaded in pages above)
+        for (const row of allSnapRows) {
+          try {
+            const ticker = row.ticker;
+            const result = JSON.parse(row.payload_json);
+            if (!result || !ticker) { skipped++; continue; }
+            const intervalTs = Number(row.ts);
+
+            // Restore context fields that the pipeline expects
+            result.ts = intervalTs;
+            result.ingest_ts = intervalTs;
+            result.data_source = "snapshot_replay";
+
+            const existing = stateMap[ticker] || {};
+
+            // Carry forward kanban cycle state
+            if (existing?.entry_ts != null && result.entry_ts == null) result.entry_ts = existing.entry_ts;
+            if (existing?.entry_price != null && result.entry_price == null) result.entry_price = existing.entry_price;
+            if (existing?.kanban_cycle_enter_now_ts != null) result.kanban_cycle_enter_now_ts = existing.kanban_cycle_enter_now_ts;
+            if (existing?.kanban_cycle_trigger_ts != null) result.kanban_cycle_trigger_ts = existing.kanban_cycle_trigger_ts;
+            if (existing?.kanban_cycle_side != null) result.kanban_cycle_side = existing.kanban_cycle_side;
+
+            // Trigger detection (same as candle-replay)
+            const prevState = existing?.state;
+            const curState = result.state;
+            const isActionable = curState && (
+              curState.includes("BULL_BULL") || curState.includes("BEAR_BEAR") ||
+              curState.includes("PULLBACK")
+            );
+            if (isActionable && curState !== prevState) {
+              result.trigger_ts = intervalTs;
+            } else if (existing?.trigger_ts) {
+              result.trigger_ts = existing.trigger_ts;
+            }
+
+            // Classify kanban stage
+            const openTrade = replayCtx.allTrades.find(
+              t => String(t?.ticker || "").toUpperCase() === ticker && isOpenTradeStatus(t?.status)
+            ) || null;
+            const prevStage = existing?.kanban_stage;
+            const stage = classifyKanbanStage(result, openTrade, intervalTs);
+            let finalStage = stage;
+
+            // Block diagnostics
+            const needsBlockDiag = ["watch", "setup", "discovery", "in_review", "enter", "enter_now"].includes(stage);
+            if (needsBlockDiag) {
+              const diagEntry = qualifiesForEnter(result, intervalTs);
+              if (!diagEntry.qualifies) {
+                blockReasons[diagEntry.reason] = (blockReasons[diagEntry.reason] || 0) + 1;
+              }
+            }
+
+            // Set kanban cycle tracking
+            if (finalStage === "in_review" || finalStage === "enter_now" || finalStage === "enter") {
+              result.kanban_cycle_enter_now_ts = intervalTs;
+              result.kanban_cycle_trigger_ts = Number.isFinite(Number(result?.trigger_ts)) ? result.trigger_ts : intervalTs;
+              result.kanban_cycle_side = sideFromStateOrScores(result);
+            } else if (["hold", "just_entered", "defend", "trim", "exit"].includes(finalStage)) {
+              result.kanban_cycle_enter_now_ts = existing?.kanban_cycle_enter_now_ts ?? null;
+              result.kanban_cycle_trigger_ts = existing?.kanban_cycle_trigger_ts ?? null;
+              result.kanban_cycle_side = existing?.kanban_cycle_side ?? null;
+            } else {
+              result.kanban_cycle_enter_now_ts = null;
+              result.kanban_cycle_trigger_ts = null;
+              result.kanban_cycle_side = null;
+            }
+
+            // Entry price tracking
+            const isNewEntry = (finalStage === "in_review" || finalStage === "enter_now" || finalStage === "enter") && prevStage !== "in_review" && prevStage !== "enter_now" && prevStage !== "enter";
+            if (isNewEntry && Number.isFinite(result.price) && result.price > 0) {
+              result.entry_price = result.price;
+              result.entry_ts = intervalTs;
+            }
+            if (!isNewEntry && existing?.entry_price && result.entry_price == null) {
+              result.entry_price = existing.entry_price;
+              result.entry_ts = existing.entry_ts;
+            }
+
+            // Stage transitions
+            if (prevStage && finalStage && String(prevStage) !== String(finalStage)) {
+              result.prev_kanban_stage = String(prevStage);
+              result.prev_kanban_stage_ts = intervalTs;
+            }
+
+            result.kanban_stage = finalStage;
+            result.kanban_meta = deriveKanbanMeta(result, finalStage);
+            stageCounts[finalStage || "null"] = (stageCounts[finalStage || "null"] || 0) + 1;
+
+            // Run trade simulation (no Discord, no email, no trail writes)
+            const simEnv = { ...env, DISCORD_ENABLE: "false", DISCORD_WEBHOOK_URL: null, EMAIL_ENABLED: "false", SENDGRID_API_KEY: null };
+            const countBefore = replayCtx.allTrades.filter(x => String(x?.ticker).toUpperCase() === ticker).length;
+            await processTradeSimulation(KV, ticker, result, existing, simEnv, {
+              forceUseIngestTs: true,
+              replayBatchContext: replayCtx,
+              asOfTs: intervalTs,
+            });
+            const countAfter = replayCtx.allTrades.filter(x => String(x?.ticker).toUpperCase() === ticker).length;
+            if (countAfter > countBefore) tradesCreated += countAfter - countBefore;
+
+            stateMap[ticker] = result;
+            scored++;
+          } catch (e) {
+            errors.push({ ticker: row.ticker, ts: row.ts, error: String(e?.message || e).slice(0, 150) });
+          }
+        }
+
+        // Persist trades to KV + D1
+        try {
+          await kvPutJSON(KV, REPLAY_TRADES_KV_KEY, replayCtx.allTrades);
+          await kvPutJSON(KV, "timed:trades:all", replayCtx.allTrades);
+        } catch {}
+        if (db) {
+          for (const trade of replayCtx.allTrades) {
+            try {
+              if (replayLockVal && !trade.run_id) trade.run_id = replayLockVal;
+              await d1UpsertTrade(env, trade).catch(() => {});
+            } catch {}
+          }
+          // Write-through to immutable archive
+          if (replayLockVal) {
+            for (const trade of replayCtx.allTrades) {
+              try { await d1ArchiveRunTrade(env, replayLockVal, trade).catch(() => {}); } catch {}
+            }
+          }
+        }
+
+        // Write final state to D1 + KV
+        for (const ticker of Object.keys(stateMap)) {
+          try {
+            await d1UpsertTickerLatest(env, ticker, stateMap[ticker]);
+            await kvPutJSON(KV, `timed:latest:${ticker}`, stateMap[ticker]);
+          } catch {}
+        }
+
+        // Investor replay if not skipped
+        if (!skipInvestor) {
+          try {
+            const invResult = await runInvestorDailyReplay(env, KV, replayCtx, dateParam);
+            if (invResult?.opened || invResult?.closed) {
+              console.log(`[SNAPSHOT-REPLAY] Investor: +${invResult.opened} -${invResult.closed}`);
+            }
+          } catch {}
+          try { await snapshotBothPortfolios(env, KV, replayCtx, dateParam); } catch {}
+        } else {
+          const dayState = {};
+          for (const sym of Object.keys(stateMap)) {
+            if (stateMap[sym]?.price > 0) dayState[sym] = stateMap[sym];
+          }
+          try { await kvPutJSON(KV, `timed:replay:daystate:${dateParam}`, dayState); } catch {}
+        }
+
+        // Extract snapshot version from the first processed ticker state
+        const firstTicker = Object.keys(stateMap)[0];
+        const snapshotVersion = stateMap[firstTicker]?._snapshot_v || stateMap[firstTicker]?.scoring_version || null;
+
+        return sendJSON({
+          ok: true,
+          mode: "snapshot_replay",
+          date: dateParam,
+          snapshotRows: totalSnapshotRows,
+          intervals: distinctIntervalCount,
+          snapshotVersion,
+          scored,
+          skipped,
+          tradesCreated,
+          totalTrades: replayCtx.allTrades.length,
+          errorsCount: errors.length,
+          errors: errors.slice(0, 10),
+          stageCounts,
+          blockReasons,
+          tickersProcessed: Object.keys(stateMap).length,
+        }, 200, corsHeaders(env, req));
       }
 
       // POST /timed/admin/investor-replay?date=YYYY-MM-DD&key=...
@@ -38357,6 +41204,63 @@ export default {
           if (!DB) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
           const result = await resolveExpiredPredictions(DB, Date.now());
           return sendJSON({ ok: true, ...result }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // GET /timed/admin/validate-10m?ticker=AAPL&days=5
+      // One-time diagnostic: compares TwelveData-synthesized 10m bars against
+      // Alpaca native 10m bars for a sample ticker to measure synthesis accuracy.
+      if (routeKey === "GET /timed/admin/validate-10m") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        try {
+          const ticker = normTicker(url.searchParams.get("ticker")) || "AAPL";
+          const days = Math.min(Number(url.searchParams.get("days") || "5"), 30);
+          const start = new Date(Date.now() - days * 86400000).toISOString();
+
+          const [tdResult, alpResult] = await Promise.all([
+            tdFetchTimeSeries(env, [ticker], "5min", start, null, 5000),
+            alpacaFetchBars(env, [ticker], "10", start, null, 5000),
+          ]);
+          const td5m = tdResult?.bars?.[ticker] || [];
+          const synthesized = aggregate5mTo10m(td5m);
+          const native = alpResult?.bars?.[ticker] || [];
+
+          const nativeMap = new Map();
+          for (const bar of native) {
+            const key = new Date(bar.t).getTime();
+            if (Number.isFinite(key)) nativeMap.set(key, bar);
+          }
+
+          let matched = 0, mismatched = 0, synthOnly = 0;
+          const discrepancies = [];
+          for (const sBar of synthesized) {
+            const key = new Date(sBar.t).getTime();
+            const nBar = nativeMap.get(key);
+            if (!nBar) { synthOnly++; continue; }
+            matched++;
+            const diffs = {};
+            for (const f of ["o", "h", "l", "c"]) {
+              const pctDiff = nBar[f] > 0 ? Math.abs((sBar[f] - nBar[f]) / nBar[f] * 100) : 0;
+              if (pctDiff > 0.01) diffs[f] = { synth: sBar[f], native: nBar[f], pctDiff: +pctDiff.toFixed(4) };
+            }
+            if (Object.keys(diffs).length > 0) {
+              mismatched++;
+              if (discrepancies.length < 20) discrepancies.push({ t: sBar.t, ...diffs });
+            }
+          }
+
+          return sendJSON({
+            ok: true, ticker, days,
+            td_5m_bars: td5m.length,
+            synthesized_10m_bars: synthesized.length,
+            native_10m_bars: native.length,
+            matched, mismatched, synth_only: synthOnly,
+            accuracy_pct: matched > 0 ? +((1 - mismatched / matched) * 100).toFixed(2) : null,
+            sample_discrepancies: discrepancies,
+          }, 200, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e?.message || e) }, 500, corsHeaders(env, req));
         }
@@ -44199,6 +47103,9 @@ export default {
                         setup_reason: latestData.setup_reason || latestData.__setup_reason || null,
                         block_reason: latestData.__entry_block_reason || latestData.entry_block_reason || null,
                         kanban_stage: latestData.kanban_stage || null,
+                        cio_blocked: !!latestData.__cio_blocked,
+                        cio_reason: latestData.__cio_block_reason || null,
+                        cio_flags: latestData.__cio_block_flags || null,
                       };
                     }
                     return null;
@@ -44218,6 +47125,51 @@ export default {
             } catch (err) {
               console.error("[AI CHAT] Error fetching ticker data:", err);
               // Continue with empty ticker context - not critical
+            }
+
+            // Build CIO memory context for mentioned tickers
+            let cioMemoryContext = "";
+            try {
+              if (uniqueMentioned.length > 0 && uniqueMentioned.length <= 5) {
+                const { buildCIOMemory } = await import("./cio/cio-memory.js");
+                const allTrades = (await kvGetJSON(KV, REPLAY_TRADES_KV_KEY)) || (await kvGetJSON(KV, "timed:trades:all")) || [];
+                let pathPerfCache = null;
+                try {
+                  const { results: ppRows } = await env.DB.prepare(
+                    `SELECT path_key, total_trades, win_rate, avg_pnl_pct, enabled FROM path_performance`
+                  ).all();
+                  if (ppRows?.length) {
+                    pathPerfCache = new Map();
+                    for (const r of ppRows) pathPerfCache.set(r.path_key, r);
+                  }
+                } catch {}
+                const memoryCache = { pathPerf: pathPerfCache };
+                const memParts = [];
+                for (const sym of uniqueMentioned.slice(0, 3)) {
+                  const td = tickerContext.find(t => t.ticker === sym);
+                  if (!td) continue;
+                  const latestData = await kvGetJSON(KV, `timed:latest:${sym}`);
+                  if (!latestData) continue;
+                  const dir = String(latestData.direction || td.direction || "LONG").toUpperCase();
+                  const mem = buildCIOMemory(sym, dir, latestData, allTrades, memoryCache);
+                  if (mem && Object.keys(mem).length > 0) {
+                    const parts = [`**${sym}** CIO Memory:`];
+                    if (mem.ticker_history) parts.push(`  Ticker history: ${mem.ticker_history.trades} trades, ${mem.ticker_history.wr}% WR, avg ${mem.ticker_history.avg_pnl_pct}%`);
+                    if (mem.regime_context) parts.push(`  Regime (${mem.regime_context.regime}): ${mem.regime_context.wr_all}% WR across ${mem.regime_context.trades_all} trades`);
+                    if (mem.path_performance) parts.push(`  Entry path (${mem.path_performance.path}): ${mem.path_performance.wr}% WR, avg ${mem.path_performance.avg_pnl_pct}%`);
+                    if (mem.ticker_profile) parts.push(`  Personality: ${mem.ticker_profile.behavior_type || "unknown"}, SL mult: ${mem.ticker_profile.sl_mult || 1}, TP mult: ${mem.ticker_profile.tp_mult || 1}`);
+                    if (mem.macro_proximity) parts.push(`  Macro: ${(mem.macro_proximity.macro_events || []).map(e => e.event).join(", ") || "none nearby"}`);
+                    memParts.push(parts.join("\n"));
+                  }
+                  if (latestData.__cio_blocked) {
+                    const cioTs = latestData.__cio_block_ts ? new Date(Number(latestData.__cio_block_ts)).toLocaleString("en-US", { timeZone: "America/New_York", dateStyle: "short", timeStyle: "short" }) : "recently";
+                    memParts.push(`**${sym}** was REJECTED by AI CIO (${cioTs}): ${latestData.__cio_block_reason || "unknown reason"}. Flags: ${latestData.__cio_block_flags || "none"}.`);
+                  }
+                }
+                if (memParts.length > 0) cioMemoryContext = "\n### AI CIO Memory (for mentioned tickers):\n" + memParts.join("\n\n") + "\n";
+              }
+            } catch (cioMemErr) {
+              console.warn("[AI CHAT] CIO memory fetch failed:", String(cioMemErr?.message || cioMemErr).slice(0, 150));
             }
 
             // Format activity feed context with safe handling
@@ -44246,13 +47198,11 @@ export default {
                       "[AI CHAT] Error formatting activity event:",
                       e,
                     );
-                    // Skip this event
                   }
                 });
               }
             } catch (err) {
               console.error("[AI CHAT] Error processing activity data:", err);
-              // Continue with empty activity context - not critical
             }
 
             // Build system prompt with context
@@ -44320,13 +47270,14 @@ ${
             const regime = t.regime ? ` Regime: ${String(t.regime)}.` : "";
             const squeeze = t.squeeze ? ` Squeeze: ${t.squeeze}.` : "";
             const compress = t.compression ? ` Compressed.` : "";
+            const cio = t.cio_blocked ? ` CIO: REJECTED (${(t.cio_flags || "").split(",")[0]?.trim() || t.cio_reason?.slice(0, 40) || "?"}).` : "";
             return `- **${String(t.ticker || "UNKNOWN")}**: Rank ${
               Number(t.rank) || 0
             }, RR ${rr.toFixed(2)}:1, Price $${price.toFixed(
               2,
             )}, State: ${String(t.state || "UNKNOWN")}${dir}, Phase: ${(
               phasePct * 100
-            ).toFixed(0)}%${satyStr}, Completion: ${(completion * 100).toFixed(0)}%${stage}${regime}${squeeze}${compress}${setup}${block}`;
+            ).toFixed(0)}%${satyStr}, Completion: ${(completion * 100).toFixed(0)}%${stage}${regime}${squeeze}${compress}${setup}${block}${cio}`;
           } catch (e) {
             console.error("[AI CHAT] Error formatting ticker:", t, e);
             return `- **${String(t.ticker || "UNKNOWN")}**: Data unavailable`;
@@ -44356,6 +47307,18 @@ ${
         .join("\n")
     : "No recent activity"
 }
+${cioMemoryContext}
+## AI CIO CONTEXT
+The platform has an AI Chief Investment Officer (CIO) that reviews every trade candidate before execution. It uses a 7-layer memory system:
+1. **Ticker History** — past trades on this ticker (win rate, avg P&L, exit patterns)
+2. **Regime Context** — how the system performs in the current market regime
+3. **Entry Path Performance** — win rate for the specific entry setup pattern
+4. **Ticker Personality** — behavioral profile (trend persistence, volatility, SL/TP multipliers)
+5. **Macro/Earnings Proximity** — nearby macro events or earnings that affect risk
+6. **Episodic Similarity** — similar market days from history and their outcomes
+7. **Recent Trade Outcomes** — overall recent performance context
+
+When CIO memory data is provided above, reference it in your answers. If a ticker was recently rejected by the CIO, explain what that means and what the risk flags indicate. The CIO's rejection reasons are transparent and should be communicated clearly to the user.
 
 ## TRADING SYSTEM OVERVIEW
 
@@ -48663,14 +51626,14 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                   if (!payload.flags) payload.flags = {};
                   payload.flags.forced_watch_missing_trigger = true;
                 } else if (!cycleOk) {
-                  finalStage = "enter";
+                  finalStage = "in_review";
                   if (!payload.flags) payload.flags = {};
                   payload.flags.forced_enter_gate = true;
                 }
               }
             }
 
-            if (finalStage === "enter_now" || finalStage === "enter") {
+            if (finalStage === "in_review" || finalStage === "enter_now" || finalStage === "enter") {
               payload.kanban_cycle_enter_now_ts = tsNow;
               payload.kanban_cycle_trigger_ts = Number.isFinite(Number(payload?.trigger_ts)) && payload.trigger_ts > 0 ? payload.trigger_ts : null;
               payload.kanban_cycle_side = sideFromStateOrScores(payload);
@@ -48963,7 +51926,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             const countBefore = replayCtx.allTrades.filter((x) => String(x?.ticker).toUpperCase() === ticker).length;
             // Capture debug for first few "enter" rows
             const openTradeCheck = replayCtx.allTrades.find((t) => String(t?.ticker || "").toUpperCase() === ticker && (String(t?.status || "").toUpperCase() === "OPEN" || String(t?.status || "").toUpperCase() === "TP_HIT_TRIM"));
-            if ((finalStage === "enter" || finalStage === "enter_now") && replayCtx.debugEntries.length < 3) {
+            if ((finalStage === "in_review" || finalStage === "enter" || finalStage === "enter_now") && replayCtx.debugEntries.length < 3) {
               replayCtx.debugEntries.push({
                 ts: rowTs,
                 stage: finalStage,
@@ -48984,7 +51947,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             await processTradeSimulation(KV, ticker, payload, existingState, replayEnvD1, { forceUseIngestTs: true, replayBatchContext: replayCtx, asOfTs: rowTs });
             const countAfter = replayCtx.allTrades.filter((x) => String(x?.ticker).toUpperCase() === ticker).length;
             if (countAfter > countBefore) tradesCreated += countAfter - countBefore;
-            if ((finalStage === "enter" || finalStage === "enter_now") && replayCtx.debugEntries.length > 0 && replayCtx.debugEntries[replayCtx.debugEntries.length - 1].ts === rowTs) {
+            if ((finalStage === "in_review" || finalStage === "enter" || finalStage === "enter_now") && replayCtx.debugEntries.length > 0 && replayCtx.debugEntries[replayCtx.debugEntries.length - 1].ts === rowTs) {
               replayCtx.debugEntries[replayCtx.debugEntries.length - 1].tradeCountAfter = countAfter;
               replayCtx.debugEntries[replayCtx.debugEntries.length - 1].tradeCreated = countAfter > countBefore;
             }
@@ -49172,10 +52135,10 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                 payload.flags.first_bar_of_day_bridge = true;
               } else {
                 if (!Number.isFinite(curTriggerTs) || curTriggerTs <= 0) { finalStage = "watch"; if (!payload.flags) payload.flags = {}; payload.flags.forced_watch_missing_trigger = true; }
-                else if (!cycleOk) { finalStage = "enter"; if (!payload.flags) payload.flags = {}; payload.flags.forced_enter_gate = true; }
+                else if (!cycleOk) { finalStage = "in_review"; if (!payload.flags) payload.flags = {}; payload.flags.forced_enter_gate = true; }
               }
             }
-            if (finalStage === "enter_now" || finalStage === "enter") {
+            if (finalStage === "in_review" || finalStage === "enter_now" || finalStage === "enter") {
               payload.kanban_cycle_enter_now_ts = rowTs;
               payload.kanban_cycle_trigger_ts = Number.isFinite(Number(payload?.trigger_ts)) && payload.trigger_ts > 0 ? payload.trigger_ts : null;
               payload.kanban_cycle_side = sideFromStateOrScores(payload);
@@ -49322,7 +52285,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           const trailWithPayload = Number(trailTotal?.with_payload) || 0;
           const receiptN = Number(receiptTotal?.n) || 0;
 
-          return sendJSON({
+          const resp = {
             ok: true,
             date: dayKey,
             ticker: tickerParam || null,
@@ -49335,7 +52298,25 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
               : receiptN > 0
                 ? "timed_trail has no payload_json; use replay-ingest (ingest_receipts) or backfill timed_trail from ingest."
                 : "No data for this date/ticker; run ingest or backfill first.",
-          }, 200, corsHeaders(env, req));
+          };
+          if (url.searchParams.get("payloadSample") === "1" && trailWithPayload > 0 && tickerParam) {
+            try {
+              const sample = await db.prepare(
+                `SELECT payload_json FROM timed_trail WHERE ticker = ?1 AND ts >= ?2 AND ts <= ?3 AND payload_json IS NOT NULL LIMIT 1`
+              ).bind(tickerParam, tsStartInt, tsEndInt).first();
+              if (sample?.payload_json) {
+                const parsed = JSON.parse(sample.payload_json);
+                resp.payloadSample = {
+                  sizeBytes: sample.payload_json.length,
+                  topLevelKeys: Object.keys(parsed).sort(),
+                  snapshotVersion: parsed._snapshot_v || parsed._v,
+                  tfTechKeys: parsed.tf_tech ? Object.keys(parsed.tf_tech).sort() : [],
+                  perTfFields: parsed.tf_tech ? Object.keys(parsed.tf_tech[Object.keys(parsed.tf_tech)[0]] || {}).sort() : [],
+                };
+              }
+            } catch {}
+          }
+          return sendJSON(resp, 200, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: "query_failed", detail: String(e?.message || e) }, 500, corsHeaders(env, req));
         }
@@ -49750,12 +52731,12 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                   if (!payload.flags) payload.flags = {};
                   payload.flags.forced_watch_missing_trigger = true;
                 } else if (!cycleOk) {
-                  finalStage = "enter";
+                  finalStage = "in_review";
                   if (!payload.flags) payload.flags = {};
                   payload.flags.forced_enter_gate = true;
                 }
               }
-              if (finalStage === "enter_now" || finalStage === "enter") {
+              if (finalStage === "in_review" || finalStage === "enter_now" || finalStage === "enter") {
                 payload.kanban_cycle_enter_now_ts = rowTs;
                 payload.kanban_cycle_trigger_ts = Number.isFinite(Number(payload?.trigger_ts)) && payload.trigger_ts > 0 ? payload.trigger_ts : null;
                 payload.kanban_cycle_side = sideFromStateOrScores(payload);
@@ -50279,13 +53260,13 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                 if (!payload.flags) payload.flags = {};
                 payload.flags.forced_watch_missing_trigger = true;
               } else if (!cycleOk) {
-                finalStage = "enter";
+                finalStage = "in_review";
                 if (!payload.flags) payload.flags = {};
                 payload.flags.forced_enter_gate = true;
               }
             }
 
-            if (finalStage === "enter_now" || finalStage === "enter") {
+            if (finalStage === "in_review" || finalStage === "enter_now" || finalStage === "enter") {
               payload.kanban_cycle_enter_now_ts = rowTs;
               payload.kanban_cycle_trigger_ts =
                 Number.isFinite(Number(payload?.trigger_ts)) && payload.trigger_ts > 0
@@ -50311,7 +53292,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
               payload.prev_kanban_stage_ts = rowTs;
             }
 
-            if ((finalStage === "enter_now" || finalStage === "enter") && prevStage !== "enter_now" && prevStage !== "enter") {
+            if ((finalStage === "in_review" || finalStage === "enter_now" || finalStage === "enter") && prevStage !== "in_review" && prevStage !== "enter_now" && prevStage !== "enter") {
               const price = Number(payload?.price);
               if (Number.isFinite(price) && price > 0) {
                 payload.entry_price = price;
@@ -50748,8 +53729,12 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             
             if (resetLedger) {
               // Full ledger clear (DANGEROUS; opt-in only)
-              // Clear new position-based tables first (due to foreign key constraints)
-              // Also clear ticker_latest to ensure fresh state for /timed/all
+              // ╔══════════════════════════════════════════════════════════════════╗
+              // ║  PROTECTED — NEVER delete from archive/learning tables:        ║
+              // ║  backtest_run_trades, backtest_run_direction_accuracy,          ║
+              // ║  backtest_run_annotations, backtest_run_config, backtest_runs,  ║
+              // ║  direction_accuracy, trade_autopsy_annotations                 ║
+              // ╚══════════════════════════════════════════════════════════════════╝
               for (const sql of [
                 "DELETE FROM execution_actions",
                 "DELETE FROM lots",
@@ -51052,20 +54037,37 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             return;
           }
           // Gather stats for the "here is what you missed" content
-          let signalCount = 0, tradeCount = 0, briefCount = 0;
+          let signalCount = 0, tradeCount = 0, briefCount = 0, winRate = null, totalPnl = 0, activePositions = 0;
+          let recentTrades = [];
           try {
             const alertsRes = await env.DB.prepare(
               `SELECT COUNT(*) as cnt FROM alerts WHERE ts > ?`
             ).bind(fourteenDaysAgo).first();
             signalCount = alertsRes?.cnt || 0;
-          } catch { /* alerts table may not exist */ }
+          } catch {}
           try {
             const briefsRes = await env.DB.prepare(
               `SELECT COUNT(*) as cnt FROM daily_briefs WHERE published_at > ?`
             ).bind(fourteenDaysAgo).first();
             briefCount = briefsRes?.cnt || 0;
-          } catch { /* briefs table may not exist */ }
-          tradeCount = signalCount > 0 ? Math.ceil(signalCount * 0.3) : 0;
+          } catch {}
+          try {
+            const { results: closedRows } = await env.DB.prepare(
+              `SELECT ticker, direction, status, entry_price, exit_price, entry_ts, exit_ts, pnl_pct FROM trades WHERE status IN ('WIN','LOSS','FLAT') ORDER BY exit_ts DESC LIMIT 10`
+            ).all();
+            recentTrades = (closedRows || []).map(r => ({
+              ticker: r.ticker, direction: r.direction, status: r.status,
+              pnlPct: Number(r.pnl_pct) || 0, entry_ts: r.entry_ts, exit_ts: r.exit_ts,
+            }));
+            const allClosed = await env.DB.prepare(`SELECT COUNT(*) as cnt FROM trades WHERE status IN ('WIN','LOSS','FLAT')`).first();
+            tradeCount = allClosed?.cnt || 0;
+            const wins = await env.DB.prepare(`SELECT COUNT(*) as cnt FROM trades WHERE status='WIN'`).first();
+            if (tradeCount > 0) winRate = ((wins?.cnt || 0) / tradeCount) * 100;
+            const pnlRes = await env.DB.prepare(`SELECT SUM(pnl_pct) as total FROM trades WHERE status IN ('WIN','LOSS','FLAT')`).first();
+            totalPnl = Number(pnlRes?.total) || 0;
+            const openRes = await env.DB.prepare(`SELECT COUNT(*) as cnt FROM trades WHERE status='OPEN'`).first();
+            activePositions = openRes?.cnt || 0;
+          } catch {}
 
           let sent = 0;
           for (const u of inactive) {
@@ -51076,7 +54078,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             }
             const lastLogin = Number(u.last_login_at || 0);
             const daysSince = lastLogin > 0 ? Math.floor((Date.now() - lastLogin) / (24 * 60 * 60 * 1000)) : null;
-            const res = await sendReEngagementEmail(env, u.email, { daysSince, signalCount, tradeCount, briefCount });
+            const res = await sendReEngagementEmail(env, u.email, { daysSince, signalCount, tradeCount, briefCount, winRate, totalPnl, activePositions, recentTrades });
             if (res.ok) {
               sent++;
               if (KV) await KV.put(throttleKey, String(Date.now()), { expirationTtl: 14 * 24 * 60 * 60 + 3600 }).catch(() => {});
@@ -52076,7 +55078,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
         try {
           const db2 = env?.DB;
           if (db2) {
-            const daKeys = ["deep_audit_short_min_rank", "deep_audit_ticker_blacklist", "deep_audit_max_loss_pct", "deep_audit_sl_cap_mult", "deep_audit_sl_floor_mult", "deep_audit_rsi_tp_delay", "deep_audit_avoid_hours", "deep_audit_block_regime", "deep_audit_vix_ceiling", "deep_audit_regime_size_mult", "deep_audit_min_hold_regime_exit_hours", "deep_audit_loss_cooldown_hours", "deep_audit_min_htf_score", "deep_audit_momentum_elite_rank_boost", "deep_audit_breakout_daily_level_enabled", "deep_audit_breakout_atr_breakout_enabled", "deep_audit_breakout_ema_stack_enabled", "deep_audit_breakout_min_rr", "deep_audit_breakout_min_entry_quality", "deep_audit_opening_noise_end_minute", "deep_audit_min_1h_bias", "deep_audit_min_4h_bias", "deep_audit_ltf_momentum_min_bias", "deep_audit_ltf_momentum_min_rsi", "deep_audit_ripster_opening_noise_end_minute", "deep_audit_ltf_rsi_floor", "deep_audit_min_ltf_ema_depth", "deep_audit_post_trim_breakeven", "deep_audit_stall_max_hours", "deep_audit_stall_breakeven_pnl_pct", "deep_audit_stall_force_close_hours", "deep_audit_soft_fuse_defer_min_1h_depth", "deep_audit_runner_trail_pct", "deep_audit_post_trim_trail_pct", "deep_audit_stale_runner_bars", "deep_audit_momentum_fade_exit", "deep_audit_min_hold_before_mgmt_exit_min", "deep_audit_tp_atr_override", "deep_audit_phase_exit_enabled", "deep_audit_atr_exhaustion_exit", "deep_audit_rvol_ceiling", "deep_audit_rvol_ceiling_short", "deep_audit_rvol_high_threshold", "deep_audit_rvol_high_size_mult", "deep_audit_danger_max_signals", "deep_audit_danger_ema_depth_min", "deep_audit_danger_vix_threshold", "deep_audit_danger_min_st_aligned", "deep_audit_danger_size_mult", "deep_audit_danger_size_threshold", "deep_audit_danger_div_enabled", "deep_audit_div_exit_enabled", "deep_audit_div_exit_min_strength", "deep_audit_div_pivot_lookback", "deep_audit_div_max_age_bars", "deep_audit_div_runner_trail_pct", "deep_audit_mean_revert_td9_enabled", "deep_audit_td_exit_enabled", "deep_audit_td_exit_trail_pct", "deep_audit_td_ltf_trail_pct", "deep_audit_mfe_safety_trim_pct", "deep_audit_max_runner_drawdown_pct", "deep_audit_min_entry_quality", "deep_audit_hard_loss_cap", "tier_risk_map", "grade_risk_map", "smart_runner_exit_enabled", "smart_runner_swing_atr_proximity", "smart_runner_min_bars_post_trim", "rank_gate_mode", "doa_gate_enabled", "doa_gate_ema_depth_threshold", "doa_gate_ticker_blacklist"];
+            const daKeys = ["deep_audit_short_min_rank", "deep_audit_ticker_blacklist", "deep_audit_max_loss_pct", "deep_audit_sl_cap_mult", "deep_audit_sl_floor_mult", "deep_audit_rsi_tp_delay", "deep_audit_avoid_hours", "deep_audit_block_regime", "deep_audit_vix_ceiling", "deep_audit_regime_size_mult", "deep_audit_min_hold_regime_exit_hours", "deep_audit_loss_cooldown_hours", "deep_audit_min_htf_score", "deep_audit_momentum_elite_rank_boost", "deep_audit_breakout_daily_level_enabled", "deep_audit_breakout_atr_breakout_enabled", "deep_audit_breakout_ema_stack_enabled", "deep_audit_breakout_min_rr", "deep_audit_breakout_min_entry_quality", "deep_audit_opening_noise_end_minute", "deep_audit_min_1h_bias", "deep_audit_min_4h_bias", "deep_audit_ltf_momentum_min_bias", "deep_audit_ltf_momentum_min_rsi", "deep_audit_ripster_opening_noise_end_minute", "deep_audit_ltf_rsi_floor", "deep_audit_min_ltf_ema_depth", "deep_audit_post_trim_breakeven", "deep_audit_stall_max_hours", "deep_audit_stall_breakeven_pnl_pct", "deep_audit_stall_force_close_hours", "deep_audit_soft_fuse_defer_min_1h_depth", "deep_audit_runner_trail_pct", "deep_audit_post_trim_trail_pct", "deep_audit_stale_runner_bars", "deep_audit_momentum_fade_exit", "deep_audit_min_hold_before_mgmt_exit_min", "deep_audit_tp_atr_override", "deep_audit_phase_exit_enabled", "deep_audit_atr_exhaustion_exit", "deep_audit_rvol_ceiling", "deep_audit_rvol_ceiling_short", "deep_audit_rvol_high_threshold", "deep_audit_rvol_high_size_mult", "deep_audit_danger_max_signals", "deep_audit_danger_ema_depth_min", "deep_audit_danger_vix_threshold", "deep_audit_danger_min_st_aligned", "deep_audit_danger_size_mult", "deep_audit_danger_size_threshold", "deep_audit_danger_div_enabled", "deep_audit_div_exit_enabled", "deep_audit_div_exit_min_strength", "deep_audit_div_pivot_lookback", "deep_audit_div_max_age_bars", "deep_audit_div_runner_trail_pct", "deep_audit_mean_revert_td9_enabled", "deep_audit_td_exit_enabled", "deep_audit_td_exit_trail_pct", "deep_audit_td_ltf_trail_pct", "deep_audit_mfe_safety_trim_pct", "deep_audit_max_runner_drawdown_pct", "deep_audit_min_entry_quality", "deep_audit_hard_loss_cap", "deep_audit_hard_loss_cap_pct", "deep_audit_breakeven_mfe_threshold", "tier_risk_map", "grade_risk_map", "smart_runner_exit_enabled", "smart_runner_swing_atr_proximity", "smart_runner_min_bars_post_trim", "rank_gate_mode", "doa_gate_enabled", "doa_gate_ema_depth_threshold", "doa_gate_ticker_blacklist", "ai_cio_enabled", "ai_cio_replay_enabled", "short_min_rank", "short_require_daily_st_aligned", "short_min_4h_ema_depth", "min_entry_confidence", "entry_ticker_blacklist", "choppy_regime_rank_floor", "tt_spy_directional_gate", "tt_pdz_hard_gate", "deep_audit_phase_peak_extreme", "deep_audit_phase_decline_extreme"];
             const daRows = (await db2.prepare(
               `SELECT config_key, config_value FROM model_config WHERE config_key IN (${daKeys.map((_, i) => `?${i + 1}`).join(",")})`
             ).bind(...daKeys).all())?.results || [];
@@ -52086,6 +55088,11 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           }
         } catch (_) {}
         env._deepAuditConfig = _deepAuditConfig;
+
+        try {
+          const derRow = await env.DB.prepare(`SELECT config_value FROM model_config WHERE config_key='dynamic_engine_rules'`).first();
+          if (derRow?.config_value) _dynamicEngineRulesCache = JSON.parse(derRow.config_value);
+        } catch (_) {}
 
         // Load golden profiles from KV for HTF/LTF entry floors
         try {
@@ -52106,6 +55113,35 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           if (vixData?.price) _currentVix = Number(vixData.price);
         } catch (_) {}
         env._currentVix = _currentVix;
+
+        // Lazy-load CIO memory cache for live scoring (refreshed every scoring cycle)
+        if (String(env._deepAuditConfig?.ai_cio_enabled ?? "false") === "true") {
+          try {
+            const [ppLive, snapLive, evLive, franchiseLive] = await Promise.all([
+              env.DB.prepare(`SELECT * FROM path_performance WHERE total_trades >= 3`).all(),
+              env.DB.prepare(`SELECT * FROM daily_market_snapshots ORDER BY date DESC LIMIT 30`).all(),
+              env.DB.prepare(`SELECT * FROM market_events WHERE date >= ? ORDER BY date DESC LIMIT 50`).bind(
+                new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10)
+              ).all(),
+              env.DB.prepare(`SELECT config_value FROM model_config WHERE config_key='cio_franchise_blacklist'`).first(),
+            ]);
+            const ppMap = new Map();
+            for (const r of (ppLive?.results || [])) ppMap.set(r.entry_path, r);
+            let fVal = null;
+            if (franchiseLive?.config_value) { try { fVal = JSON.parse(franchiseLive.config_value); } catch {} }
+            env._cioMemoryCache = {
+              pathPerf: ppMap,
+              marketSnapshots: (snapLive?.results || []).reverse(),
+              marketEvents: (evLive?.results || []).reverse(),
+              tickerProfiles: {},
+              franchise: fVal,
+              cioDecisions: [],
+            };
+          } catch (e) {
+            console.warn("[CIO_MEM] Live cache load failed:", String(e).slice(0, 150));
+            env._cioMemoryCache = null;
+          }
+        }
 
         // Three-Tier Awareness: load SPY market regime + sector ETF regimes
         let _marketRegimeObj = null;
@@ -52250,6 +55286,10 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
               _deepAuditConfig: env._deepAuditConfig || null,
               _calibratedRankMin: env._calibratedRankMin || 0,
               _universeSize: env._tickerUniverseSize || Object.keys(SECTOR_MAP).length,
+              _entryEngine: env.ENTRY_ENGINE || "ripster_core",
+              _managementEngine: env.MANAGEMENT_ENGINE || "ripster_core",
+              _ripsterTuneV2: env.RIPSTER_TUNE_V2 || "true",
+              _ripsterExitDebounceBars: env.TT_EXIT_DEBOUNCE_BARS || "3",
             };
             if (env._currentVix != null) result._vix = env._currentVix;
 
@@ -52387,8 +55427,9 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             if (hasPayloadChangedMeaningfully(existing, result)) {
               await kvPutJSON(KV, `timed:latest:${ticker}`, result);
               scored++;
-              // Keep D1 ticker_latest in sync so the fallback path serves scored data
-              if (_userAddedSet.has(ticker) || !existing) {
+              // D1 ticker_latest is batch-synced after snapshot build (see below).
+              // Individual upserts only for brand-new tickers (first score).
+              if (!existing) {
                 ctx.waitUntil(d1UpsertTickerLatest(env, ticker, result));
               }
               // Collect lightweight delta for WS push
@@ -52438,6 +55479,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
               const ts = Number(result?.ts);
               if (!Number.isFinite(ts)) continue;
               const flagsJson = result?.flags ? JSON.stringify(result.flags) : null;
+              const payloadJson = buildSnapshotPayload(result);
               trailStmts.push(
                 db.prepare(
                   `INSERT OR REPLACE INTO timed_trail
@@ -52449,7 +55491,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                   result?.completion ?? null, result?.phase_pct ?? null,
                   result?.state ?? null, result?.rank ?? null, flagsJson,
                   result?.trigger_reason ?? null, result?.trigger_dir ?? null,
-                  result?.kanban_stage ?? null, null
+                  result?.kanban_stage ?? null, payloadJson
                 )
               );
             }
@@ -52652,6 +55694,53 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
               built_at: Date.now(),
             });
             console.log(`[SCORING] KV hot cache snapshot built: ${Object.keys(snapshot).length} tickers`);
+
+            // ── Batch-sync D1 ticker_latest for ALL tickers ──
+            // Ensures the D1 fallback path never serves stale data.
+            // Previously only user-added tickers were synced, causing flicker
+            // when the KV snapshot expired and /timed/all fell back to D1.
+            try {
+              await d1EnsureLatestSchema(env);
+              const D1_MAX = 50000;
+              const _d1Now = Date.now();
+              const _d1Entries = Object.entries(snapshot);
+              const _D1_CHUNK = 40;
+              let _d1Synced = 0;
+              for (let _ci = 0; _ci < _d1Entries.length; _ci += _D1_CHUNK) {
+                const _chunk = _d1Entries.slice(_ci, _ci + _D1_CHUNK);
+                const _stmts = [];
+                for (const [_sym, _pl] of _chunk) {
+                  const _ts = Number(_pl?.ts) || _d1Now;
+                  const _stage = _pl?.kanban_stage != null ? String(_pl.kanban_stage) : null;
+                  const _prevStage = _pl?.prev_kanban_stage != null ? String(_pl.prev_kanban_stage) : null;
+                  let _pj = null;
+                  try {
+                    let _slim = slimPayloadForD1(_pl);
+                    let _s = JSON.stringify(_slim);
+                    if (_s.length > D1_MAX) { _slim = minimalPayloadForD1(_pl); _s = JSON.stringify(_slim); }
+                    _pj = _s.length <= D1_MAX ? _s : null;
+                  } catch { _pj = null; }
+                  if (!_pj) continue;
+                  _stmts.push(
+                    env.DB.prepare(
+                      `INSERT INTO ticker_latest (ticker, ts, updated_at, kanban_stage, prev_kanban_stage, payload_json)
+                       VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+                       ON CONFLICT(ticker) DO UPDATE SET
+                         ts = excluded.ts, updated_at = excluded.updated_at,
+                         kanban_stage = excluded.kanban_stage, prev_kanban_stage = excluded.prev_kanban_stage,
+                         payload_json = excluded.payload_json`
+                    ).bind(_sym, _ts, _d1Now, _stage, _prevStage, _pj)
+                  );
+                }
+                if (_stmts.length > 0) {
+                  await env.DB.batch(_stmts);
+                  _d1Synced += _stmts.length;
+                }
+              }
+              console.log(`[SCORING] D1 ticker_latest batch sync: ${_d1Synced} tickers`);
+            } catch (_d1Err) {
+              console.warn("[SCORING] D1 batch sync failed:", String(_d1Err?.message || _d1Err).slice(0, 200));
+            }
           } catch (e) {
             console.warn("[SCORING] KV hot cache build failed:", String(e?.message || e));
           }

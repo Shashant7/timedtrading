@@ -12,6 +12,7 @@
 # Sequence (trader-only then investor-only): ./scripts/full-backtest.sh --sequence 2025-07-01 2026-03-04 20
 # --skip-backfill: Skip gap detection + backfill entirely (use when candles exist from prior runs)
 # --force-backfill: Force full-universe backfill even if gap check fails or returns no ticker list
+# --snapshot-replay: Use pre-scored snapshots from timed_trail.payload_json (10-50x faster, requires prior scoring pass)
 # Interval: 4th arg defaults to 5 (minutes). We use 5 min for replay fidelity; 10 is optional for faster runs.
 # Each day is processed in batch-by-batch requests (tickerBatch tickers per request) to stay
 # within Cloudflare Worker CPU/wall-time limits. Investor replay runs on the last batch.
@@ -36,6 +37,9 @@ KEEP_OPEN_AT_END=false
 LOW_WRITE=false
 SKIP_BACKFILL=false
 FORCE_BACKFILL=false
+SNAPSHOT_REPLAY=false
+INTERVAL_MODE=false
+INTERVAL_COUNT=40
 RUN_LABEL=""
 RUN_DESCRIPTION=""
 SNAPSHOT_BEFORE_RESET=true
@@ -54,6 +58,9 @@ while [[ $# -gt 0 ]]; do
     --low-write) LOW_WRITE=true ;;
     --skip-backfill) SKIP_BACKFILL=true ;;
     --force-backfill) FORCE_BACKFILL=true ;;
+    --snapshot-replay) SNAPSHOT_REPLAY=true ;;
+    --interval-mode) INTERVAL_MODE=true ;;
+    --interval-count=*) INTERVAL_COUNT="${arg#--interval-count=}" ;;
     --no-snapshot-before-reset) SNAPSHOT_BEFORE_RESET=false ;;
     --frozen-dataset=*) FROZEN_DATASET="${arg#--frozen-dataset=}" ;;
     --dataset-manifest=*) FROZEN_DATASET="${arg#--dataset-manifest=}" ;;
@@ -172,6 +179,7 @@ else
   echo "║  Ticker batch: $TICKER_BATCH | Interval: ${INTERVAL_MIN}m"
   $TRADER_ONLY && echo "║  Mode: trader-only (investor/snapshots skipped)"
   $LOW_WRITE && echo "║  Mode: low-write (skip timed_trail writes + lifecycle)"
+  $INTERVAL_MODE && echo "║  Mode: interval-first (all tickers per interval chunk, $INTERVAL_COUNT intervals/req)"
   $SEQUENCE && echo "║  Mode: sequence (trader-only then investor-only)"
   echo "╚══════════════════════════════════════════════════════╝"
   echo ""
@@ -558,7 +566,91 @@ while [[ "$CURRENT_DATE" < "$END_DATE" ]] || [[ "$CURRENT_DATE" == "$END_DATE" ]
     ENV_OVERRIDE_PARAM="${ENV_OVERRIDE_PARAM}&${key}=${val}"
   done
 
-  # Process day in batches (avoids Cloudflare Worker CPU/wall-time limits on large DBs)
+  # ── Snapshot-replay: single request per day (no batching needed) ──
+  if $SNAPSHOT_REPLAY; then
+    SNAP_URL="$API_BASE/timed/admin/snapshot-replay?date=$CURRENT_DATE&key=$API_KEY${CLEAN_PARAM}${SKIP_INV}"
+    CLEAN_PARAM=""
+
+    RESULT=""
+    for retry in 1 2 3 4 5; do
+      RESULT=$(curl -s -m 300 -X POST "$SNAP_URL" 2>&1) || true
+      if echo "$RESULT" | jq -e '.scored >= 0' >/dev/null 2>&1; then
+        break
+      fi
+      if echo "$RESULT" | jq -e '.error == "no_snapshots"' >/dev/null 2>&1; then
+        echo "  SKIP: no snapshots for $CURRENT_DATE (run candle-replay first to generate)"
+        break
+      fi
+      echo "  snapshot-replay attempt $retry failed, retrying in 10s..."
+      sleep 10
+    done
+
+    B_SCORED=$(echo "$RESULT" | jq -r '.scored // 0' 2>/dev/null || echo "0")
+    B_TRADES=$(echo "$RESULT" | jq -r '.tradesCreated // 0' 2>/dev/null || echo "0")
+    B_ERRS=$(echo "$RESULT" | jq -r '.errorsCount // 0' 2>/dev/null || echo "0")
+    B_TOTAL_TR=$(echo "$RESULT" | jq -r '.totalTrades // 0' 2>/dev/null || echo "0")
+    B_TICKERS=$(echo "$RESULT" | jq -r '.tickersProcessed // 0' 2>/dev/null || echo "0")
+    SNAP_ROWS=$(echo "$RESULT" | jq -r '.snapshotRows // 0' 2>/dev/null || echo "0")
+
+    DAY_SCORED=$((DAY_SCORED + B_SCORED))
+    DAY_TRADES=$((DAY_TRADES + B_TRADES))
+    DAY_ERRS=$((DAY_ERRS + B_ERRS))
+    DAY_TOTAL_TR=$B_TOTAL_TR
+
+    echo "  snapshot: ${B_TICKERS}tk ${SNAP_ROWS}rows scored=$B_SCORED trades=$B_TRADES err=$B_ERRS"
+
+  elif $INTERVAL_MODE; then
+  # ── Single-interval replay: one request per interval, all tickers ──
+  # Compute total intervals for this day (5-min intervals from 9:30-16:00 = 79)
+  TOTAL_INTERVALS=$(( (390 / INTERVAL_MIN) + 1 ))
+  for (( INTERVAL_IDX=0; INTERVAL_IDX<TOTAL_INTERVALS; INTERVAL_IDX++ )); do
+    END_OF_DAY_P=""
+    if [ $INTERVAL_IDX -eq $((TOTAL_INTERVALS - 1)) ]; then
+      END_OF_DAY_P="&endOfDay=1"
+    fi
+    SKIP_PAYLOAD_P=""
+    $LOW_WRITE && SKIP_PAYLOAD_P="&skipPayload=1"
+    REPLAY_URL="$API_BASE/timed/admin/interval-replay?date=$CURRENT_DATE&interval=$INTERVAL_IDX&intervalMinutes=$INTERVAL_MIN&key=$API_KEY${CLEAN_PARAM}${SKIP_INV}${SKIP_PAYLOAD_P}${ENV_OVERRIDE_PARAM}${END_OF_DAY_P}"
+    CLEAN_PARAM=""
+
+    RESULT=""
+    for retry in 1 2 3 4 5; do
+      RESULT=$(curl -s -m 120 -X POST "$REPLAY_URL" 2>&1) || true
+      if echo "$RESULT" | jq -e '.scored >= 0' >/dev/null 2>&1; then
+        break
+      fi
+      echo "  interval $INTERVAL_IDX attempt $retry failed, retrying in 10s..."
+      sleep 10
+    done
+    if ! echo "$RESULT" | jq -e '.scored >= 0' >/dev/null 2>&1; then
+      echo "ERROR: interval-replay failed after 5 attempts on $CURRENT_DATE interval $INTERVAL_IDX."
+      echo "  Last response: $(echo "$RESULT" | head -c 300)"
+      exit 1
+    fi
+
+    B_SCORED=$(echo "$RESULT" | jq -r '.scored // 0' 2>/dev/null || echo "0")
+    B_TRADES=$(echo "$RESULT" | jq -r '.tradesCreated // 0' 2>/dev/null || echo "0")
+    B_ERRS=$(echo "$RESULT" | jq -r '.errorsCount // 0' 2>/dev/null || echo "0")
+    B_TOTAL_TR=$(echo "$RESULT" | jq -r '.totalTrades // 0' 2>/dev/null || echo "0")
+    B_D1=$(echo "$RESULT" | jq -r '.d1StateWritten // 0' 2>/dev/null || echo "0")
+
+    DAY_SCORED=$((DAY_SCORED + B_SCORED))
+    DAY_TRADES=$((DAY_TRADES + B_TRADES))
+    DAY_D1=$((DAY_D1 + B_D1))
+    DAY_ERRS=$((DAY_ERRS + B_ERRS))
+    DAY_TOTAL_TR=$B_TOTAL_TR
+
+    # Compact progress: only print every 10th interval or when trades happen
+    if (( INTERVAL_IDX % 10 == 0 )) || [[ "$B_TRADES" != "0" ]]; then
+      echo "  interval $INTERVAL_IDX/$TOTAL_INTERVALS: scored=$B_SCORED trades=$B_TRADES total=$B_TOTAL_TR err=$B_ERRS"
+    fi
+
+    sleep 1
+  done
+  BATCH_NUM=$TOTAL_INTERVALS
+
+  else
+  # ── Standard candle-replay: process day in batches ──
   BATCH_OFFSET=0
   BATCH_NUM=0
   while true; do
@@ -604,6 +696,7 @@ while [[ "$CURRENT_DATE" < "$END_DATE" ]] || [[ "$CURRENT_DATE" == "$END_DATE" ]
     BATCH_OFFSET=$B_NEXT_OFFSET
     sleep 2
   done
+  fi
 
   TOTAL_TRADES=$((TOTAL_TRADES + DAY_TRADES))
   TOTAL_SCORED=$((TOTAL_SCORED + DAY_SCORED))

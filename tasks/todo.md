@@ -219,8 +219,74 @@
 - [x] Add time-decaying ATR buffer to EXIT lane `_exitPullbackShield` (matches Smart Runner)
 - [x] Add continuous `runnerPeakPrice` tracking so drawdown circuit breaker works on actual peak
 - [x] Add exit reason map entries for `RUNNER_STALE_FORCE_CLOSE`
-- [ ] Deploy worker and verify in production
+- [x] Deploy worker and verify in production (deployed 2026-03-18, commit 185550d)
 - [ ] Re-run backtest with all improvements and confirm all trades properly managed
+
+## Phase 4: ORB Detector + Scoring Integration [2026-03-18] ✅
+- [x] 4.1: Analyze existing breakout detectors + candle data structure
+- [x] 4.2: Build `computeORB()` for multiple TFs (5m, 15m, 30m, 60m opening ranges) in `indicators.js`
+- [x] 4.3: Integrate ORB levels into scoring pipeline — rank boost for confirmed breakouts, penalty for fakeouts
+- [x] 4.4: Wire ORB into entry gates (DA-14 fakeout gate, `__orb_confirmed` confirmation), exit logic (SL anchor at ORL/ORH), and rank boost
+- [x] 4.5: Add ORB data to signal snapshot lineage (`buildTradeLineageSnapshot`)
+- [x] Pass intraday bars (10m/15m) into replay `rawBars` so ORB works during backtests
+- [x] Pass `asOfTs = intervalTs` in replay for correct session-relative ORB computation
+
+## Phase 5: AI CIO Agent-in-the-Loop [2026-03-18] ✅
+- [x] 5.1: Map trade entry flow — injection point identified at post-sizing, pre-trade-creation
+- [x] 5.2: Build AI CIO evaluation prompt + OpenAI call with 8s timeout/fallback
+- [x] 5.3: Wire AI CIO into trade entry pipeline (live only — skipped during replay for cost/perf)
+- [x] 5.4: Persist AI CIO decisions in D1 `ai_cio_decisions` table with trade outcome backfill
+- [x] 5.5: Add configurable toggle (`ai_cio_enabled` in model_config) + Discord notifications
+- [x] Admin API: `GET /timed/admin/ai-cio/decisions` and `GET /timed/admin/ai-cio/accuracy`
+- [x] CIO data attached to trade object (`trade.aiCIO`) and Discord entry embed
+- [x] REJECT: blocks trade, persists for accuracy tracking, sends Discord alert
+- [x] ADJUST: modifies SL/TP/position size with sanity checks (SL correct side, TP correct side, size 0.25x-1.5x)
+- [x] APPROVE (incl. fallback): proceeds with model's original intent
+
+## Phase 5b: AI CIO Memory Service [2026-03-18] ✅
+- [x] New D1 tables: `daily_market_snapshots` (structured macro signals per date) + `market_events` (individual CPI/FOMC/NFP/earnings results)
+- [x] `persistDailyMarketSnapshot()` + `persistMarketEvents()` called from `generateDailyBrief()` after each brief
+- [x] `TICKER_PROXY_MAP` in `sector-mapping.js`: peer groups, ETF proxies, earnings-correlated groups (NVDA->AMD/SOXL, etc.)
+- [x] `buildCIOMemory()` — 7 memory layers: ticker history, regime context, entry path track record, personality/franchise, CIO self-accuracy, episodic market backdrop, event-driven context (macro + earnings + proxy behavior)
+- [x] `findSimilarEpisodes()` — macro condition matching (VIX state, oil direction, sector rotation, regime); requires 3/4 match
+- [x] `findRelevantEvents()` — 5-day lookback for macro events, direct earnings, and proxy earnings via `TICKER_PROXY_MAP`
+- [x] Updated CIO system prompt: memory-first evaluation priorities (ticker blacklist, event risk, regime alignment, then technicals)
+- [x] Updated CIO user template: includes MEMORY section alongside proposal
+- [x] `evaluateWithAICIO()` now accepts and passes memory context
+- [x] Timeout increased from 8s to 15s (scoring cycles are 5 min, plenty of room)
+- [x] `ai_cio_replay_enabled` toggle: CIO now runs during replay when both `ai_cio_enabled` and `ai_cio_replay_enabled` are "true"
+- [x] D1 pre-load at replay start: path_performance, market snapshots, market events, ticker profiles, franchise config → `replayCtx.cioMemoryCache`
+- [x] Live scoring pre-load: path_performance, last 30 snapshots, last 50 events → `env._cioMemoryCache`
+- [x] In-memory CIO decision accumulation during replay with outcome backfill on trade close
+- [x] Crypto leading indicator: BTC/ETH trailing 2-4wk trend as forward signal for equities (BTC→SPY/QQQ, ETH→IWM/XLF)
+- [x] `btc_pct` + `eth_pct` columns in `daily_market_snapshots` + backfilled 180 trading days
+- [x] BTC/ETH added to Daily Brief cross-asset context + `TICKER_PROXY_MAP`
+- [x] `findSimilarEpisodes()` uses crypto trend as 5th matching dimension
+- [x] Model config toggles set: `ai_cio_enabled = true`, `ai_cio_replay_enabled = true`
+- [x] `market_events` backfill: 65 curated macro events (CPI/PPI/FOMC/PCE/NFP/GDP/Retail/ISM/Jobless) + 301 earnings from TwelveData for 89 tickers
+- [x] SPY reaction cross-referenced from `daily_market_snapshots` for each event date
+
+## Phase 6: Optimized Model Config [2026-03-18] ✅
+- [x] Blacklist expanded: added AMZN, META, RKLB, RDDT, NVDA to `deep_audit_ticker_blacklist` (-$16,912 combined drag)
+- [x] CIO franchise/blacklist: `cio_franchise_blacklist` with franchise (PH, AVGO, APP, LITE, AU, CAT, RGLD, HII, ANET, TJX) and blacklist (AMZN, META, RKLB, RDDT, NVDA, LRN, IESC, BG, WMT, ETN)
+- [x] Tighter loss controls: `max_loss_pct` normal -2 → -1.5, pdz -5 → -3; `hard_loss_cap` $500 → $350
+- [x] Higher entry quality floor: `min_entry_quality` 45 → 55
+- [x] ORB fakeout sizing bug fixed: `__da_orb_size_mult` now wired into `_rawCombinedMult` in sizing chain
+- [x] Regime size multipliers expanded: added `EARLY_BEAR: 0.50`, `BEAR: 0.40`
+- [x] SHORT min rank lowered: 55 → 50
+- [x] Tighter runner protection: `post_trim_trail_pct` 2 → 1.5, `runner_trail_pct` 2.5 → 2.0
+- [x] Stall force-close reduced: 36h → 24h
+- [x] All configs verified in D1, worker deployed
+
+## UI Improvements [2026-03-18] ✅
+- [x] Added `TYPICAL_DAILY_RANGE` + `getNormalizedIntensity()` to `shared-price-utils.js` — hybrid per-type bands with ATR override
+- [x] Updated `getCardSkin()` and `SVGBubble` color logic to use volatility-normalized intensity (SPY +0.7% now looks as intense as TSLA +3%)
+- [x] Ported S/R levels, trend lines, pattern detection (double top/bottom, triangles, flags, ranges), and TF-specific scaling from Daily Brief charts to right-rail `LWChart`
+- [x] Added IWM to Daily Brief: backend candle fetch (D, 1H, 5m, 4H), `iwmTechnical` summary, SMC/ATR levels, prompt data; frontend chart symbol in both admin and user lists
+- [x] Condensed Daily Brief prompt: merged Risk Factors + Cross-Asset into "Market Context", merged Sector + Almanac into "Sector & Themes", added per-section word limits (~800 words target), removed "Swing Trader Takeaway", reduced `max_completion_tokens` 6000→4000
+- [x] Restructured Day Trader Levels to "Key Levels & Game Plan" — SMC support/resistance primary, ATR secondary, ORB context noted
+- [x] Fixed all bare `catch {}` in `shared-right-rail.js` for Babel compatibility
+- [x] Rebuilt compiled assets (`index-react.compiled.*.js`, `shared-right-rail.compiled.js`), deployed worker + Pages
 
 ## Backlog
 

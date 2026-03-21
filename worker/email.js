@@ -160,39 +160,77 @@ export async function sendWelcomeEmail(env, user) {
       </tr>
     </table>`;
 
+  const stepRow = (num, title, desc) => `
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 14px">
+      <tr>
+        <td width="28" style="vertical-align:top;padding-top:2px">
+          <div style="width:24px;height:24px;border-radius:50%;background:${BRAND.green}20;text-align:center;line-height:24px;font-size:11px;font-weight:700;color:${BRAND.green}">${num}</div>
+        </td>
+        <td style="padding-left:10px;vertical-align:top">
+          <p style="margin:0 0 2px;font-size:13px;font-weight:700;color:white">${title}</p>
+          <p style="margin:0;font-size:12px;color:${BRAND.textSecondary};line-height:1.5">${desc}</p>
+        </td>
+      </tr>
+    </table>`;
+
   const html = emailLayout(`
     <h1 style="margin:0 0 6px;font-size:22px;font-weight:700;color:white">Welcome${name ? `, ${name}` : ""}</h1>
     <p style="margin:0 0 24px;font-size:15px;color:${BRAND.textSecondary};line-height:1.6">
       You're in. The system is already watching 229 tickers across 8 timeframes, scoring momentum shifts and surfacing setups in real time.
     </p>
 
-    <p style="margin:0 0 14px;font-size:11px;font-weight:700;color:${BRAND.textMuted};text-transform:uppercase;letter-spacing:0.08em">What you get</p>
-    ${featureRow("&#x1F4CA;", "#00c853", "Analysis Dashboard", "Multi-timeframe scoring, bubble map, sector rotation, and conviction ranks for every ticker in the universe.")}
-    ${featureRow("&#x26A1;", "#3b82f6", "Active Trader Board", "Tickers sorted into lanes &mdash; Setup, Enter, Hold, Trim, Exit &mdash; so you see exactly where each opportunity stands.")}
-    ${featureRow("&#x1F4C8;", "#f59e0b", "Investor Dashboard", "Portfolio health, sector heatmap, market regime, and simulated trade history with full P&amp;L.")}
-    ${featureRow("&#x1F4DD;", "#a78bfa", "Daily Brief", "Pre-market and post-market briefs with top setups, sector themes, and key levels. Delivered to your inbox and in-app.")}
-    ${featureRow("&#x1F4BC;", "#14b8a6", "Trades &amp; Portfolio", "Live simulated positions, entry/exit tracking, and performance analytics.")}
-    ${featureRow("&#x1F514;", "#ef4444", "Trade Alerts", "Real-time notifications when the system enters, exits, or trims a position.")}
-    ${featureRow("&#x1F4AC;", "#5865F2", "Discord Community", "Connect with other traders, share setups, and get live signal alerts in our private server.")}
-
-    <div style="height:1px;background:${BRAND.border};margin:24px 0"></div>
-
-    <p style="margin:0 0 14px;font-size:11px;font-weight:700;color:${BRAND.textMuted};text-transform:uppercase;letter-spacing:0.08em">Community Guidelines</p>
-    <p style="margin:0 0 20px;font-size:12px;color:${BRAND.textSecondary};line-height:1.6">
-      Our community is built on mutual respect. Be professional, be constructive, and treat every member the way you'd want to be treated. No spam, no personal attacks, no unsolicited promotions. We're here to learn and grow together.
+    <p style="margin:0 0 14px;font-size:11px;font-weight:700;color:${BRAND.textMuted};text-transform:uppercase;letter-spacing:0.08em">How the model works</p>
+    <p style="margin:0 0 18px;font-size:12px;color:${BRAND.textSecondary};line-height:1.6">
+      Every 5 minutes, the system scores 229 tickers across 8 timeframes &mdash; from 5-minute bars to weekly candles. Higher timeframes set the direction, lower timeframes find the entry. When all timeframes align, the model surfaces the trade. Before any position is opened, an <strong style="color:white">AI Chief Investment Officer</strong> reviews the setup against a 7-layer memory system: ticker history, regime context, entry path performance, ticker personality, macro proximity, and recent trade outcomes. Setups that don't pass get rejected with a reason.
     </p>
+
+    <div style="height:1px;background:${BRAND.border};margin:20px 0"></div>
+
+    <p style="margin:0 0 14px;font-size:11px;font-weight:700;color:${BRAND.textMuted};text-transform:uppercase;letter-spacing:0.08em">What you get</p>
+    ${featureRow("&#x1F30A;", "#00c853", "Bubble Map", "See the entire universe at a glance. Momentum vs trend strength. Click any bubble to drill into the detail.")}
+    ${featureRow("&#x26A1;", "#3b82f6", "Trade Pipeline", "Tickers flow through lanes &mdash; Setup, Enter, Hold, Trim, Exit. Every trade has a grade, a plan, and a clear exit signal.")}
+    ${featureRow("&#x1F4CB;", "#a78bfa", "Right Rail Detail", "Select any ticker to see levels, regime, entry quality, rank, and the AI CIO's most recent review.")}
+    ${featureRow("&#x1F916;", "#f59e0b", "AI CIO Gate", "Every trade candidate is reviewed by the AI before execution. It remembers past outcomes and adapts with each market cycle.")}
+    ${featureRow("&#x1F4AC;", "#14b8a6", "Ask AI", "A personalized assistant with full context of your portfolio and market conditions. Ask about any ticker, setup, or regime.")}
+    ${featureRow("&#x1F4C8;", "#ef4444", "Investor Dashboard", "Portfolio health, sector heatmap, accumulation zones, and rebalance signals for long-term positions.")}
+    ${featureRow("&#x1F4DD;", "#5865F2", "Daily Briefs &amp; Alerts", "Pre-market and post-market briefs, plus real-time notifications when the system enters, exits, or trims.")}
+
+    <div style="height:1px;background:${BRAND.border};margin:20px 0"></div>
+
+    <p style="margin:0 0 14px;font-size:11px;font-weight:700;color:${BRAND.textMuted};text-transform:uppercase;letter-spacing:0.08em">Quick start guide</p>
+    ${stepRow("1", "Explore the Bubble Map", "Open your dashboard and scan the map. Larger, brighter bubbles have stronger momentum and trend alignment.")}
+    ${stepRow("2", "Check the Trade Pipeline", "Switch to the Kanban view to see which tickers are in Setup, Enter, or Hold lanes. These are the model's active ideas.")}
+    ${stepRow("3", "Set Your Saved Tickers", 'Click the star icon on any ticker to save it. Saved tickers appear first in the pipeline and you\'ll get priority alerts when they move.')}
+    ${stepRow("4", "Ask the AI", "Use the Ask AI chat to get instant analysis on any ticker, regime, or trade idea. It has full context of the model's current state.")}
+
+    <div style="height:1px;background:${BRAND.border};margin:20px 0"></div>
+
+    <div style="background:${BRAND.green}12;border:1px solid ${BRAND.green}30;border-radius:8px;padding:14px 16px;margin:0 0 20px">
+      <p style="margin:0 0 4px;font-size:13px;font-weight:700;color:${BRAND.green}">Set up your Saved Tickers</p>
+      <p style="margin:0;font-size:12px;color:${BRAND.textSecondary};line-height:1.5">
+        Personalize your experience by saving the tickers you care about most. The pipeline, alerts, and daily briefs will prioritize them for you.
+      </p>
+    </div>
 
     <table role="presentation" cellpadding="0" cellspacing="0">
       <tr><td style="background:${BRAND.green};border-radius:8px;padding:12px 28px">
         <a href="https://timed-trading.com/index-react.html" style="color:white;font-size:14px;font-weight:600;text-decoration:none;display:inline-block">Open Your Dashboard</a>
       </td></tr>
     </table>
-    <p style="margin:20px 0 0;font-size:12px;color:${BRAND.textMuted}">
+
+    <div style="height:1px;background:${BRAND.border};margin:24px 0"></div>
+
+    <p style="margin:0 0 14px;font-size:11px;font-weight:700;color:${BRAND.textMuted};text-transform:uppercase;letter-spacing:0.08em">Community Guidelines</p>
+    <p style="margin:0 0 20px;font-size:12px;color:${BRAND.textSecondary};line-height:1.6">
+      Our community is built on mutual respect. Be professional, be constructive, and treat every member the way you'd want to be treated. No spam, no personal attacks, no unsolicited promotions.
+    </p>
+
+    <p style="margin:0;font-size:12px;color:${BRAND.textMuted}">
       Questions? Reply to this email or reach us at <a href="mailto:support@timed-trading.com" style="color:${BRAND.textSecondary}">support@timed-trading.com</a>.
     </p>
-  `, { preheader: "Your trading intelligence platform is ready. Here is what you get." });
+  `, { preheader: "Your AI-powered trading intelligence platform is ready. Here is how to get started." });
 
-  const text = `Welcome to Timed Trading, ${name}!\n\nYou're in. The system is already watching 229 tickers across 8 timeframes.\n\nWhat you get:\n- Analysis Dashboard: Multi-timeframe scoring, bubble map, sector rotation\n- Active Trader Board: Tickers in lanes (Setup, Enter, Hold, Trim, Exit)\n- Investor Dashboard: Portfolio health, sector heatmap, market regime\n- Daily Brief: Pre-market and post-market briefs with top setups\n- Trades & Portfolio: Live positions and performance analytics\n- Trade Alerts: Real-time entry/exit/trim notifications\n- Discord Community: Private server for traders\n\nCommunity Guidelines: Be professional, be constructive, treat everyone with respect. No spam, no personal attacks.\n\nVisit https://timed-trading.com to get started.\n\nQuestions? Reply or email support@timed-trading.com.`;
+  const text = `Welcome to Timed Trading, ${name}!\n\nYou're in. The system is already watching 229 tickers across 8 timeframes.\n\nHow the model works:\nEvery 5 minutes, the system scores 229 tickers across 8 timeframes. Higher timeframes set the direction, lower timeframes find the entry. Before any position is opened, an AI Chief Investment Officer reviews the setup against a 7-layer memory system.\n\nWhat you get:\n- Bubble Map: See the entire universe at a glance\n- Trade Pipeline: Tickers flow through Setup, Enter, Hold, Trim, Exit\n- Right Rail Detail: Levels, regime, entry quality, AI CIO review\n- AI CIO Gate: Every trade reviewed before execution\n- Ask AI: Personalized assistant with full portfolio context\n- Investor Dashboard: Portfolio health and rebalance signals\n- Daily Briefs & Alerts: Pre/post-market briefs and real-time notifications\n\nQuick start:\n1. Explore the Bubble Map\n2. Check the Trade Pipeline\n3. Set your Saved Tickers (star icon on any ticker)\n4. Ask the AI for instant analysis\n\nVisit https://timed-trading.com to get started.\n\nQuestions? Reply or email support@timed-trading.com.`;
 
   return sendEmail(env, {
     to: user.email,
@@ -480,7 +518,7 @@ export async function sendTradeAlertEmail(env, userEmail, alert) {
 // ═══════════════════════════════════════════════════════════════════════
 
 export async function sendReEngagementEmail(env, userEmail, stats) {
-  const { daysSince, signalCount, tradeCount, briefCount, winRate, totalPnl, activePositions, topWins } = stats || {};
+  const { daysSince, signalCount, tradeCount, briefCount, winRate, totalPnl, activePositions, recentTrades } = stats || {};
   const baseUrl = env?.WORKER_URL || "https://timed-trading.com";
   const unsubscribeUrl = env?.EMAIL_HMAC_SECRET
     ? await buildUnsubscribeUrl(baseUrl, userEmail, "re_engagement", env.EMAIL_HMAC_SECRET)
@@ -489,33 +527,65 @@ export async function sendReEngagementEmail(env, userEmail, stats) {
   const pnlPositive = Number(totalPnl || 0) > 0;
   const pnlColor = pnlPositive ? "#10b981" : "#f43f5e";
 
-  // Build "Recent Highlights" section from top wins
-  let highlightsHtml = "";
-  if (Array.isArray(topWins) && topWins.length > 0) {
-    const rows = topWins.slice(0, 3).map(w =>
-      `<tr><td style="padding:6px 0;font-size:13px;color:white;font-weight:600">${w.ticker}</td><td style="padding:6px 0;font-size:13px;color:#10b981;text-align:right">+${Number(w.pnlPct || 0).toFixed(1)}%</td></tr>`
-    ).join("");
-    highlightsHtml = `<div style="padding:14px 16px;background:rgba(0,200,83,0.06);border-radius:8px;margin:0 0 20px">
-      <p style="margin:0 0 8px;font-size:13px;font-weight:700;color:white">Recent Wins</p>
-      <table role="presentation" width="100%" cellpadding="0" cellspacing="0">${rows}</table>
-    </div>`;
+  // Build trade table: show last 10 trades if net positive, otherwise last 3 wins
+  let tradeTableHtml = "";
+  if (Array.isArray(recentTrades) && recentTrades.length > 0) {
+    const last10 = recentTrades.slice(0, 10);
+    const netPnl = last10.reduce((s, t) => s + (Number(t.pnlPct || t.pnl_pct) || 0), 0);
+    const tradesToShow = netPnl > 0
+      ? last10
+      : last10.filter(t => (t.status === "WIN" || Number(t.pnlPct || t.pnl_pct) > 0)).slice(0, 3);
+
+    if (tradesToShow.length > 0) {
+      const headerLabel = netPnl > 0 ? "Last 10 Trades" : "Recent Wins";
+      const rows = tradesToShow.map(t => {
+        const pnl = Number(t.pnlPct || t.pnl_pct) || 0;
+        const pnlClr = pnl >= 0 ? "#10b981" : "#f43f5e";
+        const dir = String(t.direction || "LONG").toUpperCase();
+        const dirClr = dir === "LONG" ? "#22d3ee" : "#f472b6";
+        const entryDate = t.entry_ts ? new Date(Number(t.entry_ts)).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "";
+        const exitDate = t.exit_ts ? new Date(Number(t.exit_ts)).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "";
+        const holdHrs = (t.entry_ts && t.exit_ts) ? Math.round((Number(t.exit_ts) - Number(t.entry_ts)) / 3600000) : null;
+        const holdStr = holdHrs != null ? (holdHrs < 24 ? `${holdHrs}h` : `${Math.round(holdHrs / 24)}d`) : "";
+        return `<tr>
+          <td style="padding:6px 4px;font-size:12px;font-weight:600;color:white">${t.ticker || "?"}</td>
+          <td style="padding:6px 4px;font-size:11px;color:${dirClr}">${dir}</td>
+          <td style="padding:6px 4px;font-size:11px;color:${BRAND.textMuted}">${entryDate}${exitDate ? ` &rarr; ${exitDate}` : ""}</td>
+          <td style="padding:6px 4px;font-size:11px;color:${BRAND.textMuted};text-align:center">${holdStr}</td>
+          <td style="padding:6px 4px;font-size:12px;font-weight:600;color:${pnlClr};text-align:right">${pnl >= 0 ? "+" : ""}${pnl.toFixed(1)}%</td>
+        </tr>`;
+      }).join("");
+      tradeTableHtml = `<div style="padding:14px 16px;background:rgba(0,200,83,0.06);border:1px solid rgba(0,200,83,0.12);border-radius:8px;margin:0 0 20px">
+        <p style="margin:0 0 10px;font-size:13px;font-weight:700;color:white">${headerLabel}</p>
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+          <tr>
+            <td style="padding:0 4px 4px;font-size:10px;color:${BRAND.textMuted};font-weight:600">TICKER</td>
+            <td style="padding:0 4px 4px;font-size:10px;color:${BRAND.textMuted};font-weight:600">DIR</td>
+            <td style="padding:0 4px 4px;font-size:10px;color:${BRAND.textMuted};font-weight:600">DATES</td>
+            <td style="padding:0 4px 4px;font-size:10px;color:${BRAND.textMuted};font-weight:600;text-align:center">HOLD</td>
+            <td style="padding:0 4px 4px;font-size:10px;color:${BRAND.textMuted};font-weight:600;text-align:right">P&amp;L</td>
+          </tr>
+          ${rows}
+        </table>
+      </div>`;
+    }
   }
 
   const html = emailLayout(`
     <h1 style="margin:0 0 16px;font-size:20px;font-weight:700;color:white">The System Has Been Working</h1>
     <p style="margin:0 0 20px;font-size:14px;color:${BRAND.textSecondary};line-height:1.6">
-      It has been ${daysSince || "a while"} days since your last visit. While you were away, the model kept scoring, entering, managing, and exiting trades. Here is a snapshot of what happened:
+      It has been <strong style="color:white">${daysSince || "a while"} days</strong> since your last visit. While you were away, the model kept scoring, entering, managing, and exiting trades across 229 tickers. Here is what happened:
     </p>
-    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 4px">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 16px">
       ${tradeCount ? `<tr><td style="padding:10px 16px;background:rgba(56,189,248,0.06);border-radius:8px"><span style="font-size:24px;font-weight:700;color:#38bdf8">${tradeCount}</span><span style="font-size:13px;color:${BRAND.textSecondary};margin-left:8px">trades managed</span></td></tr><tr><td style="height:6px"></td></tr>` : ""}
       ${winRate ? `<tr><td style="padding:10px 16px;background:rgba(0,200,83,0.06);border-radius:8px"><span style="font-size:24px;font-weight:700;color:${BRAND.green}">${Number(winRate).toFixed(0)}%</span><span style="font-size:13px;color:${BRAND.textSecondary};margin-left:8px">win rate</span></td></tr><tr><td style="height:6px"></td></tr>` : ""}
       ${pnlPositive ? `<tr><td style="padding:10px 16px;background:rgba(0,200,83,0.06);border-radius:8px"><span style="font-size:24px;font-weight:700;color:${pnlColor}">+$${Math.abs(Number(totalPnl)).toFixed(0)}</span><span style="font-size:13px;color:${BRAND.textSecondary};margin-left:8px">total P&amp;L</span></td></tr><tr><td style="height:6px"></td></tr>` : ""}
       ${activePositions ? `<tr><td style="padding:10px 16px;background:rgba(99,102,241,0.06);border-radius:8px"><span style="font-size:24px;font-weight:700;color:#818cf8">${activePositions}</span><span style="font-size:13px;color:${BRAND.textSecondary};margin-left:8px">active positions right now</span></td></tr><tr><td style="height:6px"></td></tr>` : ""}
       ${briefCount ? `<tr><td style="padding:10px 16px;background:rgba(245,158,11,0.06);border-radius:8px"><span style="font-size:24px;font-weight:700;color:#f59e0b">${briefCount}</span><span style="font-size:13px;color:${BRAND.textSecondary};margin-left:8px">daily briefs published</span></td></tr>` : ""}
     </table>
-    ${highlightsHtml}
+    ${tradeTableHtml}
     <p style="margin:0 0 24px;font-size:14px;color:${BRAND.textSecondary};line-height:1.6">
-      The market does not wait, and neither does the model. Everything is up to date and ready for you.
+      The market does not wait, and neither does the model. The AI CIO reviewed every trade candidate, and the pipeline is fully up to date.
     </p>
     <table role="presentation" cellpadding="0" cellspacing="0">
       <tr><td style="background:${BRAND.green};border-radius:8px;padding:12px 28px">

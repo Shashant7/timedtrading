@@ -440,8 +440,99 @@ Based on manual classification of 373 trades (140 bad_trade, 131 bad_exit, 85 go
 - **Backtest artifacts not saved when "no trades present" at end**: `full-backtest.sh` checks for trades before taking a snapshot. If the final summary returns 0 trades (because the ledger query uses different field names), the script says "Pre-reset snapshot: skipped (no trades present)" and doesn't save. Manually save artifacts immediately after backtest completion. [2026-03-18]
 - **Daily Brief broken with GPT-5.4 — `max_tokens` not supported**: OpenAI GPT-5.4 requires `max_completion_tokens` instead of `max_tokens`. The `callOpenAI()` function in `worker/daily-brief.js` used the old parameter, causing `400: Unsupported parameter` errors. The morning cron at 9 AM ET failed silently. Fix: changed to `max_completion_tokens: 6000`. [2026-03-18]
 - **Live scoring cron sends Discord alerts for backtest trades**: The replay env correctly sets `DISCORD_ENABLE: "false"`, but the live scoring cron (every 5 min) still runs alongside the backtest. When the backtest populates D1 with 300+ trades, the cron detects them and fires off Discord alerts for position updates. Fix: add a `data_source === "candle_replay"` guard to skip alert generation. [2026-03-18]
+
+## Cross-Run Deep Analysis (2026-03-18)
+
+12 backtests analyzed from D1 archives (2,301 closed trades excl. doa-gate-v2 bug, Jul 2025 – Mar 2026). Full report: `data/cross-run-analysis-report.md`.
+
+- **Trimmed vs untrimmed is the defining edge**: Trimmed trades (hit TP1 + kept runner) = 85.8% WR, +$208,617 across 1,328 trades (avg +$157/trade). Untrimmed = 17.8% WR, -$104,024 across 973 trades (avg -$107/trade). Net system PnL: +$104,593. The ENTIRE system edge comes from getting to the first trim. All optimization should prioritize trim probability. [2026-03-18]
+- **max_loss is the #1 destroyer**: 311 trades at 0.6% WR, -$52,009 (avg -$167/trade). This single exit type accounts for HALF of all untrimmed drag. These are entries that immediately go against — preventing 30% of them at entry would add ~$16K. [2026-03-18]
+- **ema_regime_reversed is the #2 destroyer**: 119 trades at 31.9% WR, -$17,198. These entered trending and the regime flipped. Exit fires too late — need earlier regime deterioration detection. [2026-03-18]
+- **PHASE_LEAVE_100 and SOFT_FUSE_RSI are the crown jewels**: PHASE_LEAVE: 100% WR, +$33,022 (247 trades). SOFT_FUSE_RSI: 94.3% WR, +$29,107 (123 trades). TD_EXHAUSTION: 93.0% WR, +$9,115 (71 trades). Protect these exits at all costs. [2026-03-18]
+- **All rank buckets are profitable (large dataset corrects small-sample artifact)**: 80+ LONGs: 59.6% WR, +$37K (834 trades). 70-79 LONGs: 55.0% WR, +$27K (516 trades). 60-69 LONGs: 56.9% WR, +$20K (576 trades). <60 LONGs: 55.3% WR, +$16K (253 trades). No rank-based size reduction needed. [2026-03-18]
+- **October 2025 is the only losing month**: -$4,263 on 382 trades (53.4% WR). Trim losses doubled (42 vs ~20 avg). All other months Jul-Feb are profitable. System needs tighter trim protection during macro regime transitions. [2026-03-18]
+- **Worst tickers (blacklist candidates)**: AMZN (15.8% WR, -$4,708), META (23.5% WR, -$4,399), RKLB (10.0% WR, -$3,499), RDDT (29.6% WR, -$3,255), NVDA (19.0% WR, -$1,051). Large-cap mega-caps with tight ranges. [2026-03-18]
+- **Best tickers (franchise)**: PH (+$7,351), AVGO (+$6,097, 75% WR), APP (+$5,960), LITE (+$5,891), AU (+$5,598, 76.5% WR), CAT (+$5,495), RGLD (+$5,214, 88.5% WR). [2026-03-18]
+- **SHORTs work but underrepresented**: 122 of 2,301 trades. Profitable at all rank levels except <60. Need to increase SHORT entry opportunities. [2026-03-18]
 - **Discord role assignment requires correct hierarchy**: The bot's role ("Timed Trading") must be ABOVE the role it assigns ("Subscriber") in the Discord server role hierarchy. With the bot role below, all `PUT /guilds/{guildId}/members/{userId}/roles/{roleId}` calls return 403 "Missing Permissions". [2026-03-18]
 - **Discord OAuth user ID ≠ server owner ID**: The user connected via OAuth as account `718189240977981592` (lunarcy7), but the Timed Trading server was owned by account `1483446357082509446`. The bot returned "Unknown Member" (404) because the OAuth account had never joined the guild. The `discordAddMemberAndRole` failure was caught as "non-blocking" (line 40474), so the user still got the welcome email despite not being added. Fix: user joined via bot-generated invite link, then role was assigned after hierarchy fix. [2026-03-18]
+
+## Opening Range Breakout (ORB) Integration (2026-03-18)
+
+- **ORB is computed per-day per-ticker from intraday bars**: `computeORB()` in `indicators.js` scans 10m (or 15m/5m) bars for the current ET trading day. Four windows: 5m, 15m, 30m, 60m from 9:30 AM. Each window tracks ORH/ORL/ORM, breakout direction, targets (50% range extensions), and reclaim (fakeout) detection.
+- **15m OR is the primary reference**: Balances opening noise (5m too short) vs. information loss (60m too delayed). Multi-window consensus (`orbBias`) requires 2+ windows to agree for a strong signal.
+- **Day bias from ORM comparison**: Today's ORM vs yesterday's 30m ORM — when ORM is higher, daily structure is bullish. Adds +3 rank points when aligned with trade direction. Mirrors the Pine Script reference `day_dir`.
+- **ORB rank boost/penalty logic**: Confirmed breakout (breakout direction matches trade side + multi-window consensus) = +10 to +15 rank. Reclaim/fakeout = -5. Day bias alignment/opposition = ±3/−2. Located in `computeRank()`.
+- **DA-14 Fakeout Gate**: When primary OR breakout reclaimed AND no multi-window consensus, set `__orb_fakeout = true` and halve position size (0.5x). Does NOT block entry outright — position sizing is the response to uncertainty.
+- **ORB SL anchor**: For LONG breakout trades, SL anchored at ORL (bottom of range) instead of ATR-only. Tighter and structurally meaningful — only applied if tighter than ATR SL and at least 0.3% from entry. Same logic inverted for SHORTs (ORH as SL).
+- **ORB targets as reference levels**: T1-T4 at 50%/100%/150%/200% of range width above ORH (up) and below ORL (down). `targetsHitUp`/`targetsHitDn` track max target reached for exit timing context.
+- **Replay compatibility**: `rawBars` in the replay handler now includes leading LTF bars (not just D/W). `asOfTs = intervalTs` passed to `assembleTickerData` → `computeORB` so session-relative calculations work correctly during historical replay.
+- **Trade lineage preservation**: `buildTradeLineageSnapshot()` now captures ORB state at entry: ORH/ORL/ORM, width, breakout direction, priceVsORM, dayBias, targetsHit, confirmed/against flags. Enables post-hoc analysis of ORB's predictive value.
+- **Pine Script reference**: ORB indicator logic adapted from TradingView Pine v6 ORB indicator. Key concepts preserved: OR session window, target % of range, breakout signals, day bias (ORM vs prior ORM), reclaim detection. Adapted for server-side JS with UTC/ET timezone handling.
+
+## AI CIO Agent-in-the-Loop (Phase 5, 2026-03-18)
+
+- **AI CIO evaluates every live trade before execution**: Receives a structured proposal (ticker, direction, entry/SL/TP, R:R, rank, setup, regime, technicals, ORB, danger flags, sizing) and returns APPROVE/ADJUST/REJECT with reasoning, confidence, edge score, and risk flags. [2026-03-18]
+- **8-second hard timeout with graceful fallback**: If OpenAI is unavailable, times out, or returns invalid JSON, the model's original intent proceeds unchanged (`fallback: true`). Trade execution never blocks indefinitely. [2026-03-18]
+- **REJECT blocks trade creation entirely**: The CIO sets `shares = null` which causes the trade creation block to skip. Rejection is persisted to D1 and a Discord notification is sent with the reasoning and risk flags. [2026-03-18]
+- **ADJUST modifies SL/TP/size with sanity checks**: SL must be on the correct side of entry (below for LONG, above for SHORT). TP must be on correct side. Size multiplier clamped to 0.25x-1.5x. Only applied when the CIO is not in fallback mode. [2026-03-18]
+- **Live only — never called during replay**: Skip during `isReplay` to avoid cost ($0.0003/call × thousands of trades) and latency (8s per trade would make backtests take days). Configurable via `ai_cio_enabled` in `model_config` (default: `"false"`). [2026-03-18]
+- **D1 `ai_cio_decisions` table tracks accuracy**: Every non-fallback decision is persisted with the proposal JSON, adjustments, and later backfilled with `trade_outcome` and `trade_pnl_pct` when the trade closes. Admin APIs at `GET /timed/admin/ai-cio/decisions` and `GET /timed/admin/ai-cio/accuracy` for analysis. [2026-03-18]
+- **Uses `gpt-4o-mini` for speed and cost**: Fast enough for 8s timeout, cheap enough for per-trade calls. Temperature 0.1 for consistency. `response_format: { type: "json_object" }` ensures parseable output. [2026-03-18]
+- **Discord embed on trade entry**: When CIO provides a non-fallback decision, the entry embed includes the CIO verdict, confidence, edge score, and reasoning. [2026-03-18]
+- **CIO proposal includes comprehensive context**: Rank, setup grade, regime (ticker + market + internals), HTF/LTF scores, ATR, completion, phase, EMA regime, RSI, flags (momentum_elite, squeeze, ORB), danger score, Ichimoku position, sizing method, VIX. Enough for a genuine risk assessment without overwhelming the prompt. [2026-03-18]
+
+## AI CIO Memory Service (Phase 5b, 2026-03-18)
+
+- **Stateless CIO problem**: The CIO had zero awareness of ticker track record (e.g., AMZN: 3/17 wins), regime-specific performance, entry path statistics, its own past accuracy, market backdrop, or upcoming events. Every call was completely independent with no learning. [2026-03-18]
+- **Seven memory layers**: `buildCIOMemory()` assembles: (1) ticker history — WR, avg PnL, exit reasons, last 3 trades; (2) regime context — WR in current regime + direction; (3) entry path track record from `path_performance`; (4) ticker personality from `ticker_profiles` + franchise/blacklist status; (5) CIO self-accuracy — approval WR, last 3 rejects; (6) episodic market backdrop — today's VIX/oil/sector rotation + similar historical episodes; (7) event-driven context — macro events (CPI/FOMC/NFP), direct earnings, proxy earnings via `TICKER_PROXY_MAP`. [2026-03-18]
+- **New D1 tables**: `daily_market_snapshots` persists structured signals (VIX close/state, oil/gold/TLT/SPY/QQQ/IWM change, sector rotation, regime, ES prediction, top econ events) per date. `market_events` persists individual macro events and earnings results with surprise %, SPY/sector reactions. Both populated from `generateDailyBrief()`. [2026-03-18]
+- **`TICKER_PROXY_MAP`**: Maps peer groups, ETF proxies, and earnings-correlated tickers. Used by `findRelevantEvents()` to discover proxy earnings context (e.g., AMD trade checks if NVDA recently reported). [2026-03-18]
+- **Episode matching**: `findSimilarEpisodes()` compares current market conditions against historical snapshots on 4 dimensions (VIX state, oil direction, sector rotation, regime). Requires 3/4 match. Returns top 5 similar dates for cross-referencing trade performance. [2026-03-18]
+- **Timeout increased 8s → 15s**: Scoring cycles run every 5 minutes, so 15s timeout gives the memory-enriched prompt more breathing room. [2026-03-18]
+- **CIO now runs during replay**: Gated by `ai_cio_replay_enabled` toggle (in addition to `ai_cio_enabled`). Memory cache pre-loaded at replay start (path_performance, market snapshots, market events, ticker profiles, franchise config). In-memory CIO decisions accumulated and backfilled with trade outcomes on close. Estimated cost: ~$0.09 per 300-trade backtest. [2026-03-18]
+- **System prompt rewrite**: Memory-first evaluation priorities — (1) check ticker history/blacklist, (2) event context, (3) crypto leading indicator, (4) regime alignment, (5) technical setup. CIO instructed to weight MEMORY section heavily and default to REJECT for blacklisted tickers or hostile regimes unless setup is exceptionally strong. [2026-03-18]
+- **Crypto as leading indicator**: BTC leads SPY/QQQ by 2-4 weeks; ETH leads IWM/Financials. `buildCIOMemory()` computes trailing 14-day and 28-day BTC/ETH cumulative change from `daily_market_snapshots`. Thresholds: BTC 2wk down >5% or 4wk down >10% signals equity downside; reverse for strength. `findSimilarEpisodes()` uses crypto trend direction as a 5th matching dimension. BTC/ETH added to `daily_market_snapshots` schema (`btc_pct`, `eth_pct`), Daily Brief cross-asset context, and `TICKER_PROXY_MAP` with `leads` property. [2026-03-18]
+- **Market events backfill**: 366 events in `market_events` D1 table: 65 curated US macro events (CPI, PPI, FOMC, PCE, NFP, GDP, Retail Sales, ISM Manufacturing, Jobless Claims) with actual/estimate/surprise_pct and SPY reaction cross-referenced from `daily_market_snapshots`. 301 earnings events for 89 tracked tickers via TwelveData `/earnings` API (per-symbol endpoint, not bulk calendar). Finnhub free-tier economic calendar returned 0 results for historical dates. [2026-03-18]
+
+## Phase 6: Optimized Model Config (2026-03-18)
+
+- **Blacklist expansion from Phase 3 data**: AMZN (15.8% WR, -$4,708), META (23.5% WR, -$4,399), RKLB (10.0% WR, -$3,499), RDDT (29.6% WR, -$3,255), NVDA (19.0% WR, -$1,051) added to `deep_audit_ticker_blacklist`. Combined drag: -$16,912. These mega-caps have tight ranges the system can't capture. [2026-03-18]
+- **CIO franchise/blacklist**: `cio_franchise_blacklist` config with franchise tickers (PH, AVGO, APP, etc. — proven winners with 60-88% WR) and CIO-blacklist tickers. CIO gets explicit guidance via Layer 4 memory but can override for exceptional setups. [2026-03-18]
+- **Loss clipping tightened**: `max_loss_pct` from -2%/-5% to -1.5%/-3%; `hard_loss_cap` from $500 to $350. The 311 `max_loss` exits (-$52K, avg -$167) are DOA trades — catching them earlier reduces bleed. [2026-03-18]
+- **Entry quality floor raised 45 → 55**: Phase 3 showed >15% WR delta between EQ >= 70 vs EQ < 40. Filters lowest-quality setups that disproportionately become max_loss exits. May reduce trade count 10-15% but improve WR 3-5%. [2026-03-18]
+- **ORB fakeout sizing bug fixed**: `__da_orb_size_mult` was set to 0.5 on fakeout detection but never read in the sizing chain (`_rawCombinedMult`). Now wired in as `_daOrbMult`. [2026-03-18]
+- **Regime size multipliers expanded**: Added `EARLY_BEAR: 0.50`, `BEAR: 0.40` (existing: `LATE_BULL: 0.60`). October 2025 was the only losing month — size reduction during bearish regimes limits drawdown during transitions. [2026-03-18]
+- **Tighter runner protection**: `post_trim_trail_pct` 2% → 1.5%, `runner_trail_pct` 2.5% → 2.0%. October's doubled trim losses (42 vs ~20 avg) showed runners giving back gains during transitions. PHASE_LEAVE and SOFT_FUSE_RSI are exit-based so unaffected. [2026-03-18]
+- **Stall force-close shortened 36h → 24h**: STALL_FORCE_CLOSE had 12.9% WR, -$1,644 PnL. Trades stalling >1 day are dead weight. RUNNER_STALE_FORCE_CLOSE handles post-trim runners separately. [2026-03-18]
+- **SHORT min rank lowered 55 → 50**: SHORTs profitable at all rank levels >= 60 but only 5.3% of trades. AI CIO provides additional filter layer. [2026-03-18]
+
+## UI Improvements (2026-03-18)
+
+- **Volatility-normalized color intensity**: Cards and bubbles now use `getNormalizedIntensity(dayPct, tickerType, volatilityAtrPct)` from `shared-price-utils.js`. SPY at +0.7% (broad_etf range 1.2%) gets normalized to 0.58 — moderate intensity. TSLA at +3% (growth range 3.5%) gets 0.86 — strong. Hybrid: if ticker has `volatility_atr_pct` from scoring, uses that instead of type-based range. [2026-03-18]
+- **Right-rail chart overlay engine**: Ported `detectSwingPoints`, `fitTrendline`, `detectPatterns`, and `fetchChartLevels` from Daily Brief into `shared-right-rail.js`. On every chart load, the right-rail now fetches daily candles, computes S/R levels, ATR targets, trendlines, and pattern annotations (double top/bottom, ascending/descending triangles, bull/bear flags, ranges). Pattern label badge shown in OHLC header. TF-specific visible range and bar spacing applied. [2026-03-18]
+- **IWM added to Daily Brief**: Backend fetches IWM D/1H/5m/4H candles, runs `summarizeTechnical()`, computes SMC levels and ATR Fib levels. IWM technical data included in both morning and evening AI prompts. Frontend: IWM chart added to `CHART_SYMBOLS_PRIMARY_ADMIN` and `CHART_SYMBOLS_PRIMARY_USER`. Discord embed includes IWM day trader levels. [2026-03-18]
+- **Condensed Daily Brief prompt**: Morning: merged "Risk Factors & Market Backdrop" + "Cross-Asset Correlation & Volatility" into single "Market Context" (~150 words). Merged "Sector & Cross-Asset Spotlight" + "Trader's Almanac" into "Sector & Themes". Removed "Swing Trader Takeaway" (redundant). Per-section word limits targeting ~800 words total. `max_completion_tokens` reduced 6000→4000. Evening similarly condensed. [2026-03-18]
+- **SMC-first key levels**: Renamed "Day Trader Levels & Game Plan" to "Key Levels & Game Plan". Prompt instruction now says "Lead with SMC support/resistance (these are where price actually reacted). ATR levels are secondary targets. ORB levels add intraday context after the open." Game plan triggers include IWM alongside ES/NQ/SPY. [2026-03-18]
+- **Bare catch {} Babel fix**: `shared-right-rail.js` had 11 bare `catch {}` blocks (optional catch binding). Babel @7.29 with `@babel/preset-react` alone doesn't support this. Fixed all to `catch (_) {}` for compatibility. [2026-03-18]
+
+## AI CIO Lifecycle Integration (2026-03-18)
+
+- **CIO now evaluates ENTRY + TRIM + EXIT decisions**: Previously only ENTRY was evaluated. Now the CIO reviews all soft exits (STALL_FORCE_CLOSE, RUNNER_STALE_FORCE_CLOSE, Kanban EXIT) and TRIM (TP-hit, completion-based). Hard protective exits (SL_HIT, HARD_LOSS_CAP, MAX_LOSS, RUNNER_MAX_DRAWDOWN_BREAKER) bypass CIO — non-negotiable. [2026-03-18]
+- **Lifecycle decision schema**: CIO responds with PROCEED/HOLD/OVERRIDE (vs APPROVE/ADJUST/REJECT for entries). HOLD delays the action; OVERRIDE modifies trim %. All decisions persisted to `ai_cio_decisions` with `decision` prefixed by action type (e.g., `EXIT_HOLD`, `TRIM_PROCEED`, `STALL_HOLD`). [2026-03-18]
+- **CIO _deepAuditConfig propagation bug**: `env._deepAuditConfig` was not being set from `replayEnv._deepAuditConfig` in the replay handler, causing `ai_cio_enabled` to always be false during replay. Fixed by explicitly propagating after calibration env setup. [2026-03-18]
+- **Only REJECT decisions were persisted**: APPROVE and ADJUST entry decisions were logged to console but not inserted into `ai_cio_decisions` D1 table. Fixed to persist all entry decisions. [2026-03-18]
+- **Latency budget**: CIO lifecycle calls average 2.7-3.3 seconds on `gpt-4o-mini`. Well within the 15s timeout. Scoring cycles are 5 minutes apart, so even multiple CIO calls per ticker are feasible. [2026-03-18]
+- **EXIT_HOLD frequency**: In early July 2025 replay, the CIO issued 40 EXIT_HOLD decisions for KWEB, repeatedly blocking soft exits because it detected remaining structural support. This is desirable behavior — prevents premature exits on stale timers when momentum is intact. Added 30-minute cooldown per ticker to avoid repeated API calls that caused Worker timeouts. [2026-03-18]
+- **CIO rejection loop (cold-start)**: Original CIO prompt said "MEMORY first, lean REJECT if CIO track record shows REJECTs were correct 80%+." In a fresh backtest with no ground-truth outcome data, this creates a self-reinforcing rejection loop (941 REJECTs vs 8 APPROVEs). Fix: changed default stance to APPROVE — the model already applies rank/danger/regime/ORB/DOA gates. CIO catches edge cases, doesn't re-filter. [2026-03-18]
+- **Franchise blacklist over-broad**: `cio_franchise_blacklist` included AMZN, META, NVDA, RKLB, RDDT, WMT, ETN — all major alpha-generating tickers. META alone had 87 CIO rejections. Trimmed to only genuinely bad tickers (LRN, IESC, BG). [2026-03-18]
+
+## Position Limit Validation (2026-03-18)
+
+- **Data-driven simulation**: Replayed calibrated-v5 (62 trades, 68% WR) and clean-launch-v1 (54 trades, 55% WR) under different caps. Measured blocked trades, missed wins, and missed PnL at each level.
+- **MAX_OPEN_POSITIONS 15→20**: At cap=15, 12-13 trades blocked including 1-4 winners. At cap=20, only 6-7 blocked (mostly losers). Captures nearly all opportunity with minimal additional risk.
+- **MAX_PER_SECTOR 3→4**: At sector=3, 12-14 trades blocked — heaviest in Industrials and sector_etf (broad ETFs miscategorized as same sector). At sector=4, blocks halved. Sweet spot for concentration vs. opportunity.
+- **MAX_SAME_DIRECTION 8→12**: At dir=8, 34 trades blocked (11 winners, +11.2% PnL missed). Trend-following system is overwhelmingly LONG in bull markets. Dir=12 gives room for directional momentum without excessive single-side risk. [2026-03-18]
 
 ## Backtest Regime Gaps (Discovered 2026-03-16)
 
@@ -458,3 +549,47 @@ Based on manual classification of 373 trades (140 bad_trade, 131 bad_exit, 85 go
 - **DST breaks UTC-hardcoded cron triggers**: Virtual cron triggers (morning brief, evening brief, cleanup, ETF sync) used fixed UTC hours targeting EST. After spring-forward (EST→EDT), all fired 1 hour late. Fix: widen UTC hour ranges to cover both EST and EDT; rely on the existing ET-based sanity checks in handlers to deduplicate. [2026-03-16]
 - **TwelveData WebSocket: `fetch()` upgrade pattern fails silently**: The Cloudflare `fetch(url, { headers: { Upgrade: "websocket" } })` pattern returned `resp.webSocket === null` without useful error info. Fix: fall back to standard `new WebSocket(url)` constructor when fetch-upgrade fails. All 3 connections immediately restored. [2026-03-16]
 - **REST price fallback hides WebSocket outage**: `PriceStream` alarm refreshes quotes via REST every 60s even when WebSocket is dead, so `timed:prices` KV stays populated. Prices appear correct but lack sub-second freshness. Monitor `pricesReceived` in `/timed/price-stream/status` — if 0 with `isRunning: true`, WebSocket connections are dead. [2026-03-16]
+
+### Backtest Tuning v5 — MFE-Guided SL & Entry Quality [2026-03-19]
+- **MFE/MAE analysis disproved the "too-tight SL" hypothesis**: 68% of max_loss trades were DOA (MFE < 0.3% — never went meaningfully green). Only 32% were marginal (0.4-0.8% MFE). Zero trades were whipsawed (MFE >= 1%). Primary issue is **entry quality**, not stop tightness.
+- **Config changes applied despite DOA finding**: Widened `max_loss_pct` normal -1.5%→-2.5%, pdz -3%→-4% — benefits future winners needing drawdown room while entry quality gates reduce DOA count. `calibrated_sl_atr` 0.55x→1.2x, adaptive SL ATR 0.16-0.22x→0.8-1.5x per regime.
+- **Entry quality gates added**: (a) Confirmed grade with rank < 75 now blocked (43% WR vs Prime's 60%), (b) Opening noise filter extended 15→30 min (10-11am ET entries had 0% WR), (c) Consecutive max_loss cooldown: 2+ max_loss on same ticker → 48h block (CW entered 6x, lost 4).
+- **CIO prompt rebalanced**: Model was returning ADJUST 100% / APPROVE 0%. Prompt now specifies 60-70% of trades should receive APPROVE; ADJUST reserved for material changes only, not cosmetic tweaks.
+- **MFE/MAE tracking confirmed working**: `direction_accuracy` table properly records MFE/MAE per bar via in-memory accumulation. The `backtest_run_trade_autopsy` zeros were from older archived runs without this tracking.
+- **Key performance stats before tuning**: 53% WR, 1.16 PF, +$1,112 closed PnL. `SMART_RUNNER_TD_EXHAUSTION_RUNNER` exit is the star (100% WR, +$1,474). `SUPPORT_BREAK_CLOUD` 50% WR is acceptable — losses are tiny on 66%-trimmed runners.
+
+### Backtest Tuning v6 — Loss Minimization & Profit Protection [2026-03-19]
+- **v5 backtest results (196 trades, Jul-Nov 2025)**: 62% WR but -$1,236 net PnL. Wins: +$8,334, Losses: -$9,570. Average loss -2.90% nearly double average win +1.54%.
+- **Three root cause drags identified via MFE/MAE data**:
+  1. `HARD_LOSS_CAP` 9 trades avg -8% = -$3,324 (34% of all losses). Dollar-based $350 cap on $4,500 positions = effective -7.8%.
+  2. Gave-back trades: 16 positions with MFE > 1% reversed to losses = -$1,119. Example: JOBY +5.28% → -6.51%.
+  3. AI CIO EXIT_HOLD 99.97% — never recommended exits, nullifying its value for profit protection.
+- **max_loss zone logic simplified**: Removed the `-1` extra penalty for non-PDZ/non-extended. Normal: -2%, PDZ: -3%. Winners MAE data shows 31% dip past -2% so this is tight but combined with breakeven mechanism it's optimal.
+- **Three new exit mechanisms added**:
+  1. `BREAKEVEN_STOP`: Once MFE exceeds threshold (1.0%), trade exits if P&L drops to 0%. Protects 16 gave-back trades.
+  2. `PROFIT_GIVEBACK`: Once MFE exceeds 2%, exits if >60% of peak profit surrendered. Catches severe reversals.
+  3. `doa_early_exit`: After 8 market hours, if MFE < 0.5% and trade is losing, exit. Catches dead-on-arrival entries.
+- **HLC made percentage-based**: Added -5% cap alongside dollar cap ($200). Prevents -8% catastrophic exits.
+- **AI CIO lifecycle prompt overhauled**: Default changed from implicit HOLD to explicit PROCEED. Profit protection rules made non-negotiable (MFE>2% and PnL < 50% of MFE → always PROCEED). Added `profit_retained_pct` to proposal.
+- **AI CIO entry prompt tuned**: Now requires specific SL/TP recommendations (not just size_mult=0.75 for everything). Regime-aware: NEUTRAL+choppy → tighter SL + smaller size.
+- **Time-based loser exits tightened**: CHOPPY 7→5 days, TRANSITIONAL 12→8 days, other 20→15 days. Chop accelerated threshold -2%→-1.5%.
+- **Regime analysis**: NEUTRAL regime 82 trades 57% WR -$1,042; `choppy_selective` profile 126 trades -$1,638. `correction_transition` profile 70 trades +$402. `ema_regime_early_long` path 72% WR +$1,252 is the star; `ema_regime_confirmed_long` 60% WR -$2,529 is the drag.
+- **Projected improvement**: HLC cap saves ~$1,828, breakeven saves ~$1,119. Converts -$1,236 to approximately +$1,711.
+
+### Ripster Core Engine Restoration + PDZ Enhancement [2026-03-19]
+- **Critical discovery: `ripster_core` engine was completely removed during refactoring**. The config (`ENTRY_ENGINE = "ripster_core"`, `RIPSTER_TUNE_V2 = "true"`) was still set in wrangler.toml, but all code that read those flags was deleted. The code fell through to EMA-regime paths every time.
+- **High-PnL backtests all used ripster_core**: `15m-calibration-only` ($133k PnL, 176 trades, 62% LONG WR) ran on `ripster_momentum`, `ripster_pullback`, `ripster_reclaim` entry paths with cloud-based exits. The newer EMA-regime paths (`ema_regime_confirmed_long/short`) were untested substitutes.
+- **Additive restoration approach chosen**: Restored the full ripster_core block from git commit `d9f6e9e`, then layered PDZ zones, mean reversion, and CIO context on top. EMA-regime paths remain as fallbacks when `ENTRY_ENGINE != "ripster_core"`.
+- **`_env` object was missing engine flags**: Both replay and live paths' `_env` objects didn't propagate `_entryEngine`, `_managementEngine`, `_ripsterTuneV2`, or `_ripsterExitDebounceBars`. Without these, `resolveEngineMode()` always returned "legacy". Fixed by adding these keys to both `_env` construction paths.
+- **`parseBoolFlag` utility didn't exist**: The ripster block needs `parseBoolFlag()` for `RIPSTER_TUNE_V2`. Had to add it alongside `resolveEngineMode()`.
+- **PDZ zone sizing multiplier needs wiring into sizing engine**: Adding `d.__pdz_size_mult` alone isn't enough — the sizing engine in `processTradeSimulation` and live execution must read and apply it. Both replay and live sizing paths now include `_pdzSizeMult`.
+- **Naming convention**: Internal code uses `ripster_*` for backward compatibility with config/backtest data. User-facing UI/display labels use "TT" (e.g., `ripster_momentum` displays as "TT Momentum").
+- **Mean reversion as 4th entry path**: Added `mean_reversion_pdz` within the ripster_core block, requiring PDZ discount/premium zone + 2+ RSI extremes + Phase leaving or TD9 + FVG reclaim or liquidity sweep. Half-size (0.5x) since counter-trend.
+
+### Alpaca Data Licensing Compliance [2026-03-17]
+- **Alpaca data is not commercially licensed**: Cannot display raw Alpaca-sourced data (especially 10m candles) to users. Only TwelveData data is user-facing.
+- **10m candle sources**: Alpaca provides native 10m bars (used internally for scoring). TwelveData synthesizes 10m from 5m (used as a backup). D1 stores both.
+- **`/timed/candles` gated**: tf=1,3,5,10 require admin auth. Users can only access 15m+ timeframes.
+- **`/timed/all` sanitized**: `leading_ltf` and `lead_intraday_tf` fields remapped from "10" to "15" for non-admin users.
+- **`aggregate5mTo10m()` rewritten**: Old version paired bars by array position (broken for missing bars, session edges). New version uses 10-minute time-boundary alignment via `Math.floor(ts / TEN_MIN_MS)`.
+- **Broker adapter requirements for future replacements**: REST API for orders/positions/account, paper trading mode, split-adjusted historical bars, WebSocket streaming, commercial data license for redistribution.

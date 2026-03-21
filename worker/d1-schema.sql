@@ -26,6 +26,8 @@ CREATE TABLE IF NOT EXISTS timed_trail (
 
 CREATE INDEX IF NOT EXISTS idx_timed_trail_ts ON timed_trail (ts);
 CREATE INDEX IF NOT EXISTS idx_timed_trail_ticker_ts ON timed_trail (ticker, ts);
+-- Snapshot-replay: fast filter for rows with payload_json by time range
+CREATE INDEX IF NOT EXISTS idx_trail_ts_payload ON timed_trail (ts) WHERE payload_json IS NOT NULL;
 
 -- -----------------------------------------------------------------------------
 -- Ingest receipts: raw webhook capture (idempotent)
@@ -108,6 +110,10 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_trades_ticker_dir_entry_ts
   ON trades (ticker, direction, entry_ts);
 CREATE INDEX IF NOT EXISTS idx_trades_entry_ts ON trades (entry_ts);
 CREATE INDEX IF NOT EXISTS idx_trades_status ON trades (status);
+CREATE INDEX IF NOT EXISTS idx_trades_ticker_status ON trades (ticker, status);
+CREATE INDEX IF NOT EXISTS idx_trades_exit_status ON trades (exit_ts, status);
+CREATE INDEX IF NOT EXISTS idx_trades_ticker_entry_ts ON trades (ticker, entry_ts);
+CREATE INDEX IF NOT EXISTS idx_trades_ticker_exit_ts ON trades (ticker, exit_ts);
 
 CREATE TABLE IF NOT EXISTS trade_events (
   event_id TEXT PRIMARY KEY,
@@ -236,3 +242,7 @@ CREATE TABLE IF NOT EXISTS account_ledger (
 
 CREATE INDEX IF NOT EXISTS idx_account_ledger_ts ON account_ledger (ts);
 CREATE INDEX IF NOT EXISTS idx_account_ledger_mode_ts ON account_ledger (mode, ts);
+-- PnL aggregate: WHERE mode=? AND ts BETWEEN ? AND ? AND event_type IN (...)
+CREATE INDEX IF NOT EXISTS idx_ledger_mode_ts_type ON account_ledger (mode, ts, event_type);
+-- Balance lookup: WHERE mode=? ORDER BY ts DESC, ledger_id DESC LIMIT 1
+CREATE INDEX IF NOT EXISTS idx_ledger_mode_ts_id ON account_ledger (mode, ts DESC, ledger_id DESC);
