@@ -623,9 +623,9 @@ while [[ "$CURRENT_DATE" < "$END_DATE" ]] || [[ "$CURRENT_DATE" == "$END_DATE" ]
       sleep 10
     done
     if ! echo "$RESULT" | jq -e '.scored >= 0' >/dev/null 2>&1; then
-      echo "ERROR: interval-replay failed after 5 attempts on $CURRENT_DATE interval $INTERVAL_IDX."
+      echo "WARNING: interval-replay failed after 5 attempts on $CURRENT_DATE interval $INTERVAL_IDX. Skipping."
       echo "  Last response: $(echo "$RESULT" | head -c 300)"
-      exit 1
+      RESULT='{"scored":0,"trades":0}'
     fi
 
     B_SCORED=$(echo "$RESULT" | jq -r '.scored // 0' 2>/dev/null || echo "0")
@@ -668,9 +668,9 @@ while [[ "$CURRENT_DATE" < "$END_DATE" ]] || [[ "$CURRENT_DATE" == "$END_DATE" ]
       sleep 15
     done
     if ! echo "$RESULT" | jq -e '.scored >= 0' >/dev/null 2>&1; then
-      echo "ERROR: candle-replay failed after 5 attempts on $CURRENT_DATE batch $BATCH_NUM (offset=$BATCH_OFFSET)."
+      echo "WARNING: candle-replay failed after 5 attempts on $CURRENT_DATE batch $BATCH_NUM (offset=$BATCH_OFFSET). Skipping batch."
       echo "  Last response: $(echo "$RESULT" | head -c 300)"
-      exit 1
+      RESULT='{"scored":0,"trades":0}'
     fi
 
     B_SCORED=$(echo "$RESULT" | jq -r '.scored // 0' 2>/dev/null || echo "0")

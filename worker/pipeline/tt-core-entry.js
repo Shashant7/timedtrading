@@ -138,28 +138,22 @@ export function evaluateEntry(ctx) {
       return reject("tt_chasing_extension", { rsi10m, rsi30m, distToCloudPct: trendExtensionPct });
     }
 
-    // ── TREND MATURITY GATE ──
-    // When 30m fast cloud (5/12) is fully aligned AND 30m RSI is warm,
-    // the move is mature (10m–30m bias spread ≈ 0). Momentum entries here
-    // are chasing near-completion. Configurable via deep_audit.
-    const c30_5 = m30?.ripster?.c5_12;
-    const m30FullyAligned = side === "LONG"
-      ? !!(c30_5?.bull && c30_5?.above && (c30_5?.fastSlope ?? 0) >= 0)
-      : !!(c30_5?.bear && c30_5?.below && (c30_5?.fastSlope ?? 0) <= 0);
-    const trendMatureRsi30 = Number(daCfg.deep_audit_trend_mature_rsi30) || 63;
-    if (m30FullyAligned
-      && ((side === "LONG" && rsi30m >= trendMatureRsi30)
-        || (side === "SHORT" && rsi30m <= (100 - trendMatureRsi30)))) {
-      return reject("tt_trend_mature", {
-        rsi10m, rsi30m, m30FullyAligned: true, threshold: trendMatureRsi30,
-      });
-    }
-
-    // ── 30m RSI HARD BLOCK for momentum entries ──
-    const rsi30mHardBlock = Number(daCfg.deep_audit_rsi30_momentum_block) || 70;
-    if ((side === "LONG" && rsi30m >= rsi30mHardBlock)
-      || (side === "SHORT" && rsi30m <= (100 - rsi30mHardBlock))) {
-      return reject("tt_30m_rsi_extreme_momentum", { rsi30m, threshold: rsi30mHardBlock });
+    // ── 10m–30m BIAS SPREAD (trend maturity) ──
+    // Analysis: perfect entries had spread ~+0.12, chasers had ~0.005.
+    // When 30m has caught up to 10m (spread near zero), the move is mature.
+    const tfStack = d?.swing_consensus?.tf_stack;
+    if (Array.isArray(tfStack)) {
+      const bias10m = tfStack.find(e => e.tf === "10m")?.biasScore;
+      const bias30m = tfStack.find(e => e.tf === "30m")?.biasScore;
+      if (bias10m != null && bias30m != null) {
+        const spread = Math.abs(bias10m) - Math.abs(bias30m);
+        const minSpread = Number(daCfg.deep_audit_bias_spread_min) || 0.05;
+        if (spread < minSpread) {
+          return reject("tt_trend_mature_bias_spread", {
+            bias10m, bias30m, spread, minSpread,
+          });
+        }
+      }
     }
 
     const rsiDailyHeat = (side === "LONG" && rsi10m >= 77 && rsiD >= 80)
