@@ -56,10 +56,10 @@ ALPACA_BASE_URL = "https://paper-api.alpaca.markets"
 DATA_PROVIDER = "twelvedata"
 TWELVEDATA_PLAN = "pro"
 # ── Engine Selection ──
-# ENTRY_ENGINE: legacy | tt_core (formerly ripster_core)
-# MANAGEMENT_ENGINE: legacy | tt_core (formerly ripster_core)
-ENTRY_ENGINE = "ripster_core"
-MANAGEMENT_ENGINE = "ripster_core"
+# ENTRY_ENGINE: legacy | tt_core | ripster_core (frozen reference)
+# MANAGEMENT_ENGINE: legacy | tt_core | ripster_core (frozen reference)
+ENTRY_ENGINE = "tt_core"
+MANAGEMENT_ENGINE = "tt_core"
 LEADING_LTF = "10"
 RIPSTER_TUNE_V2 = "true"
 TT_EXIT_DEBOUNCE_BARS = "3"
@@ -181,8 +181,8 @@ ALPACA_BASE_URL = "https://paper-api.alpaca.markets"
 DATA_PROVIDER = "twelvedata"
 TWELVEDATA_PLAN = "pro"
 # ── Engine Selection ──
-ENTRY_ENGINE = "ripster_core"
-MANAGEMENT_ENGINE = "ripster_core"
+ENTRY_ENGINE = "tt_core"
+MANAGEMENT_ENGINE = "tt_core"
 LEADING_LTF = "10"
 RIPSTER_TUNE_V2 = "true"
 TT_EXIT_DEBOUNCE_BARS = "3"
