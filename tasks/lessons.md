@@ -586,6 +586,18 @@ Based on manual classification of 373 trades (140 bad_trade, 131 bad_exit, 85 go
 - **Naming convention**: Internal code uses `ripster_*` for backward compatibility with config/backtest data. User-facing UI/display labels use "TT" (e.g., `ripster_momentum` displays as "TT Momentum").
 - **Mean reversion as 4th entry path**: Added `mean_reversion_pdz` within the ripster_core block, requiring PDZ discount/premium zone + 2+ RSI extremes + Phase leaving or TD9 + FVG reclaim or liquidity sweep. Half-size (0.5x) since counter-trend.
 
+### Engine Routing & Exit Dispatcher [2026-03-21]
+- **Entry engine routing was disconnected from improvements**: `ENTRY_ENGINE = "ripster_core"` in wrangler.toml routes to frozen `ripster-entry.js` (labeled "Do NOT modify — kept for historical comparison only"). All improvements coded in `tt-core-entry.js` were dead code. Must set `ENTRY_ENGINE = "tt_core"` to activate them. Always verify the engine route before assuming code changes will take effect.
+- **Exit engine dispatcher was imported but never called**: `evaluateExit()` from `exit-engine.js` was imported at line 171, all three engines were registered (lines 196-198), but the function was never invoked anywhere in `index.js`. All exit logic ran inline in `classifyKanbanStage`. Fix: added dispatcher call before the inline block — if the engine returns a result, it short-circuits the inline code.
+- **Fallback defaults must match wrangler.toml**: Replay handlers had hardcoded fallbacks `|| "ripster_core"` in 3 locations. When switching engines, these fallbacks must be updated to match the new default.
+- **New config keys must be added to ALL 4 daKeys arrays**: `deep_audit_*` keys are loaded from `model_config` via `daKeys` arrays in candle-replay, interval-replay, snapshot-replay, and live cron. Missing keys silently fall back to code defaults. There are 4 separate copies of this array that must stay in sync.
+- **Stale checkpoint file**: `data/replay-checkpoint.txt` persists between runs. Delete before fresh backtests to avoid accidental `--resume` from an unrelated old run.
+
+### Analysis-to-Code Discipline [2026-03-21]
+- **Don't proxy when the actual data is available**: Used 30m cloud alignment + RSI as a proxy for the 10m-30m bias spread, but `swing_consensus.tf_stack` already contains per-TF bias scores (`biasScore`). The actual `abs(bias10m) - abs(bias30m)` spread is the correct implementation.
+- **Don't add extra gates beyond what the analysis identified**: Analysis showed two specific changes: (1) bias spread filter for entry, (2) structure check + runner management for exit. Adding an extra 30m RSI hard block based on limited data was over-engineering — it wasn't supported by the analysis findings.
+- **Verify swing_consensus is populated during replay**: `computeServerSideScores()` runs the full indicator pipeline including `computeSwingConsensus()` during both candle-replay and interval-replay. The `tf_stack` with per-TF `biasScore` values is available in `ctx.raw.swing_consensus.tf_stack`.
+
 ### Alpaca Data Licensing Compliance [2026-03-17]
 - **Alpaca data is not commercially licensed**: Cannot display raw Alpaca-sourced data (especially 10m candles) to users. Only TwelveData data is user-facing.
 - **10m candle sources**: Alpaca provides native 10m bars (used internally for scoring). TwelveData synthesizes 10m from 5m (used as a backup). D1 stores both.

@@ -17064,6 +17064,9 @@
           if (!window._ttIsPro && window._ttMemberTickerSet) {
             filtered = filtered.filter(t => window._ttMemberTickerSet.has(String(t?.ticker || "").toUpperCase()));
           }
+          if (!window._ttIsAdmin && GROUPS.Futures) {
+            filtered = filtered.filter(t => !GROUPS.Futures.has(normTicker(t?.ticker || "")));
+          }
           return filtered;
         }, [data, effectiveFilters, trades, socialAdditions, timeTravelTickers, savedTickers]);
 

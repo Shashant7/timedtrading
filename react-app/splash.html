@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Timed Trading — Adaptive Momentum Intelligence</title>
-  <meta name="description" content="Momentum shifts fast. This model catches it early — scanning a curated selection of high-potential tickers across 8 timeframes, detecting alignment, and delivering precise levels and timing before the crowd piles in." />
+  <title>Timed Trading — Find Market Momentum Before the Crowd</title>
+  <meta name="description" content="Timed Trading scans hundreds of stocks and shows where momentum is building — in real time. See what's moving, know when to enter, and get clear levels for every trade." />
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48' fill='none'%3E%3Cdefs%3E%3ClinearGradient id='r' x1='6' y1='42' x2='42' y2='6'%3E%3Cstop offset='0%25' stop-color='%2334d399'/%3E%3Cstop offset='100%25' stop-color='%2367e8f9'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='48' height='48' rx='11' fill='%23000'/%3E%3Ccircle cx='24' cy='24' r='17' stroke='url(%23r)' stroke-width='3' fill='none'/%3E%3Cline x1='24' y1='24' x2='19' y2='18.5' stroke='%23636366' stroke-width='4' stroke-linecap='round'/%3E%3Cline x1='24' y1='24' x2='29.5' y2='16.5' stroke='%2330d158' stroke-width='4.5' stroke-linecap='round'/%3E%3Ccircle cx='24' cy='24' r='3.5' fill='%2330d158'/%3E%3Ccircle cx='24' cy='24' r='1.5' fill='%23000'/%3E%3C/svg%3E" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -158,12 +158,12 @@
     /* ── Hero ─────────────────────────────────────────────────── */
     .hero {
       position: relative;
-      min-height: 100vh;
       display: flex;
+      flex-direction: column;
       align-items: center;
       justify-content: center;
       text-align: center;
-      padding: 120px 24px 80px;
+      padding: 120px 24px 60px;
       overflow: hidden;
     }
     .hero-bg {
@@ -180,7 +180,7 @@
     .hero-orb-1 {
       width: 700px; height: 700px;
       background: radial-gradient(circle, rgba(0,200,83,0.14) 0%, rgba(0,200,83,0.03) 50%, transparent 70%);
-      top: 40%; left: 50%;
+      top: 30%; left: 50%;
       transform: translate(-50%, -50%);
       animation: float-slow 12s ease-in-out infinite;
     }
@@ -195,13 +195,6 @@
       background: radial-gradient(circle, rgba(105,240,174,0.08) 0%, transparent 70%);
       top: 60%; right: 10%; left: auto;
       animation: float-slow 18s ease-in-out 3s infinite;
-    }
-    .hero-orb-4 {
-      width: 200px; height: 200px;
-      background: radial-gradient(circle, rgba(0,200,83,0.12) 0%, transparent 70%);
-      bottom: 15%; left: 25%;
-      animation: drift-x 10s ease-in-out infinite;
-      filter: blur(40px);
     }
     .hero-grid {
       position: absolute;
@@ -219,35 +212,6 @@
       border-radius: 50%;
       background: var(--accent);
       opacity: 0;
-    }
-    .hero-chart {
-      position: absolute;
-      bottom: 0; left: 0; right: 0;
-      height: 280px;
-    }
-    .hero-chart path {
-      fill: none;
-      stroke-width: 1.5;
-      stroke-linecap: round;
-    }
-    .hero-chart .chart-line-1 {
-      stroke: var(--accent);
-      stroke-dasharray: 800;
-      animation: line-flow 8s ease-in-out infinite;
-    }
-    .hero-chart .chart-line-2 {
-      stroke: rgba(0,230,118,0.5);
-      stroke-dasharray: 800;
-      animation: line-flow 10s ease-in-out 2s infinite;
-    }
-    .hero-chart .chart-line-3 {
-      stroke: rgba(105,240,174,0.3);
-      stroke-dasharray: 800;
-      animation: line-flow 12s ease-in-out 4s infinite;
-    }
-    .hero-chart .chart-fill {
-      fill: url(#chartGradFill);
-      opacity: 0.04;
     }
     .hero-content {
       position: relative;
@@ -281,18 +245,17 @@
       font-weight: 800;
       line-height: 1.1;
       letter-spacing: -0.04em;
-      margin-bottom: 24px;
+      margin-bottom: 20px;
       background: linear-gradient(180deg, #ffffff 30%, #9ca3af 100%);
       -webkit-background-clip: text;
       -webkit-text-fill-color: transparent;
       background-clip: text;
     }
-    .hero p {
-      font-size: clamp(1rem, 2vw, 1.15rem);
+    .hero-oneliner {
+      font-size: clamp(1.05rem, 2vw, 1.25rem);
       color: var(--text-secondary);
-      max-width: 580px;
-      margin: 0 auto 36px;
-      line-height: 1.75;
+      margin-bottom: 32px;
+      line-height: 1.6;
     }
     .hero-cta {
       display: inline-flex;
@@ -316,145 +279,30 @@
     }
     .hero-cta svg { transition: transform 0.2s; }
     .hero-cta:hover svg { transform: translateX(3px); }
-    .hero-stats {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      gap: 48px;
-      margin-top: 56px;
-      padding-top: 40px;
-      border-top: 1px solid var(--border);
+
+    /* ── Hero Radar (Bubble Map in hero) ──────────────────────── */
+    .hero-radar {
+      position: relative;
+      z-index: 1;
+      width: 100%;
+      max-width: 960px;
+      margin: 48px auto 0;
+      animation: fade-up 1s ease-out 0.3s both;
     }
-    .hero-stat { text-align: center; }
-    .hero-stat .num {
-      font-size: 28px;
-      font-weight: 800;
-      letter-spacing: -0.03em;
-      color: var(--text-primary);
-    }
-    .hero-stat .label {
-      font-size: 12px;
+    .hero-radar-label {
+      text-align: center;
+      font-size: 13px;
       color: var(--text-muted);
-      margin-top: 4px;
-      text-transform: uppercase;
-      letter-spacing: 0.06em;
-    }
-
-    /* ── Section common ──────────────────────────────────────── */
-    section { padding: 100px 0; }
-    .section-label {
-      display: inline-block;
-      font-size: 11px;
-      font-weight: 700;
-      text-transform: uppercase;
-      letter-spacing: 0.1em;
-      color: var(--accent);
       margin-bottom: 12px;
-    }
-    .section-title {
-      font-size: clamp(1.75rem, 3vw, 2.5rem);
-      font-weight: 800;
-      letter-spacing: -0.03em;
-      line-height: 1.15;
-      margin-bottom: 16px;
-    }
-    .section-desc {
-      font-size: 16px;
-      color: var(--text-secondary);
-      max-width: 600px;
-      line-height: 1.7;
-    }
-
-    /* ── Pain/Solution ──────────────────────────────────────── */
-    .pain-section {
-      border-top: 1px solid var(--border);
-      border-bottom: 1px solid var(--border);
-      background: linear-gradient(180deg, transparent 0%, rgba(0,200,83,0.01) 50%, transparent 100%);
-    }
-    .pain-grid {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 48px;
-      align-items: center;
-      margin-top: 48px;
-    }
-    .pain-list { list-style: none; }
-    .pain-list li {
-      font-size: 15px;
-      color: var(--text-secondary);
-      padding: 14px 0 14px 32px;
-      position: relative;
-      line-height: 1.6;
-      border-bottom: 1px solid var(--border);
-    }
-    .pain-list li:last-child { border-bottom: none; }
-    .pain-list li::before {
-      content: "?";
-      position: absolute;
-      left: 0; top: 14px;
-      width: 20px; height: 20px;
-      border-radius: 50%;
-      background: rgba(239,68,68,0.1);
-      border: 1px solid rgba(239,68,68,0.2);
-      color: #ef4444;
-      font-size: 11px;
-      font-weight: 700;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-    }
-    .solution-card {
-      background: var(--bg-surface);
-      border: 1px solid var(--border);
-      border-radius: 20px;
-      padding: 36px 32px;
-      position: relative;
-      overflow: hidden;
-    }
-    .solution-card::before {
-      content: "";
-      position: absolute;
-      top: 0; left: 0; right: 0;
-      height: 3px;
-      background: linear-gradient(90deg, var(--accent), #00e676);
-    }
-    .solution-card h3 {
-      font-size: 20px;
-      font-weight: 800;
-      letter-spacing: -0.02em;
-      margin-bottom: 16px;
-      color: var(--accent);
-    }
-    .solution-card p {
-      font-size: 14px;
-      color: var(--text-secondary);
-      line-height: 1.7;
-      margin-bottom: 20px;
-    }
-    .solution-list { list-style: none; }
-    .solution-list li {
-      font-size: 13px;
-      color: var(--text-secondary);
-      padding: 6px 0 6px 22px;
-      position: relative;
-      line-height: 1.6;
-    }
-    .solution-list li::before {
-      content: "\2713";
-      position: absolute;
-      left: 0; top: 6px;
-      color: var(--accent);
-      font-weight: 700;
-      font-size: 13px;
     }
 
     /* ── Bubble Map ──────────────────────────────────────────── */
     .bmap-container {
       position: relative;
       width: 100%;
-      max-width: 900px;
-      height: 480px;
-      margin: 48px auto 0;
+      max-width: 960px;
+      height: 420px;
+      margin: 0 auto;
       border: 1px solid var(--border);
       border-radius: 20px;
       background: var(--bg-surface);
@@ -500,8 +348,151 @@
     .bmap-bubble.red { background: rgba(239,68,68,0.2); border: 1.5px solid rgba(239,68,68,0.4); color: #fca5a5; }
     .bmap-bubble.yellow { background: rgba(234,179,8,0.15); border: 1.5px solid rgba(234,179,8,0.35); color: #fde68a; }
     .bmap-bubble.pulsing { animation: bubble-pulse 2.5s ease-in-out infinite; }
+    .bmap-quadrant-label {
+      position: absolute;
+      font-size: 9px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: rgba(255,255,255,0.08);
+    }
 
-    /* ── Pipeline / Kanban (horizontal rows matching actual app) ── */
+    /* ── Section common ──────────────────────────────────────── */
+    section { padding: 80px 0; }
+    .section-label {
+      display: inline-block;
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--accent);
+      margin-bottom: 12px;
+    }
+    .section-title {
+      font-size: clamp(1.75rem, 3vw, 2.5rem);
+      font-weight: 800;
+      letter-spacing: -0.03em;
+      line-height: 1.15;
+      margin-bottom: 16px;
+    }
+    .section-desc {
+      font-size: 16px;
+      color: var(--text-secondary);
+      max-width: 600px;
+      line-height: 1.7;
+    }
+
+    /* ── Benefits ─────────────────────────────────────────────── */
+    .benefits-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 16px;
+      max-width: 720px;
+      margin: 32px auto 0;
+    }
+    .benefit-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+      padding: 16px 20px;
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      transition: all 0.2s;
+    }
+    .benefit-item:hover {
+      background: var(--bg-surface-hover);
+      border-color: var(--border-hover);
+    }
+    .benefit-check {
+      flex-shrink: 0;
+      width: 22px; height: 22px;
+      border-radius: 50%;
+      background: rgba(0,200,83,0.12);
+      border: 1px solid rgba(0,200,83,0.3);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--accent);
+      font-size: 12px;
+      font-weight: 700;
+      margin-top: 1px;
+    }
+    .benefit-text {
+      font-size: 14px;
+      color: var(--text-secondary);
+      line-height: 1.5;
+    }
+
+    /* ── Pain/Solution ──────────────────────────────────────── */
+    .pain-section {
+      border-top: 1px solid var(--border);
+      border-bottom: 1px solid var(--border);
+      background: linear-gradient(180deg, transparent 0%, rgba(0,200,83,0.01) 50%, transparent 100%);
+    }
+    .pain-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 48px;
+      align-items: center;
+      margin-top: 36px;
+    }
+    .pain-list { list-style: none; }
+    .pain-list li {
+      font-size: 17px;
+      font-weight: 600;
+      color: var(--text-secondary);
+      padding: 12px 0;
+      line-height: 1.4;
+      border-bottom: 1px solid var(--border);
+    }
+    .pain-list li:last-child { border-bottom: none; }
+    .solution-card {
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 36px 32px;
+      position: relative;
+      overflow: hidden;
+    }
+    .solution-card::before {
+      content: "";
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 3px;
+      background: linear-gradient(90deg, var(--accent), #00e676);
+    }
+    .solution-card h3 {
+      font-size: 20px;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      margin-bottom: 16px;
+      color: var(--accent);
+    }
+    .solution-card p {
+      font-size: 14px;
+      color: var(--text-secondary);
+      line-height: 1.7;
+      margin-bottom: 20px;
+    }
+    .solution-list { list-style: none; }
+    .solution-list li {
+      font-size: 13px;
+      color: var(--text-secondary);
+      padding: 6px 0 6px 22px;
+      position: relative;
+      line-height: 1.6;
+    }
+    .solution-list li::before {
+      content: "\2713";
+      position: absolute;
+      left: 0; top: 6px;
+      color: var(--accent);
+      font-weight: 700;
+      font-size: 13px;
+    }
+
+    /* ── Pipeline / Kanban ── */
     .pipeline-stack {
       display: flex;
       flex-direction: column;
@@ -574,6 +565,45 @@
       font-style: italic;
     }
 
+    /* ── Proof / Trade Gallery ─────────────────────────────────── */
+    .proof-disclaimer {
+      font-size: 11px;
+      color: var(--text-muted);
+      text-align: center;
+      padding: 10px 16px;
+      background: rgba(234,179,8,0.04);
+      border: 1px solid rgba(234,179,8,0.1);
+      border-radius: 10px;
+      margin-bottom: 32px;
+      line-height: 1.5;
+    }
+    .trade-cards {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 16px;
+    }
+    .trade-card {
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      overflow: hidden;
+      transition: all 0.3s;
+    }
+    .trade-card:hover {
+      border-color: var(--border-hover);
+      transform: translateY(-3px);
+    }
+    .trade-card-chart { width: 100%; height: 100px; display: block; }
+    .trade-card-body { padding: 14px 16px; }
+    .trade-card-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+    .trade-card-header .tc-ticker { font-size: 15px; font-weight: 800; }
+    .trade-card-header .tc-status { font-size: 10px; font-weight: 700; padding: 3px 8px; border-radius: 6px; }
+    .trade-card-header .tc-status.win { color: #34d399; background: rgba(16,185,129,0.12); }
+    .trade-card-row { display: flex; justify-content: space-between; font-size: 11px; color: var(--text-muted); margin-top: 4px; }
+    .trade-card-row .tc-val { color: var(--text-secondary); font-weight: 600; }
+    .trade-card-pnl { font-size: 18px; font-weight: 800; color: #34d399; margin-top: 8px; }
+    .trade-card-caption { font-size: 11px; color: var(--text-muted); margin-top: 8px; line-height: 1.5; }
+
     /* ── Right Rail Mockup ───────────────────────────────────── */
     .rail-mockup {
       max-width: 420px;
@@ -622,12 +652,8 @@
     .rail-eq-row { display: flex; align-items: center; justify-content: space-between; font-size: 11px; margin-top: 6px; }
     .rail-eq-row .eq-label { color: var(--text-muted); }
     .rail-eq-row .eq-val { font-weight: 700; }
-    .rail-rank-row { display: flex; align-items: baseline; gap: 12px; margin-top: 8px; }
-    .rail-rank-num { font-size: 28px; font-weight: 800; color: #60a5fa; }
-    .rail-rank-of { font-size: 12px; color: var(--text-muted); }
-    .rail-score-num { font-size: 20px; font-weight: 800; color: var(--text-primary); }
 
-    /* ── Engine / Self-Learning ────────────────────────────────── */
+    /* ── Engine / Features ────────────────────────────────────── */
     .engine-grid {
       display: grid;
       grid-template-columns: repeat(3, 1fr);
@@ -668,104 +694,6 @@
       margin-bottom: 16px;
     }
     .engine-icon svg { width: 20px; height: 20px; stroke: var(--accent); fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
-    .engine-stats {
-      display: flex; gap: 32px; justify-content: center; margin-top: 40px;
-      padding-top: 32px; border-top: 1px solid var(--border);
-    }
-    .engine-stat { text-align: center; }
-    .engine-stat .es-num { font-size: 24px; font-weight: 800; color: var(--accent); }
-    .engine-stat .es-label { font-size: 11px; color: var(--text-muted); margin-top: 2px; text-transform: uppercase; letter-spacing: 0.05em; }
-
-    /* ── Proof / Trade Gallery + Portfolio ─────────────────────── */
-    .proof-disclaimer {
-      font-size: 11px;
-      color: var(--text-muted);
-      text-align: center;
-      padding: 10px 16px;
-      background: rgba(234,179,8,0.04);
-      border: 1px solid rgba(234,179,8,0.1);
-      border-radius: 10px;
-      margin-bottom: 32px;
-      line-height: 1.5;
-    }
-    .trade-cards {
-      display: grid;
-      grid-template-columns: repeat(3, 1fr);
-      gap: 16px;
-    }
-    .trade-card {
-      background: var(--bg-surface);
-      border: 1px solid var(--border);
-      border-radius: 14px;
-      overflow: hidden;
-      transition: all 0.3s;
-    }
-    .trade-card:hover {
-      border-color: var(--border-hover);
-      transform: translateY(-3px);
-    }
-    .trade-card-chart { width: 100%; height: 100px; display: block; }
-    .trade-card-body { padding: 14px 16px; }
-    .trade-card-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
-    .trade-card-header .tc-ticker { font-size: 15px; font-weight: 800; }
-    .trade-card-header .tc-status { font-size: 10px; font-weight: 700; padding: 3px 8px; border-radius: 6px; }
-    .trade-card-header .tc-status.win { color: #34d399; background: rgba(16,185,129,0.12); }
-    .trade-card-row { display: flex; justify-content: space-between; font-size: 11px; color: var(--text-muted); margin-top: 4px; }
-    .trade-card-row .tc-val { color: var(--text-secondary); font-weight: 600; }
-    .trade-card-pnl { font-size: 18px; font-weight: 800; color: #34d399; margin-top: 8px; }
-    .trade-card-caption { font-size: 11px; color: var(--text-muted); margin-top: 8px; line-height: 1.5; }
-
-    .portfolio-card {
-      background: var(--bg-surface);
-      border: 1px solid var(--border);
-      border-radius: 16px;
-      padding: 24px;
-      margin-top: 24px;
-    }
-    .portfolio-card h4 { font-size: 12px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 4px; }
-    .equity-header { display: flex; align-items: baseline; gap: 12px; margin-bottom: 12px; }
-    .equity-val { font-size: 22px; font-weight: 800; color: var(--text-primary); }
-    .equity-pct { font-size: 14px; font-weight: 700; color: #34d399; }
-    .equity-stats { display: flex; gap: 16px; font-size: 11px; color: var(--text-muted); margin-bottom: 16px; }
-    .equity-chart-area { width: 100%; height: 120px; display: block; margin-bottom: 16px; }
-    .metrics-row {
-      display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; margin-top: 16px;
-    }
-    .metric-card {
-      background: rgba(255,255,255,0.015); border: 1px solid rgba(255,255,255,0.04);
-      border-radius: 10px; padding: 10px 12px;
-    }
-    .metric-card .mc-label { font-size: 9px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; }
-    .metric-card .mc-val { font-size: 15px; font-weight: 800; margin-top: 2px; }
-    .mc-val.green { color: #34d399; }
-    .mc-val.white { color: var(--text-primary); }
-
-    .positions-section { margin-top: 20px; }
-    .positions-section h4 { font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 8px; }
-    .pos-row {
-      display: flex; align-items: center; justify-content: space-between;
-      padding: 8px 10px; border-radius: 8px; margin-bottom: 4px;
-      background: rgba(255,255,255,0.015); border: 1px solid rgba(255,255,255,0.04);
-      font-size: 12px;
-    }
-    .pos-ticker { font-weight: 700; color: var(--text-primary); min-width: 50px; }
-    .pos-detail { color: var(--text-muted); }
-    .pos-pnl { font-weight: 700; }
-    .pos-pnl.green { color: #34d399; }
-
-    .history-section { margin-top: 20px; }
-    .history-section h4 { font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 8px; }
-    .history-table { width: 100%; border-collapse: collapse; font-size: 11px; }
-    .history-table th {
-      text-align: left; padding: 6px 8px; font-size: 9px; font-weight: 700;
-      color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em;
-      border-bottom: 1px solid var(--border);
-    }
-    .history-table td { padding: 6px 8px; color: var(--text-secondary); }
-    .history-table tr:not(:last-child) td { border-bottom: 1px solid rgba(255,255,255,0.03); }
-    .history-table .win { color: #34d399; font-weight: 700; }
-    .history-table .loss { color: #f87171; font-weight: 700; }
-    .history-table .open-status { color: #60a5fa; font-weight: 700; }
 
     /* ── Differentiators ──────────────────────────────────────── */
     .diff-grid {
@@ -946,15 +874,12 @@
     @media (max-width: 900px) {
       .diff-grid, .engine-grid, .trade-cards { grid-template-columns: 1fr; }
       .pain-grid { grid-template-columns: 1fr; }
-      .metrics-row { grid-template-columns: repeat(2, 1fr); }
-      .hero-stats { gap: 24px; }
-      .bmap-container { height: 380px; }
+      .benefits-grid { grid-template-columns: 1fr; }
+      .bmap-container { height: 340px; }
       .rail-mockup { max-width: 100%; }
     }
     @media (max-width: 600px) {
-      .hero-stats { flex-direction: column; gap: 16px; }
-      .metrics-row { grid-template-columns: 1fr 1fr; }
-      .engine-stats { flex-direction: column; gap: 16px; }
+      .benefits-grid { grid-template-columns: 1fr; }
       footer .container { flex-direction: column; gap: 16px; text-align: center; }
       nav .container { padding: 0 16px; }
       .nav-links a:not(.btn-signin) { display: none; }
@@ -980,35 +905,20 @@
     </div>
   </nav>
 
-  <!-- HERO -->
+  <!-- HERO + RADAR -->
   <section class="hero">
     <div class="hero-bg">
       <div class="hero-orb hero-orb-1"></div>
       <div class="hero-orb hero-orb-2"></div>
       <div class="hero-orb hero-orb-3"></div>
-      <div class="hero-orb hero-orb-4"></div>
       <div class="hero-grid"></div>
       <div class="hero-particles" id="heroParticles"></div>
-      <svg class="hero-chart" viewBox="0 0 1200 280" preserveAspectRatio="none">
-        <defs>
-          <linearGradient id="chartGradFill" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stop-color="#00c853" stop-opacity="0.3"/>
-            <stop offset="100%" stop-color="#00c853" stop-opacity="0"/>
-          </linearGradient>
-        </defs>
-        <path class="chart-fill" d="M0 240 Q100 220 200 190 T400 150 T600 170 T800 100 T1000 120 T1200 60 V280 H0 Z" />
-        <path class="chart-line-1" d="M0 240 Q100 220 200 190 T400 150 T600 170 T800 100 T1000 120 T1200 60" />
-        <path class="chart-line-2" d="M0 260 Q150 240 300 220 T500 180 T700 190 T900 140 T1100 150 T1200 100" />
-        <path class="chart-line-3" d="M0 250 Q120 235 250 210 T450 170 T650 185 T850 120 T1050 135 T1200 80" />
-      </svg>
     </div>
     <div class="hero-content">
-      <div class="hero-badge">Adaptive Momentum Intelligence</div>
+      <div class="hero-badge">Real-Time Momentum Radar</div>
       <h1>Stop Chasing.<br />Start Timing.</h1>
-      <p>
-        Momentum shifts fast. This model catches it early &mdash; continuously scoring
-        a curated selection of high-potential tickers across 8 timeframes, detecting alignment,
-        and delivering precise levels and timing before the crowd piles in.
+      <p class="hero-oneliner">
+        Timed Trading scans hundreds of stocks and shows where momentum is building &mdash; in real time. See what's moving, know when to act.
       </p>
       <a href="/index-react.html" class="hero-cta">
         Start Free Trial
@@ -1016,41 +926,82 @@
           <line x1="5" y1="12" x2="19" y2="12" /><polyline points="12 5 19 12 12 19" />
         </svg>
       </a>
-      <div class="hero-stats">
-        <div class="hero-stat">
-          <div class="num">Adaptive</div>
-          <div class="label">Intelligence</div>
+    </div>
+
+    <!-- Bubble Radar in Hero -->
+    <div class="hero-radar">
+      <div class="hero-radar-label">Live momentum radar &mdash; every ticker scored and plotted</div>
+      <div class="bmap-container">
+        <div class="bmap-grid-bg"></div>
+        <span class="bmap-axis bmap-axis-x">Short-Term Momentum</span>
+        <span class="bmap-axis bmap-axis-y">Trend Strength</span>
+        <span class="bmap-axis bmap-axis-x-lo">Low</span>
+        <span class="bmap-axis bmap-axis-x-hi">High</span>
+        <span class="bmap-axis bmap-axis-y-lo">Weak</span>
+        <span class="bmap-axis bmap-axis-y-hi">Strong</span>
+        <span class="bmap-quadrant-label" style="top:16px;right:16px">HIGH MOMENTUM + STRONG TREND</span>
+        <span class="bmap-quadrant-label" style="bottom:32px;left:50px">BUILDING</span>
+        <!-- Bubbles -->
+        <div class="bmap-bubble green pulsing" style="left:76%;bottom:80%;width:56px;height:56px;font-size:11px">NVDA</div>
+        <div class="bmap-bubble green pulsing" style="left:68%;bottom:72%;width:50px;height:50px;font-size:11px">XLK</div>
+        <div class="bmap-bubble green" style="left:62%;bottom:65%;width:44px;height:44px">GS</div>
+        <div class="bmap-bubble green" style="left:55%;bottom:60%;width:42px;height:42px">AAPL</div>
+        <div class="bmap-bubble yellow" style="left:46%;bottom:52%;width:40px;height:40px">XLV</div>
+        <div class="bmap-bubble green pulsing" style="left:71%;bottom:56%;width:44px;height:44px">META</div>
+        <div class="bmap-bubble green" style="left:58%;bottom:48%;width:38px;height:38px;font-size:9px">MSFT</div>
+        <div class="bmap-bubble yellow" style="left:35%;bottom:58%;width:36px;height:36px;font-size:9px">XLP</div>
+        <div class="bmap-bubble red" style="left:22%;bottom:30%;width:42px;height:42px">XLE</div>
+        <div class="bmap-bubble red" style="left:18%;bottom:42%;width:34px;height:34px;font-size:9px">XLB</div>
+        <div class="bmap-bubble red" style="left:30%;bottom:22%;width:32px;height:32px;font-size:9px">XLRE</div>
+        <div class="bmap-bubble yellow" style="left:40%;bottom:68%;width:36px;height:36px;font-size:9px">AMD</div>
+        <div class="bmap-bubble green" style="left:50%;bottom:72%;width:38px;height:38px;font-size:9px">PLTR</div>
+        <div class="bmap-bubble green pulsing" style="left:82%;bottom:68%;width:38px;height:38px;font-size:9px">XLC</div>
+        <div class="bmap-bubble yellow" style="left:28%;bottom:45%;width:34px;height:34px;font-size:9px">XLU</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- WHAT YOU GET (Benefits) -->
+  <section id="how-it-works">
+    <div class="container">
+      <div class="reveal" style="text-align:center">
+        <span class="section-label">What You Get</span>
+        <h2 class="section-title">Everything you need to trade with conviction</h2>
+      </div>
+      <div class="benefits-grid reveal">
+        <div class="benefit-item">
+          <div class="benefit-check">&#10003;</div>
+          <div class="benefit-text">See which stocks are gaining momentum right now</div>
         </div>
-        <div class="hero-stat">
-          <div class="num">Curated</div>
-          <div class="label">Ticker Universe</div>
+        <div class="benefit-item">
+          <div class="benefit-check">&#10003;</div>
+          <div class="benefit-text">Know when to enter, trim, and exit every position</div>
         </div>
-        <div class="hero-stat">
-          <div class="num">8</div>
-          <div class="label">Timeframes</div>
+        <div class="benefit-item">
+          <div class="benefit-check">&#10003;</div>
+          <div class="benefit-text">Get clear stop-loss and target levels on every setup</div>
         </div>
-        <div class="hero-stat">
-          <div class="num">5 min</div>
-          <div class="label">Scoring Cycle</div>
+        <div class="benefit-item">
+          <div class="benefit-check">&#10003;</div>
+          <div class="benefit-text">Focus only on high-probability tickers &mdash; no noise</div>
         </div>
       </div>
     </div>
   </section>
 
   <!-- THE PROBLEM -->
-  <section class="pain-section" id="how-it-works">
+  <section class="pain-section">
     <div class="container">
       <div class="reveal" style="text-align:center">
         <span class="section-label">The Problem</span>
-        <h2 class="section-title">Trading shouldn't feel like a guessing game</h2>
+        <h2 class="section-title">Stop guessing. Start trading with a system.</h2>
       </div>
       <div class="pain-grid reveal">
         <ul class="pain-list">
-          <li>"Is this a good time to buy, or am I chasing?"</li>
-          <li>"Should I hold through this pullback or cut my loss?"</li>
-          <li>"Where do I set my stop? Where do I take profit?"</li>
-          <li>"I see 4,000 tickers. Which ones actually matter right now?"</li>
-          <li>"I missed the move. Now what?"</li>
+          <li>Stop guessing if you're chasing or catching a move early.</li>
+          <li>Stop wondering where to set your stop and take-profit.</li>
+          <li>Stop scrolling through thousands of tickers for the one that matters.</li>
+          <li>Stop holding too long &mdash; or exiting too early.</li>
         </ul>
         <div class="solution-card">
           <h3>One system. Every answer.</h3>
@@ -1069,41 +1020,6 @@
     </div>
   </section>
 
-  <!-- THE MAP — Bubble Map Preview -->
-  <section>
-    <div class="container">
-      <div class="reveal" style="text-align:center">
-        <span class="section-label">The Map</span>
-        <h2 class="section-title">Every ticker scored. One glance.</h2>
-        <p class="section-desc" style="margin:0 auto">
-          Every ticker is scored and plotted by momentum and trend strength.
-          Pulsing means the model sees something forming. This is where attention starts.
-        </p>
-      </div>
-      <div class="bmap-container reveal">
-        <div class="bmap-grid-bg"></div>
-        <span class="bmap-axis bmap-axis-x">Short-Term Momentum</span>
-        <span class="bmap-axis bmap-axis-y">Trend Strength</span>
-        <span class="bmap-axis bmap-axis-x-lo">Low</span>
-        <span class="bmap-axis bmap-axis-x-hi">High</span>
-        <span class="bmap-axis bmap-axis-y-lo">Weak</span>
-        <span class="bmap-axis bmap-axis-y-hi">Strong</span>
-        <!-- Bubbles (positioned by momentum/trend %) -->
-        <div class="bmap-bubble green pulsing" style="left:74%;bottom:78%;width:58px;height:58px;font-size:11px">XLK</div>
-        <div class="bmap-bubble green" style="left:59%;bottom:68%;width:46px;height:46px">XLF</div>
-        <div class="bmap-bubble red" style="left:22%;bottom:28%;width:44px;height:44px">XLE</div>
-        <div class="bmap-bubble yellow" style="left:44%;bottom:53%;width:42px;height:42px">XLV</div>
-        <div class="bmap-bubble green pulsing" style="left:64%;bottom:58%;width:44px;height:44px">XLY</div>
-        <div class="bmap-bubble yellow" style="left:28%;bottom:73%;width:36px;height:36px;font-size:9px">XLP</div>
-        <div class="bmap-bubble green" style="left:52%;bottom:63%;width:42px;height:42px">XLI</div>
-        <div class="bmap-bubble red" style="left:18%;bottom:43%;width:34px;height:34px;font-size:9px">XLB</div>
-        <div class="bmap-bubble red" style="left:34%;bottom:22%;width:32px;height:32px;font-size:9px">XLRE</div>
-        <div class="bmap-bubble yellow" style="left:24%;bottom:68%;width:34px;height:34px;font-size:9px">XLU</div>
-        <div class="bmap-bubble green pulsing" style="left:69%;bottom:52%;width:46px;height:46px">XLC</div>
-      </div>
-    </div>
-  </section>
-
   <!-- THE PIPELINE — Action Lanes + Investor View -->
   <section>
     <div class="container">
@@ -1111,7 +1027,7 @@
         <span class="section-label">The Pipeline</span>
         <h2 class="section-title">From setup to exit. Every step is tracked.</h2>
         <p class="section-desc" style="margin:0 auto">
-          Tickers don't just get a score &mdash; they flow through stages. The model tracks each
+          Tickers flow through stages. The model tracks each
           position and signals when conditions shift. No more wondering what to do next.
         </p>
       </div>
@@ -1192,15 +1108,127 @@
     </div>
   </section>
 
+  <!-- THE PROOF — Trade Gallery (moved earlier) -->
+  <section>
+    <div class="container">
+      <div class="reveal" style="text-align:center">
+        <span class="section-label">Real Results</span>
+        <h2 class="section-title">The model shows its work.</h2>
+        <p class="section-desc" style="margin:0 auto">Every trade is logged. Entry, exit, levels, and reasoning &mdash; fully transparent.</p>
+      </div>
+
+      <div class="reveal" style="margin-top:32px">
+        <div class="proof-disclaimer">
+          Simulated results from historical backtesting. Past performance does not guarantee future results. All trading involves risk of loss.
+        </div>
+
+        <div class="trade-cards">
+          <!-- Trade 1: KLAC -->
+          <div class="trade-card">
+            <svg class="trade-card-chart" viewBox="0 0 300 100" preserveAspectRatio="none">
+              <defs>
+                <linearGradient id="tc1Fill" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stop-color="#00c853" stop-opacity="0.15"/>
+                  <stop offset="100%" stop-color="#00c853" stop-opacity="0"/>
+                </linearGradient>
+              </defs>
+              <rect width="300" height="100" fill="#0d1117"/>
+              <path d="M0 70 L30 68 L60 72 L90 60 L120 55 L150 48 L180 35 L210 30 L240 28 L270 22 L300 18" stroke="#00e676" stroke-width="2" fill="none" opacity="0.8"/>
+              <path d="M0 70 L30 68 L60 72 L90 60 L120 55 L150 48 L180 35 L210 30 L240 28 L270 22 L300 18 V100 H0 Z" fill="url(#tc1Fill)"/>
+              <line x1="60" y1="72" x2="60" y2="100" stroke="#3b82f6" stroke-width="1" stroke-dasharray="3 3" opacity="0.5"/>
+              <circle cx="60" cy="72" r="4" fill="#3b82f6"/>
+              <line x1="210" y1="30" x2="210" y2="100" stroke="#fbbf24" stroke-width="1" stroke-dasharray="3 3" opacity="0.5"/>
+              <circle cx="210" cy="30" r="4" fill="#fbbf24"/>
+              <line x1="270" y1="22" x2="270" y2="100" stroke="#34d399" stroke-width="1" stroke-dasharray="3 3" opacity="0.5"/>
+              <circle cx="270" cy="22" r="4" fill="#34d399"/>
+            </svg>
+            <div class="trade-card-body">
+              <div class="trade-card-header">
+                <span class="tc-ticker">KLAC</span>
+                <span class="tc-status win">WIN</span>
+              </div>
+              <div class="trade-card-row"><span>Direction</span><span class="tc-val">LONG &middot; TT Prime</span></div>
+              <div class="trade-card-row"><span>Entry</span><span class="tc-val">Jul 2 &middot; $742.18</span></div>
+              <div class="trade-card-row"><span>Exit</span><span class="tc-val">Jul 2 &middot; $759.74</span></div>
+              <div class="trade-card-pnl">+$177.06</div>
+              <div class="trade-card-caption">Multi-timeframe alignment confirmed. Trimmed 50% at TP1, runner exited at trailing stop.</div>
+            </div>
+          </div>
+
+          <!-- Trade 2: CSX -->
+          <div class="trade-card">
+            <svg class="trade-card-chart" viewBox="0 0 300 100" preserveAspectRatio="none">
+              <defs>
+                <linearGradient id="tc2Fill" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stop-color="#00c853" stop-opacity="0.15"/>
+                  <stop offset="100%" stop-color="#00c853" stop-opacity="0"/>
+                </linearGradient>
+              </defs>
+              <rect width="300" height="100" fill="#0d1117"/>
+              <path d="M0 65 L40 60 L80 62 L120 50 L160 42 L200 38 L240 25 L280 20 L300 22" stroke="#00e676" stroke-width="2" fill="none" opacity="0.8"/>
+              <path d="M0 65 L40 60 L80 62 L120 50 L160 42 L200 38 L240 25 L280 20 L300 22 V100 H0 Z" fill="url(#tc2Fill)"/>
+              <line x1="80" y1="62" x2="80" y2="100" stroke="#3b82f6" stroke-width="1" stroke-dasharray="3 3" opacity="0.5"/>
+              <circle cx="80" cy="62" r="4" fill="#3b82f6"/>
+              <line x1="240" y1="25" x2="240" y2="100" stroke="#34d399" stroke-width="1" stroke-dasharray="3 3" opacity="0.5"/>
+              <circle cx="240" cy="25" r="4" fill="#34d399"/>
+            </svg>
+            <div class="trade-card-body">
+              <div class="trade-card-header">
+                <span class="tc-ticker">CSX</span>
+                <span class="tc-status win">WIN</span>
+              </div>
+              <div class="trade-card-row"><span>Direction</span><span class="tc-val">LONG &middot; TT Confirmed</span></div>
+              <div class="trade-card-row"><span>Entry</span><span class="tc-val">Jul 1 &middot; $34.82</span></div>
+              <div class="trade-card-row"><span>Exit</span><span class="tc-val">Jul 1 &middot; $35.83</span></div>
+              <div class="trade-card-pnl">+$146.30</div>
+              <div class="trade-card-caption">Squeeze release detected. Entry on breakout confirmation. Exited as momentum reached exhaustion.</div>
+            </div>
+          </div>
+
+          <!-- Trade 3: ITT -->
+          <div class="trade-card">
+            <svg class="trade-card-chart" viewBox="0 0 300 100" preserveAspectRatio="none">
+              <defs>
+                <linearGradient id="tc3Fill" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stop-color="#00c853" stop-opacity="0.15"/>
+                  <stop offset="100%" stop-color="#00c853" stop-opacity="0"/>
+                </linearGradient>
+              </defs>
+              <rect width="300" height="100" fill="#0d1117"/>
+              <path d="M0 75 L30 72 L60 68 L90 70 L120 58 L150 52 L180 45 L210 40 L240 32 L270 28 L300 30" stroke="#00e676" stroke-width="2" fill="none" opacity="0.8"/>
+              <path d="M0 75 L30 72 L60 68 L90 70 L120 58 L150 52 L180 45 L210 40 L240 32 L270 28 L300 30 V100 H0 Z" fill="url(#tc3Fill)"/>
+              <line x1="90" y1="70" x2="90" y2="100" stroke="#3b82f6" stroke-width="1" stroke-dasharray="3 3" opacity="0.5"/>
+              <circle cx="90" cy="70" r="4" fill="#3b82f6"/>
+              <line x1="180" y1="45" x2="180" y2="100" stroke="#fbbf24" stroke-width="1" stroke-dasharray="3 3" opacity="0.5"/>
+              <circle cx="180" cy="45" r="4" fill="#fbbf24"/>
+              <line x1="270" y1="28" x2="270" y2="100" stroke="#34d399" stroke-width="1" stroke-dasharray="3 3" opacity="0.5"/>
+              <circle cx="270" cy="28" r="4" fill="#34d399"/>
+            </svg>
+            <div class="trade-card-body">
+              <div class="trade-card-header">
+                <span class="tc-ticker">ITT</span>
+                <span class="tc-status win">WIN</span>
+              </div>
+              <div class="trade-card-row"><span>Direction</span><span class="tc-val">LONG &middot; TT Early</span></div>
+              <div class="trade-card-row"><span>Entry</span><span class="tc-val">Jul 1 &middot; $148.20</span></div>
+              <div class="trade-card-row"><span>Exit</span><span class="tc-val">Jul 1 &middot; $153.72</span></div>
+              <div class="trade-card-pnl">+$79.61</div>
+              <div class="trade-card-caption">Trend alignment confirmed. Pullback recovery entry. Trimmed at TP1, runner exited at support break.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
   <!-- THE DETAIL — Right Rail Preview -->
   <section>
     <div class="container">
       <div class="reveal" style="text-align:center">
         <span class="section-label">The Detail</span>
-        <h2 class="section-title">This is what the model sees. On every ticker.</h2>
+        <h2 class="section-title">Tap any ticker. See the full picture.</h2>
         <p class="section-desc" style="margin:0 auto">
-          Computed levels. Regime detection. Entry quality scoring. Full score breakdown.
-          Every ticker gets this &mdash; automatically. Tap any name and the full picture opens.
+          Computed levels, regime detection, entry quality scoring, and a full score breakdown &mdash; automatically generated for every ticker.
         </p>
       </div>
       <div class="rail-mockup reveal">
@@ -1269,35 +1297,21 @@
           <div class="rail-eq-row"><span class="eq-label">Momentum</span><span class="eq-val" style="color:#34d399">30/35</span></div>
           <div class="rail-eq-row"><span class="eq-label">Confirmation</span><span class="eq-val" style="color:#fbbf24">20/30</span></div>
         </div>
-
-        <div class="rail-section">
-          <div class="rail-section-label">Rank &amp; Score</div>
-          <div class="rail-rank-row">
-            <div>
-              <div class="rail-rank-num">#4</div>
-              <div class="rail-rank-of">universe rank</div>
-            </div>
-            <div style="margin-left:auto;text-align:right">
-              <div class="rail-score-num">72.4</div>
-              <div style="font-size:10px;color:var(--text-muted)">Composite Score</div>
-            </div>
-          </div>
-        </div>
       </div>
       <p class="reveal" style="text-align:center;font-size:12px;color:var(--text-muted);margin-top:16px">
-        Analysis is one of four tabs. The platform also provides Technicals, Journey tracking, and Investor views.
+        Analysis is one of four tabs. The platform also includes Technicals, Journey tracking, and Investor views.
       </p>
     </div>
   </section>
 
-  <!-- THE ENGINE — Multi-Timeframe Intelligence -->
+  <!-- HOW IT WORKS — Engine + AI (combined, simplified) -->
   <section>
     <div class="container">
       <div class="reveal" style="text-align:center">
-        <span class="section-label">The Engine</span>
-        <h2 class="section-title">It learns. It adapts. It stalks every move.</h2>
+        <span class="section-label">How It Works</span>
+        <h2 class="section-title">Built to find high-probability setups &mdash; automatically</h2>
         <p class="section-desc" style="margin:0 auto">
-          The model scans 8 timeframes simultaneously, detects liquidity zones where price is likely to gravitate, and grades every setup before entering. When it's time to exit, grade-aware management gives winning trades room to run while cutting losers fast.
+          The engine scans 8 timeframes simultaneously, grades every setup, and validates each trade against historical patterns before triggering.
         </p>
       </div>
       <div class="engine-grid reveal">
@@ -1305,229 +1319,49 @@
           <div class="engine-icon">
             <svg viewBox="0 0 24 24"><path d="M12 2v4m0 12v4M4.93 4.93l2.83 2.83m8.48 8.48l2.83 2.83M2 12h4m12 0h4M4.93 19.07l2.83-2.83m8.48-8.48l2.83-2.83"/></svg>
           </div>
-          <h3>Multi-Timeframe Analysis</h3>
-          <p>8 timeframes from 5-minute to Weekly. Higher timeframes set the direction, lower timeframes find the entry. The model waits for alignment before acting.</p>
+          <h3>8-Timeframe Scan</h3>
+          <p>Higher timeframes set direction. Lower timeframes find the entry. The system waits for alignment across all 8 before acting &mdash; no chasing.</p>
         </div>
         <div class="engine-card">
           <div class="engine-icon">
             <svg viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
           </div>
-          <h3>Ticker Personality Engine</h3>
-          <p>Every ticker gets a deep profile &mdash; how it reacts to setups, preferred pullback patterns, sector sensitivity, and volatility behavior. The model applies ticker-specific rules, not generic playbooks.</p>
+          <h3>Ticker Intelligence</h3>
+          <p>Every ticker gets a deep profile: how it reacts to setups, preferred pullback patterns, and volatility behavior. Ticker-specific rules, not generic playbooks.</p>
         </div>
         <div class="engine-card">
           <div class="engine-icon">
             <svg viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
           </div>
-          <h3>Grade-Aware Management</h3>
-          <p>Every trade gets a grade: Prime, Confirmed, or Early. Prime setups get wider stops and more time. Early setups are managed tightly. The model adapts its management to the quality of the setup.</p>
+          <h3>Setup Grading</h3>
+          <p>Every trade gets a grade: Prime, Confirmed, or Early. Prime setups get wider stops and more time. Early setups are managed tightly.</p>
         </div>
         <div class="engine-card">
           <div class="engine-icon">
             <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
           </div>
-          <h3>Continuous Self-Calibration</h3>
-          <p>Every outcome feeds back. Win rates, entry paths, exit patterns &mdash; the system continuously recalibrates. Parameters shift, weights adjust, and the model evolves with each market cycle.</p>
+          <h3>Self-Calibration</h3>
+          <p>Every outcome feeds back. Win rates, entry paths, exit patterns &mdash; the system continuously recalibrates parameters to evolving market conditions.</p>
         </div>
-      </div>
-      <div class="engine-stats reveal">
-        <div class="engine-stat">
-          <div class="es-num">Adaptive</div>
-          <div class="es-label">Ticker Profiles</div>
-        </div>
-        <div class="engine-stat">
-          <div class="es-num">8</div>
-          <div class="es-label">Timeframes</div>
-        </div>
-        <div class="engine-stat">
-          <div class="es-num">3</div>
-          <div class="es-label">Trade Grades</div>
-        </div>
-        <div class="engine-stat">
-          <div class="es-num">24/5</div>
-          <div class="es-label">Continuous Calibration</div>
-        </div>
-      </div>
-    </div>
-  </section>
-
-  <!-- THE BRAIN — AI CIO + Memory System -->
-  <section>
-    <div class="container">
-      <div class="reveal" style="text-align:center">
-        <span class="section-label">The Brain</span>
-        <h2 class="section-title">An AI Chief Investment Officer reviews every trade.</h2>
-        <p class="section-desc" style="margin:0 auto">
-          Before any position is opened, the AI CIO runs a final review &mdash; weighing risk flags, regime context, and historical outcomes. It remembers what worked, what didn't, and why.
-        </p>
-      </div>
-      <div class="engine-grid reveal">
         <div class="engine-card">
           <div class="engine-icon">
             <svg viewBox="0 0 24 24"><path d="M12 2a4 4 0 0 1 4 4v1a1 1 0 0 1-1 1H9a1 1 0 0 1-1-1V6a4 4 0 0 1 4-4zM9 9h6v2a3 3 0 0 1-6 0V9z"/><path d="M4 14h16v1a7 7 0 0 1-7 7h-2a7 7 0 0 1-7-7v-1z"/></svg>
           </div>
-          <h3>AI CIO Gate</h3>
-          <p>Every trade candidate passes through an AI review layer before execution. It evaluates confidence, edge score, and risk flags &mdash; rejecting setups that don't meet the bar, even if the model says &ldquo;go.&rdquo;</p>
-        </div>
-        <div class="engine-card">
-          <div class="engine-icon">
-            <svg viewBox="0 0 24 24"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
-          </div>
-          <h3>7-Layer Memory</h3>
-          <p>Ticker history, regime outcomes, entry path performance, ticker personality, macro proximity, episodic similarity, and recent trade patterns. The CIO draws on all seven layers to make informed decisions.</p>
+          <h3>AI Trade Review</h3>
+          <p>Every setup is validated against historical patterns and market conditions before triggering. The AI reviews confidence, risk flags, and past outcomes &mdash; rejecting setups that don't meet the bar.</p>
         </div>
         <div class="engine-card">
           <div class="engine-icon">
             <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
           </div>
           <h3>Ask AI</h3>
-          <p>A personalized AI assistant with full context of your portfolio and market conditions. Ask about any ticker, regime, or trade &mdash; it pulls from the same memory system the CIO uses.</p>
-        </div>
-        <div class="engine-card">
-          <div class="engine-icon">
-            <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
-          </div>
-          <h3>Transparent Reasoning</h3>
-          <p>Every rejection comes with a reason. Every approval is logged. You see exactly what the AI CIO considered, what risk flags it found, and why it made the call.</p>
-        </div>
-      </div>
-      <div class="engine-stats reveal">
-        <div class="engine-stat">
-          <div class="es-num">7</div>
-          <div class="es-label">Memory Layers</div>
-        </div>
-        <div class="engine-stat">
-          <div class="es-num">100%</div>
-          <div class="es-label">Trade Review Rate</div>
-        </div>
-        <div class="engine-stat">
-          <div class="es-num">Episodic</div>
-          <div class="es-label">Pattern Matching</div>
-        </div>
-        <div class="engine-stat">
-          <div class="es-num">Always On</div>
-          <div class="es-label">Ask AI Assistant</div>
+          <p>A personalized assistant with full context of your portfolio and market conditions. Ask about any ticker, regime, or trade &mdash; it draws on the same data the system uses.</p>
         </div>
       </div>
     </div>
   </section>
 
-  <!-- THE PROOF — Trade Gallery + Portfolio -->
-  <section>
-    <div class="container">
-      <div class="reveal" style="text-align:center">
-        <span class="section-label">The Proof</span>
-        <h2 class="section-title">The model shows its work.</h2>
-        <p class="section-desc" style="margin:0 auto">Every trade logged. Every outcome tracked. No cherry-picking.</p>
-      </div>
-
-      <div class="reveal">
-        <div class="proof-disclaimer">
-          Simulated results from historical backtesting. Past performance does not guarantee future results. All trading involves risk of loss.
-        </div>
-
-        <div class="trade-cards">
-          <!-- Trade 1: KLAC -->
-          <div class="trade-card">
-            <svg class="trade-card-chart" viewBox="0 0 300 100" preserveAspectRatio="none">
-              <defs>
-                <linearGradient id="tc1Fill" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stop-color="#00c853" stop-opacity="0.15"/>
-                  <stop offset="100%" stop-color="#00c853" stop-opacity="0"/>
-                </linearGradient>
-              </defs>
-              <rect width="300" height="100" fill="#0d1117"/>
-              <path d="M0 70 L30 68 L60 72 L90 60 L120 55 L150 48 L180 35 L210 30 L240 28 L270 22 L300 18" stroke="#00e676" stroke-width="2" fill="none" opacity="0.8"/>
-              <path d="M0 70 L30 68 L60 72 L90 60 L120 55 L150 48 L180 35 L210 30 L240 28 L270 22 L300 18 V100 H0 Z" fill="url(#tc1Fill)"/>
-              <line x1="60" y1="72" x2="60" y2="100" stroke="#3b82f6" stroke-width="1" stroke-dasharray="3 3" opacity="0.5"/>
-              <circle cx="60" cy="72" r="4" fill="#3b82f6"/>
-              <line x1="210" y1="30" x2="210" y2="100" stroke="#fbbf24" stroke-width="1" stroke-dasharray="3 3" opacity="0.5"/>
-              <circle cx="210" cy="30" r="4" fill="#fbbf24"/>
-              <line x1="270" y1="22" x2="270" y2="100" stroke="#34d399" stroke-width="1" stroke-dasharray="3 3" opacity="0.5"/>
-              <circle cx="270" cy="22" r="4" fill="#34d399"/>
-            </svg>
-            <div class="trade-card-body">
-              <div class="trade-card-header">
-                <span class="tc-ticker">KLAC</span>
-                <span class="tc-status win">WIN</span>
-              </div>
-              <div class="trade-card-row"><span>Direction</span><span class="tc-val">LONG &middot; TT Prime</span></div>
-              <div class="trade-card-row"><span>Entry</span><span class="tc-val">Jul 2 &middot; $742.18</span></div>
-              <div class="trade-card-row"><span>Exit</span><span class="tc-val">Jul 2 &middot; $759.74</span></div>
-              <div class="trade-card-pnl">+$177.06</div>
-              <div class="trade-card-caption">Multi-timeframe alignment confirmed. Fresh ST flip + RSI recovery. Trimmed 50% at TP1, runner exited at trailing stop.</div>
-            </div>
-          </div>
-
-          <!-- Trade 2: CSX -->
-          <div class="trade-card">
-            <svg class="trade-card-chart" viewBox="0 0 300 100" preserveAspectRatio="none">
-              <defs>
-                <linearGradient id="tc2Fill" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stop-color="#00c853" stop-opacity="0.15"/>
-                  <stop offset="100%" stop-color="#00c853" stop-opacity="0"/>
-                </linearGradient>
-              </defs>
-              <rect width="300" height="100" fill="#0d1117"/>
-              <path d="M0 65 L40 60 L80 62 L120 50 L160 42 L200 38 L240 25 L280 20 L300 22" stroke="#00e676" stroke-width="2" fill="none" opacity="0.8"/>
-              <path d="M0 65 L40 60 L80 62 L120 50 L160 42 L200 38 L240 25 L280 20 L300 22 V100 H0 Z" fill="url(#tc2Fill)"/>
-              <line x1="80" y1="62" x2="80" y2="100" stroke="#3b82f6" stroke-width="1" stroke-dasharray="3 3" opacity="0.5"/>
-              <circle cx="80" cy="62" r="4" fill="#3b82f6"/>
-              <line x1="240" y1="25" x2="240" y2="100" stroke="#34d399" stroke-width="1" stroke-dasharray="3 3" opacity="0.5"/>
-              <circle cx="240" cy="25" r="4" fill="#34d399"/>
-            </svg>
-            <div class="trade-card-body">
-              <div class="trade-card-header">
-                <span class="tc-ticker">CSX</span>
-                <span class="tc-status win">WIN</span>
-              </div>
-              <div class="trade-card-row"><span>Direction</span><span class="tc-val">LONG &middot; TT Confirmed</span></div>
-              <div class="trade-card-row"><span>Entry</span><span class="tc-val">Jul 1 &middot; $34.82</span></div>
-              <div class="trade-card-row"><span>Exit</span><span class="tc-val">Jul 1 &middot; $35.83</span></div>
-              <div class="trade-card-pnl">+$146.30</div>
-              <div class="trade-card-caption">Squeeze release detected with TT Phase at 18%. Entry on breakout confirmation. Exited as Phase reached exhaustion zone.</div>
-            </div>
-          </div>
-
-          <!-- Trade 3: ITT -->
-          <div class="trade-card">
-            <svg class="trade-card-chart" viewBox="0 0 300 100" preserveAspectRatio="none">
-              <defs>
-                <linearGradient id="tc3Fill" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stop-color="#00c853" stop-opacity="0.15"/>
-                  <stop offset="100%" stop-color="#00c853" stop-opacity="0"/>
-                </linearGradient>
-              </defs>
-              <rect width="300" height="100" fill="#0d1117"/>
-              <path d="M0 75 L30 72 L60 68 L90 70 L120 58 L150 52 L180 45 L210 40 L240 32 L270 28 L300 30" stroke="#00e676" stroke-width="2" fill="none" opacity="0.8"/>
-              <path d="M0 75 L30 72 L60 68 L90 70 L120 58 L150 52 L180 45 L210 40 L240 32 L270 28 L300 30 V100 H0 Z" fill="url(#tc3Fill)"/>
-              <line x1="90" y1="70" x2="90" y2="100" stroke="#3b82f6" stroke-width="1" stroke-dasharray="3 3" opacity="0.5"/>
-              <circle cx="90" cy="70" r="4" fill="#3b82f6"/>
-              <line x1="180" y1="45" x2="180" y2="100" stroke="#fbbf24" stroke-width="1" stroke-dasharray="3 3" opacity="0.5"/>
-              <circle cx="180" cy="45" r="4" fill="#fbbf24"/>
-              <line x1="270" y1="28" x2="270" y2="100" stroke="#34d399" stroke-width="1" stroke-dasharray="3 3" opacity="0.5"/>
-              <circle cx="270" cy="28" r="4" fill="#34d399"/>
-            </svg>
-            <div class="trade-card-body">
-              <div class="trade-card-header">
-                <span class="tc-ticker">ITT</span>
-                <span class="tc-status win">WIN</span>
-              </div>
-              <div class="trade-card-row"><span>Direction</span><span class="tc-val">LONG &middot; TT Early</span></div>
-              <div class="trade-card-row"><span>Entry</span><span class="tc-val">Jul 1 &middot; $148.20</span></div>
-              <div class="trade-card-row"><span>Exit</span><span class="tc-val">Jul 1 &middot; $153.72</span></div>
-              <div class="trade-card-pnl">+$79.61</div>
-              <div class="trade-card-caption">HTF trend confirmed with EMA regime alignment. LTF pullback recovery entry. Trimmed at TP1, runner exited at cloud support break.</div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Portfolio Overview — hidden until locked backtest is promoted to live -->
-    </div>
-  </section>
-
-  <!-- WHY THIS IS DIFFERENT — 6 Differentiators -->
+  <!-- WHY THIS IS DIFFERENT — Differentiators -->
   <section>
     <div class="container">
       <div class="reveal" style="text-align:center">
@@ -1537,39 +1371,27 @@
       <div class="diff-grid reveal">
         <div class="diff-card">
           <h3>Curated Universe</h3>
-          <p>Hand-picked tickers, periodically refreshed to match the current market backdrop. Not a random screener &mdash; a living, evolving watchlist that rotates with momentum and relative strength.</p>
-        </div>
-        <div class="diff-card">
-          <h3>Ticker Personality Profiles</h3>
-          <p>The model builds deep profiles on every ticker &mdash; how it reacts to setups, its preferred pullback patterns, volatility behavior, and sector sensitivity. Each trade is managed with that ticker's personality in mind.</p>
-        </div>
-        <div class="diff-card">
-          <h3>Self-Learning Calibration</h3>
-          <p>Every outcome feeds back into the model. Win rates, entry paths, exit patterns &mdash; the system continuously recalibrates its parameters. It learns what works, what doesn't, and adapts to evolving conditions.</p>
-        </div>
-        <div class="diff-card">
-          <h3>Liquidity Zone Intelligence</h3>
-          <p>The model maps where institutional money clusters &mdash; buyside and sellside liquidity zones on 4H, Daily, and Weekly. These are price magnets the crowd can't see.</p>
+          <p>Hand-picked tickers, refreshed to match the current market. A living, evolving watchlist that rotates with momentum and relative strength.</p>
         </div>
         <div class="diff-card">
           <h3>Full Transparency</h3>
-          <p>Every trade shows: why we entered, what grade it earned, how many shares, risk %, and the exit reasoning. The model shows its entire thought process.</p>
+          <p>Every trade shows: why we entered, what grade it earned, the risk %, and the exit reasoning. The model shows its entire thought process.</p>
         </div>
         <div class="diff-card">
           <h3>Daily Brief</h3>
-          <p>AI-generated market intelligence hyper-focused on SPY and QQQ. Key levels, ATR-based ranges, conditional game plans, and cross-asset correlations &mdash; delivered before the bell.</p>
+          <p>AI-generated market intelligence for SPY and QQQ. Key levels, ATR-based ranges, game plans, and cross-asset correlations &mdash; delivered before the bell.</p>
+        </div>
+        <div class="diff-card">
+          <h3>Liquidity Zone Intelligence</h3>
+          <p>The model maps where institutional money clusters &mdash; buyside and sellside liquidity zones on 4H, Daily, and Weekly timeframes.</p>
         </div>
         <div class="diff-card">
           <h3>Setup Stalking</h3>
-          <p>The model doesn't chase. It waits for TD9 reversals, RSI extreme recoveries, SuperTrend flips, and Phase completions &mdash; then strikes when conditions align.</p>
+          <p>The model doesn't chase. It waits for reversal signals, recovery patterns, and structural completions &mdash; then strikes when conditions align.</p>
         </div>
         <div class="diff-card">
           <h3>Grade-Aware Exits</h3>
-          <p>Prime setups get 72 hours to develop. Early setups are cut at 36 hours. The model manages each trade based on its quality, not a one-size-fits-all timer.</p>
-        </div>
-        <div class="diff-card">
-          <h3>SPY &amp; QQQ Mastery</h3>
-          <p>The model knows SPY and QQQ like the back of its hand &mdash; intraday ATR patterns, gap-fill tendencies, weekly rhythms, and how futures (ES, NQ) track as proxies. Day traders get precise, actionable levels.</p>
+          <p>Prime setups get 72 hours to develop. Early setups are cut at 36 hours. Management adapts to the quality of the setup, not a one-size-fits-all timer.</p>
         </div>
       </div>
     </div>
@@ -1596,7 +1418,7 @@
           <li>Precise stop-loss and multi-tier take-profit levels on every setup</li>
           <li>Kanban trade pipeline with entry, trim, and exit signals</li>
           <li>Investor Action Board with accumulation zones and rebalance signals</li>
-          <li>AI CIO reviews every trade before execution with 7-layer memory</li>
+          <li>AI validates every trade before execution</li>
           <li>Ask AI assistant with personalized portfolio context</li>
           <li>AI-powered daily market briefs</li>
           <li>Full trade history with equity curve and portfolio tracking</li>
@@ -1615,7 +1437,13 @@
   <section class="cta-banner">
     <div class="container reveal">
       <h2>The system is watching. The scores are live.</h2>
-      <p>Curated tickers. Precise timing. Continuous adaptation.</p>
+      <p>Find what's moving. Know when to act. Start your free trial.</p>
+      <a href="/index-react.html" class="hero-cta">
+        Start Free Trial
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="5" y1="12" x2="19" y2="12" /><polyline points="12 5 19 12 12 19" />
+        </svg>
+      </a>
     </div>
   </section>
 

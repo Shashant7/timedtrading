@@ -203,6 +203,26 @@ Five frontend/prompt changes deployed together:
 4. **Condensed brief**: Morning sections: Market Context (~150w), Structure & Scenarios (~100w each SPY/QQQ/IWM), Key Levels & Game Plan (~80w), Earnings (~60w), Sector & Themes (~80w), Active Trader (~80w), Investor (~80w). ~800 words total target. `max_completion_tokens` 6000→4000.
 5. **SMC-first key levels**: Renamed to "Key Levels & Game Plan". Prompt instruction: lead with SMC support/resistance, ATR secondary, ORB for intraday context.
 
+## TT Core Engine (Primary, 2026-03-21)
+
+Entry and exit engines switched from frozen `ripster_core` references to `tt_core` (the actively-developed engine).
+
+**Entry** (`worker/pipeline/tt-core-entry.js`):
+- Cloud bias alignment (D+1H+10m 34/50) as structural foundation
+- 10m-30m bias spread filter: `abs(bias10m) - abs(bias30m) < 0.05` rejects mature/chasing moves. Configurable via `deep_audit_bias_spread_min`.
+- Momentum, pullback, reclaim paths (from ripster cloud triggers)
+- Opening noise, RSI daily heat, chasing extension guards
+
+**Exit** (`worker/pipeline/tt-core-exit.js`):
+- Ripster cloud exits (5/12, 34/50, 72/89) with debounce
+- Runner management: trim at exhaustion, hold runner if 34/50 structure + 30m SuperTrend intact
+- Runner trailing: exit on structure break or breakeven stop (MFE >= 1%, PnL <= 0.1%)
+- Safety nets: regime reversal, SL breach, max loss, DOA, time exits, bias flip
+
+**Dispatcher**: `exit-engine.js` dispatches to `tt-core-exit.js` in `classifyKanbanStage`. Inline legacy code preserved as fallback.
+
+**Config**: `ENTRY_ENGINE = "tt_core"`, `MANAGEMENT_ENGINE = "tt_core"` in wrangler.toml. Both envs.
+
 ## Full Lessons
 
-See `tasks/lessons.md` for the complete list (170+ items). Use CONTEXT for quick refresh.
+See `tasks/lessons.md` for the complete list (180+ items). Use CONTEXT for quick refresh.

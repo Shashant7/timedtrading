@@ -34548,7 +34548,7 @@ export default {
       if (routeKey === "POST /timed/alpaca-stream/start" || routeKey === "POST /timed/price-stream/start") {
         const authFail = await requireKeyOrAdmin(req, env);
         if (authFail) return authFail;
-        const streamBlocklist = new Set(["ES1!","NQ1!","YM1!","RTY1!","CL1!","GC1!","SI1!","HG1!","NG1!","BTCUSD","ETHUSD","US500","VX1!","SPX"]);
+        const streamBlocklist = new Set(["ES1!","NQ1!","YM1!","RTY1!","CL1!","GC1!","SI1!","HG1!","NG1!","BTCUSD","ETHUSD","US500","VX1!"]);
         const symbols = Object.keys(SECTOR_MAP).filter(t => !streamBlocklist.has(t) && /^[A-Z]{1,5}(-[A-Z]{1,2})?$/.test(t));
         const result = await dataStreamStart(env, symbols);
         return sendJSON({ ok: true, result, symbols: symbols.length, provider: _usesTwelveData(env) ? "twelvedata" : "alpaca" }, 200, corsHeaders(env, req));
@@ -54249,7 +54249,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
         try {
           const streamStatus = await dataStreamStatus(env);
           if (!streamStatus.isRunning && isWithinOperatingHours()) {
-            const blocklist = new Set(["ES1!","NQ1!","YM1!","RTY1!","CL1!","GC1!","SI1!","HG1!","NG1!","BTCUSD","ETHUSD","US500","VX1!","SPX"]);
+            const blocklist = new Set(["ES1!","NQ1!","YM1!","RTY1!","CL1!","GC1!","SI1!","HG1!","NG1!","BTCUSD","ETHUSD","US500","VX1!"]);
             const userAddedForStream = await d1GetActiveUserTickersCached(env);
             const symbols = [...new Set([...Object.keys(SECTOR_MAP), ...userAddedForStream])].filter(t => !blocklist.has(t) && /^[A-Z]{1,5}(-[A-Z]{1,2})?$/.test(t));
             const startRes = await dataStreamStart(env, symbols);
@@ -54274,7 +54274,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
         } else if (useTD) {
           // ── TwelveData REST bar fetch ──
           try {
-            const SYMBOL_BLOCKLIST = new Set(["ES1!","NQ1!","YM1!","RTY1!","CL1!","GC1!","SI1!","BTCUSD","ETHUSD","US500","VX1!","SPX"]);
+            const SYMBOL_BLOCKLIST = new Set(["ES1!","NQ1!","YM1!","RTY1!","CL1!","GC1!","SI1!","BTCUSD","ETHUSD","US500","VX1!"]);
             const userAdded = await d1GetActiveUserTickersCached(env);
             const allTickers = [...new Set([...Object.keys(SECTOR_MAP), ...userAdded])]
               .filter(t => !SYMBOL_BLOCKLIST.has(t) && /^[A-Z]{1,5}(-[A-Z]{1,2})?$/.test(t));
@@ -54299,7 +54299,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           try {
             const ALPACA_SYMBOL_BLOCKLIST = new Set([
               "ES1!", "NQ1!", "YM1!", "RTY1!", "CL1!", "GC1!", "SI1!",
-              "BTCUSD", "ETHUSD", "US500", "VX1!", "SPX",
+              "BTCUSD", "ETHUSD", "US500", "VX1!",
             ]);
             const userAddedForAlpaca = await d1GetActiveUserTickersCached(env);
             const allTickers = [...new Set([
@@ -54702,7 +54702,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
         }
 
         // Overlay TV heartbeat prices for futures/macro tickers not handled by the DO
-        const TV_FUTURES_ACTIVE = ["ES1!", "NQ1!", "GC1!", "SI1!", "VX1!", "US500", "CL1!"];
+        const TV_FUTURES_ACTIVE = ["ES1!", "NQ1!", "GC1!", "SI1!", "VX1!", "US500", "CL1!", "SPX"];
         let tvOverlayCount = 0;
         for (const tvSym of TV_FUTURES_ACTIVE) {
           try {
