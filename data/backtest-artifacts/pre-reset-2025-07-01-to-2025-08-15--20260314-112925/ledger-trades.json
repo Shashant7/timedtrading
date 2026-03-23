@@ -1,0 +1,29 @@
+{
+  "ok": true,
+  "count": 1,
+  "hasMore": false,
+  "nextCursor": null,
+  "trades": [
+    {
+      "trade_id": "FIX-1752161700000-c8k3w3wvg",
+      "ticker": "FIX",
+      "direction": "LONG",
+      "entry_ts": 1752161700000,
+      "entry_price": 531.88,
+      "rank": 61,
+      "rr": 3.5118421052631583,
+      "status": "WIN",
+      "exit_ts": 1752161700000,
+      "exit_price": 539.575,
+      "exit_reason": "PHASE_LEAVE_100",
+      "trimmed_pct": 0.66,
+      "pnl": 42.212002924875605,
+      "pnl_pct": 0.844306986538324,
+      "script_version": "alpaca_server_v2.0",
+      "created_at": 1752161700000,
+      "updated_at": 1773502093370,
+      "trim_ts": 1752162300000,
+      "trim_price": 534.72
+    }
+  ]
+}

@@ -1,0 +1,353 @@
+{
+  "generated_at_utc": "2026-03-23T12:59:41.949093Z",
+  "running_runs": [
+    {
+      "run_id": "backtest_2025-07-01_2025-07-03@2026-03-23T11:11:00.770Z",
+      "label": "roadmap-runtime-smoke",
+      "status": "running",
+      "created_at": 1774264312240,
+      "updated_at": 1774264312240
+    },
+    {
+      "run_id": "backtest_2025-07-01_2026-03-04@2026-03-23T10:34:13.473Z",
+      "label": "phase10-postfix-clean-v3",
+      "status": "running",
+      "created_at": 1774262105935,
+      "updated_at": 1774262105935
+    },
+    {
+      "run_id": "backtest_2025-07-01_2026-03-04@2026-03-23T10:31:42.939Z",
+      "label": "phase10-postfix-clean-v2",
+      "status": "running",
+      "created_at": 1774261954362,
+      "updated_at": 1774261954362
+    },
+    {
+      "run_id": "backtest_2025-07-01_2026-03-04@2026-03-23T10:18:30.687Z",
+      "label": "phase10-postfix-clean",
+      "status": "running",
+      "created_at": 1774261159221,
+      "updated_at": 1774261159221
+    },
+    {
+      "run_id": "backtest_2025-07-01_2026-03-04@2026-03-23T09:39:52.924Z",
+      "label": "phase10-overnight-trade-active",
+      "status": "running",
+      "created_at": 1774258837459,
+      "updated_at": 1774258837459
+    },
+    {
+      "run_id": "backtest_2025-07-01_2026-03-04@2026-03-23T01:40:54.437Z",
+      "label": "phase10-overnight-clean",
+      "status": "running",
+      "created_at": 1774230115208,
+      "updated_at": 1774230115208
+    }
+  ],
+  "finalize_results": [
+    {
+      "run_id": "backtest_2025-07-01_2025-07-03@2026-03-23T11:11:00.770Z",
+      "response": {
+        "ok": true,
+        "run_id": "backtest_2025-07-01_2025-07-03@2026-03-23T11:11:00.770Z",
+        "status": "failed",
+        "summary": {
+          "run_id": "backtest_2025-07-01_2025-07-03@2026-03-23T11:11:00.770Z",
+          "tickers": {
+            "traded": 53
+          },
+          "trades": {
+            "total": 241,
+            "wins": 16,
+            "losses": 25,
+            "breakevens": 2,
+            "open": 198,
+            "closed": 43,
+            "win_rate": 37.2093023255814
+          },
+          "pnl": {
+            "realized_pnl": -4220.376216958362,
+            "realized_pnl_pct": 0,
+            "avg_win_pct": 1.2591029794165685,
+            "avg_loss_pct": -3.6355048728571124
+          },
+          "classifications": {
+            "unclassified": 241
+          },
+          "by_status": {
+            "OPEN": 178,
+            "LOSS": 25,
+            "TP_HIT_TRIM": 20,
+            "WIN": 16,
+            "FLAT": 2
+          },
+          "autopsy_url": "trade-autopsy.html?run_id=backtest_2025-07-01_2025-07-03%402026-03-23T11%3A11%3A00.770Z"
+        },
+        "archived": {
+          "trades": 0,
+          "da": 241,
+          "annotations": 0,
+          "config": 133
+        }
+      }
+    },
+    {
+      "run_id": "backtest_2025-07-01_2026-03-04@2026-03-23T10:34:13.473Z",
+      "response": {
+        "ok": true,
+        "run_id": "backtest_2025-07-01_2026-03-04@2026-03-23T10:34:13.473Z",
+        "status": "failed",
+        "summary": {
+          "run_id": "backtest_2025-07-01_2026-03-04@2026-03-23T10:34:13.473Z",
+          "tickers": {
+            "traded": 19
+          },
+          "trades": {
+            "total": 56,
+            "wins": 9,
+            "losses": 8,
+            "breakevens": 11,
+            "open": 28,
+            "closed": 28,
+            "win_rate": 32.142857142857146
+          },
+          "pnl": {
+            "realized_pnl": -1751.2049166132424,
+            "realized_pnl_pct": 0,
+            "avg_win_pct": 2.9632043927657694,
+            "avg_loss_pct": -7.459637898112511
+          },
+          "classifications": {
+            "unclassified": 56
+          },
+          "by_status": {
+            "OPEN": 27,
+            "FLAT": 11,
+            "WIN": 9,
+            "LOSS": 8,
+            "TP_HIT_TRIM": 1
+          },
+          "autopsy_url": "trade-autopsy.html?run_id=backtest_2025-07-01_2026-03-04%402026-03-23T10%3A34%3A13.473Z"
+        },
+        "archived": {
+          "trades": 0,
+          "da": 0,
+          "annotations": 0,
+          "config": 133
+        }
+      }
+    },
+    {
+      "run_id": "backtest_2025-07-01_2026-03-04@2026-03-23T10:31:42.939Z",
+      "response": {
+        "ok": true,
+        "run_id": "backtest_2025-07-01_2026-03-04@2026-03-23T10:31:42.939Z",
+        "status": "failed",
+        "summary": {
+          "run_id": "backtest_2025-07-01_2026-03-04@2026-03-23T10:31:42.939Z",
+          "tickers": {
+            "traded": 11
+          },
+          "trades": {
+            "total": 18,
+            "wins": 6,
+            "losses": 2,
+            "breakevens": 9,
+            "open": 1,
+            "closed": 17,
+            "win_rate": 35.294117647058826
+          },
+          "pnl": {
+            "realized_pnl": -90.87031335262796,
+            "realized_pnl_pct": 0,
+            "avg_win_pct": 3.7668368947493804,
+            "avg_loss_pct": -13.810029086701444
+          },
+          "classifications": {
+            "unclassified": 18
+          },
+          "by_status": {
+            "FLAT": 9,
+            "WIN": 6,
+            "LOSS": 2,
+            "TP_HIT_TRIM": 1
+          },
+          "autopsy_url": "trade-autopsy.html?run_id=backtest_2025-07-01_2026-03-04%402026-03-23T10%3A31%3A42.939Z"
+        },
+        "archived": {
+          "trades": 0,
+          "da": 0,
+          "annotations": 0,
+          "config": 133
+        }
+      }
+    },
+    {
+      "run_id": "backtest_2025-07-01_2026-03-04@2026-03-23T10:18:30.687Z",
+      "response": {
+        "ok": true,
+        "run_id": "backtest_2025-07-01_2026-03-04@2026-03-23T10:18:30.687Z",
+        "status": "failed",
+        "summary": {
+          "run_id": "backtest_2025-07-01_2026-03-04@2026-03-23T10:18:30.687Z",
+          "tickers": {
+            "traded": 11
+          },
+          "trades": {
+            "total": 18,
+            "wins": 6,
+            "losses": 2,
+            "breakevens": 9,
+            "open": 1,
+            "closed": 17,
+            "win_rate": 35.294117647058826
+          },
+          "pnl": {
+            "realized_pnl": -90.87031335262796,
+            "realized_pnl_pct": 0,
+            "avg_win_pct": 3.7668368947493804,
+            "avg_loss_pct": -13.810029086701444
+          },
+          "classifications": {
+            "unclassified": 18
+          },
+          "by_status": {
+            "FLAT": 9,
+            "WIN": 6,
+            "LOSS": 2,
+            "TP_HIT_TRIM": 1
+          },
+          "autopsy_url": "trade-autopsy.html?run_id=backtest_2025-07-01_2026-03-04%402026-03-23T10%3A18%3A30.687Z"
+        },
+        "archived": {
+          "trades": 0,
+          "da": 0,
+          "annotations": 0,
+          "config": 133
+        }
+      }
+    },
+    {
+      "run_id": "backtest_2025-07-01_2026-03-04@2026-03-23T09:39:52.924Z",
+      "response": {
+        "ok": true,
+        "run_id": "backtest_2025-07-01_2026-03-04@2026-03-23T09:39:52.924Z",
+        "status": "failed",
+        "summary": {
+          "run_id": "backtest_2025-07-01_2026-03-04@2026-03-23T09:39:52.924Z",
+          "tickers": {
+            "traded": 20
+          },
+          "trades": {
+            "total": 52,
+            "wins": 6,
+            "losses": 2,
+            "breakevens": 8,
+            "open": 36,
+            "closed": 16,
+            "win_rate": 37.5
+          },
+          "pnl": {
+            "realized_pnl": -90.87031335262796,
+            "realized_pnl_pct": 0,
+            "avg_win_pct": 3.7668368947493804,
+            "avg_loss_pct": -13.810029086701444
+          },
+          "classifications": {
+            "unclassified": 52
+          },
+          "by_status": {
+            "OPEN": 23,
+            "TP_HIT_TRIM": 13,
+            "FLAT": 8,
+            "WIN": 6,
+            "LOSS": 2
+          },
+          "autopsy_url": "trade-autopsy.html?run_id=backtest_2025-07-01_2026-03-04%402026-03-23T09%3A39%3A52.924Z"
+        },
+        "archived": {
+          "trades": 0,
+          "da": 0,
+          "annotations": 0,
+          "config": 133
+        }
+      }
+    },
+    {
+      "run_id": "backtest_2025-07-01_2026-03-04@2026-03-23T01:40:54.437Z",
+      "response": {
+        "ok": true,
+        "run_id": "backtest_2025-07-01_2026-03-04@2026-03-23T01:40:54.437Z",
+        "status": "failed",
+        "summary": {
+          "run_id": "backtest_2025-07-01_2026-03-04@2026-03-23T01:40:54.437Z",
+          "tickers": {
+            "traded": 0
+          },
+          "trades": {
+            "total": 0,
+            "wins": 0,
+            "losses": 0,
+            "breakevens": 0,
+            "open": 0,
+            "closed": 0,
+            "win_rate": 0
+          },
+          "pnl": {
+            "realized_pnl": 0,
+            "realized_pnl_pct": 0,
+            "avg_win_pct": 0,
+            "avg_loss_pct": 0
+          },
+          "classifications": {},
+          "by_status": {},
+          "autopsy_url": "trade-autopsy.html?run_id=backtest_2025-07-01_2026-03-04%402026-03-23T01%3A40%3A54.437Z"
+        },
+        "archived": {
+          "trades": 0,
+          "da": 0,
+          "annotations": 0,
+          "config": 133
+        }
+      }
+    }
+  ],
+  "archive_results": [
+    {
+      "run_id": "backtest_2025-07-01_2025-07-03@2026-03-23T11:11:00.770Z",
+      "response": {
+        "ok": true
+      }
+    },
+    {
+      "run_id": "backtest_2025-07-01_2026-03-04@2026-03-23T10:34:13.473Z",
+      "response": {
+        "ok": true
+      }
+    },
+    {
+      "run_id": "backtest_2025-07-01_2026-03-04@2026-03-23T10:31:42.939Z",
+      "response": {
+        "ok": true
+      }
+    },
+    {
+      "run_id": "backtest_2025-07-01_2026-03-04@2026-03-23T10:18:30.687Z",
+      "response": {
+        "ok": true
+      }
+    },
+    {
+      "run_id": "backtest_2025-07-01_2026-03-04@2026-03-23T09:39:52.924Z",
+      "response": {
+        "ok": true
+      }
+    },
+    {
+      "run_id": "backtest_2025-07-01_2026-03-04@2026-03-23T01:40:54.437Z",
+      "response": {
+        "ok": true
+      }
+    }
+  ]
+}

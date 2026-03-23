@@ -1,0 +1,36 @@
+{
+  "ok": true,
+  "count": 2,
+  "trades": [
+    {
+      "trade_id": "BABA-1753104600000-hh5g1w3bd",
+      "ticker": "BABA",
+      "direction": "LONG",
+      "entry_ts": 1753104600000,
+      "exit_ts": 1753119000000,
+      "entry_price": 120.97,
+      "exit_price": 120.24,
+      "pnl": -54.31098619492466,
+      "pnl_pct": -0.6034554021658295,
+      "exit_reason": "doa_early_exit",
+      "signal_snapshot_json": "{\"avg_bias\":1,\"tf\":{\"4H\":{\"bias\":1,\"signals\":{\"ema_cross\":1,\"supertrend\":1,\"ema_structure\":1,\"ema_depth\":15,\"rsi\":72.1}},\"D\":{\"bias\":1,\"signals\":{\"ema5_48\":1,\"ema_cross\":1,\"supertrend\":1,\"ema_structure\":1,\"ema_depth\":15,\"rsi\":72.3}}},\"lineage\":{\"entry_path\":\"ema_regime_confirmed_long\",\"direction_source\":\"consensus\",\"state\":\"HTF_BULL_LTF_BULL\",\"regime_class\":\"TRANSITIONAL\",\"regime_score\":3,\"execution_profile\":{\"active_profile\":\"correction_transition\",\"confidence\":0.68,\"reasons\":[\"Mixed trend and transition evidence\",\"Ticker regime is transitional\",\"Market internals are balanced\"],\"ticker_regime\":\"TRANSITIONAL\",\"market_state\":\"balanced\",\"personality\":\"VOLATILE_RUNNER\"},\"market_internals\":{\"overall\":\"balanced\",\"score\":0,\"vix\":{\"state\":null,\"price\":0,\"pct_change\":null},\"sector_rotation\":{\"state\":\"balanced\",\"offense_avg\":null,\"defense_avg\":null},\"tick\":null,\"squeeze\":{\"on_30m\":false,\"release_30m\":false,\"release_1h\":false}},\"ticker_character\":{\"personality\":\"VOLATILE_RUNNER\",\"sl_mult\":1.2,\"tp_mult\":1.26,\"entry_threshold_adj\":0,\"atr_pct_p50\":3.12,\"trend_persistence\":0.45},\"ripster_clouds\":{\"D\":{\"c5_12\":{\"b\":1,\"ab\":1,\"sp\":0.0224},\"c8_9\":{\"b\":1,\"ab\":1,\"sp\":0.0033},\"c34_50\":{\"b\":0,\"ab\":1,\"sp\":0.0015},\"c72_89\":{\"b\":0,\"ab\":1,\"sp\":0.0045},\"c180_200\":{\"b\":1,\"ab\":1,\"sp\":0.0034}},\"4H\":{\"c5_12\":{\"b\":1,\"ab\":1,\"sp\":0.008},\"c8_9\":{\"b\":1,\"ab\":1,\"sp\":0.0012},\"c34_50\":{\"b\":1,\"ab\":1,\"sp\":0.0119},\"c72_89\":{\"b\":1,\"ab\":1,\"sp\":0.0023},\"c180_200\":{\"b\":0,\"ab\":1,\"sp\":0.0016}},\"W\":{\"c5_12\":{\"b\":1,\"ab\":1,\"sp\":0.0168},\"c8_9\":{\"b\":1,\"ab\":1,\"sp\":0.0021},\"c34_50\":{\"b\":1,\"ab\":1,\"sp\":0.0133},\"c72_89\":{\"b\":1,\"ab\":1,\"sp\":0.02},\"c180_200\":{\"b\":1,\"ab\":1,\"sp\":0.0079}}},\"vix_at_entry\":30.2657,\"rvol\":{\"30m\":null,\"1H\":null,\"D\":0.99},\"entry_quality_score\":51,\"danger_score\":null,\"danger_flags\":null,\"regime_params\":{\"minHTFScore\":15,\"minRR\":2,\"maxCompletion\":0.45,\"positionSizeMultiplier\":0.75,\"requireSqueezeRelease\":false,\"defendWinnerBias\":null},\"rsi_divergence\":null,\"td_counts\":{\"240\":{\"bp\":0,\"bl\":0,\"xp\":2,\"xl\":0},\"D\":{\"bp\":0,\"bl\":0,\"xp\":14,\"xl\":0},\"W\":{\"bp\":0,\"bl\":0,\"xp\":4,\"xl\":0}},\"saty_phase\":{\"D\":{\"v\":65.15,\"z\":\"HIGH\",\"l\":{\"extUp\":false,\"distrib\":false,\"accum\":false,\"extDn\":false}}},\"supertrend\":{\"D\":{\"d\":-1,\"s\":0},\"4H\":{\"d\":-1,\"s\":0}},\"st_bars_since_flip_D\":10,\"swing_consensus\":{\"dir\":\"LONG\",\"bias\":1,\"bull\":2,\"bear\":0},\"atr_disp\":{\"day\":{\"d\":0.228,\"b\":\"NEUTRAL\",\"r\":132.2},\"week\":{\"d\":0.105,\"b\":\"NEUTRAL\",\"r\":64.1}},\"volatility_tier\":\"MEDIUM\",\"ema_depth\":{\"240\":15,\"D\":15},\"fuel\":{\"30\":{\"s\":\"healthy\",\"p\":0},\"60\":{\"s\":\"healthy\",\"p\":0}},\"mean_revert_td9\":null,\"liq\":{\"4H\":{\"bsd\":0.01,\"ssd\":1.15,\"bc\":2,\"sc\":3},\"D\":{\"bsd\":-1,\"ssd\":13.03,\"bc\":0,\"sc\":1},\"W\":{\"bsd\":-1,\"ssd\":4.49,\"bc\":0,\"sc\":2}},\"orb\":null}}",
+      "entry_path": "ema_regime_confirmed_long",
+      "consensus_direction": "LONG"
+    },
+    {
+      "trade_id": "ULTA-1753104600000-b2jkua404",
+      "ticker": "ULTA",
+      "direction": "LONG",
+      "entry_ts": 1753104600000,
+      "exit_ts": 1753126200000,
+      "entry_price": 499.53,
+      "exit_price": 497.26001,
+      "pnl": -40.8982643685055,
+      "pnl_pct": -0.4544251596500611,
+      "exit_reason": "doa_early_exit",
+      "signal_snapshot_json": "{\"avg_bias\":1,\"tf\":{\"4H\":{\"bias\":1,\"signals\":{\"ema_cross\":1,\"supertrend\":1,\"ema_structure\":1,\"ema_depth\":15,\"rsi\":80.4}},\"D\":{\"bias\":1,\"signals\":{\"ema5_48\":1,\"ema_cross\":1,\"supertrend\":1,\"ema_structure\":1,\"ema_depth\":15,\"rsi\":76.9}}},\"lineage\":{\"entry_path\":\"ema_regime_confirmed_long\",\"direction_source\":\"consensus\",\"state\":\"HTF_BULL_LTF_BULL\",\"regime_class\":\"TRANSITIONAL\",\"regime_score\":4,\"execution_profile\":{\"active_profile\":\"correction_transition\",\"confidence\":0.68,\"reasons\":[\"Mixed trend and transition evidence\",\"Ticker regime is transitional\",\"Market internals are balanced\"],\"ticker_regime\":\"TRANSITIONAL\",\"market_state\":\"balanced\",\"personality\":\"VOLATILE_RUNNER\"},\"market_internals\":{\"overall\":\"balanced\",\"score\":0,\"vix\":{\"state\":null,\"price\":0,\"pct_change\":null},\"sector_rotation\":{\"state\":\"balanced\",\"offense_avg\":null,\"defense_avg\":null},\"tick\":null,\"squeeze\":{\"on_30m\":false,\"release_30m\":false,\"release_1h\":false}},\"ticker_character\":{\"personality\":\"VOLATILE_RUNNER\",\"sl_mult\":1,\"tp_mult\":1.1,\"entry_threshold_adj\":0,\"atr_pct_p50\":2.86,\"trend_persistence\":0.4},\"ripster_clouds\":{\"D\":{\"c5_12\":{\"b\":1,\"ab\":1,\"sp\":0.0111},\"c8_9\":{\"b\":1,\"ab\":1,\"sp\":0.0016},\"c34_50\":{\"b\":1,\"ab\":1,\"sp\":0.012},\"c72_89\":{\"b\":1,\"ab\":1,\"sp\":0.0131},\"c180_200\":{\"b\":1,\"ab\":1,\"sp\":0.0072}},\"4H\":{\"c5_12\":{\"b\":1,\"ab\":1,\"sp\":0.0074},\"c8_9\":{\"b\":1,\"ab\":1,\"sp\":0.001},\"c34_50\":{\"b\":1,\"ab\":1,\"sp\":0.0056},\"c72_89\":{\"b\":1,\"ab\":1,\"sp\":0.0045},\"c180_200\":{\"b\":1,\"ab\":1,\"sp\":0.0068}},\"W\":{\"c5_12\":{\"b\":1,\"ab\":1,\"sp\":0.0333},\"c8_9\":{\"b\":1,\"ab\":1,\"sp\":0.0046},\"c34_50\":{\"b\":1,\"ab\":1,\"sp\":0.0272},\"c72_89\":{\"b\":1,\"ab\":1,\"sp\":0.007},\"c180_200\":{\"b\":0,\"ab\":1,\"sp\":0.0074}}},\"vix_at_entry\":30.2657,\"rvol\":{\"30m\":null,\"1H\":null,\"D\":1.01},\"entry_quality_score\":67,\"danger_score\":null,\"danger_flags\":null,\"regime_params\":{\"minHTFScore\":15,\"minRR\":2,\"maxCompletion\":0.45,\"positionSizeMultiplier\":0.75,\"requireSqueezeRelease\":false,\"defendWinnerBias\":null},\"rsi_divergence\":null,\"td_counts\":{\"240\":{\"bp\":0,\"bl\":0,\"xp\":18,\"xl\":0},\"D\":{\"bp\":0,\"bl\":0,\"xp\":8,\"xl\":0},\"W\":{\"bp\":0,\"bl\":0,\"xp\":8,\"xl\":0}},\"saty_phase\":{\"D\":{\"v\":43.86,\"z\":\"MEDIUM\",\"l\":{\"extUp\":false,\"distrib\":false,\"accum\":false,\"extDn\":false}}},\"supertrend\":{\"D\":{\"d\":-1,\"s\":0},\"4H\":{\"d\":-1,\"s\":0}},\"st_bars_since_flip_D\":96,\"swing_consensus\":{\"dir\":\"LONG\",\"bias\":1,\"bull\":2,\"bear\":0},\"atr_disp\":{\"day\":{\"d\":0.211,\"b\":\"NEUTRAL\",\"r\":107.8},\"week\":{\"d\":-0.562,\"b\":\"GATE_382\",\"r\":94.1}},\"volatility_tier\":\"MEDIUM\",\"ema_depth\":{\"240\":15,\"D\":15},\"fuel\":{\"30\":{\"s\":\"healthy\",\"p\":0},\"60\":{\"s\":\"healthy\",\"p\":0}},\"mean_revert_td9\":null,\"liq\":{\"4H\":{\"bsd\":-1,\"ssd\":5.11,\"bc\":0,\"sc\":2},\"D\":{\"bsd\":-1,\"ssd\":9.43,\"bc\":0,\"sc\":6},\"W\":{\"bsd\":0.68,\"ssd\":0.37,\"bc\":2,\"sc\":3}},\"orb\":null}}",
+      "entry_path": "ema_regime_confirmed_long",
+      "consensus_direction": "LONG"
+    }
+  ]
+}

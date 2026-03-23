@@ -1,0 +1,8 @@
+{
+  "ok": true,
+  "label": "doa-gate-v2",
+  "start_date": "2025-07-01",
+  "end_date": "2026-03-17",
+  "trader_only": true,
+  "note": "Captured post-completion. 391 trades, 41.2% WR, -$84k PnL. DA-3e disabled, min_rank=60, DOA gate enabled."
+}

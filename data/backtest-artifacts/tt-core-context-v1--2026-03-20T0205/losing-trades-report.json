@@ -1,0 +1,202 @@
+[
+  {
+    "ticker": "FIX",
+    "pnl": -11294.13,
+    "pnl_pct": -96.55,
+    "mfe_pct": 0,
+    "path": "tt_momentum",
+    "exit_reason": "END_OF_REPLAY",
+    "hold_hours": 36.3,
+    "gave_back": null
+  },
+  {
+    "ticker": "MLI",
+    "pnl": -11186.01,
+    "pnl_pct": -86.93,
+    "mfe_pct": 0,
+    "path": "tt_momentum",
+    "exit_reason": "END_OF_REPLAY",
+    "hold_hours": 36.3,
+    "gave_back": null
+  },
+  {
+    "ticker": "AAPL",
+    "pnl": -9839.04,
+    "pnl_pct": -74.76,
+    "mfe_pct": 0,
+    "path": "tt_pullback",
+    "exit_reason": "END_OF_REPLAY",
+    "hold_hours": 36.3,
+    "gave_back": null
+  },
+  {
+    "ticker": "IWM",
+    "pnl": -5229.38,
+    "pnl_pct": -39.74,
+    "mfe_pct": 0,
+    "path": "tt_momentum",
+    "exit_reason": "END_OF_REPLAY",
+    "hold_hours": 36.3,
+    "gave_back": null
+  },
+  {
+    "ticker": "AXON",
+    "pnl": -2428.31,
+    "pnl_pct": -10.04,
+    "mfe_pct": 0.21,
+    "path": "tt_momentum",
+    "exit_reason": "SL_HIT",
+    "hold_hours": 47.9,
+    "gave_back": null
+  },
+  {
+    "ticker": "EXPE",
+    "pnl": -2242.18,
+    "pnl_pct": -11.47,
+    "mfe_pct": 4.47,
+    "path": "tt_momentum",
+    "exit_reason": "SL_HIT",
+    "hold_hours": 95.9,
+    "gave_back": "4.5% → -11.5%"
+  },
+  {
+    "ticker": "APLD",
+    "pnl": -2015.69,
+    "pnl_pct": -11.01,
+    "mfe_pct": 0,
+    "path": "tt_momentum",
+    "exit_reason": "SL_HIT",
+    "hold_hours": 23.9,
+    "gave_back": null
+  },
+  {
+    "ticker": "IREN",
+    "pnl": -1916.4,
+    "pnl_pct": -15.34,
+    "mfe_pct": 2.47,
+    "path": "tt_momentum",
+    "exit_reason": "SL_HIT",
+    "hold_hours": 47.9,
+    "gave_back": "2.5% → -15.3%"
+  },
+  {
+    "ticker": "APLD",
+    "pnl": -1900.58,
+    "pnl_pct": -14.06,
+    "mfe_pct": 0,
+    "path": "tt_momentum",
+    "exit_reason": "SL_HIT",
+    "hold_hours": 23.9,
+    "gave_back": null
+  },
+  {
+    "ticker": "APLD",
+    "pnl": -1713.87,
+    "pnl_pct": -9.43,
+    "mfe_pct": 0,
+    "path": "tt_momentum",
+    "exit_reason": "SL_HIT",
+    "hold_hours": 23.9,
+    "gave_back": null
+  },
+  {
+    "ticker": "IESC",
+    "pnl": -1629.31,
+    "pnl_pct": -8.18,
+    "mfe_pct": 4.41,
+    "path": "tt_pullback",
+    "exit_reason": "SL_HIT",
+    "hold_hours": 144,
+    "gave_back": "4.4% → -8.2%"
+  },
+  {
+    "ticker": "FIX",
+    "pnl": -1567.88,
+    "pnl_pct": -8.75,
+    "mfe_pct": 0,
+    "path": "tt_momentum",
+    "exit_reason": "SL_HIT",
+    "hold_hours": 23.8,
+    "gave_back": null
+  },
+  {
+    "ticker": "APLD",
+    "pnl": -1537.68,
+    "pnl_pct": -8.94,
+    "mfe_pct": 3.52,
+    "path": "tt_momentum",
+    "exit_reason": "SL_HIT",
+    "hold_hours": 23.9,
+    "gave_back": "3.5% → -8.9%"
+  },
+  {
+    "ticker": "IREN",
+    "pnl": -1458.31,
+    "pnl_pct": -12.37,
+    "mfe_pct": 0,
+    "path": "tt_momentum",
+    "exit_reason": "SL_HIT",
+    "hold_hours": 23.9,
+    "gave_back": null
+  },
+  {
+    "ticker": "UUUU",
+    "pnl": -1449.23,
+    "pnl_pct": -12.33,
+    "mfe_pct": 2.22,
+    "path": "tt_momentum",
+    "exit_reason": "SL_HIT",
+    "hold_hours": 72,
+    "gave_back": "2.2% → -12.3%"
+  },
+  {
+    "ticker": "IREN",
+    "pnl": -1414.53,
+    "pnl_pct": -11.46,
+    "mfe_pct": 0,
+    "path": "tt_momentum",
+    "exit_reason": "SL_HIT",
+    "hold_hours": 23.9,
+    "gave_back": null
+  },
+  {
+    "ticker": "IREN",
+    "pnl": -1389.29,
+    "pnl_pct": -7.62,
+    "mfe_pct": 0,
+    "path": "tt_momentum",
+    "exit_reason": "SL_HIT",
+    "hold_hours": 71.9,
+    "gave_back": null
+  },
+  {
+    "ticker": "XLRE",
+    "pnl": -1379.08,
+    "pnl_pct": -11.79,
+    "mfe_pct": 0,
+    "path": "tt_momentum",
+    "exit_reason": "END_OF_REPLAY",
+    "hold_hours": 36.3,
+    "gave_back": null
+  },
+  {
+    "ticker": "RKLB",
+    "pnl": -1357.26,
+    "pnl_pct": -10.04,
+    "mfe_pct": 0,
+    "path": "tt_momentum",
+    "exit_reason": "SL_HIT",
+    "hold_hours": 23.9,
+    "gave_back": null
+  },
+  {
+    "ticker": "MLI",
+    "pnl": -1298.03,
+    "pnl_pct": -7.28,
+    "mfe_pct": 0,
+    "path": "tt_momentum",
+    "exit_reason": "SL_HIT",
+    "hold_hours": 24,
+    "gave_back": null
+  }
+]

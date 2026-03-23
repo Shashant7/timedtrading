@@ -1,0 +1,3201 @@
+{
+  "version": "scenario_execution_policy_v3_promotion",
+  "generated_at_utc": "2026-03-23T14:40:53.384974+00:00",
+  "matching_priority": [
+    "scenario_rules",
+    "ticker_setup_rules",
+    "context_defaults",
+    "global_default"
+  ],
+  "scenario_rules": [
+    {
+      "when": {
+        "ticker": "CVNA",
+        "direction": "LONG",
+        "entry_path": "ema_regime_confirmed_long",
+        "regime": "NEUTRAL",
+        "vix_bucket": "elevated",
+        "rvol_bucket": "surge",
+        "market_state": "balanced"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.4,
+        "tp_mult": 1.43,
+        "win_rate": 1.0,
+        "sample_size": 2
+      }
+    },
+    {
+      "when": {
+        "ticker": "ULTA",
+        "direction": "LONG",
+        "entry_path": "ema_regime_confirmed_long",
+        "regime": "EARLY_BULL",
+        "vix_bucket": "elevated",
+        "rvol_bucket": "normal",
+        "market_state": "balanced"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.0,
+        "tp_mult": 1.1,
+        "win_rate": 1.0,
+        "sample_size": 2
+      }
+    },
+    {
+      "when": {
+        "ticker": "B",
+        "direction": "LONG",
+        "entry_path": "ema_regime_confirmed_long",
+        "regime": "EARLY_BULL",
+        "vix_bucket": "stress",
+        "rvol_bucket": "surge",
+        "market_state": "risk_off"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.0,
+        "tp_mult": 1.1,
+        "win_rate": 1.0,
+        "sample_size": 2
+      }
+    },
+    {
+      "when": {
+        "ticker": "SWK",
+        "direction": "SHORT",
+        "entry_path": "ema_regime_confirmed_short",
+        "regime": "LATE_BEAR",
+        "vix_bucket": "elevated",
+        "rvol_bucket": "surge",
+        "market_state": "balanced"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.0,
+        "tp_mult": 1.1,
+        "win_rate": 0.0,
+        "sample_size": 2
+      }
+    },
+    {
+      "when": {
+        "ticker": "APP",
+        "direction": "LONG",
+        "entry_path": "ema_regime_confirmed_long",
+        "regime": "EARLY_BULL",
+        "vix_bucket": "elevated",
+        "rvol_bucket": "surge",
+        "market_state": "balanced"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.26,
+        "tp_mult": 1.64,
+        "win_rate": 1.0,
+        "sample_size": 2
+      }
+    },
+    {
+      "when": {
+        "ticker": "XLV",
+        "direction": "LONG",
+        "entry_path": "ema_regime_confirmed_long",
+        "regime": "COUNTER_TREND_BULL",
+        "vix_bucket": "elevated",
+        "rvol_bucket": "surge",
+        "market_state": "balanced"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 0.8,
+        "tp_mult": 0.94,
+        "win_rate": 1.0,
+        "sample_size": 2
+      }
+    },
+    {
+      "when": {
+        "ticker": "LMND",
+        "direction": "LONG",
+        "entry_path": "ema_regime_confirmed_long",
+        "regime": "NEUTRAL",
+        "vix_bucket": "elevated",
+        "rvol_bucket": "surge",
+        "market_state": "balanced"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.4,
+        "tp_mult": 1.43,
+        "win_rate": 1.0,
+        "sample_size": 2
+      }
+    },
+    {
+      "when": {
+        "ticker": "BABA",
+        "direction": "SHORT",
+        "entry_path": "ema_regime_confirmed_short",
+        "regime": "NEUTRAL",
+        "vix_bucket": "unknown",
+        "rvol_bucket": "unknown",
+        "market_state": "balanced"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.0,
+        "tp_mult": 1.0,
+        "win_rate": 1.0,
+        "sample_size": 1
+      }
+    },
+    {
+      "when": {
+        "ticker": "PATH",
+        "direction": "SHORT",
+        "entry_path": "ema_regime_confirmed_short",
+        "regime": "NEUTRAL",
+        "vix_bucket": "unknown",
+        "rvol_bucket": "unknown",
+        "market_state": "balanced"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.0,
+        "tp_mult": 1.0,
+        "win_rate": 1.0,
+        "sample_size": 1
+      }
+    },
+    {
+      "when": {
+        "ticker": "TPL",
+        "direction": "SHORT",
+        "entry_path": "ema_regime_confirmed_short",
+        "regime": "EARLY_BULL",
+        "vix_bucket": "unknown",
+        "rvol_bucket": "unknown",
+        "market_state": "balanced"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.0,
+        "tp_mult": 1.0,
+        "win_rate": 1.0,
+        "sample_size": 1
+      }
+    },
+    {
+      "when": {
+        "ticker": "AR",
+        "direction": "SHORT",
+        "entry_path": "gold_short_pullback_deep",
+        "regime": "LATE_BULL",
+        "vix_bucket": "unknown",
+        "rvol_bucket": "unknown",
+        "market_state": "balanced"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.0,
+        "tp_mult": 1.0,
+        "win_rate": 1.0,
+        "sample_size": 1
+      }
+    },
+    {
+      "when": {
+        "ticker": "UHS",
+        "direction": "SHORT",
+        "entry_path": "ema_regime_confirmed_short",
+        "regime": "EARLY_BULL",
+        "vix_bucket": "unknown",
+        "rvol_bucket": "unknown",
+        "market_state": "balanced"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.0,
+        "tp_mult": 1.0,
+        "win_rate": 0.0,
+        "sample_size": 1
+      }
+    },
+    {
+      "when": {
+        "ticker": "PKG",
+        "direction": "SHORT",
+        "entry_path": "ema_regime_confirmed_short",
+        "regime": "STRONG_BULL",
+        "vix_bucket": "unknown",
+        "rvol_bucket": "unknown",
+        "market_state": "balanced"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.0,
+        "tp_mult": 1.0,
+        "win_rate": 0.0,
+        "sample_size": 1
+      }
+    },
+    {
+      "when": {
+        "ticker": "CDNS",
+        "direction": "LONG",
+        "entry_path": "ema_regime_confirmed_long",
+        "regime": "COUNTER_TREND_BULL",
+        "vix_bucket": "stress",
+        "rvol_bucket": "surge",
+        "market_state": "risk_off"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.1,
+        "tp_mult": 0.94,
+        "win_rate": 1.0,
+        "sample_size": 1
+      }
+    },
+    {
+      "when": {
+        "ticker": "XLE",
+        "direction": "SHORT",
+        "entry_path": "gold_short_pullback_deep",
+        "regime": "EARLY_BEAR",
+        "vix_bucket": "stress",
+        "rvol_bucket": "normal",
+        "market_state": "risk_off"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.0,
+        "tp_mult": 1.1,
+        "win_rate": 0.0,
+        "sample_size": 1
+      }
+    },
+    {
+      "when": {
+        "ticker": "APP",
+        "direction": "LONG",
+        "entry_path": "ema_regime_confirmed_long",
+        "regime": "EARLY_BULL",
+        "vix_bucket": "stress",
+        "rvol_bucket": "high",
+        "market_state": "risk_off"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.26,
+        "tp_mult": 1.64,
+        "win_rate": 1.0,
+        "sample_size": 1
+      }
+    },
+    {
+      "when": {
+        "ticker": "AR",
+        "direction": "SHORT",
+        "entry_path": "ema_regime_confirmed_short",
+        "regime": "LATE_BULL",
+        "vix_bucket": "elevated",
+        "rvol_bucket": "surge",
+        "market_state": "balanced"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.2,
+        "tp_mult": 1.26,
+        "win_rate": 1.0,
+        "sample_size": 1
+      }
+    },
+    {
+      "when": {
+        "ticker": "OKE",
+        "direction": "SHORT",
+        "entry_path": "gold_short_pullback_deep",
+        "regime": "EARLY_BEAR",
+        "vix_bucket": "elevated",
+        "rvol_bucket": "high",
+        "market_state": "balanced"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.0,
+        "tp_mult": 1.1,
+        "win_rate": 0.0,
+        "sample_size": 1
+      }
+    },
+    {
+      "when": {
+        "ticker": "RBLX",
+        "direction": "LONG",
+        "entry_path": "ema_regime_confirmed_long",
+        "regime": "NEUTRAL",
+        "vix_bucket": "elevated",
+        "rvol_bucket": "normal",
+        "market_state": "balanced"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.2,
+        "tp_mult": 1.26,
+        "win_rate": 1.0,
+        "sample_size": 1
+      }
+    },
+    {
+      "when": {
+        "ticker": "CARR",
+        "direction": "SHORT",
+        "entry_path": "gold_short_pullback_deep",
+        "regime": "STRONG_BULL",
+        "vix_bucket": "elevated",
+        "rvol_bucket": "surge",
+        "market_state": "balanced"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.0,
+        "tp_mult": 1.1,
+        "win_rate": 1.0,
+        "sample_size": 1
+      }
+    },
+    {
+      "when": {
+        "ticker": "XLP",
+        "direction": "SHORT",
+        "entry_path": "gold_short_pullback_deep",
+        "regime": "EARLY_BULL",
+        "vix_bucket": "elevated",
+        "rvol_bucket": "surge",
+        "market_state": "balanced"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 0.8,
+        "tp_mult": 0.94,
+        "win_rate": 1.0,
+        "sample_size": 1
+      }
+    },
+    {
+      "when": {
+        "ticker": "WFRD",
+        "direction": "LONG",
+        "entry_path": "ema_regime_confirmed_long",
+        "regime": "NEUTRAL",
+        "vix_bucket": "elevated",
+        "rvol_bucket": "high",
+        "market_state": "balanced"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.2,
+        "tp_mult": 1.26,
+        "win_rate": 1.0,
+        "sample_size": 1
+      }
+    },
+    {
+      "when": {
+        "ticker": "ANET",
+        "direction": "LONG",
+        "entry_path": "ema_regime_confirmed_long",
+        "regime": "NEUTRAL",
+        "vix_bucket": "elevated",
+        "rvol_bucket": "surge",
+        "market_state": "balanced"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.2,
+        "tp_mult": 1.26,
+        "win_rate": 1.0,
+        "sample_size": 1
+      }
+    },
+    {
+      "when": {
+        "ticker": "BG",
+        "direction": "SHORT",
+        "entry_path": "gold_short_pullback_deep",
+        "regime": "NEUTRAL",
+        "vix_bucket": "elevated",
+        "rvol_bucket": "surge",
+        "market_state": "balanced"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 0.9,
+        "tp_mult": 1.26,
+        "win_rate": 0.0,
+        "sample_size": 1
+      }
+    },
+    {
+      "when": {
+        "ticker": "COST",
+        "direction": "SHORT",
+        "entry_path": "ema_regime_confirmed_short",
+        "regime": "LATE_BEAR",
+        "vix_bucket": "elevated",
+        "rvol_bucket": "surge",
+        "market_state": "balanced"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.0,
+        "tp_mult": 1.1,
+        "win_rate": 1.0,
+        "sample_size": 1
+      }
+    },
+    {
+      "when": {
+        "ticker": "MDB",
+        "direction": "LONG",
+        "entry_path": "ema_regime_early_long",
+        "regime": "EARLY_BULL",
+        "vix_bucket": "elevated",
+        "rvol_bucket": "surge",
+        "market_state": "balanced"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.4,
+        "tp_mult": 1.43,
+        "win_rate": 1.0,
+        "sample_size": 1
+      }
+    },
+    {
+      "when": {
+        "ticker": "PLTR",
+        "direction": "LONG",
+        "entry_path": "ema_regime_confirmed_long",
+        "regime": "EARLY_BULL",
+        "vix_bucket": "elevated",
+        "rvol_bucket": "surge",
+        "market_state": "balanced"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.4,
+        "tp_mult": 1.43,
+        "win_rate": 1.0,
+        "sample_size": 1
+      }
+    },
+    {
+      "when": {
+        "ticker": "H",
+        "direction": "LONG",
+        "entry_path": "ema_regime_confirmed_long",
+        "regime": "EARLY_BEAR",
+        "vix_bucket": "elevated",
+        "rvol_bucket": "surge",
+        "market_state": "balanced"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.0,
+        "tp_mult": 1.1,
+        "win_rate": 1.0,
+        "sample_size": 1
+      }
+    },
+    {
+      "when": {
+        "ticker": "TSLA",
+        "direction": "LONG",
+        "entry_path": "ema_regime_confirmed_long",
+        "regime": "EARLY_BEAR",
+        "vix_bucket": "elevated",
+        "rvol_bucket": "surge",
+        "market_state": "balanced"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.4,
+        "tp_mult": 1.43,
+        "win_rate": 1.0,
+        "sample_size": 1
+      }
+    },
+    {
+      "when": {
+        "ticker": "LULU",
+        "direction": "SHORT",
+        "entry_path": "ema_regime_confirmed_short",
+        "regime": "LATE_BEAR",
+        "vix_bucket": "elevated",
+        "rvol_bucket": "surge",
+        "market_state": "balanced"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.2,
+        "tp_mult": 1.26,
+        "win_rate": 1.0,
+        "sample_size": 1
+      }
+    },
+    {
+      "when": {
+        "ticker": "QXO",
+        "direction": "SHORT",
+        "entry_path": "gold_short_pullback_deep",
+        "regime": "EARLY_BULL",
+        "vix_bucket": "stress",
+        "rvol_bucket": "surge",
+        "market_state": "risk_off"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.4,
+        "tp_mult": 1.43,
+        "win_rate": 1.0,
+        "sample_size": 1
+      }
+    },
+    {
+      "when": {
+        "ticker": "MDB",
+        "direction": "LONG",
+        "entry_path": "ema_regime_early_long",
+        "regime": "STRONG_BULL",
+        "vix_bucket": "stress",
+        "rvol_bucket": "surge",
+        "market_state": "risk_off"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.4,
+        "tp_mult": 1.43,
+        "win_rate": 1.0,
+        "sample_size": 1
+      }
+    },
+    {
+      "when": {
+        "ticker": "H",
+        "direction": "LONG",
+        "entry_path": "ema_regime_confirmed_long",
+        "regime": "EARLY_BEAR",
+        "vix_bucket": "elevated",
+        "rvol_bucket": "normal",
+        "market_state": "balanced"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.0,
+        "tp_mult": 1.1,
+        "win_rate": 1.0,
+        "sample_size": 1
+      }
+    },
+    {
+      "when": {
+        "ticker": "AVAV",
+        "direction": "LONG",
+        "entry_path": "ema_regime_confirmed_long",
+        "regime": "COUNTER_TREND_BEAR",
+        "vix_bucket": "elevated",
+        "rvol_bucket": "surge",
+        "market_state": "balanced"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.26,
+        "tp_mult": 1.64,
+        "win_rate": 1.0,
+        "sample_size": 1
+      }
+    },
+    {
+      "when": {
+        "ticker": "NKE",
+        "direction": "SHORT",
+        "entry_path": "gold_short_pullback",
+        "regime": "NEUTRAL",
+        "vix_bucket": "elevated",
+        "rvol_bucket": "surge",
+        "market_state": "balanced"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.1,
+        "tp_mult": 0.94,
+        "win_rate": 0.0,
+        "sample_size": 1
+      }
+    },
+    {
+      "when": {
+        "ticker": "SANM",
+        "direction": "LONG",
+        "entry_path": "ema_regime_confirmed_long",
+        "regime": "STRONG_BULL",
+        "vix_bucket": "elevated",
+        "rvol_bucket": "surge",
+        "market_state": "balanced"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.32,
+        "tp_mult": 1.08,
+        "win_rate": 1.0,
+        "sample_size": 1
+      }
+    },
+    {
+      "when": {
+        "ticker": "STX",
+        "direction": "LONG",
+        "entry_path": "ema_regime_confirmed_long",
+        "regime": "NEUTRAL",
+        "vix_bucket": "elevated",
+        "rvol_bucket": "high",
+        "market_state": "balanced"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.2,
+        "tp_mult": 1.26,
+        "win_rate": 1.0,
+        "sample_size": 1
+      }
+    },
+    {
+      "when": {
+        "ticker": "RTX",
+        "direction": "LONG",
+        "entry_path": "ema_regime_confirmed_long",
+        "regime": "EARLY_BULL",
+        "vix_bucket": "elevated",
+        "rvol_bucket": "low",
+        "market_state": "risk_off"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.0,
+        "tp_mult": 1.1,
+        "win_rate": 1.0,
+        "sample_size": 1
+      }
+    },
+    {
+      "when": {
+        "ticker": "B",
+        "direction": "LONG",
+        "entry_path": "ema_regime_early_long",
+        "regime": "EARLY_BULL",
+        "vix_bucket": "elevated",
+        "rvol_bucket": "surge",
+        "market_state": "risk_off"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.0,
+        "tp_mult": 1.1,
+        "win_rate": 1.0,
+        "sample_size": 1
+      }
+    },
+    {
+      "when": {
+        "ticker": "CRM",
+        "direction": "SHORT",
+        "entry_path": "ema_regime_confirmed_short",
+        "regime": "LATE_BEAR",
+        "vix_bucket": "elevated",
+        "rvol_bucket": "low",
+        "market_state": "balanced"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.0,
+        "tp_mult": 1.1,
+        "win_rate": 1.0,
+        "sample_size": 1
+      }
+    },
+    {
+      "when": {
+        "ticker": "LULU",
+        "direction": "SHORT",
+        "entry_path": "gold_short_pullback",
+        "regime": "NEUTRAL",
+        "vix_bucket": "elevated",
+        "rvol_bucket": "surge",
+        "market_state": "balanced"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.2,
+        "tp_mult": 1.26,
+        "win_rate": 1.0,
+        "sample_size": 1
+      }
+    },
+    {
+      "when": {
+        "ticker": "CRM",
+        "direction": "SHORT",
+        "entry_path": "ema_regime_confirmed_short",
+        "regime": "LATE_BEAR",
+        "vix_bucket": "elevated",
+        "rvol_bucket": "surge",
+        "market_state": "balanced"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.0,
+        "tp_mult": 1.1,
+        "win_rate": 1.0,
+        "sample_size": 1
+      }
+    },
+    {
+      "when": {
+        "ticker": "IONQ",
+        "direction": "SHORT",
+        "entry_path": "gold_short_pullback_deep",
+        "regime": "NEUTRAL",
+        "vix_bucket": "stress",
+        "rvol_bucket": "surge",
+        "market_state": "risk_off"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.4,
+        "tp_mult": 1.43,
+        "win_rate": 1.0,
+        "sample_size": 1
+      }
+    },
+    {
+      "when": {
+        "ticker": "AU",
+        "direction": "LONG",
+        "entry_path": "ema_regime_confirmed_long",
+        "regime": "EARLY_BULL",
+        "vix_bucket": "stress",
+        "rvol_bucket": "surge",
+        "market_state": "risk_off"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.2,
+        "tp_mult": 1.26,
+        "win_rate": 1.0,
+        "sample_size": 1
+      }
+    },
+    {
+      "when": {
+        "ticker": "AA",
+        "direction": "LONG",
+        "entry_path": "ema_regime_confirmed_long",
+        "regime": "EARLY_BULL",
+        "vix_bucket": "stress",
+        "rvol_bucket": "surge",
+        "market_state": "risk_off"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.4,
+        "tp_mult": 1.43,
+        "win_rate": 1.0,
+        "sample_size": 1
+      }
+    },
+    {
+      "when": {
+        "ticker": "DKNG",
+        "direction": "SHORT",
+        "entry_path": "gold_short_pullback_deep",
+        "regime": "NEUTRAL",
+        "vix_bucket": "stress",
+        "rvol_bucket": "normal",
+        "market_state": "risk_off"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.4,
+        "tp_mult": 1.43,
+        "win_rate": 1.0,
+        "sample_size": 1
+      }
+    },
+    {
+      "when": {
+        "ticker": "ALB",
+        "direction": "LONG",
+        "entry_path": "ema_regime_confirmed_long",
+        "regime": "EARLY_BULL",
+        "vix_bucket": "stress",
+        "rvol_bucket": "surge",
+        "market_state": "risk_off"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.54,
+        "tp_mult": 1.22,
+        "win_rate": 1.0,
+        "sample_size": 1
+      }
+    },
+    {
+      "when": {
+        "ticker": "TWLO",
+        "direction": "LONG",
+        "entry_path": "ema_regime_early_long",
+        "regime": "NEUTRAL",
+        "vix_bucket": "elevated",
+        "rvol_bucket": "high",
+        "market_state": "balanced"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.2,
+        "tp_mult": 1.26,
+        "win_rate": 1.0,
+        "sample_size": 1
+      }
+    },
+    {
+      "when": {
+        "ticker": "WFRD",
+        "direction": "LONG",
+        "entry_path": "ema_regime_confirmed_long",
+        "regime": "EARLY_BULL",
+        "vix_bucket": "elevated",
+        "rvol_bucket": "normal",
+        "market_state": "balanced"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.2,
+        "tp_mult": 1.26,
+        "win_rate": 1.0,
+        "sample_size": 1
+      }
+    },
+    {
+      "when": {
+        "ticker": "BG",
+        "direction": "LONG",
+        "entry_path": "ema_regime_early_long",
+        "regime": "NEUTRAL",
+        "vix_bucket": "elevated",
+        "rvol_bucket": "surge",
+        "market_state": "balanced"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 0.9,
+        "tp_mult": 1.26,
+        "win_rate": 1.0,
+        "sample_size": 1
+      }
+    },
+    {
+      "when": {
+        "ticker": "CRS",
+        "direction": "LONG",
+        "entry_path": "ema_regime_early_long",
+        "regime": "LATE_BULL",
+        "vix_bucket": "elevated",
+        "rvol_bucket": "surge",
+        "market_state": "balanced"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.2,
+        "tp_mult": 1.26,
+        "win_rate": 1.0,
+        "sample_size": 1
+      }
+    },
+    {
+      "when": {
+        "ticker": "STX",
+        "direction": "LONG",
+        "entry_path": "ema_regime_confirmed_long",
+        "regime": "NEUTRAL",
+        "vix_bucket": "elevated",
+        "rvol_bucket": "surge",
+        "market_state": "balanced"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.2,
+        "tp_mult": 1.26,
+        "win_rate": 1.0,
+        "sample_size": 1
+      }
+    },
+    {
+      "when": {
+        "ticker": "TSLA",
+        "direction": "LONG",
+        "entry_path": "ema_regime_confirmed_long",
+        "regime": "COUNTER_TREND_BULL",
+        "vix_bucket": "elevated",
+        "rvol_bucket": "surge",
+        "market_state": "balanced"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.4,
+        "tp_mult": 1.43,
+        "win_rate": 1.0,
+        "sample_size": 1
+      }
+    },
+    {
+      "when": {
+        "ticker": "CELH",
+        "direction": "SHORT",
+        "entry_path": "ema_regime_confirmed_short",
+        "regime": "EARLY_BEAR",
+        "vix_bucket": "elevated",
+        "rvol_bucket": "normal",
+        "market_state": "balanced"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.4,
+        "tp_mult": 1.43,
+        "win_rate": 1.0,
+        "sample_size": 1
+      }
+    },
+    {
+      "when": {
+        "ticker": "AXON",
+        "direction": "SHORT",
+        "entry_path": "gold_short_pullback_deep",
+        "regime": "LATE_BULL",
+        "vix_bucket": "elevated",
+        "rvol_bucket": "surge",
+        "market_state": "balanced"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.08,
+        "tp_mult": 1.45,
+        "win_rate": 0.0,
+        "sample_size": 1
+      }
+    },
+    {
+      "when": {
+        "ticker": "ARRY",
+        "direction": "SHORT",
+        "entry_path": "gold_short_pullback_deep",
+        "regime": "EARLY_BEAR",
+        "vix_bucket": "elevated",
+        "rvol_bucket": "surge",
+        "market_state": "balanced"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.4,
+        "tp_mult": 1.43,
+        "win_rate": 1.0,
+        "sample_size": 1
+      }
+    },
+    {
+      "when": {
+        "ticker": "CELH",
+        "direction": "SHORT",
+        "entry_path": "gold_short_pullback_deep",
+        "regime": "EARLY_BEAR",
+        "vix_bucket": "elevated",
+        "rvol_bucket": "low",
+        "market_state": "balanced"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.4,
+        "tp_mult": 1.43,
+        "win_rate": 1.0,
+        "sample_size": 1
+      }
+    },
+    {
+      "when": {
+        "ticker": "EXPE",
+        "direction": "LONG",
+        "entry_path": "ema_regime_confirmed_long",
+        "regime": "STRONG_BULL",
+        "vix_bucket": "elevated",
+        "rvol_bucket": "surge",
+        "market_state": "balanced"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.0,
+        "tp_mult": 1.1,
+        "win_rate": 1.0,
+        "sample_size": 1
+      }
+    },
+    {
+      "when": {
+        "ticker": "HUBS",
+        "direction": "SHORT",
+        "entry_path": "ema_regime_early_short",
+        "regime": "LATE_BEAR",
+        "vix_bucket": "elevated",
+        "rvol_bucket": "surge",
+        "market_state": "balanced"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.2,
+        "tp_mult": 1.26,
+        "win_rate": 1.0,
+        "sample_size": 1
+      }
+    },
+    {
+      "when": {
+        "ticker": "MNST",
+        "direction": "LONG",
+        "entry_path": "ema_regime_confirmed_long",
+        "regime": "STRONG_BULL",
+        "vix_bucket": "elevated",
+        "rvol_bucket": "surge",
+        "market_state": "balanced"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.1,
+        "tp_mult": 0.94,
+        "win_rate": 0.0,
+        "sample_size": 1
+      }
+    },
+    {
+      "when": {
+        "ticker": "GOOGL",
+        "direction": "LONG",
+        "entry_path": "ema_regime_confirmed_long",
+        "regime": "STRONG_BULL",
+        "vix_bucket": "elevated",
+        "rvol_bucket": "surge",
+        "market_state": "balanced"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.0,
+        "tp_mult": 1.1,
+        "win_rate": 1.0,
+        "sample_size": 1
+      }
+    },
+    {
+      "when": {
+        "ticker": "H",
+        "direction": "LONG",
+        "entry_path": "ema_regime_confirmed_long",
+        "regime": "EARLY_BULL",
+        "vix_bucket": "elevated",
+        "rvol_bucket": "high",
+        "market_state": "balanced"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.0,
+        "tp_mult": 1.1,
+        "win_rate": 1.0,
+        "sample_size": 1
+      }
+    },
+    {
+      "when": {
+        "ticker": "ELF",
+        "direction": "SHORT",
+        "entry_path": "gold_short_corridor",
+        "regime": "NEUTRAL",
+        "vix_bucket": "elevated",
+        "rvol_bucket": "surge",
+        "market_state": "balanced"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.4,
+        "tp_mult": 1.43,
+        "win_rate": 0.0,
+        "sample_size": 1
+      }
+    },
+    {
+      "when": {
+        "ticker": "ELF",
+        "direction": "SHORT",
+        "entry_path": "ema_regime_early_short",
+        "regime": "LATE_BEAR",
+        "vix_bucket": "elevated",
+        "rvol_bucket": "surge",
+        "market_state": "balanced"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.4,
+        "tp_mult": 1.43,
+        "win_rate": 1.0,
+        "sample_size": 1
+      }
+    },
+    {
+      "when": {
+        "ticker": "GE",
+        "direction": "LONG",
+        "entry_path": "ema_regime_confirmed_long",
+        "regime": "NEUTRAL",
+        "vix_bucket": "elevated",
+        "rvol_bucket": "surge",
+        "market_state": "balanced"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.1,
+        "tp_mult": 0.94,
+        "win_rate": 1.0,
+        "sample_size": 1
+      }
+    },
+    {
+      "when": {
+        "ticker": "PH",
+        "direction": "LONG",
+        "entry_path": "ema_regime_confirmed_long",
+        "regime": "EARLY_BULL",
+        "vix_bucket": "elevated",
+        "rvol_bucket": "surge",
+        "market_state": "balanced"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.0,
+        "tp_mult": 1.1,
+        "win_rate": 1.0,
+        "sample_size": 1
+      }
+    },
+    {
+      "when": {
+        "ticker": "MP",
+        "direction": "SHORT",
+        "entry_path": "gold_short_pullback_deep",
+        "regime": "EARLY_BULL",
+        "vix_bucket": "elevated",
+        "rvol_bucket": "surge",
+        "market_state": "balanced"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.4,
+        "tp_mult": 1.43,
+        "win_rate": 0.0,
+        "sample_size": 1
+      }
+    },
+    {
+      "when": {
+        "ticker": "CSX",
+        "direction": "LONG",
+        "entry_path": "ema_regime_confirmed_long",
+        "regime": "EARLY_BULL",
+        "vix_bucket": "elevated",
+        "rvol_bucket": "surge",
+        "market_state": "balanced"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.1,
+        "tp_mult": 0.94,
+        "win_rate": 1.0,
+        "sample_size": 1
+      }
+    },
+    {
+      "when": {
+        "ticker": "XLU",
+        "direction": "SHORT",
+        "entry_path": "gold_short_pullback_deep",
+        "regime": "STRONG_BULL",
+        "vix_bucket": "elevated",
+        "rvol_bucket": "surge",
+        "market_state": "balanced"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 0.8,
+        "tp_mult": 0.94,
+        "win_rate": 0.0,
+        "sample_size": 1
+      }
+    },
+    {
+      "when": {
+        "ticker": "ALB",
+        "direction": "LONG",
+        "entry_path": "ema_regime_confirmed_long",
+        "regime": "EARLY_BULL",
+        "vix_bucket": "elevated",
+        "rvol_bucket": "surge",
+        "market_state": "balanced"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.54,
+        "tp_mult": 1.22,
+        "win_rate": 1.0,
+        "sample_size": 1
+      }
+    },
+    {
+      "when": {
+        "ticker": "APD",
+        "direction": "SHORT",
+        "entry_path": "ema_regime_early_short",
+        "regime": "LATE_BEAR",
+        "vix_bucket": "elevated",
+        "rvol_bucket": "surge",
+        "market_state": "balanced"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.0,
+        "tp_mult": 1.1,
+        "win_rate": 1.0,
+        "sample_size": 1
+      }
+    },
+    {
+      "when": {
+        "ticker": "NXT",
+        "direction": "LONG",
+        "entry_path": "ema_regime_confirmed_long",
+        "regime": "EARLY_BULL",
+        "vix_bucket": "normal",
+        "rvol_bucket": "surge",
+        "market_state": "balanced"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.4,
+        "tp_mult": 1.43,
+        "win_rate": 1.0,
+        "sample_size": 1
+      }
+    },
+    {
+      "when": {
+        "ticker": "AYI",
+        "direction": "LONG",
+        "entry_path": "ema_regime_confirmed_long",
+        "regime": "STRONG_BULL",
+        "vix_bucket": "normal",
+        "rvol_bucket": "surge",
+        "market_state": "balanced"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.0,
+        "tp_mult": 1.1,
+        "win_rate": 1.0,
+        "sample_size": 1
+      }
+    },
+    {
+      "when": {
+        "ticker": "RBLX",
+        "direction": "SHORT",
+        "entry_path": "gold_short_pullback_deep",
+        "regime": "STRONG_BULL",
+        "vix_bucket": "elevated",
+        "rvol_bucket": "surge",
+        "market_state": "balanced"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.2,
+        "tp_mult": 1.26,
+        "win_rate": 1.0,
+        "sample_size": 1
+      }
+    },
+    {
+      "when": {
+        "ticker": "MNST",
+        "direction": "LONG",
+        "entry_path": "ema_regime_confirmed_long",
+        "regime": "STRONG_BULL",
+        "vix_bucket": "normal",
+        "rvol_bucket": "low",
+        "market_state": "balanced"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.1,
+        "tp_mult": 0.94,
+        "win_rate": 1.0,
+        "sample_size": 1
+      }
+    },
+    {
+      "when": {
+        "ticker": "FIX",
+        "direction": "LONG",
+        "entry_path": "ema_regime_confirmed_long",
+        "regime": "EARLY_BULL",
+        "vix_bucket": "normal",
+        "rvol_bucket": "high",
+        "market_state": "balanced"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.2,
+        "tp_mult": 1.26,
+        "win_rate": 1.0,
+        "sample_size": 1
+      }
+    },
+    {
+      "when": {
+        "ticker": "EME",
+        "direction": "LONG",
+        "entry_path": "ema_regime_confirmed_long",
+        "regime": "COUNTER_TREND_BEAR",
+        "vix_bucket": "normal",
+        "rvol_bucket": "low",
+        "market_state": "balanced"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.0,
+        "tp_mult": 1.1,
+        "win_rate": 1.0,
+        "sample_size": 1
+      }
+    },
+    {
+      "when": {
+        "ticker": "GLD",
+        "direction": "LONG",
+        "entry_path": "ema_regime_confirmed_long",
+        "regime": "STRONG_BULL",
+        "vix_bucket": "normal",
+        "rvol_bucket": "surge",
+        "market_state": "balanced"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.0,
+        "tp_mult": 1.0,
+        "win_rate": 1.0,
+        "sample_size": 1
+      }
+    },
+    {
+      "when": {
+        "ticker": "CLS",
+        "direction": "LONG",
+        "entry_path": "ema_regime_confirmed_long",
+        "regime": "NEUTRAL",
+        "vix_bucket": "normal",
+        "rvol_bucket": "surge",
+        "market_state": "balanced"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.4,
+        "tp_mult": 1.43,
+        "win_rate": 1.0,
+        "sample_size": 1
+      }
+    },
+    {
+      "when": {
+        "ticker": "HOOD",
+        "direction": "SHORT",
+        "entry_path": "gold_short_pullback_deep",
+        "regime": "EARLY_BULL",
+        "vix_bucket": "normal",
+        "rvol_bucket": "high",
+        "market_state": "balanced"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.4,
+        "tp_mult": 1.43,
+        "win_rate": 1.0,
+        "sample_size": 1
+      }
+    },
+    {
+      "when": {
+        "ticker": "MTZ",
+        "direction": "LONG",
+        "entry_path": "ema_regime_confirmed_long",
+        "regime": "STRONG_BULL",
+        "vix_bucket": "elevated",
+        "rvol_bucket": "low",
+        "market_state": "balanced"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.2,
+        "tp_mult": 1.26,
+        "win_rate": 1.0,
+        "sample_size": 1
+      }
+    },
+    {
+      "when": {
+        "ticker": "IESC",
+        "direction": "LONG",
+        "entry_path": "ema_regime_confirmed_long",
+        "regime": "LATE_BULL",
+        "vix_bucket": "elevated",
+        "rvol_bucket": "normal",
+        "market_state": "balanced"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.4,
+        "tp_mult": 1.43,
+        "win_rate": 1.0,
+        "sample_size": 1
+      }
+    },
+    {
+      "when": {
+        "ticker": "IOT",
+        "direction": "SHORT",
+        "entry_path": "gold_short_pullback_deep",
+        "regime": "NEUTRAL",
+        "vix_bucket": "elevated",
+        "rvol_bucket": "surge",
+        "market_state": "balanced"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.4,
+        "tp_mult": 1.43,
+        "win_rate": 1.0,
+        "sample_size": 1
+      }
+    },
+    {
+      "when": {
+        "ticker": "BABA",
+        "direction": "LONG",
+        "entry_path": "ema_regime_confirmed_long",
+        "regime": "NEUTRAL",
+        "vix_bucket": "elevated",
+        "rvol_bucket": "surge",
+        "market_state": "balanced"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.2,
+        "tp_mult": 1.26,
+        "win_rate": 1.0,
+        "sample_size": 1
+      }
+    },
+    {
+      "when": {
+        "ticker": "B",
+        "direction": "LONG",
+        "entry_path": "ema_regime_confirmed_long",
+        "regime": "EARLY_BULL",
+        "vix_bucket": "normal",
+        "rvol_bucket": "surge",
+        "market_state": "balanced"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.0,
+        "tp_mult": 1.1,
+        "win_rate": 1.0,
+        "sample_size": 1
+      }
+    },
+    {
+      "when": {
+        "ticker": "KLAC",
+        "direction": "LONG",
+        "entry_path": "ema_regime_confirmed_long",
+        "regime": "STRONG_BULL",
+        "vix_bucket": "elevated",
+        "rvol_bucket": "surge",
+        "market_state": "balanced"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.32,
+        "tp_mult": 1.08,
+        "win_rate": 1.0,
+        "sample_size": 1
+      }
+    },
+    {
+      "when": {
+        "ticker": "MSTR",
+        "direction": "SHORT",
+        "entry_path": "ema_regime_confirmed_short",
+        "regime": "STRONG_BEAR",
+        "vix_bucket": "elevated",
+        "rvol_bucket": "surge",
+        "market_state": "balanced"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.54,
+        "tp_mult": 1.22,
+        "win_rate": 1.0,
+        "sample_size": 1
+      }
+    },
+    {
+      "when": {
+        "ticker": "INTC",
+        "direction": "LONG",
+        "entry_path": "ema_regime_confirmed_long",
+        "regime": "LATE_BULL",
+        "vix_bucket": "elevated",
+        "rvol_bucket": "surge",
+        "market_state": "balanced"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.4,
+        "tp_mult": 1.43,
+        "win_rate": 1.0,
+        "sample_size": 1
+      }
+    },
+    {
+      "when": {
+        "ticker": "ELF",
+        "direction": "SHORT",
+        "entry_path": "ema_regime_confirmed_short",
+        "regime": "LATE_BEAR",
+        "vix_bucket": "elevated",
+        "rvol_bucket": "surge",
+        "market_state": "balanced"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.4,
+        "tp_mult": 1.43,
+        "win_rate": 0.0,
+        "sample_size": 1
+      }
+    },
+    {
+      "when": {
+        "ticker": "IBP",
+        "direction": "LONG",
+        "entry_path": "ema_regime_early_long",
+        "regime": "EARLY_BULL",
+        "vix_bucket": "elevated",
+        "rvol_bucket": "low",
+        "market_state": "balanced"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.2,
+        "tp_mult": 1.26,
+        "win_rate": 1.0,
+        "sample_size": 1
+      }
+    },
+    {
+      "when": {
+        "ticker": "ASTS",
+        "direction": "LONG",
+        "entry_path": "ema_regime_confirmed_long",
+        "regime": "NEUTRAL",
+        "vix_bucket": "elevated",
+        "rvol_bucket": "high",
+        "market_state": "balanced"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.4,
+        "tp_mult": 1.43,
+        "win_rate": 1.0,
+        "sample_size": 1
+      }
+    },
+    {
+      "when": {
+        "ticker": "BE",
+        "direction": "LONG",
+        "entry_path": "ema_regime_confirmed_long",
+        "regime": "EARLY_BULL",
+        "vix_bucket": "elevated",
+        "rvol_bucket": "high",
+        "market_state": "balanced"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.4,
+        "tp_mult": 1.43,
+        "win_rate": 1.0,
+        "sample_size": 1
+      }
+    },
+    {
+      "when": {
+        "ticker": "ON",
+        "direction": "LONG",
+        "entry_path": "ema_regime_early_long",
+        "regime": "EARLY_BULL",
+        "vix_bucket": "elevated",
+        "rvol_bucket": "surge",
+        "market_state": "balanced"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.54,
+        "tp_mult": 1.11,
+        "win_rate": 1.0,
+        "sample_size": 1
+      }
+    },
+    {
+      "when": {
+        "ticker": "MTZ",
+        "direction": "LONG",
+        "entry_path": "ema_regime_confirmed_long",
+        "regime": "STRONG_BULL",
+        "vix_bucket": "elevated",
+        "rvol_bucket": "normal",
+        "market_state": "balanced"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.2,
+        "tp_mult": 1.26,
+        "win_rate": 1.0,
+        "sample_size": 1
+      }
+    },
+    {
+      "when": {
+        "ticker": "DKNG",
+        "direction": "SHORT",
+        "entry_path": "gold_short_pullback_deep",
+        "regime": "NEUTRAL",
+        "vix_bucket": "elevated",
+        "rvol_bucket": "high",
+        "market_state": "balanced"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.4,
+        "tp_mult": 1.43,
+        "win_rate": 1.0,
+        "sample_size": 1
+      }
+    },
+    {
+      "when": {
+        "ticker": "LULU",
+        "direction": "SHORT",
+        "entry_path": "ema_regime_confirmed_short",
+        "regime": "STRONG_BULL",
+        "vix_bucket": "elevated",
+        "rvol_bucket": "surge",
+        "market_state": "balanced"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.2,
+        "tp_mult": 1.26,
+        "win_rate": 1.0,
+        "sample_size": 1
+      }
+    },
+    {
+      "when": {
+        "ticker": "WDC",
+        "direction": "LONG",
+        "entry_path": "ema_regime_confirmed_long",
+        "regime": "EARLY_BULL",
+        "vix_bucket": "elevated",
+        "rvol_bucket": "surge",
+        "market_state": "balanced"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.2,
+        "tp_mult": 1.26,
+        "win_rate": 1.0,
+        "sample_size": 1
+      }
+    },
+    {
+      "when": {
+        "ticker": "HII",
+        "direction": "LONG",
+        "entry_path": "ema_regime_early_long",
+        "regime": "STRONG_BULL",
+        "vix_bucket": "elevated",
+        "rvol_bucket": "surge",
+        "market_state": "balanced"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.0,
+        "tp_mult": 1.1,
+        "win_rate": 1.0,
+        "sample_size": 1
+      }
+    },
+    {
+      "when": {
+        "ticker": "BE",
+        "direction": "LONG",
+        "entry_path": "ema_regime_early_long",
+        "regime": "EARLY_BULL",
+        "vix_bucket": "elevated",
+        "rvol_bucket": "surge",
+        "market_state": "balanced"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.4,
+        "tp_mult": 1.43,
+        "win_rate": 1.0,
+        "sample_size": 1
+      }
+    },
+    {
+      "when": {
+        "ticker": "HUBS",
+        "direction": "SHORT",
+        "entry_path": "ema_regime_confirmed_short",
+        "regime": "LATE_BEAR",
+        "vix_bucket": "elevated",
+        "rvol_bucket": "high",
+        "market_state": "balanced"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.2,
+        "tp_mult": 1.26,
+        "win_rate": 1.0,
+        "sample_size": 1
+      }
+    },
+    {
+      "when": {
+        "ticker": "PNC",
+        "direction": "LONG",
+        "entry_path": "ema_regime_confirmed_long",
+        "regime": "EARLY_BULL",
+        "vix_bucket": "elevated",
+        "rvol_bucket": "surge",
+        "market_state": "balanced"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.0,
+        "tp_mult": 1.1,
+        "win_rate": 1.0,
+        "sample_size": 1
+      }
+    },
+    {
+      "when": {
+        "ticker": "B",
+        "direction": "LONG",
+        "entry_path": "ema_regime_confirmed_long",
+        "regime": "EARLY_BULL",
+        "vix_bucket": "elevated",
+        "rvol_bucket": "surge",
+        "market_state": "balanced"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.0,
+        "tp_mult": 1.1,
+        "win_rate": 1.0,
+        "sample_size": 1
+      }
+    },
+    {
+      "when": {
+        "ticker": "PLTR",
+        "direction": "SHORT",
+        "entry_path": "ema_regime_confirmed_short",
+        "regime": "EARLY_BULL",
+        "vix_bucket": "elevated",
+        "rvol_bucket": "surge",
+        "market_state": "balanced"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.4,
+        "tp_mult": 1.43,
+        "win_rate": 1.0,
+        "sample_size": 1
+      }
+    },
+    {
+      "when": {
+        "ticker": "MP",
+        "direction": "SHORT",
+        "entry_path": "ema_regime_confirmed_short",
+        "regime": "EARLY_BULL",
+        "vix_bucket": "elevated",
+        "rvol_bucket": "surge",
+        "market_state": "balanced"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.4,
+        "tp_mult": 1.43,
+        "win_rate": 1.0,
+        "sample_size": 1
+      }
+    },
+    {
+      "when": {
+        "ticker": "XYZ",
+        "direction": "SHORT",
+        "entry_path": "gold_short_pullback_deep",
+        "regime": "NEUTRAL",
+        "vix_bucket": "elevated",
+        "rvol_bucket": "high",
+        "market_state": "balanced"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.2,
+        "tp_mult": 1.26,
+        "win_rate": 1.0,
+        "sample_size": 1
+      }
+    },
+    {
+      "when": {
+        "ticker": "CAT",
+        "direction": "LONG",
+        "entry_path": "ema_regime_confirmed_long",
+        "regime": "EARLY_BULL",
+        "vix_bucket": "elevated",
+        "rvol_bucket": "surge",
+        "market_state": "balanced"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.0,
+        "tp_mult": 1.1,
+        "win_rate": 0.0,
+        "sample_size": 1
+      }
+    },
+    {
+      "when": {
+        "ticker": "STRL",
+        "direction": "LONG",
+        "entry_path": "ema_regime_confirmed_long",
+        "regime": "LATE_BULL",
+        "vix_bucket": "elevated",
+        "rvol_bucket": "surge",
+        "market_state": "balanced"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.4,
+        "tp_mult": 1.43,
+        "win_rate": 0.0,
+        "sample_size": 1
+      }
+    },
+    {
+      "when": {
+        "ticker": "MDB",
+        "direction": "SHORT",
+        "entry_path": "ema_regime_confirmed_short",
+        "regime": "COUNTER_TREND_BEAR",
+        "vix_bucket": "elevated",
+        "rvol_bucket": "surge",
+        "market_state": "balanced"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.4,
+        "tp_mult": 1.43,
+        "win_rate": 1.0,
+        "sample_size": 1
+      }
+    },
+    {
+      "when": {
+        "ticker": "PATH",
+        "direction": "SHORT",
+        "entry_path": "gold_short_pullback_deep",
+        "regime": "NEUTRAL",
+        "vix_bucket": "elevated",
+        "rvol_bucket": "surge",
+        "market_state": "balanced"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.4,
+        "tp_mult": 1.43,
+        "win_rate": 1.0,
+        "sample_size": 1
+      }
+    },
+    {
+      "when": {
+        "ticker": "FN",
+        "direction": "LONG",
+        "entry_path": "ema_regime_confirmed_long",
+        "regime": "LATE_BULL",
+        "vix_bucket": "elevated",
+        "rvol_bucket": "surge",
+        "market_state": "balanced"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.4,
+        "tp_mult": 1.43,
+        "win_rate": 1.0,
+        "sample_size": 1
+      }
+    },
+    {
+      "when": {
+        "ticker": "RBLX",
+        "direction": "SHORT",
+        "entry_path": "gold_short_pullback",
+        "regime": "NEUTRAL",
+        "vix_bucket": "elevated",
+        "rvol_bucket": "surge",
+        "market_state": "balanced"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.2,
+        "tp_mult": 1.26,
+        "win_rate": 1.0,
+        "sample_size": 1
+      }
+    },
+    {
+      "when": {
+        "ticker": "DE",
+        "direction": "LONG",
+        "entry_path": "ema_regime_early_long",
+        "regime": "EARLY_BULL",
+        "vix_bucket": "elevated",
+        "rvol_bucket": "surge",
+        "market_state": "balanced"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.0,
+        "tp_mult": 1.1,
+        "win_rate": 1.0,
+        "sample_size": 1
+      }
+    },
+    {
+      "when": {
+        "ticker": "FIX",
+        "direction": "LONG",
+        "entry_path": "ema_regime_confirmed_long",
+        "regime": "EARLY_BULL",
+        "vix_bucket": "elevated",
+        "rvol_bucket": "surge",
+        "market_state": "balanced"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.2,
+        "tp_mult": 1.26,
+        "win_rate": 1.0,
+        "sample_size": 1
+      }
+    },
+    {
+      "when": {
+        "ticker": "RGLD",
+        "direction": "LONG",
+        "entry_path": "ema_regime_confirmed_long",
+        "regime": "EARLY_BULL",
+        "vix_bucket": "elevated",
+        "rvol_bucket": "surge",
+        "market_state": "balanced"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.0,
+        "tp_mult": 1.1,
+        "win_rate": 1.0,
+        "sample_size": 1
+      }
+    },
+    {
+      "when": {
+        "ticker": "GDX",
+        "direction": "LONG",
+        "entry_path": "ema_regime_confirmed_long",
+        "regime": "NEUTRAL",
+        "vix_bucket": "elevated",
+        "rvol_bucket": "surge",
+        "market_state": "balanced"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.0,
+        "tp_mult": 1.1,
+        "win_rate": 0.0,
+        "sample_size": 1
+      }
+    },
+    {
+      "when": {
+        "ticker": "SLV",
+        "direction": "LONG",
+        "entry_path": "ema_regime_confirmed_long",
+        "regime": "EARLY_BULL",
+        "vix_bucket": "elevated",
+        "rvol_bucket": "surge",
+        "market_state": "balanced"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.0,
+        "tp_mult": 1.1,
+        "win_rate": 0.0,
+        "sample_size": 1
+      }
+    },
+    {
+      "when": {
+        "ticker": "MP",
+        "direction": "LONG",
+        "entry_path": "ema_regime_confirmed_long",
+        "regime": "NEUTRAL",
+        "vix_bucket": "elevated",
+        "rvol_bucket": "surge",
+        "market_state": "balanced"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.4,
+        "tp_mult": 1.43,
+        "win_rate": 1.0,
+        "sample_size": 1
+      }
+    },
+    {
+      "when": {
+        "ticker": "AMD",
+        "direction": "SHORT",
+        "entry_path": "gold_short_pullback_deep",
+        "regime": "NEUTRAL",
+        "vix_bucket": "elevated",
+        "rvol_bucket": "surge",
+        "market_state": "balanced"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.4,
+        "tp_mult": 1.43,
+        "win_rate": 1.0,
+        "sample_size": 1
+      }
+    },
+    {
+      "when": {
+        "ticker": "LITE",
+        "direction": "LONG",
+        "entry_path": "ema_regime_confirmed_long",
+        "regime": "EARLY_BULL",
+        "vix_bucket": "elevated",
+        "rvol_bucket": "high",
+        "market_state": "risk_off"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.4,
+        "tp_mult": 1.43,
+        "win_rate": 1.0,
+        "sample_size": 1
+      }
+    },
+    {
+      "when": {
+        "ticker": "XOM",
+        "direction": "LONG",
+        "entry_path": "ema_regime_confirmed_long",
+        "regime": "STRONG_BULL",
+        "vix_bucket": "elevated",
+        "rvol_bucket": "surge",
+        "market_state": "risk_off"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.0,
+        "tp_mult": 1.1,
+        "win_rate": 0.0,
+        "sample_size": 1
+      }
+    },
+    {
+      "when": {
+        "ticker": "LMND",
+        "direction": "SHORT",
+        "entry_path": "gold_short_pullback_deep",
+        "regime": "EARLY_BULL",
+        "vix_bucket": "elevated",
+        "rvol_bucket": "surge",
+        "market_state": "risk_off"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.4,
+        "tp_mult": 1.43,
+        "win_rate": 0.0,
+        "sample_size": 1
+      }
+    },
+    {
+      "when": {
+        "ticker": "HIMS",
+        "direction": "SHORT",
+        "entry_path": "gold_short_pullback",
+        "regime": "NEUTRAL",
+        "vix_bucket": "elevated",
+        "rvol_bucket": "surge",
+        "market_state": "risk_off"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.4,
+        "tp_mult": 1.43,
+        "win_rate": 0.0,
+        "sample_size": 1
+      }
+    },
+    {
+      "when": {
+        "ticker": "CLS",
+        "direction": "SHORT",
+        "entry_path": "gold_short_pullback_deep",
+        "regime": "NEUTRAL",
+        "vix_bucket": "elevated",
+        "rvol_bucket": "surge",
+        "market_state": "balanced"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.4,
+        "tp_mult": 1.43,
+        "win_rate": 1.0,
+        "sample_size": 1
+      }
+    },
+    {
+      "when": {
+        "ticker": "RDDT",
+        "direction": "SHORT",
+        "entry_path": "gold_short_pullback_deep",
+        "regime": "EARLY_BULL",
+        "vix_bucket": "elevated",
+        "rvol_bucket": "surge",
+        "market_state": "balanced"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.4,
+        "tp_mult": 1.43,
+        "win_rate": 0.0,
+        "sample_size": 1
+      }
+    },
+    {
+      "when": {
+        "ticker": "AWI",
+        "direction": "SHORT",
+        "entry_path": "gold_short_pullback_deep",
+        "regime": "LATE_BULL",
+        "vix_bucket": "elevated",
+        "rvol_bucket": "low",
+        "market_state": "balanced"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.0,
+        "tp_mult": 1.1,
+        "win_rate": 0.0,
+        "sample_size": 1
+      }
+    },
+    {
+      "when": {
+        "ticker": "U",
+        "direction": "SHORT",
+        "entry_path": "gold_short_pullback_deep",
+        "regime": "NEUTRAL",
+        "vix_bucket": "elevated",
+        "rvol_bucket": "normal",
+        "market_state": "balanced"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.4,
+        "tp_mult": 1.43,
+        "win_rate": 0.0,
+        "sample_size": 1
+      }
+    },
+    {
+      "when": {
+        "ticker": "APD",
+        "direction": "LONG",
+        "entry_path": "ema_regime_confirmed_long",
+        "regime": "NEUTRAL",
+        "vix_bucket": "elevated",
+        "rvol_bucket": "surge",
+        "market_state": "balanced"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.0,
+        "tp_mult": 1.1,
+        "win_rate": 0.0,
+        "sample_size": 1
+      }
+    }
+  ],
+  "ticker_setup_rules": [
+    {
+      "when": {
+        "ticker": "B",
+        "direction": "LONG",
+        "entry_path": "ema_regime_confirmed_long"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.0,
+        "tp_mult": 1.1,
+        "win_rate": 1.0,
+        "sample_size": 4
+      }
+    },
+    {
+      "when": {
+        "ticker": "APP",
+        "direction": "LONG",
+        "entry_path": "ema_regime_confirmed_long"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.26,
+        "tp_mult": 1.64,
+        "win_rate": 1.0,
+        "sample_size": 3
+      }
+    },
+    {
+      "when": {
+        "ticker": "H",
+        "direction": "LONG",
+        "entry_path": "ema_regime_confirmed_long"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.0,
+        "tp_mult": 1.1,
+        "win_rate": 1.0,
+        "sample_size": 3
+      }
+    },
+    {
+      "when": {
+        "ticker": "CVNA",
+        "direction": "LONG",
+        "entry_path": "ema_regime_confirmed_long"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.4,
+        "tp_mult": 1.43,
+        "win_rate": 1.0,
+        "sample_size": 2
+      }
+    },
+    {
+      "when": {
+        "ticker": "WFRD",
+        "direction": "LONG",
+        "entry_path": "ema_regime_confirmed_long"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.2,
+        "tp_mult": 1.26,
+        "win_rate": 1.0,
+        "sample_size": 2
+      }
+    },
+    {
+      "when": {
+        "ticker": "ULTA",
+        "direction": "LONG",
+        "entry_path": "ema_regime_confirmed_long"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.0,
+        "tp_mult": 1.1,
+        "win_rate": 1.0,
+        "sample_size": 2
+      }
+    },
+    {
+      "when": {
+        "ticker": "MDB",
+        "direction": "LONG",
+        "entry_path": "ema_regime_early_long"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.4,
+        "tp_mult": 1.43,
+        "win_rate": 1.0,
+        "sample_size": 2
+      }
+    },
+    {
+      "when": {
+        "ticker": "TSLA",
+        "direction": "LONG",
+        "entry_path": "ema_regime_confirmed_long"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.4,
+        "tp_mult": 1.43,
+        "win_rate": 1.0,
+        "sample_size": 2
+      }
+    },
+    {
+      "when": {
+        "ticker": "LULU",
+        "direction": "SHORT",
+        "entry_path": "ema_regime_confirmed_short"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.2,
+        "tp_mult": 1.26,
+        "win_rate": 1.0,
+        "sample_size": 2
+      }
+    },
+    {
+      "when": {
+        "ticker": "SWK",
+        "direction": "SHORT",
+        "entry_path": "ema_regime_confirmed_short"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.0,
+        "tp_mult": 1.1,
+        "win_rate": 0.0,
+        "sample_size": 2
+      }
+    },
+    {
+      "when": {
+        "ticker": "XLV",
+        "direction": "LONG",
+        "entry_path": "ema_regime_confirmed_long"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 0.8,
+        "tp_mult": 0.94,
+        "win_rate": 1.0,
+        "sample_size": 2
+      }
+    },
+    {
+      "when": {
+        "ticker": "STX",
+        "direction": "LONG",
+        "entry_path": "ema_regime_confirmed_long"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.2,
+        "tp_mult": 1.26,
+        "win_rate": 1.0,
+        "sample_size": 2
+      }
+    },
+    {
+      "when": {
+        "ticker": "CRM",
+        "direction": "SHORT",
+        "entry_path": "ema_regime_confirmed_short"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.0,
+        "tp_mult": 1.1,
+        "win_rate": 1.0,
+        "sample_size": 2
+      }
+    },
+    {
+      "when": {
+        "ticker": "DKNG",
+        "direction": "SHORT",
+        "entry_path": "gold_short_pullback_deep"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.4,
+        "tp_mult": 1.43,
+        "win_rate": 1.0,
+        "sample_size": 2
+      }
+    },
+    {
+      "when": {
+        "ticker": "ALB",
+        "direction": "LONG",
+        "entry_path": "ema_regime_confirmed_long"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.54,
+        "tp_mult": 1.22,
+        "win_rate": 1.0,
+        "sample_size": 2
+      }
+    },
+    {
+      "when": {
+        "ticker": "LMND",
+        "direction": "LONG",
+        "entry_path": "ema_regime_confirmed_long"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.4,
+        "tp_mult": 1.43,
+        "win_rate": 1.0,
+        "sample_size": 2
+      }
+    },
+    {
+      "when": {
+        "ticker": "MNST",
+        "direction": "LONG",
+        "entry_path": "ema_regime_confirmed_long"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.1,
+        "tp_mult": 0.94,
+        "win_rate": 0.5,
+        "sample_size": 2
+      }
+    },
+    {
+      "when": {
+        "ticker": "FIX",
+        "direction": "LONG",
+        "entry_path": "ema_regime_confirmed_long"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.2,
+        "tp_mult": 1.26,
+        "win_rate": 1.0,
+        "sample_size": 2
+      }
+    },
+    {
+      "when": {
+        "ticker": "MTZ",
+        "direction": "LONG",
+        "entry_path": "ema_regime_confirmed_long"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.2,
+        "tp_mult": 1.26,
+        "win_rate": 1.0,
+        "sample_size": 2
+      }
+    },
+    {
+      "when": {
+        "ticker": "CSCO",
+        "direction": "LONG",
+        "entry_path": "tt_momentum"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 0.9,
+        "tp_mult": 0.95,
+        "win_rate": 0.35,
+        "sample_size": 2
+      }
+    },
+    {
+      "when": {
+        "ticker": "CSCO",
+        "direction": "LONG",
+        "entry_path": "momentum_score"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 0.9,
+        "tp_mult": 0.95,
+        "win_rate": 0.35,
+        "sample_size": 2
+      }
+    },
+    {
+      "when": {
+        "ticker": "CVNA",
+        "direction": "LONG",
+        "entry_path": "tt_pullback"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 0.9,
+        "tp_mult": 0.95,
+        "win_rate": 0.35,
+        "sample_size": 2
+      }
+    },
+    {
+      "when": {
+        "ticker": "CVNA",
+        "direction": "LONG",
+        "entry_path": "momentum_score"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 0.9,
+        "tp_mult": 0.95,
+        "win_rate": 0.35,
+        "sample_size": 2
+      }
+    },
+    {
+      "when": {
+        "ticker": "B",
+        "direction": "LONG",
+        "entry_path": "tt_momentum"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 0.9,
+        "tp_mult": 0.95,
+        "win_rate": 0.35,
+        "sample_size": 2
+      }
+    }
+  ],
+  "context_defaults": [
+    {
+      "when": {
+        "direction": "LONG",
+        "regime": "EARLY_BULL",
+        "vix_bucket": "elevated"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.15,
+        "tp_mult": 1.105,
+        "win_rate": 0.9231,
+        "sample_size": 26
+      }
+    },
+    {
+      "when": {
+        "direction": "LONG",
+        "regime": "NEUTRAL",
+        "vix_bucket": "elevated"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.2,
+        "tp_mult": 1.26,
+        "win_rate": 0.8824,
+        "sample_size": 17
+      }
+    },
+    {
+      "when": {
+        "direction": "SHORT",
+        "regime": "NEUTRAL",
+        "vix_bucket": "elevated"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.4,
+        "tp_mult": 1.43,
+        "win_rate": 0.6154,
+        "sample_size": 13
+      }
+    },
+    {
+      "when": {
+        "direction": "SHORT",
+        "regime": "LATE_BEAR",
+        "vix_bucket": "elevated"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.0,
+        "tp_mult": 1.1,
+        "win_rate": 0.7273,
+        "sample_size": 11
+      }
+    },
+    {
+      "when": {
+        "direction": "LONG",
+        "regime": "STRONG_BULL",
+        "vix_bucket": "elevated"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.1,
+        "tp_mult": 1.1,
+        "win_rate": 0.7778,
+        "sample_size": 9
+      }
+    },
+    {
+      "when": {
+        "direction": "LONG",
+        "regime": "EARLY_BULL",
+        "vix_bucket": "stress"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.23,
+        "tp_mult": 1.24,
+        "win_rate": 1.0,
+        "sample_size": 6
+      }
+    },
+    {
+      "when": {
+        "direction": "SHORT",
+        "regime": "EARLY_BULL",
+        "vix_bucket": "elevated"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.4,
+        "tp_mult": 1.43,
+        "win_rate": 0.5,
+        "sample_size": 6
+      }
+    },
+    {
+      "when": {
+        "direction": "LONG",
+        "regime": "LATE_BULL",
+        "vix_bucket": "elevated"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.4,
+        "tp_mult": 1.43,
+        "win_rate": 0.8,
+        "sample_size": 5
+      }
+    },
+    {
+      "when": {
+        "direction": "SHORT",
+        "regime": "EARLY_BEAR",
+        "vix_bucket": "elevated"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.4,
+        "tp_mult": 1.43,
+        "win_rate": 0.75,
+        "sample_size": 4
+      }
+    },
+    {
+      "when": {
+        "direction": "SHORT",
+        "regime": "STRONG_BULL",
+        "vix_bucket": "elevated"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.1,
+        "tp_mult": 1.18,
+        "win_rate": 0.75,
+        "sample_size": 4
+      }
+    },
+    {
+      "when": {
+        "direction": "SHORT",
+        "regime": "LATE_BULL",
+        "vix_bucket": "elevated"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.08,
+        "tp_mult": 1.26,
+        "win_rate": 0.3333,
+        "sample_size": 3
+      }
+    },
+    {
+      "when": {
+        "direction": "LONG",
+        "regime": "EARLY_BEAR",
+        "vix_bucket": "elevated"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.0,
+        "tp_mult": 1.1,
+        "win_rate": 1.0,
+        "sample_size": 3
+      }
+    },
+    {
+      "when": {
+        "direction": "LONG",
+        "regime": "COUNTER_TREND_BULL",
+        "vix_bucket": "elevated"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 0.8,
+        "tp_mult": 0.94,
+        "win_rate": 1.0,
+        "sample_size": 3
+      }
+    },
+    {
+      "when": {
+        "direction": "LONG",
+        "regime": "EARLY_BULL",
+        "vix_bucket": "normal"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.2,
+        "tp_mult": 1.26,
+        "win_rate": 1.0,
+        "sample_size": 3
+      }
+    },
+    {
+      "when": {
+        "direction": "LONG",
+        "regime": "STRONG_BULL",
+        "vix_bucket": "normal"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.0,
+        "tp_mult": 1.0,
+        "win_rate": 1.0,
+        "sample_size": 3
+      }
+    }
+  ],
+  "global_default": {
+    "entry_engine": "tt_core",
+    "management_engine": "tt_core",
+    "exit_style": "smart_exit_bias",
+    "sl_mult": 1.2,
+    "tp_mult": 1.26,
+    "win_rate": 0.8134,
+    "sample_size": 134
+  },
+  "summary": {
+    "input_rows": 134,
+    "scenario_rules": 127,
+    "ticker_setup_rules": 24,
+    "context_defaults": 15
+  },
+  "sources": {
+    "reference_selection": "data/reference-intel/reference-selection-v2.json",
+    "reference_map": "data/reference-intel/reference-execution-map-v3-promotion.json",
+    "matched_reference_rows": 134
+  },
+  "promotion_note": "Targeted weak-reference uplift for B/CVNA/CSCO (2026-03-23)."
+}

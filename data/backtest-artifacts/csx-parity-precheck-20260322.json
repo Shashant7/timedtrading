@@ -1,0 +1,151 @@
+{
+  "run": "precheck_no_gate_key",
+  "days": [
+    {
+      "date": "2025-07-01",
+      "scored": 79,
+      "tradesCreated": 0,
+      "totalTrades": 1,
+      "errorsCount": 0
+    },
+    {
+      "date": "2025-07-02",
+      "scored": 79,
+      "tradesCreated": 0,
+      "totalTrades": 1,
+      "errorsCount": 0
+    },
+    {
+      "date": "2025-07-03",
+      "scored": 79,
+      "tradesCreated": 0,
+      "totalTrades": 1,
+      "errorsCount": 0
+    },
+    {
+      "date": "2025-07-07",
+      "scored": 79,
+      "tradesCreated": 0,
+      "totalTrades": 1,
+      "errorsCount": 0
+    },
+    {
+      "date": "2025-07-08",
+      "scored": 79,
+      "tradesCreated": 0,
+      "totalTrades": 1,
+      "errorsCount": 0
+    },
+    {
+      "date": "2025-07-09",
+      "scored": 79,
+      "tradesCreated": 0,
+      "totalTrades": 1,
+      "errorsCount": 0
+    },
+    {
+      "date": "2025-07-10",
+      "scored": 79,
+      "tradesCreated": 0,
+      "totalTrades": 1,
+      "errorsCount": 0
+    },
+    {
+      "date": "2025-07-11",
+      "scored": 79,
+      "tradesCreated": 0,
+      "totalTrades": 1,
+      "errorsCount": 0
+    },
+    {
+      "date": "2025-07-14",
+      "scored": 79,
+      "tradesCreated": 0,
+      "totalTrades": 1,
+      "errorsCount": 0
+    },
+    {
+      "date": "2025-07-15",
+      "scored": 79,
+      "tradesCreated": 0,
+      "totalTrades": 1,
+      "errorsCount": 0
+    },
+    {
+      "date": "2025-07-16",
+      "scored": 79,
+      "tradesCreated": 0,
+      "totalTrades": 1,
+      "errorsCount": 0
+    },
+    {
+      "date": "2025-07-17",
+      "scored": 79,
+      "tradesCreated": 0,
+      "totalTrades": 1,
+      "errorsCount": 0
+    },
+    {
+      "date": "2025-07-18",
+      "scored": 79,
+      "tradesCreated": 0,
+      "totalTrades": 1,
+      "errorsCount": 0
+    }
+  ],
+  "csx_trades": [
+    {
+      "id": "CSX-1751376600000-dw3nm2t2e",
+      "trade_id": "CSX-1751376600000-dw3nm2t2e",
+      "ticker": "CSX",
+      "direction": "LONG",
+      "entryPrice": 33.405,
+      "entry_price": 33.405,
+      "entry_ts": 1751376600000,
+      "entryTime": "2025-07-01T13:30:00.000Z",
+      "rank": 71,
+      "rr": 1.7692307692307718,
+      "status": "LOSS",
+      "exit_ts": 1751558400000,
+      "exitPrice": 33.2392,
+      "exitReason": "doa_early_exit",
+      "trimmedPct": 0,
+      "pnl": -74.44993264481562,
+      "pnlPct": -0.49633288429877076,
+      "scriptVersion": "alpaca_server_v2.0",
+      "script_version": "alpaca_server_v2.0",
+      "created_at": 1751376600000,
+      "updated_at": 1774187354620,
+      "shares": 449.034575662326,
+      "notional": 15000,
+      "setup_grade": "Confirmed",
+      "setup_name": "TT Momentum",
+      "risk_budget": 0.01,
+      "history": []
+    },
+    {
+      "id": "CSX-1751376600000-dw3nm2t2e",
+      "trade_id": "CSX-1751376600000-dw3nm2t2e",
+      "ticker": "CSX",
+      "direction": "LONG",
+      "entryPrice": 33.405,
+      "avgEntry": 33.405,
+      "entry_ts": 1751376600000,
+      "entryTime": "2025-07-01T13:30:00.000Z",
+      "status": "OPEN",
+      "stop_loss": 32.17,
+      "take_profit": 34.29,
+      "trimmedPct": null,
+      "pnl": null,
+      "pnlPct": null,
+      "exitReason": null,
+      "scriptVersion": null,
+      "script_version": null,
+      "shares": 449.034575662326,
+      "created_at": 1751376600000,
+      "updated_at": 1751376600000,
+      "history": [],
+      "entry_price": 33.405
+    }
+  ]
+}

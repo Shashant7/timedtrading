@@ -1,0 +1,16 @@
+{
+  "deep_audit_vix_ceiling": 32,
+  "deep_audit_danger_max_signals": 3,
+  "deep_audit_block_regime": ["CHOPPY"],
+  "doa_gate_enabled": "true",
+  "deep_audit_min_htf_score": 15,
+  "deep_audit_opening_noise_end_minute": 45,
+  "deep_audit_min_1h_bias": 0.3,
+  "deep_audit_min_4h_bias": 0.2,
+  "deep_audit_ltf_rsi_floor": 40,
+  "deep_audit_min_ltf_ema_depth": 4,
+  "deep_audit_danger_ema_depth_min": 5,
+  "deep_audit_danger_vix_threshold": 25,
+  "deep_audit_danger_min_st_aligned": 3,
+  "deep_audit_danger_div_enabled": "true"
+}

@@ -1,0 +1,78 @@
+{
+  "ok": true,
+  "since": null,
+  "until": null,
+  "totals": {
+    "totalTrades": 5,
+    "openTrades": 0,
+    "closedTrades": 5,
+    "wins": 4,
+    "losses": 1,
+    "winRate": 80,
+    "closedPnl": 149.8011144914016,
+    "profitFactor": 19.897628859556907,
+    "avgWin": 39.43202347037454,
+    "avgLoss": 7.9269793900965615,
+    "expectancy": 29.960222898280318,
+    "grossWin": 157.72809388149815,
+    "grossLoss": 7.9269793900965615
+  },
+  "breakdown": {
+    "byRank": [
+      {
+        "bucket": "60-69",
+        "n": 4,
+        "wins": 3,
+        "losses": 1,
+        "pnl": 99.36311643833402
+      },
+      {
+        "bucket": "80+",
+        "n": 1,
+        "wins": 1,
+        "losses": 0,
+        "pnl": 50.43799805306757
+      }
+    ],
+    "byRR": [
+      {
+        "bucket": "2.0+",
+        "n": 5,
+        "wins": 4,
+        "losses": 1,
+        "pnl": 149.8011144914016
+      }
+    ],
+    "byExitReason": [
+      {
+        "reason": "SMART_RUNNER_SQUEEZE_RELEASE_AGAINST",
+        "n": 2,
+        "wins": 2,
+        "losses": 0,
+        "pnl": 31.680272777065696
+      },
+      {
+        "reason": "below_trigger,trigger_breached_5pct,adverse_move_warning",
+        "n": 1,
+        "wins": 0,
+        "losses": 1,
+        "pnl": -7.9269793900965615
+      },
+      {
+        "reason": "SMART_RUNNER_SUPPORT_BREAK_CLOUD",
+        "n": 1,
+        "wins": 1,
+        "losses": 0,
+        "pnl": 50.43799805306757
+      },
+      {
+        "reason": "PHASE_LEAVE_100",
+        "n": 1,
+        "wins": 1,
+        "losses": 0,
+        "pnl": 75.60982305136488
+      }
+    ],
+    "byTriggerReason": []
+  }
+}

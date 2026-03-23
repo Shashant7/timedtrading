@@ -1,0 +1,120 @@
+{
+  "ok": true,
+  "since": null,
+  "until": null,
+  "totals": {
+    "totalTrades": 20,
+    "openTrades": 1,
+    "closedTrades": 19,
+    "wins": 10,
+    "losses": 9,
+    "winRate": 52.63157894736842,
+    "closedPnl": 1030.626338414079,
+    "profitFactor": 1.738319247676625,
+    "avgWin": 242.65351429824267,
+    "avgLoss": 155.10097828537195,
+    "expectancy": 54.24349149547785,
+    "grossWin": 2426.535142982427,
+    "grossLoss": 1395.9088045683475
+  },
+  "breakdown": {
+    "byRank": [
+      {
+        "bucket": "60-69",
+        "n": 4,
+        "wins": 3,
+        "losses": 0,
+        "pnl": 440.22072243186767
+      },
+      {
+        "bucket": "70-79",
+        "n": 11,
+        "wins": 3,
+        "losses": 8,
+        "pnl": -258.3998437130437
+      },
+      {
+        "bucket": "80+",
+        "n": 5,
+        "wins": 4,
+        "losses": 1,
+        "pnl": 848.8054596952551
+      }
+    ],
+    "byRR": [
+      {
+        "bucket": "1.0-1.49",
+        "n": 6,
+        "wins": 3,
+        "losses": 3,
+        "pnl": 643.9853077286227
+      },
+      {
+        "bucket": "1.5-1.99",
+        "n": 2,
+        "wins": 2,
+        "losses": 0,
+        "pnl": 1121.9848049743043
+      },
+      {
+        "bucket": "2.0+",
+        "n": 9,
+        "wins": 5,
+        "losses": 3,
+        "pnl": 336.8816686180285
+      },
+      {
+        "bucket": "<1.0",
+        "n": 3,
+        "wins": 0,
+        "losses": 3,
+        "pnl": -1072.2254429068767
+      }
+    ],
+    "byExitReason": [
+      {
+        "reason": "tt_short_pivot_reclaimed",
+        "n": 7,
+        "wins": 4,
+        "losses": 3,
+        "pnl": 1765.1390984261695
+      },
+      {
+        "reason": "max_loss",
+        "n": 5,
+        "wins": 3,
+        "losses": 2,
+        "pnl": -227.7597232128288
+      },
+      {
+        "reason": "tt_5_12_lost_confirmed",
+        "n": 3,
+        "wins": 0,
+        "losses": 3,
+        "pnl": -214.26400313356845
+      },
+      {
+        "reason": "dedup_reconcile",
+        "n": 3,
+        "wins": 3,
+        "losses": 0,
+        "pnl": 440.22072243186767
+      },
+      {
+        "reason": "unknown",
+        "n": 1,
+        "wins": 0,
+        "losses": 0,
+        "pnl": 0
+      },
+      {
+        "reason": "sl_breached",
+        "n": 1,
+        "wins": 0,
+        "losses": 1,
+        "pnl": -732.7097560975609
+      }
+    ],
+    "byTriggerReason": []
+  }
+}

@@ -1,0 +1,99 @@
+{
+  "ok": true,
+  "since": null,
+  "until": null,
+  "totals": {
+    "totalTrades": 41,
+    "openTrades": 23,
+    "closedTrades": 18,
+    "wins": 4,
+    "losses": 14,
+    "winRate": 22.22222222222222,
+    "closedPnl": -917.1917147157656,
+    "profitFactor": 0.15348518553316076,
+    "avgWin": 41.57497839872174,
+    "avgLoss": 77.39225916504661,
+    "expectancy": -50.955095261986976,
+    "grossWin": 166.29991359488696,
+    "grossLoss": 1083.4916283106525
+  },
+  "breakdown": {
+    "byRank": [
+      {
+        "bucket": "60-69",
+        "n": 1,
+        "wins": 0,
+        "losses": 1,
+        "pnl": -76.24481327800805
+      },
+      {
+        "bucket": "70-79",
+        "n": 12,
+        "wins": 1,
+        "losses": 3,
+        "pnl": -84.0223092722292
+      },
+      {
+        "bucket": "80+",
+        "n": 28,
+        "wins": 3,
+        "losses": 10,
+        "pnl": -756.9245921655283
+      }
+    ],
+    "byRR": [
+      {
+        "bucket": "2.0+",
+        "n": 41,
+        "wins": 4,
+        "losses": 14,
+        "pnl": -917.1917147157656
+      }
+    ],
+    "byExitReason": [
+      {
+        "reason": "unknown",
+        "n": 23,
+        "wins": 0,
+        "losses": 0,
+        "pnl": 0
+      },
+      {
+        "reason": "doa_early_exit",
+        "n": 12,
+        "wins": 0,
+        "losses": 12,
+        "pnl": -753.1617244309084
+      },
+      {
+        "reason": "dedup_reconcile",
+        "n": 3,
+        "wins": 3,
+        "losses": 0,
+        "pnl": 162.52958979686602
+      },
+      {
+        "reason": "max_loss",
+        "n": 1,
+        "wins": 0,
+        "losses": 1,
+        "pnl": -280.6843153276335
+      },
+      {
+        "reason": "RUNNER_MAX_DRAWDOWN_BREAKER",
+        "n": 1,
+        "wins": 0,
+        "losses": 1,
+        "pnl": -49.645588552110596
+      },
+      {
+        "reason": "PROFIT_GIVEBACK",
+        "n": 1,
+        "wins": 1,
+        "losses": 0,
+        "pnl": 3.7703237980209185
+      }
+    ],
+    "byTriggerReason": []
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "ok": true,
+  "label": "variant-a-intel-driven-",
+  "captured_at": "20260312-000619",
+  "start_date": "2025-07-01",
+  "end_date": "2026-03-11",
+  "trader_only": true,
+  "sequence": false,
+  "note": "Captured automatically before reset for A/B comparison."
+}

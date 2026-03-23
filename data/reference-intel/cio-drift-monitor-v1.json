@@ -1,0 +1,42 @@
+{
+  "generated_at_utc": "2026-03-23T10:15:10.495290+00:00",
+  "source": "d1",
+  "window_sizes": {
+    "recent": 400,
+    "prior": 400
+  },
+  "recent": {
+    "decision_rows": 400,
+    "rows_with_outcome": 0,
+    "approve_adjust_rows": 0,
+    "reject_rows": 0,
+    "approve_adjust_win_rate": 0.0,
+    "reject_counterfactual_win_rate": 0.0,
+    "avg_confidence": 0.0,
+    "avg_edge_score": 0.0
+  },
+  "prior": {
+    "decision_rows": 400,
+    "rows_with_outcome": 0,
+    "approve_adjust_rows": 0,
+    "reject_rows": 0,
+    "approve_adjust_win_rate": 0.0,
+    "reject_counterfactual_win_rate": 0.0,
+    "avg_confidence": 0.0,
+    "avg_edge_score": 0.0
+  },
+  "delta": {
+    "approve_adjust_win_rate": 0.0,
+    "reject_counterfactual_win_rate": 0.0,
+    "avg_confidence": 0.0,
+    "avg_edge_score": 0.0
+  },
+  "alerts": {
+    "wr_drop_exceeds_threshold": false,
+    "reject_inversion": false,
+    "drift_alert": false
+  },
+  "thresholds": {
+    "wr_drop_threshold": 0.08
+  }
+}

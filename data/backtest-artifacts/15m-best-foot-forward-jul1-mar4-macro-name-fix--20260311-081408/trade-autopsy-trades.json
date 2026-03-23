@@ -1,0 +1,25 @@
+{
+  "ok": true,
+  "count": 1,
+  "trades": [
+    {
+      "trade_id": "ULTA-1751376600000-m4uav2yx0",
+      "ticker": "ULTA",
+      "direction": "LONG",
+      "entry_ts": 1751376600000,
+      "exit_ts": 1751391900000,
+      "trim_ts": null,
+      "entry_price": 473.059998,
+      "exit_price": 472.39999,
+      "pnl": -8.371132661274034,
+      "pnl_pct": -0.13951887768790056,
+      "exit_reason": "below_trigger,trigger_breached_5pct,daily_ema_regime_break,overextended,large_adverse_move",
+      "signal_snapshot_json": "{\"avg_bias\":0.938,\"tf\":{\"15m\":{\"bias\":0.912,\"signals\":{\"ema_cross\":1,\"supertrend\":1,\"ema_structure\":1,\"ema_depth\":10,\"rsi\":62.4}},\"30m\":{\"bias\":0.941,\"signals\":{\"ema_cross\":1,\"st_slope\":1,\"supertrend\":1,\"ema_structure\":1,\"ema_depth\":10,\"rsi\":67.3}},\"1H\":{\"bias\":0.955,\"signals\":{\"ema_cross\":1,\"st_slope\":1,\"supertrend\":1,\"ema_structure\":1,\"ema_depth\":10,\"rsi\":70.2}},\"4H\":{\"bias\":0.938,\"signals\":{\"ema_cross\":1,\"supertrend\":1,\"ema_structure\":1,\"ema_depth\":10,\"rsi\":67.6}},\"D\":{\"bias\":0.941,\"signals\":{\"ema5_48\":1,\"ema_cross\":1,\"supertrend\":1,\"ema_structure\":1,\"ema_depth\":10,\"rsi\":65.8}}}}",
+      "entry_path": "ema_regime_confirmed_long",
+      "consensus_direction": "LONG",
+      "max_favorable_excursion": null,
+      "max_adverse_excursion": null,
+      "tf_stack_json": "[{\"tf\":\"15m\",\"bias\":\"bullish\",\"biasScore\":0.912,\"weight\":1,\"signals\":{\"ema_cross\":1,\"supertrend\":1,\"ema_structure\":1,\"ema_depth\":10,\"rsi\":62.4},\"crossDir\":null,\"crossAge\":null},{\"tf\":\"30m\",\"bias\":\"bullish\",\"biasScore\":0.941,\"weight\":1,\"signals\":{\"ema_cross\":1,\"st_slope\":1,\"supertrend\":1,\"ema_structure\":1,\"ema_depth\":10,\"rsi\":67.3},\"crossDir\":null,\"crossAge\":null},{\"tf\":\"1H\",\"bias\":\"bullish\",\"biasScore\":0.955,\"weight\":1,\"signals\":{\"ema_cross\":1,\"st_slope\":1,\"supertrend\":1,\"ema_structure\":1,\"ema_depth\":10,\"rsi\":70.2},\"crossDir\":null,\"crossAge\":null},{\"tf\":\"4H\",\"bias\":\"bullish\",\"biasScore\":0.938,\"weight\":1,\"signals\":{\"ema_cross\":1,\"supertrend\":1,\"ema_structure\":1,\"ema_depth\":10,\"rsi\":67.6},\"crossDir\":null,\"crossAge\":null},{\"tf\":\"D\",\"bias\":\"bullish\",\"biasScore\":0.941,\"weight\":1.5,\"signals\":{\"ema5_48\":1,\"ema_cross\":1,\"supertrend\":1,\"ema_structure\":1,\"ema_depth\":10,\"rsi\":65.8},\"crossDir\":null,\"crossAge\":null}]"
+    }
+  ]
+}

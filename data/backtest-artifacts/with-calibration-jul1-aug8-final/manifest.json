@@ -1,0 +1,7 @@
+{
+    "label": "with-calibration-jul1-aug8-final",
+    "start_date": "2025-07-01",
+    "end_date": "2025-08-08",
+    "trader_only": true,
+    "note": "Full run with calibration loaded in replay. Applied adaptive_entry_gates, adaptive_sl_tp, calibrated_rank_min=70 to model_config."
+}

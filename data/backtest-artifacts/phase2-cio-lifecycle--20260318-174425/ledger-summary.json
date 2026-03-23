@@ -1,0 +1,169 @@
+{
+  "ok": true,
+  "since": null,
+  "until": null,
+  "totals": {
+    "totalTrades": 61,
+    "openTrades": 15,
+    "closedTrades": 46,
+    "wins": 27,
+    "losses": 19,
+    "winRate": 58.69565217391305,
+    "closedPnl": 1253.0907893461047,
+    "profitFactor": 1.562372264800713,
+    "avgWin": 128.93754606462056,
+    "avgLoss": 117.27489233677107,
+    "expectancy": 27.241104116219667,
+    "grossWin": 3481.3137437447554,
+    "grossLoss": 2228.2229543986505
+  },
+  "breakdown": {
+    "byRank": [
+      {
+        "bucket": "60-69",
+        "n": 3,
+        "wins": 1,
+        "losses": 1,
+        "pnl": 48.51902292921683
+      },
+      {
+        "bucket": "70-79",
+        "n": 9,
+        "wins": 8,
+        "losses": 0,
+        "pnl": 1033.3797306062893
+      },
+      {
+        "bucket": "80+",
+        "n": 44,
+        "wins": 18,
+        "losses": 18,
+        "pnl": 171.19203581059858
+      },
+      {
+        "bucket": "unknown",
+        "n": 5,
+        "wins": 0,
+        "losses": 0,
+        "pnl": 0
+      }
+    ],
+    "byRR": [
+      {
+        "bucket": "2.0+",
+        "n": 56,
+        "wins": 27,
+        "losses": 19,
+        "pnl": 1253.0907893461047
+      },
+      {
+        "bucket": "unknown",
+        "n": 5,
+        "wins": 0,
+        "losses": 0,
+        "pnl": 0
+      }
+    ],
+    "byExitReason": [
+      {
+        "reason": "unknown",
+        "n": 21,
+        "wins": 7,
+        "losses": 0,
+        "pnl": 597.3510429493473
+      },
+      {
+        "reason": "SMART_RUNNER_TD_EXHAUSTION_RUNNER",
+        "n": 10,
+        "wins": 10,
+        "losses": 0,
+        "pnl": 1736.8115855922279
+      },
+      {
+        "reason": "SMART_RUNNER_SUPPORT_BREAK_CLOUD",
+        "n": 7,
+        "wins": 2,
+        "losses": 5,
+        "pnl": 26.653304032941165
+      },
+      {
+        "reason": "max_loss",
+        "n": 4,
+        "wins": 0,
+        "losses": 4,
+        "pnl": -505.0717786181085
+      },
+      {
+        "reason": "below_trigger,trigger_breached_5pct,daily_ema_regime_break,overextended,large_adverse_move",
+        "n": 3,
+        "wins": 2,
+        "losses": 1,
+        "pnl": 38.335215260848386
+      },
+      {
+        "reason": "SOFT_FUSE_RSI_CONFIRMED",
+        "n": 3,
+        "wins": 1,
+        "losses": 1,
+        "pnl": 363.4228421233495
+      },
+      {
+        "reason": "sl_breached,ichimoku_regime_break,left_entry_corridor",
+        "n": 2,
+        "wins": 1,
+        "losses": 1,
+        "pnl": -48.14657737971223
+      },
+      {
+        "reason": "sl_breached",
+        "n": 2,
+        "wins": 0,
+        "losses": 2,
+        "pnl": -251.31992829526814
+      },
+      {
+        "reason": "dedup_reconcile",
+        "n": 2,
+        "wins": 2,
+        "losses": 0,
+        "pnl": 61.35794300162269
+      },
+      {
+        "reason": "PHASE_LEAVE_100",
+        "n": 2,
+        "wins": 2,
+        "losses": 0,
+        "pnl": 489.44037368937114
+      },
+      {
+        "reason": "HARD_LOSS_CAP",
+        "n": 2,
+        "wins": 0,
+        "losses": 2,
+        "pnl": -935.984320752584
+      },
+      {
+        "reason": "sl_breached,tp_reached,overextended",
+        "n": 1,
+        "wins": 0,
+        "losses": 1,
+        "pnl": -29.00618164526931
+      },
+      {
+        "reason": "ema_regime_reversed",
+        "n": 1,
+        "wins": 0,
+        "losses": 1,
+        "pnl": -117.92283571192097
+      },
+      {
+        "reason": "STALL_FORCE_CLOSE",
+        "n": 1,
+        "wins": 0,
+        "losses": 1,
+        "pnl": -172.82989490074004
+      }
+    ],
+    "byTriggerReason": []
+  }
+}

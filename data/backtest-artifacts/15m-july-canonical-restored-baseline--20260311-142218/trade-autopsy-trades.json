@@ -1,0 +1,32 @@
+{
+  "ok": true,
+  "count": 1,
+  "trades": [
+    {
+      "trade_id": "ALB-1752067800000-jxs35k810",
+      "run_id": "backtest_2025-07-01_2025-07-31@2026-03-11T18:22:16.457Z",
+      "ticker": "ALB",
+      "direction": "LONG",
+      "entry_ts": 1752067800000,
+      "exit_ts": 1752082200000,
+      "trim_ts": null,
+      "entry_price": 69.97,
+      "exit_price": 70.7,
+      "pnl": 83.46434186079794,
+      "pnl_pct": 1.0433042732599742,
+      "exit_reason": "below_trigger,trigger_breached_5pct,daily_ema_regime_break,overextended,large_adverse_move",
+      "signal_snapshot_json": "{\"avg_bias\":0.625,\"tf\":{\"15m\":{\"bias\":0.39,\"signals\":{\"ema_cross\":1,\"supertrend\":1,\"ema_structure\":0.4,\"ema_depth\":3,\"rsi\":43.9}},\"30m\":{\"bias\":-0.138,\"signals\":{\"ema_cross\":1,\"supertrend\":-1,\"ema_structure\":0.4,\"ema_depth\":3,\"rsi\":38.4}},\"1H\":{\"bias\":0.786,\"signals\":{\"ema_cross\":1,\"supertrend\":1,\"ema_structure\":1,\"ema_depth\":7,\"rsi\":61.2}},\"4H\":{\"bias\":0.938,\"signals\":{\"ema_cross\":1,\"supertrend\":1,\"ema_structure\":1,\"ema_depth\":10,\"rsi\":67.5}},\"D\":{\"bias\":0.973,\"signals\":{\"ema5_48\":1,\"ema_cross\":1,\"st_slope\":1,\"supertrend\":1,\"ema_structure\":1,\"ema_depth\":10,\"rsi\":72.7}}},\"lineage\":{\"entry_path\":\"ema_regime_confirmed_long\",\"direction_source\":\"state_bull\",\"state\":\"HTF_BULL_LTF_BULL\",\"regime_class\":\"TRENDING\",\"regime_score\":6,\"execution_profile\":{\"active_profile\":\"correction_transition\",\"confidence\":0.68,\"reasons\":[\"Mixed trend and transition evidence\",\"Market internals are balanced\",\"Ticker character favors pullback entries\",\"Ticker-specific threshold adjustment 5\"],\"ticker_regime\":\"TRENDING\",\"market_state\":\"balanced\",\"personality\":\"MEAN_REVERT\"},\"market_internals\":null,\"regime_params\":{\"minHTFScore\":10,\"minRR\":1.5,\"maxCompletion\":0.6,\"positionSizeMultiplier\":1,\"requireSqueezeRelease\":false,\"defendWinnerBias\":null}}}",
+      "entry_path": "ema_regime_confirmed_long",
+      "consensus_direction": null,
+      "max_favorable_excursion": null,
+      "max_adverse_excursion": null,
+      "tf_stack_json": "[{\"tf\":\"15m\",\"bias\":\"bullish\",\"biasScore\":0.39,\"weight\":1,\"signals\":{\"ema_cross\":1,\"supertrend\":1,\"ema_structure\":0.4,\"ema_depth\":3,\"rsi\":43.9},\"crossDir\":null,\"crossAge\":null},{\"tf\":\"30m\",\"bias\":\"bearish\",\"biasScore\":-0.138,\"weight\":1,\"signals\":{\"ema_cross\":1,\"supertrend\":-1,\"ema_structure\":0.4,\"ema_depth\":3,\"rsi\":38.4},\"crossDir\":null,\"crossAge\":null},{\"tf\":\"1H\",\"bias\":\"bullish\",\"biasScore\":0.786,\"weight\":1,\"signals\":{\"ema_cross\":1,\"supertrend\":1,\"ema_structure\":1,\"ema_depth\":7,\"rsi\":61.2},\"crossDir\":null,\"crossAge\":null},{\"tf\":\"4H\",\"bias\":\"bullish\",\"biasScore\":0.938,\"weight\":1,\"signals\":{\"ema_cross\":1,\"supertrend\":1,\"ema_structure\":1,\"ema_depth\":10,\"rsi\":67.5},\"crossDir\":null,\"crossAge\":null},{\"tf\":\"D\",\"bias\":\"bullish\",\"biasScore\":0.973,\"weight\":1.5,\"signals\":{\"ema5_48\":1,\"ema_cross\":1,\"st_slope\":1,\"supertrend\":1,\"ema_structure\":1,\"ema_depth\":10,\"rsi\":72.7},\"crossDir\":null,\"crossAge\":null}]",
+      "execution_profile_name": "correction_transition",
+      "execution_profile_confidence": 0.68,
+      "market_state": "balanced",
+      "execution_profile_json": "{\"entry_path\":\"ema_regime_confirmed_long\",\"direction_source\":\"state_bull\",\"state\":\"HTF_BULL_LTF_BULL\",\"regime_class\":\"TRENDING\",\"regime_score\":6,\"execution_profile\":{\"active_profile\":\"correction_transition\",\"confidence\":0.68,\"reasons\":[\"Mixed trend and transition evidence\",\"Market internals are balanced\",\"Ticker character favors pullback entries\",\"Ticker-specific threshold adjustment 5\"],\"ticker_regime\":\"TRENDING\",\"market_state\":\"balanced\",\"personality\":\"MEAN_REVERT\"},\"market_internals\":null,\"regime_params\":{\"minHTFScore\":10,\"minRR\":1.5,\"maxCompletion\":0.6,\"positionSizeMultiplier\":1,\"requireSqueezeRelease\":false,\"defendWinnerBias\":null}}"
+    }
+  ],
+  "source": "replay_kv",
+  "live_run_id": "backtest_2025-07-01_2025-07-31@2026-03-11T18:22:16.457Z"
+}

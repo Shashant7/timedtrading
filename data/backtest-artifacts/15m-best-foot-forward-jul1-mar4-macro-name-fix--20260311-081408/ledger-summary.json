@@ -1,0 +1,64 @@
+{
+  "ok": true,
+  "since": null,
+  "until": null,
+  "totals": {
+    "totalTrades": 3,
+    "openTrades": 2,
+    "closedTrades": 1,
+    "wins": 0,
+    "losses": 1,
+    "winRate": 0,
+    "closedPnl": -8.371132661274034,
+    "profitFactor": 0,
+    "avgWin": 0,
+    "avgLoss": 8.371132661274034,
+    "expectancy": -8.371132661274034,
+    "grossWin": 0,
+    "grossLoss": 8.371132661274034
+  },
+  "breakdown": {
+    "byRank": [
+      {
+        "bucket": "80+",
+        "n": 2,
+        "wins": 0,
+        "losses": 1,
+        "pnl": -8.371132661274034
+      },
+      {
+        "bucket": "<60",
+        "n": 1,
+        "wins": 0,
+        "losses": 0,
+        "pnl": 0
+      }
+    ],
+    "byRR": [
+      {
+        "bucket": "2.0+",
+        "n": 3,
+        "wins": 0,
+        "losses": 1,
+        "pnl": -8.371132661274034
+      }
+    ],
+    "byExitReason": [
+      {
+        "reason": "unknown",
+        "n": 2,
+        "wins": 0,
+        "losses": 0,
+        "pnl": 0
+      },
+      {
+        "reason": "below_trigger,trigger_breached_5pct,daily_ema_regime_break,overextended,large_adverse_move",
+        "n": 1,
+        "wins": 0,
+        "losses": 1,
+        "pnl": -8.371132661274034
+      }
+    ],
+    "byTriggerReason": []
+  }
+}

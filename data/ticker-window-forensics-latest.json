@@ -1,0 +1,947 @@
+{
+  "generated_at_utc": "2026-03-22T05:08:39.750289+00:00",
+  "reference": "data/backtest-artifacts/option-a-rank-overhaul--20260309-202532/trade-autopsy-trades.json",
+  "tickers": [
+    "AWI",
+    "CDNS",
+    "CSX",
+    "HII",
+    "ITT",
+    "ORCL",
+    "PLTR",
+    "PSTG",
+    "PWR"
+  ],
+  "report": [
+    {
+      "ticker": "AWI",
+      "reference_trade": {
+        "trade_id": "AWI-1753450200000-3kxa19s7u",
+        "entry_et": "2025-07-25 09:30 AM",
+        "exit_et": "2025-07-29 09:30 AM",
+        "pnl": 256.84,
+        "pnl_pct": 4.235,
+        "entry_path": "ripster_momentum",
+        "exit_reason": "HARD_FUSE_RSI_EXTREME",
+        "direction": "LONG"
+      },
+      "overlap_window_stats": {
+        "total_trades": 6,
+        "wins": 5,
+        "losses": 1,
+        "win_rate": 83.3,
+        "avg_pnl": 130.85,
+        "entry_paths_top": [
+          [
+            "ripster_momentum",
+            4
+          ],
+          [
+            "ema_regime_confirmed_long",
+            2
+          ]
+        ],
+        "exit_reasons_top": [
+          [
+            "below_trigger,trigger_breached_5pct,daily_ema_regime_break,overextended,large_adverse_move",
+            2
+          ],
+          [
+            "dedup_reconcile",
+            2
+          ],
+          [
+            "SOFT_FUSE_RSI_CONFIRMED",
+            1
+          ],
+          [
+            "HARD_FUSE_RSI_EXTREME",
+            1
+          ]
+        ],
+        "sources_count": 6
+      },
+      "nearest_alternates": [
+        {
+          "source": "15m-best-foot-forward-jul1-mar4-patched--20260310-235133",
+          "run_id": "",
+          "trade_id": "AWI-1753450200000-sld24h87h",
+          "entry_et": "2025-07-25 09:30 AM",
+          "exit_et": "2025-07-28 09:30 AM",
+          "entry_path": "ripster_momentum",
+          "exit_reason": "below_trigger,trigger_breached_5pct,daily_ema_regime_break,overextended,large_adverse_move",
+          "pnl": 149.18,
+          "pnl_pct": 2.486
+        },
+        {
+          "source": "ab-control-jul2025-classified-20260304-143852",
+          "run_id": "",
+          "trade_id": "AWI-1753470000000-94vho28s0",
+          "entry_et": "2025-07-25 03:00 PM",
+          "exit_et": "2025-07-28 09:30 AM",
+          "entry_path": "ema_regime_confirmed_long",
+          "exit_reason": "below_trigger,trigger_breached_5pct,daily_ema_regime_break,overextended,large_adverse_move",
+          "pnl": -17.03,
+          "pnl_pct": -0.285
+        },
+        {
+          "source": "phase2-tuned-v5--20260318-222133",
+          "run_id": "backtest_2025-07-01_2026-03-18@2026-03-19T02:20:35.042Z",
+          "trade_id": "AWI-1753213500000-rzpjvbd03",
+          "entry_et": "2025-07-22 03:45 PM",
+          "exit_et": "2025-07-29 09:30 AM",
+          "entry_path": "ema_regime_confirmed_long",
+          "exit_reason": "SOFT_FUSE_RSI_CONFIRMED",
+          "pnl": 139.7,
+          "pnl_pct": 3.095
+        },
+        {
+          "source": "ripster-tune-v2-quick-jul--20260304-165144",
+          "run_id": "",
+          "trade_id": "AWI-1751572200000-5quino4zb",
+          "entry_et": "2025-07-03 03:50 PM",
+          "exit_et": "2026-03-04 05:49 PM",
+          "entry_path": "ripster_momentum",
+          "exit_reason": "dedup_reconcile",
+          "pnl": 129.17,
+          "pnl_pct": 1.615
+        },
+        {
+          "source": "ab-variant-ripster-jul2025-classified-20260304-160557",
+          "run_id": "",
+          "trade_id": "AWI-1751572200000-5quino4zb",
+          "entry_et": "2025-07-03 03:50 PM",
+          "exit_et": "2026-03-04 05:05 PM",
+          "entry_path": "ripster_momentum",
+          "exit_reason": "dedup_reconcile",
+          "pnl": 127.26,
+          "pnl_pct": 1.591
+        }
+      ]
+    },
+    {
+      "ticker": "CDNS",
+      "reference_trade": {
+        "trade_id": "CDNS-1751376600000-00vnweq1y",
+        "entry_et": "2025-07-01 09:30 AM",
+        "exit_et": "2025-07-28 04:00 PM",
+        "pnl": 585.52,
+        "pnl_pct": 9.759,
+        "entry_path": "ripster_momentum",
+        "exit_reason": "TP_FULL",
+        "direction": "LONG"
+      },
+      "overlap_window_stats": {
+        "total_trades": 10,
+        "wins": 6,
+        "losses": 4,
+        "win_rate": 60.0,
+        "avg_pnl": 165.17,
+        "entry_paths_top": [
+          [
+            "ema_regime_confirmed_long",
+            7
+          ],
+          [
+            "ripster_momentum",
+            3
+          ]
+        ],
+        "exit_reasons_top": [
+          [
+            "TP_FULL",
+            3
+          ],
+          [
+            "sl_breached",
+            2
+          ],
+          [
+            "max_loss",
+            2
+          ],
+          [
+            "SMART_RUNNER_SUPPORT_BREAK_CLOUD",
+            1
+          ],
+          [
+            "SMART_RUNNER_TD_EXHAUSTION_RUNNER",
+            1
+          ]
+        ],
+        "sources_count": 10
+      },
+      "nearest_alternates": [
+        {
+          "source": "focused-variant-d-worst-tickers--20260312-203218",
+          "run_id": "backtest_2025-07-01_2026-03-12@2026-03-12T20:06:19.680Z",
+          "trade_id": "CDNS-1751463900000-qq8rqweop",
+          "entry_et": "2025-07-02 09:45 AM",
+          "exit_et": "2025-07-03 09:35 AM",
+          "entry_path": "ema_regime_confirmed_long",
+          "exit_reason": "SOFT_FUSE_RSI_CONFIRMED",
+          "pnl": 529.89,
+          "pnl_pct": 4.945
+        },
+        {
+          "source": "15m-backtest--20260309-003059",
+          "run_id": "backtest_2025-07-01_2026-03-04@2026-03-08T13:24:21.846Z",
+          "trade_id": "CDNS-1751465700000-x93ajblno",
+          "entry_et": "2025-07-02 10:15 AM",
+          "exit_et": "2025-07-28 04:00 PM",
+          "entry_path": "ripster_momentum",
+          "exit_reason": "TP_FULL",
+          "pnl": 533.53,
+          "pnl_pct": 8.892
+        },
+        {
+          "source": "pre-15m-snapshot",
+          "run_id": "backtest_2025-07-01_2026-03-04@2026-03-08T13:24:21.846Z",
+          "trade_id": "CDNS-1751465700000-x93ajblno",
+          "entry_et": "2025-07-02 10:15 AM",
+          "exit_et": "2025-07-28 04:00 PM",
+          "entry_path": "ripster_momentum",
+          "exit_reason": "TP_FULL",
+          "pnl": 533.53,
+          "pnl_pct": 8.892
+        },
+        {
+          "source": "with-calibration-jul1-aug8--20260311-172921",
+          "run_id": "backtest_2025-07-01_2025-08-08@2026-03-11T21:29:20.509Z",
+          "trade_id": "CDNS-1752154200000-j0e4pzga4",
+          "entry_et": "2025-07-10 09:30 AM",
+          "exit_et": "2025-07-14 10:15 AM",
+          "entry_path": "ema_regime_confirmed_long",
+          "exit_reason": "max_loss",
+          "pnl": -175.72,
+          "pnl_pct": -2.197
+        },
+        {
+          "source": "phase-osc-v1--20260312-221824",
+          "run_id": "backtest_2025-07-01_2026-03-12@2026-03-13T02:18:22.839Z",
+          "trade_id": "CDNS-1752587100000-i5rbv5qui",
+          "entry_et": "2025-07-15 09:45 AM",
+          "exit_et": "2025-07-16 10:15 AM",
+          "entry_path": "ema_regime_confirmed_long",
+          "exit_reason": "max_loss",
+          "pnl": -409.02,
+          "pnl_pct": -2.49
+        }
+      ]
+    },
+    {
+      "ticker": "CSX",
+      "reference_trade": {
+        "trade_id": "CSX-1751377500000-0bkrj96aq",
+        "entry_et": "2025-07-01 09:45 AM",
+        "exit_et": "2025-07-18 09:30 AM",
+        "pnl": 374.49,
+        "pnl_pct": 4.681,
+        "entry_path": "ripster_momentum",
+        "exit_reason": "TP_FULL",
+        "direction": "LONG"
+      },
+      "overlap_window_stats": {
+        "total_trades": 89,
+        "wins": 65,
+        "losses": 24,
+        "win_rate": 73.0,
+        "avg_pnl": 115.35,
+        "entry_paths_top": [
+          [
+            "ripster_momentum",
+            59
+          ],
+          [
+            "ema_regime_confirmed_long",
+            29
+          ],
+          [
+            "ripster_pullback",
+            1
+          ]
+        ],
+        "exit_reasons_top": [
+          [
+            "below_trigger,trigger_breached_5pct,adverse_move_warning",
+            23
+          ],
+          [
+            "TP_FULL",
+            16
+          ],
+          [
+            "SOFT_FUSE_RSI_CONFIRMED",
+            16
+          ],
+          [
+            "sl_breached",
+            7
+          ],
+          [
+            "unknown",
+            7
+          ]
+        ],
+        "sources_count": 69
+      },
+      "nearest_alternates": [
+        {
+          "source": "15m-backtest--20260310-081413",
+          "run_id": "backtest_2025-07-01_2026-03-04@2026-03-10T02:55:36.838Z",
+          "trade_id": "CSX-1751377500000-ujapy41yz",
+          "entry_et": "2025-07-01 09:45 AM",
+          "exit_et": "2025-07-01 01:45 PM",
+          "entry_path": "ripster_momentum",
+          "exit_reason": "post_trim_runner_trigger_pullback_defend",
+          "pnl": 147.88,
+          "pnl_pct": 1.849
+        },
+        {
+          "source": "variant-d-tiered-sizing--20260312-160621",
+          "run_id": "backtest_2025-07-01_2026-03-12@2026-03-12T20:06:19.680Z",
+          "trade_id": "CSX-1751377800000-l2ob4wej9",
+          "entry_et": "2025-07-01 09:50 AM",
+          "exit_et": "2025-07-01 11:30 AM",
+          "entry_path": "ema_regime_confirmed_long",
+          "exit_reason": "SOFT_FUSE_RSI_CONFIRMED",
+          "pnl": 190.06,
+          "pnl_pct": 2.376
+        },
+        {
+          "source": "variant-d-tiered-sizing--20260312-154946",
+          "run_id": "backtest_2025-07-01_2026-03-12@2026-03-12T19:49:35.101Z",
+          "trade_id": "CSX-1751377800000-l2ob4wej9",
+          "entry_et": "2025-07-01 09:50 AM",
+          "exit_et": "2025-07-01 11:30 AM",
+          "entry_path": "ema_regime_confirmed_long",
+          "exit_reason": "SOFT_FUSE_RSI_CONFIRMED",
+          "pnl": 190.06,
+          "pnl_pct": 2.376
+        },
+        {
+          "source": "focused-variant-d-worst-tickers--20260312-203218",
+          "run_id": "backtest_2025-07-01_2026-03-12@2026-03-12T20:06:19.680Z",
+          "trade_id": "CSX-1751377800000-uwdnxhuwh",
+          "entry_et": "2025-07-01 09:50 AM",
+          "exit_et": "2025-07-01 11:30 AM",
+          "entry_path": "ema_regime_confirmed_long",
+          "exit_reason": "SOFT_FUSE_RSI_CONFIRMED",
+          "pnl": 475.24,
+          "pnl_pct": 2.376
+        },
+        {
+          "source": "15m-calibration-only-jul1-mar4--20260307-224633",
+          "run_id": "backtest_2025-07-01_2026-03-04@2026-03-08T00:50:53.424Z",
+          "trade_id": "CSX-1751376900000-tvdox65dz",
+          "entry_et": "2025-07-01 09:35 AM",
+          "exit_et": "2025-07-18 09:30 AM",
+          "entry_path": "ripster_momentum",
+          "exit_reason": "TP_FULL",
+          "pnl": 368.11,
+          "pnl_pct": 4.601
+        }
+      ]
+    },
+    {
+      "ticker": "HII",
+      "reference_trade": {
+        "trade_id": "HII-1752845400000-6r555jpyo",
+        "entry_et": "2025-07-18 09:30 AM",
+        "exit_et": "2025-07-31 10:00 AM",
+        "pnl": 638.81,
+        "pnl_pct": 10.963,
+        "entry_path": "ripster_momentum",
+        "exit_reason": "TP_FULL",
+        "direction": "LONG"
+      },
+      "overlap_window_stats": {
+        "total_trades": 22,
+        "wins": 20,
+        "losses": 2,
+        "win_rate": 90.9,
+        "avg_pnl": 467.01,
+        "entry_paths_top": [
+          [
+            "ripster_momentum",
+            9
+          ],
+          [
+            "ripster_pullback",
+            8
+          ],
+          [
+            "ema_regime_confirmed_long",
+            5
+          ]
+        ],
+        "exit_reasons_top": [
+          [
+            "TP_FULL",
+            15
+          ],
+          [
+            "sl_breached",
+            3
+          ],
+          [
+            "max_loss",
+            1
+          ],
+          [
+            "above_trigger,sl_breached,ichimoku_regime_break,left_entry_corridor",
+            1
+          ],
+          [
+            "ripster_34_50_lost_mtf",
+            1
+          ]
+        ],
+        "sources_count": 22
+      },
+      "nearest_alternates": [
+        {
+          "source": "15m-profile-lineage-jul1-mar4--20260311-133409",
+          "run_id": "",
+          "trade_id": "HII-1752673500000-1q8sf2vr6",
+          "entry_et": "2025-07-16 09:45 AM",
+          "exit_et": "2025-07-30 03:15 PM",
+          "entry_path": "ema_regime_confirmed_long",
+          "exit_reason": "sl_breached",
+          "pnl": 181.36,
+          "pnl_pct": 2.267
+        },
+        {
+          "source": "variant-d-tiered-sizing--20260312-160621",
+          "run_id": "backtest_2025-07-01_2026-03-12@2026-03-12T20:06:19.680Z",
+          "trade_id": "HII-1753110300000-p5dyrs4jx",
+          "entry_et": "2025-07-21 11:05 AM",
+          "exit_et": "2025-07-30 02:30 PM",
+          "entry_path": "ema_regime_confirmed_long",
+          "exit_reason": "sl_breached",
+          "pnl": 216.62,
+          "pnl_pct": 2.708
+        },
+        {
+          "source": "variant-d-tiered-sizing--20260312-154946",
+          "run_id": "backtest_2025-07-01_2026-03-12@2026-03-12T19:49:35.101Z",
+          "trade_id": "HII-1753110300000-p5dyrs4jx",
+          "entry_et": "2025-07-21 11:05 AM",
+          "exit_et": "2025-07-30 02:30 PM",
+          "entry_path": "ema_regime_confirmed_long",
+          "exit_reason": "sl_breached",
+          "pnl": 216.62,
+          "pnl_pct": 2.708
+        },
+        {
+          "source": "with-calibration-jul1-aug8--20260311-172921",
+          "run_id": "backtest_2025-07-01_2025-08-08@2026-03-11T21:29:20.509Z",
+          "trade_id": "HII-1753191900000-nec2xh72j",
+          "entry_et": "2025-07-22 09:45 AM",
+          "exit_et": "2025-07-30 03:30 PM",
+          "entry_path": "ema_regime_confirmed_long",
+          "exit_reason": "above_trigger,sl_breached,ichimoku_regime_break,left_entry_corridor",
+          "pnl": 164.48,
+          "pnl_pct": 2.056
+        },
+        {
+          "source": "ripster-v2-feedback-targeted-0701-0703--20260304-184940",
+          "run_id": "",
+          "trade_id": "HII-1753450200000-rx2fwdaqv",
+          "entry_et": "2025-07-25 09:30 AM",
+          "exit_et": "2025-07-29 01:00 PM",
+          "entry_path": "ripster_pullback",
+          "exit_reason": "ripster_34_50_lost_mtf",
+          "pnl": -83.0,
+          "pnl_pct": -1.037
+        }
+      ]
+    },
+    {
+      "ticker": "ITT",
+      "reference_trade": {
+        "trade_id": "ITT-1751379300000-x01hj8tuw",
+        "entry_et": "2025-07-01 10:15 AM",
+        "exit_et": "2025-07-07 02:30 PM",
+        "pnl": 39.29,
+        "pnl_pct": 0.491,
+        "entry_path": "ripster_momentum",
+        "exit_reason": "sl_breached",
+        "direction": "LONG"
+      },
+      "overlap_window_stats": {
+        "total_trades": 12,
+        "wins": 10,
+        "losses": 2,
+        "win_rate": 83.3,
+        "avg_pnl": 64.18,
+        "entry_paths_top": [
+          [
+            "ripster_momentum",
+            6
+          ],
+          [
+            "ema_regime_confirmed_long",
+            5
+          ],
+          [
+            "ripster_pullback",
+            1
+          ]
+        ],
+        "exit_reasons_top": [
+          [
+            "below_trigger,trigger_breached_5pct,daily_ema_regime_break,overextended,large_adverse_move",
+            6
+          ],
+          [
+            "sl_breached",
+            3
+          ],
+          [
+            "critical_trigger_noise_defend",
+            3
+          ]
+        ],
+        "sources_count": 12
+      },
+      "nearest_alternates": [
+        {
+          "source": "15m-backtest--20260310-081413",
+          "run_id": "backtest_2025-07-01_2026-03-04@2026-03-10T02:55:36.838Z",
+          "trade_id": "ITT-1751378400000-d3fpwzeo4",
+          "entry_et": "2025-07-01 10:00 AM",
+          "exit_et": "2025-07-01 02:00 PM",
+          "entry_path": "ripster_momentum",
+          "exit_reason": "critical_trigger_noise_defend",
+          "pnl": 81.13,
+          "pnl_pct": 1.014
+        },
+        {
+          "source": "15m-backtest--20260309-003059",
+          "run_id": "backtest_2025-07-01_2026-03-04@2026-03-08T13:24:21.846Z",
+          "trade_id": "ITT-1751378400000-dx1qdxs7m",
+          "entry_et": "2025-07-01 10:00 AM",
+          "exit_et": "2025-07-07 09:55 AM",
+          "entry_path": "ripster_momentum",
+          "exit_reason": "below_trigger,trigger_breached_5pct,daily_ema_regime_break,overextended,large_adverse_move",
+          "pnl": 203.32,
+          "pnl_pct": 2.542
+        },
+        {
+          "source": "15m-backtest--20260309-225537",
+          "run_id": "backtest_2025-07-01_2026-03-04@2026-03-10T01:20:46.825Z",
+          "trade_id": "ITT-1751378400000-qrsl43u1h",
+          "entry_et": "2025-07-01 10:00 AM",
+          "exit_et": "2025-07-01 02:00 PM",
+          "entry_path": "ripster_momentum",
+          "exit_reason": "critical_trigger_noise_defend",
+          "pnl": 79.61,
+          "pnl_pct": 0.995
+        },
+        {
+          "source": "pre-15m-snapshot",
+          "run_id": "backtest_2025-07-01_2026-03-04@2026-03-08T13:24:21.846Z",
+          "trade_id": "ITT-1751378400000-dx1qdxs7m",
+          "entry_et": "2025-07-01 10:00 AM",
+          "exit_et": "2025-07-07 09:55 AM",
+          "entry_path": "ripster_momentum",
+          "exit_reason": "below_trigger,trigger_breached_5pct,daily_ema_regime_break,overextended,large_adverse_move",
+          "pnl": 203.32,
+          "pnl_pct": 2.542
+        },
+        {
+          "source": "option-a-rank-overhaul--20260309-212047",
+          "run_id": "backtest_2025-07-01_2026-03-04@2026-03-10T00:25:30.875Z",
+          "trade_id": "ITT-1751378400000-f3i6x6qyp",
+          "entry_et": "2025-07-01 10:00 AM",
+          "exit_et": "2025-07-01 02:00 PM",
+          "entry_path": "ripster_momentum",
+          "exit_reason": "critical_trigger_noise_defend",
+          "pnl": 79.61,
+          "pnl_pct": 0.995
+        }
+      ]
+    },
+    {
+      "ticker": "ORCL",
+      "reference_trade": {
+        "trade_id": "ORCL-1751377500000-4arrr4uxr",
+        "entry_et": "2025-07-01 09:45 AM",
+        "exit_et": "2025-07-17 10:00 AM",
+        "pnl": 727.41,
+        "pnl_pct": 9.093,
+        "entry_path": "ripster_momentum",
+        "exit_reason": "HARD_FUSE_RSI_EXTREME",
+        "direction": "LONG"
+      },
+      "overlap_window_stats": {
+        "total_trades": 19,
+        "wins": 19,
+        "losses": 0,
+        "win_rate": 100.0,
+        "avg_pnl": 454.95,
+        "entry_paths_top": [
+          [
+            "ripster_momentum",
+            11
+          ],
+          [
+            "ema_regime_confirmed_long",
+            7
+          ],
+          [
+            "ripster_pullback",
+            1
+          ]
+        ],
+        "exit_reasons_top": [
+          [
+            "HARD_FUSE_RSI_EXTREME",
+            7
+          ],
+          [
+            "sl_breached",
+            6
+          ],
+          [
+            "TP_FULL",
+            2
+          ],
+          [
+            "unknown",
+            2
+          ],
+          [
+            "SOFT_FUSE_RSI_CONFIRMED",
+            1
+          ]
+        ],
+        "sources_count": 17
+      },
+      "nearest_alternates": [
+        {
+          "source": "15m-backtest--20260310-081413",
+          "run_id": "backtest_2025-07-01_2026-03-04@2026-03-10T02:55:36.838Z",
+          "trade_id": "ORCL-1751463000000-2odzffkpt",
+          "entry_et": "2025-07-02 09:30 AM",
+          "exit_et": "2025-07-29 09:45 AM",
+          "entry_path": "ripster_momentum",
+          "exit_reason": "TP_FULL",
+          "pnl": 695.28,
+          "pnl_pct": 8.691
+        },
+        {
+          "source": "15m-backtest--20260309-225537",
+          "run_id": "backtest_2025-07-01_2026-03-04@2026-03-10T01:20:46.825Z",
+          "trade_id": "ORCL-1751463000000-9ifxx1c7h",
+          "entry_et": "2025-07-02 09:30 AM",
+          "exit_et": "2026-03-09 09:37 PM",
+          "entry_path": "ripster_momentum",
+          "exit_reason": "unknown",
+          "pnl": 486.68,
+          "pnl_pct": 6.084
+        },
+        {
+          "source": "option-a-rank-overhaul--20260309-212047",
+          "run_id": "backtest_2025-07-01_2026-03-04@2026-03-10T00:25:30.875Z",
+          "trade_id": "ORCL-1751463000000-qdln4lkle",
+          "entry_et": "2025-07-02 09:30 AM",
+          "exit_et": "2026-03-09 09:20 PM",
+          "entry_path": "ripster_momentum",
+          "exit_reason": "unknown",
+          "pnl": 478.78,
+          "pnl_pct": 5.985
+        },
+        {
+          "source": "15m-leading-ltf-rerun--20260307-083129",
+          "run_id": "backtest_2025-07-01_2025-07-31@2026-03-06T23:03:08.320Z",
+          "trade_id": "ORCL-1751464800000-voueap3w1",
+          "entry_et": "2025-07-02 10:00 AM",
+          "exit_et": "2025-07-31 09:40 AM",
+          "entry_path": "ripster_momentum",
+          "exit_reason": "TP_FULL",
+          "pnl": 777.89,
+          "pnl_pct": 9.724
+        },
+        {
+          "source": "15m-calibration-only-jul1-mar4--20260307-224633",
+          "run_id": "backtest_2025-07-01_2026-03-04@2026-03-08T00:50:53.424Z",
+          "trade_id": "ORCL-1751465700000-vsensqui2",
+          "entry_et": "2025-07-02 10:15 AM",
+          "exit_et": "2025-07-17 10:00 AM",
+          "entry_path": "ripster_momentum",
+          "exit_reason": "HARD_FUSE_RSI_EXTREME",
+          "pnl": 703.0,
+          "pnl_pct": 8.787
+        }
+      ]
+    },
+    {
+      "ticker": "PLTR",
+      "reference_trade": {
+        "trade_id": "PLTR-1752499800000-zjo20p43p",
+        "entry_et": "2025-07-14 09:30 AM",
+        "exit_et": "2026-03-09 07:21 PM",
+        "pnl": 541.54,
+        "pnl_pct": 6.769,
+        "entry_path": "ripster_momentum",
+        "exit_reason": "unknown",
+        "direction": "LONG"
+      },
+      "overlap_window_stats": {
+        "total_trades": 36,
+        "wins": 23,
+        "losses": 13,
+        "win_rate": 63.9,
+        "avg_pnl": 184.18,
+        "entry_paths_top": [
+          [
+            "ripster_momentum",
+            22
+          ],
+          [
+            "ema_regime_confirmed_long",
+            8
+          ],
+          [
+            "ripster_pullback",
+            5
+          ],
+          [
+            "ema_regime_confirmed_short",
+            1
+          ]
+        ],
+        "exit_reasons_top": [
+          [
+            "unknown",
+            6
+          ],
+          [
+            "TP_FULL",
+            5
+          ],
+          [
+            "ema_regime_reversed",
+            5
+          ],
+          [
+            "ripster_34_50_lost_mtf",
+            4
+          ],
+          [
+            "SOFT_FUSE_RSI_CONFIRMED",
+            3
+          ]
+        ],
+        "sources_count": 22
+      },
+      "nearest_alternates": [
+        {
+          "source": "15m-leading-ltf-rerun--20260307-083129",
+          "run_id": "backtest_2025-07-01_2025-07-31@2026-03-06T23:03:08.320Z",
+          "trade_id": "PLTR-1752499800000-fz6ihbceb",
+          "entry_et": "2025-07-14 09:30 AM",
+          "exit_et": "2026-03-06 08:53 PM",
+          "entry_path": "ripster_momentum",
+          "exit_reason": "unknown",
+          "pnl": 541.54,
+          "pnl_pct": 6.769
+        },
+        {
+          "source": "calibration-post-should-have-held--20260306-160337",
+          "run_id": "backtest_2025-07-01_2025-07-31@2026-03-06T19:24:57.022Z",
+          "trade_id": "PLTR-1752499800000-1hbog7tr5",
+          "entry_et": "2025-07-14 09:30 AM",
+          "exit_et": "2026-03-06 03:53 PM",
+          "entry_path": "ripster_momentum",
+          "exit_reason": "unknown",
+          "pnl": 189.73,
+          "pnl_pct": 2.372
+        },
+        {
+          "source": "phase3-july-validation--20260306-120313",
+          "run_id": "backtest_2025-07-01_2025-07-31@2026-03-06T14:41:03.115Z",
+          "trade_id": "PLTR-1752502200000-nflvwxngo",
+          "entry_et": "2025-07-14 10:10 AM",
+          "exit_et": "2026-03-06 01:00 PM",
+          "entry_path": "ripster_pullback",
+          "exit_reason": "unknown",
+          "pnl": 165.7,
+          "pnl_pct": 2.071
+        },
+        {
+          "source": "15m-calibration-only-jul1-mar4--20260307-224633",
+          "run_id": "backtest_2025-07-01_2026-03-04@2026-03-08T00:50:53.424Z",
+          "trade_id": "PLTR-1752592200000-tpopk09p3",
+          "entry_et": "2025-07-15 11:10 AM",
+          "exit_et": "2025-08-07 10:10 AM",
+          "entry_path": "ripster_pullback",
+          "exit_reason": "TP_FULL",
+          "pnl": 1099.13,
+          "pnl_pct": 13.739
+        },
+        {
+          "source": "15m-backtest--20260309-003059",
+          "run_id": "backtest_2025-07-01_2026-03-04@2026-03-08T13:24:21.846Z",
+          "trade_id": "PLTR-1752592200000-04vlkutfb",
+          "entry_et": "2025-07-15 11:10 AM",
+          "exit_et": "2025-08-07 10:10 AM",
+          "entry_path": "ripster_pullback",
+          "exit_reason": "TP_FULL",
+          "pnl": 1099.13,
+          "pnl_pct": 13.739
+        }
+      ]
+    },
+    {
+      "ticker": "PSTG",
+      "reference_trade": {
+        "trade_id": "PSTG-1753709400000-njguvgtdv",
+        "entry_et": "2025-07-28 09:30 AM",
+        "exit_et": "2025-07-29 09:30 AM",
+        "pnl": 247.65,
+        "pnl_pct": 3.431,
+        "entry_path": "ripster_momentum",
+        "exit_reason": "below_trigger,trigger_breached_5pct,daily_ema_regime_break,large_adverse_move",
+        "direction": "LONG"
+      },
+      "overlap_window_stats": {
+        "total_trades": 1,
+        "wins": 1,
+        "losses": 0,
+        "win_rate": 100.0,
+        "avg_pnl": 247.65,
+        "entry_paths_top": [
+          [
+            "ripster_momentum",
+            1
+          ]
+        ],
+        "exit_reasons_top": [
+          [
+            "below_trigger,trigger_breached_5pct,daily_ema_regime_break,large_adverse_move",
+            1
+          ]
+        ],
+        "sources_count": 1
+      },
+      "nearest_alternates": []
+    },
+    {
+      "ticker": "PWR",
+      "reference_trade": {
+        "trade_id": "PWR-1752072300000-zydq25mni",
+        "entry_et": "2025-07-09 10:45 AM",
+        "exit_et": "2025-07-25 09:30 AM",
+        "pnl": 523.59,
+        "pnl_pct": 6.545,
+        "entry_path": "ripster_momentum",
+        "exit_reason": "TP_FULL",
+        "direction": "LONG"
+      },
+      "overlap_window_stats": {
+        "total_trades": 21,
+        "wins": 20,
+        "losses": 1,
+        "win_rate": 95.2,
+        "avg_pnl": 394.7,
+        "entry_paths_top": [
+          [
+            "ripster_momentum",
+            10
+          ],
+          [
+            "ema_regime_confirmed_long",
+            8
+          ],
+          [
+            "ripster_pullback",
+            3
+          ]
+        ],
+        "exit_reasons_top": [
+          [
+            "SOFT_FUSE_RSI_CONFIRMED",
+            4
+          ],
+          [
+            "replay_forced_eod_close",
+            4
+          ],
+          [
+            "ema_regime_reversed",
+            3
+          ],
+          [
+            "unknown",
+            3
+          ],
+          [
+            "ripster_5_12_lost",
+            2
+          ]
+        ],
+        "sources_count": 20
+      },
+      "nearest_alternates": [
+        {
+          "source": "liq-sweep-tuned-v1--20260317-191052",
+          "run_id": "backtest_2025-07-01_2026-03-16@2026-03-17T23:10:51.440Z",
+          "trade_id": "PWR-1752067800000-fa6ewgdt7",
+          "entry_et": "2025-07-09 09:30 AM",
+          "exit_et": "2025-07-10 10:15 AM",
+          "entry_path": "ema_regime_confirmed_long",
+          "exit_reason": "max_loss",
+          "pnl": -122.44,
+          "pnl_pct": -2.031
+        },
+        {
+          "source": "15m-best-foot-forward-jul1-mar4-patched--20260310-235133",
+          "run_id": "",
+          "trade_id": "PWR-1752078600000-us10ivoge",
+          "entry_et": "2025-07-09 12:30 PM",
+          "exit_et": "2025-07-25 09:30 AM",
+          "entry_path": "ripster_pullback",
+          "exit_reason": "TP_FULL",
+          "pnl": 608.9,
+          "pnl_pct": 7.611
+        },
+        {
+          "source": "with-calibration-jul1-aug8--20260311-172921",
+          "run_id": "backtest_2025-07-01_2025-08-08@2026-03-11T21:29:20.509Z",
+          "trade_id": "PWR-1752168600000-1xx42jlof",
+          "entry_et": "2025-07-10 01:30 PM",
+          "exit_et": "2025-07-16 11:30 AM",
+          "entry_path": "ema_regime_confirmed_long",
+          "exit_reason": "sl_breached",
+          "pnl": 105.46,
+          "pnl_pct": 1.318
+        },
+        {
+          "source": "calibrated-v5--20260315-213634",
+          "run_id": "backtest_2025-07-01_2025-12-31@2026-03-16T01:36:11.863Z",
+          "trade_id": "PWR-1752501900000-82n4yz5t9",
+          "entry_et": "2025-07-14 10:05 AM",
+          "exit_et": "2025-07-18 09:30 AM",
+          "entry_path": "ema_regime_confirmed_long",
+          "exit_reason": "SOFT_FUSE_RSI_CONFIRMED",
+          "pnl": 84.91,
+          "pnl_pct": 1.69
+        },
+        {
+          "source": "ripster-tune-v2-quick-jul--20260304-165144",
+          "run_id": "",
+          "trade_id": "PWR-1752674400000-l130izhrj",
+          "entry_et": "2025-07-16 10:00 AM",
+          "exit_et": "2025-07-18 12:40 PM",
+          "entry_path": "ripster_pullback",
+          "exit_reason": "ripster_5_12_lost",
+          "pnl": 267.98,
+          "pnl_pct": 3.35
+        }
+      ]
+    }
+  ]
+}

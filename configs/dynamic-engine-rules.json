@@ -1,0 +1,81 @@
+{
+  "_description": "Dynamic engine selection rules derived from 3-way backtest Jul-Feb 2026. ripster_core is dominant default (44.4% LONG WR, 584 trades). Exit system is the primary PnL lever, not engine choice.",
+  "_generated_from": [
+    "10m-ltf-validation--2026-03-20T0108",
+    "legacy-baseline--2026-03-20T0156",
+    "tt-core-context-v1--2026-03-20T0205"
+  ],
+  "default_engine": "ripster_core",
+  "rules": [
+    {
+      "condition": { "direction": "LONG" },
+      "engine": "ripster_core",
+      "wr": 44.4,
+      "evidence": "584 trades, $42.5k PnL, best WR across statistically significant samples"
+    },
+    {
+      "condition": { "direction": "SHORT" },
+      "engine": "ripster_core",
+      "wr": 34.4,
+      "config_overrides": {
+        "deep_audit_danger_max_signals": 2,
+        "tt_spy_directional_gate": "true",
+        "doa_gate_enabled": "true",
+        "deep_audit_block_regime": ["CHOPPY_BEAR"]
+      },
+      "evidence": "SHORTs underperform across ALL engines (28-35% WR). Strict gating required."
+    },
+    {
+      "condition": { "regime": "CHOPPY_MIXED" },
+      "engine": "tt_core",
+      "config_overrides": {
+        "deep_audit_danger_max_signals": 2,
+        "tt_pdz_hard_gate": "true"
+      },
+      "wr": 40.4,
+      "evidence": "tt_core context gates reduce dead entries in choppy regimes (Oct: 40.4% vs rc 35.4%)"
+    },
+    {
+      "condition": { "regime": "VOLATILE_MIXED" },
+      "engine": "tt_core",
+      "wr": 44.4,
+      "evidence": "tt_core outperforms in volatile mixed markets (Aug: 44.4% WR, $8.6k PnL)"
+    },
+    {
+      "condition": { "regime": "TRENDING_BULL" },
+      "engine": "ripster_core",
+      "wr": 58.0,
+      "evidence": "ripster_core excels in trending markets (Sep: 58% WR, $11.7k PnL)"
+    },
+    {
+      "condition": { "sector": "Information Technology" },
+      "engine": "ripster_core",
+      "wr": 47.4,
+      "evidence": "147 trades, 47.4% WR, $25.8k PnL - strong sector fit"
+    },
+    {
+      "condition": { "sector": "Industrials" },
+      "engine": "ripster_core",
+      "wr": 46.0,
+      "evidence": "175 trades, 46% WR - tied with tt_core but more entries"
+    }
+  ],
+  "exit_overrides": {
+    "deep_audit_stall_max_hours": 12,
+    "deep_audit_mfe_safety_trim_pct": 2.0,
+    "deep_audit_max_runner_drawdown_pct": 2.5,
+    "evidence": "12-24h holds at 10-18% WR across all engines. DOA at 24h too late."
+  },
+  "signal_at_peak_calibration": {
+    "rsi_1H_long_p75": 68,
+    "rsi_1H_long_p90": 76,
+    "rsi_1H_short_p25": 35,
+    "rsi_1H_short_p10": 31,
+    "phase_osc_1H_long_p75": 60,
+    "phase_osc_1H_long_p90": 80,
+    "hours_to_peak_p50": 85,
+    "hours_to_peak_p75": 155,
+    "gave_back_avg_mfe": 3.4,
+    "gave_back_avg_hours_to_peak": 69
+  }
+}

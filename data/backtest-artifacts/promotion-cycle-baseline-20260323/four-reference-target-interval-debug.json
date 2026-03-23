@@ -1,0 +1,2442 @@
+{
+  "cases": [
+    {
+      "case": {
+        "name": "CSX_open_jul2",
+        "ticker": "CSX",
+        "date": "2025-07-02",
+        "target_interval": 0
+      },
+      "interval0": {
+        "interval": 0,
+        "qualifies": false,
+        "reason": "tt_bias_not_aligned",
+        "path": null,
+        "engineSource": "reference_date_bucket",
+        "scenarioPolicySource": "scenario_policy_default",
+        "metadata": {
+          "cloudAlignment": {
+            "D": "bull",
+            "h1": "na",
+            "m10": "bull"
+          },
+          "alignedCount": 2,
+          "strongDailyTrend": true
+        },
+        "tradesCreated": 0,
+        "totalTrades": 0
+      },
+      "target": {
+        "interval": 0,
+        "qualifies": false,
+        "reason": "tt_bias_not_aligned",
+        "path": null,
+        "engineSource": "reference_date_bucket",
+        "scenarioPolicySource": "scenario_policy_default",
+        "metadata": {
+          "cloudAlignment": {
+            "D": "bull",
+            "h1": "na",
+            "m10": "bull"
+          },
+          "alignedCount": 2,
+          "strongDailyTrend": true
+        },
+        "tradesCreated": 0,
+        "totalTrades": 0
+      },
+      "qualifies_true_count": 0,
+      "qualifies_true_intervals": [],
+      "reason_counts": {
+        "tt_bias_not_aligned": 1
+      },
+      "rows": [
+        {
+          "interval": 0,
+          "qualifies": false,
+          "reason": "tt_bias_not_aligned",
+          "path": null,
+          "engineSource": "reference_date_bucket",
+          "scenarioPolicySource": "scenario_policy_default",
+          "metadata": {
+            "cloudAlignment": {
+              "D": "bull",
+              "h1": "na",
+              "m10": "bull"
+            },
+            "alignedCount": 2,
+            "strongDailyTrend": true
+          },
+          "tradesCreated": 0,
+          "totalTrades": 0
+        }
+      ]
+    },
+    {
+      "case": {
+        "name": "CSX_trade_jul2_18utc",
+        "ticker": "CSX",
+        "date": "2025-07-02",
+        "target_interval": 54
+      },
+      "interval0": {
+        "interval": 0,
+        "qualifies": false,
+        "reason": "tt_bias_not_aligned",
+        "path": null,
+        "engineSource": "reference_date_bucket",
+        "scenarioPolicySource": "scenario_policy_default",
+        "metadata": {
+          "cloudAlignment": {
+            "D": "bull",
+            "h1": "na",
+            "m10": "bull"
+          },
+          "alignedCount": 2,
+          "strongDailyTrend": true
+        },
+        "tradesCreated": 0,
+        "totalTrades": 0
+      },
+      "target": {
+        "interval": 54,
+        "qualifies": false,
+        "reason": "tt_bias_not_aligned",
+        "path": null,
+        "engineSource": "reference_date_bucket",
+        "scenarioPolicySource": "scenario_policy_default",
+        "metadata": {
+          "cloudAlignment": {
+            "D": "bull",
+            "h1": "na",
+            "m10": "bull"
+          },
+          "alignedCount": 2,
+          "strongDailyTrend": true
+        },
+        "tradesCreated": 0,
+        "totalTrades": 0
+      },
+      "qualifies_true_count": 0,
+      "qualifies_true_intervals": [],
+      "reason_counts": {
+        "tt_bias_not_aligned": 55
+      },
+      "rows": [
+        {
+          "interval": 0,
+          "qualifies": false,
+          "reason": "tt_bias_not_aligned",
+          "path": null,
+          "engineSource": "reference_date_bucket",
+          "scenarioPolicySource": "scenario_policy_default",
+          "metadata": {
+            "cloudAlignment": {
+              "D": "bull",
+              "h1": "na",
+              "m10": "bull"
+            },
+            "alignedCount": 2,
+            "strongDailyTrend": true
+          },
+          "tradesCreated": 0,
+          "totalTrades": 0
+        },
+        {
+          "interval": 1,
+          "qualifies": false,
+          "reason": "tt_bias_not_aligned",
+          "path": null,
+          "engineSource": "reference_date_bucket",
+          "scenarioPolicySource": "scenario_policy_default",
+          "metadata": {
+            "cloudAlignment": {
+              "D": "bull",
+              "h1": "na",
+              "m10": "bull"
+            },
+            "alignedCount": 2,
+            "strongDailyTrend": true
+          },
+          "tradesCreated": 0,
+          "totalTrades": 0
+        },
+        {
+          "interval": 2,
+          "qualifies": false,
+          "reason": "tt_bias_not_aligned",
+          "path": null,
+          "engineSource": "reference_date_bucket",
+          "scenarioPolicySource": "scenario_policy_default",
+          "metadata": {
+            "cloudAlignment": {
+              "D": "bull",
+              "h1": "na",
+              "m10": "bull"
+            },
+            "alignedCount": 2,
+            "strongDailyTrend": true
+          },
+          "tradesCreated": 0,
+          "totalTrades": 0
+        },
+        {
+          "interval": 3,
+          "qualifies": false,
+          "reason": "tt_bias_not_aligned",
+          "path": null,
+          "engineSource": "reference_date_bucket",
+          "scenarioPolicySource": "scenario_policy_default",
+          "metadata": {
+            "cloudAlignment": {
+              "D": "bull",
+              "h1": "na",
+              "m10": "bull"
+            },
+            "alignedCount": 2,
+            "strongDailyTrend": true
+          },
+          "tradesCreated": 0,
+          "totalTrades": 0
+        },
+        {
+          "interval": 4,
+          "qualifies": false,
+          "reason": "tt_bias_not_aligned",
+          "path": null,
+          "engineSource": "reference_date_bucket",
+          "scenarioPolicySource": "scenario_policy_default",
+          "metadata": {
+            "cloudAlignment": {
+              "D": "bull",
+              "h1": "na",
+              "m10": "bull"
+            },
+            "alignedCount": 2,
+            "strongDailyTrend": true
+          },
+          "tradesCreated": 0,
+          "totalTrades": 0
+        },
+        {
+          "interval": 5,
+          "qualifies": false,
+          "reason": "tt_bias_not_aligned",
+          "path": null,
+          "engineSource": "reference_date_bucket",
+          "scenarioPolicySource": "scenario_policy_default",
+          "metadata": {
+            "cloudAlignment": {
+              "D": "bull",
+              "h1": "na",
+              "m10": "bull"
+            },
+            "alignedCount": 2,
+            "strongDailyTrend": true
+          },
+          "tradesCreated": 0,
+          "totalTrades": 0
+        },
+        {
+          "interval": 6,
+          "qualifies": false,
+          "reason": "tt_bias_not_aligned",
+          "path": null,
+          "engineSource": "reference_date_bucket",
+          "scenarioPolicySource": "scenario_policy_default",
+          "metadata": {
+            "cloudAlignment": {
+              "D": "bull",
+              "h1": "na",
+              "m10": "bull"
+            },
+            "alignedCount": 2,
+            "strongDailyTrend": true
+          },
+          "tradesCreated": 0,
+          "totalTrades": 0
+        },
+        {
+          "interval": 7,
+          "qualifies": false,
+          "reason": "tt_bias_not_aligned",
+          "path": null,
+          "engineSource": "reference_date_bucket",
+          "scenarioPolicySource": "scenario_policy_default",
+          "metadata": {
+            "cloudAlignment": {
+              "D": "bull",
+              "h1": "na",
+              "m10": "bull"
+            },
+            "alignedCount": 2,
+            "strongDailyTrend": true
+          },
+          "tradesCreated": 0,
+          "totalTrades": 0
+        },
+        {
+          "interval": 8,
+          "qualifies": false,
+          "reason": "tt_bias_not_aligned",
+          "path": null,
+          "engineSource": "reference_date_bucket",
+          "scenarioPolicySource": "scenario_policy_default",
+          "metadata": {
+            "cloudAlignment": {
+              "D": "bull",
+              "h1": "na",
+              "m10": "bull"
+            },
+            "alignedCount": 2,
+            "strongDailyTrend": true
+          },
+          "tradesCreated": 0,
+          "totalTrades": 0
+        },
+        {
+          "interval": 9,
+          "qualifies": false,
+          "reason": "tt_bias_not_aligned",
+          "path": null,
+          "engineSource": "reference_date_bucket",
+          "scenarioPolicySource": "scenario_policy_default",
+          "metadata": {
+            "cloudAlignment": {
+              "D": "bull",
+              "h1": "na",
+              "m10": "bull"
+            },
+            "alignedCount": 2,
+            "strongDailyTrend": true
+          },
+          "tradesCreated": 0,
+          "totalTrades": 0
+        },
+        {
+          "interval": 10,
+          "qualifies": false,
+          "reason": "tt_bias_not_aligned",
+          "path": null,
+          "engineSource": "reference_date_bucket",
+          "scenarioPolicySource": "scenario_policy_default",
+          "metadata": {
+            "cloudAlignment": {
+              "D": "bull",
+              "h1": "na",
+              "m10": "bull"
+            },
+            "alignedCount": 2,
+            "strongDailyTrend": true
+          },
+          "tradesCreated": 0,
+          "totalTrades": 0
+        },
+        {
+          "interval": 11,
+          "qualifies": false,
+          "reason": "tt_bias_not_aligned",
+          "path": null,
+          "engineSource": "reference_date_bucket",
+          "scenarioPolicySource": "scenario_policy_default",
+          "metadata": {
+            "cloudAlignment": {
+              "D": "bull",
+              "h1": "na",
+              "m10": "bull"
+            },
+            "alignedCount": 2,
+            "strongDailyTrend": true
+          },
+          "tradesCreated": 0,
+          "totalTrades": 0
+        },
+        {
+          "interval": 12,
+          "qualifies": false,
+          "reason": "tt_bias_not_aligned",
+          "path": null,
+          "engineSource": "reference_date_bucket",
+          "scenarioPolicySource": "scenario_policy_default",
+          "metadata": {
+            "cloudAlignment": {
+              "D": "bull",
+              "h1": "na",
+              "m10": "bull"
+            },
+            "alignedCount": 2,
+            "strongDailyTrend": true
+          },
+          "tradesCreated": 0,
+          "totalTrades": 0
+        },
+        {
+          "interval": 13,
+          "qualifies": false,
+          "reason": "tt_bias_not_aligned",
+          "path": null,
+          "engineSource": "reference_date_bucket",
+          "scenarioPolicySource": "scenario_policy_default",
+          "metadata": {
+            "cloudAlignment": {
+              "D": "bull",
+              "h1": "na",
+              "m10": "bull"
+            },
+            "alignedCount": 2,
+            "strongDailyTrend": true
+          },
+          "tradesCreated": 0,
+          "totalTrades": 0
+        },
+        {
+          "interval": 14,
+          "qualifies": false,
+          "reason": "tt_bias_not_aligned",
+          "path": null,
+          "engineSource": "reference_date_bucket",
+          "scenarioPolicySource": "scenario_policy_default",
+          "metadata": {
+            "cloudAlignment": {
+              "D": "bull",
+              "h1": "na",
+              "m10": "bull"
+            },
+            "alignedCount": 2,
+            "strongDailyTrend": true
+          },
+          "tradesCreated": 0,
+          "totalTrades": 0
+        },
+        {
+          "interval": 15,
+          "qualifies": false,
+          "reason": "tt_bias_not_aligned",
+          "path": null,
+          "engineSource": "reference_date_bucket",
+          "scenarioPolicySource": "scenario_policy_default",
+          "metadata": {
+            "cloudAlignment": {
+              "D": "bull",
+              "h1": "na",
+              "m10": "bull"
+            },
+            "alignedCount": 2,
+            "strongDailyTrend": true
+          },
+          "tradesCreated": 0,
+          "totalTrades": 0
+        },
+        {
+          "interval": 16,
+          "qualifies": false,
+          "reason": "tt_bias_not_aligned",
+          "path": null,
+          "engineSource": "reference_date_bucket",
+          "scenarioPolicySource": "scenario_policy_default",
+          "metadata": {
+            "cloudAlignment": {
+              "D": "bull",
+              "h1": "na",
+              "m10": "bull"
+            },
+            "alignedCount": 2,
+            "strongDailyTrend": true
+          },
+          "tradesCreated": 0,
+          "totalTrades": 0
+        },
+        {
+          "interval": 17,
+          "qualifies": false,
+          "reason": "tt_bias_not_aligned",
+          "path": null,
+          "engineSource": "reference_date_bucket",
+          "scenarioPolicySource": "scenario_policy_default",
+          "metadata": {
+            "cloudAlignment": {
+              "D": "bull",
+              "h1": "na",
+              "m10": "bull"
+            },
+            "alignedCount": 2,
+            "strongDailyTrend": true
+          },
+          "tradesCreated": 0,
+          "totalTrades": 0
+        },
+        {
+          "interval": 18,
+          "qualifies": false,
+          "reason": "tt_bias_not_aligned",
+          "path": null,
+          "engineSource": "reference_date_bucket",
+          "scenarioPolicySource": "scenario_policy_default",
+          "metadata": {
+            "cloudAlignment": {
+              "D": "bull",
+              "h1": "na",
+              "m10": "bull"
+            },
+            "alignedCount": 2,
+            "strongDailyTrend": true
+          },
+          "tradesCreated": 0,
+          "totalTrades": 0
+        },
+        {
+          "interval": 19,
+          "qualifies": false,
+          "reason": "tt_bias_not_aligned",
+          "path": null,
+          "engineSource": "reference_date_bucket",
+          "scenarioPolicySource": "scenario_policy_default",
+          "metadata": {
+            "cloudAlignment": {
+              "D": "bull",
+              "h1": "na",
+              "m10": "bull"
+            },
+            "alignedCount": 2,
+            "strongDailyTrend": true
+          },
+          "tradesCreated": 0,
+          "totalTrades": 0
+        },
+        {
+          "interval": 20,
+          "qualifies": false,
+          "reason": "tt_bias_not_aligned",
+          "path": null,
+          "engineSource": "reference_date_bucket",
+          "scenarioPolicySource": "scenario_policy_default",
+          "metadata": {
+            "cloudAlignment": {
+              "D": "bull",
+              "h1": "na",
+              "m10": "bull"
+            },
+            "alignedCount": 2,
+            "strongDailyTrend": true
+          },
+          "tradesCreated": 0,
+          "totalTrades": 0
+        },
+        {
+          "interval": 21,
+          "qualifies": false,
+          "reason": "tt_bias_not_aligned",
+          "path": null,
+          "engineSource": "reference_date_bucket",
+          "scenarioPolicySource": "scenario_policy_default",
+          "metadata": {
+            "cloudAlignment": {
+              "D": "bull",
+              "h1": "na",
+              "m10": "bull"
+            },
+            "alignedCount": 2,
+            "strongDailyTrend": true
+          },
+          "tradesCreated": 0,
+          "totalTrades": 0
+        },
+        {
+          "interval": 22,
+          "qualifies": false,
+          "reason": "tt_bias_not_aligned",
+          "path": null,
+          "engineSource": "reference_date_bucket",
+          "scenarioPolicySource": "scenario_policy_default",
+          "metadata": {
+            "cloudAlignment": {
+              "D": "bull",
+              "h1": "na",
+              "m10": "bull"
+            },
+            "alignedCount": 2,
+            "strongDailyTrend": true
+          },
+          "tradesCreated": 0,
+          "totalTrades": 0
+        },
+        {
+          "interval": 23,
+          "qualifies": false,
+          "reason": "tt_bias_not_aligned",
+          "path": null,
+          "engineSource": "reference_date_bucket",
+          "scenarioPolicySource": "scenario_policy_default",
+          "metadata": {
+            "cloudAlignment": {
+              "D": "bull",
+              "h1": "na",
+              "m10": "bull"
+            },
+            "alignedCount": 2,
+            "strongDailyTrend": true
+          },
+          "tradesCreated": 0,
+          "totalTrades": 0
+        },
+        {
+          "interval": 24,
+          "qualifies": false,
+          "reason": "tt_bias_not_aligned",
+          "path": null,
+          "engineSource": "reference_date_bucket",
+          "scenarioPolicySource": "scenario_policy_default",
+          "metadata": {
+            "cloudAlignment": {
+              "D": "bull",
+              "h1": "na",
+              "m10": "bull"
+            },
+            "alignedCount": 2,
+            "strongDailyTrend": true
+          },
+          "tradesCreated": 0,
+          "totalTrades": 0
+        },
+        {
+          "interval": 25,
+          "qualifies": false,
+          "reason": "tt_bias_not_aligned",
+          "path": null,
+          "engineSource": "reference_date_bucket",
+          "scenarioPolicySource": "scenario_policy_default",
+          "metadata": {
+            "cloudAlignment": {
+              "D": "bull",
+              "h1": "na",
+              "m10": "bull"
+            },
+            "alignedCount": 2,
+            "strongDailyTrend": true
+          },
+          "tradesCreated": 0,
+          "totalTrades": 0
+        },
+        {
+          "interval": 26,
+          "qualifies": false,
+          "reason": "tt_bias_not_aligned",
+          "path": null,
+          "engineSource": "reference_date_bucket",
+          "scenarioPolicySource": "scenario_policy_default",
+          "metadata": {
+            "cloudAlignment": {
+              "D": "bull",
+              "h1": "na",
+              "m10": "bull"
+            },
+            "alignedCount": 2,
+            "strongDailyTrend": true
+          },
+          "tradesCreated": 0,
+          "totalTrades": 0
+        },
+        {
+          "interval": 27,
+          "qualifies": false,
+          "reason": "tt_bias_not_aligned",
+          "path": null,
+          "engineSource": "reference_date_bucket",
+          "scenarioPolicySource": "scenario_policy_default",
+          "metadata": {
+            "cloudAlignment": {
+              "D": "bull",
+              "h1": "na",
+              "m10": "bull"
+            },
+            "alignedCount": 2,
+            "strongDailyTrend": true
+          },
+          "tradesCreated": 0,
+          "totalTrades": 0
+        },
+        {
+          "interval": 28,
+          "qualifies": false,
+          "reason": "tt_bias_not_aligned",
+          "path": null,
+          "engineSource": "reference_date_bucket",
+          "scenarioPolicySource": "scenario_policy_default",
+          "metadata": {
+            "cloudAlignment": {
+              "D": "bull",
+              "h1": "na",
+              "m10": "bull"
+            },
+            "alignedCount": 2,
+            "strongDailyTrend": true
+          },
+          "tradesCreated": 0,
+          "totalTrades": 0
+        },
+        {
+          "interval": 29,
+          "qualifies": false,
+          "reason": "tt_bias_not_aligned",
+          "path": null,
+          "engineSource": "reference_date_bucket",
+          "scenarioPolicySource": "scenario_policy_default",
+          "metadata": {
+            "cloudAlignment": {
+              "D": "bull",
+              "h1": "na",
+              "m10": "bull"
+            },
+            "alignedCount": 2,
+            "strongDailyTrend": true
+          },
+          "tradesCreated": 0,
+          "totalTrades": 0
+        },
+        {
+          "interval": 30,
+          "qualifies": false,
+          "reason": "tt_bias_not_aligned",
+          "path": null,
+          "engineSource": "reference_date_bucket",
+          "scenarioPolicySource": "scenario_policy_default",
+          "metadata": {
+            "cloudAlignment": {
+              "D": "bull",
+              "h1": "na",
+              "m10": "bull"
+            },
+            "alignedCount": 2,
+            "strongDailyTrend": true
+          },
+          "tradesCreated": 0,
+          "totalTrades": 0
+        },
+        {
+          "interval": 31,
+          "qualifies": false,
+          "reason": "tt_bias_not_aligned",
+          "path": null,
+          "engineSource": "reference_date_bucket",
+          "scenarioPolicySource": "scenario_policy_default",
+          "metadata": {
+            "cloudAlignment": {
+              "D": "bull",
+              "h1": "na",
+              "m10": "bull"
+            },
+            "alignedCount": 2,
+            "strongDailyTrend": true
+          },
+          "tradesCreated": 0,
+          "totalTrades": 0
+        },
+        {
+          "interval": 32,
+          "qualifies": false,
+          "reason": "tt_bias_not_aligned",
+          "path": null,
+          "engineSource": "reference_date_bucket",
+          "scenarioPolicySource": "scenario_policy_default",
+          "metadata": {
+            "cloudAlignment": {
+              "D": "bull",
+              "h1": "na",
+              "m10": "bull"
+            },
+            "alignedCount": 2,
+            "strongDailyTrend": true
+          },
+          "tradesCreated": 0,
+          "totalTrades": 0
+        },
+        {
+          "interval": 33,
+          "qualifies": false,
+          "reason": "tt_bias_not_aligned",
+          "path": null,
+          "engineSource": "reference_date_bucket",
+          "scenarioPolicySource": "scenario_policy_default",
+          "metadata": {
+            "cloudAlignment": {
+              "D": "bull",
+              "h1": "na",
+              "m10": "bull"
+            },
+            "alignedCount": 2,
+            "strongDailyTrend": true
+          },
+          "tradesCreated": 0,
+          "totalTrades": 0
+        },
+        {
+          "interval": 34,
+          "qualifies": false,
+          "reason": "tt_bias_not_aligned",
+          "path": null,
+          "engineSource": "reference_date_bucket",
+          "scenarioPolicySource": "scenario_policy_default",
+          "metadata": {
+            "cloudAlignment": {
+              "D": "bull",
+              "h1": "na",
+              "m10": "bull"
+            },
+            "alignedCount": 2,
+            "strongDailyTrend": true
+          },
+          "tradesCreated": 0,
+          "totalTrades": 0
+        },
+        {
+          "interval": 35,
+          "qualifies": false,
+          "reason": "tt_bias_not_aligned",
+          "path": null,
+          "engineSource": "reference_date_bucket",
+          "scenarioPolicySource": "scenario_policy_default",
+          "metadata": {
+            "cloudAlignment": {
+              "D": "bull",
+              "h1": "na",
+              "m10": "bull"
+            },
+            "alignedCount": 2,
+            "strongDailyTrend": true
+          },
+          "tradesCreated": 0,
+          "totalTrades": 0
+        },
+        {
+          "interval": 36,
+          "qualifies": false,
+          "reason": "tt_bias_not_aligned",
+          "path": null,
+          "engineSource": "reference_date_bucket",
+          "scenarioPolicySource": "scenario_policy_default",
+          "metadata": {
+            "cloudAlignment": {
+              "D": "bull",
+              "h1": "na",
+              "m10": "bull"
+            },
+            "alignedCount": 2,
+            "strongDailyTrend": true
+          },
+          "tradesCreated": 0,
+          "totalTrades": 0
+        },
+        {
+          "interval": 37,
+          "qualifies": false,
+          "reason": "tt_bias_not_aligned",
+          "path": null,
+          "engineSource": "reference_date_bucket",
+          "scenarioPolicySource": "scenario_policy_default",
+          "metadata": {
+            "cloudAlignment": {
+              "D": "bull",
+              "h1": "na",
+              "m10": "bull"
+            },
+            "alignedCount": 2,
+            "strongDailyTrend": true
+          },
+          "tradesCreated": 0,
+          "totalTrades": 0
+        },
+        {
+          "interval": 38,
+          "qualifies": false,
+          "reason": "tt_bias_not_aligned",
+          "path": null,
+          "engineSource": "reference_date_bucket",
+          "scenarioPolicySource": "scenario_policy_default",
+          "metadata": {
+            "cloudAlignment": {
+              "D": "bull",
+              "h1": "na",
+              "m10": "bull"
+            },
+            "alignedCount": 2,
+            "strongDailyTrend": true
+          },
+          "tradesCreated": 0,
+          "totalTrades": 0
+        },
+        {
+          "interval": 39,
+          "qualifies": false,
+          "reason": "tt_bias_not_aligned",
+          "path": null,
+          "engineSource": "reference_date_bucket",
+          "scenarioPolicySource": "scenario_policy_default",
+          "metadata": {
+            "cloudAlignment": {
+              "D": "bull",
+              "h1": "na",
+              "m10": "bull"
+            },
+            "alignedCount": 2,
+            "strongDailyTrend": true
+          },
+          "tradesCreated": 0,
+          "totalTrades": 0
+        },
+        {
+          "interval": 40,
+          "qualifies": false,
+          "reason": "tt_bias_not_aligned",
+          "path": null,
+          "engineSource": "reference_date_bucket",
+          "scenarioPolicySource": "scenario_policy_default",
+          "metadata": {
+            "cloudAlignment": {
+              "D": "bull",
+              "h1": "na",
+              "m10": "bull"
+            },
+            "alignedCount": 2,
+            "strongDailyTrend": true
+          },
+          "tradesCreated": 0,
+          "totalTrades": 0
+        },
+        {
+          "interval": 41,
+          "qualifies": false,
+          "reason": "tt_bias_not_aligned",
+          "path": null,
+          "engineSource": "reference_date_bucket",
+          "scenarioPolicySource": "scenario_policy_default",
+          "metadata": {
+            "cloudAlignment": {
+              "D": "bull",
+              "h1": "na",
+              "m10": "bull"
+            },
+            "alignedCount": 2,
+            "strongDailyTrend": true
+          },
+          "tradesCreated": 0,
+          "totalTrades": 0
+        },
+        {
+          "interval": 42,
+          "qualifies": false,
+          "reason": "tt_bias_not_aligned",
+          "path": null,
+          "engineSource": "reference_date_bucket",
+          "scenarioPolicySource": "scenario_policy_default",
+          "metadata": {
+            "cloudAlignment": {
+              "D": "bull",
+              "h1": "na",
+              "m10": "bull"
+            },
+            "alignedCount": 2,
+            "strongDailyTrend": true
+          },
+          "tradesCreated": 0,
+          "totalTrades": 0
+        },
+        {
+          "interval": 43,
+          "qualifies": false,
+          "reason": "tt_bias_not_aligned",
+          "path": null,
+          "engineSource": "reference_date_bucket",
+          "scenarioPolicySource": "scenario_policy_default",
+          "metadata": {
+            "cloudAlignment": {
+              "D": "bull",
+              "h1": "na",
+              "m10": "bull"
+            },
+            "alignedCount": 2,
+            "strongDailyTrend": true
+          },
+          "tradesCreated": 0,
+          "totalTrades": 0
+        },
+        {
+          "interval": 44,
+          "qualifies": false,
+          "reason": "tt_bias_not_aligned",
+          "path": null,
+          "engineSource": "reference_date_bucket",
+          "scenarioPolicySource": "scenario_policy_default",
+          "metadata": {
+            "cloudAlignment": {
+              "D": "bull",
+              "h1": "na",
+              "m10": "bull"
+            },
+            "alignedCount": 2,
+            "strongDailyTrend": true
+          },
+          "tradesCreated": 0,
+          "totalTrades": 0
+        },
+        {
+          "interval": 45,
+          "qualifies": false,
+          "reason": "tt_bias_not_aligned",
+          "path": null,
+          "engineSource": "reference_date_bucket",
+          "scenarioPolicySource": "scenario_policy_default",
+          "metadata": {
+            "cloudAlignment": {
+              "D": "bull",
+              "h1": "na",
+              "m10": "bull"
+            },
+            "alignedCount": 2,
+            "strongDailyTrend": true
+          },
+          "tradesCreated": 0,
+          "totalTrades": 0
+        },
+        {
+          "interval": 46,
+          "qualifies": false,
+          "reason": "tt_bias_not_aligned",
+          "path": null,
+          "engineSource": "reference_date_bucket",
+          "scenarioPolicySource": "scenario_policy_default",
+          "metadata": {
+            "cloudAlignment": {
+              "D": "bull",
+              "h1": "na",
+              "m10": "bull"
+            },
+            "alignedCount": 2,
+            "strongDailyTrend": true
+          },
+          "tradesCreated": 0,
+          "totalTrades": 0
+        },
+        {
+          "interval": 47,
+          "qualifies": false,
+          "reason": "tt_bias_not_aligned",
+          "path": null,
+          "engineSource": "reference_date_bucket",
+          "scenarioPolicySource": "scenario_policy_default",
+          "metadata": {
+            "cloudAlignment": {
+              "D": "bull",
+              "h1": "na",
+              "m10": "bull"
+            },
+            "alignedCount": 2,
+            "strongDailyTrend": true
+          },
+          "tradesCreated": 0,
+          "totalTrades": 0
+        },
+        {
+          "interval": 48,
+          "qualifies": false,
+          "reason": "tt_bias_not_aligned",
+          "path": null,
+          "engineSource": "reference_date_bucket",
+          "scenarioPolicySource": "scenario_policy_default",
+          "metadata": {
+            "cloudAlignment": {
+              "D": "bull",
+              "h1": "na",
+              "m10": "bull"
+            },
+            "alignedCount": 2,
+            "strongDailyTrend": true
+          },
+          "tradesCreated": 0,
+          "totalTrades": 0
+        },
+        {
+          "interval": 49,
+          "qualifies": false,
+          "reason": "tt_bias_not_aligned",
+          "path": null,
+          "engineSource": "reference_date_bucket",
+          "scenarioPolicySource": "scenario_policy_default",
+          "metadata": {
+            "cloudAlignment": {
+              "D": "bull",
+              "h1": "na",
+              "m10": "bull"
+            },
+            "alignedCount": 2,
+            "strongDailyTrend": true
+          },
+          "tradesCreated": 0,
+          "totalTrades": 0
+        },
+        {
+          "interval": 50,
+          "qualifies": false,
+          "reason": "tt_bias_not_aligned",
+          "path": null,
+          "engineSource": "reference_date_bucket",
+          "scenarioPolicySource": "scenario_policy_default",
+          "metadata": {
+            "cloudAlignment": {
+              "D": "bull",
+              "h1": "na",
+              "m10": "bull"
+            },
+            "alignedCount": 2,
+            "strongDailyTrend": true
+          },
+          "tradesCreated": 0,
+          "totalTrades": 0
+        },
+        {
+          "interval": 51,
+          "qualifies": false,
+          "reason": "tt_bias_not_aligned",
+          "path": null,
+          "engineSource": "reference_date_bucket",
+          "scenarioPolicySource": "scenario_policy_default",
+          "metadata": {
+            "cloudAlignment": {
+              "D": "bull",
+              "h1": "na",
+              "m10": "bull"
+            },
+            "alignedCount": 2,
+            "strongDailyTrend": true
+          },
+          "tradesCreated": 0,
+          "totalTrades": 0
+        },
+        {
+          "interval": 52,
+          "qualifies": false,
+          "reason": "tt_bias_not_aligned",
+          "path": null,
+          "engineSource": "reference_date_bucket",
+          "scenarioPolicySource": "scenario_policy_default",
+          "metadata": {
+            "cloudAlignment": {
+              "D": "bull",
+              "h1": "na",
+              "m10": "bull"
+            },
+            "alignedCount": 2,
+            "strongDailyTrend": true
+          },
+          "tradesCreated": 0,
+          "totalTrades": 0
+        },
+        {
+          "interval": 53,
+          "qualifies": false,
+          "reason": "tt_bias_not_aligned",
+          "path": null,
+          "engineSource": "reference_date_bucket",
+          "scenarioPolicySource": "scenario_policy_default",
+          "metadata": {
+            "cloudAlignment": {
+              "D": "bull",
+              "h1": "na",
+              "m10": "bull"
+            },
+            "alignedCount": 2,
+            "strongDailyTrend": true
+          },
+          "tradesCreated": 0,
+          "totalTrades": 0
+        },
+        {
+          "interval": 54,
+          "qualifies": false,
+          "reason": "tt_bias_not_aligned",
+          "path": null,
+          "engineSource": "reference_date_bucket",
+          "scenarioPolicySource": "scenario_policy_default",
+          "metadata": {
+            "cloudAlignment": {
+              "D": "bull",
+              "h1": "na",
+              "m10": "bull"
+            },
+            "alignedCount": 2,
+            "strongDailyTrend": true
+          },
+          "tradesCreated": 0,
+          "totalTrades": 0
+        }
+      ]
+    },
+    {
+      "case": {
+        "name": "BABA_ref_jul1_14utc",
+        "ticker": "BABA",
+        "date": "2025-07-01",
+        "target_interval": 6
+      },
+      "interval0": {
+        "interval": 0,
+        "qualifies": false,
+        "reason": "tt_bias_not_aligned",
+        "path": null,
+        "engineSource": "reference_ticker_window",
+        "scenarioPolicySource": "scenario_policy_default",
+        "metadata": {
+          "cloudAlignment": {
+            "D": "bear",
+            "h1": "na",
+            "m10": "bear"
+          },
+          "alignedCount": 2,
+          "strongDailyTrend": true
+        },
+        "tradesCreated": 0,
+        "totalTrades": 0
+      },
+      "target": {
+        "interval": 6,
+        "qualifies": false,
+        "reason": "tt_bias_not_aligned",
+        "path": null,
+        "engineSource": "reference_exact",
+        "scenarioPolicySource": "scenario_policy_default",
+        "metadata": {
+          "cloudAlignment": {
+            "D": "bear",
+            "h1": "na",
+            "m10": "bear"
+          },
+          "alignedCount": 2,
+          "strongDailyTrend": true
+        },
+        "tradesCreated": 0,
+        "totalTrades": 0
+      },
+      "qualifies_true_count": 0,
+      "qualifies_true_intervals": [],
+      "reason_counts": {
+        "tt_bias_not_aligned": 7
+      },
+      "rows": [
+        {
+          "interval": 0,
+          "qualifies": false,
+          "reason": "tt_bias_not_aligned",
+          "path": null,
+          "engineSource": "reference_ticker_window",
+          "scenarioPolicySource": "scenario_policy_default",
+          "metadata": {
+            "cloudAlignment": {
+              "D": "bear",
+              "h1": "na",
+              "m10": "bear"
+            },
+            "alignedCount": 2,
+            "strongDailyTrend": true
+          },
+          "tradesCreated": 0,
+          "totalTrades": 0
+        },
+        {
+          "interval": 1,
+          "qualifies": false,
+          "reason": "tt_bias_not_aligned",
+          "path": null,
+          "engineSource": "reference_ticker_window",
+          "scenarioPolicySource": "scenario_policy_default",
+          "metadata": {
+            "cloudAlignment": {
+              "D": "bear",
+              "h1": "na",
+              "m10": "bear"
+            },
+            "alignedCount": 2,
+            "strongDailyTrend": true
+          },
+          "tradesCreated": 0,
+          "totalTrades": 0
+        },
+        {
+          "interval": 2,
+          "qualifies": false,
+          "reason": "tt_bias_not_aligned",
+          "path": null,
+          "engineSource": "reference_exact",
+          "scenarioPolicySource": "scenario_policy_default",
+          "metadata": {
+            "cloudAlignment": {
+              "D": "bear",
+              "h1": "na",
+              "m10": "bear"
+            },
+            "alignedCount": 2,
+            "strongDailyTrend": true
+          },
+          "tradesCreated": 0,
+          "totalTrades": 0
+        },
+        {
+          "interval": 3,
+          "qualifies": false,
+          "reason": "tt_bias_not_aligned",
+          "path": null,
+          "engineSource": "reference_exact",
+          "scenarioPolicySource": "scenario_policy_default",
+          "metadata": {
+            "cloudAlignment": {
+              "D": "bear",
+              "h1": "na",
+              "m10": "bear"
+            },
+            "alignedCount": 2,
+            "strongDailyTrend": true
+          },
+          "tradesCreated": 0,
+          "totalTrades": 0
+        },
+        {
+          "interval": 4,
+          "qualifies": false,
+          "reason": "tt_bias_not_aligned",
+          "path": null,
+          "engineSource": "reference_exact",
+          "scenarioPolicySource": "scenario_policy_default",
+          "metadata": {
+            "cloudAlignment": {
+              "D": "bear",
+              "h1": "na",
+              "m10": "bear"
+            },
+            "alignedCount": 2,
+            "strongDailyTrend": true
+          },
+          "tradesCreated": 0,
+          "totalTrades": 0
+        },
+        {
+          "interval": 5,
+          "qualifies": false,
+          "reason": "tt_bias_not_aligned",
+          "path": null,
+          "engineSource": "reference_exact",
+          "scenarioPolicySource": "scenario_policy_default",
+          "metadata": {
+            "cloudAlignment": {
+              "D": "bear",
+              "h1": "na",
+              "m10": "bear"
+            },
+            "alignedCount": 2,
+            "strongDailyTrend": true
+          },
+          "tradesCreated": 0,
+          "totalTrades": 0
+        },
+        {
+          "interval": 6,
+          "qualifies": false,
+          "reason": "tt_bias_not_aligned",
+          "path": null,
+          "engineSource": "reference_exact",
+          "scenarioPolicySource": "scenario_policy_default",
+          "metadata": {
+            "cloudAlignment": {
+              "D": "bear",
+              "h1": "na",
+              "m10": "bear"
+            },
+            "alignedCount": 2,
+            "strongDailyTrend": true
+          },
+          "tradesCreated": 0,
+          "totalTrades": 0
+        }
+      ]
+    },
+    {
+      "case": {
+        "name": "CVNA_ref_sep4_1545utc",
+        "ticker": "CVNA",
+        "date": "2025-09-04",
+        "target_interval": 27
+      },
+      "interval0": {
+        "interval": 0,
+        "qualifies": false,
+        "reason": "tt_bias_not_aligned",
+        "path": null,
+        "engineSource": "reference_date_bucket",
+        "scenarioPolicySource": "scenario_policy_default",
+        "metadata": {
+          "cloudAlignment": {
+            "D": "bull",
+            "h1": "na",
+            "m10": "bear"
+          },
+          "alignedCount": 1,
+          "strongDailyTrend": true
+        },
+        "tradesCreated": 0,
+        "totalTrades": 0
+      },
+      "target": {
+        "interval": 27,
+        "qualifies": false,
+        "reason": "tt_bias_not_aligned",
+        "path": null,
+        "engineSource": "reference_date_bucket",
+        "scenarioPolicySource": "scenario_policy_default",
+        "metadata": {
+          "cloudAlignment": {
+            "D": "bull",
+            "h1": "na",
+            "m10": "bear"
+          },
+          "alignedCount": 1,
+          "strongDailyTrend": true
+        },
+        "tradesCreated": 0,
+        "totalTrades": 0
+      },
+      "qualifies_true_count": 0,
+      "qualifies_true_intervals": [],
+      "reason_counts": {
+        "tt_bias_not_aligned": 28
+      },
+      "rows": [
+        {
+          "interval": 0,
+          "qualifies": false,
+          "reason": "tt_bias_not_aligned",
+          "path": null,
+          "engineSource": "reference_date_bucket",
+          "scenarioPolicySource": "scenario_policy_default",
+          "metadata": {
+            "cloudAlignment": {
+              "D": "bull",
+              "h1": "na",
+              "m10": "bear"
+            },
+            "alignedCount": 1,
+            "strongDailyTrend": true
+          },
+          "tradesCreated": 0,
+          "totalTrades": 0
+        },
+        {
+          "interval": 1,
+          "qualifies": false,
+          "reason": "tt_bias_not_aligned",
+          "path": null,
+          "engineSource": "reference_date_bucket",
+          "scenarioPolicySource": "scenario_policy_default",
+          "metadata": {
+            "cloudAlignment": {
+              "D": "bull",
+              "h1": "na",
+              "m10": "bear"
+            },
+            "alignedCount": 1,
+            "strongDailyTrend": true
+          },
+          "tradesCreated": 0,
+          "totalTrades": 0
+        },
+        {
+          "interval": 2,
+          "qualifies": false,
+          "reason": "tt_bias_not_aligned",
+          "path": null,
+          "engineSource": "reference_date_bucket",
+          "scenarioPolicySource": "scenario_policy_default",
+          "metadata": {
+            "cloudAlignment": {
+              "D": "bull",
+              "h1": "na",
+              "m10": "bear"
+            },
+            "alignedCount": 1,
+            "strongDailyTrend": true
+          },
+          "tradesCreated": 0,
+          "totalTrades": 0
+        },
+        {
+          "interval": 3,
+          "qualifies": false,
+          "reason": "tt_bias_not_aligned",
+          "path": null,
+          "engineSource": "reference_date_bucket",
+          "scenarioPolicySource": "scenario_policy_default",
+          "metadata": {
+            "cloudAlignment": {
+              "D": "bull",
+              "h1": "na",
+              "m10": "bear"
+            },
+            "alignedCount": 1,
+            "strongDailyTrend": true
+          },
+          "tradesCreated": 0,
+          "totalTrades": 0
+        },
+        {
+          "interval": 4,
+          "qualifies": false,
+          "reason": "tt_bias_not_aligned",
+          "path": null,
+          "engineSource": "reference_date_bucket",
+          "scenarioPolicySource": "scenario_policy_default",
+          "metadata": {
+            "cloudAlignment": {
+              "D": "bull",
+              "h1": "na",
+              "m10": "bear"
+            },
+            "alignedCount": 1,
+            "strongDailyTrend": true
+          },
+          "tradesCreated": 0,
+          "totalTrades": 0
+        },
+        {
+          "interval": 5,
+          "qualifies": false,
+          "reason": "tt_bias_not_aligned",
+          "path": null,
+          "engineSource": "reference_date_bucket",
+          "scenarioPolicySource": "scenario_policy_default",
+          "metadata": {
+            "cloudAlignment": {
+              "D": "bull",
+              "h1": "na",
+              "m10": "bear"
+            },
+            "alignedCount": 1,
+            "strongDailyTrend": true
+          },
+          "tradesCreated": 0,
+          "totalTrades": 0
+        },
+        {
+          "interval": 6,
+          "qualifies": false,
+          "reason": "tt_bias_not_aligned",
+          "path": null,
+          "engineSource": "reference_date_bucket",
+          "scenarioPolicySource": "scenario_policy_default",
+          "metadata": {
+            "cloudAlignment": {
+              "D": "bull",
+              "h1": "na",
+              "m10": "bear"
+            },
+            "alignedCount": 1,
+            "strongDailyTrend": true
+          },
+          "tradesCreated": 0,
+          "totalTrades": 0
+        },
+        {
+          "interval": 7,
+          "qualifies": false,
+          "reason": "tt_bias_not_aligned",
+          "path": null,
+          "engineSource": "reference_date_bucket",
+          "scenarioPolicySource": "scenario_policy_default",
+          "metadata": {
+            "cloudAlignment": {
+              "D": "bull",
+              "h1": "na",
+              "m10": "bear"
+            },
+            "alignedCount": 1,
+            "strongDailyTrend": true
+          },
+          "tradesCreated": 0,
+          "totalTrades": 0
+        },
+        {
+          "interval": 8,
+          "qualifies": false,
+          "reason": "tt_bias_not_aligned",
+          "path": null,
+          "engineSource": "reference_date_bucket",
+          "scenarioPolicySource": "scenario_policy_default",
+          "metadata": {
+            "cloudAlignment": {
+              "D": "bull",
+              "h1": "na",
+              "m10": "bear"
+            },
+            "alignedCount": 1,
+            "strongDailyTrend": true
+          },
+          "tradesCreated": 0,
+          "totalTrades": 0
+        },
+        {
+          "interval": 9,
+          "qualifies": false,
+          "reason": "tt_bias_not_aligned",
+          "path": null,
+          "engineSource": "reference_date_bucket",
+          "scenarioPolicySource": "scenario_policy_default",
+          "metadata": {
+            "cloudAlignment": {
+              "D": "bull",
+              "h1": "na",
+              "m10": "bear"
+            },
+            "alignedCount": 1,
+            "strongDailyTrend": true
+          },
+          "tradesCreated": 0,
+          "totalTrades": 0
+        },
+        {
+          "interval": 10,
+          "qualifies": false,
+          "reason": "tt_bias_not_aligned",
+          "path": null,
+          "engineSource": "reference_date_bucket",
+          "scenarioPolicySource": "scenario_policy_default",
+          "metadata": {
+            "cloudAlignment": {
+              "D": "bull",
+              "h1": "na",
+              "m10": "bear"
+            },
+            "alignedCount": 1,
+            "strongDailyTrend": true
+          },
+          "tradesCreated": 0,
+          "totalTrades": 0
+        },
+        {
+          "interval": 11,
+          "qualifies": false,
+          "reason": "tt_bias_not_aligned",
+          "path": null,
+          "engineSource": "reference_date_bucket",
+          "scenarioPolicySource": "scenario_policy_default",
+          "metadata": {
+            "cloudAlignment": {
+              "D": "bull",
+              "h1": "na",
+              "m10": "bear"
+            },
+            "alignedCount": 1,
+            "strongDailyTrend": true
+          },
+          "tradesCreated": 0,
+          "totalTrades": 0
+        },
+        {
+          "interval": 12,
+          "qualifies": false,
+          "reason": "tt_bias_not_aligned",
+          "path": null,
+          "engineSource": "reference_date_bucket",
+          "scenarioPolicySource": "scenario_policy_default",
+          "metadata": {
+            "cloudAlignment": {
+              "D": "bull",
+              "h1": "na",
+              "m10": "bear"
+            },
+            "alignedCount": 1,
+            "strongDailyTrend": true
+          },
+          "tradesCreated": 0,
+          "totalTrades": 0
+        },
+        {
+          "interval": 13,
+          "qualifies": false,
+          "reason": "tt_bias_not_aligned",
+          "path": null,
+          "engineSource": "reference_date_bucket",
+          "scenarioPolicySource": "scenario_policy_default",
+          "metadata": {
+            "cloudAlignment": {
+              "D": "bull",
+              "h1": "na",
+              "m10": "bear"
+            },
+            "alignedCount": 1,
+            "strongDailyTrend": true
+          },
+          "tradesCreated": 0,
+          "totalTrades": 0
+        },
+        {
+          "interval": 14,
+          "qualifies": false,
+          "reason": "tt_bias_not_aligned",
+          "path": null,
+          "engineSource": "reference_date_bucket",
+          "scenarioPolicySource": "scenario_policy_default",
+          "metadata": {
+            "cloudAlignment": {
+              "D": "bull",
+              "h1": "na",
+              "m10": "bear"
+            },
+            "alignedCount": 1,
+            "strongDailyTrend": true
+          },
+          "tradesCreated": 0,
+          "totalTrades": 0
+        },
+        {
+          "interval": 15,
+          "qualifies": false,
+          "reason": "tt_bias_not_aligned",
+          "path": null,
+          "engineSource": "reference_date_bucket",
+          "scenarioPolicySource": "scenario_policy_default",
+          "metadata": {
+            "cloudAlignment": {
+              "D": "bull",
+              "h1": "na",
+              "m10": "bear"
+            },
+            "alignedCount": 1,
+            "strongDailyTrend": true
+          },
+          "tradesCreated": 0,
+          "totalTrades": 0
+        },
+        {
+          "interval": 16,
+          "qualifies": false,
+          "reason": "tt_bias_not_aligned",
+          "path": null,
+          "engineSource": "reference_date_bucket",
+          "scenarioPolicySource": "scenario_policy_default",
+          "metadata": {
+            "cloudAlignment": {
+              "D": "bull",
+              "h1": "na",
+              "m10": "bear"
+            },
+            "alignedCount": 1,
+            "strongDailyTrend": true
+          },
+          "tradesCreated": 0,
+          "totalTrades": 0
+        },
+        {
+          "interval": 17,
+          "qualifies": false,
+          "reason": "tt_bias_not_aligned",
+          "path": null,
+          "engineSource": "reference_date_bucket",
+          "scenarioPolicySource": "scenario_policy_default",
+          "metadata": {
+            "cloudAlignment": {
+              "D": "bull",
+              "h1": "na",
+              "m10": "bear"
+            },
+            "alignedCount": 1,
+            "strongDailyTrend": true
+          },
+          "tradesCreated": 0,
+          "totalTrades": 0
+        },
+        {
+          "interval": 18,
+          "qualifies": false,
+          "reason": "tt_bias_not_aligned",
+          "path": null,
+          "engineSource": "reference_ticker_window",
+          "scenarioPolicySource": "scenario_policy_default",
+          "metadata": {
+            "cloudAlignment": {
+              "D": "bull",
+              "h1": "na",
+              "m10": "bear"
+            },
+            "alignedCount": 1,
+            "strongDailyTrend": true
+          },
+          "tradesCreated": 0,
+          "totalTrades": 0
+        },
+        {
+          "interval": 19,
+          "qualifies": false,
+          "reason": "tt_bias_not_aligned",
+          "path": null,
+          "engineSource": "reference_ticker_window",
+          "scenarioPolicySource": "scenario_policy_default",
+          "metadata": {
+            "cloudAlignment": {
+              "D": "bull",
+              "h1": "na",
+              "m10": "bear"
+            },
+            "alignedCount": 1,
+            "strongDailyTrend": true
+          },
+          "tradesCreated": 0,
+          "totalTrades": 0
+        },
+        {
+          "interval": 20,
+          "qualifies": false,
+          "reason": "tt_bias_not_aligned",
+          "path": null,
+          "engineSource": "reference_ticker_window",
+          "scenarioPolicySource": "scenario_policy_default",
+          "metadata": {
+            "cloudAlignment": {
+              "D": "bull",
+              "h1": "na",
+              "m10": "bear"
+            },
+            "alignedCount": 1,
+            "strongDailyTrend": true
+          },
+          "tradesCreated": 0,
+          "totalTrades": 0
+        },
+        {
+          "interval": 21,
+          "qualifies": false,
+          "reason": "tt_bias_not_aligned",
+          "path": null,
+          "engineSource": "reference_date_bucket",
+          "scenarioPolicySource": "scenario_policy_default",
+          "metadata": {
+            "cloudAlignment": {
+              "D": "bull",
+              "h1": "na",
+              "m10": "bear"
+            },
+            "alignedCount": 1,
+            "strongDailyTrend": true
+          },
+          "tradesCreated": 0,
+          "totalTrades": 0
+        },
+        {
+          "interval": 22,
+          "qualifies": false,
+          "reason": "tt_bias_not_aligned",
+          "path": null,
+          "engineSource": "reference_date_bucket",
+          "scenarioPolicySource": "scenario_policy_default",
+          "metadata": {
+            "cloudAlignment": {
+              "D": "bull",
+              "h1": "na",
+              "m10": "bear"
+            },
+            "alignedCount": 1,
+            "strongDailyTrend": true
+          },
+          "tradesCreated": 0,
+          "totalTrades": 0
+        },
+        {
+          "interval": 23,
+          "qualifies": false,
+          "reason": "tt_bias_not_aligned",
+          "path": null,
+          "engineSource": "reference_date_bucket",
+          "scenarioPolicySource": "scenario_policy_default",
+          "metadata": {
+            "cloudAlignment": {
+              "D": "bull",
+              "h1": "na",
+              "m10": "bear"
+            },
+            "alignedCount": 1,
+            "strongDailyTrend": true
+          },
+          "tradesCreated": 0,
+          "totalTrades": 0
+        },
+        {
+          "interval": 24,
+          "qualifies": false,
+          "reason": "tt_bias_not_aligned",
+          "path": null,
+          "engineSource": "reference_date_bucket",
+          "scenarioPolicySource": "scenario_policy_default",
+          "metadata": {
+            "cloudAlignment": {
+              "D": "bull",
+              "h1": "na",
+              "m10": "bear"
+            },
+            "alignedCount": 1,
+            "strongDailyTrend": true
+          },
+          "tradesCreated": 0,
+          "totalTrades": 0
+        },
+        {
+          "interval": 25,
+          "qualifies": false,
+          "reason": "tt_bias_not_aligned",
+          "path": null,
+          "engineSource": "reference_date_bucket",
+          "scenarioPolicySource": "scenario_policy_default",
+          "metadata": {
+            "cloudAlignment": {
+              "D": "bull",
+              "h1": "na",
+              "m10": "bear"
+            },
+            "alignedCount": 1,
+            "strongDailyTrend": true
+          },
+          "tradesCreated": 0,
+          "totalTrades": 0
+        },
+        {
+          "interval": 26,
+          "qualifies": false,
+          "reason": "tt_bias_not_aligned",
+          "path": null,
+          "engineSource": "reference_date_bucket",
+          "scenarioPolicySource": "scenario_policy_default",
+          "metadata": {
+            "cloudAlignment": {
+              "D": "bull",
+              "h1": "na",
+              "m10": "bear"
+            },
+            "alignedCount": 1,
+            "strongDailyTrend": true
+          },
+          "tradesCreated": 0,
+          "totalTrades": 0
+        },
+        {
+          "interval": 27,
+          "qualifies": false,
+          "reason": "tt_bias_not_aligned",
+          "path": null,
+          "engineSource": "reference_date_bucket",
+          "scenarioPolicySource": "scenario_policy_default",
+          "metadata": {
+            "cloudAlignment": {
+              "D": "bull",
+              "h1": "na",
+              "m10": "bear"
+            },
+            "alignedCount": 1,
+            "strongDailyTrend": true
+          },
+          "tradesCreated": 0,
+          "totalTrades": 0
+        }
+      ]
+    },
+    {
+      "case": {
+        "name": "LMND_ref_nov24_1605utc",
+        "ticker": "LMND",
+        "date": "2025-11-24",
+        "target_interval": 31
+      },
+      "interval0": {
+        "interval": 0,
+        "qualifies": null,
+        "reason": null,
+        "path": null,
+        "engineSource": null,
+        "scenarioPolicySource": null,
+        "metadata": null,
+        "tradesCreated": 0,
+        "totalTrades": 0
+      },
+      "target": {
+        "interval": 31,
+        "qualifies": null,
+        "reason": null,
+        "path": null,
+        "engineSource": null,
+        "scenarioPolicySource": null,
+        "metadata": null,
+        "tradesCreated": 0,
+        "totalTrades": 1
+      },
+      "qualifies_true_count": 1,
+      "qualifies_true_intervals": [
+        12
+      ],
+      "reason_counts": {
+        "none": 20,
+        "tt_bias_not_aligned": 11,
+        "tt_5_12_trend_trigger": 1
+      },
+      "rows": [
+        {
+          "interval": 0,
+          "qualifies": null,
+          "reason": null,
+          "path": null,
+          "engineSource": null,
+          "scenarioPolicySource": null,
+          "metadata": null,
+          "tradesCreated": 0,
+          "totalTrades": 0
+        },
+        {
+          "interval": 1,
+          "qualifies": false,
+          "reason": "tt_bias_not_aligned",
+          "path": null,
+          "engineSource": "reference_date_bucket",
+          "scenarioPolicySource": "scenario_policy_default",
+          "metadata": {
+            "cloudAlignment": {
+              "D": "bull",
+              "h1": "bear",
+              "m10": "bull"
+            },
+            "alignedCount": 2,
+            "strongDailyTrend": true
+          },
+          "tradesCreated": 0,
+          "totalTrades": 0
+        },
+        {
+          "interval": 2,
+          "qualifies": false,
+          "reason": "tt_bias_not_aligned",
+          "path": null,
+          "engineSource": "reference_date_bucket",
+          "scenarioPolicySource": "scenario_policy_default",
+          "metadata": {
+            "cloudAlignment": {
+              "D": "bull",
+              "h1": "bear",
+              "m10": "bull"
+            },
+            "alignedCount": 2,
+            "strongDailyTrend": true
+          },
+          "tradesCreated": 0,
+          "totalTrades": 0
+        },
+        {
+          "interval": 3,
+          "qualifies": false,
+          "reason": "tt_bias_not_aligned",
+          "path": null,
+          "engineSource": "reference_date_bucket",
+          "scenarioPolicySource": "scenario_policy_default",
+          "metadata": {
+            "cloudAlignment": {
+              "D": "bull",
+              "h1": "bear",
+              "m10": "bull"
+            },
+            "alignedCount": 2,
+            "strongDailyTrend": true
+          },
+          "tradesCreated": 0,
+          "totalTrades": 0
+        },
+        {
+          "interval": 4,
+          "qualifies": false,
+          "reason": "tt_bias_not_aligned",
+          "path": null,
+          "engineSource": "reference_date_bucket",
+          "scenarioPolicySource": "scenario_policy_default",
+          "metadata": {
+            "cloudAlignment": {
+              "D": "bull",
+              "h1": "bear",
+              "m10": "bull"
+            },
+            "alignedCount": 2,
+            "strongDailyTrend": true
+          },
+          "tradesCreated": 0,
+          "totalTrades": 0
+        },
+        {
+          "interval": 5,
+          "qualifies": false,
+          "reason": "tt_bias_not_aligned",
+          "path": null,
+          "engineSource": "reference_date_bucket",
+          "scenarioPolicySource": "scenario_policy_default",
+          "metadata": {
+            "cloudAlignment": {
+              "D": "bull",
+              "h1": "bear",
+              "m10": "bull"
+            },
+            "alignedCount": 2,
+            "strongDailyTrend": true
+          },
+          "tradesCreated": 0,
+          "totalTrades": 0
+        },
+        {
+          "interval": 6,
+          "qualifies": false,
+          "reason": "tt_bias_not_aligned",
+          "path": null,
+          "engineSource": "reference_ticker_window",
+          "scenarioPolicySource": "scenario_policy_default",
+          "metadata": {
+            "cloudAlignment": {
+              "D": "bull",
+              "h1": "bear",
+              "m10": "bull"
+            },
+            "alignedCount": 2,
+            "strongDailyTrend": true
+          },
+          "tradesCreated": 0,
+          "totalTrades": 0
+        },
+        {
+          "interval": 7,
+          "qualifies": false,
+          "reason": "tt_bias_not_aligned",
+          "path": null,
+          "engineSource": "reference_ticker_window",
+          "scenarioPolicySource": "scenario_policy_default",
+          "metadata": {
+            "cloudAlignment": {
+              "D": "bull",
+              "h1": "bear",
+              "m10": "bull"
+            },
+            "alignedCount": 2,
+            "strongDailyTrend": true
+          },
+          "tradesCreated": 0,
+          "totalTrades": 0
+        },
+        {
+          "interval": 8,
+          "qualifies": false,
+          "reason": "tt_bias_not_aligned",
+          "path": null,
+          "engineSource": "reference_ticker_window",
+          "scenarioPolicySource": "scenario_policy_default",
+          "metadata": {
+            "cloudAlignment": {
+              "D": "bull",
+              "h1": "bear",
+              "m10": "bull"
+            },
+            "alignedCount": 2,
+            "strongDailyTrend": true
+          },
+          "tradesCreated": 0,
+          "totalTrades": 0
+        },
+        {
+          "interval": 9,
+          "qualifies": false,
+          "reason": "tt_bias_not_aligned",
+          "path": null,
+          "engineSource": "reference_date_bucket",
+          "scenarioPolicySource": "scenario_policy_default",
+          "metadata": {
+            "cloudAlignment": {
+              "D": "bull",
+              "h1": "bear",
+              "m10": "bull"
+            },
+            "alignedCount": 2,
+            "strongDailyTrend": true
+          },
+          "tradesCreated": 0,
+          "totalTrades": 0
+        },
+        {
+          "interval": 10,
+          "qualifies": false,
+          "reason": "tt_bias_not_aligned",
+          "path": null,
+          "engineSource": "reference_date_bucket",
+          "scenarioPolicySource": "scenario_policy_default",
+          "metadata": {
+            "cloudAlignment": {
+              "D": "bull",
+              "h1": "bear",
+              "m10": "bull"
+            },
+            "alignedCount": 2,
+            "strongDailyTrend": true
+          },
+          "tradesCreated": 0,
+          "totalTrades": 0
+        },
+        {
+          "interval": 11,
+          "qualifies": false,
+          "reason": "tt_bias_not_aligned",
+          "path": null,
+          "engineSource": "reference_date_bucket",
+          "scenarioPolicySource": "scenario_policy_default",
+          "metadata": {
+            "cloudAlignment": {
+              "D": "bull",
+              "h1": "bear",
+              "m10": "bull"
+            },
+            "alignedCount": 2,
+            "strongDailyTrend": true
+          },
+          "tradesCreated": 0,
+          "totalTrades": 0
+        },
+        {
+          "interval": 12,
+          "qualifies": true,
+          "reason": "tt_5_12_trend_trigger",
+          "path": "tt_momentum",
+          "engineSource": "reference_date_bucket",
+          "scenarioPolicySource": "scenario_policy_default",
+          "metadata": {
+            "cloudAlignment": {
+              "D": "bull",
+              "h1": "bull",
+              "m10": "bull"
+            },
+            "triggerType": "momentum_5_12_cross",
+            "pdzZone": {
+              "D": "premium_approach",
+              "h4": "premium_approach"
+            },
+            "rsiHeat": {
+              "m10": 72.2,
+              "m30": 69.9,
+              "h1": 60.6
+            }
+          },
+          "tradesCreated": 1,
+          "totalTrades": 1
+        },
+        {
+          "interval": 13,
+          "qualifies": null,
+          "reason": null,
+          "path": null,
+          "engineSource": null,
+          "scenarioPolicySource": null,
+          "metadata": null,
+          "tradesCreated": 0,
+          "totalTrades": 1
+        },
+        {
+          "interval": 14,
+          "qualifies": null,
+          "reason": null,
+          "path": null,
+          "engineSource": null,
+          "scenarioPolicySource": null,
+          "metadata": null,
+          "tradesCreated": 0,
+          "totalTrades": 1
+        },
+        {
+          "interval": 15,
+          "qualifies": null,
+          "reason": null,
+          "path": null,
+          "engineSource": null,
+          "scenarioPolicySource": null,
+          "metadata": null,
+          "tradesCreated": 0,
+          "totalTrades": 1
+        },
+        {
+          "interval": 16,
+          "qualifies": null,
+          "reason": null,
+          "path": null,
+          "engineSource": null,
+          "scenarioPolicySource": null,
+          "metadata": null,
+          "tradesCreated": 0,
+          "totalTrades": 1
+        },
+        {
+          "interval": 17,
+          "qualifies": null,
+          "reason": null,
+          "path": null,
+          "engineSource": null,
+          "scenarioPolicySource": null,
+          "metadata": null,
+          "tradesCreated": 0,
+          "totalTrades": 1
+        },
+        {
+          "interval": 18,
+          "qualifies": null,
+          "reason": null,
+          "path": null,
+          "engineSource": null,
+          "scenarioPolicySource": null,
+          "metadata": null,
+          "tradesCreated": 0,
+          "totalTrades": 1
+        },
+        {
+          "interval": 19,
+          "qualifies": null,
+          "reason": null,
+          "path": null,
+          "engineSource": null,
+          "scenarioPolicySource": null,
+          "metadata": null,
+          "tradesCreated": 0,
+          "totalTrades": 1
+        },
+        {
+          "interval": 20,
+          "qualifies": null,
+          "reason": null,
+          "path": null,
+          "engineSource": null,
+          "scenarioPolicySource": null,
+          "metadata": null,
+          "tradesCreated": 0,
+          "totalTrades": 1
+        },
+        {
+          "interval": 21,
+          "qualifies": null,
+          "reason": null,
+          "path": null,
+          "engineSource": null,
+          "scenarioPolicySource": null,
+          "metadata": null,
+          "tradesCreated": 0,
+          "totalTrades": 1
+        },
+        {
+          "interval": 22,
+          "qualifies": null,
+          "reason": null,
+          "path": null,
+          "engineSource": null,
+          "scenarioPolicySource": null,
+          "metadata": null,
+          "tradesCreated": 0,
+          "totalTrades": 1
+        },
+        {
+          "interval": 23,
+          "qualifies": null,
+          "reason": null,
+          "path": null,
+          "engineSource": null,
+          "scenarioPolicySource": null,
+          "metadata": null,
+          "tradesCreated": 0,
+          "totalTrades": 1
+        },
+        {
+          "interval": 24,
+          "qualifies": null,
+          "reason": null,
+          "path": null,
+          "engineSource": null,
+          "scenarioPolicySource": null,
+          "metadata": null,
+          "tradesCreated": 0,
+          "totalTrades": 1
+        },
+        {
+          "interval": 25,
+          "qualifies": null,
+          "reason": null,
+          "path": null,
+          "engineSource": null,
+          "scenarioPolicySource": null,
+          "metadata": null,
+          "tradesCreated": 0,
+          "totalTrades": 1
+        },
+        {
+          "interval": 26,
+          "qualifies": null,
+          "reason": null,
+          "path": null,
+          "engineSource": null,
+          "scenarioPolicySource": null,
+          "metadata": null,
+          "tradesCreated": 0,
+          "totalTrades": 1
+        },
+        {
+          "interval": 27,
+          "qualifies": null,
+          "reason": null,
+          "path": null,
+          "engineSource": null,
+          "scenarioPolicySource": null,
+          "metadata": null,
+          "tradesCreated": 0,
+          "totalTrades": 1
+        },
+        {
+          "interval": 28,
+          "qualifies": null,
+          "reason": null,
+          "path": null,
+          "engineSource": null,
+          "scenarioPolicySource": null,
+          "metadata": null,
+          "tradesCreated": 0,
+          "totalTrades": 1
+        },
+        {
+          "interval": 29,
+          "qualifies": null,
+          "reason": null,
+          "path": null,
+          "engineSource": null,
+          "scenarioPolicySource": null,
+          "metadata": null,
+          "tradesCreated": 0,
+          "totalTrades": 1
+        },
+        {
+          "interval": 30,
+          "qualifies": null,
+          "reason": null,
+          "path": null,
+          "engineSource": null,
+          "scenarioPolicySource": null,
+          "metadata": null,
+          "tradesCreated": 0,
+          "totalTrades": 1
+        },
+        {
+          "interval": 31,
+          "qualifies": null,
+          "reason": null,
+          "path": null,
+          "engineSource": null,
+          "scenarioPolicySource": null,
+          "metadata": null,
+          "tradesCreated": 0,
+          "totalTrades": 1
+        }
+      ]
+    }
+  ]
+}

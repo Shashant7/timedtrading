@@ -1,0 +1,54 @@
+{
+  "ok": true,
+  "count": 3,
+  "trades": [
+    {
+      "trade_id": "COST-1751549400000-46wg2f4rm",
+      "run_id": "backtest_2025-07-01_2026-03-04@2026-03-10T00:25:30.875Z",
+      "ticker": "COST",
+      "direction": "SHORT",
+      "entry_ts": 1751549400000,
+      "exit_ts": 1751563800000,
+      "entry_price": 981.28998,
+      "exit_price": 987,
+      "pnl": -34.91334946679056,
+      "pnl_pct": -0.5818891577798426,
+      "exit_reason": "ripster_5_12_lost_confirmed",
+      "signal_snapshot_json": "{\"avg_bias\":-0.45,\"tf\":{\"15m\":{\"bias\":-0.413,\"signals\":{\"ema_cross\":-1,\"supertrend\":-1,\"ema_structure\":-0.4,\"ema_depth\":7,\"rsi\":51.5}},\"30m\":{\"bias\":-0.227,\"signals\":{\"ema_cross\":-1,\"supertrend\":-1,\"ema_structure\":0.04,\"ema_depth\":8,\"rsi\":58.6}},\"1H\":{\"bias\":-0.402,\"signals\":{\"ema_cross\":-1,\"supertrend\":-1,\"ema_structure\":-0.4,\"ema_depth\":7,\"rsi\":53.6}},\"4H\":{\"bias\":-0.697,\"signals\":{\"ema_cross\":-1,\"supertrend\":-1,\"ema_structure\":-1,\"ema_depth\":4,\"rsi\":48.6}},\"D\":{\"bias\":-0.492,\"signals\":{\"ema5_48\":-1,\"ema_cross\":-1,\"supertrend\":-1,\"ema_structure\":-0.04,\"ema_depth\":6,\"rsi\":45.8}}}}",
+      "entry_path": "ripster_momentum",
+      "consensus_direction": "SHORT"
+    },
+    {
+      "trade_id": "AAPL-1751463000000-82y1l9308",
+      "run_id": "backtest_2025-07-01_2026-03-04@2026-03-10T00:25:30.875Z",
+      "ticker": "AAPL",
+      "direction": "LONG",
+      "entry_ts": 1751463000000,
+      "exit_ts": 1751477400000,
+      "entry_price": 211.42999,
+      "exit_price": 210.86501,
+      "pnl": -14.278247754729383,
+      "pnl_pct": -0.2379707959121564,
+      "exit_reason": "post_trim_breakeven_protect",
+      "signal_snapshot_json": "{\"avg_bias\":0.974,\"tf\":{\"15m\":{\"bias\":0.924,\"signals\":{\"ema_cross\":1,\"supertrend\":1,\"ema_structure\":1,\"ema_depth\":10,\"rsi\":64.8}},\"30m\":{\"bias\":0.957,\"signals\":{\"ema_cross\":1,\"supertrend\":1,\"ema_structure\":1,\"ema_depth\":10,\"rsi\":71.4}},\"1H\":{\"bias\":0.994,\"signals\":{\"ema_cross\":1,\"supertrend\":1,\"ema_structure\":1,\"ema_depth\":10,\"rsi\":78.8}},\"4H\":{\"bias\":0.983,\"signals\":{\"ema_cross\":1,\"st_slope\":1,\"supertrend\":1,\"ema_structure\":1,\"ema_depth\":10,\"rsi\":76.3}},\"D\":{\"bias\":1,\"signals\":{\"ema5_48\":1,\"ema_cross\":1,\"supertrend\":1,\"ema_structure\":1,\"ema_depth\":10,\"rsi\":81.2}}}}",
+      "entry_path": "ripster_momentum",
+      "consensus_direction": "LONG"
+    },
+    {
+      "trade_id": "ULTA-1751382000000-32ucekxpu",
+      "run_id": "backtest_2025-07-01_2026-03-04@2026-03-10T00:25:30.875Z",
+      "ticker": "ULTA",
+      "direction": "LONG",
+      "entry_ts": 1751382000000,
+      "exit_ts": 1751396400000,
+      "entry_price": 474.11499,
+      "exit_price": 473.51999,
+      "pnl": -7.5298188736867875,
+      "pnl_pct": -0.12549698122811315,
+      "exit_reason": "critical_trigger_noise_defend",
+      "signal_snapshot_json": "{\"avg_bias\":0.964,\"tf\":{\"15m\":{\"bias\":0.961,\"signals\":{\"ema_cross\":1,\"st_slope\":1,\"supertrend\":1,\"ema_structure\":1,\"ema_depth\":10,\"rsi\":71.5}},\"30m\":{\"bias\":1,\"signals\":{\"ema_cross\":1,\"st_slope\":1,\"supertrend\":1,\"ema_structure\":1,\"ema_depth\":10,\"rsi\":80.7}},\"1H\":{\"bias\":0.989,\"signals\":{\"ema_cross\":1,\"st_slope\":1,\"supertrend\":1,\"ema_structure\":1,\"ema_depth\":10,\"rsi\":77.6}},\"4H\":{\"bias\":0.94,\"signals\":{\"ema_cross\":1,\"supertrend\":1,\"ema_structure\":1,\"ema_depth\":10,\"rsi\":67.9}},\"D\":{\"bias\":0.941,\"signals\":{\"ema5_48\":1,\"ema_cross\":1,\"supertrend\":1,\"ema_structure\":1,\"ema_depth\":10,\"rsi\":65.8}}}}",
+      "entry_path": "ripster_momentum",
+      "consensus_direction": "LONG"
+    }
+  ]
+}

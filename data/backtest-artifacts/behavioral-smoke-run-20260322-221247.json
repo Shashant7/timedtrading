@@ -1,0 +1,14 @@
+{
+  "run_id": "behavioral-smoke-4ticker-jul1-jul31@2026-03-22T22:08:52.809Z",
+  "register_ok": true,
+  "close_closed": 3,
+  "finalize_ok": true,
+  "archived": {
+    "trades": 0,
+    "da": 9,
+    "annotations": 0,
+    "config": 129
+  },
+  "unlock_ok": true,
+  "run_trade_count": 9
+}

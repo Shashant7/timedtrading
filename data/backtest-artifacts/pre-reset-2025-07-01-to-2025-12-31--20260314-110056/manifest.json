@@ -1,0 +1,10 @@
+{
+  "ok": true,
+  "label": "pre-reset-2025-07-01-to-2025-12-31-",
+  "captured_at": "20260314-110056",
+  "start_date": "2025-07-01",
+  "end_date": "2025-12-31",
+  "trader_only": true,
+  "sequence": false,
+  "note": "Captured automatically before reset for A/B comparison."
+}

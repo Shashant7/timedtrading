@@ -1,0 +1,78 @@
+{
+  "ok": true,
+  "since": null,
+  "until": null,
+  "totals": {
+    "totalTrades": 13,
+    "openTrades": 8,
+    "closedTrades": 5,
+    "wins": 0,
+    "losses": 5,
+    "winRate": 0,
+    "closedPnl": -806.2011694890864,
+    "profitFactor": 0,
+    "avgWin": 0,
+    "avgLoss": 161.2402338978173,
+    "expectancy": -161.2402338978173,
+    "grossWin": 0,
+    "grossLoss": 806.2011694890864
+  },
+  "breakdown": {
+    "byRank": [
+      {
+        "bucket": "70-79",
+        "n": 3,
+        "wins": 0,
+        "losses": 1,
+        "pnl": -200.37652451501995
+      },
+      {
+        "bucket": "80+",
+        "n": 10,
+        "wins": 0,
+        "losses": 4,
+        "pnl": -605.8246449740665
+      }
+    ],
+    "byRR": [
+      {
+        "bucket": "2.0+",
+        "n": 13,
+        "wins": 0,
+        "losses": 5,
+        "pnl": -806.2011694890864
+      }
+    ],
+    "byExitReason": [
+      {
+        "reason": "unknown",
+        "n": 8,
+        "wins": 0,
+        "losses": 0,
+        "pnl": 0
+      },
+      {
+        "reason": "doa_early_exit",
+        "n": 3,
+        "wins": 0,
+        "losses": 3,
+        "pnl": -215.70206625750527
+      },
+      {
+        "reason": "bias_flip_full_bull_vs_short",
+        "n": 1,
+        "wins": 0,
+        "losses": 1,
+        "pnl": -200.37652451501995
+      },
+      {
+        "reason": "HARD_LOSS_CAP",
+        "n": 1,
+        "wins": 0,
+        "losses": 1,
+        "pnl": -390.1225787165612
+      }
+    ],
+    "byTriggerReason": []
+  }
+}

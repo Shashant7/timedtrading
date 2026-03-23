@@ -1,0 +1,75 @@
+{
+  "_description": "Exit thresholds calibrated from 3-way backtest MFE/MAE analysis + signal-at-peak autopsy (Jul 2025 - Feb 2026)",
+  "_calibration_source": "scripts/3way-comparison.py + scripts/mfe-peak-autopsy.js",
+  "_evidence": {
+    "total_gave_back_loss": "$59,901 across 127 trades (MFE>=2% that ended LOSS)",
+    "avg_gave_back_mfe": "3.4%",
+    "avg_gave_back_hours_to_peak": "69h",
+    "12_24h_hold_wr": "10-18% across all engines",
+    "rsi_1h_long_peak_p75": 68,
+    "rsi_1h_long_peak_p90": 76,
+    "phase_osc_1h_peak_p75": 60,
+    "phase_osc_1h_peak_p90": 80,
+    "hours_to_peak_p50": 85,
+    "mfe_safety_trim_coverage": "88% of trades with MFE>=1%",
+    "three_tier_trim1_coverage": "42-55% of trades"
+  },
+  "thresholds": {
+    "deep_audit_mfe_safety_trim_pct": {
+      "value": "2.0",
+      "reason": "88% of eligible trades reached 2%+ MFE. All 127 gave-back trades had MFE>=2%. Trim at 2% captures profits before reversal.",
+      "previous": "0 (disabled)"
+    },
+    "deep_audit_stall_max_hours": {
+      "value": "14",
+      "reason": "12-24h holds at 10-18% WR across all engines. Tightening from 36h to 14 market-hours kills dead trades faster. Median peak is at 85h, so 14h catches DOA entries that never move.",
+      "previous": "36"
+    },
+    "deep_audit_stall_breakeven_pnl_pct": {
+      "value": "0.3",
+      "reason": "Stalled trades with PnL < 0.3% after 14h should have SL moved to breakeven. Frees capital."
+    },
+    "deep_audit_max_runner_drawdown_pct": {
+      "value": "2.5",
+      "reason": "Gave-back trades reversed from avg 3.4% MFE to avg -4.5% loss. 2.5% drawdown from peak catches the reversal before it becomes a loss.",
+      "previous": "0 (disabled)"
+    },
+    "deep_audit_post_trim_trail_pct": {
+      "value": "2.0",
+      "reason": "After first trim, trail at 2% from peak protects gains. Backtest shows 5d+ holds at 63-67% WR — let winners run with protection."
+    },
+    "deep_audit_post_trim_breakeven": {
+      "value": "true",
+      "reason": "After any trim, move SL to at least breakeven. Eliminates the possibility of a trimmed winner becoming a loser."
+    },
+    "deep_audit_phase_peak_extreme": {
+      "value": "65",
+      "reason": "Phase Osc at peak: p75=60, p90=80. Lowering from 70 to 65 catches 25%+ of peaks (was 18%). Not too aggressive — still allows strong momentum to run.",
+      "previous": "70"
+    },
+    "deep_audit_phase_decline_extreme": {
+      "value": "20",
+      "reason": "Phase must decline by 20 from peak to confirm reversal. Prevents premature exits on pauses."
+    },
+    "deep_audit_danger_max_signals": {
+      "value": "3",
+      "reason": "Multi-factor danger score gate. 3 or more bearish signals block new LONG entries. Reduces dead entry rate."
+    },
+    "deep_audit_vix_ceiling": {
+      "value": "30",
+      "reason": "Block entries when VIX > 30. High VIX = high uncertainty = poor entry quality."
+    },
+    "doa_gate_enabled": {
+      "value": "true",
+      "reason": "DOA gate blocks entries when Daily + 4H SuperTrend both against trade direction."
+    },
+    "tt_spy_directional_gate": {
+      "value": "true",
+      "reason": "Block LONGs when SPY is bearish (htf<-10, regime<=-1). Shorts showed 28-35% WR across all engines."
+    },
+    "deep_audit_loss_cooldown_hours": {
+      "value": "4",
+      "reason": "After a loss on a ticker, wait 4 hours before re-entering. Prevents revenge trading."
+    }
+  }
+}

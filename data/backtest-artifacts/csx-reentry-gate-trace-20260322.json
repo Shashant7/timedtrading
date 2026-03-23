@@ -1,0 +1,535 @@
+{
+  "date": "2025-07-01",
+  "run_start": 1774188137347,
+  "overrides": {
+    "tickers": "CSX",
+    "intervalMinutes": "5",
+    "traderOnly": "1",
+    "ENTRY_ENGINE": "legacy",
+    "MANAGEMENT_ENGINE": "legacy",
+    "deep_audit_confirmed_min_rank": "65",
+    "deep_audit_parity_defer_confirmed_opening_minutes": "0",
+    "deep_audit_legacy_momentum_precedence": "true",
+    "deep_audit_legacy_momentum_min_rr": "1.6",
+    "deep_audit_legacy_momentum_relax_trigger": "true",
+    "deep_audit_parity_runner_tp_full_only": "true",
+    "deep_audit_breakeven_skip_trimmed_runner": "true",
+    "deep_audit_parity_skip_stall_force_close": "true",
+    "deep_audit_parity_skip_sl_breach": "true",
+    "deep_audit_parity_no_reentry_after_tp_full_hours": "500"
+  },
+  "intervals": [
+    {
+      "interval": 0,
+      "intervalTs": 1751376600000,
+      "tradesCreated": 1,
+      "totalTrades": 1,
+      "stageCounts": {
+        "in_review": 1
+      },
+      "blockReasons": {},
+      "blockedEntryGates": {},
+      "processDebug": [
+        {
+          "sym": "CSX",
+          "at": "entry",
+          "stage": "in_review",
+          "hasEntryPath": true
+        },
+        {
+          "sym": "CSX",
+          "at": "isEnter",
+          "stage": "in_review",
+          "storedStage": "in_review"
+        },
+        {
+          "sym": "CSX",
+          "at": "pre_gate",
+          "weekendNow": false,
+          "outsideRTH": false,
+          "enterCooldownOk": true,
+          "sameEnterCycle": false,
+          "openTrade": false,
+          "smartGateBlocked": false,
+          "parityOpeningConfirmedDeferred": false
+        },
+        {
+          "sym": "CSX",
+          "at": "before_smart",
+          "weekendNow": false,
+          "outsideRTH": false,
+          "canRun": true
+        },
+        {
+          "ts": 1751376600000,
+          "sym": "CSX",
+          "storedStage": "in_review",
+          "stage": "in_review",
+          "isEnter": true,
+          "weekendNow": false,
+          "enterCooldownOk": true,
+          "sameEnterCycle": false,
+          "openTrade": false,
+          "smartGateBlocked": false,
+          "direction": "LONG",
+          "entryPath": "momentum_score"
+        },
+        {
+          "sym": "CSX",
+          "gate": "passed",
+          "dir": "LONG",
+          "entryPath": "momentum_score",
+          "entryPx": 33.405
+        },
+        {
+          "sym": "CSX",
+          "gate": "trade_validation",
+          "dir": "LONG",
+          "entryPx": 33.405,
+          "pxNow": 33.405,
+          "slCandidate": 32.55,
+          "tpCandidate": 34.29,
+          "allValid": true,
+          "hasSl": true,
+          "hasTp": true
+        },
+        {
+          "sym": "CSX",
+          "gate": "sizing",
+          "shares": 449.034575662326,
+          "notional": 15000,
+          "cash": 100000,
+          "method": "risk_based"
+        }
+      ],
+      "entryDiagnostics": {
+        "CSX": {
+          "qualifies": true,
+          "reason": "momentum_with_signal_precedence",
+          "engine": "legacy",
+          "path": "momentum_score",
+          "selectedEngine": null,
+          "engineSource": null,
+          "metadata": {
+            "momentum_precedence_enabled": true,
+            "momentum_min_rr": 1.6,
+            "momentum_relax_trigger": true,
+            "momentum_struct_fallback_bull": true,
+            "score": 71,
+            "rr": 1.67836257309941,
+            "hasStFlipBull": false,
+            "hasEmaCrossBull": false,
+            "hasSqRelease": false
+          }
+        }
+      }
+    },
+    {
+      "interval": 1,
+      "intervalTs": 1751376900000,
+      "tradesCreated": 0,
+      "totalTrades": 1,
+      "stageCounts": {
+        "hold": 1
+      },
+      "blockReasons": {},
+      "blockedEntryGates": {},
+      "processDebug": [],
+      "entryDiagnostics": {}
+    },
+    {
+      "interval": 2,
+      "intervalTs": 1751377200000,
+      "tradesCreated": 0,
+      "totalTrades": 1,
+      "stageCounts": {
+        "hold": 1
+      },
+      "blockReasons": {},
+      "blockedEntryGates": {},
+      "processDebug": [],
+      "entryDiagnostics": {}
+    },
+    {
+      "interval": 3,
+      "intervalTs": 1751377500000,
+      "tradesCreated": 0,
+      "totalTrades": 1,
+      "stageCounts": {
+        "hold": 1
+      },
+      "blockReasons": {},
+      "blockedEntryGates": {},
+      "processDebug": [],
+      "entryDiagnostics": {}
+    },
+    {
+      "interval": 4,
+      "intervalTs": 1751377800000,
+      "tradesCreated": 0,
+      "totalTrades": 1,
+      "stageCounts": {
+        "hold": 1
+      },
+      "blockReasons": {},
+      "blockedEntryGates": {},
+      "processDebug": [],
+      "entryDiagnostics": {}
+    },
+    {
+      "interval": 5,
+      "intervalTs": 1751378100000,
+      "tradesCreated": 0,
+      "totalTrades": 1,
+      "stageCounts": {
+        "hold": 1
+      },
+      "blockReasons": {},
+      "blockedEntryGates": {},
+      "processDebug": [],
+      "entryDiagnostics": {}
+    },
+    {
+      "interval": 6,
+      "intervalTs": 1751378400000,
+      "tradesCreated": 0,
+      "totalTrades": 1,
+      "stageCounts": {
+        "hold": 1
+      },
+      "blockReasons": {},
+      "blockedEntryGates": {},
+      "processDebug": [],
+      "entryDiagnostics": {}
+    },
+    {
+      "interval": 7,
+      "intervalTs": 1751378700000,
+      "tradesCreated": 0,
+      "totalTrades": 1,
+      "stageCounts": {
+        "hold": 1
+      },
+      "blockReasons": {},
+      "blockedEntryGates": {},
+      "processDebug": [],
+      "entryDiagnostics": {}
+    },
+    {
+      "interval": 8,
+      "intervalTs": 1751379000000,
+      "tradesCreated": 0,
+      "totalTrades": 1,
+      "stageCounts": {
+        "hold": 1
+      },
+      "blockReasons": {},
+      "blockedEntryGates": {},
+      "processDebug": [],
+      "entryDiagnostics": {}
+    },
+    {
+      "interval": 9,
+      "intervalTs": 1751379300000,
+      "tradesCreated": 0,
+      "totalTrades": 1,
+      "stageCounts": {
+        "hold": 1
+      },
+      "blockReasons": {},
+      "blockedEntryGates": {},
+      "processDebug": [],
+      "entryDiagnostics": {}
+    },
+    {
+      "interval": 10,
+      "intervalTs": 1751379600000,
+      "tradesCreated": 0,
+      "totalTrades": 1,
+      "stageCounts": {
+        "hold": 1
+      },
+      "blockReasons": {},
+      "blockedEntryGates": {},
+      "processDebug": [],
+      "entryDiagnostics": {}
+    },
+    {
+      "interval": 11,
+      "intervalTs": 1751379900000,
+      "tradesCreated": 0,
+      "totalTrades": 1,
+      "stageCounts": {
+        "hold": 1
+      },
+      "blockReasons": {},
+      "blockedEntryGates": {},
+      "processDebug": [],
+      "entryDiagnostics": {}
+    },
+    {
+      "interval": 12,
+      "intervalTs": 1751380200000,
+      "tradesCreated": 0,
+      "totalTrades": 1,
+      "stageCounts": {
+        "hold": 1
+      },
+      "blockReasons": {},
+      "blockedEntryGates": {},
+      "processDebug": [],
+      "entryDiagnostics": {}
+    },
+    {
+      "interval": 13,
+      "intervalTs": 1751380500000,
+      "tradesCreated": 0,
+      "totalTrades": 1,
+      "stageCounts": {
+        "hold": 1
+      },
+      "blockReasons": {},
+      "blockedEntryGates": {},
+      "processDebug": [],
+      "entryDiagnostics": {}
+    },
+    {
+      "interval": 14,
+      "intervalTs": 1751380800000,
+      "tradesCreated": 0,
+      "totalTrades": 1,
+      "stageCounts": {
+        "hold": 1
+      },
+      "blockReasons": {},
+      "blockedEntryGates": {},
+      "processDebug": [],
+      "entryDiagnostics": {}
+    },
+    {
+      "interval": 15,
+      "intervalTs": 1751381100000,
+      "tradesCreated": 0,
+      "totalTrades": 1,
+      "stageCounts": {
+        "hold": 1
+      },
+      "blockReasons": {},
+      "blockedEntryGates": {},
+      "processDebug": [],
+      "entryDiagnostics": {}
+    },
+    {
+      "interval": 16,
+      "intervalTs": 1751381400000,
+      "tradesCreated": 0,
+      "totalTrades": 1,
+      "stageCounts": {
+        "hold": 1
+      },
+      "blockReasons": {},
+      "blockedEntryGates": {},
+      "processDebug": [],
+      "entryDiagnostics": {}
+    },
+    {
+      "interval": 17,
+      "intervalTs": 1751381700000,
+      "tradesCreated": 0,
+      "totalTrades": 1,
+      "stageCounts": {
+        "hold": 1
+      },
+      "blockReasons": {},
+      "blockedEntryGates": {},
+      "processDebug": [],
+      "entryDiagnostics": {}
+    },
+    {
+      "interval": 18,
+      "intervalTs": 1751382000000,
+      "tradesCreated": 0,
+      "totalTrades": 1,
+      "stageCounts": {
+        "hold": 1
+      },
+      "blockReasons": {},
+      "blockedEntryGates": {},
+      "processDebug": [],
+      "entryDiagnostics": {}
+    },
+    {
+      "interval": 19,
+      "intervalTs": 1751382300000,
+      "tradesCreated": 0,
+      "totalTrades": 1,
+      "stageCounts": {
+        "hold": 1
+      },
+      "blockReasons": {},
+      "blockedEntryGates": {},
+      "processDebug": [],
+      "entryDiagnostics": {}
+    },
+    {
+      "interval": 20,
+      "intervalTs": 1751382600000,
+      "tradesCreated": 0,
+      "totalTrades": 1,
+      "stageCounts": {
+        "hold": 1
+      },
+      "blockReasons": {},
+      "blockedEntryGates": {},
+      "processDebug": [],
+      "entryDiagnostics": {}
+    },
+    {
+      "interval": 21,
+      "intervalTs": 1751382900000,
+      "tradesCreated": 0,
+      "totalTrades": 1,
+      "stageCounts": {
+        "hold": 1
+      },
+      "blockReasons": {},
+      "blockedEntryGates": {},
+      "processDebug": [],
+      "entryDiagnostics": {}
+    },
+    {
+      "interval": 22,
+      "intervalTs": 1751383200000,
+      "tradesCreated": 0,
+      "totalTrades": 1,
+      "stageCounts": {
+        "hold": 1
+      },
+      "blockReasons": {},
+      "blockedEntryGates": {},
+      "processDebug": [],
+      "entryDiagnostics": {}
+    },
+    {
+      "interval": 23,
+      "intervalTs": 1751383500000,
+      "tradesCreated": 0,
+      "totalTrades": 1,
+      "stageCounts": {
+        "hold": 1
+      },
+      "blockReasons": {},
+      "blockedEntryGates": {},
+      "processDebug": [],
+      "entryDiagnostics": {}
+    },
+    {
+      "interval": 24,
+      "intervalTs": 1751383800000,
+      "tradesCreated": 0,
+      "totalTrades": 1,
+      "stageCounts": {
+        "hold": 1
+      },
+      "blockReasons": {},
+      "blockedEntryGates": {},
+      "processDebug": [],
+      "entryDiagnostics": {}
+    },
+    {
+      "interval": 25,
+      "intervalTs": 1751384100000,
+      "tradesCreated": 0,
+      "totalTrades": 1,
+      "stageCounts": {
+        "hold": 1
+      },
+      "blockReasons": {},
+      "blockedEntryGates": {},
+      "processDebug": [],
+      "entryDiagnostics": {}
+    },
+    {
+      "interval": 26,
+      "intervalTs": 1751384400000,
+      "tradesCreated": 0,
+      "totalTrades": 1,
+      "stageCounts": {
+        "hold": 1
+      },
+      "blockReasons": {},
+      "blockedEntryGates": {},
+      "processDebug": [],
+      "entryDiagnostics": {}
+    },
+    {
+      "interval": 27,
+      "intervalTs": 1751384700000,
+      "tradesCreated": 0,
+      "totalTrades": 1,
+      "stageCounts": {
+        "hold": 1
+      },
+      "blockReasons": {},
+      "blockedEntryGates": {},
+      "processDebug": [],
+      "entryDiagnostics": {}
+    },
+    {
+      "interval": 28,
+      "intervalTs": 1751385000000,
+      "tradesCreated": 0,
+      "totalTrades": 1,
+      "stageCounts": {
+        "hold": 1
+      },
+      "blockReasons": {},
+      "blockedEntryGates": {},
+      "processDebug": [],
+      "entryDiagnostics": {}
+    },
+    {
+      "interval": 29,
+      "intervalTs": 1751385300000,
+      "tradesCreated": 0,
+      "totalTrades": 1,
+      "stageCounts": {
+        "hold": 1
+      },
+      "blockReasons": {},
+      "blockedEntryGates": {},
+      "processDebug": [],
+      "entryDiagnostics": {}
+    }
+  ],
+  "recent_csx_rows": [
+    {
+      "id": "CSX-1751376600000-5ghsx109b",
+      "trade_id": "CSX-1751376600000-5ghsx109b",
+      "ticker": "CSX",
+      "direction": "LONG",
+      "entryPrice": 33.405,
+      "entry_price": 33.405,
+      "entry_ts": 1751376600000,
+      "entryTime": "2025-07-01T13:30:00.000Z",
+      "rank": 71,
+      "rr": 1.7692307692307718,
+      "status": "FLAT",
+      "exit_ts": 1774188227918,
+      "exitReason": "unknown",
+      "trimmedPct": 0,
+      "pnl": 0,
+      "pnlPct": 0,
+      "scriptVersion": "alpaca_server_v2.0",
+      "script_version": "alpaca_server_v2.0",
+      "created_at": 1751376600000,
+      "updated_at": 1774188227663,
+      "shares": 449.034575662326,
+      "notional": 15000,
+      "setup_grade": "Confirmed",
+      "setup_name": "TT Momentum",
+      "risk_budget": 0.01,
+      "history": []
+    }
+  ]
+}

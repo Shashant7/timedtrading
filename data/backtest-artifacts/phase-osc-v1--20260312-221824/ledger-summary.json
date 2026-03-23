@@ -1,0 +1,120 @@
+{
+  "ok": true,
+  "since": null,
+  "until": null,
+  "totals": {
+    "totalTrades": 34,
+    "openTrades": 18,
+    "closedTrades": 16,
+    "wins": 7,
+    "losses": 9,
+    "winRate": 43.75,
+    "closedPnl": 1063.5243337884608,
+    "profitFactor": 1.4180508383552837,
+    "avgWin": 515.3616446244868,
+    "avgLoss": 282.6674642869941,
+    "expectancy": 66.4702708617788,
+    "grossWin": 3607.5315123714076,
+    "grossLoss": 2544.007178582947
+  },
+  "breakdown": {
+    "byRank": [
+      {
+        "bucket": "60-69",
+        "n": 9,
+        "wins": 3,
+        "losses": 1,
+        "pnl": 693.9946778506593
+      },
+      {
+        "bucket": "70-79",
+        "n": 8,
+        "wins": 0,
+        "losses": 2,
+        "pnl": -634.416568348835
+      },
+      {
+        "bucket": "80+",
+        "n": 14,
+        "wins": 4,
+        "losses": 5,
+        "pnl": 1050.9379501300834
+      },
+      {
+        "bucket": "<60",
+        "n": 3,
+        "wins": 0,
+        "losses": 1,
+        "pnl": -46.99172584344691
+      }
+    ],
+    "byRR": [
+      {
+        "bucket": "2.0+",
+        "n": 34,
+        "wins": 7,
+        "losses": 9,
+        "pnl": 1063.5243337884608
+      }
+    ],
+    "byExitReason": [
+      {
+        "reason": "unknown",
+        "n": 20,
+        "wins": 2,
+        "losses": 0,
+        "pnl": 345.21015117398053
+      },
+      {
+        "reason": "max_loss",
+        "n": 5,
+        "wins": 0,
+        "losses": 5,
+        "pnl": -1512.772422435755
+      },
+      {
+        "reason": "sl_breached",
+        "n": 3,
+        "wins": 2,
+        "losses": 1,
+        "pnl": -170.47155187382668
+      },
+      {
+        "reason": "below_trigger,trigger_breached_5pct,daily_ema_regime_break,adverse_move_warning",
+        "n": 2,
+        "wins": 1,
+        "losses": 1,
+        "pnl": -49.645296518390836
+      },
+      {
+        "reason": "dedup_reconcile",
+        "n": 1,
+        "wins": 0,
+        "losses": 1,
+        "pnl": -46.99172584344691
+      },
+      {
+        "reason": "below_trigger,trigger_breached_5pct,daily_ema_regime_break,overextended,adverse_move_warning",
+        "n": 1,
+        "wins": 1,
+        "losses": 0,
+        "pnl": 14.031873010754714
+      },
+      {
+        "reason": "TP_FULL",
+        "n": 1,
+        "wins": 1,
+        "losses": 0,
+        "pnl": 2709.564527624087
+      },
+      {
+        "reason": "SOFT_FUSE_RSI_CONFIRMED",
+        "n": 1,
+        "wins": 0,
+        "losses": 1,
+        "pnl": -225.40122134894204
+      }
+    ],
+    "byTriggerReason": []
+  }
+}

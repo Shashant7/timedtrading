@@ -1,0 +1,113 @@
+{
+  "ok": true,
+  "since": null,
+  "until": null,
+  "totals": {
+    "totalTrades": 33,
+    "openTrades": 12,
+    "closedTrades": 21,
+    "wins": 8,
+    "losses": 13,
+    "winRate": 38.095238095238095,
+    "closedPnl": -1424.5330112111642,
+    "profitFactor": 0.3519536626469889,
+    "avgWin": 96.7079014953605,
+    "avgLoss": 169.09201716723447,
+    "expectancy": -67.83490529576973,
+    "grossWin": 773.663211962884,
+    "grossLoss": 2198.196223174048
+  },
+  "breakdown": {
+    "byRank": [
+      {
+        "bucket": "60-69",
+        "n": 9,
+        "wins": 3,
+        "losses": 4,
+        "pnl": -406.81186726624156
+      },
+      {
+        "bucket": "70-79",
+        "n": 12,
+        "wins": 1,
+        "losses": 6,
+        "pnl": -1012.6725761366255
+      },
+      {
+        "bucket": "80+",
+        "n": 9,
+        "wins": 3,
+        "losses": 1,
+        "pnl": 3.1022573265138433
+      },
+      {
+        "bucket": "<60",
+        "n": 3,
+        "wins": 1,
+        "losses": 2,
+        "pnl": -8.150825134810901
+      }
+    ],
+    "byRR": [
+      {
+        "bucket": "1.0-1.49",
+        "n": 1,
+        "wins": 0,
+        "losses": 0,
+        "pnl": 0
+      },
+      {
+        "bucket": "1.5-1.99",
+        "n": 1,
+        "wins": 0,
+        "losses": 1,
+        "pnl": -280.04895960832306
+      },
+      {
+        "bucket": "2.0+",
+        "n": 31,
+        "wins": 8,
+        "losses": 12,
+        "pnl": -1144.484051602841
+      }
+    ],
+    "byExitReason": [
+      {
+        "reason": "unknown",
+        "n": 18,
+        "wins": 2,
+        "losses": 4,
+        "pnl": -75.58242047345753
+      },
+      {
+        "reason": "PROFIT_GIVEBACK",
+        "n": 11,
+        "wins": 5,
+        "losses": 6,
+        "pnl": -790.3052295710307
+      },
+      {
+        "reason": "ema_regime_reversed",
+        "n": 2,
+        "wins": 0,
+        "losses": 2,
+        "pnl": -533.9670949092001
+      },
+      {
+        "reason": "max_loss",
+        "n": 1,
+        "wins": 0,
+        "losses": 1,
+        "pnl": -481.0860455668864
+      },
+      {
+        "reason": "RUNNER_STALE_FORCE_CLOSE",
+        "n": 1,
+        "wins": 1,
+        "losses": 0,
+        "pnl": 456.40777930941067
+      }
+    ],
+    "byTriggerReason": []
+  }
+}

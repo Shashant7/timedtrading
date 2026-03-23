@@ -1,0 +1,120 @@
+{
+  "ok": true,
+  "since": null,
+  "until": null,
+  "totals": {
+    "totalTrades": 56,
+    "openTrades": 39,
+    "closedTrades": 17,
+    "wins": 9,
+    "losses": 8,
+    "winRate": 52.94117647058824,
+    "closedPnl": -1751.2049166132424,
+    "profitFactor": 0.5127632629541836,
+    "avgWin": 204.77235964239927,
+    "avgLoss": 449.2695191743545,
+    "expectancy": -103.01205391842602,
+    "grossWin": 1842.9512367815935,
+    "grossLoss": 3594.156153394836
+  },
+  "breakdown": {
+    "byRank": [
+      {
+        "bucket": "60-69",
+        "n": 18,
+        "wins": 2,
+        "losses": 3,
+        "pnl": -1447.8953659988895
+      },
+      {
+        "bucket": "70-79",
+        "n": 11,
+        "wins": 2,
+        "losses": 2,
+        "pnl": -1328.943893829277
+      },
+      {
+        "bucket": "80+",
+        "n": 27,
+        "wins": 5,
+        "losses": 3,
+        "pnl": 1025.634343214924
+      }
+    ],
+    "byRR": [
+      {
+        "bucket": "1.0-1.49",
+        "n": 3,
+        "wins": 1,
+        "losses": 0,
+        "pnl": 29.131175468484237
+      },
+      {
+        "bucket": "1.5-1.99",
+        "n": 5,
+        "wins": 0,
+        "losses": 1,
+        "pnl": -45.9840709294459
+      },
+      {
+        "bucket": "2.0+",
+        "n": 48,
+        "wins": 8,
+        "losses": 7,
+        "pnl": -1734.3520211522807
+      }
+    ],
+    "byExitReason": [
+      {
+        "reason": "unknown",
+        "n": 28,
+        "wins": 0,
+        "losses": 0,
+        "pnl": 0
+      },
+      {
+        "reason": "PROFIT_GIVEBACK",
+        "n": 16,
+        "wins": 3,
+        "losses": 2,
+        "pnl": 1160.3110821884995
+      },
+      {
+        "reason": "hard_max_hold",
+        "n": 4,
+        "wins": 4,
+        "losses": 0,
+        "pnl": 439.7388993152735
+      },
+      {
+        "reason": "HARD_LOSS_CAP",
+        "n": 4,
+        "wins": 0,
+        "losses": 4,
+        "pnl": -3299.6768877557597
+      },
+      {
+        "reason": "STALL_FORCE_CLOSE",
+        "n": 2,
+        "wins": 2,
+        "losses": 0,
+        "pnl": 140.9807982776317
+      },
+      {
+        "reason": "ema_regime_reversed",
+        "n": 1,
+        "wins": 0,
+        "losses": 1,
+        "pnl": -78.33992509809295
+      },
+      {
+        "reason": "doa_early_exit",
+        "n": 1,
+        "wins": 0,
+        "losses": 1,
+        "pnl": -114.21888354079412
+      }
+    ],
+    "byTriggerReason": []
+  }
+}

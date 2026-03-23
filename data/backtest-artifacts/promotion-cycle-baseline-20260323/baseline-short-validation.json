@@ -1,0 +1,375 @@
+{
+  "label": "promotion-cycle-baseline",
+  "window": {
+    "start": "2025-07-14",
+    "end": "2025-08-29",
+    "tickers": [
+      "B",
+      "CVNA",
+      "CSCO"
+    ]
+  },
+  "lock": {
+    "ok": true,
+    "lock": "promotion-cycle-baseline@2026-03-23T14:34:29.404Z"
+  },
+  "reset_ok": true,
+  "days_run": 35,
+  "daily": [
+    {
+      "date": "2025-07-14",
+      "ok": true,
+      "tradesCreated": 0,
+      "totalTrades": 8,
+      "errorsCount": 0
+    },
+    {
+      "date": "2025-07-15",
+      "ok": true,
+      "tradesCreated": 0,
+      "totalTrades": 8,
+      "errorsCount": 0
+    },
+    {
+      "date": "2025-07-16",
+      "ok": true,
+      "tradesCreated": 0,
+      "totalTrades": 8,
+      "errorsCount": 0
+    },
+    {
+      "date": "2025-07-17",
+      "ok": true,
+      "tradesCreated": 0,
+      "totalTrades": 8,
+      "errorsCount": 0
+    },
+    {
+      "date": "2025-07-18",
+      "ok": true,
+      "tradesCreated": 0,
+      "totalTrades": 8,
+      "errorsCount": 0
+    },
+    {
+      "date": "2025-07-21",
+      "ok": true,
+      "tradesCreated": 2,
+      "totalTrades": 10,
+      "errorsCount": 0
+    },
+    {
+      "date": "2025-07-22",
+      "ok": true,
+      "tradesCreated": 1,
+      "totalTrades": 11,
+      "errorsCount": 0
+    },
+    {
+      "date": "2025-07-23",
+      "ok": true,
+      "tradesCreated": 2,
+      "totalTrades": 10,
+      "errorsCount": 0
+    },
+    {
+      "date": "2025-07-24",
+      "ok": true,
+      "tradesCreated": 0,
+      "totalTrades": 10,
+      "errorsCount": 0
+    },
+    {
+      "date": "2025-07-25",
+      "ok": true,
+      "tradesCreated": 2,
+      "totalTrades": 10,
+      "errorsCount": 0
+    },
+    {
+      "date": "2025-07-28",
+      "ok": true,
+      "tradesCreated": 0,
+      "totalTrades": 10,
+      "errorsCount": 0
+    },
+    {
+      "date": "2025-07-29",
+      "ok": true,
+      "tradesCreated": 1,
+      "totalTrades": 11,
+      "errorsCount": 0
+    },
+    {
+      "date": "2025-07-30",
+      "ok": true,
+      "tradesCreated": 1,
+      "totalTrades": 11,
+      "errorsCount": 0
+    },
+    {
+      "date": "2025-07-31",
+      "ok": true,
+      "tradesCreated": 2,
+      "totalTrades": 12,
+      "errorsCount": 0
+    },
+    {
+      "date": "2025-08-01",
+      "ok": true,
+      "tradesCreated": 0,
+      "totalTrades": 12,
+      "errorsCount": 0
+    },
+    {
+      "date": "2025-08-04",
+      "ok": true,
+      "tradesCreated": 2,
+      "totalTrades": 13,
+      "errorsCount": 0
+    },
+    {
+      "date": "2025-08-05",
+      "ok": true,
+      "tradesCreated": 2,
+      "totalTrades": 12,
+      "errorsCount": 0
+    },
+    {
+      "date": "2025-08-06",
+      "ok": true,
+      "tradesCreated": 2,
+      "totalTrades": 13,
+      "errorsCount": 0
+    },
+    {
+      "date": "2025-08-07",
+      "ok": true,
+      "tradesCreated": 3,
+      "totalTrades": 13,
+      "errorsCount": 0
+    },
+    {
+      "date": "2025-08-08",
+      "ok": true,
+      "tradesCreated": 1,
+      "totalTrades": 11,
+      "errorsCount": 0
+    },
+    {
+      "date": "2025-08-11",
+      "ok": true,
+      "tradesCreated": 1,
+      "totalTrades": 12,
+      "errorsCount": 0
+    },
+    {
+      "date": "2025-08-12",
+      "ok": true,
+      "tradesCreated": 0,
+      "totalTrades": 11,
+      "errorsCount": 0
+    },
+    {
+      "date": "2025-08-13",
+      "ok": true,
+      "tradesCreated": 2,
+      "totalTrades": 12,
+      "errorsCount": 0
+    },
+    {
+      "date": "2025-08-14",
+      "ok": true,
+      "tradesCreated": 1,
+      "totalTrades": 11,
+      "errorsCount": 0
+    },
+    {
+      "date": "2025-08-15",
+      "ok": true,
+      "tradesCreated": 1,
+      "totalTrades": 12,
+      "errorsCount": 0
+    },
+    {
+      "date": "2025-08-18",
+      "ok": true,
+      "tradesCreated": 2,
+      "totalTrades": 14,
+      "errorsCount": 0
+    },
+    {
+      "date": "2025-08-19",
+      "ok": true,
+      "tradesCreated": 0,
+      "totalTrades": 10,
+      "errorsCount": 0
+    },
+    {
+      "date": "2025-08-20",
+      "ok": true,
+      "tradesCreated": 1,
+      "totalTrades": 12,
+      "errorsCount": 0
+    },
+    {
+      "date": "2025-08-21",
+      "ok": true,
+      "tradesCreated": 0,
+      "totalTrades": 20,
+      "errorsCount": 0
+    },
+    {
+      "date": "2025-08-22",
+      "ok": true,
+      "tradesCreated": 0,
+      "totalTrades": 12,
+      "errorsCount": 0
+    },
+    {
+      "date": "2025-08-25",
+      "ok": true,
+      "tradesCreated": 1,
+      "totalTrades": 13,
+      "errorsCount": 0
+    },
+    {
+      "date": "2025-08-26",
+      "ok": true,
+      "tradesCreated": 1,
+      "totalTrades": 12,
+      "errorsCount": 0
+    },
+    {
+      "date": "2025-08-27",
+      "ok": true,
+      "tradesCreated": 0,
+      "totalTrades": 12,
+      "errorsCount": 0
+    },
+    {
+      "date": "2025-08-28",
+      "ok": true,
+      "tradesCreated": 3,
+      "totalTrades": 15,
+      "errorsCount": 0
+    },
+    {
+      "date": "2025-08-29",
+      "ok": true,
+      "tradesCreated": 2,
+      "totalTrades": 14,
+      "errorsCount": 0
+    }
+  ],
+  "close": {
+    "ok": true,
+    "closed": 3,
+    "posClosed": 8,
+    "exitDate": "2025-08-29",
+    "exitMs": 1756497600000,
+    "totalPnl": -7.47,
+    "details": [
+      {
+        "ticker": "CVNA",
+        "dir": "LONG",
+        "entryPx": 376.35,
+        "exitPx": 370.6501,
+        "pnl": -15.15,
+        "status": "LOSS"
+      },
+      {
+        "ticker": "B",
+        "dir": "LONG",
+        "entryPx": 26.43,
+        "exitPx": 26.65,
+        "pnl": 8.32,
+        "status": "WIN"
+      },
+      {
+        "ticker": "CSCO",
+        "dir": "LONG",
+        "entryPx": 69.095001,
+        "exitPx": 69.0511,
+        "pnl": -0.64,
+        "status": "LOSS"
+      }
+    ]
+  },
+  "metrics": {
+    "trade_count": 5,
+    "closed_count": 5,
+    "wins": 3,
+    "losses": 2,
+    "win_rate": 0.6,
+    "avg_pnl_pct_closed": 0.14336599072676687,
+    "engine_source_counts": {
+      "reference_date_bucket": 5
+    },
+    "scenario_policy_source_counts": {
+      "scenario_policy_default": 5
+    }
+  },
+  "trades": [
+    {
+      "ticker": "B",
+      "trade_id": "B-1755266400000-3i65jpl4y",
+      "status": "LOSS",
+      "entry_ts": 1755266400000,
+      "pnl_pct": -2.3716402116402078,
+      "entry_path": "tt_pullback",
+      "selected_engine": "tt_core",
+      "selected_management_engine": "tt_core",
+      "engine_source": "reference_date_bucket",
+      "scenario_policy_source": "scenario_policy_default"
+    },
+    {
+      "ticker": "B",
+      "trade_id": "B-1753884000000-wl9npwoon",
+      "status": "WIN",
+      "entry_ts": 1753884000000,
+      "pnl_pct": 4.841192361434562,
+      "entry_path": "tt_pullback",
+      "selected_engine": "tt_core",
+      "selected_management_engine": "tt_core",
+      "engine_source": "reference_date_bucket",
+      "scenario_policy_source": "scenario_policy_default"
+    },
+    {
+      "ticker": "B",
+      "trade_id": "B-1753277400000-j2ccmj6pr",
+      "status": "LOSS",
+      "entry_ts": 1753277400000,
+      "pnl_pct": -2.318880477173671,
+      "entry_path": "tt_momentum",
+      "selected_engine": "tt_core",
+      "selected_management_engine": "tt_core",
+      "engine_source": "reference_date_bucket",
+      "scenario_policy_source": "scenario_policy_default"
+    },
+    {
+      "ticker": "CSCO",
+      "trade_id": "CSCO-1753277400000-wj6knrhmm",
+      "status": "WIN",
+      "entry_ts": 1753277400000,
+      "pnl_pct": 0.3812111698830017,
+      "entry_path": "tt_pullback",
+      "selected_engine": "tt_core",
+      "selected_management_engine": "tt_core",
+      "engine_source": "reference_date_bucket",
+      "scenario_policy_source": "scenario_policy_default"
+    },
+    {
+      "ticker": "CVNA",
+      "trade_id": "CVNA-1752592500000-zkojdve76",
+      "status": "WIN",
+      "entry_ts": 1752592500000,
+      "pnl_pct": 0.18494711113014942,
+      "entry_path": "ema_regime_confirmed_long",
+      "selected_engine": "tt_core",
+      "selected_management_engine": "tt_core",
+      "engine_source": "reference_date_bucket",
+      "scenario_policy_source": "scenario_policy_default"
+    }
+  ]
+}

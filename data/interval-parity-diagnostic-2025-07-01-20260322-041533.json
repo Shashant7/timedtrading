@@ -1,0 +1,310 @@
+{
+  "date": "2025-07-01",
+  "tickers": [
+    "ORCL",
+    "CSX",
+    "ITT"
+  ],
+  "engine": "legacy",
+  "interval_minutes": 5,
+  "generated_at_utc": "2026-03-22T04:13:19.351190+00:00",
+  "results": [
+    {
+      "ticker": "ORCL",
+      "first_signal_interval": 0,
+      "first_signal_time_utc": "2025-07-01T13:30:00+00:00",
+      "signal_type": "trade_created",
+      "top_reason": null,
+      "top_reason_count": 0,
+      "stage_counts": {
+        "in_review": 1
+      },
+      "trades_created_in_interval": 1,
+      "scored_in_interval": 1,
+      "interval_checks": [
+        {
+          "interval": 0,
+          "time_utc": "2025-07-01T13:30:00+00:00",
+          "scored": 1,
+          "tradesCreated": 1,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          },
+          "blockedEntryGates": {},
+          "processDebug": [
+            {
+              "sym": "ORCL",
+              "at": "entry",
+              "stage": "in_review",
+              "hasEntryPath": true
+            },
+            {
+              "sym": "ORCL",
+              "at": "isEnter",
+              "stage": "in_review",
+              "storedStage": "in_review"
+            },
+            {
+              "sym": "ORCL",
+              "at": "pre_gate",
+              "weekendNow": false,
+              "outsideRTH": false,
+              "enterCooldownOk": true,
+              "sameEnterCycle": false,
+              "openTrade": false,
+              "smartGateBlocked": false
+            },
+            {
+              "sym": "ORCL",
+              "at": "before_smart",
+              "weekendNow": false,
+              "outsideRTH": false,
+              "canRun": true
+            },
+            {
+              "ts": 1751376600000,
+              "sym": "ORCL",
+              "storedStage": "in_review",
+              "stage": "in_review",
+              "isEnter": true,
+              "weekendNow": false,
+              "enterCooldownOk": true,
+              "sameEnterCycle": false,
+              "openTrade": false,
+              "smartGateBlocked": false,
+              "direction": "LONG",
+              "entryPath": "ema_regime_confirmed_long"
+            },
+            {
+              "sym": "ORCL",
+              "gate": "passed",
+              "dir": "LONG",
+              "entryPath": "ema_regime_confirmed_long",
+              "entryPx": 219.9501
+            },
+            {
+              "sym": "ORCL",
+              "gate": "trade_validation",
+              "dir": "LONG",
+              "entryPx": 219.9501,
+              "pxNow": 219.9501,
+              "slCandidate": 211.15,
+              "tpCandidate": 229.83,
+              "allValid": true,
+              "hasSl": true,
+              "hasTp": true
+            },
+            {
+              "sym": "ORCL",
+              "gate": "sizing",
+              "shares": 36.04019202214308,
+              "notional": 7927.043839289572,
+              "cash": 100000,
+              "method": "risk_based"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "ticker": "CSX",
+      "first_signal_interval": 0,
+      "first_signal_time_utc": "2025-07-01T13:30:00+00:00",
+      "signal_type": "trade_created",
+      "top_reason": null,
+      "top_reason_count": 0,
+      "stage_counts": {
+        "in_review": 1
+      },
+      "trades_created_in_interval": 1,
+      "scored_in_interval": 1,
+      "interval_checks": [
+        {
+          "interval": 0,
+          "time_utc": "2025-07-01T13:30:00+00:00",
+          "scored": 1,
+          "tradesCreated": 1,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          },
+          "blockedEntryGates": {},
+          "processDebug": [
+            {
+              "sym": "CSX",
+              "at": "entry",
+              "stage": "in_review",
+              "hasEntryPath": true
+            },
+            {
+              "sym": "CSX",
+              "at": "isEnter",
+              "stage": "in_review",
+              "storedStage": "in_review"
+            },
+            {
+              "sym": "CSX",
+              "at": "pre_gate",
+              "weekendNow": false,
+              "outsideRTH": false,
+              "enterCooldownOk": true,
+              "sameEnterCycle": false,
+              "openTrade": false,
+              "smartGateBlocked": false
+            },
+            {
+              "sym": "CSX",
+              "at": "before_smart",
+              "weekendNow": false,
+              "outsideRTH": false,
+              "canRun": true
+            },
+            {
+              "ts": 1751376600000,
+              "sym": "CSX",
+              "storedStage": "in_review",
+              "stage": "in_review",
+              "isEnter": true,
+              "weekendNow": false,
+              "enterCooldownOk": true,
+              "sameEnterCycle": false,
+              "openTrade": false,
+              "smartGateBlocked": false,
+              "direction": "LONG",
+              "entryPath": "ema_regime_confirmed_long"
+            },
+            {
+              "sym": "CSX",
+              "gate": "passed",
+              "dir": "LONG",
+              "entryPath": "ema_regime_confirmed_long",
+              "entryPx": 33.405
+            },
+            {
+              "sym": "CSX",
+              "gate": "trade_validation",
+              "dir": "LONG",
+              "entryPx": 33.405,
+              "pxNow": 33.405,
+              "slCandidate": 32.55,
+              "tpCandidate": 34.29,
+              "allValid": true,
+              "hasSl": true,
+              "hasTp": true
+            },
+            {
+              "sym": "CSX",
+              "gate": "sizing",
+              "shares": 449.034575662326,
+              "notional": 15000,
+              "cash": 100000,
+              "method": "risk_based"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "ticker": "ITT",
+      "first_signal_interval": 0,
+      "first_signal_time_utc": "2025-07-01T13:30:00+00:00",
+      "signal_type": "trade_created",
+      "top_reason": null,
+      "top_reason_count": 0,
+      "stage_counts": {
+        "in_review": 1
+      },
+      "trades_created_in_interval": 1,
+      "scored_in_interval": 1,
+      "interval_checks": [
+        {
+          "interval": 0,
+          "time_utc": "2025-07-01T13:30:00+00:00",
+          "scored": 1,
+          "tradesCreated": 1,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          },
+          "blockedEntryGates": {},
+          "processDebug": [
+            {
+              "sym": "ITT",
+              "at": "entry",
+              "stage": "in_review",
+              "hasEntryPath": true
+            },
+            {
+              "sym": "ITT",
+              "at": "isEnter",
+              "stage": "in_review",
+              "storedStage": "in_review"
+            },
+            {
+              "sym": "ITT",
+              "at": "pre_gate",
+              "weekendNow": false,
+              "outsideRTH": false,
+              "enterCooldownOk": true,
+              "sameEnterCycle": false,
+              "openTrade": false,
+              "smartGateBlocked": false
+            },
+            {
+              "sym": "ITT",
+              "at": "before_smart",
+              "weekendNow": false,
+              "outsideRTH": false,
+              "canRun": true
+            },
+            {
+              "ts": 1751376600000,
+              "sym": "ITT",
+              "storedStage": "in_review",
+              "stage": "in_review",
+              "isEnter": true,
+              "weekendNow": false,
+              "enterCooldownOk": true,
+              "sameEnterCycle": false,
+              "openTrade": false,
+              "smartGateBlocked": false,
+              "direction": "LONG",
+              "entryPath": "ema_regime_confirmed_long"
+            },
+            {
+              "sym": "ITT",
+              "gate": "passed",
+              "dir": "LONG",
+              "entryPath": "ema_regime_confirmed_long",
+              "entryPx": 159.49001
+            },
+            {
+              "sym": "ITT",
+              "gate": "trade_validation",
+              "dir": "LONG",
+              "entryPx": 159.49001,
+              "pxNow": 159.49001,
+              "slCandidate": 155.21,
+              "tpCandidate": 164.7,
+              "allValid": true,
+              "hasSl": true,
+              "hasTp": true
+            },
+            {
+              "sym": "ITT",
+              "gate": "sizing",
+              "shares": 62.699851859060004,
+              "notional": 10000,
+              "cash": 100000,
+              "method": "risk_based"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

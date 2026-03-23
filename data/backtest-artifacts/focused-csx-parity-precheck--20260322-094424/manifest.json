@@ -1,0 +1,13 @@
+{
+  "ok": true,
+  "type": "focused_replay",
+  "label": "csx-parity-precheck",
+  "tickers": "CSX",
+  "start_date": "2025-07-01",
+  "end_date": "2025-07-18",
+  "interval_min": 5,
+  "days_processed": 13,
+  "total_scored": 0,
+  "total_trades": 0,
+  "captured_at": "20260322-094424"
+}

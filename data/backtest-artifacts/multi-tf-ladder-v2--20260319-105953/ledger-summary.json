@@ -1,0 +1,78 @@
+{
+  "ok": true,
+  "since": null,
+  "until": null,
+  "totals": {
+    "totalTrades": 7,
+    "openTrades": 1,
+    "closedTrades": 6,
+    "wins": 2,
+    "losses": 4,
+    "winRate": 33.33333333333333,
+    "closedPnl": -199.53805825516758,
+    "profitFactor": 0.31689807625287925,
+    "avgWin": 46.28388868635805,
+    "avgLoss": 73.02645890697092,
+    "expectancy": -33.25634304252793,
+    "grossWin": 92.5677773727161,
+    "grossLoss": 292.10583562788366
+  },
+  "breakdown": {
+    "byRank": [
+      {
+        "bucket": "80+",
+        "n": 7,
+        "wins": 2,
+        "losses": 4,
+        "pnl": -199.53805825516758
+      }
+    ],
+    "byRR": [
+      {
+        "bucket": "2.0+",
+        "n": 7,
+        "wins": 2,
+        "losses": 4,
+        "pnl": -199.53805825516758
+      }
+    ],
+    "byExitReason": [
+      {
+        "reason": "unknown",
+        "n": 2,
+        "wins": 1,
+        "losses": 0,
+        "pnl": 20.74138054736116
+      },
+      {
+        "reason": "doa_early_exit",
+        "n": 2,
+        "wins": 0,
+        "losses": 2,
+        "pnl": -201.8403689706603
+      },
+      {
+        "reason": "sl_breached",
+        "n": 1,
+        "wins": 0,
+        "losses": 1,
+        "pnl": -85.15476015842768
+      },
+      {
+        "reason": "below_trigger,trigger_breached_5pct,daily_ema_regime_break,overextended,left_entry_corridor,large_adverse_move",
+        "n": 1,
+        "wins": 0,
+        "losses": 1,
+        "pnl": -5.110706498795703
+      },
+      {
+        "reason": "SMART_RUNNER_TD_EXHAUSTION_RUNNER",
+        "n": 1,
+        "wins": 1,
+        "losses": 0,
+        "pnl": 71.82639682535493
+      }
+    ],
+    "byTriggerReason": []
+  }
+}

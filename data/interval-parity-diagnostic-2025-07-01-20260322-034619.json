@@ -1,0 +1,3542 @@
+{
+  "date": "2025-07-01",
+  "tickers": [
+    "CDNS",
+    "ORCL",
+    "CSX",
+    "ITT"
+  ],
+  "engine": "legacy",
+  "interval_minutes": 5,
+  "generated_at_utc": "2026-03-22T03:36:04.583560+00:00",
+  "results": [
+    {
+      "ticker": "CDNS",
+      "first_signal_interval": null,
+      "first_signal_time_utc": null,
+      "signal_type": null,
+      "top_reason": null,
+      "top_reason_count": 0,
+      "stage_counts": null,
+      "trades_created_in_interval": 0,
+      "scored_in_interval": 0,
+      "interval_checks": [
+        {
+          "interval": 0,
+          "time_utc": "2025-07-01T13:30:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 1,
+          "time_utc": "2025-07-01T13:35:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 2,
+          "time_utc": "2025-07-01T13:40:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 3,
+          "time_utc": "2025-07-01T13:45:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 4,
+          "time_utc": "2025-07-01T13:50:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 5,
+          "time_utc": "2025-07-01T13:55:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 6,
+          "time_utc": "2025-07-01T14:00:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 7,
+          "time_utc": "2025-07-01T14:05:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 8,
+          "time_utc": "2025-07-01T14:10:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 9,
+          "time_utc": "2025-07-01T14:15:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 10,
+          "time_utc": "2025-07-01T14:20:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 11,
+          "time_utc": "2025-07-01T14:25:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 12,
+          "time_utc": "2025-07-01T14:30:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 13,
+          "time_utc": "2025-07-01T14:35:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 14,
+          "time_utc": "2025-07-01T14:40:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 15,
+          "time_utc": "2025-07-01T14:45:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 16,
+          "time_utc": "2025-07-01T14:50:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 17,
+          "time_utc": "2025-07-01T14:55:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 18,
+          "time_utc": "2025-07-01T15:00:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 19,
+          "time_utc": "2025-07-01T15:05:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 20,
+          "time_utc": "2025-07-01T15:10:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 21,
+          "time_utc": "2025-07-01T15:15:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 22,
+          "time_utc": "2025-07-01T15:20:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 23,
+          "time_utc": "2025-07-01T15:25:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 24,
+          "time_utc": "2025-07-01T15:30:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 25,
+          "time_utc": "2025-07-01T15:35:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 26,
+          "time_utc": "2025-07-01T15:40:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 27,
+          "time_utc": "2025-07-01T15:45:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 28,
+          "time_utc": "2025-07-01T15:50:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 29,
+          "time_utc": "2025-07-01T15:55:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 30,
+          "time_utc": "2025-07-01T16:00:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 31,
+          "time_utc": "2025-07-01T16:05:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 32,
+          "time_utc": "2025-07-01T16:10:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 33,
+          "time_utc": "2025-07-01T16:15:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 34,
+          "time_utc": "2025-07-01T16:20:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 35,
+          "time_utc": "2025-07-01T16:25:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 36,
+          "time_utc": "2025-07-01T16:30:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 37,
+          "time_utc": "2025-07-01T16:35:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 38,
+          "time_utc": "2025-07-01T16:40:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 39,
+          "time_utc": "2025-07-01T16:45:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 40,
+          "time_utc": "2025-07-01T16:50:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 41,
+          "time_utc": "2025-07-01T16:55:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 42,
+          "time_utc": "2025-07-01T17:00:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 43,
+          "time_utc": "2025-07-01T17:05:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 44,
+          "time_utc": "2025-07-01T17:10:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 45,
+          "time_utc": "2025-07-01T17:15:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 46,
+          "time_utc": "2025-07-01T17:20:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 47,
+          "time_utc": "2025-07-01T17:25:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 48,
+          "time_utc": "2025-07-01T17:30:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 49,
+          "time_utc": "2025-07-01T17:35:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 50,
+          "time_utc": "2025-07-01T17:40:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 51,
+          "time_utc": "2025-07-01T17:45:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 52,
+          "time_utc": "2025-07-01T17:50:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 53,
+          "time_utc": "2025-07-01T17:55:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 54,
+          "time_utc": "2025-07-01T18:00:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 55,
+          "time_utc": "2025-07-01T18:05:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 56,
+          "time_utc": "2025-07-01T18:10:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 57,
+          "time_utc": "2025-07-01T18:15:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 58,
+          "time_utc": "2025-07-01T18:20:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 59,
+          "time_utc": "2025-07-01T18:25:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 60,
+          "time_utc": "2025-07-01T18:30:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 61,
+          "time_utc": "2025-07-01T18:35:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 62,
+          "time_utc": "2025-07-01T18:40:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 63,
+          "time_utc": "2025-07-01T18:45:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 64,
+          "time_utc": "2025-07-01T18:50:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 65,
+          "time_utc": "2025-07-01T18:55:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 66,
+          "time_utc": "2025-07-01T19:00:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 67,
+          "time_utc": "2025-07-01T19:05:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 68,
+          "time_utc": "2025-07-01T19:10:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 69,
+          "time_utc": "2025-07-01T19:15:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 70,
+          "time_utc": "2025-07-01T19:20:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 71,
+          "time_utc": "2025-07-01T19:25:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 72,
+          "time_utc": "2025-07-01T19:30:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 73,
+          "time_utc": "2025-07-01T19:35:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 74,
+          "time_utc": "2025-07-01T19:40:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 75,
+          "time_utc": "2025-07-01T19:45:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 76,
+          "time_utc": "2025-07-01T19:50:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 77,
+          "time_utc": "2025-07-01T19:55:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 78,
+          "time_utc": "2025-07-01T20:00:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        }
+      ]
+    },
+    {
+      "ticker": "ORCL",
+      "first_signal_interval": null,
+      "first_signal_time_utc": null,
+      "signal_type": null,
+      "top_reason": null,
+      "top_reason_count": 0,
+      "stage_counts": null,
+      "trades_created_in_interval": 0,
+      "scored_in_interval": 0,
+      "interval_checks": [
+        {
+          "interval": 0,
+          "time_utc": "2025-07-01T13:30:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 1,
+          "time_utc": "2025-07-01T13:35:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 2,
+          "time_utc": "2025-07-01T13:40:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 3,
+          "time_utc": "2025-07-01T13:45:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 4,
+          "time_utc": "2025-07-01T13:50:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 5,
+          "time_utc": "2025-07-01T13:55:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 6,
+          "time_utc": "2025-07-01T14:00:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 7,
+          "time_utc": "2025-07-01T14:05:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 8,
+          "time_utc": "2025-07-01T14:10:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 9,
+          "time_utc": "2025-07-01T14:15:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 10,
+          "time_utc": "2025-07-01T14:20:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 11,
+          "time_utc": "2025-07-01T14:25:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 12,
+          "time_utc": "2025-07-01T14:30:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 13,
+          "time_utc": "2025-07-01T14:35:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 14,
+          "time_utc": "2025-07-01T14:40:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 15,
+          "time_utc": "2025-07-01T14:45:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 16,
+          "time_utc": "2025-07-01T14:50:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 17,
+          "time_utc": "2025-07-01T14:55:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 18,
+          "time_utc": "2025-07-01T15:00:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 19,
+          "time_utc": "2025-07-01T15:05:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 20,
+          "time_utc": "2025-07-01T15:10:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 21,
+          "time_utc": "2025-07-01T15:15:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 22,
+          "time_utc": "2025-07-01T15:20:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 23,
+          "time_utc": "2025-07-01T15:25:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 24,
+          "time_utc": "2025-07-01T15:30:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 25,
+          "time_utc": "2025-07-01T15:35:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 26,
+          "time_utc": "2025-07-01T15:40:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 27,
+          "time_utc": "2025-07-01T15:45:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 28,
+          "time_utc": "2025-07-01T15:50:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 29,
+          "time_utc": "2025-07-01T15:55:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 30,
+          "time_utc": "2025-07-01T16:00:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 31,
+          "time_utc": "2025-07-01T16:05:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 32,
+          "time_utc": "2025-07-01T16:10:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 33,
+          "time_utc": "2025-07-01T16:15:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 34,
+          "time_utc": "2025-07-01T16:20:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 35,
+          "time_utc": "2025-07-01T16:25:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 36,
+          "time_utc": "2025-07-01T16:30:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 37,
+          "time_utc": "2025-07-01T16:35:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 38,
+          "time_utc": "2025-07-01T16:40:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 39,
+          "time_utc": "2025-07-01T16:45:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 40,
+          "time_utc": "2025-07-01T16:50:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 41,
+          "time_utc": "2025-07-01T16:55:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 42,
+          "time_utc": "2025-07-01T17:00:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 43,
+          "time_utc": "2025-07-01T17:05:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 44,
+          "time_utc": "2025-07-01T17:10:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 45,
+          "time_utc": "2025-07-01T17:15:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 46,
+          "time_utc": "2025-07-01T17:20:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 47,
+          "time_utc": "2025-07-01T17:25:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 48,
+          "time_utc": "2025-07-01T17:30:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 49,
+          "time_utc": "2025-07-01T17:35:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 50,
+          "time_utc": "2025-07-01T17:40:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 51,
+          "time_utc": "2025-07-01T17:45:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 52,
+          "time_utc": "2025-07-01T17:50:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 53,
+          "time_utc": "2025-07-01T17:55:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 54,
+          "time_utc": "2025-07-01T18:00:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 55,
+          "time_utc": "2025-07-01T18:05:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 56,
+          "time_utc": "2025-07-01T18:10:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 57,
+          "time_utc": "2025-07-01T18:15:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 58,
+          "time_utc": "2025-07-01T18:20:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 59,
+          "time_utc": "2025-07-01T18:25:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 60,
+          "time_utc": "2025-07-01T18:30:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 61,
+          "time_utc": "2025-07-01T18:35:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 62,
+          "time_utc": "2025-07-01T18:40:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 63,
+          "time_utc": "2025-07-01T18:45:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 64,
+          "time_utc": "2025-07-01T18:50:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 65,
+          "time_utc": "2025-07-01T18:55:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 66,
+          "time_utc": "2025-07-01T19:00:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 67,
+          "time_utc": "2025-07-01T19:05:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 68,
+          "time_utc": "2025-07-01T19:10:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 69,
+          "time_utc": "2025-07-01T19:15:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 70,
+          "time_utc": "2025-07-01T19:20:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 71,
+          "time_utc": "2025-07-01T19:25:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 72,
+          "time_utc": "2025-07-01T19:30:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 73,
+          "time_utc": "2025-07-01T19:35:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 74,
+          "time_utc": "2025-07-01T19:40:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 75,
+          "time_utc": "2025-07-01T19:45:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 76,
+          "time_utc": "2025-07-01T19:50:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 77,
+          "time_utc": "2025-07-01T19:55:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 78,
+          "time_utc": "2025-07-01T20:00:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        }
+      ]
+    },
+    {
+      "ticker": "CSX",
+      "first_signal_interval": null,
+      "first_signal_time_utc": null,
+      "signal_type": null,
+      "top_reason": null,
+      "top_reason_count": 0,
+      "stage_counts": null,
+      "trades_created_in_interval": 0,
+      "scored_in_interval": 0,
+      "interval_checks": [
+        {
+          "interval": 0,
+          "time_utc": "2025-07-01T13:30:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 1,
+          "time_utc": "2025-07-01T13:35:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 2,
+          "time_utc": "2025-07-01T13:40:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 3,
+          "time_utc": "2025-07-01T13:45:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 4,
+          "time_utc": "2025-07-01T13:50:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 5,
+          "time_utc": "2025-07-01T13:55:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 6,
+          "time_utc": "2025-07-01T14:00:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 7,
+          "time_utc": "2025-07-01T14:05:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 8,
+          "time_utc": "2025-07-01T14:10:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 9,
+          "time_utc": "2025-07-01T14:15:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 10,
+          "time_utc": "2025-07-01T14:20:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 11,
+          "time_utc": "2025-07-01T14:25:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 12,
+          "time_utc": "2025-07-01T14:30:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 13,
+          "time_utc": "2025-07-01T14:35:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 14,
+          "time_utc": "2025-07-01T14:40:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 15,
+          "time_utc": "2025-07-01T14:45:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 16,
+          "time_utc": "2025-07-01T14:50:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 17,
+          "time_utc": "2025-07-01T14:55:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 18,
+          "time_utc": "2025-07-01T15:00:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 19,
+          "time_utc": "2025-07-01T15:05:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 20,
+          "time_utc": "2025-07-01T15:10:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 21,
+          "time_utc": "2025-07-01T15:15:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 22,
+          "time_utc": "2025-07-01T15:20:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 23,
+          "time_utc": "2025-07-01T15:25:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 24,
+          "time_utc": "2025-07-01T15:30:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 25,
+          "time_utc": "2025-07-01T15:35:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 26,
+          "time_utc": "2025-07-01T15:40:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 27,
+          "time_utc": "2025-07-01T15:45:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 28,
+          "time_utc": "2025-07-01T15:50:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 29,
+          "time_utc": "2025-07-01T15:55:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 30,
+          "time_utc": "2025-07-01T16:00:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 31,
+          "time_utc": "2025-07-01T16:05:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 32,
+          "time_utc": "2025-07-01T16:10:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 33,
+          "time_utc": "2025-07-01T16:15:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 34,
+          "time_utc": "2025-07-01T16:20:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 35,
+          "time_utc": "2025-07-01T16:25:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 36,
+          "time_utc": "2025-07-01T16:30:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 37,
+          "time_utc": "2025-07-01T16:35:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 38,
+          "time_utc": "2025-07-01T16:40:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 39,
+          "time_utc": "2025-07-01T16:45:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 40,
+          "time_utc": "2025-07-01T16:50:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 41,
+          "time_utc": "2025-07-01T16:55:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 42,
+          "time_utc": "2025-07-01T17:00:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 43,
+          "time_utc": "2025-07-01T17:05:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 44,
+          "time_utc": "2025-07-01T17:10:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 45,
+          "time_utc": "2025-07-01T17:15:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 46,
+          "time_utc": "2025-07-01T17:20:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 47,
+          "time_utc": "2025-07-01T17:25:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 48,
+          "time_utc": "2025-07-01T17:30:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 49,
+          "time_utc": "2025-07-01T17:35:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 50,
+          "time_utc": "2025-07-01T17:40:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 51,
+          "time_utc": "2025-07-01T17:45:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 52,
+          "time_utc": "2025-07-01T17:50:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 53,
+          "time_utc": "2025-07-01T17:55:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 54,
+          "time_utc": "2025-07-01T18:00:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 55,
+          "time_utc": "2025-07-01T18:05:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 56,
+          "time_utc": "2025-07-01T18:10:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 57,
+          "time_utc": "2025-07-01T18:15:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 58,
+          "time_utc": "2025-07-01T18:20:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 59,
+          "time_utc": "2025-07-01T18:25:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 60,
+          "time_utc": "2025-07-01T18:30:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 61,
+          "time_utc": "2025-07-01T18:35:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 62,
+          "time_utc": "2025-07-01T18:40:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 63,
+          "time_utc": "2025-07-01T18:45:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 64,
+          "time_utc": "2025-07-01T18:50:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 65,
+          "time_utc": "2025-07-01T18:55:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 66,
+          "time_utc": "2025-07-01T19:00:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 67,
+          "time_utc": "2025-07-01T19:05:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 68,
+          "time_utc": "2025-07-01T19:10:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 69,
+          "time_utc": "2025-07-01T19:15:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 70,
+          "time_utc": "2025-07-01T19:20:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 71,
+          "time_utc": "2025-07-01T19:25:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 72,
+          "time_utc": "2025-07-01T19:30:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 73,
+          "time_utc": "2025-07-01T19:35:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 74,
+          "time_utc": "2025-07-01T19:40:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 75,
+          "time_utc": "2025-07-01T19:45:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 76,
+          "time_utc": "2025-07-01T19:50:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 77,
+          "time_utc": "2025-07-01T19:55:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 78,
+          "time_utc": "2025-07-01T20:00:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        }
+      ]
+    },
+    {
+      "ticker": "ITT",
+      "first_signal_interval": null,
+      "first_signal_time_utc": null,
+      "signal_type": null,
+      "top_reason": null,
+      "top_reason_count": 0,
+      "stage_counts": null,
+      "trades_created_in_interval": 0,
+      "scored_in_interval": 0,
+      "interval_checks": [
+        {
+          "interval": 0,
+          "time_utc": "2025-07-01T13:30:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 1,
+          "time_utc": "2025-07-01T13:35:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 2,
+          "time_utc": "2025-07-01T13:40:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 3,
+          "time_utc": "2025-07-01T13:45:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 4,
+          "time_utc": "2025-07-01T13:50:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 5,
+          "time_utc": "2025-07-01T13:55:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 6,
+          "time_utc": "2025-07-01T14:00:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 7,
+          "time_utc": "2025-07-01T14:05:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 8,
+          "time_utc": "2025-07-01T14:10:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 9,
+          "time_utc": "2025-07-01T14:15:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 10,
+          "time_utc": "2025-07-01T14:20:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 11,
+          "time_utc": "2025-07-01T14:25:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 12,
+          "time_utc": "2025-07-01T14:30:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 13,
+          "time_utc": "2025-07-01T14:35:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 14,
+          "time_utc": "2025-07-01T14:40:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 15,
+          "time_utc": "2025-07-01T14:45:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 16,
+          "time_utc": "2025-07-01T14:50:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 17,
+          "time_utc": "2025-07-01T14:55:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 18,
+          "time_utc": "2025-07-01T15:00:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 19,
+          "time_utc": "2025-07-01T15:05:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 20,
+          "time_utc": "2025-07-01T15:10:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 21,
+          "time_utc": "2025-07-01T15:15:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 22,
+          "time_utc": "2025-07-01T15:20:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 23,
+          "time_utc": "2025-07-01T15:25:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 24,
+          "time_utc": "2025-07-01T15:30:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 25,
+          "time_utc": "2025-07-01T15:35:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 26,
+          "time_utc": "2025-07-01T15:40:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 27,
+          "time_utc": "2025-07-01T15:45:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 28,
+          "time_utc": "2025-07-01T15:50:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 29,
+          "time_utc": "2025-07-01T15:55:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 30,
+          "time_utc": "2025-07-01T16:00:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 31,
+          "time_utc": "2025-07-01T16:05:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 32,
+          "time_utc": "2025-07-01T16:10:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 33,
+          "time_utc": "2025-07-01T16:15:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 34,
+          "time_utc": "2025-07-01T16:20:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 35,
+          "time_utc": "2025-07-01T16:25:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 36,
+          "time_utc": "2025-07-01T16:30:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 37,
+          "time_utc": "2025-07-01T16:35:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 38,
+          "time_utc": "2025-07-01T16:40:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 39,
+          "time_utc": "2025-07-01T16:45:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 40,
+          "time_utc": "2025-07-01T16:50:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 41,
+          "time_utc": "2025-07-01T16:55:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 42,
+          "time_utc": "2025-07-01T17:00:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 43,
+          "time_utc": "2025-07-01T17:05:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 44,
+          "time_utc": "2025-07-01T17:10:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 45,
+          "time_utc": "2025-07-01T17:15:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 46,
+          "time_utc": "2025-07-01T17:20:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 47,
+          "time_utc": "2025-07-01T17:25:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 48,
+          "time_utc": "2025-07-01T17:30:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 49,
+          "time_utc": "2025-07-01T17:35:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 50,
+          "time_utc": "2025-07-01T17:40:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 51,
+          "time_utc": "2025-07-01T17:45:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 52,
+          "time_utc": "2025-07-01T17:50:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 53,
+          "time_utc": "2025-07-01T17:55:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 54,
+          "time_utc": "2025-07-01T18:00:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 55,
+          "time_utc": "2025-07-01T18:05:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 56,
+          "time_utc": "2025-07-01T18:10:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 57,
+          "time_utc": "2025-07-01T18:15:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 58,
+          "time_utc": "2025-07-01T18:20:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 59,
+          "time_utc": "2025-07-01T18:25:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 60,
+          "time_utc": "2025-07-01T18:30:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 61,
+          "time_utc": "2025-07-01T18:35:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 62,
+          "time_utc": "2025-07-01T18:40:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 63,
+          "time_utc": "2025-07-01T18:45:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 64,
+          "time_utc": "2025-07-01T18:50:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 65,
+          "time_utc": "2025-07-01T18:55:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 66,
+          "time_utc": "2025-07-01T19:00:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 67,
+          "time_utc": "2025-07-01T19:05:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 68,
+          "time_utc": "2025-07-01T19:10:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 69,
+          "time_utc": "2025-07-01T19:15:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 70,
+          "time_utc": "2025-07-01T19:20:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 71,
+          "time_utc": "2025-07-01T19:25:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 72,
+          "time_utc": "2025-07-01T19:30:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 73,
+          "time_utc": "2025-07-01T19:35:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 74,
+          "time_utc": "2025-07-01T19:40:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 75,
+          "time_utc": "2025-07-01T19:45:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 76,
+          "time_utc": "2025-07-01T19:50:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 77,
+          "time_utc": "2025-07-01T19:55:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        },
+        {
+          "interval": 78,
+          "time_utc": "2025-07-01T20:00:00+00:00",
+          "scored": 1,
+          "tradesCreated": 0,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          }
+        }
+      ]
+    }
+  ]
+}

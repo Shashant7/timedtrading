@@ -1,0 +1,214 @@
+{
+  "label": "promotion-cycle-post-upgrade-v3c-short",
+  "dates": [
+    "2025-07-15",
+    "2025-08-20",
+    "2025-08-21",
+    "2025-08-26"
+  ],
+  "window_tickers": [
+    "B",
+    "CVNA",
+    "CSCO"
+  ],
+  "lock": {
+    "ok": true,
+    "lock": "promotion-cycle-post-upgrade-v3c-short@2026-03-23T14:47:33.842Z"
+  },
+  "reset_ok": true,
+  "daily": [
+    {
+      "date": "2025-07-15",
+      "ok": true,
+      "tradesCreated": 0,
+      "totalTrades": 27,
+      "errorsCount": 0
+    },
+    {
+      "date": "2025-08-20",
+      "ok": true,
+      "tradesCreated": 1,
+      "totalTrades": 7,
+      "errorsCount": 0
+    },
+    {
+      "date": "2025-08-21",
+      "ok": true,
+      "tradesCreated": 0,
+      "totalTrades": 15,
+      "errorsCount": 0
+    },
+    {
+      "date": "2025-08-26",
+      "ok": true,
+      "tradesCreated": 0,
+      "totalTrades": 6,
+      "errorsCount": 0
+    }
+  ],
+  "close": {
+    "ok": true,
+    "closed": 18,
+    "posClosed": 1,
+    "exitDate": "2025-08-26",
+    "exitMs": 1756238400000,
+    "totalPnl": 2218.8,
+    "details": [
+      {
+        "ticker": "ULTA",
+        "dir": "LONG",
+        "entryPx": 476.57001,
+        "exitPx": 526.06,
+        "pnl": 103.85,
+        "status": "WIN"
+      },
+      {
+        "ticker": "AMZN",
+        "dir": "LONG",
+        "entryPx": 225.66859,
+        "exitPx": 228.92,
+        "pnl": 14.41,
+        "status": "WIN"
+      },
+      {
+        "ticker": "RBLX",
+        "dir": "LONG",
+        "entryPx": 111.97,
+        "exitPx": 124.76,
+        "pnl": 114.23,
+        "status": "WIN"
+      },
+      {
+        "ticker": "CAT",
+        "dir": "LONG",
+        "entryPx": 406.0050049,
+        "exitPx": 431.26,
+        "pnl": 62.2,
+        "status": "WIN"
+      },
+      {
+        "ticker": "CELH",
+        "dir": "LONG",
+        "entryPx": 45.0023003,
+        "exitPx": 59.56,
+        "pnl": 323.49,
+        "status": "WIN"
+      },
+      {
+        "ticker": "ETN",
+        "dir": "LONG",
+        "entryPx": 363.5,
+        "exitPx": 353.08,
+        "pnl": -28.67,
+        "status": "LOSS"
+      },
+      {
+        "ticker": "CSCO",
+        "dir": "LONG",
+        "entryPx": 69.095001,
+        "exitPx": 68.39,
+        "pnl": -10.2,
+        "status": "LOSS"
+      },
+      {
+        "ticker": "ULTA",
+        "dir": "LONG",
+        "entryPx": 477.72031,
+        "exitPx": 526.06,
+        "pnl": 101.19,
+        "status": "WIN"
+      },
+      {
+        "ticker": "BABA",
+        "dir": "LONG",
+        "entryPx": 114.99,
+        "exitPx": 124.2,
+        "pnl": 80.09,
+        "status": "WIN"
+      },
+      {
+        "ticker": "RBLX",
+        "dir": "LONG",
+        "entryPx": 112.275,
+        "exitPx": 124.76,
+        "pnl": 111.2,
+        "status": "WIN"
+      },
+      {
+        "ticker": "CELH",
+        "dir": "LONG",
+        "entryPx": 45.32,
+        "exitPx": 59.56,
+        "pnl": 314.21,
+        "status": "WIN"
+      },
+      {
+        "ticker": "CAT",
+        "dir": "LONG",
+        "entryPx": 406.82999,
+        "exitPx": 431.26,
+        "pnl": 60.05,
+        "status": "WIN"
+      },
+      {
+        "ticker": "RBLX",
+        "dir": "LONG",
+        "entryPx": 112.26,
+        "exitPx": 124.76,
+        "pnl": 111.35,
+        "status": "WIN"
+      },
+      {
+        "ticker": "ULTA",
+        "dir": "LONG",
+        "entryPx": 478.06,
+        "exitPx": 526.06,
+        "pnl": 100.41,
+        "status": "WIN"
+      },
+      {
+        "ticker": "BABA",
+        "dir": "LONG",
+        "entryPx": 115.099998,
+        "exitPx": 124.2,
+        "pnl": 79.06,
+        "status": "WIN"
+      },
+      {
+        "ticker": "CAT",
+        "dir": "LONG",
+        "entryPx": 406.39999,
+        "exitPx": 431.26,
+        "pnl": 61.17,
+        "status": "WIN"
+      },
+      {
+        "ticker": "CELH",
+        "dir": "LONG",
+        "entryPx": 45.33,
+        "exitPx": 59.56,
+        "pnl": 313.92,
+        "status": "WIN"
+      },
+      {
+        "ticker": "FIX",
+        "dir": "LONG",
+        "entryPx": 541.3,
+        "exitPx": 707.39,
+        "pnl": 306.84,
+        "status": "WIN"
+      }
+    ]
+  },
+  "metrics": {
+    "trade_count": 0,
+    "closed_count": 0,
+    "wins": 0,
+    "losses": 0,
+    "win_rate": 0,
+    "avg_pnl_pct_closed": 0,
+    "engine_source_counts": {},
+    "scenario_policy_source_counts": {}
+  },
+  "trades": []
+}

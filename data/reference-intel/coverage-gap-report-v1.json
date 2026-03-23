@@ -1,0 +1,597 @@
+{
+  "generated_at_utc": "2026-03-23T10:15:03.719076+00:00",
+  "canonical_closed_rows": 5786,
+  "reference_rows": 250,
+  "coverage_map": {
+    "canonical": {
+      "sector": {
+        "Information Technology": 1196,
+        "Basic Materials": 296,
+        "Consumer Discretionary": 1011,
+        "Financials": 295,
+        "Crypto": 30,
+        "Healthcare": 69,
+        "Industrials": 1805,
+        "Communication Services": 145,
+        "ETF": 212,
+        "Energy": 168,
+        "Consumer Staples": 439,
+        "Health Care": 59,
+        "Precious Metals": 45,
+        "unknown": 4,
+        "Commodity ETF": 12
+      },
+      "direction": {
+        "LONG": 4925,
+        "SHORT": 861
+      },
+      "month": {
+        "unknown": 1650,
+        "2026-02": 291,
+        "2026-01": 195,
+        "2025-12": 143,
+        "2025-11": 206,
+        "2025-10": 241,
+        "2025-09": 339,
+        "2025-08": 526,
+        "2025-07": 2149,
+        "2026-03": 46
+      },
+      "exit_class": {
+        "other": 3277,
+        "loss_protect": 1824,
+        "tp_full": 188,
+        "regime_reversal": 222,
+        "fuse": 237,
+        "trim_related": 19,
+        "unknown": 19
+      },
+      "entry_path": {
+        "unknown": 2118,
+        "ripster_momentum": 1350,
+        "ripster_pullback": 285,
+        "ema_regime_confirmed_long": 1623,
+        "ema_regime_confirmed_short": 169,
+        "gold_short_pullback_deep": 75,
+        "breakout_atr_breakout_long": 1,
+        "ema_regime_early_long": 120,
+        "ema_regime_early_short": 5,
+        "gold_short_pullback": 14,
+        "breakout_ema_stack_short": 1,
+        "momentum_score_short": 1,
+        "tt_momentum": 16,
+        "tt_pullback": 3,
+        "gold_short_corridor": 3,
+        "momentum_score": 2
+      }
+    },
+    "reference": {
+      "sector": {
+        "Information Technology": 55,
+        "Energy": 13,
+        "Basic Materials": 32,
+        "Healthcare": 6,
+        "Consumer Discretionary": 39,
+        "Industrials": 55,
+        "Financials": 10,
+        "Health Care": 2,
+        "Communication Services": 10,
+        "Commodity ETF": 4,
+        "Precious Metals": 2,
+        "Consumer Staples": 16,
+        "ETF": 5,
+        "Crypto": 1
+      },
+      "direction": {
+        "SHORT": 69,
+        "LONG": 181
+      },
+      "month": {
+        "2026-02": 49,
+        "2025-07": 44,
+        "2025-08": 34,
+        "2025-10": 25,
+        "2025-09": 32,
+        "2026-01": 21,
+        "2026-03": 6,
+        "2025-12": 13,
+        "2025-11": 26
+      }
+    },
+    "reference_to_canonical_sector_ratio": {
+      "Information Technology": 0.046,
+      "Basic Materials": 0.1081,
+      "Consumer Discretionary": 0.0386,
+      "Financials": 0.0339,
+      "Crypto": 0.0333,
+      "Healthcare": 0.087,
+      "Industrials": 0.0305,
+      "Communication Services": 0.069,
+      "ETF": 0.0236,
+      "Energy": 0.0774,
+      "Consumer Staples": 0.0364,
+      "Health Care": 0.0339,
+      "Precious Metals": 0.0444,
+      "unknown": 0.0,
+      "Commodity ETF": 0.3333
+    }
+  },
+  "top_views": {
+    "top_tickers_canonical": [
+      [
+        "FIX",
+        166
+      ],
+      [
+        "CAT",
+        164
+      ],
+      [
+        "ULTA",
+        157
+      ],
+      [
+        "H",
+        153
+      ],
+      [
+        "CSX",
+        134
+      ],
+      [
+        "AAPL",
+        130
+      ],
+      [
+        "AMZN",
+        123
+      ],
+      [
+        "COST",
+        106
+      ],
+      [
+        "WMT",
+        105
+      ],
+      [
+        "TSLA",
+        95
+      ],
+      [
+        "PH",
+        82
+      ],
+      [
+        "HII",
+        81
+      ],
+      [
+        "GE",
+        77
+      ],
+      [
+        "KLAC",
+        76
+      ],
+      [
+        "ELF",
+        76
+      ],
+      [
+        "APP",
+        74
+      ],
+      [
+        "IESC",
+        73
+      ],
+      [
+        "PWR",
+        67
+      ],
+      [
+        "BABA",
+        65
+      ],
+      [
+        "MNST",
+        64
+      ],
+      [
+        "EXPE",
+        63
+      ],
+      [
+        "DY",
+        63
+      ],
+      [
+        "ETN",
+        62
+      ],
+      [
+        "MLI",
+        61
+      ],
+      [
+        "NVDA",
+        59
+      ],
+      [
+        "ORCL",
+        59
+      ],
+      [
+        "DPZ",
+        59
+      ],
+      [
+        "GOOGL",
+        53
+      ],
+      [
+        "ITT",
+        53
+      ],
+      [
+        "AWI",
+        53
+      ],
+      [
+        "PLTR",
+        52
+      ],
+      [
+        "GEV",
+        52
+      ],
+      [
+        "CDNS",
+        51
+      ],
+      [
+        "CW",
+        50
+      ],
+      [
+        "KO",
+        50
+      ],
+      [
+        "ANET",
+        49
+      ],
+      [
+        "MSFT",
+        49
+      ],
+      [
+        "XLC",
+        48
+      ],
+      [
+        "IWM",
+        47
+      ],
+      [
+        "AXP",
+        47
+      ]
+    ],
+    "top_entry_path_canonical": [
+      [
+        "unknown",
+        2118
+      ],
+      [
+        "ema_regime_confirmed_long",
+        1623
+      ],
+      [
+        "ripster_momentum",
+        1350
+      ],
+      [
+        "ripster_pullback",
+        285
+      ],
+      [
+        "ema_regime_confirmed_short",
+        169
+      ],
+      [
+        "ema_regime_early_long",
+        120
+      ],
+      [
+        "gold_short_pullback_deep",
+        75
+      ],
+      [
+        "tt_momentum",
+        16
+      ],
+      [
+        "gold_short_pullback",
+        14
+      ],
+      [
+        "ema_regime_early_short",
+        5
+      ],
+      [
+        "tt_pullback",
+        3
+      ],
+      [
+        "gold_short_corridor",
+        3
+      ],
+      [
+        "momentum_score",
+        2
+      ],
+      [
+        "breakout_atr_breakout_long",
+        1
+      ],
+      [
+        "breakout_ema_stack_short",
+        1
+      ],
+      [
+        "momentum_score_short",
+        1
+      ]
+    ],
+    "top_sector_direction_canonical": [
+      [
+        "Industrials|LONG",
+        1715
+      ],
+      [
+        "Information Technology|LONG",
+        1037
+      ],
+      [
+        "Consumer Discretionary|LONG",
+        798
+      ],
+      [
+        "Consumer Staples|LONG",
+        278
+      ],
+      [
+        "Financials|LONG",
+        265
+      ],
+      [
+        "Basic Materials|LONG",
+        250
+      ],
+      [
+        "Consumer Discretionary|SHORT",
+        213
+      ],
+      [
+        "ETF|LONG",
+        195
+      ],
+      [
+        "Consumer Staples|SHORT",
+        161
+      ],
+      [
+        "Information Technology|SHORT",
+        159
+      ],
+      [
+        "Communication Services|LONG",
+        115
+      ],
+      [
+        "Energy|LONG",
+        112
+      ],
+      [
+        "Industrials|SHORT",
+        90
+      ],
+      [
+        "Energy|SHORT",
+        56
+      ],
+      [
+        "Basic Materials|SHORT",
+        46
+      ],
+      [
+        "Precious Metals|LONG",
+        45
+      ],
+      [
+        "Healthcare|LONG",
+        36
+      ],
+      [
+        "Health Care|LONG",
+        36
+      ],
+      [
+        "Healthcare|SHORT",
+        33
+      ],
+      [
+        "Financials|SHORT",
+        30
+      ],
+      [
+        "Communication Services|SHORT",
+        30
+      ],
+      [
+        "Crypto|LONG",
+        29
+      ],
+      [
+        "Health Care|SHORT",
+        23
+      ],
+      [
+        "ETF|SHORT",
+        17
+      ],
+      [
+        "Commodity ETF|LONG",
+        12
+      ],
+      [
+        "unknown|LONG",
+        2
+      ],
+      [
+        "unknown|SHORT",
+        2
+      ],
+      [
+        "Crypto|SHORT",
+        1
+      ]
+    ],
+    "top_month_direction_canonical": [
+      [
+        "2025-07|LONG",
+        1953
+      ],
+      [
+        "unknown|LONG",
+        1354
+      ],
+      [
+        "2025-08|LONG",
+        472
+      ],
+      [
+        "2025-09|LONG",
+        306
+      ],
+      [
+        "unknown|SHORT",
+        296
+      ],
+      [
+        "2025-10|LONG",
+        208
+      ],
+      [
+        "2025-07|SHORT",
+        196
+      ],
+      [
+        "2026-02|LONG",
+        190
+      ],
+      [
+        "2026-01|LONG",
+        161
+      ],
+      [
+        "2025-11|LONG",
+        134
+      ],
+      [
+        "2025-12|LONG",
+        117
+      ],
+      [
+        "2026-02|SHORT",
+        101
+      ],
+      [
+        "2025-11|SHORT",
+        72
+      ],
+      [
+        "2025-08|SHORT",
+        54
+      ],
+      [
+        "2026-01|SHORT",
+        34
+      ],
+      [
+        "2025-10|SHORT",
+        33
+      ],
+      [
+        "2025-09|SHORT",
+        33
+      ],
+      [
+        "2026-03|LONG",
+        30
+      ],
+      [
+        "2025-12|SHORT",
+        26
+      ],
+      [
+        "2026-03|SHORT",
+        16
+      ]
+    ]
+  },
+  "gaps": {
+    "sparse_sector_direction_bins": [
+      {
+        "bucket": "Crypto|SHORT",
+        "count": 1
+      },
+      {
+        "bucket": "unknown|LONG",
+        "count": 2
+      },
+      {
+        "bucket": "unknown|SHORT",
+        "count": 2
+      }
+    ],
+    "sparse_month_direction_bins": [],
+    "low_representation_exit_classes": [],
+    "low_representation_entry_paths": [
+      {
+        "bucket": "breakout_atr_breakout_long",
+        "count": 1
+      },
+      {
+        "bucket": "breakout_ema_stack_short",
+        "count": 1
+      },
+      {
+        "bucket": "momentum_score_short",
+        "count": 1
+      },
+      {
+        "bucket": "momentum_score",
+        "count": 2
+      },
+      {
+        "bucket": "tt_pullback",
+        "count": 3
+      },
+      {
+        "bucket": "gold_short_corridor",
+        "count": 3
+      },
+      {
+        "bucket": "ema_regime_early_short",
+        "count": 5
+      }
+    ]
+  },
+  "notes": [
+    "Use sparse bins to define next replay matrix slices.",
+    "Combine with context-intel states before policy promotion."
+  ]
+}

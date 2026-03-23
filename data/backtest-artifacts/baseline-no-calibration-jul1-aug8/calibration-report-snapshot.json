@@ -1,0 +1,2339 @@
+{
+    "ok": true,
+    "report_id": "cal_1773250770263",
+    "generation": 19,
+    "scope_id": "diag_20260311_run_active_profiles",
+    "source_run_id": "backtest_2025-07-01_2026-03-04@2026-03-11T02:08:41.392Z",
+    "scope_kind": "run_diagnostic",
+    "diagnostic_only": true,
+    "run_ts": 1773250770297,
+    "lookback_days": 400,
+    "trade_count": 228,
+    "move_count": 8542,
+    "applied_at": null,
+    "report": {
+        "scope_id": "diag_20260311_run_active_profiles",
+        "source_run_id": "backtest_2025-07-01_2026-03-04@2026-03-11T02:08:41.392Z",
+        "scope_kind": "run_diagnostic",
+        "diagnostic_only": true,
+        "system_health": {
+            "overall": {
+                "n": 228,
+                "win_rate": 48.7,
+                "expectancy": 0.02,
+                "sqn": -0.45,
+                "avg_r": -0.04,
+                "profit_factor": 1.02
+            },
+            "in_sample": {
+                "n": 171,
+                "win_rate": 49.1,
+                "expectancy": 0.1,
+                "sqn": -0.23,
+                "avg_r": -0.02,
+                "profit_factor": 1.08
+            },
+            "out_sample": {
+                "n": 57,
+                "win_rate": 47.4,
+                "expectancy": -0.22,
+                "sqn": -0.72,
+                "avg_r": -0.08,
+                "profit_factor": 0.83
+            },
+            "by_regime": {
+                "EARLY_BULL": {
+                    "n": 72,
+                    "win_rate": 48.6,
+                    "expectancy": -0.71,
+                    "sqn": -1.58,
+                    "avg_r": -0.3,
+                    "profit_factor": 0.55
+                },
+                "EARLY_BEAR": {
+                    "n": 19,
+                    "win_rate": 47.4,
+                    "expectancy": -0.1,
+                    "sqn": -0.84,
+                    "avg_r": -0.09,
+                    "profit_factor": 0.88
+                },
+                "STRONG_BEAR": {
+                    "n": 5,
+                    "win_rate": 40,
+                    "expectancy": -5.5,
+                    "sqn": -1,
+                    "avg_r": -0.87,
+                    "profit_factor": 0.12
+                },
+                "NEUTRAL": {
+                    "n": 70,
+                    "win_rate": 50,
+                    "expectancy": 0.84,
+                    "sqn": 2.01,
+                    "avg_r": 0.25,
+                    "profit_factor": 1.76
+                },
+                "LATE_BULL": {
+                    "n": 25,
+                    "win_rate": 40,
+                    "expectancy": 0.2,
+                    "sqn": 0.27,
+                    "avg_r": 0.05,
+                    "profit_factor": 1.28
+                },
+                "LATE_BEAR": {
+                    "n": 15,
+                    "win_rate": 66.7,
+                    "expectancy": 1.23,
+                    "sqn": 0.22,
+                    "avg_r": 0.07,
+                    "profit_factor": 4.79
+                },
+                "STRONG_BULL": {
+                    "n": 11,
+                    "win_rate": 36.4,
+                    "expectancy": -0.41,
+                    "sqn": -0.37,
+                    "avg_r": -0.07,
+                    "profit_factor": 0.7
+                },
+                "COUNTER_TREND_BULL": {
+                    "n": 7,
+                    "win_rate": 85.7,
+                    "expectancy": 1.93,
+                    "sqn": 0.88,
+                    "avg_r": 0.24,
+                    "profit_factor": 4.52
+                },
+                "COUNTER_TREND_BEAR": {
+                    "n": 4,
+                    "win_rate": 0,
+                    "expectancy": -1.5,
+                    "sqn": -5.58,
+                    "avg_r": -0.44,
+                    "profit_factor": 0
+                }
+            }
+        },
+        "entry_paths": {
+            "ema_regime_confirmed_long": {
+                "n": 178,
+                "win_rate": 50,
+                "expectancy": 0.17,
+                "sqn": -0.36,
+                "avg_r": -0.03,
+                "profit_factor": 1.16,
+                "avg_mfe_atr": 1.02,
+                "half_kelly_pct": 0,
+                "action": "RESTRICT",
+                "in_sample": {
+                    "n": 133,
+                    "win_rate": 50.4,
+                    "expectancy": 0.35,
+                    "sqn": -0.22,
+                    "avg_r": -0.03,
+                    "profit_factor": 1.35
+                },
+                "out_sample": {
+                    "n": 45,
+                    "win_rate": 48.9,
+                    "expectancy": -0.35,
+                    "sqn": -0.59,
+                    "avg_r": -0.05,
+                    "profit_factor": 0.73
+                }
+            },
+            "ema_regime_confirmed_short": {
+                "n": 46,
+                "win_rate": 43.5,
+                "expectancy": -0.5,
+                "sqn": -0.56,
+                "avg_r": -0.11,
+                "profit_factor": 0.74,
+                "avg_mfe_atr": 1.21,
+                "half_kelly_pct": 0,
+                "action": "DISABLE",
+                "in_sample": {
+                    "n": 34,
+                    "win_rate": 44.1,
+                    "expectancy": -0.77,
+                    "sqn": -0.38,
+                    "avg_r": -0.08,
+                    "profit_factor": 0.63
+                },
+                "out_sample": {
+                    "n": 12,
+                    "win_rate": 41.7,
+                    "expectancy": 0.26,
+                    "sqn": -0.45,
+                    "avg_r": -0.18,
+                    "profit_factor": 1.18
+                }
+            },
+            "ema_regime_early_long": {
+                "n": 3,
+                "win_rate": 66.7,
+                "expectancy": -0.23,
+                "sqn": 0.73,
+                "avg_r": 0.83,
+                "profit_factor": 0.88,
+                "avg_mfe_atr": 0.61,
+                "half_kelly_pct": 23.18,
+                "action": "KEEP",
+                "in_sample": {
+                    "n": 3,
+                    "win_rate": 66.7,
+                    "expectancy": -0.23,
+                    "sqn": 0.73,
+                    "avg_r": 0.83,
+                    "profit_factor": 0.88
+                },
+                "out_sample": {
+                    "n": 0,
+                    "win_rate": 0,
+                    "expectancy": 0,
+                    "sqn": 0,
+                    "avg_r": 0,
+                    "profit_factor": 0
+                }
+            },
+            "gold_short_pullback": {
+                "n": 1,
+                "win_rate": 0,
+                "expectancy": -2.07,
+                "sqn": -0.37,
+                "avg_r": -0.37,
+                "profit_factor": 0,
+                "avg_mfe_atr": 0.07,
+                "half_kelly_pct": 0,
+                "action": "KEEP",
+                "in_sample": {
+                    "n": 1,
+                    "win_rate": 0,
+                    "expectancy": -2.07,
+                    "sqn": -0.37,
+                    "avg_r": -0.37,
+                    "profit_factor": 0
+                },
+                "out_sample": {
+                    "n": 0,
+                    "win_rate": 0,
+                    "expectancy": 0,
+                    "sqn": 0,
+                    "avg_r": 0,
+                    "profit_factor": 0
+                }
+            }
+        },
+        "signal_ic": {
+            "ema_cross": {
+                "ic": -0.033,
+                "n": 228
+            },
+            "supertrend": {
+                "ic": 0.031,
+                "n": 228
+            },
+            "ema_structure": {
+                "ic": -0.011,
+                "n": 228
+            },
+            "ema_depth": {
+                "ic": 0.042,
+                "n": 228
+            },
+            "rsi": {
+                "ic": 0.049,
+                "n": 228
+            },
+            "regime_score": {
+                "ic": 0.185,
+                "n": 449,
+                "source": "direction_accuracy"
+            },
+            "rvol_best": {
+                "ic": 0.047,
+                "n": 449,
+                "source": "direction_accuracy"
+            },
+            "ichimoku_score_d": {
+                "ic": 0.13,
+                "n": 449,
+                "source": "direction_accuracy"
+            },
+            "cloud_thickness_d": {
+                "ic": 0.067,
+                "n": 449,
+                "source": "direction_accuracy"
+            },
+            "entry_quality_score": {
+                "ic": 0.063,
+                "n": 449,
+                "source": "direction_accuracy"
+            }
+        },
+        "sl_tp_calibration": {
+            "winner_mae": {
+                "p50": 0.18,
+                "p75": 0.5,
+                "p90": 0.74
+            },
+            "trade_mfe": {
+                "p50": 0.71,
+                "p75": 1.505,
+                "p90": 2.4380000000000006
+            },
+            "move_mfe": {
+                "p50": 2.07,
+                "p75": 2.54,
+                "p90": 3.19
+            },
+            "recommended_sl_atr": 0.5,
+            "recommended_tp_trim_atr": 0.71,
+            "recommended_tp_exit_atr": 1.51,
+            "recommended_tp_runner_atr": 2.44
+        },
+        "regime_filters": {
+            "EARLY_BULL": {
+                "n": 72,
+                "win_rate": 48.6,
+                "expectancy": -0.71,
+                "sqn": -1.58,
+                "avg_r": -0.3,
+                "profit_factor": 0.55,
+                "block_entries": true,
+                "min_rank_adj": 10
+            },
+            "EARLY_BEAR": {
+                "n": 19,
+                "win_rate": 47.4,
+                "expectancy": -0.1,
+                "sqn": -0.84,
+                "avg_r": -0.09,
+                "profit_factor": 0.88,
+                "block_entries": true,
+                "min_rank_adj": 10
+            },
+            "STRONG_BEAR": {
+                "n": 5,
+                "win_rate": 40,
+                "expectancy": -5.5,
+                "sqn": -1,
+                "avg_r": -0.87,
+                "profit_factor": 0.12,
+                "block_entries": true,
+                "min_rank_adj": 10
+            },
+            "NEUTRAL": {
+                "n": 70,
+                "win_rate": 50,
+                "expectancy": 0.84,
+                "sqn": 2.01,
+                "avg_r": 0.25,
+                "profit_factor": 1.76,
+                "block_entries": false,
+                "min_rank_adj": 0
+            },
+            "LATE_BULL": {
+                "n": 25,
+                "win_rate": 40,
+                "expectancy": 0.2,
+                "sqn": 0.27,
+                "avg_r": 0.05,
+                "profit_factor": 1.28,
+                "block_entries": false,
+                "min_rank_adj": 0
+            },
+            "LATE_BEAR": {
+                "n": 15,
+                "win_rate": 66.7,
+                "expectancy": 1.23,
+                "sqn": 0.22,
+                "avg_r": 0.07,
+                "profit_factor": 4.79,
+                "block_entries": false,
+                "min_rank_adj": 0
+            },
+            "STRONG_BULL": {
+                "n": 11,
+                "win_rate": 36.4,
+                "expectancy": -0.41,
+                "sqn": -0.37,
+                "avg_r": -0.07,
+                "profit_factor": 0.7,
+                "block_entries": true,
+                "min_rank_adj": 10
+            },
+            "COUNTER_TREND_BULL": {
+                "n": 7,
+                "win_rate": 85.7,
+                "expectancy": 1.93,
+                "sqn": 0.88,
+                "avg_r": 0.24,
+                "profit_factor": 4.52,
+                "block_entries": false,
+                "min_rank_adj": 0
+            },
+            "COUNTER_TREND_BEAR": {
+                "n": 4,
+                "win_rate": 0,
+                "expectancy": -1.5,
+                "sqn": -5.58,
+                "avg_r": -0.44,
+                "profit_factor": 0,
+                "block_entries": false,
+                "min_rank_adj": 10
+            }
+        },
+        "v3_regime_analysis": {
+            "UNKNOWN": {
+                "n": 449,
+                "wins": 215,
+                "losses": 234,
+                "win_rate": 47.9,
+                "avg_pnl_pct": 0.21,
+                "avg_rvol": 4.16,
+                "avg_ichimoku_score": 17.93
+            }
+        },
+        "rank_optimization": {
+            "deciles": {
+                "0-10": {
+                    "n": 0,
+                    "win_rate": 0,
+                    "expectancy": 0,
+                    "sqn": 0,
+                    "avg_r": 0,
+                    "profit_factor": 0
+                },
+                "10-20": {
+                    "n": 0,
+                    "win_rate": 0,
+                    "expectancy": 0,
+                    "sqn": 0,
+                    "avg_r": 0,
+                    "profit_factor": 0
+                },
+                "20-30": {
+                    "n": 0,
+                    "win_rate": 0,
+                    "expectancy": 0,
+                    "sqn": 0,
+                    "avg_r": 0,
+                    "profit_factor": 0
+                },
+                "30-40": {
+                    "n": 1,
+                    "win_rate": 0,
+                    "expectancy": -3.52,
+                    "sqn": -0.49,
+                    "avg_r": -0.49,
+                    "profit_factor": 0
+                },
+                "40-50": {
+                    "n": 28,
+                    "win_rate": 50,
+                    "expectancy": 0.25,
+                    "sqn": -0.2,
+                    "avg_r": -0.03,
+                    "profit_factor": 1.31
+                },
+                "50-60": {
+                    "n": 46,
+                    "win_rate": 41.3,
+                    "expectancy": 0.17,
+                    "sqn": 0.4,
+                    "avg_r": 0.05,
+                    "profit_factor": 1.14
+                },
+                "60-70": {
+                    "n": 65,
+                    "win_rate": 52.3,
+                    "expectancy": 0.1,
+                    "sqn": -0.6,
+                    "avg_r": -0.13,
+                    "profit_factor": 1.08
+                },
+                "70-80": {
+                    "n": 61,
+                    "win_rate": 54.1,
+                    "expectancy": 0.39,
+                    "sqn": 0.94,
+                    "avg_r": 0.1,
+                    "profit_factor": 1.42
+                },
+                "80-90": {
+                    "n": 25,
+                    "win_rate": 40,
+                    "expectancy": -1.44,
+                    "sqn": -1,
+                    "avg_r": -0.26,
+                    "profit_factor": 0.42
+                },
+                "90-100": {
+                    "n": 1,
+                    "win_rate": 100,
+                    "expectancy": 0.48,
+                    "sqn": -0.08,
+                    "avg_r": -0.08,
+                    "profit_factor": 999
+                }
+            },
+            "best_cutoff": 70,
+            "best_sqn": -0.12
+        },
+        "position_sizing": {
+            "kelly_full_pct": -6.04,
+            "half_kelly_pct": 0,
+            "current_sizing_pct": "5-7% fixed"
+        },
+        "missed_opportunities": {
+            "count": 8542,
+            "total_moves": 8542,
+            "common_signals": {
+                "htf_score": 7894,
+                "ltf_score": 7894,
+                "state": 7894,
+                "rank": 7894,
+                "completion": 7894,
+                "phase_pct": 7894,
+                "squeeze_release": 7894,
+                "ema_cross": 7894,
+                "st_flip": 7894,
+                "momentum_elite": 7894,
+                "avg_bias": 261,
+                "tf": 261,
+                "source": 459,
+                "lineage": 17
+            }
+        },
+        "wfo_summary": {
+            "in_sample_sqn": -0.23,
+            "out_sample_sqn": -0.72,
+            "degradation_pct": 0,
+            "verdict": "WARNING"
+        },
+        "trade_classifications": {
+            "breakdown": {
+                "auto": {
+                    "bad_entry": 81,
+                    "left_money": 78,
+                    "optimal": 22,
+                    "gave_back": 19,
+                    "noise_trade": 28
+                },
+                "manual": {
+                    "bad_exit": 9,
+                    "good_trade": 8,
+                    "bad_trade": 4,
+                    "ok_trade": 3,
+                    "early_entry": 4
+                },
+                "excluded": []
+            },
+            "metrics_by_classification": {
+                "bad_exit": {
+                    "n": 9,
+                    "win_rate": 55.6,
+                    "expectancy": -3.07,
+                    "sqn": -1.05,
+                    "avg_r": -1.37,
+                    "profit_factor": 0.08,
+                    "manual_count": 9
+                },
+                "good_trade": {
+                    "n": 8,
+                    "win_rate": 100,
+                    "expectancy": 3.44,
+                    "sqn": 6.71,
+                    "avg_r": 0.98,
+                    "profit_factor": 999,
+                    "manual_count": 8
+                },
+                "bad_trade": {
+                    "n": 4,
+                    "win_rate": 0,
+                    "expectancy": -1.72,
+                    "sqn": -9.25,
+                    "avg_r": -0.46,
+                    "profit_factor": 0,
+                    "manual_count": 4
+                },
+                "ok_trade": {
+                    "n": 3,
+                    "win_rate": 100,
+                    "expectancy": 0.84,
+                    "sqn": 3.17,
+                    "avg_r": 0.17,
+                    "profit_factor": 999,
+                    "manual_count": 3
+                },
+                "early_entry": {
+                    "n": 4,
+                    "win_rate": 50,
+                    "expectancy": -0.74,
+                    "sqn": -1.08,
+                    "avg_r": -0.29,
+                    "profit_factor": 0.39,
+                    "manual_count": 4
+                },
+                "left_money": {
+                    "n": 67,
+                    "win_rate": 100,
+                    "expectancy": 2.27,
+                    "sqn": 5.45,
+                    "avg_r": 0.47,
+                    "profit_factor": 999,
+                    "manual_count": 0
+                },
+                "bad_entry": {
+                    "n": 74,
+                    "win_rate": 0,
+                    "expectancy": -2.36,
+                    "sqn": -9.44,
+                    "avg_r": -0.6,
+                    "profit_factor": 0,
+                    "manual_count": 0
+                },
+                "optimal": {
+                    "n": 17,
+                    "win_rate": 100,
+                    "expectancy": 5.89,
+                    "sqn": 7.11,
+                    "avg_r": 1.54,
+                    "profit_factor": 999,
+                    "manual_count": 0
+                },
+                "gave_back": {
+                    "n": 16,
+                    "win_rate": 0,
+                    "expectancy": -2.67,
+                    "sqn": -2.34,
+                    "avg_r": -0.67,
+                    "profit_factor": 0,
+                    "manual_count": 0
+                },
+                "noise_trade": {
+                    "n": 26,
+                    "win_rate": 34.6,
+                    "expectancy": -0.88,
+                    "sqn": -2.78,
+                    "avg_r": -0.16,
+                    "profit_factor": 0.16,
+                    "manual_count": 0
+                }
+            },
+            "total_trades_raw": 228,
+            "total_trades_after_exclusion": 228,
+            "excluded_count": 0,
+            "manual_bad_trade_count": 4,
+            "manual_bad_exit_count": 9,
+            "manual_early_entry_count": 4,
+            "manual_ok_trade_count": 3,
+            "manual_notes_for_learning": []
+        },
+        "same_ticker_repeat_analysis": {
+            "window_days": 10,
+            "cluster_count": 0,
+            "total_trades_in_clusters": 0,
+            "total_pnl_pct_from_repeats": 0,
+            "avg_capture_ratio": null,
+            "sl_before_mfe_count": 0,
+            "clusters": [],
+            "interpretation": [],
+            "recommendation": null
+        },
+        "profiles": {
+            "winner_move": [
+                {
+                    "profile_id": "winner_move_HTF_BEAR_LTF_PULLBACK_1773250770124",
+                    "profile_type": "winner_move",
+                    "entry_state": "HTF_BEAR_LTF_PULLBACK",
+                    "sample_count": 465,
+                    "win_rate": 100,
+                    "expectancy": 0,
+                    "sqn": 0,
+                    "avg_r": 9.03,
+                    "rank_p25": 61,
+                    "rank_p50": 70,
+                    "rank_p75": 84,
+                    "htf_score_p25": -30.1,
+                    "htf_score_p50": -16.1,
+                    "htf_score_p75": -8.2,
+                    "ltf_score_p25": 4.3,
+                    "ltf_score_p50": 8.3,
+                    "ltf_score_p75": 14.7,
+                    "completion_p50": 0.226,
+                    "completion_p75": 0.335,
+                    "phase_p50": 0.213,
+                    "phase_p75": 0.375,
+                    "vix_p25": 0,
+                    "vix_p50": 0,
+                    "vix_p75": 0,
+                    "avg_move_atr": 9.03,
+                    "avg_duration_days": 9.3,
+                    "top_signals_json": "{\"momentum_elite\":70,\"st_flip\":33,\"ema_cross\":14,\"squeeze_release\":8}",
+                    "regime_distribution": {},
+                    "regime_score_p25": 0,
+                    "regime_score_p50": 0,
+                    "rvol_p25": 0,
+                    "rvol_p50": 0,
+                    "rvol_p75": 0,
+                    "ichimoku_score_p25": 0,
+                    "ichimoku_score_p50": 0,
+                    "cloud_thickness_p50": 0,
+                    "entry_quality_p25": 0,
+                    "entry_quality_p50": 0,
+                    "sl_atr": 0.2,
+                    "tp_trim_atr": 3.04,
+                    "tp_exit_atr": 3.73,
+                    "tp_runner_atr": 4.73
+                },
+                {
+                    "profile_id": "winner_move_HTF_BULL_LTF_BULL_1773250770124",
+                    "profile_type": "winner_move",
+                    "entry_state": "HTF_BULL_LTF_BULL",
+                    "sample_count": 2177,
+                    "win_rate": 100,
+                    "expectancy": 0,
+                    "sqn": 0,
+                    "avg_r": 2.81,
+                    "rank_p25": 62,
+                    "rank_p50": 74,
+                    "rank_p75": 85,
+                    "htf_score_p25": 24.9,
+                    "htf_score_p50": 37,
+                    "htf_score_p75": 43,
+                    "ltf_score_p25": 6.1,
+                    "ltf_score_p50": 12.1,
+                    "ltf_score_p75": 17.4,
+                    "completion_p50": 0.236,
+                    "completion_p75": 0.275,
+                    "phase_p50": 0.281,
+                    "phase_p75": 0.486,
+                    "vix_p25": 0,
+                    "vix_p50": 0,
+                    "vix_p75": 0,
+                    "avg_move_atr": 2.81,
+                    "avg_duration_days": 9.7,
+                    "top_signals_json": "{\"momentum_elite\":374,\"ema_cross\":99,\"st_flip\":140,\"squeeze_release\":22}",
+                    "regime_distribution": {},
+                    "regime_score_p25": 0,
+                    "regime_score_p50": 0,
+                    "rvol_p25": 0,
+                    "rvol_p50": 0,
+                    "rvol_p75": 0,
+                    "ichimoku_score_p25": 0,
+                    "ichimoku_score_p50": 0,
+                    "cloud_thickness_p50": 0,
+                    "entry_quality_p25": 0,
+                    "entry_quality_p50": 0,
+                    "sl_atr": 0.22,
+                    "tp_trim_atr": 3.07,
+                    "tp_exit_atr": 3.76,
+                    "tp_runner_atr": 4.73
+                },
+                {
+                    "profile_id": "winner_move_HTF_BULL_LTF_PULLBACK_1773250770124",
+                    "profile_type": "winner_move",
+                    "entry_state": "HTF_BULL_LTF_PULLBACK",
+                    "sample_count": 1157,
+                    "win_rate": 100,
+                    "expectancy": 0,
+                    "sqn": 0,
+                    "avg_r": 2.74,
+                    "rank_p25": 63,
+                    "rank_p50": 73,
+                    "rank_p75": 84,
+                    "htf_score_p25": 21.9,
+                    "htf_score_p50": 34.8,
+                    "htf_score_p75": 42,
+                    "ltf_score_p25": -17.5,
+                    "ltf_score_p50": -10.4,
+                    "ltf_score_p75": -4.7,
+                    "completion_p50": 0.243,
+                    "completion_p75": 0.278,
+                    "phase_p50": 0.189,
+                    "phase_p75": 0.329,
+                    "vix_p25": 0,
+                    "vix_p50": 0,
+                    "vix_p75": 0,
+                    "avg_move_atr": 2.74,
+                    "avg_duration_days": 9.6,
+                    "top_signals_json": "{\"st_flip\":99,\"momentum_elite\":309,\"ema_cross\":97,\"squeeze_release\":24}",
+                    "regime_distribution": {},
+                    "regime_score_p25": 0,
+                    "regime_score_p50": 0,
+                    "rvol_p25": 0,
+                    "rvol_p50": 0,
+                    "rvol_p75": 0,
+                    "ichimoku_score_p25": 0,
+                    "ichimoku_score_p50": 0,
+                    "cloud_thickness_p50": 0,
+                    "entry_quality_p25": 0,
+                    "entry_quality_p50": 0,
+                    "sl_atr": 0.21,
+                    "tp_trim_atr": 3.04,
+                    "tp_exit_atr": 3.73,
+                    "tp_runner_atr": 4.59
+                },
+                {
+                    "profile_id": "winner_move_unknown_1773250770124",
+                    "profile_type": "winner_move",
+                    "entry_state": "unknown",
+                    "sample_count": 358,
+                    "win_rate": 100,
+                    "expectancy": 0,
+                    "sqn": 0,
+                    "avg_r": 2.77,
+                    "rank_p25": 0,
+                    "rank_p50": 0,
+                    "rank_p75": 0,
+                    "htf_score_p25": 0,
+                    "htf_score_p50": 0,
+                    "htf_score_p75": 0,
+                    "ltf_score_p25": 0,
+                    "ltf_score_p50": 0,
+                    "ltf_score_p75": 0,
+                    "completion_p50": 0,
+                    "completion_p75": 0,
+                    "phase_p50": 0,
+                    "phase_p75": 0,
+                    "vix_p25": 0,
+                    "vix_p50": 0,
+                    "vix_p75": 0,
+                    "avg_move_atr": 2.77,
+                    "avg_duration_days": 10.2,
+                    "top_signals_json": "{}",
+                    "regime_distribution": {},
+                    "regime_score_p25": 0,
+                    "regime_score_p50": 0,
+                    "rvol_p25": 0,
+                    "rvol_p50": 0,
+                    "rvol_p75": 0,
+                    "ichimoku_score_p25": 0,
+                    "ichimoku_score_p50": 0,
+                    "cloud_thickness_p50": 0,
+                    "entry_quality_p25": 0,
+                    "entry_quality_p50": 0,
+                    "sl_atr": 0.21,
+                    "tp_trim_atr": 3.06,
+                    "tp_exit_atr": 3.82,
+                    "tp_runner_atr": 4.58
+                },
+                {
+                    "profile_id": "winner_move_HTF_BEAR_LTF_BEAR_1773250770124",
+                    "profile_type": "winner_move",
+                    "entry_state": "HTF_BEAR_LTF_BEAR",
+                    "sample_count": 521,
+                    "win_rate": 100,
+                    "expectancy": 0,
+                    "sqn": 0,
+                    "avg_r": 2.73,
+                    "rank_p25": 66,
+                    "rank_p50": 74,
+                    "rank_p75": 86.5,
+                    "htf_score_p25": -25.125,
+                    "htf_score_p50": -15.7,
+                    "htf_score_p75": -7.9,
+                    "ltf_score_p25": -20.25,
+                    "ltf_score_p50": -15.2,
+                    "ltf_score_p75": -7.449999999999999,
+                    "completion_p50": 0.209,
+                    "completion_p75": 0.261,
+                    "phase_p50": 0.253,
+                    "phase_p75": 0.423,
+                    "vix_p25": 0,
+                    "vix_p50": 0,
+                    "vix_p75": 0,
+                    "avg_move_atr": 2.73,
+                    "avg_duration_days": 9.4,
+                    "top_signals_json": "{\"momentum_elite\":132,\"ema_cross\":30,\"st_flip\":43,\"squeeze_release\":8}",
+                    "regime_distribution": {},
+                    "regime_score_p25": 0,
+                    "regime_score_p50": 0,
+                    "rvol_p25": 0,
+                    "rvol_p50": 0,
+                    "rvol_p75": 0,
+                    "ichimoku_score_p25": 0,
+                    "ichimoku_score_p50": 0,
+                    "cloud_thickness_p50": 0,
+                    "entry_quality_p25": 0,
+                    "entry_quality_p50": 0,
+                    "sl_atr": 0.16,
+                    "tp_trim_atr": 2.98,
+                    "tp_exit_atr": 3.66,
+                    "tp_runner_atr": 4.44
+                },
+                {
+                    "profile_id": "winner_move_HTF_BEAR_LTF_BULL_1773250770124",
+                    "profile_type": "winner_move",
+                    "entry_state": "HTF_BEAR_LTF_BULL",
+                    "sample_count": 26,
+                    "win_rate": 100,
+                    "expectancy": 0,
+                    "sqn": 0,
+                    "avg_r": 2.89,
+                    "rank_p25": 0,
+                    "rank_p50": 0,
+                    "rank_p75": 0,
+                    "htf_score_p25": 0,
+                    "htf_score_p50": 0,
+                    "htf_score_p75": 0,
+                    "ltf_score_p25": 0,
+                    "ltf_score_p50": 0,
+                    "ltf_score_p75": 0,
+                    "completion_p50": 0,
+                    "completion_p75": 0,
+                    "phase_p50": 0,
+                    "phase_p75": 0,
+                    "vix_p25": 0,
+                    "vix_p50": 0,
+                    "vix_p75": 0,
+                    "avg_move_atr": 2.89,
+                    "avg_duration_days": 10.5,
+                    "top_signals_json": "{}",
+                    "regime_distribution": {},
+                    "regime_score_p25": 0,
+                    "regime_score_p50": 0,
+                    "rvol_p25": 0,
+                    "rvol_p50": 0,
+                    "rvol_p75": 0,
+                    "ichimoku_score_p25": 0,
+                    "ichimoku_score_p50": 0,
+                    "cloud_thickness_p50": 0,
+                    "entry_quality_p25": 0,
+                    "entry_quality_p50": 0,
+                    "sl_atr": 0.16,
+                    "tp_trim_atr": 3.03,
+                    "tp_exit_atr": 3.78,
+                    "tp_runner_atr": 4.18
+                },
+                {
+                    "profile_id": "winner_move_HTF_BULL_LTF_BEAR_1773250770124",
+                    "profile_type": "winner_move",
+                    "entry_state": "HTF_BULL_LTF_BEAR",
+                    "sample_count": 30,
+                    "win_rate": 100,
+                    "expectancy": 0,
+                    "sqn": 0,
+                    "avg_r": 2.54,
+                    "rank_p25": 0,
+                    "rank_p50": 0,
+                    "rank_p75": 0,
+                    "htf_score_p25": 0,
+                    "htf_score_p50": 0,
+                    "htf_score_p75": 0,
+                    "ltf_score_p25": 0,
+                    "ltf_score_p50": 0,
+                    "ltf_score_p75": 0,
+                    "completion_p50": 0,
+                    "completion_p75": 0,
+                    "phase_p50": 0,
+                    "phase_p75": 0,
+                    "vix_p25": 0,
+                    "vix_p50": 0,
+                    "vix_p75": 0,
+                    "avg_move_atr": 2.54,
+                    "avg_duration_days": 10.4,
+                    "top_signals_json": "{}",
+                    "regime_distribution": {},
+                    "regime_score_p25": 0,
+                    "regime_score_p50": 0,
+                    "rvol_p25": 0,
+                    "rvol_p50": 0,
+                    "rvol_p75": 0,
+                    "ichimoku_score_p25": 0,
+                    "ichimoku_score_p50": 0,
+                    "cloud_thickness_p50": 0,
+                    "entry_quality_p25": 0,
+                    "entry_quality_p50": 0,
+                    "sl_atr": 0,
+                    "tp_trim_atr": 2.93,
+                    "tp_exit_atr": 3.37,
+                    "tp_runner_atr": 4.1
+                },
+                {
+                    "profile_id": "winner_move_ALL_1773250770124",
+                    "profile_type": "winner_move",
+                    "entry_state": "ALL",
+                    "sample_count": 4734,
+                    "win_rate": 100,
+                    "expectancy": 0,
+                    "sqn": 0,
+                    "avg_r": 3.39,
+                    "rank_p25": 62,
+                    "rank_p50": 74,
+                    "rank_p75": 85,
+                    "htf_score_p25": 4.3,
+                    "htf_score_p50": 30.8,
+                    "htf_score_p75": 41.4,
+                    "ltf_score_p25": -11.9,
+                    "ltf_score_p50": -0.45,
+                    "ltf_score_p75": 11.3,
+                    "completion_p50": 0.228,
+                    "completion_p75": 0.27,
+                    "phase_p50": 0.209,
+                    "phase_p75": 0.399,
+                    "vix_p25": 0,
+                    "vix_p50": 0,
+                    "vix_p75": 0,
+                    "avg_move_atr": 3.39,
+                    "avg_duration_days": 9.6,
+                    "top_signals_json": "{\"momentum_elite\":885,\"ema_cross\":240,\"st_flip\":315,\"squeeze_release\":62}",
+                    "regime_distribution": {},
+                    "regime_score_p25": 0,
+                    "regime_score_p50": 0,
+                    "rvol_p25": 0,
+                    "rvol_p50": 0,
+                    "rvol_p75": 0,
+                    "ichimoku_score_p25": 0,
+                    "ichimoku_score_p50": 0,
+                    "cloud_thickness_p50": 0,
+                    "entry_quality_p25": 0,
+                    "entry_quality_p50": 0,
+                    "sl_atr": 0.21,
+                    "tp_trim_atr": 3.04,
+                    "tp_exit_atr": 3.75,
+                    "tp_runner_atr": 4.63
+                }
+            ],
+            "winner_trade": [
+                {
+                    "profile_id": "winner_trade_HTF_BULL_LTF_BULL_1773250770124",
+                    "profile_type": "winner_trade",
+                    "entry_state": "HTF_BULL_LTF_BULL",
+                    "sample_count": 60,
+                    "win_rate": 100,
+                    "expectancy": 2.51,
+                    "sqn": 5.44,
+                    "avg_r": 0.6,
+                    "rank_p25": 57,
+                    "rank_p50": 64.5,
+                    "rank_p75": 74,
+                    "htf_score_p25": 33.025,
+                    "htf_score_p50": 39.9,
+                    "htf_score_p75": 42.875,
+                    "ltf_score_p25": 2.975,
+                    "ltf_score_p50": 11.100000000000001,
+                    "ltf_score_p75": 17.85,
+                    "completion_p50": 0.236,
+                    "completion_p75": 0.25825,
+                    "phase_p50": 0.247,
+                    "phase_p75": 0.3525,
+                    "vix_p25": 0,
+                    "vix_p50": 0,
+                    "vix_p75": 0,
+                    "avg_move_atr": 1.73,
+                    "avg_duration_days": 9.5,
+                    "top_signals_json": "{}",
+                    "regime_distribution": {},
+                    "regime_score_p25": 0,
+                    "regime_score_p50": 0,
+                    "rvol_p25": 0,
+                    "rvol_p50": 0,
+                    "rvol_p75": 0,
+                    "ichimoku_score_p25": 0,
+                    "ichimoku_score_p50": 0,
+                    "cloud_thickness_p50": 0,
+                    "entry_quality_p25": 0,
+                    "entry_quality_p50": 0,
+                    "sl_atr": 0.5,
+                    "tp_trim_atr": 1.36,
+                    "tp_exit_atr": 1.93,
+                    "tp_runner_atr": 3.52
+                },
+                {
+                    "profile_id": "winner_trade_HTF_BEAR_LTF_PULLBACK_1773250770124",
+                    "profile_type": "winner_trade",
+                    "entry_state": "HTF_BEAR_LTF_PULLBACK",
+                    "sample_count": 6,
+                    "win_rate": 100,
+                    "expectancy": 2.33,
+                    "sqn": 2.84,
+                    "avg_r": 0.56,
+                    "rank_p25": 59.5,
+                    "rank_p50": 80,
+                    "rank_p75": 87,
+                    "htf_score_p25": -19.75,
+                    "htf_score_p50": -19.1,
+                    "htf_score_p75": -17.475,
+                    "ltf_score_p25": 3.7,
+                    "ltf_score_p50": 9,
+                    "ltf_score_p75": 12.95,
+                    "completion_p50": 0.247,
+                    "completion_p75": 0.25225,
+                    "phase_p50": 0.2225,
+                    "phase_p75": 0.2515,
+                    "vix_p25": 0,
+                    "vix_p50": 0,
+                    "vix_p75": 0,
+                    "avg_move_atr": 2.38,
+                    "avg_duration_days": 10,
+                    "top_signals_json": "{}",
+                    "regime_distribution": {},
+                    "regime_score_p25": 0,
+                    "regime_score_p50": 0,
+                    "rvol_p25": 0,
+                    "rvol_p50": 0,
+                    "rvol_p75": 0,
+                    "ichimoku_score_p25": 0,
+                    "ichimoku_score_p50": 0,
+                    "cloud_thickness_p50": 0,
+                    "entry_quality_p25": 0,
+                    "entry_quality_p50": 0,
+                    "sl_atr": 0.47,
+                    "tp_trim_atr": 2.6,
+                    "tp_exit_atr": 2.97,
+                    "tp_runner_atr": 3.43
+                },
+                {
+                    "profile_id": "winner_trade_HTF_BULL_LTF_PULLBACK_1773250770124",
+                    "profile_type": "winner_trade",
+                    "entry_state": "HTF_BULL_LTF_PULLBACK",
+                    "sample_count": 31,
+                    "win_rate": 100,
+                    "expectancy": 2.42,
+                    "sqn": 4.71,
+                    "avg_r": 0.48,
+                    "rank_p25": 55.5,
+                    "rank_p50": 62,
+                    "rank_p75": 72.5,
+                    "htf_score_p25": 34.45,
+                    "htf_score_p50": 38.6,
+                    "htf_score_p75": 42.3,
+                    "ltf_score_p25": -12.899999999999999,
+                    "ltf_score_p50": -5.8,
+                    "ltf_score_p75": -2.6,
+                    "completion_p50": 0.244,
+                    "completion_p75": 0.262,
+                    "phase_p50": 0.206,
+                    "phase_p75": 0.3085,
+                    "vix_p25": 0,
+                    "vix_p50": 0,
+                    "vix_p75": 0,
+                    "avg_move_atr": 1.5,
+                    "avg_duration_days": 4.6,
+                    "top_signals_json": "{}",
+                    "regime_distribution": {},
+                    "regime_score_p25": 0,
+                    "regime_score_p50": 0,
+                    "rvol_p25": 0,
+                    "rvol_p50": 0,
+                    "rvol_p75": 0,
+                    "ichimoku_score_p25": 0,
+                    "ichimoku_score_p50": 0,
+                    "cloud_thickness_p50": 0,
+                    "entry_quality_p25": 0,
+                    "entry_quality_p50": 0,
+                    "sl_atr": 0.43,
+                    "tp_trim_atr": 1.13,
+                    "tp_exit_atr": 1.77,
+                    "tp_runner_atr": 3
+                },
+                {
+                    "profile_id": "winner_trade_HTF_BEAR_LTF_BEAR_1773250770124",
+                    "profile_type": "winner_trade",
+                    "entry_state": "HTF_BEAR_LTF_BEAR",
+                    "sample_count": 14,
+                    "win_rate": 100,
+                    "expectancy": 3.67,
+                    "sqn": 3.87,
+                    "avg_r": 0.96,
+                    "rank_p25": 58.5,
+                    "rank_p50": 69.5,
+                    "rank_p75": 77.25,
+                    "htf_score_p25": -24.549999999999997,
+                    "htf_score_p50": -17.35,
+                    "htf_score_p75": -14.15,
+                    "ltf_score_p25": -16.4,
+                    "ltf_score_p50": -8.1,
+                    "ltf_score_p75": -3.55,
+                    "completion_p50": 0.235,
+                    "completion_p75": 0.26175000000000004,
+                    "phase_p50": 0.2495,
+                    "phase_p75": 0.372,
+                    "vix_p25": 0,
+                    "vix_p50": 0,
+                    "vix_p75": 0,
+                    "avg_move_atr": 2.03,
+                    "avg_duration_days": 8.6,
+                    "top_signals_json": "{}",
+                    "regime_distribution": {},
+                    "regime_score_p25": 0,
+                    "regime_score_p50": 0,
+                    "rvol_p25": 0,
+                    "rvol_p50": 0,
+                    "rvol_p75": 0,
+                    "ichimoku_score_p25": 0,
+                    "ichimoku_score_p50": 0,
+                    "cloud_thickness_p50": 0,
+                    "entry_quality_p25": 0,
+                    "entry_quality_p50": 0,
+                    "sl_atr": 0.48,
+                    "tp_trim_atr": 1.9,
+                    "tp_exit_atr": 2.63,
+                    "tp_runner_atr": 2.98
+                },
+                {
+                    "profile_id": "winner_trade_ALL_1773250770124",
+                    "profile_type": "winner_trade",
+                    "entry_state": "ALL",
+                    "sample_count": 111,
+                    "win_rate": 100,
+                    "expectancy": 2.62,
+                    "sqn": 8.12,
+                    "avg_r": 0.61,
+                    "rank_p25": 56.5,
+                    "rank_p50": 65,
+                    "rank_p75": 74.5,
+                    "htf_score_p25": 23.4,
+                    "htf_score_p50": 37.3,
+                    "htf_score_p75": 42.6,
+                    "ltf_score_p25": -3.45,
+                    "ltf_score_p50": 2.4,
+                    "ltf_score_p75": 12.7,
+                    "completion_p50": 0.24,
+                    "completion_p75": 0.259,
+                    "phase_p50": 0.233,
+                    "phase_p75": 0.3415,
+                    "vix_p25": 0,
+                    "vix_p50": 0,
+                    "vix_p75": 0,
+                    "avg_move_atr": 1.74,
+                    "avg_duration_days": 8.1,
+                    "top_signals_json": "{}",
+                    "regime_distribution": {},
+                    "regime_score_p25": 0,
+                    "regime_score_p50": 0,
+                    "rvol_p25": 0,
+                    "rvol_p50": 0,
+                    "rvol_p75": 0,
+                    "ichimoku_score_p25": 0,
+                    "ichimoku_score_p50": 0,
+                    "cloud_thickness_p50": 0,
+                    "entry_quality_p25": 0,
+                    "entry_quality_p50": 0,
+                    "sl_atr": 0.5,
+                    "tp_trim_atr": 1.37,
+                    "tp_exit_atr": 2.11,
+                    "tp_runner_atr": 3.5
+                }
+            ],
+            "loser_trade": [
+                {
+                    "profile_id": "loser_trade_HTF_BULL_LTF_BULL_1773250770124",
+                    "profile_type": "loser_trade",
+                    "entry_state": "HTF_BULL_LTF_BULL",
+                    "sample_count": 62,
+                    "win_rate": 0,
+                    "expectancy": -2.18,
+                    "sqn": -3.08,
+                    "avg_r": -0.61,
+                    "rank_p25": 57,
+                    "rank_p50": 63,
+                    "rank_p75": 75,
+                    "htf_score_p25": 33.675000000000004,
+                    "htf_score_p50": 40.8,
+                    "htf_score_p75": 42.4,
+                    "ltf_score_p25": 3,
+                    "ltf_score_p50": 10.7,
+                    "ltf_score_p75": 16.725,
+                    "completion_p50": 0.245,
+                    "completion_p75": 0.264,
+                    "phase_p50": 0.2265,
+                    "phase_p75": 0.35224999999999995,
+                    "vix_p25": 0,
+                    "vix_p50": 0,
+                    "vix_p75": 0,
+                    "avg_move_atr": 0.38,
+                    "avg_duration_days": 2.5,
+                    "top_signals_json": "{}",
+                    "regime_distribution": {},
+                    "regime_score_p25": 0,
+                    "regime_score_p50": 0,
+                    "rvol_p25": 0,
+                    "rvol_p50": 0,
+                    "rvol_p75": 0,
+                    "ichimoku_score_p25": 0,
+                    "ichimoku_score_p50": 0,
+                    "cloud_thickness_p50": 0,
+                    "entry_quality_p25": 0,
+                    "entry_quality_p50": 0,
+                    "sl_atr": 1.17,
+                    "tp_trim_atr": 0.31,
+                    "tp_exit_atr": 0.63,
+                    "tp_runner_atr": 0.95
+                },
+                {
+                    "profile_id": "loser_trade_HTF_BULL_LTF_PULLBACK_1773250770124",
+                    "profile_type": "loser_trade",
+                    "entry_state": "HTF_BULL_LTF_PULLBACK",
+                    "sample_count": 28,
+                    "win_rate": 0,
+                    "expectancy": -2.16,
+                    "sqn": -6.96,
+                    "avg_r": -0.6,
+                    "rank_p25": 53,
+                    "rank_p50": 61.5,
+                    "rank_p75": 73,
+                    "htf_score_p25": 35.1,
+                    "htf_score_p50": 39.099999999999994,
+                    "htf_score_p75": 44.975,
+                    "ltf_score_p25": -13.975000000000001,
+                    "ltf_score_p50": -6.65,
+                    "ltf_score_p75": -3.25,
+                    "completion_p50": 0.23399999999999999,
+                    "completion_p75": 0.25625,
+                    "phase_p50": 0.1515,
+                    "phase_p75": 0.23175,
+                    "vix_p25": 0,
+                    "vix_p50": 0,
+                    "vix_p75": 0,
+                    "avg_move_atr": 0.34,
+                    "avg_duration_days": 2,
+                    "top_signals_json": "{}",
+                    "regime_distribution": {},
+                    "regime_score_p25": 0,
+                    "regime_score_p50": 0,
+                    "rvol_p25": 0,
+                    "rvol_p50": 0,
+                    "rvol_p75": 0,
+                    "ichimoku_score_p25": 0,
+                    "ichimoku_score_p50": 0,
+                    "cloud_thickness_p50": 0,
+                    "entry_quality_p25": 0,
+                    "entry_quality_p50": 0,
+                    "sl_atr": 1.21,
+                    "tp_trim_atr": 0.02,
+                    "tp_exit_atr": 0.62,
+                    "tp_runner_atr": 0.98
+                },
+                {
+                    "profile_id": "loser_trade_HTF_BEAR_LTF_BEAR_1773250770124",
+                    "profile_type": "loser_trade",
+                    "entry_state": "HTF_BEAR_LTF_BEAR",
+                    "sample_count": 18,
+                    "win_rate": 0,
+                    "expectancy": -2.45,
+                    "sqn": -3.54,
+                    "avg_r": -0.75,
+                    "rank_p25": 54.5,
+                    "rank_p50": 63,
+                    "rank_p75": 74,
+                    "htf_score_p25": -22.8,
+                    "htf_score_p50": -18,
+                    "htf_score_p75": -11,
+                    "ltf_score_p25": -20.950000000000003,
+                    "ltf_score_p50": -18.15,
+                    "ltf_score_p75": -8.85,
+                    "completion_p50": 0.2175,
+                    "completion_p75": 0.25175000000000003,
+                    "phase_p50": 0.28900000000000003,
+                    "phase_p75": 0.4105,
+                    "vix_p25": 0,
+                    "vix_p50": 0,
+                    "vix_p75": 0,
+                    "avg_move_atr": 0.58,
+                    "avg_duration_days": 11.7,
+                    "top_signals_json": "{}",
+                    "regime_distribution": {},
+                    "regime_score_p25": 0,
+                    "regime_score_p50": 0,
+                    "rvol_p25": 0,
+                    "rvol_p50": 0,
+                    "rvol_p75": 0,
+                    "ichimoku_score_p25": 0,
+                    "ichimoku_score_p50": 0,
+                    "cloud_thickness_p50": 0,
+                    "entry_quality_p25": 0,
+                    "entry_quality_p50": 0,
+                    "sl_atr": 1.36,
+                    "tp_trim_atr": 0.25,
+                    "tp_exit_atr": 0.63,
+                    "tp_runner_atr": 0.88
+                },
+                {
+                    "profile_id": "loser_trade_HTF_BEAR_LTF_PULLBACK_1773250770124",
+                    "profile_type": "loser_trade",
+                    "entry_state": "HTF_BEAR_LTF_PULLBACK",
+                    "sample_count": 9,
+                    "win_rate": 0,
+                    "expectancy": -5.16,
+                    "sqn": -2.17,
+                    "avg_r": -0.95,
+                    "rank_p25": 60,
+                    "rank_p50": 72,
+                    "rank_p75": 82,
+                    "htf_score_p25": -20.6,
+                    "htf_score_p50": -16.7,
+                    "htf_score_p75": -13.3,
+                    "ltf_score_p25": 2,
+                    "ltf_score_p50": 4,
+                    "ltf_score_p75": 11.5,
+                    "completion_p50": 0.194,
+                    "completion_p75": 0.221,
+                    "phase_p50": 0.202,
+                    "phase_p75": 0.331,
+                    "vix_p25": 0,
+                    "vix_p50": 0,
+                    "vix_p75": 0,
+                    "avg_move_atr": 0.29,
+                    "avg_duration_days": 5,
+                    "top_signals_json": "{}",
+                    "regime_distribution": {},
+                    "regime_score_p25": 0,
+                    "regime_score_p50": 0,
+                    "rvol_p25": 0,
+                    "rvol_p50": 0,
+                    "rvol_p75": 0,
+                    "ichimoku_score_p25": 0,
+                    "ichimoku_score_p50": 0,
+                    "cloud_thickness_p50": 0,
+                    "entry_quality_p25": 0,
+                    "entry_quality_p50": 0,
+                    "sl_atr": 1.39,
+                    "tp_trim_atr": 0.07,
+                    "tp_exit_atr": 0.48,
+                    "tp_runner_atr": 0.89
+                },
+                {
+                    "profile_id": "loser_trade_ALL_1773250770124",
+                    "profile_type": "loser_trade",
+                    "entry_state": "ALL",
+                    "sample_count": 117,
+                    "win_rate": 0,
+                    "expectancy": -2.45,
+                    "sqn": -5.6,
+                    "avg_r": -0.65,
+                    "rank_p25": 56,
+                    "rank_p50": 63,
+                    "rank_p75": 75,
+                    "htf_score_p25": 21.4,
+                    "htf_score_p50": 36.8,
+                    "htf_score_p75": 42.1,
+                    "ltf_score_p25": -5.2,
+                    "ltf_score_p50": 2,
+                    "ltf_score_p75": 12.9,
+                    "completion_p50": 0.23,
+                    "completion_p75": 0.26,
+                    "phase_p50": 0.217,
+                    "phase_p75": 0.344,
+                    "vix_p25": 0,
+                    "vix_p50": 0,
+                    "vix_p75": 0,
+                    "avg_move_atr": 0.39,
+                    "avg_duration_days": 4,
+                    "top_signals_json": "{}",
+                    "regime_distribution": {},
+                    "regime_score_p25": 0,
+                    "regime_score_p50": 0,
+                    "rvol_p25": 0,
+                    "rvol_p50": 0,
+                    "rvol_p75": 0,
+                    "ichimoku_score_p25": 0,
+                    "ichimoku_score_p50": 0,
+                    "cloud_thickness_p50": 0,
+                    "entry_quality_p25": 0,
+                    "entry_quality_p50": 0,
+                    "sl_atr": 1.24,
+                    "tp_trim_atr": 0.25,
+                    "tp_exit_atr": 0.64,
+                    "tp_runner_atr": 0.95
+                }
+            ]
+        },
+        "execution_profile_analysis": {
+            "by_profile": {
+                "unknown": {
+                    "n": 215,
+                    "win_rate": 49.8,
+                    "expectancy": 0.1,
+                    "sqn": -0.44,
+                    "avg_r": -0.04,
+                    "profit_factor": 1.08,
+                    "avg_profile_confidence": 0,
+                    "avg_entry_quality": null,
+                    "dominant_market_states": [
+                        {
+                            "key": "unknown",
+                            "count": 215
+                        }
+                    ],
+                    "dominant_entry_paths": [
+                        {
+                            "key": "ema_regime_confirmed_long",
+                            "count": 168
+                        },
+                        {
+                            "key": "ema_regime_confirmed_short",
+                            "count": 43
+                        }
+                    ],
+                    "dominant_regimes": [
+                        {
+                            "key": "EARLY_BULL",
+                            "count": 70
+                        },
+                        {
+                            "key": "NEUTRAL",
+                            "count": 64
+                        }
+                    ],
+                    "action": "KEEP"
+                },
+                "correction_transition": {
+                    "n": 13,
+                    "win_rate": 30.8,
+                    "expectancy": -1.31,
+                    "sqn": -0.19,
+                    "avg_r": -0.03,
+                    "profit_factor": 0.32,
+                    "avg_profile_confidence": 0.71,
+                    "avg_entry_quality": null,
+                    "dominant_market_states": [
+                        {
+                            "key": "balanced",
+                            "count": 13
+                        }
+                    ],
+                    "dominant_entry_paths": [
+                        {
+                            "key": "ema_regime_confirmed_long",
+                            "count": 10
+                        },
+                        {
+                            "key": "ema_regime_confirmed_short",
+                            "count": 3
+                        }
+                    ],
+                    "dominant_regimes": [
+                        {
+                            "key": "NEUTRAL",
+                            "count": 6
+                        },
+                        {
+                            "key": "LATE_BULL",
+                            "count": 3
+                        }
+                    ],
+                    "action": "RESTRICT"
+                }
+            },
+            "by_profile_market_state": {
+                "unknown::unknown": {
+                    "profile": "unknown",
+                    "market_state": "unknown",
+                    "n": 215,
+                    "win_rate": 49.8,
+                    "expectancy": 0.1,
+                    "sqn": -0.44,
+                    "avg_r": -0.04,
+                    "profit_factor": 1.08,
+                    "avg_profile_confidence": 0,
+                    "dominant_entry_paths": [
+                        {
+                            "key": "ema_regime_confirmed_long",
+                            "count": 168
+                        },
+                        {
+                            "key": "ema_regime_confirmed_short",
+                            "count": 43
+                        }
+                    ],
+                    "dominant_regimes": [
+                        {
+                            "key": "EARLY_BULL",
+                            "count": 70
+                        },
+                        {
+                            "key": "NEUTRAL",
+                            "count": 64
+                        }
+                    ],
+                    "action": "KEEP"
+                },
+                "correction_transition::balanced": {
+                    "profile": "correction_transition",
+                    "market_state": "balanced",
+                    "n": 13,
+                    "win_rate": 30.8,
+                    "expectancy": -1.31,
+                    "sqn": -0.19,
+                    "avg_r": -0.03,
+                    "profit_factor": 0.32,
+                    "avg_profile_confidence": 0.71,
+                    "dominant_entry_paths": [
+                        {
+                            "key": "ema_regime_confirmed_long",
+                            "count": 10
+                        },
+                        {
+                            "key": "ema_regime_confirmed_short",
+                            "count": 3
+                        }
+                    ],
+                    "dominant_regimes": [
+                        {
+                            "key": "NEUTRAL",
+                            "count": 6
+                        },
+                        {
+                            "key": "LATE_BULL",
+                            "count": 3
+                        }
+                    ],
+                    "action": "RESTRICT"
+                }
+            }
+        },
+        "adaptive_params": {
+            "entry_gates": {
+                "HTF_BEAR_LTF_PULLBACK": {
+                    "min_rank": 70,
+                    "min_htf_score": 5,
+                    "max_completion": 0.34,
+                    "max_phase": 0.38,
+                    "sample_count": 465,
+                    "win_rate": 100
+                },
+                "HTF_BULL_LTF_BULL": {
+                    "min_rank": 70,
+                    "min_htf_score": 25,
+                    "max_completion": 0.28,
+                    "max_phase": 0.49,
+                    "sample_count": 2177,
+                    "win_rate": 100
+                },
+                "HTF_BULL_LTF_PULLBACK": {
+                    "min_rank": 70,
+                    "min_htf_score": 22,
+                    "max_completion": 0.28,
+                    "max_phase": 0.33,
+                    "sample_count": 1157,
+                    "win_rate": 100
+                },
+                "unknown": {
+                    "min_rank": 70,
+                    "min_htf_score": 5,
+                    "max_completion": 0.6,
+                    "max_phase": 0.7,
+                    "sample_count": 358,
+                    "win_rate": 100
+                },
+                "HTF_BEAR_LTF_BEAR": {
+                    "min_rank": 70,
+                    "min_htf_score": 5,
+                    "max_completion": 0.26,
+                    "max_phase": 0.42,
+                    "sample_count": 521,
+                    "win_rate": 100
+                },
+                "HTF_BEAR_LTF_BULL": {
+                    "min_rank": 70,
+                    "min_htf_score": 5,
+                    "max_completion": 0.6,
+                    "max_phase": 0.7,
+                    "sample_count": 26,
+                    "win_rate": 100
+                },
+                "HTF_BULL_LTF_BEAR": {
+                    "min_rank": 70,
+                    "min_htf_score": 5,
+                    "max_completion": 0.6,
+                    "max_phase": 0.7,
+                    "sample_count": 30,
+                    "win_rate": 100
+                },
+                "_default": {
+                    "min_rank": 70,
+                    "min_htf_score": 5,
+                    "max_completion": 0.27,
+                    "max_phase": 0.4,
+                    "sample_count": 4734
+                }
+            },
+            "regime_gates": {},
+            "rank_weights": {
+                "completion_early_bonus": 18,
+                "completion_mid_bonus": 11,
+                "phase_penalty_start": 0.4,
+                "phase_penalty_mult": 30,
+                "squeeze_setup_bonus": 5,
+                "squeeze_release_aligned_bonus": 3,
+                "squeeze_release_setup_bonus": 6,
+                "momentum_elite_bonus": 15,
+                "ema_cross_bonus": 5,
+                "htf_strong_threshold": 25,
+                "ltf_strong_threshold": 20,
+                "sector_biases": {},
+                "signal_weights": {
+                    "ema_cross": 0.05,
+                    "supertrend": 0.05,
+                    "ema_structure": 0.02,
+                    "ema_depth": 0.06,
+                    "rsi": 0.07,
+                    "regime_score": 0.28,
+                    "rvol_best": 0.07,
+                    "ichimoku_score_d": 0.2,
+                    "cloud_thickness_d": 0.1,
+                    "entry_quality_score": 0.1
+                }
+            },
+            "sl_tp": {
+                "HTF_BEAR_LTF_PULLBACK": {
+                    "sl_atr": 0.2,
+                    "tp_trim_atr": 3.04,
+                    "tp_exit_atr": 3.73,
+                    "tp_runner_atr": 4.73
+                },
+                "HTF_BULL_LTF_BULL": {
+                    "sl_atr": 0.22,
+                    "tp_trim_atr": 3.07,
+                    "tp_exit_atr": 3.76,
+                    "tp_runner_atr": 4.73
+                },
+                "HTF_BULL_LTF_PULLBACK": {
+                    "sl_atr": 0.21,
+                    "tp_trim_atr": 3.04,
+                    "tp_exit_atr": 3.73,
+                    "tp_runner_atr": 4.59
+                },
+                "unknown": {
+                    "sl_atr": 0.21,
+                    "tp_trim_atr": 3.06,
+                    "tp_exit_atr": 3.82,
+                    "tp_runner_atr": 4.58
+                },
+                "HTF_BEAR_LTF_BEAR": {
+                    "sl_atr": 0.16,
+                    "tp_trim_atr": 2.98,
+                    "tp_exit_atr": 3.66,
+                    "tp_runner_atr": 4.44
+                },
+                "HTF_BEAR_LTF_BULL": {
+                    "sl_atr": 0.16,
+                    "tp_trim_atr": 3.03,
+                    "tp_exit_atr": 3.78,
+                    "tp_runner_atr": 4.18
+                },
+                "HTF_BULL_LTF_BEAR": {
+                    "sl_atr": 0,
+                    "tp_trim_atr": 2.93,
+                    "tp_exit_atr": 3.37,
+                    "tp_runner_atr": 4.1
+                },
+                "_default": {
+                    "sl_atr": 0.21,
+                    "tp_trim_atr": 3.04,
+                    "tp_exit_atr": 3.75,
+                    "tp_runner_atr": 4.63
+                }
+            }
+        },
+        "vix_buckets": {
+            "low": {
+                "n": 0,
+                "win_rate": 0,
+                "expectancy": 0,
+                "sqn": 0,
+                "avg_r": 0,
+                "profit_factor": 0
+            },
+            "medium": {
+                "n": 0,
+                "win_rate": 0,
+                "expectancy": 0,
+                "sqn": 0,
+                "avg_r": 0,
+                "profit_factor": 0
+            },
+            "high": {
+                "n": 0,
+                "win_rate": 0,
+                "expectancy": 0,
+                "sqn": 0,
+                "avg_r": 0,
+                "profit_factor": 0
+            },
+            "extreme": {
+                "n": 0,
+                "win_rate": 0,
+                "expectancy": 0,
+                "sqn": 0,
+                "avg_r": 0,
+                "profit_factor": 0
+            }
+        },
+        "profile_impact": {
+            "profiled_tickers": 323,
+            "total_trades_analyzed": 228,
+            "by_behavior_type": {
+                "MIXED": {
+                    "ticker_count": 61,
+                    "n": 187,
+                    "win_rate": 48.1,
+                    "expectancy": -0.04,
+                    "sqn": -0.58,
+                    "avg_r": -0.06,
+                    "profit_factor": 0.97
+                },
+                "MEAN_REVERT": {
+                    "ticker_count": 13,
+                    "n": 32,
+                    "win_rate": 46.9,
+                    "expectancy": 0.07,
+                    "sqn": 0.03,
+                    "avg_r": 0.01,
+                    "profit_factor": 1.05
+                },
+                "MOMENTUM": {
+                    "ticker_count": 2,
+                    "n": 9,
+                    "win_rate": 66.7,
+                    "expectancy": 1.14,
+                    "sqn": 0.92,
+                    "avg_r": 0.18,
+                    "profit_factor": 2.63
+                }
+            },
+            "sl_multiplier_impact": {
+                "wide_sl": {
+                    "n": 106,
+                    "win_rate": 52.8,
+                    "expectancy": 0.35,
+                    "sqn": 0.93,
+                    "avg_r": 0.09,
+                    "profit_factor": 1.24
+                },
+                "normal_sl": {
+                    "n": 122,
+                    "win_rate": 45.1,
+                    "expectancy": -0.26,
+                    "sqn": -1.12,
+                    "avg_r": -0.14,
+                    "profit_factor": 0.76
+                }
+            },
+            "tp_multiplier_impact": {
+                "extended_tp": {
+                    "n": 101,
+                    "win_rate": 52.5,
+                    "expectancy": 0.32,
+                    "sqn": 0.76,
+                    "avg_r": 0.07,
+                    "profit_factor": 1.23
+                },
+                "normal_tp": {
+                    "n": 127,
+                    "win_rate": 45.7,
+                    "expectancy": -0.22,
+                    "sqn": -0.96,
+                    "avg_r": -0.12,
+                    "profit_factor": 0.8
+                }
+            },
+            "entry_threshold_impact": {
+                "raised_bar": {
+                    "n": 65,
+                    "win_rate": 50.8,
+                    "expectancy": -0.25,
+                    "sqn": -0.54,
+                    "avg_r": -0.06,
+                    "profit_factor": 0.86
+                },
+                "normal_bar": {
+                    "n": 163,
+                    "win_rate": 47.9,
+                    "expectancy": 0.13,
+                    "sqn": -0.26,
+                    "avg_r": -0.03,
+                    "profit_factor": 1.12
+                }
+            },
+            "top_10_tickers": [
+                {
+                    "ticker": "AVGO",
+                    "n": 4,
+                    "win_rate": 50,
+                    "expectancy": 2.4,
+                    "sqn": 0.57,
+                    "avg_r": 0.28,
+                    "profit_factor": 3.21,
+                    "behavior_type": "MIXED",
+                    "sl_mult": 1.2,
+                    "tp_mult": 1.26,
+                    "atr_pct": 3.85,
+                    "entry_threshold_adj": 0
+                },
+                {
+                    "ticker": "PATH",
+                    "n": 3,
+                    "win_rate": 33.3,
+                    "expectancy": 2.24,
+                    "sqn": 0.88,
+                    "avg_r": 0.75,
+                    "profit_factor": 3.44,
+                    "behavior_type": "MIXED",
+                    "sl_mult": 1.4,
+                    "tp_mult": 1.43,
+                    "atr_pct": 4.15,
+                    "entry_threshold_adj": 0
+                },
+                {
+                    "ticker": "NVDA",
+                    "n": 3,
+                    "win_rate": 100,
+                    "expectancy": 1.79,
+                    "sqn": 2.24,
+                    "avg_r": 0.44,
+                    "profit_factor": 999,
+                    "behavior_type": "MEAN_REVERT",
+                    "sl_mult": 1.32,
+                    "tp_mult": 0.98,
+                    "atr_pct": 3.82,
+                    "entry_threshold_adj": 5
+                },
+                {
+                    "ticker": "FIX",
+                    "n": 3,
+                    "win_rate": 66.7,
+                    "expectancy": 1.72,
+                    "sqn": 1.96,
+                    "avg_r": 0.35,
+                    "profit_factor": 36.3,
+                    "behavior_type": "MIXED",
+                    "sl_mult": 1.2,
+                    "tp_mult": 1.26,
+                    "atr_pct": 3.81,
+                    "entry_threshold_adj": 0
+                },
+                {
+                    "ticker": "KO",
+                    "n": 3,
+                    "win_rate": 100,
+                    "expectancy": 1.52,
+                    "sqn": 2.6,
+                    "avg_r": 0.71,
+                    "profit_factor": 999,
+                    "behavior_type": "MIXED",
+                    "sl_mult": 0.8,
+                    "tp_mult": 0.94,
+                    "atr_pct": 1.4,
+                    "entry_threshold_adj": 0
+                },
+                {
+                    "ticker": "BABA",
+                    "n": 14,
+                    "win_rate": 57.1,
+                    "expectancy": 1.44,
+                    "sqn": 1.61,
+                    "avg_r": 0.38,
+                    "profit_factor": 3.03,
+                    "behavior_type": "MIXED",
+                    "sl_mult": 1.2,
+                    "tp_mult": 1.26,
+                    "atr_pct": 3.12,
+                    "entry_threshold_adj": 0
+                },
+                {
+                    "ticker": "AR",
+                    "n": 3,
+                    "win_rate": 33.3,
+                    "expectancy": 1.19,
+                    "sqn": 0.6,
+                    "avg_r": 0.31,
+                    "profit_factor": 2.05,
+                    "behavior_type": "MIXED",
+                    "sl_mult": 1.2,
+                    "tp_mult": 1.26,
+                    "atr_pct": 3.42,
+                    "entry_threshold_adj": 0
+                },
+                {
+                    "ticker": "APP",
+                    "n": 8,
+                    "win_rate": 62.5,
+                    "expectancy": 1.11,
+                    "sqn": 0.78,
+                    "avg_r": 0.17,
+                    "profit_factor": 2.4,
+                    "behavior_type": "MOMENTUM",
+                    "sl_mult": 1.26,
+                    "tp_mult": 1.64,
+                    "atr_pct": 5.28,
+                    "entry_threshold_adj": 5
+                },
+                {
+                    "ticker": "ORCL",
+                    "n": 4,
+                    "win_rate": 50,
+                    "expectancy": 1.07,
+                    "sqn": 0.86,
+                    "avg_r": 0.46,
+                    "profit_factor": 1.94,
+                    "behavior_type": "MIXED",
+                    "sl_mult": 1.2,
+                    "tp_mult": 1.26,
+                    "atr_pct": 3.06,
+                    "entry_threshold_adj": 0
+                },
+                {
+                    "ticker": "STRL",
+                    "n": 4,
+                    "win_rate": 50,
+                    "expectancy": 0.97,
+                    "sqn": 0.45,
+                    "avg_r": 0.18,
+                    "profit_factor": 1.74,
+                    "behavior_type": "MIXED",
+                    "sl_mult": 1.4,
+                    "tp_mult": 1.43,
+                    "atr_pct": 4.65,
+                    "entry_threshold_adj": 0
+                }
+            ],
+            "bottom_10_tickers": [
+                {
+                    "ticker": "ULTA",
+                    "n": 12,
+                    "win_rate": 58.3,
+                    "expectancy": -2.54,
+                    "sqn": -1.1,
+                    "avg_r": -1.09,
+                    "profit_factor": 0.11,
+                    "behavior_type": "MIXED",
+                    "sl_mult": 1,
+                    "tp_mult": 1.1,
+                    "atr_pct": 2.86,
+                    "entry_threshold_adj": 0
+                },
+                {
+                    "ticker": "AMZN",
+                    "n": 6,
+                    "win_rate": 33.3,
+                    "expectancy": -1.3,
+                    "sqn": -1.32,
+                    "avg_r": -0.51,
+                    "profit_factor": 0.23,
+                    "behavior_type": "MIXED",
+                    "sl_mult": 1,
+                    "tp_mult": 1.1,
+                    "atr_pct": 2.32,
+                    "entry_threshold_adj": 0
+                },
+                {
+                    "ticker": "ETN",
+                    "n": 7,
+                    "win_rate": 28.6,
+                    "expectancy": -1.07,
+                    "sqn": -1.33,
+                    "avg_r": -0.37,
+                    "profit_factor": 0.26,
+                    "behavior_type": "MIXED",
+                    "sl_mult": 1,
+                    "tp_mult": 1.1,
+                    "atr_pct": 2.59,
+                    "entry_threshold_adj": 0
+                },
+                {
+                    "ticker": "MSTR",
+                    "n": 3,
+                    "win_rate": 33.3,
+                    "expectancy": -1.05,
+                    "sqn": -0.6,
+                    "avg_r": -0.18,
+                    "profit_factor": 0.55,
+                    "behavior_type": "MEAN_REVERT",
+                    "sl_mult": 1.54,
+                    "tp_mult": 1.22,
+                    "atr_pct": 7.51,
+                    "entry_threshold_adj": 10
+                },
+                {
+                    "ticker": "GEV",
+                    "n": 3,
+                    "win_rate": 66.7,
+                    "expectancy": -0.98,
+                    "sqn": -0.54,
+                    "avg_r": -0.2,
+                    "profit_factor": 0.47,
+                    "behavior_type": "MEAN_REVERT",
+                    "sl_mult": 1.54,
+                    "tp_mult": 1.22,
+                    "atr_pct": 4.18,
+                    "entry_threshold_adj": 5
+                },
+                {
+                    "ticker": "MNST",
+                    "n": 5,
+                    "win_rate": 20,
+                    "expectancy": -0.62,
+                    "sqn": -1.45,
+                    "avg_r": -0.26,
+                    "profit_factor": 0.34,
+                    "behavior_type": "MEAN_REVERT",
+                    "sl_mult": 1.1,
+                    "tp_mult": 0.94,
+                    "atr_pct": 1.96,
+                    "entry_threshold_adj": 5
+                },
+                {
+                    "ticker": "CSX",
+                    "n": 5,
+                    "win_rate": 40,
+                    "expectancy": -0.55,
+                    "sqn": -0.42,
+                    "avg_r": -0.13,
+                    "profit_factor": 0.59,
+                    "behavior_type": "MEAN_REVERT",
+                    "sl_mult": 1.1,
+                    "tp_mult": 0.94,
+                    "atr_pct": 2.01,
+                    "entry_threshold_adj": 5
+                },
+                {
+                    "ticker": "CAT",
+                    "n": 7,
+                    "win_rate": 57.1,
+                    "expectancy": -0.54,
+                    "sqn": -0.95,
+                    "avg_r": -0.13,
+                    "profit_factor": 0.39,
+                    "behavior_type": "MIXED",
+                    "sl_mult": 1,
+                    "tp_mult": 1.1,
+                    "atr_pct": 2.33,
+                    "entry_threshold_adj": 0
+                },
+                {
+                    "ticker": "H",
+                    "n": 8,
+                    "win_rate": 25,
+                    "expectancy": -0.45,
+                    "sqn": -1.96,
+                    "avg_r": -0.17,
+                    "profit_factor": 0.41,
+                    "behavior_type": "MIXED",
+                    "sl_mult": 1,
+                    "tp_mult": 1.1,
+                    "atr_pct": 2.55,
+                    "entry_threshold_adj": 0
+                },
+                {
+                    "ticker": "WTS",
+                    "n": 4,
+                    "win_rate": 25,
+                    "expectancy": -0.29,
+                    "sqn": -1.01,
+                    "avg_r": -0.13,
+                    "profit_factor": 0.52,
+                    "behavior_type": "MIXED",
+                    "sl_mult": 1,
+                    "tp_mult": 1.1,
+                    "atr_pct": 2.15,
+                    "entry_threshold_adj": 0
+                }
+            ]
+        }
+    },
+    "recommendations": {
+        "signal_weights": {
+            "ema_cross": 0.05,
+            "supertrend": 0.05,
+            "ema_structure": 0.02,
+            "ema_depth": 0.06,
+            "rsi": 0.07,
+            "regime_score": 0.28,
+            "rvol_best": 0.07,
+            "ichimoku_score_d": 0.2,
+            "cloud_thickness_d": 0.1,
+            "entry_quality_score": 0.1
+        },
+        "sl_atr": 0.5,
+        "tp_tiers": {
+            "trim": 0.71,
+            "exit": 1.51,
+            "runner": 2.44
+        },
+        "rank_threshold": 70,
+        "path_adjustments": {
+            "ema_regime_confirmed_long": {
+                "action": "RESTRICT",
+                "quality_gate_adj": 0.5
+            },
+            "ema_regime_confirmed_short": {
+                "action": "DISABLE"
+            }
+        },
+        "wfo_verdict": "WARNING",
+        "adaptive_rank_weights": {
+            "completion_early_bonus": 18,
+            "completion_mid_bonus": 11,
+            "phase_penalty_start": 0.4,
+            "phase_penalty_mult": 30,
+            "squeeze_setup_bonus": 5,
+            "squeeze_release_aligned_bonus": 3,
+            "squeeze_release_setup_bonus": 6,
+            "momentum_elite_bonus": 15,
+            "ema_cross_bonus": 5,
+            "htf_strong_threshold": 25,
+            "ltf_strong_threshold": 20,
+            "sector_biases": {},
+            "signal_weights": {
+                "ema_cross": 0.05,
+                "supertrend": 0.05,
+                "ema_structure": 0.02,
+                "ema_depth": 0.06,
+                "rsi": 0.07,
+                "regime_score": 0.28,
+                "rvol_best": 0.07,
+                "ichimoku_score_d": 0.2,
+                "cloud_thickness_d": 0.1,
+                "entry_quality_score": 0.1
+            }
+        },
+        "adaptive_entry_gates": {
+            "HTF_BEAR_LTF_PULLBACK": {
+                "min_rank": 70,
+                "min_htf_score": 5,
+                "max_completion": 0.34,
+                "max_phase": 0.38,
+                "sample_count": 465,
+                "win_rate": 100
+            },
+            "HTF_BULL_LTF_BULL": {
+                "min_rank": 70,
+                "min_htf_score": 25,
+                "max_completion": 0.28,
+                "max_phase": 0.49,
+                "sample_count": 2177,
+                "win_rate": 100
+            },
+            "HTF_BULL_LTF_PULLBACK": {
+                "min_rank": 70,
+                "min_htf_score": 22,
+                "max_completion": 0.28,
+                "max_phase": 0.33,
+                "sample_count": 1157,
+                "win_rate": 100
+            },
+            "unknown": {
+                "min_rank": 70,
+                "min_htf_score": 5,
+                "max_completion": 0.6,
+                "max_phase": 0.7,
+                "sample_count": 358,
+                "win_rate": 100
+            },
+            "HTF_BEAR_LTF_BEAR": {
+                "min_rank": 70,
+                "min_htf_score": 5,
+                "max_completion": 0.26,
+                "max_phase": 0.42,
+                "sample_count": 521,
+                "win_rate": 100
+            },
+            "HTF_BEAR_LTF_BULL": {
+                "min_rank": 70,
+                "min_htf_score": 5,
+                "max_completion": 0.6,
+                "max_phase": 0.7,
+                "sample_count": 26,
+                "win_rate": 100
+            },
+            "HTF_BULL_LTF_BEAR": {
+                "min_rank": 70,
+                "min_htf_score": 5,
+                "max_completion": 0.6,
+                "max_phase": 0.7,
+                "sample_count": 30,
+                "win_rate": 100
+            },
+            "_default": {
+                "min_rank": 70,
+                "min_htf_score": 5,
+                "max_completion": 0.27,
+                "max_phase": 0.4,
+                "sample_count": 4734
+            }
+        },
+        "adaptive_regime_gates": {},
+        "adaptive_sl_tp": {
+            "HTF_BEAR_LTF_PULLBACK": {
+                "sl_atr": 0.2,
+                "tp_trim_atr": 3.04,
+                "tp_exit_atr": 3.73,
+                "tp_runner_atr": 4.73
+            },
+            "HTF_BULL_LTF_BULL": {
+                "sl_atr": 0.22,
+                "tp_trim_atr": 3.07,
+                "tp_exit_atr": 3.76,
+                "tp_runner_atr": 4.73
+            },
+            "HTF_BULL_LTF_PULLBACK": {
+                "sl_atr": 0.21,
+                "tp_trim_atr": 3.04,
+                "tp_exit_atr": 3.73,
+                "tp_runner_atr": 4.59
+            },
+            "unknown": {
+                "sl_atr": 0.21,
+                "tp_trim_atr": 3.06,
+                "tp_exit_atr": 3.82,
+                "tp_runner_atr": 4.58
+            },
+            "HTF_BEAR_LTF_BEAR": {
+                "sl_atr": 0.16,
+                "tp_trim_atr": 2.98,
+                "tp_exit_atr": 3.66,
+                "tp_runner_atr": 4.44
+            },
+            "HTF_BEAR_LTF_BULL": {
+                "sl_atr": 0.16,
+                "tp_trim_atr": 3.03,
+                "tp_exit_atr": 3.78,
+                "tp_runner_atr": 4.18
+            },
+            "HTF_BULL_LTF_BEAR": {
+                "sl_atr": 0,
+                "tp_trim_atr": 2.93,
+                "tp_exit_atr": 3.37,
+                "tp_runner_atr": 4.1
+            },
+            "_default": {
+                "sl_atr": 0.21,
+                "tp_trim_atr": 3.04,
+                "tp_exit_atr": 3.75,
+                "tp_runner_atr": 4.63
+            }
+        },
+        "execution_profile_overrides": {
+            "by_profile": {
+                "correction_transition": {
+                    "action": "RESTRICT",
+                    "rank_boost": 10,
+                    "size_multiplier": 0.75,
+                    "require_squeeze_release": true
+                }
+            },
+            "by_profile_market_state": {
+                "correction_transition::balanced": {
+                    "action": "RESTRICT",
+                    "rank_boost": 10,
+                    "size_multiplier": 0.75,
+                    "require_squeeze_release": true
+                }
+            }
+        },
+        "profiles_summary": {
+            "winner_moves": 8,
+            "winner_trades": 5,
+            "loser_trades": 5,
+            "execution_profiles": 2,
+            "execution_profile_market_cells": 2
+        }
+    }
+}

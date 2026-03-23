@@ -1,0 +1,382 @@
+{
+  "generated_at_utc": "2026-03-23T16:51:17.292860Z",
+  "map_version": "reference_execution_map_v2_semantic_plus_behavioral",
+  "map_file": "data/reference-intel/reference-execution-map-v2-semantic-plus-behavioral.json",
+  "tickers": [
+    "CSX",
+    "CDNS",
+    "ITT"
+  ],
+  "selected_reference_count": {
+    "CSX": 2,
+    "CDNS": 5,
+    "ITT": 2
+  },
+  "probes": [
+    {
+      "ticker": "CSX",
+      "probe": {
+        "date": "2025-07-01",
+        "interval": 0,
+        "entry_ts": 1751376600000,
+        "reference_trade_id": "CSX-1751376600000-jrqf769en"
+      },
+      "entry_diagnostic": {
+        "qualifies": false,
+        "reason": "tt_bias_not_aligned",
+        "engine": "tt_core",
+        "path": null,
+        "selectedEngine": "tt_core",
+        "engineSource": "reference_date_bucket",
+        "scenarioPolicySource": "scenario_policy_default",
+        "scenarioPolicyMatch": {
+          "global_default": true
+        },
+        "scenarioExitStyle": "smart_exit_bias",
+        "ripster_bias": null,
+        "metadata": {
+          "cloudAlignment": {
+            "D": "bull",
+            "h1": "na",
+            "m30": "bear",
+            "m10": "bear"
+          },
+          "alignedCount": 1,
+          "strongDailyTrend": true,
+          "h1Available": false,
+          "h1FallbackUsed": true
+        }
+      },
+      "reference_drift_summary": {
+        "expected": 1,
+        "matched": 0,
+        "missed": 1,
+        "semantic_matched": 0,
+        "semantic_mismatched": 0
+      },
+      "reference_drift_events": [
+        {
+          "ticker": "CSX",
+          "reference_entry_ts": 1751376600000,
+          "matched": false,
+          "semantic_matched": false,
+          "matched_trade_id": null,
+          "entry_engine": "tt_core",
+          "block_reason": "tt_bias_not_aligned",
+          "expected_entry_path": "ema_regime_confirmed_long",
+          "actual_entry_path": null,
+          "expected_engine_source": null,
+          "actual_engine_source": "reference_date_bucket",
+          "expected_scenario_policy_source": null,
+          "actual_scenario_policy_source": "scenario_policy_default",
+          "criteria_fingerprint_expected": {
+            "version": "criteria_fingerprint_v1",
+            "entry_path": "ema_regime_confirmed_long",
+            "direction_source": "state_bull",
+            "state": "htf_bull_ltf_bull",
+            "regime_class": "trending",
+            "tf_bias": {
+              "10m": "unknown",
+              "30m": "unknown",
+              "1H": "unknown",
+              "4H": "bullish",
+              "D": "bullish"
+            }
+          },
+          "criteria_fingerprint_actual": null,
+          "semantic_mismatch_reasons": [],
+          "reference_trade_id": "CSX-1751376600000-jrqf769en",
+          "reference_run_id": "behavioral-smoke-4ticker-jul1-jul31@2026-03-22T22:08:52.809Z"
+        }
+      ]
+    },
+    {
+      "ticker": "CDNS",
+      "probe": {
+        "date": "2025-07-01",
+        "interval": 0,
+        "entry_ts": 1751376600000,
+        "reference_trade_id": "CDNS-1751376600000-6pr79452m"
+      },
+      "entry_diagnostic": {
+        "qualifies": true,
+        "reason": "tt_8_9_bounce",
+        "engine": "tt_core",
+        "path": "tt_pullback",
+        "selectedEngine": "tt_core",
+        "engineSource": "reference_date_bucket",
+        "scenarioPolicySource": "scenario_policy_default",
+        "scenarioPolicyMatch": {
+          "global_default": true
+        },
+        "scenarioExitStyle": "smart_exit_bias",
+        "metadata": {
+          "cloudAlignment": {
+            "D": "bull",
+            "h1": "na",
+            "m10": "bear"
+          },
+          "triggerType": "pullback_8_9_bounce",
+          "pdzZone": {
+            "D": "premium_approach",
+            "h4": "premium_approach"
+          },
+          "rsiHeat": {
+            "m10": 54.2,
+            "m30": 52.2,
+            "h1": 50
+          }
+        }
+      },
+      "reference_drift_summary": {
+        "expected": 1,
+        "matched": 1,
+        "missed": 0,
+        "semantic_matched": 0,
+        "semantic_mismatched": 1
+      },
+      "reference_drift_events": [
+        {
+          "ticker": "CDNS",
+          "reference_entry_ts": 1751376600000,
+          "matched": true,
+          "semantic_matched": false,
+          "matched_trade_id": "CDNS-1751376600000-0ii1legyg",
+          "entry_engine": "tt_core",
+          "block_reason": null,
+          "expected_entry_path": "ema_regime_confirmed_long",
+          "actual_entry_path": "tt_pullback",
+          "expected_engine_source": null,
+          "actual_engine_source": "reference_date_bucket",
+          "expected_scenario_policy_source": null,
+          "actual_scenario_policy_source": "scenario_policy_default",
+          "criteria_fingerprint_expected": {
+            "version": "criteria_fingerprint_v1",
+            "entry_path": "ema_regime_confirmed_long",
+            "direction_source": "consensus",
+            "state": "htf_bull_ltf_bull",
+            "regime_class": "transitional",
+            "consensus_direction": "long",
+            "tf_bias": {
+              "10m": "unknown",
+              "30m": "unknown",
+              "1H": "unknown",
+              "4H": "bullish",
+              "D": "bullish"
+            }
+          },
+          "criteria_fingerprint_actual": {
+            "version": "criteria_fingerprint_v1",
+            "entry_path": "tt_pullback",
+            "engine_source": "reference_date_bucket",
+            "scenario_policy_source": "scenario_policy_default",
+            "tf_bias": {}
+          },
+          "semantic_mismatch_reasons": [
+            {
+              "field": "entry_path",
+              "expected": "ema_regime_confirmed_long",
+              "actual": "tt_pullback"
+            },
+            {
+              "field": "entry_path",
+              "expected": "ema_regime_confirmed_long",
+              "actual": "tt_pullback"
+            },
+            {
+              "field": "direction_source",
+              "expected": "consensus",
+              "actual": null
+            },
+            {
+              "field": "state",
+              "expected": "htf_bull_ltf_bull",
+              "actual": null
+            },
+            {
+              "field": "regime_class",
+              "expected": "transitional",
+              "actual": null
+            },
+            {
+              "field": "consensus_direction",
+              "expected": "long",
+              "actual": null
+            },
+            {
+              "field": "tf_bias.10m",
+              "expected": "unknown",
+              "actual": null
+            },
+            {
+              "field": "tf_bias.30m",
+              "expected": "unknown",
+              "actual": null
+            },
+            {
+              "field": "tf_bias.1H",
+              "expected": "unknown",
+              "actual": null
+            },
+            {
+              "field": "tf_bias.4H",
+              "expected": "bullish",
+              "actual": null
+            },
+            {
+              "field": "tf_bias.D",
+              "expected": "bullish",
+              "actual": null
+            }
+          ],
+          "reference_trade_id": "CDNS-1751376600000-6pr79452m",
+          "reference_run_id": "behavioral-smoke-4ticker-jul1-jul31@2026-03-22T22:08:52.809Z"
+        }
+      ]
+    },
+    {
+      "ticker": "ITT",
+      "probe": {
+        "date": "2025-07-17",
+        "interval": 6,
+        "entry_ts": 1752760800000,
+        "reference_trade_id": "ITT-1752760800000-xi3v6q0a0"
+      },
+      "entry_diagnostic": {
+        "qualifies": true,
+        "reason": "tt_5_12_trend_trigger",
+        "engine": "tt_core",
+        "path": "tt_momentum",
+        "selectedEngine": "tt_core",
+        "engineSource": "reference_date_bucket",
+        "scenarioPolicySource": "scenario_policy_default",
+        "scenarioPolicyMatch": {
+          "global_default": true
+        },
+        "scenarioExitStyle": "smart_exit_bias",
+        "metadata": {
+          "cloudAlignment": {
+            "D": "bull",
+            "h1": "na",
+            "m10": "bull"
+          },
+          "triggerType": "momentum_5_12_cross",
+          "pdzZone": {
+            "D": "premium_approach",
+            "h4": "premium_approach"
+          },
+          "rsiHeat": {
+            "m10": 75.8,
+            "m30": 73.3,
+            "h1": 50
+          }
+        }
+      },
+      "reference_drift_summary": {
+        "expected": 1,
+        "matched": 1,
+        "missed": 0,
+        "semantic_matched": 0,
+        "semantic_mismatched": 1
+      },
+      "reference_drift_events": [
+        {
+          "ticker": "ITT",
+          "reference_entry_ts": 1752760800000,
+          "matched": true,
+          "semantic_matched": false,
+          "matched_trade_id": "ITT-1752760800000-mtkijivja",
+          "entry_engine": "tt_core",
+          "block_reason": null,
+          "expected_entry_path": "momentum_score",
+          "actual_entry_path": "tt_momentum",
+          "expected_engine_source": null,
+          "actual_engine_source": "reference_date_bucket",
+          "expected_scenario_policy_source": null,
+          "actual_scenario_policy_source": "scenario_policy_default",
+          "criteria_fingerprint_expected": {
+            "version": "criteria_fingerprint_v1",
+            "entry_path": "momentum_score",
+            "direction_source": "consensus",
+            "state": "htf_bull_ltf_bull",
+            "regime_class": "transitional",
+            "consensus_direction": "long",
+            "tf_bias": {
+              "10m": "unknown",
+              "30m": "unknown",
+              "1H": "unknown",
+              "4H": "bullish",
+              "D": "bullish"
+            }
+          },
+          "criteria_fingerprint_actual": {
+            "version": "criteria_fingerprint_v1",
+            "entry_path": "tt_momentum",
+            "engine_source": "reference_date_bucket",
+            "scenario_policy_source": "scenario_policy_default",
+            "tf_bias": {}
+          },
+          "semantic_mismatch_reasons": [
+            {
+              "field": "entry_path",
+              "expected": "momentum_score",
+              "actual": "tt_momentum"
+            },
+            {
+              "field": "entry_path",
+              "expected": "momentum_score",
+              "actual": "tt_momentum"
+            },
+            {
+              "field": "direction_source",
+              "expected": "consensus",
+              "actual": null
+            },
+            {
+              "field": "state",
+              "expected": "htf_bull_ltf_bull",
+              "actual": null
+            },
+            {
+              "field": "regime_class",
+              "expected": "transitional",
+              "actual": null
+            },
+            {
+              "field": "consensus_direction",
+              "expected": "long",
+              "actual": null
+            },
+            {
+              "field": "tf_bias.10m",
+              "expected": "unknown",
+              "actual": null
+            },
+            {
+              "field": "tf_bias.30m",
+              "expected": "unknown",
+              "actual": null
+            },
+            {
+              "field": "tf_bias.1H",
+              "expected": "unknown",
+              "actual": null
+            },
+            {
+              "field": "tf_bias.4H",
+              "expected": "bullish",
+              "actual": null
+            },
+            {
+              "field": "tf_bias.D",
+              "expected": "bullish",
+              "actual": null
+            }
+          ],
+          "reference_trade_id": "ITT-1752760800000-xi3v6q0a0",
+          "reference_run_id": "behavioral-smoke-4ticker-jul1-jul31@2026-03-22T22:08:52.809Z"
+        }
+      ]
+    }
+  ]
+}

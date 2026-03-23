@@ -1,0 +1,99 @@
+{
+  "ok": true,
+  "since": null,
+  "until": null,
+  "totals": {
+    "totalTrades": 18,
+    "openTrades": 10,
+    "closedTrades": 8,
+    "wins": 6,
+    "losses": 2,
+    "winRate": 75,
+    "closedPnl": -90.87031335262796,
+    "profitFactor": 0.9467616659676863,
+    "avgWin": 269.3313969483007,
+    "avgLoss": 853.4293475212162,
+    "expectancy": -11.358789169078495,
+    "grossWin": 1615.9883816898043,
+    "grossLoss": 1706.8586950424324
+  },
+  "breakdown": {
+    "byRank": [
+      {
+        "bucket": "60-69",
+        "n": 6,
+        "wins": 1,
+        "losses": 1,
+        "pnl": -785.9921349674577
+      },
+      {
+        "bucket": "70-79",
+        "n": 4,
+        "wins": 2,
+        "losses": 1,
+        "pnl": -381.17603668641937
+      },
+      {
+        "bucket": "80+",
+        "n": 8,
+        "wins": 3,
+        "losses": 0,
+        "pnl": 1076.297858301249
+      }
+    ],
+    "byRR": [
+      {
+        "bucket": "1.5-1.99",
+        "n": 2,
+        "wins": 0,
+        "losses": 0,
+        "pnl": 0
+      },
+      {
+        "bucket": "2.0+",
+        "n": 16,
+        "wins": 6,
+        "losses": 2,
+        "pnl": -90.87031335262796
+      }
+    ],
+    "byExitReason": [
+      {
+        "reason": "PROFIT_GIVEBACK",
+        "n": 12,
+        "wins": 3,
+        "losses": 0,
+        "pnl": 1262.2315391886884
+      },
+      {
+        "reason": "STALL_FORCE_CLOSE",
+        "n": 2,
+        "wins": 2,
+        "losses": 0,
+        "pnl": 140.9807982776317
+      },
+      {
+        "reason": "HARD_LOSS_CAP",
+        "n": 2,
+        "wins": 0,
+        "losses": 2,
+        "pnl": -1706.8586950424324
+      },
+      {
+        "reason": "unknown",
+        "n": 1,
+        "wins": 0,
+        "losses": 0,
+        "pnl": 0
+      },
+      {
+        "reason": "hard_max_hold",
+        "n": 1,
+        "wins": 1,
+        "losses": 0,
+        "pnl": 212.77604422348426
+      }
+    ],
+    "byTriggerReason": []
+  }
+}

@@ -1,0 +1,785 @@
+{
+  "probe_dates": [
+    "2025-07-23",
+    "2025-08-20",
+    "2025-08-21",
+    "2025-08-26"
+  ],
+  "probe_intervals": [
+    0,
+    12,
+    24,
+    36,
+    48,
+    60,
+    72
+  ],
+  "rows": [
+    {
+      "date": "2025-07-23",
+      "interval": 0,
+      "ticker": "B",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "engineSource": "reference_ticker_window",
+      "scenarioPolicySource": "scenario_policy_default"
+    },
+    {
+      "date": "2025-07-23",
+      "interval": 0,
+      "ticker": "CVNA",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "engineSource": "reference_ticker_window",
+      "scenarioPolicySource": "scenario_policy_default"
+    },
+    {
+      "date": "2025-07-23",
+      "interval": 0,
+      "ticker": "CSCO",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "engineSource": "reference_ticker_window",
+      "scenarioPolicySource": "scenario_policy_default"
+    },
+    {
+      "date": "2025-07-23",
+      "interval": 12,
+      "ticker": "B",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "engineSource": "reference_ticker_window",
+      "scenarioPolicySource": "scenario_policy_default"
+    },
+    {
+      "date": "2025-07-23",
+      "interval": 12,
+      "ticker": "CVNA",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "engineSource": "reference_ticker_window",
+      "scenarioPolicySource": "scenario_policy_default"
+    },
+    {
+      "date": "2025-07-23",
+      "interval": 12,
+      "ticker": "CSCO",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "engineSource": "reference_ticker_window",
+      "scenarioPolicySource": "scenario_policy_default"
+    },
+    {
+      "date": "2025-07-23",
+      "interval": 24,
+      "ticker": "B",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "engineSource": "reference_ticker_window",
+      "scenarioPolicySource": "scenario_policy_default"
+    },
+    {
+      "date": "2025-07-23",
+      "interval": 24,
+      "ticker": "CVNA",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "engineSource": "reference_ticker_window",
+      "scenarioPolicySource": "scenario_policy_default"
+    },
+    {
+      "date": "2025-07-23",
+      "interval": 24,
+      "ticker": "CSCO",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "engineSource": "reference_ticker_window",
+      "scenarioPolicySource": "scenario_policy_default"
+    },
+    {
+      "date": "2025-07-23",
+      "interval": 36,
+      "ticker": "B",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "engineSource": "reference_ticker_window",
+      "scenarioPolicySource": "scenario_policy_default"
+    },
+    {
+      "date": "2025-07-23",
+      "interval": 36,
+      "ticker": "CVNA",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "engineSource": "reference_ticker_window",
+      "scenarioPolicySource": "scenario_policy"
+    },
+    {
+      "date": "2025-07-23",
+      "interval": 36,
+      "ticker": "CSCO",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "engineSource": "reference_ticker_window",
+      "scenarioPolicySource": "scenario_policy_default"
+    },
+    {
+      "date": "2025-07-23",
+      "interval": 48,
+      "ticker": "B",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "engineSource": "reference_ticker_window",
+      "scenarioPolicySource": "scenario_policy_default"
+    },
+    {
+      "date": "2025-07-23",
+      "interval": 48,
+      "ticker": "CVNA",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "engineSource": "reference_ticker_window",
+      "scenarioPolicySource": "scenario_policy"
+    },
+    {
+      "date": "2025-07-23",
+      "interval": 48,
+      "ticker": "CSCO",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "engineSource": "reference_ticker_window",
+      "scenarioPolicySource": "scenario_policy"
+    },
+    {
+      "date": "2025-07-23",
+      "interval": 60,
+      "ticker": "B",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "engineSource": "reference_ticker_window",
+      "scenarioPolicySource": "scenario_policy_default"
+    },
+    {
+      "date": "2025-07-23",
+      "interval": 60,
+      "ticker": "CVNA",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "engineSource": "reference_ticker_window",
+      "scenarioPolicySource": "scenario_policy"
+    },
+    {
+      "date": "2025-07-23",
+      "interval": 60,
+      "ticker": "CSCO",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "engineSource": "reference_ticker_window",
+      "scenarioPolicySource": "scenario_policy_default"
+    },
+    {
+      "date": "2025-07-23",
+      "interval": 72,
+      "ticker": "B",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "engineSource": "reference_ticker_window",
+      "scenarioPolicySource": "scenario_policy_default"
+    },
+    {
+      "date": "2025-07-23",
+      "interval": 72,
+      "ticker": "CVNA",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "engineSource": "reference_ticker_window",
+      "scenarioPolicySource": "scenario_policy"
+    },
+    {
+      "date": "2025-07-23",
+      "interval": 72,
+      "ticker": "CSCO",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "engineSource": "reference_ticker_window",
+      "scenarioPolicySource": "scenario_policy_default"
+    },
+    {
+      "date": "2025-08-20",
+      "interval": 0,
+      "ticker": "B",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "engineSource": "reference_ticker_window",
+      "scenarioPolicySource": "scenario_policy_default"
+    },
+    {
+      "date": "2025-08-20",
+      "interval": 0,
+      "ticker": "CVNA",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "engineSource": "reference_date_bucket",
+      "scenarioPolicySource": "scenario_policy"
+    },
+    {
+      "date": "2025-08-20",
+      "interval": 0,
+      "ticker": "CSCO",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "engineSource": "reference_date_bucket",
+      "scenarioPolicySource": "scenario_policy_default"
+    },
+    {
+      "date": "2025-08-20",
+      "interval": 12,
+      "ticker": "B",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "engineSource": "reference_ticker_window",
+      "scenarioPolicySource": "scenario_policy_default"
+    },
+    {
+      "date": "2025-08-20",
+      "interval": 12,
+      "ticker": "CVNA",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "engineSource": "reference_date_bucket",
+      "scenarioPolicySource": "scenario_policy"
+    },
+    {
+      "date": "2025-08-20",
+      "interval": 12,
+      "ticker": "CSCO",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "engineSource": "reference_date_bucket",
+      "scenarioPolicySource": "scenario_policy_default"
+    },
+    {
+      "date": "2025-08-20",
+      "interval": 24,
+      "ticker": "B",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "engineSource": "reference_ticker_window",
+      "scenarioPolicySource": "scenario_policy_default"
+    },
+    {
+      "date": "2025-08-20",
+      "interval": 24,
+      "ticker": "CVNA",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "engineSource": "reference_date_bucket",
+      "scenarioPolicySource": "scenario_policy"
+    },
+    {
+      "date": "2025-08-20",
+      "interval": 24,
+      "ticker": "CSCO",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "engineSource": "reference_date_bucket",
+      "scenarioPolicySource": "scenario_policy_default"
+    },
+    {
+      "date": "2025-08-20",
+      "interval": 36,
+      "ticker": "B",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "engineSource": "reference_ticker_window",
+      "scenarioPolicySource": "scenario_policy_default"
+    },
+    {
+      "date": "2025-08-20",
+      "interval": 36,
+      "ticker": "CVNA",
+      "qualifies": null,
+      "reason": null,
+      "engineSource": null,
+      "scenarioPolicySource": null
+    },
+    {
+      "date": "2025-08-20",
+      "interval": 36,
+      "ticker": "CSCO",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "engineSource": "reference_date_bucket",
+      "scenarioPolicySource": "scenario_policy_default"
+    },
+    {
+      "date": "2025-08-20",
+      "interval": 48,
+      "ticker": "B",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "engineSource": "reference_ticker_window",
+      "scenarioPolicySource": "scenario_policy_default"
+    },
+    {
+      "date": "2025-08-20",
+      "interval": 48,
+      "ticker": "CVNA",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "engineSource": "reference_date_bucket",
+      "scenarioPolicySource": "scenario_policy"
+    },
+    {
+      "date": "2025-08-20",
+      "interval": 48,
+      "ticker": "CSCO",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "engineSource": "reference_date_bucket",
+      "scenarioPolicySource": "scenario_policy_default"
+    },
+    {
+      "date": "2025-08-20",
+      "interval": 60,
+      "ticker": "B",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "engineSource": "reference_ticker_window",
+      "scenarioPolicySource": "scenario_policy_default"
+    },
+    {
+      "date": "2025-08-20",
+      "interval": 60,
+      "ticker": "CVNA",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "engineSource": "reference_date_bucket",
+      "scenarioPolicySource": "scenario_policy"
+    },
+    {
+      "date": "2025-08-20",
+      "interval": 60,
+      "ticker": "CSCO",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "engineSource": "reference_date_bucket",
+      "scenarioPolicySource": "scenario_policy_default"
+    },
+    {
+      "date": "2025-08-20",
+      "interval": 72,
+      "ticker": "B",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "engineSource": "reference_ticker_window",
+      "scenarioPolicySource": "scenario_policy_default"
+    },
+    {
+      "date": "2025-08-20",
+      "interval": 72,
+      "ticker": "CVNA",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "engineSource": "reference_date_bucket",
+      "scenarioPolicySource": "scenario_policy"
+    },
+    {
+      "date": "2025-08-20",
+      "interval": 72,
+      "ticker": "CSCO",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "engineSource": "reference_date_bucket",
+      "scenarioPolicySource": "scenario_policy_default"
+    },
+    {
+      "date": "2025-08-21",
+      "interval": 0,
+      "ticker": "B",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "engineSource": "reference_ticker_window",
+      "scenarioPolicySource": "scenario_policy_default"
+    },
+    {
+      "date": "2025-08-21",
+      "interval": 0,
+      "ticker": "CVNA",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "engineSource": "reference_date_bucket",
+      "scenarioPolicySource": "scenario_policy"
+    },
+    {
+      "date": "2025-08-21",
+      "interval": 0,
+      "ticker": "CSCO",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "engineSource": "reference_date_bucket",
+      "scenarioPolicySource": "scenario_policy"
+    },
+    {
+      "date": "2025-08-21",
+      "interval": 12,
+      "ticker": "B",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "engineSource": "reference_ticker_window",
+      "scenarioPolicySource": "scenario_policy_default"
+    },
+    {
+      "date": "2025-08-21",
+      "interval": 12,
+      "ticker": "CVNA",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "engineSource": "reference_date_bucket",
+      "scenarioPolicySource": "scenario_policy"
+    },
+    {
+      "date": "2025-08-21",
+      "interval": 12,
+      "ticker": "CSCO",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "engineSource": "reference_date_bucket",
+      "scenarioPolicySource": "scenario_policy"
+    },
+    {
+      "date": "2025-08-21",
+      "interval": 24,
+      "ticker": "B",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "engineSource": "reference_ticker_window",
+      "scenarioPolicySource": "scenario_policy_default"
+    },
+    {
+      "date": "2025-08-21",
+      "interval": 24,
+      "ticker": "CVNA",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "engineSource": "reference_date_bucket",
+      "scenarioPolicySource": "scenario_policy"
+    },
+    {
+      "date": "2025-08-21",
+      "interval": 24,
+      "ticker": "CSCO",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "engineSource": "reference_date_bucket",
+      "scenarioPolicySource": "scenario_policy"
+    },
+    {
+      "date": "2025-08-21",
+      "interval": 36,
+      "ticker": "B",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "engineSource": "reference_ticker_window",
+      "scenarioPolicySource": "scenario_policy_default"
+    },
+    {
+      "date": "2025-08-21",
+      "interval": 36,
+      "ticker": "CVNA",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "engineSource": "reference_date_bucket",
+      "scenarioPolicySource": "scenario_policy"
+    },
+    {
+      "date": "2025-08-21",
+      "interval": 36,
+      "ticker": "CSCO",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "engineSource": "reference_date_bucket",
+      "scenarioPolicySource": "scenario_policy"
+    },
+    {
+      "date": "2025-08-21",
+      "interval": 48,
+      "ticker": "B",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "engineSource": "reference_ticker_window",
+      "scenarioPolicySource": "scenario_policy_default"
+    },
+    {
+      "date": "2025-08-21",
+      "interval": 48,
+      "ticker": "CVNA",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "engineSource": "reference_date_bucket",
+      "scenarioPolicySource": "scenario_policy"
+    },
+    {
+      "date": "2025-08-21",
+      "interval": 48,
+      "ticker": "CSCO",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "engineSource": "reference_date_bucket",
+      "scenarioPolicySource": "scenario_policy"
+    },
+    {
+      "date": "2025-08-21",
+      "interval": 60,
+      "ticker": "B",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "engineSource": "reference_ticker_window",
+      "scenarioPolicySource": "scenario_policy_default"
+    },
+    {
+      "date": "2025-08-21",
+      "interval": 60,
+      "ticker": "CVNA",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "engineSource": "reference_date_bucket",
+      "scenarioPolicySource": "scenario_policy"
+    },
+    {
+      "date": "2025-08-21",
+      "interval": 60,
+      "ticker": "CSCO",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "engineSource": "reference_date_bucket",
+      "scenarioPolicySource": "scenario_policy"
+    },
+    {
+      "date": "2025-08-21",
+      "interval": 72,
+      "ticker": "B",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "engineSource": "reference_ticker_window",
+      "scenarioPolicySource": "scenario_policy_default"
+    },
+    {
+      "date": "2025-08-21",
+      "interval": 72,
+      "ticker": "CVNA",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "engineSource": "reference_date_bucket",
+      "scenarioPolicySource": "scenario_policy"
+    },
+    {
+      "date": "2025-08-21",
+      "interval": 72,
+      "ticker": "CSCO",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "engineSource": "reference_date_bucket",
+      "scenarioPolicySource": "scenario_policy"
+    },
+    {
+      "date": "2025-08-26",
+      "interval": 0,
+      "ticker": "B",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "engineSource": "reference_ticker_window",
+      "scenarioPolicySource": "scenario_policy_default"
+    },
+    {
+      "date": "2025-08-26",
+      "interval": 0,
+      "ticker": "CVNA",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "engineSource": "reference_date_bucket",
+      "scenarioPolicySource": "scenario_policy"
+    },
+    {
+      "date": "2025-08-26",
+      "interval": 0,
+      "ticker": "CSCO",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "engineSource": "reference_date_bucket",
+      "scenarioPolicySource": "scenario_policy"
+    },
+    {
+      "date": "2025-08-26",
+      "interval": 12,
+      "ticker": "B",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "engineSource": "reference_ticker_window",
+      "scenarioPolicySource": "scenario_policy_default"
+    },
+    {
+      "date": "2025-08-26",
+      "interval": 12,
+      "ticker": "CVNA",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "engineSource": "reference_date_bucket",
+      "scenarioPolicySource": "scenario_policy"
+    },
+    {
+      "date": "2025-08-26",
+      "interval": 12,
+      "ticker": "CSCO",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "engineSource": "reference_date_bucket",
+      "scenarioPolicySource": "scenario_policy"
+    },
+    {
+      "date": "2025-08-26",
+      "interval": 24,
+      "ticker": "B",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "engineSource": "reference_ticker_window",
+      "scenarioPolicySource": "scenario_policy_default"
+    },
+    {
+      "date": "2025-08-26",
+      "interval": 24,
+      "ticker": "CVNA",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "engineSource": "reference_date_bucket",
+      "scenarioPolicySource": "scenario_policy"
+    },
+    {
+      "date": "2025-08-26",
+      "interval": 24,
+      "ticker": "CSCO",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "engineSource": "reference_date_bucket",
+      "scenarioPolicySource": "scenario_policy"
+    },
+    {
+      "date": "2025-08-26",
+      "interval": 36,
+      "ticker": "B",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "engineSource": "reference_ticker_window",
+      "scenarioPolicySource": "scenario_policy_default"
+    },
+    {
+      "date": "2025-08-26",
+      "interval": 36,
+      "ticker": "CVNA",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "engineSource": "reference_date_bucket",
+      "scenarioPolicySource": "scenario_policy"
+    },
+    {
+      "date": "2025-08-26",
+      "interval": 36,
+      "ticker": "CSCO",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "engineSource": "reference_date_bucket",
+      "scenarioPolicySource": "scenario_policy"
+    },
+    {
+      "date": "2025-08-26",
+      "interval": 48,
+      "ticker": "B",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "engineSource": "reference_ticker_window",
+      "scenarioPolicySource": "scenario_policy_default"
+    },
+    {
+      "date": "2025-08-26",
+      "interval": 48,
+      "ticker": "CVNA",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "engineSource": "reference_date_bucket",
+      "scenarioPolicySource": "scenario_policy"
+    },
+    {
+      "date": "2025-08-26",
+      "interval": 48,
+      "ticker": "CSCO",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "engineSource": "reference_date_bucket",
+      "scenarioPolicySource": "scenario_policy"
+    },
+    {
+      "date": "2025-08-26",
+      "interval": 60,
+      "ticker": "B",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "engineSource": "reference_ticker_window",
+      "scenarioPolicySource": "scenario_policy_default"
+    },
+    {
+      "date": "2025-08-26",
+      "interval": 60,
+      "ticker": "CVNA",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "engineSource": "reference_date_bucket",
+      "scenarioPolicySource": "scenario_policy"
+    },
+    {
+      "date": "2025-08-26",
+      "interval": 60,
+      "ticker": "CSCO",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "engineSource": "reference_date_bucket",
+      "scenarioPolicySource": "scenario_policy"
+    },
+    {
+      "date": "2025-08-26",
+      "interval": 72,
+      "ticker": "B",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "engineSource": "reference_ticker_window",
+      "scenarioPolicySource": "scenario_policy_default"
+    },
+    {
+      "date": "2025-08-26",
+      "interval": 72,
+      "ticker": "CVNA",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "engineSource": "reference_date_bucket",
+      "scenarioPolicySource": "scenario_policy"
+    },
+    {
+      "date": "2025-08-26",
+      "interval": 72,
+      "ticker": "CSCO",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "engineSource": "reference_date_bucket",
+      "scenarioPolicySource": "scenario_policy"
+    }
+  ],
+  "engine_source_counts": {
+    "reference_ticker_window": 42,
+    "reference_date_bucket": 41,
+    "unknown": 1
+  },
+  "scenario_policy_source_counts": {
+    "scenario_policy_default": 44,
+    "scenario_policy": 39,
+    "unknown": 1
+  }
+}

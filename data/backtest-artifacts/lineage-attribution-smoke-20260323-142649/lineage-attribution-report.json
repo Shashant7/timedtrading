@@ -1,0 +1,94 @@
+{
+  "generated_at": "2026-03-23T14:26:50.265449+00:00",
+  "source": "GET /timed/admin/trade-autopsy/trades?live=1",
+  "trade_count": 6,
+  "lineage_coverage": {
+    "engine_source_non_null": 6,
+    "scenario_policy_source_non_null": 6,
+    "engine_source_non_null_pct": 1.0,
+    "scenario_policy_source_non_null_pct": 1.0
+  },
+  "selected_engine_counts": {
+    "tt_core": 6
+  },
+  "engine_source_counts": {
+    "reference_date_bucket": 6
+  },
+  "scenario_policy_source_counts": {
+    "scenario_policy_default": 6
+  },
+  "trades": [
+    {
+      "ticker": "BABA",
+      "trade_id": "BABA-1752592500000-z45a8ugx3",
+      "status": "WIN",
+      "entry_ts": 1752592500000,
+      "pnl_pct": 3.4662725236565732,
+      "selected_engine": "tt_core",
+      "selected_management_engine": "tt_core",
+      "engine_source": "reference_date_bucket",
+      "scenario_policy_source": "scenario_policy_default",
+      "entry_path": "breakout_atr_breakout_long"
+    },
+    {
+      "ticker": "DPZ",
+      "trade_id": "DPZ-1752509100000-nhi8o45qt",
+      "status": "LOSS",
+      "entry_ts": 1752509100000,
+      "pnl_pct": -3.4093546996635875,
+      "selected_engine": "tt_core",
+      "selected_management_engine": "tt_core",
+      "engine_source": "reference_date_bucket",
+      "scenario_policy_source": "scenario_policy_default",
+      "entry_path": "ema_regime_confirmed_long"
+    },
+    {
+      "ticker": "EXPE",
+      "trade_id": "EXPE-1752509100000-qnrmbidkt",
+      "status": "LOSS",
+      "entry_ts": 1752509100000,
+      "pnl_pct": -1.6871427791427782,
+      "selected_engine": "tt_core",
+      "selected_management_engine": "tt_core",
+      "engine_source": "reference_date_bucket",
+      "scenario_policy_source": "scenario_policy_default",
+      "entry_path": "ema_regime_confirmed_long"
+    },
+    {
+      "ticker": "ULTA",
+      "trade_id": "ULTA-1752509100000-h0o4l0bzc",
+      "status": "WIN",
+      "entry_ts": 1752509100000,
+      "pnl_pct": 0.48037801767065863,
+      "selected_engine": "tt_core",
+      "selected_management_engine": "tt_core",
+      "engine_source": "reference_date_bucket",
+      "scenario_policy_source": "scenario_policy_default",
+      "entry_path": "ema_regime_confirmed_long"
+    },
+    {
+      "ticker": "CELH",
+      "trade_id": "CELH-1752509100000-5z0l73pnp",
+      "status": "LOSS",
+      "entry_ts": 1752509100000,
+      "pnl_pct": -0.19885108263366394,
+      "selected_engine": "tt_core",
+      "selected_management_engine": "tt_core",
+      "engine_source": "reference_date_bucket",
+      "scenario_policy_source": "scenario_policy_default",
+      "entry_path": "ema_regime_confirmed_long"
+    },
+    {
+      "ticker": "STRL",
+      "trade_id": "STRL-1752509100000-69bpx9ksi",
+      "status": "WIN",
+      "entry_ts": 1752509100000,
+      "pnl_pct": 0.18696248286176767,
+      "selected_engine": "tt_core",
+      "selected_management_engine": "tt_core",
+      "engine_source": "reference_date_bucket",
+      "scenario_policy_source": "scenario_policy_default",
+      "entry_path": "momentum_score"
+    }
+  ]
+}

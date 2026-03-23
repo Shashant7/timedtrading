@@ -1,0 +1,10 @@
+{
+  "ok": true,
+  "label": "holistic-final-v2-",
+  "captured_at": "20260317-020124",
+  "start_date": "2025-07-01",
+  "end_date": "2026-03-16",
+  "trader_only": true,
+  "sequence": true,
+  "note": "Captured automatically before reset for A/B comparison."
+}

@@ -1,0 +1,47 @@
+{
+  "generated_at_utc": "2026-03-22T18:41:00.845876+00:00",
+  "checks": {
+    "csx_focused_window": {
+      "mode": "candle_replay_fullDay",
+      "window": [
+        "2025-07-01",
+        "2025-07-18"
+      ],
+      "trade_count": 2,
+      "trades": [
+        {
+          "trade_id": "CSX-1751376600000-25poay2er",
+          "entry_ts": 1751376600000,
+          "exit_ts": 1752672600000,
+          "status": "LOSS",
+          "exit_reason": "time_exit_loser_transitional",
+          "entry_path": null
+        },
+        {
+          "trade_id": "CSX-1751376600000-25poay2er",
+          "entry_ts": 1751376600000,
+          "exit_ts": null,
+          "status": "OPEN",
+          "exit_reason": null,
+          "entry_path": null
+        }
+      ],
+      "pass": false,
+      "criteria": "exactly 1 CSX trade in window and exit_reason == TP_FULL",
+      "artifact_dir": "data/backtest-artifacts/go-no-go-csx-focused--20260322-183751"
+    },
+    "smoke_4_ticker": {
+      "date": "2025-07-01",
+      "counts_by_ticker": {
+        "CDNS": 1,
+        "ORCL": 1,
+        "CSX": 1,
+        "ITT": 1
+      },
+      "total_trades": 4,
+      "pass": true,
+      "artifact_dir": "data/backtest-artifacts/go-no-go-smoke-4ticker--20260322-184053"
+    }
+  },
+  "overall_pass": false
+}

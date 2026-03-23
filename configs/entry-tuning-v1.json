@@ -1,0 +1,112 @@
+{
+  "_description": "Entry quality tuning v1: context gates applied to ALL engines + SHORT quality gate + confidence floor + DOA blacklist + choppy regime floor. Derived from entry-quality-analysis.py (1,462 trades Jul 2025 - Feb 2026).",
+  "_evidence": {
+    "doa_rate_overall": "47.3%",
+    "short_doa_rate": ">50% across all engines and paths",
+    "conf_0.4_doa_rate": "60.5%",
+    "ripster_core_bypassed_all_context_gates": true,
+    "sweet_spot_pattern": "LONG ripster_pullback / tt_momentum with conf>=0.5"
+  },
+  "thresholds": {
+    "deep_audit_vix_ceiling": {
+      "value": "35",
+      "reason": "Block entries when VIX > 35 (extreme fear). VIX 28-31 is elevated but tradable; danger score handles soft gating at VIX>25. Now applies to ALL engines."
+    },
+    "deep_audit_block_regime": {
+      "value": "",
+      "reason": "DISABLED for entry-tuned-v1. Regime handled by DOA gate and danger scoring, not hard-block."
+    },
+    "tt_spy_directional_gate": {
+      "value": "false",
+      "reason": "DISABLED for entry-tuned-v1. Gate was only validated for tt_core; needs separate validation for ripster_core."
+    },
+    "deep_audit_danger_max_signals": {
+      "value": "0",
+      "reason": "DISABLED for entry-tuned-v1. Danger score still computed (for sizing) but does not hard-block. DOA gate covers structural alignment."
+    },
+    "deep_audit_danger_ema_depth_min": {
+      "value": "5",
+      "reason": "1H EMA depth minimum for danger scoring."
+    },
+    "deep_audit_danger_vix_threshold": {
+      "value": "25",
+      "reason": "VIX threshold for danger signal counting."
+    },
+    "deep_audit_danger_min_st_aligned": {
+      "value": "3",
+      "reason": "Minimum SuperTrend timeframes aligned with trade direction."
+    },
+    "deep_audit_danger_div_enabled": {
+      "value": "true",
+      "reason": "Enable RSI divergence checking in danger score."
+    },
+    "doa_gate_enabled": {
+      "value": "true",
+      "reason": "DOA structural gate: block when Daily + 4H ST both against direction."
+    },
+    "tt_pdz_hard_gate": {
+      "value": "false",
+      "reason": "PDZ gate disabled for now — needs more backtesting data."
+    },
+    "short_min_rank": {
+      "value": "75",
+      "reason": "SHORT entries require rank >= 75. All SHORT paths have >50% DOA rate; only allow high-conviction shorts."
+    },
+    "short_require_daily_st_aligned": {
+      "value": "true",
+      "reason": "SHORT entries require Daily SuperTrend bearish (stDir=-1). Prevents shorting against daily trend."
+    },
+    "short_min_4h_ema_depth": {
+      "value": "5",
+      "reason": "SHORT entries require 4H EMA depth >= 5. Ensures meaningful bearish structure on 4H."
+    },
+    "min_entry_confidence": {
+      "value": "0.5",
+      "reason": "Block entries with confidence < 0.5. Confidence 0.4 has 60.5% DOA rate vs 43% at 0.6."
+    },
+    "entry_ticker_blacklist": {
+      "value": "EMR,ETN,SPY,PANW,BA,LULU",
+      "reason": "Tickers with historically >75% DOA rate across all engines."
+    },
+    "choppy_regime_rank_floor": {
+      "value": "0",
+      "reason": "DISABLED for entry-tuned-v1. Rank floor too restrictive when combined with other gates."
+    },
+    "deep_audit_mfe_safety_trim_pct": {
+      "value": "2.0",
+      "reason": "Trim at 2% MFE to capture profits before reversal."
+    },
+    "deep_audit_stall_max_hours": {
+      "value": "14",
+      "reason": "Kill stalled trades after 14 market-hours."
+    },
+    "deep_audit_stall_breakeven_pnl_pct": {
+      "value": "0.3",
+      "reason": "Stalled trades with PnL < 0.3% after stall hours should exit."
+    },
+    "deep_audit_max_runner_drawdown_pct": {
+      "value": "2.5",
+      "reason": "Max drawdown from peak before exit."
+    },
+    "deep_audit_post_trim_trail_pct": {
+      "value": "2.0",
+      "reason": "After first trim, trail at 2% from peak."
+    },
+    "deep_audit_post_trim_breakeven": {
+      "value": "true",
+      "reason": "After any trim, move SL to at least breakeven."
+    },
+    "deep_audit_phase_peak_extreme": {
+      "value": "65",
+      "reason": "Phase oscillator peak threshold for exit consideration."
+    },
+    "deep_audit_phase_decline_extreme": {
+      "value": "20",
+      "reason": "Phase must decline 20 from peak to confirm reversal."
+    },
+    "deep_audit_loss_cooldown_hours": {
+      "value": "4",
+      "reason": "Wait 4h after a loss before re-entering same ticker."
+    }
+  }
+}

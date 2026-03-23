@@ -1,0 +1,10 @@
+{
+  "ok": true,
+  "label": "phase10-overnight-clean-",
+  "captured_at": "20260322-214055",
+  "start_date": "2025-07-01",
+  "end_date": "2026-03-04",
+  "trader_only": true,
+  "sequence": false,
+  "note": "Captured automatically before reset for A/B comparison."
+}

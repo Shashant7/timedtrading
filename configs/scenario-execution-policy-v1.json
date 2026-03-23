@@ -1,0 +1,440 @@
+{
+  "version": "scenario_execution_policy_v1",
+  "generated_at_utc": "2026-03-23T12:46:14.163888+00:00",
+  "matching_priority": [
+    "scenario_rules",
+    "ticker_setup_rules",
+    "context_defaults",
+    "global_default"
+  ],
+  "scenario_rules": [
+    {
+      "when": {
+        "ticker": "CVNA",
+        "direction": "LONG",
+        "entry_path": "ema_regime_confirmed_long",
+        "regime": "NEUTRAL",
+        "vix_bucket": "elevated",
+        "rvol_bucket": "surge",
+        "market_state": "balanced"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.4,
+        "tp_mult": 1.43,
+        "win_rate": 1.0,
+        "sample_size": 2
+      }
+    },
+    {
+      "when": {
+        "ticker": "ULTA",
+        "direction": "LONG",
+        "entry_path": "ema_regime_confirmed_long",
+        "regime": "EARLY_BULL",
+        "vix_bucket": "elevated",
+        "rvol_bucket": "normal",
+        "market_state": "balanced"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.0,
+        "tp_mult": 1.1,
+        "win_rate": 1.0,
+        "sample_size": 2
+      }
+    },
+    {
+      "when": {
+        "ticker": "B",
+        "direction": "LONG",
+        "entry_path": "ema_regime_confirmed_long",
+        "regime": "EARLY_BULL",
+        "vix_bucket": "stress",
+        "rvol_bucket": "surge",
+        "market_state": "risk_off"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.0,
+        "tp_mult": 1.1,
+        "win_rate": 1.0,
+        "sample_size": 2
+      }
+    },
+    {
+      "when": {
+        "ticker": "XLV",
+        "direction": "LONG",
+        "entry_path": "ema_regime_confirmed_long",
+        "regime": "COUNTER_TREND_BULL",
+        "vix_bucket": "elevated",
+        "rvol_bucket": "surge",
+        "market_state": "balanced"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 0.8,
+        "tp_mult": 0.94,
+        "win_rate": 1.0,
+        "sample_size": 2
+      }
+    },
+    {
+      "when": {
+        "ticker": "LMND",
+        "direction": "LONG",
+        "entry_path": "ema_regime_confirmed_long",
+        "regime": "NEUTRAL",
+        "vix_bucket": "elevated",
+        "rvol_bucket": "surge",
+        "market_state": "balanced"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.4,
+        "tp_mult": 1.43,
+        "win_rate": 1.0,
+        "sample_size": 2
+      }
+    }
+  ],
+  "ticker_setup_rules": [
+    {
+      "when": {
+        "ticker": "B",
+        "direction": "LONG",
+        "entry_path": "ema_regime_confirmed_long"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.0,
+        "tp_mult": 1.1,
+        "win_rate": 1.0,
+        "sample_size": 3
+      }
+    },
+    {
+      "when": {
+        "ticker": "CVNA",
+        "direction": "LONG",
+        "entry_path": "ema_regime_confirmed_long"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.4,
+        "tp_mult": 1.43,
+        "win_rate": 1.0,
+        "sample_size": 2
+      }
+    },
+    {
+      "when": {
+        "ticker": "WFRD",
+        "direction": "LONG",
+        "entry_path": "ema_regime_confirmed_long"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.2,
+        "tp_mult": 1.26,
+        "win_rate": 1.0,
+        "sample_size": 2
+      }
+    },
+    {
+      "when": {
+        "ticker": "ULTA",
+        "direction": "LONG",
+        "entry_path": "ema_regime_confirmed_long"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.0,
+        "tp_mult": 1.1,
+        "win_rate": 1.0,
+        "sample_size": 2
+      }
+    },
+    {
+      "when": {
+        "ticker": "MDB",
+        "direction": "LONG",
+        "entry_path": "ema_regime_early_long"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.4,
+        "tp_mult": 1.43,
+        "win_rate": 1.0,
+        "sample_size": 2
+      }
+    },
+    {
+      "when": {
+        "ticker": "TSLA",
+        "direction": "LONG",
+        "entry_path": "ema_regime_confirmed_long"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.4,
+        "tp_mult": 1.43,
+        "win_rate": 1.0,
+        "sample_size": 2
+      }
+    },
+    {
+      "when": {
+        "ticker": "H",
+        "direction": "LONG",
+        "entry_path": "ema_regime_confirmed_long"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.0,
+        "tp_mult": 1.1,
+        "win_rate": 1.0,
+        "sample_size": 2
+      }
+    },
+    {
+      "when": {
+        "ticker": "XLV",
+        "direction": "LONG",
+        "entry_path": "ema_regime_confirmed_long"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 0.8,
+        "tp_mult": 0.94,
+        "win_rate": 1.0,
+        "sample_size": 2
+      }
+    },
+    {
+      "when": {
+        "ticker": "DKNG",
+        "direction": "SHORT",
+        "entry_path": "gold_short_pullback_deep"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.4,
+        "tp_mult": 1.43,
+        "win_rate": 1.0,
+        "sample_size": 2
+      }
+    },
+    {
+      "when": {
+        "ticker": "LMND",
+        "direction": "LONG",
+        "entry_path": "ema_regime_confirmed_long"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.4,
+        "tp_mult": 1.43,
+        "win_rate": 1.0,
+        "sample_size": 2
+      }
+    }
+  ],
+  "context_defaults": [
+    {
+      "when": {
+        "direction": "LONG",
+        "regime": "EARLY_BULL",
+        "vix_bucket": "elevated"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.2,
+        "tp_mult": 1.185,
+        "win_rate": 1.0,
+        "sample_size": 14
+      }
+    },
+    {
+      "when": {
+        "direction": "LONG",
+        "regime": "NEUTRAL",
+        "vix_bucket": "elevated"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.2,
+        "tp_mult": 1.26,
+        "win_rate": 1.0,
+        "sample_size": 12
+      }
+    },
+    {
+      "when": {
+        "direction": "SHORT",
+        "regime": "NEUTRAL",
+        "vix_bucket": "elevated"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.4,
+        "tp_mult": 1.43,
+        "win_rate": 1.0,
+        "sample_size": 7
+      }
+    },
+    {
+      "when": {
+        "direction": "LONG",
+        "regime": "STRONG_BULL",
+        "vix_bucket": "elevated"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.1,
+        "tp_mult": 1.1,
+        "win_rate": 1.0,
+        "sample_size": 6
+      }
+    },
+    {
+      "when": {
+        "direction": "LONG",
+        "regime": "EARLY_BULL",
+        "vix_bucket": "stress"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.2,
+        "tp_mult": 1.26,
+        "win_rate": 1.0,
+        "sample_size": 5
+      }
+    },
+    {
+      "when": {
+        "direction": "SHORT",
+        "regime": "LATE_BEAR",
+        "vix_bucket": "elevated"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.2,
+        "tp_mult": 1.26,
+        "win_rate": 1.0,
+        "sample_size": 5
+      }
+    },
+    {
+      "when": {
+        "direction": "LONG",
+        "regime": "COUNTER_TREND_BULL",
+        "vix_bucket": "elevated"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 0.8,
+        "tp_mult": 0.94,
+        "win_rate": 1.0,
+        "sample_size": 3
+      }
+    },
+    {
+      "when": {
+        "direction": "LONG",
+        "regime": "STRONG_BULL",
+        "vix_bucket": "normal"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.0,
+        "tp_mult": 1.0,
+        "win_rate": 1.0,
+        "sample_size": 3
+      }
+    },
+    {
+      "when": {
+        "direction": "LONG",
+        "regime": "LATE_BULL",
+        "vix_bucket": "elevated"
+      },
+      "recommend": {
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "exit_style": "smart_exit_bias",
+        "sl_mult": 1.4,
+        "tp_mult": 1.43,
+        "win_rate": 1.0,
+        "sample_size": 3
+      }
+    }
+  ],
+  "global_default": {
+    "entry_engine": "tt_core",
+    "management_engine": "tt_core",
+    "exit_style": "smart_exit_bias",
+    "sl_mult": 1.2,
+    "tp_mult": 1.26,
+    "win_rate": 1.0,
+    "sample_size": 77
+  },
+  "summary": {
+    "input_rows": 77,
+    "scenario_rules": 5,
+    "ticker_setup_rules": 10,
+    "context_defaults": 9
+  },
+  "sources": {
+    "reference_selection": "data/reference-intel/reference-selection-v1.json",
+    "reference_map": "data/reference-intel/reference-execution-map-v1.json",
+    "matched_reference_rows": 77
+  }
+}

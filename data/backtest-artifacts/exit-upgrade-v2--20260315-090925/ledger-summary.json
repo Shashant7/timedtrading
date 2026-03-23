@@ -1,0 +1,99 @@
+{
+  "ok": true,
+  "since": null,
+  "until": null,
+  "totals": {
+    "totalTrades": 10,
+    "openTrades": 3,
+    "closedTrades": 7,
+    "wins": 6,
+    "losses": 1,
+    "winRate": 85.71428571428571,
+    "closedPnl": 561.2549088318481,
+    "profitFactor": 32.4680553426353,
+    "avgWin": 96.51510207659423,
+    "avgLoss": 17.835703627717265,
+    "expectancy": 80.17927269026401,
+    "grossWin": 579.0906124595654,
+    "grossLoss": 17.835703627717265
+  },
+  "breakdown": {
+    "byRank": [
+      {
+        "bucket": "60-69",
+        "n": 4,
+        "wins": 3,
+        "losses": 1,
+        "pnl": 346.3128784823149
+      },
+      {
+        "bucket": "80+",
+        "n": 5,
+        "wins": 3,
+        "losses": 0,
+        "pnl": 214.94203034953316
+      },
+      {
+        "bucket": "<60",
+        "n": 1,
+        "wins": 0,
+        "losses": 0,
+        "pnl": 0
+      }
+    ],
+    "byRR": [
+      {
+        "bucket": "2.0+",
+        "n": 10,
+        "wins": 6,
+        "losses": 1,
+        "pnl": 561.2549088318481
+      }
+    ],
+    "byExitReason": [
+      {
+        "reason": "unknown",
+        "n": 5,
+        "wins": 2,
+        "losses": 0,
+        "pnl": 184.305049734492
+      },
+      {
+        "reason": "below_trigger,trigger_breached_5pct,overextended,large_adverse_move",
+        "n": 1,
+        "wins": 1,
+        "losses": 0,
+        "pnl": 96.73795366475927
+      },
+      {
+        "reason": "below_trigger,trigger_breached_5pct,adverse_move_warning",
+        "n": 1,
+        "wins": 0,
+        "losses": 1,
+        "pnl": -17.835703627717265
+      },
+      {
+        "reason": "SMART_RUNNER_SUPPORT_BREAK_CLOUD",
+        "n": 1,
+        "wins": 1,
+        "losses": 0,
+        "pnl": 113.56178081477451
+      },
+      {
+        "reason": "SMART_RUNNER_SQUEEZE_RELEASE_AGAINST",
+        "n": 1,
+        "wins": 1,
+        "losses": 0,
+        "pnl": 14.380584646260957
+      },
+      {
+        "reason": "PHASE_LEAVE_100",
+        "n": 1,
+        "wins": 1,
+        "losses": 0,
+        "pnl": 170.1052435992786
+      }
+    ],
+    "byTriggerReason": []
+  }
+}

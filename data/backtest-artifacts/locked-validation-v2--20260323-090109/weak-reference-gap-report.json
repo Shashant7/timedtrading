@@ -1,0 +1,880 @@
+{
+  "generated_at": "2026-03-23T14:13:27.572323Z",
+  "scope_note": "Uses run-scoped Trade Autopsy rows (closed trades) with signal_snapshot_json.lineage.",
+  "overall": {
+    "run_id": "backtest_2025-07-01_2026-03-04@2026-03-23T13:01:08.126Z",
+    "closed_trade_count_with_lineage": 47,
+    "reference_strength_counts": {
+      "weak": 47
+    },
+    "engine_source_counts": {
+      "unknown": 47
+    },
+    "scenario_policy_source_counts": {
+      "unknown": 47
+    },
+    "avg_pnl_pct_weak": 0.5464819463967262,
+    "avg_pnl_pct_strong": null
+  },
+  "ticker_stats": [
+    {
+      "ticker": "PWR",
+      "closed_trades": 4,
+      "weak_count": 4,
+      "strong_count": 0,
+      "weak_rate": 1.0,
+      "scenario_default_rate": 0.0,
+      "avg_pnl_pct_all": 0.8631852514125266,
+      "avg_pnl_pct_weak": 0.8631852514125266,
+      "avg_pnl_pct_strong": null,
+      "engine_sources": {
+        "unknown": 4
+      },
+      "scenario_sources": {
+        "unknown": 4
+      },
+      "entry_paths": {
+        "tt_momentum": 3,
+        "momentum_score": 1
+      }
+    },
+    {
+      "ticker": "EXPE",
+      "closed_trades": 3,
+      "weak_count": 3,
+      "strong_count": 0,
+      "weak_rate": 1.0,
+      "scenario_default_rate": 0.0,
+      "avg_pnl_pct_all": 16.990072399771616,
+      "avg_pnl_pct_weak": 16.990072399771616,
+      "avg_pnl_pct_strong": null,
+      "engine_sources": {
+        "unknown": 3
+      },
+      "scenario_sources": {
+        "unknown": 3
+      },
+      "entry_paths": {
+        "momentum_score": 3
+      }
+    },
+    {
+      "ticker": "CAT",
+      "closed_trades": 3,
+      "weak_count": 3,
+      "strong_count": 0,
+      "weak_rate": 1.0,
+      "scenario_default_rate": 0.0,
+      "avg_pnl_pct_all": 2.2907176968971643,
+      "avg_pnl_pct_weak": 2.2907176968971643,
+      "avg_pnl_pct_strong": null,
+      "engine_sources": {
+        "unknown": 3
+      },
+      "scenario_sources": {
+        "unknown": 3
+      },
+      "entry_paths": {
+        "momentum_score": 2,
+        "ema_regime_confirmed_long": 1
+      }
+    },
+    {
+      "ticker": "CSCO",
+      "closed_trades": 2,
+      "weak_count": 2,
+      "strong_count": 0,
+      "weak_rate": 1.0,
+      "scenario_default_rate": 0.0,
+      "avg_pnl_pct_all": -0.10980163744128413,
+      "avg_pnl_pct_weak": -0.10980163744128413,
+      "avg_pnl_pct_strong": null,
+      "engine_sources": {
+        "unknown": 2
+      },
+      "scenario_sources": {
+        "unknown": 2
+      },
+      "entry_paths": {
+        "tt_momentum": 1,
+        "momentum_score": 1
+      }
+    },
+    {
+      "ticker": "VST",
+      "closed_trades": 2,
+      "weak_count": 2,
+      "strong_count": 0,
+      "weak_rate": 1.0,
+      "scenario_default_rate": 0.0,
+      "avg_pnl_pct_all": 1.6224236727295533,
+      "avg_pnl_pct_weak": 1.6224236727295533,
+      "avg_pnl_pct_strong": null,
+      "engine_sources": {
+        "unknown": 2
+      },
+      "scenario_sources": {
+        "unknown": 2
+      },
+      "entry_paths": {
+        "tt_momentum": 2
+      }
+    },
+    {
+      "ticker": "CVNA",
+      "closed_trades": 2,
+      "weak_count": 2,
+      "strong_count": 0,
+      "weak_rate": 1.0,
+      "scenario_default_rate": 0.0,
+      "avg_pnl_pct_all": -0.0997515674470314,
+      "avg_pnl_pct_weak": -0.0997515674470314,
+      "avg_pnl_pct_strong": null,
+      "engine_sources": {
+        "unknown": 2
+      },
+      "scenario_sources": {
+        "unknown": 2
+      },
+      "entry_paths": {
+        "tt_pullback": 1,
+        "momentum_score": 1
+      }
+    },
+    {
+      "ticker": "B",
+      "closed_trades": 2,
+      "weak_count": 2,
+      "strong_count": 0,
+      "weak_rate": 1.0,
+      "scenario_default_rate": 0.0,
+      "avg_pnl_pct_all": -3.4878620352570513,
+      "avg_pnl_pct_weak": -3.4878620352570513,
+      "avg_pnl_pct_strong": null,
+      "engine_sources": {
+        "unknown": 2
+      },
+      "scenario_sources": {
+        "unknown": 2
+      },
+      "entry_paths": {
+        "tt_momentum": 2
+      }
+    },
+    {
+      "ticker": "CDNS",
+      "closed_trades": 1,
+      "weak_count": 1,
+      "strong_count": 0,
+      "weak_rate": 1.0,
+      "scenario_default_rate": 0.0,
+      "avg_pnl_pct_all": -0.11003619197809497,
+      "avg_pnl_pct_weak": -0.11003619197809497,
+      "avg_pnl_pct_strong": null,
+      "engine_sources": {
+        "unknown": 1
+      },
+      "scenario_sources": {
+        "unknown": 1
+      },
+      "entry_paths": {
+        "tt_momentum": 1
+      }
+    },
+    {
+      "ticker": "PI",
+      "closed_trades": 1,
+      "weak_count": 1,
+      "strong_count": 0,
+      "weak_rate": 1.0,
+      "scenario_default_rate": 0.0,
+      "avg_pnl_pct_all": -11.85475993943812,
+      "avg_pnl_pct_weak": -11.85475993943812,
+      "avg_pnl_pct_strong": null,
+      "engine_sources": {
+        "unknown": 1
+      },
+      "scenario_sources": {
+        "unknown": 1
+      },
+      "entry_paths": {
+        "tt_momentum": 1
+      }
+    },
+    {
+      "ticker": "U",
+      "closed_trades": 1,
+      "weak_count": 1,
+      "strong_count": 0,
+      "weak_rate": 1.0,
+      "scenario_default_rate": 0.0,
+      "avg_pnl_pct_all": -12.196560345175216,
+      "avg_pnl_pct_weak": -12.196560345175216,
+      "avg_pnl_pct_strong": null,
+      "engine_sources": {
+        "unknown": 1
+      },
+      "scenario_sources": {
+        "unknown": 1
+      },
+      "entry_paths": {
+        "tt_pullback": 1
+      }
+    },
+    {
+      "ticker": "SGI",
+      "closed_trades": 1,
+      "weak_count": 1,
+      "strong_count": 0,
+      "weak_rate": 1.0,
+      "scenario_default_rate": 0.0,
+      "avg_pnl_pct_all": 0.01793507502839788,
+      "avg_pnl_pct_weak": 0.01793507502839788,
+      "avg_pnl_pct_strong": null,
+      "engine_sources": {
+        "unknown": 1
+      },
+      "scenario_sources": {
+        "unknown": 1
+      },
+      "entry_paths": {
+        "tt_momentum": 1
+      }
+    },
+    {
+      "ticker": "IREN",
+      "closed_trades": 1,
+      "weak_count": 1,
+      "strong_count": 0,
+      "weak_rate": 1.0,
+      "scenario_default_rate": 0.0,
+      "avg_pnl_pct_all": 0.20787234042554562,
+      "avg_pnl_pct_weak": 0.20787234042554562,
+      "avg_pnl_pct_strong": null,
+      "engine_sources": {
+        "unknown": 1
+      },
+      "scenario_sources": {
+        "unknown": 1
+      },
+      "entry_paths": {
+        "tt_momentum": 1
+      }
+    },
+    {
+      "ticker": "GS",
+      "closed_trades": 1,
+      "weak_count": 1,
+      "strong_count": 0,
+      "weak_rate": 1.0,
+      "scenario_default_rate": 0.0,
+      "avg_pnl_pct_all": -2.252792134837999,
+      "avg_pnl_pct_weak": -2.252792134837999,
+      "avg_pnl_pct_strong": null,
+      "engine_sources": {
+        "unknown": 1
+      },
+      "scenario_sources": {
+        "unknown": 1
+      },
+      "entry_paths": {
+        "tt_momentum": 1
+      }
+    },
+    {
+      "ticker": "GRNY",
+      "closed_trades": 1,
+      "weak_count": 1,
+      "strong_count": 0,
+      "weak_rate": 1.0,
+      "scenario_default_rate": 0.0,
+      "avg_pnl_pct_all": 1.4446002076843278,
+      "avg_pnl_pct_weak": 1.4446002076843278,
+      "avg_pnl_pct_strong": null,
+      "engine_sources": {
+        "unknown": 1
+      },
+      "scenario_sources": {
+        "unknown": 1
+      },
+      "entry_paths": {
+        "tt_momentum": 1
+      }
+    },
+    {
+      "ticker": "EME",
+      "closed_trades": 1,
+      "weak_count": 1,
+      "strong_count": 0,
+      "weak_rate": 1.0,
+      "scenario_default_rate": 0.0,
+      "avg_pnl_pct_all": 2.984012180792081,
+      "avg_pnl_pct_weak": 2.984012180792081,
+      "avg_pnl_pct_strong": null,
+      "engine_sources": {
+        "unknown": 1
+      },
+      "scenario_sources": {
+        "unknown": 1
+      },
+      "entry_paths": {
+        "tt_momentum": 1
+      }
+    },
+    {
+      "ticker": "MTZ",
+      "closed_trades": 1,
+      "weak_count": 1,
+      "strong_count": 0,
+      "weak_rate": 1.0,
+      "scenario_default_rate": 0.0,
+      "avg_pnl_pct_all": -1.864105691056897,
+      "avg_pnl_pct_weak": -1.864105691056897,
+      "avg_pnl_pct_strong": null,
+      "engine_sources": {
+        "unknown": 1
+      },
+      "scenario_sources": {
+        "unknown": 1
+      },
+      "entry_paths": {
+        "momentum_score": 1
+      }
+    },
+    {
+      "ticker": "STX",
+      "closed_trades": 1,
+      "weak_count": 1,
+      "strong_count": 0,
+      "weak_rate": 1.0,
+      "scenario_default_rate": 0.0,
+      "avg_pnl_pct_all": 10.67396111584727,
+      "avg_pnl_pct_weak": 10.67396111584727,
+      "avg_pnl_pct_strong": null,
+      "engine_sources": {
+        "unknown": 1
+      },
+      "scenario_sources": {
+        "unknown": 1
+      },
+      "entry_paths": {
+        "momentum_score": 1
+      }
+    },
+    {
+      "ticker": "GDX",
+      "closed_trades": 1,
+      "weak_count": 1,
+      "strong_count": 0,
+      "weak_rate": 1.0,
+      "scenario_default_rate": 0.0,
+      "avg_pnl_pct_all": -1.7314313197383542,
+      "avg_pnl_pct_weak": -1.7314313197383542,
+      "avg_pnl_pct_strong": null,
+      "engine_sources": {
+        "unknown": 1
+      },
+      "scenario_sources": {
+        "unknown": 1
+      },
+      "entry_paths": {
+        "ema_regime_confirmed_long": 1
+      }
+    },
+    {
+      "ticker": "UNP",
+      "closed_trades": 1,
+      "weak_count": 1,
+      "strong_count": 0,
+      "weak_rate": 1.0,
+      "scenario_default_rate": 0.0,
+      "avg_pnl_pct_all": -1.1525278620992574,
+      "avg_pnl_pct_weak": -1.1525278620992574,
+      "avg_pnl_pct_strong": null,
+      "engine_sources": {
+        "unknown": 1
+      },
+      "scenario_sources": {
+        "unknown": 1
+      },
+      "entry_paths": {
+        "momentum_score": 1
+      }
+    },
+    {
+      "ticker": "CCJ",
+      "closed_trades": 1,
+      "weak_count": 1,
+      "strong_count": 0,
+      "weak_rate": 1.0,
+      "scenario_default_rate": 0.0,
+      "avg_pnl_pct_all": 0.0,
+      "avg_pnl_pct_weak": 0.0,
+      "avg_pnl_pct_strong": null,
+      "engine_sources": {
+        "unknown": 1
+      },
+      "scenario_sources": {
+        "unknown": 1
+      },
+      "entry_paths": {
+        "ema_regime_confirmed_long": 1
+      }
+    },
+    {
+      "ticker": "XOM",
+      "closed_trades": 1,
+      "weak_count": 1,
+      "strong_count": 0,
+      "weak_rate": 1.0,
+      "scenario_default_rate": 0.0,
+      "avg_pnl_pct_all": -1.273885350318466,
+      "avg_pnl_pct_weak": -1.273885350318466,
+      "avg_pnl_pct_strong": null,
+      "engine_sources": {
+        "unknown": 1
+      },
+      "scenario_sources": {
+        "unknown": 1
+      },
+      "entry_paths": {
+        "momentum_score": 1
+      }
+    },
+    {
+      "ticker": "EXEL",
+      "closed_trades": 1,
+      "weak_count": 1,
+      "strong_count": 0,
+      "weak_rate": 1.0,
+      "scenario_default_rate": 0.0,
+      "avg_pnl_pct_all": -1.056847257759487,
+      "avg_pnl_pct_weak": -1.056847257759487,
+      "avg_pnl_pct_strong": null,
+      "engine_sources": {
+        "unknown": 1
+      },
+      "scenario_sources": {
+        "unknown": 1
+      },
+      "entry_paths": {
+        "momentum_score": 1
+      }
+    },
+    {
+      "ticker": "AMZN",
+      "closed_trades": 1,
+      "weak_count": 1,
+      "strong_count": 0,
+      "weak_rate": 1.0,
+      "scenario_default_rate": 0.0,
+      "avg_pnl_pct_all": 0.0,
+      "avg_pnl_pct_weak": 0.0,
+      "avg_pnl_pct_strong": null,
+      "engine_sources": {
+        "unknown": 1
+      },
+      "scenario_sources": {
+        "unknown": 1
+      },
+      "entry_paths": {
+        "ema_regime_confirmed_long": 1
+      }
+    },
+    {
+      "ticker": "XYZ",
+      "closed_trades": 1,
+      "weak_count": 1,
+      "strong_count": 0,
+      "weak_rate": 1.0,
+      "scenario_default_rate": 0.0,
+      "avg_pnl_pct_all": 0.0,
+      "avg_pnl_pct_weak": 0.0,
+      "avg_pnl_pct_strong": null,
+      "engine_sources": {
+        "unknown": 1
+      },
+      "scenario_sources": {
+        "unknown": 1
+      },
+      "entry_paths": {
+        "ema_regime_confirmed_long": 1
+      }
+    },
+    {
+      "ticker": "WTS",
+      "closed_trades": 1,
+      "weak_count": 1,
+      "strong_count": 0,
+      "weak_rate": 1.0,
+      "scenario_default_rate": 0.0,
+      "avg_pnl_pct_all": 0.0,
+      "avg_pnl_pct_weak": 0.0,
+      "avg_pnl_pct_strong": null,
+      "engine_sources": {
+        "unknown": 1
+      },
+      "scenario_sources": {
+        "unknown": 1
+      },
+      "entry_paths": {
+        "momentum_score": 1
+      }
+    },
+    {
+      "ticker": "BG",
+      "closed_trades": 1,
+      "weak_count": 1,
+      "strong_count": 0,
+      "weak_rate": 1.0,
+      "scenario_default_rate": 0.0,
+      "avg_pnl_pct_all": -4.136572554169391,
+      "avg_pnl_pct_weak": -4.136572554169391,
+      "avg_pnl_pct_strong": null,
+      "engine_sources": {
+        "unknown": 1
+      },
+      "scenario_sources": {
+        "unknown": 1
+      },
+      "entry_paths": {
+        "ema_regime_confirmed_short": 1
+      }
+    },
+    {
+      "ticker": "ITT",
+      "closed_trades": 1,
+      "weak_count": 1,
+      "strong_count": 0,
+      "weak_rate": 1.0,
+      "scenario_default_rate": 0.0,
+      "avg_pnl_pct_all": 0.8246966632962451,
+      "avg_pnl_pct_weak": 0.8246966632962451,
+      "avg_pnl_pct_strong": null,
+      "engine_sources": {
+        "unknown": 1
+      },
+      "scenario_sources": {
+        "unknown": 1
+      },
+      "entry_paths": {
+        "ema_regime_confirmed_long": 1
+      }
+    },
+    {
+      "ticker": "MSFT",
+      "closed_trades": 1,
+      "weak_count": 1,
+      "strong_count": 0,
+      "weak_rate": 1.0,
+      "scenario_default_rate": 0.0,
+      "avg_pnl_pct_all": -1.173439925801974,
+      "avg_pnl_pct_weak": -1.173439925801974,
+      "avg_pnl_pct_strong": null,
+      "engine_sources": {
+        "unknown": 1
+      },
+      "scenario_sources": {
+        "unknown": 1
+      },
+      "entry_paths": {
+        "ema_regime_confirmed_long": 1
+      }
+    },
+    {
+      "ticker": "ANET",
+      "closed_trades": 1,
+      "weak_count": 1,
+      "strong_count": 0,
+      "weak_rate": 1.0,
+      "scenario_default_rate": 0.0,
+      "avg_pnl_pct_all": -4.326412361178178,
+      "avg_pnl_pct_weak": -4.326412361178178,
+      "avg_pnl_pct_strong": null,
+      "engine_sources": {
+        "unknown": 1
+      },
+      "scenario_sources": {
+        "unknown": 1
+      },
+      "entry_paths": {
+        "ema_regime_confirmed_long": 1
+      }
+    },
+    {
+      "ticker": "PLTR",
+      "closed_trades": 1,
+      "weak_count": 1,
+      "strong_count": 0,
+      "weak_rate": 1.0,
+      "scenario_default_rate": 0.0,
+      "avg_pnl_pct_all": -4.747123726479466,
+      "avg_pnl_pct_weak": -4.747123726479466,
+      "avg_pnl_pct_strong": null,
+      "engine_sources": {
+        "unknown": 1
+      },
+      "scenario_sources": {
+        "unknown": 1
+      },
+      "entry_paths": {
+        "momentum_score": 1
+      }
+    },
+    {
+      "ticker": "MP",
+      "closed_trades": 1,
+      "weak_count": 1,
+      "strong_count": 0,
+      "weak_rate": 1.0,
+      "scenario_default_rate": 0.0,
+      "avg_pnl_pct_all": 1.021851910077041,
+      "avg_pnl_pct_weak": 1.021851910077041,
+      "avg_pnl_pct_strong": null,
+      "engine_sources": {
+        "unknown": 1
+      },
+      "scenario_sources": {
+        "unknown": 1
+      },
+      "entry_paths": {
+        "ema_regime_confirmed_long": 1
+      }
+    },
+    {
+      "ticker": "DPZ",
+      "closed_trades": 1,
+      "weak_count": 1,
+      "strong_count": 0,
+      "weak_rate": 1.0,
+      "scenario_default_rate": 0.0,
+      "avg_pnl_pct_all": 1.0750314325283905,
+      "avg_pnl_pct_weak": 1.0750314325283905,
+      "avg_pnl_pct_strong": null,
+      "engine_sources": {
+        "unknown": 1
+      },
+      "scenario_sources": {
+        "unknown": 1
+      },
+      "entry_paths": {
+        "ema_regime_confirmed_short": 1
+      }
+    },
+    {
+      "ticker": "LRN",
+      "closed_trades": 1,
+      "weak_count": 1,
+      "strong_count": 0,
+      "weak_rate": 1.0,
+      "scenario_default_rate": 0.0,
+      "avg_pnl_pct_all": 0.9610105201849248,
+      "avg_pnl_pct_weak": 0.9610105201849248,
+      "avg_pnl_pct_strong": null,
+      "engine_sources": {
+        "unknown": 1
+      },
+      "scenario_sources": {
+        "unknown": 1
+      },
+      "entry_paths": {
+        "momentum_score_short": 1
+      }
+    },
+    {
+      "ticker": "ULTA",
+      "closed_trades": 1,
+      "weak_count": 1,
+      "strong_count": 0,
+      "weak_rate": 1.0,
+      "scenario_default_rate": 0.0,
+      "avg_pnl_pct_all": -0.07368145185289657,
+      "avg_pnl_pct_weak": -0.07368145185289657,
+      "avg_pnl_pct_strong": null,
+      "engine_sources": {
+        "unknown": 1
+      },
+      "scenario_sources": {
+        "unknown": 1
+      },
+      "entry_paths": {
+        "momentum_score": 1
+      }
+    },
+    {
+      "ticker": "H",
+      "closed_trades": 1,
+      "weak_count": 1,
+      "strong_count": 0,
+      "weak_rate": 1.0,
+      "scenario_default_rate": 0.0,
+      "avg_pnl_pct_all": -3.0190239867659385,
+      "avg_pnl_pct_weak": -3.0190239867659385,
+      "avg_pnl_pct_strong": null,
+      "engine_sources": {
+        "unknown": 1
+      },
+      "scenario_sources": {
+        "unknown": 1
+      },
+      "entry_paths": {
+        "momentum_score": 1
+      }
+    },
+    {
+      "ticker": "CSX",
+      "closed_trades": 1,
+      "weak_count": 1,
+      "strong_count": 0,
+      "weak_rate": 1.0,
+      "scenario_default_rate": 0.0,
+      "avg_pnl_pct_all": 0.29775197260682273,
+      "avg_pnl_pct_weak": 0.29775197260682273,
+      "avg_pnl_pct_strong": null,
+      "engine_sources": {
+        "unknown": 1
+      },
+      "scenario_sources": {
+        "unknown": 1
+      },
+      "entry_paths": {
+        "momentum_score": 1
+      }
+    }
+  ],
+  "weak_reference_needs": [
+    {
+      "ticker": "B",
+      "closed_trades": 2,
+      "weak_rate": 1.0,
+      "scenario_default_rate": 0.0,
+      "avg_pnl_pct_weak": -3.4878620352570513,
+      "avg_pnl_pct_strong": null,
+      "weak_minus_strong_pnl_pct": null,
+      "recommended_actions": [
+        "add_ticker_window_reference",
+        "tighten_sl_tp_for_context"
+      ],
+      "top_engine_sources": {
+        "unknown": 2
+      },
+      "top_entry_paths": {
+        "tt_momentum": 2
+      }
+    },
+    {
+      "ticker": "CSCO",
+      "closed_trades": 2,
+      "weak_rate": 1.0,
+      "scenario_default_rate": 0.0,
+      "avg_pnl_pct_weak": -0.10980163744128413,
+      "avg_pnl_pct_strong": null,
+      "weak_minus_strong_pnl_pct": null,
+      "recommended_actions": [
+        "add_ticker_window_reference",
+        "tighten_sl_tp_for_context"
+      ],
+      "top_engine_sources": {
+        "unknown": 2
+      },
+      "top_entry_paths": {
+        "tt_momentum": 1,
+        "momentum_score": 1
+      }
+    },
+    {
+      "ticker": "CVNA",
+      "closed_trades": 2,
+      "weak_rate": 1.0,
+      "scenario_default_rate": 0.0,
+      "avg_pnl_pct_weak": -0.0997515674470314,
+      "avg_pnl_pct_strong": null,
+      "weak_minus_strong_pnl_pct": null,
+      "recommended_actions": [
+        "add_ticker_window_reference",
+        "tighten_sl_tp_for_context"
+      ],
+      "top_engine_sources": {
+        "unknown": 2
+      },
+      "top_entry_paths": {
+        "tt_pullback": 1,
+        "momentum_score": 1
+      }
+    },
+    {
+      "ticker": "PWR",
+      "closed_trades": 4,
+      "weak_rate": 1.0,
+      "scenario_default_rate": 0.0,
+      "avg_pnl_pct_weak": 0.8631852514125266,
+      "avg_pnl_pct_strong": null,
+      "weak_minus_strong_pnl_pct": null,
+      "recommended_actions": [
+        "add_ticker_window_reference"
+      ],
+      "top_engine_sources": {
+        "unknown": 4
+      },
+      "top_entry_paths": {
+        "tt_momentum": 3,
+        "momentum_score": 1
+      }
+    },
+    {
+      "ticker": "VST",
+      "closed_trades": 2,
+      "weak_rate": 1.0,
+      "scenario_default_rate": 0.0,
+      "avg_pnl_pct_weak": 1.6224236727295533,
+      "avg_pnl_pct_strong": null,
+      "weak_minus_strong_pnl_pct": null,
+      "recommended_actions": [
+        "add_ticker_window_reference"
+      ],
+      "top_engine_sources": {
+        "unknown": 2
+      },
+      "top_entry_paths": {
+        "tt_momentum": 2
+      }
+    },
+    {
+      "ticker": "CAT",
+      "closed_trades": 3,
+      "weak_rate": 1.0,
+      "scenario_default_rate": 0.0,
+      "avg_pnl_pct_weak": 2.2907176968971643,
+      "avg_pnl_pct_strong": null,
+      "weak_minus_strong_pnl_pct": null,
+      "recommended_actions": [
+        "add_ticker_window_reference"
+      ],
+      "top_engine_sources": {
+        "unknown": 3
+      },
+      "top_entry_paths": {
+        "momentum_score": 2,
+        "ema_regime_confirmed_long": 1
+      }
+    },
+    {
+      "ticker": "EXPE",
+      "closed_trades": 3,
+      "weak_rate": 1.0,
+      "scenario_default_rate": 0.0,
+      "avg_pnl_pct_weak": 16.990072399771616,
+      "avg_pnl_pct_strong": null,
+      "weak_minus_strong_pnl_pct": null,
+      "recommended_actions": [
+        "add_ticker_window_reference"
+      ],
+      "top_engine_sources": {
+        "unknown": 3
+      },
+      "top_entry_paths": {
+        "momentum_score": 3
+      }
+    }
+  ]
+}

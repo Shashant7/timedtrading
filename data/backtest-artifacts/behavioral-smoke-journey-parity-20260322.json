@@ -1,0 +1,156 @@
+{
+  "generated_at_utc": "2026-03-22T22:07:23.458726+00:00",
+  "reference_path": "data/backtest-artifacts/option-a-rank-overhaul--20260309-202532/trade-autopsy-trades.json",
+  "candidate_path": "data/backtest-artifacts/behavioral-smoke-candidate-trades.json",
+  "reference_run_id": null,
+  "candidate_run_id": null,
+  "reference_trade_count": 4,
+  "candidate_trade_count": 4,
+  "matched_count": 4,
+  "missing_count": 0,
+  "entry_tolerance_min": 15.0,
+  "hold_tolerance_ratio": 0.35,
+  "journey_score": 0.1058,
+  "details": [
+    {
+      "reference_trade_id": "CDNS-1751376600000-00vnweq1y",
+      "candidate_trade_id": "CDNS-1751376600000-2mmj9r19k",
+      "ticker": "CDNS",
+      "direction": "LONG",
+      "matched": true,
+      "reference": {
+        "entry_ts": 1751376600000,
+        "exit_ts": 1753732800000,
+        "hold_days": 27.271,
+        "entry_path": "ripster_momentum",
+        "exit_reason": "TP_FULL",
+        "exit_class": "tp_full",
+        "pnl_pct": 9.7586
+      },
+      "candidate": {
+        "entry_ts": 1751376600000,
+        "exit_ts": 1751400000000,
+        "hold_days": 0.271,
+        "entry_path": "",
+        "exit_reason": "replay_end_close",
+        "exit_class": "other",
+        "pnl_pct": -0.4504
+      },
+      "metric": {
+        "entry_delta_min": 0.0,
+        "hold_delta_days": -27.0,
+        "entry_score": 1.0,
+        "hold_score": 0.0,
+        "exit_score": 0.0,
+        "path_score": 0.0,
+        "pnl_score": 0.0,
+        "journey_score": 0.3
+      }
+    },
+    {
+      "reference_trade_id": "ORCL-1751377500000-4arrr4uxr",
+      "candidate_trade_id": "ORCL-1751376600000-063o2zwh7",
+      "ticker": "ORCL",
+      "direction": "LONG",
+      "matched": true,
+      "reference": {
+        "entry_ts": 1751377500000,
+        "exit_ts": 1752760800000,
+        "hold_days": 16.01,
+        "entry_path": "ripster_momentum",
+        "exit_reason": "HARD_FUSE_RSI_EXTREME",
+        "exit_class": "fuse",
+        "pnl_pct": 9.0926
+      },
+      "candidate": {
+        "entry_ts": 1751376600000,
+        "exit_ts": 1751400000000,
+        "hold_days": 0.271,
+        "entry_path": "",
+        "exit_reason": "replay_end_close",
+        "exit_class": "other",
+        "pnl_pct": -0.422
+      },
+      "metric": {
+        "entry_delta_min": -15.0,
+        "hold_delta_days": -15.74,
+        "entry_score": 0.0,
+        "hold_score": 0.0,
+        "exit_score": 0.0,
+        "path_score": 0.0,
+        "pnl_score": 0.0,
+        "journey_score": 0.0
+      }
+    },
+    {
+      "reference_trade_id": "CSX-1751377500000-0bkrj96aq",
+      "candidate_trade_id": "CSX-1751376600000-k4igx132p",
+      "ticker": "CSX",
+      "direction": "LONG",
+      "matched": true,
+      "reference": {
+        "entry_ts": 1751377500000,
+        "exit_ts": 1752845400000,
+        "hold_days": 16.99,
+        "entry_path": "ripster_momentum",
+        "exit_reason": "TP_FULL",
+        "exit_class": "tp_full",
+        "pnl_pct": 4.6811
+      },
+      "candidate": {
+        "entry_ts": 1751376600000,
+        "exit_ts": 1751400000000,
+        "hold_days": 0.271,
+        "entry_path": "",
+        "exit_reason": "replay_end_close",
+        "exit_class": "other",
+        "pnl_pct": 0.1946
+      },
+      "metric": {
+        "entry_delta_min": -15.0,
+        "hold_delta_days": -16.719,
+        "entry_score": 0.0,
+        "hold_score": 0.0,
+        "exit_score": 0.0,
+        "path_score": 0.0,
+        "pnl_score": 0.6166,
+        "journey_score": 0.1233
+      }
+    },
+    {
+      "reference_trade_id": "ITT-1751379300000-x01hj8tuw",
+      "candidate_trade_id": "ITT-1751376600000-ueyd8r7mj",
+      "ticker": "ITT",
+      "direction": "LONG",
+      "matched": true,
+      "reference": {
+        "entry_ts": 1751379300000,
+        "exit_ts": 1751913000000,
+        "hold_days": 6.177,
+        "entry_path": "ripster_momentum",
+        "exit_reason": "sl_breached",
+        "exit_class": "loss_protect",
+        "pnl_pct": 0.4911
+      },
+      "candidate": {
+        "entry_ts": 1751376600000,
+        "exit_ts": 1751400000000,
+        "hold_days": 0.271,
+        "entry_path": "",
+        "exit_reason": "replay_end_close",
+        "exit_class": "other",
+        "pnl_pct": -0.5831
+      },
+      "metric": {
+        "entry_delta_min": -45.0,
+        "hold_delta_days": -5.906,
+        "entry_score": 0.0,
+        "hold_score": 0.0,
+        "exit_score": 0.0,
+        "path_score": 0.0,
+        "pnl_score": 0.0,
+        "journey_score": 0.0
+      }
+    }
+  ]
+}

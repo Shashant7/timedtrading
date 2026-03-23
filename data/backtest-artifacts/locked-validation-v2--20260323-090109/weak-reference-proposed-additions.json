@@ -1,0 +1,114 @@
+{
+  "run_id": "backtest_2025-07-01_2026-03-04@2026-03-23T13:01:08.126Z",
+  "generated_from": "weak-reference-gap-report.json",
+  "proposal_count": 3,
+  "proposals": [
+    {
+      "ticker": "CSCO",
+      "evidence": {
+        "closed_trades": 2,
+        "avg_pnl_pct": -0.10980163744128413,
+        "entry_paths": {
+          "tt_momentum": 1,
+          "momentum_score": 1
+        }
+      },
+      "reference_map_addition": {
+        "type": "ticker_window",
+        "ticker": "CSCO",
+        "start_ts": "TBD_from_winning_reference_window",
+        "end_ts": "TBD_from_winning_reference_window",
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "notes": "Prefer nearest profitable window from archived winners before fallback date_bucket."
+      },
+      "scenario_policy_addition": {
+        "tier": "ticker_setup_rules",
+        "when": {
+          "ticker": "CSCO",
+          "direction": "LONG_OR_SHORT_FROM_REFERENCE",
+          "entry_path": "tt_momentum"
+        },
+        "recommend": {
+          "entry_engine": "tt_core",
+          "management_engine": "tt_core",
+          "exit_style": "smart_exit_bias",
+          "sl_mult": 0.9,
+          "tp_mult": 0.95
+        },
+        "notes": "Conservative tightening for currently negative closed-trade cluster."
+      }
+    },
+    {
+      "ticker": "CVNA",
+      "evidence": {
+        "closed_trades": 2,
+        "avg_pnl_pct": -0.0997515674470314,
+        "entry_paths": {
+          "tt_pullback": 1,
+          "momentum_score": 1
+        }
+      },
+      "reference_map_addition": {
+        "type": "ticker_window",
+        "ticker": "CVNA",
+        "start_ts": "TBD_from_winning_reference_window",
+        "end_ts": "TBD_from_winning_reference_window",
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "notes": "Prefer nearest profitable window from archived winners before fallback date_bucket."
+      },
+      "scenario_policy_addition": {
+        "tier": "ticker_setup_rules",
+        "when": {
+          "ticker": "CVNA",
+          "direction": "LONG_OR_SHORT_FROM_REFERENCE",
+          "entry_path": "tt_pullback"
+        },
+        "recommend": {
+          "entry_engine": "tt_core",
+          "management_engine": "tt_core",
+          "exit_style": "smart_exit_bias",
+          "sl_mult": 0.9,
+          "tp_mult": 0.95
+        },
+        "notes": "Conservative tightening for currently negative closed-trade cluster."
+      }
+    },
+    {
+      "ticker": "B",
+      "evidence": {
+        "closed_trades": 2,
+        "avg_pnl_pct": -3.4878620352570513,
+        "entry_paths": {
+          "tt_momentum": 2
+        }
+      },
+      "reference_map_addition": {
+        "type": "ticker_window",
+        "ticker": "B",
+        "start_ts": "TBD_from_winning_reference_window",
+        "end_ts": "TBD_from_winning_reference_window",
+        "entry_engine": "tt_core",
+        "management_engine": "tt_core",
+        "notes": "Prefer nearest profitable window from archived winners before fallback date_bucket."
+      },
+      "scenario_policy_addition": {
+        "tier": "ticker_setup_rules",
+        "when": {
+          "ticker": "B",
+          "direction": "LONG_OR_SHORT_FROM_REFERENCE",
+          "entry_path": "tt_momentum"
+        },
+        "recommend": {
+          "entry_engine": "tt_core",
+          "management_engine": "tt_core",
+          "exit_style": "smart_exit_bias",
+          "sl_mult": 0.9,
+          "tp_mult": 0.95
+        },
+        "notes": "Conservative tightening for currently negative closed-trade cluster."
+      }
+    }
+  ]
+}

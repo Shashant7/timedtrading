@@ -1,0 +1,17 @@
+{
+  "run_id": "smoke-4ticker-jul1-for-autopsy@2026-03-22T21:47:22.617Z",
+  "register_ok": true,
+  "replay_totalTrades": 4,
+  "replay_tradesCreated": 4,
+  "close_closed": 4,
+  "finalize_ok": true,
+  "archived": {
+    "trades": 0,
+    "da": 4,
+    "annotations": 0,
+    "config": 129
+  },
+  "autopsy_count_for_run": 0,
+  "autopsy_source": "archive",
+  "unlock_ok": true
+}

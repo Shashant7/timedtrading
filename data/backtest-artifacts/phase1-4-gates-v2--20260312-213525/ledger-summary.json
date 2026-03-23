@@ -1,0 +1,106 @@
+{
+  "ok": true,
+  "since": null,
+  "until": null,
+  "totals": {
+    "totalTrades": 21,
+    "openTrades": 16,
+    "closedTrades": 5,
+    "wins": 2,
+    "losses": 3,
+    "winRate": 40,
+    "closedPnl": -203.75924823637206,
+    "profitFactor": 0.6117318541468587,
+    "avgWin": 160.5153861506219,
+    "avgLoss": 174.93000684587196,
+    "expectancy": -40.75184964727441,
+    "grossWin": 321.0307723012438,
+    "grossLoss": 524.7900205376159
+  },
+  "breakdown": {
+    "byRank": [
+      {
+        "bucket": "60-69",
+        "n": 3,
+        "wins": 0,
+        "losses": 2,
+        "pnl": -332.6986118048584
+      },
+      {
+        "bucket": "70-79",
+        "n": 7,
+        "wins": 0,
+        "losses": 0,
+        "pnl": 0
+      },
+      {
+        "bucket": "80+",
+        "n": 10,
+        "wins": 2,
+        "losses": 1,
+        "pnl": 128.93936356848633
+      },
+      {
+        "bucket": "<60",
+        "n": 1,
+        "wins": 0,
+        "losses": 0,
+        "pnl": 0
+      }
+    ],
+    "byRR": [
+      {
+        "bucket": "1.5-1.99",
+        "n": 1,
+        "wins": 0,
+        "losses": 0,
+        "pnl": 0
+      },
+      {
+        "bucket": "2.0+",
+        "n": 20,
+        "wins": 2,
+        "losses": 3,
+        "pnl": -203.75924823637206
+      }
+    ],
+    "byExitReason": [
+      {
+        "reason": "unknown",
+        "n": 16,
+        "wins": 0,
+        "losses": 0,
+        "pnl": 0
+      },
+      {
+        "reason": "max_loss",
+        "n": 2,
+        "wins": 0,
+        "losses": 2,
+        "pnl": -332.6986118048584
+      },
+      {
+        "reason": "sl_breached",
+        "n": 1,
+        "wins": 1,
+        "losses": 0,
+        "pnl": 189.04868415606302
+      },
+      {
+        "reason": "below_trigger,trigger_breached_5pct,daily_ema_regime_break,overextended,left_entry_corridor,large_adverse_move",
+        "n": 1,
+        "wins": 0,
+        "losses": 1,
+        "pnl": -192.09140873275751
+      },
+      {
+        "reason": "below_trigger,trigger_breached_5pct,daily_ema_regime_break,overextended,adverse_move_warning",
+        "n": 1,
+        "wins": 1,
+        "losses": 0,
+        "pnl": 131.98208814518082
+      }
+    ],
+    "byTriggerReason": []
+  }
+}

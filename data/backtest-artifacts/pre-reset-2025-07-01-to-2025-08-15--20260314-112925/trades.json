@@ -1,0 +1,38 @@
+{
+  "ok": true,
+  "count": 1,
+  "totalCount": 1,
+  "version": "all",
+  "versions": [
+    "alpaca_server_v2.0"
+  ],
+  "trades": [
+    {
+      "id": "FIX-1752161700000-c8k3w3wvg",
+      "trade_id": "FIX-1752161700000-c8k3w3wvg",
+      "ticker": "FIX",
+      "direction": "LONG",
+      "entryPrice": 531.88,
+      "entry_price": 531.88,
+      "entry_ts": 1752161700000,
+      "entryTime": "2025-07-10T15:35:00.000Z",
+      "rank": 61,
+      "rr": 3.5118421052631583,
+      "status": "WIN",
+      "exit_ts": 1752161700000,
+      "exitPrice": 539.575,
+      "exitReason": "PHASE_LEAVE_100",
+      "trimmedPct": 0.66,
+      "trim_ts": 1752162300000,
+      "trim_price": 534.72,
+      "pnl": 42.212002924875605,
+      "pnlPct": 0.844306986538324,
+      "scriptVersion": "alpaca_server_v2.0",
+      "script_version": "alpaca_server_v2.0",
+      "created_at": 1752161700000,
+      "updated_at": 1773502093370,
+      "history": []
+    }
+  ],
+  "source": "d1"
+}

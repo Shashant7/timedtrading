@@ -1,0 +1,10 @@
+{
+  "ok": true,
+  "label": "calibrated-v4-",
+  "captured_at": "20260315-193023",
+  "start_date": "2025-07-01",
+  "end_date": "2025-12-31",
+  "trader_only": true,
+  "sequence": false,
+  "note": "Captured automatically before reset for A/B comparison."
+}

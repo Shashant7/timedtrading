@@ -1,0 +1,11 @@
+{
+  "date": "2025-07-01",
+  "counts_by_ticker": {
+    "CDNS": 1,
+    "ORCL": 1,
+    "CSX": 1,
+    "ITT": 1
+  },
+  "total_trades": 4,
+  "pass": true
+}

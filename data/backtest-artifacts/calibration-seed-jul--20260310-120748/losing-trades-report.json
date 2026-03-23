@@ -1,0 +1,36 @@
+{
+  "ok": true,
+  "count": 2,
+  "trades": [
+    {
+      "trade_id": "MP-1753882200000-4hkp8h0w3",
+      "ticker": "MP",
+      "direction": "LONG",
+      "entry_ts": 1753882200000,
+      "exit_ts": 1753896600000,
+      "entry_price": 61.427,
+      "exit_price": 60.88,
+      "pnl": -71.23903169615929,
+      "pnl_pct": -0.8904878962019911,
+      "exit_reason": "below_trigger,trigger_breached_5pct,daily_ema_regime_break,large_adverse_move",
+      "signal_snapshot_json": "{\"avg_bias\":0.833,\"tf\":{\"4H\":{\"bias\":0.83,\"signals\":{\"ema_cross\":1,\"supertrend\":1,\"ema_structure\":1,\"ema_depth\":9,\"rsi\":54.1}},\"D\":{\"bias\":0.835,\"signals\":{\"ema5_48\":1,\"ema_cross\":1,\"supertrend\":1,\"ema_structure\":1,\"ema_depth\":7,\"rsi\":64.5}}}}",
+      "entry_path": "ema_regime_confirmed_long",
+      "consensus_direction": "LONG"
+    },
+    {
+      "trade_id": "RDDT-1752499800000-7i2bcxrzg",
+      "ticker": "RDDT",
+      "direction": "LONG",
+      "entry_ts": 1752499800000,
+      "exit_ts": 1752514200000,
+      "entry_price": 146.8,
+      "exit_price": 146.34,
+      "pnl": -25.068119891008607,
+      "pnl_pct": -0.3133514986376076,
+      "exit_reason": "below_trigger,trigger_breached_5pct,tp_reached,daily_ema_regime_break,large_adverse_move",
+      "signal_snapshot_json": "{\"avg_bias\":0.662,\"tf\":{\"4H\":{\"bias\":0.369,\"signals\":{\"ema_cross\":1,\"supertrend\":-1,\"ema_structure\":1,\"ema_depth\":10,\"rsi\":53.9}},\"D\":{\"bias\":0.857,\"signals\":{\"ema5_48\":1,\"ema_cross\":1,\"supertrend\":1,\"ema_structure\":1,\"ema_depth\":9,\"rsi\":53.7}}}}",
+      "entry_path": "ema_regime_confirmed_long",
+      "consensus_direction": null
+    }
+  ]
+}

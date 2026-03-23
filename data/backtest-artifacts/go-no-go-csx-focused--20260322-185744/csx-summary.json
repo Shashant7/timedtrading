@@ -1,0 +1,27 @@
+{
+  "window": [
+    "2025-07-01",
+    "2025-07-18"
+  ],
+  "trade_count": 2,
+  "trades": [
+    {
+      "trade_id": "CSX-1751376600000-yti6tb7ce",
+      "entry_ts": 1751376600000,
+      "exit_ts": 1752696000000,
+      "status": "WIN",
+      "exit_reason": "TP_FULL",
+      "entry_path": null
+    },
+    {
+      "trade_id": "CSX-1752845400000-94mvljh10",
+      "entry_ts": 1752845400000,
+      "exit_ts": null,
+      "status": "OPEN",
+      "exit_reason": "unknown",
+      "entry_path": null
+    }
+  ],
+  "pass": false,
+  "criteria": "exactly 1 CSX trade in window and exit_reason == TP_FULL"
+}

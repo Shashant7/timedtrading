@@ -1,0 +1,10 @@
+{
+  "ok": true,
+  "label": "calibrated-from-winners-v1-",
+  "captured_at": "20260316-142623",
+  "start_date": "2025-07-01",
+  "end_date": "2026-03-16",
+  "trader_only": false,
+  "sequence": false,
+  "note": "Captured automatically before reset for A/B comparison."
+}

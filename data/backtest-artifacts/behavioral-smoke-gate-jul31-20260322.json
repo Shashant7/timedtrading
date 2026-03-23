@@ -1,0 +1,23 @@
+{
+  "generated_at_utc": "2026-03-22T22:13:04.825068+00:00",
+  "source_report": "data/backtest-artifacts/behavioral-smoke-journey-parity-jul31-20260322.json",
+  "run_id": "behavioral-smoke-4ticker-jul1-jul31@2026-03-22T22:08:52.809Z",
+  "gate": {
+    "journey_score_min": 0.8,
+    "require_missing_count": 0,
+    "require_exit_class_match_all": true,
+    "require_entry_tolerance_all": true,
+    "require_hold_tolerance_all": true,
+    "require_pnl_sign_match_all": true
+  },
+  "observed": {
+    "journey_score": 0.3367,
+    "missing_count": 1,
+    "matched_count": 3,
+    "exit_class_match_all": false,
+    "entry_tolerance_all": false,
+    "hold_tolerance_all": false,
+    "pnl_sign_match_all": false
+  },
+  "pass": false
+}

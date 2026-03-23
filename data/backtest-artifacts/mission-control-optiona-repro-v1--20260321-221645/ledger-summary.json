@@ -1,0 +1,64 @@
+{
+  "ok": true,
+  "since": null,
+  "until": null,
+  "totals": {
+    "totalTrades": 4,
+    "openTrades": 2,
+    "closedTrades": 2,
+    "wins": 0,
+    "losses": 2,
+    "winRate": 0,
+    "closedPnl": -95.20925056343016,
+    "profitFactor": 0,
+    "avgWin": 0,
+    "avgLoss": 47.60462528171508,
+    "expectancy": -47.60462528171508,
+    "grossWin": 0,
+    "grossLoss": 95.20925056343016
+  },
+  "breakdown": {
+    "byRank": [
+      {
+        "bucket": "70-79",
+        "n": 1,
+        "wins": 0,
+        "losses": 0,
+        "pnl": 0
+      },
+      {
+        "bucket": "80+",
+        "n": 3,
+        "wins": 0,
+        "losses": 2,
+        "pnl": -95.20925056343016
+      }
+    ],
+    "byRR": [
+      {
+        "bucket": "2.0+",
+        "n": 4,
+        "wins": 0,
+        "losses": 2,
+        "pnl": -95.20925056343016
+      }
+    ],
+    "byExitReason": [
+      {
+        "reason": "unknown",
+        "n": 2,
+        "wins": 0,
+        "losses": 0,
+        "pnl": 0
+      },
+      {
+        "reason": "doa_early_exit",
+        "n": 2,
+        "wins": 0,
+        "losses": 2,
+        "pnl": -95.20925056343016
+      }
+    ],
+    "byTriggerReason": []
+  }
+}

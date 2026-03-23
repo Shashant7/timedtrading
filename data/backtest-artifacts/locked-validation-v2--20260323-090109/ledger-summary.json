@@ -1,0 +1,134 @@
+{
+  "ok": true,
+  "since": null,
+  "until": null,
+  "totals": {
+    "totalTrades": 44,
+    "openTrades": 6,
+    "closedTrades": 38,
+    "wins": 13,
+    "losses": 25,
+    "winRate": 34.21052631578947,
+    "closedPnl": -10326.371086545809,
+    "profitFactor": 0.12517513762481514,
+    "avgWin": 113.65834707794312,
+    "avgLoss": 472.15718394236285,
+    "expectancy": -271.7466075406792,
+    "grossWin": 1477.5585120132605,
+    "grossLoss": 11803.92959855907
+  },
+  "breakdown": {
+    "byRank": [
+      {
+        "bucket": "60-69",
+        "n": 9,
+        "wins": 2,
+        "losses": 6,
+        "pnl": -1868.2365431277674
+      },
+      {
+        "bucket": "70-79",
+        "n": 9,
+        "wins": 4,
+        "losses": 4,
+        "pnl": -1662.9693446082842
+      },
+      {
+        "bucket": "80+",
+        "n": 23,
+        "wins": 5,
+        "losses": 14,
+        "pnl": -6761.017898560898
+      },
+      {
+        "bucket": "<60",
+        "n": 3,
+        "wins": 2,
+        "losses": 1,
+        "pnl": -34.147300248860226
+      }
+    ],
+    "byRR": [
+      {
+        "bucket": "1.5-1.99",
+        "n": 13,
+        "wins": 2,
+        "losses": 8,
+        "pnl": -5960.646128624128
+      },
+      {
+        "bucket": "2.0+",
+        "n": 31,
+        "wins": 11,
+        "losses": 17,
+        "pnl": -4365.724957921681
+      }
+    ],
+    "byExitReason": [
+      {
+        "reason": "unknown",
+        "n": 23,
+        "wins": 2,
+        "losses": 15,
+        "pnl": -9332.147162726476
+      },
+      {
+        "reason": "PROFIT_GIVEBACK",
+        "n": 12,
+        "wins": 6,
+        "losses": 6,
+        "pnl": -937.5243716903776
+      },
+      {
+        "reason": "STALL_FORCE_CLOSE",
+        "n": 2,
+        "wins": 1,
+        "losses": 1,
+        "pnl": -39.908356846085056
+      },
+      {
+        "reason": "SMART_RUNNER_TD_EXHAUSTION_RUNNER",
+        "n": 2,
+        "wins": 2,
+        "losses": 0,
+        "pnl": 307.52745460367623
+      },
+      {
+        "reason": "max_loss",
+        "n": 1,
+        "wins": 0,
+        "losses": 1,
+        "pnl": -181.14143920595632
+      },
+      {
+        "reason": "hard_max_hold_168h",
+        "n": 1,
+        "wins": 1,
+        "losses": 0,
+        "pnl": 38.39057682985953
+      },
+      {
+        "reason": "SOFT_FUSE_RSI_CONFIRMED",
+        "n": 1,
+        "wins": 1,
+        "losses": 0,
+        "pnl": 0.5358071169145502
+      },
+      {
+        "reason": "RUNNER_STALE_FORCE_CLOSE",
+        "n": 1,
+        "wins": 0,
+        "losses": 1,
+        "pnl": -167.3543280311862
+      },
+      {
+        "reason": "BREAKEVEN_STOP",
+        "n": 1,
+        "wins": 0,
+        "losses": 1,
+        "pnl": -14.749266596178652
+      }
+    ],
+    "byTriggerReason": []
+  }
+}

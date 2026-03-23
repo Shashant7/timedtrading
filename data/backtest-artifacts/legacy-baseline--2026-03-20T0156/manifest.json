@@ -1,0 +1,135 @@
+{
+  "runner": "local-replay",
+  "version": "1.0.0",
+  "created": "2026-03-20T01:56:24.494Z",
+  "label": "legacy-baseline",
+  "engine": "legacy",
+  "leading_ltf": "10",
+  "interval_min": 5,
+  "date_range": "2025-07-01 → 2026-03-18",
+  "start_cash": 100000,
+  "final_cash": 97797.64474238051,
+  "total_pnl": -2202.36,
+  "total_return_pct": -2.2,
+  "total_trades": 140,
+  "wins": 42,
+  "losses": 93,
+  "flat": 5,
+  "win_rate": "31.1",
+  "avg_pnl_per_trade": -15.73,
+  "entries_evaluated": 2826184,
+  "entries_qualified": 140,
+  "qualification_rate": 0,
+  "days_processed": 180,
+  "intervals_processed": 14220,
+  "runtime_seconds": 8895.9,
+  "gate_blocks": {
+    "criteria_not_met": 518207,
+    "overbought_exhaustion": 273769,
+    "ltf_opposing_short": 125921,
+    "ltf_opposing_long": 51101,
+    "rvol_dead_zone": 342089,
+    "oversold_exhaustion": 116125
+  },
+  "tickers_filtered": "all",
+  "config_overrides": {
+    "deep_audit_vix_ceiling": 32,
+    "deep_audit_danger_max_signals": 3,
+    "deep_audit_block_regime": [
+      "CHOPPY"
+    ],
+    "doa_gate_enabled": "true",
+    "deep_audit_min_htf_score": 15,
+    "deep_audit_opening_noise_end_minute": 45,
+    "deep_audit_min_1h_bias": 0.3,
+    "deep_audit_min_4h_bias": 0.2,
+    "deep_audit_ltf_rsi_floor": 40,
+    "deep_audit_min_ltf_ema_depth": 4,
+    "deep_audit_danger_ema_depth_min": 5,
+    "deep_audit_danger_vix_threshold": 25,
+    "deep_audit_danger_min_st_aligned": 3,
+    "deep_audit_danger_div_enabled": "true"
+  },
+  "monthly": {
+    "2025-07": {
+      "entries_opened": 8,
+      "trades_closed": 5,
+      "wins": 2,
+      "losses": 3,
+      "flat": 0,
+      "win_rate": 40,
+      "pnl": 89.01,
+      "avg_hold_hours": 143.9
+    },
+    "2025-08": {
+      "entries_opened": 13,
+      "trades_closed": 15,
+      "wins": 1,
+      "losses": 12,
+      "flat": 2,
+      "win_rate": 7.7,
+      "pnl": -4901.05,
+      "avg_hold_hours": 97.5
+    },
+    "2025-09": {
+      "entries_opened": 30,
+      "trades_closed": 26,
+      "wins": 6,
+      "losses": 19,
+      "flat": 1,
+      "win_rate": 24,
+      "pnl": -1749.62,
+      "avg_hold_hours": 87.1
+    },
+    "2025-10": {
+      "entries_opened": 22,
+      "trades_closed": 25,
+      "wins": 10,
+      "losses": 13,
+      "flat": 2,
+      "win_rate": 43.5,
+      "pnl": 659.49,
+      "avg_hold_hours": 129.1
+    },
+    "2025-11": {
+      "entries_opened": 23,
+      "trades_closed": 23,
+      "wins": 5,
+      "losses": 18,
+      "flat": 0,
+      "win_rate": 21.7,
+      "pnl": -1028.35,
+      "avg_hold_hours": 100.3
+    },
+    "2025-12": {
+      "entries_opened": 16,
+      "trades_closed": 18,
+      "wins": 5,
+      "losses": 13,
+      "flat": 0,
+      "win_rate": 27.8,
+      "pnl": -707.89,
+      "avg_hold_hours": 95.9
+    },
+    "2026-01": {
+      "entries_opened": 13,
+      "trades_closed": 12,
+      "wins": 6,
+      "losses": 6,
+      "flat": 0,
+      "win_rate": 50,
+      "pnl": 2469.81,
+      "avg_hold_hours": 98
+    },
+    "2026-02": {
+      "entries_opened": 15,
+      "trades_closed": 16,
+      "wins": 7,
+      "losses": 9,
+      "flat": 0,
+      "win_rate": 43.8,
+      "pnl": 2966.24,
+      "avg_hold_hours": 43.4
+    }
+  }
+}

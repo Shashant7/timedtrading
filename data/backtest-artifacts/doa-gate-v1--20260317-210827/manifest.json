@@ -1,0 +1,10 @@
+{
+  "ok": true,
+  "label": "doa-gate-v1-",
+  "captured_at": "20260317-210827",
+  "start_date": "2025-07-01",
+  "end_date": "2026-03-17",
+  "trader_only": true,
+  "sequence": false,
+  "note": "Captured automatically before reset for A/B comparison."
+}

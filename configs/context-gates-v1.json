@@ -1,0 +1,8 @@
+{
+  "deep_audit_vix_ceiling": 30,
+  "deep_audit_danger_max_signals": 3,
+  "deep_audit_block_regime": ["CHOPPY"],
+  "doa_gate_enabled": "true",
+  "tt_spy_directional_gate": "true",
+  "tt_pdz_hard_gate": "false"
+}

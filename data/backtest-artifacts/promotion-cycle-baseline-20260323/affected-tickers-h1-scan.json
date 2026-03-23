@@ -1,0 +1,359 @@
+{
+  "run_id": "behavioral-smoke-4ticker-jul1-jul31@2026-03-22T22:08:52.809Z",
+  "cases": [
+    {
+      "ticker": "ITT",
+      "entry_ts": 1751376600000,
+      "status": "LOSS",
+      "trade_id": "ITT-1751376600000-2rcdq9kqr",
+      "pnl_pct": -0.526691295586482,
+      "entry_ny": "2025-07-01T09:30:00-04:00",
+      "date": "2025-07-01",
+      "interval": 0
+    },
+    {
+      "ticker": "CSX",
+      "entry_ts": 1751376600000,
+      "status": "WIN",
+      "trade_id": "CSX-1751376600000-jrqf769en",
+      "pnl_pct": 4.774734321209396,
+      "entry_ny": "2025-07-01T09:30:00-04:00",
+      "date": "2025-07-01",
+      "interval": 0
+    },
+    {
+      "ticker": "ORCL",
+      "entry_ts": 1751376600000,
+      "status": "OPEN",
+      "trade_id": "ORCL-1751376600000-1cvf5l5c5",
+      "pnl_pct": 14.753300862331963,
+      "entry_ny": "2025-07-01T09:30:00-04:00",
+      "date": "2025-07-01",
+      "interval": 0
+    },
+    {
+      "ticker": "CDNS",
+      "entry_ts": 1751376600000,
+      "status": "WIN",
+      "trade_id": "CDNS-1751376600000-6pr79452m",
+      "pnl_pct": 1.738731317594148,
+      "entry_ny": "2025-07-01T09:30:00-04:00",
+      "date": "2025-07-01",
+      "interval": 0
+    },
+    {
+      "ticker": "CDNS",
+      "entry_ts": 1752501600000,
+      "status": "WIN",
+      "trade_id": "CDNS-1752501600000-6jqe7yq77",
+      "pnl_pct": 0.6134032974434924,
+      "entry_ny": "2025-07-14T10:00:00-04:00",
+      "date": "2025-07-14",
+      "interval": 6
+    },
+    {
+      "ticker": "ITT",
+      "entry_ts": 1752760800000,
+      "status": "WIN",
+      "trade_id": "ITT-1752760800000-xi3v6q0a0",
+      "pnl_pct": 5.266319209979141,
+      "entry_ny": "2025-07-17T10:00:00-04:00",
+      "date": "2025-07-17",
+      "interval": 6
+    },
+    {
+      "ticker": "CSX",
+      "entry_ts": 1753104600000,
+      "status": "WIN",
+      "trade_id": "CSX-1753104600000-subcohu6c",
+      "pnl_pct": 4.839122220607458,
+      "entry_ny": "2025-07-21T09:30:00-04:00",
+      "date": "2025-07-21",
+      "interval": 0
+    },
+    {
+      "ticker": "CDNS",
+      "entry_ts": 1753108200000,
+      "status": "OPEN",
+      "trade_id": "CDNS-1753108200000-o4lgvn9jv",
+      "pnl_pct": 14.105690171609176,
+      "entry_ny": "2025-07-21T10:30:00-04:00",
+      "date": "2025-07-21",
+      "interval": 12
+    },
+    {
+      "ticker": "CSX",
+      "entry_ts": 1753277400000,
+      "status": "OPEN",
+      "trade_id": "CSX-1753277400000-46hc46h75",
+      "pnl_pct": 1.466192170818507,
+      "entry_ny": "2025-07-23T09:30:00-04:00",
+      "date": "2025-07-23",
+      "interval": 0
+    }
+  ],
+  "results": [
+    {
+      "ticker": "ITT",
+      "entry_ts": 1751376600000,
+      "status": "LOSS",
+      "trade_id": "ITT-1751376600000-2rcdq9kqr",
+      "pnl_pct": -0.526691295586482,
+      "entry_ny": "2025-07-01T09:30:00-04:00",
+      "date": "2025-07-01",
+      "interval": 0,
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "engineSource": "reference_date_bucket",
+      "scenarioPolicySource": "scenario_policy_default",
+      "path": null,
+      "cloudAlignment": {
+        "D": "bull",
+        "h1": "na",
+        "m10": "bear"
+      },
+      "alignedCount": 1,
+      "strongDailyTrend": true
+    },
+    {
+      "ticker": "CSX",
+      "entry_ts": 1751376600000,
+      "status": "WIN",
+      "trade_id": "CSX-1751376600000-jrqf769en",
+      "pnl_pct": 4.774734321209396,
+      "entry_ny": "2025-07-01T09:30:00-04:00",
+      "date": "2025-07-01",
+      "interval": 0,
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "engineSource": "reference_date_bucket",
+      "scenarioPolicySource": "scenario_policy_default",
+      "path": null,
+      "cloudAlignment": {
+        "D": "bull",
+        "h1": "na",
+        "m10": "bear"
+      },
+      "alignedCount": 1,
+      "strongDailyTrend": true
+    },
+    {
+      "ticker": "ORCL",
+      "entry_ts": 1751376600000,
+      "status": "OPEN",
+      "trade_id": "ORCL-1751376600000-1cvf5l5c5",
+      "pnl_pct": 14.753300862331963,
+      "entry_ny": "2025-07-01T09:30:00-04:00",
+      "date": "2025-07-01",
+      "interval": 0,
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "engineSource": "reference_date_bucket",
+      "scenarioPolicySource": "scenario_policy_default",
+      "path": null,
+      "cloudAlignment": {
+        "D": "bull",
+        "h1": "na",
+        "m10": "bull"
+      },
+      "alignedCount": 2,
+      "strongDailyTrend": true
+    },
+    {
+      "ticker": "CDNS",
+      "entry_ts": 1751376600000,
+      "status": "WIN",
+      "trade_id": "CDNS-1751376600000-6pr79452m",
+      "pnl_pct": 1.738731317594148,
+      "entry_ny": "2025-07-01T09:30:00-04:00",
+      "date": "2025-07-01",
+      "interval": 0,
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "engineSource": "reference_date_bucket",
+      "scenarioPolicySource": "scenario_policy_default",
+      "path": null,
+      "cloudAlignment": {
+        "D": "bull",
+        "h1": "na",
+        "m10": "bear"
+      },
+      "alignedCount": 1,
+      "strongDailyTrend": true
+    },
+    {
+      "ticker": "CDNS",
+      "entry_ts": 1752501600000,
+      "status": "WIN",
+      "trade_id": "CDNS-1752501600000-6jqe7yq77",
+      "pnl_pct": 0.6134032974434924,
+      "entry_ny": "2025-07-14T10:00:00-04:00",
+      "date": "2025-07-14",
+      "interval": 6,
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "engineSource": "reference_date_bucket",
+      "scenarioPolicySource": "scenario_policy_default",
+      "path": null,
+      "cloudAlignment": {
+        "D": "bull",
+        "h1": "na",
+        "m10": "bear"
+      },
+      "alignedCount": 1,
+      "strongDailyTrend": true
+    },
+    {
+      "ticker": "ITT",
+      "entry_ts": 1752760800000,
+      "status": "WIN",
+      "trade_id": "ITT-1752760800000-xi3v6q0a0",
+      "pnl_pct": 5.266319209979141,
+      "entry_ny": "2025-07-17T10:00:00-04:00",
+      "date": "2025-07-17",
+      "interval": 6,
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "engineSource": "reference_date_bucket",
+      "scenarioPolicySource": "scenario_policy_default",
+      "path": null,
+      "cloudAlignment": {
+        "D": "bull",
+        "h1": "na",
+        "m10": "bull"
+      },
+      "alignedCount": 2,
+      "strongDailyTrend": true
+    },
+    {
+      "ticker": "CSX",
+      "entry_ts": 1753104600000,
+      "status": "WIN",
+      "trade_id": "CSX-1753104600000-subcohu6c",
+      "pnl_pct": 4.839122220607458,
+      "entry_ny": "2025-07-21T09:30:00-04:00",
+      "date": "2025-07-21",
+      "interval": 0,
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "engineSource": "reference_date_bucket",
+      "scenarioPolicySource": "scenario_policy_default",
+      "path": null,
+      "cloudAlignment": {
+        "D": "bull",
+        "h1": "na",
+        "m10": "bull"
+      },
+      "alignedCount": 2,
+      "strongDailyTrend": true
+    },
+    {
+      "ticker": "CDNS",
+      "entry_ts": 1753108200000,
+      "status": "OPEN",
+      "trade_id": "CDNS-1753108200000-o4lgvn9jv",
+      "pnl_pct": 14.105690171609176,
+      "entry_ny": "2025-07-21T10:30:00-04:00",
+      "date": "2025-07-21",
+      "interval": 12,
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "engineSource": "reference_date_bucket",
+      "scenarioPolicySource": "scenario_policy_default",
+      "path": null,
+      "cloudAlignment": {
+        "D": "bull",
+        "h1": "na",
+        "m10": "bear"
+      },
+      "alignedCount": 1,
+      "strongDailyTrend": true
+    },
+    {
+      "ticker": "CSX",
+      "entry_ts": 1753277400000,
+      "status": "OPEN",
+      "trade_id": "CSX-1753277400000-46hc46h75",
+      "pnl_pct": 1.466192170818507,
+      "entry_ny": "2025-07-23T09:30:00-04:00",
+      "date": "2025-07-23",
+      "interval": 0,
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "engineSource": "reference_date_bucket",
+      "scenarioPolicySource": "scenario_policy_default",
+      "path": null,
+      "cloudAlignment": {
+        "D": "bull",
+        "h1": "na",
+        "m10": "bull"
+      },
+      "alignedCount": 2,
+      "strongDailyTrend": true
+    }
+  ],
+  "summary": {
+    "ITT": {
+      "historical_entries": 2,
+      "historical_wins": 1,
+      "currently_qualifies": 0,
+      "top_reasons": [
+        [
+          "tt_bias_not_aligned",
+          2
+        ]
+      ],
+      "h1_na_count": 2,
+      "m10_state_counts": {
+        "bear": 1,
+        "bull": 1
+      }
+    },
+    "CSX": {
+      "historical_entries": 3,
+      "historical_wins": 2,
+      "currently_qualifies": 0,
+      "top_reasons": [
+        [
+          "tt_bias_not_aligned",
+          3
+        ]
+      ],
+      "h1_na_count": 3,
+      "m10_state_counts": {
+        "bear": 1,
+        "bull": 2
+      }
+    },
+    "ORCL": {
+      "historical_entries": 1,
+      "historical_wins": 0,
+      "currently_qualifies": 0,
+      "top_reasons": [
+        [
+          "tt_bias_not_aligned",
+          1
+        ]
+      ],
+      "h1_na_count": 1,
+      "m10_state_counts": {
+        "bull": 1
+      }
+    },
+    "CDNS": {
+      "historical_entries": 3,
+      "historical_wins": 2,
+      "currently_qualifies": 0,
+      "top_reasons": [
+        [
+          "tt_bias_not_aligned",
+          3
+        ]
+      ],
+      "h1_na_count": 3,
+      "m10_state_counts": {
+        "bear": 3
+      }
+    }
+  }
+}

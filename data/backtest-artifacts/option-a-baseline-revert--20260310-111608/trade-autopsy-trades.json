@@ -1,0 +1,33 @@
+{
+  "ok": true,
+  "count": 1,
+  "trades": [
+    {
+      "trade_id": "ELF-1751895000000-m822szjw9",
+      "run_id": "candle_replay@2025-07-07",
+      "runId": "candle_replay@2025-07-07",
+      "ticker": "ELF",
+      "direction": "LONG",
+      "status": "FLAT",
+      "entry_ts": 1751895000000,
+      "exit_ts": 1751909400000,
+      "trim_ts": null,
+      "entry_price": 131.01,
+      "exit_price": 131.01,
+      "pnl": 0,
+      "pnl_pct": 0,
+      "exit_reason": "max_loss",
+      "signal_snapshot_json": "{\"avg_bias\":0.328,\"tf\":{\"10m\":{\"bias\":0.702,\"signals\":{\"ema_cross\":1,\"supertrend\":1,\"ema_structure\":1,\"ema_depth\":6,\"rsi\":52.4}},\"30m\":{\"bias\":-0.27,\"signals\":{\"ema_cross\":1,\"supertrend\":-1,\"ema_structure\":-0.04,\"ema_depth\":2,\"rsi\":42}},\"4H\":{\"bias\":-0.118,\"signals\":{\"ema_cross\":1,\"supertrend\":-1,\"ema_structure\":0.4,\"ema_depth\":3,\"rsi\":42.4}},\"D\":{\"bias\":0.774,\"signals\":{\"ema5_48\":1,\"ema_cross\":1,\"supertrend\":1,\"ema_structure\":1,\"ema_depth\":6,\"rsi\":57.8}}}}",
+      "entry_path": "ema_regime_confirmed_long",
+      "consensus_direction": null,
+      "max_favorable_excursion": null,
+      "max_adverse_excursion": null,
+      "tf_stack_json": "[{\"tf\":\"10m\",\"bias\":\"bullish\",\"biasScore\":0.702,\"weight\":1,\"signals\":{\"ema_cross\":1,\"supertrend\":1,\"ema_structure\":1,\"ema_depth\":6,\"rsi\":52.4},\"crossDir\":null,\"crossAge\":null},{\"tf\":\"30m\",\"bias\":\"bearish\",\"biasScore\":-0.27,\"weight\":1,\"signals\":{\"ema_cross\":1,\"supertrend\":-1,\"ema_structure\":-0.04,\"ema_depth\":2,\"rsi\":42},\"crossDir\":null,\"crossAge\":null},{\"tf\":\"1H\",\"bias\":\"unknown\",\"biasScore\":0,\"weight\":1,\"signals\":{},\"crossAge\":null,\"crossDir\":null},{\"tf\":\"4H\",\"bias\":\"bearish\",\"biasScore\":-0.118,\"weight\":1,\"signals\":{\"ema_cross\":1,\"supertrend\":-1,\"ema_structure\":0.4,\"ema_depth\":3,\"rsi\":42.4},\"crossDir\":null,\"crossAge\":null},{\"tf\":\"D\",\"bias\":\"bullish\",\"biasScore\":0.774,\"weight\":1.5,\"signals\":{\"ema5_48\":1,\"ema_cross\":1,\"supertrend\":1,\"ema_structure\":1,\"ema_depth\":6,\"rsi\":57.8},\"crossDir\":null,\"crossAge\":null}]",
+      "annotation_classification": null,
+      "annotation_notes": null,
+      "annotation_entry_grade": null,
+      "annotation_trade_management": null,
+      "annotation_updated_at": null
+    }
+  ]
+}

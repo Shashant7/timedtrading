@@ -1,0 +1,113 @@
+{
+  "ok": true,
+  "since": null,
+  "until": null,
+  "totals": {
+    "totalTrades": 30,
+    "openTrades": 12,
+    "closedTrades": 18,
+    "wins": 9,
+    "losses": 9,
+    "winRate": 50,
+    "closedPnl": -161.76248379183423,
+    "profitFactor": 0.8131430852965545,
+    "avgWin": 78.21554878827568,
+    "avgLoss": 96.18915809847948,
+    "expectancy": -8.986804655101901,
+    "grossWin": 703.9399390944811,
+    "grossLoss": 865.7024228863154
+  },
+  "breakdown": {
+    "byRank": [
+      {
+        "bucket": "60-69",
+        "n": 2,
+        "wins": 1,
+        "losses": 1,
+        "pnl": -85.4771873812002
+      },
+      {
+        "bucket": "70-79",
+        "n": 3,
+        "wins": 1,
+        "losses": 2,
+        "pnl": -106.72327414008208
+      },
+      {
+        "bucket": "80+",
+        "n": 25,
+        "wins": 7,
+        "losses": 6,
+        "pnl": 30.437977729448065
+      }
+    ],
+    "byRR": [
+      {
+        "bucket": "1.5-1.99",
+        "n": 1,
+        "wins": 0,
+        "losses": 1,
+        "pnl": -47.7610516210763
+      },
+      {
+        "bucket": "2.0+",
+        "n": 29,
+        "wins": 9,
+        "losses": 8,
+        "pnl": -114.00143217075792
+      }
+    ],
+    "byExitReason": [
+      {
+        "reason": "unknown",
+        "n": 13,
+        "wins": 2,
+        "losses": 0,
+        "pnl": 87.81022812691671
+      },
+      {
+        "reason": "max_loss",
+        "n": 5,
+        "wins": 0,
+        "losses": 5,
+        "pnl": -457.95495598732845
+      },
+      {
+        "reason": "SMART_RUNNER_TD_EXHAUSTION_RUNNER",
+        "n": 4,
+        "wins": 4,
+        "losses": 0,
+        "pnl": 291.8718166485221
+      },
+      {
+        "reason": "SOFT_FUSE_RSI_CONFIRMED",
+        "n": 3,
+        "wins": 2,
+        "losses": 1,
+        "pnl": 213.517615116596
+      },
+      {
+        "reason": "SMART_RUNNER_SUPPORT_BREAK_CLOUD",
+        "n": 2,
+        "wins": 0,
+        "losses": 2,
+        "pnl": -7.470000802087986
+      },
+      {
+        "reason": "PHASE_LEAVE_100",
+        "n": 2,
+        "wins": 1,
+        "losses": 0,
+        "pnl": 79.75777780008823
+      },
+      {
+        "reason": "HARD_LOSS_CAP",
+        "n": 1,
+        "wins": 0,
+        "losses": 1,
+        "pnl": -369.29496469454085
+      }
+    ],
+    "byTriggerReason": []
+  }
+}

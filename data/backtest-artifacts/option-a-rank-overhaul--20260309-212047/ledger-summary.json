@@ -1,0 +1,106 @@
+{
+  "ok": true,
+  "since": null,
+  "until": null,
+  "totals": {
+    "totalTrades": 15,
+    "openTrades": 5,
+    "closedTrades": 10,
+    "wins": 7,
+    "losses": 3,
+    "winRate": 70,
+    "closedPnl": 1067.2711300859155,
+    "profitFactor": 19.81601701012725,
+    "avgWin": 160.5703637401603,
+    "avgLoss": 18.907138698402242,
+    "expectancy": 106.72711300859154,
+    "grossWin": 1123.9925461811222,
+    "grossLoss": 56.72141609520673
+  },
+  "breakdown": {
+    "byRank": [
+      {
+        "bucket": "60-69",
+        "n": 2,
+        "wins": 2,
+        "losses": 0,
+        "pnl": 655.8366168713706
+      },
+      {
+        "bucket": "70-79",
+        "n": 7,
+        "wins": 2,
+        "losses": 2,
+        "pnl": -26.36269482805287
+      },
+      {
+        "bucket": "80+",
+        "n": 5,
+        "wins": 3,
+        "losses": 0,
+        "pnl": 452.07545579732727
+      },
+      {
+        "bucket": "<60",
+        "n": 1,
+        "wins": 0,
+        "losses": 1,
+        "pnl": -14.278247754729383
+      }
+    ],
+    "byRR": [
+      {
+        "bucket": "2.0+",
+        "n": 15,
+        "wins": 7,
+        "losses": 3,
+        "pnl": 1067.2711300859155
+      }
+    ],
+    "byExitReason": [
+      {
+        "reason": "unknown",
+        "n": 7,
+        "wins": 2,
+        "losses": 0,
+        "pnl": 704.9521243389329
+      },
+      {
+        "reason": "critical_trigger_noise_defend",
+        "n": 4,
+        "wins": 3,
+        "losses": 1,
+        "pnl": 255.85923285012092
+      },
+      {
+        "reason": "ripster_short_pivot_reclaimed",
+        "n": 1,
+        "wins": 1,
+        "losses": 0,
+        "pnl": 9.35450940518589
+      },
+      {
+        "reason": "ripster_5_12_lost_confirmed",
+        "n": 1,
+        "wins": 0,
+        "losses": 1,
+        "pnl": -34.91334946679056
+      },
+      {
+        "reason": "post_trim_runner_trigger_pullback_defend",
+        "n": 1,
+        "wins": 1,
+        "losses": 0,
+        "pnl": 146.2968607131958
+      },
+      {
+        "reason": "post_trim_breakeven_protect",
+        "n": 1,
+        "wins": 0,
+        "losses": 1,
+        "pnl": -14.278247754729383
+      }
+    ],
+    "byTriggerReason": []
+  }
+}

@@ -1,0 +1,398 @@
+{
+  "generated_at_utc": "2026-03-23T10:15:03.424737+00:00",
+  "runs_scanned": 153,
+  "runs_with_data": 137,
+  "row_count": 6494,
+  "unique_tickers": 211,
+  "status_counts": {
+    "WIN": 2709,
+    "LOSS": 2622,
+    "FLAT": 320,
+    "OPEN": 701,
+    "TP_HIT_TRIM": 135,
+    "": 1,
+    "ARCHIVED": 6
+  },
+  "exit_class_counts": {
+    "other": 3852,
+    "loss_protect": 1825,
+    "tp_full": 188,
+    "regime_reversal": 222,
+    "fuse": 237,
+    "trim_related": 19,
+    "unknown": 151
+  },
+  "top_tickers": [
+    [
+      "CAT",
+      186
+    ],
+    [
+      "ULTA",
+      175
+    ],
+    [
+      "FIX",
+      170
+    ],
+    [
+      "H",
+      162
+    ],
+    [
+      "AMZN",
+      149
+    ],
+    [
+      "CSX",
+      142
+    ],
+    [
+      "AAPL",
+      140
+    ],
+    [
+      "WMT",
+      135
+    ],
+    [
+      "COST",
+      118
+    ],
+    [
+      "HII",
+      100
+    ],
+    [
+      "TSLA",
+      99
+    ],
+    [
+      "PH",
+      96
+    ],
+    [
+      "APP",
+      88
+    ],
+    [
+      "GE",
+      87
+    ],
+    [
+      "KLAC",
+      85
+    ],
+    [
+      "ELF",
+      79
+    ],
+    [
+      "IESC",
+      78
+    ],
+    [
+      "PWR",
+      78
+    ],
+    [
+      "BABA",
+      77
+    ],
+    [
+      "DY",
+      71
+    ],
+    [
+      "MNST",
+      69
+    ],
+    [
+      "KO",
+      68
+    ],
+    [
+      "ORCL",
+      67
+    ],
+    [
+      "ETN",
+      65
+    ],
+    [
+      "NVDA",
+      64
+    ]
+  ],
+  "top_sectors": [
+    [
+      "Industrials",
+      2012
+    ],
+    [
+      "Information Technology",
+      1326
+    ],
+    [
+      "Consumer Discretionary",
+      1123
+    ],
+    [
+      "Consumer Staples",
+      513
+    ],
+    [
+      "Basic Materials",
+      343
+    ],
+    [
+      "Financials",
+      328
+    ],
+    [
+      "ETF",
+      229
+    ],
+    [
+      "Energy",
+      200
+    ],
+    [
+      "Communication Services",
+      162
+    ],
+    [
+      "Healthcare",
+      79
+    ],
+    [
+      "Health Care",
+      72
+    ],
+    [
+      "Precious Metals",
+      49
+    ],
+    [
+      "Crypto",
+      36
+    ],
+    [
+      "Commodity ETF",
+      17
+    ],
+    [
+      "unknown",
+      5
+    ]
+  ],
+  "top_runs": [
+    [
+      "10m-ltf-validation--2026-03-20T0108",
+      806
+    ],
+    [
+      "tt-core-context-v1--2026-03-20T0205",
+      704
+    ],
+    [
+      "doa-gate-v2--20260318-101738",
+      326
+    ],
+    [
+      "15m-profile-lineage-jul1-mar4--20260311-133409",
+      237
+    ],
+    [
+      "15m-backtest--20260309-003059",
+      188
+    ],
+    [
+      "pre-15m-snapshot",
+      188
+    ],
+    [
+      "overnight-full-jul1-mar4-fix-on-keepopen--20260305-082351",
+      184
+    ],
+    [
+      "15m-calibration-only-jul1-mar4--20260307-194700",
+      176
+    ],
+    [
+      "focused-variant-d-worst-tickers--20260312-203218",
+      162
+    ],
+    [
+      "legacy-baseline--2026-03-20T0156",
+      140
+    ],
+    [
+      "variant-d-tiered-sizing--20260312-160621",
+      94
+    ],
+    [
+      "15m-fixed-entry-price--20260311-144710",
+      88
+    ],
+    [
+      "baseline-no-calibration-jul1-aug8",
+      88
+    ],
+    [
+      "15m-calibration-only-jul1-mar4--20260307-224633",
+      84
+    ],
+    [
+      "variant-d-tiered-sizing--20260312-154946",
+      82
+    ],
+    [
+      "phase2-tuned-v5--20260318-222133",
+      80
+    ],
+    [
+      "variant-a-intel-driven--20260311-232337",
+      78
+    ],
+    [
+      "with-calibration-jul1-aug8-final",
+      78
+    ],
+    [
+      "ripster-v2-feedback-targeted-0701-0703--20260304-184940",
+      77
+    ],
+    [
+      "ab-variant-ripster-jul2025-classified-20260304-160557",
+      74
+    ],
+    [
+      "ripster-tune-v2-quick-jul--20260304-165144",
+      74
+    ],
+    [
+      "with-calibration-jul1-aug8--20260311-172921",
+      72
+    ],
+    [
+      "liq-sweep-tuned-v1--20260317-191052",
+      67
+    ],
+    [
+      "15m-best-foot-forward-jul1-mar4-restored-baseline--20260311-135806",
+      66
+    ],
+    [
+      "15m-calibration-only-jul1-mar4--20260307-235702",
+      65
+    ],
+    [
+      "15m-best-foot-forward-jul1-mar4-patched--20260310-235133",
+      64
+    ],
+    [
+      "phase3-4-tuned--20260313-180044",
+      63
+    ],
+    [
+      "phase2-cio-lifecycle--20260318-174425",
+      62
+    ],
+    [
+      "doa-gate-v1--20260317-210746",
+      59
+    ],
+    [
+      "full-signal-integration--20260313-112916",
+      59
+    ],
+    [
+      "15m-july-canonical-restored-baseline--20260311-142218",
+      58
+    ],
+    [
+      "15m-backtest--20260310-081413",
+      49
+    ],
+    [
+      "paragon-ripster-stable-v1--20260321-211252",
+      48
+    ],
+    [
+      "ab-control-jul2025-classified-20260304-143852",
+      45
+    ],
+    [
+      "variant-a-intel-driven--20260312-000619",
+      45
+    ],
+    [
+      "calibrated-v5--20260315-213634",
+      44
+    ],
+    [
+      "clean-launch-v1--20260315-101522",
+      41
+    ],
+    [
+      "doa-gate-v1--20260317-210827",
+      41
+    ],
+    [
+      "paragon-legacy-dynamic-v4--20260321-212405",
+      41
+    ],
+    [
+      "ab-swingcheck-control-jul2025--20260306-085816",
+      40
+    ],
+    [
+      "calibrated-from-winners-v1--20260316-142623",
+      40
+    ],
+    [
+      "calibration-post-should-have-held--20260306-160337",
+      38
+    ],
+    [
+      "exit-upgrade-v3--20260315-094435",
+      38
+    ],
+    [
+      "july-rsi-posttrim-v1--20260305-212137",
+      38
+    ],
+    [
+      "variant-b-guarded--20260312-081509",
+      36
+    ],
+    [
+      "phase-osc-v1--20260312-221824",
+      34
+    ],
+    [
+      "15m-july-canonical-restored-baseline--20260311-140711",
+      33
+    ],
+    [
+      "phase1-4-gates-v3--20260312-215448",
+      32
+    ],
+    [
+      "calibration-seed-jul--20260310-120748",
+      31
+    ],
+    [
+      "phase2-tuned-v5--20260318-223511",
+      31
+    ]
+  ],
+  "lineage_missing_rates": {
+    "has_entry_path": 0.4332,
+    "has_signal_snapshot": 0.4393,
+    "has_tf_stack": 0.4393,
+    "has_mfe_mae": 0.6032,
+    "has_exit_reason": 0.0233
+  }
+}

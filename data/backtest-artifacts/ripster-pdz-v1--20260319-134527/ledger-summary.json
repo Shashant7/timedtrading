@@ -1,0 +1,85 @@
+{
+  "ok": true,
+  "since": null,
+  "until": null,
+  "totals": {
+    "totalTrades": 11,
+    "openTrades": 4,
+    "closedTrades": 7,
+    "wins": 5,
+    "losses": 2,
+    "winRate": 71.42857142857143,
+    "closedPnl": 200.78111595914828,
+    "profitFactor": 3.119116845921437,
+    "avgWin": 59.10573193133896,
+    "avgLoss": 47.37377184877326,
+    "expectancy": 28.683016565592613,
+    "grossWin": 295.5286596566948,
+    "grossLoss": 94.74754369754652
+  },
+  "breakdown": {
+    "byRank": [
+      {
+        "bucket": "80+",
+        "n": 11,
+        "wins": 5,
+        "losses": 2,
+        "pnl": 200.78111595914828
+      }
+    ],
+    "byRR": [
+      {
+        "bucket": "1.5-1.99",
+        "n": 1,
+        "wins": 0,
+        "losses": 0,
+        "pnl": 0
+      },
+      {
+        "bucket": "2.0+",
+        "n": 10,
+        "wins": 5,
+        "losses": 2,
+        "pnl": 200.78111595914828
+      }
+    ],
+    "byExitReason": [
+      {
+        "reason": "unknown",
+        "n": 4,
+        "wins": 0,
+        "losses": 0,
+        "pnl": 0
+      },
+      {
+        "reason": "doa_early_exit",
+        "n": 2,
+        "wins": 0,
+        "losses": 2,
+        "pnl": -94.74754369754652
+      },
+      {
+        "reason": "SMART_RUNNER_TD_EXHAUSTION_RUNNER",
+        "n": 2,
+        "wins": 2,
+        "losses": 0,
+        "pnl": 199.64356123702146
+      },
+      {
+        "reason": "SMART_RUNNER_SUPPORT_BREAK_CLOUD",
+        "n": 2,
+        "wins": 2,
+        "losses": 0,
+        "pnl": 71.13096743376641
+      },
+      {
+        "reason": "BREAKEVEN_STOP",
+        "n": 1,
+        "wins": 1,
+        "losses": 0,
+        "pnl": 24.754130985906926
+      }
+    ],
+    "byTriggerReason": []
+  }
+}

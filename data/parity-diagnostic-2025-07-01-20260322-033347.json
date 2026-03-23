@@ -1,0 +1,260 @@
+{
+  "date": "2025-07-01",
+  "base_url": "https://timed-trading-ingest.shashant.workers.dev",
+  "tickers": [
+    "CDNS",
+    "ORCL",
+    "CSX",
+    "ITT"
+  ],
+  "expected_artifact": "data/backtest-artifacts/option-a-rank-overhaul--20260309-202532/trade-autopsy-trades.json",
+  "expected_entries": [
+    {
+      "ticker": "CDNS",
+      "entry_ts": 1751376600000,
+      "entry_iso_utc": "2025-07-01T13:30:00+00:00",
+      "entry_path": "ripster_momentum",
+      "direction": "LONG",
+      "avg_bias": 0.696,
+      "bias_10m": 0.908,
+      "bias_30m": 0.886,
+      "bias_1H": 0.391,
+      "bias_4H": 0.82,
+      "bias_D": 0.548
+    },
+    {
+      "ticker": "ORCL",
+      "entry_ts": 1751377500000,
+      "entry_iso_utc": "2025-07-01T13:45:00+00:00",
+      "entry_path": "ripster_momentum",
+      "direction": "LONG",
+      "avg_bias": 0.937,
+      "bias_10m": 0.971,
+      "bias_30m": 0.929,
+      "bias_1H": 0.933,
+      "bias_4H": 0.868,
+      "bias_D": 0.97
+    },
+    {
+      "ticker": "CSX",
+      "entry_ts": 1751377500000,
+      "entry_iso_utc": "2025-07-01T13:45:00+00:00",
+      "entry_path": "ripster_momentum",
+      "direction": "LONG",
+      "avg_bias": 0.787,
+      "bias_10m": 0.65,
+      "bias_30m": 0.377,
+      "bias_1H": 0.875,
+      "bias_4H": 0.965,
+      "bias_D": 0.975
+    },
+    {
+      "ticker": "ITT",
+      "entry_ts": 1751379300000,
+      "entry_iso_utc": "2025-07-01T14:15:00+00:00",
+      "entry_path": "ripster_momentum",
+      "direction": "LONG",
+      "avg_bias": 0.598,
+      "bias_10m": 0.609,
+      "bias_30m": 0.376,
+      "bias_1H": 0.392,
+      "bias_4H": 0.448,
+      "bias_D": 0.976
+    }
+  ],
+  "diagnostics": [
+    {
+      "ticker": "CDNS",
+      "expected_entries": [
+        {
+          "ticker": "CDNS",
+          "entry_ts": 1751376600000,
+          "entry_iso_utc": "2025-07-01T13:30:00+00:00",
+          "entry_path": "ripster_momentum",
+          "direction": "LONG",
+          "avg_bias": 0.696,
+          "bias_10m": 0.908,
+          "bias_30m": 0.886,
+          "bias_1H": 0.391,
+          "bias_4H": 0.82,
+          "bias_D": 0.548
+        }
+      ],
+      "replay_data_stats": {
+        "ok": true,
+        "date": "2025-07-01",
+        "ticker": "CDNS",
+        "tsStart": 1751376600000,
+        "tsEnd": 1751428799999,
+        "timed_trail": {
+          "rows": 79,
+          "rows_with_payload_json": 0,
+          "usable": false
+        },
+        "ingest_receipts": {
+          "rows": 0
+        },
+        "recommendation": "No data for this date/ticker; run ingest or backfill first."
+      },
+      "replay_summary": {
+        "rowsProcessed": 0,
+        "tradesCreated": 0,
+        "laneCounts": {},
+        "prevPeriodSeeded": false
+      },
+      "analysis_summary": {
+        "final_stage_counts": {},
+        "forced_reason_counts": {},
+        "top_blockers": [],
+        "first_in_review_row": null,
+        "first_enter_now_row": null
+      },
+      "actual_entries_after_replay": []
+    },
+    {
+      "ticker": "ORCL",
+      "expected_entries": [
+        {
+          "ticker": "ORCL",
+          "entry_ts": 1751377500000,
+          "entry_iso_utc": "2025-07-01T13:45:00+00:00",
+          "entry_path": "ripster_momentum",
+          "direction": "LONG",
+          "avg_bias": 0.937,
+          "bias_10m": 0.971,
+          "bias_30m": 0.929,
+          "bias_1H": 0.933,
+          "bias_4H": 0.868,
+          "bias_D": 0.97
+        }
+      ],
+      "replay_data_stats": {
+        "ok": true,
+        "date": "2025-07-01",
+        "ticker": "ORCL",
+        "tsStart": 1751376600000,
+        "tsEnd": 1751428799999,
+        "timed_trail": {
+          "rows": 79,
+          "rows_with_payload_json": 0,
+          "usable": false
+        },
+        "ingest_receipts": {
+          "rows": 0
+        },
+        "recommendation": "No data for this date/ticker; run ingest or backfill first."
+      },
+      "replay_summary": {
+        "rowsProcessed": 0,
+        "tradesCreated": 0,
+        "laneCounts": {},
+        "prevPeriodSeeded": false
+      },
+      "analysis_summary": {
+        "final_stage_counts": {},
+        "forced_reason_counts": {},
+        "top_blockers": [],
+        "first_in_review_row": null,
+        "first_enter_now_row": null
+      },
+      "actual_entries_after_replay": []
+    },
+    {
+      "ticker": "CSX",
+      "expected_entries": [
+        {
+          "ticker": "CSX",
+          "entry_ts": 1751377500000,
+          "entry_iso_utc": "2025-07-01T13:45:00+00:00",
+          "entry_path": "ripster_momentum",
+          "direction": "LONG",
+          "avg_bias": 0.787,
+          "bias_10m": 0.65,
+          "bias_30m": 0.377,
+          "bias_1H": 0.875,
+          "bias_4H": 0.965,
+          "bias_D": 0.975
+        }
+      ],
+      "replay_data_stats": {
+        "ok": true,
+        "date": "2025-07-01",
+        "ticker": "CSX",
+        "tsStart": 1751376600000,
+        "tsEnd": 1751428799999,
+        "timed_trail": {
+          "rows": 79,
+          "rows_with_payload_json": 0,
+          "usable": false
+        },
+        "ingest_receipts": {
+          "rows": 0
+        },
+        "recommendation": "No data for this date/ticker; run ingest or backfill first."
+      },
+      "replay_summary": {
+        "rowsProcessed": 0,
+        "tradesCreated": 0,
+        "laneCounts": {},
+        "prevPeriodSeeded": false
+      },
+      "analysis_summary": {
+        "final_stage_counts": {},
+        "forced_reason_counts": {},
+        "top_blockers": [],
+        "first_in_review_row": null,
+        "first_enter_now_row": null
+      },
+      "actual_entries_after_replay": []
+    },
+    {
+      "ticker": "ITT",
+      "expected_entries": [
+        {
+          "ticker": "ITT",
+          "entry_ts": 1751379300000,
+          "entry_iso_utc": "2025-07-01T14:15:00+00:00",
+          "entry_path": "ripster_momentum",
+          "direction": "LONG",
+          "avg_bias": 0.598,
+          "bias_10m": 0.609,
+          "bias_30m": 0.376,
+          "bias_1H": 0.392,
+          "bias_4H": 0.448,
+          "bias_D": 0.976
+        }
+      ],
+      "replay_data_stats": {
+        "ok": true,
+        "date": "2025-07-01",
+        "ticker": "ITT",
+        "tsStart": 1751376600000,
+        "tsEnd": 1751428799999,
+        "timed_trail": {
+          "rows": 79,
+          "rows_with_payload_json": 0,
+          "usable": false
+        },
+        "ingest_receipts": {
+          "rows": 0
+        },
+        "recommendation": "No data for this date/ticker; run ingest or backfill first."
+      },
+      "replay_summary": {
+        "rowsProcessed": 0,
+        "tradesCreated": 0,
+        "laneCounts": {},
+        "prevPeriodSeeded": false
+      },
+      "analysis_summary": {
+        "final_stage_counts": {},
+        "forced_reason_counts": {},
+        "top_blockers": [],
+        "first_in_review_row": null,
+        "first_enter_now_row": null
+      },
+      "actual_entries_after_replay": []
+    }
+  ],
+  "generated_at_utc": "2026-03-22T03:32:37.563171+00:00"
+}

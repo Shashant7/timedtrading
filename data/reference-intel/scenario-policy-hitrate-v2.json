@@ -1,0 +1,411 @@
+{
+  "generated_at_utc": "2026-03-23T12:52:34.310294+00:00",
+  "reference_fit": {
+    "reference_rows_evaluated": 134,
+    "tier_counts": {
+      "scenario_rules": 134
+    },
+    "tier_ratios": {
+      "scenario_rules": 1.0
+    },
+    "weak_tickers": []
+  },
+  "universe_generalization": {
+    "rows_evaluated": 2696,
+    "tier_counts": {
+      "global_default": 859,
+      "scenario_rules": 188,
+      "ticker_setup_rules": 264,
+      "context_defaults": 1385
+    },
+    "tier_ratios": {
+      "global_default": 0.3186,
+      "scenario_rules": 0.0697,
+      "ticker_setup_rules": 0.0979,
+      "context_defaults": 0.5137
+    },
+    "weak_tickers": [
+      {
+        "ticker": "ACN",
+        "rows": 14,
+        "global_or_none_ratio": 1.0,
+        "counts": {
+          "global_default": 14
+        }
+      },
+      {
+        "ticker": "KWEB",
+        "rows": 9,
+        "global_or_none_ratio": 1.0,
+        "counts": {
+          "global_default": 9
+        }
+      },
+      {
+        "ticker": "XLF",
+        "rows": 7,
+        "global_or_none_ratio": 1.0,
+        "counts": {
+          "global_default": 7
+        }
+      },
+      {
+        "ticker": "PPG",
+        "rows": 6,
+        "global_or_none_ratio": 1.0,
+        "counts": {
+          "global_default": 6
+        }
+      },
+      {
+        "ticker": "CRWV",
+        "rows": 5,
+        "global_or_none_ratio": 1.0,
+        "counts": {
+          "global_default": 5
+        }
+      },
+      {
+        "ticker": "FLR",
+        "rows": 5,
+        "global_or_none_ratio": 1.0,
+        "counts": {
+          "global_default": 5
+        }
+      },
+      {
+        "ticker": "JD",
+        "rows": 5,
+        "global_or_none_ratio": 1.0,
+        "counts": {
+          "global_default": 5
+        }
+      },
+      {
+        "ticker": "PANW",
+        "rows": 18,
+        "global_or_none_ratio": 0.8889,
+        "counts": {
+          "global_default": 16,
+          "context_defaults": 2
+        }
+      },
+      {
+        "ticker": "HALO",
+        "rows": 9,
+        "global_or_none_ratio": 0.8889,
+        "counts": {
+          "global_default": 8,
+          "context_defaults": 1
+        }
+      },
+      {
+        "ticker": "KO",
+        "rows": 8,
+        "global_or_none_ratio": 0.875,
+        "counts": {
+          "context_defaults": 1,
+          "global_default": 7
+        }
+      },
+      {
+        "ticker": "CRS",
+        "rows": 13,
+        "global_or_none_ratio": 0.8462,
+        "counts": {
+          "global_default": 11,
+          "scenario_rules": 1,
+          "context_defaults": 1
+        }
+      },
+      {
+        "ticker": "VST",
+        "rows": 6,
+        "global_or_none_ratio": 0.8333,
+        "counts": {
+          "global_default": 5,
+          "context_defaults": 1
+        }
+      },
+      {
+        "ticker": "BWXT",
+        "rows": 11,
+        "global_or_none_ratio": 0.8182,
+        "counts": {
+          "global_default": 9,
+          "context_defaults": 2
+        }
+      },
+      {
+        "ticker": "ETHA",
+        "rows": 10,
+        "global_or_none_ratio": 0.8,
+        "counts": {
+          "global_default": 8,
+          "context_defaults": 2
+        }
+      },
+      {
+        "ticker": "FSLR",
+        "rows": 13,
+        "global_or_none_ratio": 0.7692,
+        "counts": {
+          "global_default": 10,
+          "context_defaults": 3
+        }
+      },
+      {
+        "ticker": "NVDA",
+        "rows": 16,
+        "global_or_none_ratio": 0.6875,
+        "counts": {
+          "global_default": 11,
+          "context_defaults": 5
+        }
+      },
+      {
+        "ticker": "ARRY",
+        "rows": 33,
+        "global_or_none_ratio": 0.6667,
+        "counts": {
+          "global_default": 22,
+          "context_defaults": 10,
+          "scenario_rules": 1
+        }
+      },
+      {
+        "ticker": "SHOP",
+        "rows": 6,
+        "global_or_none_ratio": 0.6667,
+        "counts": {
+          "context_defaults": 2,
+          "global_default": 4
+        }
+      },
+      {
+        "ticker": "CW",
+        "rows": 11,
+        "global_or_none_ratio": 0.6364,
+        "counts": {
+          "global_default": 7,
+          "context_defaults": 4
+        }
+      },
+      {
+        "ticker": "SOFI",
+        "rows": 11,
+        "global_or_none_ratio": 0.6364,
+        "counts": {
+          "context_defaults": 4,
+          "global_default": 7
+        }
+      },
+      {
+        "ticker": "RBLX",
+        "rows": 8,
+        "global_or_none_ratio": 0.625,
+        "counts": {
+          "global_default": 5,
+          "scenario_rules": 3
+        }
+      },
+      {
+        "ticker": "SATS",
+        "rows": 8,
+        "global_or_none_ratio": 0.625,
+        "counts": {
+          "context_defaults": 3,
+          "global_default": 5
+        }
+      },
+      {
+        "ticker": "COST",
+        "rows": 13,
+        "global_or_none_ratio": 0.6154,
+        "counts": {
+          "global_default": 8,
+          "context_defaults": 4,
+          "scenario_rules": 1
+        }
+      },
+      {
+        "ticker": "ANET",
+        "rows": 20,
+        "global_or_none_ratio": 0.6,
+        "counts": {
+          "global_default": 12,
+          "context_defaults": 6,
+          "scenario_rules": 2
+        }
+      },
+      {
+        "ticker": "DE",
+        "rows": 5,
+        "global_or_none_ratio": 0.6,
+        "counts": {
+          "context_defaults": 1,
+          "scenario_rules": 1,
+          "global_default": 3
+        }
+      },
+      {
+        "ticker": "MSFT",
+        "rows": 22,
+        "global_or_none_ratio": 0.5909,
+        "counts": {
+          "global_default": 13,
+          "context_defaults": 9
+        }
+      },
+      {
+        "ticker": "AVAV",
+        "rows": 28,
+        "global_or_none_ratio": 0.5714,
+        "counts": {
+          "global_default": 16,
+          "context_defaults": 10,
+          "scenario_rules": 2
+        }
+      },
+      {
+        "ticker": "GEV",
+        "rows": 21,
+        "global_or_none_ratio": 0.5714,
+        "counts": {
+          "context_defaults": 9,
+          "global_default": 12
+        }
+      },
+      {
+        "ticker": "UNP",
+        "rows": 9,
+        "global_or_none_ratio": 0.5556,
+        "counts": {
+          "context_defaults": 4,
+          "global_default": 5
+        }
+      },
+      {
+        "ticker": "LITE",
+        "rows": 33,
+        "global_or_none_ratio": 0.5455,
+        "counts": {
+          "global_default": 18,
+          "context_defaults": 14,
+          "scenario_rules": 1
+        }
+      },
+      {
+        "ticker": "XLC",
+        "rows": 17,
+        "global_or_none_ratio": 0.5294,
+        "counts": {
+          "global_default": 9,
+          "context_defaults": 8
+        }
+      },
+      {
+        "ticker": "AMD",
+        "rows": 32,
+        "global_or_none_ratio": 0.5,
+        "counts": {
+          "global_default": 16,
+          "context_defaults": 15,
+          "scenario_rules": 1
+        }
+      },
+      {
+        "ticker": "AVGO",
+        "rows": 32,
+        "global_or_none_ratio": 0.5,
+        "counts": {
+          "global_default": 16,
+          "context_defaults": 16
+        }
+      },
+      {
+        "ticker": "IBP",
+        "rows": 18,
+        "global_or_none_ratio": 0.5,
+        "counts": {
+          "global_default": 9,
+          "context_defaults": 8,
+          "scenario_rules": 1
+        }
+      },
+      {
+        "ticker": "APD",
+        "rows": 16,
+        "global_or_none_ratio": 0.5,
+        "counts": {
+          "global_default": 8,
+          "context_defaults": 6,
+          "scenario_rules": 2
+        }
+      },
+      {
+        "ticker": "ORCL",
+        "rows": 14,
+        "global_or_none_ratio": 0.5,
+        "counts": {
+          "global_default": 7,
+          "context_defaults": 7
+        }
+      },
+      {
+        "ticker": "XLY",
+        "rows": 14,
+        "global_or_none_ratio": 0.5,
+        "counts": {
+          "context_defaults": 7,
+          "global_default": 7
+        }
+      },
+      {
+        "ticker": "META",
+        "rows": 12,
+        "global_or_none_ratio": 0.5,
+        "counts": {
+          "global_default": 6,
+          "context_defaults": 6
+        }
+      },
+      {
+        "ticker": "BK",
+        "rows": 10,
+        "global_or_none_ratio": 0.5,
+        "counts": {
+          "context_defaults": 5,
+          "global_default": 5
+        }
+      },
+      {
+        "ticker": "MP",
+        "rows": 8,
+        "global_or_none_ratio": 0.5,
+        "counts": {
+          "global_default": 4,
+          "scenario_rules": 4
+        }
+      },
+      {
+        "ticker": "GDX",
+        "rows": 6,
+        "global_or_none_ratio": 0.5,
+        "counts": {
+          "scenario_rules": 3,
+          "global_default": 3
+        }
+      },
+      {
+        "ticker": "XLK",
+        "rows": 6,
+        "global_or_none_ratio": 0.5,
+        "counts": {
+          "context_defaults": 3,
+          "global_default": 3
+        }
+      }
+    ]
+  }
+}

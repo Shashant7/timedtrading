@@ -1,0 +1,438 @@
+{
+  "run_id": "backtest_2025-07-01_2025-08-08@2026-03-11T23:57:30.315Z",
+  "generated": "2026-03-12T02:49:39.330Z",
+  "since": "2025-07-01",
+  "sections": {
+    "overall": {
+      "n": 78,
+      "wr": 55.1,
+      "exp": 1.25,
+      "sqn": 2.38,
+      "pf": 2.34,
+      "total": 97.35,
+      "avg": 1.25
+    },
+    "avoidable_losses": {
+      "count": 18,
+      "total_losses": 34,
+      "damage_pct": 44.13,
+      "total_loss_pct": 72.81,
+      "flags": {
+        "against_regime": {
+          "count": 12,
+          "damage_pct": 30.57
+        },
+        "no_htf_alignment": {
+          "count": 9,
+          "damage_pct": 15.27
+        }
+      },
+      "clean_losses": 16
+    },
+    "signal_effectiveness": {
+      "htf_aligned": {
+        "n": 53,
+        "wr": 52.8,
+        "exp": 0.5,
+        "sqn": 0.99,
+        "pf": 1.46,
+        "total": 26.24,
+        "avg": 0.5
+      },
+      "htf_not_aligned": {
+        "n": 25,
+        "wr": 60,
+        "exp": 2.84,
+        "sqn": 2.39,
+        "pf": 5.66,
+        "total": 71.11,
+        "avg": 2.84
+      },
+      "ltf_aligned": {
+        "n": 29,
+        "wr": 48.3,
+        "exp": 0.51,
+        "sqn": 0.51,
+        "pf": 1.36,
+        "total": 14.67,
+        "avg": 0.51
+      },
+      "ltf_not_aligned": {
+        "n": 49,
+        "wr": 59.2,
+        "exp": 1.69,
+        "sqn": 2.91,
+        "pf": 3.58,
+        "total": 82.68,
+        "avg": 1.69
+      },
+      "full_alignment": {
+        "n": 20,
+        "wr": 40,
+        "exp": -0.32,
+        "sqn": -0.34,
+        "pf": 0.79,
+        "total": -6.46,
+        "avg": -0.32
+      },
+      "squeeze_release": {
+        "n": 0,
+        "wr": 0,
+        "exp": 0,
+        "sqn": 0,
+        "pf": 0,
+        "total": 0,
+        "avg": 0
+      },
+      "no_squeeze": {
+        "n": 78,
+        "wr": 55.1,
+        "exp": 1.25,
+        "sqn": 2.38,
+        "pf": 2.34,
+        "total": 97.35,
+        "avg": 1.25
+      }
+    },
+    "regime": {
+      "by_state": {
+        "HTF_BULL_LTF_BULL": {
+          "n": 33,
+          "wr": 60.6,
+          "exp": 1.6,
+          "sqn": 2.21,
+          "pf": 3.43,
+          "total": 52.68,
+          "avg": 1.6
+        },
+        "HTF_BEAR_LTF_BEAR": {
+          "n": 17,
+          "wr": 64.7,
+          "exp": 1.39,
+          "sqn": 0.85,
+          "pf": 1.93,
+          "total": 23.67,
+          "avg": 1.39
+        },
+        "HTF_BEAR_LTF_PULLBACK": {
+          "n": 7,
+          "wr": 42.9,
+          "exp": 1.42,
+          "sqn": 1.7,
+          "pf": 8.74,
+          "total": 9.95,
+          "avg": 1.42
+        },
+        "HTF_BULL_LTF_PULLBACK": {
+          "n": 21,
+          "wr": 42.9,
+          "exp": 0.53,
+          "sqn": 0.66,
+          "pf": 1.45,
+          "total": 11.06,
+          "avg": 0.53
+        }
+      },
+      "by_regime_class": {
+        "TRANSITIONAL": {
+          "n": 19,
+          "wr": 68.4,
+          "exp": 3.02,
+          "sqn": 2.61,
+          "pf": 11.82,
+          "total": 57.45,
+          "avg": 3.02
+        },
+        "TRENDING": {
+          "n": 58,
+          "wr": 51.7,
+          "exp": 0.72,
+          "sqn": 1.25,
+          "pf": 1.63,
+          "total": 41.61,
+          "avg": 0.72
+        }
+      }
+    },
+    "tickers": {
+      "edge": [
+        {
+          "ticker": "BE",
+          "n": 6,
+          "wr": 50,
+          "exp": 3.95,
+          "total": 23.7,
+          "personality": "?"
+        },
+        {
+          "ticker": "ARRY",
+          "n": 2,
+          "wr": 100,
+          "exp": 10.06,
+          "total": 20.12,
+          "personality": "?"
+        },
+        {
+          "ticker": "AMD",
+          "n": 5,
+          "wr": 60,
+          "exp": 3.6,
+          "total": 17.99,
+          "personality": "?"
+        },
+        {
+          "ticker": "TPL",
+          "n": 6,
+          "wr": 50,
+          "exp": 2.25,
+          "total": 13.5,
+          "personality": "?"
+        },
+        {
+          "ticker": "DY",
+          "n": 3,
+          "wr": 100,
+          "exp": 3.56,
+          "total": 10.68,
+          "personality": "?"
+        },
+        {
+          "ticker": "BABA",
+          "n": 4,
+          "wr": 75,
+          "exp": 1.83,
+          "total": 7.31,
+          "personality": "?"
+        },
+        {
+          "ticker": "AVGO",
+          "n": 2,
+          "wr": 100,
+          "exp": 3.41,
+          "total": 6.82,
+          "personality": "?"
+        },
+        {
+          "ticker": "ORCL",
+          "n": 4,
+          "wr": 75,
+          "exp": 1.52,
+          "total": 6.06,
+          "personality": "?"
+        },
+        {
+          "ticker": "AR",
+          "n": 3,
+          "wr": 66.7,
+          "exp": 1.86,
+          "total": 5.57,
+          "personality": "?"
+        },
+        {
+          "ticker": "ANET",
+          "n": 2,
+          "wr": 50,
+          "exp": 2.03,
+          "total": 4.06,
+          "personality": "?"
+        }
+      ],
+      "toxic": [
+        {
+          "ticker": "LRN",
+          "n": 2,
+          "wr": 50,
+          "exp": -6.93,
+          "total": -13.86,
+          "personality": "?"
+        },
+        {
+          "ticker": "AVAV",
+          "n": 2,
+          "wr": 0,
+          "exp": -3.57,
+          "total": -7.14,
+          "personality": "?"
+        },
+        {
+          "ticker": "PKG",
+          "n": 2,
+          "wr": 0,
+          "exp": -1.85,
+          "total": -3.7,
+          "personality": "?"
+        },
+        {
+          "ticker": "AAPL",
+          "n": 2,
+          "wr": 0,
+          "exp": -1.25,
+          "total": -2.5,
+          "personality": "?"
+        },
+        {
+          "ticker": "IBP",
+          "n": 3,
+          "wr": 0,
+          "exp": -0.53,
+          "total": -1.6,
+          "personality": "?"
+        },
+        {
+          "ticker": "ETN",
+          "n": 5,
+          "wr": 40,
+          "exp": -0.25,
+          "total": -1.23,
+          "personality": "?"
+        }
+      ],
+      "by_personality": {
+        "MIXED": {
+          "n": 70,
+          "wr": 57.1,
+          "exp": 1.53,
+          "sqn": 2.7,
+          "pf": 2.81,
+          "total": 107.35,
+          "avg": 1.53
+        },
+        "MEAN_REVERT": {
+          "n": 5,
+          "wr": 60,
+          "exp": -0.01,
+          "sqn": -0.02,
+          "pf": 0.98,
+          "total": -0.06,
+          "avg": -0.01
+        },
+        "MOMENTUM": {
+          "n": 3,
+          "wr": 0,
+          "exp": -3.31,
+          "sqn": -4.58,
+          "pf": 0,
+          "total": -9.94,
+          "avg": -3.31
+        }
+      }
+    },
+    "timing": {
+      "by_hold_time": {
+        "3-7d": {
+          "n": 21,
+          "wr": 71.4,
+          "exp": 2.02,
+          "sqn": 1.74,
+          "pf": 2.98,
+          "total": 42.35,
+          "avg": 2.02
+        },
+        "1-3d": {
+          "n": 19,
+          "wr": 47.4,
+          "exp": 1.33,
+          "sqn": 1.16,
+          "pf": 2.24,
+          "total": 25.33,
+          "avg": 1.33
+        },
+        ">7d": {
+          "n": 14,
+          "wr": 92.9,
+          "exp": 3.74,
+          "sqn": 2.96,
+          "pf": 38.2,
+          "total": 52.4,
+          "avg": 3.74
+        },
+        "4h-1d": {
+          "n": 24,
+          "wr": 25,
+          "exp": -0.95,
+          "sqn": -2.62,
+          "pf": 0.23,
+          "total": -22.73,
+          "avg": -0.95
+        }
+      },
+      "by_hour": {
+        "9": {
+          "n": 32,
+          "wr": 56.3,
+          "exp": 0.85,
+          "sqn": 1.09,
+          "pf": 1.77,
+          "total": 27.17,
+          "avg": 0.85
+        },
+        "10": {
+          "n": 10,
+          "wr": 60,
+          "exp": 2.76,
+          "sqn": 1.42,
+          "pf": 5.14,
+          "total": 27.62,
+          "avg": 2.76
+        },
+        "11": {
+          "n": 4,
+          "wr": 25,
+          "exp": -0.1,
+          "sqn": -0.14,
+          "pf": 0.85,
+          "total": -0.41,
+          "avg": -0.1
+        },
+        "12": {
+          "n": 8,
+          "wr": 50,
+          "exp": 0.1,
+          "sqn": 0.17,
+          "pf": 1.15,
+          "total": 0.84,
+          "avg": 0.1
+        },
+        "13": {
+          "n": 13,
+          "wr": 76.9,
+          "exp": 3.88,
+          "sqn": 2.59,
+          "pf": 10.32,
+          "total": 50.48,
+          "avg": 3.88
+        },
+        "14": {
+          "n": 6,
+          "wr": 16.7,
+          "exp": -2.39,
+          "sqn": -3.29,
+          "pf": 0.04,
+          "total": -14.33,
+          "avg": -2.39
+        },
+        "15": {
+          "n": 5,
+          "wr": 60,
+          "exp": 1.2,
+          "sqn": 1.13,
+          "pf": 3.44,
+          "total": 5.99,
+          "avg": 1.2
+        }
+      }
+    },
+    "recommendations": [
+      {
+        "priority": 1,
+        "title": "Block trades against HTF regime (12 trades, -30.57% damage)",
+        "action": "Add entry guard: reject LONG when regime_combined is bearish, reject SHORT when bullish."
+      },
+      {
+        "priority": 4,
+        "title": "Auto-ban toxic tickers: LRN, AVAV, PKG, AAPL, IBP (-30.03% total)",
+        "action": "Add these tickers to a deny list or require rank >= 85 for entry."
+      }
+    ]
+  }
+}

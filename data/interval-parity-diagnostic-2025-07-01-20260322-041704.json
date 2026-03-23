@@ -1,0 +1,110 @@
+{
+  "date": "2025-07-01",
+  "tickers": [
+    "CDNS"
+  ],
+  "engine": "legacy",
+  "interval_minutes": 5,
+  "generated_at_utc": "2026-03-22T04:15:56.359347+00:00",
+  "results": [
+    {
+      "ticker": "CDNS",
+      "first_signal_interval": 0,
+      "first_signal_time_utc": "2025-07-01T13:30:00+00:00",
+      "signal_type": "trade_created",
+      "top_reason": null,
+      "top_reason_count": 0,
+      "stage_counts": {
+        "in_review": 1
+      },
+      "trades_created_in_interval": 1,
+      "scored_in_interval": 1,
+      "interval_checks": [
+        {
+          "interval": 0,
+          "time_utc": "2025-07-01T13:30:00+00:00",
+          "scored": 1,
+          "tradesCreated": 1,
+          "topBlockReason": null,
+          "topBlockReasonCount": 0,
+          "stageCounts": {
+            "in_review": 1
+          },
+          "blockedEntryGates": {},
+          "processDebug": [
+            {
+              "sym": "CDNS",
+              "at": "entry",
+              "stage": "in_review",
+              "hasEntryPath": true
+            },
+            {
+              "sym": "CDNS",
+              "at": "isEnter",
+              "stage": "in_review",
+              "storedStage": "in_review"
+            },
+            {
+              "sym": "CDNS",
+              "at": "pre_gate",
+              "weekendNow": false,
+              "outsideRTH": false,
+              "enterCooldownOk": true,
+              "sameEnterCycle": false,
+              "openTrade": false,
+              "smartGateBlocked": false
+            },
+            {
+              "sym": "CDNS",
+              "at": "before_smart",
+              "weekendNow": false,
+              "outsideRTH": false,
+              "canRun": true
+            },
+            {
+              "ts": 1751376600000,
+              "sym": "CDNS",
+              "storedStage": "in_review",
+              "stage": "in_review",
+              "isEnter": true,
+              "weekendNow": false,
+              "enterCooldownOk": true,
+              "sameEnterCycle": false,
+              "openTrade": false,
+              "smartGateBlocked": false,
+              "direction": "LONG",
+              "entryPath": "ema_regime_confirmed_long"
+            },
+            {
+              "sym": "CDNS",
+              "gate": "passed",
+              "dir": "LONG",
+              "entryPath": "ema_regime_confirmed_long",
+              "entryPx": 310.85999
+            },
+            {
+              "sym": "CDNS",
+              "gate": "trade_validation",
+              "dir": "LONG",
+              "entryPx": 310.85999,
+              "pxNow": 310.85999,
+              "slCandidate": 301.53,
+              "tpCandidate": 324.62,
+              "allValid": true,
+              "hasSl": true,
+              "hasTp": true
+            },
+            {
+              "sym": "CDNS",
+              "gate": "sizing",
+              "shares": 48.25323451885848,
+              "notional": 15000,
+              "cash": 100000,
+              "method": "risk_based"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

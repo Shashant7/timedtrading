@@ -1,0 +1,21 @@
+{
+  "ok": true,
+  "count": 1,
+  "trades": [
+    {
+      "trade_id": "FSLR-1751376900000-2fw9mbjm8",
+      "ticker": "FSLR",
+      "direction": "LONG",
+      "entry_ts": 1751376900000,
+      "exit_ts": 1774040768153,
+      "entry_price": 167.78,
+      "exit_price": null,
+      "pnl": -6.035576392719146,
+      "pnl_pct": -0.3478364524973119,
+      "exit_reason": "unknown",
+      "signal_snapshot_json": "{\"avg_bias\":0.85,\"tf\":{\"10m\":{\"bias\":1,\"signals\":{\"ema_cross\":1,\"supertrend\":1,\"ema_structure\":1,\"ema_depth\":12,\"rsi\":70.6}},\"30m\":{\"bias\":1,\"signals\":{\"ema_cross\":1,\"supertrend\":1,\"ema_structure\":1,\"ema_depth\":12,\"rsi\":65.1}},\"1H\":{\"bias\":0.912,\"signals\":{\"ema_cross\":1,\"supertrend\":1,\"ema_structure\":1,\"ema_depth\":10,\"rsi\":62.3}},\"4H\":{\"bias\":0.945,\"signals\":{\"ema_cross\":1,\"supertrend\":1,\"ema_structure\":1,\"ema_depth\":11,\"rsi\":60.9}},\"D\":{\"bias\":0.545,\"signals\":{\"ema5_48\":1,\"ema_cross\":1,\"supertrend\":-1,\"ema_structure\":1,\"ema_depth\":12,\"rsi\":54.7}}},\"lineage\":{\"entry_path\":\"ripster_momentum\",\"direction_source\":\"consensus\",\"state\":\"HTF_BULL_LTF_BULL\",\"regime_class\":\"CHOPPY\",\"regime_score\":-1,\"execution_profile\":{\"active_profile\":\"choppy_selective\",\"confidence\":0.84,\"reasons\":[\"Ticker regime is choppy\"],\"ticker_regime\":\"CHOPPY\",\"market_state\":\"balanced\",\"personality\":\"VOLATILE_RUNNER\"},\"market_internals\":null,\"ticker_character\":{\"personality\":\"VOLATILE_RUNNER\",\"sl_mult\":1.4,\"tp_mult\":1.43,\"entry_threshold_adj\":0,\"atr_pct_p50\":4.79,\"trend_persistence\":0.41},\"ripster_clouds\":{\"D\":{\"c5_12\":{\"b\":1,\"ab\":1,\"sp\":0.0105},\"c8_9\":{\"b\":1,\"ab\":1,\"sp\":0.001},\"c34_50\":{\"b\":1,\"ab\":1,\"sp\":0.0091},\"c72_89\":{\"b\":0,\"ab\":1,\"sp\":0.0045}},\"4H\":{\"c5_12\":{\"b\":1,\"ab\":0,\"sp\":0.0142,\"ic\":1},\"c8_9\":{\"b\":1,\"ab\":0,\"sp\":0.0022},\"c34_50\":{\"b\":1,\"ab\":1,\"sp\":0.0063},\"c72_89\":{\"b\":1,\"ab\":1,\"sp\":0.0001,\"xu\":1},\"c180_200\":{\"b\":1,\"ab\":1,\"sp\":0.0013}},\"1H\":{\"c5_12\":{\"b\":1,\"ab\":0,\"sp\":0.0146,\"ic\":1},\"c8_9\":{\"b\":1,\"ab\":1,\"sp\":0.0022},\"c34_50\":{\"b\":1,\"ab\":1,\"sp\":0.0068},\"c72_89\":{\"b\":0,\"ab\":1,\"sp\":0.0001}},\"W\":{\"c5_12\":{\"b\":1,\"ab\":1,\"sp\":0.0377},\"c8_9\":{\"b\":1,\"ab\":1,\"sp\":0.0054},\"c34_50\":{\"b\":0,\"ab\":1,\"sp\":0.0604}}},\"vix_at_entry\":null,\"rvol\":{\"30m\":11.12,\"1H\":1.56,\"D\":1.28},\"entry_quality_score\":74,\"danger_score\":null,\"danger_flags\":null,\"regime_params\":{\"minHTFScore\":15,\"minRR\":3,\"maxCompletion\":0.3,\"positionSizeMultiplier\":0.5,\"requireSqueezeRelease\":false,\"defendWinnerBias\":null},\"rsi_divergence\":{\"30\":{\"bear\":{\"active\":false,\"strength\":3.4,\"barsSince\":17},\"bull\":null}},\"td_counts\":{\"15\":{\"bp\":0,\"bl\":0,\"xp\":1,\"xl\":0},\"30\":{\"bp\":0,\"bl\":0,\"xp\":5,\"xl\":0},\"60\":{\"bp\":2,\"bl\":0,\"xp\":0,\"xl\":0},\"240\":{\"bp\":1,\"bl\":0,\"xp\":0,\"xl\":0},\"D\":{\"bp\":0,\"bl\":0,\"xp\":6,\"xl\":0},\"W\":{\"bp\":0,\"bl\":0,\"xp\":1,\"xl\":0}},\"saty_phase\":{\"30\":{\"v\":29.49,\"z\":\"MEDIUM\",\"l\":{\"extUp\":false,\"distrib\":false,\"accum\":false,\"extDn\":false}},\"1H\":{\"v\":57.51,\"z\":\"MEDIUM\",\"l\":{\"extUp\":false,\"distrib\":true,\"accum\":false,\"extDn\":false}},\"D\":{\"v\":14.37,\"z\":\"LOW\",\"l\":{\"extUp\":false,\"distrib\":false,\"accum\":false,\"extDn\":false}}},\"supertrend\":{\"30\":{\"d\":-1,\"s\":0},\"D\":{\"d\":1,\"s\":0},\"4H\":{\"d\":-1,\"s\":0},\"1H\":{\"d\":-1,\"s\":0}},\"st_bars_since_flip_D\":27,\"swing_consensus\":{\"dir\":\"LONG\",\"bias\":0.85,\"bull\":5,\"bear\":0},\"atr_disp\":{\"day\":{\"d\":0.22,\"b\":\"NEUTRAL\",\"r\":106.1},\"week\":{\"d\":0.674,\"b\":\"KEY_618\",\"r\":132.3}},\"volatility_tier\":\"EXTREME\",\"ema_depth\":{\"30\":12,\"60\":10,\"240\":11,\"D\":12},\"fuel\":{\"30\":{\"s\":\"healthy\",\"p\":0},\"60\":{\"s\":\"healthy\",\"p\":0}},\"mean_revert_td9\":null,\"liq\":{\"4H\":{\"bsd\":-1,\"ssd\":-1,\"bc\":0,\"sc\":0},\"D\":{\"bsd\":0.7,\"ssd\":4.29,\"bc\":1,\"sc\":1},\"W\":{\"bsd\":-1,\"ssd\":-1,\"bc\":0,\"sc\":0}},\"orb\":null}}",
+      "entry_path": "ripster_momentum",
+      "consensus_direction": "LONG"
+    }
+  ]
+}

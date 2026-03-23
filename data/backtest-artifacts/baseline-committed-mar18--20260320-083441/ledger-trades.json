@@ -1,0 +1,35 @@
+{
+  "ok": true,
+  "count": 1,
+  "hasMore": false,
+  "nextCursor": null,
+  "trades": [
+    {
+      "trade_id": "APP-1752596400000-9i1uxiccl",
+      "ticker": "APP",
+      "direction": "LONG",
+      "entry_ts": 1752596400000,
+      "entry_price": 353.06131,
+      "rank": 72,
+      "rr": 7.3843759709598045,
+      "status": "WIN",
+      "exit_ts": 1752773400000,
+      "exit_price": 359.31,
+      "exit_reason": "PHASE_LEAVE_100",
+      "trimmed_pct": 0.66,
+      "pnl": 132.2131275160114,
+      "pnl_pct": 2.203552125266857,
+      "script_version": "alpaca_server_v2.0",
+      "created_at": 1752596400000,
+      "updated_at": 1774010053958,
+      "trim_ts": 1752759900000,
+      "trim_price": 361.63,
+      "setup_name": "TT Confirmed Long",
+      "setup_grade": "Confirmed",
+      "risk_budget": 0.01,
+      "shares": 16.99421553723913,
+      "notional": 6000,
+      "quantity": 16.99421553723913
+    }
+  ]
+}

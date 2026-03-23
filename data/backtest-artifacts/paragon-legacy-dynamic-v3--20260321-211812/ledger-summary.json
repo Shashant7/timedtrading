@@ -1,0 +1,85 @@
+{
+  "ok": true,
+  "since": null,
+  "until": null,
+  "totals": {
+    "totalTrades": 25,
+    "openTrades": 14,
+    "closedTrades": 11,
+    "wins": 2,
+    "losses": 9,
+    "winRate": 18.181818181818183,
+    "closedPnl": 206.30359160874343,
+    "profitFactor": 1.2920328545959967,
+    "avgWin": 456.3716276862114,
+    "avgLoss": 78.49329597374215,
+    "expectancy": 18.75487196443122,
+    "grossWin": 912.7432553724228,
+    "grossLoss": 706.4396637636794
+  },
+  "breakdown": {
+    "byRank": [
+      {
+        "bucket": "70-79",
+        "n": 5,
+        "wins": 0,
+        "losses": 1,
+        "pnl": -81.85301705914871
+      },
+      {
+        "bucket": "80+",
+        "n": 17,
+        "wins": 2,
+        "losses": 7,
+        "pnl": 341.1084673973785
+      },
+      {
+        "bucket": "<60",
+        "n": 3,
+        "wins": 0,
+        "losses": 1,
+        "pnl": -52.95185872948635
+      }
+    ],
+    "byRR": [
+      {
+        "bucket": "2.0+",
+        "n": 25,
+        "wins": 2,
+        "losses": 9,
+        "pnl": 206.30359160874343
+      }
+    ],
+    "byExitReason": [
+      {
+        "reason": "unknown",
+        "n": 15,
+        "wins": 0,
+        "losses": 1,
+        "pnl": -80.4845116982533
+      },
+      {
+        "reason": "doa_early_exit",
+        "n": 6,
+        "wins": 0,
+        "losses": 6,
+        "pnl": -426.76330446435475
+      },
+      {
+        "reason": "RUNNER_MAX_DRAWDOWN_BREAKER",
+        "n": 3,
+        "wins": 1,
+        "losses": 2,
+        "pnl": 408.07076136732894
+      },
+      {
+        "reason": "PROFIT_GIVEBACK",
+        "n": 1,
+        "wins": 1,
+        "losses": 0,
+        "pnl": 305.48064640402254
+      }
+    ],
+    "byTriggerReason": []
+  }
+}

@@ -1,0 +1,2360 @@
+{
+  "dates": [
+    "2025-07-01",
+    "2025-07-02",
+    "2025-07-03"
+  ],
+  "intervals": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8
+  ],
+  "rows": [
+    {
+      "date": "2025-07-01",
+      "interval": 0,
+      "ticker": "CSX",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "path": null,
+      "selectedEngine": "tt_core",
+      "engineSource": "reference_date_bucket",
+      "scenarioPolicySource": "scenario_policy_default",
+      "scenarioExitStyle": "smart_exit_bias",
+      "metadata": {
+        "cloudAlignment": {
+          "D": "bull",
+          "h1": "na",
+          "m10": "bear"
+        },
+        "alignedCount": 1,
+        "strongDailyTrend": true
+      }
+    },
+    {
+      "date": "2025-07-01",
+      "interval": 0,
+      "ticker": "CVNA",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "path": null,
+      "selectedEngine": "tt_core",
+      "engineSource": "reference_date_bucket",
+      "scenarioPolicySource": "scenario_policy_default",
+      "scenarioExitStyle": "smart_exit_bias",
+      "metadata": {
+        "cloudAlignment": {
+          "D": "bull",
+          "h1": "na",
+          "m10": "bull"
+        },
+        "alignedCount": 2,
+        "strongDailyTrend": true
+      }
+    },
+    {
+      "date": "2025-07-01",
+      "interval": 0,
+      "ticker": "LMND",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "path": null,
+      "selectedEngine": "tt_core",
+      "engineSource": "reference_date_bucket",
+      "scenarioPolicySource": "scenario_policy_default",
+      "scenarioExitStyle": "smart_exit_bias",
+      "metadata": {
+        "cloudAlignment": {
+          "D": "bull",
+          "h1": "na",
+          "m10": "bull"
+        },
+        "alignedCount": 2,
+        "strongDailyTrend": true
+      }
+    },
+    {
+      "date": "2025-07-01",
+      "interval": 0,
+      "ticker": "BABA",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "path": null,
+      "selectedEngine": "tt_core",
+      "engineSource": "reference_ticker_window",
+      "scenarioPolicySource": "scenario_policy_default",
+      "scenarioExitStyle": "smart_exit_bias",
+      "metadata": {
+        "cloudAlignment": {
+          "D": "bear",
+          "h1": "na",
+          "m10": "bear"
+        },
+        "alignedCount": 2,
+        "strongDailyTrend": true
+      }
+    },
+    {
+      "date": "2025-07-01",
+      "interval": 1,
+      "ticker": "CSX",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "path": null,
+      "selectedEngine": "tt_core",
+      "engineSource": "reference_date_bucket",
+      "scenarioPolicySource": "scenario_policy_default",
+      "scenarioExitStyle": "smart_exit_bias",
+      "metadata": {
+        "cloudAlignment": {
+          "D": "bull",
+          "h1": "na",
+          "m10": "bear"
+        },
+        "alignedCount": 1,
+        "strongDailyTrend": true
+      }
+    },
+    {
+      "date": "2025-07-01",
+      "interval": 1,
+      "ticker": "CVNA",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "path": null,
+      "selectedEngine": "tt_core",
+      "engineSource": "reference_date_bucket",
+      "scenarioPolicySource": "scenario_policy_default",
+      "scenarioExitStyle": "smart_exit_bias",
+      "metadata": {
+        "cloudAlignment": {
+          "D": "bull",
+          "h1": "na",
+          "m10": "bull"
+        },
+        "alignedCount": 2,
+        "strongDailyTrend": true
+      }
+    },
+    {
+      "date": "2025-07-01",
+      "interval": 1,
+      "ticker": "LMND",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "path": null,
+      "selectedEngine": "tt_core",
+      "engineSource": "reference_date_bucket",
+      "scenarioPolicySource": "scenario_policy_default",
+      "scenarioExitStyle": "smart_exit_bias",
+      "metadata": {
+        "cloudAlignment": {
+          "D": "bull",
+          "h1": "na",
+          "m10": "bull"
+        },
+        "alignedCount": 2,
+        "strongDailyTrend": true
+      }
+    },
+    {
+      "date": "2025-07-01",
+      "interval": 1,
+      "ticker": "BABA",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "path": null,
+      "selectedEngine": "tt_core",
+      "engineSource": "reference_ticker_window",
+      "scenarioPolicySource": "scenario_policy_default",
+      "scenarioExitStyle": "smart_exit_bias",
+      "metadata": {
+        "cloudAlignment": {
+          "D": "bear",
+          "h1": "na",
+          "m10": "bear"
+        },
+        "alignedCount": 2,
+        "strongDailyTrend": true
+      }
+    },
+    {
+      "date": "2025-07-01",
+      "interval": 2,
+      "ticker": "CSX",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "path": null,
+      "selectedEngine": "tt_core",
+      "engineSource": "reference_date_bucket",
+      "scenarioPolicySource": "scenario_policy_default",
+      "scenarioExitStyle": "smart_exit_bias",
+      "metadata": {
+        "cloudAlignment": {
+          "D": "bull",
+          "h1": "na",
+          "m10": "bear"
+        },
+        "alignedCount": 1,
+        "strongDailyTrend": true
+      }
+    },
+    {
+      "date": "2025-07-01",
+      "interval": 2,
+      "ticker": "CVNA",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "path": null,
+      "selectedEngine": "tt_core",
+      "engineSource": "reference_date_bucket",
+      "scenarioPolicySource": "scenario_policy_default",
+      "scenarioExitStyle": "smart_exit_bias",
+      "metadata": {
+        "cloudAlignment": {
+          "D": "bull",
+          "h1": "na",
+          "m10": "bull"
+        },
+        "alignedCount": 2,
+        "strongDailyTrend": true
+      }
+    },
+    {
+      "date": "2025-07-01",
+      "interval": 2,
+      "ticker": "LMND",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "path": null,
+      "selectedEngine": "tt_core",
+      "engineSource": "reference_date_bucket",
+      "scenarioPolicySource": "scenario_policy_default",
+      "scenarioExitStyle": "smart_exit_bias",
+      "metadata": {
+        "cloudAlignment": {
+          "D": "bull",
+          "h1": "na",
+          "m10": "bull"
+        },
+        "alignedCount": 2,
+        "strongDailyTrend": true
+      }
+    },
+    {
+      "date": "2025-07-01",
+      "interval": 2,
+      "ticker": "BABA",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "path": null,
+      "selectedEngine": "tt_core",
+      "engineSource": "reference_exact",
+      "scenarioPolicySource": "scenario_policy_default",
+      "scenarioExitStyle": "smart_exit_bias",
+      "metadata": {
+        "cloudAlignment": {
+          "D": "bear",
+          "h1": "na",
+          "m10": "bear"
+        },
+        "alignedCount": 2,
+        "strongDailyTrend": true
+      }
+    },
+    {
+      "date": "2025-07-01",
+      "interval": 3,
+      "ticker": "CSX",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "path": null,
+      "selectedEngine": "tt_core",
+      "engineSource": "reference_date_bucket",
+      "scenarioPolicySource": "scenario_policy_default",
+      "scenarioExitStyle": "smart_exit_bias",
+      "metadata": {
+        "cloudAlignment": {
+          "D": "bull",
+          "h1": "na",
+          "m10": "bear"
+        },
+        "alignedCount": 1,
+        "strongDailyTrend": true
+      }
+    },
+    {
+      "date": "2025-07-01",
+      "interval": 3,
+      "ticker": "CVNA",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "path": null,
+      "selectedEngine": "tt_core",
+      "engineSource": "reference_date_bucket",
+      "scenarioPolicySource": "scenario_policy_default",
+      "scenarioExitStyle": "smart_exit_bias",
+      "metadata": {
+        "cloudAlignment": {
+          "D": "bull",
+          "h1": "na",
+          "m10": "bull"
+        },
+        "alignedCount": 2,
+        "strongDailyTrend": true
+      }
+    },
+    {
+      "date": "2025-07-01",
+      "interval": 3,
+      "ticker": "LMND",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "path": null,
+      "selectedEngine": "tt_core",
+      "engineSource": "reference_date_bucket",
+      "scenarioPolicySource": "scenario_policy_default",
+      "scenarioExitStyle": "smart_exit_bias",
+      "metadata": {
+        "cloudAlignment": {
+          "D": "bull",
+          "h1": "na",
+          "m10": "bull"
+        },
+        "alignedCount": 2,
+        "strongDailyTrend": true
+      }
+    },
+    {
+      "date": "2025-07-01",
+      "interval": 3,
+      "ticker": "BABA",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "path": null,
+      "selectedEngine": "tt_core",
+      "engineSource": "reference_exact",
+      "scenarioPolicySource": "scenario_policy_default",
+      "scenarioExitStyle": "smart_exit_bias",
+      "metadata": {
+        "cloudAlignment": {
+          "D": "bear",
+          "h1": "na",
+          "m10": "bear"
+        },
+        "alignedCount": 2,
+        "strongDailyTrend": true
+      }
+    },
+    {
+      "date": "2025-07-01",
+      "interval": 4,
+      "ticker": "CSX",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "path": null,
+      "selectedEngine": "tt_core",
+      "engineSource": "reference_date_bucket",
+      "scenarioPolicySource": "scenario_policy_default",
+      "scenarioExitStyle": "smart_exit_bias",
+      "metadata": {
+        "cloudAlignment": {
+          "D": "bull",
+          "h1": "na",
+          "m10": "bear"
+        },
+        "alignedCount": 1,
+        "strongDailyTrend": true
+      }
+    },
+    {
+      "date": "2025-07-01",
+      "interval": 4,
+      "ticker": "CVNA",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "path": null,
+      "selectedEngine": "tt_core",
+      "engineSource": "reference_date_bucket",
+      "scenarioPolicySource": "scenario_policy_default",
+      "scenarioExitStyle": "smart_exit_bias",
+      "metadata": {
+        "cloudAlignment": {
+          "D": "bull",
+          "h1": "na",
+          "m10": "bull"
+        },
+        "alignedCount": 2,
+        "strongDailyTrend": true
+      }
+    },
+    {
+      "date": "2025-07-01",
+      "interval": 4,
+      "ticker": "LMND",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "path": null,
+      "selectedEngine": "tt_core",
+      "engineSource": "reference_date_bucket",
+      "scenarioPolicySource": "scenario_policy_default",
+      "scenarioExitStyle": "smart_exit_bias",
+      "metadata": {
+        "cloudAlignment": {
+          "D": "bull",
+          "h1": "na",
+          "m10": "bull"
+        },
+        "alignedCount": 2,
+        "strongDailyTrend": true
+      }
+    },
+    {
+      "date": "2025-07-01",
+      "interval": 4,
+      "ticker": "BABA",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "path": null,
+      "selectedEngine": "tt_core",
+      "engineSource": "reference_exact",
+      "scenarioPolicySource": "scenario_policy_default",
+      "scenarioExitStyle": "smart_exit_bias",
+      "metadata": {
+        "cloudAlignment": {
+          "D": "bear",
+          "h1": "na",
+          "m10": "bear"
+        },
+        "alignedCount": 2,
+        "strongDailyTrend": true
+      }
+    },
+    {
+      "date": "2025-07-01",
+      "interval": 5,
+      "ticker": "CSX",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "path": null,
+      "selectedEngine": "tt_core",
+      "engineSource": "reference_date_bucket",
+      "scenarioPolicySource": "scenario_policy_default",
+      "scenarioExitStyle": "smart_exit_bias",
+      "metadata": {
+        "cloudAlignment": {
+          "D": "bull",
+          "h1": "na",
+          "m10": "bear"
+        },
+        "alignedCount": 1,
+        "strongDailyTrend": true
+      }
+    },
+    {
+      "date": "2025-07-01",
+      "interval": 5,
+      "ticker": "CVNA",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "path": null,
+      "selectedEngine": "tt_core",
+      "engineSource": "reference_date_bucket",
+      "scenarioPolicySource": "scenario_policy_default",
+      "scenarioExitStyle": "smart_exit_bias",
+      "metadata": {
+        "cloudAlignment": {
+          "D": "bull",
+          "h1": "na",
+          "m10": "bull"
+        },
+        "alignedCount": 2,
+        "strongDailyTrend": true
+      }
+    },
+    {
+      "date": "2025-07-01",
+      "interval": 5,
+      "ticker": "LMND",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "path": null,
+      "selectedEngine": "tt_core",
+      "engineSource": "reference_date_bucket",
+      "scenarioPolicySource": "scenario_policy_default",
+      "scenarioExitStyle": "smart_exit_bias",
+      "metadata": {
+        "cloudAlignment": {
+          "D": "bull",
+          "h1": "na",
+          "m10": "bull"
+        },
+        "alignedCount": 2,
+        "strongDailyTrend": true
+      }
+    },
+    {
+      "date": "2025-07-01",
+      "interval": 5,
+      "ticker": "BABA",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "path": null,
+      "selectedEngine": "tt_core",
+      "engineSource": "reference_exact",
+      "scenarioPolicySource": "scenario_policy_default",
+      "scenarioExitStyle": "smart_exit_bias",
+      "metadata": {
+        "cloudAlignment": {
+          "D": "bear",
+          "h1": "na",
+          "m10": "bear"
+        },
+        "alignedCount": 2,
+        "strongDailyTrend": true
+      }
+    },
+    {
+      "date": "2025-07-01",
+      "interval": 6,
+      "ticker": "CSX",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "path": null,
+      "selectedEngine": "tt_core",
+      "engineSource": "reference_date_bucket",
+      "scenarioPolicySource": "scenario_policy_default",
+      "scenarioExitStyle": "smart_exit_bias",
+      "metadata": {
+        "cloudAlignment": {
+          "D": "bull",
+          "h1": "na",
+          "m10": "bull"
+        },
+        "alignedCount": 2,
+        "strongDailyTrend": true
+      }
+    },
+    {
+      "date": "2025-07-01",
+      "interval": 6,
+      "ticker": "CVNA",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "path": null,
+      "selectedEngine": "tt_core",
+      "engineSource": "reference_date_bucket",
+      "scenarioPolicySource": "scenario_policy_default",
+      "scenarioExitStyle": "smart_exit_bias",
+      "metadata": {
+        "cloudAlignment": {
+          "D": "bull",
+          "h1": "na",
+          "m10": "bull"
+        },
+        "alignedCount": 2,
+        "strongDailyTrend": true
+      }
+    },
+    {
+      "date": "2025-07-01",
+      "interval": 6,
+      "ticker": "LMND",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "path": null,
+      "selectedEngine": "tt_core",
+      "engineSource": "reference_date_bucket",
+      "scenarioPolicySource": "scenario_policy_default",
+      "scenarioExitStyle": "smart_exit_bias",
+      "metadata": {
+        "cloudAlignment": {
+          "D": "bull",
+          "h1": "na",
+          "m10": "bull"
+        },
+        "alignedCount": 2,
+        "strongDailyTrend": true
+      }
+    },
+    {
+      "date": "2025-07-01",
+      "interval": 6,
+      "ticker": "BABA",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "path": null,
+      "selectedEngine": "tt_core",
+      "engineSource": "reference_exact",
+      "scenarioPolicySource": "scenario_policy_default",
+      "scenarioExitStyle": "smart_exit_bias",
+      "metadata": {
+        "cloudAlignment": {
+          "D": "bear",
+          "h1": "na",
+          "m10": "bear"
+        },
+        "alignedCount": 2,
+        "strongDailyTrend": true
+      }
+    },
+    {
+      "date": "2025-07-01",
+      "interval": 7,
+      "ticker": "CSX",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "path": null,
+      "selectedEngine": "tt_core",
+      "engineSource": "reference_date_bucket",
+      "scenarioPolicySource": "scenario_policy_default",
+      "scenarioExitStyle": "smart_exit_bias",
+      "metadata": {
+        "cloudAlignment": {
+          "D": "bull",
+          "h1": "na",
+          "m10": "bull"
+        },
+        "alignedCount": 2,
+        "strongDailyTrend": true
+      }
+    },
+    {
+      "date": "2025-07-01",
+      "interval": 7,
+      "ticker": "CVNA",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "path": null,
+      "selectedEngine": "tt_core",
+      "engineSource": "reference_date_bucket",
+      "scenarioPolicySource": "scenario_policy_default",
+      "scenarioExitStyle": "smart_exit_bias",
+      "metadata": {
+        "cloudAlignment": {
+          "D": "bull",
+          "h1": "na",
+          "m10": "bull"
+        },
+        "alignedCount": 2,
+        "strongDailyTrend": true
+      }
+    },
+    {
+      "date": "2025-07-01",
+      "interval": 7,
+      "ticker": "LMND",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "path": null,
+      "selectedEngine": "tt_core",
+      "engineSource": "reference_date_bucket",
+      "scenarioPolicySource": "scenario_policy_default",
+      "scenarioExitStyle": "smart_exit_bias",
+      "metadata": {
+        "cloudAlignment": {
+          "D": "bull",
+          "h1": "na",
+          "m10": "bull"
+        },
+        "alignedCount": 2,
+        "strongDailyTrend": true
+      }
+    },
+    {
+      "date": "2025-07-01",
+      "interval": 7,
+      "ticker": "BABA",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "path": null,
+      "selectedEngine": "tt_core",
+      "engineSource": "reference_exact",
+      "scenarioPolicySource": "scenario_policy_default",
+      "scenarioExitStyle": "smart_exit_bias",
+      "metadata": {
+        "cloudAlignment": {
+          "D": "bear",
+          "h1": "na",
+          "m10": "bear"
+        },
+        "alignedCount": 2,
+        "strongDailyTrend": true
+      }
+    },
+    {
+      "date": "2025-07-01",
+      "interval": 8,
+      "ticker": "CSX",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "path": null,
+      "selectedEngine": "tt_core",
+      "engineSource": "reference_date_bucket",
+      "scenarioPolicySource": "scenario_policy_default",
+      "scenarioExitStyle": "smart_exit_bias",
+      "metadata": {
+        "cloudAlignment": {
+          "D": "bull",
+          "h1": "na",
+          "m10": "bull"
+        },
+        "alignedCount": 2,
+        "strongDailyTrend": true
+      }
+    },
+    {
+      "date": "2025-07-01",
+      "interval": 8,
+      "ticker": "CVNA",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "path": null,
+      "selectedEngine": "tt_core",
+      "engineSource": "reference_date_bucket",
+      "scenarioPolicySource": "scenario_policy_default",
+      "scenarioExitStyle": "smart_exit_bias",
+      "metadata": {
+        "cloudAlignment": {
+          "D": "bull",
+          "h1": "na",
+          "m10": "bull"
+        },
+        "alignedCount": 2,
+        "strongDailyTrend": true
+      }
+    },
+    {
+      "date": "2025-07-01",
+      "interval": 8,
+      "ticker": "LMND",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "path": null,
+      "selectedEngine": "tt_core",
+      "engineSource": "reference_date_bucket",
+      "scenarioPolicySource": "scenario_policy_default",
+      "scenarioExitStyle": "smart_exit_bias",
+      "metadata": {
+        "cloudAlignment": {
+          "D": "bull",
+          "h1": "na",
+          "m10": "bull"
+        },
+        "alignedCount": 2,
+        "strongDailyTrend": true
+      }
+    },
+    {
+      "date": "2025-07-01",
+      "interval": 8,
+      "ticker": "BABA",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "path": null,
+      "selectedEngine": "tt_core",
+      "engineSource": "reference_exact",
+      "scenarioPolicySource": "scenario_policy_default",
+      "scenarioExitStyle": "smart_exit_bias",
+      "metadata": {
+        "cloudAlignment": {
+          "D": "bear",
+          "h1": "na",
+          "m10": "bear"
+        },
+        "alignedCount": 2,
+        "strongDailyTrend": true
+      }
+    },
+    {
+      "date": "2025-07-02",
+      "interval": 0,
+      "ticker": "CSX",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "path": null,
+      "selectedEngine": "tt_core",
+      "engineSource": "reference_date_bucket",
+      "scenarioPolicySource": "scenario_policy_default",
+      "scenarioExitStyle": "smart_exit_bias",
+      "metadata": {
+        "cloudAlignment": {
+          "D": "bull",
+          "h1": "na",
+          "m10": "bull"
+        },
+        "alignedCount": 2,
+        "strongDailyTrend": true
+      }
+    },
+    {
+      "date": "2025-07-02",
+      "interval": 0,
+      "ticker": "CVNA",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "path": null,
+      "selectedEngine": "tt_core",
+      "engineSource": "reference_date_bucket",
+      "scenarioPolicySource": "scenario_policy_default",
+      "scenarioExitStyle": "smart_exit_bias",
+      "metadata": {
+        "cloudAlignment": {
+          "D": "bull",
+          "h1": "na",
+          "m10": "bull"
+        },
+        "alignedCount": 2,
+        "strongDailyTrend": true
+      }
+    },
+    {
+      "date": "2025-07-02",
+      "interval": 0,
+      "ticker": "LMND",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "path": null,
+      "selectedEngine": "tt_core",
+      "engineSource": "reference_date_bucket",
+      "scenarioPolicySource": "scenario_policy_default",
+      "scenarioExitStyle": "smart_exit_bias",
+      "metadata": {
+        "cloudAlignment": {
+          "D": "bull",
+          "h1": "na",
+          "m10": "bear"
+        },
+        "alignedCount": 1,
+        "strongDailyTrend": true
+      }
+    },
+    {
+      "date": "2025-07-02",
+      "interval": 0,
+      "ticker": "BABA",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "path": null,
+      "selectedEngine": "tt_core",
+      "engineSource": "reference_ticker_window",
+      "scenarioPolicySource": "scenario_policy_default",
+      "scenarioExitStyle": "smart_exit_bias",
+      "metadata": {
+        "cloudAlignment": {
+          "D": "bear",
+          "h1": "na",
+          "m10": "bear"
+        },
+        "alignedCount": 2,
+        "strongDailyTrend": true
+      }
+    },
+    {
+      "date": "2025-07-02",
+      "interval": 1,
+      "ticker": "CSX",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "path": null,
+      "selectedEngine": "tt_core",
+      "engineSource": "reference_date_bucket",
+      "scenarioPolicySource": "scenario_policy_default",
+      "scenarioExitStyle": "smart_exit_bias",
+      "metadata": {
+        "cloudAlignment": {
+          "D": "bull",
+          "h1": "na",
+          "m10": "bull"
+        },
+        "alignedCount": 2,
+        "strongDailyTrend": true
+      }
+    },
+    {
+      "date": "2025-07-02",
+      "interval": 1,
+      "ticker": "CVNA",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "path": null,
+      "selectedEngine": "tt_core",
+      "engineSource": "reference_date_bucket",
+      "scenarioPolicySource": "scenario_policy_default",
+      "scenarioExitStyle": "smart_exit_bias",
+      "metadata": {
+        "cloudAlignment": {
+          "D": "bull",
+          "h1": "na",
+          "m10": "bull"
+        },
+        "alignedCount": 2,
+        "strongDailyTrend": true
+      }
+    },
+    {
+      "date": "2025-07-02",
+      "interval": 1,
+      "ticker": "LMND",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "path": null,
+      "selectedEngine": "tt_core",
+      "engineSource": "reference_date_bucket",
+      "scenarioPolicySource": "scenario_policy_default",
+      "scenarioExitStyle": "smart_exit_bias",
+      "metadata": {
+        "cloudAlignment": {
+          "D": "bull",
+          "h1": "na",
+          "m10": "bear"
+        },
+        "alignedCount": 1,
+        "strongDailyTrend": true
+      }
+    },
+    {
+      "date": "2025-07-02",
+      "interval": 1,
+      "ticker": "BABA",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "path": null,
+      "selectedEngine": "tt_core",
+      "engineSource": "reference_ticker_window",
+      "scenarioPolicySource": "scenario_policy_default",
+      "scenarioExitStyle": "smart_exit_bias",
+      "metadata": {
+        "cloudAlignment": {
+          "D": "bear",
+          "h1": "na",
+          "m10": "bear"
+        },
+        "alignedCount": 2,
+        "strongDailyTrend": true
+      }
+    },
+    {
+      "date": "2025-07-02",
+      "interval": 2,
+      "ticker": "CSX",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "path": null,
+      "selectedEngine": "tt_core",
+      "engineSource": "reference_date_bucket",
+      "scenarioPolicySource": "scenario_policy_default",
+      "scenarioExitStyle": "smart_exit_bias",
+      "metadata": {
+        "cloudAlignment": {
+          "D": "bull",
+          "h1": "na",
+          "m10": "bull"
+        },
+        "alignedCount": 2,
+        "strongDailyTrend": true
+      }
+    },
+    {
+      "date": "2025-07-02",
+      "interval": 2,
+      "ticker": "CVNA",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "path": null,
+      "selectedEngine": "tt_core",
+      "engineSource": "reference_date_bucket",
+      "scenarioPolicySource": "scenario_policy_default",
+      "scenarioExitStyle": "smart_exit_bias",
+      "metadata": {
+        "cloudAlignment": {
+          "D": "bull",
+          "h1": "na",
+          "m10": "bull"
+        },
+        "alignedCount": 2,
+        "strongDailyTrend": true
+      }
+    },
+    {
+      "date": "2025-07-02",
+      "interval": 2,
+      "ticker": "LMND",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "path": null,
+      "selectedEngine": "tt_core",
+      "engineSource": "reference_date_bucket",
+      "scenarioPolicySource": "scenario_policy_default",
+      "scenarioExitStyle": "smart_exit_bias",
+      "metadata": {
+        "cloudAlignment": {
+          "D": "bull",
+          "h1": "na",
+          "m10": "bear"
+        },
+        "alignedCount": 1,
+        "strongDailyTrend": true
+      }
+    },
+    {
+      "date": "2025-07-02",
+      "interval": 2,
+      "ticker": "BABA",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "path": null,
+      "selectedEngine": "tt_core",
+      "engineSource": "reference_ticker_window",
+      "scenarioPolicySource": "scenario_policy_default",
+      "scenarioExitStyle": "smart_exit_bias",
+      "metadata": {
+        "cloudAlignment": {
+          "D": "bear",
+          "h1": "na",
+          "m10": "bear"
+        },
+        "alignedCount": 2,
+        "strongDailyTrend": true
+      }
+    },
+    {
+      "date": "2025-07-02",
+      "interval": 3,
+      "ticker": "CSX",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "path": null,
+      "selectedEngine": "tt_core",
+      "engineSource": "reference_date_bucket",
+      "scenarioPolicySource": "scenario_policy_default",
+      "scenarioExitStyle": "smart_exit_bias",
+      "metadata": {
+        "cloudAlignment": {
+          "D": "bull",
+          "h1": "na",
+          "m10": "bull"
+        },
+        "alignedCount": 2,
+        "strongDailyTrend": true
+      }
+    },
+    {
+      "date": "2025-07-02",
+      "interval": 3,
+      "ticker": "CVNA",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "path": null,
+      "selectedEngine": "tt_core",
+      "engineSource": "reference_date_bucket",
+      "scenarioPolicySource": "scenario_policy_default",
+      "scenarioExitStyle": "smart_exit_bias",
+      "metadata": {
+        "cloudAlignment": {
+          "D": "bull",
+          "h1": "na",
+          "m10": "bull"
+        },
+        "alignedCount": 2,
+        "strongDailyTrend": true
+      }
+    },
+    {
+      "date": "2025-07-02",
+      "interval": 3,
+      "ticker": "LMND",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "path": null,
+      "selectedEngine": "tt_core",
+      "engineSource": "reference_date_bucket",
+      "scenarioPolicySource": "scenario_policy_default",
+      "scenarioExitStyle": "smart_exit_bias",
+      "metadata": {
+        "cloudAlignment": {
+          "D": "bull",
+          "h1": "na",
+          "m10": "bear"
+        },
+        "alignedCount": 1,
+        "strongDailyTrend": true
+      }
+    },
+    {
+      "date": "2025-07-02",
+      "interval": 3,
+      "ticker": "BABA",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "path": null,
+      "selectedEngine": "tt_core",
+      "engineSource": "reference_ticker_window",
+      "scenarioPolicySource": "scenario_policy_default",
+      "scenarioExitStyle": "smart_exit_bias",
+      "metadata": {
+        "cloudAlignment": {
+          "D": "bear",
+          "h1": "na",
+          "m10": "bear"
+        },
+        "alignedCount": 2,
+        "strongDailyTrend": true
+      }
+    },
+    {
+      "date": "2025-07-02",
+      "interval": 4,
+      "ticker": "CSX",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "path": null,
+      "selectedEngine": "tt_core",
+      "engineSource": "reference_date_bucket",
+      "scenarioPolicySource": "scenario_policy_default",
+      "scenarioExitStyle": "smart_exit_bias",
+      "metadata": {
+        "cloudAlignment": {
+          "D": "bull",
+          "h1": "na",
+          "m10": "bull"
+        },
+        "alignedCount": 2,
+        "strongDailyTrend": true
+      }
+    },
+    {
+      "date": "2025-07-02",
+      "interval": 4,
+      "ticker": "CVNA",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "path": null,
+      "selectedEngine": "tt_core",
+      "engineSource": "reference_date_bucket",
+      "scenarioPolicySource": "scenario_policy_default",
+      "scenarioExitStyle": "smart_exit_bias",
+      "metadata": {
+        "cloudAlignment": {
+          "D": "bull",
+          "h1": "na",
+          "m10": "bull"
+        },
+        "alignedCount": 2,
+        "strongDailyTrend": true
+      }
+    },
+    {
+      "date": "2025-07-02",
+      "interval": 4,
+      "ticker": "LMND",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "path": null,
+      "selectedEngine": "tt_core",
+      "engineSource": "reference_date_bucket",
+      "scenarioPolicySource": "scenario_policy_default",
+      "scenarioExitStyle": "smart_exit_bias",
+      "metadata": {
+        "cloudAlignment": {
+          "D": "bull",
+          "h1": "na",
+          "m10": "bear"
+        },
+        "alignedCount": 1,
+        "strongDailyTrend": true
+      }
+    },
+    {
+      "date": "2025-07-02",
+      "interval": 4,
+      "ticker": "BABA",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "path": null,
+      "selectedEngine": "tt_core",
+      "engineSource": "reference_ticker_window",
+      "scenarioPolicySource": "scenario_policy_default",
+      "scenarioExitStyle": "smart_exit_bias",
+      "metadata": {
+        "cloudAlignment": {
+          "D": "bear",
+          "h1": "na",
+          "m10": "bear"
+        },
+        "alignedCount": 2,
+        "strongDailyTrend": true
+      }
+    },
+    {
+      "date": "2025-07-02",
+      "interval": 5,
+      "ticker": "CSX",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "path": null,
+      "selectedEngine": "tt_core",
+      "engineSource": "reference_date_bucket",
+      "scenarioPolicySource": "scenario_policy_default",
+      "scenarioExitStyle": "smart_exit_bias",
+      "metadata": {
+        "cloudAlignment": {
+          "D": "bull",
+          "h1": "na",
+          "m10": "bull"
+        },
+        "alignedCount": 2,
+        "strongDailyTrend": true
+      }
+    },
+    {
+      "date": "2025-07-02",
+      "interval": 5,
+      "ticker": "CVNA",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "path": null,
+      "selectedEngine": "tt_core",
+      "engineSource": "reference_date_bucket",
+      "scenarioPolicySource": "scenario_policy_default",
+      "scenarioExitStyle": "smart_exit_bias",
+      "metadata": {
+        "cloudAlignment": {
+          "D": "bull",
+          "h1": "na",
+          "m10": "bull"
+        },
+        "alignedCount": 2,
+        "strongDailyTrend": true
+      }
+    },
+    {
+      "date": "2025-07-02",
+      "interval": 5,
+      "ticker": "LMND",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "path": null,
+      "selectedEngine": "tt_core",
+      "engineSource": "reference_date_bucket",
+      "scenarioPolicySource": "scenario_policy_default",
+      "scenarioExitStyle": "smart_exit_bias",
+      "metadata": {
+        "cloudAlignment": {
+          "D": "bull",
+          "h1": "na",
+          "m10": "bear"
+        },
+        "alignedCount": 1,
+        "strongDailyTrend": true
+      }
+    },
+    {
+      "date": "2025-07-02",
+      "interval": 5,
+      "ticker": "BABA",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "path": null,
+      "selectedEngine": "tt_core",
+      "engineSource": "reference_ticker_window",
+      "scenarioPolicySource": "scenario_policy_default",
+      "scenarioExitStyle": "smart_exit_bias",
+      "metadata": {
+        "cloudAlignment": {
+          "D": "bear",
+          "h1": "na",
+          "m10": "bear"
+        },
+        "alignedCount": 2,
+        "strongDailyTrend": true
+      }
+    },
+    {
+      "date": "2025-07-02",
+      "interval": 6,
+      "ticker": "CSX",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "path": null,
+      "selectedEngine": "tt_core",
+      "engineSource": "reference_date_bucket",
+      "scenarioPolicySource": "scenario_policy_default",
+      "scenarioExitStyle": "smart_exit_bias",
+      "metadata": {
+        "cloudAlignment": {
+          "D": "bull",
+          "h1": "na",
+          "m10": "bull"
+        },
+        "alignedCount": 2,
+        "strongDailyTrend": true
+      }
+    },
+    {
+      "date": "2025-07-02",
+      "interval": 6,
+      "ticker": "CVNA",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "path": null,
+      "selectedEngine": "tt_core",
+      "engineSource": "reference_date_bucket",
+      "scenarioPolicySource": "scenario_policy_default",
+      "scenarioExitStyle": "smart_exit_bias",
+      "metadata": {
+        "cloudAlignment": {
+          "D": "bull",
+          "h1": "na",
+          "m10": "bull"
+        },
+        "alignedCount": 2,
+        "strongDailyTrend": true
+      }
+    },
+    {
+      "date": "2025-07-02",
+      "interval": 6,
+      "ticker": "LMND",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "path": null,
+      "selectedEngine": "tt_core",
+      "engineSource": "reference_date_bucket",
+      "scenarioPolicySource": "scenario_policy_default",
+      "scenarioExitStyle": "smart_exit_bias",
+      "metadata": {
+        "cloudAlignment": {
+          "D": "bull",
+          "h1": "na",
+          "m10": "bear"
+        },
+        "alignedCount": 1,
+        "strongDailyTrend": true
+      }
+    },
+    {
+      "date": "2025-07-02",
+      "interval": 6,
+      "ticker": "BABA",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "path": null,
+      "selectedEngine": "tt_core",
+      "engineSource": "reference_ticker_window",
+      "scenarioPolicySource": "scenario_policy_default",
+      "scenarioExitStyle": "smart_exit_bias",
+      "metadata": {
+        "cloudAlignment": {
+          "D": "bear",
+          "h1": "na",
+          "m10": "bear"
+        },
+        "alignedCount": 2,
+        "strongDailyTrend": true
+      }
+    },
+    {
+      "date": "2025-07-02",
+      "interval": 7,
+      "ticker": "CSX",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "path": null,
+      "selectedEngine": "tt_core",
+      "engineSource": "reference_date_bucket",
+      "scenarioPolicySource": "scenario_policy_default",
+      "scenarioExitStyle": "smart_exit_bias",
+      "metadata": {
+        "cloudAlignment": {
+          "D": "bull",
+          "h1": "na",
+          "m10": "bull"
+        },
+        "alignedCount": 2,
+        "strongDailyTrend": true
+      }
+    },
+    {
+      "date": "2025-07-02",
+      "interval": 7,
+      "ticker": "CVNA",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "path": null,
+      "selectedEngine": "tt_core",
+      "engineSource": "reference_date_bucket",
+      "scenarioPolicySource": "scenario_policy_default",
+      "scenarioExitStyle": "smart_exit_bias",
+      "metadata": {
+        "cloudAlignment": {
+          "D": "bull",
+          "h1": "na",
+          "m10": "bull"
+        },
+        "alignedCount": 2,
+        "strongDailyTrend": true
+      }
+    },
+    {
+      "date": "2025-07-02",
+      "interval": 7,
+      "ticker": "LMND",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "path": null,
+      "selectedEngine": "tt_core",
+      "engineSource": "reference_date_bucket",
+      "scenarioPolicySource": "scenario_policy_default",
+      "scenarioExitStyle": "smart_exit_bias",
+      "metadata": {
+        "cloudAlignment": {
+          "D": "bull",
+          "h1": "na",
+          "m10": "bear"
+        },
+        "alignedCount": 1,
+        "strongDailyTrend": true
+      }
+    },
+    {
+      "date": "2025-07-02",
+      "interval": 7,
+      "ticker": "BABA",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "path": null,
+      "selectedEngine": "tt_core",
+      "engineSource": "reference_ticker_window",
+      "scenarioPolicySource": "scenario_policy_default",
+      "scenarioExitStyle": "smart_exit_bias",
+      "metadata": {
+        "cloudAlignment": {
+          "D": "bear",
+          "h1": "na",
+          "m10": "bear"
+        },
+        "alignedCount": 2,
+        "strongDailyTrend": true
+      }
+    },
+    {
+      "date": "2025-07-02",
+      "interval": 8,
+      "ticker": "CSX",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "path": null,
+      "selectedEngine": "tt_core",
+      "engineSource": "reference_date_bucket",
+      "scenarioPolicySource": "scenario_policy_default",
+      "scenarioExitStyle": "smart_exit_bias",
+      "metadata": {
+        "cloudAlignment": {
+          "D": "bull",
+          "h1": "na",
+          "m10": "bull"
+        },
+        "alignedCount": 2,
+        "strongDailyTrend": true
+      }
+    },
+    {
+      "date": "2025-07-02",
+      "interval": 8,
+      "ticker": "CVNA",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "path": null,
+      "selectedEngine": "tt_core",
+      "engineSource": "reference_date_bucket",
+      "scenarioPolicySource": "scenario_policy_default",
+      "scenarioExitStyle": "smart_exit_bias",
+      "metadata": {
+        "cloudAlignment": {
+          "D": "bull",
+          "h1": "na",
+          "m10": "bull"
+        },
+        "alignedCount": 2,
+        "strongDailyTrend": true
+      }
+    },
+    {
+      "date": "2025-07-02",
+      "interval": 8,
+      "ticker": "LMND",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "path": null,
+      "selectedEngine": "tt_core",
+      "engineSource": "reference_date_bucket",
+      "scenarioPolicySource": "scenario_policy_default",
+      "scenarioExitStyle": "smart_exit_bias",
+      "metadata": {
+        "cloudAlignment": {
+          "D": "bull",
+          "h1": "na",
+          "m10": "bear"
+        },
+        "alignedCount": 1,
+        "strongDailyTrend": true
+      }
+    },
+    {
+      "date": "2025-07-02",
+      "interval": 8,
+      "ticker": "BABA",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "path": null,
+      "selectedEngine": "tt_core",
+      "engineSource": "reference_ticker_window",
+      "scenarioPolicySource": "scenario_policy_default",
+      "scenarioExitStyle": "smart_exit_bias",
+      "metadata": {
+        "cloudAlignment": {
+          "D": "bear",
+          "h1": "na",
+          "m10": "bear"
+        },
+        "alignedCount": 2,
+        "strongDailyTrend": true
+      }
+    },
+    {
+      "date": "2025-07-03",
+      "interval": 0,
+      "ticker": "CSX",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "path": null,
+      "selectedEngine": "tt_core",
+      "engineSource": "reference_date_bucket",
+      "scenarioPolicySource": "scenario_policy_default",
+      "scenarioExitStyle": "smart_exit_bias",
+      "metadata": {
+        "cloudAlignment": {
+          "D": "bull",
+          "h1": "na",
+          "m10": "bull"
+        },
+        "alignedCount": 2,
+        "strongDailyTrend": true
+      }
+    },
+    {
+      "date": "2025-07-03",
+      "interval": 0,
+      "ticker": "CVNA",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "path": null,
+      "selectedEngine": "tt_core",
+      "engineSource": "reference_date_bucket",
+      "scenarioPolicySource": "scenario_policy_default",
+      "scenarioExitStyle": "smart_exit_bias",
+      "metadata": {
+        "cloudAlignment": {
+          "D": "bull",
+          "h1": "na",
+          "m10": "bull"
+        },
+        "alignedCount": 2,
+        "strongDailyTrend": true
+      }
+    },
+    {
+      "date": "2025-07-03",
+      "interval": 0,
+      "ticker": "LMND",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "path": null,
+      "selectedEngine": "tt_core",
+      "engineSource": "reference_date_bucket",
+      "scenarioPolicySource": "scenario_policy_default",
+      "scenarioExitStyle": "smart_exit_bias",
+      "metadata": {
+        "cloudAlignment": {
+          "D": "bull",
+          "h1": "na",
+          "m10": "bear"
+        },
+        "alignedCount": 1,
+        "strongDailyTrend": true
+      }
+    },
+    {
+      "date": "2025-07-03",
+      "interval": 0,
+      "ticker": "BABA",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "path": null,
+      "selectedEngine": "tt_core",
+      "engineSource": "reference_ticker_window",
+      "scenarioPolicySource": "scenario_policy_default",
+      "scenarioExitStyle": "smart_exit_bias",
+      "metadata": {
+        "cloudAlignment": {
+          "D": "bear",
+          "h1": "na",
+          "m10": "bear"
+        },
+        "alignedCount": 2,
+        "strongDailyTrend": true
+      }
+    },
+    {
+      "date": "2025-07-03",
+      "interval": 1,
+      "ticker": "CSX",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "path": null,
+      "selectedEngine": "tt_core",
+      "engineSource": "reference_date_bucket",
+      "scenarioPolicySource": "scenario_policy_default",
+      "scenarioExitStyle": "smart_exit_bias",
+      "metadata": {
+        "cloudAlignment": {
+          "D": "bull",
+          "h1": "na",
+          "m10": "bull"
+        },
+        "alignedCount": 2,
+        "strongDailyTrend": true
+      }
+    },
+    {
+      "date": "2025-07-03",
+      "interval": 1,
+      "ticker": "CVNA",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "path": null,
+      "selectedEngine": "tt_core",
+      "engineSource": "reference_date_bucket",
+      "scenarioPolicySource": "scenario_policy_default",
+      "scenarioExitStyle": "smart_exit_bias",
+      "metadata": {
+        "cloudAlignment": {
+          "D": "bull",
+          "h1": "na",
+          "m10": "bull"
+        },
+        "alignedCount": 2,
+        "strongDailyTrend": true
+      }
+    },
+    {
+      "date": "2025-07-03",
+      "interval": 1,
+      "ticker": "LMND",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "path": null,
+      "selectedEngine": "tt_core",
+      "engineSource": "reference_date_bucket",
+      "scenarioPolicySource": "scenario_policy_default",
+      "scenarioExitStyle": "smart_exit_bias",
+      "metadata": {
+        "cloudAlignment": {
+          "D": "bull",
+          "h1": "na",
+          "m10": "bear"
+        },
+        "alignedCount": 1,
+        "strongDailyTrend": true
+      }
+    },
+    {
+      "date": "2025-07-03",
+      "interval": 1,
+      "ticker": "BABA",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "path": null,
+      "selectedEngine": "tt_core",
+      "engineSource": "reference_ticker_window",
+      "scenarioPolicySource": "scenario_policy_default",
+      "scenarioExitStyle": "smart_exit_bias",
+      "metadata": {
+        "cloudAlignment": {
+          "D": "bear",
+          "h1": "na",
+          "m10": "bear"
+        },
+        "alignedCount": 2,
+        "strongDailyTrend": true
+      }
+    },
+    {
+      "date": "2025-07-03",
+      "interval": 2,
+      "ticker": "CSX",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "path": null,
+      "selectedEngine": "tt_core",
+      "engineSource": "reference_date_bucket",
+      "scenarioPolicySource": "scenario_policy_default",
+      "scenarioExitStyle": "smart_exit_bias",
+      "metadata": {
+        "cloudAlignment": {
+          "D": "bull",
+          "h1": "na",
+          "m10": "bull"
+        },
+        "alignedCount": 2,
+        "strongDailyTrend": true
+      }
+    },
+    {
+      "date": "2025-07-03",
+      "interval": 2,
+      "ticker": "CVNA",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "path": null,
+      "selectedEngine": "tt_core",
+      "engineSource": "reference_date_bucket",
+      "scenarioPolicySource": "scenario_policy_default",
+      "scenarioExitStyle": "smart_exit_bias",
+      "metadata": {
+        "cloudAlignment": {
+          "D": "bull",
+          "h1": "na",
+          "m10": "bull"
+        },
+        "alignedCount": 2,
+        "strongDailyTrend": true
+      }
+    },
+    {
+      "date": "2025-07-03",
+      "interval": 2,
+      "ticker": "LMND",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "path": null,
+      "selectedEngine": "tt_core",
+      "engineSource": "reference_date_bucket",
+      "scenarioPolicySource": "scenario_policy_default",
+      "scenarioExitStyle": "smart_exit_bias",
+      "metadata": {
+        "cloudAlignment": {
+          "D": "bull",
+          "h1": "na",
+          "m10": "bear"
+        },
+        "alignedCount": 1,
+        "strongDailyTrend": true
+      }
+    },
+    {
+      "date": "2025-07-03",
+      "interval": 2,
+      "ticker": "BABA",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "path": null,
+      "selectedEngine": "tt_core",
+      "engineSource": "reference_ticker_window",
+      "scenarioPolicySource": "scenario_policy_default",
+      "scenarioExitStyle": "smart_exit_bias",
+      "metadata": {
+        "cloudAlignment": {
+          "D": "bear",
+          "h1": "na",
+          "m10": "bear"
+        },
+        "alignedCount": 2,
+        "strongDailyTrend": true
+      }
+    },
+    {
+      "date": "2025-07-03",
+      "interval": 3,
+      "ticker": "CSX",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "path": null,
+      "selectedEngine": "tt_core",
+      "engineSource": "reference_date_bucket",
+      "scenarioPolicySource": "scenario_policy_default",
+      "scenarioExitStyle": "smart_exit_bias",
+      "metadata": {
+        "cloudAlignment": {
+          "D": "bull",
+          "h1": "na",
+          "m10": "bull"
+        },
+        "alignedCount": 2,
+        "strongDailyTrend": true
+      }
+    },
+    {
+      "date": "2025-07-03",
+      "interval": 3,
+      "ticker": "CVNA",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "path": null,
+      "selectedEngine": "tt_core",
+      "engineSource": "reference_date_bucket",
+      "scenarioPolicySource": "scenario_policy_default",
+      "scenarioExitStyle": "smart_exit_bias",
+      "metadata": {
+        "cloudAlignment": {
+          "D": "bull",
+          "h1": "na",
+          "m10": "bull"
+        },
+        "alignedCount": 2,
+        "strongDailyTrend": true
+      }
+    },
+    {
+      "date": "2025-07-03",
+      "interval": 3,
+      "ticker": "LMND",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "path": null,
+      "selectedEngine": "tt_core",
+      "engineSource": "reference_date_bucket",
+      "scenarioPolicySource": "scenario_policy_default",
+      "scenarioExitStyle": "smart_exit_bias",
+      "metadata": {
+        "cloudAlignment": {
+          "D": "bull",
+          "h1": "na",
+          "m10": "bear"
+        },
+        "alignedCount": 1,
+        "strongDailyTrend": true
+      }
+    },
+    {
+      "date": "2025-07-03",
+      "interval": 3,
+      "ticker": "BABA",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "path": null,
+      "selectedEngine": "tt_core",
+      "engineSource": "reference_ticker_window",
+      "scenarioPolicySource": "scenario_policy_default",
+      "scenarioExitStyle": "smart_exit_bias",
+      "metadata": {
+        "cloudAlignment": {
+          "D": "bear",
+          "h1": "na",
+          "m10": "bear"
+        },
+        "alignedCount": 2,
+        "strongDailyTrend": true
+      }
+    },
+    {
+      "date": "2025-07-03",
+      "interval": 4,
+      "ticker": "CSX",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "path": null,
+      "selectedEngine": "tt_core",
+      "engineSource": "reference_date_bucket",
+      "scenarioPolicySource": "scenario_policy_default",
+      "scenarioExitStyle": "smart_exit_bias",
+      "metadata": {
+        "cloudAlignment": {
+          "D": "bull",
+          "h1": "na",
+          "m10": "bull"
+        },
+        "alignedCount": 2,
+        "strongDailyTrend": true
+      }
+    },
+    {
+      "date": "2025-07-03",
+      "interval": 4,
+      "ticker": "CVNA",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "path": null,
+      "selectedEngine": "tt_core",
+      "engineSource": "reference_date_bucket",
+      "scenarioPolicySource": "scenario_policy_default",
+      "scenarioExitStyle": "smart_exit_bias",
+      "metadata": {
+        "cloudAlignment": {
+          "D": "bull",
+          "h1": "na",
+          "m10": "bull"
+        },
+        "alignedCount": 2,
+        "strongDailyTrend": true
+      }
+    },
+    {
+      "date": "2025-07-03",
+      "interval": 4,
+      "ticker": "LMND",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "path": null,
+      "selectedEngine": "tt_core",
+      "engineSource": "reference_date_bucket",
+      "scenarioPolicySource": "scenario_policy_default",
+      "scenarioExitStyle": "smart_exit_bias",
+      "metadata": {
+        "cloudAlignment": {
+          "D": "bull",
+          "h1": "na",
+          "m10": "bear"
+        },
+        "alignedCount": 1,
+        "strongDailyTrend": true
+      }
+    },
+    {
+      "date": "2025-07-03",
+      "interval": 4,
+      "ticker": "BABA",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "path": null,
+      "selectedEngine": "tt_core",
+      "engineSource": "reference_ticker_window",
+      "scenarioPolicySource": "scenario_policy_default",
+      "scenarioExitStyle": "smart_exit_bias",
+      "metadata": {
+        "cloudAlignment": {
+          "D": "bear",
+          "h1": "na",
+          "m10": "bear"
+        },
+        "alignedCount": 2,
+        "strongDailyTrend": true
+      }
+    },
+    {
+      "date": "2025-07-03",
+      "interval": 5,
+      "ticker": "CSX",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "path": null,
+      "selectedEngine": "tt_core",
+      "engineSource": "reference_date_bucket",
+      "scenarioPolicySource": "scenario_policy_default",
+      "scenarioExitStyle": "smart_exit_bias",
+      "metadata": {
+        "cloudAlignment": {
+          "D": "bull",
+          "h1": "na",
+          "m10": "bull"
+        },
+        "alignedCount": 2,
+        "strongDailyTrend": true
+      }
+    },
+    {
+      "date": "2025-07-03",
+      "interval": 5,
+      "ticker": "CVNA",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "path": null,
+      "selectedEngine": "tt_core",
+      "engineSource": "reference_date_bucket",
+      "scenarioPolicySource": "scenario_policy_default",
+      "scenarioExitStyle": "smart_exit_bias",
+      "metadata": {
+        "cloudAlignment": {
+          "D": "bull",
+          "h1": "na",
+          "m10": "bull"
+        },
+        "alignedCount": 2,
+        "strongDailyTrend": true
+      }
+    },
+    {
+      "date": "2025-07-03",
+      "interval": 5,
+      "ticker": "LMND",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "path": null,
+      "selectedEngine": "tt_core",
+      "engineSource": "reference_date_bucket",
+      "scenarioPolicySource": "scenario_policy_default",
+      "scenarioExitStyle": "smart_exit_bias",
+      "metadata": {
+        "cloudAlignment": {
+          "D": "bull",
+          "h1": "na",
+          "m10": "bear"
+        },
+        "alignedCount": 1,
+        "strongDailyTrend": true
+      }
+    },
+    {
+      "date": "2025-07-03",
+      "interval": 5,
+      "ticker": "BABA",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "path": null,
+      "selectedEngine": "tt_core",
+      "engineSource": "reference_ticker_window",
+      "scenarioPolicySource": "scenario_policy_default",
+      "scenarioExitStyle": "smart_exit_bias",
+      "metadata": {
+        "cloudAlignment": {
+          "D": "bear",
+          "h1": "na",
+          "m10": "bear"
+        },
+        "alignedCount": 2,
+        "strongDailyTrend": true
+      }
+    },
+    {
+      "date": "2025-07-03",
+      "interval": 6,
+      "ticker": "CSX",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "path": null,
+      "selectedEngine": "tt_core",
+      "engineSource": "reference_date_bucket",
+      "scenarioPolicySource": "scenario_policy_default",
+      "scenarioExitStyle": "smart_exit_bias",
+      "metadata": {
+        "cloudAlignment": {
+          "D": "bull",
+          "h1": "na",
+          "m10": "bull"
+        },
+        "alignedCount": 2,
+        "strongDailyTrend": true
+      }
+    },
+    {
+      "date": "2025-07-03",
+      "interval": 6,
+      "ticker": "CVNA",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "path": null,
+      "selectedEngine": "tt_core",
+      "engineSource": "reference_date_bucket",
+      "scenarioPolicySource": "scenario_policy_default",
+      "scenarioExitStyle": "smart_exit_bias",
+      "metadata": {
+        "cloudAlignment": {
+          "D": "bull",
+          "h1": "na",
+          "m10": "bull"
+        },
+        "alignedCount": 2,
+        "strongDailyTrend": true
+      }
+    },
+    {
+      "date": "2025-07-03",
+      "interval": 6,
+      "ticker": "LMND",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "path": null,
+      "selectedEngine": "tt_core",
+      "engineSource": "reference_date_bucket",
+      "scenarioPolicySource": "scenario_policy_default",
+      "scenarioExitStyle": "smart_exit_bias",
+      "metadata": {
+        "cloudAlignment": {
+          "D": "bull",
+          "h1": "na",
+          "m10": "bear"
+        },
+        "alignedCount": 1,
+        "strongDailyTrend": true
+      }
+    },
+    {
+      "date": "2025-07-03",
+      "interval": 6,
+      "ticker": "BABA",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "path": null,
+      "selectedEngine": "tt_core",
+      "engineSource": "reference_ticker_window",
+      "scenarioPolicySource": "scenario_policy_default",
+      "scenarioExitStyle": "smart_exit_bias",
+      "metadata": {
+        "cloudAlignment": {
+          "D": "bear",
+          "h1": "na",
+          "m10": "bear"
+        },
+        "alignedCount": 2,
+        "strongDailyTrend": true
+      }
+    },
+    {
+      "date": "2025-07-03",
+      "interval": 7,
+      "ticker": "CSX",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "path": null,
+      "selectedEngine": "tt_core",
+      "engineSource": "reference_date_bucket",
+      "scenarioPolicySource": "scenario_policy_default",
+      "scenarioExitStyle": "smart_exit_bias",
+      "metadata": {
+        "cloudAlignment": {
+          "D": "bull",
+          "h1": "na",
+          "m10": "bull"
+        },
+        "alignedCount": 2,
+        "strongDailyTrend": true
+      }
+    },
+    {
+      "date": "2025-07-03",
+      "interval": 7,
+      "ticker": "CVNA",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "path": null,
+      "selectedEngine": "tt_core",
+      "engineSource": "reference_date_bucket",
+      "scenarioPolicySource": "scenario_policy_default",
+      "scenarioExitStyle": "smart_exit_bias",
+      "metadata": {
+        "cloudAlignment": {
+          "D": "bull",
+          "h1": "na",
+          "m10": "bull"
+        },
+        "alignedCount": 2,
+        "strongDailyTrend": true
+      }
+    },
+    {
+      "date": "2025-07-03",
+      "interval": 7,
+      "ticker": "LMND",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "path": null,
+      "selectedEngine": "tt_core",
+      "engineSource": "reference_date_bucket",
+      "scenarioPolicySource": "scenario_policy_default",
+      "scenarioExitStyle": "smart_exit_bias",
+      "metadata": {
+        "cloudAlignment": {
+          "D": "bull",
+          "h1": "na",
+          "m10": "bear"
+        },
+        "alignedCount": 1,
+        "strongDailyTrend": true
+      }
+    },
+    {
+      "date": "2025-07-03",
+      "interval": 7,
+      "ticker": "BABA",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "path": null,
+      "selectedEngine": "tt_core",
+      "engineSource": "reference_date_bucket",
+      "scenarioPolicySource": "scenario_policy_default",
+      "scenarioExitStyle": "smart_exit_bias",
+      "metadata": {
+        "cloudAlignment": {
+          "D": "bear",
+          "h1": "na",
+          "m10": "bear"
+        },
+        "alignedCount": 2,
+        "strongDailyTrend": true
+      }
+    },
+    {
+      "date": "2025-07-03",
+      "interval": 8,
+      "ticker": "CSX",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "path": null,
+      "selectedEngine": "tt_core",
+      "engineSource": "reference_date_bucket",
+      "scenarioPolicySource": "scenario_policy_default",
+      "scenarioExitStyle": "smart_exit_bias",
+      "metadata": {
+        "cloudAlignment": {
+          "D": "bull",
+          "h1": "na",
+          "m10": "bull"
+        },
+        "alignedCount": 2,
+        "strongDailyTrend": true
+      }
+    },
+    {
+      "date": "2025-07-03",
+      "interval": 8,
+      "ticker": "CVNA",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "path": null,
+      "selectedEngine": "tt_core",
+      "engineSource": "reference_date_bucket",
+      "scenarioPolicySource": "scenario_policy_default",
+      "scenarioExitStyle": "smart_exit_bias",
+      "metadata": {
+        "cloudAlignment": {
+          "D": "bull",
+          "h1": "na",
+          "m10": "bull"
+        },
+        "alignedCount": 2,
+        "strongDailyTrend": true
+      }
+    },
+    {
+      "date": "2025-07-03",
+      "interval": 8,
+      "ticker": "LMND",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "path": null,
+      "selectedEngine": "tt_core",
+      "engineSource": "reference_date_bucket",
+      "scenarioPolicySource": "scenario_policy_default",
+      "scenarioExitStyle": "smart_exit_bias",
+      "metadata": {
+        "cloudAlignment": {
+          "D": "bull",
+          "h1": "na",
+          "m10": "bear"
+        },
+        "alignedCount": 1,
+        "strongDailyTrend": true
+      }
+    },
+    {
+      "date": "2025-07-03",
+      "interval": 8,
+      "ticker": "BABA",
+      "qualifies": false,
+      "reason": "tt_bias_not_aligned",
+      "path": null,
+      "selectedEngine": "tt_core",
+      "engineSource": "reference_date_bucket",
+      "scenarioPolicySource": "scenario_policy_default",
+      "scenarioExitStyle": "smart_exit_bias",
+      "metadata": {
+        "cloudAlignment": {
+          "D": "bear",
+          "h1": "na",
+          "m10": "bear"
+        },
+        "alignedCount": 2,
+        "strongDailyTrend": true
+      }
+    }
+  ],
+  "summary": {
+    "overall_reasons": [
+      [
+        "tt_bias_not_aligned",
+        108
+      ]
+    ],
+    "by_ticker": {
+      "CSX": {
+        "qualifies_true": 0,
+        "top_reasons": [
+          [
+            "tt_bias_not_aligned",
+            27
+          ]
+        ],
+        "engine_sources": {
+          "reference_date_bucket": 27
+        },
+        "scenario_sources": {
+          "scenario_policy_default": 27
+        }
+      },
+      "CVNA": {
+        "qualifies_true": 0,
+        "top_reasons": [
+          [
+            "tt_bias_not_aligned",
+            27
+          ]
+        ],
+        "engine_sources": {
+          "reference_date_bucket": 27
+        },
+        "scenario_sources": {
+          "scenario_policy_default": 27
+        }
+      },
+      "LMND": {
+        "qualifies_true": 0,
+        "top_reasons": [
+          [
+            "tt_bias_not_aligned",
+            27
+          ]
+        ],
+        "engine_sources": {
+          "reference_date_bucket": 27
+        },
+        "scenario_sources": {
+          "scenario_policy_default": 27
+        }
+      },
+      "BABA": {
+        "qualifies_true": 0,
+        "top_reasons": [
+          [
+            "tt_bias_not_aligned",
+            27
+          ]
+        ],
+        "engine_sources": {
+          "reference_ticker_window": 18,
+          "reference_exact": 7,
+          "reference_date_bucket": 2
+        },
+        "scenario_sources": {
+          "scenario_policy_default": 27
+        }
+      }
+    }
+  }
+}

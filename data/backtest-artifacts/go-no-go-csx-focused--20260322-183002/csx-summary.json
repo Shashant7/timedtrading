@@ -1,0 +1,10 @@
+{
+  "window": [
+    "2025-07-01",
+    "2025-07-18"
+  ],
+  "trade_count": 0,
+  "trades": [],
+  "pass": false,
+  "criteria": "exactly 1 CSX trade in window and exit_reason == TP_FULL"
+}

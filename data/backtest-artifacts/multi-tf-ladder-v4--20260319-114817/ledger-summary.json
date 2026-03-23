@@ -1,0 +1,57 @@
+{
+  "ok": true,
+  "since": null,
+  "until": null,
+  "totals": {
+    "totalTrades": 2,
+    "openTrades": 0,
+    "closedTrades": 2,
+    "wins": 0,
+    "losses": 2,
+    "winRate": 0,
+    "closedPnl": -31.281683116189036,
+    "profitFactor": 0,
+    "avgWin": 0,
+    "avgLoss": 15.640841558094518,
+    "expectancy": -15.640841558094518,
+    "grossWin": 0,
+    "grossLoss": 31.281683116189036
+  },
+  "breakdown": {
+    "byRank": [
+      {
+        "bucket": "80+",
+        "n": 2,
+        "wins": 0,
+        "losses": 2,
+        "pnl": -31.281683116189036
+      }
+    ],
+    "byRR": [
+      {
+        "bucket": "2.0+",
+        "n": 2,
+        "wins": 0,
+        "losses": 2,
+        "pnl": -31.281683116189036
+      }
+    ],
+    "byExitReason": [
+      {
+        "reason": "doa_early_exit",
+        "n": 1,
+        "wins": 0,
+        "losses": 1,
+        "pnl": -22.903959778266742
+      },
+      {
+        "reason": "BREAKEVEN_STOP",
+        "n": 1,
+        "wins": 0,
+        "losses": 1,
+        "pnl": -8.377723337922296
+      }
+    ],
+    "byTriggerReason": []
+  }
+}

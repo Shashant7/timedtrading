@@ -1,0 +1,11 @@
+{
+  "generated_at_utc": "2026-03-23T10:15:08.065581+00:00",
+  "row_count": 4844,
+  "profile_present_count": 4809,
+  "daily_brief_present_count": 4844,
+  "hyper_state_present_count": 4844,
+  "profile_present_rate": 0.9928,
+  "daily_brief_present_rate": 1.0,
+  "hyper_state_present_rate": 1.0,
+  "known_gap": null
+}

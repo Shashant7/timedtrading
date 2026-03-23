@@ -1,0 +1,602 @@
+[
+  {
+    "label": "A_ripster_core",
+    "total": 806,
+    "wins": 269,
+    "losses": 362,
+    "flat": 175,
+    "total_pnl": -7457.93,
+    "avg_pnl": -9.25,
+    "avg_mfe": 2.25,
+    "avg_mae": -1.52,
+    "median_mfe": 0.23,
+    "median_mae": -0.53,
+    "wr": 42.6,
+    "mfe_dist": {
+      "<0.5% (dead)": {
+        "count": 430,
+        "pct": 53.3,
+        "avg_pnl": -241.75
+      },
+      "0.5-2%": {
+        "count": 77,
+        "pct": 9.6,
+        "avg_pnl": -261.76
+      },
+      "2-5%": {
+        "count": 139,
+        "pct": 17.2,
+        "avg_pnl": 9.67
+      },
+      ">=5%": {
+        "count": 160,
+        "pct": 19.9,
+        "avg_pnl": 720.66
+      }
+    },
+    "gave_back": {
+      "count": 55,
+      "total_lost": -21763.58,
+      "avg_mfe": 3.46,
+      "avg_final_pnl_pct": -4.33
+    },
+    "by_direction": {
+      "LONG": {
+        "trades": 682,
+        "wr": 44.0,
+        "pnl": -20281.6,
+        "avg_mfe": 2.34,
+        "gave_back": 46
+      },
+      "SHORT": {
+        "trades": 124,
+        "wr": 34.8,
+        "pnl": 12823.67,
+        "avg_mfe": 1.78,
+        "gave_back": 9
+      }
+    },
+    "by_month": {
+      "2025-07": {
+        "trades": 59,
+        "wr": 46.6,
+        "pnl": 3843.29,
+        "avg_mfe": 2.8,
+        "dead_entries": 23,
+        "gave_back": 1
+      },
+      "2025-08": {
+        "trades": 76,
+        "wr": 43.2,
+        "pnl": 2093.29,
+        "avg_mfe": 2.58,
+        "dead_entries": 28,
+        "gave_back": 8
+      },
+      "2025-09": {
+        "trades": 72,
+        "wr": 58.0,
+        "pnl": 11653.19,
+        "avg_mfe": 3.33,
+        "dead_entries": 23,
+        "gave_back": 3
+      },
+      "2025-10": {
+        "trades": 114,
+        "wr": 35.4,
+        "pnl": 923.87,
+        "avg_mfe": 2.84,
+        "dead_entries": 41,
+        "gave_back": 15
+      },
+      "2025-11": {
+        "trades": 84,
+        "wr": 35.4,
+        "pnl": 2774.79,
+        "avg_mfe": 2.77,
+        "dead_entries": 35,
+        "gave_back": 17
+      },
+      "2025-12": {
+        "trades": 98,
+        "wr": 40.0,
+        "pnl": -613.53,
+        "avg_mfe": 2.25,
+        "dead_entries": 51,
+        "gave_back": 4
+      },
+      "2026-01": {
+        "trades": 83,
+        "wr": 47.0,
+        "pnl": 9784.18,
+        "avg_mfe": 3.6,
+        "dead_entries": 35,
+        "gave_back": 6
+      },
+      "2026-02": {
+        "trades": 97,
+        "wr": 46.8,
+        "pnl": 14104.8,
+        "avg_mfe": 1.42,
+        "dead_entries": 71,
+        "gave_back": 1
+      },
+      "2026-03": {
+        "trades": 123,
+        "wr": 20.0,
+        "pnl": -52021.81,
+        "avg_mfe": 0.0,
+        "dead_entries": 123,
+        "gave_back": 0
+      }
+    },
+    "by_hold": {
+      "0-4h": {
+        "trades": 8,
+        "wr": 25.0,
+        "pnl": -964.27,
+        "avg_mfe": 1.93
+      },
+      "4-12h": {
+        "trades": 1,
+        "wr": 0.0,
+        "pnl": -362.24,
+        "avg_mfe": 0.59
+      },
+      "12-24h": {
+        "trades": 346,
+        "wr": 13.0,
+        "pnl": -28045.05,
+        "avg_mfe": 0.53
+      },
+      "1-2d": {
+        "trades": 44,
+        "wr": 41.9,
+        "pnl": -45959.68,
+        "avg_mfe": 3.8
+      },
+      "2-5d": {
+        "trades": 159,
+        "wr": 44.4,
+        "pnl": 27206.56,
+        "avg_mfe": 2.97
+      },
+      "5d+": {
+        "trades": 248,
+        "wr": 67.5,
+        "pnl": 40666.75,
+        "avg_mfe": 3.93
+      }
+    },
+    "by_path": {
+      "ripster_momentum": {
+        "trades": 657,
+        "wr": 42.5,
+        "pnl": 13741.17,
+        "avg_mfe": 2.28,
+        "avg_mae": -1.56
+      },
+      "ripster_pullback": {
+        "trades": 149,
+        "wr": 43.1,
+        "pnl": -21199.1,
+        "avg_mfe": 2.12,
+        "avg_mae": -1.36
+      }
+    },
+    "exit_reasons": {
+      "DOA": 385,
+      "MAX_HOLD": 165,
+      "TP_HIT": 138,
+      "SL_HIT": 108,
+      "END_OF_REPLAY": 10
+    }
+  },
+  {
+    "label": "B_legacy",
+    "total": 140,
+    "wins": 42,
+    "losses": 93,
+    "flat": 5,
+    "total_pnl": -2202.4,
+    "avg_pnl": -15.73,
+    "avg_mfe": 1.96,
+    "avg_mae": -1.86,
+    "median_mfe": 0.26,
+    "median_mae": -1.16,
+    "wr": 31.1,
+    "mfe_dist": {
+      "<0.5% (dead)": {
+        "count": 76,
+        "pct": 54.3,
+        "avg_pnl": -190.08
+      },
+      "0.5-2%": {
+        "count": 20,
+        "pct": 14.3,
+        "avg_pnl": -182.24
+      },
+      "2-5%": {
+        "count": 23,
+        "pct": 16.4,
+        "avg_pnl": -86.35
+      },
+      ">=5%": {
+        "count": 21,
+        "pct": 15.0,
+        "avg_pnl": 851.17
+      }
+    },
+    "gave_back": {
+      "count": 10,
+      "total_lost": -5796.08,
+      "avg_mfe": 3.01,
+      "avg_final_pnl_pct": -5.17
+    },
+    "by_direction": {
+      "LONG": {
+        "trades": 14,
+        "wr": 53.8,
+        "pnl": 88.61,
+        "avg_mfe": 2.23,
+        "gave_back": 1
+      },
+      "SHORT": {
+        "trades": 126,
+        "wr": 28.7,
+        "pnl": -2291.01,
+        "avg_mfe": 1.93,
+        "gave_back": 9
+      }
+    },
+    "by_month": {
+      "2025-07": {
+        "trades": 8,
+        "wr": 37.5,
+        "pnl": -663.99,
+        "avg_mfe": 1.96,
+        "dead_entries": 2,
+        "gave_back": 1
+      },
+      "2025-08": {
+        "trades": 13,
+        "wr": 0.0,
+        "pnl": -4251.0,
+        "avg_mfe": 0.81,
+        "dead_entries": 7,
+        "gave_back": 3
+      },
+      "2025-09": {
+        "trades": 30,
+        "wr": 27.6,
+        "pnl": -1778.89,
+        "avg_mfe": 0.98,
+        "dead_entries": 20,
+        "gave_back": 2
+      },
+      "2025-10": {
+        "trades": 22,
+        "wr": 50.0,
+        "pnl": 1705.32,
+        "avg_mfe": 2.58,
+        "dead_entries": 8,
+        "gave_back": 1
+      },
+      "2025-11": {
+        "trades": 23,
+        "wr": 17.4,
+        "pnl": -1671.03,
+        "avg_mfe": 1.89,
+        "dead_entries": 13,
+        "gave_back": 2
+      },
+      "2025-12": {
+        "trades": 16,
+        "wr": 25.0,
+        "pnl": -978.85,
+        "avg_mfe": 1.04,
+        "dead_entries": 12,
+        "gave_back": 0
+      },
+      "2026-01": {
+        "trades": 13,
+        "wr": 53.8,
+        "pnl": 3204.11,
+        "avg_mfe": 3.58,
+        "dead_entries": 5,
+        "gave_back": 1
+      },
+      "2026-02": {
+        "trades": 15,
+        "wr": 40.0,
+        "pnl": 2231.93,
+        "avg_mfe": 3.74,
+        "dead_entries": 9,
+        "gave_back": 0
+      }
+    },
+    "by_hold": {
+      "12-24h": {
+        "trades": 63,
+        "wr": 10.2,
+        "pnl": -5936.95,
+        "avg_mfe": 0.77
+      },
+      "1-2d": {
+        "trades": 6,
+        "wr": 83.3,
+        "pnl": 3556.72,
+        "avg_mfe": 6.36
+      },
+      "2-5d": {
+        "trades": 26,
+        "wr": 26.9,
+        "pnl": -968.39,
+        "avg_mfe": 2.47
+      },
+      "5d+": {
+        "trades": 45,
+        "wr": 54.5,
+        "pnl": 1146.22,
+        "avg_mfe": 2.76
+      }
+    },
+    "by_path": {
+      "breakout_ema_stack_short": {
+        "trades": 111,
+        "wr": 31.8,
+        "pnl": 3076.8,
+        "avg_mfe": 2.01,
+        "avg_mae": -1.65
+      },
+      "gold_short_pullback": {
+        "trades": 13,
+        "wr": 23.1,
+        "pnl": -4204.96,
+        "avg_mfe": 1.9,
+        "avg_mae": -3.94
+      },
+      "gold_short_pullback_deep": {
+        "trades": 7,
+        "wr": 14.3,
+        "pnl": -676.51,
+        "avg_mfe": 1.21,
+        "avg_mae": -1.25
+      },
+      "gold_short_medium": {
+        "trades": 4,
+        "wr": 25.0,
+        "pnl": -440.03,
+        "avg_mfe": 4.08,
+        "avg_mae": -2.7
+      },
+      "breakout_ema_stack_long": {
+        "trades": 2,
+        "wr": 50.0,
+        "pnl": -175.12,
+        "avg_mfe": 0.29,
+        "avg_mae": -1.86
+      },
+      "gold_short_pullback_shallow": {
+        "trades": 1,
+        "wr": 0,
+        "pnl": 3.38,
+        "avg_mfe": 0.14,
+        "avg_mae": 0.0
+      },
+      "gold_short_confirmed": {
+        "trades": 1,
+        "wr": 100.0,
+        "pnl": 10.25,
+        "avg_mfe": 0.1,
+        "avg_mae": 0.0
+      },
+      "gold_short": {
+        "trades": 1,
+        "wr": 100.0,
+        "pnl": 203.79,
+        "avg_mfe": 1.44,
+        "avg_mae": -2.35
+      }
+    },
+    "exit_reasons": {
+      "DOA": 66,
+      "MAX_HOLD": 34,
+      "SL_HIT": 21,
+      "TP_HIT": 19
+    }
+  },
+  {
+    "label": "C_tt_core",
+    "total": 704,
+    "wins": 236,
+    "losses": 357,
+    "flat": 111,
+    "total_pnl": -21945.32,
+    "avg_pnl": -31.17,
+    "avg_mfe": 2.46,
+    "avg_mae": -1.77,
+    "median_mfe": 0.32,
+    "median_mae": -0.82,
+    "wr": 39.8,
+    "mfe_dist": {
+      "<0.5% (dead)": {
+        "count": 374,
+        "pct": 53.1,
+        "avg_pnl": -295.84
+      },
+      "0.5-2%": {
+        "count": 58,
+        "pct": 8.2,
+        "avg_pnl": -301.9
+      },
+      "2-5%": {
+        "count": 127,
+        "pct": 18.0,
+        "avg_pnl": -91.7
+      },
+      ">=5%": {
+        "count": 145,
+        "pct": 20.6,
+        "avg_pnl": 812.78
+      }
+    },
+    "gave_back": {
+      "count": 62,
+      "total_lost": -32341.37,
+      "avg_mfe": 3.56,
+      "avg_final_pnl_pct": -4.62
+    },
+    "by_direction": {
+      "LONG": {
+        "trades": 658,
+        "wr": 40.6,
+        "pnl": -18695.57,
+        "avg_mfe": 2.54,
+        "gave_back": 58
+      },
+      "SHORT": {
+        "trades": 46,
+        "wr": 29.5,
+        "pnl": -3249.75,
+        "avg_mfe": 1.33,
+        "gave_back": 4
+      }
+    },
+    "by_month": {
+      "2025-07": {
+        "trades": 77,
+        "wr": 36.8,
+        "pnl": -3018.14,
+        "avg_mfe": 3.08,
+        "dead_entries": 31,
+        "gave_back": 11
+      },
+      "2025-08": {
+        "trades": 99,
+        "wr": 44.4,
+        "pnl": 8591.81,
+        "avg_mfe": 3.13,
+        "dead_entries": 42,
+        "gave_back": 7
+      },
+      "2025-09": {
+        "trades": 72,
+        "wr": 47.8,
+        "pnl": 6979.0,
+        "avg_mfe": 2.24,
+        "dead_entries": 31,
+        "gave_back": 4
+      },
+      "2025-10": {
+        "trades": 107,
+        "wr": 40.4,
+        "pnl": 6159.7,
+        "avg_mfe": 3.32,
+        "dead_entries": 41,
+        "gave_back": 14
+      },
+      "2025-11": {
+        "trades": 70,
+        "wr": 35.3,
+        "pnl": 2179.59,
+        "avg_mfe": 3.03,
+        "dead_entries": 31,
+        "gave_back": 9
+      },
+      "2025-12": {
+        "trades": 85,
+        "wr": 39.0,
+        "pnl": 1846.13,
+        "avg_mfe": 1.83,
+        "dead_entries": 52,
+        "gave_back": 5
+      },
+      "2026-01": {
+        "trades": 59,
+        "wr": 37.3,
+        "pnl": -3924.0,
+        "avg_mfe": 3.37,
+        "dead_entries": 26,
+        "gave_back": 10
+      },
+      "2026-02": {
+        "trades": 70,
+        "wr": 35.5,
+        "pnl": -1831.77,
+        "avg_mfe": 1.49,
+        "dead_entries": 55,
+        "gave_back": 2
+      },
+      "2026-03": {
+        "trades": 65,
+        "wr": 0.0,
+        "pnl": -38927.64,
+        "avg_mfe": 0.0,
+        "dead_entries": 65,
+        "gave_back": 0
+      }
+    },
+    "by_hold": {
+      "0-4h": {
+        "trades": 13,
+        "wr": 38.5,
+        "pnl": 235.46,
+        "avg_mfe": 3.04
+      },
+      "4-12h": {
+        "trades": 12,
+        "wr": 25.0,
+        "pnl": -1400.77,
+        "avg_mfe": 4.2
+      },
+      "12-24h": {
+        "trades": 292,
+        "wr": 17.6,
+        "pnl": -27416.79,
+        "avg_mfe": 0.85
+      },
+      "1-2d": {
+        "trades": 55,
+        "wr": 44.4,
+        "pnl": -31059.57,
+        "avg_mfe": 4.05
+      },
+      "2-5d": {
+        "trades": 151,
+        "wr": 41.4,
+        "pnl": 16074.14,
+        "avg_mfe": 3.23
+      },
+      "5d+": {
+        "trades": 181,
+        "wr": 63.5,
+        "pnl": 21622.21,
+        "avg_mfe": 3.8
+      }
+    },
+    "by_path": {
+      "tt_momentum": {
+        "trades": 499,
+        "wr": 40.2,
+        "pnl": -12649.25,
+        "avg_mfe": 2.65,
+        "avg_mae": -1.86
+      },
+      "tt_pullback": {
+        "trades": 205,
+        "wr": 38.8,
+        "pnl": -9296.07,
+        "avg_mfe": 2.01,
+        "avg_mae": -1.56
+      }
+    },
+    "exit_reasons": {
+      "DOA": 319,
+      "SL_HIT": 128,
+      "MAX_HOLD": 128,
+      "TP_HIT": 124,
+      "END_OF_REPLAY": 5
+    }
+  }
+]

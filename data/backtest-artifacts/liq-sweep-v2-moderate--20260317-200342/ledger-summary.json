@@ -1,0 +1,71 @@
+{
+  "ok": true,
+  "since": null,
+  "until": null,
+  "totals": {
+    "totalTrades": 6,
+    "openTrades": 3,
+    "closedTrades": 3,
+    "wins": 2,
+    "losses": 1,
+    "winRate": 66.66666666666666,
+    "closedPnl": -821.3392348958345,
+    "profitFactor": 0.1161329373926742,
+    "avgWin": 53.958644902395925,
+    "avgLoss": 929.2565247006263,
+    "expectancy": -273.77974496527816,
+    "grossWin": 107.91728980479185,
+    "grossLoss": 929.2565247006263
+  },
+  "breakdown": {
+    "byRank": [
+      {
+        "bucket": "60-69",
+        "n": 1,
+        "wins": 0,
+        "losses": 0,
+        "pnl": 0
+      },
+      {
+        "bucket": "80+",
+        "n": 4,
+        "wins": 1,
+        "losses": 1,
+        "pnl": -838.9028466949782
+      },
+      {
+        "bucket": "<60",
+        "n": 1,
+        "wins": 1,
+        "losses": 0,
+        "pnl": 17.563611799143725
+      }
+    ],
+    "byRR": [
+      {
+        "bucket": "2.0+",
+        "n": 6,
+        "wins": 2,
+        "losses": 1,
+        "pnl": -821.3392348958345
+      }
+    ],
+    "byExitReason": [
+      {
+        "reason": "unknown",
+        "n": 5,
+        "wins": 2,
+        "losses": 0,
+        "pnl": 107.91728980479185
+      },
+      {
+        "reason": "HARD_LOSS_CAP",
+        "n": 1,
+        "wins": 0,
+        "losses": 1,
+        "pnl": -929.2565247006263
+      }
+    ],
+    "byTriggerReason": []
+  }
+}

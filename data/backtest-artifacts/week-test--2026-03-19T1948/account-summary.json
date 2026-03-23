@@ -1,0 +1,30 @@
+{
+  "label": "week-test",
+  "engine": "ripster_core",
+  "leading_ltf": "15",
+  "interval_min": 10,
+  "date_range": "2025-07-01 → 2025-07-15",
+  "start_cash": 100000,
+  "final_cash": 100000,
+  "total_pnl": 0,
+  "total_return_pct": 0,
+  "total_trades": 0,
+  "wins": 0,
+  "losses": 0,
+  "flat": 0,
+  "win_rate": "N/A",
+  "avg_pnl_per_trade": 0,
+  "entries_evaluated": 121600,
+  "entries_qualified": 0,
+  "qualification_rate": 0,
+  "days_processed": 10,
+  "intervals_processed": 400,
+  "runtime_seconds": 162.1,
+  "gate_blocks": {
+    "ripster_bias_not_aligned": 106897,
+    "da_short_rank_too_low": 4250,
+    "ripster_no_trigger": 10196,
+    "rvol_dead_zone": 257
+  },
+  "tickers_filtered": "all"
+}

@@ -1,0 +1,10 @@
+{
+  "ok": true,
+  "label": "phase2-tuned-v5-",
+  "captured_at": "20260318-222133",
+  "start_date": "2025-07-01",
+  "end_date": "2026-03-18",
+  "trader_only": true,
+  "sequence": true,
+  "note": "Captured automatically before reset for A/B comparison."
+}

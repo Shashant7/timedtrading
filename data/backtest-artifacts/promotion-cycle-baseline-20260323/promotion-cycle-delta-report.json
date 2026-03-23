@@ -1,0 +1,73 @@
+{
+  "generated_at_utc": "2026-03-23T14:52:23.508494+00:00",
+  "artifacts": {
+    "before": "baseline-short-validation.json",
+    "post_v3": "post-upgrade-short-validation.json",
+    "post_v3b": "post-upgrade-v3b-short-validation.json",
+    "post_v3c_diag": "post-upgrade-v3c-interval-diagnostics.json"
+  },
+  "before_metrics": {
+    "trade_count": 5,
+    "closed_count": 5,
+    "wins": 3,
+    "losses": 2,
+    "win_rate": 0.6,
+    "avg_pnl_pct_closed": 0.14336599072676687,
+    "engine_source_counts": {
+      "reference_date_bucket": 5
+    },
+    "scenario_policy_source_counts": {
+      "scenario_policy_default": 5
+    }
+  },
+  "post_v3_metrics": {
+    "trade_count": 6,
+    "closed_count": 6,
+    "wins": 4,
+    "losses": 2,
+    "win_rate": 0.6666666666666666,
+    "avg_pnl_pct_closed": 0.6291613437778464,
+    "engine_source_counts": {
+      "reference_date_bucket": 6
+    },
+    "scenario_policy_source_counts": {
+      "scenario_policy_default": 6
+    }
+  },
+  "post_v3b_metrics": {
+    "trade_count": 6,
+    "closed_count": 6,
+    "wins": 4,
+    "losses": 2,
+    "win_rate": 0.6666666666666666,
+    "avg_pnl_pct_closed": 0.6291613437778464,
+    "engine_source_counts": {
+      "reference_date_bucket": 6
+    },
+    "scenario_policy_source_counts": {
+      "scenario_policy_default": 6
+    }
+  },
+  "post_v3c_attribution_probe": {
+    "engine_source_counts": {
+      "reference_ticker_window": 42,
+      "reference_date_bucket": 41,
+      "unknown": 1
+    },
+    "scenario_policy_source_counts": {
+      "scenario_policy_default": 44,
+      "scenario_policy": 39,
+      "unknown": 1
+    },
+    "rows": 84
+  },
+  "promotion_decision": {
+    "status": "conditional_go",
+    "reason": "Reference attribution materially shifted toward ticker windows on targeted probe matrix; scenario policy also showed non-default matches. Continue with guarded full validation run.",
+    "next_run_label": "locked-validation-v3-targeted-promotion"
+  },
+  "caveats": [
+    "Short replay trade metrics are sensitive to replay state and should be treated as directional only.",
+    "Use interval-diagnostics attribution matrix as primary promotion proof for routing changes."
+  ]
+}

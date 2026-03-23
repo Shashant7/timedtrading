@@ -1,0 +1,11 @@
+{
+  "deep_audit_vix_ceiling": 28,
+  "deep_audit_danger_max_signals": 2,
+  "deep_audit_block_regime": ["CHOPPY", "TRANSITIONAL"],
+  "doa_gate_enabled": "true",
+  "tt_spy_directional_gate": "true",
+  "tt_pdz_hard_gate": "true",
+  "deep_audit_danger_ema_depth_min": 5,
+  "deep_audit_danger_vix_threshold": 22,
+  "deep_audit_danger_min_st_aligned": 3
+}

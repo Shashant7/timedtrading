@@ -1,0 +1,195 @@
+{
+  "run_start": 1774188381362,
+  "overrides": {
+    "tickers": "CSX,CDNS,ORCL,ITT",
+    "intervalMinutes": "5",
+    "skipInvestor": "1",
+    "traderOnly": "1",
+    "ENTRY_ENGINE": "legacy",
+    "MANAGEMENT_ENGINE": "legacy",
+    "deep_audit_confirmed_min_rank": "65",
+    "deep_audit_parity_defer_confirmed_opening_minutes": "0",
+    "deep_audit_legacy_momentum_precedence": "true",
+    "deep_audit_legacy_momentum_min_rr": "1.6",
+    "deep_audit_legacy_momentum_relax_trigger": "true",
+    "deep_audit_parity_runner_tp_full_only": "true",
+    "deep_audit_breakeven_skip_trimmed_runner": "true",
+    "deep_audit_parity_skip_stall_force_close": "true",
+    "deep_audit_parity_skip_sl_breach": "true",
+    "deep_audit_parity_no_reentry_after_tp_full_hours": "500"
+  },
+  "days": [
+    {
+      "date": "2025-07-01",
+      "scored": 316,
+      "tradesCreated": 3,
+      "totalTrades": 4,
+      "errorsCount": 0,
+      "errors": [],
+      "stageCounts": {
+        "hold": 313,
+        "in_review": 3
+      }
+    },
+    {
+      "date": "2025-07-02",
+      "scored": 316,
+      "tradesCreated": 0,
+      "totalTrades": 4,
+      "errorsCount": 0,
+      "errors": [],
+      "stageCounts": {
+        "hold": 302,
+        "trim": 14
+      }
+    },
+    {
+      "date": "2025-07-03",
+      "scored": 316,
+      "tradesCreated": 0,
+      "totalTrades": 4,
+      "errorsCount": 0,
+      "errors": [],
+      "stageCounts": {
+        "hold": 158,
+        "trim": 158
+      }
+    },
+    {
+      "date": "2025-07-07",
+      "scored": 316,
+      "tradesCreated": 0,
+      "totalTrades": 4,
+      "errorsCount": 0,
+      "errors": [],
+      "stageCounts": {
+        "hold": 158,
+        "trim": 158
+      }
+    },
+    {
+      "date": "2025-07-08",
+      "scored": 316,
+      "tradesCreated": 0,
+      "totalTrades": 4,
+      "errorsCount": 0,
+      "errors": [],
+      "stageCounts": {
+        "hold": 158,
+        "exit": 158
+      }
+    },
+    {
+      "date": "2025-07-09",
+      "scored": 316,
+      "tradesCreated": 0,
+      "totalTrades": 4,
+      "errorsCount": 0,
+      "errors": [],
+      "stageCounts": {
+        "hold": 158,
+        "exit": 158
+      }
+    },
+    {
+      "date": "2025-07-10",
+      "scored": 316,
+      "tradesCreated": 0,
+      "totalTrades": 4,
+      "errorsCount": 0,
+      "errors": [],
+      "stageCounts": {
+        "hold": 158,
+        "exit": 158
+      }
+    },
+    {
+      "date": "2025-07-11",
+      "scored": 316,
+      "tradesCreated": 0,
+      "totalTrades": 4,
+      "errorsCount": 0,
+      "errors": [],
+      "stageCounts": {
+        "trim": 79,
+        "exit": 158,
+        "hold": 79
+      }
+    },
+    {
+      "date": "2025-07-14",
+      "scored": 316,
+      "tradesCreated": 2,
+      "totalTrades": 6,
+      "errorsCount": 0,
+      "errors": [],
+      "stageCounts": {
+        "trim": 78,
+        "exit": 81,
+        "in_review": 12,
+        "hold": 145
+      }
+    },
+    {
+      "date": "2025-07-15",
+      "scored": 316,
+      "tradesCreated": 0,
+      "totalTrades": 4,
+      "errorsCount": 0,
+      "errors": [],
+      "stageCounts": {
+        "hold": 78,
+        "exit": 158,
+        "defend": 79,
+        "trim": 1
+      }
+    },
+    {
+      "date": "2025-07-16",
+      "scored": 316,
+      "tradesCreated": 2,
+      "totalTrades": 6,
+      "errorsCount": 0,
+      "errors": [],
+      "stageCounts": {
+        "exit": 82,
+        "in_review": 90,
+        "hold": 144
+      }
+    },
+    {
+      "date": "2025-07-17",
+      "scored": 316,
+      "tradesCreated": 1,
+      "totalTrades": 5,
+      "errorsCount": 0,
+      "errors": [],
+      "stageCounts": {
+        "trim": 79,
+        "exit": 159,
+        "in_review": 6,
+        "hold": 72
+      }
+    },
+    {
+      "date": "2025-07-18",
+      "scored": 316,
+      "tradesCreated": 2,
+      "totalTrades": 6,
+      "errorsCount": 0,
+      "errors": [],
+      "stageCounts": {
+        "trim": 79,
+        "exit": 81,
+        "in_review": 12,
+        "hold": 144
+      }
+    }
+  ],
+  "summary": {
+    "days": 13,
+    "total_scored": 4108,
+    "total_tradesCreated": 10,
+    "days_with_errors": []
+  }
+}

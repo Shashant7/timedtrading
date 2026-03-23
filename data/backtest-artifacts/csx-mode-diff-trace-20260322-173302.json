@@ -1,0 +1,1690 @@
+{
+  "ok": true,
+  "generated_at": "2026-03-22T17:33:02.632615+00:00",
+  "date": "2025-07-01",
+  "ticker": "CSX",
+  "interval_minutes": 5,
+  "overrides": {
+    "LEADING_LTF": "10"
+  },
+  "interval_mode": [
+    {
+      "interval": 0,
+      "intervalTs": 1751376600000,
+      "scored": 1,
+      "tradesCreated": 0,
+      "totalTradesResponse": 0,
+      "stageCounts": {
+        "watch": 1
+      },
+      "blockReasons": {
+        "tt_bias_not_aligned": 1
+      },
+      "blockedEntryGates": {
+        "tt_bias_not_aligned": 2,
+        "_total": 2
+      },
+      "processDebug": [],
+      "totalTrades": 0,
+      "openTrades": 0,
+      "latestTrades": []
+    },
+    {
+      "interval": 1,
+      "intervalTs": 1751376900000,
+      "scored": 1,
+      "tradesCreated": 0,
+      "totalTradesResponse": 0,
+      "stageCounts": {
+        "watch": 1
+      },
+      "blockReasons": {
+        "tt_bias_not_aligned": 1
+      },
+      "blockedEntryGates": {
+        "tt_bias_not_aligned": 2,
+        "_total": 2
+      },
+      "processDebug": [],
+      "totalTrades": 0,
+      "openTrades": 0,
+      "latestTrades": []
+    },
+    {
+      "interval": 2,
+      "intervalTs": 1751377200000,
+      "scored": 1,
+      "tradesCreated": 0,
+      "totalTradesResponse": 0,
+      "stageCounts": {
+        "watch": 1
+      },
+      "blockReasons": {
+        "tt_bias_not_aligned": 1
+      },
+      "blockedEntryGates": {
+        "tt_bias_not_aligned": 2,
+        "_total": 2
+      },
+      "processDebug": [],
+      "totalTrades": 0,
+      "openTrades": 0,
+      "latestTrades": []
+    },
+    {
+      "interval": 3,
+      "intervalTs": 1751377500000,
+      "scored": 1,
+      "tradesCreated": 0,
+      "totalTradesResponse": 0,
+      "stageCounts": {
+        "watch": 1
+      },
+      "blockReasons": {
+        "tt_bias_not_aligned": 1
+      },
+      "blockedEntryGates": {
+        "tt_bias_not_aligned": 2,
+        "_total": 2
+      },
+      "processDebug": [],
+      "totalTrades": 0,
+      "openTrades": 0,
+      "latestTrades": []
+    },
+    {
+      "interval": 4,
+      "intervalTs": 1751377800000,
+      "scored": 1,
+      "tradesCreated": 0,
+      "totalTradesResponse": 0,
+      "stageCounts": {
+        "watch": 1
+      },
+      "blockReasons": {
+        "tt_bias_not_aligned": 1
+      },
+      "blockedEntryGates": {
+        "tt_bias_not_aligned": 2,
+        "_total": 2
+      },
+      "processDebug": [],
+      "totalTrades": 0,
+      "openTrades": 0,
+      "latestTrades": []
+    },
+    {
+      "interval": 5,
+      "intervalTs": 1751378100000,
+      "scored": 1,
+      "tradesCreated": 0,
+      "totalTradesResponse": 0,
+      "stageCounts": {
+        "watch": 1
+      },
+      "blockReasons": {
+        "tt_bias_not_aligned": 1
+      },
+      "blockedEntryGates": {
+        "tt_bias_not_aligned": 2,
+        "_total": 2
+      },
+      "processDebug": [],
+      "totalTrades": 0,
+      "openTrades": 0,
+      "latestTrades": []
+    },
+    {
+      "interval": 6,
+      "intervalTs": 1751378400000,
+      "scored": 1,
+      "tradesCreated": 0,
+      "totalTradesResponse": 0,
+      "stageCounts": {
+        "watch": 1
+      },
+      "blockReasons": {
+        "tt_bias_not_aligned": 1
+      },
+      "blockedEntryGates": {
+        "tt_bias_not_aligned": 2,
+        "_total": 2
+      },
+      "processDebug": [],
+      "totalTrades": 0,
+      "openTrades": 0,
+      "latestTrades": []
+    },
+    {
+      "interval": 7,
+      "intervalTs": 1751378700000,
+      "scored": 1,
+      "tradesCreated": 0,
+      "totalTradesResponse": 0,
+      "stageCounts": {
+        "watch": 1
+      },
+      "blockReasons": {
+        "tt_bias_not_aligned": 1
+      },
+      "blockedEntryGates": {
+        "tt_bias_not_aligned": 2,
+        "_total": 2
+      },
+      "processDebug": [],
+      "totalTrades": 0,
+      "openTrades": 0,
+      "latestTrades": []
+    },
+    {
+      "interval": 8,
+      "intervalTs": 1751379000000,
+      "scored": 1,
+      "tradesCreated": 0,
+      "totalTradesResponse": 0,
+      "stageCounts": {
+        "watch": 1
+      },
+      "blockReasons": {
+        "tt_bias_not_aligned": 1
+      },
+      "blockedEntryGates": {
+        "tt_bias_not_aligned": 2,
+        "_total": 2
+      },
+      "processDebug": [],
+      "totalTrades": 0,
+      "openTrades": 0,
+      "latestTrades": []
+    },
+    {
+      "interval": 9,
+      "intervalTs": 1751379300000,
+      "scored": 1,
+      "tradesCreated": 0,
+      "totalTradesResponse": 0,
+      "stageCounts": {
+        "watch": 1
+      },
+      "blockReasons": {
+        "tt_bias_not_aligned": 1
+      },
+      "blockedEntryGates": {
+        "tt_bias_not_aligned": 2,
+        "_total": 2
+      },
+      "processDebug": [],
+      "totalTrades": 0,
+      "openTrades": 0,
+      "latestTrades": []
+    },
+    {
+      "interval": 10,
+      "intervalTs": 1751379600000,
+      "scored": 1,
+      "tradesCreated": 0,
+      "totalTradesResponse": 0,
+      "stageCounts": {
+        "watch": 1
+      },
+      "blockReasons": {
+        "tt_bias_not_aligned": 1
+      },
+      "blockedEntryGates": {
+        "tt_bias_not_aligned": 2,
+        "_total": 2
+      },
+      "processDebug": [],
+      "totalTrades": 0,
+      "openTrades": 0,
+      "latestTrades": []
+    },
+    {
+      "interval": 11,
+      "intervalTs": 1751379900000,
+      "scored": 1,
+      "tradesCreated": 0,
+      "totalTradesResponse": 0,
+      "stageCounts": {
+        "watch": 1
+      },
+      "blockReasons": {
+        "tt_bias_not_aligned": 1
+      },
+      "blockedEntryGates": {
+        "tt_bias_not_aligned": 2,
+        "_total": 2
+      },
+      "processDebug": [],
+      "totalTrades": 0,
+      "openTrades": 0,
+      "latestTrades": []
+    },
+    {
+      "interval": 12,
+      "intervalTs": 1751380200000,
+      "scored": 1,
+      "tradesCreated": 0,
+      "totalTradesResponse": 0,
+      "stageCounts": {
+        "watch": 1
+      },
+      "blockReasons": {
+        "tt_bias_not_aligned": 1
+      },
+      "blockedEntryGates": {
+        "tt_bias_not_aligned": 2,
+        "_total": 2
+      },
+      "processDebug": [],
+      "totalTrades": 0,
+      "openTrades": 0,
+      "latestTrades": []
+    },
+    {
+      "interval": 13,
+      "intervalTs": 1751380500000,
+      "scored": 1,
+      "tradesCreated": 0,
+      "totalTradesResponse": 0,
+      "stageCounts": {
+        "watch": 1
+      },
+      "blockReasons": {
+        "tt_bias_not_aligned": 1
+      },
+      "blockedEntryGates": {
+        "tt_bias_not_aligned": 2,
+        "_total": 2
+      },
+      "processDebug": [],
+      "totalTrades": 0,
+      "openTrades": 0,
+      "latestTrades": []
+    },
+    {
+      "interval": 14,
+      "intervalTs": 1751380800000,
+      "scored": 1,
+      "tradesCreated": 0,
+      "totalTradesResponse": 0,
+      "stageCounts": {
+        "watch": 1
+      },
+      "blockReasons": {
+        "tt_bias_not_aligned": 1
+      },
+      "blockedEntryGates": {
+        "tt_bias_not_aligned": 2,
+        "_total": 2
+      },
+      "processDebug": [],
+      "totalTrades": 0,
+      "openTrades": 0,
+      "latestTrades": []
+    },
+    {
+      "interval": 15,
+      "intervalTs": 1751381100000,
+      "scored": 1,
+      "tradesCreated": 0,
+      "totalTradesResponse": 0,
+      "stageCounts": {
+        "watch": 1
+      },
+      "blockReasons": {
+        "tt_bias_not_aligned": 1
+      },
+      "blockedEntryGates": {
+        "tt_bias_not_aligned": 2,
+        "_total": 2
+      },
+      "processDebug": [],
+      "totalTrades": 0,
+      "openTrades": 0,
+      "latestTrades": []
+    },
+    {
+      "interval": 16,
+      "intervalTs": 1751381400000,
+      "scored": 1,
+      "tradesCreated": 0,
+      "totalTradesResponse": 0,
+      "stageCounts": {
+        "watch": 1
+      },
+      "blockReasons": {
+        "tt_bias_not_aligned": 1
+      },
+      "blockedEntryGates": {
+        "tt_bias_not_aligned": 2,
+        "_total": 2
+      },
+      "processDebug": [],
+      "totalTrades": 0,
+      "openTrades": 0,
+      "latestTrades": []
+    },
+    {
+      "interval": 17,
+      "intervalTs": 1751381700000,
+      "scored": 1,
+      "tradesCreated": 0,
+      "totalTradesResponse": 0,
+      "stageCounts": {
+        "watch": 1
+      },
+      "blockReasons": {
+        "tt_bias_not_aligned": 1
+      },
+      "blockedEntryGates": {
+        "tt_bias_not_aligned": 2,
+        "_total": 2
+      },
+      "processDebug": [],
+      "totalTrades": 0,
+      "openTrades": 0,
+      "latestTrades": []
+    },
+    {
+      "interval": 18,
+      "intervalTs": 1751382000000,
+      "scored": 1,
+      "tradesCreated": 0,
+      "totalTradesResponse": 0,
+      "stageCounts": {
+        "watch": 1
+      },
+      "blockReasons": {
+        "tt_bias_not_aligned": 1
+      },
+      "blockedEntryGates": {
+        "tt_bias_not_aligned": 2,
+        "_total": 2
+      },
+      "processDebug": [],
+      "totalTrades": 0,
+      "openTrades": 0,
+      "latestTrades": []
+    },
+    {
+      "interval": 19,
+      "intervalTs": 1751382300000,
+      "scored": 1,
+      "tradesCreated": 0,
+      "totalTradesResponse": 0,
+      "stageCounts": {
+        "watch": 1
+      },
+      "blockReasons": {
+        "tt_bias_not_aligned": 1
+      },
+      "blockedEntryGates": {
+        "tt_bias_not_aligned": 2,
+        "_total": 2
+      },
+      "processDebug": [],
+      "totalTrades": 0,
+      "openTrades": 0,
+      "latestTrades": []
+    },
+    {
+      "interval": 20,
+      "intervalTs": 1751382600000,
+      "scored": 1,
+      "tradesCreated": 0,
+      "totalTradesResponse": 0,
+      "stageCounts": {
+        "watch": 1
+      },
+      "blockReasons": {
+        "tt_bias_not_aligned": 1
+      },
+      "blockedEntryGates": {
+        "tt_bias_not_aligned": 2,
+        "_total": 2
+      },
+      "processDebug": [],
+      "totalTrades": 0,
+      "openTrades": 0,
+      "latestTrades": []
+    },
+    {
+      "interval": 21,
+      "intervalTs": 1751382900000,
+      "scored": 1,
+      "tradesCreated": 0,
+      "totalTradesResponse": 0,
+      "stageCounts": {
+        "watch": 1
+      },
+      "blockReasons": {
+        "tt_bias_not_aligned": 1
+      },
+      "blockedEntryGates": {
+        "tt_bias_not_aligned": 2,
+        "_total": 2
+      },
+      "processDebug": [],
+      "totalTrades": 0,
+      "openTrades": 0,
+      "latestTrades": []
+    },
+    {
+      "interval": 22,
+      "intervalTs": 1751383200000,
+      "scored": 1,
+      "tradesCreated": 0,
+      "totalTradesResponse": 0,
+      "stageCounts": {
+        "watch": 1
+      },
+      "blockReasons": {
+        "tt_bias_not_aligned": 1
+      },
+      "blockedEntryGates": {
+        "tt_bias_not_aligned": 2,
+        "_total": 2
+      },
+      "processDebug": [],
+      "totalTrades": 0,
+      "openTrades": 0,
+      "latestTrades": []
+    },
+    {
+      "interval": 23,
+      "intervalTs": 1751383500000,
+      "scored": 1,
+      "tradesCreated": 0,
+      "totalTradesResponse": 0,
+      "stageCounts": {
+        "watch": 1
+      },
+      "blockReasons": {
+        "tt_bias_not_aligned": 1
+      },
+      "blockedEntryGates": {
+        "tt_bias_not_aligned": 2,
+        "_total": 2
+      },
+      "processDebug": [],
+      "totalTrades": 0,
+      "openTrades": 0,
+      "latestTrades": []
+    },
+    {
+      "interval": 24,
+      "intervalTs": 1751383800000,
+      "scored": 1,
+      "tradesCreated": 0,
+      "totalTradesResponse": 0,
+      "stageCounts": {
+        "watch": 1
+      },
+      "blockReasons": {
+        "tt_bias_not_aligned": 1
+      },
+      "blockedEntryGates": {
+        "tt_bias_not_aligned": 2,
+        "_total": 2
+      },
+      "processDebug": [],
+      "totalTrades": 0,
+      "openTrades": 0,
+      "latestTrades": []
+    },
+    {
+      "interval": 25,
+      "intervalTs": 1751384100000,
+      "scored": 1,
+      "tradesCreated": 0,
+      "totalTradesResponse": 0,
+      "stageCounts": {
+        "watch": 1
+      },
+      "blockReasons": {
+        "tt_bias_not_aligned": 1
+      },
+      "blockedEntryGates": {
+        "tt_bias_not_aligned": 2,
+        "_total": 2
+      },
+      "processDebug": [],
+      "totalTrades": 0,
+      "openTrades": 0,
+      "latestTrades": []
+    },
+    {
+      "interval": 26,
+      "intervalTs": 1751384400000,
+      "scored": 1,
+      "tradesCreated": 0,
+      "totalTradesResponse": 0,
+      "stageCounts": {
+        "watch": 1
+      },
+      "blockReasons": {
+        "tt_bias_not_aligned": 1
+      },
+      "blockedEntryGates": {
+        "tt_bias_not_aligned": 2,
+        "_total": 2
+      },
+      "processDebug": [],
+      "totalTrades": 0,
+      "openTrades": 0,
+      "latestTrades": []
+    },
+    {
+      "interval": 27,
+      "intervalTs": 1751384700000,
+      "scored": 1,
+      "tradesCreated": 0,
+      "totalTradesResponse": 0,
+      "stageCounts": {
+        "watch": 1
+      },
+      "blockReasons": {
+        "tt_bias_not_aligned": 1
+      },
+      "blockedEntryGates": {
+        "tt_bias_not_aligned": 2,
+        "_total": 2
+      },
+      "processDebug": [],
+      "totalTrades": 0,
+      "openTrades": 0,
+      "latestTrades": []
+    },
+    {
+      "interval": 28,
+      "intervalTs": 1751385000000,
+      "scored": 1,
+      "tradesCreated": 0,
+      "totalTradesResponse": 0,
+      "stageCounts": {
+        "watch": 1
+      },
+      "blockReasons": {
+        "tt_bias_not_aligned": 1
+      },
+      "blockedEntryGates": {
+        "tt_bias_not_aligned": 2,
+        "_total": 2
+      },
+      "processDebug": [],
+      "totalTrades": 0,
+      "openTrades": 0,
+      "latestTrades": []
+    },
+    {
+      "interval": 29,
+      "intervalTs": 1751385300000,
+      "scored": 1,
+      "tradesCreated": 0,
+      "totalTradesResponse": 0,
+      "stageCounts": {
+        "watch": 1
+      },
+      "blockReasons": {
+        "tt_bias_not_aligned": 1
+      },
+      "blockedEntryGates": {
+        "tt_bias_not_aligned": 2,
+        "_total": 2
+      },
+      "processDebug": [],
+      "totalTrades": 0,
+      "openTrades": 0,
+      "latestTrades": []
+    },
+    {
+      "interval": 30,
+      "intervalTs": 1751385600000,
+      "scored": 1,
+      "tradesCreated": 0,
+      "totalTradesResponse": 0,
+      "stageCounts": {
+        "watch": 1
+      },
+      "blockReasons": {
+        "tt_bias_not_aligned": 1
+      },
+      "blockedEntryGates": {
+        "tt_bias_not_aligned": 2,
+        "_total": 2
+      },
+      "processDebug": [],
+      "totalTrades": 0,
+      "openTrades": 0,
+      "latestTrades": []
+    },
+    {
+      "interval": 31,
+      "intervalTs": 1751385900000,
+      "scored": 1,
+      "tradesCreated": 0,
+      "totalTradesResponse": 0,
+      "stageCounts": {
+        "watch": 1
+      },
+      "blockReasons": {
+        "tt_bias_not_aligned": 1
+      },
+      "blockedEntryGates": {
+        "tt_bias_not_aligned": 2,
+        "_total": 2
+      },
+      "processDebug": [],
+      "totalTrades": 0,
+      "openTrades": 0,
+      "latestTrades": []
+    },
+    {
+      "interval": 32,
+      "intervalTs": 1751386200000,
+      "scored": 1,
+      "tradesCreated": 0,
+      "totalTradesResponse": 0,
+      "stageCounts": {
+        "watch": 1
+      },
+      "blockReasons": {
+        "tt_bias_not_aligned": 1
+      },
+      "blockedEntryGates": {
+        "tt_bias_not_aligned": 2,
+        "_total": 2
+      },
+      "processDebug": [],
+      "totalTrades": 0,
+      "openTrades": 0,
+      "latestTrades": []
+    },
+    {
+      "interval": 33,
+      "intervalTs": 1751386500000,
+      "scored": 1,
+      "tradesCreated": 0,
+      "totalTradesResponse": 0,
+      "stageCounts": {
+        "watch": 1
+      },
+      "blockReasons": {
+        "tt_bias_not_aligned": 1
+      },
+      "blockedEntryGates": {
+        "tt_bias_not_aligned": 2,
+        "_total": 2
+      },
+      "processDebug": [],
+      "totalTrades": 0,
+      "openTrades": 0,
+      "latestTrades": []
+    },
+    {
+      "interval": 34,
+      "intervalTs": 1751386800000,
+      "scored": 1,
+      "tradesCreated": 0,
+      "totalTradesResponse": 0,
+      "stageCounts": {
+        "watch": 1
+      },
+      "blockReasons": {
+        "tt_bias_not_aligned": 1
+      },
+      "blockedEntryGates": {
+        "tt_bias_not_aligned": 2,
+        "_total": 2
+      },
+      "processDebug": [],
+      "totalTrades": 0,
+      "openTrades": 0,
+      "latestTrades": []
+    },
+    {
+      "interval": 35,
+      "intervalTs": 1751387100000,
+      "scored": 1,
+      "tradesCreated": 0,
+      "totalTradesResponse": 0,
+      "stageCounts": {
+        "watch": 1
+      },
+      "blockReasons": {
+        "tt_bias_not_aligned": 1
+      },
+      "blockedEntryGates": {
+        "tt_bias_not_aligned": 2,
+        "_total": 2
+      },
+      "processDebug": [],
+      "totalTrades": 0,
+      "openTrades": 0,
+      "latestTrades": []
+    },
+    {
+      "interval": 36,
+      "intervalTs": 1751387400000,
+      "scored": 1,
+      "tradesCreated": 0,
+      "totalTradesResponse": 0,
+      "stageCounts": {
+        "watch": 1
+      },
+      "blockReasons": {
+        "tt_bias_not_aligned": 1
+      },
+      "blockedEntryGates": {
+        "tt_bias_not_aligned": 2,
+        "_total": 2
+      },
+      "processDebug": [],
+      "totalTrades": 0,
+      "openTrades": 0,
+      "latestTrades": []
+    },
+    {
+      "interval": 37,
+      "intervalTs": 1751387700000,
+      "scored": 1,
+      "tradesCreated": 0,
+      "totalTradesResponse": 0,
+      "stageCounts": {
+        "watch": 1
+      },
+      "blockReasons": {
+        "tt_bias_not_aligned": 1
+      },
+      "blockedEntryGates": {
+        "tt_bias_not_aligned": 2,
+        "_total": 2
+      },
+      "processDebug": [],
+      "totalTrades": 0,
+      "openTrades": 0,
+      "latestTrades": []
+    },
+    {
+      "interval": 38,
+      "intervalTs": 1751388000000,
+      "scored": 1,
+      "tradesCreated": 0,
+      "totalTradesResponse": 0,
+      "stageCounts": {
+        "watch": 1
+      },
+      "blockReasons": {
+        "tt_bias_not_aligned": 1
+      },
+      "blockedEntryGates": {
+        "tt_bias_not_aligned": 2,
+        "_total": 2
+      },
+      "processDebug": [],
+      "totalTrades": 0,
+      "openTrades": 0,
+      "latestTrades": []
+    },
+    {
+      "interval": 39,
+      "intervalTs": 1751388300000,
+      "scored": 1,
+      "tradesCreated": 0,
+      "totalTradesResponse": 0,
+      "stageCounts": {
+        "watch": 1
+      },
+      "blockReasons": {
+        "tt_bias_not_aligned": 1
+      },
+      "blockedEntryGates": {
+        "tt_bias_not_aligned": 2,
+        "_total": 2
+      },
+      "processDebug": [],
+      "totalTrades": 0,
+      "openTrades": 0,
+      "latestTrades": []
+    },
+    {
+      "interval": 40,
+      "intervalTs": 1751388600000,
+      "scored": 1,
+      "tradesCreated": 0,
+      "totalTradesResponse": 0,
+      "stageCounts": {
+        "watch": 1
+      },
+      "blockReasons": {
+        "tt_bias_not_aligned": 1
+      },
+      "blockedEntryGates": {
+        "tt_bias_not_aligned": 2,
+        "_total": 2
+      },
+      "processDebug": [],
+      "totalTrades": 0,
+      "openTrades": 0,
+      "latestTrades": []
+    },
+    {
+      "interval": 41,
+      "intervalTs": 1751388900000,
+      "scored": 1,
+      "tradesCreated": 0,
+      "totalTradesResponse": 0,
+      "stageCounts": {
+        "watch": 1
+      },
+      "blockReasons": {
+        "tt_bias_not_aligned": 1
+      },
+      "blockedEntryGates": {
+        "tt_bias_not_aligned": 2,
+        "_total": 2
+      },
+      "processDebug": [],
+      "totalTrades": 0,
+      "openTrades": 0,
+      "latestTrades": []
+    },
+    {
+      "interval": 42,
+      "intervalTs": 1751389200000,
+      "scored": 1,
+      "tradesCreated": 0,
+      "totalTradesResponse": 0,
+      "stageCounts": {
+        "watch": 1
+      },
+      "blockReasons": {
+        "tt_bias_not_aligned": 1
+      },
+      "blockedEntryGates": {
+        "tt_bias_not_aligned": 2,
+        "_total": 2
+      },
+      "processDebug": [],
+      "totalTrades": 0,
+      "openTrades": 0,
+      "latestTrades": []
+    },
+    {
+      "interval": 43,
+      "intervalTs": 1751389500000,
+      "scored": 1,
+      "tradesCreated": 0,
+      "totalTradesResponse": 0,
+      "stageCounts": {
+        "watch": 1
+      },
+      "blockReasons": {
+        "tt_bias_not_aligned": 1
+      },
+      "blockedEntryGates": {
+        "tt_bias_not_aligned": 2,
+        "_total": 2
+      },
+      "processDebug": [],
+      "totalTrades": 0,
+      "openTrades": 0,
+      "latestTrades": []
+    },
+    {
+      "interval": 44,
+      "intervalTs": 1751389800000,
+      "scored": 1,
+      "tradesCreated": 0,
+      "totalTradesResponse": 0,
+      "stageCounts": {
+        "watch": 1
+      },
+      "blockReasons": {
+        "tt_bias_not_aligned": 1
+      },
+      "blockedEntryGates": {
+        "tt_bias_not_aligned": 2,
+        "_total": 2
+      },
+      "processDebug": [],
+      "totalTrades": 0,
+      "openTrades": 0,
+      "latestTrades": []
+    },
+    {
+      "interval": 45,
+      "intervalTs": 1751390100000,
+      "scored": 1,
+      "tradesCreated": 0,
+      "totalTradesResponse": 0,
+      "stageCounts": {
+        "watch": 1
+      },
+      "blockReasons": {
+        "tt_bias_not_aligned": 1
+      },
+      "blockedEntryGates": {
+        "tt_bias_not_aligned": 2,
+        "_total": 2
+      },
+      "processDebug": [],
+      "totalTrades": 0,
+      "openTrades": 0,
+      "latestTrades": []
+    },
+    {
+      "interval": 46,
+      "intervalTs": 1751390400000,
+      "scored": 1,
+      "tradesCreated": 0,
+      "totalTradesResponse": 0,
+      "stageCounts": {
+        "watch": 1
+      },
+      "blockReasons": {
+        "tt_bias_not_aligned": 1
+      },
+      "blockedEntryGates": {
+        "tt_bias_not_aligned": 2,
+        "_total": 2
+      },
+      "processDebug": [],
+      "totalTrades": 0,
+      "openTrades": 0,
+      "latestTrades": []
+    },
+    {
+      "interval": 47,
+      "intervalTs": 1751390700000,
+      "scored": 1,
+      "tradesCreated": 0,
+      "totalTradesResponse": 0,
+      "stageCounts": {
+        "watch": 1
+      },
+      "blockReasons": {
+        "tt_bias_not_aligned": 1
+      },
+      "blockedEntryGates": {
+        "tt_bias_not_aligned": 2,
+        "_total": 2
+      },
+      "processDebug": [],
+      "totalTrades": 0,
+      "openTrades": 0,
+      "latestTrades": []
+    },
+    {
+      "interval": 48,
+      "intervalTs": 1751391000000,
+      "scored": 1,
+      "tradesCreated": 0,
+      "totalTradesResponse": 0,
+      "stageCounts": {
+        "watch": 1
+      },
+      "blockReasons": {
+        "tt_bias_not_aligned": 1
+      },
+      "blockedEntryGates": {
+        "tt_bias_not_aligned": 2,
+        "_total": 2
+      },
+      "processDebug": [],
+      "totalTrades": 0,
+      "openTrades": 0,
+      "latestTrades": []
+    },
+    {
+      "interval": 49,
+      "intervalTs": 1751391300000,
+      "scored": 1,
+      "tradesCreated": 0,
+      "totalTradesResponse": 0,
+      "stageCounts": {
+        "watch": 1
+      },
+      "blockReasons": {
+        "tt_bias_not_aligned": 1
+      },
+      "blockedEntryGates": {
+        "tt_bias_not_aligned": 2,
+        "_total": 2
+      },
+      "processDebug": [],
+      "totalTrades": 0,
+      "openTrades": 0,
+      "latestTrades": []
+    },
+    {
+      "interval": 50,
+      "intervalTs": 1751391600000,
+      "scored": 1,
+      "tradesCreated": 0,
+      "totalTradesResponse": 0,
+      "stageCounts": {
+        "watch": 1
+      },
+      "blockReasons": {
+        "tt_bias_not_aligned": 1
+      },
+      "blockedEntryGates": {
+        "tt_bias_not_aligned": 2,
+        "_total": 2
+      },
+      "processDebug": [],
+      "totalTrades": 0,
+      "openTrades": 0,
+      "latestTrades": []
+    },
+    {
+      "interval": 51,
+      "intervalTs": 1751391900000,
+      "scored": 1,
+      "tradesCreated": 0,
+      "totalTradesResponse": 0,
+      "stageCounts": {
+        "watch": 1
+      },
+      "blockReasons": {
+        "tt_bias_not_aligned": 1
+      },
+      "blockedEntryGates": {
+        "tt_bias_not_aligned": 2,
+        "_total": 2
+      },
+      "processDebug": [],
+      "totalTrades": 0,
+      "openTrades": 0,
+      "latestTrades": []
+    },
+    {
+      "interval": 52,
+      "intervalTs": 1751392200000,
+      "scored": 1,
+      "tradesCreated": 0,
+      "totalTradesResponse": 0,
+      "stageCounts": {
+        "watch": 1
+      },
+      "blockReasons": {
+        "tt_bias_not_aligned": 1
+      },
+      "blockedEntryGates": {
+        "tt_bias_not_aligned": 2,
+        "_total": 2
+      },
+      "processDebug": [],
+      "totalTrades": 0,
+      "openTrades": 0,
+      "latestTrades": []
+    },
+    {
+      "interval": 53,
+      "intervalTs": 1751392500000,
+      "scored": 1,
+      "tradesCreated": 0,
+      "totalTradesResponse": 0,
+      "stageCounts": {
+        "watch": 1
+      },
+      "blockReasons": {
+        "tt_bias_not_aligned": 1
+      },
+      "blockedEntryGates": {
+        "tt_bias_not_aligned": 2,
+        "_total": 2
+      },
+      "processDebug": [],
+      "totalTrades": 0,
+      "openTrades": 0,
+      "latestTrades": []
+    },
+    {
+      "interval": 54,
+      "intervalTs": 1751392800000,
+      "scored": 1,
+      "tradesCreated": 0,
+      "totalTradesResponse": 0,
+      "stageCounts": {
+        "watch": 1
+      },
+      "blockReasons": {
+        "tt_bias_not_aligned": 1
+      },
+      "blockedEntryGates": {
+        "tt_bias_not_aligned": 2,
+        "_total": 2
+      },
+      "processDebug": [],
+      "totalTrades": 0,
+      "openTrades": 0,
+      "latestTrades": []
+    },
+    {
+      "interval": 55,
+      "intervalTs": 1751393100000,
+      "scored": 1,
+      "tradesCreated": 0,
+      "totalTradesResponse": 0,
+      "stageCounts": {
+        "watch": 1
+      },
+      "blockReasons": {
+        "tt_bias_not_aligned": 1
+      },
+      "blockedEntryGates": {
+        "tt_bias_not_aligned": 2,
+        "_total": 2
+      },
+      "processDebug": [],
+      "totalTrades": 0,
+      "openTrades": 0,
+      "latestTrades": []
+    },
+    {
+      "interval": 56,
+      "intervalTs": 1751393400000,
+      "scored": 1,
+      "tradesCreated": 0,
+      "totalTradesResponse": 0,
+      "stageCounts": {
+        "watch": 1
+      },
+      "blockReasons": {
+        "tt_bias_not_aligned": 1
+      },
+      "blockedEntryGates": {
+        "tt_bias_not_aligned": 2,
+        "_total": 2
+      },
+      "processDebug": [],
+      "totalTrades": 0,
+      "openTrades": 0,
+      "latestTrades": []
+    },
+    {
+      "interval": 57,
+      "intervalTs": 1751393700000,
+      "scored": 1,
+      "tradesCreated": 0,
+      "totalTradesResponse": 0,
+      "stageCounts": {
+        "watch": 1
+      },
+      "blockReasons": {
+        "tt_bias_not_aligned": 1
+      },
+      "blockedEntryGates": {
+        "tt_bias_not_aligned": 2,
+        "_total": 2
+      },
+      "processDebug": [],
+      "totalTrades": 0,
+      "openTrades": 0,
+      "latestTrades": []
+    },
+    {
+      "interval": 58,
+      "intervalTs": 1751394000000,
+      "scored": 1,
+      "tradesCreated": 0,
+      "totalTradesResponse": 0,
+      "stageCounts": {
+        "watch": 1
+      },
+      "blockReasons": {
+        "tt_bias_not_aligned": 1
+      },
+      "blockedEntryGates": {
+        "tt_bias_not_aligned": 2,
+        "_total": 2
+      },
+      "processDebug": [],
+      "totalTrades": 0,
+      "openTrades": 0,
+      "latestTrades": []
+    },
+    {
+      "interval": 59,
+      "intervalTs": 1751394300000,
+      "scored": 1,
+      "tradesCreated": 0,
+      "totalTradesResponse": 0,
+      "stageCounts": {
+        "watch": 1
+      },
+      "blockReasons": {
+        "tt_bias_not_aligned": 1
+      },
+      "blockedEntryGates": {
+        "tt_bias_not_aligned": 2,
+        "_total": 2
+      },
+      "processDebug": [],
+      "totalTrades": 0,
+      "openTrades": 0,
+      "latestTrades": []
+    },
+    {
+      "interval": 60,
+      "intervalTs": 1751394600000,
+      "scored": 1,
+      "tradesCreated": 0,
+      "totalTradesResponse": 0,
+      "stageCounts": {
+        "watch": 1
+      },
+      "blockReasons": {
+        "tt_bias_not_aligned": 1
+      },
+      "blockedEntryGates": {
+        "tt_bias_not_aligned": 2,
+        "_total": 2
+      },
+      "processDebug": [],
+      "totalTrades": 0,
+      "openTrades": 0,
+      "latestTrades": []
+    },
+    {
+      "interval": 61,
+      "intervalTs": 1751394900000,
+      "scored": 1,
+      "tradesCreated": 0,
+      "totalTradesResponse": 0,
+      "stageCounts": {
+        "watch": 1
+      },
+      "blockReasons": {
+        "tt_bias_not_aligned": 1
+      },
+      "blockedEntryGates": {
+        "tt_bias_not_aligned": 2,
+        "_total": 2
+      },
+      "processDebug": [],
+      "totalTrades": 0,
+      "openTrades": 0,
+      "latestTrades": []
+    },
+    {
+      "interval": 62,
+      "intervalTs": 1751395200000,
+      "scored": 1,
+      "tradesCreated": 0,
+      "totalTradesResponse": 0,
+      "stageCounts": {
+        "watch": 1
+      },
+      "blockReasons": {
+        "tt_bias_not_aligned": 1
+      },
+      "blockedEntryGates": {
+        "tt_bias_not_aligned": 2,
+        "_total": 2
+      },
+      "processDebug": [],
+      "totalTrades": 0,
+      "openTrades": 0,
+      "latestTrades": []
+    },
+    {
+      "interval": 63,
+      "intervalTs": 1751395500000,
+      "scored": 1,
+      "tradesCreated": 0,
+      "totalTradesResponse": 0,
+      "stageCounts": {
+        "watch": 1
+      },
+      "blockReasons": {
+        "tt_bias_not_aligned": 1
+      },
+      "blockedEntryGates": {
+        "tt_bias_not_aligned": 2,
+        "_total": 2
+      },
+      "processDebug": [],
+      "totalTrades": 0,
+      "openTrades": 0,
+      "latestTrades": []
+    },
+    {
+      "interval": 64,
+      "intervalTs": 1751395800000,
+      "scored": 1,
+      "tradesCreated": 0,
+      "totalTradesResponse": 0,
+      "stageCounts": {
+        "watch": 1
+      },
+      "blockReasons": {
+        "tt_bias_not_aligned": 1
+      },
+      "blockedEntryGates": {
+        "tt_bias_not_aligned": 2,
+        "_total": 2
+      },
+      "processDebug": [],
+      "totalTrades": 0,
+      "openTrades": 0,
+      "latestTrades": []
+    },
+    {
+      "interval": 65,
+      "intervalTs": 1751396100000,
+      "scored": 1,
+      "tradesCreated": 0,
+      "totalTradesResponse": 0,
+      "stageCounts": {
+        "watch": 1
+      },
+      "blockReasons": {
+        "tt_bias_not_aligned": 1
+      },
+      "blockedEntryGates": {
+        "tt_bias_not_aligned": 2,
+        "_total": 2
+      },
+      "processDebug": [],
+      "totalTrades": 0,
+      "openTrades": 0,
+      "latestTrades": []
+    },
+    {
+      "interval": 66,
+      "intervalTs": 1751396400000,
+      "scored": 1,
+      "tradesCreated": 0,
+      "totalTradesResponse": 0,
+      "stageCounts": {
+        "watch": 1
+      },
+      "blockReasons": {
+        "tt_bias_not_aligned": 1
+      },
+      "blockedEntryGates": {
+        "tt_bias_not_aligned": 2,
+        "_total": 2
+      },
+      "processDebug": [],
+      "totalTrades": 0,
+      "openTrades": 0,
+      "latestTrades": []
+    },
+    {
+      "interval": 67,
+      "intervalTs": 1751396700000,
+      "scored": 1,
+      "tradesCreated": 0,
+      "totalTradesResponse": 0,
+      "stageCounts": {
+        "watch": 1
+      },
+      "blockReasons": {
+        "tt_bias_not_aligned": 1
+      },
+      "blockedEntryGates": {
+        "tt_bias_not_aligned": 2,
+        "_total": 2
+      },
+      "processDebug": [],
+      "totalTrades": 0,
+      "openTrades": 0,
+      "latestTrades": []
+    },
+    {
+      "interval": 68,
+      "intervalTs": 1751397000000,
+      "scored": 1,
+      "tradesCreated": 0,
+      "totalTradesResponse": 0,
+      "stageCounts": {
+        "watch": 1
+      },
+      "blockReasons": {
+        "tt_bias_not_aligned": 1
+      },
+      "blockedEntryGates": {
+        "tt_bias_not_aligned": 2,
+        "_total": 2
+      },
+      "processDebug": [],
+      "totalTrades": 0,
+      "openTrades": 0,
+      "latestTrades": []
+    },
+    {
+      "interval": 69,
+      "intervalTs": 1751397300000,
+      "scored": 1,
+      "tradesCreated": 0,
+      "totalTradesResponse": 0,
+      "stageCounts": {
+        "watch": 1
+      },
+      "blockReasons": {
+        "tt_bias_not_aligned": 1
+      },
+      "blockedEntryGates": {
+        "tt_bias_not_aligned": 2,
+        "_total": 2
+      },
+      "processDebug": [],
+      "totalTrades": 0,
+      "openTrades": 0,
+      "latestTrades": []
+    },
+    {
+      "interval": 70,
+      "intervalTs": 1751397600000,
+      "scored": 1,
+      "tradesCreated": 0,
+      "totalTradesResponse": 0,
+      "stageCounts": {
+        "watch": 1
+      },
+      "blockReasons": {
+        "tt_bias_not_aligned": 1
+      },
+      "blockedEntryGates": {
+        "tt_bias_not_aligned": 2,
+        "_total": 2
+      },
+      "processDebug": [],
+      "totalTrades": 0,
+      "openTrades": 0,
+      "latestTrades": []
+    },
+    {
+      "interval": 71,
+      "intervalTs": 1751397900000,
+      "scored": 1,
+      "tradesCreated": 0,
+      "totalTradesResponse": 0,
+      "stageCounts": {
+        "watch": 1
+      },
+      "blockReasons": {
+        "tt_bias_not_aligned": 1
+      },
+      "blockedEntryGates": {
+        "tt_bias_not_aligned": 2,
+        "_total": 2
+      },
+      "processDebug": [],
+      "totalTrades": 0,
+      "openTrades": 0,
+      "latestTrades": []
+    },
+    {
+      "interval": 72,
+      "intervalTs": 1751398200000,
+      "scored": 1,
+      "tradesCreated": 0,
+      "totalTradesResponse": 0,
+      "stageCounts": {
+        "watch": 1
+      },
+      "blockReasons": {
+        "tt_bias_not_aligned": 1
+      },
+      "blockedEntryGates": {
+        "tt_bias_not_aligned": 2,
+        "_total": 2
+      },
+      "processDebug": [],
+      "totalTrades": 0,
+      "openTrades": 0,
+      "latestTrades": []
+    },
+    {
+      "interval": 73,
+      "intervalTs": 1751398500000,
+      "scored": 1,
+      "tradesCreated": 0,
+      "totalTradesResponse": 0,
+      "stageCounts": {
+        "watch": 1
+      },
+      "blockReasons": {
+        "tt_bias_not_aligned": 1
+      },
+      "blockedEntryGates": {
+        "tt_bias_not_aligned": 2,
+        "_total": 2
+      },
+      "processDebug": [],
+      "totalTrades": 0,
+      "openTrades": 0,
+      "latestTrades": []
+    },
+    {
+      "interval": 74,
+      "intervalTs": 1751398800000,
+      "scored": 1,
+      "tradesCreated": 0,
+      "totalTradesResponse": 0,
+      "stageCounts": {
+        "watch": 1
+      },
+      "blockReasons": {
+        "tt_bias_not_aligned": 1
+      },
+      "blockedEntryGates": {
+        "tt_bias_not_aligned": 2,
+        "_total": 2
+      },
+      "processDebug": [],
+      "totalTrades": 0,
+      "openTrades": 0,
+      "latestTrades": []
+    },
+    {
+      "interval": 75,
+      "intervalTs": 1751399100000,
+      "scored": 1,
+      "tradesCreated": 0,
+      "totalTradesResponse": 0,
+      "stageCounts": {
+        "watch": 1
+      },
+      "blockReasons": {
+        "tt_bias_not_aligned": 1
+      },
+      "blockedEntryGates": {
+        "tt_bias_not_aligned": 2,
+        "_total": 2
+      },
+      "processDebug": [],
+      "totalTrades": 0,
+      "openTrades": 0,
+      "latestTrades": []
+    },
+    {
+      "interval": 76,
+      "intervalTs": 1751399400000,
+      "scored": 1,
+      "tradesCreated": 0,
+      "totalTradesResponse": 0,
+      "stageCounts": {
+        "watch": 1
+      },
+      "blockReasons": {
+        "tt_bias_not_aligned": 1
+      },
+      "blockedEntryGates": {
+        "tt_bias_not_aligned": 2,
+        "_total": 2
+      },
+      "processDebug": [],
+      "totalTrades": 0,
+      "openTrades": 0,
+      "latestTrades": []
+    },
+    {
+      "interval": 77,
+      "intervalTs": 1751399700000,
+      "scored": 1,
+      "tradesCreated": 0,
+      "totalTradesResponse": 0,
+      "stageCounts": {
+        "watch": 1
+      },
+      "blockReasons": {
+        "tt_bias_not_aligned": 1
+      },
+      "blockedEntryGates": {
+        "tt_bias_not_aligned": 2,
+        "_total": 2
+      },
+      "processDebug": [],
+      "totalTrades": 0,
+      "openTrades": 0,
+      "latestTrades": []
+    },
+    {
+      "interval": 78,
+      "intervalTs": 1751400000000,
+      "scored": 1,
+      "tradesCreated": 0,
+      "totalTradesResponse": 0,
+      "stageCounts": {
+        "watch": 1
+      },
+      "blockReasons": {
+        "tt_bias_not_aligned": 1
+      },
+      "blockedEntryGates": {
+        "tt_bias_not_aligned": 2,
+        "_total": 2
+      },
+      "processDebug": [],
+      "totalTrades": 0,
+      "openTrades": 0,
+      "latestTrades": []
+    }
+  ],
+  "candle_mode": {
+    "summary": {
+      "scored": 79,
+      "tradesCreated": 0,
+      "totalTrades": 0,
+      "errorsCount": 0
+    },
+    "timeline": [],
+    "processDebug": [],
+    "blockedEntryGates": {
+      "tt_bias_not_aligned": 158,
+      "_total": 158
+    }
+  },
+  "diff": {
+    "diffCount": 0,
+    "firstDivergence": null,
+    "sampleDiffs": []
+  }
+}
