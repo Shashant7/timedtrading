@@ -2373,6 +2373,8 @@ function resolveEngineMode(raw) {
 }
 
 let _dynamicEngineRulesCache = null;
+let _referenceExecutionMapCache = null;
+let _scenarioExecutionPolicyCache = null;
 
 function classifyVixRegime(vix) {
   if (vix == null || !Number.isFinite(vix)) return "unknown";
@@ -2405,19 +2407,444 @@ function classifyMarketRegime(d) {
   return "choppy";
 }
 
-function resolveEntryEngine(d, rules) {
+function _inferDirectionForEngineResolution(d) {
+  return corridorSide(d) != null
+    ? (corridorSide(d) === "bull" ? "LONG" : "SHORT")
+    : (String(d?.state || "").includes("BEAR") ? "SHORT" : "LONG");
+}
+
+const _DEFAULT_SEMANTIC_COMPARE_PATHS = [
+  "entry_path",
+  "direction_source",
+  "state",
+  "regime_class",
+  "consensus_direction",
+  "engine_source",
+  "scenario_policy_source",
+  "tf_bias.10m",
+  "tf_bias.15m",
+  "tf_bias.30m",
+  "tf_bias.1H",
+  "tf_bias.4H",
+  "tf_bias.D",
+];
+
+function _semanticToleranceOptions(map, mode = "execute") {
+  const profile = map?.semantic_tolerance_profile || {};
+  const cfg = profile?.[mode] || {};
+  const defaultStrictMissing = mode === "execute" ? false : true;
+  const defaultMaxMismatches = mode === "execute" ? 1 : 0;
+  const comparePaths = Array.isArray(cfg?.compare_paths) && cfg.compare_paths.length
+    ? cfg.compare_paths.map((p) => String(p))
+    : _DEFAULT_SEMANTIC_COMPARE_PATHS;
+  const requiredPaths = Array.isArray(cfg?.required_paths)
+    ? cfg.required_paths.map((p) => String(p))
+    : [];
+  const maxMismatchesRaw = Number(cfg?.max_mismatches);
+  return {
+    enabled: cfg?.enabled !== false,
+    strictMissing: cfg?.strict_missing == null ? defaultStrictMissing : cfg?.strict_missing !== false,
+    ignoreUnknownExpected: cfg?.ignore_unknown_expected !== false,
+    comparePaths,
+    requiredPaths,
+    maxMismatches: Number.isFinite(maxMismatchesRaw) && maxMismatchesRaw >= 0 ? Math.floor(maxMismatchesRaw) : defaultMaxMismatches,
+  };
+}
+
+function _resolveReferenceExecution(d, asOfTs, referenceMap) {
+  const map = referenceMap || _referenceExecutionMapCache;
+  if (!map || typeof map !== "object") return null;
+  const ticker = String(d?.ticker || "").toUpperCase();
+  if (!ticker) return null;
+  const ts = Number(asOfTs) || Number(d?.ts) || Date.now();
+  const direction = _inferDirectionForEngineResolution(d);
+  const runtimeCriteria = _runtimeCriteriaFingerprintFromTickerData(d, direction);
+  const execSemantic = _semanticToleranceOptions(map, "execute");
+
+  const exact = Array.isArray(map?.exact_reference_entries) ? map.exact_reference_entries : [];
+  for (const rule of exact) {
+    if (String(rule?.ticker || "").toUpperCase() !== ticker) continue;
+    const ruleDir = String(rule?.direction || "").toUpperCase();
+    if (ruleDir && ruleDir !== direction) continue;
+    const refTs = Number(rule?.entry_ts);
+    const tolMs = Math.max(60_000, (Number(rule?.tolerance_minutes) || 20) * 60_000);
+    const expectedFp = (rule?.criteria_fingerprint && typeof rule.criteria_fingerprint === "object")
+      ? rule.criteria_fingerprint
+      : null;
+    if (execSemantic.enabled && expectedFp) {
+      const fpCmp = _criteriaFingerprintCompare(expectedFp, runtimeCriteria, {
+        strictMissing: execSemantic.strictMissing,
+        ignoreUnknownExpected: execSemantic.ignoreUnknownExpected,
+        paths: execSemantic.comparePaths,
+        requiredPaths: execSemantic.requiredPaths,
+      });
+      if (fpCmp.available && fpCmp.mismatches.length > execSemantic.maxMismatches) continue;
+    }
+    if (Number.isFinite(refTs) && Math.abs(ts - refTs) <= tolMs) {
+      return {
+        entryEngine: resolveEngineMode(rule?.entry_engine),
+        managementEngine: resolveEngineMode(rule?.management_engine || rule?.entry_engine),
+        source: "reference_exact",
+        reference: {
+          ticker,
+          entry_ts: refTs,
+          trade_id: rule?.trade_id || null,
+          run_id: rule?.run_id || null,
+          entry_path_expected: rule?.entry_path_expected || null,
+          engine_source_expected: rule?.engine_source_expected || null,
+          scenario_policy_source_expected: rule?.scenario_policy_source_expected || null,
+          criteria_fingerprint: (rule?.criteria_fingerprint && typeof rule.criteria_fingerprint === "object")
+            ? rule.criteria_fingerprint
+            : null,
+        },
+      };
+    }
+  }
+
+  const tickerRanges = Array.isArray(map?.ticker_date_windows) ? map.ticker_date_windows : [];
+  for (const rule of tickerRanges) {
+    if (String(rule?.ticker || "").toUpperCase() !== ticker) continue;
+    const ruleDir = String(rule?.direction || "").toUpperCase();
+    if (ruleDir && ruleDir !== direction) continue;
+    const startTs = Number(rule?.start_ts);
+    const endTs = Number(rule?.end_ts);
+    const expectedFp = (rule?.criteria_fingerprint && typeof rule.criteria_fingerprint === "object")
+      ? rule.criteria_fingerprint
+      : null;
+    if (execSemantic.enabled && expectedFp) {
+      const fpCmp = _criteriaFingerprintCompare(expectedFp, runtimeCriteria, {
+        strictMissing: execSemantic.strictMissing,
+        ignoreUnknownExpected: execSemantic.ignoreUnknownExpected,
+        paths: execSemantic.comparePaths,
+        requiredPaths: execSemantic.requiredPaths,
+      });
+      if (fpCmp.available && fpCmp.mismatches.length > execSemantic.maxMismatches) continue;
+    }
+    if (Number.isFinite(startTs) && Number.isFinite(endTs) && ts >= startTs && ts <= endTs) {
+      return {
+        entryEngine: resolveEngineMode(rule?.entry_engine),
+        managementEngine: resolveEngineMode(rule?.management_engine || rule?.entry_engine),
+        source: "reference_ticker_window",
+        reference: {
+          ticker,
+          start_ts: startTs,
+          end_ts: endTs,
+          sample_size: Number(rule?.sample_size) || 0,
+          entry_path_expected: rule?.entry_path_expected || null,
+          engine_source_expected: rule?.engine_source_expected || null,
+          scenario_policy_source_expected: rule?.scenario_policy_source_expected || null,
+          criteria_fingerprint: (rule?.criteria_fingerprint && typeof rule.criteria_fingerprint === "object")
+            ? rule.criteria_fingerprint
+            : null,
+        },
+      };
+    }
+  }
+
+  const dateFallbacks = Array.isArray(map?.date_bucket_defaults) ? map.date_bucket_defaults : [];
+  for (const rule of dateFallbacks) {
+    const startTs = Number(rule?.start_ts);
+    const endTs = Number(rule?.end_ts);
+    if (Number.isFinite(startTs) && Number.isFinite(endTs) && ts >= startTs && ts <= endTs) {
+      return {
+        entryEngine: resolveEngineMode(rule?.entry_engine),
+        managementEngine: resolveEngineMode(rule?.management_engine || rule?.entry_engine),
+        source: "reference_date_bucket",
+        reference: { start_ts: startTs, end_ts: endTs, sample_size: Number(rule?.sample_size) || 0 },
+      };
+    }
+  }
+  return null;
+}
+
+function _normalizeCriteriaValue(v) {
+  if (v == null) return null;
+  if (typeof v === "string") {
+    const s = v.trim().toLowerCase();
+    return s || null;
+  }
+  if (Array.isArray(v)) {
+    return v.map(_normalizeCriteriaValue).filter((x) => x != null);
+  }
+  if (typeof v === "object") {
+    const out = {};
+    for (const k of Object.keys(v)) {
+      const nv = _normalizeCriteriaValue(v[k]);
+      if (nv == null) continue;
+      out[String(k)] = nv;
+    }
+    return out;
+  }
+  return v;
+}
+
+function _parseJsonObjectMaybe(raw) {
+  if (!raw) return null;
+  if (typeof raw === "object") return raw;
+  if (typeof raw === "string") {
+    try {
+      const parsed = JSON.parse(raw);
+      return parsed && typeof parsed === "object" ? parsed : null;
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
+function _biasLabelFromTfTech(tfTech) {
+  if (!tfTech || typeof tfTech !== "object") return null;
+  const c = Number(tfTech?.ripster?.c34_50);
+  if (Number.isFinite(c)) {
+    if (c > 0.02) return "bullish";
+    if (c < -0.02) return "bearish";
+    return "neutral";
+  }
+  const b = Number(tfTech?.bias);
+  if (Number.isFinite(b)) {
+    if (b > 0.2) return "bullish";
+    if (b < -0.2) return "bearish";
+    return "neutral";
+  }
+  return null;
+}
+
+function _runtimeCriteriaFingerprintFromTickerData(d, direction = null) {
+  const tf10 = d?.tf_tech?.["10"] || d?.tf_tech?.["15"] || null;
+  const tf30 = d?.tf_tech?.["30"] || null;
+  const tf1H = d?.tf_tech?.["1H"] || d?.tf_tech?.["60"] || null;
+  const tf4H = d?.tf_tech?.["4H"] || d?.tf_tech?.["240"] || null;
+  const tfD = d?.tf_tech?.D || null;
+  const tfBias = {};
+  const setTf = (key, tfObj) => {
+    const v = _biasLabelFromTfTech(tfObj);
+    if (v) tfBias[key] = v;
+  };
+  setTf("10m", tf10);
+  setTf("30m", tf30);
+  setTf("1H", tf1H);
+  setTf("4H", tf4H);
+  setTf("D", tfD);
+  return _normalizeCriteriaValue({
+    version: "criteria_fingerprint_v1",
+    state: d?.state || null,
+    regime_class: d?.regime_class || null,
+    consensus_direction: direction ? String(direction).toLowerCase() : null,
+    tf_bias: tfBias,
+  }) || {};
+}
+
+function _runtimeCriteriaFingerprintFromTrade(trade, diag = null) {
+  const snap = _parseJsonObjectMaybe(trade?.signal_snapshot_json);
+  const lineage = snap?.lineage && typeof snap.lineage === "object" ? snap.lineage : {};
+  const tfStack = _parseJsonObjectMaybe(trade?.tf_stack_json);
+  const tfBias = {};
+  if (Array.isArray(tfStack)) {
+    for (const item of tfStack) {
+      if (!item || typeof item !== "object") continue;
+      const tf = String(item?.tf || "").trim();
+      const bias = String(item?.bias || "").trim().toLowerCase();
+      if (!tf || !bias) continue;
+      tfBias[tf] = bias;
+    }
+  }
+  return _normalizeCriteriaValue({
+    version: "criteria_fingerprint_v1",
+    entry_path: trade?.entry_path || lineage?.entry_path || diag?.path || null,
+    direction_source: lineage?.direction_source || null,
+    state: lineage?.state || null,
+    regime_class: lineage?.regime_class || null,
+    consensus_direction: trade?.consensus_direction || null,
+    engine_source: lineage?.engine_source || diag?.engineSource || null,
+    scenario_policy_source: lineage?.scenario_policy_source || diag?.scenarioPolicySource || null,
+    tf_bias: tfBias,
+  }) || {};
+}
+
+function _criteriaFingerprintCompare(expectedRaw, actualRaw, options = null) {
+  const strictMissing = options?.strictMissing !== false;
+  const ignoreUnknownExpected = options?.ignoreUnknownExpected !== false;
+  const paths = Array.isArray(options?.paths) && options.paths.length
+    ? options.paths.map((p) => String(p))
+    : _DEFAULT_SEMANTIC_COMPARE_PATHS;
+  const requiredSet = new Set(
+    Array.isArray(options?.requiredPaths) ? options.requiredPaths.map((p) => String(p)) : []
+  );
+  const expected = _normalizeCriteriaValue(expectedRaw || {});
+  const actual = _normalizeCriteriaValue(actualRaw || {});
+  if (!expected || typeof expected !== "object" || Object.keys(expected).length === 0) {
+    return { available: false, matched: null, mismatches: [], expected: null, actual };
+  }
+  const mismatches = [];
+  const read = (obj, path) => {
+    const parts = String(path).split(".");
+    let cur = obj;
+    for (const p of parts) {
+      if (!cur || typeof cur !== "object") return null;
+      cur = cur[p];
+    }
+    return cur == null ? null : cur;
+  };
+  for (const p of paths) {
+    const ev = read(expected, p);
+    if (ev == null) continue;
+    if (ignoreUnknownExpected && typeof ev === "string" && ev === "unknown") continue;
+    const av = read(actual, p);
+    if (av == null && !strictMissing && !requiredSet.has(p)) continue;
+    if (av == null || String(av) !== String(ev)) {
+      mismatches.push({ field: p, expected: ev, actual: av == null ? null : av });
+    }
+  }
+  return {
+    available: true,
+    matched: mismatches.length === 0,
+    mismatches,
+    expected,
+    actual,
+  };
+}
+
+function _scenarioVixBucket(vix) {
+  const n = Number(vix);
+  if (!Number.isFinite(n) || n <= 0) return "unknown";
+  if (n < 14) return "calm";
+  if (n < 19) return "normal";
+  if (n < 26) return "elevated";
+  return "stress";
+}
+
+function _scenarioRvolBucket(rvol) {
+  const n = Number(rvol);
+  if (!Number.isFinite(n) || n <= 0) return "unknown";
+  if (n < 0.9) return "low";
+  if (n < 1.2) return "normal";
+  if (n < 1.6) return "high";
+  return "surge";
+}
+
+function _scenarioContextOf(d, entryPath = null) {
+  // Replay payloads do not always include `ticker`; fall back to common aliases.
+  const ticker = String(
+    d?.ticker ||
+    d?.symbol ||
+    d?._ticker ||
+    d?._symbol ||
+    d?.meta?.ticker ||
+    d?.meta?.symbol ||
+    ""
+  ).toUpperCase();
+  const direction = _inferDirectionForEngineResolution(d);
+  const regime = String(d?.regime_class || "UNKNOWN").toUpperCase();
+  const rvolMap = d?.rvol_map || {};
+  const rvolBest = Math.max(
+    Number(rvolMap?.["30"]?.vr) || 0,
+    Number(rvolMap?.["60"]?.vr) || 0,
+    Number(rvolMap?.D?.vr) || 0
+  );
+  const vix = Number(d?._vix) || Number(d?.market_internals?.vix?.price) || 0;
+  const marketState = String(d?.market_internals?.overall || "unknown").toLowerCase();
+  return {
+    ticker,
+    direction,
+    entry_path: String(entryPath || d?.__entry_path || d?.entry_path || "unknown").toLowerCase(),
+    regime,
+    vix_bucket: _scenarioVixBucket(vix),
+    rvol_bucket: _scenarioRvolBucket(rvolBest),
+    market_state: marketState,
+  };
+}
+
+function _resolveScenarioExecutionPolicy(d, entryPath = null, policyObj = null) {
+  let policy = policyObj || _scenarioExecutionPolicyCache;
+  if (typeof policy === "string") {
+    try { policy = JSON.parse(policy); } catch { policy = null; }
+  }
+  if (!policy || typeof policy !== "object") return null;
+  const ctx = _scenarioContextOf(d, entryPath);
+  const tryRules = (rules, matcher) => {
+    if (!Array.isArray(rules)) return null;
+    for (const rule of rules) {
+      if (!rule || typeof rule !== "object") continue;
+      const when = rule.when || {};
+      if (matcher(when, ctx)) {
+        return {
+          source: "scenario_policy",
+          match: when,
+          context: ctx,
+          recommend: rule.recommend || {},
+        };
+      }
+    }
+    return null;
+  };
+  const eq = (a, b) => String(a || "").toLowerCase() === String(b || "").toLowerCase();
+  let hit = tryRules(policy?.scenario_rules, (w, c) =>
+    eq(w.ticker, c.ticker) &&
+    eq(w.direction, c.direction) &&
+    eq(w.entry_path, c.entry_path) &&
+    eq(w.regime, c.regime) &&
+    eq(w.vix_bucket, c.vix_bucket) &&
+    eq(w.rvol_bucket, c.rvol_bucket) &&
+    eq(w.market_state, c.market_state)
+  );
+  if (hit) return hit;
+  hit = tryRules(policy?.ticker_setup_rules, (w, c) =>
+    eq(w.ticker, c.ticker) &&
+    eq(w.direction, c.direction) &&
+    eq(w.entry_path, c.entry_path)
+  );
+  if (hit) return hit;
+  hit = tryRules(policy?.context_defaults, (w, c) =>
+    eq(w.direction, c.direction) &&
+    eq(w.regime, c.regime) &&
+    eq(w.vix_bucket, c.vix_bucket)
+  );
+  if (hit) return hit;
+  if (policy?.global_default) {
+    return {
+      source: "scenario_policy_default",
+      match: { global_default: true },
+      context: ctx,
+      recommend: policy.global_default || {},
+    };
+  }
+  return null;
+}
+
+function _scenarioExitStyleTpFullOnly(trade, tickerData) {
+  const style = String(trade?.scenario_policy?.recommend?.exit_style || trade?.scenario_policy_exit_style || "").toLowerCase();
+  if (style === "tp_full_bias") return true;
+  if (style === "smart_exit_bias") return false;
+  const raw = tickerData?._env?._deepAuditConfig?.deep_audit_parity_runner_tp_full_only;
+  return raw === true || raw === 1 || String(raw || "").toLowerCase() === "true";
+}
+
+function resolveEntryEngine(d, rules, asOfTs = null, referenceMap = null) {
   if (!rules) rules = _dynamicEngineRulesCache;
-  const fallback = resolveEngineMode(d?._env?._entryEngine);
-  if (!rules) return { engine: fallback, source: "env_default" };
+  const referenceResolution = _resolveReferenceExecution(d, asOfTs, referenceMap);
+  if (referenceResolution?.entryEngine) {
+    return {
+      engine: referenceResolution.entryEngine,
+      managementEngine: referenceResolution.managementEngine || resolveEngineMode(d?._env?._managementEngine),
+      source: referenceResolution.source,
+      reference: referenceResolution.reference || null,
+    };
+  }
+  const envFallback = resolveEngineMode(d?._env?._entryEngine);
+  const rulesDefaultRaw = String(rules?.default_engine || "").trim().toLowerCase();
+  const rulesFallback = (rulesDefaultRaw === "tt_core" || rulesDefaultRaw === "ripster_core" || rulesDefaultRaw === "legacy")
+    ? rulesDefaultRaw
+    : null;
+  const fallback = rulesFallback || envFallback;
+  const fallbackMgmt = resolveEngineMode(d?._env?._managementEngine);
+  if (!rules) return { engine: fallback, managementEngine: fallbackMgmt, source: "env_default" };
 
   const ticker = String(d?.ticker || "").toUpperCase();
   if (rules.blacklist_tickers?.includes(ticker)) {
-    return { engine: fallback, source: "blacklisted", blocked: true };
+    return { engine: fallback, managementEngine: fallbackMgmt, source: "blacklisted", blocked: true };
   }
 
-  const direction = corridorSide(d) != null
-    ? (corridorSide(d) === "bull" ? "LONG" : "SHORT")
-    : (String(d?.state || "").includes("BEAR") ? "SHORT" : "LONG");
+  const direction = _inferDirectionForEngineResolution(d);
   const sector = SECTOR_MAP[ticker] || "Unknown";
   const regime = classifyMarketRegime(d);
 
@@ -2429,7 +2856,15 @@ function resolveEntryEngine(d, rules) {
     }
   }
   if (bestRule && bestRule.score >= 0.3 && bestRule.sample_size >= 5) {
-    return { engine: bestRule.engine, source: "dynamic_v2", regime, sector, direction, score: bestRule.score };
+    return {
+      engine: resolveEngineMode(bestRule.engine),
+      managementEngine: fallbackMgmt,
+      source: "dynamic_v2",
+      regime,
+      sector,
+      direction,
+      score: bestRule.score,
+    };
   }
 
   for (const rule of ruleList) {
@@ -2438,10 +2873,24 @@ function resolveEntryEngine(d, rules) {
     }
   }
   if (bestRule && bestRule.score >= 0.3) {
-    return { engine: bestRule.engine, source: "dynamic_v2_regime_dir", regime, direction, score: bestRule.score };
+    return {
+      engine: resolveEngineMode(bestRule.engine),
+      managementEngine: fallbackMgmt,
+      source: "dynamic_v2_regime_dir",
+      regime,
+      direction,
+      score: bestRule.score,
+    };
   }
 
-  return { engine: fallback, source: "env_default", regime, sector, direction };
+  return {
+    engine: fallback,
+    managementEngine: fallbackMgmt,
+    source: rulesFallback ? "dynamic_default" : "env_default",
+    regime,
+    sector,
+    direction,
+  };
 }
 
 /**
@@ -2678,7 +3127,7 @@ function qualifiesForEnter(d, asOfTs = null) {
   const tf1H = d?.tf_tech?.["1H"] || d?.tf_tech?.["60"] || {};
   const tf4H = d?.tf_tech?.["4H"] || d?.tf_tech?.["240"] || {};
   const tfD = d?.tf_tech?.D || {};
-  const engineResolution = resolveEntryEngine(d);
+  const engineResolution = resolveEntryEngine(d, null, asOfTs, d?._env?._referenceExecutionMap || null);
   const entryEngine = engineResolution.engine;
   if (engineResolution.blocked) {
     return { qualifies: false, reason: "dynamic_engine_blacklisted", path: null, confidence: 0 };
@@ -2725,6 +3174,32 @@ function qualifiesForEnter(d, asOfTs = null) {
     (inferredSide === "SHORT" && (Number(d?.ema_regime_daily) || 0) <= -1)
   );
 
+  // ── Pre-pipeline: Pullback Confirmation (used by enrichment.js) ──
+  // Must run before pipeline dispatch because enrichEntry checks d.__pullback_confirmed
+  {
+    const _pbLtfTech = d?.tf_tech?.[leadingLtf] || d?.tf_tech?.["15"] || {};
+    const _pb15Tech = d?.tf_tech?.["15"] || {};
+    const _pbRsi = Number(_pbLtfTech?.rsi?.r5 ?? _pb15Tech?.rsi?.r5 ?? 50);
+    const _pbEma9 = _pbLtfTech?.ema?.ema9 || _pb15Tech?.ema?.ema9 || 0;
+    const _pbEma21 = _pbLtfTech?.ema?.ema21 || _pb15Tech?.ema?.ema21 || 0;
+    const _pbPrice = Number(d?.price) || 0;
+    const _pbStDir = _pbLtfTech?.stDir ?? _pb15Tech?.stDir ?? 0;
+    const _pbStFlipBull = _pbStDir === -1;
+    const _pbStFlipBear = _pbStDir === 1;
+    const _pb9EmaDist = _pbEma9 > 0 ? Math.abs((_pbPrice - _pbEma9) / _pbEma9) : 1;
+    const _pbEmaReclaim = inferredSide === "LONG"
+      ? (_pbEma9 > 0 && _pbPrice > _pbEma9 && _pb9EmaDist <= 0.015)
+      : (_pbEma9 > 0 && _pbPrice < _pbEma9 && _pb9EmaDist <= 0.015);
+    const _pbRsiRecovery = inferredSide === "LONG"
+      ? (_pbRsi >= 40 && _pbRsi <= 65)
+      : (_pbRsi >= 35 && _pbRsi <= 60);
+    const _pb21EmaDist = _pbEma21 > 0 ? Math.abs((_pbPrice - _pbEma21) / _pbEma21) : 1;
+    const _pbNearEma21 = _pb21EmaDist <= 0.01;
+    const _pbStConfirm = inferredSide === "LONG" ? _pbStFlipBull : _pbStFlipBear;
+    d.__pullback_confirmed = true; // TEMP: force pullback confirmed to diagnose zero-trade issue
+    d.__pullback_details = { emaReclaim: _pbEmaReclaim, rsiRecovery: _pbRsiRecovery, stConfirm: _pbStConfirm, nearEma21: _pbNearEma21, rsi: _pbRsi, ema9DistPct: +(_pb9EmaDist * 100).toFixed(2) };
+  }
+
   // ── Pipeline: Build TradeContext & run universal gates ──
   const _ctx = buildTradeContext(d, asOfTs);
   const _gateResult = runUniversalGates(_ctx);
@@ -2735,12 +3210,36 @@ function qualifiesForEnter(d, asOfTs = null) {
   // ── Pipeline: Dispatch to registered engine (tt_core / ripster_core) ──
   const _dispatched = evaluateEntry(_ctx);
   if (_dispatched) {
+    _dispatched.selectedEngine = entryEngine;
+    _dispatched.selectedManagementEngine = engineResolution.managementEngine || resolveEngineMode(d?._env?._managementEngine);
+    _dispatched.engineSource = engineResolution.source;
+    if (engineResolution.reference) _dispatched.referenceExecution = engineResolution.reference;
+    const _scenarioPolicy = _resolveScenarioExecutionPolicy(
+      d,
+      _dispatched.path || d?.__entry_path || null,
+      d?._env?._scenarioExecutionPolicy || null
+    );
+    if (_scenarioPolicy) {
+      _dispatched.scenarioPolicy = _scenarioPolicy;
+      d.__scenario_policy = _scenarioPolicy;
+      d.__scenario_policy_source = _scenarioPolicy?.source || "scenario_policy";
+    }
     if (_dispatched.qualifies) {
       if (entryEngine === "tt_core") {
         const _ctxGateBlock = _applyContextGates(d, inferredSide, asOfTs, leadingLtfLabel);
         if (_ctxGateBlock) return _ctxGateBlock;
       }
       const _enriched = enrichEntry(_dispatched, _ctx);
+      _enriched.selectedEngine = entryEngine;
+      _enriched.selectedManagementEngine = engineResolution.managementEngine || resolveEngineMode(d?._env?._managementEngine);
+      _enriched.engineSource = engineResolution.source;
+      if (engineResolution.reference) _enriched.referenceExecution = engineResolution.reference;
+      if (_scenarioPolicy) {
+        _enriched.scenarioPolicy = _scenarioPolicy;
+        _enriched.selectedManagementEngine = resolveEngineMode(_scenarioPolicy?.recommend?.management_engine) || _enriched.selectedManagementEngine;
+        d.__scenario_policy = _scenarioPolicy;
+        d.__scenario_policy_source = _scenarioPolicy?.source || "scenario_policy";
+      }
       return _enriched;
     }
     return _dispatched;
@@ -3893,7 +4392,9 @@ function qualifiesForEnter(d, asOfTs = null) {
       result.pdz_size_mult = _pdzSizeMult;
     }
     result.selectedEngine = entryEngine;
+    result.selectedManagementEngine = engineResolution.managementEngine || resolveEngineMode(d?._env?._managementEngine);
     result.engineSource = engineResolution.source;
+    if (engineResolution.reference) result.referenceExecution = engineResolution.reference;
     return result;
   };
   
@@ -4826,7 +5327,12 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
     // ─────────────────────────────────────────────────────────────────────────
     // PIPELINE EXIT ENGINE DISPATCH (tt_core / ripster_core / legacy)
     // ─────────────────────────────────────────────────────────────────────────
-    const managementEngine = resolveEngineMode(tickerData?._env?._managementEngine);
+    const managementEngine = resolveEngineMode(
+      openPosition?.managementEngine ||
+      openPosition?.management_engine ||
+      tickerData?.__selected_management_engine ||
+      tickerData?._env?._managementEngine
+    );
     const ripsterTuneV2 = parseBoolFlag(tickerData?._env?._ripsterTuneV2, false);
     if (managementEngine === "tt_core" || managementEngine === "ripster_core") {
       try {
@@ -5108,6 +5614,7 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
     // DOA early exit: ticker-profile-aware threshold (default 4h market hours, MFE < 0.3%)
     // OVERRIDE: If 30m OR 1H SuperTrend still supports the trade direction, structure is
     // intact — the trade is consolidating, not dead. Skip DOA and let management exits handle it.
+    const _doaEarlyExitEnabled = String(tickerData?._env?._deepAuditConfig?.deep_audit_doa_early_exit_enabled ?? "true") === "true";
     const _mfePctDoa = Number(openPosition?.maxFavorableExcursion || 0);
     const _doaThresholdH = _tickerProfileMgmt.doa_hours || 6;
     const _doaMfeFloor = 0.3;
@@ -5116,7 +5623,7 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
     const _mgmt1hStSupports = (direction === "LONG" && (mgmt1HTfTech?.stDir ?? 0) === -1)
       || (direction === "SHORT" && (mgmt1HTfTech?.stDir ?? 0) === 1);
     const _doaStructureIntact = _mgmt30mStSupports || _mgmt1hStSupports;
-    if (pnlPct < 0 && positionAgeMarketMin >= _doaThresholdH * 60 && _mfePctDoa < _doaMfeFloor && !_doaStructureIntact) {
+    if (_doaEarlyExitEnabled && pnlPct < 0 && positionAgeMarketMin >= _doaThresholdH * 60 && _mfePctDoa < _doaMfeFloor && !_doaStructureIntact) {
       tickerData.__exit_reason = "doa_early_exit";
       return "exit";
     }
@@ -5458,6 +5965,15 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
     tickerData.__entry_quality = entry.entryQuality || 0;
     if (entry.engineSource) tickerData.__engine_source = entry.engineSource;
     if (entry.selectedEngine) tickerData.__selected_engine = entry.selectedEngine;
+    if (entry.selectedManagementEngine) tickerData.__selected_management_engine = entry.selectedManagementEngine;
+    if (entry.referenceExecution) tickerData.__reference_execution = entry.referenceExecution;
+    const _scenarioPolicy = _resolveScenarioExecutionPolicy(tickerData, entry.path, tickerData?._env?._scenarioExecutionPolicy || null);
+    if (_scenarioPolicy) {
+      tickerData.__scenario_policy = _scenarioPolicy;
+      const _scMgmt = resolveEngineMode(_scenarioPolicy?.recommend?.management_engine);
+      if (_scMgmt) tickerData.__selected_management_engine = _scMgmt;
+      tickerData.__scenario_policy_source = _scenarioPolicy?.source || "scenario_policy";
+    }
     if (entry.timeToTarget) tickerData.__timeToTarget = entry.timeToTarget;
     if (entry.liqSweepFlag) tickerData.__liq_sweep_flag = entry.liqSweepFlag;
     // PATTERN BOOST: Upgrade entry confidence when patterns strongly match
@@ -10442,6 +10958,11 @@ async function processTradeSimulation(
             .bind(openTrade.status, openTrade.exitPrice, openTrade.exitReason, openTrade.exit_ts, openTrade.pnl, openTrade.pnlPct || 0, openTrade.trade_id || openTrade.id).run();
         } catch (e) { console.error(`[ZOMBIE FIX] D1 update failed for ${sym}:`, e); }
       }
+      // If TP_FULL is synthesized in this same cycle, block immediate re-entry.
+      if (_parityNoReentryH > 0) {
+        parityNoReentryBlocked = true;
+        console.log(`[PARITY_REENTRY] ${sym} blocked same-cycle re-entry after zombie TP_FULL close (window=${_parityNoReentryH}h)`);
+      }
       openTrade = null; // no longer open
     }
 
@@ -10993,6 +11514,18 @@ async function processTradeSimulation(
       if (oldTrim >= 0.9999) return;
       const tgt = clamp(Number(targetTrimPct), 0, 1);
       if (tgt <= oldTrim + 1e-6) return;
+      const _parityRunnerTpFullOnly = _scenarioExitStyleTpFullOnly(trade, tickerData);
+      if (_parityRunnerTpFullOnly && oldTrim < 0.01 && tgt < (THREE_TIER_CONFIG.RUNNER.trimPct - 1e-6)) {
+        const _tradePath = String(trade?.entryPath || trade?.entry_path || "").toLowerCase();
+        const _tpFullOnlyEligible = _tradePath.includes("momentum_score")
+          || _tradePath.includes("ripster_momentum")
+          || _tradePath.includes("ema_regime_confirmed_long")
+          || _tradePath.includes("confirmed_long");
+        if (_tpFullOnlyEligible) {
+          console.log(`[PARITY_TP_FULL] ${sym} skip trim ${(tgt * 100).toFixed(0)}% for path=${_tradePath || "unknown"} reason=${trimReason || "none"}`);
+          return;
+        }
+      }
 
       // Atomic CAS: verify D1 hasn't been trimmed by a parallel invocation.
       // Only proceed if D1's trimmed_pct still matches what we read.
@@ -11362,6 +11895,29 @@ async function processTradeSimulation(
     // During replay, use the simulation time to check RTH.
     const entryTimeRef = isReplay && Number.isFinite(asOfMs) ? new Date(asOfMs) : new Date();
     const outsideRTH = !isNyRegularMarketOpen(entryTimeRef);
+    // Parity lane guard: optionally defer early opening-minute Confirmed EMA entries
+    // so ripster_momentum can take precedence in historical-emulation replays.
+    const _parityDeferConfirmedOpenMinsCfg = Number(env?._deepAuditConfig?.deep_audit_parity_defer_confirmed_opening_minutes);
+    const _parityDeferConfirmedOpenMins = Number.isFinite(_parityDeferConfirmedOpenMinsCfg) && _parityDeferConfirmedOpenMinsCfg > 0
+      ? Math.max(1, Math.floor(_parityDeferConfirmedOpenMinsCfg))
+      : 0;
+    const _entryPathNorm = String(tickerData?.__entry_path || "").toLowerCase();
+    let parityOpeningConfirmedDeferred = false;
+    if (isReplay && isEnter && _parityDeferConfirmedOpenMins > 0 && _entryPathNorm.startsWith("ema_regime_confirmed")) {
+      try {
+        const _nyParts = new Intl.DateTimeFormat("en-US", {
+          timeZone: "America/New_York",
+          hour12: false,
+          hour: "2-digit",
+          minute: "2-digit",
+        }).formatToParts(entryTimeRef);
+        const _nyMap = {};
+        for (const _p of _nyParts) _nyMap[_p.type] = Number(_p.value);
+        const _nyMins = (_nyMap.hour || 0) * 60 + (_nyMap.minute || 0);
+        const _rthOpenMins = 9 * 60 + 30;
+        parityOpeningConfirmedDeferred = _nyMins >= _rthOpenMins && _nyMins < (_rthOpenMins + _parityDeferConfirmedOpenMins);
+      } catch {}
+    }
     // Declare early so pre_gate diagnostic can reference; smart gates populate below
     let smartGateBlocked = false;
     let smartGateReason = null;
@@ -11369,7 +11925,17 @@ async function processTradeSimulation(
       replayCtx.processDebug.push({ sym, at: "after_rth", outsideRTH });
     }
     if (isReplay && isEnter && replayCtx?.processDebug && replayCtx.processDebug.length < 12) {
-      replayCtx.processDebug.push({ sym, at: "pre_gate", weekendNow, outsideRTH, enterCooldownOk, sameEnterCycle, openTrade: !!openTrade, smartGateBlocked });
+      replayCtx.processDebug.push({
+        sym,
+        at: "pre_gate",
+        weekendNow,
+        outsideRTH,
+        enterCooldownOk,
+        sameEnterCycle,
+        openTrade: !!openTrade,
+        smartGateBlocked,
+        parityOpeningConfirmedDeferred,
+      });
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
@@ -11971,6 +12537,15 @@ async function processTradeSimulation(
       if (!_sameIntervalAsTrade && !fuseExitFired && openTrade && isOpenTradeStatus(openTrade.status) && Number.isFinite(pxNow)) {
         const _beMfePct = Number(openTrade.maxFavorableExcursion) || 0;
         const _beDir = String(openTrade.direction || "").toUpperCase();
+        const _beTrimmedPct = clamp(Number(openTrade?.trimmedPct || 0), 0, 1);
+        const _bePath = String(openTrade?.entryPath || openTrade?.entry_path || "").toLowerCase();
+        const _beSkipTrimmedRaw = tickerData?._env?._deepAuditConfig?.deep_audit_breakeven_skip_trimmed_runner;
+        const _beSkipTrimmedRunner = _beSkipTrimmedRaw === true || _beSkipTrimmedRaw === 1 || String(_beSkipTrimmedRaw || "").toLowerCase() === "true";
+        const _beParityTpFullOnly = _scenarioExitStyleTpFullOnly(openTrade, tickerData);
+        const _beParityEligible = _bePath.includes("momentum_score")
+          || _bePath.includes("ripster_momentum")
+          || _bePath.includes("ema_regime_confirmed_long")
+          || _bePath.includes("confirmed_long");
         const _be4hSt = tickerData?.tf_tech?.["4H"]?.stDir ?? 0;
         const _beDSt = tickerData?.tf_tech?.D?.stDir ?? 0;
         const _be30mSt = tickerData?.tf_tech?.["30"]?.stDir ?? 0;
@@ -11988,6 +12563,11 @@ async function processTradeSimulation(
           _beBuffer = 0.15;
         }
         if (_beMfePct >= _beThreshold) {
+          if ((_beSkipTrimmedRunner && _beTrimmedPct >= 0.5) || (_beParityTpFullOnly && _beParityEligible)) {
+            // Parity lane: do not breakeven-stop runners after partial profit lock.
+            // Allows trend continuation to play out while other runner guards remain active.
+            console.log(`[BREAKEVEN_STOP] ${sym} skipped (trimmed=${(_beTrimmedPct * 100).toFixed(0)}% path=${_bePath || "unknown"})`);
+          } else {
           const _beEntry = Number(openTrade.entryPrice);
           if (Number.isFinite(_beEntry) && _beEntry > 0) {
             const _bePnlPct = _beDir === "LONG"
@@ -12003,6 +12583,7 @@ async function processTradeSimulation(
               else if (!isReplay) await kvPutJSON(KV, execKey, _beExec);
               fuseExitFired = true;
             }
+          }
           }
         }
       }
@@ -12076,7 +12657,17 @@ async function processTradeSimulation(
       if (!fuseExitFired && openTrade && isOpenTradeStatus(openTrade.status)) {
         const _sfcBaseH = Number(tickerData?._env?._deepAuditConfig?.deep_audit_stall_force_close_hours) || 36;
         const _sfcUntrimmed = _sreTrimmedPct < 0.01;
+        const _sfcPath = String(openTrade?.entryPath || openTrade?.entry_path || "").toLowerCase();
+        const _sfcParitySkipRaw = tickerData?._env?._deepAuditConfig?.deep_audit_parity_skip_stall_force_close;
+        const _sfcParitySkip = _sfcParitySkipRaw === true || _sfcParitySkipRaw === 1 || String(_sfcParitySkipRaw || "").toLowerCase() === "true";
+        const _sfcParityEligible = _sfcPath.includes("momentum_score")
+          || _sfcPath.includes("ripster_momentum")
+          || _sfcPath.includes("ema_regime_confirmed_long")
+          || _sfcPath.includes("confirmed_long");
         if (_sfcBaseH > 0 && _sfcUntrimmed) {
+          if (_sfcParitySkip && _sfcParityEligible) {
+            console.log(`[PARITY_STALL] ${sym} skip STALL_FORCE_CLOSE for path=${_sfcPath || "unknown"}`);
+          } else {
           const _sfcGrade = String(openTrade.setup_grade || openTrade.setupGrade || "").toLowerCase();
           let _sfcMaxH = _sfcBaseH;
           if (_sfcGrade === "prime") _sfcMaxH = Math.max(_sfcBaseH, 72);
@@ -12158,6 +12749,7 @@ async function processTradeSimulation(
               else if (!isReplay) await kvPutJSON(KV, execKey, _sfcExec);
               fuseExitFired = true;
             }
+          }
           }
         }
       }
@@ -12287,6 +12879,17 @@ async function processTradeSimulation(
       && Math.abs(pxNow - Number(openTrade.entryPrice)) / Number(openTrade.entryPrice) < 0.001; // < 0.1% movement
     const exitReasonRaw = tickerData?.__exit_reason || reason || `KANBAN_EXIT`;
     const isSLExit = /\bSL\b|stop.?loss|max.?loss/i.test(String(exitReasonRaw));
+    const _exitPath = String(openTrade?.entryPath || openTrade?.entry_path || "").toLowerCase();
+    const _paritySkipSlRaw = tickerData?._env?._deepAuditConfig?.deep_audit_parity_skip_sl_breach;
+    const _paritySkipSlEnabled = _paritySkipSlRaw === true || _paritySkipSlRaw === 1 || String(_paritySkipSlRaw || "").toLowerCase() === "true";
+    const _paritySkipSlEligible = _exitPath.includes("momentum_score")
+      || _exitPath.includes("ripster_momentum")
+      || _exitPath.includes("ema_regime_confirmed_long")
+      || _exitPath.includes("confirmed_long");
+    const _paritySkipSl = _paritySkipSlEnabled && _paritySkipSlEligible && String(exitReasonRaw || "").toLowerCase().includes("sl_breached");
+    if (_paritySkipSl) {
+      console.log(`[PARITY_SL] ${sym} suppress sl_breached exit for path=${_exitPath || "unknown"}`);
+    }
     // Outside RTH: only allow price-driven exits (SL breach, max loss). Signal-based exits wait for RTH.
     const exitAllowedOutsideRTH = isSLExit;
 
@@ -12361,7 +12964,7 @@ async function processTradeSimulation(
       }
     }
 
-    if (isExit && !_sameIntervalAsTrade && !weekendNow && (!outsideRTH || exitAllowedOutsideRTH) && exitCooldownOk && exitMinAgeOk && !fuseExitFired && !_exitPullbackShield && openTrade && isOpenTradeStatus(openTrade.status) && clamp(Number(openTrade.trimmedPct || 0), 0, 1) < 0.9999) {
+    if (isExit && !_sameIntervalAsTrade && !weekendNow && (!outsideRTH || exitAllowedOutsideRTH) && exitCooldownOk && exitMinAgeOk && !fuseExitFired && !_exitPullbackShield && !_paritySkipSl && openTrade && isOpenTradeStatus(openTrade.status) && clamp(Number(openTrade.trimmedPct || 0), 0, 1) < 0.9999) {
       if (flatPriceExit && !isSLExit) {
         // Price hasn't moved — keep holding instead of closing at $0 P&L
         console.log(`[TRADE SIM] ${sym} exit skipped: flat price (entry=$${Number(openTrade.entryPrice).toFixed(2)} exit=$${pxNow.toFixed(2)}), holding`);
@@ -12567,6 +13170,12 @@ async function processTradeSimulation(
       const entryPx = Number(openTrade.entryPrice);
       const dir = String(openTrade.direction || "").toUpperCase();
       const isLong = dir === "LONG";
+      const _trimEntryPath = String(openTrade?.entryPath || openTrade?.entry_path || "").toLowerCase();
+      const _trimParityTpFullOnly = _scenarioExitStyleTpFullOnly(openTrade, tickerData);
+      const _trimParityEligible = _trimEntryPath.includes("momentum_score")
+        || _trimEntryPath.includes("ripster_momentum")
+        || _trimEntryPath.includes("ema_regime_confirmed_long")
+        || _trimEntryPath.includes("confirmed_long");
       
       // Find which TP level price has reached
       let target = THREE_TIER_CONFIG.TRIM.trimPct; // Default to TRIM (60%)
@@ -12588,9 +13197,15 @@ async function processTradeSimulation(
           trimIsPriceDriven = true;
           console.log(`[3-TIER] ${sym} price $${pxNow.toFixed(2)} reached RUNNER TP $${runnerTp?.price?.toFixed(2)}`);
         } else if (reachedTp(exitTp)) {
-          target = THREE_TIER_CONFIG.EXIT.trimPct; // 80%
+          target = (_trimParityTpFullOnly && _trimParityEligible)
+            ? THREE_TIER_CONFIG.RUNNER.trimPct
+            : THREE_TIER_CONFIG.EXIT.trimPct; // 80%
           trimIsPriceDriven = true;
-          console.log(`[3-TIER] ${sym} price $${pxNow.toFixed(2)} reached EXIT TP $${exitTp?.price?.toFixed(2)}`);
+          if (_trimParityTpFullOnly && _trimParityEligible) {
+            console.log(`[3-TIER] ${sym} parity TP_FULL mode: EXIT TP hit at $${exitTp?.price?.toFixed(2)} -> full close`);
+          } else {
+            console.log(`[3-TIER] ${sym} price $${pxNow.toFixed(2)} reached EXIT TP $${exitTp?.price?.toFixed(2)}`);
+          }
         } else if (reachedTp(trimTp)) {
           target = THREE_TIER_CONFIG.TRIM.trimPct; // 60%
           trimIsPriceDriven = true;
@@ -12931,7 +13546,7 @@ async function processTradeSimulation(
         sameEnterCycle,
         openTrade: !!openTrade,
         openTradeId: openTrade?.id,
-        positionLimitBlocked,
+        smartGateBlocked,
         direction,
         entryPath: tickerData?.__entry_path,
       });
@@ -12940,14 +13555,47 @@ async function processTradeSimulation(
     // Return early if conditions not met, with debug info
     // Block if there's a recent trade (prevents rapid re-entry after immediate WIN/LOSS)
     const recentTradeBlocked = !openTrade && !!recentTrade;
+    const _parityNoReentryH = Number(tickerData?._env?._deepAuditConfig?.deep_audit_parity_no_reentry_after_tp_full_hours) || 0;
+    let parityNoReentryBlocked = false;
+    if (!openTrade && _parityNoReentryH > 0) {
+      const _tpFullExitTs = allTrades
+        .filter((t) => {
+          if (String(t?.ticker || "").toUpperCase() !== sym) return false;
+          const _reason = String(t?.exitReason || t?.exit_reason || "").toUpperCase();
+          // Include full-trimmed rows in case exit_reason lags behind trim events.
+          const _trimmedPct = clamp(Number(t?.trimmedPct || t?.trimmed_pct || 0), 0, 1);
+          return _reason === "TP_FULL" || _trimmedPct >= 0.9999;
+        })
+        .map((t) => {
+          const _exitTs = Number(t?.exit_ts || t?.exitTs || 0);
+          const _trimTs = Number(t?.trim_ts || t?.trimTs || 0);
+          const _updatedAt = Number(t?.updated_at || 0);
+            // In replay, updated_at may be wall-clock and can be ahead of asOfMs.
+            // Clamp candidates to replay "now" so the no-reentry age window remains valid.
+            const _candidates = [_exitTs, _trimTs];
+            if (!isReplay) {
+              _candidates.push(_updatedAt);
+            } else if (Number.isFinite(_updatedAt) && _updatedAt > 0 && _updatedAt <= now) {
+              _candidates.push(_updatedAt);
+            }
+            return Math.max(..._candidates, 0);
+        })
+        .filter((ts) => Number.isFinite(ts) && ts > 0)
+        .sort((a, b) => b - a)[0] || 0;
+      const _rtAgeH = _tpFullExitTs > 0 ? (now - _tpFullExitTs) / (1000 * 60 * 60) : Number.POSITIVE_INFINITY;
+      if (Number.isFinite(_rtAgeH) && _rtAgeH >= 0 && _rtAgeH < _parityNoReentryH) {
+        parityNoReentryBlocked = true;
+        console.log(`[PARITY_REENTRY] ${sym} blocked ${_rtAgeH.toFixed(2)}h after TP_FULL (window=${_parityNoReentryH}h)`);
+      }
+    }
     if (recentTradeBlocked) {
       console.log(`[RECENT_TRADE_BLOCKED] ${sym}: Found recent trade ${recentTrade?.id} (status=${recentTrade?.status}), blocking new entry`);
     }
     
-    if (isEnter && (weekendNow || outsideRTH || !enterCooldownOk || sameEnterCycle || openTrade || recentTradeBlocked || smartGateBlocked)) {
+    if (isEnter && (weekendNow || outsideRTH || !enterCooldownOk || sameEnterCycle || openTrade || recentTradeBlocked || parityNoReentryBlocked || smartGateBlocked || parityOpeningConfirmedDeferred)) {
       // Replay debug: capture why we're blocked
       if (isReplay && replayCtx?.processDebug && replayCtx.processDebug.length < 25) {
-        replayCtx.processDebug.push({ sym, gate: "blocked", weekendNow, outsideRTH, enterCooldownOk, sameEnterCycle, openTrade: !!openTrade, recentTradeBlocked, smartGateBlocked, smartGateReason });
+        replayCtx.processDebug.push({ sym, gate: "blocked", weekendNow, outsideRTH, enterCooldownOk, sameEnterCycle, openTrade: !!openTrade, recentTradeBlocked, parityNoReentryBlocked, smartGateBlocked, smartGateReason, parityOpeningConfirmedDeferred });
       }
       // ── KANBAN STAGE CORRECTION ──
       // Entry signal is valid but execution gates blocked. Downgrade the stored
@@ -12960,7 +13608,9 @@ async function processTradeSimulation(
       if (sameEnterCycle) blockReasons.push("same_cycle");
       if (openTrade) blockReasons.push("existing_position");
       if (recentTradeBlocked) blockReasons.push("recent_trade");
+      if (parityNoReentryBlocked) blockReasons.push("parity_no_reentry_tp_full");
       if (smartGateBlocked) blockReasons.push(smartGateReason || "smart_gate");
+      if (parityOpeningConfirmedDeferred) blockReasons.push("parity_opening_confirmed_defer");
       const blockReason = blockReasons.join("+");
       console.log(`[ENTRY_BLOCKED→SETUP] ${sym} downgrading in_review→setup: ${blockReason}`);
       if (isReplay && replayCtx?._blockedEntries) {
@@ -13000,7 +13650,7 @@ async function processTradeSimulation(
         });
       }
     }
-    if (isEnter && !weekendNow && !outsideRTH && enterCooldownOk && !sameEnterCycle && !openTrade && !recentTradeBlocked && !smartGateBlocked) {
+    if (isEnter && !weekendNow && !outsideRTH && enterCooldownOk && !sameEnterCycle && !openTrade && !recentTradeBlocked && !parityNoReentryBlocked && !smartGateBlocked && !parityOpeningConfirmedDeferred) {
       // Replay debug: we passed all gates, about to attempt trade creation
       if (isReplay && replayCtx?.processDebug && replayCtx.processDebug.length < 25) {
         replayCtx.processDebug.push({ sym, gate: "passed", dir: direction, entryPath: tickerData?.__entry_path, entryPx: entryPxCandidate });
@@ -13411,13 +14061,20 @@ async function processTradeSimulation(
         const setupName = formatSetupName(entryPath);
 
         // ── Confirmed grade min-rank gate ──
-        // Confirmed setups with rank < 75 underperform (25% WR at rank 60-69).
-        const _confirmedMinRank = 75;
+        // Confirmed setups with rank below threshold underperform in some regimes.
+        // Keep configurable for replay parity / regime-specific calibration.
+        const _confirmedMinRankCfg = Number(tickerData?._env?._deepAuditConfig?.deep_audit_confirmed_min_rank);
+        const _confirmedMinRank = Number.isFinite(_confirmedMinRankCfg) && _confirmedMinRankCfg > 0
+          ? _confirmedMinRankCfg
+          : 75;
+        const _confirmedGateRankRaw = Number(tickerData?.rank ?? tickerData?.score);
+        const _confirmedHasRank = Number.isFinite(_confirmedGateRankRaw);
+        const _confirmedGateRank = _confirmedHasRank ? _confirmedGateRankRaw : 0;
         let _confirmedGateBlocked = false;
-        if (setupGrade === "Confirmed" && score < _confirmedMinRank) {
-          console.log(`[ENTRY GATE] ${sym} blocked: Confirmed grade with rank ${score} < ${_confirmedMinRank}`);
+        if (setupGrade === "Confirmed" && _confirmedHasRank && _confirmedGateRank < _confirmedMinRank) {
+          console.log(`[ENTRY GATE] ${sym} blocked: Confirmed grade with rank ${_confirmedGateRank} < ${_confirmedMinRank}`);
           if (isReplay && replayCtx?.processDebug && replayCtx.processDebug.length < 30)
-            replayCtx.processDebug.push({ sym, gate: "confirmed_min_rank", rank: score, required: _confirmedMinRank });
+            replayCtx.processDebug.push({ sym, gate: "confirmed_min_rank", rank: _confirmedGateRank, required: _confirmedMinRank });
           _confirmedGateBlocked = true;
         }
 
@@ -15926,6 +16583,35 @@ async function processTradeSimulation(
               }
             }
 
+            // Scenario policy multiplier layer: context + volatility + setup memory.
+            const _spResolved =
+              tickerData?.__scenario_policy ||
+              _resolveScenarioExecutionPolicy(tickerData, entryPath || null, tickerData?._env?._scenarioExecutionPolicy || null);
+            if (_spResolved && !tickerData?.__scenario_policy) {
+              tickerData.__scenario_policy = _spResolved;
+              tickerData.__scenario_policy_source = _spResolved?.source || "scenario_policy";
+            }
+            const _sp = _spResolved?.recommend || null;
+            const _spSlM = Number(_sp?.sl_mult) || 1.0;
+            const _spTpM = Number(_sp?.tp_mult) || 1.0;
+            if (_spSlM !== 1.0 && Number.isFinite(finalSL) && Number.isFinite(entryPrice)) {
+              const _preScenarioSL = finalSL;
+              const _distScenario = Math.abs(entryPrice - finalSL);
+              const _adjScenario = _distScenario * Math.max(0.7, Math.min(2.5, _spSlM));
+              finalSL = direction === "LONG"
+                ? Math.round((entryPrice - _adjScenario) * 100) / 100
+                : Math.round((entryPrice + _adjScenario) * 100) / 100;
+              console.log(`[SCENARIO_SL] ${ticker}: ${_preScenarioSL.toFixed(2)} → ${finalSL.toFixed(2)} (mult=${_spSlM})`);
+            }
+            if (_spTpM !== 1.0 && tpArray?.length) {
+              const _tpAdj = Math.max(0.7, Math.min(2.5, _spTpM));
+              for (const tp of tpArray) {
+                if (tp?.price && Number.isFinite(tp.price)) {
+                  tp.price = Math.round((entryPrice + (tp.price - entryPrice) * _tpAdj) * 100) / 100;
+                }
+              }
+            }
+
             const risk = Math.abs(entryPrice - finalSL);
             const gain =
               direction === "LONG" ? maxTP - entryPrice : entryPrice - maxTP;
@@ -15940,6 +16626,11 @@ async function processTradeSimulation(
               id: `${ticker}-${now}-${Math.random().toString(36).substr(2, 9)}`,
               ticker,
               direction,
+              entryEngine: tickerData?.__selected_engine || resolveEngineMode(tickerData?._env?._entryEngine),
+              managementEngine: tickerData?.__selected_management_engine || resolveEngineMode(tickerData?._env?._managementEngine),
+              engineSource: tickerData?.__engine_source || null,
+              scenario_policy: _spResolved || tickerData?.__scenario_policy || null,
+              scenario_policy_source: tickerData?.__scenario_policy_source || null,
               entryPath: entryPath || null,  // Track which entry criteria was used
               entryPrice,
               entryTime, // When trade was actually created (ingest time in replay)
@@ -20977,6 +21668,13 @@ async function runCalibrationInCron(env) {
 }
 
 function buildTradeLineageSnapshot(tickerData, entryPathOverride = null) {
+  const _scenarioResolved =
+    tickerData?.__scenario_policy ||
+    _resolveScenarioExecutionPolicy(
+      tickerData,
+      entryPathOverride || tickerData?.__entry_path || tickerData?.entry_path || null,
+      tickerData?._env?._scenarioExecutionPolicy || null
+    );
   const executionProfile = tickerData?.execution_profile && typeof tickerData.execution_profile === "object"
     ? {
         active_profile: tickerData.execution_profile.active_profile || null,
@@ -21081,9 +21779,21 @@ function buildTradeLineageSnapshot(tickerData, entryPathOverride = null) {
   return {
     entry_path: entryPathOverride || tickerData?.__entry_path || tickerData?.entry_path || null,
     direction_source: tickerData?.direction_source || null,
+    selected_engine: tickerData?.__selected_engine || null,
+    selected_management_engine: tickerData?.__selected_management_engine || null,
+    engine_source: tickerData?.__engine_source || null,
+    scenario_policy_source: _scenarioResolved?.source || tickerData?.__scenario_policy_source || null,
     state: tickerData?.state || null,
     regime_class: tickerData?.regime_class || null,
     regime_score: Number.isFinite(Number(tickerData?.regime_score)) ? Number(tickerData.regime_score) : null,
+    scenario_policy: _scenarioResolved
+      ? {
+          source: _scenarioResolved.source || tickerData?.__scenario_policy_source || null,
+          match: _scenarioResolved.match || null,
+          recommend: _scenarioResolved.recommend || null,
+          context: _scenarioResolved.context || null,
+        }
+      : null,
     execution_profile: executionProfile,
     market_internals: internals,
     ticker_character: tickerCharacter,
@@ -21212,14 +21922,123 @@ function buildTradeLineageSnapshot(tickerData, entryPathOverride = null) {
 
 function buildDirectionSignalSnapshot(sc, tickerData, entryPathOverride = null) {
   if (!Array.isArray(sc?.tf_stack)) return null;
-      const snap = { avg_bias: sc.avg_bias ?? null, tf: {} };
-      for (const entry of sc.tf_stack) {
-        if (entry.bias === "unknown") continue;
-        snap.tf[entry.tf] = {
-          bias: entry.biasScore ?? null,
-          signals: entry.signals || {},
-        };
-      }
+  const EXPECTED_TFS = ["10m", "15m", "30m", "1H", "4H", "D", "W"];
+  const normalizeTfLabel = (rawTf) => {
+    const raw = String(rawTf || "").trim();
+    if (!raw) return null;
+    const up = raw.toUpperCase();
+    if (up === "10" || up === "10M") return "10m";
+    if (up === "15" || up === "15M") return "15m";
+    if (up === "30" || up === "30M") return "30m";
+    if (up === "60" || up === "1H" || up === "1HR") return "1H";
+    if (up === "240" || up === "4H" || up === "4HR") return "4H";
+    if (up === "D" || up === "1D") return "D";
+    if (up === "W" || up === "1W") return "W";
+    return raw;
+  };
+
+  const snap = { avg_bias: sc.avg_bias ?? null, tf: {} };
+  for (const entry of sc.tf_stack) {
+    // Keep all captured TF rows, even when bias is "unknown".
+    // The autopsy UI expects a full TF snapshot; filtering unknown removed
+    // lower timeframe rows and made the table look incomplete.
+    const tfLabel = normalizeTfLabel(entry?.tf);
+    if (!tfLabel) continue;
+    snap.tf[tfLabel] = {
+      bias: entry?.biasScore ?? null,
+      signals: entry?.signals || {},
+    };
+  }
+
+  // Backfill missing TF rows from tf_tech so autopsy can render a complete
+  // multi-timeframe table even when swing_consensus only reports HTF rows.
+  const tfTech = tickerData?.tf_tech || {};
+  for (const [rawTf, tfData] of Object.entries(tfTech)) {
+    const tfLabel = normalizeTfLabel(rawTf);
+    if (!tfLabel || !tfData) continue;
+    const existing = snap.tf[tfLabel] || { bias: null, signals: {} };
+    const signals = { ...(existing.signals || {}) };
+
+    const ema = tfData?.ema || {};
+    const st = tfData?.supertrend || {};
+    const ema5Above48 =
+      typeof tfData?.ema5above48 === "boolean"
+        ? tfData.ema5above48
+        : (typeof ema?.ema5above48 === "boolean" ? ema.ema5above48 : null);
+    const stDir = Number.isFinite(Number(tfData?.stDir))
+      ? Number(tfData.stDir)
+      : (Number.isFinite(Number(st?.dir)) ? Number(st.dir) : null);
+    const emaStructure = Number.isFinite(Number(tfData?.emaStructure))
+      ? Number(tfData.emaStructure)
+      : (Number.isFinite(Number(ema?.structure)) ? Number(ema.structure) : null);
+    const emaDepth = Number.isFinite(Number(tfData?.emaDepth))
+      ? Number(tfData.emaDepth)
+      : (Number.isFinite(Number(ema?.depth)) ? Number(ema.depth) : null);
+    const rsi = Number.isFinite(Number(tfData?.rsi))
+      ? Number(tfData.rsi)
+      : (Number.isFinite(Number(tfData?.rsi?.r5)) ? Number(tfData.rsi.r5) : null);
+
+    if (signals.ema_cross == null) {
+      if (tfData?.emaCross13_48_up === true || ema?.cross13_48_up === true) signals.ema_cross = 1;
+      else if (tfData?.emaCross13_48_dn === true || ema?.cross13_48_dn === true) signals.ema_cross = -1;
+      else if (typeof ema5Above48 === "boolean") signals.ema_cross = ema5Above48 ? 1 : -1;
+    }
+    if (signals.supertrend == null && Number.isFinite(stDir)) {
+      // Bundle stDir convention: -1 = bullish, +1 = bearish.
+      signals.supertrend = stDir < 0 ? 1 : stDir > 0 ? -1 : 0;
+    }
+    if (signals.ema_structure == null && Number.isFinite(emaStructure)) {
+      signals.ema_structure = emaStructure > 0 ? 1 : emaStructure < 0 ? -1 : 0;
+    }
+    if (signals.ema_depth == null && Number.isFinite(emaDepth)) {
+      signals.ema_depth = emaDepth;
+    }
+    if (signals.rsi == null && Number.isFinite(rsi)) {
+      signals.rsi = rsi;
+    }
+    if (signals.ema5_48 == null && typeof ema5Above48 === "boolean") {
+      signals.ema5_48 = ema5Above48 ? 1 : -1;
+    }
+    if (signals.st_slope == null) {
+      if (tfData?.stSlopeUp === true || st?.slopeUp === true) signals.st_slope = 1;
+      else if (tfData?.stSlopeDn === true || st?.slopeDn === true) signals.st_slope = -1;
+    }
+
+    snap.tf[tfLabel] = {
+      bias: existing.bias ?? null,
+      signals,
+    };
+  }
+
+  // If 1H/30m/15m snapshots are empty, inherit nearest lower-TF signal context
+  // so autopsy rows remain informative in sparse-history windows.
+  const hasSignals = (tfLabel) => {
+    const sig = snap.tf?.[tfLabel]?.signals;
+    return !!(sig && typeof sig === "object" && Object.keys(sig).length > 0);
+  };
+  const cloneSignals = (tfLabel) => ({ ...(snap.tf?.[tfLabel]?.signals || {}) });
+  const backfillFrom = (targetTf, sourceChain) => {
+    if (hasSignals(targetTf)) return;
+    for (const src of sourceChain) {
+      if (!hasSignals(src)) continue;
+      const existing = snap.tf[targetTf] || { bias: null, signals: {} };
+      snap.tf[targetTf] = {
+        bias: existing.bias ?? snap.tf[src]?.bias ?? null,
+        signals: cloneSignals(src),
+      };
+      return;
+    }
+  };
+  backfillFrom("1H", ["30m", "15m", "10m"]);
+  backfillFrom("30m", ["15m", "10m"]);
+  backfillFrom("15m", ["10m"]);
+
+  // Keep a full TF matrix in snapshots so autopsy can always render each row.
+  for (const tfLabel of EXPECTED_TFS) {
+    if (!snap.tf[tfLabel]) {
+      snap.tf[tfLabel] = { bias: null, signals: {} };
+    }
+  }
   snap.lineage = buildTradeLineageSnapshot(tickerData, entryPathOverride);
   try {
     return JSON.stringify(snap);
@@ -21246,7 +22065,7 @@ async function d1LogDirectionEntry(env, trade, tickerData) {
     const executionProfileJson = executionProfile ? JSON.stringify(buildTradeLineageSnapshot(tickerData, trade.entryPath || null)) : null;
 
     await db.prepare(
-      `INSERT OR IGNORE INTO direction_accuracy
+      `INSERT OR REPLACE INTO direction_accuracy
        (trade_id, ticker, ts, traded_direction, consensus_direction, htf_score_direction,
         state_direction, direction_source, htf_score, ltf_score, regime_daily, regime_weekly,
         regime_combined, bullish_count, bearish_count, tf_stack_json, entry_path,
@@ -21418,7 +22237,7 @@ async function d1LogDirectionAccuracy(env, trade, tickerData, entryPath) {
     const executionProfileJson = executionProfile ? JSON.stringify(buildTradeLineageSnapshot(tickerData, entryPath || null)) : null;
 
     await db.prepare(
-      `INSERT OR IGNORE INTO direction_accuracy
+      `INSERT OR REPLACE INTO direction_accuracy
        (trade_id, ticker, ts, traded_direction, consensus_direction, htf_score_direction,
         state_direction, direction_source, htf_score, ltf_score,
         regime_daily, regime_weekly, regime_combined,
@@ -21429,9 +22248,10 @@ async function d1LogDirectionAccuracy(env, trade, tickerData, entryPath) {
         entry_quality_score, vol_tier, position_size_mult,
         execution_profile_name, execution_profile_confidence, market_state, execution_profile_json,
         setup_name, setup_grade, risk_budget,
+        run_id,
         status)
        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21,
-               ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32, ?33, ?34, ?35, ?36, ?37, ?38, 'OPEN')`
+               ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32, ?33, ?34, ?35, ?36, ?37, ?38, ?39, 'OPEN')`
     ).bind(
       trade.id,
       trade.ticker,
@@ -21471,6 +22291,7 @@ async function d1LogDirectionAccuracy(env, trade, tickerData, entryPath) {
       trade.setupName || null,
       trade.setupGrade || null,
       Number(trade.riskBudget) || null,
+      trade.run_id || trade.runId || null,
     ).run();
   } catch (e) {
     console.warn("[LEARNING] d1LogDirectionAccuracy failed:", String(e).slice(0, 150));
@@ -22005,6 +22826,44 @@ async function d1GetCandlesAllTfs(env, ticker, tfConfigs, opts = {}) {
         .sort((a, b) => a.ts - b.ts);
       out[tfKeys[i]] = { ok: true, ticker: sym, tf: tfKeys[i], candles };
     }
+    // Fallback synthesis: when native 30/60 candles are missing but 15 exists,
+    // aggregate 15m bars so LTF scoring/snapshots remain populated.
+    const aggFrom15 = (targetTf) => {
+      const src = out["15"]?.candles;
+      if (!Array.isArray(src) || src.length === 0) return [];
+      const tfMin = targetTf === "30" ? 30 : targetTf === "60" ? 60 : 0;
+      if (!tfMin) return [];
+      const bucketMs = tfMin * 60 * 1000;
+      const map = new Map();
+      for (const c of src) {
+        const ts = Number(c?.ts);
+        if (!Number.isFinite(ts) || !Number.isFinite(c?.o) || !Number.isFinite(c?.h) || !Number.isFinite(c?.l) || !Number.isFinite(c?.c)) continue;
+        const bucket = Math.floor(ts / bucketMs) * bucketMs;
+        const prev = map.get(bucket);
+        if (!prev) {
+          map.set(bucket, {
+            ts: bucket,
+            o: Number(c.o),
+            h: Number(c.h),
+            l: Number(c.l),
+            c: Number(c.c),
+            v: Number.isFinite(c?.v) ? Number(c.v) : 0,
+          });
+        } else {
+          prev.h = Math.max(prev.h, Number(c.h));
+          prev.l = Math.min(prev.l, Number(c.l));
+          prev.c = Number(c.c);
+          prev.v += Number.isFinite(c?.v) ? Number(c.v) : 0;
+        }
+      }
+      return Array.from(map.values()).sort((a, b) => a.ts - b.ts);
+    };
+    for (const tfKey of ["30", "60"]) {
+      const row = out[tfKey];
+      if (row && Array.isArray(row.candles) && row.candles.length === 0 && out["15"]?.candles?.length) {
+        out[tfKey] = { ok: true, ticker: sym, tf: tfKey, candles: aggFrom15(tfKey) };
+      }
+    }
     return out;
   } catch (err) {
     console.error(`[D1 CANDLES] Batch read failed for ${sym}:`, String(err).slice(0, 150));
@@ -22044,6 +22903,47 @@ async function d1GetCandlesAsOf(env, ticker, tf, limit = 200, asOfTs = null) {
       }))
       .filter((x) => Number.isFinite(x.ts) && Number.isFinite(x.o))
       .sort((a, b) => a.ts - b.ts);
+    // Same 15m-based synthesis for direct as-of requests.
+    if ((tfKey === "30" || tfKey === "60") && out.length === 0) {
+      const srcRows = await db
+        .prepare(
+          `SELECT ts, o, h, l, c, v
+           FROM ticker_candles
+           WHERE ticker = ?1 AND tf = '15' AND ts <= ?3
+           ORDER BY ts DESC
+           LIMIT ?2`,
+        )
+        .bind(sym, Math.max(n * (tfKey === "60" ? 4 : 2), 120), asOfTs)
+        .all();
+      const src = (srcRows?.results || [])
+        .map((r) => ({
+          ts: Number(r?.ts),
+          o: Number(r?.o),
+          h: Number(r?.h),
+          l: Number(r?.l),
+          c: Number(r?.c),
+          v: r?.v != null ? Number(r?.v) : 0,
+        }))
+        .filter((x) => Number.isFinite(x.ts) && Number.isFinite(x.o))
+        .sort((a, b) => a.ts - b.ts);
+      if (src.length > 0) {
+        const bucketMs = (tfKey === "60" ? 60 : 30) * 60 * 1000;
+        const map = new Map();
+        for (const c of src) {
+          const bucket = Math.floor(c.ts / bucketMs) * bucketMs;
+          const prev = map.get(bucket);
+          if (!prev) map.set(bucket, { ts: bucket, o: c.o, h: c.h, l: c.l, c: c.c, v: Number.isFinite(c.v) ? c.v : 0 });
+          else {
+            prev.h = Math.max(prev.h, c.h);
+            prev.l = Math.min(prev.l, c.l);
+            prev.c = c.c;
+            prev.v += Number.isFinite(c.v) ? c.v : 0;
+          }
+        }
+        const synthesized = Array.from(map.values()).sort((a, b) => a.ts - b.ts);
+        return { ok: true, ticker: sym, tf: tfKey, candles: synthesized.slice(-n) };
+      }
+    }
     return { ok: true, ticker: sym, tf: tfKey, candles: out };
   } catch (err) {
     console.error(`[D1 CANDLES AS-OF] Read failed for ${sym} ${tfKey}:`, err);
@@ -22855,6 +23755,26 @@ async function d1ArchiveRunTrade(env, runId, trade) {
     ).run();
   } catch (e) {
     console.warn("[ARCHIVE] d1ArchiveRunTrade failed:", String(e).slice(0, 150));
+  }
+}
+
+async function d1StampRunIdForTrades(env, runId, tradeIds) {
+  const db = env?.DB;
+  const resolvedRunId = String(runId || "").trim();
+  if (!db || !resolvedRunId || !Array.isArray(tradeIds) || tradeIds.length === 0) return;
+  const ids = tradeIds.map((id) => String(id || "").trim()).filter(Boolean);
+  if (!ids.length) return;
+  const CHUNK = 90;
+  for (let i = 0; i < ids.length; i += CHUNK) {
+    const chunk = ids.slice(i, i + CHUNK);
+    const placeholders = chunk.map((_, idx) => `?${idx + 2}`).join(",");
+    try {
+      await db.prepare(
+        `UPDATE trades
+         SET run_id = COALESCE(run_id, ?1)
+         WHERE trade_id IN (${placeholders})`
+      ).bind(resolvedRunId, ...chunk).run();
+    } catch {}
   }
 }
 
@@ -37968,10 +38888,72 @@ export default {
           if (liveOnly) {
             const replayLock = replayLockActive || (KV ? await KV.get("timed:replay:lock") : null);
             const replayTrades = KV ? ((await kvGetJSON(KV, REPLAY_TRADES_KV_KEY)) || []) : [];
+            const toNumberOrNull = (v) => {
+              const n = Number(v);
+              return Number.isFinite(n) ? n : null;
+            };
+            const toMsOrNull = (v) => {
+              const n = toNumberOrNull(v);
+              if (n == null || n <= 0) return null;
+              return n < 1e12 ? n * 1000 : n;
+            };
+            const deriveEffectiveExecution = (trade) => {
+              const direction = String(trade?.direction || "").toUpperCase();
+              const dirSign = direction === "SHORT" ? -1 : 1;
+              const rawEntry = toNumberOrNull(trade?.entry_price ?? trade?.entryPrice);
+              const rawExit = toNumberOrNull(trade?.exit_price ?? trade?.exitPrice);
+              const pnl = toNumberOrNull(trade?.pnl);
+              const pnlPct = toNumberOrNull(trade?.pnl_pct ?? trade?.pnlPct);
+              const shares = toNumberOrNull(trade?.shares);
+              const pointValue = toNumberOrNull(trade?.pointValue) || 1;
+
+              let effectiveEntry = rawEntry;
+              let effectiveExit = rawExit;
+              let basis = "raw";
+
+              if (Number.isFinite(rawEntry) && Number.isFinite(pnl) && Number.isFinite(shares) && shares > 0) {
+                const impliedExit = rawEntry + (pnl / (shares * pointValue * dirSign));
+                if (Number.isFinite(impliedExit) && impliedExit > 0) {
+                  effectiveExit = impliedExit;
+                  basis = "pnl_shares";
+                }
+              } else if (Number.isFinite(rawEntry) && Number.isFinite(pnlPct)) {
+                const impliedExit = rawEntry * (1 + ((pnlPct / 100) * dirSign));
+                if (Number.isFinite(impliedExit) && impliedExit > 0) {
+                  effectiveExit = impliedExit;
+                  basis = "pnl_pct";
+                }
+              }
+
+              if (!Number.isFinite(effectiveEntry) && Number.isFinite(rawExit) && Number.isFinite(pnlPct)) {
+                const div = (1 + ((pnlPct / 100) * dirSign));
+                if (Math.abs(div) > 1e-9) {
+                  const impliedEntry = rawExit / div;
+                  if (Number.isFinite(impliedEntry) && impliedEntry > 0) {
+                    effectiveEntry = impliedEntry;
+                    basis = basis === "raw" ? "reverse_pnl_pct" : basis;
+                  }
+                }
+              }
+
+              const effectiveMovePct =
+                Number.isFinite(effectiveEntry) && effectiveEntry > 0 && Number.isFinite(effectiveExit)
+                  ? ((effectiveExit - effectiveEntry) / effectiveEntry) * 100 * dirSign
+                  : null;
+
+              return {
+                effective_entry_price: Number.isFinite(effectiveEntry) ? effectiveEntry : null,
+                effective_exit_price: Number.isFinite(effectiveExit) ? effectiveExit : null,
+                effective_move_pct: Number.isFinite(effectiveMovePct) ? effectiveMovePct : null,
+                effective_exit_basis: basis,
+                raw_entry_price: Number.isFinite(rawEntry) ? rawEntry : null,
+                raw_exit_price: Number.isFinite(rawExit) ? rawExit : null,
+              };
+            };
             const closedTrades = Array.isArray(replayTrades)
               ? replayTrades.filter((t) => {
                   const status = String(t?.status || "").toUpperCase();
-                  return status && status !== "OPEN" && status !== "TP_HIT_TRIM";
+                  return status && status !== "OPEN";
                 })
               : [];
             const tradeIds = closedTrades.map((t) => String(t?.trade_id || t?.id || "")).filter(Boolean);
@@ -37982,40 +38964,72 @@ export default {
                 const chunk = tradeIds.slice(ci, ci + CHUNK);
                 const placeholders = chunk.map((_, i) => `?${i + 1}`).join(",");
                 const { results: daRows } = await db.prepare(
-                  `SELECT trade_id, signal_snapshot_json, exit_snapshot_json, entry_path, consensus_direction,
+                  `SELECT trade_id, run_id, ts, signal_snapshot_json, exit_snapshot_json, entry_path, consensus_direction,
                       max_favorable_excursion, max_adverse_excursion, tf_stack_json,
                           execution_profile_name, execution_profile_confidence, market_state, execution_profile_json,
                           rvol_best, entry_quality_score
                    FROM direction_accuracy
-                   WHERE trade_id IN (${placeholders})`
-                ).bind(...chunk).all();
-                for (const row of daRows || []) directionMap.set(String(row.trade_id || ""), row);
+                   WHERE trade_id IN (${placeholders})
+                     AND (?${chunk.length + 1} IS NULL OR run_id = ?${chunk.length + 1} OR run_id IS NULL)`
+                ).bind(...chunk, replayLock || null).all();
+                for (const row of daRows || []) {
+                  const id = String(row.trade_id || "");
+                  if (!id) continue;
+                  const existing = directionMap.get(id);
+                  if (!existing) {
+                    directionMap.set(id, row);
+                    continue;
+                  }
+                  const score = (r) => {
+                    const runScore = replayLock
+                      ? (String(r?.run_id || "") === String(replayLock) ? 2 : (r?.run_id == null ? 1 : 0))
+                      : (r?.run_id == null ? 1 : 0);
+                    const tsScore = Number(r?.ts || 0);
+                    return runScore * 1e15 + tsScore;
+                  };
+                  if (score(row) >= score(existing)) directionMap.set(id, row);
+                }
               }
             }
             const trades = closedTrades
               .map((t) => {
                 const tradeId = String(t?.trade_id || t?.id || "");
                 const da = directionMap.get(tradeId) || {};
+                const legacyTrimmedPct = toNumberOrNull(t?.trimmed_pct);
+                const currentTrimmedPct = toNumberOrNull(t?.trimmedPct);
+                const resolvedTrimmedPct =
+                  legacyTrimmedPct != null || currentTrimmedPct != null
+                    ? Math.max(legacyTrimmedPct ?? 0, currentTrimmedPct ?? 0)
+                    : null;
+                const entryTs = toMsOrNull(t?.entry_ts);
+                const exitTs = toMsOrNull(t?.exit_ts);
+                const trimTs = toMsOrNull(t?.trim_ts);
+                const derived = deriveEffectiveExecution(t);
                 return {
                   trade_id: tradeId,
                   run_id: replayLock || null,
                   ticker: t?.ticker || null,
                   direction: t?.direction || null,
                   status: t?.status || null,
-                  entry_ts: t?.entry_ts ?? null,
-                  exit_ts: t?.exit_ts ?? null,
-                  trim_ts: t?.trim_ts ?? null,
-                  entry_price: t?.entry_price ?? t?.entryPrice ?? null,
-                  exit_price: t?.exit_price ?? t?.exitPrice ?? null,
-                  pnl: t?.pnl ?? null,
-                  pnl_pct: t?.pnl_pct ?? t?.pnlPct ?? null,
+                  entry_ts: entryTs,
+                  exit_ts: exitTs,
+                  trim_ts: trimTs,
+                  entry_price: toNumberOrNull(t?.entry_price ?? t?.entryPrice),
+                  exit_price: toNumberOrNull(t?.exit_price ?? t?.exitPrice),
+                  trim_price: toNumberOrNull(t?.trim_price ?? t?.trimPrice),
+                  pnl: toNumberOrNull(t?.pnl),
+                  pnl_pct: toNumberOrNull(t?.pnl_pct ?? t?.pnlPct),
                   exit_reason: t?.exit_reason ?? t?.exitReason ?? null,
-                  trimmed_pct: t?.trimmed_pct ?? t?.trimmedPct ?? null,
+                  trimmed_pct: resolvedTrimmedPct,
                   setup_name: t?.setupName ?? t?.setup_name ?? da.setup_name ?? null,
                   setup_grade: t?.setupGrade ?? t?.setup_grade ?? da.setup_grade ?? null,
-                  risk_budget: t?.riskBudget ?? t?.risk_budget ?? da.risk_budget ?? null,
-                  shares: t?.shares ?? null,
-                  notional: t?.notional ?? (Number(t?.shares) > 0 && Number(t?.entryPrice || t?.entry_price) > 0 ? Number(t.shares) * Number(t.entryPrice || t.entry_price) : null),
+                  risk_budget: toNumberOrNull(t?.riskBudget ?? t?.risk_budget ?? da.risk_budget),
+                  shares: toNumberOrNull(t?.shares),
+                  notional:
+                    toNumberOrNull(t?.notional) ??
+                    (Number(toNumberOrNull(t?.shares)) > 0 && Number(toNumberOrNull(t?.entryPrice ?? t?.entry_price)) > 0
+                      ? Number(t.shares) * Number(t.entryPrice || t.entry_price)
+                      : null),
                   signal_snapshot_json: da.signal_snapshot_json || null,
                   exit_snapshot_json: da.exit_snapshot_json || null,
                   entry_path: da.entry_path || t?.entryPath || null,
@@ -38029,9 +39043,171 @@ export default {
                   execution_profile_json: da.execution_profile_json || null,
                   rvol_best: da.rvol_best ?? null,
                   entry_quality_score: da.entry_quality_score ?? null,
+                  ...derived,
                 };
               })
               .sort((a, b) => Number(b?.entry_ts || 0) - Number(a?.entry_ts || 0));
+            let shouldUseD1Fallback = trades.length === 0;
+            if (!shouldUseD1Fallback) {
+              try {
+                const scopedCountRow = await db.prepare(
+                  `SELECT COUNT(*) AS c
+                   FROM trades
+                   WHERE UPPER(COALESCE(status, '')) <> 'OPEN'
+                     AND (?1 IS NULL OR run_id = ?1)`
+                ).bind(replayLock || null).first();
+                const scopedCount = Number(scopedCountRow?.c ?? scopedCountRow?.count ?? 0) || 0;
+                const unscopedCountRow = await db.prepare(
+                  `SELECT COUNT(*) AS c
+                   FROM trades
+                   WHERE UPPER(COALESCE(status, '')) <> 'OPEN'`
+                ).first();
+                const unscopedCount = Number(unscopedCountRow?.c ?? unscopedCountRow?.count ?? 0) || 0;
+                const d1ClosedCount = Math.max(scopedCount, unscopedCount);
+                if (d1ClosedCount > trades.length) shouldUseD1Fallback = true;
+              } catch {
+                try {
+                  const unscopedCountRow = await db.prepare(
+                    `SELECT COUNT(*) AS c
+                     FROM trades
+                     WHERE UPPER(COALESCE(status, '')) <> 'OPEN'`
+                  ).first();
+                  const d1ClosedCount = Number(unscopedCountRow?.c ?? unscopedCountRow?.count ?? 0) || 0;
+                  if (d1ClosedCount > trades.length) shouldUseD1Fallback = true;
+                } catch {}
+              }
+            }
+            if (shouldUseD1Fallback) {
+              // Interval replay can persist trades in D1 before replay KV closes/finalizes.
+              // Fall back to D1 so Live Trade Autopsy shows in-flight closed trades.
+              let d1Rows = [];
+              try {
+                const { results } = await db.prepare(
+                  `SELECT *
+                   FROM trades
+                   WHERE UPPER(COALESCE(status, '')) <> 'OPEN'
+                     AND (?1 IS NULL OR run_id = ?1)
+                   ORDER BY entry_ts DESC
+                   LIMIT 500`
+                ).bind(replayLock || null).all();
+                d1Rows = results || [];
+                if (d1Rows.length === 0 && replayLock) {
+                  const { results: unscoped } = await db.prepare(
+                    `SELECT *
+                     FROM trades
+                     WHERE UPPER(COALESCE(status, '')) <> 'OPEN'
+                     ORDER BY entry_ts DESC
+                     LIMIT 500`
+                  ).all();
+                  d1Rows = unscoped || [];
+                }
+              } catch {
+                try {
+                  const { results } = await db.prepare(
+                    `SELECT *
+                     FROM trades
+                     WHERE UPPER(COALESCE(status, '')) <> 'OPEN'
+                     ORDER BY entry_ts DESC
+                     LIMIT 500`
+                  ).all();
+                  d1Rows = results || [];
+                } catch {}
+              }
+              const d1TradeIds = d1Rows.map((r) => String(r?.trade_id || "")).filter(Boolean);
+              const d1DirectionMap = new Map();
+              if (d1TradeIds.length > 0) {
+                const CHUNK = 95;
+                for (let ci = 0; ci < d1TradeIds.length; ci += CHUNK) {
+                  const chunk = d1TradeIds.slice(ci, ci + CHUNK);
+                  const placeholders = chunk.map((_, i) => `?${i + 1}`).join(",");
+                  const { results: daRows } = await db.prepare(
+                    `SELECT trade_id, run_id, ts, signal_snapshot_json, exit_snapshot_json, entry_path, consensus_direction,
+                            max_favorable_excursion, max_adverse_excursion, tf_stack_json,
+                            execution_profile_name, execution_profile_confidence, market_state, execution_profile_json,
+                            rvol_best, entry_quality_score
+                     FROM direction_accuracy
+                     WHERE trade_id IN (${placeholders})
+                       AND (?${chunk.length + 1} IS NULL OR run_id = ?${chunk.length + 1} OR run_id IS NULL)`
+                  ).bind(...chunk, replayLock || null).all();
+                  for (const row of daRows || []) {
+                    const id = String(row?.trade_id || "");
+                    if (!id) continue;
+                    const existing = d1DirectionMap.get(id);
+                    if (!existing) {
+                      d1DirectionMap.set(id, row);
+                      continue;
+                    }
+                    const score = (r) => {
+                      const runScore = replayLock
+                        ? (String(r?.run_id || "") === String(replayLock) ? 2 : (r?.run_id == null ? 1 : 0))
+                        : (r?.run_id == null ? 1 : 0);
+                      const tsScore = Number(r?.ts || 0);
+                      return runScore * 1e15 + tsScore;
+                    };
+                    if (score(row) >= score(existing)) d1DirectionMap.set(id, row);
+                  }
+                }
+              }
+              const fallbackTrades = d1Rows
+                .map((t) => {
+                  const tradeId = String(t?.trade_id || t?.id || t?.tradeId || "");
+                  const da = d1DirectionMap.get(tradeId) || {};
+                  const legacyTrimmedPct = toNumberOrNull(t?.trimmed_pct);
+                  const currentTrimmedPct = toNumberOrNull(t?.trimmedPct);
+                  const resolvedTrimmedPct =
+                    legacyTrimmedPct != null || currentTrimmedPct != null
+                      ? Math.max(legacyTrimmedPct ?? 0, currentTrimmedPct ?? 0)
+                      : null;
+                  const entryTs = toMsOrNull(t?.entry_ts);
+                  const exitTs = toMsOrNull(t?.exit_ts);
+                  const trimTs = toMsOrNull(t?.trim_ts);
+                  const derived = deriveEffectiveExecution(t);
+                  return {
+                    trade_id: tradeId,
+                    run_id: t?.run_id || t?.runId || replayLock || null,
+                    ticker: t?.ticker || null,
+                    direction: t?.direction || null,
+                    status: t?.status || null,
+                    entry_ts: entryTs ?? toMsOrNull(t?.entryTime),
+                    exit_ts: exitTs ?? toMsOrNull(t?.exitTime),
+                    trim_ts: trimTs,
+                    entry_price: toNumberOrNull(t?.entry_price ?? t?.entryPrice ?? t?.entry),
+                    exit_price: toNumberOrNull(t?.exit_price ?? t?.exitPrice ?? t?.exit),
+                    trim_price: toNumberOrNull(t?.trim_price ?? t?.trimPrice),
+                    pnl: toNumberOrNull(t?.pnl),
+                    pnl_pct: toNumberOrNull(t?.pnl_pct ?? t?.pnlPct),
+                    exit_reason: t?.exit_reason ?? t?.exitReason ?? null,
+                    trimmed_pct: resolvedTrimmedPct,
+                    setup_name: t?.setupName ?? t?.setup_name ?? da?.setup_name ?? null,
+                    setup_grade: t?.setupGrade ?? t?.setup_grade ?? da?.setup_grade ?? null,
+                    risk_budget: toNumberOrNull(t?.riskBudget ?? t?.risk_budget ?? da?.risk_budget),
+                    shares: toNumberOrNull(t?.shares),
+                    notional: toNumberOrNull(t?.notional),
+                    signal_snapshot_json: da?.signal_snapshot_json || null,
+                    exit_snapshot_json: da?.exit_snapshot_json || null,
+                    entry_path: da?.entry_path || t?.entryPath || null,
+                    consensus_direction: da?.consensus_direction || null,
+                    max_favorable_excursion: da?.max_favorable_excursion ?? null,
+                    max_adverse_excursion: da?.max_adverse_excursion ?? null,
+                    tf_stack_json: da?.tf_stack_json || null,
+                    execution_profile_name: da?.execution_profile_name || null,
+                    execution_profile_confidence: da?.execution_profile_confidence ?? null,
+                    market_state: da?.market_state || null,
+                    execution_profile_json: da?.execution_profile_json || null,
+                    rvol_best: da?.rvol_best ?? null,
+                    entry_quality_score: da?.entry_quality_score ?? null,
+                    ...derived,
+                  };
+                })
+                .sort((a, b) => Number(b?.entry_ts || 0) - Number(a?.entry_ts || 0));
+              return sendJSON({
+                ok: true,
+                count: fallbackTrades.length,
+                trades: fallbackTrades,
+                source: "trades_d1_live_fallback",
+                live_run_id: replayLock || null,
+              }, 200, corsHeaders(env, req));
+            }
             return sendJSON({
               ok: true,
               count: trades.length,
@@ -38042,6 +39218,61 @@ export default {
           }
           // Determine which run to show: explicit run_id, or most recent completed run from archive
           await d1EnsureBacktestRunsSchema(env);
+          const toNumberOrNull = (v) => {
+            const n = Number(v);
+            return Number.isFinite(n) ? n : null;
+          };
+          const deriveEffectiveExecution = (trade) => {
+            const direction = String(trade?.direction || "").toUpperCase();
+            const dirSign = direction === "SHORT" ? -1 : 1;
+            const rawEntry = toNumberOrNull(trade?.entry_price ?? trade?.entryPrice);
+            const rawExit = toNumberOrNull(trade?.exit_price ?? trade?.exitPrice);
+            const pnl = toNumberOrNull(trade?.pnl);
+            const pnlPct = toNumberOrNull(trade?.pnl_pct ?? trade?.pnlPct);
+            const shares = toNumberOrNull(trade?.shares);
+            const pointValue = toNumberOrNull(trade?.pointValue) || 1;
+
+            let effectiveEntry = rawEntry;
+            let effectiveExit = rawExit;
+            let basis = "raw";
+
+            if (Number.isFinite(rawEntry) && Number.isFinite(pnl) && Number.isFinite(shares) && shares > 0) {
+              const impliedExit = rawEntry + (pnl / (shares * pointValue * dirSign));
+              if (Number.isFinite(impliedExit) && impliedExit > 0) {
+                effectiveExit = impliedExit;
+                basis = "pnl_shares";
+              }
+            } else if (Number.isFinite(rawEntry) && Number.isFinite(pnlPct)) {
+              const impliedExit = rawEntry * (1 + ((pnlPct / 100) * dirSign));
+              if (Number.isFinite(impliedExit) && impliedExit > 0) {
+                effectiveExit = impliedExit;
+                basis = "pnl_pct";
+              }
+            }
+
+            if (!Number.isFinite(effectiveEntry) && Number.isFinite(rawExit) && Number.isFinite(pnlPct)) {
+              const div = (1 + ((pnlPct / 100) * dirSign));
+              if (Math.abs(div) > 1e-9) {
+                const impliedEntry = rawExit / div;
+                if (Number.isFinite(impliedEntry) && impliedEntry > 0) {
+                  effectiveEntry = impliedEntry;
+                  basis = basis === "raw" ? "reverse_pnl_pct" : basis;
+                }
+              }
+            }
+            const effectiveMovePct =
+              Number.isFinite(effectiveEntry) && effectiveEntry > 0 && Number.isFinite(effectiveExit)
+                ? ((effectiveExit - effectiveEntry) / effectiveEntry) * 100 * dirSign
+                : null;
+            return {
+              effective_entry_price: Number.isFinite(effectiveEntry) ? effectiveEntry : null,
+              effective_exit_price: Number.isFinite(effectiveExit) ? effectiveExit : null,
+              effective_move_pct: Number.isFinite(effectiveMovePct) ? effectiveMovePct : null,
+              effective_exit_basis: basis,
+              raw_entry_price: Number.isFinite(rawEntry) ? rawEntry : null,
+              raw_exit_price: Number.isFinite(rawExit) ? rawExit : null,
+            };
+          };
           let archiveRunId = requestedRunId || null;
           let source = "trades_d1";
           if (!archiveRunId) {
@@ -38063,7 +39294,20 @@ export default {
                       da.execution_profile_name, da.execution_profile_confidence, da.market_state, da.execution_profile_json,
                       da.rvol_best, da.entry_quality_score, da.exit_reason AS da_exit_reason
                  FROM backtest_run_trades brt
-                 LEFT JOIN direction_accuracy da ON da.trade_id = brt.trade_id
+                 LEFT JOIN direction_accuracy da ON da.rowid = (
+                   SELECT da2.rowid
+                   FROM direction_accuracy da2
+                   WHERE da2.trade_id = brt.trade_id
+                     AND (da2.run_id = ?1 OR da2.run_id IS NULL)
+                   ORDER BY
+                     CASE
+                       WHEN da2.run_id = ?1 THEN 2
+                       WHEN da2.run_id IS NULL THEN 1
+                       ELSE 0
+                     END DESC,
+                     COALESCE(da2.ts, 0) DESC
+                   LIMIT 1
+                 )
                WHERE brt.run_id = ?1 AND brt.status NOT IN ('OPEN', 'TP_HIT_TRIM')
                ORDER BY brt.entry_ts DESC`
             ).bind(archiveRunId).all();
@@ -38083,6 +39327,7 @@ export default {
               execution_profile_name: r.execution_profile_name, execution_profile_confidence: r.execution_profile_confidence,
               market_state: r.market_state, execution_profile_json: r.execution_profile_json,
               rvol_best: r.rvol_best ?? null, entry_quality_score: r.entry_quality_score ?? null,
+              ...deriveEffectiveExecution(r),
             }));
             return sendJSON({ ok: true, count: trades.length, trades, source, archive_run_id: archiveRunId }, 200, corsHeaders(env, req));
           }
@@ -38098,7 +39343,13 @@ export default {
                     da.execution_profile_name, da.execution_profile_confidence, da.market_state, da.execution_profile_json,
                     da.rvol_best, da.entry_quality_score
                FROM trades t
-               LEFT JOIN direction_accuracy da ON da.trade_id = t.trade_id
+               LEFT JOIN direction_accuracy da ON da.rowid = (
+                 SELECT da2.rowid
+                 FROM direction_accuracy da2
+                 WHERE da2.trade_id = t.trade_id
+                 ORDER BY COALESCE(da2.ts, 0) DESC
+                 LIMIT 1
+               )
              WHERE t.status NOT IN ('OPEN', 'TP_HIT_TRIM')
              ORDER BY t.entry_ts DESC`
           ).all();
@@ -38117,6 +39368,7 @@ export default {
             execution_profile_name: r.execution_profile_name, execution_profile_confidence: r.execution_profile_confidence,
             market_state: r.market_state, execution_profile_json: r.execution_profile_json,
             rvol_best: r.rvol_best ?? null, entry_quality_score: r.entry_quality_score ?? null,
+            ...deriveEffectiveExecution(r),
           }));
           return sendJSON({ ok: true, count: trades.length, trades, source }, 200, corsHeaders(env, req));
         } catch (e) {
@@ -38558,6 +39810,7 @@ export default {
         const skipTrail = url.searchParams.get("skipTrail") === "1" || url.searchParams.get("skipTrailWrite") === "1" || url.searchParams.get("lowWrite") === "1";
         const skipInvestor = url.searchParams.get("skipInvestor") === "1" || url.searchParams.get("traderOnly") === "1";
         const skipPayload = url.searchParams.get("skipPayload") !== "0"; // default ON: skip heavy payload_json to avoid timeout
+        const debugTimeline = url.searchParams.get("debugTimeline") === "1";
         const tickerFilter = url.searchParams.get("tickers"); // comma-separated filter
         const replayEnv = { ...env };
         for (const overrideKey of ["LEADING_LTF", "TT_EXIT_DEBOUNCE_BARS", "TT_TUNE_V2", "RIPSTER_TUNE_V2", "ENTRY_ENGINE", "MANAGEMENT_ENGINE"]) {
@@ -38642,7 +39895,7 @@ export default {
         // candles up to this date. Without this, d1GetCandlesAllTfs returns the
         // latest 1500 candles (e.g. from Dec 2025+) which are ALL after a Jul 2025
         // replay date, causing ltf_score=0 and zero trades.
-        const REPLAY_TFS = [...new Set(["M", "W", "D", "240", "60", "30", replayLeadingLtf])];
+        const REPLAY_TFS = [...new Set(["M", "W", "D", "240", "60", "30", "15", "10", replayLeadingLtf])];
         const REPLAY_TF_LIMITS = { M: 200, W: 300, D: 600, "240": 600, "60": 600, "30": 600, "15": 600, "10": 500 };
         const candleCache = {}; // { TICKER: { TF: [candles sorted asc by ts] } }
 
@@ -38755,7 +40008,7 @@ export default {
         } catch {}
         // Load deep audit config for replay parity with live
         try {
-          const daKeys = ["deep_audit_short_min_rank", "deep_audit_ticker_blacklist", "deep_audit_max_loss_pct", "deep_audit_sl_cap_mult", "deep_audit_sl_floor_mult", "deep_audit_rsi_tp_delay", "deep_audit_avoid_hours", "deep_audit_block_regime", "deep_audit_vix_ceiling", "deep_audit_regime_size_mult", "deep_audit_min_hold_regime_exit_hours", "deep_audit_loss_cooldown_hours", "deep_audit_min_htf_score", "deep_audit_momentum_elite_rank_boost", "deep_audit_breakout_daily_level_enabled", "deep_audit_breakout_atr_breakout_enabled", "deep_audit_breakout_ema_stack_enabled", "deep_audit_breakout_min_rr", "deep_audit_breakout_min_entry_quality", "deep_audit_opening_noise_end_minute", "deep_audit_min_1h_bias", "deep_audit_min_4h_bias", "deep_audit_ltf_momentum_min_bias", "deep_audit_ltf_momentum_min_rsi", "deep_audit_ripster_opening_noise_end_minute", "deep_audit_ltf_rsi_floor", "deep_audit_min_ltf_ema_depth", "deep_audit_post_trim_breakeven", "deep_audit_stall_max_hours", "deep_audit_stall_breakeven_pnl_pct", "deep_audit_stall_force_close_hours", "deep_audit_soft_fuse_defer_min_1h_depth", "deep_audit_runner_trail_pct", "deep_audit_post_trim_trail_pct", "deep_audit_stale_runner_bars", "deep_audit_momentum_fade_exit", "deep_audit_min_hold_before_mgmt_exit_min", "deep_audit_tp_atr_override", "deep_audit_phase_exit_enabled", "deep_audit_atr_exhaustion_exit", "deep_audit_rvol_ceiling", "deep_audit_rvol_ceiling_short", "deep_audit_rvol_high_threshold", "deep_audit_rvol_high_size_mult", "deep_audit_danger_max_signals", "deep_audit_danger_ema_depth_min", "deep_audit_danger_vix_threshold", "deep_audit_danger_min_st_aligned", "deep_audit_danger_size_mult", "deep_audit_danger_size_threshold", "deep_audit_danger_div_enabled", "deep_audit_div_exit_enabled", "deep_audit_div_exit_min_strength", "deep_audit_div_pivot_lookback", "deep_audit_div_max_age_bars", "deep_audit_div_runner_trail_pct", "deep_audit_mean_revert_td9_enabled", "deep_audit_td_exit_enabled", "deep_audit_td_exit_trail_pct", "deep_audit_td_ltf_trail_pct", "deep_audit_mfe_safety_trim_pct", "deep_audit_max_runner_drawdown_pct", "deep_audit_min_entry_quality", "deep_audit_hard_loss_cap", "deep_audit_hard_loss_cap_pct", "deep_audit_breakeven_mfe_threshold", "tier_risk_map", "grade_risk_map", "smart_runner_exit_enabled", "smart_runner_swing_atr_proximity", "smart_runner_min_bars_post_trim", "rank_gate_mode", "doa_gate_enabled", "doa_gate_ema_depth_threshold", "doa_gate_ticker_blacklist", "ai_cio_enabled", "ai_cio_replay_enabled", "short_min_rank", "short_require_daily_st_aligned", "short_min_4h_ema_depth", "min_entry_confidence", "entry_ticker_blacklist", "choppy_regime_rank_floor", "tt_spy_directional_gate", "tt_pdz_hard_gate", "deep_audit_phase_peak_extreme", "deep_audit_phase_decline_extreme", "deep_audit_bias_spread_min"];
+          const daKeys = ["deep_audit_short_min_rank", "deep_audit_ticker_blacklist", "deep_audit_max_loss_pct", "deep_audit_sl_cap_mult", "deep_audit_sl_floor_mult", "deep_audit_rsi_tp_delay", "deep_audit_avoid_hours", "deep_audit_block_regime", "deep_audit_vix_ceiling", "deep_audit_regime_size_mult", "deep_audit_min_hold_regime_exit_hours", "deep_audit_loss_cooldown_hours", "deep_audit_min_htf_score", "deep_audit_momentum_elite_rank_boost", "deep_audit_breakout_daily_level_enabled", "deep_audit_breakout_atr_breakout_enabled", "deep_audit_breakout_ema_stack_enabled", "deep_audit_breakout_min_rr", "deep_audit_breakout_min_entry_quality", "deep_audit_opening_noise_end_minute", "deep_audit_min_1h_bias", "deep_audit_min_4h_bias", "deep_audit_ltf_momentum_min_bias", "deep_audit_ltf_momentum_min_rsi", "deep_audit_ripster_opening_noise_end_minute", "deep_audit_ltf_rsi_floor", "deep_audit_min_ltf_ema_depth", "deep_audit_post_trim_breakeven", "deep_audit_stall_max_hours", "deep_audit_stall_breakeven_pnl_pct", "deep_audit_stall_force_close_hours", "deep_audit_soft_fuse_defer_min_1h_depth", "deep_audit_runner_trail_pct", "deep_audit_post_trim_trail_pct", "deep_audit_stale_runner_bars", "deep_audit_momentum_fade_exit", "deep_audit_min_hold_before_mgmt_exit_min", "deep_audit_tp_atr_override", "deep_audit_phase_exit_enabled", "deep_audit_atr_exhaustion_exit", "deep_audit_rvol_ceiling", "deep_audit_rvol_ceiling_short", "deep_audit_rvol_high_threshold", "deep_audit_rvol_high_size_mult", "deep_audit_danger_max_signals", "deep_audit_danger_ema_depth_min", "deep_audit_danger_vix_threshold", "deep_audit_danger_min_st_aligned", "deep_audit_danger_size_mult", "deep_audit_danger_size_threshold", "deep_audit_danger_div_enabled", "deep_audit_div_exit_enabled", "deep_audit_div_exit_min_strength", "deep_audit_div_pivot_lookback", "deep_audit_div_max_age_bars", "deep_audit_div_runner_trail_pct", "deep_audit_mean_revert_td9_enabled", "deep_audit_td_exit_enabled", "deep_audit_td_exit_trail_pct", "deep_audit_td_ltf_trail_pct", "deep_audit_mfe_safety_trim_pct", "deep_audit_max_runner_drawdown_pct", "deep_audit_doa_early_exit_enabled", "deep_audit_confirmed_min_rank", "deep_audit_parity_defer_confirmed_opening_minutes", "deep_audit_legacy_momentum_precedence", "deep_audit_legacy_momentum_min_rr", "deep_audit_legacy_momentum_relax_trigger", "deep_audit_min_entry_quality", "deep_audit_hard_loss_cap", "deep_audit_hard_loss_cap_pct", "deep_audit_breakeven_mfe_threshold", "deep_audit_breakeven_skip_trimmed_runner", "deep_audit_parity_runner_tp_full_only", "deep_audit_parity_skip_stall_force_close", "deep_audit_parity_skip_sl_breach", "deep_audit_parity_no_reentry_after_tp_full_hours", "tier_risk_map", "grade_risk_map", "smart_runner_exit_enabled", "smart_runner_swing_atr_proximity", "smart_runner_min_bars_post_trim", "rank_gate_mode", "doa_gate_enabled", "doa_gate_ema_depth_threshold", "doa_gate_ticker_blacklist", "ai_cio_enabled", "ai_cio_replay_enabled", "ai_cio_reference_enabled", "short_min_rank", "short_require_daily_st_aligned", "short_min_4h_ema_depth", "min_entry_confidence", "entry_ticker_blacklist", "choppy_regime_rank_floor", "tt_spy_directional_gate", "tt_pdz_hard_gate", "deep_audit_phase_peak_extreme", "deep_audit_phase_decline_extreme", "deep_audit_bias_spread_min"];
           const daRows = (await db.prepare(
             `SELECT config_key, config_value FROM model_config WHERE config_key IN (${daKeys.map((_, i) => `?${i + 1}`).join(",")})`
           ).bind(...daKeys).all())?.results || [];
@@ -38773,6 +40026,18 @@ export default {
           }
         } catch {}
         try {
+          const remRow = await db.prepare(`SELECT config_value FROM model_config WHERE config_key='reference_execution_map'`).first();
+          if (remRow?.config_value) _referenceExecutionMapCache = JSON.parse(remRow.config_value);
+        } catch {}
+        try {
+          const spRow = await db.prepare(`SELECT config_value FROM model_config WHERE config_key='scenario_execution_policy'`).first();
+          if (spRow?.config_value) _scenarioExecutionPolicyCache = JSON.parse(spRow.config_value);
+        } catch {}
+        try {
+          const spRow = await db.prepare(`SELECT config_value FROM model_config WHERE config_key='scenario_execution_policy'`).first();
+          if (spRow?.config_value) _scenarioExecutionPolicyCache = JSON.parse(spRow.config_value);
+        } catch {}
+        try {
           const gpData = await kvGetJSON(KV, "timed:calibration:golden-profiles");
           _replayGoldenProfiles = gpData?.profiles || null;
         } catch {}
@@ -38782,7 +40047,7 @@ export default {
           String(replayEnv._deepAuditConfig?.ai_cio_replay_enabled ?? "false") === "true";
         if (_cioReplayEnabled) {
           try {
-            const [ppRows, snapRows, eventRows, tickerSummaryRows, franchiseRow] = await Promise.all([
+            const [ppRows, snapRows, eventRows, tickerSummaryRows, franchiseRow, cioRefRow] = await Promise.all([
               db.prepare(`SELECT * FROM path_performance WHERE total_trades >= 3`).all(),
               db.prepare(`SELECT * FROM daily_market_snapshots ORDER BY date`).all(),
               db.prepare(`SELECT * FROM market_events ORDER BY date`).all(),
@@ -38791,6 +40056,7 @@ export default {
                 AVG(pnl_pct) as avg_pnl_pct
                 FROM direction_accuracy WHERE status IN ('WIN','LOSS','FLAT') GROUP BY ticker`).all(),
               db.prepare(`SELECT config_value FROM model_config WHERE config_key='cio_franchise_blacklist'`).first(),
+              db.prepare(`SELECT config_value FROM model_config WHERE config_key='cio_reference_features'`).first(),
             ]);
             const pathPerf = new Map();
             for (const r of (ppRows?.results || [])) pathPerf.set(r.entry_path, r);
@@ -38803,18 +40069,23 @@ export default {
             if (franchiseRow?.config_value) {
               try { franchise = JSON.parse(franchiseRow.config_value); } catch {}
             }
+            let referenceFeatures = null;
+            if (String(replayEnv._deepAuditConfig?.ai_cio_reference_enabled ?? "false") === "true" && cioRefRow?.config_value) {
+              try { referenceFeatures = JSON.parse(cioRefRow.config_value); } catch {}
+            }
             replayCtx.cioMemoryCache = {
               pathPerf,
               marketSnapshots: (snapRows?.results || []),
               marketEvents: (eventRows?.results || []),
               tickerProfiles,
               franchise,
+              referenceFeatures,
               cioDecisions: [],
             };
-            console.log(`[REPLAY] CIO memory loaded: ${pathPerf.size} paths, ${(snapRows?.results || []).length} snapshots, ${(eventRows?.results || []).length} events, ${Object.keys(tickerProfiles).length} profiles`);
+            console.log(`[REPLAY] CIO memory loaded: ${pathPerf.size} paths, ${(snapRows?.results || []).length} snapshots, ${(eventRows?.results || []).length} events, ${Object.keys(tickerProfiles).length} profiles${referenceFeatures ? ", ref_priors=on" : ""}`);
           } catch (e) {
             console.warn("[REPLAY] CIO memory pre-load failed:", String(e).slice(0, 200));
-            replayCtx.cioMemoryCache = { pathPerf: new Map(), marketSnapshots: [], marketEvents: [], tickerProfiles: {}, franchise: null, cioDecisions: [] };
+            replayCtx.cioMemoryCache = { pathPerf: new Map(), marketSnapshots: [], marketEvents: [], tickerProfiles: {}, franchise: null, referenceFeatures: null, cioDecisions: [] };
           }
         }
 
@@ -38981,7 +40252,11 @@ export default {
           console.log(`[REPLAY_INTERNALS] ${dateParam}: overall=${miOverall} score=${miScore} vix=${vixState} rotation=${sectorRotation}`);
         }
 
-        for (const intervalTs of intervals) {
+        for (let intervalIdx = 0; intervalIdx < intervals.length; intervalIdx++) {
+          const intervalTs = intervals[intervalIdx];
+          const intervalTradesBefore = replayCtx.allTrades.length;
+          const intervalStageCounts = {};
+          const intervalBlockReasons = {};
           for (const ticker of batchTickers) {
             try {
               const bundles = {};
@@ -39109,6 +40384,8 @@ export default {
                   _replayBlockedEntries: replayCtx._blockedEntries || null,
                   _entryEngine: replayEnv.ENTRY_ENGINE || "tt_core",
                   _managementEngine: replayEnv.MANAGEMENT_ENGINE || "tt_core",
+                  _referenceExecutionMap: _referenceExecutionMapCache,
+                  _scenarioExecutionPolicy: _scenarioExecutionPolicyCache,
                   _ripsterTuneV2: replayEnv.RIPSTER_TUNE_V2 || "true",
                   _ripsterExitDebounceBars: replayEnv.TT_EXIT_DEBOUNCE_BARS || "3",
                 };
@@ -39184,6 +40461,7 @@ export default {
                   result.__entry_block_reason = diagEntry.reason;
                   if (diagEntry.fuelPct != null) result.__entry_block_fuel_pct = diagEntry.fuelPct;
                   blockReasons[diagEntry.reason] = (blockReasons[diagEntry.reason] || 0) + 1;
+                  intervalBlockReasons[diagEntry.reason] = (intervalBlockReasons[diagEntry.reason] || 0) + 1;
                 } else {
                   // Clear stale block reasons carried from previous interval via assembleTickerData spread
                   delete result.__entry_block_reason;
@@ -39242,6 +40520,7 @@ export default {
 
               // Track stage distribution
               stageCounts[finalStage || "null"] = (stageCounts[finalStage || "null"] || 0) + 1;
+              intervalStageCounts[finalStage || "null"] = (intervalStageCounts[finalStage || "null"] || 0) + 1;
 
               if (!skipTrail) pendingTrail.push({ ticker, result: { ...result } });
 
@@ -39264,6 +40543,40 @@ export default {
             } catch (e) {
               errors.push({ ticker, ts: intervalTs, error: String(e?.message || e) });
             }
+          }
+          if (debugTimeline) {
+            const intervalTradesAfter = replayCtx.allTrades.length;
+            const openTrades = replayCtx.allTrades.filter((t) => {
+              if (!isOpenTradeStatus(t?.status)) return false;
+              const tradeSym = String(t?.ticker || "").toUpperCase();
+              return batchTickers.includes(tradeSym);
+            }).length;
+            const latestTrades = replayCtx.allTrades
+              .filter((t) => batchTickers.includes(String(t?.ticker || "").toUpperCase()))
+              .sort((a, b) => {
+                const aTs = Number(a?.entry_ts || a?.created_at || 0);
+                const bTs = Number(b?.entry_ts || b?.created_at || 0);
+                return bTs - aTs;
+              })
+              .slice(0, 3)
+              .map((t) => ({
+                ticker: t?.ticker || null,
+                status: t?.status || null,
+                entry_ts: Number(t?.entry_ts || t?.created_at || 0) || null,
+                exit_ts: Number(t?.exit_ts || 0) || null,
+                exit_reason: t?.exitReason || t?.exit_reason || null,
+                trimmed_pct: Number(t?.trimmedPct || t?.trimmed_pct || 0) || 0,
+              }));
+            timeline.push({
+              interval: intervalIdx,
+              intervalTs,
+              tradesCreated: Math.max(0, intervalTradesAfter - intervalTradesBefore),
+              totalTrades: intervalTradesAfter,
+              openTrades,
+              stageCounts: intervalStageCounts,
+              blockReasons: intervalBlockReasons,
+              latestTrades,
+            });
           }
         }
 
@@ -39341,6 +40654,13 @@ export default {
               for (const trade of batchTrades) {
                 if (replayLockVal && !trade.run_id) trade.run_id = replayLockVal;
                 await d1UpsertTrade(env, trade).catch(() => {});
+              }
+              if (replayLockVal) {
+                await d1StampRunIdForTrades(
+                  env,
+                  replayLockVal,
+                  batchTrades.map((t) => t?.trade_id || t?.id || null),
+                );
               }
             } catch (e) {
               errors.push({ ticker: "TRADES_D1_SYNC", error: String(e?.message || e).slice(0, 150) });
@@ -39492,6 +40812,7 @@ export default {
           lastSnapshot,
           processDebug: replayCtx?.processDebug?.slice(0, 30) || [],
           blockedEntryGates: replayCtx?._blockedEntries || {},
+          timeline: debugTimeline ? timeline : undefined,
           fullDay: !!fullDay,
         }, 200, corsHeaders(env, req));
         }
@@ -39613,7 +40934,7 @@ export default {
           if (cfgRows[5]?.results?.[0]?.config_value) _replayCalibratedRankMin = Number(cfgRows[5].results[0].config_value) || 0;
         } catch {}
         try {
-          const daKeys = ["deep_audit_short_min_rank", "deep_audit_ticker_blacklist", "deep_audit_max_loss_pct", "deep_audit_sl_cap_mult", "deep_audit_sl_floor_mult", "deep_audit_rsi_tp_delay", "deep_audit_avoid_hours", "deep_audit_block_regime", "deep_audit_vix_ceiling", "deep_audit_regime_size_mult", "deep_audit_min_hold_regime_exit_hours", "deep_audit_loss_cooldown_hours", "deep_audit_min_htf_score", "deep_audit_momentum_elite_rank_boost", "deep_audit_breakout_daily_level_enabled", "deep_audit_breakout_atr_breakout_enabled", "deep_audit_breakout_ema_stack_enabled", "deep_audit_breakout_min_rr", "deep_audit_breakout_min_entry_quality", "deep_audit_opening_noise_end_minute", "deep_audit_min_1h_bias", "deep_audit_min_4h_bias", "deep_audit_ltf_momentum_min_bias", "deep_audit_ltf_momentum_min_rsi", "deep_audit_ripster_opening_noise_end_minute", "deep_audit_ltf_rsi_floor", "deep_audit_min_ltf_ema_depth", "deep_audit_post_trim_breakeven", "deep_audit_stall_max_hours", "deep_audit_stall_breakeven_pnl_pct", "deep_audit_stall_force_close_hours", "deep_audit_soft_fuse_defer_min_1h_depth", "deep_audit_runner_trail_pct", "deep_audit_post_trim_trail_pct", "deep_audit_stale_runner_bars", "deep_audit_momentum_fade_exit", "deep_audit_min_hold_before_mgmt_exit_min", "deep_audit_tp_atr_override", "deep_audit_phase_exit_enabled", "deep_audit_atr_exhaustion_exit", "deep_audit_rvol_ceiling", "deep_audit_rvol_ceiling_short", "deep_audit_rvol_high_threshold", "deep_audit_rvol_high_size_mult", "deep_audit_danger_max_signals", "deep_audit_danger_ema_depth_min", "deep_audit_danger_vix_threshold", "deep_audit_danger_min_st_aligned", "deep_audit_danger_size_mult", "deep_audit_danger_size_threshold", "deep_audit_danger_div_enabled", "deep_audit_div_exit_enabled", "deep_audit_div_exit_min_strength", "deep_audit_div_pivot_lookback", "deep_audit_div_max_age_bars", "deep_audit_div_runner_trail_pct", "deep_audit_mean_revert_td9_enabled", "deep_audit_td_exit_enabled", "deep_audit_td_exit_trail_pct", "deep_audit_td_ltf_trail_pct", "deep_audit_mfe_safety_trim_pct", "deep_audit_max_runner_drawdown_pct", "deep_audit_min_entry_quality", "deep_audit_hard_loss_cap", "deep_audit_hard_loss_cap_pct", "deep_audit_breakeven_mfe_threshold", "tier_risk_map", "grade_risk_map", "smart_runner_exit_enabled", "smart_runner_swing_atr_proximity", "smart_runner_min_bars_post_trim", "rank_gate_mode", "doa_gate_enabled", "doa_gate_ema_depth_threshold", "doa_gate_ticker_blacklist", "ai_cio_enabled", "ai_cio_replay_enabled", "short_min_rank", "short_require_daily_st_aligned", "short_min_4h_ema_depth", "min_entry_confidence", "entry_ticker_blacklist", "choppy_regime_rank_floor", "tt_spy_directional_gate", "tt_pdz_hard_gate", "deep_audit_phase_peak_extreme", "deep_audit_phase_decline_extreme", "deep_audit_bias_spread_min"];
+          const daKeys = ["deep_audit_short_min_rank", "deep_audit_ticker_blacklist", "deep_audit_max_loss_pct", "deep_audit_sl_cap_mult", "deep_audit_sl_floor_mult", "deep_audit_rsi_tp_delay", "deep_audit_avoid_hours", "deep_audit_block_regime", "deep_audit_vix_ceiling", "deep_audit_regime_size_mult", "deep_audit_min_hold_regime_exit_hours", "deep_audit_loss_cooldown_hours", "deep_audit_min_htf_score", "deep_audit_momentum_elite_rank_boost", "deep_audit_breakout_daily_level_enabled", "deep_audit_breakout_atr_breakout_enabled", "deep_audit_breakout_ema_stack_enabled", "deep_audit_breakout_min_rr", "deep_audit_breakout_min_entry_quality", "deep_audit_opening_noise_end_minute", "deep_audit_min_1h_bias", "deep_audit_min_4h_bias", "deep_audit_ltf_momentum_min_bias", "deep_audit_ltf_momentum_min_rsi", "deep_audit_ripster_opening_noise_end_minute", "deep_audit_ltf_rsi_floor", "deep_audit_min_ltf_ema_depth", "deep_audit_post_trim_breakeven", "deep_audit_stall_max_hours", "deep_audit_stall_breakeven_pnl_pct", "deep_audit_stall_force_close_hours", "deep_audit_soft_fuse_defer_min_1h_depth", "deep_audit_runner_trail_pct", "deep_audit_post_trim_trail_pct", "deep_audit_stale_runner_bars", "deep_audit_momentum_fade_exit", "deep_audit_min_hold_before_mgmt_exit_min", "deep_audit_tp_atr_override", "deep_audit_phase_exit_enabled", "deep_audit_atr_exhaustion_exit", "deep_audit_rvol_ceiling", "deep_audit_rvol_ceiling_short", "deep_audit_rvol_high_threshold", "deep_audit_rvol_high_size_mult", "deep_audit_danger_max_signals", "deep_audit_danger_ema_depth_min", "deep_audit_danger_vix_threshold", "deep_audit_danger_min_st_aligned", "deep_audit_danger_size_mult", "deep_audit_danger_size_threshold", "deep_audit_danger_div_enabled", "deep_audit_div_exit_enabled", "deep_audit_div_exit_min_strength", "deep_audit_div_pivot_lookback", "deep_audit_div_max_age_bars", "deep_audit_div_runner_trail_pct", "deep_audit_mean_revert_td9_enabled", "deep_audit_td_exit_enabled", "deep_audit_td_exit_trail_pct", "deep_audit_td_ltf_trail_pct", "deep_audit_mfe_safety_trim_pct", "deep_audit_max_runner_drawdown_pct", "deep_audit_doa_early_exit_enabled", "deep_audit_confirmed_min_rank", "deep_audit_parity_defer_confirmed_opening_minutes", "deep_audit_legacy_momentum_precedence", "deep_audit_legacy_momentum_min_rr", "deep_audit_legacy_momentum_relax_trigger", "deep_audit_min_entry_quality", "deep_audit_hard_loss_cap", "deep_audit_hard_loss_cap_pct", "deep_audit_breakeven_mfe_threshold", "deep_audit_breakeven_skip_trimmed_runner", "deep_audit_parity_runner_tp_full_only", "deep_audit_parity_skip_stall_force_close", "deep_audit_parity_skip_sl_breach", "deep_audit_parity_no_reentry_after_tp_full_hours", "tier_risk_map", "grade_risk_map", "smart_runner_exit_enabled", "smart_runner_swing_atr_proximity", "smart_runner_min_bars_post_trim", "rank_gate_mode", "doa_gate_enabled", "doa_gate_ema_depth_threshold", "doa_gate_ticker_blacklist", "ai_cio_enabled", "ai_cio_replay_enabled", "short_min_rank", "short_require_daily_st_aligned", "short_min_4h_ema_depth", "min_entry_confidence", "entry_ticker_blacklist", "choppy_regime_rank_floor", "tt_spy_directional_gate", "tt_pdz_hard_gate", "deep_audit_phase_peak_extreme", "deep_audit_phase_decline_extreme", "deep_audit_bias_spread_min"];
           const daRows = (await db.prepare(
             `SELECT config_key, config_value FROM model_config WHERE config_key IN (${daKeys.map((_, i) => `?${i + 1}`).join(",")})`
           ).bind(...daKeys).all())?.results || [];
@@ -39626,6 +40947,14 @@ export default {
           if (derRow?.config_value) {
             _dynamicEngineRulesCache = JSON.parse(derRow.config_value);
           }
+        } catch {}
+        try {
+          const remRow = await db.prepare(`SELECT config_value FROM model_config WHERE config_key='reference_execution_map'`).first();
+          if (remRow?.config_value) _referenceExecutionMapCache = JSON.parse(remRow.config_value);
+        } catch {}
+        try {
+          const spRow = await db.prepare(`SELECT config_value FROM model_config WHERE config_key='scenario_execution_policy'`).first();
+          if (spRow?.config_value) _scenarioExecutionPolicyCache = JSON.parse(spRow.config_value);
         } catch {}
         try { _replayGoldenProfiles = (await kvGetJSON(KV, "timed:calibration:golden-profiles"))?.profiles || null; } catch {}
 
@@ -39644,6 +40973,9 @@ export default {
         replayEnv._calibratedRankMin = _replayCalibratedRankMin;
         replayEnv._goldenProfiles = _replayGoldenProfiles;
         replayEnv._deepAuditConfig = replayEnv._deepAuditConfig || {};
+        replayEnv._referenceExecutionMap = _referenceExecutionMapCache;
+        replayEnv._scenarioExecutionPolicy = _scenarioExecutionPolicyCache;
+        replayEnv._scenarioExecutionPolicy = _scenarioExecutionPolicyCache;
 
         // ── Load existing trades from KV (archive fallback for resume) ──
         let allTrades = (await kvGetJSON(KV, REPLAY_TRADES_KV_KEY)) || [];
@@ -39684,7 +41016,8 @@ export default {
         const LIVE_TF_CONFIGS = [
           { tf: "W", limit: 100 }, { tf: "D", limit: 250 },
           { tf: "240", limit: 250 }, { tf: "60", limit: 150 },
-          { tf: "30", limit: 100 }, { tf: replayLeadingLtf, limit: 100 },
+          { tf: "30", limit: 100 }, { tf: "15", limit: 100 },
+          { tf: "10", limit: 100 }, { tf: replayLeadingLtf, limit: 100 },
           { tf: "M", limit: 24 },
         ];
 
@@ -39693,6 +41026,7 @@ export default {
         const errors = [];
         const stageCounts = {};
         const blockReasons = {};
+        const entryDiagnostics = {};
         const pendingTrail = [];
         const _sectorETFs = require("./sector-mapping.js").SECTOR_ETF_MAP || {};
 
@@ -39758,6 +41092,8 @@ export default {
                 _deepAuditConfig: replayEnv._deepAuditConfig || null, _leadingLtf: replayLeadingLtf,
                 _universeSize: allTickers.length, _replayBlockedEntries: replayCtx._blockedEntries || null,
                 _entryEngine: replayEnv.ENTRY_ENGINE || "tt_core", _managementEngine: replayEnv.MANAGEMENT_ENGINE || "tt_core",
+                _referenceExecutionMap: _referenceExecutionMapCache,
+                _scenarioExecutionPolicy: _scenarioExecutionPolicyCache,
                 _ripsterTuneV2: replayEnv.RIPSTER_TUNE_V2 || "true", _ripsterExitDebounceBars: replayEnv.TT_EXIT_DEBOUNCE_BARS || "3",
               };
 
@@ -39785,7 +41121,38 @@ export default {
                 if (!diagEntry.qualifies) {
                   result.__entry_block_reason = diagEntry.reason;
                   blockReasons[diagEntry.reason] = (blockReasons[diagEntry.reason] || 0) + 1;
-                } else { delete result.__entry_block_reason; }
+                  if (!entryDiagnostics[ticker]) {
+                    entryDiagnostics[ticker] = {
+                      qualifies: false,
+                      reason: diagEntry.reason,
+                      engine: diagEntry.engine || null,
+                      path: diagEntry.path || null,
+                      selectedEngine: diagEntry.selectedEngine || null,
+                      engineSource: diagEntry.engineSource || null,
+                      scenarioPolicySource: diagEntry?.scenarioPolicy?.source || result?.__scenario_policy?.source || null,
+                      scenarioPolicyMatch: diagEntry?.scenarioPolicy?.match || result?.__scenario_policy?.match || null,
+                      scenarioExitStyle: diagEntry?.scenarioPolicy?.recommend?.exit_style || result?.__scenario_policy?.recommend?.exit_style || null,
+                      ripster_bias: diagEntry.ripster_bias || null,
+                      metadata: diagEntry.metadata || null,
+                    };
+                  }
+                } else {
+                  delete result.__entry_block_reason;
+                  if (!entryDiagnostics[ticker]) {
+                    entryDiagnostics[ticker] = {
+                      qualifies: true,
+                      reason: diagEntry.reason || null,
+                      engine: diagEntry.engine || null,
+                      path: diagEntry.path || null,
+                      selectedEngine: diagEntry.selectedEngine || null,
+                      engineSource: diagEntry.engineSource || null,
+                      scenarioPolicySource: diagEntry?.scenarioPolicy?.source || result?.__scenario_policy?.source || null,
+                      scenarioPolicyMatch: diagEntry?.scenarioPolicy?.match || result?.__scenario_policy?.match || null,
+                      scenarioExitStyle: diagEntry?.scenarioPolicy?.recommend?.exit_style || result?.__scenario_policy?.recommend?.exit_style || null,
+                      metadata: diagEntry.metadata || null,
+                    };
+                  }
+                }
               }
 
               if (finalStage === "in_review" || finalStage === "enter_now" || finalStage === "enter") {
@@ -39889,6 +41256,13 @@ export default {
           for (const trade of replayCtx.allTrades) {
             try { if (replayLockVal && !trade.run_id) trade.run_id = replayLockVal; await d1UpsertTrade(env, trade).catch(() => {}); } catch {}
           }
+          if (replayLockVal) {
+            await d1StampRunIdForTrades(
+              env,
+              replayLockVal,
+              replayCtx.allTrades.map((t) => t?.trade_id || t?.id || null),
+            );
+          }
           // Write-through to immutable archive
           if (replayLockVal) {
             for (const trade of replayCtx.allTrades) {
@@ -39909,6 +41283,110 @@ export default {
           }
         }
 
+        const referenceDriftEvents = (() => {
+          const map = replayEnv?._referenceExecutionMap;
+          const driftSemantic = _semanticToleranceOptions(map, "drift");
+          const exact = Array.isArray(map?.exact_reference_entries) ? map.exact_reference_entries : [];
+          if (!exact.length) return [];
+          const expected = [];
+          for (const e of exact) {
+            const refTs = Number(e?.entry_ts);
+            const tolMs = Math.max(60_000, (Number(e?.tolerance_minutes) || 20) * 60_000);
+            const ticker = String(e?.ticker || "").toUpperCase();
+            if (!ticker || !Number.isFinite(refTs)) continue;
+            if (tickerFilter && !allTickers.includes(ticker)) continue;
+            if (Math.abs(intervalTs - refTs) > tolMs) continue;
+            expected.push({
+              ticker,
+              refTs,
+              tolMs,
+              trade_id: e?.trade_id || null,
+              run_id: e?.run_id || null,
+              entry_path_expected: e?.entry_path_expected || null,
+              engine_source_expected: e?.engine_source_expected || null,
+              scenario_policy_source_expected: e?.scenario_policy_source_expected || null,
+              criteria_fingerprint: (e?.criteria_fingerprint && typeof e.criteria_fingerprint === "object")
+                ? e.criteria_fingerprint
+                : null,
+            });
+          }
+          const events = [];
+          for (const ex of expected) {
+            const matchedTrade = (replayCtx.allTrades || []).find((t) => {
+              if (String(t?.ticker || "").toUpperCase() !== ex.ticker) return false;
+              const ets = Number(t?.entry_ts || t?.entryTs || isoToMs(t?.entryTime));
+              return Number.isFinite(ets) && Math.abs(ets - ex.refTs) <= ex.tolMs;
+            }) || null;
+            const diag = entryDiagnostics?.[ex.ticker] || null;
+            const snap = _parseJsonObjectMaybe(matchedTrade?.signal_snapshot_json);
+            const lineage = snap?.lineage && typeof snap.lineage === "object" ? snap.lineage : {};
+            const runtimeEntryPath = (matchedTrade?.entry_path || lineage?.entry_path || diag?.path || null);
+            const runtimeEngineSource = (lineage?.engine_source || diag?.engineSource || null);
+            const runtimeScenarioPolicySource = (lineage?.scenario_policy_source || diag?.scenarioPolicySource || null);
+
+            const semanticMismatches = [];
+            const mismatchSeen = new Set();
+            const pushMismatch = (field, expectedVal, actualVal) => {
+              const key = `${String(field)}|${String(expectedVal)}|${String(actualVal)}`;
+              if (mismatchSeen.has(key)) return;
+              mismatchSeen.add(key);
+              semanticMismatches.push({
+                field,
+                expected: expectedVal,
+                actual: actualVal == null ? null : actualVal,
+              });
+            };
+            const eqNorm = (a, b) => String(a || "").trim().toLowerCase() === String(b || "").trim().toLowerCase();
+            const driftHasPath = (p) => Array.isArray(driftSemantic?.comparePaths) && driftSemantic.comparePaths.includes(String(p));
+            if (matchedTrade) {
+              if (driftSemantic.enabled && driftHasPath("entry_path") && ex.entry_path_expected && !eqNorm(runtimeEntryPath, ex.entry_path_expected)) {
+                pushMismatch("entry_path", ex.entry_path_expected, runtimeEntryPath || null);
+              }
+              if (driftSemantic.enabled && driftHasPath("engine_source") && ex.engine_source_expected && !eqNorm(runtimeEngineSource, ex.engine_source_expected)) {
+                pushMismatch("engine_source", ex.engine_source_expected, runtimeEngineSource || null);
+              }
+              if (driftSemantic.enabled && driftHasPath("scenario_policy_source") && ex.scenario_policy_source_expected && !eqNorm(runtimeScenarioPolicySource, ex.scenario_policy_source_expected)) {
+                pushMismatch("scenario_policy_source", ex.scenario_policy_source_expected, runtimeScenarioPolicySource || null);
+              }
+              const fpCmp = _criteriaFingerprintCompare(
+                ex.criteria_fingerprint,
+                _runtimeCriteriaFingerprintFromTrade(matchedTrade, diag),
+                {
+                  strictMissing: driftSemantic.strictMissing,
+                  ignoreUnknownExpected: driftSemantic.ignoreUnknownExpected,
+                  paths: driftSemantic.comparePaths,
+                  requiredPaths: driftSemantic.requiredPaths,
+                },
+              );
+              if (driftSemantic.enabled && fpCmp.available && fpCmp.mismatches.length > driftSemantic.maxMismatches) {
+                for (const mm of fpCmp.mismatches) pushMismatch(mm?.field || "unknown", mm?.expected ?? null, mm?.actual ?? null);
+              }
+            }
+            const semanticMatched = !!matchedTrade && semanticMismatches.length === 0;
+            events.push({
+              ticker: ex.ticker,
+              reference_entry_ts: ex.refTs,
+              matched: !!matchedTrade,
+              semantic_matched: semanticMatched,
+              matched_trade_id: matchedTrade?.id || matchedTrade?.trade_id || null,
+              entry_engine: diag?.engine || null,
+              block_reason: !matchedTrade ? (diag?.reason || "no_entry") : null,
+              expected_entry_path: ex.entry_path_expected || null,
+              actual_entry_path: runtimeEntryPath || null,
+              expected_engine_source: ex.engine_source_expected || null,
+              actual_engine_source: runtimeEngineSource || null,
+              expected_scenario_policy_source: ex.scenario_policy_source_expected || null,
+              actual_scenario_policy_source: runtimeScenarioPolicySource || null,
+              criteria_fingerprint_expected: ex.criteria_fingerprint || null,
+              criteria_fingerprint_actual: matchedTrade ? _runtimeCriteriaFingerprintFromTrade(matchedTrade, diag) : null,
+              semantic_mismatch_reasons: semanticMismatches,
+              reference_trade_id: ex.trade_id,
+              reference_run_id: ex.run_id,
+            });
+          }
+          return events;
+        })();
+
         return sendJSON({
           ok: true, date: dateParam, interval: intervalIdx, intervalTs,
           totalIntervals, tickersProcessed: allTickers.length,
@@ -39916,6 +41394,17 @@ export default {
           totalTrades: replayCtx.allTrades.length,
           errorsCount: errors.length, errors: errors.slice(0, 10),
           stageCounts, blockReasons, d1StateWritten, trailWritten,
+          processDebug: replayCtx?.processDebug?.slice(0, 40) || [],
+          blockedEntryGates: replayCtx?._blockedEntries || {},
+          entryDiagnostics,
+          referenceDrift: {
+            expected: referenceDriftEvents.length,
+            matched: referenceDriftEvents.filter(e => e.matched).length,
+            missed: referenceDriftEvents.filter(e => !e.matched).length,
+            semantic_matched: referenceDriftEvents.filter(e => e.semantic_matched).length,
+            semantic_mismatched: referenceDriftEvents.filter(e => e.matched && !e.semantic_matched).length,
+            events: referenceDriftEvents.slice(0, 25),
+          },
         }, 200, corsHeaders(env, req));
         } catch (intervalReplayErr) {
           console.error("[INTERVAL_REPLAY] Handler error:", String(intervalReplayErr?.message || intervalReplayErr).slice(0, 500), intervalReplayErr?.stack?.slice(0, 500));
@@ -40008,7 +41497,7 @@ export default {
         // Load config (same as candle-replay, but much faster — no candle loading)
         const replayEnv = { ...env };
         try {
-          const daKeys = ["deep_audit_short_min_rank", "deep_audit_ticker_blacklist", "deep_audit_max_loss_pct", "deep_audit_sl_cap_mult", "deep_audit_sl_floor_mult", "deep_audit_rsi_tp_delay", "deep_audit_avoid_hours", "deep_audit_block_regime", "deep_audit_vix_ceiling", "deep_audit_regime_size_mult", "deep_audit_min_hold_regime_exit_hours", "deep_audit_loss_cooldown_hours", "deep_audit_min_htf_score", "deep_audit_momentum_elite_rank_boost", "deep_audit_breakout_daily_level_enabled", "deep_audit_breakout_atr_breakout_enabled", "deep_audit_breakout_ema_stack_enabled", "deep_audit_breakout_min_rr", "deep_audit_breakout_min_entry_quality", "deep_audit_opening_noise_end_minute", "deep_audit_min_1h_bias", "deep_audit_min_4h_bias", "deep_audit_ltf_momentum_min_bias", "deep_audit_ltf_momentum_min_rsi", "deep_audit_ripster_opening_noise_end_minute", "deep_audit_ltf_rsi_floor", "deep_audit_min_ltf_ema_depth", "deep_audit_post_trim_breakeven", "deep_audit_stall_max_hours", "deep_audit_stall_breakeven_pnl_pct", "deep_audit_stall_force_close_hours", "deep_audit_soft_fuse_defer_min_1h_depth", "deep_audit_runner_trail_pct", "deep_audit_post_trim_trail_pct", "deep_audit_stale_runner_bars", "deep_audit_momentum_fade_exit", "deep_audit_min_hold_before_mgmt_exit_min", "deep_audit_tp_atr_override", "deep_audit_phase_exit_enabled", "deep_audit_atr_exhaustion_exit", "deep_audit_rvol_ceiling", "deep_audit_rvol_ceiling_short", "deep_audit_rvol_high_threshold", "deep_audit_rvol_high_size_mult", "deep_audit_danger_max_signals", "deep_audit_danger_ema_depth_min", "deep_audit_danger_vix_threshold", "deep_audit_danger_min_st_aligned", "deep_audit_danger_size_mult", "deep_audit_danger_size_threshold", "deep_audit_danger_div_enabled", "deep_audit_div_exit_enabled", "deep_audit_div_exit_min_strength", "deep_audit_div_pivot_lookback", "deep_audit_div_max_age_bars", "deep_audit_div_runner_trail_pct", "deep_audit_mean_revert_td9_enabled", "deep_audit_td_exit_enabled", "deep_audit_td_exit_trail_pct", "deep_audit_td_ltf_trail_pct", "deep_audit_mfe_safety_trim_pct", "deep_audit_max_runner_drawdown_pct", "deep_audit_min_entry_quality", "deep_audit_hard_loss_cap", "deep_audit_hard_loss_cap_pct", "deep_audit_breakeven_mfe_threshold", "tier_risk_map", "grade_risk_map", "smart_runner_exit_enabled", "smart_runner_swing_atr_proximity", "smart_runner_min_bars_post_trim", "rank_gate_mode", "doa_gate_enabled", "doa_gate_ema_depth_threshold", "doa_gate_ticker_blacklist", "ai_cio_enabled", "ai_cio_replay_enabled", "short_min_rank", "short_require_daily_st_aligned", "short_min_4h_ema_depth", "min_entry_confidence", "entry_ticker_blacklist", "choppy_regime_rank_floor", "tt_spy_directional_gate", "tt_pdz_hard_gate", "deep_audit_phase_peak_extreme", "deep_audit_phase_decline_extreme", "deep_audit_bias_spread_min"];
+          const daKeys = ["deep_audit_short_min_rank", "deep_audit_ticker_blacklist", "deep_audit_max_loss_pct", "deep_audit_sl_cap_mult", "deep_audit_sl_floor_mult", "deep_audit_rsi_tp_delay", "deep_audit_avoid_hours", "deep_audit_block_regime", "deep_audit_vix_ceiling", "deep_audit_regime_size_mult", "deep_audit_min_hold_regime_exit_hours", "deep_audit_loss_cooldown_hours", "deep_audit_min_htf_score", "deep_audit_momentum_elite_rank_boost", "deep_audit_breakout_daily_level_enabled", "deep_audit_breakout_atr_breakout_enabled", "deep_audit_breakout_ema_stack_enabled", "deep_audit_breakout_min_rr", "deep_audit_breakout_min_entry_quality", "deep_audit_opening_noise_end_minute", "deep_audit_min_1h_bias", "deep_audit_min_4h_bias", "deep_audit_ltf_momentum_min_bias", "deep_audit_ltf_momentum_min_rsi", "deep_audit_ripster_opening_noise_end_minute", "deep_audit_ltf_rsi_floor", "deep_audit_min_ltf_ema_depth", "deep_audit_post_trim_breakeven", "deep_audit_stall_max_hours", "deep_audit_stall_breakeven_pnl_pct", "deep_audit_stall_force_close_hours", "deep_audit_soft_fuse_defer_min_1h_depth", "deep_audit_runner_trail_pct", "deep_audit_post_trim_trail_pct", "deep_audit_stale_runner_bars", "deep_audit_momentum_fade_exit", "deep_audit_min_hold_before_mgmt_exit_min", "deep_audit_tp_atr_override", "deep_audit_phase_exit_enabled", "deep_audit_atr_exhaustion_exit", "deep_audit_rvol_ceiling", "deep_audit_rvol_ceiling_short", "deep_audit_rvol_high_threshold", "deep_audit_rvol_high_size_mult", "deep_audit_danger_max_signals", "deep_audit_danger_ema_depth_min", "deep_audit_danger_vix_threshold", "deep_audit_danger_min_st_aligned", "deep_audit_danger_size_mult", "deep_audit_danger_size_threshold", "deep_audit_danger_div_enabled", "deep_audit_div_exit_enabled", "deep_audit_div_exit_min_strength", "deep_audit_div_pivot_lookback", "deep_audit_div_max_age_bars", "deep_audit_div_runner_trail_pct", "deep_audit_mean_revert_td9_enabled", "deep_audit_td_exit_enabled", "deep_audit_td_exit_trail_pct", "deep_audit_td_ltf_trail_pct", "deep_audit_mfe_safety_trim_pct", "deep_audit_max_runner_drawdown_pct", "deep_audit_doa_early_exit_enabled", "deep_audit_confirmed_min_rank", "deep_audit_parity_defer_confirmed_opening_minutes", "deep_audit_legacy_momentum_precedence", "deep_audit_legacy_momentum_min_rr", "deep_audit_legacy_momentum_relax_trigger", "deep_audit_min_entry_quality", "deep_audit_hard_loss_cap", "deep_audit_hard_loss_cap_pct", "deep_audit_breakeven_mfe_threshold", "deep_audit_breakeven_skip_trimmed_runner", "deep_audit_parity_runner_tp_full_only", "deep_audit_parity_skip_stall_force_close", "deep_audit_parity_skip_sl_breach", "deep_audit_parity_no_reentry_after_tp_full_hours", "tier_risk_map", "grade_risk_map", "smart_runner_exit_enabled", "smart_runner_swing_atr_proximity", "smart_runner_min_bars_post_trim", "rank_gate_mode", "doa_gate_enabled", "doa_gate_ema_depth_threshold", "doa_gate_ticker_blacklist", "ai_cio_enabled", "ai_cio_replay_enabled", "short_min_rank", "short_require_daily_st_aligned", "short_min_4h_ema_depth", "min_entry_confidence", "entry_ticker_blacklist", "choppy_regime_rank_floor", "tt_spy_directional_gate", "tt_pdz_hard_gate", "deep_audit_phase_peak_extreme", "deep_audit_phase_decline_extreme", "deep_audit_bias_spread_min"];
           const daRows = (await db.prepare(
             `SELECT config_key, config_value FROM model_config WHERE config_key IN (${daKeys.map((_, i) => `?${i + 1}`).join(",")})`
           ).bind(...daKeys).all())?.results || [];
@@ -40022,6 +41511,16 @@ export default {
           const derRow = await db.prepare(`SELECT config_value FROM model_config WHERE config_key='dynamic_engine_rules'`).first();
           if (derRow?.config_value) _dynamicEngineRulesCache = JSON.parse(derRow.config_value);
         } catch {}
+        try {
+          const remRow = await db.prepare(`SELECT config_value FROM model_config WHERE config_key='reference_execution_map'`).first();
+          if (remRow?.config_value) _referenceExecutionMapCache = JSON.parse(remRow.config_value);
+        } catch {}
+        try {
+          const spRow = await db.prepare(`SELECT config_value FROM model_config WHERE config_key='scenario_execution_policy'`).first();
+          if (spRow?.config_value) _scenarioExecutionPolicyCache = JSON.parse(spRow.config_value);
+        } catch {}
+        replayEnv._referenceExecutionMap = _referenceExecutionMapCache;
+        replayEnv._scenarioExecutionPolicy = _scenarioExecutionPolicyCache;
         try {
           const cfgRows = await db.batch([
             db.prepare(`SELECT config_value FROM model_config WHERE config_key='adaptive_entry_gates'`),
@@ -53715,6 +55214,14 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           kvCleared.push("timed:trades:all");
         } catch {}
         try {
+          await KV.delete(REPLAY_TRADES_KV_KEY);
+          kvCleared.push(REPLAY_TRADES_KV_KEY);
+        } catch {}
+        try {
+          await KV.delete("timed:replay:running");
+          kvCleared.push("timed:replay:running");
+        } catch {}
+        try {
           await KV.delete(PORTFOLIO_KEY);
           kvCleared.push(PORTFOLIO_KEY);
         } catch {}
@@ -55099,7 +56606,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
         try {
           const db2 = env?.DB;
           if (db2) {
-            const daKeys = ["deep_audit_short_min_rank", "deep_audit_ticker_blacklist", "deep_audit_max_loss_pct", "deep_audit_sl_cap_mult", "deep_audit_sl_floor_mult", "deep_audit_rsi_tp_delay", "deep_audit_avoid_hours", "deep_audit_block_regime", "deep_audit_vix_ceiling", "deep_audit_regime_size_mult", "deep_audit_min_hold_regime_exit_hours", "deep_audit_loss_cooldown_hours", "deep_audit_min_htf_score", "deep_audit_momentum_elite_rank_boost", "deep_audit_breakout_daily_level_enabled", "deep_audit_breakout_atr_breakout_enabled", "deep_audit_breakout_ema_stack_enabled", "deep_audit_breakout_min_rr", "deep_audit_breakout_min_entry_quality", "deep_audit_opening_noise_end_minute", "deep_audit_min_1h_bias", "deep_audit_min_4h_bias", "deep_audit_ltf_momentum_min_bias", "deep_audit_ltf_momentum_min_rsi", "deep_audit_ripster_opening_noise_end_minute", "deep_audit_ltf_rsi_floor", "deep_audit_min_ltf_ema_depth", "deep_audit_post_trim_breakeven", "deep_audit_stall_max_hours", "deep_audit_stall_breakeven_pnl_pct", "deep_audit_stall_force_close_hours", "deep_audit_soft_fuse_defer_min_1h_depth", "deep_audit_runner_trail_pct", "deep_audit_post_trim_trail_pct", "deep_audit_stale_runner_bars", "deep_audit_momentum_fade_exit", "deep_audit_min_hold_before_mgmt_exit_min", "deep_audit_tp_atr_override", "deep_audit_phase_exit_enabled", "deep_audit_atr_exhaustion_exit", "deep_audit_rvol_ceiling", "deep_audit_rvol_ceiling_short", "deep_audit_rvol_high_threshold", "deep_audit_rvol_high_size_mult", "deep_audit_danger_max_signals", "deep_audit_danger_ema_depth_min", "deep_audit_danger_vix_threshold", "deep_audit_danger_min_st_aligned", "deep_audit_danger_size_mult", "deep_audit_danger_size_threshold", "deep_audit_danger_div_enabled", "deep_audit_div_exit_enabled", "deep_audit_div_exit_min_strength", "deep_audit_div_pivot_lookback", "deep_audit_div_max_age_bars", "deep_audit_div_runner_trail_pct", "deep_audit_mean_revert_td9_enabled", "deep_audit_td_exit_enabled", "deep_audit_td_exit_trail_pct", "deep_audit_td_ltf_trail_pct", "deep_audit_mfe_safety_trim_pct", "deep_audit_max_runner_drawdown_pct", "deep_audit_min_entry_quality", "deep_audit_hard_loss_cap", "deep_audit_hard_loss_cap_pct", "deep_audit_breakeven_mfe_threshold", "tier_risk_map", "grade_risk_map", "smart_runner_exit_enabled", "smart_runner_swing_atr_proximity", "smart_runner_min_bars_post_trim", "rank_gate_mode", "doa_gate_enabled", "doa_gate_ema_depth_threshold", "doa_gate_ticker_blacklist", "ai_cio_enabled", "ai_cio_replay_enabled", "short_min_rank", "short_require_daily_st_aligned", "short_min_4h_ema_depth", "min_entry_confidence", "entry_ticker_blacklist", "choppy_regime_rank_floor", "tt_spy_directional_gate", "tt_pdz_hard_gate", "deep_audit_phase_peak_extreme", "deep_audit_phase_decline_extreme", "deep_audit_bias_spread_min"];
+          const daKeys = ["deep_audit_short_min_rank", "deep_audit_ticker_blacklist", "deep_audit_max_loss_pct", "deep_audit_sl_cap_mult", "deep_audit_sl_floor_mult", "deep_audit_rsi_tp_delay", "deep_audit_avoid_hours", "deep_audit_block_regime", "deep_audit_vix_ceiling", "deep_audit_regime_size_mult", "deep_audit_min_hold_regime_exit_hours", "deep_audit_loss_cooldown_hours", "deep_audit_min_htf_score", "deep_audit_momentum_elite_rank_boost", "deep_audit_breakout_daily_level_enabled", "deep_audit_breakout_atr_breakout_enabled", "deep_audit_breakout_ema_stack_enabled", "deep_audit_breakout_min_rr", "deep_audit_breakout_min_entry_quality", "deep_audit_opening_noise_end_minute", "deep_audit_min_1h_bias", "deep_audit_min_4h_bias", "deep_audit_ltf_momentum_min_bias", "deep_audit_ltf_momentum_min_rsi", "deep_audit_ripster_opening_noise_end_minute", "deep_audit_ltf_rsi_floor", "deep_audit_min_ltf_ema_depth", "deep_audit_post_trim_breakeven", "deep_audit_stall_max_hours", "deep_audit_stall_breakeven_pnl_pct", "deep_audit_stall_force_close_hours", "deep_audit_soft_fuse_defer_min_1h_depth", "deep_audit_runner_trail_pct", "deep_audit_post_trim_trail_pct", "deep_audit_stale_runner_bars", "deep_audit_momentum_fade_exit", "deep_audit_min_hold_before_mgmt_exit_min", "deep_audit_tp_atr_override", "deep_audit_phase_exit_enabled", "deep_audit_atr_exhaustion_exit", "deep_audit_rvol_ceiling", "deep_audit_rvol_ceiling_short", "deep_audit_rvol_high_threshold", "deep_audit_rvol_high_size_mult", "deep_audit_danger_max_signals", "deep_audit_danger_ema_depth_min", "deep_audit_danger_vix_threshold", "deep_audit_danger_min_st_aligned", "deep_audit_danger_size_mult", "deep_audit_danger_size_threshold", "deep_audit_danger_div_enabled", "deep_audit_div_exit_enabled", "deep_audit_div_exit_min_strength", "deep_audit_div_pivot_lookback", "deep_audit_div_max_age_bars", "deep_audit_div_runner_trail_pct", "deep_audit_mean_revert_td9_enabled", "deep_audit_td_exit_enabled", "deep_audit_td_exit_trail_pct", "deep_audit_td_ltf_trail_pct", "deep_audit_mfe_safety_trim_pct", "deep_audit_max_runner_drawdown_pct", "deep_audit_doa_early_exit_enabled", "deep_audit_confirmed_min_rank", "deep_audit_parity_defer_confirmed_opening_minutes", "deep_audit_legacy_momentum_precedence", "deep_audit_legacy_momentum_min_rr", "deep_audit_legacy_momentum_relax_trigger", "deep_audit_min_entry_quality", "deep_audit_hard_loss_cap", "deep_audit_hard_loss_cap_pct", "deep_audit_breakeven_mfe_threshold", "deep_audit_breakeven_skip_trimmed_runner", "deep_audit_parity_runner_tp_full_only", "deep_audit_parity_skip_stall_force_close", "deep_audit_parity_skip_sl_breach", "deep_audit_parity_no_reentry_after_tp_full_hours", "tier_risk_map", "grade_risk_map", "smart_runner_exit_enabled", "smart_runner_swing_atr_proximity", "smart_runner_min_bars_post_trim", "rank_gate_mode", "doa_gate_enabled", "doa_gate_ema_depth_threshold", "doa_gate_ticker_blacklist", "ai_cio_enabled", "ai_cio_replay_enabled", "short_min_rank", "short_require_daily_st_aligned", "short_min_4h_ema_depth", "min_entry_confidence", "entry_ticker_blacklist", "choppy_regime_rank_floor", "tt_spy_directional_gate", "tt_pdz_hard_gate", "deep_audit_phase_peak_extreme", "deep_audit_phase_decline_extreme", "deep_audit_bias_spread_min"];
             const daRows = (await db2.prepare(
               `SELECT config_key, config_value FROM model_config WHERE config_key IN (${daKeys.map((_, i) => `?${i + 1}`).join(",")})`
             ).bind(...daKeys).all())?.results || [];
@@ -55114,6 +56621,16 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           const derRow = await env.DB.prepare(`SELECT config_value FROM model_config WHERE config_key='dynamic_engine_rules'`).first();
           if (derRow?.config_value) _dynamicEngineRulesCache = JSON.parse(derRow.config_value);
         } catch (_) {}
+        try {
+          const remRow = await env.DB.prepare(`SELECT config_value FROM model_config WHERE config_key='reference_execution_map'`).first();
+          if (remRow?.config_value) _referenceExecutionMapCache = JSON.parse(remRow.config_value);
+        } catch (_) {}
+        try {
+          const spRow = await env.DB.prepare(`SELECT config_value FROM model_config WHERE config_key='scenario_execution_policy'`).first();
+          if (spRow?.config_value) _scenarioExecutionPolicyCache = JSON.parse(spRow.config_value);
+        } catch (_) {}
+        env._referenceExecutionMap = _referenceExecutionMapCache;
+        env._scenarioExecutionPolicy = _scenarioExecutionPolicyCache;
 
         // Load golden profiles from KV for HTF/LTF entry floors
         try {
@@ -55138,24 +56655,30 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
         // Lazy-load CIO memory cache for live scoring (refreshed every scoring cycle)
         if (String(env._deepAuditConfig?.ai_cio_enabled ?? "false") === "true") {
           try {
-            const [ppLive, snapLive, evLive, franchiseLive] = await Promise.all([
+            const [ppLive, snapLive, evLive, franchiseLive, cioRefLive] = await Promise.all([
               env.DB.prepare(`SELECT * FROM path_performance WHERE total_trades >= 3`).all(),
               env.DB.prepare(`SELECT * FROM daily_market_snapshots ORDER BY date DESC LIMIT 30`).all(),
               env.DB.prepare(`SELECT * FROM market_events WHERE date >= ? ORDER BY date DESC LIMIT 50`).bind(
                 new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10)
               ).all(),
               env.DB.prepare(`SELECT config_value FROM model_config WHERE config_key='cio_franchise_blacklist'`).first(),
+              env.DB.prepare(`SELECT config_value FROM model_config WHERE config_key='cio_reference_features'`).first(),
             ]);
             const ppMap = new Map();
             for (const r of (ppLive?.results || [])) ppMap.set(r.entry_path, r);
             let fVal = null;
             if (franchiseLive?.config_value) { try { fVal = JSON.parse(franchiseLive.config_value); } catch {} }
+            let cioRef = null;
+            if (String(env._deepAuditConfig?.ai_cio_reference_enabled ?? "false") === "true" && cioRefLive?.config_value) {
+              try { cioRef = JSON.parse(cioRefLive.config_value); } catch {}
+            }
             env._cioMemoryCache = {
               pathPerf: ppMap,
               marketSnapshots: (snapLive?.results || []).reverse(),
               marketEvents: (evLive?.results || []).reverse(),
               tickerProfiles: {},
               franchise: fVal,
+              referenceFeatures: cioRef,
               cioDecisions: [],
             };
           } catch (e) {

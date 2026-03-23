@@ -17,6 +17,12 @@
 - **Worker ROUTES array must include new endpoints**: Add to both `ROUTES` array AND handler section, else `not_found`. [2026-02-11]
 - **CF Access blocks WebSocket upgrades on custom domains**: Connect WS to `workers.dev` subdomain to bypass Access. Safe for broadcast-only data. [2026-02-11]
 
+## Replay / Entry Gates
+
+- **Confirmed-grade min-rank gate must only run when rank exists**: In replay, some snapshots can miss `tickerData.rank/score`. Coercing missing rank to `0` silently blocks all `Confirmed` setups (`<75`) and creates zero-trade days with no hard errors. Guard with `Number.isFinite()` before applying the gate. [2026-03-22]
+- **Reference-intel artifact parsers must handle schema wrappers**: `configs/sector-map.json` stores mappings under `SECTOR_MAP`, not top-level symbols. Loader assumptions can silently collapse sector coverage to `unknown`, which breaks coverage and diversity diagnostics. [2026-03-22]
+- **Validation matrix windows must use trade-active engine/gate profile**: A matrix run can return zero trades even when infra is healthy if the chosen window uses non-active gate defaults. For parity/behavioral comparison runs, pin known-active overrides (e.g., `ENTRY_ENGINE=legacy`, `MANAGEMENT_ENGINE=legacy`, `deep_audit_confirmed_min_rank=0`) so both legs produce comparable trade sets. [2026-03-22]
+
 ## D1 / Database
 
 - **D1 has 1000 subrequests per Worker invocation**: Use `db.batch()` (max 500 per call) for bulk reads and writes. [2026-02-09]
@@ -597,6 +603,14 @@ Based on manual classification of 373 trades (140 bad_trade, 131 bad_exit, 85 go
 - **Don't proxy when the actual data is available**: Used 30m cloud alignment + RSI as a proxy for the 10m-30m bias spread, but `swing_consensus.tf_stack` already contains per-TF bias scores (`biasScore`). The actual `abs(bias10m) - abs(bias30m)` spread is the correct implementation.
 - **Don't add extra gates beyond what the analysis identified**: Analysis showed two specific changes: (1) bias spread filter for entry, (2) structure check + runner management for exit. Adding an extra 30m RSI hard block based on limited data was over-engineering — it wasn't supported by the analysis findings.
 - **Verify swing_consensus is populated during replay**: `computeServerSideScores()` runs the full indicator pipeline including `computeSwingConsensus()` during both candle-replay and interval-replay. The `tf_stack` with per-TF `biasScore` values is available in `ctx.raw.swing_consensus.tf_stack`.
+
+### Option-A Parity Diagnostics [2026-03-22]
+- **`timed_trail` may have rows but empty `payload_json`**: `replay-ticker-d1` requires `payload_json` from `timed_trail`. For Jul 1 diagnostics on `CDNS/ORCL/CSX/ITT`, `rows_with_payload_json=0` even though `rows=79`, so replay diagnostics produced `rowsProcessed=0`.
+- **No `ingest_receipts` fallback data for those symbols/date**: `replay-data-stats` returned `ingest_receipts.rows=0`; no alternate single-ticker replay source was available for that day.
+- **Parity investigation must use archived signal snapshots when replay source is empty**: The artifact (`trade-autopsy-trades.json`) retained `signal_snapshot_json` and `entry_path`; this is the reliable source for entry-time fingerprinting when D1 replay payloads are unavailable.
+- **Debug-only fields can break replay silently**: `processTradeSimulation` referenced undefined `positionLimitBlocked` inside replay debug payload creation, which aborted execution before `gate: blocked/passed` traces were emitted. Fixing that variable restored full runtime trace visibility.
+- **Confirmed-grade min-rank gate is a real parity blocker (not just missing-rank edge case)**: Jul 1 interval diagnostics showed `ORCL (68)`, `CSX (71)`, `ITT (73)` blocked by `confirmed_min_rank < 75` even with valid ranks. Historical artifact includes these trades, so strict `75` is not parity-safe for the Option-A target profile.
+- **Lowering `deep_audit_confirmed_min_rank` to 65 removes the blocker but introduces timing drift**: Post-fix interval replay now opens `ORCL/CSX/ITT` immediately at 13:30 UTC (`interval 0`) with `entryPath=ema_regime_confirmed_long` instead of the artifact's later timestamps (`13:45/14:15`) and `ripster_momentum`. This proves min-rank was one blocker, but entry-path/timing parity still requires additional gate alignment.
 
 ### Alpaca Data Licensing Compliance [2026-03-17]
 - **Alpaca data is not commercially licensed**: Cannot display raw Alpaca-sourced data (especially 10m candles) to users. Only TwelveData data is user-facing.

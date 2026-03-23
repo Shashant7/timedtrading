@@ -965,7 +965,9 @@ function clusterPivots(pivots, threshold) {
  * @returns {object|null} Bundle with all indicator values at the latest bar.
  */
 export function computeTfBundle(bars, anchors = null) {
-  if (!bars || bars.length < 50) return null; // need minimum data
+  // Allow short replay windows to still emit usable TF context (notably 1H).
+  // EMA(48/200) fields may remain unavailable early, but RSI/ST/structure can still be computed.
+  if (!bars || bars.length < 15) return null;
 
   const closes = bars.map(b => b.c);
   const n = bars.length;
@@ -2681,8 +2683,15 @@ export function computeSwingConsensus(bundles, regime = null, tfWeights = null, 
 
   for (const { key, label, b, isDaily } of TFS) {
     const tfW = Number(w[key]) || 1;
-    const hasEma = (isDaily && Number.isFinite(b?.e5) && Number.isFinite(b?.e48)) || (Number.isFinite(b?.e13) && Number.isFinite(b?.e48));
-    if (!b || !hasEma) {
+    const hasSignalInputs = !!b && (
+      Number.isFinite(b?.e13) ||
+      Number.isFinite(b?.e48) ||
+      Number.isFinite(b?.stDir) ||
+      Number.isFinite(b?.emaStructure) ||
+      Number.isFinite(b?.emaDepth) ||
+      Number.isFinite(b?.rsi)
+    );
+    if (!hasSignalInputs) {
       tfStack.push({ tf: label, bias: "unknown", biasScore: 0, weight: tfW, signals: {}, crossAge: null, crossDir: null });
       continue;
     }
@@ -2693,8 +2702,8 @@ export function computeSwingConsensus(bundles, regime = null, tfWeights = null, 
     totalBiasWeighted += biasScore * tfW;
 
     const bullish = biasScore > 0;
-    if (bullish) bullishCount++;
-    else bearishCount++;
+    if (biasScore > 0) bullishCount++;
+    else if (biasScore < 0) bearishCount++;
 
     // Daily: prefer 5/48 cross; LTF: use 13/48 cross
     const crossUp = isDaily ? (b.emaCross5_48_up || b.emaCross13_48_up) : b.emaCross13_48_up;
@@ -3792,8 +3801,19 @@ export function assembleTickerData(ticker, bundles, existingData = null, opts = 
   const b10 = bundles?.["10"];
   const b5 = bundles?.["5"];
   const requestedLeadingLtf = normalizeTfKey(opts?.leadingLtf || existingData?.leading_ltf || "10") || "10";
-  const leadingLtf = requestedLeadingLtf === "30" && b30 ? "30"
-    : requestedLeadingLtf === "15" && b15 ? "15" : "10";
+  const leadingLtf = requestedLeadingLtf === "30" && b30
+    ? "30"
+    : requestedLeadingLtf === "15" && b15
+      ? "15"
+      : requestedLeadingLtf === "10" && b10
+        ? "10"
+        : b15
+          ? "15"
+          : b10
+            ? "10"
+            : b30
+              ? "30"
+              : "10";
   const bLead = leadingLtf === "30" ? b30 : leadingLtf === "15" ? b15 : b10;
 
   // Compute daily anchors for Golden Gate

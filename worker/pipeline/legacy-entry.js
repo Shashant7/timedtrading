@@ -74,17 +74,75 @@ export function evaluateEntry(ctx) {
   const sectorStrength = sectorAlign?.strength || 0;
 
   // Overbought/oversold gate
+  // Configurable for replay parity experiments; defaults preserve historical behavior.
+  const _exhaustHigh = Number(daCfg.deep_audit_exhaustion_rsi_high);
+  const _exhaustLow = Number(daCfg.deep_audit_exhaustion_rsi_low);
+  const _exhaustMinTf = Number(daCfg.deep_audit_exhaustion_min_tf_count);
+  const _obLevel = Number.isFinite(_exhaustHigh) ? _exhaustHigh : 70;
+  const _osLevel = Number.isFinite(_exhaustLow) ? _exhaustLow : 30;
+  const _tfCountGate = Number.isFinite(_exhaustMinTf) ? Math.max(1, _exhaustMinTf) : 3;
   const _rsi30m = Number(m30?.rsi?.r5) ?? 50;
   const _rsi1H = Number(h1?.rsi?.r5) ?? 50;
   const _rsi4H = Number(h4?.rsi?.r5) ?? 50;
   const _rsiD = Number(D?.rsi?.r5) ?? 50;
-  const _obCount = (_rsi30m > 65 ? 1 : 0) + (_rsi1H > 65 ? 1 : 0) + (_rsi4H > 65 ? 1 : 0) + (_rsiD > 65 ? 1 : 0);
-  const _osCount = (_rsi30m < 35 ? 1 : 0) + (_rsi1H < 35 ? 1 : 0) + (_rsi4H < 35 ? 1 : 0) + (_rsiD < 35 ? 1 : 0);
-  if (side !== "SHORT" && _obCount >= 2) {
-    return reject("overbought_exhaustion", { rsi30m: _rsi30m, rsi1H: _rsi1H, rsi4H: _rsi4H, rsiD: _rsiD });
+  const _obCount = (_rsi30m > _obLevel ? 1 : 0) + (_rsi1H > _obLevel ? 1 : 0) + (_rsi4H > _obLevel ? 1 : 0) + (_rsiD > _obLevel ? 1 : 0);
+  const _osCount = (_rsi30m < _osLevel ? 1 : 0) + (_rsi1H < _osLevel ? 1 : 0) + (_rsi4H < _osLevel ? 1 : 0) + (_rsiD < _osLevel ? 1 : 0);
+  if (side !== "SHORT" && _obCount >= _tfCountGate) {
+    return reject("overbought_exhaustion", { rsi30m: _rsi30m, rsi1H: _rsi1H, rsi4H: _rsi4H, rsiD: _rsiD, threshold: _obLevel, tfCountGate: _tfCountGate });
   }
-  if (side !== "LONG" && _osCount >= 2) {
-    return reject("oversold_exhaustion", { rsi30m: _rsi30m, rsi1H: _rsi1H, rsi4H: _rsi4H, rsiD: _rsiD });
+  if (side !== "LONG" && _osCount >= _tfCountGate) {
+    return reject("oversold_exhaustion", { rsi30m: _rsi30m, rsi1H: _rsi1H, rsi4H: _rsi4H, rsiD: _rsiD, threshold: _osLevel, tfCountGate: _tfCountGate });
+  }
+
+  const isMomentumBull = state === "HTF_BULL_LTF_BULL";
+  const isMomentumBear = state === "HTF_BEAR_LTF_BEAR";
+
+  // Optional parity switch: prioritize legacy momentum path before EMA regime paths.
+  // This is disabled by default and can be enabled via model_config:
+  // deep_audit_legacy_momentum_precedence=true
+  const _legacyMomentumPrecedence = String(daCfg.deep_audit_legacy_momentum_precedence ?? "false") === "true";
+  const _legacyMomentumMinRrCfg = Number(daCfg.deep_audit_legacy_momentum_min_rr);
+  const _legacyMomentumMinRr = Number.isFinite(_legacyMomentumMinRrCfg) && _legacyMomentumMinRrCfg > 0
+    ? _legacyMomentumMinRrCfg
+    : 2.0;
+  const _legacyMomentumRelaxTrigger = String(daCfg.deep_audit_legacy_momentum_relax_trigger ?? "false") === "true";
+  const _legacyMomentumStructFallbackBull = _legacyMomentumRelaxTrigger && dailyRegime === 2 && stBullConfirms && regime4H >= 1;
+  const _legacyMomentumStructFallbackBear = _legacyMomentumRelaxTrigger && dailyRegime === -2 && stBearConfirms && regime4H <= -1;
+  const _momentumSignalBull = isMomentumBull
+    && score >= 70
+    && rr >= _legacyMomentumMinRr
+    && (hasStFlipBull || hasEmaCrossBull || hasSqRelease || _legacyMomentumStructFallbackBull);
+  const _momentumSignalBear = isMomentumBear
+    && score >= 70
+    && rr >= _legacyMomentumMinRr
+    && (hasStFlipBear || hasEmaCrossBear || hasSqRelease || _legacyMomentumStructFallbackBear);
+  if (_legacyMomentumPrecedence) {
+    if (_momentumSignalBull) {
+      return qualify("momentum_score", "medium", "momentum_with_signal_precedence", {
+        momentum_precedence_enabled: true,
+        momentum_min_rr: _legacyMomentumMinRr,
+        momentum_relax_trigger: _legacyMomentumRelaxTrigger,
+        momentum_struct_fallback_bull: _legacyMomentumStructFallbackBull,
+        score,
+        rr,
+        hasStFlipBull,
+        hasEmaCrossBull,
+        hasSqRelease,
+      });
+    }
+    if (_momentumSignalBear) {
+      return qualify("momentum_score_short", "medium", "momentum_bear_with_signal_precedence", {
+        momentum_precedence_enabled: true,
+        momentum_min_rr: _legacyMomentumMinRr,
+        momentum_relax_trigger: _legacyMomentumRelaxTrigger,
+        momentum_struct_fallback_bear: _legacyMomentumStructFallbackBear,
+        score,
+        rr,
+        hasStFlipBear,
+        hasEmaCrossBear,
+        hasSqRelease,
+      });
+    }
   }
 
   // ── PATH 1: EMA REGIME CONFIRMED LONG ──
@@ -103,7 +161,22 @@ export function evaluateEntry(ctx) {
 
       return qualify("ema_regime_confirmed_long",
         (sectorBull && sectorStrength >= 60 && !_fullyExtended) ? "high" : conf,
-        stBullConfirms ? "daily_ema_regime_confirmed_with_st" : "daily_ema_regime_confirmed_st_pending");
+        stBullConfirms ? "daily_ema_regime_confirmed_with_st" : "daily_ema_regime_confirmed_st_pending",
+        {
+          momentum_precedence_enabled: _legacyMomentumPrecedence,
+          momentum_min_rr: _legacyMomentumMinRr,
+          momentum_relax_trigger: _legacyMomentumRelaxTrigger,
+          momentum_signal_bull: _momentumSignalBull,
+          momentum_inputs: {
+            state,
+            score,
+            rr,
+            hasStFlipBull,
+            hasEmaCrossBull,
+            hasSqRelease,
+            structFallbackBull: _legacyMomentumStructFallbackBull,
+          },
+        });
     }
   }
 
@@ -181,13 +254,31 @@ export function evaluateEntry(ctx) {
   }
 
   // ── MOMENTUM ──
-  const isMomentumBull = state === "HTF_BULL_LTF_BULL";
-  const isMomentumBear = state === "HTF_BEAR_LTF_BEAR";
-  if (isMomentumBull && score >= 70 && rr >= 2.0 && (hasStFlipBull || hasEmaCrossBull || hasSqRelease)) {
-    return qualify("momentum_score", "medium", "momentum_with_signal");
+  if (_momentumSignalBull) {
+    return qualify("momentum_score", "medium", "momentum_with_signal", {
+      momentum_precedence_enabled: _legacyMomentumPrecedence,
+      momentum_min_rr: _legacyMomentumMinRr,
+      momentum_relax_trigger: _legacyMomentumRelaxTrigger,
+      score,
+      rr,
+      hasStFlipBull,
+      hasEmaCrossBull,
+      hasSqRelease,
+      structFallbackBull: _legacyMomentumStructFallbackBull,
+    });
   }
-  if (isMomentumBear && score >= 70 && rr >= 2.0 && (flags.st_flip_bear || hasEmaCrossBear || hasSqRelease)) {
-    return qualify("momentum_score_short", "medium", "momentum_bear_with_signal");
+  if (_momentumSignalBear) {
+    return qualify("momentum_score_short", "medium", "momentum_bear_with_signal", {
+      momentum_precedence_enabled: _legacyMomentumPrecedence,
+      momentum_min_rr: _legacyMomentumMinRr,
+      momentum_relax_trigger: _legacyMomentumRelaxTrigger,
+      score,
+      rr,
+      hasStFlipBear,
+      hasEmaCrossBear,
+      hasSqRelease,
+      structFallbackBear: _legacyMomentumStructFallbackBear,
+    });
   }
 
   // ── SQUEEZE SETUP ──
@@ -230,6 +321,6 @@ function reject(reason, metadata = {}) {
   return { qualifies: false, reason, engine: "legacy", path: null, confidence: null, direction: null, sizing: null, metadata };
 }
 
-function qualify(path, confidence, reason) {
-  return { qualifies: true, path, confidence, direction: null, engine: "legacy", reason, sizing: null, metadata: {} };
+function qualify(path, confidence, reason, metadata = {}) {
+  return { qualifies: true, path, confidence, direction: null, engine: "legacy", reason, sizing: null, metadata };
 }

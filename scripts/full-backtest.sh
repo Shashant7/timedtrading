@@ -39,6 +39,7 @@ SKIP_BACKFILL=false
 FORCE_BACKFILL=false
 SNAPSHOT_REPLAY=false
 INTERVAL_MODE=false
+PARITY_CANONICAL=false
 INTERVAL_COUNT=40
 RUN_LABEL=""
 RUN_DESCRIPTION=""
@@ -60,6 +61,7 @@ while [[ $# -gt 0 ]]; do
     --force-backfill) FORCE_BACKFILL=true ;;
     --snapshot-replay) SNAPSHOT_REPLAY=true ;;
     --interval-mode) INTERVAL_MODE=true ;;
+    --parity-canonical) PARITY_CANONICAL=true ;;
     --interval-count=*) INTERVAL_COUNT="${arg#--interval-count=}" ;;
     --no-snapshot-before-reset) SNAPSHOT_BEFORE_RESET=false ;;
     --frozen-dataset=*) FROZEN_DATASET="${arg#--frozen-dataset=}" ;;
@@ -79,6 +81,9 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 if $SEQUENCE; then TRADER_ONLY=true; fi
+if $PARITY_CANONICAL; then
+  INTERVAL_MODE=true
+fi
 
 sanitize_tag() {
   echo "$1" | tr -cs '[:alnum:]_.-' '-'
@@ -177,6 +182,7 @@ else
   echo "╔══════════════════════════════════════════════════════╗"
   echo "║  Candle-Based Backtest: $START_DATE → $END_DATE"
   echo "║  Ticker batch: $TICKER_BATCH | Interval: ${INTERVAL_MIN}m"
+  $PARITY_CANONICAL && echo "║  Parity mode: canonical interval replay is locked"
   $TRADER_ONLY && echo "║  Mode: trader-only (investor/snapshots skipped)"
   $LOW_WRITE && echo "║  Mode: low-write (skip timed_trail writes + lifecycle)"
   $INTERVAL_MODE && echo "║  Mode: interval-first (all tickers per interval chunk, $INTERVAL_COUNT intervals/req)"

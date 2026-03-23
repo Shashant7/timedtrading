@@ -93,7 +93,7 @@
 
       const fetchOpts = { cache: "no-store", credentials: "include" };
 
-      const TF_ORDER = ["15m", "30m", "1H", "4H", "D"];
+      const TF_ORDER = ["10m", "15m", "30m", "1H", "4H", "D", "W"];
       const SIGNAL_LABELS = {
         ema_cross: "EMA cross",
         supertrend: "SuperTrend",
@@ -985,55 +985,28 @@
           setEntryGrade(Array.isArray(annotations?.entry_grade) ? annotations.entry_grade : []);
           setTradeManagement(Array.isArray(annotations?.trade_management) ? annotations.trade_management : []);
         }, [trade?.trade_id, trade?.id, annotations?.entry_grade, annotations?.trade_management]);
-        const [candleAtEntry, setCandleAtEntry] = useState(null);
-        const [candleAtExit, setCandleAtExit] = useState(null);
-        const [candleAtTrim, setCandleAtTrim] = useState(null);
-
         const tradeId = trade?.trade_id || trade?.id || `${trade?.ticker}-${trade?.entry_ts}`;
-        const storedEntry = Number(trade?.entry_price || trade?.entryPrice);
-        const storedExit = Number(trade?.exit_price || trade?.exitPrice);
+        const rawEntry = Number(trade?.entry_price ?? trade?.entryPrice);
+        const rawExit = Number(trade?.exit_price ?? trade?.exitPrice);
+        const effectiveEntry = Number(trade?.effective_entry_price);
+        const effectiveExit = Number(trade?.effective_exit_price);
+        const displayEntry = Number.isFinite(effectiveEntry) ? effectiveEntry : rawEntry;
+        const displayExit = Number.isFinite(effectiveExit) ? effectiveExit : rawExit;
+        const hasEffectiveEntryOverride = Number.isFinite(effectiveEntry) && Number.isFinite(rawEntry) && Math.abs(effectiveEntry - rawEntry) > 1e-6;
+        const hasEffectiveExitOverride = Number.isFinite(effectiveExit) && Number.isFinite(rawExit) && Math.abs(effectiveExit - rawExit) > 1e-6;
+        const effectiveExitBasis = typeof trade?.effective_exit_basis === "string" ? trade.effective_exit_basis : null;
+        const trimmedPctVal = Number(trade?.trimmed_pct ?? trade?.trimmedPct ?? 0);
+        const hasRealizedTrimCarry =
+          Number.isFinite(trimmedPctVal) && trimmedPctVal > 0.001 &&
+          Number.isFinite(rawEntry) && Number.isFinite(rawExit) && Math.abs(rawEntry - rawExit) < 1e-6 &&
+          Number.isFinite(Number(trade?.pnl)) && Math.abs(Number(trade?.pnl)) > 1e-6;
 
-        // Fetch 15m candles at entry/trim/exit so markers and price lines use the same aligned bar.
-        useEffect(() => {
-          if (!trade?.ticker || !trade?.entry_ts) return;
-          const asOfMs = (ts) => {
-            const raw = Number(ts);
-            if (!Number.isFinite(raw) || raw <= 0) return null;
-            return raw < 1e12 ? raw * 1000 : raw;
-          };
-          const loadAlignedCandle = async (ts, setter) => {
-            const alignedMs = asOfMs(ts);
-            if (!alignedMs) {
-              setter(null);
-              return;
-            }
-            try {
-              const r = await fetch(`${API_BASE}/timed/candles?ticker=${encodeURIComponent(trade.ticker)}&tf=15&limit=5&asOfTs=${alignedMs}`, fetchOpts);
-              const data = await r.json();
-              const candles = data?.candles;
-              if (Array.isArray(candles) && candles.length > 0) {
-                const last = candles[candles.length - 1];
-                const close = Number(last?.c);
-                const tsRaw = Number(last?.ts);
-                const tsMs = Number.isFinite(tsRaw) && tsRaw > 0 ? (tsRaw < 1e12 ? tsRaw * 1000 : tsRaw) : null;
-                if (Number.isFinite(close) && close > 0 && Number.isFinite(tsMs) && tsMs > 0) {
-                  setter({ close, ts: tsMs });
-                  return;
-                }
-              }
-            } catch (_) {}
-            setter(null);
-          };
-          loadAlignedCandle(trade.entry_ts, setCandleAtEntry);
-          loadAlignedCandle(trade.exit_ts, setCandleAtExit);
-          loadAlignedCandle(trade.trim_ts, setCandleAtTrim);
-        }, [trade?.ticker, trade?.entry_ts, trade?.exit_ts, trade?.trim_ts]);
-
-        // Price lines always use the stored execution price (truth).
-        // Timestamps are aligned to the nearest 15m bar so markers sit on a real candle.
-        const chartEntryTs = Number.isFinite(Number(candleAtEntry?.ts)) ? Number(candleAtEntry.ts) : trade?.entry_ts;
-        const chartExitTs = Number.isFinite(Number(candleAtExit?.ts)) ? Number(candleAtExit.ts) : trade?.exit_ts;
-        const chartTrimTs = Number.isFinite(Number(candleAtTrim?.ts)) ? Number(candleAtTrim.ts) : trade?.trim_ts;
+        // Use exact execution timestamps for markers/range.
+        // LightweightCharts will snap marker placement to the active bar at/before ts,
+        // but we should not pre-shift timestamps to 15m bars.
+        const chartEntryTs = trade?.entry_ts;
+        const chartExitTs = trade?.exit_ts;
+        const chartTrimTs = trade?.trim_ts;
 
         useEffect(() => {
           let cancelled = false;
@@ -1158,15 +1131,27 @@
                 <div className="flex flex-wrap items-center gap-1 shrink-0">
                   <div className="flex items-center gap-1 px-2 py-0.5 rounded bg-[#60a5fa]/10 border border-[#60a5fa]/20">
                     <span className="text-[8px] font-bold text-[#60a5fa] uppercase">Entry</span>
-                    <span className="text-[11px] font-semibold text-white">{formatDate(trade?.entry_ts)} @ {fmtUsd(storedEntry)}</span>
+                    <span className="text-[11px] font-semibold text-white">{formatDate(trade?.entry_ts)} @ {fmtUsd(displayEntry)}</span>
+                    {hasEffectiveEntryOverride && (
+                      <span className="text-[9px] text-[#93c5fd]/80">raw {fmtUsd(rawEntry)}</span>
+                    )}
                   </div>
                   <div className="flex items-center gap-1 px-2 py-0.5 rounded bg-[#f59e0b]/10 border border-[#f59e0b]/20">
                     <span className="text-[8px] font-bold text-[#f59e0b] uppercase">Exit</span>
-                    <span className="text-[11px] font-semibold text-white">{formatDate(trade?.exit_ts)} @ {fmtUsd(storedExit)}</span>
+                    <span className="text-[11px] font-semibold text-white">{formatDate(trade?.exit_ts)} @ {fmtUsd(displayExit)}</span>
+                    {hasEffectiveExitOverride && (
+                      <span className="text-[9px] text-[#fcd34d]/80">raw {fmtUsd(rawExit)}</span>
+                    )}
+                    {effectiveExitBasis && (
+                      <span className="text-[8px] text-[#9ca3af] uppercase">({effectiveExitBasis.replace(/_/g, " ")})</span>
+                    )}
                   </div>
                   <div className="flex items-center gap-1 px-2 py-0.5 rounded" style={{ background: Number(trade?.pnl) >= 0 ? "rgba(34,197,94,0.08)" : "rgba(239,68,72,0.08)", border: `1px solid ${Number(trade?.pnl) >= 0 ? "rgba(34,197,94,0.2)" : "rgba(239,68,72,0.2)"}` }}>
                     <span className="text-[8px] font-bold uppercase" style={{ color: Number(trade?.pnl) >= 0 ? "#22c55e" : "#ef4444" }}>P&L</span>
                     <span className="text-[11px] font-bold" style={{ color: Number(trade?.pnl) >= 0 ? "#22c55e" : "#ef4444" }}>{fmtUsd(trade?.pnl)}</span>
+                    {hasRealizedTrimCarry && (
+                      <span className="text-[8px] text-[#9ca3af] uppercase">includes realized trim</span>
+                    )}
                   </div>
                   {(() => {
                     const _sh = Number(trade?.shares);
@@ -1230,11 +1215,27 @@
 
                   {/* ── Row 2: Side-by-side Entry Signals + Exit Signals tables ── */}
                   {(() => {
+                    // License-safe display: keep 10m captured server-side, but do not render it in UI.
                     const tdTfMap = { "W":"W","D":"D","4H":"240","1H":"60","30m":"30","15m":"15" };
                     const allTFs = ["15m","30m","1H","4H","D","W"];
                     const renderSignalTable = (snapRaw, lineageData, label, accentColor) => {
-                      const snapTFs = parseSnapshot(snapRaw) || [];
-                      const hasSnap = snapTFs.length > 0;
+                      let parsedTf = null;
+                      try {
+                        const parsed = typeof snapRaw === "string" ? JSON.parse(snapRaw) : snapRaw;
+                        parsedTf = parsed?.tf && typeof parsed.tf === "object" ? parsed.tf : null;
+                      } catch (_) {
+                        parsedTf = null;
+                      }
+                      const snapMap = {};
+                      if (parsedTf) {
+                        allTFs.forEach(tf => {
+                          if (Object.prototype.hasOwnProperty.call(parsedTf, tf)) {
+                            const row = parsedTf[tf];
+                            snapMap[tf] = row?.signals || {};
+                          }
+                        });
+                      }
+                      const hasSnap = Object.keys(snapMap).length > 0;
                       const hasTD = lineageData?.td_counts;
                       const hasDiv = lineageData?.rsi_divergence;
                       if (!hasSnap && !hasTD) return (
@@ -1243,8 +1244,6 @@
                           <div className="text-[9px] text-[#4b5563] italic py-4 text-center">No snapshot data captured</div>
                         </div>
                       );
-                      const snapMap = {};
-                      snapTFs.forEach(s => { snapMap[s.tf] = s.signals; });
                       return (
                         <div className="flex-1 min-w-0">
                           <div className="text-[8px] font-bold uppercase tracking-widest mb-1" style={{color: accentColor + "b3"}}>{label}</div>
@@ -1265,7 +1264,8 @@
                             </thead>
                             <tbody>
                               {allTFs.map(tf => {
-                                const sig = snapMap[tf] || {};
+                                const tfPresent = Object.prototype.hasOwnProperty.call(snapMap, tf);
+                                const sig = tfPresent ? (snapMap[tf] || {}) : {};
                                 const tdKey = tdTfMap[tf];
                                 const tc = hasTD ? (lineageData.td_counts[tdKey] || lineageData.td_counts[tf]) : null;
                                 const dv = hasDiv ? (lineageData.rsi_divergence[tf] || lineageData.rsi_divergence[tdKey]) : null;
@@ -1280,22 +1280,22 @@
                                 const slopeTag = stSlope != null ? " ↗" : (st != null ? " —" : "");
                                 const depthColor = emaD != null ? (emaD >= 12 ? "#22c55e" : emaD >= 8 ? "#14b8a6" : emaD >= 5 ? "#f59e0b" : "#ef4444") : null;
                                 const hasAny = emaCross != null || st != null || emaD != null || rsi != null || tc || dv;
-                                if (!hasAny) return null;
+                                const emptyGlyph = tfPresent ? "·" : "—";
                                 const hB = dv?.bear?.active !== false && dv?.bear;
                                 const hU = dv?.bull?.active !== false && dv?.bull;
                                 const isHTF = tf === "W" || tf === "D";
                                 return (
-                                  <tr key={tf} className={`border-t border-white/[0.05] ${isHTF ? "bg-white/[0.015]" : ""}`}>
-                                    <td className="pr-2 py-1 text-[#9ca3af] font-semibold">{tf}</td>
-                                    <td className="pr-2 py-1">{emaCross != null ? <span className={emaCross === 1 ? "text-[#22c55e] font-semibold" : "text-[#ef4444] font-semibold"}>{emaCross === 1 ? "▲ Bull" : "▼ Bear"}</span> : <span className="text-[#4b5563]">·</span>}</td>
-                                    <td className="pr-2 py-1">{stLabel ? <span style={{color: stColor}} className="font-semibold">{stIcon} {stLabel}<span className="opacity-50 ml-0.5">{slopeTag}</span></span> : <span className="text-[#4b5563]">·</span>}</td>
-                                    <td className="pr-2 py-1">{emaD != null ? <span className="font-semibold" style={{color: depthColor}}>{emaD}/15</span> : <span className="text-[#4b5563]">·</span>}</td>
-                                    <td className="pr-1 py-1">{rsi != null ? (() => { const v = Number(rsi); const c = v >= 70 ? "#ef4444" : v <= 30 ? "#22c55e" : "#d1d5db"; return <span style={{color: c}} className={v >= 70 || v <= 30 ? "font-semibold" : ""}>{v.toFixed(1)}</span>; })() : <span className="text-[#4b5563]">·</span>}</td>
-                                    <td className="text-center px-1 py-1"><span style={{color:tdCountColor(tc?.bp)}}>{tc?.bp || "·"}</span></td>
-                                    <td className="text-center px-1 py-1"><span style={{color:tdCountColor(tc?.bl)}}>{tc?.bl || "·"}</span></td>
-                                    <td className="text-center px-1 py-1"><span style={{color:tdCountColor(tc?.xp)}}>{tc?.xp || "·"}</span></td>
-                                    <td className="text-center px-1 py-1"><span style={{color:tdCountColor(tc?.xl)}}>{tc?.xl || "·"}</span></td>
-                                    <td className="text-center py-1">{(hB || hU) ? <span>{hB && <span className="text-[#ef4444] font-bold">B</span>}{hU && <span className="text-[#22c55e] font-bold">U</span>}</span> : <span className="text-[#4b5563]">·</span>}</td>
+                                  <tr key={tf} className={`border-t border-white/[0.05] ${isHTF ? "bg-white/[0.015]" : ""} ${!tfPresent ? "opacity-45" : !hasAny ? "opacity-60" : ""}`}>
+                                    <td className="pr-2 py-1 text-[#9ca3af] font-semibold">{tf}{!tfPresent ? <span className="ml-1 text-[8px] text-[#4b5563] uppercase">missing</span> : null}</td>
+                                    <td className="pr-2 py-1">{emaCross != null ? <span className={emaCross === 1 ? "text-[#22c55e] font-semibold" : "text-[#ef4444] font-semibold"}>{emaCross === 1 ? "▲ Bull" : "▼ Bear"}</span> : <span className="text-[#4b5563]">{emptyGlyph}</span>}</td>
+                                    <td className="pr-2 py-1">{stLabel ? <span style={{color: stColor}} className="font-semibold">{stIcon} {stLabel}<span className="opacity-50 ml-0.5">{slopeTag}</span></span> : <span className="text-[#4b5563]">{emptyGlyph}</span>}</td>
+                                    <td className="pr-2 py-1">{emaD != null ? <span className="font-semibold" style={{color: depthColor}}>{emaD}/15</span> : <span className="text-[#4b5563]">{emptyGlyph}</span>}</td>
+                                    <td className="pr-1 py-1">{rsi != null ? (() => { const v = Number(rsi); const c = v >= 70 ? "#ef4444" : v <= 30 ? "#22c55e" : "#d1d5db"; return <span style={{color: c}} className={v >= 70 || v <= 30 ? "font-semibold" : ""}>{v.toFixed(1)}</span>; })() : <span className="text-[#4b5563]">{emptyGlyph}</span>}</td>
+                                    <td className="text-center px-1 py-1"><span style={{color:tdCountColor(tc?.bp)}}>{tc?.bp || emptyGlyph}</span></td>
+                                    <td className="text-center px-1 py-1"><span style={{color:tdCountColor(tc?.bl)}}>{tc?.bl || emptyGlyph}</span></td>
+                                    <td className="text-center px-1 py-1"><span style={{color:tdCountColor(tc?.xp)}}>{tc?.xp || emptyGlyph}</span></td>
+                                    <td className="text-center px-1 py-1"><span style={{color:tdCountColor(tc?.xl)}}>{tc?.xl || emptyGlyph}</span></td>
+                                    <td className="text-center py-1">{(hB || hU) ? <span>{hB && <span className="text-[#ef4444] font-bold">B</span>}{hU && <span className="text-[#22c55e] font-bold">U</span>}</span> : <span className="text-[#4b5563]">{emptyGlyph}</span>}</td>
                                   </tr>
                                 );
                               })}
@@ -1451,8 +1451,8 @@
                   <div className="flex-[2] min-w-0 h-full">
                     <AutopsyChart
                       ticker={trade?.ticker}
-                      entryPrice={storedEntry}
-                      exitPrice={storedExit}
+                      entryPrice={displayEntry}
+                      exitPrice={displayExit}
                       entryTs={chartEntryTs}
                       exitTs={chartExitTs}
                       trimTs={chartTrimTs}

@@ -26,28 +26,35 @@ export function evaluateEntry(ctx) {
   // ── CLOUD BIAS ALIGNMENT ──
   const cD_34 = D?.ripster?.c34_50;
   const c1h_34 = h1?.ripster?.c34_50;
+  const c30_34 = m30?.ripster?.c34_50;
   const c10_34 = m10?.ripster?.c34_50;
   const c10_5 = m10?.ripster?.c5_12;
   const c10_8 = m10?.ripster?.c8_9;
 
   const dAligned = side === "LONG" ? !!cD_34?.bull : !!cD_34?.bear;
   const h1Aligned = side === "LONG" ? !!c1h_34?.bull : !!c1h_34?.bear;
+  const h1Available = !!c1h_34 && (typeof c1h_34?.bull === "boolean" || typeof c1h_34?.bear === "boolean");
+  const m30Aligned = side === "LONG" ? !!c30_34?.bull : !!c30_34?.bear;
+  const structuralAligned = h1Available ? h1Aligned : m30Aligned;
   const m10Aligned = side === "LONG" ? !!c10_34?.bull : !!c10_34?.bear;
-  const alignedCount = [dAligned, h1Aligned, m10Aligned].filter(Boolean).length;
+  const alignedCount = [dAligned, structuralAligned, m10Aligned].filter(Boolean).length;
   const strongDailyTrend = (side === "LONG" && emaRegimeDaily >= 2)
     || (side === "SHORT" && emaRegimeDaily <= -2);
 
   const biasAligned = config.ripsterTuneV2
-    ? (dAligned && h1Aligned && (strongDailyTrend ? alignedCount >= 2 : m10Aligned))
-    : (dAligned && h1Aligned && m10Aligned);
+    ? (dAligned && structuralAligned && (strongDailyTrend ? alignedCount >= 2 : m10Aligned))
+    : (dAligned && structuralAligned && m10Aligned);
 
   if (!biasAligned) {
     return reject("ripster_bias_not_aligned", {
       c10_34: c10_34?.bull ? "bull" : c10_34?.bear ? "bear" : "na",
       c1h_34: c1h_34?.bull ? "bull" : c1h_34?.bear ? "bear" : "na",
+      c30_34: c30_34?.bull ? "bull" : c30_34?.bear ? "bear" : "na",
       cD_34: cD_34?.bull ? "bull" : cD_34?.bear ? "bear" : "na",
       aligned_count: alignedCount,
       strong_daily_trend: strongDailyTrend,
+      h1_available: h1Available,
+      h1_fallback_used: !h1Available,
     });
   }
 

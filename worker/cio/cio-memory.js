@@ -2,6 +2,7 @@
 // 7-layer CIO memory builder + helper functions for episodic context.
 
 import { TICKER_PROXY_MAP } from "../sector-mapping.js";
+import { getReferencePriors } from "./cio-reference.js";
 
 function computeCryptoTrend(snapshots, idx) {
   if (idx < 10) return 0;
@@ -133,6 +134,17 @@ export function buildCIOMemory(sym, direction, tickerData, allTrades, memoryCach
         enabled: pp.enabled !== 0
       };
     }
+  }
+
+  // Layer 3b: Reference-intel priors (feature-flagged memory cache payload)
+  try {
+    const sector = tickerData?.sector || tickerData?.sector_name || null;
+    const refPriors = getReferencePriors(sym, direction, pathKey || "unknown", sector, memoryCache?.referenceFeatures);
+    if (refPriors) {
+      mem.reference_priors = refPriors;
+    }
+  } catch (_) {
+    // Best-effort only: reference priors should never break CIO memory construction.
   }
 
   // Layer 4: Ticker personality + Franchise/Blacklist

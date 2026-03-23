@@ -2,6 +2,113 @@
 
 > **Plan:** See `tasks/PLAN.md` for consolidated status, phases, and clear next steps.
 
+## Paragon Run Audit + Relaunch [2026-03-22]
+- [x] Forensic audit: identify exact JUL→AUG archived run with full per-trade annotations/classifications and verify annotation count mismatch root cause
+- [x] Cross-run comparison: include both `15m-calibration-only-jul1-mar4` runs and rank best engine/path/regime combos by win quality (high MFE, low MAE, trend hold)
+- [x] Produce "Paragon" model_config + dynamic engine profile from archived evidence (run-scoped, replay-safe)
+- [ ] Launch clean full backtest with paragon config and monitor to stable progression/completion
+- [ ] Write summary + operator notes to `tasks/lessons.md` and `CONTEXT.md` if new pitfalls are discovered
+
+## Reference-Trade Intelligence Roadmap Execution [2026-03-22]
+- [x] Phase 0: Publish contracts (`reference-intel`, scoring rubric, gates, parity, proof, context-intel)
+- [x] Phase 1: Implement canonical full-history dataset builder (`scripts/reference-intel-build.py`)
+- [x] Phase 1: Generate initial artifacts (`trade-intel-canonical-v1.jsonl`, summary, lineage-quality audit)
+- [x] Phase 2: Implement hybrid reference trade selector and first ranked output
+- [x] Phase 3: Generate first coverage map + scenario gap report
+- [x] Phase 3b: Build context-intel snapshot v1 (ticker profile + Daily Brief + SPY/QQQ hyper state)
+- [x] Phase 4: Build journey blueprint extraction clusters from selected references
+- [x] Phase 5: Generate first versioned dynamic policy artifact from blueprint clusters
+- [x] Phase 6: Run first strict gate evaluation artifact (`data/reference-intel/validation-gates-v1.json`)
+- [x] Phase 7: Publish first promotion-readiness report (`data/reference-intel/promotion-report-v1.md`)
+- [x] Phase 8: Seed drift monitoring artifact (`data/reference-intel/drift-monitor-v1.json`)
+- [x] Phase 5b: Build CIO feature pack + eval loop artifacts (`cio-memory-features-v1.json`, `cio-eval-loop-v1.json`) and integration doc
+- [x] Phase 5c: Wire feature-flagged CIO reference priors into live/replay CIO memory cache (`ai_cio_reference_enabled`)
+- [x] Add hard go/no-go promotion checklist (`docs/promotion-checklist-v1.md`)
+- [x] Phase 7b: Run first control-vs-candidate behavioral validation matrix (`validation-matrix-v1.json`, `validation-go-no-go-v1.json`, `cio-validation-v1.json`)
+- [x] Phase 10: Implement refresh automation loop (`scripts/reference-intel-refresh.py`) with drift + CIO drift + revalidation trigger artifact
+- [x] Phase 10: Add CIO drift monitor (`scripts/cio-drift-monitor.py`) and generate `data/reference-intel/cio-drift-monitor-v1.json`
+- [x] Phase 10: Run first automated refresh cycle with trigger output (`data/reference-intel/revalidation-trigger-v1.json`)
+
+## Reference Execution Mapping + Drift Guard [2026-03-23]
+- [x] Build cross-run coverage artifact by ticker/date-range with entry/exit engine + model_config lineage
+- [x] Generate runtime reference execution map (ticker+date-range primary, date-bucket fallback)
+- [x] Wire runtime map into engine resolution for replay/live scoring
+- [x] Capture reference parity drift during backtests (expected-vs-actual reference entries)
+- [x] Expose drift summary artifact and run-level diagnostics for operator review
+
+## Scenario Policy V1 (Context + Volatility + Setup) [2026-03-23]
+- [x] Build scenario policy artifact from reference trades (`ticker + setup + regime + vol + context`)
+- [x] Apply policy to `model_config` as runtime memory (`scenario_execution_policy`)
+- [x] Wire runtime scenario resolution during in-review and persist on trade lineage
+- [x] Apply scenario-guided SL/TP multipliers and management style (`tp_full_bias` vs `smart_exit_bias`)
+- [x] Add replay diagnostics for scenario-policy match/miss and blocker reasons
+
+## Scenario Coverage Expansion V2 [2026-03-23]
+- [x] Expand reference selection breadth (higher per-ticker/per-sector caps) and regenerate map/policy artifacts
+- [x] Promote expanded reference execution map + scenario policy to `model_config`
+- [x] Run policy fit/generalization hit-rate report and identify weak tickers dominated by global fallback
+
+## Locked Validation Backtest + Runtime Verification [2026-03-23]
+- [x] Clear stale replay/backtest state and archive current run snapshot
+- [x] Launch new locked validation backtest on expanded map/policy
+- [x] Monitor progression and collect runtime diagnostics during run
+- [x] Verify signal snapshot completeness and execution field integrity from API payloads
+- [x] Verify dynamic scenario/reference policy selection appears in entry diagnostics and lineage
+
+## Locked Validation Closeout + Weak-Reference Expansion [2026-03-23]
+- [x] Finalize current locked-validation-v2 run and persist immutable archive metrics/config snapshot
+- [x] Generate weak-reference gap artifact (fallback-heavy tickers/scenarios + quality deltas)
+- [x] Propose targeted reference map + scenario policy additions for weak buckets
+
+## Lineage Attribution Hardening (Execution + Scenario) [2026-03-23]
+- [x] Persist explicit lineage attribution fields (`selected_engine`, `selected_management_engine`, `engine_source`, `scenario_policy_source`)
+- [x] Deploy worker and run focused replay probe to create fresh attributed trades
+- [x] Rebuild weak-reference report from attributed run data and verify non-unknown source distribution
+
+## Targeted Promotion Cycle (Weak-Reference Uplift) [2026-03-23]
+- [x] Apply targeted reference/scenario upgrades for `B`, `CSCO`, `CVNA`
+- [x] Run short focused validation replay and archive results
+- [x] Compare before/after attribution + weak-rate metrics and decide full-run promotion
+
+## Drift v2 Semantic Parity (Reference Intelligence Hardening) [2026-03-23]
+- [x] Extend reference map artifacts to persist per-trade execution intent (`entry_path`, `engine_source`, `scenario_policy_source`)
+- [x] Add and persist `criteria_fingerprint` for each exact reference entry and ticker window cluster
+- [x] Upgrade replay drift checks to validate semantic parity (not just timestamp match) and emit mismatch reasons
+- [x] Validate on CSX/CDNS/ITT behavioral references and publish a drift v2 evidence artifact
+
+## Drift v2b Semantic Tolerance Profile [2026-03-23]
+- [x] Add map-level semantic tolerance profile (execution vs drift modes, field-level compare scope)
+- [x] Wire runtime reference resolution to use configurable mismatch budget (instead of hardcoded semantics)
+- [x] Wire drift reporting to use strict/diagnostic mode from profile
+- [x] Regenerate/apply map + deploy worker + validate with focused interval replay
+
+## Option-A Parity Spec [2026-03-22]
+- [x] Build a deterministic parity spec for `option-a-rank-overhaul` using entry-time signal snapshots from artifact trades
+- [x] Compare historical tag `95417ae` engine/runtime behavior vs current worker code for Jul 1 entry divergence
+- [x] Write operator-ready replication contract (constraints + required gates/config + known non-repro causes)
+- [x] Add scripted interval replay diagnostic for target Jul 1 tickers and capture runtime gate/debug traces
+
+## Journey Parity Comparator [2026-03-22]
+- [x] Add a script that compares full trade journey parity (entry window, hold duration, exit class, and pnl quality) against the screenshot reference trade set
+- [x] Run comparator once and persist a baseline report artifact for mission-control gating
+
+## CSX Forensic Iteration-1 [2026-03-22]
+- [x] Build ticker/date-window forensic evidence for CSX (reference trade vs overlapping runs)
+- [x] Test a feature-flagged momentum-precedence entry iteration in legacy engine
+- [x] Validate iteration in interval replay and capture pass/fail against CSX parity target
+- [x] Add entry-time diagnostics and complete Iteration-2 CSX entry-path parity adjustment
+
+## CSX Forensic Iteration-3 (Runner/Exit Path) [2026-03-22]
+- [x] Isolate exit-path divergence (BREAKEVEN_STOP after trim causing lifecycle fragmentation)
+- [x] Add replay-safe management guard to skip breakeven stop for trimmed runners in parity lane
+- [ ] Validate runner-completion parity against reference (`TP_FULL`-like completion timing)
+- [ ] Audit TP tier construction for reference-vs-current mismatch (trim threshold and runner target spacing)
+
+## CSX Parity Stabilization — Mode Lock + Diff Trace [2026-03-22]
+- [x] Step 1: Lock canonical full-run parity mode in backtest orchestration (interval-first path)
+- [x] Step 2: Add focused candle-vs-interval CSX trace artifact around Jul 1 with interval-level trade mutation evidence
+- [x] Step 3: Patch only the identified mutation point and re-validate focused CSX window behavior
+
 ## TT Tune V2 [2026-03-04]
 - [x] Add `TT_TUNE_V2` feature flag plumbing and keep legacy-safe fallback
 - [x] Relax TT entry gating (bias + trigger) in strong daily regime

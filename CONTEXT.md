@@ -74,6 +74,7 @@ npm run deploy:worker   # worker only (skip right-rail)
 - `exit_ts` on ALL exit paths
 - Replay: load candles with `beforeTs` (ts <= replay date), not latest
 - Backfill before replay; 10m candles required for trades
+- `replay-ticker-d1` needs `timed_trail.payload_json`; rows can exist with empty payloads (`rows>0`, `rows_with_payload_json=0`) and then diagnostics/replay process zero rows.
 - Replay loads VIX daily candles from D1 for per-day VIX (requires VIX backfill); falls back to static KV
 - Replay loads `ticker_profiles` from D1 for personality-aware SL/TP and lineage enrichment
 - `signal_snapshot_json.lineage` includes `ticker_character` and `vix_at_entry` for post-trade analysis

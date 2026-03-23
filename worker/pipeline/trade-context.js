@@ -29,7 +29,33 @@ export function buildTradeContext(tickerData, asOfTs = null) {
   const leadingLtfLabel = leadingLtf === "30" ? "30m"
     : leadingLtf === "15" ? "15m" : "10m";
 
-  const extractTf = (key) => d.tf_tech?.[key] || null;
+  const extractTf = (key) => {
+    const src = d.tf_tech;
+    if (!src || typeof src !== "object") return null;
+    if (src[key]) return src[key];
+    const k = String(key || "");
+    const up = k.toUpperCase();
+    const low = k.toLowerCase();
+    if (src[up]) return src[up];
+    if (src[low]) return src[low];
+    const aliasMap = {
+      "10": ["10m"],
+      "15": ["15m"],
+      "30": ["30m"],
+      "1H": ["60", "1h", "60m"],
+      "4H": ["240", "4h", "240m"],
+      D: ["d", "1d"],
+      W: ["w", "1w"],
+    };
+    for (const a of (aliasMap[k] || [])) {
+      if (src[a]) return src[a];
+      const au = String(a).toUpperCase();
+      const al = String(a).toLowerCase();
+      if (src[au]) return src[au];
+      if (src[al]) return src[al];
+    }
+    return null;
+  };
   const tf = {
     m10: extractTf("10") || extractTf("15") || {},
     m15: extractTf("15") || {},
