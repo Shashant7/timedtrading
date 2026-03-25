@@ -68,13 +68,14 @@ export function evaluateExit(ctx, position) {
   }
 
   // ── DOA EARLY EXIT ──
+  const doaEnabled = String(ctx.config.deepAudit?.deep_audit_doa_early_exit_enabled ?? "true") === "true";
   const doaThresholdH = 6;
   const positionAgeMarketMin = positionAgeMin;
   const mgmt30mST = Number(ctx.tf.m30?.stDir) || 0;
   const mgmt1hST = Number(ctx.tf.h1?.stDir) || 0;
   const doaStructureIntact = (direction === "LONG" && (mgmt30mST === -1 || mgmt1hST === -1))
     || (direction === "SHORT" && (mgmt30mST === 1 || mgmt1hST === 1));
-  if (pnlPct < 0 && positionAgeMarketMin >= doaThresholdH * 60 && mfePct < 0.3 && !doaStructureIntact) {
+  if (doaEnabled && pnlPct < 0 && positionAgeMarketMin >= doaThresholdH * 60 && mfePct < 0.3 && !doaStructureIntact) {
     return result("exit", "doa_early_exit", "safety");
   }
 

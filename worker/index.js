@@ -858,6 +858,19 @@ function prevTradingDayKey(dayKey) {
   return null;
 }
 
+function nextTradingDayKey(dayKey) {
+  if (!dayKey) return null;
+  let ms = Date.parse(`${dayKey}T12:00:00Z`);
+  if (!Number.isFinite(ms)) return null;
+  for (let i = 0; i < 10; i++) {
+    ms += 24 * 60 * 60 * 1000;
+    const k = nyTradingDayKey(ms);
+    if (!k) continue;
+    if (!isNyWeekend(ms)) return k;
+  }
+  return null;
+}
+
 // Return today's NY date rolled back to the last weekday (skip Sat/Sun).
 // On weekends, returns the most recent Friday. On weekdays, returns today.
 // This is the "current trading day" for daily-change calculations.
@@ -869,6 +882,265 @@ function currentTradingDayKey() {
     ms -= 24 * 60 * 60 * 1000;
   }
   return nyTradingDayKey(Date.now()); // fallback
+}
+
+const PRE_EVENT_RISK_MACRO_KEYS = new Set(["CPI", "PPI", "FOMC", "PCE", "NFP"]);
+const PRE_EVENT_RISK_DEFAULT_MINUTES_ET = {
+  CPI: 8 * 60 + 30,
+  PPI: 8 * 60 + 30,
+  PCE: 8 * 60 + 30,
+  NFP: 8 * 60 + 30,
+  FOMC: 14 * 60,
+};
+
+function classifyRiskEventKey(row) {
+  const direct = String(row?.event_key || "").trim().toUpperCase();
+  if (direct) return direct;
+  const name = String(row?.event_name || "").trim().toUpperCase();
+  if (!name) return "";
+  if (name.includes("CPI") || name.includes("CONSUMER PRICE INDEX")) return "CPI";
+  if (name.includes("PPI") || name.includes("PRODUCER PRICE INDEX")) return "PPI";
+  if (name.includes("FOMC") || name.includes("FEDERAL RESERVE")) return "FOMC";
+  if (name.includes("PCE") || name.includes("PERSONAL CONSUMPTION")) return "PCE";
+  if (name.includes("NFP") || name.includes("NONFARM PAYROLL") || name.includes("NON-FARM PAYROLL")) return "NFP";
+  if (String(row?.event_type || "").toLowerCase() === "earnings") return "EARNINGS";
+  return "";
+}
+
+function parseEventClockMinutesEt(raw) {
+  const label = String(raw || "").trim().toLowerCase();
+  if (!label) return null;
+  if (label === "bmo" || label.includes("before market open") || label.includes("pre-market")) return 8 * 60;
+  if (label === "amc" || label.includes("after market close") || label.includes("after-hours")) return 16 * 60 + 5;
+  if (label.includes("tentative") || label.includes("all day")) return null;
+  let match = label.match(/(\d{1,2}):(\d{2})\s*([ap]m)?/i);
+  if (match) {
+    let hour = Number(match[1]);
+    const minute = Number(match[2]);
+    const suffix = String(match[3] || "").toLowerCase();
+    if (suffix === "pm" && hour < 12) hour += 12;
+    if (suffix === "am" && hour === 12) hour = 0;
+    if (hour >= 0 && hour <= 23 && minute >= 0 && minute <= 59) return hour * 60 + minute;
+  }
+  match = label.match(/\b(\d{2})(\d{2})\b/);
+  if (match) {
+    const hour = Number(match[1]);
+    const minute = Number(match[2]);
+    if (hour >= 0 && hour <= 23 && minute >= 0 && minute <= 59) return hour * 60 + minute;
+  }
+  return null;
+}
+
+function inferEventSessionFromMinutes(mins, explicitHint = "") {
+  const hint = String(explicitHint || "").trim().toLowerCase();
+  if (hint === "bmo" || hint.includes("before market open")) return "bmo";
+  if (hint === "amc" || hint.includes("after market close")) return "amc";
+  if (!Number.isFinite(mins)) return "unknown";
+  if (mins < 9 * 60 + 30) return "premarket";
+  if (mins < 16 * 60) return "rth";
+  return "afterhours";
+}
+
+function inferRiskEventSchedule(row) {
+  const dateKey = String(row?.date || "").slice(0, 10);
+  const eventType = String(row?.event_type || "").toLowerCase();
+  const eventKey = classifyRiskEventKey(row);
+  const rawSession = String(row?.session || "").trim().toLowerCase();
+  const rawTime = row?.scheduled_time_et || rawSession;
+  let mins = parseEventClockMinutesEt(rawTime);
+  if (!Number.isFinite(mins)) {
+    if (eventType === "earnings") {
+      mins = (rawSession === "amc" || rawSession === "afterhours") ? (16 * 60 + 5) : (8 * 60);
+    } else if (PRE_EVENT_RISK_MACRO_KEYS.has(eventKey)) {
+      mins = PRE_EVENT_RISK_DEFAULT_MINUTES_ET[eventKey];
+    }
+  }
+  let scheduledTs = Number(row?.scheduled_ts);
+  if ((!Number.isFinite(scheduledTs) || scheduledTs <= 0) && dateKey && Number.isFinite(mins)) {
+    scheduledTs = nyWallTimeToUtcMs(dateKey, Math.floor(mins / 60), mins % 60, 0);
+  }
+  return {
+    dateKey,
+    eventType,
+    eventKey,
+    ticker: String(row?.ticker || "").trim().toUpperCase(),
+    impact: String(row?.impact || "").trim().toLowerCase(),
+    status: String(row?.status || (row?.actual != null ? "resolved" : "scheduled")).trim().toLowerCase(),
+    session: rawSession || inferEventSessionFromMinutes(mins, rawTime),
+    scheduledTs: Number.isFinite(scheduledTs) ? scheduledTs : null,
+  };
+}
+
+function eventIsDueForRiskReduction(event, nowTs) {
+  if (!event?.dateKey) return false;
+  const nowDateKey = nyTradingDayKey(nowTs);
+  const nextDateKey = nextTradingDayKey(nowDateKey);
+  if (!nowDateKey) return false;
+  if (Number.isFinite(event.scheduledTs)) {
+    const deltaMs = event.scheduledTs - nowTs;
+    return deltaMs > 0 && deltaMs <= 24 * 60 * 60 * 1000;
+  }
+  if (event.status === "resolved") return false;
+  if (event.dateKey === nowDateKey) {
+    return event.session === "amc" || event.session === "afterhours" || event.session === "rth" || event.session === "unknown";
+  }
+  if (event.dateKey === nextDateKey) {
+    return event.session === "bmo" || event.session === "premarket" || event.session === "unknown";
+  }
+  return false;
+}
+
+async function findUpcomingPositionRiskEvent(env, replayCtx, sym, nowTs) {
+  const nowDateKey = nyTradingDayKey(nowTs);
+  const nextDateKey = nextTradingDayKey(nowDateKey);
+  if (!nowDateKey) return null;
+  const allCached = Array.isArray(replayCtx?.cioMemoryCache?.marketEvents)
+    ? replayCtx.cioMemoryCache.marketEvents
+    : Array.isArray(env?._cioMemoryCache?.marketEvents)
+      ? env._cioMemoryCache.marketEvents
+      : null;
+  let rows = null;
+  if (Array.isArray(allCached) && allCached.length > 0) {
+    rows = allCached.filter((row) => {
+      const dateKey = String(row?.date || "").slice(0, 10);
+      const eventType = String(row?.event_type || "").toLowerCase();
+      if (dateKey < nowDateKey || (nextDateKey && dateKey > nextDateKey)) return false;
+      if (eventType === "earnings") return String(row?.ticker || "").toUpperCase() === sym;
+      if (eventType !== "macro") return false;
+      const eventKey = classifyRiskEventKey(row);
+      return PRE_EVENT_RISK_MACRO_KEYS.has(eventKey);
+    });
+  } else if (env?.DB) {
+    try {
+      const q = await env.DB.prepare(
+        `SELECT *
+         FROM market_events
+         WHERE date >= ?1 AND date <= ?2
+           AND ((event_type = 'earnings' AND ticker = ?3) OR event_type = 'macro')
+         ORDER BY COALESCE(scheduled_ts, 0) ASC, date ASC`
+      ).bind(nowDateKey, nextDateKey || nowDateKey, sym).all();
+      rows = q?.results || [];
+    } catch (e) {
+      console.warn(`[EVENT_RISK] lookup failed for ${sym}:`, String(e?.message || e).slice(0, 150));
+      rows = [];
+    }
+  }
+  const candidates = (rows || [])
+    .map((row) => inferRiskEventSchedule(row))
+    .filter((event) => {
+      if (!event?.dateKey) return false;
+      if (event.eventType === "earnings") return event.ticker === sym && eventIsDueForRiskReduction(event, nowTs);
+      if (event.eventType !== "macro") return false;
+      return PRE_EVENT_RISK_MACRO_KEYS.has(event.eventKey) &&
+        (event.impact === "" || event.impact === "high" || event.impact === "medium") &&
+        eventIsDueForRiskReduction(event, nowTs);
+    })
+    .sort((a, b) => {
+      const prioA = a.eventType === "earnings" ? 2 : 1;
+      const prioB = b.eventType === "earnings" ? 2 : 1;
+      if (prioA !== prioB) return prioB - prioA;
+      const tsA = Number.isFinite(a.scheduledTs) ? a.scheduledTs : Number.MAX_SAFE_INTEGER;
+      const tsB = Number.isFinite(b.scheduledTs) ? b.scheduledTs : Number.MAX_SAFE_INTEGER;
+      if (tsA !== tsB) return tsA - tsB;
+      return String(a.dateKey).localeCompare(String(b.dateKey));
+    });
+  return candidates[0] || null;
+}
+
+function clampEventTrimBase(mode, eventType) {
+  const m = String(mode || "trader").toLowerCase();
+  if (m === "investor") {
+    return eventType === "earnings" ? 0.15 : 0.08;
+  }
+  return eventType === "earnings" ? 0.30 : 0.18;
+}
+
+function computeAdaptiveEventRiskTrimPct(tickerData, direction, event, mode = "trader", overrideBase = null) {
+  const dir = String(direction || "LONG").toUpperCase();
+  const isLong = dir !== "SHORT";
+  const base = Number.isFinite(Number(overrideBase))
+    ? Number(overrideBase)
+    : clampEventTrimBase(mode, event?.eventType);
+  const d = tickerData || {};
+  const pdzZone = String(d?.pdz_zone_D || "unknown").toLowerCase();
+  const stSupportScore = Number(d?.st_support?.supportScore ?? 0.5);
+  const fvgD = d?.fvg_D || {};
+  const liqD = d?.liq_D || {};
+  const trend = assessTrendHealth(d, dir);
+
+  let trimPct = base;
+  const reasons = [];
+
+  const inFavorableZone = isLong
+    ? (pdzZone === "discount" || pdzZone === "discount_approach")
+    : (pdzZone === "premium" || pdzZone === "premium_approach");
+  const inExtendedZone = isLong
+    ? (pdzZone === "premium" || pdzZone === "premium_approach")
+    : (pdzZone === "discount" || pdzZone === "discount_approach");
+
+  const downsideMagnetDist = isLong
+    ? Number(liqD?.nearestSellsideDist)
+    : Number(liqD?.nearestBuysideDist);
+  const supportiveFvg = isLong
+    ? !!(fvgD.inBullGap || Number(fvgD.activeBull) > 0)
+    : !!(fvgD.inBearGap || Number(fvgD.activeBear) > 0);
+  const opposingFvg = isLong
+    ? !!(fvgD.inBearGap || Number(fvgD.activeBear) > 0)
+    : !!(fvgD.inBullGap || Number(fvgD.activeBull) > 0);
+  const downsideMagnetNear = Number.isFinite(downsideMagnetDist) && downsideMagnetDist > 0 && downsideMagnetDist < 2.0;
+
+  if (event?.eventType === "earnings") {
+    if (inExtendedZone) {
+      trimPct += mode === "investor" ? 0.05 : 0.10;
+      reasons.push("extended_pdz");
+    }
+    if (stSupportScore < 0.45) {
+      trimPct += mode === "investor" ? 0.04 : 0.08;
+      reasons.push("weak_support");
+    }
+    if (downsideMagnetNear) {
+      trimPct += mode === "investor" ? 0.04 : 0.08;
+      reasons.push("downside_liquidity_magnet");
+    }
+    if (opposingFvg) {
+      trimPct += mode === "investor" ? 0.03 : 0.06;
+      reasons.push("opposing_fvg");
+    }
+
+    const baseBuilt = trend?.htfIntact && trend?.structuralSupport && stSupportScore >= 0.58;
+    if (baseBuilt && inFavorableZone) {
+      trimPct -= mode === "investor" ? 0.05 : 0.10;
+      reasons.push("supported_base");
+    } else if (trend?.isPullback && trend?.structuralSupport && supportiveFvg) {
+      trimPct -= mode === "investor" ? 0.03 : 0.06;
+      reasons.push("healthy_pullback_support");
+    }
+  } else {
+    if (inExtendedZone || stSupportScore < 0.45) {
+      trimPct += mode === "investor" ? 0.03 : 0.05;
+      reasons.push("macro_vulnerable_structure");
+    }
+    if (trend?.htfIntact && trend?.structuralSupport && stSupportScore >= 0.58 && inFavorableZone) {
+      trimPct -= mode === "investor" ? 0.02 : 0.04;
+      reasons.push("macro_supported_structure");
+    }
+  }
+
+  const minTrim = mode === "investor"
+    ? (event?.eventType === "earnings" ? 0.08 : 0.05)
+    : (event?.eventType === "earnings" ? 0.18 : 0.10);
+  const maxTrim = mode === "investor"
+    ? (event?.eventType === "earnings" ? 0.30 : 0.18)
+    : (event?.eventType === "earnings" ? 0.55 : 0.30);
+
+  return {
+    trimPct: clamp(trimPct, minTrim, maxTrim),
+    reasons,
+    inFavorableZone,
+    inExtendedZone,
+    stSupportScore,
+    downsideMagnetNear,
+  };
 }
 
 // True when previous state is from before today's market open and current bar is at/after open (AH/PM gap bridge).
@@ -12160,6 +12432,61 @@ async function processTradeSimulation(
       });
     }
 
+    // Scheduled event risk reduction: de-risk before earnings and high-volatility macro events.
+    // Runs in both live and replay using market_events (or replay/live cache when available).
+    if (openTrade && isOpenTradeStatus(openTrade.status) && Number.isFinite(pxNow) && pxNow > 0 && !weekendNow && !outsideRTH) {
+      try {
+        const upcomingRiskEvent = await findUpcomingPositionRiskEvent(env, replayCtx, sym, now);
+        const currentTrimPct = clamp(Number(openTrade.trimmedPct || 0), 0, 1);
+        if (upcomingRiskEvent) {
+          const earningsTrimCfg = Number(env?._deepAuditConfig?.deep_audit_pre_earnings_trim_pct);
+          const macroTrimCfg = Number(env?._deepAuditConfig?.deep_audit_pre_macro_trim_pct);
+          const overrideBase = Number.isFinite(upcomingRiskEvent.eventType === "earnings" ? earningsTrimCfg : macroTrimCfg)
+            ? (upcomingRiskEvent.eventType === "earnings" ? earningsTrimCfg : macroTrimCfg)
+            : null;
+          const eventRiskProfile = computeAdaptiveEventRiskTrimPct(
+            tickerData,
+            String(openTrade.direction || direction || "LONG"),
+            upcomingRiskEvent,
+            "trader",
+            overrideBase,
+          );
+          const targetTrimPct = eventRiskProfile.trimPct;
+          const eventRiskKey = [
+            upcomingRiskEvent.eventType,
+            upcomingRiskEvent.eventKey || "EVENT",
+            upcomingRiskEvent.ticker || "",
+            upcomingRiskEvent.dateKey,
+            upcomingRiskEvent.session || "unknown",
+            Math.round(targetTrimPct * 100),
+          ].join(":");
+          if (targetTrimPct > currentTrimPct + 0.01 && execState.lastPreEventRiskKey !== eventRiskKey) {
+            const riskReason = upcomingRiskEvent.eventType === "earnings"
+              ? "PRE_EARNINGS_RISK_REDUCTION"
+              : `PRE_${upcomingRiskEvent.eventKey || "MACRO"}_RISK_REDUCTION`;
+            const eventWhen = Number.isFinite(upcomingRiskEvent.scheduledTs)
+              ? `${Math.max(0, (upcomingRiskEvent.scheduledTs - now) / 3600000).toFixed(1)}h`
+              : `${upcomingRiskEvent.dateKey} ${upcomingRiskEvent.session || "unknown"}`;
+            console.log(`[EVENT_RISK] ${sym} ${riskReason}: trimming to ${(targetTrimPct * 100).toFixed(0)}% ahead of ${upcomingRiskEvent.eventType}:${upcomingRiskEvent.eventKey || "EVENT"} (${eventWhen}) reasons=${eventRiskProfile.reasons.join(",") || "base"}`);
+            tickerData.__exit_reason = riskReason;
+            await trimTradeToPct(openTrade, targetTrimPct, pxNow, riskReason);
+            const eventRiskExecUpdate = {
+              ...execState,
+              lastTrimMs: now,
+              runnerPeakPrice: pxNow,
+              lastPreEventRiskKey: eventRiskKey,
+              lastPreEventRiskTs: now,
+            };
+            if (isReplay && replayCtx?.execStates) replayCtx.execStates.set(sym, eventRiskExecUpdate);
+            else if (!isReplay) await kvPutJSON(KV, execKey, eventRiskExecUpdate);
+            execState = eventRiskExecUpdate;
+          }
+        }
+      } catch (e) {
+        console.warn(`[EVENT_RISK] ${sym} trim check failed:`, String(e?.message || e).slice(0, 150));
+      }
+    }
+
     // ═══════════════════════════════════════════════════════════════════════════
     // MFE/MAE TRACKING: Update high-water (MFE) and low-water (MAE) marks
     // on every bar for open positions. Persisted on close via d1UpdateDirectionOutcome.
@@ -12815,8 +13142,11 @@ async function processTradeSimulation(
       if (!_sameIntervalAsTrade && !fuseExitFired && openTrade && isOpenTradeStatus(openTrade.status) && Number.isFinite(pxNow)) {
         const _gbMfePct = Number(openTrade.maxFavorableExcursion) || 0;
         const _gbDir = String(openTrade.direction || "").toUpperCase();
+        const _gbTrimmedPct = clamp(Number(openTrade.trimmedPct ?? openTrade.trimmed_pct ?? 0), 0, 1);
         const _gb4hSt = tickerData?.tf_tech?.["4H"]?.stDir ?? 0;
         const _gbDSt = tickerData?.tf_tech?.D?.stDir ?? 0;
+        const _gbDailySupports = (_gbDir === "LONG" && _gbDSt === -1)
+          || (_gbDir === "SHORT" && _gbDSt === 1);
         const _gbHtfAligned = (_gbDir === "LONG" && _gb4hSt === -1 && _gbDSt === -1)
           || (_gbDir === "SHORT" && _gb4hSt === 1 && _gbDSt === 1);
         const _gbMinMfe = _gbHtfAligned ? 3.0 : 2.0;
@@ -12829,6 +13159,11 @@ async function processTradeSimulation(
               : ((_gbEntry - pxNow) / _gbEntry) * 100;
             const _gbRetained = _gbPnlPct / _gbMfePct;
             if (_gbRetained <= (1 - _gbGivebackRatio)) {
+              const _gbCoolingHold = _gbPnlPct > 0 && _gbTrimmedPct >= 0.5 && _gbDailySupports;
+              if (_gbCoolingHold) {
+                console.log(`[PROFIT_GIVEBACK] ${sym} MFE +${_gbMfePct.toFixed(2)}% now ${_gbPnlPct.toFixed(2)}% (retained ${(_gbRetained * 100).toFixed(0)}% htf=${_gbHtfAligned}) → hold (trimmed runner still green with daily support)`);
+                tickerData.__exit_reason = "PROFIT_GIVEBACK_COOLING_HOLD";
+              } else {
               const _gbReason = "PROFIT_GIVEBACK";
               console.log(`[PROFIT_GIVEBACK] ${sym} MFE +${_gbMfePct.toFixed(2)}% now ${_gbPnlPct.toFixed(2)}% (retained ${(_gbRetained*100).toFixed(0)}% htf=${_gbHtfAligned}) → closing`);
               tickerData.__exit_reason = _gbReason;
@@ -12837,6 +13172,7 @@ async function processTradeSimulation(
               if (isReplay && replayCtx?.execStates) replayCtx.execStates.set(sym, _gbExec);
               else if (!isReplay) await kvPutJSON(KV, execKey, _gbExec);
               fuseExitFired = true;
+              }
             }
           }
         }
@@ -19911,15 +20247,22 @@ async function d1RecordFeatureUsage(env, userEmail, feature) {
 
 const TRADE_EMAIL_THROTTLE_MS = 60 * 60 * 1000; // 1 hour per ticker per user
 
+function shouldDispatchTradeAlertEmail(alertData) {
+  const mode = String(alertData?.mode || "trader").toLowerCase();
+  return mode === "investor";
+}
+
 async function dispatchTradeAlertEmails(env, alertData, ctx) {
   if (!env?.SENDGRID_API_KEY || env?.EMAIL_ENABLED !== "true") return;
+  if (!shouldDispatchTradeAlertEmail(alertData)) return;
   const KV = env?.KV_TIMED;
   try {
     const users = await getEmailOptedInUsers(env, "trade_alerts");
     if (!users.length) return;
+    const mode = String(alertData?.mode || "trader").toLowerCase();
     for (const u of users) {
       // Per-ticker per-user throttle
-      const throttleKey = `timed:email:trade:${u.email}:${alertData.ticker}`;
+      const throttleKey = `timed:email:trade:${mode}:${u.email}:${alertData.ticker}`;
       if (KV) {
         const last = await KV.get(throttleKey);
         if (last && Date.now() - Number(last) < TRADE_EMAIL_THROTTLE_MS) continue;
@@ -19931,7 +20274,7 @@ async function dispatchTradeAlertEmails(env, alertData, ctx) {
         .catch(() => {});
       if (ctx?.waitUntil) ctx.waitUntil(p);
     }
-    console.log(`[EMAIL] Queued trade alert emails for ${alertData.type} ${alertData.ticker} to ${users.length} users`);
+    console.log(`[EMAIL] Queued ${mode} trade alert emails for ${alertData.type} ${alertData.ticker} to ${users.length} users`);
   } catch (e) {
     console.warn("[EMAIL] Trade alert dispatch failed:", String(e?.message || e).slice(0, 150));
   }
@@ -24471,6 +24814,13 @@ async function runInvestorDailyReplay(env, KV, replayCtx, dayDate, tickerDataMap
     const signalTrim = !shouldExit && !shouldTrim
       && stage === "core_hold" && posPnlPct >= 5.0
       && toppingSignal;
+    const investorRiskEvent = !shouldExit
+      ? await findUpcomingPositionRiskEvent(env, replayCtx, sym, dayMs)
+      : null;
+    const eventRiskTrim = !shouldExit && !!investorRiskEvent;
+    const eventRiskProfile = eventRiskTrim
+      ? computeAdaptiveEventRiskTrimPct(td, "LONG", investorRiskEvent, "investor")
+      : null;
 
     if (shouldExit) {
       // Full exit
@@ -24494,11 +24844,28 @@ async function runInvestorDailyReplay(env, KV, replayCtx, dayDate, tickerDataMap
         realized_pnl: pnl, balance: investorCash,
         note: `Exit ${sym} ${shares.toFixed(1)}sh @$${price.toFixed(2)} (${exitReason}) PnL=$${pnl.toFixed(2)}`,
       }).catch(() => {});
+      if (!replayCtx) {
+        await dispatchTradeAlertEmails(env, {
+          mode: "investor",
+          type: "TRADE_EXIT",
+          ticker: sym,
+          direction: "LONG",
+          price,
+          pnlPct: avgEntry > 0 ? ((price - avgEntry) / avgEntry) * 100 : 0,
+          exitReason,
+        });
+      }
       closed++;
 
-    } else if (shouldTrim || signalTrim) {
-      const trimReason = shouldTrim ? "trim_overweight" : "signal_exhaustion_trim";
-      const trimPct = shouldTrim ? 0.25 : 0.20;
+    } else if (eventRiskTrim || shouldTrim || signalTrim) {
+      const trimReason = eventRiskTrim
+        ? (investorRiskEvent.eventType === "earnings"
+          ? "PRE_EARNINGS_RISK_REDUCTION"
+          : `PRE_${investorRiskEvent.eventKey || "MACRO"}_RISK_REDUCTION`)
+        : (shouldTrim ? "trim_overweight" : "signal_exhaustion_trim");
+      const trimPct = eventRiskTrim
+        ? (eventRiskProfile?.trimPct || (investorRiskEvent.eventType === "earnings" ? 0.15 : 0.08))
+        : (shouldTrim ? 0.25 : 0.20);
       const trimShares = shares * trimPct;
       const trimValue = price * trimShares;
       const pnl = (price - avgEntry) * trimShares;
@@ -24522,6 +24889,16 @@ async function runInvestorDailyReplay(env, KV, replayCtx, dayDate, tickerDataMap
         realized_pnl: pnl, balance: investorCash,
         note: `Trim ${sym} ${trimShares.toFixed(1)}sh @$${price.toFixed(2)} (${trimReason}) PnL=$${pnl.toFixed(2)}`,
       }).catch(() => {});
+      if (!replayCtx) {
+        await dispatchTradeAlertEmails(env, {
+          mode: "investor",
+          type: "TRADE_TRIM",
+          ticker: sym,
+          direction: "LONG",
+          price,
+          trimmedPct: Math.round(trimPct * 100),
+        });
+      }
       trimmed++;
 
     } else {
@@ -24645,6 +25022,17 @@ async function runInvestorDailyReplay(env, KV, replayCtx, dayDate, tickerDataMap
       realized_pnl: 0, balance: investorCash,
       note: `Entry ${c.sym} ${shares.toFixed(1)}sh @$${price.toFixed(2)} score=${c.score}`,
     }).catch(() => {});
+    if (!replayCtx) {
+      await dispatchTradeAlertEmails(env, {
+        mode: "investor",
+        type: "TRADE_ENTRY",
+        ticker: c.sym,
+        direction: "LONG",
+        price,
+        rank: c.score,
+        rr: null,
+      });
+    }
     opened++;
   }
 
@@ -26073,6 +26461,12 @@ function createTradeTrimmedEmbed(
     MFE_SAFETY_TRIM: "Locked in profits while the trade was ahead — taking money off the table",
     PHASE_LEAVE_100: "Momentum peaked and is starting to fade — securing gains before reversal",
     RUNNER_PEAK_TRAIL: "Letting the winner run paid off — trailed up and trimmed after pullback from peak",
+    PRE_EARNINGS_RISK_REDUCTION: "Reduced exposure ahead of earnings because overnight gaps can overwhelm normal stops",
+    PRE_CPI_RISK_REDUCTION: "Reduced exposure ahead of CPI because the release can sharply reprice open positions",
+    PRE_PPI_RISK_REDUCTION: "Reduced exposure ahead of PPI because the release can sharply reprice open positions",
+    PRE_FOMC_RISK_REDUCTION: "Reduced exposure ahead of FOMC because policy headlines can sharply reprice open positions",
+    PRE_PCE_RISK_REDUCTION: "Reduced exposure ahead of PCE because the release can sharply reprice open positions",
+    PRE_NFP_RISK_REDUCTION: "Reduced exposure ahead of NFP because payroll data can sharply reprice open positions",
   };
   const humanTrimReason = trimReason ? (trimReasonMap[trimReason] || `Trim triggered: ${trimReason.replace(/_/g, " ")}`) : null;
   if (humanTrimReason) {
@@ -51847,9 +52241,71 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             }
           }
 
+          // ── Event-risk reductions: trim before earnings and major macro catalysts ──
+          const eventReduced = [];
+          const eventReducedTickers = new Set();
+          for (const pos of existingPos) {
+            const pf = priceMap[pos.ticker];
+            const price = pf ? Number(pf.p) : null;
+            if (!price || price <= 0 || !(Number(pos.total_shares) > 0)) continue;
+            const riskEvent = await findUpcomingPositionRiskEvent(env, null, String(pos.ticker || "").toUpperCase(), now);
+            if (!riskEvent) continue;
+
+            const latestTickerData = await kvGetJSON(env.KV_TIMED, `timed:latest:${pos.ticker}`).catch(() => null);
+            const riskProfile = computeAdaptiveEventRiskTrimPct(latestTickerData, "LONG", riskEvent, "investor");
+            const trimPct = riskProfile.trimPct;
+            const trimShares = Math.floor(Number(pos.total_shares) * trimPct * 10000) / 10000;
+            if (trimShares <= 0) continue;
+
+            const sellValue = trimShares * price;
+            const partialCostBasis = Number(pos.cost_basis) * (trimShares / Number(pos.total_shares));
+            const pnl = sellValue - partialCostBasis;
+            const remaining = Number(pos.total_shares) - trimShares;
+            const newCost = Number(pos.cost_basis) - partialCostBasis;
+            const lotId = `lot-${pos.ticker}-eventrisk-${now}`;
+            const trimReason = riskEvent.eventType === "earnings"
+              ? "PRE_EARNINGS_RISK_REDUCTION"
+              : `PRE_${riskEvent.eventKey || "MACRO"}_RISK_REDUCTION`;
+
+            if (remaining <= 0.0001) {
+              await env.DB.prepare(
+                "UPDATE investor_positions SET status = 'CLOSED', total_shares = 0, closed_at = ?1, updated_at = ?1 WHERE id = ?2"
+              ).bind(now, pos.id).run();
+            } else {
+              await env.DB.prepare(
+                "UPDATE investor_positions SET total_shares = ?1, cost_basis = ?2, updated_at = ?3 WHERE id = ?4"
+              ).bind(remaining, newCost, now, pos.id).run();
+            }
+
+            await env.DB.prepare(
+              "INSERT INTO investor_lots (id, position_id, ticker, action, shares, price, value, ts, reason, created_at) VALUES (?1, ?2, ?3, 'SELL', ?4, ?5, ?6, ?7, ?8, ?7)"
+            ).bind(lotId, pos.id, pos.ticker, trimShares, price, sellValue, now, trimReason).run();
+
+            const prevBal = await d1GetLedgerBalance(env, "investor");
+            d1InsertLedgerEntry(env, {
+              mode: "investor", ts: now, event_type: "TRIM",
+              position_id: pos.id, ticker: pos.ticker, direction: "LONG",
+              qty: trimShares, price, cash_delta: sellValue,
+              realized_pnl: pnl, balance: prevBal + sellValue,
+              note: `Event-risk trim ${trimShares}sh ${pos.ticker} @$${price.toFixed(2)} (${trimReason})`,
+            }).catch(e => console.error("[LEDGER] event-risk trim failed:", e));
+
+            eventReducedTickers.add(pos.ticker);
+            eventReduced.push({
+              ticker: pos.ticker,
+              trimmedShares: trimShares,
+              price,
+              reason: trimReason,
+              trimPct: Math.round(trimPct * 1000) / 1000,
+              profileReasons: riskProfile.reasons,
+              remaining: Math.max(0, Math.round(remaining * 10000) / 10000),
+            });
+          }
+
           // ── Auto-reduce: trim positions where score dropped to "reduce" stage ──
           const reduced = [];
           for (const pos of existingPos) {
+            if (eventReducedTickers.has(pos.ticker)) continue;
             const data = scores[pos.ticker];
             if (!data || data.stage !== "reduce") continue;
 
@@ -51903,10 +52359,12 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             totalPositions: positionsCount,
             newPositions: opened.length,
             addedTo: added.length,
+            eventReducedCount: eventReduced.length,
             reducedCount: reduced.length,
             skippedCount: skipped.length,
             opened,
             added,
+            eventReduced,
             reduced,
             skipped,
           }, 200, corsHeaders(env, req));

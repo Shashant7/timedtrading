@@ -1,7 +1,7 @@
 {
-  "generated_at_utc": "2026-03-24T22:15:08.072921+00:00",
+  "generated_at_utc": "2026-03-25T10:15:10.428112+00:00",
   "reference_count": 250,
-  "cluster_count": 121,
+  "cluster_count": 119,
   "clusters": [
     {
       "cluster_key": "Energy|LONG|ema_regime_confirmed_long|fuse|swing_short",
@@ -23,6 +23,17 @@
       "avg_hybrid_score": 0.8534,
       "top_tickers": [
         "SHOP"
+      ]
+    },
+    {
+      "cluster_key": "Industrials|LONG|tt_momentum|fuse|swing_short",
+      "count": 4,
+      "win_rate": 1.0,
+      "avg_pnl_pct": 8.2401,
+      "median_pnl_pct": 8.2401,
+      "avg_hybrid_score": 0.8434,
+      "top_tickers": [
+        "FIX"
       ]
     },
     {
@@ -107,6 +118,17 @@
       ]
     },
     {
+      "cluster_key": "Communication Services|LONG|ema_regime_confirmed_long|other|swing_short",
+      "count": 1,
+      "win_rate": 1.0,
+      "avg_pnl_pct": 2.1736,
+      "median_pnl_pct": 2.1736,
+      "avg_hybrid_score": 0.801,
+      "top_tickers": [
+        "META"
+      ]
+    },
+    {
       "cluster_key": "Commodity ETF|LONG|ema_regime_confirmed_long|fuse|swing_medium",
       "count": 1,
       "win_rate": 1.0,
@@ -137,6 +159,17 @@
       "avg_hybrid_score": 0.8004,
       "top_tickers": [
         "WFRD"
+      ]
+    },
+    {
+      "cluster_key": "Consumer Discretionary|LONG|tt_momentum|fuse|swing_medium",
+      "count": 3,
+      "win_rate": 1.0,
+      "avg_pnl_pct": 2.0136,
+      "median_pnl_pct": 2.0136,
+      "avg_hybrid_score": 0.7998,
+      "top_tickers": [
+        "RBLX"
       ]
     },
     {
@@ -242,6 +275,17 @@
       ]
     },
     {
+      "cluster_key": "Industrials|LONG|tt_pullback|other|swing_medium",
+      "count": 4,
+      "win_rate": 1.0,
+      "avg_pnl_pct": 1.4401,
+      "median_pnl_pct": 1.4401,
+      "avg_hybrid_score": 0.7958,
+      "top_tickers": [
+        "ETN"
+      ]
+    },
+    {
       "cluster_key": "Consumer Discretionary|SHORT|gold_short_pullback_deep|fuse|swing_medium",
       "count": 2,
       "win_rate": 1.0,
@@ -300,14 +344,14 @@
       ]
     },
     {
-      "cluster_key": "Financials|LONG|ema_regime_confirmed_long|loss_protect|swing_short",
+      "cluster_key": "Industrials|LONG|tt_momentum|other|swing_medium",
       "count": 1,
       "win_rate": 1.0,
-      "avg_pnl_pct": 1.1958,
-      "median_pnl_pct": 1.1958,
-      "avg_hybrid_score": 0.7941,
+      "avg_pnl_pct": 1.3189,
+      "median_pnl_pct": 1.3189,
+      "avg_hybrid_score": 0.795,
       "top_tickers": [
-        "JPM"
+        "CAT"
       ]
     },
     {
@@ -340,36 +384,14 @@
       ]
     },
     {
-      "cluster_key": "Basic Materials|LONG|ema_regime_early_long|other|swing_short",
+      "cluster_key": "Consumer Discretionary|SHORT|tt_pullback|other|swing_medium",
       "count": 1,
       "win_rate": 1.0,
-      "avg_pnl_pct": 0.8252,
-      "median_pnl_pct": 0.8252,
-      "avg_hybrid_score": 0.7915,
-      "top_tickers": [
-        "PPG"
-      ]
-    },
-    {
-      "cluster_key": "ETF|LONG|ema_regime_confirmed_long|other|swing_short",
-      "count": 1,
-      "win_rate": 1.0,
-      "avg_pnl_pct": 0.4407,
-      "median_pnl_pct": 0.4407,
-      "avg_hybrid_score": 0.7888,
-      "top_tickers": [
-        "XLRE"
-      ]
-    },
-    {
-      "cluster_key": "Consumer Discretionary|SHORT|gold_short_pullback|other|swing_long",
-      "count": 1,
-      "win_rate": 1.0,
-      "avg_pnl_pct": 4.1044,
-      "median_pnl_pct": 4.1044,
+      "avg_pnl_pct": 0.5829,
+      "median_pnl_pct": 0.5829,
       "avg_hybrid_score": 0.7875,
       "top_tickers": [
-        "RBLX"
+        "TJX"
       ]
     },
     {
@@ -386,21 +408,6 @@
       ]
     },
     {
-      "cluster_key": "Industrials|LONG|ema_regime_confirmed_long|other|swing_medium",
-      "count": 6,
-      "win_rate": 1.0,
-      "avg_pnl_pct": 2.8488,
-      "median_pnl_pct": 1.3548,
-      "avg_hybrid_score": 0.7857,
-      "top_tickers": [
-        "AWI",
-        "AYI",
-        "B",
-        "CW",
-        "JOBY"
-      ]
-    },
-    {
       "cluster_key": "Information Technology|LONG|ema_regime_early_long|other|swing_long",
       "count": 1,
       "win_rate": 1.0,
@@ -413,25 +420,13 @@
     },
     {
       "cluster_key": "Industrials|LONG|ripster_momentum|loss_protect|swing_short",
-      "count": 2,
-      "win_rate": 1.0,
-      "avg_pnl_pct": 27.8618,
-      "median_pnl_pct": 27.8618,
-      "avg_hybrid_score": 0.7847,
-      "top_tickers": [
-        "GEV",
-        "IBP"
-      ]
-    },
-    {
-      "cluster_key": "Basic Materials|LONG|ripster_pullback|loss_protect|swing_short",
       "count": 1,
       "win_rate": 1.0,
-      "avg_pnl_pct": 28.0089,
-      "median_pnl_pct": 28.0089,
+      "avg_pnl_pct": 31.006,
+      "median_pnl_pct": 31.006,
       "avg_hybrid_score": 0.7847,
       "top_tickers": [
-        "ALB"
+        "IBP"
       ]
     },
     {
@@ -446,14 +441,17 @@
       ]
     },
     {
-      "cluster_key": "Information Technology|LONG|ripster_momentum|loss_protect|swing_short",
-      "count": 1,
+      "cluster_key": "Industrials|LONG|ema_regime_confirmed_long|other|swing_medium",
+      "count": 4,
       "win_rate": 1.0,
-      "avg_pnl_pct": 14.8501,
-      "median_pnl_pct": 14.8501,
-      "avg_hybrid_score": 0.7837,
+      "avg_pnl_pct": 3.7624,
+      "median_pnl_pct": 3.4549,
+      "avg_hybrid_score": 0.7821,
       "top_tickers": [
-        "MDB"
+        "AYI",
+        "B",
+        "CW",
+        "JOBY"
       ]
     },
     {
@@ -467,6 +465,21 @@
         "AMD",
         "IONQ",
         "IOT"
+      ]
+    },
+    {
+      "cluster_key": "Industrials|LONG|ema_regime_confirmed_long|loss_protect|swing_short",
+      "count": 8,
+      "win_rate": 1.0,
+      "avg_pnl_pct": 1.5238,
+      "median_pnl_pct": 0.8165,
+      "avg_hybrid_score": 0.7805,
+      "top_tickers": [
+        "ARRY",
+        "BE",
+        "DCI",
+        "IESC",
+        "SGI"
       ]
     },
     {
@@ -533,20 +546,6 @@
       ]
     },
     {
-      "cluster_key": "Industrials|LONG|ema_regime_confirmed_long|other|swing_long",
-      "count": 4,
-      "win_rate": 1.0,
-      "avg_pnl_pct": 3.6538,
-      "median_pnl_pct": 3.6524,
-      "avg_hybrid_score": 0.7783,
-      "top_tickers": [
-        "B",
-        "FIX",
-        "IESC",
-        "RKLB"
-      ]
-    },
-    {
       "cluster_key": "Energy|LONG|ema_regime_confirmed_long|other|swing_long",
       "count": 2,
       "win_rate": 1.0,
@@ -556,33 +555,6 @@
       "top_tickers": [
         "DINO",
         "WFRD"
-      ]
-    },
-    {
-      "cluster_key": "Industrials|LONG|ema_regime_confirmed_long|fuse|swing_long",
-      "count": 2,
-      "win_rate": 1.0,
-      "avg_pnl_pct": 2.2478,
-      "median_pnl_pct": 2.2478,
-      "avg_hybrid_score": 0.7745,
-      "top_tickers": [
-        "AWI",
-        "DCI"
-      ]
-    },
-    {
-      "cluster_key": "Industrials|LONG|ema_regime_confirmed_long|loss_protect|swing_short",
-      "count": 10,
-      "win_rate": 1.0,
-      "avg_pnl_pct": 1.351,
-      "median_pnl_pct": 0.7177,
-      "avg_hybrid_score": 0.7735,
-      "top_tickers": [
-        "ARRY",
-        "BE",
-        "DCI",
-        "IESC",
-        "SGI"
       ]
     },
     {
@@ -634,20 +606,15 @@
       ]
     },
     {
-      "cluster_key": "Information Technology|LONG|ema_regime_confirmed_long|other|swing_short",
-      "count": 10,
+      "cluster_key": "Industrials|LONG|ema_regime_confirmed_long|other|swing_long",
+      "count": 2,
       "win_rate": 1.0,
-      "avg_pnl_pct": 3.1567,
-      "median_pnl_pct": 3.1277,
-      "avg_hybrid_score": 0.7703,
+      "avg_pnl_pct": 3.4483,
+      "median_pnl_pct": 3.4483,
+      "avg_hybrid_score": 0.7708,
       "top_tickers": [
-        "CDNS",
-        "FN",
-        "INTC",
-        "PATH",
-        "PLTR",
-        "STX",
-        "WDC"
+        "B",
+        "IESC"
       ]
     },
     {
@@ -721,6 +688,17 @@
       ]
     },
     {
+      "cluster_key": "Industrials|LONG|ema_regime_confirmed_long|fuse|swing_long",
+      "count": 1,
+      "win_rate": 1.0,
+      "avg_pnl_pct": 1.4008,
+      "median_pnl_pct": 1.4008,
+      "avg_hybrid_score": 0.7686,
+      "top_tickers": [
+        "DCI"
+      ]
+    },
+    {
       "cluster_key": "Energy|LONG|ema_regime_confirmed_long|loss_protect|swing_medium",
       "count": 1,
       "win_rate": 1.0,
@@ -729,6 +707,22 @@
       "avg_hybrid_score": 0.7683,
       "top_tickers": [
         "DINO"
+      ]
+    },
+    {
+      "cluster_key": "Information Technology|LONG|ema_regime_confirmed_long|other|swing_short",
+      "count": 9,
+      "win_rate": 1.0,
+      "avg_pnl_pct": 3.4151,
+      "median_pnl_pct": 3.4323,
+      "avg_hybrid_score": 0.768,
+      "top_tickers": [
+        "FN",
+        "INTC",
+        "PATH",
+        "PLTR",
+        "STX",
+        "WDC"
       ]
     },
     {
@@ -792,19 +786,6 @@
       ]
     },
     {
-      "cluster_key": "Basic Materials|LONG|ema_regime_confirmed_long|loss_protect|swing_medium",
-      "count": 5,
-      "win_rate": 1.0,
-      "avg_pnl_pct": 3.9351,
-      "median_pnl_pct": 3.3315,
-      "avg_hybrid_score": 0.7655,
-      "top_tickers": [
-        "CCJ",
-        "MP",
-        "UUUU"
-      ]
-    },
-    {
       "cluster_key": "Consumer Discretionary|LONG|ema_regime_confirmed_long|other|swing_medium",
       "count": 9,
       "win_rate": 1.0,
@@ -829,6 +810,20 @@
       "avg_hybrid_score": 0.7616,
       "top_tickers": [
         "QXO"
+      ]
+    },
+    {
+      "cluster_key": "Basic Materials|LONG|ema_regime_confirmed_long|loss_protect|swing_medium",
+      "count": 6,
+      "win_rate": 1.0,
+      "avg_pnl_pct": 3.4055,
+      "median_pnl_pct": 2.7877,
+      "avg_hybrid_score": 0.7609,
+      "top_tickers": [
+        "CCJ",
+        "MP",
+        "RGLD",
+        "UUUU"
       ]
     },
     {
@@ -902,31 +897,6 @@
       ]
     },
     {
-      "cluster_key": "Communication Services|LONG|ema_regime_confirmed_long|other|swing_short",
-      "count": 2,
-      "win_rate": 1.0,
-      "avg_pnl_pct": 1.2277,
-      "median_pnl_pct": 1.2277,
-      "avg_hybrid_score": 0.754,
-      "top_tickers": [
-        "GOOGL",
-        "META"
-      ]
-    },
-    {
-      "cluster_key": "Basic Materials|LONG|ema_regime_confirmed_long|loss_protect|swing_short",
-      "count": 4,
-      "win_rate": 1.0,
-      "avg_pnl_pct": 4.1101,
-      "median_pnl_pct": 5.0921,
-      "avg_hybrid_score": 0.7533,
-      "top_tickers": [
-        "ALB",
-        "RGLD",
-        "UUUU"
-      ]
-    },
-    {
       "cluster_key": "Industrials|LONG|ema_regime_confirmed_long|other|intraday",
       "count": 1,
       "win_rate": 1.0,
@@ -971,6 +941,20 @@
       ]
     },
     {
+      "cluster_key": "Basic Materials|LONG|ema_regime_confirmed_long|loss_protect|swing_short",
+      "count": 5,
+      "win_rate": 1.0,
+      "avg_pnl_pct": 3.5705,
+      "median_pnl_pct": 4.7658,
+      "avg_hybrid_score": 0.7486,
+      "top_tickers": [
+        "ALB",
+        "RGLD",
+        "SN",
+        "UUUU"
+      ]
+    },
+    {
       "cluster_key": "Consumer Staples|SHORT|ema_regime_early_short|other|intraday",
       "count": 1,
       "win_rate": 1.0,
@@ -982,17 +966,6 @@
       ]
     },
     {
-      "cluster_key": "Basic Materials|LONG|ema_regime_confirmed_long|other|intraday",
-      "count": 1,
-      "win_rate": 1.0,
-      "avg_pnl_pct": 1.8289,
-      "median_pnl_pct": 1.8289,
-      "avg_hybrid_score": 0.7472,
-      "top_tickers": [
-        "AU"
-      ]
-    },
-    {
       "cluster_key": "Information Technology|LONG|ema_regime_confirmed_long|other|intraday",
       "count": 1,
       "win_rate": 1.0,
@@ -1001,18 +974,6 @@
       "avg_hybrid_score": 0.7463,
       "top_tickers": [
         "KLAC"
-      ]
-    },
-    {
-      "cluster_key": "Consumer Discretionary|LONG|ema_regime_confirmed_long|other|swing_long",
-      "count": 2,
-      "win_rate": 1.0,
-      "avg_pnl_pct": 0.8814,
-      "median_pnl_pct": 0.8814,
-      "avg_hybrid_score": 0.74,
-      "top_tickers": [
-        "RBLX",
-        "ULTA"
       ]
     },
     {
@@ -1039,24 +1000,13 @@
     },
     {
       "cluster_key": "Communication Services|LONG|ripster_momentum|loss_protect|swing_short",
-      "count": 3,
+      "count": 4,
       "win_rate": 1.0,
       "avg_pnl_pct": 8.4264,
       "median_pnl_pct": 8.4264,
       "avg_hybrid_score": 0.7387,
       "top_tickers": [
         "GOOGL"
-      ]
-    },
-    {
-      "cluster_key": "Industrials|LONG|ripster_momentum|fuse|swing_short",
-      "count": 1,
-      "win_rate": 1.0,
-      "avg_pnl_pct": 8.3996,
-      "median_pnl_pct": 8.3996,
-      "avg_hybrid_score": 0.7385,
-      "top_tickers": [
-        "PH"
       ]
     },
     {
@@ -1104,6 +1054,18 @@
       ]
     },
     {
+      "cluster_key": "Basic Materials|LONG|ema_regime_confirmed_long|other|intraday",
+      "count": 2,
+      "win_rate": 1.0,
+      "avg_pnl_pct": 2.0006,
+      "median_pnl_pct": 2.0006,
+      "avg_hybrid_score": 0.7298,
+      "top_tickers": [
+        "ALB",
+        "AU"
+      ]
+    },
+    {
       "cluster_key": "Information Technology|SHORT|ema_regime_confirmed_short|other|swing_short",
       "count": 1,
       "win_rate": 1.0,
@@ -1116,13 +1078,25 @@
     },
     {
       "cluster_key": "Information Technology|SHORT|ripster_momentum|other|swing_medium",
+      "count": 2,
+      "win_rate": 1.0,
+      "avg_pnl_pct": 10.619,
+      "median_pnl_pct": 10.619,
+      "avg_hybrid_score": 0.7271,
+      "top_tickers": [
+        "ORCL",
+        "PATH"
+      ]
+    },
+    {
+      "cluster_key": "Information Technology|SHORT|ripster_momentum|loss_protect|swing_short",
       "count": 1,
       "win_rate": 1.0,
-      "avg_pnl_pct": 10.7764,
-      "median_pnl_pct": 10.7764,
-      "avg_hybrid_score": 0.7282,
+      "avg_pnl_pct": 6.4915,
+      "median_pnl_pct": 6.4915,
+      "avg_hybrid_score": 0.7252,
       "top_tickers": [
-        "PATH"
+        "MSTR"
       ]
     },
     {
@@ -1191,6 +1165,17 @@
       "avg_hybrid_score": 0.7094,
       "top_tickers": [
         "AMZN"
+      ]
+    },
+    {
+      "cluster_key": "Consumer Discretionary|LONG|ema_regime_confirmed_long|other|swing_long",
+      "count": 1,
+      "win_rate": 1.0,
+      "avg_pnl_pct": 0.0142,
+      "median_pnl_pct": 0.0142,
+      "avg_hybrid_score": 0.709,
+      "top_tickers": [
+        "ULTA"
       ]
     },
     {
@@ -1400,17 +1385,6 @@
       "avg_hybrid_score": 0.6898,
       "top_tickers": [
         "UNH"
-      ]
-    },
-    {
-      "cluster_key": "Consumer Staples|LONG|ema_regime_confirmed_long|loss_protect|swing_short",
-      "count": 1,
-      "win_rate": 1.0,
-      "avg_pnl_pct": 1.2639,
-      "median_pnl_pct": 1.2639,
-      "avg_hybrid_score": 0.6886,
-      "top_tickers": [
-        "ELF"
       ]
     }
   ]

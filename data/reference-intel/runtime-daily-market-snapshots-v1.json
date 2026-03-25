@@ -2784,13 +2784,13 @@
       "served_by_colo": "EWR",
       "served_by_primary": true,
       "timings": {
-        "sql_duration_ms": 7.8185
+        "sql_duration_ms": 2.1389
       },
-      "duration": 7.8185,
+      "duration": 2.1389,
       "changes": 0,
-      "last_row_id": 36823124,
+      "last_row_id": 36880376,
       "changed_db": false,
-      "size_after": 4850880512,
+      "size_after": 2863960064,
       "rows_read": 185,
       "rows_written": 0,
       "total_attempts": 1

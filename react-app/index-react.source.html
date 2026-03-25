@@ -634,6 +634,16 @@
         return age < SCORING_INTERVAL_MS + 90 * 1000;
       }
 
+      const INVESTOR_ACTIONABLE_STAGES = new Set(["accumulate", "reduce"]);
+      function isInvestorActionableTicker(ticker) {
+        const investorStage = String(
+          ticker?.investor_action || ticker?.investor_stage || ticker?.stage || "",
+        )
+          .trim()
+          .toLowerCase();
+        return INVESTOR_ACTIONABLE_STAGES.has(investorStage);
+      }
+
       function readAnalysisSnapshotCache() {
         try {
           const raw = sessionStorage.getItem(ANALYSIS_SNAPSHOT_CACHE_KEY);
@@ -750,6 +760,9 @@
             ? initialSnapshot.tickersWithoutScores
             : collectTickersWithoutScores(initialData),
         );
+        const latestSnapshotBuiltAtRef = React.useRef(
+          Number(initialSnapshot?.builtAt || initialSnapshot?.cachedAt || 0) || 0,
+        );
         // Local fallback for Kanban prev-lane tracking (covers cases where the backend doesn't stamp prev_kanban_stage).
         const kanbanPrevLocalRef = React.useRef({});
         const dataRef = React.useRef(initialData);
@@ -833,6 +846,27 @@
             const dataJson = await dataRes.json();
 
             if (dataJson.ok) {
+              const incomingBuiltAt =
+                Number(dataJson.built_at || timestamp) || timestamp;
+              const latestBuiltAt = Number(latestSnapshotBuiltAtRef.current || 0);
+              if (
+                hasRenderableData &&
+                latestBuiltAt > 0 &&
+                incomingBuiltAt > 0 &&
+                incomingBuiltAt < latestBuiltAt
+              ) {
+                console.warn("[UI] Ignoring stale analysis snapshot", {
+                  incomingBuiltAt,
+                  latestBuiltAt,
+                  ageMs: latestBuiltAt - incomingBuiltAt,
+                });
+                refreshTickerUniverse(timestamp);
+                return;
+              }
+              latestSnapshotBuiltAtRef.current = Math.max(
+                latestBuiltAt,
+                incomingBuiltAt,
+              );
               const nextSocialAdditions = Array.isArray(dataJson.socialAdditions) ? dataJson.socialAdditions : [];
               setSocialAdditions(nextSocialAdditions);
               const tickerData = dataJson.data || {};
@@ -995,7 +1029,7 @@
                 socialAdditions: nextSocialAdditions,
                 versionInfo: nextVersionInfo,
                 tickersWithoutScores: nextTickersWithoutScores,
-                builtAt: dataJson.built_at || Date.now(),
+                builtAt: incomingBuiltAt,
               });
 
               if (versionFiltered > 0 && ENABLE_UI_DIAGNOSTICS) {
@@ -3907,6 +3941,8 @@
             } else if (effectiveFilters.group === "TT_SELECTED") {
               const T = normTicker(ticker);
               if (!isTickerTTSelected(T)) continue;
+            } else if (effectiveFilters.group === "INVESTOR_ACTIONABLE") {
+              if (!isInvestorActionableTicker(d)) continue;
             } else {
               const T = normTicker(ticker);
               const gs = groupsForTicker(T);
@@ -16925,14 +16961,10 @@
         const [bubbleSearchOpen, setBubbleSearchOpen] = useState(false);
         const [bubbleLayoutMode, setBubbleLayoutMode] = useState("score");
 
-        const bubbleMapUniverseFilters = useMemo(() => {
-          const group = String(effectiveFilters?.group || "ALL").toUpperCase();
-          // Bubble Map insight chips are meant to scan the map universe, not a sticky personal subset.
-          if (group === "TT_SELECTED" || group === "SAVED" || group === "USER_ADDED") {
-            return { ...effectiveFilters, group: "ALL" };
-          }
-          return effectiveFilters;
-        }, [effectiveFilters]);
+        const bubbleMapUniverseFilters = useMemo(
+          () => effectiveFilters,
+          [effectiveFilters],
+        );
 
         const bubbleMapUniverseTickers = useMemo(() => {
           let filtered =
@@ -18067,6 +18099,19 @@
                           >
                             TT Selected
                           </button>
+                          {(dashboardMode === "investor" || effectiveFilters.group === "INVESTOR_ACTIONABLE") && (
+                            <button
+                              onClick={() => handleFilterChange({ group: effectiveFilters.group === "INVESTOR_ACTIONABLE" ? "ALL" : "INVESTOR_ACTIONABLE" })}
+                              className={`px-3 py-1.5 rounded-lg border text-xs font-semibold transition-colors whitespace-nowrap ${
+                                effectiveFilters.group === "INVESTOR_ACTIONABLE"
+                                  ? "bg-emerald-500/20 border-emerald-500/40 text-emerald-300"
+                                  : "bg-white/[0.02] border-white/[0.06] text-[#6b7280] hover:text-emerald-300 hover:bg-emerald-500/10"
+                              }`}
+                              title="Show investor tickers that need action now"
+                            >
+                              Investor Actionable
+                            </button>
+                          )}
                           <div className="relative" ref={addTickerRef}>
                             {!window._ttIsPro ? (
                               <button
@@ -18376,17 +18421,12 @@
                               </button>
                             </div>
                             <span className="text-[#4b5563] shrink-0">|</span>
-                            <span className="flex items-center gap-1 shrink-0" title="HTF bullish trend — system bias is long"><svg width="8" height="8" viewBox="0 0 8 8"><circle cx="4" cy="4" r="3.5" fill="rgba(34,211,238,0.45)"/></svg> <span className="text-cyan-400">Long bias</span></span>
-                            <span className="flex items-center gap-1 shrink-0" title="HTF bearish trend — system bias is short"><svg width="8" height="8" viewBox="0 0 8 8"><circle cx="4" cy="4" r="3.5" fill="rgba(225,29,72,0.45)"/></svg> <span className="text-rose-400">Short bias</span></span>
-                            <span className="flex items-center gap-1 shrink-0" title="No directional edge — mixed or transitional"><svg width="8" height="8" viewBox="0 0 8 8"><circle cx="4" cy="4" r="3.5" fill="rgba(234,179,8,0.35)"/></svg> <span className="text-yellow-400">Neutral</span></span>
-                            <span className="text-[#4b5563] shrink-0">|</span>
                             <span className="shrink-0" title="X-axis: short-term momentum score. Y-axis: long-term trend strength. Setup Timing view applies a stronger center spread so similar-score names are easier to separate.">
                               {bubbleLayoutMode === "timing"
                                 ? "Timing-spread momentum vs trend"
                                 : "X: momentum · Y: trend"}
                             </span>
                             <span className="shrink-0" title="Bigger bubble = higher reward-to-risk with more upside remaining. Late setups shrink as completion rises.">Size = R:R x upside left</span>
-                            <span className="shrink-0" title="Upper-right: strong longs. Lower-left: strong shorts.">↗ longs · ↙ shorts</span>
                             <span className="text-[#4b5563] shrink-0">|</span>
                             <span className="flex items-center gap-1 shrink-0" title="Pulsing glow = the system is flagging this ticker for action (enter, trim, exit, defend). These are your focus tickers."><svg width="10" height="10" viewBox="0 0 10 10"><circle cx="5" cy="5" r="3.5" fill="rgba(34,211,238,0.25)" stroke="#22d3ee" strokeWidth="0.8"><animate attributeName="r" values="3;4.5;3" dur="2s" repeatCount="indefinite"/><animate attributeName="opacity" values="0.8;0.3;0.8" dur="2s" repeatCount="indefinite"/></circle></svg> <span className="text-cyan-300 font-semibold">Pulsing = Actionable</span></span>
                             <span className="shrink-0 text-[9px] text-[#6b7280]" title="Pulsing bubbles are in stages like Enter Now, Trim, Exit, or Defend — the system is telling you to act.">(enter · trim · exit · defend)</span>
@@ -18438,23 +18478,31 @@
                             );
                           };
                           return (
-                            <div className="space-y-1 px-1 mb-1">
-                              {/* Row 1: Signal filters */}
-                              <div className="flex gap-1.5 overflow-x-auto scrollbar-hide items-center">
-                                {row1.map(c => renderChip(c, false))}
-                                {activeInsight && (
-                                  <button
-                                    onClick={() => { setActiveInsight(null); setActiveSubInsight(null); }}
-                                    className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium border border-white/10 bg-white/5 text-gray-400 hover:text-white transition-colors shrink-0"
-                                  >✕ Clear</button>
-                                )}
-                              </div>
-                              {/* Row 2: Market context — pulse, movers, and major groups */}
+                            <div className="space-y-2 px-1 mb-1">
                               {row2.length > 0 && (
-                                <div className="flex gap-1.5 overflow-x-auto scrollbar-hide items-center">
-                                  {row2.map(c => renderChip(c, false))}
+                                <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-2.5 py-2">
+                                  <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-[#6b7280]">
+                                    Overview
+                                  </div>
+                                  <div className="flex gap-1.5 overflow-x-auto scrollbar-hide items-center">
+                                    {row2.map(c => renderChip(c, false))}
+                                  </div>
                                 </div>
                               )}
+                              <div className="rounded-xl border border-cyan-500/10 bg-cyan-500/[0.04] px-2.5 py-2">
+                                <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-cyan-200/70">
+                                  Something Interesting
+                                </div>
+                                <div className="flex gap-1.5 overflow-x-auto scrollbar-hide items-center">
+                                  {row1.map(c => renderChip(c, false))}
+                                  {activeInsight && (
+                                    <button
+                                      onClick={() => { setActiveInsight(null); setActiveSubInsight(null); }}
+                                      className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium border border-white/10 bg-white/5 text-gray-400 hover:text-white transition-colors shrink-0"
+                                    >✕ Clear</button>
+                                  )}
+                                </div>
+                              </div>
                               {/* Row 3: Dynamic sector sub-chips (only when S&P Sectors is active) */}
                               {activeInsight === "sp_sectors" && sectorSubs.length > 0 && (
                                 <div className="flex gap-1.5 overflow-x-auto scrollbar-hide items-center">

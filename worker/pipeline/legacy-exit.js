@@ -51,11 +51,12 @@ export function evaluateExit(ctx, position) {
   if (pnlPct <= maxLossPct) return res("exit", "max_loss", "safety");
 
   // DOA
+  const doaEnabled = String(ctx.config.deepAudit?.deep_audit_doa_early_exit_enabled ?? "true") === "true";
   const mgmt30mST = Number(ctx.tf.m30?.stDir) || 0;
   const mgmt1hST = Number(ctx.tf.h1?.stDir) || 0;
   const structureIntact = (direction === "LONG" && (mgmt30mST === -1 || mgmt1hST === -1))
     || (direction === "SHORT" && (mgmt30mST === 1 || mgmt1hST === 1));
-  if (pnlPct < 0 && positionAgeMin >= 360 && mfePct < 0.3 && !structureIntact) {
+  if (doaEnabled && pnlPct < 0 && positionAgeMin >= 360 && mfePct < 0.3 && !structureIntact) {
     return res("exit", "doa_early_exit", "safety");
   }
 

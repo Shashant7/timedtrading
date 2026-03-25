@@ -354,6 +354,12 @@
       if (filterGroup === "SAVED" && savedTickers && savedTickers.size > 0) {
         list = list.filter(t => savedTickers.has(t.ticker));
       }
+      if (filterGroup === "INVESTOR_ACTIONABLE") {
+        list = list.filter(t => {
+          const stage = String(t?.stage || "").toLowerCase();
+          return stage === "accumulate" || stage === "reduce";
+        });
+      }
       if (allowedTickerSet instanceof Set) {
         list = list.filter(t => allowedTickerSet.has(t.ticker));
       }
@@ -364,6 +370,7 @@
         if (allowedTickerSet instanceof Set && !allowedTickerSet.has(sym)) return;
         if (q && !sym.includes(q)) return;
         if (filterGroup === "SAVED" && savedTickers && savedTickers.size > 0 && !savedTickers.has(sym)) return;
+        if (filterGroup === "INVESTOR_ACTIONABLE") return;
         const mainData = tickerData?.[sym] || {};
         list.unshift({
           ticker: sym,

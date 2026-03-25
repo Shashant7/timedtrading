@@ -1,6 +1,6 @@
 {
-  "generated_at_utc": "2026-03-24T22:15:03.314132+00:00",
-  "row_count": 6686,
+  "generated_at_utc": "2026-03-25T10:15:06.237509+00:00",
+  "row_count": 7065,
   "runs": [
     {
       "run_label": "10m-ltf-validation--2026-03-20T0108",
@@ -196,6 +196,20 @@
       "missing_rate_has_signal_snapshot": 1.0,
       "missing_rate_has_tf_stack": 1.0,
       "missing_rate_has_mfe_mae": 1.0,
+      "missing_rate_has_exit_reason": 0.0
+    },
+    {
+      "run_label": "move-phase-smoke--2026-03-25T0813",
+      "rows": 1,
+      "missing_has_entry_path": 1,
+      "missing_has_signal_snapshot": 1,
+      "missing_has_tf_stack": 1,
+      "missing_has_mfe_mae": 0,
+      "missing_has_exit_reason": 0,
+      "missing_rate_has_entry_path": 1.0,
+      "missing_rate_has_signal_snapshot": 1.0,
+      "missing_rate_has_tf_stack": 1.0,
+      "missing_rate_has_mfe_mae": 0.0,
       "missing_rate_has_exit_reason": 0.0
     },
     {
@@ -997,6 +1011,20 @@
       "missing_rate_has_exit_reason": 0.0
     },
     {
+      "run_label": "focused-refinement-iter9-july-slice-fixed--20260325-003001",
+      "rows": 3,
+      "missing_has_entry_path": 1,
+      "missing_has_signal_snapshot": 1,
+      "missing_has_tf_stack": 1,
+      "missing_has_mfe_mae": 1,
+      "missing_has_exit_reason": 1,
+      "missing_rate_has_entry_path": 0.3333,
+      "missing_rate_has_signal_snapshot": 0.3333,
+      "missing_rate_has_tf_stack": 0.3333,
+      "missing_rate_has_mfe_mae": 0.3333,
+      "missing_rate_has_exit_reason": 0.3333
+    },
+    {
       "run_label": "15m-calibration-only-jul1-mar4--20260307-235702",
       "rows": 65,
       "missing_has_entry_path": 21,
@@ -1065,6 +1093,20 @@
       "missing_rate_has_tf_stack": 0.3043,
       "missing_rate_has_mfe_mae": 1.0,
       "missing_rate_has_exit_reason": 0.0
+    },
+    {
+      "run_label": "focused-iter5-pinned-clean-probe-20260325--20260325-031105",
+      "rows": 7,
+      "missing_has_entry_path": 2,
+      "missing_has_signal_snapshot": 2,
+      "missing_has_tf_stack": 2,
+      "missing_has_mfe_mae": 2,
+      "missing_has_exit_reason": 2,
+      "missing_rate_has_entry_path": 0.2857,
+      "missing_rate_has_signal_snapshot": 0.2857,
+      "missing_rate_has_tf_stack": 0.2857,
+      "missing_rate_has_mfe_mae": 0.2857,
+      "missing_rate_has_exit_reason": 0.2857
     },
     {
       "run_label": "multi-tf-ladder-v2--20260319-105953",
@@ -1347,6 +1389,62 @@
       "missing_rate_has_exit_reason": 0.0
     },
     {
+      "run_label": "focused-iter5-surgical-512-v1--20260325-044456",
+      "rows": 30,
+      "missing_has_entry_path": 2,
+      "missing_has_signal_snapshot": 2,
+      "missing_has_tf_stack": 2,
+      "missing_has_mfe_mae": 2,
+      "missing_has_exit_reason": 2,
+      "missing_rate_has_entry_path": 0.0667,
+      "missing_rate_has_signal_snapshot": 0.0667,
+      "missing_rate_has_tf_stack": 0.0667,
+      "missing_rate_has_mfe_mae": 0.0667,
+      "missing_rate_has_exit_reason": 0.0667
+    },
+    {
+      "run_label": "focused-iter5-fix-rblx-surgical-v2--20260325-045335",
+      "rows": 18,
+      "missing_has_entry_path": 1,
+      "missing_has_signal_snapshot": 1,
+      "missing_has_tf_stack": 1,
+      "missing_has_mfe_mae": 1,
+      "missing_has_exit_reason": 1,
+      "missing_rate_has_entry_path": 0.0556,
+      "missing_rate_has_signal_snapshot": 0.0556,
+      "missing_rate_has_tf_stack": 0.0556,
+      "missing_rate_has_mfe_mae": 0.0556,
+      "missing_rate_has_exit_reason": 0.0556
+    },
+    {
+      "run_label": "focused-iter5-fix-rblx-surgical-v3--20260325-045759",
+      "rows": 18,
+      "missing_has_entry_path": 1,
+      "missing_has_signal_snapshot": 1,
+      "missing_has_tf_stack": 1,
+      "missing_has_mfe_mae": 1,
+      "missing_has_exit_reason": 1,
+      "missing_rate_has_entry_path": 0.0556,
+      "missing_rate_has_signal_snapshot": 0.0556,
+      "missing_rate_has_tf_stack": 0.0556,
+      "missing_rate_has_mfe_mae": 0.0556,
+      "missing_rate_has_exit_reason": 0.0556
+    },
+    {
+      "run_label": "focused-iter5-fix-rblx-trace-v1--20260325-050724",
+      "rows": 18,
+      "missing_has_entry_path": 1,
+      "missing_has_signal_snapshot": 1,
+      "missing_has_tf_stack": 1,
+      "missing_has_mfe_mae": 1,
+      "missing_has_exit_reason": 1,
+      "missing_rate_has_entry_path": 0.0556,
+      "missing_rate_has_signal_snapshot": 0.0556,
+      "missing_rate_has_tf_stack": 0.0556,
+      "missing_rate_has_mfe_mae": 0.0556,
+      "missing_rate_has_exit_reason": 0.0556
+    },
+    {
       "run_label": "phase10-postfix-clean-v2--20260323-063144",
       "rows": 18,
       "missing_has_entry_path": 1,
@@ -1373,6 +1471,20 @@
       "missing_rate_has_tf_stack": 0.0556,
       "missing_rate_has_mfe_mae": 0.0556,
       "missing_rate_has_exit_reason": 0.0
+    },
+    {
+      "run_label": "focused-iter5-pinned-clean-july-postfix-20260325--20260325-043424",
+      "rows": 38,
+      "missing_has_entry_path": 2,
+      "missing_has_signal_snapshot": 2,
+      "missing_has_tf_stack": 2,
+      "missing_has_mfe_mae": 2,
+      "missing_has_exit_reason": 2,
+      "missing_rate_has_entry_path": 0.0526,
+      "missing_rate_has_signal_snapshot": 0.0526,
+      "missing_rate_has_tf_stack": 0.0526,
+      "missing_rate_has_mfe_mae": 0.0526,
+      "missing_rate_has_exit_reason": 0.0526
     },
     {
       "run_label": "ripster-v2-feedback-targeted-0701-0703--20260304-184940",
@@ -1429,6 +1541,34 @@
       "missing_rate_has_tf_stack": 0.0417,
       "missing_rate_has_mfe_mae": 1.0,
       "missing_rate_has_exit_reason": 0.0
+    },
+    {
+      "run_label": "focused-iter5-pinned-clean-july-10mfix-20260325--20260325-034349",
+      "rows": 38,
+      "missing_has_entry_path": 1,
+      "missing_has_signal_snapshot": 1,
+      "missing_has_tf_stack": 1,
+      "missing_has_mfe_mae": 1,
+      "missing_has_exit_reason": 1,
+      "missing_rate_has_entry_path": 0.0263,
+      "missing_rate_has_signal_snapshot": 0.0263,
+      "missing_rate_has_tf_stack": 0.0263,
+      "missing_rate_has_mfe_mae": 0.0263,
+      "missing_rate_has_exit_reason": 0.0263
+    },
+    {
+      "run_label": "focused-iter5-pinned-clean-july-ltf30-20260325--20260325-035323",
+      "rows": 38,
+      "missing_has_entry_path": 1,
+      "missing_has_signal_snapshot": 1,
+      "missing_has_tf_stack": 1,
+      "missing_has_mfe_mae": 1,
+      "missing_has_exit_reason": 1,
+      "missing_rate_has_entry_path": 0.0263,
+      "missing_rate_has_signal_snapshot": 0.0263,
+      "missing_rate_has_tf_stack": 0.0263,
+      "missing_rate_has_mfe_mae": 0.0263,
+      "missing_rate_has_exit_reason": 0.0263
     },
     {
       "run_label": "doa-gate-v1--20260317-210827",
@@ -1613,6 +1753,20 @@
       "missing_rate_has_exit_reason": 0.0
     },
     {
+      "run_label": "focused-iter5-pinned-clean-july-hlc350-20260325--20260325-040140",
+      "rows": 41,
+      "missing_has_entry_path": 0,
+      "missing_has_signal_snapshot": 0,
+      "missing_has_tf_stack": 0,
+      "missing_has_mfe_mae": 0,
+      "missing_has_exit_reason": 0,
+      "missing_rate_has_entry_path": 0.0,
+      "missing_rate_has_signal_snapshot": 0.0,
+      "missing_rate_has_tf_stack": 0.0,
+      "missing_rate_has_mfe_mae": 0.0,
+      "missing_rate_has_exit_reason": 0.0
+    },
+    {
       "run_label": "exit-upgrade-v3--20260315-094435",
       "rows": 38,
       "missing_has_entry_path": 0,
@@ -1641,6 +1795,48 @@
       "missing_rate_has_exit_reason": 0.0
     },
     {
+      "run_label": "focused-iter5-pinned-probe-20260325--20260325-030917",
+      "rows": 32,
+      "missing_has_entry_path": 0,
+      "missing_has_signal_snapshot": 0,
+      "missing_has_tf_stack": 0,
+      "missing_has_mfe_mae": 0,
+      "missing_has_exit_reason": 0,
+      "missing_rate_has_entry_path": 0.0,
+      "missing_rate_has_signal_snapshot": 0.0,
+      "missing_rate_has_tf_stack": 0.0,
+      "missing_rate_has_mfe_mae": 0.0,
+      "missing_rate_has_exit_reason": 0.0
+    },
+    {
+      "run_label": "focused-iter5-validation-recovered-20260325--20260325-024751",
+      "rows": 32,
+      "missing_has_entry_path": 0,
+      "missing_has_signal_snapshot": 0,
+      "missing_has_tf_stack": 0,
+      "missing_has_mfe_mae": 0,
+      "missing_has_exit_reason": 0,
+      "missing_rate_has_entry_path": 0.0,
+      "missing_rate_has_signal_snapshot": 0.0,
+      "missing_rate_has_tf_stack": 0.0,
+      "missing_rate_has_mfe_mae": 0.0,
+      "missing_rate_has_exit_reason": 0.0
+    },
+    {
+      "run_label": "focused-refinement-iter5-restored-july-slice-fixed--20260325-012139",
+      "rows": 32,
+      "missing_has_entry_path": 0,
+      "missing_has_signal_snapshot": 0,
+      "missing_has_tf_stack": 0,
+      "missing_has_mfe_mae": 0,
+      "missing_has_exit_reason": 0,
+      "missing_rate_has_entry_path": 0.0,
+      "missing_rate_has_signal_snapshot": 0.0,
+      "missing_rate_has_tf_stack": 0.0,
+      "missing_rate_has_mfe_mae": 0.0,
+      "missing_rate_has_exit_reason": 0.0
+    },
+    {
       "run_label": "ripster-v2-hotfix-quick--20260304-171843",
       "rows": 27,
       "missing_has_entry_path": 0,
@@ -1652,6 +1848,20 @@
       "missing_rate_has_signal_snapshot": 0.0,
       "missing_rate_has_tf_stack": 0.0,
       "missing_rate_has_mfe_mae": 1.0,
+      "missing_rate_has_exit_reason": 0.0
+    },
+    {
+      "run_label": "focused-iter5-pinned-clean-july-movephase-v1-20260325--20260325-041727",
+      "rows": 22,
+      "missing_has_entry_path": 0,
+      "missing_has_signal_snapshot": 0,
+      "missing_has_tf_stack": 0,
+      "missing_has_mfe_mae": 1,
+      "missing_has_exit_reason": 0,
+      "missing_rate_has_entry_path": 0.0,
+      "missing_rate_has_signal_snapshot": 0.0,
+      "missing_rate_has_tf_stack": 0.0,
+      "missing_rate_has_mfe_mae": 0.0455,
       "missing_rate_has_exit_reason": 0.0
     },
     {
@@ -1750,6 +1960,20 @@
       "missing_rate_has_signal_snapshot": 0.0,
       "missing_rate_has_tf_stack": 0.0,
       "missing_rate_has_mfe_mae": 1.0,
+      "missing_rate_has_exit_reason": 0.0
+    },
+    {
+      "run_label": "focused-probe-focused-config-archive-v2--20260325-023948",
+      "rows": 11,
+      "missing_has_entry_path": 0,
+      "missing_has_signal_snapshot": 0,
+      "missing_has_tf_stack": 0,
+      "missing_has_mfe_mae": 0,
+      "missing_has_exit_reason": 0,
+      "missing_rate_has_entry_path": 0.0,
+      "missing_rate_has_signal_snapshot": 0.0,
+      "missing_rate_has_tf_stack": 0.0,
+      "missing_rate_has_mfe_mae": 0.0,
       "missing_rate_has_exit_reason": 0.0
     },
     {

@@ -1,5 +1,5 @@
 {
-  "generated_at_utc": "2026-03-24T22:19:07.494266+00:00",
+  "generated_at_utc": "2026-03-25T10:17:56.148876+00:00",
   "window": {
     "start_date": "2025-07-31",
     "end_date": "2025-08-01",
@@ -19,35 +19,33 @@
         {
           "date": "2025-07-31",
           "scored": 316,
-          "tradesCreated": 3,
-          "totalTrades": 3,
+          "tradesCreated": 2,
+          "totalTrades": 2,
           "errorsCount": 0
         },
         {
           "date": "2025-08-01",
           "scored": 316,
           "tradesCreated": 0,
-          "totalTrades": 3,
+          "totalTrades": 2,
           "errorsCount": 0
         }
       ],
       "summary": {
-        "trade_count_total": 6,
-        "trade_count_closed": 3,
-        "trade_count_open": 3,
+        "trade_count_total": 4,
+        "trade_count_closed": 2,
+        "trade_count_open": 2,
         "wins": 0,
-        "losses": 3,
+        "losses": 2,
         "flats": 0,
         "win_rate_closed": 0.0,
-        "realized_pnl": -945.7784,
+        "realized_pnl": -597.3122,
         "exit_class_counts": {
-          "other": 2,
-          "loss_protect": 1
+          "other": 2
         },
         "ticker_counts": {
-          "ORCL": 2,
-          "CDNS": 2,
-          "CSX": 2
+          "CSX": 2,
+          "ORCL": 2
         }
       }
     },
@@ -58,35 +56,33 @@
         {
           "date": "2025-07-31",
           "scored": 316,
-          "tradesCreated": 3,
-          "totalTrades": 3,
+          "tradesCreated": 2,
+          "totalTrades": 2,
           "errorsCount": 0
         },
         {
           "date": "2025-08-01",
           "scored": 316,
           "tradesCreated": 0,
-          "totalTrades": 3,
+          "totalTrades": 2,
           "errorsCount": 0
         }
       ],
       "summary": {
-        "trade_count_total": 6,
-        "trade_count_closed": 3,
-        "trade_count_open": 3,
+        "trade_count_total": 4,
+        "trade_count_closed": 2,
+        "trade_count_open": 2,
         "wins": 0,
-        "losses": 3,
+        "losses": 2,
         "flats": 0,
         "win_rate_closed": 0.0,
-        "realized_pnl": -945.7784,
+        "realized_pnl": -597.3122,
         "exit_class_counts": {
-          "other": 2,
-          "loss_protect": 1
+          "other": 2
         },
         "ticker_counts": {
-          "ORCL": 2,
-          "CDNS": 2,
-          "CSX": 2
+          "CSX": 2,
+          "ORCL": 2
         }
       }
     }

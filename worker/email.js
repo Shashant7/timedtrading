@@ -456,7 +456,7 @@ function humanizeEmailExitReason(raw) {
 }
 
 export async function sendTradeAlertEmail(env, userEmail, alert) {
-  const { type, ticker, direction, price, rank, rr, pnlPct, exitReason, status } = alert;
+  const { type, ticker, direction, price, rank, rr, pnlPct, exitReason, status, mode } = alert;
   const baseUrl = env?.WORKER_URL || "https://timed-trading.com";
   const unsubscribeUrl = env?.EMAIL_HMAC_SECRET
     ? await buildUnsubscribeUrl(baseUrl, userEmail, "trade_alerts", env.EMAIL_HMAC_SECRET)
@@ -468,7 +468,8 @@ export async function sendTradeAlertEmail(env, userEmail, alert) {
 
   const dir = String(direction || "").toUpperCase();
   const dirColor = dir === "LONG" ? "#10b981" : dir === "SHORT" ? "#f43f5e" : BRAND.textSecondary;
-  const typeLabel = isEntry ? "New Entry" : isExit ? "Position Closed" : "Position Trimmed";
+  const scopeLabel = String(mode || "").toLowerCase() === "investor" ? "Investor " : "";
+  const typeLabel = `${scopeLabel}${isEntry ? "New Entry" : isExit ? "Position Closed" : "Position Trimmed"}`;
   const priceFmt = Number(price) > 0 ? `$${Number(price).toFixed(2)}` : "N/A";
 
   let detailRows = "";

@@ -1,39 +1,39 @@
 {
-  "generated_at_utc": "2026-03-24T22:15:03.308136+00:00",
-  "runs_scanned": 163,
-  "runs_with_data": 144,
-  "row_count": 6686,
+  "generated_at_utc": "2026-03-25T10:15:06.210543+00:00",
+  "runs_scanned": 182,
+  "runs_with_data": 160,
+  "row_count": 7065,
   "unique_tickers": 211,
   "status_counts": {
-    "WIN": 2760,
-    "LOSS": 2675,
+    "WIN": 2971,
+    "LOSS": 2831,
     "FLAT": 407,
-    "OPEN": 701,
-    "TP_HIT_TRIM": 136,
+    "OPEN": 704,
+    "TP_HIT_TRIM": 145,
     "": 1,
     "ARCHIVED": 6
   },
   "exit_class_counts": {
-    "other": 4038,
-    "loss_protect": 1827,
+    "other": 4309,
+    "loss_protect": 1832,
     "tp_full": 188,
     "regime_reversal": 225,
-    "fuse": 238,
+    "fuse": 329,
     "trim_related": 19,
-    "unknown": 151
+    "unknown": 163
   },
   "top_tickers": [
     [
+      "FIX",
+      272
+    ],
+    [
       "CAT",
-      202
+      260
     ],
     [
       "ULTA",
-      181
-    ],
-    [
-      "FIX",
-      171
+      226
     ],
     [
       "H",
@@ -54,6 +54,14 @@
     [
       "AAPL",
       140
+    ],
+    [
+      "RBLX",
+      131
+    ],
+    [
+      "ETN",
+      123
     ],
     [
       "COST",
@@ -114,32 +122,24 @@
     [
       "ORCL",
       68
-    ],
-    [
-      "ETN",
-      68
-    ],
-    [
-      "KO",
-      68
     ]
   ],
   "top_sectors": [
     [
       "Industrials",
-      2076
+      2290
+    ],
+    [
+      "Consumer Discretionary",
+      1345
     ],
     [
       "Information Technology",
       1340
     ],
     [
-      "Consumer Discretionary",
-      1196
-    ],
-    [
       "Consumer Staples",
-      543
+      559
     ],
     [
       "Basic Materials",
@@ -348,6 +348,10 @@
       41
     ],
     [
+      "focused-iter5-pinned-clean-july-hlc350-20260325--20260325-040140",
+      41
+    ],
+    [
       "paragon-legacy-dynamic-v4--20260321-212405",
       41
     ],
@@ -368,31 +372,27 @@
       38
     ],
     [
-      "july-rsi-posttrim-v1--20260305-212137",
+      "focused-iter5-pinned-clean-july-10mfix-20260325--20260325-034349",
       38
     ],
     [
-      "variant-b-guarded--20260312-081509",
-      36
+      "focused-iter5-pinned-clean-july-ltf30-20260325--20260325-035323",
+      38
     ],
     [
-      "phase-osc-v1--20260312-221824",
-      34
+      "focused-iter5-pinned-clean-july-postfix-20260325--20260325-043424",
+      38
     ],
     [
-      "15m-july-canonical-restored-baseline--20260311-140711",
-      33
-    ],
-    [
-      "locked-validation-v3-targeted-promotion--20260323-105316",
-      33
+      "july-rsi-posttrim-v1--20260305-212137",
+      38
     ]
   ],
   "lineage_missing_rates": {
-    "has_entry_path": 0.4366,
-    "has_signal_snapshot": 0.4426,
-    "has_tf_stack": 0.4426,
-    "has_mfe_mae": 0.6017,
-    "has_exit_reason": 0.0226
+    "has_entry_path": 0.415,
+    "has_signal_snapshot": 0.4207,
+    "has_tf_stack": 0.4207,
+    "has_mfe_mae": 0.5713,
+    "has_exit_reason": 0.0231
   }
 }

@@ -59,9 +59,15 @@ export async function d1EnsureBriefSchema(env) {
         id TEXT PRIMARY KEY,
         date TEXT NOT NULL,
         event_type TEXT NOT NULL,
+        event_key TEXT,
         event_name TEXT NOT NULL,
         ticker TEXT,
         impact TEXT,
+        source TEXT,
+        status TEXT,
+        scheduled_ts INTEGER,
+        scheduled_time_et TEXT,
+        session TEXT,
         actual TEXT,
         estimate TEXT,
         previous TEXT,
@@ -75,6 +81,14 @@ export async function d1EnsureBriefSchema(env) {
     await db.prepare(`CREATE INDEX IF NOT EXISTS idx_mkt_events_date ON market_events (date)`).run();
     await db.prepare(`CREATE INDEX IF NOT EXISTS idx_mkt_events_type ON market_events (event_type, date)`).run();
     await db.prepare(`CREATE INDEX IF NOT EXISTS idx_mkt_events_ticker ON market_events (ticker, date)`).run();
+    await db.prepare(`CREATE INDEX IF NOT EXISTS idx_mkt_events_key ON market_events (event_key, date)`).run();
+    await db.prepare(`CREATE INDEX IF NOT EXISTS idx_mkt_events_schedule ON market_events (status, scheduled_ts)`).run();
+    try { await db.prepare(`ALTER TABLE market_events ADD COLUMN event_key TEXT`).run(); } catch {}
+    try { await db.prepare(`ALTER TABLE market_events ADD COLUMN source TEXT`).run(); } catch {}
+    try { await db.prepare(`ALTER TABLE market_events ADD COLUMN status TEXT`).run(); } catch {}
+    try { await db.prepare(`ALTER TABLE market_events ADD COLUMN scheduled_ts INTEGER`).run(); } catch {}
+    try { await db.prepare(`ALTER TABLE market_events ADD COLUMN scheduled_time_et TEXT`).run(); } catch {}
+    try { await db.prepare(`ALTER TABLE market_events ADD COLUMN session TEXT`).run(); } catch {}
     // Crypto leading indicators (BTC leads SPY/QQQ, ETH leads IWM/Financials)
     try { await db.prepare(`ALTER TABLE daily_market_snapshots ADD COLUMN btc_pct REAL`).run(); } catch {}
     try { await db.prepare(`ALTER TABLE daily_market_snapshots ADD COLUMN eth_pct REAL`).run(); } catch {}
@@ -170,7 +184,7 @@ export async function persistDailyMarketSnapshot(env, data, priceFeed, esPredict
 }
 
 /**
- * Persist high-impact economic events and resolved earnings for episodic recall.
+ * Persist scheduled and resolved macro/earnings events for replay/live risk lookup.
  * Called from generateDailyBrief() after the brief text is stored.
  */
 export async function persistMarketEvents(env, data, priceFeed) {
@@ -182,19 +196,49 @@ export async function persistMarketEvents(env, data, priceFeed) {
   const spyPct = Number(pf["SPY"]?.dp) || Number(data.market?.SPY?.day_change_pct) || 0;
   const stmts = [];
 
-  const econEvents = (data.todayEconomicEvents || []).filter(e => e.impact === "high" || e.impact === "medium");
-  for (const e of econEvents.slice(0, 10)) {
+  const econEvents = [
+    ...(data.yesterdayEconomicEvents || []),
+    ...(data.todayEconomicEvents || []),
+    ...(data.economicEvents || []),
+  ].filter(e => e.impact === "high" || e.impact === "medium");
+  const econById = new Map();
+  for (const e of econEvents) {
+    const dateKey = String(e?.date || data.today).slice(0, 10);
     const name = (e.event || "").trim();
     if (!name) continue;
-    const id = `${data.today}:${name.replace(/\s+/g, "_").slice(0, 40)}`;
+    const id = `${dateKey}:${name.replace(/\s+/g, "_").slice(0, 40)}`;
+    econById.set(id, { ...(econById.get(id) || {}), ...e, _dateKey: dateKey, _name: name });
+  }
+  for (const e of econById.values()) {
+    const eventKey = classifyMarketEventKey(e._name, "macro");
+    const schedule = buildScheduledEventMeta({
+      dateKey: e._dateKey,
+      timeHint: e.time || (e.date || "").slice(11),
+      eventKey,
+      eventType: "macro",
+      hasActual: e.actual != null && String(e.actual).trim() !== "",
+    });
+    const id = `${e._dateKey}:${e._name.replace(/\s+/g, "_").slice(0, 40)}`;
     stmts.push(
       db.prepare(`
-        INSERT INTO market_events (id, date, event_type, event_name, ticker, impact, actual, estimate, previous, surprise_pct, spy_reaction_pct, sector_reaction_pct, brief_note, created_at)
-        VALUES (?1,?2,?3,?4,NULL,?5,?6,?7,?8,?9,?10,NULL,NULL,?11)
-        ON CONFLICT(id) DO UPDATE SET actual=excluded.actual, estimate=excluded.estimate, previous=excluded.previous,
-          surprise_pct=excluded.surprise_pct, spy_reaction_pct=excluded.spy_reaction_pct
+        INSERT INTO market_events (id, date, event_type, event_key, event_name, ticker, impact, source, status, scheduled_ts, scheduled_time_et, session, actual, estimate, previous, surprise_pct, spy_reaction_pct, sector_reaction_pct, brief_note, created_at)
+        VALUES (?1,?2,?3,?4,?5,NULL,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,NULL,NULL,?17)
+        ON CONFLICT(id) DO UPDATE SET
+          event_key=excluded.event_key,
+          impact=excluded.impact,
+          source=excluded.source,
+          status=excluded.status,
+          scheduled_ts=excluded.scheduled_ts,
+          scheduled_time_et=excluded.scheduled_time_et,
+          session=excluded.session,
+          actual=excluded.actual,
+          estimate=excluded.estimate,
+          previous=excluded.previous,
+          surprise_pct=excluded.surprise_pct,
+          spy_reaction_pct=excluded.spy_reaction_pct
       `).bind(
-        id, data.today, "macro", name, e.impact || "medium",
+        id, e._dateKey, "macro", eventKey, e._name, e.impact || "medium",
+        "daily_brief_econ", schedule.status, schedule.scheduledTs, schedule.scheduledTimeEt, schedule.session,
         e.actual || null, e.estimate || null, e.prev || null,
         e.actual && e.estimate ? parseSurprise(e.actual, e.estimate) : null,
         spyPct, Date.now()
@@ -202,25 +246,50 @@ export async function persistMarketEvents(env, data, priceFeed) {
     );
   }
 
-  const todayEarnings = data.todayEarnings || [];
-  for (const e of todayEarnings.slice(0, 20)) {
+  const earningsEvents = [...(data.weekEarnings || []), ...(data.todayEarnings || [])];
+  const earningsById = new Map();
+  for (const e of earningsEvents) {
     const sym = (e.symbol || "").toUpperCase().trim();
     if (!sym) continue;
-    const id = `${data.today}:${sym}:earnings`;
+    const dateKey = String(e?.date || data.today).slice(0, 10);
+    const id = `${dateKey}:${sym}:earnings`;
+    earningsById.set(id, { ...(earningsById.get(id) || {}), ...e, _dateKey: dateKey, _sym: sym });
+  }
+  for (const e of Array.from(earningsById.values()).slice(0, 60)) {
+    const id = `${e._dateKey}:${e._sym}:earnings`;
     const epsActual = Number(e.epsActual) || null;
     const epsEst = Number(e.epsEstimate) || null;
     const surprise = (epsActual != null && epsEst != null && epsEst !== 0)
       ? Math.round(((epsActual - epsEst) / Math.abs(epsEst)) * 10000) / 100
       : null;
     const sectorEtf = pf[e._sectorEtf]?.dp || null;
+    const schedule = buildScheduledEventMeta({
+      dateKey: e._dateKey,
+      timeHint: e.hour,
+      eventKey: "EARNINGS",
+      eventType: "earnings",
+      hasActual: epsActual != null,
+    });
     stmts.push(
       db.prepare(`
-        INSERT INTO market_events (id, date, event_type, event_name, ticker, impact, actual, estimate, previous, surprise_pct, spy_reaction_pct, sector_reaction_pct, brief_note, created_at)
-        VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,NULL,?13)
-        ON CONFLICT(id) DO UPDATE SET actual=excluded.actual, estimate=excluded.estimate,
-          surprise_pct=excluded.surprise_pct, spy_reaction_pct=excluded.spy_reaction_pct, sector_reaction_pct=excluded.sector_reaction_pct
+        INSERT INTO market_events (id, date, event_type, event_key, event_name, ticker, impact, source, status, scheduled_ts, scheduled_time_et, session, actual, estimate, previous, surprise_pct, spy_reaction_pct, sector_reaction_pct, brief_note, created_at)
+        VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,NULL,?19)
+        ON CONFLICT(id) DO UPDATE SET
+          event_key=excluded.event_key,
+          impact=excluded.impact,
+          source=excluded.source,
+          status=excluded.status,
+          scheduled_ts=excluded.scheduled_ts,
+          scheduled_time_et=excluded.scheduled_time_et,
+          session=excluded.session,
+          actual=excluded.actual,
+          estimate=excluded.estimate,
+          surprise_pct=excluded.surprise_pct,
+          spy_reaction_pct=excluded.spy_reaction_pct,
+          sector_reaction_pct=excluded.sector_reaction_pct
       `).bind(
-        id, data.today, "earnings", `${sym} Earnings`, sym, "high",
+        id, e._dateKey, "earnings", "EARNINGS", `${e._sym} Earnings`, e._sym, "high",
+        "daily_brief_earnings", schedule.status, schedule.scheduledTs, schedule.scheduledTimeEt, schedule.session,
         epsActual != null ? `$${epsActual} EPS` : null,
         epsEst != null ? `$${epsEst} EPS` : null,
         null, surprise, spyPct, sectorEtf != null ? Number(sectorEtf) : null, Date.now()
@@ -235,6 +304,124 @@ export async function persistMarketEvents(env, data, priceFeed) {
   } catch (e) {
     console.warn("[DAILY BRIEF] Failed to persist market events:", String(e).slice(0, 200));
   }
+}
+
+const MACRO_EVENT_DEFAULT_TIME_ET = {
+  CPI: "08:30",
+  PPI: "08:30",
+  PCE: "08:30",
+  NFP: "08:30",
+  FOMC: "14:00",
+};
+
+function classifyMarketEventKey(eventName, eventType = "macro") {
+  if (eventType === "earnings") return "EARNINGS";
+  const name = String(eventName || "").toUpperCase();
+  if (!name) return "OTHER";
+  if (name.includes("CPI") || name.includes("CONSUMER PRICE INDEX")) return "CPI";
+  if (name.includes("PPI") || name.includes("PRODUCER PRICE INDEX")) return "PPI";
+  if (name.includes("FOMC") || name.includes("FEDERAL RESERVE")) return "FOMC";
+  if (name.includes("PCE") || name.includes("PERSONAL CONSUMPTION")) return "PCE";
+  if (name.includes("NFP") || name.includes("NONFARM PAYROLL") || name.includes("NON-FARM PAYROLL")) return "NFP";
+  return eventType === "macro" ? "OTHER_MACRO" : "OTHER";
+}
+
+function parseClockTimeToMinutesEt(raw, fallbackLabel = "") {
+  const label = String(raw || fallbackLabel || "").trim().toLowerCase();
+  if (!label) return null;
+  if (label === "bmo" || label.includes("before market open") || label.includes("pre-market")) return 8 * 60;
+  if (label === "amc" || label.includes("after market close") || label.includes("after-hours")) return 16 * 60 + 5;
+  if (label.includes("tentative") || label.includes("all day")) return null;
+  let match = label.match(/(\d{1,2}):(\d{2})\s*([ap]m)?/i);
+  if (match) {
+    let hour = Number(match[1]);
+    const minute = Number(match[2]);
+    const suffix = String(match[3] || "").toLowerCase();
+    if (suffix === "pm" && hour < 12) hour += 12;
+    if (suffix === "am" && hour === 12) hour = 0;
+    if (hour >= 0 && hour <= 23 && minute >= 0 && minute <= 59) return hour * 60 + minute;
+  }
+  match = label.match(/\b(\d{2})(\d{2})\b/);
+  if (match) {
+    const hour = Number(match[1]);
+    const minute = Number(match[2]);
+    if (hour >= 0 && hour <= 23 && minute >= 0 && minute <= 59) return hour * 60 + minute;
+  }
+  return null;
+}
+
+function formatMinutesEt(mins) {
+  if (!Number.isFinite(mins)) return null;
+  const hour = Math.max(0, Math.min(23, Math.floor(mins / 60)));
+  const minute = Math.max(0, Math.min(59, mins % 60));
+  return `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+}
+
+function classifyEventSession(mins, explicitHint = "") {
+  const hint = String(explicitHint || "").trim().toLowerCase();
+  if (hint === "bmo" || hint.includes("before market open")) return "bmo";
+  if (hint === "amc" || hint.includes("after market close")) return "amc";
+  if (!Number.isFinite(mins)) return "unknown";
+  if (mins < 9 * 60 + 30) return "premarket";
+  if (mins < 16 * 60) return "rth";
+  return "afterhours";
+}
+
+function tzOffsetMs(ts, timeZone) {
+  const d = new Date(Number(ts));
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    hour12: false,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  }).formatToParts(d);
+  const map = {};
+  for (const p of parts) if (p.type !== "literal") map[p.type] = p.value;
+  const asIso = `${map.year}-${map.month}-${map.day}T${map.hour}:${map.minute}:${map.second}Z`;
+  const wallAsUtc = Date.parse(asIso);
+  return wallAsUtc - Number(ts);
+}
+
+function nyWallTimeToUtcMs(dayKey, hh = 0, mm = 0, ss = 0) {
+  if (!dayKey) return null;
+  const H = String(Math.max(0, Math.min(23, Number(hh) || 0))).padStart(2, "0");
+  const M = String(Math.max(0, Math.min(59, Number(mm) || 0))).padStart(2, "0");
+  const S = String(Math.max(0, Math.min(59, Number(ss) || 0))).padStart(2, "0");
+  const t0 = Date.parse(`${dayKey}T${H}:${M}:${S}Z`);
+  if (!Number.isFinite(t0)) return null;
+  let ts = t0;
+  for (let i = 0; i < 3; i++) {
+    const off = tzOffsetMs(ts, "America/New_York");
+    const next = t0 - off;
+    if (!Number.isFinite(next)) break;
+    if (Math.abs(next - ts) < 1000) {
+      ts = next;
+      break;
+    }
+    ts = next;
+  }
+  return ts;
+}
+
+function buildScheduledEventMeta({ dateKey, timeHint, eventKey, eventType, hasActual }) {
+  const fallback = eventType === "earnings"
+    ? (String(timeHint || "").trim().toLowerCase() === "bmo" ? "08:00" : String(timeHint || "").trim().toLowerCase() === "amc" ? "16:05" : "")
+    : (MACRO_EVENT_DEFAULT_TIME_ET[eventKey] || "");
+  const mins = parseClockTimeToMinutesEt(timeHint, fallback);
+  const scheduledTimeEt = formatMinutesEt(mins) || (fallback || null);
+  const scheduledTs = Number.isFinite(mins)
+    ? nyWallTimeToUtcMs(dateKey, Math.floor(mins / 60), mins % 60, 0)
+    : null;
+  return {
+    scheduledTs,
+    scheduledTimeEt,
+    session: classifyEventSession(mins, timeHint),
+    status: hasActual ? "resolved" : "scheduled",
+  };
 }
 
 function parseSurprise(actual, estimate) {
