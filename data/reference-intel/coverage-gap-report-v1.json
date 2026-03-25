@@ -1,29 +1,29 @@
 {
-  "generated_at_utc": "2026-03-23T10:15:03.719076+00:00",
-  "canonical_closed_rows": 5786,
+  "generated_at_utc": "2026-03-24T22:15:03.619129+00:00",
+  "canonical_closed_rows": 5978,
   "reference_rows": 250,
   "coverage_map": {
     "canonical": {
       "sector": {
-        "Information Technology": 1196,
-        "Basic Materials": 296,
-        "Consumer Discretionary": 1011,
-        "Financials": 295,
+        "Information Technology": 1210,
+        "Basic Materials": 297,
+        "Consumer Discretionary": 1084,
+        "Financials": 296,
         "Crypto": 30,
         "Healthcare": 69,
-        "Industrials": 1805,
-        "Communication Services": 145,
+        "Industrials": 1869,
+        "Communication Services": 151,
         "ETF": 212,
         "Energy": 168,
-        "Consumer Staples": 439,
+        "Consumer Staples": 469,
         "Health Care": 59,
-        "Precious Metals": 45,
+        "Precious Metals": 48,
         "unknown": 4,
         "Commodity ETF": 12
       },
       "direction": {
-        "LONG": 4925,
-        "SHORT": 861
+        "LONG": 5097,
+        "SHORT": 881
       },
       "month": {
         "unknown": 1650,
@@ -33,36 +33,36 @@
         "2025-11": 206,
         "2025-10": 241,
         "2025-09": 339,
-        "2025-08": 526,
-        "2025-07": 2149,
+        "2025-08": 561,
+        "2025-07": 2306,
         "2026-03": 46
       },
       "exit_class": {
-        "other": 3277,
-        "loss_protect": 1824,
+        "other": 3463,
+        "loss_protect": 1826,
         "tp_full": 188,
-        "regime_reversal": 222,
-        "fuse": 237,
+        "regime_reversal": 225,
+        "fuse": 238,
         "trim_related": 19,
         "unknown": 19
       },
       "entry_path": {
-        "unknown": 2118,
+        "unknown": 2224,
         "ripster_momentum": 1350,
         "ripster_pullback": 285,
-        "ema_regime_confirmed_long": 1623,
-        "ema_regime_confirmed_short": 169,
+        "ema_regime_confirmed_long": 1648,
+        "ema_regime_confirmed_short": 179,
         "gold_short_pullback_deep": 75,
         "breakout_atr_breakout_long": 1,
         "ema_regime_early_long": 120,
         "ema_regime_early_short": 5,
         "gold_short_pullback": 14,
         "breakout_ema_stack_short": 1,
-        "momentum_score_short": 1,
-        "tt_momentum": 16,
-        "tt_pullback": 3,
+        "momentum_score_short": 2,
+        "tt_momentum": 23,
+        "tt_pullback": 4,
         "gold_short_corridor": 3,
-        "momentum_score": 2
+        "momentum_score": 44
       }
     },
     "reference": {
@@ -99,19 +99,19 @@
       }
     },
     "reference_to_canonical_sector_ratio": {
-      "Information Technology": 0.046,
-      "Basic Materials": 0.1081,
-      "Consumer Discretionary": 0.0386,
-      "Financials": 0.0339,
+      "Information Technology": 0.0455,
+      "Basic Materials": 0.1077,
+      "Consumer Discretionary": 0.036,
+      "Financials": 0.0338,
       "Crypto": 0.0333,
       "Healthcare": 0.087,
-      "Industrials": 0.0305,
-      "Communication Services": 0.069,
+      "Industrials": 0.0294,
+      "Communication Services": 0.0662,
       "ETF": 0.0236,
       "Energy": 0.0774,
-      "Consumer Staples": 0.0364,
+      "Consumer Staples": 0.0341,
       "Health Care": 0.0339,
-      "Precious Metals": 0.0444,
+      "Precious Metals": 0.0417,
       "unknown": 0.0,
       "Commodity ETF": 0.3333
     }
@@ -119,40 +119,40 @@
   "top_views": {
     "top_tickers_canonical": [
       [
-        "FIX",
-        166
+        "CAT",
+        180
       ],
       [
-        "CAT",
-        164
+        "FIX",
+        167
       ],
       [
         "ULTA",
-        157
+        163
       ],
       [
         "H",
-        153
+        157
       ],
       [
         "CSX",
-        134
+        141
+      ],
+      [
+        "AMZN",
+        132
       ],
       [
         "AAPL",
         130
       ],
       [
-        "AMZN",
-        123
+        "WMT",
+        118
       ],
       [
         "COST",
         106
-      ],
-      [
-        "WMT",
-        105
       ],
       [
         "TSLA",
@@ -160,10 +160,14 @@
       ],
       [
         "PH",
-        82
+        87
       ],
       [
         "HII",
+        82
+      ],
+      [
+        "EXPE",
         81
       ],
       [
@@ -172,11 +176,15 @@
       ],
       [
         "KLAC",
-        76
+        77
       ],
       [
         "ELF",
-        76
+        77
+      ],
+      [
+        "MNST",
+        75
       ],
       [
         "APP",
@@ -187,84 +195,76 @@
         73
       ],
       [
-        "PWR",
-        67
-      ],
-      [
         "BABA",
-        65
+        72
       ],
       [
-        "MNST",
-        64
-      ],
-      [
-        "EXPE",
-        63
-      ],
-      [
-        "DY",
-        63
+        "PWR",
+        68
       ],
       [
         "ETN",
-        62
+        65
+      ],
+      [
+        "DY",
+        65
+      ],
+      [
+        "DPZ",
+        63
       ],
       [
         "MLI",
         61
       ],
       [
+        "ORCL",
+        60
+      ],
+      [
         "NVDA",
         59
       ],
       [
-        "ORCL",
-        59
+        "ITT",
+        55
       ],
       [
-        "DPZ",
-        59
+        "CDNS",
+        54
+      ],
+      [
+        "AWI",
+        54
       ],
       [
         "GOOGL",
         53
       ],
       [
-        "ITT",
-        53
-      ],
-      [
-        "AWI",
-        53
-      ],
-      [
         "PLTR",
-        52
+        53
       ],
       [
         "GEV",
-        52
-      ],
-      [
-        "CDNS",
-        51
+        53
       ],
       [
         "CW",
         50
       ],
       [
-        "KO",
+        "ANET",
         50
       ],
       [
-        "ANET",
-        49
+        "MSFT",
+        50
       ],
       [
-        "MSFT",
-        49
+        "KO",
+        50
       ],
       [
         "XLC",
@@ -282,11 +282,11 @@
     "top_entry_path_canonical": [
       [
         "unknown",
-        2118
+        2224
       ],
       [
         "ema_regime_confirmed_long",
-        1623
+        1648
       ],
       [
         "ripster_momentum",
@@ -298,7 +298,7 @@
       ],
       [
         "ema_regime_confirmed_short",
-        169
+        179
       ],
       [
         "ema_regime_early_long",
@@ -309,8 +309,12 @@
         75
       ],
       [
+        "momentum_score",
+        44
+      ],
+      [
         "tt_momentum",
-        16
+        23
       ],
       [
         "gold_short_pullback",
@@ -322,14 +326,14 @@
       ],
       [
         "tt_pullback",
-        3
+        4
       ],
       [
         "gold_short_corridor",
         3
       ],
       [
-        "momentum_score",
+        "momentum_score_short",
         2
       ],
       [
@@ -339,40 +343,36 @@
       [
         "breakout_ema_stack_short",
         1
-      ],
-      [
-        "momentum_score_short",
-        1
       ]
     ],
     "top_sector_direction_canonical": [
       [
         "Industrials|LONG",
-        1715
+        1778
       ],
       [
         "Information Technology|LONG",
-        1037
+        1050
       ],
       [
         "Consumer Discretionary|LONG",
-        798
+        854
       ],
       [
         "Consumer Staples|LONG",
-        278
+        307
       ],
       [
         "Financials|LONG",
-        265
+        266
       ],
       [
         "Basic Materials|LONG",
-        250
+        251
       ],
       [
         "Consumer Discretionary|SHORT",
-        213
+        230
       ],
       [
         "ETF|LONG",
@@ -380,15 +380,15 @@
       ],
       [
         "Consumer Staples|SHORT",
-        161
+        162
       ],
       [
         "Information Technology|SHORT",
-        159
+        160
       ],
       [
         "Communication Services|LONG",
-        115
+        121
       ],
       [
         "Energy|LONG",
@@ -396,19 +396,19 @@
       ],
       [
         "Industrials|SHORT",
-        90
+        91
       ],
       [
         "Energy|SHORT",
         56
       ],
       [
-        "Basic Materials|SHORT",
-        46
+        "Precious Metals|LONG",
+        48
       ],
       [
-        "Precious Metals|LONG",
-        45
+        "Basic Materials|SHORT",
+        46
       ],
       [
         "Healthcare|LONG",
@@ -462,7 +462,7 @@
     "top_month_direction_canonical": [
       [
         "2025-07|LONG",
-        1953
+        2093
       ],
       [
         "unknown|LONG",
@@ -470,7 +470,7 @@
       ],
       [
         "2025-08|LONG",
-        472
+        504
       ],
       [
         "2025-09|LONG",
@@ -481,12 +481,12 @@
         296
       ],
       [
-        "2025-10|LONG",
-        208
+        "2025-07|SHORT",
+        213
       ],
       [
-        "2025-07|SHORT",
-        196
+        "2025-10|LONG",
+        208
       ],
       [
         "2026-02|LONG",
@@ -514,7 +514,7 @@
       ],
       [
         "2025-08|SHORT",
-        54
+        57
       ],
       [
         "2026-01|SHORT",
@@ -570,19 +570,15 @@
       },
       {
         "bucket": "momentum_score_short",
-        "count": 1
-      },
-      {
-        "bucket": "momentum_score",
         "count": 2
-      },
-      {
-        "bucket": "tt_pullback",
-        "count": 3
       },
       {
         "bucket": "gold_short_corridor",
         "count": 3
+      },
+      {
+        "bucket": "tt_pullback",
+        "count": 4
       },
       {
         "bucket": "ema_regime_early_short",

@@ -1,75 +1,75 @@
 {
-  "generated_at_utc": "2026-03-23T10:15:03.424737+00:00",
-  "runs_scanned": 153,
-  "runs_with_data": 137,
-  "row_count": 6494,
+  "generated_at_utc": "2026-03-24T22:15:03.308136+00:00",
+  "runs_scanned": 163,
+  "runs_with_data": 144,
+  "row_count": 6686,
   "unique_tickers": 211,
   "status_counts": {
-    "WIN": 2709,
-    "LOSS": 2622,
-    "FLAT": 320,
+    "WIN": 2760,
+    "LOSS": 2675,
+    "FLAT": 407,
     "OPEN": 701,
-    "TP_HIT_TRIM": 135,
+    "TP_HIT_TRIM": 136,
     "": 1,
     "ARCHIVED": 6
   },
   "exit_class_counts": {
-    "other": 3852,
-    "loss_protect": 1825,
+    "other": 4038,
+    "loss_protect": 1827,
     "tp_full": 188,
-    "regime_reversal": 222,
-    "fuse": 237,
+    "regime_reversal": 225,
+    "fuse": 238,
     "trim_related": 19,
     "unknown": 151
   },
   "top_tickers": [
     [
       "CAT",
-      186
+      202
     ],
     [
       "ULTA",
-      175
+      181
     ],
     [
       "FIX",
-      170
+      171
     ],
     [
       "H",
-      162
+      166
     ],
     [
       "AMZN",
-      149
+      158
     ],
     [
       "CSX",
-      142
+      149
+    ],
+    [
+      "WMT",
+      148
     ],
     [
       "AAPL",
       140
     ],
     [
-      "WMT",
-      135
-    ],
-    [
       "COST",
       118
     ],
     [
+      "PH",
+      101
+    ],
+    [
       "HII",
-      100
+      101
     ],
     [
       "TSLA",
       99
-    ],
-    [
-      "PH",
-      96
     ],
     [
       "APP",
@@ -81,10 +81,26 @@
     ],
     [
       "KLAC",
-      85
+      86
+    ],
+    [
+      "BABA",
+      84
+    ],
+    [
+      "EXPE",
+      81
+    ],
+    [
+      "MNST",
+      80
     ],
     [
       "ELF",
+      80
+    ],
+    [
+      "PWR",
       79
     ],
     [
@@ -92,62 +108,46 @@
       78
     ],
     [
-      "PWR",
-      78
-    ],
-    [
-      "BABA",
-      77
-    ],
-    [
       "DY",
-      71
+      73
     ],
     [
-      "MNST",
-      69
+      "ORCL",
+      68
+    ],
+    [
+      "ETN",
+      68
     ],
     [
       "KO",
       68
-    ],
-    [
-      "ORCL",
-      67
-    ],
-    [
-      "ETN",
-      65
-    ],
-    [
-      "NVDA",
-      64
     ]
   ],
   "top_sectors": [
     [
       "Industrials",
-      2012
+      2076
     ],
     [
       "Information Technology",
-      1326
+      1340
     ],
     [
       "Consumer Discretionary",
-      1123
+      1196
     ],
     [
       "Consumer Staples",
-      513
+      543
     ],
     [
       "Basic Materials",
-      343
+      344
     ],
     [
       "Financials",
-      328
+      329
     ],
     [
       "ETF",
@@ -159,7 +159,7 @@
     ],
     [
       "Communication Services",
-      162
+      168
     ],
     [
       "Healthcare",
@@ -171,7 +171,7 @@
     ],
     [
       "Precious Metals",
-      49
+      52
     ],
     [
       "Crypto",
@@ -312,6 +312,10 @@
       58
     ],
     [
+      "roadmap-runtime-smoke--20260323-071101",
+      56
+    ],
+    [
       "15m-backtest--20260310-081413",
       49
     ],
@@ -329,6 +333,10 @@
     ],
     [
       "calibrated-v5--20260315-213634",
+      44
+    ],
+    [
+      "locked-validation-v2--20260323-090109",
       44
     ],
     [
@@ -376,23 +384,15 @@
       33
     ],
     [
-      "phase1-4-gates-v3--20260312-215448",
-      32
-    ],
-    [
-      "calibration-seed-jul--20260310-120748",
-      31
-    ],
-    [
-      "phase2-tuned-v5--20260318-223511",
-      31
+      "locked-validation-v3-targeted-promotion--20260323-105316",
+      33
     ]
   ],
   "lineage_missing_rates": {
-    "has_entry_path": 0.4332,
-    "has_signal_snapshot": 0.4393,
-    "has_tf_stack": 0.4393,
-    "has_mfe_mae": 0.6032,
-    "has_exit_reason": 0.0233
+    "has_entry_path": 0.4366,
+    "has_signal_snapshot": 0.4426,
+    "has_tf_stack": 0.4426,
+    "has_mfe_mae": 0.6017,
+    "has_exit_reason": 0.0226
   }
 }

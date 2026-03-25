@@ -2794,6 +2794,29 @@ function _resolveScenarioExecutionPolicy(d, entryPath = null, policyObj = null) 
     eq(w.entry_path, c.entry_path)
   );
   if (hit) return hit;
+  const uniqueTickerDirectionFallback = () => {
+    const candidates = [];
+    for (const rules of [policy?.ticker_setup_rules, policy?.scenario_rules]) {
+      if (!Array.isArray(rules)) continue;
+      for (const rule of rules) {
+        if (!rule || typeof rule !== "object") continue;
+        const when = rule.when || {};
+        if (eq(when.ticker, ctx.ticker) && eq(when.direction, ctx.direction)) {
+          candidates.push(rule);
+        }
+      }
+    }
+    if (candidates.length !== 1) return null;
+    const rule = candidates[0];
+    return {
+      source: "scenario_policy_ticker_direction_fallback",
+      match: rule.when || {},
+      context: ctx,
+      recommend: rule.recommend || {},
+    };
+  };
+  hit = uniqueTickerDirectionFallback();
+  if (hit) return hit;
   hit = tryRules(policy?.context_defaults, (w, c) =>
     eq(w.direction, c.direction) &&
     eq(w.regime, c.regime) &&
@@ -2811,6 +2834,79 @@ function _resolveScenarioExecutionPolicy(d, entryPath = null, policyObj = null) 
   return null;
 }
 
+function _resolveTickerLearningPolicy(d, entryPath = null) {
+  const policy = d?._ticker_profile?.learning?.runtime_policy;
+  if (!policy || typeof policy !== "object") return null;
+  const ctx = _scenarioContextOf(d, entryPath);
+  const eqAny = (expected, actual) => {
+    const e = String(expected ?? "").trim().toLowerCase();
+    if (!e || e === "any") return true;
+    return e === String(actual ?? "").trim().toLowerCase();
+  };
+  const tryRules = (rules) => {
+    if (!Array.isArray(rules)) return null;
+    for (const rule of rules) {
+      if (!rule || typeof rule !== "object") continue;
+      const when = rule.when || {};
+      if (
+        eqAny(when.direction, ctx.direction) &&
+        eqAny(when.regime, ctx.regime) &&
+        eqAny(when.vix_bucket, ctx.vix_bucket) &&
+        eqAny(when.rvol_bucket, ctx.rvol_bucket) &&
+        eqAny(when.market_state, ctx.market_state)
+      ) {
+        return {
+          source: "ticker_learning_policy",
+          match: when,
+          context: ctx,
+          recommend: rule.recommend || null,
+          investor: policy.investor || null,
+        };
+      }
+    }
+    return null;
+  };
+  const hit = tryRules(policy.context_rules);
+  if (hit) return hit;
+  const direction = String(ctx.direction || "").toUpperCase();
+  const fallback = policy.defaults?.[direction] || null;
+  if (fallback) {
+    return {
+      source: "ticker_learning_policy_default",
+      match: { direction },
+      context: ctx,
+      recommend: fallback,
+      investor: policy.investor || null,
+    };
+  }
+  return null;
+}
+
+function _applyTickerLearningPolicyGuard(d, side, entryPath = null, learningPolicy = null) {
+  const policy = learningPolicy || _resolveTickerLearningPolicy(d, entryPath);
+  if (!policy?.recommend) return null;
+  const guard = String(policy.recommend.guard_bundle || "").toLowerCase();
+  const path = String(entryPath || d?.__entry_path || d?.entry_path || "").toLowerCase();
+  const hasReclaim = path.includes("reclaim") || path.includes("pullback") || path.includes("gold_");
+  const isOrbPath = path.includes("orb") || path.includes("breakout");
+  if ((guard === "reclaim_confirmation" || guard === "sweep_reclaim") && !hasReclaim) {
+    return { block: true, reason: "learning_policy_reclaim_required", learningPolicy: policy };
+  }
+  if (guard === "reversal_confirmation" && !hasReclaim) {
+    return { block: true, reason: "learning_policy_reversal_confirmation_required", learningPolicy: policy };
+  }
+  if (guard === "orb_defensive" && !isOrbPath) {
+    return { boost: -1, reason: "learning_policy_orb_defensive", learningPolicy: policy };
+  }
+  if (guard === "fragile_impulse") {
+    return { boost: -1, reason: "learning_policy_fragile_impulse", learningPolicy: policy };
+  }
+  if (guard === "trend_confirmed" && hasReclaim && side === "LONG") {
+    return { boost: 1, reason: "learning_policy_trend_confirmed", learningPolicy: policy };
+  }
+  return { boost: 0, learningPolicy: policy };
+}
+
 function _scenarioExitStyleTpFullOnly(trade, tickerData) {
   const style = String(trade?.scenario_policy?.recommend?.exit_style || trade?.scenario_policy_exit_style || "").toLowerCase();
   if (style === "tp_full_bias") return true;
@@ -2820,7 +2916,12 @@ function _scenarioExitStyleTpFullOnly(trade, tickerData) {
 }
 
 function resolveEntryEngine(d, rules, asOfTs = null, referenceMap = null) {
-  if (!rules) rules = _dynamicEngineRulesCache;
+  if (!rules) {
+    const envRules = (d && d._env && Object.prototype.hasOwnProperty.call(d._env, "_dynamicEngineRules"))
+      ? d._env._dynamicEngineRules
+      : undefined;
+    rules = envRules !== undefined ? envRules : _dynamicEngineRulesCache;
+  }
   const referenceResolution = _resolveReferenceExecution(d, asOfTs, referenceMap);
   if (referenceResolution?.entryEngine) {
     return {
@@ -2828,6 +2929,15 @@ function resolveEntryEngine(d, rules, asOfTs = null, referenceMap = null) {
       managementEngine: referenceResolution.managementEngine || resolveEngineMode(d?._env?._managementEngine),
       source: referenceResolution.source,
       reference: referenceResolution.reference || null,
+    };
+  }
+  const learningResolution = _resolveTickerLearningPolicy(d, null);
+  if (learningResolution?.recommend?.entry_engine) {
+    return {
+      engine: resolveEngineMode(learningResolution.recommend.entry_engine),
+      managementEngine: resolveEngineMode(learningResolution.recommend.management_engine) || resolveEngineMode(d?._env?._managementEngine),
+      source: learningResolution.source,
+      learningPolicy: learningResolution,
     };
   }
   const envFallback = resolveEngineMode(d?._env?._entryEngine);
@@ -3214,26 +3324,50 @@ function qualifiesForEnter(d, asOfTs = null) {
     _dispatched.selectedManagementEngine = engineResolution.managementEngine || resolveEngineMode(d?._env?._managementEngine);
     _dispatched.engineSource = engineResolution.source;
     if (engineResolution.reference) _dispatched.referenceExecution = engineResolution.reference;
+    if (engineResolution.learningPolicy) {
+      _dispatched.learningPolicy = engineResolution.learningPolicy;
+      d.__learning_policy = engineResolution.learningPolicy;
+      d.__learning_policy_source = engineResolution.learningPolicy?.source || "ticker_learning_policy";
+    }
     const _scenarioPolicy = _resolveScenarioExecutionPolicy(
       d,
       _dispatched.path || d?.__entry_path || null,
       d?._env?._scenarioExecutionPolicy || null
     );
+    const _learningPolicy = _resolveTickerLearningPolicy(
+      d,
+      _dispatched.path || d?.__entry_path || null
+    ) || engineResolution.learningPolicy || null;
     if (_scenarioPolicy) {
       _dispatched.scenarioPolicy = _scenarioPolicy;
       d.__scenario_policy = _scenarioPolicy;
       d.__scenario_policy_source = _scenarioPolicy?.source || "scenario_policy";
+    }
+    if (_learningPolicy) {
+      _dispatched.learningPolicy = _learningPolicy;
+      d.__learning_policy = _learningPolicy;
+      d.__learning_policy_source = _learningPolicy?.source || "ticker_learning_policy";
     }
     if (_dispatched.qualifies) {
       if (entryEngine === "tt_core") {
         const _ctxGateBlock = _applyContextGates(d, inferredSide, asOfTs, leadingLtfLabel);
         if (_ctxGateBlock) return _ctxGateBlock;
       }
+      const _learningPolicyGuard = _applyTickerLearningPolicyGuard(d, inferredSide, _dispatched.path || d?.__entry_path || null, _learningPolicy);
+      if (_learningPolicyGuard?.block) {
+        return { qualifies: false, reason: _learningPolicyGuard.reason, learningPolicy: _learningPolicyGuard.learningPolicy || _learningPolicy };
+      }
       const _enriched = enrichEntry(_dispatched, _ctx);
       _enriched.selectedEngine = entryEngine;
       _enriched.selectedManagementEngine = engineResolution.managementEngine || resolveEngineMode(d?._env?._managementEngine);
       _enriched.engineSource = engineResolution.source;
       if (engineResolution.reference) _enriched.referenceExecution = engineResolution.reference;
+      if (_learningPolicy) {
+        _enriched.learningPolicy = _learningPolicy;
+        _enriched.selectedManagementEngine = resolveEngineMode(_learningPolicy?.recommend?.management_engine) || _enriched.selectedManagementEngine;
+        d.__learning_policy = _learningPolicy;
+        d.__learning_policy_source = _learningPolicy?.source || "ticker_learning_policy";
+      }
       if (_scenarioPolicy) {
         _enriched.scenarioPolicy = _scenarioPolicy;
         _enriched.selectedManagementEngine = resolveEngineMode(_scenarioPolicy?.recommend?.management_engine) || _enriched.selectedManagementEngine;
@@ -3769,6 +3903,10 @@ function qualifiesForEnter(d, asOfTs = null) {
   const _learn = _tp?.learning || null;
   let learningBoost = 0;
   let learningContext = null;
+  const catBias = catWeeklyBiasAdjustment(d, inferredSide);
+  if (catBias?.block) {
+    return { qualifies: false, reason: catBias.reason, catBias: catBias.context };
+  }
 
   if (_learn && _learn.entry_params) {
     const dirProfile = inferredSide === "LONG" ? _learn.long_profile : _learn.short_profile;
@@ -3802,13 +3940,23 @@ function qualifiesForEnter(d, asOfTs = null) {
       learningBoost += 1;
     }
 
+    if (Number.isFinite(catBias?.boost) && catBias.boost !== 0) {
+      learningBoost += catBias.boost;
+    }
+
     learningContext = {
       personality: _learn.personality,
       trail_style: ep.trail_style,
       tp_mult: ep.tp_atr_mult,
       sl_mult: ep.sl_atr_mult,
       boost: learningBoost,
+      cat_bias: catBias?.context || null,
     };
+  } else if (catBias?.context) {
+    learningContext = { cat_bias: catBias.context, boost: Number.isFinite(catBias?.boost) ? catBias.boost : 0 };
+    if (Number.isFinite(catBias?.boost) && catBias.boost !== 0) {
+      learningBoost += catBias.boost;
+    }
   }
 
   // Apply learning boost to score (capped at ±4)
@@ -6460,6 +6608,73 @@ function ichimokuRegimeOk(tickerData, side) {
   return true;
 }
 
+function catWeeklyBiasAdjustment(tickerData, side) {
+  const ticker = String(tickerData?.ticker || "").toUpperCase();
+  if (ticker !== "CAT") return null;
+  const ep = tickerData?._ticker_profile?.learning?.entry_params;
+  if (!ep) return null;
+
+  const stW = Number(tickerData?.tf_tech?.W?.stDir);
+  const ichW = tickerData?.ichimoku_w || null;
+  const wPos = ichW?.position ? String(ichW.position).toLowerCase() : "";
+  const wScore = Number(ichW?.score);
+  const entryPath = String(tickerData?.__entry_path || tickerData?.entry_path || "").toLowerCase();
+  const pullbackPath = entryPath.includes("gold_long") || entryPath.includes("pullback") || entryPath.includes("reclaim");
+
+  const weeklyLongSt = Number(ep.weekly_st_aligned_pct_long);
+  const weeklyShortSt = Number(ep.weekly_st_aligned_pct_short);
+  const weeklyLongIch = Number(ep.weekly_ichimoku_aligned_pct_long);
+  const weeklyShortIch = Number(ep.weekly_ichimoku_aligned_pct_short);
+
+  const weeklyLongSupport = stW === -1 && wPos !== "below" && (!Number.isFinite(wScore) || wScore > -10);
+  const weeklyShortSupport = stW === 1 && wPos === "below" && (!Number.isFinite(wScore) || wScore <= -10);
+  const longTailwind = (Number.isFinite(weeklyLongIch) && weeklyLongIch >= 45) || (Number.isFinite(weeklyLongSt) && weeklyLongSt >= 55);
+  const shortFragile = (Number.isFinite(weeklyShortIch) && weeklyShortIch > 0 && weeklyShortIch < 25)
+    || (Number.isFinite(weeklyShortSt) && weeklyShortSt > 0 && weeklyShortSt < 35);
+
+  const context = {
+    ticker: "CAT",
+    weekly_st_dir: Number.isFinite(stW) ? stW : null,
+    weekly_ich_position: wPos || null,
+    weekly_ich_score: Number.isFinite(wScore) ? wScore : null,
+    learned_weekly_st_long: Number.isFinite(weeklyLongSt) ? weeklyLongSt : null,
+    learned_weekly_st_short: Number.isFinite(weeklyShortSt) ? weeklyShortSt : null,
+    learned_weekly_ich_long: Number.isFinite(weeklyLongIch) ? weeklyLongIch : null,
+    learned_weekly_ich_short: Number.isFinite(weeklyShortIch) ? weeklyShortIch : null,
+    pullback_path: pullbackPath,
+  };
+
+  if (side === "LONG") {
+    if (longTailwind && weeklyLongSupport) {
+      return {
+        boost: pullbackPath ? 3 : 2,
+        reason: "cat_weekly_bias_long_boost",
+        context: { ...context, weekly_support: true, long_tailwind: true },
+      };
+    }
+    return { boost: 0, context: { ...context, weekly_support: weeklyLongSupport, long_tailwind: longTailwind } };
+  }
+
+  if (side === "SHORT") {
+    if (shortFragile && !weeklyShortSupport) {
+      return {
+        block: true,
+        reason: "cat_weekly_bias_short_blocked",
+        context: { ...context, weekly_support: false, short_fragile: true },
+      };
+    }
+    if (shortFragile) {
+      return {
+        boost: -1,
+        reason: "cat_weekly_bias_short_penalty",
+        context: { ...context, weekly_support: true, short_fragile: true },
+      };
+    }
+  }
+
+  return { boost: 0, context };
+}
+
 function isLateCycle(tickerData) {
   const z = String(tickerData?.phase_zone || "").toUpperCase();
   const phase = Number(tickerData?.phase_pct) || 0;
@@ -8386,6 +8601,8 @@ function getEntryBlockers(ticker, tickerData, prevData) {
   if (ms?.status === "COMPLETED") blockers.push("move_completed");
 
   const inferredSide = side || sideFromStateOrScores(tickerData);
+  const catBias = catWeeklyBiasAdjustment(tickerData, inferredSide);
+  if (catBias?.block) blockers.push(catBias.reason);
   if (!dailyEmaRegimeOk(tickerData, inferredSide)) blockers.push("htf_regime_gate");
   if (!ichimokuRegimeOk(tickerData, inferredSide)) blockers.push("ichimoku_regime_gate");
   if (isLateCycle(tickerData) && !momentumElite) blockers.push("late_cycle");
@@ -8583,6 +8800,8 @@ function buildEntryDecision(ticker, tickerData, prevState) {
 
   // Phase 1: HTF regime gate + late-cycle disqualifier + pullback-only entry constraint
   const inferredSide = side || sideFromStateOrScores(tickerData);
+  const catBias = catWeeklyBiasAdjustment(tickerData, inferredSide);
+  if (catBias?.block) blockers.push(catBias.reason);
   if (!dailyEmaRegimeOk(tickerData, inferredSide))
     blockers.push("htf_regime_gate");
   if (!ichimokuRegimeOk(tickerData, inferredSide))
@@ -21746,6 +21965,29 @@ function buildTradeLineageSnapshot(tickerData, entryPathOverride = null) {
     }
     return Object.keys(out).length ? out : null;
   })();
+  const ichimokuSnapshot = (() => {
+    const tt = tickerData?.tf_tech;
+    if (!tt) return null;
+    const out = {};
+    for (const tf of ["W", "D", "4H", "1H", "30"]) {
+      const ich = tt[tf]?.ich;
+      if (!ich) continue;
+      out[tf] = {
+        pvc: ich.pvc || null,
+        cb: ich.cb ?? null,
+        tk: ich.tk ?? null,
+        xu: ich.xu ?? null,
+        xd: ich.xd ?? null,
+        ca: ich.ca ?? null,
+        ks: Number.isFinite(Number(ich.ks)) ? Number(ich.ks) : null,
+        tksp: Number.isFinite(Number(ich.tksp)) ? Number(ich.tksp) : null,
+        pt: Number.isFinite(Number(ich.pt)) ? Number(ich.pt) : null,
+        ct: Number.isFinite(Number(ich.ct)) ? Number(ich.ct) : null,
+        kw: ich.kw ?? null,
+      };
+    }
+    return Object.keys(out).length ? out : null;
+  })();
 
   // Ticker character evidence for traceability
   const tickerCharacter = tickerData?._ticker_profile
@@ -21782,6 +22024,7 @@ function buildTradeLineageSnapshot(tickerData, entryPathOverride = null) {
     selected_engine: tickerData?.__selected_engine || null,
     selected_management_engine: tickerData?.__selected_management_engine || null,
     engine_source: tickerData?.__engine_source || null,
+    learning_policy_source: tickerData?.__learning_policy_source || null,
     scenario_policy_source: _scenarioResolved?.source || tickerData?.__scenario_policy_source || null,
     state: tickerData?.state || null,
     regime_class: tickerData?.regime_class || null,
@@ -21794,10 +22037,20 @@ function buildTradeLineageSnapshot(tickerData, entryPathOverride = null) {
           context: _scenarioResolved.context || null,
         }
       : null,
+    learning_policy: tickerData?.__learning_policy
+      ? {
+          source: tickerData.__learning_policy.source || tickerData?.__learning_policy_source || null,
+          match: tickerData.__learning_policy.match || null,
+          recommend: tickerData.__learning_policy.recommend || null,
+          context: tickerData.__learning_policy.context || null,
+          investor: tickerData.__learning_policy.investor || null,
+        }
+      : null,
     execution_profile: executionProfile,
     market_internals: internals,
     ticker_character: tickerCharacter,
     ripster_clouds: ripsterClouds,
+    ichimoku: ichimokuSnapshot,
     vix_at_entry: Number.isFinite(Number(tickerData?._vix)) ? Number(tickerData._vix) : null,
     rvol: { "30m": rvol30, "1H": rvol1H, D: rvolD },
     entry_quality_score: Number.isFinite(Number(tickerData?.entry_quality?.score)) ? Number(tickerData.entry_quality.score) : null,
@@ -53325,6 +53578,36 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
 
         let allTrades = (await kvGetJSON(KV, "timed:trades:all")) || [];
         let tradesPurged = 0;
+        let replayTickerProfile = null;
+        try {
+          const db = env?.DB;
+          if (db) {
+            const profRow = await db.prepare(`
+              SELECT ticker, behavior_type, sl_mult, tp_mult, entry_threshold_adj, atr_pct_p50,
+                     trend_persistence, ichimoku_responsiveness, learning_json
+              FROM ticker_profiles WHERE ticker = ?1 LIMIT 1
+            `).bind(tickerParam).first();
+            if (profRow) {
+              replayTickerProfile = { ...profRow };
+              if (typeof profRow.learning_json === "string" && profRow.learning_json) {
+                try { replayTickerProfile.learning = JSON.parse(profRow.learning_json); } catch {}
+              }
+            }
+          }
+        } catch (e) {
+          console.warn(`[REPLAY-TICKER] profile load failed for ${tickerParam}:`, String(e?.message || e));
+        }
+        const replayTfConfigs = [
+          { tf: "W", limit: 100 }, { tf: "D", limit: 250 },
+          { tf: "240", limit: 250 }, { tf: "60", limit: 150 },
+          { tf: "30", limit: 100 }, { tf: "15", limit: 100 },
+          { tf: "10", limit: 100 }, { tf: "M", limit: 24 },
+        ];
+        const replayCandleCache = await d1GetCandlesAllTfs(env, tickerParam, replayTfConfigs, { beforeTs: tsEnd });
+        const getReplayCandlesCached = async (_env, _ticker, tf, _limit) => {
+          const tfKey = normalizeTfKey(tf);
+          return replayCandleCache[tfKey] || { ok: false, candles: [] };
+        };
         if (cleanSlate && rows.length > 0) {
           const kept = allTrades.filter((t) => {
             if (String(t?.ticker || "").toUpperCase() !== tickerParam) return true;
@@ -53357,7 +53640,37 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             payload.ts = rowTs;
             payload.ingest_ts = rowTs;
             const existingState = stateMap[ticker] || {};
-            const existingTs = Number(existingState?.ts ?? existingState?.ingest_ts);
+
+            // Rebuild full multi-timeframe context for facts-fallback rows so replay uses
+            // the same weekly/daily gating inputs as live scoring.
+            if (replaySource === "trail_5m_facts") {
+              try {
+                const replayExisting = { ...(existingState || {}) };
+                if (replayTickerProfile) replayExisting._tickerProfile = replayTickerProfile;
+                const scored = await computeServerSideScores(ticker, getReplayCandlesCached, env, replayExisting, { asOfTs: rowTs });
+                if (scored && typeof scored === "object") {
+                  const preserve = {
+                    price: payload.price,
+                    htf_score: payload.htf_score,
+                    ltf_score: payload.ltf_score,
+                    state: payload.state,
+                    rank: payload.rank,
+                    completion: payload.completion,
+                    phase_pct: payload.phase_pct,
+                    kanban_stage: payload.kanban_stage,
+                    flags: payload.flags,
+                    trigger_ts: payload.trigger_ts,
+                    trigger_reason: payload.trigger_reason,
+                    trigger_dir: payload.trigger_dir,
+                  };
+                  payload = { ...scored, ...preserve, ticker, ts: rowTs, ingest_ts: rowTs };
+                }
+              } catch (e) {
+                console.warn(`[REPLAY-TICKER] scoring fallback failed for ${ticker}@${rowTs}:`, String(e?.message || e).slice(0, 150));
+              }
+            }
+            const existingState2 = stateMap[ticker] || {};
+            const existingTs = Number(existingState2?.ts ?? existingState2?.ingest_ts);
             const isEarlierThanStored = !Number.isFinite(existingTs) || rowTs < existingTs;
             if (isEarlierThanStored) {
               payload.entry_ts = null;
@@ -53366,11 +53679,11 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
               payload.kanban_cycle_trigger_ts = null;
               payload.kanban_cycle_side = null;
             } else {
-              if (existingState?.entry_ts != null && payload.entry_ts == null) payload.entry_ts = Number(existingState.entry_ts);
-              if (existingState?.entry_price != null && payload.entry_price == null) payload.entry_price = Number(existingState.entry_price);
-              if (existingState?.kanban_cycle_enter_now_ts != null) payload.kanban_cycle_enter_now_ts = existingState.kanban_cycle_enter_now_ts;
-              if (existingState?.kanban_cycle_trigger_ts != null) payload.kanban_cycle_trigger_ts = existingState.kanban_cycle_trigger_ts;
-              if (existingState?.kanban_cycle_side != null) payload.kanban_cycle_side = existingState.kanban_cycle_side;
+              if (existingState2?.entry_ts != null && payload.entry_ts == null) payload.entry_ts = Number(existingState2.entry_ts);
+              if (existingState2?.entry_price != null && payload.entry_price == null) payload.entry_price = Number(existingState2.entry_price);
+              if (existingState2?.kanban_cycle_enter_now_ts != null) payload.kanban_cycle_enter_now_ts = existingState2.kanban_cycle_enter_now_ts;
+              if (existingState2?.kanban_cycle_trigger_ts != null) payload.kanban_cycle_trigger_ts = existingState2.kanban_cycle_trigger_ts;
+              if (existingState2?.kanban_cycle_side != null) payload.kanban_cycle_side = existingState2.kanban_cycle_side;
             }
             const openTrade = findOpenInArray(replayCtx.allTrades, ticker);
             if ((payload.entry_ts == null || payload.entry_price == null) && openTrade) {
@@ -53389,7 +53702,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             }
             payload.move_status = computeMoveStatus(payload);
             if (payload.flags) { payload.flags.move_invalidated = payload.move_status?.status === "INVALIDATED"; payload.flags.move_completed = payload.move_status?.status === "COMPLETED"; }
-            const prevStage = existingState?.kanban_stage;
+            const prevStage = existingState2?.kanban_stage;
             // Pass rowTs as asOfTs for replay-aware trigger freshness check
             const stage = classifyKanbanStage(payload, null, rowTs);
             let finalStage = stage;
@@ -53398,9 +53711,9 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             if (mgmt) {
               const curTriggerTs = Number(payload?.trigger_ts);
               const curSide = sideFromStateOrScores(payload);
-              const cycleEnterTs = Number(existingState?.kanban_cycle_enter_now_ts);
-              const cycleTrig = Number(existingState?.kanban_cycle_trigger_ts);
-              const cycleSide = existingState?.kanban_cycle_side != null ? String(existingState.kanban_cycle_side) : null;
+              const cycleEnterTs = Number(existingState2?.kanban_cycle_enter_now_ts);
+              const cycleTrig = Number(existingState2?.kanban_cycle_trigger_ts);
+              const cycleSide = existingState2?.kanban_cycle_side != null ? String(existingState2.kanban_cycle_side) : null;
               const sameTrig = Number.isFinite(curTriggerTs) && curTriggerTs > 0 && Number.isFinite(cycleTrig) && cycleTrig > 0 && cycleTrig === curTriggerTs;
               const cycleOk = Number.isFinite(cycleEnterTs) && cycleEnterTs > 0 && sameTrig && !!cycleSide && !!curSide && cycleSide === curSide;
               if (!Number.isFinite(curTriggerTs) || curTriggerTs <= 0) { finalStage = "watch"; if (!payload.flags) payload.flags = {}; payload.flags.forced_watch_missing_trigger = true; }
@@ -53411,9 +53724,9 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
               payload.kanban_cycle_trigger_ts = Number.isFinite(Number(payload?.trigger_ts)) && payload.trigger_ts > 0 ? payload.trigger_ts : null;
               payload.kanban_cycle_side = sideFromStateOrScores(payload);
             } else if (["hold", "just_entered", "defend", "trim", "exit"].includes(finalStage)) {
-              payload.kanban_cycle_enter_now_ts = existingState?.kanban_cycle_enter_now_ts ?? null;
-              payload.kanban_cycle_trigger_ts = existingState?.kanban_cycle_trigger_ts ?? null;
-              payload.kanban_cycle_side = existingState?.kanban_cycle_side ?? null;
+              payload.kanban_cycle_enter_now_ts = existingState2?.kanban_cycle_enter_now_ts ?? null;
+              payload.kanban_cycle_trigger_ts = existingState2?.kanban_cycle_trigger_ts ?? null;
+              payload.kanban_cycle_side = existingState2?.kanban_cycle_side ?? null;
             } else {
               payload.kanban_cycle_enter_now_ts = null;
               payload.kanban_cycle_trigger_ts = null;
@@ -53427,7 +53740,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
               const price = Number(payload?.price);
               if (Number.isFinite(price) && price > 0) { payload.entry_price = price; payload.entry_ts = rowTs; }
             }
-            if (finalStage && existingState?.entry_price) { payload.entry_price = existingState.entry_price; payload.entry_ts = existingState.entry_ts; }
+            if (finalStage && existingState2?.entry_price) { payload.entry_price = existingState2.entry_price; payload.entry_ts = existingState2.entry_ts; }
             payload.kanban_stage = finalStage;
             payload.kanban_meta = deriveKanbanMeta(payload, finalStage);
             laneCounts[finalStage || "null"] = (laneCounts[finalStage || "null"] || 0) + 1;
@@ -53464,7 +53777,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
               });
             }
             const replayEnvD1 = { ...env, DISCORD_ENABLE: "false", DISCORD_WEBHOOK_URL: null, EMAIL_ENABLED: "false", SENDGRID_API_KEY: null };
-            await processTradeSimulation(KV, ticker, payload, existingState, replayEnvD1, { forceUseIngestTs: true, replayBatchContext: replayCtx, asOfTs: rowTs });
+            await processTradeSimulation(KV, ticker, payload, existingState2, replayEnvD1, { forceUseIngestTs: true, replayBatchContext: replayCtx, asOfTs: rowTs });
             const countAfter = replayCtx.allTrades.filter((x) => String(x?.ticker).toUpperCase() === ticker).length;
             if (countAfter > countBefore) tradesCreated += countAfter - countBefore;
             if ((finalStage === "in_review" || finalStage === "enter" || finalStage === "enter_now") && replayCtx.debugEntries.length > 0 && replayCtx.debugEntries[replayCtx.debugEntries.length - 1].ts === rowTs) {

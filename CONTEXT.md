@@ -97,6 +97,7 @@ npm run deploy:worker   # worker only (skip right-rail)
 - Entry boost: RSI zone alignment (+2), EMA alignment (+2), personality adjust (±1), capped ±4
 - Continuous learning: `d1UpdateLearningOnClose()` adjusts SL/TP multipliers per trade outcome
 - UI: System Intelligence → Ticker Profiles tab; Trade Autopsy → Learning Profile card
+- `build-ticker-learning.js` must sanitize candle arrays before indicator/canonical enrichment: drop unreasonable future timestamps and trim each TF to `since` + bounded warmup so legacy manual-history outliers (for example `SPX`) do not blow up `slice(0, idx + 1)` costs.
 
 **Inspecting candles**
 - `TICKER=FIX DATE=2025-09-18 TIME=12:10 node scripts/inspect-candles.js` — API

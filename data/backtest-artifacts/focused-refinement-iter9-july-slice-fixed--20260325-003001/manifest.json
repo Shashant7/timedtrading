@@ -1,0 +1,14 @@
+{
+  "ok": true,
+  "type": "focused_replay",
+  "label": "refinement-iter9-july-slice-fixed",
+  "run_id": "focused_replay_20260325-003001@2026-03-25T04:30:02.096Z",
+  "tickers": "FIX"ETN"CELH"RBLX"ULTA"CAT"TJX",
+  "start_date": "2025-07-01",
+  "end_date": "2025-07-25",
+  "interval_min": 5,
+  "days_processed": 18,
+  "total_scored": 9954,
+  "total_trades": 28,
+  "captured_at": "20260325-003001"
+}

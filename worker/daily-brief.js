@@ -939,6 +939,7 @@ export async function gatherDailyBriefData(env, type, opts = {}) {
   let todayTradeExits = [];
   let todayTradeTrimsDefends = [];
   let investorPositions = [];
+  const investorProfileMap = {};
   if (db) {
     const todayStart = new Date(today + "T00:00:00Z").getTime();
     const todayEnd = todayStart + 86400000;
@@ -963,6 +964,22 @@ export async function gatherDailyBriefData(env, type, opts = {}) {
       todayTradeExits = (exitRes?.results || []).slice(0, 10);
       todayTradeTrimsDefends = (trimRes?.results || []).slice(0, 10);
       investorPositions = (investorRes?.results || []).slice(0, 20);
+      const investorTickers = [...new Set(investorPositions.map(p => String(p.ticker || '').toUpperCase()).filter(Boolean))];
+      if (investorTickers.length > 0) {
+        const inClause = investorTickers.map(t => `'${t.replace(/'/g, "''")}'`).join(',');
+        const profileRes = await db.prepare(`SELECT ticker, learning_json FROM ticker_profiles WHERE ticker IN (${inClause})`).all().catch(() => ({ results: [] }));
+        for (const row of profileRes?.results || []) {
+          let learning = null;
+          try { learning = typeof row.learning_json === 'string' ? JSON.parse(row.learning_json) : row.learning_json; } catch {}
+          if (!learning) continue;
+          investorProfileMap[String(row.ticker || '').toUpperCase()] = {
+            longArchetype: learning?.entry_params?.long_dominant_archetype || learning?.runtime_policy?.investor?.long_bias_archetype || null,
+            stance: learning?.runtime_policy?.investor?.stance || null,
+            addOn: learning?.runtime_policy?.investor?.add_on || null,
+            risk: learning?.runtime_policy?.investor?.risk || null,
+          };
+        }
+      }
     } catch (e) {
       console.error("[BRIEF] Error fetching trade events/investor positions:", e);
     }
@@ -1082,10 +1099,21 @@ export async function gatherDailyBriefData(env, type, opts = {}) {
       reason: e.reason,
     })),
     // Investor portfolio positions
-    investorPositions: investorPositions.map(p => ({
-      ticker: p.ticker, shares: p.total_shares, avgEntry: p.avg_entry,
-      costBasis: p.cost_basis, thesis: p.thesis, stage: p.investor_stage,
-    })),
+    investorPositions: investorPositions.map(p => {
+      const learned = investorProfileMap[String(p.ticker || '').toUpperCase()] || {};
+      return {
+        ticker: p.ticker,
+        shares: p.total_shares,
+        avgEntry: p.avg_entry,
+        costBasis: p.cost_basis,
+        thesis: p.thesis,
+        stage: p.investor_stage,
+        archetype: learned.longArchetype || null,
+        policy: learned.stance || null,
+        addOn: learned.addOn || null,
+        riskNote: learned.risk || null,
+      };
+    }),
     econNews: (finnhubEconNews || []).slice(0, 10),
     morningPrediction: morningBrief?.es_prediction || null,
     morningContent: type === "evening" ? (morningBrief?.content || "").slice(0, 1500) : null,
@@ -2056,7 +2084,7 @@ ${(data.investorPositions || []).length > 0
         const _dayPct = Number(_td.dp) || 0;
         const _price = Number(_td.p) || 0;
         const _unrealPct = (_price > 0 && p.avgEntry > 0) ? ((_price - p.avgEntry) / p.avgEntry * 100).toFixed(1) : null;
-        return `${p.ticker}: ${p.shares} shares @ avg $${p.avgEntry != null ? p.avgEntry.toFixed(2) : "N/A"} (Current: $${_price > 0 ? _price.toFixed(2) : "N/A"}, Today: ${_dayPct !== 0 ? (_dayPct >= 0 ? "+" : "") + _dayPct.toFixed(2) + "%" : "N/A"}, Total Return: ${_unrealPct ? (_unrealPct >= 0 ? "+" : "") + _unrealPct + "%" : "N/A"}, Stage: ${p.stage || "N/A"}${p.thesis ? `, Thesis: ${p.thesis.slice(0, 80)}` : ""})`;
+        return `${p.ticker}: ${p.shares} shares @ avg $${p.avgEntry != null ? p.avgEntry.toFixed(2) : "N/A"} (Current: $${_price > 0 ? _price.toFixed(2) : "N/A"}, Today: ${_dayPct !== 0 ? (_dayPct >= 0 ? "+" : "") + _dayPct.toFixed(2) + "%" : "N/A"}, Total Return: ${_unrealPct ? (_unrealPct >= 0 ? "+" : "") + _unrealPct + "%" : "N/A"}, Stage: ${p.stage || "N/A"}${p.archetype ? `, Archetype: ${p.archetype}` : ""}${p.policy ? `, Policy: ${p.policy}` : ""}${p.addOn ? `, Add-on: ${p.addOn}` : ""}${p.riskNote ? `, Risk: ${p.riskNote}` : ""}${p.thesis ? `, Thesis: ${p.thesis.slice(0, 80)}` : ""})`;
       }).join("\n")
     : "No investor positions."}
 
@@ -2246,7 +2274,7 @@ ${(data.investorPositions || []).length > 0
         const _dayPct = Number(_td.dp) || 0;
         const _price = Number(_td.p) || 0;
         const _unrealPct = (_price > 0 && p.avgEntry > 0) ? ((_price - p.avgEntry) / p.avgEntry * 100).toFixed(1) : null;
-        return `${p.ticker}: ${p.shares} shares @ avg $${p.avgEntry != null ? p.avgEntry.toFixed(2) : "N/A"} (Close: $${_price > 0 ? _price.toFixed(2) : "N/A"}, Today: ${_dayPct !== 0 ? (_dayPct >= 0 ? "+" : "") + _dayPct.toFixed(2) + "%" : "N/A"}, Total Return: ${_unrealPct ? (_unrealPct >= 0 ? "+" : "") + _unrealPct + "%" : "N/A"}, Stage: ${p.stage || "N/A"}${p.thesis ? `, Thesis: ${p.thesis.slice(0, 80)}` : ""})`;
+        return `${p.ticker}: ${p.shares} shares @ avg $${p.avgEntry != null ? p.avgEntry.toFixed(2) : "N/A"} (Close: $${_price > 0 ? _price.toFixed(2) : "N/A"}, Today: ${_dayPct !== 0 ? (_dayPct >= 0 ? "+" : "") + _dayPct.toFixed(2) + "%" : "N/A"}, Total Return: ${_unrealPct ? (_unrealPct >= 0 ? "+" : "") + _unrealPct + "%" : "N/A"}, Stage: ${p.stage || "N/A"}${p.archetype ? `, Archetype: ${p.archetype}` : ""}${p.policy ? `, Policy: ${p.policy}` : ""}${p.addOn ? `, Add-on: ${p.addOn}` : ""}${p.riskNote ? `, Risk: ${p.riskNote}` : ""}${p.thesis ? `, Thesis: ${p.thesis.slice(0, 80)}` : ""})`;
       }).join("\n")
     : "No investor positions."}
 

@@ -1,32 +1,32 @@
 {
-  "generated_at_utc": "2026-03-23T10:17:03.923529+00:00",
+  "generated_at_utc": "2026-03-24T22:19:07.498576+00:00",
   "overall_pass": true,
   "gates": [
     {
       "gate": "candidate_has_trades",
-      "value": 5,
+      "value": 6,
       "threshold": 1,
       "operator": ">=",
       "pass": true
     },
     {
       "gate": "candidate_pnl_not_materially_worse",
-      "value": 164.5899,
+      "value": 0.0,
       "threshold": -200.0,
       "operator": ">=",
       "pass": true
     },
     {
       "gate": "candidate_win_rate_not_materially_worse",
-      "value": 0.5,
+      "value": 0.0,
       "threshold": -0.25,
       "operator": ">=",
       "pass": true
     }
   ],
   "delta": {
-    "closed_trade_delta": 2,
-    "win_rate_delta": 0.5,
-    "realized_pnl_delta": 164.5899
+    "closed_trade_delta": 0,
+    "win_rate_delta": 0.0,
+    "realized_pnl_delta": 0.0
   }
 }

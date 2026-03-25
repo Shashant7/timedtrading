@@ -63,6 +63,15 @@ SNAPSHOT_TS=$(date "+%Y%m%d-%H%M%S")
 OUT_DIR="data/backtest-artifacts/focused-${RUN_LABEL}--${SNAPSHOT_TS}"
 mkdir -p "$OUT_DIR"
 
+REPLAY_LOCK=""
+
+cleanup() {
+  if [[ -n "$REPLAY_LOCK" ]]; then
+    curl -s -X DELETE "$API_BASE/timed/admin/replay-lock?key=$API_KEY" >/dev/null 2>&1 || true
+  fi
+}
+trap cleanup EXIT
+
 echo "╔══════════════════════════════════════════════════════╗"
 echo "║  Focused Replay"
 echo "║  Tickers: $TICKERS"
@@ -89,6 +98,16 @@ else
   done
   echo ""
 fi
+
+# Step 1.5: Acquire replay lock after backfill so the run_id belongs only to replay execution
+echo "Step 1.5: Acquiring replay lock..."
+REPLAY_LOCK=$(curl -s -X DELETE "$API_BASE/timed/admin/replay-lock?key=$API_KEY" >/dev/null 2>&1;   curl -s -X POST "$API_BASE/timed/admin/replay-lock?reason=focused_replay_${SNAPSHOT_TS}&key=$API_KEY" | jq -r '.lock // empty')
+if [[ -z "$REPLAY_LOCK" ]]; then
+  echo "ERROR: failed to acquire replay lock"
+  exit 1
+fi
+echo "  lock: $REPLAY_LOCK"
+echo ""
 
 # Step 2: Replay each day (ticker-filtered)
 echo "Step 2: Replaying..."
@@ -129,24 +148,26 @@ echo ""
 
 # Step 3: Capture artifacts
 echo "Step 3: Capturing artifacts..."
-curl -s "$API_BASE/timed/trades?source=d1&key=$API_KEY" > "$OUT_DIR/trades.json" || true
-curl -s "$API_BASE/timed/admin/trade-autopsy/trades?key=$API_KEY" > "$OUT_DIR/trade-autopsy-trades.json" || true
-curl -s "$API_BASE/timed/admin/losing-trades-report?key=$API_KEY" > "$OUT_DIR/losing-trades-report.json" || true
-curl -s "$API_BASE/timed/ledger/summary?key=$API_KEY" > "$OUT_DIR/ledger-summary.json" || true
-curl -s "$API_BASE/timed/account-summary?key=$API_KEY" > "$OUT_DIR/account-summary.json" || true
+EXPORT_SUMMARY=$(node "$(dirname "$0")/export-focused-run-artifacts.js"   --run-id "$REPLAY_LOCK"   --out-dir "$OUT_DIR"   --tickers "$TICKERS"   --api-base "$API_BASE"   --api-key "$API_KEY")
+echo "$EXPORT_SUMMARY"
+ARCHIVED_TRADE_COUNT=$(echo "$EXPORT_SUMMARY" | jq -r '.trade_count // 0' 2>/dev/null || echo "0")
+ARCHIVED_CLOSED_COUNT=$(echo "$EXPORT_SUMMARY" | jq -r '.closed_trade_count // 0' 2>/dev/null || echo "0")
 
 cat > "$OUT_DIR/manifest.json" <<EOF
 {
   "ok": true,
   "type": "focused_replay",
   "label": "$RUN_LABEL",
+  "run_id": "$REPLAY_LOCK",
   "tickers": "$(echo "$TICKERS" | tr ',' '", "')",
   "start_date": "$START_DATE",
   "end_date": "$END_DATE",
   "interval_min": $INTERVAL_MIN,
   "days_processed": $DAY_COUNT,
   "total_scored": $TOTAL_SCORED,
-  "total_trades": $TOTAL_TRADES,
+  "created_trade_events": $TOTAL_TRADES,
+  "archived_trade_count": $ARCHIVED_TRADE_COUNT,
+  "archived_closed_trade_count": $ARCHIVED_CLOSED_COUNT,
   "captured_at": "$SNAPSHOT_TS"
 }
 EOF
@@ -154,7 +175,7 @@ EOF
 echo ""
 echo "╔══════════════════════════════════════════════════════╗"
 echo "║  Focused Replay Complete"
-echo "║  Days: $DAY_COUNT | Scored: $TOTAL_SCORED | Trades: $TOTAL_TRADES"
+echo "║  Days: $DAY_COUNT | Scored: $TOTAL_SCORED | Created: $TOTAL_TRADES | Archived: $ARCHIVED_TRADE_COUNT"
 echo "║  Artifacts: $OUT_DIR"
 echo "╚══════════════════════════════════════════════════════╝"
 

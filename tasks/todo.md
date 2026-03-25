@@ -2,6 +2,15 @@
 
 > **Plan:** See `tasks/PLAN.md` for consolidated status, phases, and clear next steps.
 
+## Replay Accounting + Iter-5 Reset [2026-03-25]
+- [ ] Reconstruct the exact historical iter-5 baseline config/sizing state before further refinement comparisons
+- [x] Fix multi-day focused replay regression so created trades persist through completion and archive correctly
+- [x] Trace why focused replay reports created trades but archives only a subset under the replay run_id
+- [x] Fix the replay/run_id accounting path so focused replay artifacts and archive counts match
+- [x] Re-run a minimal focused replay probe and verify created-trade events and archived run-scoped trade counts are both surfaced correctly
+- [x] Restore the refinement code path to the iter-5 baseline before attempting a new challenger
+- [ ] Use repaired replay accounting to identify the next data-validated refinement candidate from iter-5 (July slice rerun in progress)
+
 ## Paragon Run Audit + Relaunch [2026-03-22]
 - [x] Forensic audit: identify exact JUL→AUG archived run with full per-trade annotations/classifications and verify annotation count mismatch root cause
 - [x] Cross-run comparison: include both `15m-calibration-only-jul1-mar4` runs and rank best engine/path/regime combos by win quality (high MFE, low MAE, trend hold)
@@ -410,6 +419,35 @@
 
 ### Daily Brief
 - [ ] **News feed** — Extend beyond `fetchAlpacaEconNews` (economic/macro); add general market news section or broader news source for brief enrichment.
+- [ ] **Move profiling + engine matching** — Build Jul 2025 → Mar 23 ticker-by-ticker move profiling (high MFE, low MAE, 1-2+ day span), classify moves by regime/volatility/context, map best-fit engine/setup/guard behavior, and feed results back into backtest selection/guard logic.
+- [ ] **Weekly + Ichimoku context** — Add weekly timeframe coverage and multi-timeframe Ichimoku cloud reference to move profiling, reference-intel, and engine/guard policy generation.
+- [ ] **CAT focused runtime rule** — Add CAT pullback-long preference with weekly ST/Ichimoku support, harden CAT short-entry guards when weekly context is unsupportive, then run focused replay/backtest validation.
+- [ ] **NBIS mapping + CAT replay validation** — Fix duplicate NBIS sector mapping key, redeploy worker, then run additional CAT replay dates to confirm weekly-context fallback behavior remains correct.
+- [x] **Active-universe profile enrichment orchestrator** — Added `scripts/enrich-active-ticker-profiles.js` to pull the active universe, run per-ticker learning/profile rebuilds, and write resumable manifest reports.
+- [ ] **Batch enrichment validation** — After each active-universe batch, verify weekly/Ichimoku fields landed in `ticker_profiles` and `ticker_move_signals`, then run focused replay checks on a small ticker sample.
+- [ ] **Phase 1: enrichment closeout** — Finish the active-universe enrichment manifest, repair failed tickers, and document any irreducible symbol/data exceptions before downstream rollout.
+- [ ] **Phase 2: canonical move-profiler** — Expand ticker move snapshots into a canonical multi-phase, multi-timeframe schema with move quality/context buckets and durable JSON payloads.
+- [ ] **Phase 3: move archetype classifier** — Classify canonical moves into explicit archetypes and persist engine / management / guard recommendations in `learning_json`.
+- [ ] **Phase 4: runtime + Investor policy wiring** — Feed archetype/context priors into worker engine selection, scenario policy, and Investor-facing recommendation flows, then validate with replay/backtest runs.
+
+## SPX Enrichment Repair [2026-03-24]
+- [x] Reproduce the `SPX` learning timeout with exact manifest/orchestrator parameters and compare candle counts/ranges against nearby symbols that validated
+- [x] Determine whether `SPX` is an outlier because of effective date range, duplicate/manual-import coverage, or script/orchestrator timeout budget
+- [x] Implement the smallest safe fix so `SPX` can complete enrichment without regressing the rest of the repair pipeline
+- [x] Re-run `SPX` enrichment + profile validation and document the root cause / mitigation in `tasks/lessons.md` and `CONTEXT.md` if warranted
+
+## Canonical Move Policy Phase 5 [2026-03-24]
+- [x] Sync tracker state so canonical move policy Phases 1-4 are treated as implemented baseline, with Phase 5 as the active step
+- [x] Validate canonical payload + weekly/Ichimoku fields for `CAT`, `AXON`, `BABA`, `TSLA`, `ORCL`, `SPY`, `QQQ`, and `IWM`
+- [x] Run focused replay checks for the Phase 5 starting set and capture runtime-policy evidence / blocker behavior
+- [x] Review archetype plausibility across continuation, fragile-impulse, and ETF/index-context names before broader rollout
+- [x] Decide promote / iterate / repair for broader backtest rollout based on the focused validation batch
+
+## Canonical Move Policy Follow-ups [2026-03-24]
+- [x] Repair schema gaps for `AXON`, `BABA`, and `IWM` (`move_json` missing, no archetype/runtime-policy fields landed in `learning_json`)
+- [x] Investigate why `SPY` sampled intervals only show `dynamic_engine_blacklisted` and no policy-bearing diagnostic signal in the first Phase 5 pass
+- [x] Re-run the Phase 5 validation artifact after the repair subset to decide whether broader rollout is justified
+- [ ] Decide whether ETF/index names blacklisted by `dynamic_engine_rules` (`SPY`, `IWM`) should remain excluded from the Phase 5 “policy signal observed” pass criteria or be validated through a different lane
 
 ---
 

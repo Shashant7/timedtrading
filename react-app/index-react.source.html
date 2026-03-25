@@ -1854,6 +1854,7 @@
             if (!res.ok) return;
             const json = await res.json();
             if (json.ok && Array.isArray(json.events)) {
+              const sixteenHoursMs = 16 * 3600000;
               const normalizeType = (ev) => {
                 const raw = String(ev?.type || ev?.eventType || ev?.label || ev?.title || ev?.event || "").toUpperCase();
                 if (!raw) return null;
@@ -1887,6 +1888,7 @@
                   };
                 })
                 .filter(Boolean)
+                .filter((ev) => ev.ts + sixteenHoursMs > now)
                 .sort((a, b) => a.ts - b.ts);
 
               const seen = new Set();
@@ -1897,7 +1899,13 @@
                 return true;
               });
 
-              setEvents(deduped.slice(0, 8));
+              const past = deduped
+                .filter((ev) => ev.ts < now)
+                .sort((a, b) => b.ts - a.ts);
+              const future = deduped
+                .filter((ev) => ev.ts >= now)
+                .sort((a, b) => a.ts - b.ts);
+              setEvents([...past, ...future].slice(0, 8));
               setUpdatedAt(json.updated_at || Date.now());
             }
           } catch (err) {
@@ -2810,17 +2818,58 @@
       const getStaleInfo = window.TimedPriceUtils.getStaleInfo;
       const getDailyChange = window.TimedPriceUtils.getDailyChange;
 
-      // Market Pulse tickers: indices + S&P sector ETFs + crypto + ETF equivalents
-      const MARKET_PULSE_TICKERS = [
-        // Indices / futures / commodities (admin-only futures have ETF equivalents below)
-        "SPX", "US500", "ES1!", "NQ1!", "RTY1!", "YM1!", "SPY", "QQQ", "IWM", "CL1!", "GC1!", "SI1!", "VX1!",
-        // ETF equivalents for non-admin users
-        "GLD", "SLV", "USO", "VIXY", "DIA",
-        // Crypto
+      // Market Pulse universes used by the dedicated Market Pulse pills/chips.
+      const MARKET_PULSE_ADMIN_SYMBOLS = [
+        "SPY", "QQQ", "IWM",
+        "US500", "ES1!", "NQ1!", "RTY1!", "YM1!", "VX1!", "CL1!", "GC1!", "SI1!",
         "BTCUSD", "ETHUSD",
-        // S&P 500 sector ETFs
         "XLK", "XLF", "XLY", "XLP", "XLC", "XLI", "XLB", "XLE", "XLRE", "XLU", "XLV",
       ];
+      const MARKET_PULSE_PUBLIC_SYMBOLS = [
+        "SPY", "QQQ", "IWM",
+        "GLD", "SLV", "USO",
+        "BTCUSD", "ETHUSD",
+        "XLK", "XLF", "XLY", "XLP", "XLC", "XLI", "XLB", "XLE", "XLRE", "XLU", "XLV",
+      ];
+
+      function getBubbleMapTopMoverSymbols(allTickers) {
+        const list = Array.isArray(allTickers) ? allTickers : [];
+        const CRYPTO_24H = new Set(["BTCUSD", "ETHUSD"]);
+        const rthArr = list
+          .map((t) => {
+            const sym = normTicker(t?.ticker || t?.symbol || "");
+            if (!sym) return null;
+            const px = Number(t?.price ?? t?.close);
+            if (!Number.isFinite(px) || px <= 0) return null;
+            const dc = getDailyChange(t);
+            const pct = Number(dc?.dayPct);
+            if (!Number.isFinite(pct)) return null;
+            return { ticker: sym, pct };
+          })
+          .filter(Boolean)
+          .sort((a, b) => b.pct - a.pct);
+        const selected = new Set([
+          ...rthArr.slice(0, 5).map((t) => t.ticker),
+          ...rthArr.slice(-5).map((t) => t.ticker),
+        ]);
+
+        if (!isNyRegularMarketOpen()) {
+          const ethArr = list
+            .map((t) => {
+              const sym = normTicker(t?.ticker || t?.symbol || "");
+              if (!sym || CRYPTO_24H.has(sym)) return null;
+              const pct = Number(t?._ah_change_pct);
+              if (!Number.isFinite(pct) || pct === 0) return null;
+              return { ticker: sym, pct };
+            })
+            .filter(Boolean)
+            .sort((a, b) => b.pct - a.pct);
+          ethArr.slice(0, 5).forEach((t) => selected.add(t.ticker));
+          ethArr.slice(-5).forEach((t) => selected.add(t.ticker));
+        }
+
+        return Array.from(selected);
+      }
 
       // Shared card skin (used by Kanban + Viewport cards)
       // - background tint by daily % change (blue/orange)
@@ -3089,6 +3138,36 @@
         return `$${low.toFixed(2)}–$${high.toFixed(2)}`;
       }
 
+      function bubbleSizeSeed(symbol, step = 0.8) {
+        const seed = String(symbol || "")
+          .split("")
+          .reduce((acc, ch) => acc + ch.charCodeAt(0), 0);
+        return (seed % 5) * step;
+      }
+
+      function computeBubbleRadiusModel(
+        tickerLike,
+        symbolOverride = null,
+        { baseSize = 4, rrCap = 5, rrMultiplier = 2, minRadius = 3, maxRadius = 30 } = {},
+      ) {
+        const waiting = tickerLike?.waitingForData === true;
+        const comp = completionForSize(tickerLike);
+        const validComp = Number.isFinite(comp)
+          ? Math.max(0, Math.min(1, comp))
+          : 0;
+        const rrRaw = tickerLike?.rr != null ? Number(tickerLike.rr) : 0.5;
+        const rr = Number.isFinite(rrRaw) && rrRaw > 0 ? rrRaw : 0.5;
+        const cappedRR = Math.min(rr, rrCap);
+        const size = waiting
+          ? baseSize * 0.7
+          : baseSize + cappedRR * rrMultiplier * (1 - validComp);
+        const finalSize = Math.max(
+          baseSize,
+          size + bubbleSizeSeed(symbolOverride || tickerLike?.ticker),
+        );
+        return Math.max(minRadius, Math.min(maxRadius, finalSize));
+      }
+
       function formatIngestTime(ticker) {
         const raw = ticker?.ingest_time ?? ticker?.ingest_ts ?? ticker?.ts;
         if (raw == null) return "—";
@@ -3126,36 +3205,27 @@
         const rrRaw = point && point.rr != null ? Number(point.rr) : null;
         const rankRaw = point && point.rank != null ? Number(point.rank) : null;
         const fallbackRR =
-          rankRaw != null && Number.isFinite(rankRaw)
-            ? Math.max(0.5, Math.min(5, rankRaw / 50))
-            : 0.5;
-        const validRR =
           rrRaw != null && Number.isFinite(rrRaw) && rrRaw > 0
             ? rrRaw
-            : fallbackRR;
-
-        const cappedRR = Math.min(validRR, 5);
-        const baseSize = 4;
-        const rrMultiplier = 2;
-        const size = baseSize + cappedRR * rrMultiplier * (1 - validComp);
-
-        const sym = String(tickerSymbol || point?.ticker || "")
-          .trim()
-          .toUpperCase();
-        const tickerHash = sym
-          .split("")
-          .reduce((acc, char) => acc + char.charCodeAt(0), 0);
-        const sizeVariation = (tickerHash % 5) * 0.8;
-        const finalSize = Math.max(baseSize, size + sizeVariation);
+            : rankRaw != null && Number.isFinite(rankRaw)
+              ? Math.max(0.5, Math.min(5, rankRaw / 50))
+              : 0.5;
 
         // Trail bubbles should reflect their true size-at-the-time.
         const TRAIL_SIZE_SCALE = 1.0;
         const radius = Math.max(
           2.5,
-          Math.min(50, finalSize * TRAIL_SIZE_SCALE),
+          Math.min(
+            50,
+            computeBubbleRadiusModel(
+              { ...point, rr: fallbackRR, completion: validComp },
+              tickerSymbol || point?.ticker,
+              { maxRadius: 50 },
+            ) * TRAIL_SIZE_SCALE,
+          ),
         );
         const color = phaseCompletionToColor(phasePct);
-        return { radius, color, phasePct, validComp, validRR };
+        return { radius, color, phasePct, validComp, validRR: fallbackRR };
       }
 
       // Split a trail into segments when there are big timestamp gaps.
@@ -4196,12 +4266,12 @@
           // Try multiple property names in case data structure varies
           const waitingForData = ticker.waitingForData === true;
 
-          // R:R based bubble size — purely driven by risk/reward ratio
-          const MIN_R = 6;
-          const MAX_R = 28;
-          const rawRR = Math.max(0, Number(ticker?.rr || ticker?.risk_reward || 0));
-          const clampedRR = Math.min(rawRR, 6);
-          const baseBubbleR = waitingForData ? MIN_R * 0.7 : MIN_R + (clampedRR / 6) * (MAX_R - MIN_R);
+          // R:R and completion drive size so late-in-move setups naturally shrink.
+          const baseBubbleR = computeBubbleRadiusModel(
+            ticker,
+            ticker?.ticker,
+            { minRadius: 6, maxRadius: 28 },
+          );
 
           const ks = String(ticker?.kanban_stage || "").toLowerCase();
           const isActionable = ["in_review", "enter", "enter_now", "just_entered", "just_flipped", "flip_watch", "trim", "defend", "exit"].includes(ks);
@@ -4593,12 +4663,15 @@
         thesisMode = false,
         forwardReturns = null,
         activeInsightTickers = null,
+        layoutMode = "score",
       }) {
 
         // When a ticker is selected, "solo" it (show only that bubble + journey).
         // IMPORTANT: chart zoom should remain stable (domain is computed from the full loaded universe, not this filtered list).
         const displayTickers = React.useMemo(() => {
           const list = Array.isArray(tickers) ? tickers : [];
+          // Insight/filter mode should show the whole matching set, not just the selected ticker.
+          if (activeInsightTickers && activeInsightTickers.size > 0) return list;
           if (!selectedTicker) return list;
           const sym = String(selectedTicker).toUpperCase();
           const solo = list.filter(
@@ -4606,7 +4679,7 @@
           );
           // If selection is no longer in the filtered universe, fall back to showing the current universe.
           return solo.length > 0 ? solo : list;
-        }, [tickers, selectedTicker]);
+        }, [tickers, selectedTicker, activeInsightTickers]);
 
         // Daily-downsampled trail for cleaner journey view (non-Time-Travel only).
         const displayTrail = React.useMemo(() => {
@@ -4754,6 +4827,45 @@
           const scaleY = plotHeight / (2 * domainYMax);
           const offsetX = margin;
           const offsetY = margin;
+          const axisExponentX = layoutMode === "timing" ? 0.74 : 0.88;
+          const axisExponentY = layoutMode === "timing" ? 0.8 : 0.92;
+          const projectAxisValue = (value, max, exponent) => {
+            const safeMax = Math.max(1, Number(max) || 1);
+            const raw = Number(value) || 0;
+            const normalized = clamp(raw / safeMax, -1, 1);
+            return Math.sign(normalized) * Math.pow(Math.abs(normalized), exponent);
+          };
+          const invertAxisProjection = (projected, max, exponent) => {
+            const safeMax = Math.max(1, Number(max) || 1);
+            const clampedProjected = clamp(projected, -1, 1);
+            return (
+              Math.sign(clampedProjected) *
+              Math.pow(Math.abs(clampedProjected), 1 / exponent) *
+              safeMax
+            );
+          };
+          const xForLtf = (value) =>
+            offsetX +
+            ((projectAxisValue(value, domainXMax, axisExponentX) + 1) / 2) *
+              plotWidth;
+          const yForHtf = (value) =>
+            offsetY +
+            (1 -
+              (projectAxisValue(value, domainYMax, axisExponentY) + 1) / 2) *
+              plotHeight;
+          const chartXForLtf = (value) => xForLtf(value) - offsetX;
+          const chartYForHtf = (value) => yForHtf(value) - offsetY;
+          const ltfFromChartX = (chartX) => {
+            const normalized =
+              ((clamp(chartX, 0, plotWidth) / Math.max(plotWidth, 1)) * 2) - 1;
+            return invertAxisProjection(normalized, domainXMax, axisExponentX);
+          };
+          const htfFromChartY = (chartY) => {
+            const normalized =
+              (1 - clamp(chartY, 0, plotHeight) / Math.max(plotHeight, 1)) * 2 -
+              1;
+            return invertAxisProjection(normalized, domainYMax, axisExponentY);
+          };
 
           const handlePointerMove = (clientX, clientY, targetEl) => {
             const rect = targetEl.getBoundingClientRect();
@@ -4801,8 +4913,8 @@
               chartY <= plotHeight
             ) {
               // Convert to LTF/HTF scores
-              const ltfValue = chartX / scaleX - domainXMax; // -domainXMax..domainXMax
-              const htfValue = domainYMax - chartY / scaleY; // Inverted: top is +domainYMax
+              const ltfValue = ltfFromChartX(chartX);
+              const htfValue = htfFromChartY(chartY);
 
               setCrosshairPos({
                 x: svgX,
@@ -4837,27 +4949,14 @@
                 .reduce((acc, ch) => acc + ch.charCodeAt(0), 0);
 
             const bubbleRadius = (t) => {
-              const waiting = t?.waitingForData === true;
-              const compRaw = t?.completion != null ? Number(t.completion) : 0;
-              const comp = Number.isFinite(compRaw) ? clamp(compRaw, 0, 1) : 0;
-              const rrRaw = t?.rr != null ? Number(t.rr) : 0.5;
-              const rr = Number.isFinite(rrRaw) && rrRaw > 0 ? rrRaw : 0.5;
-              const cappedRR = Math.min(rr, 5);
-              const baseSize = 4;
-              const rrMultiplier = 2;
-              const size = waiting
-                ? baseSize * 0.7
-                : baseSize + cappedRR * rrMultiplier * (1 - comp);
-              const v = (hash(t?.ticker) % 5) * 0.8;
-              const finalSize = Math.max(baseSize, size + v);
-              return clamp(finalSize, 3, 30);
+              return computeBubbleRadiusModel(t, t?.ticker, { maxRadius: 30 });
             };
 
             const nodes = list.map((t) => {
               const ltf = Number(t?.ltf_score) || 0;
               const htf = Number(t?.htf_score) || 0;
-              const x0 = offsetX + (ltf + domainXMax) * scaleX;
-              const y0 = offsetY + (domainYMax - htf) * scaleY;
+              const x0 = xForLtf(ltf);
+              const y0 = yForHtf(htf);
               const r = bubbleRadius(t);
               const j = (hash(t?.ticker) % 7) - 3; // deterministic tiny offset
               return {
@@ -4870,10 +4969,10 @@
               };
             });
 
-            const PAD = 1.0;
-            const ITER = 12;
-            const ANCHOR = 0.18;
-            const REPULSE = 0.6;
+            const PAD = layoutMode === "timing" ? 2.2 : 1.2;
+            const ITER = layoutMode === "timing" ? 18 : 14;
+            const ANCHOR = layoutMode === "timing" ? 0.14 : 0.18;
+            const REPULSE = layoutMode === "timing" ? 0.98 : 0.72;
             const minX = offsetX + 2;
             const maxX = offsetX + plotWidth - 2;
             const minY = offsetY + 2;
@@ -5007,9 +5106,9 @@
                 {/* Axes - Zero lines (X=0 and Y=0) - Make them very visible */}
                 {/* Vertical center line (X=0) */}
                 <line
-                  x1={offsetX + domainXMax * scaleX}
+                  x1={xForLtf(0)}
                   y1={offsetY}
-                  x2={offsetX + domainXMax * scaleX}
+                  x2={xForLtf(0)}
                   y2={offsetY + plotHeight}
                   stroke="#ffffff"
                   strokeWidth="2"
@@ -5069,7 +5168,7 @@
                   domainXMax / 2,
                   domainXMax,
                 ].map((val) => {
-                  const x = offsetX + (val + domainXMax) * scaleX;
+                  const x = xForLtf(val);
                   const y = offsetY + plotHeight / 2;
                   return (
                     <g key={`x-${val}`}>
@@ -5101,7 +5200,7 @@
                   domainYMax,
                 ].map((val) => {
                   const x = offsetX;
-                  const y = offsetY + plotHeight - (val + domainYMax) * scaleY;
+                  const y = yForHtf(val);
                   return (
                     <g key={`y-${val}`}>
                       <line
@@ -5141,10 +5240,10 @@
 
                 {/* Corridors — subtle fill with dashed borders and labels */}
                 {(() => {
-                  const longX = offsetX + (LONG_CORRIDOR.ltfMin + domainXMax) * scaleX;
-                  const longW = (LONG_CORRIDOR.ltfMax - LONG_CORRIDOR.ltfMin) * scaleX;
-                  const shortX = offsetX + (SHORT_CORRIDOR.ltfMin + domainXMax) * scaleX;
-                  const shortW = (SHORT_CORRIDOR.ltfMax - SHORT_CORRIDOR.ltfMin) * scaleX;
+                  const longX = xForLtf(LONG_CORRIDOR.ltfMin);
+                  const longW = xForLtf(LONG_CORRIDOR.ltfMax) - longX;
+                  const shortX = xForLtf(SHORT_CORRIDOR.ltfMin);
+                  const shortW = xForLtf(SHORT_CORRIDOR.ltfMax) - shortX;
                   return (
                     <>
                       <rect x={longX} y={offsetY} width={longW} height={plotHeight / 2} fill="rgba(34,197,94,0.06)" stroke="rgba(34,197,94,0.25)" strokeWidth="1" strokeDasharray="6 4" />
@@ -5266,15 +5365,8 @@
                           .filter((seg) => Array.isArray(seg) && seg.length > 1)
                           .map((seg, segIdx) => {
                             const pts = seg.map((p) => ({
-                              x:
-                                (Number(p?.ltf_score) || 0) * scaleX +
-                                offsetX +
-                                domainXMax * scaleX,
-                              y:
-                                (Number(p?.htf_score) || 0) * -scaleY +
-                                offsetY +
-                                plotHeight -
-                                domainYMax * scaleY,
+                              x: xForLtf(Number(p?.ltf_score) || 0),
+                              y: yForHtf(Number(p?.htf_score) || 0),
                             }));
                             const d = catmullRomPath(pts);
                             if (!d) return null;
@@ -5304,15 +5396,8 @@
 
                       {/* Trail points with date labels */}
                       {displayTrail.slice(0, -1).map((point, idx) => {
-                        const x =
-                          (Number(point?.ltf_score) || 0) * scaleX +
-                          offsetX +
-                          domainXMax * scaleX;
-                        const y =
-                          (Number(point?.htf_score) || 0) * -scaleY +
-                          offsetY +
-                          plotHeight -
-                          domainYMax * scaleY;
+                        const x = xForLtf(Number(point?.ltf_score) || 0);
+                        const y = yForHtf(Number(point?.htf_score) || 0);
                         const visual = bubbleVisualForTrailPoint(
                           point,
                           selectedTicker,
@@ -5365,17 +5450,12 @@
                           Number(highlightTrailPoint?.htf_score),
                         ) &&
                         (() => {
-                          const hx =
-                            (Number(highlightTrailPoint.ltf_score) || 0) *
-                              scaleX +
-                            offsetX +
-                            domainXMax * scaleX;
-                          const hy =
-                            (Number(highlightTrailPoint.htf_score) || 0) *
-                              -scaleY +
-                            offsetY +
-                            plotHeight -
-                            domainYMax * scaleY;
+                          const hx = xForLtf(
+                            Number(highlightTrailPoint.ltf_score) || 0,
+                          );
+                          const hy = yForHtf(
+                            Number(highlightTrailPoint.htf_score) || 0,
+                          );
                           const visual = bubbleVisualForTrailPoint(
                             highlightTrailPoint,
                             selectedTicker,
@@ -5443,8 +5523,8 @@
                     }
                     scaleX={scaleX}
                     scaleY={-scaleY}
-                    offsetX={offsetX + domainXMax * scaleX}
-                    offsetY={offsetY + plotHeight - domainYMax * scaleY}
+                    offsetX={xForLtf(0)}
+                    offsetY={yForHtf(0)}
                     layoutX={layoutPositions?.[ticker.ticker]?.x}
                     layoutY={layoutPositions?.[ticker.ticker]?.y}
                     showLabels={showLabels}
@@ -5478,17 +5558,12 @@
                     const lx = layoutPositions?.[selectedObj.ticker]?.x;
                     const ly = layoutPositions?.[selectedObj.ticker]?.y;
 
-                    const ox = offsetX + domainXMax * scaleX;
-                    const oy = offsetY + plotHeight - domainYMax * scaleY;
-                    const sx = scaleX;
-                    const sy = -scaleY;
-
                     const x = Number.isFinite(Number(lx))
                       ? Number(lx)
-                      : ltf * sx + ox;
+                      : xForLtf(ltf);
                     const y = Number.isFinite(Number(ly))
                       ? Number(ly)
-                      : htf * sy + oy;
+                      : yForHtf(htf);
 
                     const toMs = (v) => {
                       if (v == null) return NaN;
@@ -5574,10 +5649,8 @@
                   const htf = Number(ticker?.htf_score) || 0;
                   const lx = layoutPositions?.[sym]?.x;
                   const ly = layoutPositions?.[sym]?.y;
-                  const ox = offsetX + domainXMax * scaleX;
-                  const oy = offsetY + plotHeight - domainYMax * scaleY;
-                  const bx = Number.isFinite(Number(lx)) ? Number(lx) : ltf * scaleX + ox;
-                  const by = Number.isFinite(Number(ly)) ? Number(ly) : htf * (-scaleY) + oy;
+                  const bx = Number.isFinite(Number(lx)) ? Number(lx) : xForLtf(ltf);
+                  const by = Number.isFinite(Number(ly)) ? Number(ly) : yForHtf(htf);
                   const r1d = fr.return_1d_pct;
                   const r1w = fr.return_1w_pct;
                   const fmt = (v) => (v > 0 ? "+" : "") + v.toFixed(1) + "%";
@@ -5876,18 +5949,22 @@
         // Store ranked tickers for tooltip access
         const allTickersForRanking = rankedTickers;
 
-        // Filter data based on selectedTicker - if selected, only show that ticker
+        // Filter data based on selectedTicker, except in insight mode where
+        // the user expects the whole matching chip universe to stay visible.
         const data = useMemo(() => {
-          const tickersToUse = selectedTicker
-            ? tickers.filter((t) => {
-                if (!t || typeof t !== "object") return false;
-                const tTicker = String(t.ticker || "").toUpperCase();
-                return tTicker === String(selectedTicker).toUpperCase();
-              })
-            : tickers;
+          const insightMode = !!(activeInsightTickers && activeInsightTickers.size > 0);
+          const tickersToUse = insightMode
+            ? tickers
+            : selectedTicker
+              ? tickers.filter((t) => {
+                  if (!t || typeof t !== "object") return false;
+                  const tTicker = String(t.ticker || "").toUpperCase();
+                  return tTicker === String(selectedTicker).toUpperCase();
+                })
+              : tickers;
 
           console.log(
-            `[RECHARTS DATA] selectedTicker=${selectedTicker}, using ${tickersToUse.length} of ${tickers.length} tickers`,
+            `[RECHARTS DATA] selectedTicker=${selectedTicker}, insightMode=${insightMode}, using ${tickersToUse.length} of ${tickers.length} tickers`,
           );
 
           return tickersToUse.map((t) => ({
@@ -5895,7 +5972,7 @@
             y: Number(t.htf_score) || 0,
             ticker: t,
           }));
-        }, [tickers, selectedTicker]);
+        }, [tickers, selectedTicker, activeInsightTickers]);
 
         // Recharts shape renderer - receives cx, cy, payload from Recharts
         const BubbleShape = React.useCallback(
@@ -5904,34 +5981,21 @@
             const ticker = payload?.ticker;
             if (!ticker) return null;
 
-            const comp =
-              ticker.completion != null ? Number(ticker.completion) : 0;
             const phasePct =
               ticker.phase_pct != null ? Number(ticker.phase_pct) : 0;
-            const rr = ticker.rr != null ? Number(ticker.rr) : 0;
             const waitingForData = ticker.waitingForData === true;
 
-            const validComp = Number.isFinite(comp)
-              ? Math.max(0, Math.min(1, comp))
-              : 0;
             const validPhase = Number.isFinite(phasePct)
               ? Math.max(0, Math.min(1, phasePct))
               : 0.1;
-            const validRR = Number.isFinite(rr) && rr > 0 ? rr : 0.5;
-
-            const cappedRR = Math.min(validRR, 5);
-            const baseSize = 4; // Further reduced for less overlap
-            const rrMultiplier = 2; // Further reduced for smaller bubbles
-            const size = waitingForData
-              ? baseSize * 0.7
-              : baseSize + cappedRR * rrMultiplier * (1 - validComp);
-
-            // Add size variation for better visual distinction
             const tickerHash = (ticker.ticker || "")
               .split("")
               .reduce((acc, char) => acc + char.charCodeAt(0), 0);
-            const sizeVariation = (tickerHash % 5) * 0.8;
-            const finalSize = Math.max(baseSize, size + sizeVariation);
+            const finalSize = computeBubbleRadiusModel(
+              ticker,
+              ticker?.ticker,
+              { minRadius: 4, maxRadius: 30 },
+            );
 
             // Direction-aware color (matches kanban card accents)
             const flags = ticker.flags || {};
@@ -8974,6 +9038,7 @@
         compact = false,
         trades = [],
         onForwardReturns,
+        resetSignal = 0,
       }) {
         const [isActive, setIsActive] = useState(false);
         const [selectedTimestamp, setSelectedTimestamp] = useState(null);
@@ -9004,6 +9069,23 @@
           [],
         );
         const [stepMs, setStepMs] = useState(15 * 60 * 1000);
+
+        const clearReplayState = React.useCallback(() => {
+          setIsActive(false);
+          setIsPlaying(false);
+          setSelectedTimestamp(null);
+          setTrailData({});
+          setLoadingTrails(false);
+          setTrailLoadProgress({ total: 0, done: 0 });
+          setLoadCancelled(false);
+          setTimelineEvents([]);
+          setRegimeStrip([]);
+          setForwardReturns(null);
+          fetchingRef.current = false;
+          lastFetchedSymbolsRef.current = "";
+          onTimeChangeRef.current?.(null);
+          onForwardReturns?.(null);
+        }, [onForwardReturns]);
 
         // Prevent render loops when parent passes unstable callbacks/arrays.
         // (This was causing "Maximum update depth exceeded" and breaking Play.)
@@ -9198,6 +9280,11 @@
         // Use a ref to track if we're currently fetching to prevent race conditions
         const fetchingRef = React.useRef(false);
         const lastFetchedSymbolsRef = React.useRef("");
+
+        useEffect(() => {
+          if (!resetSignal) return;
+          clearReplayState();
+        }, [resetSignal, clearReplayState]);
 
         // Memoize ticker symbols to prevent unnecessary re-fetches
         const tickerSymbols = useMemo(() => {
@@ -16831,14 +16918,60 @@
 
         const [timeTravelTickers, setTimeTravelTickers] = useState(null);
         const [timeTravelForwardReturns, setTimeTravelForwardReturns] = useState(null);
+        const [timeTravelResetSignal, setTimeTravelResetSignal] = useState(0);
 
         const [activeInsight, setActiveInsight] = useState(null);
         const [activeSubInsight, setActiveSubInsight] = useState(null);
         const [bubbleSearchOpen, setBubbleSearchOpen] = useState(false);
+        const [bubbleLayoutMode, setBubbleLayoutMode] = useState("score");
+
+        const bubbleMapUniverseFilters = useMemo(() => {
+          const group = String(effectiveFilters?.group || "ALL").toUpperCase();
+          // Bubble Map insight chips are meant to scan the map universe, not a sticky personal subset.
+          if (group === "TT_SELECTED" || group === "SAVED" || group === "USER_ADDED") {
+            return { ...effectiveFilters, group: "ALL" };
+          }
+          return effectiveFilters;
+        }, [effectiveFilters]);
+
+        const bubbleMapUniverseTickers = useMemo(() => {
+          let filtered =
+            timeTravelTickers !== null
+              ? timeTravelTickers
+              : applyFilters(
+                  data,
+                  bubbleMapUniverseFilters,
+                  trades,
+                  socialAdditions,
+                  savedTickers,
+                );
+          if (!window._ttIsPro && window._ttMemberTickerSet) {
+            filtered = filtered.filter((t) =>
+              window._ttMemberTickerSet.has(String(t?.ticker || "").toUpperCase()),
+            );
+          }
+          if (!window._ttIsAdmin && GROUPS.Futures) {
+            filtered = filtered.filter(
+              (t) => !GROUPS.Futures.has(normTicker(t?.ticker || "")),
+            );
+          }
+          return filtered;
+        }, [
+          data,
+          bubbleMapUniverseFilters,
+          trades,
+          socialAdditions,
+          timeTravelTickers,
+          savedTickers,
+        ]);
 
         const insightChips = useMemo(() => {
-          const all = Object.values(data || {}).filter(t => t && Number.isFinite(Number(t.ltf_score)));
-          const allTickers = Object.values(data || {});
+          const allTickers = Array.isArray(bubbleMapUniverseTickers)
+            ? bubbleMapUniverseTickers
+            : [];
+          const all = allTickers.filter(
+            (t) => t && Number.isFinite(Number(t.ltf_score)),
+          );
           if (all.length === 0) return [];
 
           const ENTRY_STAGES = new Set(["setup", "setup_watch", "enter", "enter_now", "flip_watch", "just_flipped"]);
@@ -16951,6 +17084,26 @@
             tooltip: `LTF score in optimal entry zone for the HTF trend direction.\n${corridor.slice(0, 5).map(t => t.ticker).join(", ") || "—"}`,
           });
 
+          // ── High R:R Early ──
+          const highRrEarly = all.filter(t => {
+            const rr = Number(t?.rr) || 0;
+            const comp = completionForSize(t);
+            const flags = t?.flags || {};
+            const ent = entryType(t);
+            const staleness = String(t?.staleness || "").toUpperCase();
+            const actionableTiming = ent?.corridor || flags.flip_watch || flags.sq30_release;
+            if (staleness && staleness !== "FRESH") return false;
+            return rr >= 2.0 && comp <= 0.45 && actionableTiming;
+          });
+          chips.push({
+            id: "high_rr_early",
+            label: "High R:R Early",
+            count: highRrEarly.length,
+            color: "gold",
+            tickers: highRrEarly.map(t => t.ticker),
+            tooltip: `High reward-to-risk with upside still available.\nR:R ≥ 2.0, completion ≤ 45%, and timing support from corridor/flip/release.\n${highRrEarly.slice(0, 6).map(t => t.ticker).join(", ") || "—"}`,
+          });
+
           // ── Accelerating ──
           const accel = all.filter(t => {
             const d = t.deltas && typeof t.deltas === "object" ? t.deltas : {};
@@ -16981,7 +17134,35 @@
             tooltip: `Relative volume ≥ 1.5x on 30m or 60m — unusual activity.\nInstitutional interest likely.\n${volSurge.slice(0, 5).map(t => t.ticker).join(", ") || "—"}`,
           });
 
-          // ── Row 2: Market Group chips ──
+          // ── Row 2: Market context chips ──
+
+          const marketPulseSymbols = window._ttIsAdmin
+            ? MARKET_PULSE_ADMIN_SYMBOLS
+            : MARKET_PULSE_PUBLIC_SYMBOLS;
+          const marketPulseTickers = allTickers.filter((t) =>
+            marketPulseSymbols.includes(normTicker(t?.ticker)),
+          );
+          chips.push({
+            id: "market_pulse",
+            label: "Market Pulse",
+            count: marketPulseTickers.length,
+            color: "cyan",
+            tickers: marketPulseTickers.map((t) => t.ticker),
+            tooltip: window._ttIsAdmin
+              ? "Admin Market Pulse\nFutures, indices, S&P sectors, and crypto."
+              : "Market Pulse\nSPY, QQQ, IWM, commodity ETF equivalents, crypto, and S&P sectors.",
+            row: 2,
+          });
+
+          const topMoverSymbols = getBubbleMapTopMoverSymbols(allTickers);
+          chips.push({
+            id: "top_movers",
+            label: "Top Movers",
+            count: topMoverSymbols.length,
+            color: "emerald",
+            tickers: topMoverSymbols,
+            tooltip: `Top Movers\nIncludes RTH gainers/losers and EXT movers when extended-hours data is available.`,
+          });
 
           // ── Indexes ──
           const INDEX_SYMS = ["SPY", "QQQ", "IWM"];
@@ -17038,21 +17219,26 @@
           }
 
           return chips;
-        }, [data, savedTickers]);
+        }, [bubbleMapUniverseTickers, savedTickers]);
 
         const activeInsightTickers = useMemo(() => {
           if (!activeInsight) return null;
           const chip = insightChips.find(c => c.id === activeInsight);
-          if (!chip || !chip.tickers || chip.tickers.length === 0) return null;
-          const base = chip.tickers.map(t => String(t).toUpperCase());
+          if (!chip) return null;
           if (activeSubInsight) {
             const subChip = insightChips.find(c => c.id === activeSubInsight);
             if (subChip?.tickers?.length > 0) {
-              return new Set([...base, ...subChip.tickers.map(t => String(t).toUpperCase())]);
+              return new Set(subChip.tickers.map(t => String(t).toUpperCase()));
             }
           }
-          return new Set(base);
+          return new Set(
+            Array.isArray(chip.tickers)
+              ? chip.tickers.map(t => String(t).toUpperCase())
+              : [],
+          );
         }, [activeInsight, activeSubInsight, insightChips]);
+
+        const bubbleMapFilters = bubbleMapUniverseFilters;
 
         const tickers = useMemo(() => {
           // If time travel is active, use time travel tickers, otherwise use filtered tickers
@@ -17061,6 +17247,11 @@
           }
 
           let filtered = applyFilters(data, effectiveFilters, trades, socialAdditions, savedTickers);
+          if (activeInsightTickers) {
+            filtered = filtered.filter((t) =>
+              activeInsightTickers.has(normTicker(t?.ticker || "")),
+            );
+          }
           if (!window._ttIsPro && window._ttMemberTickerSet) {
             filtered = filtered.filter(t => window._ttMemberTickerSet.has(String(t?.ticker || "").toUpperCase()));
           }
@@ -17068,7 +17259,39 @@
             filtered = filtered.filter(t => !GROUPS.Futures.has(normTicker(t?.ticker || "")));
           }
           return filtered;
-        }, [data, effectiveFilters, trades, socialAdditions, timeTravelTickers, savedTickers]);
+        }, [data, effectiveFilters, trades, socialAdditions, timeTravelTickers, savedTickers, activeInsightTickers]);
+
+        const bubbleMapTickers = useMemo(() => {
+          let filtered =
+            timeTravelTickers !== null
+              ? timeTravelTickers
+              : applyFilters(data, bubbleMapFilters, trades, socialAdditions, savedTickers);
+
+          if (activeInsightTickers) {
+            filtered = filtered.filter((t) =>
+              activeInsightTickers.has(normTicker(t?.ticker || "")),
+            );
+          }
+          if (!window._ttIsPro && window._ttMemberTickerSet) {
+            filtered = filtered.filter((t) =>
+              window._ttMemberTickerSet.has(String(t?.ticker || "").toUpperCase()),
+            );
+          }
+          if (!window._ttIsAdmin && GROUPS.Futures) {
+            filtered = filtered.filter(
+              (t) => !GROUPS.Futures.has(normTicker(t?.ticker || "")),
+            );
+          }
+          return filtered;
+        }, [
+          data,
+          bubbleMapFilters,
+          trades,
+          socialAdditions,
+          timeTravelTickers,
+          savedTickers,
+          activeInsightTickers,
+        ]);
 
         // Base filtered tickers for Time Travel slider controls.
         // IMPORTANT: Hooks must never be called conditionally inside JSX.
@@ -17211,6 +17434,11 @@
           const next = createDefaultDashboardFilters();
           if (preserveSearch) next.search = filters.search;
           setFilters(next);
+          setActiveInsight(null);
+          setActiveSubInsight(null);
+          setTimeTravelTickers(null);
+          setTimeTravelForwardReturns(null);
+          setTimeTravelResetSignal((n) => n + 1);
         }, [filters.search]);
 
         const [showAdvancedFilters, setShowAdvancedFilters] = useState(() => {
@@ -17559,7 +17787,12 @@
 
                   {/* ═══ 2. TOP GAINERS / LOSERS — dedicated movers row ═══ */}
                   {_secondaryReady && (() => {
-                    const allArr = data && typeof data === 'object' ? Object.values(data) : [];
+                    const allArr = data && typeof data === 'object'
+                      ? Object.entries(data).map(([sym, row]) => ({
+                          ...(row || {}),
+                          ticker: row?.ticker || sym,
+                        }))
+                      : [];
                     const CRYPTO_24H = new Set(["BTCUSD", "ETHUSD"]);
                     const chipIntensity = (absPct) => {
                       if (absPct <= 0.1) return { a: 0.06, b: 0.15 };
@@ -17988,6 +18221,7 @@
                         compact={true}
                         trades={trades}
                         onForwardReturns={setTimeTravelForwardReturns}
+                        resetSignal={timeTravelResetSignal}
                       />
                     ) : (
                       <div className="flex justify-center">
@@ -18117,13 +18351,41 @@
                         <div className="px-3 py-2 mb-1 rounded-lg border border-white/[0.06] bg-white/[0.02]" data-coachmark="bubble-chart">
                           <div className="flex items-center gap-3 text-[10px] text-[#8b95a5] flex-wrap">
                             <span className="font-semibold text-white text-[11px] shrink-0">Bubble Map</span>
+                            <div className="inline-flex items-center rounded-full border border-white/[0.08] bg-white/[0.03] overflow-hidden">
+                              <button
+                                onClick={() => setBubbleLayoutMode("score")}
+                                className={`px-2.5 py-1 text-[10px] font-semibold transition-colors ${
+                                  bubbleLayoutMode === "score"
+                                    ? "bg-blue-500/20 text-blue-200"
+                                    : "text-[#7c8798] hover:text-white"
+                                }`}
+                                title="Balanced score map with mild spacing enhancement"
+                              >
+                                Score View
+                              </button>
+                              <button
+                                onClick={() => setBubbleLayoutMode("timing")}
+                                className={`px-2.5 py-1 text-[10px] font-semibold border-l border-white/[0.08] transition-colors ${
+                                  bubbleLayoutMode === "timing"
+                                    ? "bg-emerald-500/20 text-emerald-200"
+                                    : "text-[#7c8798] hover:text-white"
+                                }`}
+                                title="Expands the crowded center and emphasizes setup separation"
+                              >
+                                Setup Timing
+                              </button>
+                            </div>
                             <span className="text-[#4b5563] shrink-0">|</span>
                             <span className="flex items-center gap-1 shrink-0" title="HTF bullish trend — system bias is long"><svg width="8" height="8" viewBox="0 0 8 8"><circle cx="4" cy="4" r="3.5" fill="rgba(34,211,238,0.45)"/></svg> <span className="text-cyan-400">Long bias</span></span>
                             <span className="flex items-center gap-1 shrink-0" title="HTF bearish trend — system bias is short"><svg width="8" height="8" viewBox="0 0 8 8"><circle cx="4" cy="4" r="3.5" fill="rgba(225,29,72,0.45)"/></svg> <span className="text-rose-400">Short bias</span></span>
                             <span className="flex items-center gap-1 shrink-0" title="No directional edge — mixed or transitional"><svg width="8" height="8" viewBox="0 0 8 8"><circle cx="4" cy="4" r="3.5" fill="rgba(234,179,8,0.35)"/></svg> <span className="text-yellow-400">Neutral</span></span>
                             <span className="text-[#4b5563] shrink-0">|</span>
-                            <span className="shrink-0" title="X-axis: Short-term momentum score. Y-axis: Long-term trend strength.">X: momentum · Y: trend</span>
-                            <span className="shrink-0" title="Bigger bubble = higher reward-to-risk with more upside remaining">Size = reward vs risk</span>
+                            <span className="shrink-0" title="X-axis: short-term momentum score. Y-axis: long-term trend strength. Setup Timing view applies a stronger center spread so similar-score names are easier to separate.">
+                              {bubbleLayoutMode === "timing"
+                                ? "Timing-spread momentum vs trend"
+                                : "X: momentum · Y: trend"}
+                            </span>
+                            <span className="shrink-0" title="Bigger bubble = higher reward-to-risk with more upside remaining. Late setups shrink as completion rises.">Size = R:R x upside left</span>
                             <span className="shrink-0" title="Upper-right: strong longs. Lower-left: strong shorts.">↗ longs · ↙ shorts</span>
                             <span className="text-[#4b5563] shrink-0">|</span>
                             <span className="flex items-center gap-1 shrink-0" title="Pulsing glow = the system is flagging this ticker for action (enter, trim, exit, defend). These are your focus tickers."><svg width="10" height="10" viewBox="0 0 10 10"><circle cx="5" cy="5" r="3.5" fill="rgba(34,211,238,0.25)" stroke="#22d3ee" strokeWidth="0.8"><animate attributeName="r" values="3;4.5;3" dur="2s" repeatCount="indefinite"/><animate attributeName="opacity" values="0.8;0.3;0.8" dur="2s" repeatCount="indefinite"/></circle></svg> <span className="text-cyan-300 font-semibold">Pulsing = Actionable</span></span>
@@ -18161,15 +18423,14 @@
                                     if (chip.id !== "sp_sectors") setActiveSubInsight(null);
                                   }
                                 }}
-                                className={`group relative flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium border whitespace-nowrap transition-all duration-200 shrink-0 ${
+                                className={`group relative flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-semibold border whitespace-nowrap transition-all duration-200 shrink-0 ${
                                   isActive
                                     ? `${c.activeBg} ${c.activeBorder} ${c.text} shadow-sm ${c.glow}`
-                                    : `${c.bg} ${c.border} ${c.text} hover:brightness-125`
+                                    : `${c.bg} ${c.border} ${c.text} hover:brightness-110`
                                 }`}
                               >
-                                {chip.icon && <span>{chip.icon}</span>}
                                 <span>{chip.label}</span>
-                                {chip.count !== null && <span className="font-bold opacity-80">{chip.count}</span>}
+                                {chip.count !== null && <span className="font-bold opacity-80 tabular-nums">{chip.count}</span>}
                                 <span className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 px-2.5 py-1.5 rounded-lg bg-[#141820] border border-white/10 text-[9px] text-gray-300 whitespace-pre-line opacity-0 group-hover:opacity-100 transition-opacity z-50 max-w-[240px] shadow-xl">
                                   {chip.tooltip}
                                 </span>
@@ -18188,7 +18449,7 @@
                                   >✕ Clear</button>
                                 )}
                               </div>
-                              {/* Row 2: Market groups — Indexes, Futures, S&P Sectors */}
+                              {/* Row 2: Market context — pulse, movers, and major groups */}
                               {row2.length > 0 && (
                                 <div className="flex gap-1.5 overflow-x-auto scrollbar-hide items-center">
                                   {row2.map(c => renderChip(c, false))}
@@ -18222,7 +18483,7 @@
                             </div>
                           ) : (
                             <BubbleChart
-                              tickers={tickers}
+                              tickers={bubbleMapTickers}
                               onBubbleClick={handleTickerSelect}
                               onBackgroundClick={() => setBubbleSearchOpen(true)}
                               hoveredTicker={hoveredTicker}
@@ -18239,6 +18500,7 @@
                               thesisMode={isThesisModeActive(filters)}
                               forwardReturns={timeTravelForwardReturns}
                               activeInsightTickers={activeInsightTickers}
+                              layoutMode={bubbleLayoutMode}
                             />
                           )}
                           {bubbleSearchOpen && (

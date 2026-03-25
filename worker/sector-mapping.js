@@ -207,7 +207,6 @@ const SECTOR_MAP = {
   'TEM': 'Healthcare',
   'BMNR': 'Healthcare',
   'CRWV': 'Healthcare',
-  'NBIS': 'Healthcare',
 
   // Crypto-Related
   'BTCUSD': 'Crypto',

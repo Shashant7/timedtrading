@@ -282,7 +282,14 @@ for ticker, trades in sorted(ticker_stats.items()):
         continue
     engines_seen = set(t["engine"] for t in trades)
     is_franchise = stats["wr"] >= 45 and stats["avg_mfe"] >= 2.0 and len(engines_seen) >= 2
-    is_blacklist = stats["avg_mfe"] < 0.5 or (stats["wr"] < 30 and stats["count"] >= 8)
+    # Keep the runtime deny-list very small. It should only contain names with
+    # enough sample size plus consistently poor follow-through / expectancy, not
+    # every merely "subpar" ticker from a coarse 3-run comparison.
+    is_blacklist = (
+        stats["count"] >= 10 and
+        stats["avg_mfe"] < 0.75 and
+        (stats["wr"] < 20 or stats["avg_pnl_pct"] < -0.25)
+    )
     marker = " ★ FRANCHISE" if is_franchise else " ✗ BLACKLIST" if is_blacklist else ""
     if is_franchise or is_blacklist or stats["count"] >= 10:
         sector = SECTOR_MAP.get(ticker, "Unknown")

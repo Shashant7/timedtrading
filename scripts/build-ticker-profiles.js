@@ -58,6 +58,230 @@ function median(arr) {
   const mid = Math.floor(s.length / 2);
   return s.length % 2 ? s[mid] : (s[mid - 1] + s[mid]) / 2;
 }
+function parseJsonMaybe(raw) {
+  if (!raw) return null;
+  if (typeof raw === 'object') return raw;
+  try { return JSON.parse(raw); } catch { return null; }
+}
+function ichimokuDirectionAligned(ich, dir) {
+  if (!ich || typeof ich !== 'object') return false;
+  const tkBull = ich.tk === 1 || ich.tk === true;
+  const cloudBull = ich.cb === 1 || ich.cb === true;
+  if (dir === 'UP') return ich.pvc === 'above' && tkBull && cloudBull;
+  return ich.pvc === 'below' && !tkBull && !cloudBull;
+}
+
+
+const ARCHETYPE_PLAYBOOK = {
+  trend_continuation_runner: {
+    entry_timing: 'enter_earlier_on_continuation',
+    entry_engine: 'tt_core',
+    management_engine: 'tt_core',
+    guard_bundle: 'trend_confirmed',
+    sl_tp_style: 'wider_runner',
+    trim_run_bias: 'let_runner_work',
+    exit_style: 'smart_exit_bias',
+  },
+  pullback_reclaim: {
+    entry_timing: 'wait_for_reclaim_confirmation',
+    entry_engine: 'tt_core',
+    management_engine: 'tt_core',
+    guard_bundle: 'reclaim_confirmation',
+    sl_tp_style: 'standard_confirmed',
+    trim_run_bias: 'balanced',
+    exit_style: 'smart_exit_bias',
+  },
+  fast_impulse_fragile: {
+    entry_timing: 'allow_but_reduce_chase',
+    entry_engine: 'tt_core',
+    management_engine: 'tt_core',
+    guard_bundle: 'fragile_impulse',
+    sl_tp_style: 'tight_defensive',
+    trim_run_bias: 'quick_trim',
+    exit_style: 'tp_full_bias',
+  },
+  exhaustion_reversal: {
+    entry_timing: 'require_stronger_reversal_evidence',
+    entry_engine: 'tt_core',
+    management_engine: 'tt_core',
+    guard_bundle: 'reversal_confirmation',
+    sl_tp_style: 'tight_reversal',
+    trim_run_bias: 'take_quicker_profits',
+    exit_style: 'tp_full_bias',
+  },
+  liquidity_sweep_reclaim: {
+    entry_timing: 'reward_sweep_reclaim',
+    entry_engine: 'tt_core',
+    management_engine: 'tt_core',
+    guard_bundle: 'sweep_reclaim',
+    sl_tp_style: 'adaptive_discount_premium',
+    trim_run_bias: 'balanced_runner',
+    exit_style: 'smart_exit_bias',
+  },
+  orb_expansion: {
+    entry_timing: 'favor_opening_range_break',
+    entry_engine: 'tt_core',
+    management_engine: 'tt_core',
+    guard_bundle: 'orb_defensive',
+    sl_tp_style: 'orb_anchor',
+    trim_run_bias: 'front_load_trims',
+    exit_style: 'tp_full_bias',
+  },
+};
+
+function getPhaseTf(moveMeta, phase, tf) {
+  return moveMeta?.phases?.[phase]?.tf?.[tf] || null;
+}
+
+function zoneSupportsDirection(zone, dir) {
+  if (!zone) return false;
+  const z = String(zone).toLowerCase();
+  if (dir === 'UP') return z.includes('discount');
+  return z.includes('premium');
+}
+
+function supportsDirection(snapshot, dir) {
+  if (!snapshot || typeof snapshot !== 'object') return false;
+  const emaStruct = Number(snapshot?.ema?.structure);
+  const stackBull = snapshot?.ema?.stack_bull === 1;
+  const stDir = Number(snapshot?.supertrend?.dir);
+  const ich = snapshot?.ichimoku || null;
+  const bull = (Number.isFinite(emaStruct) && emaStruct > 0.2 && stackBull && stDir === -1)
+    || (ich?.pvc === 'above' && (ich?.cb === 1 || ich?.cb === true));
+  const bear = (Number.isFinite(emaStruct) && emaStruct < -0.2 && !stackBull && stDir === 1)
+    || (ich?.pvc === 'below' && !(ich?.cb === 1 || ich?.cb === true));
+  return dir === 'UP' ? bull : bear;
+}
+
+function classifyMoveArchetype(move) {
+  const meta = move?.move_meta || {};
+  const quality = meta?.quality || {};
+  const context = meta?.context || {};
+  const dir = move?.direction || meta?.summary?.direction || 'UP';
+  const originD = getPhaseTf(meta, 'origin', 'D');
+  const confirmation30 = getPhaseTf(meta, 'confirmation', '30') || getPhaseTf(meta, 'confirmation', '10');
+  const confirmation1H = getPhaseTf(meta, 'confirmation', '1H');
+  const expansion30 = getPhaseTf(meta, 'expansion', '30') || getPhaseTf(meta, 'expansion', '10');
+  const maturityD = getPhaseTf(meta, 'maturity', 'D');
+  const terminationD = getPhaseTf(meta, 'termination', 'D');
+  const originOrb = getPhaseTf(meta, 'origin', '30')?.orb || getPhaseTf(meta, 'origin', '10')?.orb || null;
+
+  const orbBias = Number(originOrb?.bias || 0);
+  const orbDirectional = (dir === 'UP' && orbBias > 0) || (dir === 'DOWN' && orbBias < 0);
+  if (orbDirectional && ['ELEVATED', 'SURGING'].includes(String(context?.rvol_bucket || '')) && Number(quality?.move_atr || 0) >= 3) {
+    return 'orb_expansion';
+  }
+
+  const liqSupport = dir === 'UP'
+    ? Number(confirmation30?.liquidity?.sellside_count || 0) > 0
+    : Number(confirmation30?.liquidity?.buyside_count || 0) > 0;
+  if (zoneSupportsDirection(originD?.pdz?.zone, dir) && liqSupport && supportsDirection(confirmation30 || confirmation1H, dir)) {
+    return 'liquidity_sweep_reclaim';
+  }
+
+  const opposingTd = dir === 'UP'
+    ? (originD?.td?.td9_bearish || originD?.td?.td13_bearish)
+    : (originD?.td?.td9_bullish || originD?.td?.td13_bullish);
+  const matureZone = String(maturityD?.phase?.zone || terminationD?.phase?.zone || '').toUpperCase();
+  if (opposingTd && (matureZone === 'HIGH' || matureZone === 'EXTREME')) {
+    return 'exhaustion_reversal';
+  }
+
+  if (Number(quality?.clean_expansion_score || 0) >= 55
+      && Number(quality?.mfe_mae_ratio || 0) >= 2
+      && String(context?.regime || '').includes('TRENDING')
+      && supportsDirection(expansion30 || confirmation1H || maturityD, dir)) {
+    return 'trend_continuation_runner';
+  }
+
+  if (Number(quality?.max_pullback_pct || 0) >= 4
+      && Number(quality?.mfe_mae_ratio || 0) >= 1.4
+      && supportsDirection(confirmation30 || confirmation1H, dir)) {
+    return 'pullback_reclaim';
+  }
+
+  if (Number(quality?.mfe_pct || 0) >= 8
+      && (Number(quality?.mfe_mae_ratio || 0) < 1.35 || Number(quality?.clean_expansion_score || 0) < 40)) {
+    return 'fast_impulse_fragile';
+  }
+
+  return supportsDirection(expansion30 || maturityD, dir) ? 'trend_continuation_runner' : 'fast_impulse_fragile';
+}
+
+function summarizeArchetypes(subset) {
+  const counts = {};
+  for (const move of subset) {
+    const archetype = move?.move_archetype || classifyMoveArchetype(move);
+    counts[archetype] = (counts[archetype] || 0) + 1;
+  }
+  const entries = Object.entries(counts).sort((a, b) => b[1] - a[1]);
+  const dominant = entries[0]?.[0] || null;
+  return {
+    counts,
+    dominant,
+    recommendation: dominant ? { archetype: dominant, ...(ARCHETYPE_PLAYBOOK[dominant] || {}) } : null,
+  };
+}
+
+function buildRuntimePolicy(moves) {
+  const buildRules = (subset, direction) => {
+    const groups = new Map();
+    for (const move of subset) {
+      const ctx = move?.move_meta?.context || {};
+      const keyObj = {
+        direction,
+        regime: ctx.regime || 'ANY',
+        vix_bucket: ctx.vix_bucket || 'ANY',
+        rvol_bucket: ctx.rvol_bucket || 'ANY',
+        market_state: ctx.market_state || 'ANY',
+      };
+      const key = JSON.stringify(keyObj);
+      const bucket = groups.get(key) || { when: keyObj, moves: [] };
+      bucket.moves.push(move);
+      groups.set(key, bucket);
+    }
+    return [...groups.values()]
+      .filter(g => g.moves.length >= 2)
+      .sort((a, b) => b.moves.length - a.moves.length)
+      .slice(0, 4)
+      .map(g => {
+        const summary = summarizeArchetypes(g.moves);
+        return {
+          when: g.when,
+          sample_count: g.moves.length,
+          recommend: summary.recommendation,
+        };
+      });
+  };
+
+  const longMoves = moves.filter(m => m.direction === 'UP');
+  const shortMoves = moves.filter(m => m.direction === 'DOWN');
+  const longSummary = summarizeArchetypes(longMoves);
+  const shortSummary = summarizeArchetypes(shortMoves);
+  const longDominant = longSummary.dominant;
+  const investorBias = longDominant === 'trend_continuation_runner'
+    ? { stance: 'hold_winners', add_on: 'shallow_pullbacks', risk: 'avoid_premature_trim' }
+    : longDominant === 'pullback_reclaim'
+      ? { stance: 'accumulate_on_reclaim', add_on: 'discount_reclaims_only', risk: 'avoid_chasing' }
+      : longDominant === 'liquidity_sweep_reclaim'
+        ? { stance: 'accumulate_after_sweep_reclaim', add_on: 'discount_or_equilibrium', risk: 'require_structure_reclaim' }
+        : { stance: 'defensive', add_on: 'selective_only', risk: 'trim_strength_and_wait' };
+  return {
+    version: 1,
+    defaults: {
+      LONG: longSummary.recommendation,
+      SHORT: shortSummary.recommendation,
+    },
+    context_rules: [
+      ...buildRules(longMoves, 'LONG'),
+      ...buildRules(shortMoves, 'SHORT'),
+    ],
+    investor: {
+      long_bias_archetype: longDominant,
+      ...investorBias,
+    },
+  };
+}
 
 const t0 = Date.now();
 function elapsed() { return `${((Date.now() - t0) / 1000).toFixed(1)}s`; }
@@ -79,13 +303,12 @@ const movesRaw = queryD1(
   `SELECT m.ticker, m.direction, m.move_pct, m.move_atr, m.personality,
           m.duration_days, m.max_pullback_pct, m.pullback_count,
           m.rsi_at_start, m.ema_aligned, m.ema_state, m.atr_at_start, m.start_price,
+          m.move_json,
           s.rsi_d as origin_rsi, s.st_dir_d as origin_st_dir,
           s.ema_cross_d as origin_ema_cross, s.atr_d as origin_atr,
           s.ema21_d as origin_ema21, s.ema48_d as origin_ema48,
           s.rsi_30m as origin_rsi_30m, s.st_dir_30m as origin_st_dir_30m,
-          s.rsi_30m as origin_rsi_30m, s.st_dir_30m as origin_st_dir_30m,
-          s.rsi_30m as origin_rsi_30m, s.st_dir_30m as origin_st_dir_30m,
-          s.rsi_30m as origin_rsi_30m, s.st_dir_30m as origin_st_dir_30m
+          s.signals_json as origin_signals_json
    FROM ticker_moves m
    LEFT JOIN ticker_move_signals s ON s.move_id = m.id AND s.phase = 'origin'
    WHERE 1=1 ${tickerWhere}
@@ -97,6 +320,16 @@ console.log(`  [${elapsed()}] ${movesRaw.length} moves loaded\n`);
 // Group by ticker
 const byTicker = {};
 for (const r of movesRaw) {
+  const sig = parseJsonMaybe(r.origin_signals_json);
+  r.move_meta = parseJsonMaybe(r.move_json);
+  r.origin_ichimoku_d = sig?.ichimoku_d || null;
+  r.origin_ichimoku_30m = sig?.ichimoku_30m || null;
+  r.origin_ichimoku_w = sig?.ichimoku_w || null;
+  r.origin_rsi_w = Number.isFinite(Number(sig?.rsi_w)) ? Number(sig.rsi_w) : null;
+  r.origin_st_dir_w = Number.isFinite(Number(sig?.st_dir_w)) ? Number(sig.st_dir_w) : null;
+  r.origin_ema_cross_w = Number.isFinite(Number(sig?.ema_cross_w)) ? Number(sig.ema_cross_w) : null;
+  r.move_archetype = classifyMoveArchetype(r);
+  r.move_recommendation = ARCHETYPE_PLAYBOOK[r.move_archetype] || null;
   const t = r.ticker;
   (byTicker[t] = byTicker[t] || []).push(r);
 }
@@ -157,6 +390,21 @@ for (const ticker of tickers) {
       : subset.filter(m => m.origin_st_dir_30m === 1).length;
     const ltfEnriched = rsi30mValues.length;
 
+    // Weekly HTF context at origin
+    const rsiWValues = subset.map(m => m.origin_rsi_w).filter(Number.isFinite);
+    const stDirWTotal = subset.filter(m => m.origin_st_dir_w != null).length;
+    const stWAligned = dir === "UP"
+      ? subset.filter(m => m.origin_st_dir_w === -1).length
+      : subset.filter(m => m.origin_st_dir_w === 1).length;
+
+    // Ichimoku alignment across timeframes
+    const ichDailyTotal = subset.filter(m => m.origin_ichimoku_d).length;
+    const ichDailyAligned = subset.filter(m => ichimokuDirectionAligned(m.origin_ichimoku_d, dir)).length;
+    const ich30mTotal = subset.filter(m => m.origin_ichimoku_30m).length;
+    const ich30mAligned = subset.filter(m => ichimokuDirectionAligned(m.origin_ichimoku_30m, dir)).length;
+    const ichWTotal = subset.filter(m => m.origin_ichimoku_w).length;
+    const ichWAligned = subset.filter(m => ichimokuDirectionAligned(m.origin_ichimoku_w, dir)).length;
+
     // Optimal RSI entry zone: which zone produces the best moves?
     const bestRsiZone = Object.entries(rsiZonePnl)
       .map(([zone, pnls]) => ({ zone, avg: pnls.length > 0 ? rnd(pnls.reduce((s, v) => s + v, 0) / pnls.length) : 0, count: pnls.length }))
@@ -191,12 +439,27 @@ for (const ticker of tickers) {
         enriched_count: ltfEnriched,
         rsi_30m_mean: rnd(rsi30mValues.reduce((s, v) => s + v, 0) / rsi30mValues.length, 0),
         st_30m_aligned_pct: stDir30mTotal > 0 ? pct(st30mAligned, stDir30mTotal) : null,
+        ichimoku_aligned_pct: ich30mTotal > 0 ? pct(ich30mAligned, ich30mTotal) : null,
       } : null,
+      weekly_htf: rsiWValues.length > 0 || stDirWTotal > 0 || ichWTotal > 0 ? {
+        enriched_count: Math.max(rsiWValues.length, stDirWTotal, ichWTotal),
+        rsi_w_mean: rsiWValues.length > 0 ? rnd(rsiWValues.reduce((s, v) => s + v, 0) / rsiWValues.length, 0) : null,
+        st_w_aligned_pct: stDirWTotal > 0 ? pct(stWAligned, stDirWTotal) : null,
+        ichimoku_w_aligned_pct: ichWTotal > 0 ? pct(ichWAligned, ichWTotal) : null,
+      } : null,
+      ichimoku: {
+        daily_aligned_pct: ichDailyTotal > 0 ? pct(ichDailyAligned, ichDailyTotal) : null,
+        weekly_aligned_pct: ichWTotal > 0 ? pct(ichWAligned, ichWTotal) : null,
+        ltf_30m_aligned_pct: ich30mTotal > 0 ? pct(ich30mAligned, ich30mTotal) : null,
+      },
     };
   }
 
   const upAnalysis = analyzeEntries(upMoves, "UP");
   const dnAnalysis = analyzeEntries(dnMoves, "DOWN");
+  const longArchetypes = summarizeArchetypes(upMoves);
+  const shortArchetypes = summarizeArchetypes(dnMoves);
+  const runtimePolicy = buildRuntimePolicy(moves);
 
   // Overall personality and entry recommendations
   const allMoveAtrs = moves.map(m => m.move_atr);
@@ -228,6 +491,28 @@ for (const ticker of tickers) {
     ltf_30m_rsi_mean_long: upAnalysis?.ltf_30m?.rsi_30m_mean ?? null,
     ltf_30m_rsi_mean_short: dnAnalysis?.ltf_30m?.rsi_30m_mean ?? null,
     ltf_30m_st_aligned_pct: upAnalysis?.ltf_30m?.st_30m_aligned_pct ?? null,
+    ltf_30m_ichimoku_aligned_pct_long: upAnalysis?.ltf_30m?.ichimoku_aligned_pct ?? null,
+    ltf_30m_ichimoku_aligned_pct_short: dnAnalysis?.ltf_30m?.ichimoku_aligned_pct ?? null,
+    weekly_rsi_mean_long: upAnalysis?.weekly_htf?.rsi_w_mean ?? null,
+    weekly_rsi_mean_short: dnAnalysis?.weekly_htf?.rsi_w_mean ?? null,
+    weekly_st_aligned_pct_long: upAnalysis?.weekly_htf?.st_w_aligned_pct ?? null,
+    weekly_st_aligned_pct_short: dnAnalysis?.weekly_htf?.st_w_aligned_pct ?? null,
+    weekly_ichimoku_aligned_pct_long: upAnalysis?.weekly_htf?.ichimoku_w_aligned_pct ?? null,
+    weekly_ichimoku_aligned_pct_short: dnAnalysis?.weekly_htf?.ichimoku_w_aligned_pct ?? null,
+    daily_ichimoku_aligned_pct_long: upAnalysis?.ichimoku?.daily_aligned_pct ?? null,
+    daily_ichimoku_aligned_pct_short: dnAnalysis?.ichimoku?.daily_aligned_pct ?? null,
+    long_dominant_archetype: longArchetypes.dominant || null,
+    short_dominant_archetype: shortArchetypes.dominant || null,
+    preferred_entry_engine_long: runtimePolicy?.defaults?.LONG?.entry_engine || null,
+    preferred_entry_engine_short: runtimePolicy?.defaults?.SHORT?.entry_engine || null,
+    preferred_management_engine_long: runtimePolicy?.defaults?.LONG?.management_engine || null,
+    preferred_management_engine_short: runtimePolicy?.defaults?.SHORT?.management_engine || null,
+    preferred_guard_bundle_long: runtimePolicy?.defaults?.LONG?.guard_bundle || null,
+    preferred_guard_bundle_short: runtimePolicy?.defaults?.SHORT?.guard_bundle || null,
+    preferred_exit_style_long: runtimePolicy?.defaults?.LONG?.exit_style || null,
+    preferred_exit_style_short: runtimePolicy?.defaults?.SHORT?.exit_style || null,
+    preferred_trim_bias_long: runtimePolicy?.defaults?.LONG?.trim_run_bias || null,
+    preferred_trim_bias_short: runtimePolicy?.defaults?.SHORT?.trim_run_bias || null,
   };
 
   profiles[ticker] = {
@@ -239,6 +524,11 @@ for (const ticker of tickers) {
     avg_volatility_pct: rnd(avgAtrPct),
     long_profile: upAnalysis,
     short_profile: dnAnalysis,
+    archetypes: {
+      long: longArchetypes,
+      short: shortArchetypes,
+    },
+    runtime_policy: runtimePolicy,
     entry_params,
   };
 }
@@ -317,7 +607,7 @@ for (let ci = 0; ci < allStatements.length; ci += STMTS_PER_FILE) {
   try {
     execSync(
       `cd "${WORKER_DIR}" && npx wrangler d1 execute timed-trading-ledger --remote --env production --file "${chunkPath}"`,
-      { maxBuffer: 10 * 1024 * 1024, encoding: "utf-8", timeout: 60000 }
+      { maxBuffer: 10 * 1024 * 1024, encoding: "utf-8", timeout: 180000 }
     );
     chunkOk++;
   } catch (e) {

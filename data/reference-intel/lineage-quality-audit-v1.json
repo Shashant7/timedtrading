@@ -1,6 +1,6 @@
 {
-  "generated_at_utc": "2026-03-23T10:15:03.430584+00:00",
-  "row_count": 6494,
+  "generated_at_utc": "2026-03-24T22:15:03.314132+00:00",
+  "row_count": 6686,
   "runs": [
     {
       "run_label": "10m-ltf-validation--2026-03-20T0108",
@@ -185,6 +185,20 @@
       "missing_rate_has_exit_reason": 0.0
     },
     {
+      "run_label": "locked-validation-v4-go-live-candidate--20260323-131248",
+      "rows": 1,
+      "missing_has_entry_path": 1,
+      "missing_has_signal_snapshot": 1,
+      "missing_has_tf_stack": 1,
+      "missing_has_mfe_mae": 1,
+      "missing_has_exit_reason": 0,
+      "missing_rate_has_entry_path": 1.0,
+      "missing_rate_has_signal_snapshot": 1.0,
+      "missing_rate_has_tf_stack": 1.0,
+      "missing_rate_has_mfe_mae": 1.0,
+      "missing_rate_has_exit_reason": 0.0
+    },
+    {
       "run_label": "15m-july-canonical-restored-baseline--20260311-142218",
       "rows": 58,
       "missing_has_entry_path": 57,
@@ -255,6 +269,20 @@
       "missing_rate_has_exit_reason": 0.0
     },
     {
+      "run_label": "locked-validation-v3-targeted-promotion--20260323-105316",
+      "rows": 33,
+      "missing_has_entry_path": 28,
+      "missing_has_signal_snapshot": 28,
+      "missing_has_tf_stack": 28,
+      "missing_has_mfe_mae": 28,
+      "missing_has_exit_reason": 0,
+      "missing_rate_has_entry_path": 0.8485,
+      "missing_rate_has_signal_snapshot": 0.8485,
+      "missing_rate_has_tf_stack": 0.8485,
+      "missing_rate_has_mfe_mae": 0.8485,
+      "missing_rate_has_exit_reason": 0.0
+    },
+    {
       "run_label": "pre-reset-2025-07-01-to-2025-07-02--20260306-164712",
       "rows": 6,
       "missing_has_entry_path": 5,
@@ -294,6 +322,20 @@
       "missing_rate_has_signal_snapshot": 0.8125,
       "missing_rate_has_tf_stack": 0.8125,
       "missing_rate_has_mfe_mae": 0.8125,
+      "missing_rate_has_exit_reason": 0.0
+    },
+    {
+      "run_label": "roadmap-runtime-smoke--20260323-071101",
+      "rows": 56,
+      "missing_has_entry_path": 45,
+      "missing_has_signal_snapshot": 45,
+      "missing_has_tf_stack": 45,
+      "missing_has_mfe_mae": 45,
+      "missing_has_exit_reason": 0,
+      "missing_rate_has_entry_path": 0.8036,
+      "missing_rate_has_signal_snapshot": 0.8036,
+      "missing_rate_has_tf_stack": 0.8036,
+      "missing_rate_has_mfe_mae": 0.8036,
       "missing_rate_has_exit_reason": 0.0
     },
     {
@@ -689,6 +731,20 @@
       "missing_rate_has_exit_reason": 0.0
     },
     {
+      "run_label": "locked-validation-v2--20260323-090109",
+      "rows": 44,
+      "missing_has_entry_path": 24,
+      "missing_has_signal_snapshot": 24,
+      "missing_has_tf_stack": 24,
+      "missing_has_mfe_mae": 24,
+      "missing_has_exit_reason": 0,
+      "missing_rate_has_entry_path": 0.5455,
+      "missing_rate_has_signal_snapshot": 0.5455,
+      "missing_rate_has_tf_stack": 0.5455,
+      "missing_rate_has_mfe_mae": 0.5455,
+      "missing_rate_has_exit_reason": 0.0
+    },
+    {
       "run_label": "july-normal-fidelity-rsi-guard--20260305-171347",
       "rows": 11,
       "missing_has_entry_path": 6,
@@ -1025,6 +1081,20 @@
       "missing_rate_has_exit_reason": 0.0
     },
     {
+      "run_label": "phase10-postfix-clean--20260323-061831",
+      "rows": 22,
+      "missing_has_entry_path": 6,
+      "missing_has_signal_snapshot": 6,
+      "missing_has_tf_stack": 6,
+      "missing_has_mfe_mae": 6,
+      "missing_has_exit_reason": 0,
+      "missing_rate_has_entry_path": 0.2727,
+      "missing_rate_has_signal_snapshot": 0.2727,
+      "missing_rate_has_tf_stack": 0.2727,
+      "missing_rate_has_mfe_mae": 0.2727,
+      "missing_rate_has_exit_reason": 0.0
+    },
+    {
       "run_label": "july-rsi-posttrim-squeeze-v1--20260305-222703",
       "rows": 21,
       "missing_has_entry_path": 5,
@@ -1274,6 +1344,34 @@
       "missing_rate_has_signal_snapshot": 0.0694,
       "missing_rate_has_tf_stack": 0.0694,
       "missing_rate_has_mfe_mae": 1.0,
+      "missing_rate_has_exit_reason": 0.0
+    },
+    {
+      "run_label": "phase10-postfix-clean-v2--20260323-063144",
+      "rows": 18,
+      "missing_has_entry_path": 1,
+      "missing_has_signal_snapshot": 1,
+      "missing_has_tf_stack": 1,
+      "missing_has_mfe_mae": 1,
+      "missing_has_exit_reason": 0,
+      "missing_rate_has_entry_path": 0.0556,
+      "missing_rate_has_signal_snapshot": 0.0556,
+      "missing_rate_has_tf_stack": 0.0556,
+      "missing_rate_has_mfe_mae": 0.0556,
+      "missing_rate_has_exit_reason": 0.0
+    },
+    {
+      "run_label": "phase10-postfix-clean-v3--20260323-063414",
+      "rows": 18,
+      "missing_has_entry_path": 1,
+      "missing_has_signal_snapshot": 1,
+      "missing_has_tf_stack": 1,
+      "missing_has_mfe_mae": 1,
+      "missing_has_exit_reason": 0,
+      "missing_rate_has_entry_path": 0.0556,
+      "missing_rate_has_signal_snapshot": 0.0556,
+      "missing_rate_has_tf_stack": 0.0556,
+      "missing_rate_has_mfe_mae": 0.0556,
       "missing_rate_has_exit_reason": 0.0
     },
     {

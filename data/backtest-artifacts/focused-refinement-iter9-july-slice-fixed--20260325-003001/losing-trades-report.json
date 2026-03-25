@@ -1,0 +1,69 @@
+{
+  "ok": true,
+  "run_id": "focused_replay_20260325-003001@2026-03-25T04:30:02.096Z",
+  "report": [
+    {
+      "ticker": "CELH",
+      "total_trades": 2,
+      "closed_trades": 1,
+      "wins": 0,
+      "losses": 1,
+      "total_pnl": -267.9029957204001,
+      "avg_pnl_pct": -3.319546081238742
+    },
+    {
+      "ticker": "FIX",
+      "total_trades": 0,
+      "closed_trades": 0,
+      "wins": 0,
+      "losses": 0,
+      "total_pnl": 0,
+      "avg_pnl_pct": 0
+    },
+    {
+      "ticker": "RBLX",
+      "total_trades": 0,
+      "closed_trades": 0,
+      "wins": 0,
+      "losses": 0,
+      "total_pnl": 0,
+      "avg_pnl_pct": 0
+    },
+    {
+      "ticker": "ULTA",
+      "total_trades": 0,
+      "closed_trades": 0,
+      "wins": 0,
+      "losses": 0,
+      "total_pnl": 0,
+      "avg_pnl_pct": 0
+    },
+    {
+      "ticker": "CAT",
+      "total_trades": 0,
+      "closed_trades": 0,
+      "wins": 0,
+      "losses": 0,
+      "total_pnl": 0,
+      "avg_pnl_pct": 0
+    },
+    {
+      "ticker": "TJX",
+      "total_trades": 0,
+      "closed_trades": 0,
+      "wins": 0,
+      "losses": 0,
+      "total_pnl": 0,
+      "avg_pnl_pct": 0
+    },
+    {
+      "ticker": "ETN",
+      "total_trades": 1,
+      "closed_trades": 1,
+      "wins": 1,
+      "losses": 0,
+      "total_pnl": 89.10983212353936,
+      "avg_pnl_pct": 0.7425819343628279
+    }
+  ]
+}

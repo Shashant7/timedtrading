@@ -1,0 +1,72 @@
+{
+  "ok": true,
+  "since": null,
+  "until": null,
+  "run_id": "focused_replay_20260325-003001@2026-03-25T04:30:02.096Z",
+  "totals": {
+    "totalTrades": 3,
+    "openTrades": 1,
+    "closedTrades": 2,
+    "wins": 1,
+    "losses": 1,
+    "winRate": 50,
+    "closedPnl": -178.79316359686072,
+    "profitFactor": 0.33261976740469085,
+    "avgWin": 89.10983212353936,
+    "avgLoss": 267.9029957204001,
+    "expectancy": -89.39658179843036,
+    "grossWin": 89.10983212353936,
+    "grossLoss": 267.9029957204001
+  },
+  "breakdown": {
+    "byRank": [
+      {
+        "bucket": "70-79",
+        "n": 2,
+        "wins": 0,
+        "losses": 1,
+        "pnl": -267.9029957204001
+      },
+      {
+        "bucket": "80+",
+        "n": 1,
+        "wins": 1,
+        "losses": 0,
+        "pnl": 89.10983212353936
+      }
+    ],
+    "byRR": [
+      {
+        "bucket": "2.0+",
+        "n": 3,
+        "wins": 1,
+        "losses": 1,
+        "pnl": -178.79316359686072
+      }
+    ],
+    "byExitReason": [
+      {
+        "bucket": "unknown",
+        "n": 1,
+        "wins": 0,
+        "losses": 0,
+        "pnl": 0
+      },
+      {
+        "bucket": "max_loss",
+        "n": 1,
+        "wins": 0,
+        "losses": 1,
+        "pnl": -267.9029957204001
+      },
+      {
+        "bucket": "SMART_RUNNER_TD_EXHAUSTION_RUNNER",
+        "n": 1,
+        "wins": 1,
+        "losses": 0,
+        "pnl": 89.10983212353936
+      }
+    ],
+    "byTriggerReason": []
+  }
+}

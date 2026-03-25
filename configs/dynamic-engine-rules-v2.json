@@ -1,6 +1,6 @@
 {
   "_meta": {
-    "generated_at": "2026-03-20T14:40:50.253001+00:00",
+    "generated_at": "2026-03-24T06:15:04.760149+00:00",
     "total_trades_analyzed": 1650,
     "engines": [
       "ripster_core",
@@ -272,34 +272,7 @@
     "SNDK",
     "STRL"
   ],
-  "blacklist_tickers": [
-    "AAPL",
-    "AMZN",
-    "BA",
-    "BMNR",
-    "CDNS",
-    "CELH",
-    "COST",
-    "DIA",
-    "ELF",
-    "EMR",
-    "EXEL",
-    "GDX",
-    "IWM",
-    "LULU",
-    "MLI",
-    "MRK",
-    "MTB",
-    "NVDA",
-    "PATH",
-    "PH",
-    "PNC",
-    "RBLX",
-    "SPY",
-    "SWK",
-    "UNP",
-    "XLRE"
-  ],
+  "blacklist_tickers": [],
   "sweet_spots": [
     {
       "engine": "ripster_core",

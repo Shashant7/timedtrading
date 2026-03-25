@@ -1,6 +1,6 @@
 # Iteration Notes v1
 
-Generated: 2026-03-23T10:17:03.926062+00:00
+Generated: 2026-03-24T22:19:07.500432+00:00
 
 ## Window
 - Dates: 2025-07-31 → 2025-08-01
@@ -12,9 +12,9 @@ Generated: 2026-03-23T10:17:03.926062+00:00
 - candidate: `ai_cio_reference_enabled=true`
 
 ## Delta
-- closed_trade_delta: 2
-- win_rate_delta: 0.5
-- realized_pnl_delta: 164.5899
+- closed_trade_delta: 0
+- win_rate_delta: 0.0
+- realized_pnl_delta: 0.0
 
 ## Outcome
 - go_no_go: PASS

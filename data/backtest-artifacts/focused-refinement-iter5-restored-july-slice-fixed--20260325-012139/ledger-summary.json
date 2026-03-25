@@ -1,0 +1,121 @@
+{
+  "ok": true,
+  "since": null,
+  "until": null,
+  "run_id": "focused_replay_20260325-012139@2026-03-25T05:26:10.764Z",
+  "totals": {
+    "totalTrades": 32,
+    "openTrades": 0,
+    "closedTrades": 32,
+    "wins": 19,
+    "losses": 13,
+    "winRate": 59.375,
+    "closedPnl": 634.6262060265061,
+    "profitFactor": 1.6585922205987613,
+    "avgWin": 84.11770754760795,
+    "avgLoss": 74.12386441369576,
+    "expectancy": 19.832068938328316,
+    "grossWin": 1598.236443404551,
+    "grossLoss": 963.6102373780449
+  },
+  "breakdown": {
+    "byRank": [
+      {
+        "bucket": "60-69",
+        "n": 7,
+        "wins": 4,
+        "losses": 3,
+        "pnl": 124.70064303588195
+      },
+      {
+        "bucket": "80+",
+        "n": 25,
+        "wins": 15,
+        "losses": 10,
+        "pnl": 509.9255629906241
+      }
+    ],
+    "byRR": [
+      {
+        "bucket": "2.0+",
+        "n": 31,
+        "wins": 18,
+        "losses": 13,
+        "pnl": 624.502057177128
+      },
+      {
+        "bucket": "1.5-1.99",
+        "n": 1,
+        "wins": 1,
+        "losses": 0,
+        "pnl": 10.124148849378239
+      }
+    ],
+    "byExitReason": [
+      {
+        "bucket": "SMART_RUNNER_SUPPORT_BREAK_CLOUD",
+        "n": 1,
+        "wins": 0,
+        "losses": 1,
+        "pnl": -30.576692240509317
+      },
+      {
+        "bucket": "SMART_RUNNER_TD_EXHAUSTION_RUNNER",
+        "n": 9,
+        "wins": 9,
+        "losses": 0,
+        "pnl": 812.6669335383677
+      },
+      {
+        "bucket": "SOFT_FUSE_RSI_CONFIRMED",
+        "n": 9,
+        "wins": 6,
+        "losses": 3,
+        "pnl": 425.9531205788353
+      },
+      {
+        "bucket": "time_exit_loser_trending",
+        "n": 1,
+        "wins": 0,
+        "losses": 1,
+        "pnl": -36.0052522380381
+      },
+      {
+        "bucket": "PROFIT_GIVEBACK",
+        "n": 2,
+        "wins": 2,
+        "losses": 0,
+        "pnl": 143.68716806699115
+      },
+      {
+        "bucket": "doa_early_exit",
+        "n": 4,
+        "wins": 0,
+        "losses": 4,
+        "pnl": -209.64931870496213
+      },
+      {
+        "bucket": "max_loss",
+        "n": 1,
+        "wins": 0,
+        "losses": 1,
+        "pnl": -177.2644376899702
+      },
+      {
+        "bucket": "ripster_34_50_lost_mtf",
+        "n": 3,
+        "wins": 0,
+        "losses": 3,
+        "pnl": -496.7827802516877
+      },
+      {
+        "bucket": "PHASE_LEAVE_100",
+        "n": 2,
+        "wins": 2,
+        "losses": 0,
+        "pnl": 202.59746496747928
+      }
+    ],
+    "byTriggerReason": []
+  }
+}
