@@ -81,6 +81,50 @@ function loadRunTrades() {
   }
 }
 
+function loadRunConfig() {
+  if (API_KEY) {
+    const runsConfigUrl = `${API_BASE}/timed/admin/runs/config?run_id=${encodeURIComponent(RUN_ID)}&key=${encodeURIComponent(API_KEY)}`;
+    const apiResult = fetchJson(runsConfigUrl);
+    if (apiResult?.ok && apiResult.config && typeof apiResult.config === "object") {
+      const entries = Object.entries(apiResult.config);
+      if (entries.length > 0) {
+        return { config: apiResult.config, source: "archive_api" };
+      }
+    }
+  }
+
+  try {
+    const archivedRows = d1Query(`
+      SELECT config_key, config_value
+      FROM backtest_run_config
+      WHERE run_id = '${RUN_ID.replace(/'/g, "''")}'
+      ORDER BY config_key ASC
+    `);
+    if (archivedRows.length > 0) {
+      return {
+        config: Object.fromEntries(archivedRows.map((row) => [row.config_key, row.config_value])),
+        source: "archive_d1",
+      };
+    }
+  } catch (err) {}
+
+  try {
+    const liveRows = d1Query(`
+      SELECT config_key, config_value
+      FROM model_config
+      ORDER BY config_key ASC
+    `);
+    if (liveRows.length > 0) {
+      return {
+        config: Object.fromEntries(liveRows.map((row) => [row.config_key, row.config_value])),
+        source: "live_model_config_fallback",
+      };
+    }
+  } catch (err) {}
+
+  return { config: {}, source: "unavailable" };
+}
+
 function bucketRank(rank) {
   if (!Number.isFinite(rank)) return "unknown";
   if (rank >= 80) return "80+";
@@ -114,6 +158,8 @@ function summarizeBuckets(trades, keyFn) {
 }
 
 const rows = loadRunTrades();
+const runConfigBundle = loadRunConfig();
+const runConfig = runConfigBundle.config || {};
 
 const trades = rows.map((r) => ({
   ...r,
@@ -218,6 +264,13 @@ fs.writeFileSync(path.join(OUT_DIR, "trades.json"), JSON.stringify(tradesPayload
 fs.writeFileSync(path.join(OUT_DIR, "ledger-summary.json"), JSON.stringify(ledgerSummary, null, 2));
 fs.writeFileSync(path.join(OUT_DIR, "account-summary.json"), JSON.stringify(accountSummary, null, 2));
 fs.writeFileSync(path.join(OUT_DIR, "losing-trades-report.json"), JSON.stringify(losingTradesReport, null, 2));
+fs.writeFileSync(path.join(OUT_DIR, "model-config.json"), JSON.stringify({
+  ok: true,
+  run_id: RUN_ID,
+  source: runConfigBundle.source,
+  config_key_count: Object.keys(runConfig).length,
+  config: runConfig,
+}, null, 2));
 
 if (API_KEY) {
   const autopsyUrl = `${API_BASE}/timed/admin/trade-autopsy/trades?run_id=${encodeURIComponent(RUN_ID)}&key=${encodeURIComponent(API_KEY)}`;
@@ -232,4 +285,6 @@ console.log(JSON.stringify({
   trade_count: trades.length,
   closed_trade_count: closedTrades.length,
   closed_pnl: closedPnl,
+  config_key_count: Object.keys(runConfig).length,
+  config_source: runConfigBundle.source,
 }, null, 2));

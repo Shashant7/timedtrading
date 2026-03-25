@@ -3306,7 +3306,10 @@ function qualifiesForEnter(d, asOfTs = null) {
     const _pb21EmaDist = _pbEma21 > 0 ? Math.abs((_pbPrice - _pbEma21) / _pbEma21) : 1;
     const _pbNearEma21 = _pb21EmaDist <= 0.01;
     const _pbStConfirm = inferredSide === "LONG" ? _pbStFlipBull : _pbStFlipBear;
-    d.__pullback_confirmed = true; // TEMP: force pullback confirmed to diagnose zero-trade issue
+    d.__pullback_confirmed = (_pbEmaReclaim && _pbRsiRecovery)
+      || _pbNearEma21
+      || (_pbStConfirm && _pbEmaReclaim)
+      || (_pbStConfirm && _pbRsi >= 38 && _pbRsi <= 58);
     d.__pullback_details = { emaReclaim: _pbEmaReclaim, rsiRecovery: _pbRsiRecovery, stConfirm: _pbStConfirm, nearEma21: _pbNearEma21, rsi: _pbRsi, ema9DistPct: +(_pb9EmaDist * 100).toFixed(2) };
   }
 
@@ -11373,7 +11376,7 @@ async function processTradeSimulation(
     // REPLAY price fix: Prefer leading LTF candle close (matches scoring TF).
     // tickerData.price comes from assembleTickerData which picks the freshest bundle,
     // but when bundles are sparse, fall back to the leading LTF candleCache directly.
-    const _replayLtf = replayCtx?._leadingLtf || tickerData?._env?._leadingLtf || "15";
+    const _replayLtf = replayCtx?._leadingLtf || tickerData?._env?._leadingLtf || "10";
     if (isReplay && Number.isFinite(asOfMs) && replayCtx?.candleCache?.[sym]?.[_replayLtf]?.length > 0) {
       const ltfCandles = replayCtx.candleCache[sym][_replayLtf];
       const lastLtf = ltfCandles.filter((c) => c.ts <= asOfMs).pop();
@@ -20029,6 +20032,24 @@ function parseBool01(v) {
 function buildTradeAutopsyRunUrl(runId) {
   const safe = encodeURIComponent(String(runId || "").trim());
   return safe ? `trade-autopsy.html?run_id=${safe}` : "trade-autopsy.html";
+}
+
+async function loadRunConfigMap(db, runId) {
+  const rid = String(runId || "").trim();
+  if (!db || !rid) return null;
+  try {
+    const rows = (await db.prepare(
+      `SELECT config_key, config_value
+       FROM backtest_run_config
+       WHERE run_id = ?1`
+    ).bind(rid).all())?.results || [];
+    if (!rows.length) return null;
+    const out = {};
+    for (const row of rows) out[row.config_key] = row.config_value;
+    return out;
+  } catch {
+    return null;
+  }
 }
 
 async function summarizeRunMetrics(db, runId) {
@@ -32101,12 +32122,8 @@ export default {
               for (const _sf of _STRIP_FIELDS) delete _tObj[_sf];
             }
 
-            if (!_isAdminReq) {
-              for (const _tObj of Object.values(data)) {
-                if (_tObj.leading_ltf === "10") _tObj.leading_ltf = "15";
-                if (_tObj.lead_intraday_tf === "10") _tObj.lead_intraday_tf = "15";
-              }
-            }
+            // Preserve the true leading timeframe in payloads.
+            // Rewriting 10m to 15m distorts replay/autopsy analysis.
 
             const _snapFreshTs = Date.now();
             if (_isSlim) {
@@ -32957,12 +32974,8 @@ export default {
             for (const _sf of _D1_STRIP) delete _tObj[_sf];
           }
 
-          if (!_isAdminReq) {
-            for (const _tObj of Object.values(data)) {
-              if (_tObj.leading_ltf === "10") _tObj.leading_ltf = "15";
-              if (_tObj.lead_intraday_tf === "10") _tObj.lead_intraday_tf = "15";
-            }
-          }
+          // Preserve the true leading timeframe in payloads.
+          // Rewriting 10m to 15m distorts replay/autopsy analysis.
 
           return sendJSON(
             {
@@ -40065,7 +40078,7 @@ export default {
         const skipPayload = url.searchParams.get("skipPayload") !== "0"; // default ON: skip heavy payload_json to avoid timeout
         const debugTimeline = url.searchParams.get("debugTimeline") === "1";
         const tickerFilter = url.searchParams.get("tickers"); // comma-separated filter
-        const replayEnv = { ...env };
+        const replayEnv = { ...env, _isReplay: true };
         for (const overrideKey of ["LEADING_LTF", "TT_EXIT_DEBOUNCE_BARS", "TT_TUNE_V2", "RIPSTER_TUNE_V2", "ENTRY_ENGINE", "MANAGEMENT_ENGINE"]) {
           const overrideValue = url.searchParams.get(overrideKey);
           if (overrideValue != null && overrideValue !== "") replayEnv[overrideKey] = overrideValue;
@@ -40233,22 +40246,31 @@ export default {
         let _replayCalibratedSlAtr = 0;
         let _replayCalibratedRankMin = 0;
         let _replayCurrentVix = null;
+        const replayRunConfig = replayLockVal ? await loadRunConfigMap(db, replayLockVal) : null;
+        const replayConfigValue = (key) => replayRunConfig?.[key];
+        if (replayRunConfig) {
+          console.log(`[REPLAY] Using pinned run config from archive for ${replayLockVal} (${Object.keys(replayRunConfig).length} keys)`);
+        }
         try {
-          const cfgRows = await db.batch([
-            db.prepare(`SELECT config_value FROM model_config WHERE config_key='adaptive_entry_gates'`),
-            db.prepare(`SELECT config_value FROM model_config WHERE config_key='adaptive_regime_gates'`),
-            db.prepare(`SELECT config_value FROM model_config WHERE config_key='adaptive_sl_tp'`),
-            db.prepare(`SELECT config_value FROM model_config WHERE config_key='calibrated_sl_atr'`),
-            db.prepare(`SELECT config_value FROM model_config WHERE config_key='calibrated_tp_tiers'`),
-            db.prepare(`SELECT config_value FROM model_config WHERE config_key='calibrated_rank_min'`),
-            db.prepare(`SELECT config_value FROM model_config WHERE config_key='adaptive_rank_weights'`),
-          ]);
-          if (cfgRows[0]?.results?.[0]?.config_value) _replayAdaptiveEntryGates = JSON.parse(cfgRows[0].results[0].config_value);
-          if (cfgRows[1]?.results?.[0]?.config_value) _replayAdaptiveRegimeGates = JSON.parse(cfgRows[1].results[0].config_value);
-          if (cfgRows[2]?.results?.[0]?.config_value) _replayAdaptiveSLTP = JSON.parse(cfgRows[2].results[0].config_value);
-          if (cfgRows[3]?.results?.[0]?.config_value) _replayCalibratedSlAtr = Number(cfgRows[3].results[0].config_value) || 0;
-          if (cfgRows[4]?.results?.[0]?.config_value) {
-            const _tpRaw = JSON.parse(cfgRows[4].results[0].config_value);
+          const cfgKeys = [
+            "adaptive_entry_gates",
+            "adaptive_regime_gates",
+            "adaptive_sl_tp",
+            "calibrated_sl_atr",
+            "calibrated_tp_tiers",
+            "calibrated_rank_min",
+            "adaptive_rank_weights",
+          ];
+          const cfgValues = replayRunConfig
+            ? cfgKeys.map((key) => replayConfigValue(key))
+            : (await db.batch(cfgKeys.map((key) => db.prepare(`SELECT config_value FROM model_config WHERE config_key=?1`).bind(key))))
+                .map((row) => row?.results?.[0]?.config_value);
+          if (cfgValues[0]) _replayAdaptiveEntryGates = JSON.parse(cfgValues[0]);
+          if (cfgValues[1]) _replayAdaptiveRegimeGates = JSON.parse(cfgValues[1]);
+          if (cfgValues[2]) _replayAdaptiveSLTP = JSON.parse(cfgValues[2]);
+          if (cfgValues[3]) _replayCalibratedSlAtr = Number(cfgValues[3]) || 0;
+          if (cfgValues[4]) {
+            const _tpRaw = JSON.parse(cfgValues[4]);
             const _sltpDef = _replayAdaptiveSLTP?.["_default"] || {};
             if (_sltpDef.tp_trim_atr && _sltpDef.tp_exit_atr && _sltpDef.tp_runner_atr) {
               _calibratedTPTiers = { trim: _sltpDef.tp_trim_atr, exit: _sltpDef.tp_exit_atr, runner: _sltpDef.tp_runner_atr };
@@ -40256,39 +40278,47 @@ export default {
               _calibratedTPTiers = _tpRaw;
             }
           }
-          if (cfgRows[5]?.results?.[0]?.config_value) _replayCalibratedRankMin = Number(cfgRows[5].results[0].config_value) || 0;
-          // cfgRows[6] = adaptive_rank_weights — loaded for parity but applied via scoring
+          if (cfgValues[5]) _replayCalibratedRankMin = Number(cfgValues[5]) || 0;
+          // cfgValues[6] = adaptive_rank_weights — loaded for parity but applied via scoring
         } catch {}
         // Load deep audit config for replay parity with live
         try {
           const daKeys = ["deep_audit_short_min_rank", "deep_audit_ticker_blacklist", "deep_audit_max_loss_pct", "deep_audit_sl_cap_mult", "deep_audit_sl_floor_mult", "deep_audit_rsi_tp_delay", "deep_audit_avoid_hours", "deep_audit_block_regime", "deep_audit_vix_ceiling", "deep_audit_regime_size_mult", "deep_audit_min_hold_regime_exit_hours", "deep_audit_loss_cooldown_hours", "deep_audit_min_htf_score", "deep_audit_momentum_elite_rank_boost", "deep_audit_breakout_daily_level_enabled", "deep_audit_breakout_atr_breakout_enabled", "deep_audit_breakout_ema_stack_enabled", "deep_audit_breakout_min_rr", "deep_audit_breakout_min_entry_quality", "deep_audit_opening_noise_end_minute", "deep_audit_min_1h_bias", "deep_audit_min_4h_bias", "deep_audit_ltf_momentum_min_bias", "deep_audit_ltf_momentum_min_rsi", "deep_audit_ripster_opening_noise_end_minute", "deep_audit_ltf_rsi_floor", "deep_audit_min_ltf_ema_depth", "deep_audit_post_trim_breakeven", "deep_audit_stall_max_hours", "deep_audit_stall_breakeven_pnl_pct", "deep_audit_stall_force_close_hours", "deep_audit_soft_fuse_defer_min_1h_depth", "deep_audit_runner_trail_pct", "deep_audit_post_trim_trail_pct", "deep_audit_stale_runner_bars", "deep_audit_momentum_fade_exit", "deep_audit_min_hold_before_mgmt_exit_min", "deep_audit_tp_atr_override", "deep_audit_phase_exit_enabled", "deep_audit_atr_exhaustion_exit", "deep_audit_rvol_ceiling", "deep_audit_rvol_ceiling_short", "deep_audit_rvol_high_threshold", "deep_audit_rvol_high_size_mult", "deep_audit_danger_max_signals", "deep_audit_danger_ema_depth_min", "deep_audit_danger_vix_threshold", "deep_audit_danger_min_st_aligned", "deep_audit_danger_size_mult", "deep_audit_danger_size_threshold", "deep_audit_danger_div_enabled", "deep_audit_div_exit_enabled", "deep_audit_div_exit_min_strength", "deep_audit_div_pivot_lookback", "deep_audit_div_max_age_bars", "deep_audit_div_runner_trail_pct", "deep_audit_mean_revert_td9_enabled", "deep_audit_td_exit_enabled", "deep_audit_td_exit_trail_pct", "deep_audit_td_ltf_trail_pct", "deep_audit_mfe_safety_trim_pct", "deep_audit_max_runner_drawdown_pct", "deep_audit_doa_early_exit_enabled", "deep_audit_confirmed_min_rank", "deep_audit_parity_defer_confirmed_opening_minutes", "deep_audit_legacy_momentum_precedence", "deep_audit_legacy_momentum_min_rr", "deep_audit_legacy_momentum_relax_trigger", "deep_audit_min_entry_quality", "deep_audit_hard_loss_cap", "deep_audit_hard_loss_cap_pct", "deep_audit_breakeven_mfe_threshold", "deep_audit_breakeven_skip_trimmed_runner", "deep_audit_parity_runner_tp_full_only", "deep_audit_parity_skip_stall_force_close", "deep_audit_parity_skip_sl_breach", "deep_audit_parity_no_reentry_after_tp_full_hours", "tier_risk_map", "grade_risk_map", "smart_runner_exit_enabled", "smart_runner_swing_atr_proximity", "smart_runner_min_bars_post_trim", "rank_gate_mode", "doa_gate_enabled", "doa_gate_ema_depth_threshold", "doa_gate_ticker_blacklist", "ai_cio_enabled", "ai_cio_replay_enabled", "ai_cio_reference_enabled", "short_min_rank", "short_require_daily_st_aligned", "short_min_4h_ema_depth", "min_entry_confidence", "entry_ticker_blacklist", "choppy_regime_rank_floor", "tt_spy_directional_gate", "tt_pdz_hard_gate", "deep_audit_phase_peak_extreme", "deep_audit_phase_decline_extreme", "deep_audit_bias_spread_min"];
-          const daRows = (await db.prepare(
-            `SELECT config_key, config_value FROM model_config WHERE config_key IN (${daKeys.map((_, i) => `?${i + 1}`).join(",")})`
-          ).bind(...daKeys).all())?.results || [];
           const _daConfig = {};
-          for (const r of daRows) {
-            try { _daConfig[r.config_key] = JSON.parse(r.config_value); } catch { _daConfig[r.config_key] = r.config_value; }
+          if (replayRunConfig) {
+            for (const key of daKeys) {
+              const value = replayConfigValue(key);
+              if (value == null) continue;
+              try { _daConfig[key] = JSON.parse(value); } catch { _daConfig[key] = value; }
+            }
+          } else {
+            const daRows = (await db.prepare(
+              `SELECT config_key, config_value FROM model_config WHERE config_key IN (${daKeys.map((_, i) => `?${i + 1}`).join(",")})`
+            ).bind(...daKeys).all())?.results || [];
+            for (const r of daRows) {
+              try { _daConfig[r.config_key] = JSON.parse(r.config_value); } catch { _daConfig[r.config_key] = r.config_value; }
+            }
           }
           replayEnv._deepAuditConfig = _daConfig;
         } catch {}
         try {
-          const derRow = await db.prepare(`SELECT config_value FROM model_config WHERE config_key='dynamic_engine_rules'`).first();
-          if (derRow?.config_value) {
-            _dynamicEngineRulesCache = JSON.parse(derRow.config_value);
+          const dynamicEngineRulesValue = replayConfigValue("dynamic_engine_rules") || (await db.prepare(`SELECT config_value FROM model_config WHERE config_key='dynamic_engine_rules'`).first())?.config_value;
+          if (dynamicEngineRulesValue) {
+            _dynamicEngineRulesCache = JSON.parse(dynamicEngineRulesValue);
             console.log(`[REPLAY] Dynamic engine rules loaded: ${(_dynamicEngineRulesCache?.regime_direction_sector_rules || []).length} rules, ${(_dynamicEngineRulesCache?.blacklist_tickers || []).length} blacklisted`);
           }
         } catch {}
         try {
-          const remRow = await db.prepare(`SELECT config_value FROM model_config WHERE config_key='reference_execution_map'`).first();
-          if (remRow?.config_value) _referenceExecutionMapCache = JSON.parse(remRow.config_value);
+          const referenceExecutionMapValue = replayConfigValue("reference_execution_map") || (await db.prepare(`SELECT config_value FROM model_config WHERE config_key='reference_execution_map'`).first())?.config_value;
+          if (referenceExecutionMapValue) _referenceExecutionMapCache = JSON.parse(referenceExecutionMapValue);
         } catch {}
         try {
-          const spRow = await db.prepare(`SELECT config_value FROM model_config WHERE config_key='scenario_execution_policy'`).first();
-          if (spRow?.config_value) _scenarioExecutionPolicyCache = JSON.parse(spRow.config_value);
+          const scenarioPolicyValue = replayConfigValue("scenario_execution_policy") || (await db.prepare(`SELECT config_value FROM model_config WHERE config_key='scenario_execution_policy'`).first())?.config_value;
+          if (scenarioPolicyValue) _scenarioExecutionPolicyCache = JSON.parse(scenarioPolicyValue);
         } catch {}
         try {
-          const spRow = await db.prepare(`SELECT config_value FROM model_config WHERE config_key='scenario_execution_policy'`).first();
-          if (spRow?.config_value) _scenarioExecutionPolicyCache = JSON.parse(spRow.config_value);
+          const scenarioPolicyValue = replayConfigValue("scenario_execution_policy") || (await db.prepare(`SELECT config_value FROM model_config WHERE config_key='scenario_execution_policy'`).first())?.config_value;
+          if (scenarioPolicyValue) _scenarioExecutionPolicyCache = JSON.parse(scenarioPolicyValue);
         } catch {}
         try {
           const gpData = await kvGetJSON(KV, "timed:calibration:golden-profiles");
@@ -40308,8 +40338,12 @@ export default {
                 SUM(CASE WHEN status='WIN' THEN 1 ELSE 0 END) as wins,
                 AVG(pnl_pct) as avg_pnl_pct
                 FROM direction_accuracy WHERE status IN ('WIN','LOSS','FLAT') GROUP BY ticker`).all(),
-              db.prepare(`SELECT config_value FROM model_config WHERE config_key='cio_franchise_blacklist'`).first(),
-              db.prepare(`SELECT config_value FROM model_config WHERE config_key='cio_reference_features'`).first(),
+              replayConfigValue("cio_franchise_blacklist") != null
+                ? Promise.resolve({ config_value: replayConfigValue("cio_franchise_blacklist") })
+                : db.prepare(`SELECT config_value FROM model_config WHERE config_key='cio_franchise_blacklist'`).first(),
+              replayConfigValue("cio_reference_features") != null
+                ? Promise.resolve({ config_value: replayConfigValue("cio_reference_features") })
+                : db.prepare(`SELECT config_value FROM model_config WHERE config_key='cio_reference_features'`).first(),
             ]);
             const pathPerf = new Map();
             for (const r of (ppRows?.results || [])) pathPerf.set(r.entry_path, r);
@@ -40622,6 +40656,7 @@ export default {
                 const _rSecRegime = _rSectorData?.regime_class
                   ? { regime: _rSectorData.regime_class, score: _rSectorData.regime_score || 0 } : null;
                 result._env = {
+                  _isReplay: true,
                   _goldenProfiles: _replayGoldenProfiles,
                   _adaptiveEntryGates: _replayAdaptiveEntryGates,
                   _adaptiveRegimeGates: _replayAdaptiveRegimeGates,
@@ -41109,7 +41144,7 @@ export default {
         const skipPayload = url.searchParams.get("skipPayload") !== "0";
         const tickerFilter = url.searchParams.get("tickers");
 
-        const replayEnv = { ...env };
+        const replayEnv = { ...env, _isReplay: true };
         for (const overrideKey of ["LEADING_LTF", "TT_EXIT_DEBOUNCE_BARS", "TT_TUNE_V2", "RIPSTER_TUNE_V2", "ENTRY_ENGINE", "MANAGEMENT_ENGINE"]) {
           const ov = url.searchParams.get(overrideKey);
           if (ov != null && ov !== "") replayEnv[overrideKey] = ov;
@@ -41338,6 +41373,7 @@ export default {
               const _rSectorData = _rSectorETF ? (await kvGetJSON(KV, `timed:latest:${_rSectorETF}`)) : null;
               const _rSecRegime = _rSectorData?.regime_class ? { regime: _rSectorData.regime_class, score: _rSectorData.regime_score || 0 } : null;
               result._env = {
+                _isReplay: true,
                 _goldenProfiles: _replayGoldenProfiles, _adaptiveEntryGates: _replayAdaptiveEntryGates,
                 _adaptiveRegimeGates: _replayAdaptiveRegimeGates, _adaptiveSLTP: _replayAdaptiveSLTP,
                 _calibratedSlAtr: _replayCalibratedSlAtr, _calibratedRankMin: _replayCalibratedRankMin,
@@ -41748,7 +41784,7 @@ export default {
         const distinctIntervalCount = new Set(allSnapRows.map(r => r.ts)).size;
 
         // Load config (same as candle-replay, but much faster — no candle loading)
-        const replayEnv = { ...env };
+        const replayEnv = { ...env, _isReplay: true };
         try {
           const daKeys = ["deep_audit_short_min_rank", "deep_audit_ticker_blacklist", "deep_audit_max_loss_pct", "deep_audit_sl_cap_mult", "deep_audit_sl_floor_mult", "deep_audit_rsi_tp_delay", "deep_audit_avoid_hours", "deep_audit_block_regime", "deep_audit_vix_ceiling", "deep_audit_regime_size_mult", "deep_audit_min_hold_regime_exit_hours", "deep_audit_loss_cooldown_hours", "deep_audit_min_htf_score", "deep_audit_momentum_elite_rank_boost", "deep_audit_breakout_daily_level_enabled", "deep_audit_breakout_atr_breakout_enabled", "deep_audit_breakout_ema_stack_enabled", "deep_audit_breakout_min_rr", "deep_audit_breakout_min_entry_quality", "deep_audit_opening_noise_end_minute", "deep_audit_min_1h_bias", "deep_audit_min_4h_bias", "deep_audit_ltf_momentum_min_bias", "deep_audit_ltf_momentum_min_rsi", "deep_audit_ripster_opening_noise_end_minute", "deep_audit_ltf_rsi_floor", "deep_audit_min_ltf_ema_depth", "deep_audit_post_trim_breakeven", "deep_audit_stall_max_hours", "deep_audit_stall_breakeven_pnl_pct", "deep_audit_stall_force_close_hours", "deep_audit_soft_fuse_defer_min_1h_depth", "deep_audit_runner_trail_pct", "deep_audit_post_trim_trail_pct", "deep_audit_stale_runner_bars", "deep_audit_momentum_fade_exit", "deep_audit_min_hold_before_mgmt_exit_min", "deep_audit_tp_atr_override", "deep_audit_phase_exit_enabled", "deep_audit_atr_exhaustion_exit", "deep_audit_rvol_ceiling", "deep_audit_rvol_ceiling_short", "deep_audit_rvol_high_threshold", "deep_audit_rvol_high_size_mult", "deep_audit_danger_max_signals", "deep_audit_danger_ema_depth_min", "deep_audit_danger_vix_threshold", "deep_audit_danger_min_st_aligned", "deep_audit_danger_size_mult", "deep_audit_danger_size_threshold", "deep_audit_danger_div_enabled", "deep_audit_div_exit_enabled", "deep_audit_div_exit_min_strength", "deep_audit_div_pivot_lookback", "deep_audit_div_max_age_bars", "deep_audit_div_runner_trail_pct", "deep_audit_mean_revert_td9_enabled", "deep_audit_td_exit_enabled", "deep_audit_td_exit_trail_pct", "deep_audit_td_ltf_trail_pct", "deep_audit_mfe_safety_trim_pct", "deep_audit_max_runner_drawdown_pct", "deep_audit_doa_early_exit_enabled", "deep_audit_confirmed_min_rank", "deep_audit_parity_defer_confirmed_opening_minutes", "deep_audit_legacy_momentum_precedence", "deep_audit_legacy_momentum_min_rr", "deep_audit_legacy_momentum_relax_trigger", "deep_audit_min_entry_quality", "deep_audit_hard_loss_cap", "deep_audit_hard_loss_cap_pct", "deep_audit_breakeven_mfe_threshold", "deep_audit_breakeven_skip_trimmed_runner", "deep_audit_parity_runner_tp_full_only", "deep_audit_parity_skip_stall_force_close", "deep_audit_parity_skip_sl_breach", "deep_audit_parity_no_reentry_after_tp_full_hours", "tier_risk_map", "grade_risk_map", "smart_runner_exit_enabled", "smart_runner_swing_atr_proximity", "smart_runner_min_bars_post_trim", "rank_gate_mode", "doa_gate_enabled", "doa_gate_ema_depth_threshold", "doa_gate_ticker_blacklist", "ai_cio_enabled", "ai_cio_replay_enabled", "short_min_rank", "short_require_daily_st_aligned", "short_min_4h_ema_depth", "min_entry_confidence", "entry_ticker_blacklist", "choppy_regime_rank_floor", "tt_spy_directional_gate", "tt_pdz_hard_gate", "deep_audit_phase_peak_extreme", "deep_audit_phase_decline_extreme", "deep_audit_bias_spread_min"];
           const daRows = (await db.prepare(
@@ -42592,6 +42628,9 @@ export default {
           const description = body?.description != null ? String(body.description).trim() : null;
           const tags = Array.isArray(body?.tags) ? body.tags : [];
           const params = body?.params && typeof body.params === "object" ? body.params : null;
+          const configOverride = body?.config_override && typeof body.config_override === "object" && !Array.isArray(body.config_override)
+            ? body.config_override
+            : null;
           const activeSlot = parseBool01(body?.active_experiment_slot ?? (status === "running" ? 1 : 0));
           if (activeSlot) {
             try { await db.prepare(`UPDATE backtest_runs SET active_experiment_slot = 0 WHERE active_experiment_slot = 1`).run(); } catch {}
@@ -42608,12 +42647,28 @@ export default {
             params ? JSON.stringify(params) : null,
             now, now,
           ).run();
-          // Snapshot model_config at registration (initial state — finalize captures end state)
+          // Snapshot model_config at registration unless the caller supplied an explicit
+          // pinned config override for deterministic replay/backtest reproduction.
           try {
-            await db.prepare(
-              `INSERT OR IGNORE INTO backtest_run_config (run_id, config_key, config_value)
-               SELECT ?1, config_key, config_value FROM model_config`
-            ).bind(runId).run();
+            if (configOverride) {
+              const entries = Object.entries(configOverride);
+              await db.prepare(`DELETE FROM backtest_run_config WHERE run_id = ?1`).bind(runId).run();
+              await db.prepare(
+                `INSERT OR IGNORE INTO backtest_run_config (run_id, config_key, config_value)
+                 SELECT ?1, config_key, config_value FROM model_config`
+              ).bind(runId).run();
+              for (const [configKey, configValue] of entries) {
+                await db.prepare(
+                  `INSERT OR REPLACE INTO backtest_run_config (run_id, config_key, config_value)
+                   VALUES (?1, ?2, ?3)`
+                ).bind(runId, String(configKey), String(configValue ?? "")).run();
+              }
+            } else {
+              await db.prepare(
+                `INSERT OR IGNORE INTO backtest_run_config (run_id, config_key, config_value)
+                 SELECT ?1, config_key, config_value FROM model_config`
+              ).bind(runId).run();
+            }
           } catch {}
           return sendJSON({ ok: true, run_id: runId, status }, 200, corsHeaders(env, req));
         } catch (e) {
@@ -42633,6 +42688,7 @@ export default {
           if (!runId) return sendJSON({ ok: false, error: "run_id_required" }, 400, corsHeaders(env, req));
           const now = Date.now();
           const status = String(body?.status || "completed").trim().toLowerCase();
+          const preserveRegisteredConfig = parseBool01(body?.preserve_registered_config) === 1;
 
           // Claim orphaned trades (NULL run_id) so metrics + archival capture them
           try {
@@ -42681,11 +42737,26 @@ export default {
             archived.annotations = annRes?.meta?.changes ?? 0;
           } catch (ae) { console.error("[ARCHIVE] annotations:", String(ae).slice(0, 200)); }
           try {
-            const cfgRes = await db.prepare(
-              `INSERT OR REPLACE INTO backtest_run_config (run_id, config_key, config_value) SELECT ?1, config_key, config_value FROM model_config`
-            ).bind(runId).run();
-            archived.config = cfgRes?.meta?.changes ?? 0;
+            if (!preserveRegisteredConfig) {
+              await db.prepare(
+                `INSERT OR REPLACE INTO backtest_run_config (run_id, config_key, config_value) SELECT ?1, config_key, config_value FROM model_config`
+              ).bind(runId).run();
+            }
           } catch (ae) { console.error("[ARCHIVE] config:", String(ae).slice(0, 200)); }
+          try {
+            const [tradeCountRow, daCountRow, annCountRow, cfgCountRow] = await Promise.all([
+              db.prepare(`SELECT COUNT(*) AS cnt FROM backtest_run_trades WHERE run_id = ?1`).bind(runId).first(),
+              db.prepare(`SELECT COUNT(*) AS cnt FROM backtest_run_direction_accuracy WHERE run_id = ?1`).bind(runId).first(),
+              db.prepare(`SELECT COUNT(*) AS cnt FROM backtest_run_annotations WHERE run_id = ?1`).bind(runId).first(),
+              db.prepare(`SELECT COUNT(*) AS cnt FROM backtest_run_config WHERE run_id = ?1`).bind(runId).first(),
+            ]);
+            archived = {
+              trades: Number(tradeCountRow?.cnt || 0),
+              da: Number(daCountRow?.cnt || 0),
+              annotations: Number(annCountRow?.cnt || 0),
+              config: Number(cfgCountRow?.cnt || 0),
+            };
+          } catch {}
 
           return sendJSON({ ok: true, run_id: runId, status, summary: metricsPayload, archived }, 200, corsHeaders(env, req));
         } catch (e) {
@@ -57134,6 +57205,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             const tickerSector = SECTOR_MAP[ticker] || "Unknown";
             result._env = {
               ...(result._env || {}),
+              _isReplay: env._isReplay || false,
               _adaptiveEntryGates: env._adaptiveEntryGates || null,
               _adaptiveRegimeGates: env._adaptiveRegimeGates || null,
               _goldenProfiles: env._goldenProfiles || null,

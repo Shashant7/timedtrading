@@ -50,12 +50,12 @@ const SMOKE_TEST_DAYS = Number(args.smoke) || 0;
 const CONFIG_PATH = args.config || null;
 
 import { readFileSync } from "fs";
-let DEEP_AUDIT_CONFIG = {};
+let MODEL_CONFIG = {};
 if (CONFIG_PATH) {
   try {
     const cfgRaw = readFileSync(CONFIG_PATH, "utf-8");
-    DEEP_AUDIT_CONFIG = JSON.parse(cfgRaw);
-    console.log(`[CONFIG] Loaded ${Object.keys(DEEP_AUDIT_CONFIG).length} overrides from ${CONFIG_PATH}`);
+    MODEL_CONFIG = normalizeConfigEnvelope(JSON.parse(cfgRaw));
+    console.log(`[CONFIG] Loaded ${Object.keys(MODEL_CONFIG).length} overrides from ${CONFIG_PATH}`);
   } catch (e) {
     console.error(`[CONFIG] Failed to load ${CONFIG_PATH}: ${e.message}`);
     process.exit(1);
@@ -86,6 +86,17 @@ const TF_CONFIGS = [
   { tf: "30",  limit: 500 },
   { tf: LEADING_LTF, limit: 600 },
 ];
+const TF_MAX_AGE_MS = {
+  M: 45 * 24 * 60 * 60 * 1000,
+  W: 21 * 24 * 60 * 60 * 1000,
+  D: 7 * 24 * 60 * 60 * 1000,
+  "240": 5 * 24 * 60 * 60 * 1000,
+  "60": 5 * 24 * 60 * 60 * 1000,
+  "30": 5 * 24 * 60 * 60 * 1000,
+  "15": 5 * 24 * 60 * 60 * 1000,
+  "10": 5 * 24 * 60 * 60 * 1000,
+  "5": 5 * 24 * 60 * 60 * 1000,
+};
 
 // ── Database Setup ──────────────────────────────────────────────────────────
 const DB_PATH = join(ROOT, "data", "timed-local.db");
@@ -97,11 +108,56 @@ const db = new Database(DB_PATH, { readonly: true });
 db.pragma("cache_size = -200000");
 
 const stmtCandles = db.prepare(
-  "SELECT ts, o, h, l, c, v FROM ticker_candles WHERE ticker = ? AND tf = ? AND ts <= ? ORDER BY ts ASC LIMIT ?"
+  "SELECT ts, o, h, l, c, v FROM ticker_candles WHERE ticker = ? AND tf = ? AND ts <= ? ORDER BY ts DESC LIMIT ?"
 );
+const hasTickerProfilesTable = !!db.prepare(
+  "SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?"
+).get("ticker_profiles");
+const stmtTickerProfile = hasTickerProfilesTable
+  ? db.prepare("SELECT * FROM ticker_profiles WHERE ticker = ?")
+  : null;
 
 function getCandles(ticker, tf, beforeTs, limit) {
-  return stmtCandles.all(ticker, tf, beforeTs, limit);
+  return stmtCandles.all(ticker, tf, beforeTs, limit).reverse();
+}
+
+function loadTickerProfile(ticker) {
+  if (!stmtTickerProfile) return null;
+  const row = stmtTickerProfile.get(ticker);
+  if (!row) return null;
+  return {
+    ticker: row.ticker,
+    sector: row.sector,
+    behaviorType: row.behavior_type,
+    atrPctP50: row.atr_pct_p50,
+    atrPctP90: row.atr_pct_p90,
+    dailyRangePct: row.daily_range_pct,
+    gapFrequency: row.gap_frequency,
+    trendPersistence: row.trend_persistence,
+    meanReversionSpeed: row.mean_reversion_speed,
+    avgMoveAtr: row.avg_move_atr,
+    avgMoveDurationBars: row.avg_move_duration_bars,
+    avgMoveDurationDays: row.avg_move_duration_days,
+    moveCount2yr: row.move_count_2yr,
+    ichimokuResponsiveness: row.ichimoku_responsiveness,
+    supertrendFlipAccuracy: row.supertrend_flip_accuracy,
+    emaCrossAccuracy: row.ema_cross_accuracy,
+    tfWeights: row.tf_weights_json ? JSON.parse(row.tf_weights_json) : null,
+    signalWeights: row.signal_weights_json ? JSON.parse(row.signal_weights_json) : null,
+    bestTimeframes: row.best_timeframes_json ? JSON.parse(row.best_timeframes_json) : null,
+    slMult: row.sl_mult || 1.0,
+    tpMult: row.tp_mult || 1.0,
+    entryThresholdAdj: row.entry_threshold_adj || 0,
+    calibratedAt: row.calibrated_at,
+    calibrationVersion: row.calibration_version,
+    learning_json: row.learning_json || null,
+  };
+}
+
+function normalizeConfigEnvelope(raw) {
+  if (!raw || typeof raw !== "object") return {};
+  if (raw.config && typeof raw.config === "object" && !Array.isArray(raw.config)) return raw.config;
+  return raw;
 }
 
 // ── Date Utilities ──────────────────────────────────────────────────────────
@@ -163,6 +219,7 @@ const stats = {
   flat: 0,
   totalPnl: 0,
   gateBlocks: {},
+  staleTfSkips: {},
   monthly: {},
 };
 
@@ -176,6 +233,30 @@ function ensureMonthBucket(month) {
     stats.monthly[month] = { trades: 0, wins: 0, losses: 0, flat: 0, pnl: 0, entries: 0, holdHoursSum: 0 };
   }
   return stats.monthly[month];
+}
+
+function getTfMaxAgeMs(tf) {
+  return TF_MAX_AGE_MS[String(tf)] ?? (5 * 24 * 60 * 60 * 1000);
+}
+
+function buildFreshBundle(candles, tf, asOfTs) {
+  if (!candles || candles.length < 50) return { bundle: null, stale: false, lastTs: candles?.at?.(-1)?.ts || null };
+  const lastTs = Number(candles[candles.length - 1]?.ts || 0);
+  const stale = !lastTs || (asOfTs - lastTs) > getTfMaxAgeMs(tf);
+  return {
+    bundle: stale ? null : computeTfBundle(candles),
+    stale,
+    lastTs,
+  };
+}
+
+function recordStaleTf(ticker, tf, lastTs, asOfTs) {
+  const key = `${ticker}:${tf}`;
+  const slot = stats.staleTfSkips[key] || { count: 0, last_candle_ts: lastTs || null, latest_asof_ts: asOfTs || null };
+  slot.count += 1;
+  slot.last_candle_ts = lastTs || slot.last_candle_ts;
+  slot.latest_asof_ts = asOfTs || slot.latest_asof_ts;
+  stats.staleTfSkips[key] = slot;
 }
 
 function openTrade(ticker, direction, entryPx, sl, tp, confidence, path, asOfTs, sizingMeta) {
@@ -355,10 +436,11 @@ async function runReplay() {
   console.log(`  LOCAL REPLAY: ${LABEL}`);
   console.log(`  ${START_DATE} → ${END_DATE} | Engine: ${ENGINE} | LTF: ${LEADING_LTF}`);
   console.log(`  Interval: ${INTERVAL_MIN}min | Cash: $${PORTFOLIO_START_CASH.toLocaleString()}`);
-  if (CONFIG_PATH) console.log(`  Config: ${CONFIG_PATH} (${Object.keys(DEEP_AUDIT_CONFIG).length} overrides)`);
+  if (CONFIG_PATH) console.log(`  Config: ${CONFIG_PATH} (${Object.keys(MODEL_CONFIG).length} overrides)`);
   console.log(`${"═".repeat(60)}\n`);
 
   const tickers = loadTickerUniverse();
+  const tickerProfiles = new Map(tickers.map((ticker) => [ticker, loadTickerProfile(ticker)]));
   console.log(`Ticker universe: ${tickers.length} tickers`);
   if (TICKER_FILTER) console.log(`  Filtered to: ${TICKER_FILTER.join(", ")}`);
 
@@ -396,7 +478,8 @@ async function runReplay() {
         const spyBundles = {};
         for (const cfg of TF_CONFIGS) {
           const candles = getCandles("SPY", cfg.tf, ts, cfg.limit);
-          if (candles.length >= 50) spyBundles[cfg.tf] = computeTfBundle(candles);
+          const { bundle } = buildFreshBundle(candles, cfg.tf, ts);
+          if (bundle) spyBundles[cfg.tf] = bundle;
         }
         if (spyBundles["D"]) {
           spyData = assembleTickerData("SPY", spyBundles, null, { leadingLtf: LEADING_LTF, asOfTs: ts });
@@ -408,14 +491,16 @@ async function runReplay() {
           const bundles = {};
           for (const cfg of TF_CONFIGS) {
             const candles = getCandles(ticker, cfg.tf, ts, cfg.limit);
-            if (candles.length >= 50) {
-              bundles[cfg.tf] = computeTfBundle(candles);
-            }
+            const { bundle, stale, lastTs } = buildFreshBundle(candles, cfg.tf, ts);
+            if (bundle) bundles[cfg.tf] = bundle;
+            else if (stale) recordStaleTf(ticker, cfg.tf, lastTs, ts);
           }
 
           if (!bundles["D"]) continue;
 
-          const existing = null;
+          const existing = tickerProfiles.get(ticker)
+            ? { _tickerProfile: tickerProfiles.get(ticker) }
+            : null;
           const tickerData = assembleTickerData(ticker, bundles, existing, {
             leadingLtf: LEADING_LTF,
             asOfTs: ts,
@@ -431,11 +516,12 @@ async function runReplay() {
           } : null;
 
           tickerData._env = {
+            _isReplay: true,
             _entryEngine: ENGINE,
             _managementEngine: ENGINE,
             _leadingLtf: LEADING_LTF,
             _ripsterTuneV2: true,
-            _deepAuditConfig: DEEP_AUDIT_CONFIG,
+            _deepAuditConfig: MODEL_CONFIG,
           };
 
           const currentPx = Number(tickerData?.price || tickerData?.close) || 0;
@@ -610,8 +696,9 @@ async function writeArtifacts(totalSec) {
     intervals_processed: stats.totalIntervals,
     runtime_seconds: +totalSec,
     gate_blocks: stats.gateBlocks,
+    stale_tf_skips: stats.staleTfSkips,
     tickers_filtered: TICKER_FILTER || "all",
-    config_overrides: CONFIG_PATH ? DEEP_AUDIT_CONFIG : null,
+    config_overrides: CONFIG_PATH ? MODEL_CONFIG : null,
     monthly: monthlyBreakdown,
   };
 

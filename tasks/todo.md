@@ -4,6 +4,23 @@
 
 ## Replay Accounting + Iter-5 Reset [2026-03-25]
 - [ ] Reconstruct the exact historical iter-5 baseline config/sizing state before further refinement comparisons
+- [ ] Pin focused replay/backtest runs to the recovered iter-5 config snapshot instead of live `model_config`
+- [ ] Fix `/timed/admin/runs/finalize` archived-count reporting so completed focused runs show total archived trades/config consistently
+- [ ] Restore July 2025 local higher-timeframe coverage (at minimum `30m` for `FIX`/`RBLX`) or build a replay dataset that can reproduce those TFs without stale carry-forward
+- [ ] Restore stronger `30m` reference-TF entry confirmation, not just higher-TF alignment fallback
+- [ ] Reintroduce multi-TF peak-exhaustion checks using PDZ, TD exhaustion, RSI overheating, phase, and ATR expansion context
+- [ ] Re-anchor management to `30m` + `1h` structure so winners can ride trend without low-TF churn
+- [ ] Build a shared move-phase profile from ATR displacement, phase, PDZ, TD, and Elliott Wave context
+- [ ] Gate late-stage momentum/reclaim entries with replay-visible move-phase diagnostics before changing loss controls
+- [x] Instrument `tt_core` replay decisions for surviving `FIX`/`RBLX` July entries so runtime trigger/reject state can be compared directly against autopsy artifacts
+- [ ] Fix focused replay config archival so pinned config-file runs persist all config keys, not just top-level wrapper rows
+- [ ] Forensically compare `FIX`, `CELH`, and `RBLX` July losers against surviving winners to isolate blockable peak/fakeout signatures
+- [ ] Audit divergence detection and determine whether bearish/bullish divergence signals are missing, stale, or not being consumed in `tt_core`
+- [x] Compare the full run against `iter5-validation-recovered-20260325` and isolate the highest-confidence trade-quality deltas
+- [x] Apply only data-supported refinements on top of `configs/iter5-runtime-recovered-20260325.json`
+- [x] Run a clean pinned July iter-5 focused validation and compare directly to the recovered baseline target
+- [ ] Decide whether to promote `focused-iter5-full-baseline-current-guard--20260325-105601` as the new protected July baseline / live reference lane
+- [x] Trace why mixed focused replays downgrade preserved `RBLX` winners from `Confirmed/0.01` to `Speculative/0.005` while isolated `RBLX` replays keep full sizing
 - [x] Fix multi-day focused replay regression so created trades persist through completion and archive correctly
 - [x] Trace why focused replay reports created trades but archives only a subset under the replay run_id
 - [x] Fix the replay/run_id accounting path so focused replay artifacts and archive counts match

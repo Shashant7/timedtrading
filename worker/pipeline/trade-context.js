@@ -96,6 +96,8 @@ export function buildTradeContext(tickerData, asOfTs = null) {
   const deepAuditConfig = env._deepAuditConfig || {};
   const ripsterTuneV2 = parseBool(env._ripsterTuneV2, false);
   const exitDebounceBars = Math.max(1, Number(env._ripsterExitDebounceBars) || 3);
+  const movePhase = buildMovePhaseProfile(d, side, tf, deepAuditConfig);
+  if (movePhase) d.move_phase_profile = movePhase;
 
   return {
     ticker,
@@ -152,6 +154,7 @@ export function buildTradeContext(tickerData, asOfTs = null) {
       zoneD: String(d.pdz_zone_D || "unknown"),
       pctD: Number(d.pdz_pct_D) || 50,
     },
+    movePhase,
 
     fvg: { D: d.fvg_D || {} },
     liq: { D: d.liq_D || {}, h4: d.liq_4h || {} },
@@ -200,4 +203,164 @@ export function parseBool(v, defaultVal = false) {
   if (s === "true" || s === "1" || s === "yes") return true;
   if (s === "false" || s === "0" || s === "no") return false;
   return defaultVal;
+}
+
+function buildMovePhaseProfile(d, side, tf, daCfg = {}) {
+  if (!d || !side) return null;
+
+  const atrLevels = d.atr_levels || {};
+  const atr = {};
+  let atrExtendedCount = 0;
+  let atrExhaustedCount = 0;
+  let atrSupportiveCount = 0;
+  const reasons = [];
+
+  for (const horizon of ["day", "week", "month", "quarter", "longterm"]) {
+    const src = atrLevels[horizon] || {};
+    const disp = Number(src.disp) || 0;
+    const directionalDisp = side === "SHORT" ? -disp : disp;
+    const rangeOfATR = Number(src.rangeOfATR) || 0;
+    const inDirection = directionalDisp > 0;
+    const triggerReached = inDirection && directionalDisp >= 0.236;
+    const keyTargetReached = inDirection && directionalDisp >= 0.618;
+    const fullAtrReached = inDirection && directionalDisp >= 1.0;
+    const rangeColor = rangeOfATR >= 90 ? "red" : rangeOfATR > 70 ? "orange" : "green";
+    const extended = inDirection && (fullAtrReached || (keyTargetReached && rangeColor !== "green"));
+    const exhausted = inDirection && ((fullAtrReached && rangeColor !== "green") || rangeColor === "red");
+    const supportive = inDirection && triggerReached && !keyTargetReached && rangeColor === "green";
+    const countsForGate = horizon !== "longterm";
+    if (countsForGate && extended) atrExtendedCount++;
+    if (countsForGate && exhausted) atrExhaustedCount++;
+    if (countsForGate && supportive) atrSupportiveCount++;
+    if (countsForGate && exhausted) reasons.push(`${horizon}_atr_exhausted`);
+    else if (countsForGate && extended) reasons.push(`${horizon}_atr_extended`);
+    atr[horizon] = {
+      disp,
+      directionalDisp: round3(directionalDisp),
+      band: String(src.band || "NEUTRAL"),
+      rangeOfATR: round3(rangeOfATR),
+      rangeColor,
+      triggerReached,
+      keyTargetReached,
+      fullAtrReached,
+      gateEntered: !!src?.gate?.entered,
+      gateCompleted: !!src?.gate?.completed,
+      stage: exhausted ? "exhausted" : extended ? "extended" : supportive ? "supportive" : "neutral",
+      diagnosticOnly: horizon === "longterm",
+    };
+  }
+
+  const phase = {};
+  let phaseLateCount = 0;
+  let phaseExtremeCount = 0;
+  let phaseSupportiveCount = 0;
+  for (const [label, src] of Object.entries({
+    m30: tf?.m30,
+    h1: tf?.h1,
+    h4: tf?.h4,
+    D: tf?.D,
+    W: tf?.W,
+  })) {
+    const value = Number(src?.ph?.v ?? src?.saty?.v);
+    if (!Number.isFinite(value)) continue;
+    const directionalValue = side === "SHORT" ? -value : value;
+    const late = directionalValue >= 55;
+    const extreme = directionalValue >= 75;
+    const supportive = directionalValue > 5 && directionalValue < 35;
+    if (late) phaseLateCount++;
+    if (extreme) phaseExtremeCount++;
+    if (supportive) phaseSupportiveCount++;
+    if (extreme) reasons.push(`${label}_phase_extreme`);
+    phase[label] = {
+      value: round3(value),
+      directionalValue: round3(directionalValue),
+      stage: extreme ? "extreme" : late ? "late" : supportive ? "supportive" : "neutral",
+    };
+  }
+
+  const pdzZoneD = String(d?.pdz_zone_D || "unknown").toLowerCase();
+  const pdzZone4h = String(tf?.h4?.pdz?.zone || d?.pdz_zone_4h || "unknown").toLowerCase();
+  const favorablePdz = side === "LONG"
+    ? [pdzZoneD, pdzZone4h].filter((z) => z === "discount" || z === "discount_approach").length
+    : [pdzZoneD, pdzZone4h].filter((z) => z === "premium" || z === "premium_approach").length;
+  const unfavorablePdz = side === "LONG"
+    ? [pdzZoneD, pdzZone4h].filter((z) => z === "premium" || z === "premium_approach").length
+    : [pdzZoneD, pdzZone4h].filter((z) => z === "discount" || z === "discount_approach").length;
+  if (unfavorablePdz > 0) reasons.push("pdz_unfavorable");
+
+  const td9 = d?.mean_revert_td9 || {};
+  const tdCounterSignal = !!td9?.active && String(td9?.direction || "").toUpperCase() !== side;
+  if (tdCounterSignal) reasons.push("td9_counter_signal");
+
+  const ew = {};
+  let ewSupportiveCount = 0;
+  let ewCounterCount = 0;
+  for (const [label, src] of Object.entries({ D: tf?.D?.ew, W: tf?.W?.ew })) {
+    if (!src || src.detected !== true) continue;
+    const dirLabel = Number(src.dir) >= 0 ? "LONG" : "SHORT";
+    const aligned = dirLabel === side;
+    if (aligned) ewSupportiveCount++;
+    else ewCounterCount++;
+    if (!aligned) reasons.push(`${label}_ew_counter`);
+    ew[label] = {
+      detected: true,
+      direction: dirLabel,
+      aligned,
+      retrace: Number(src.r2) || null,
+    };
+  }
+
+  const supportiveSignals = atrSupportiveCount + phaseSupportiveCount + favorablePdz + ewSupportiveCount;
+  const counterSignals = ewCounterCount + (tdCounterSignal ? 1 : 0) + unfavorablePdz;
+  let profile = "neutral";
+  const strongPeakStructure = atrExhaustedCount >= 2 && phaseLateCount >= 2;
+  const trendIsCrowded = atrExtendedCount >= 2 && phaseExtremeCount >= 1;
+  const countertrendConfluence = counterSignals >= 2 && phaseLateCount >= 1;
+  const unfavorableContext = unfavorablePdz > 0 || tdCounterSignal || ewCounterCount > 0;
+
+  if (strongPeakStructure && (countertrendConfluence || unfavorableContext)) {
+    profile = "countertrend_peak_risk";
+  } else if (strongPeakStructure || (trendIsCrowded && unfavorableContext)) {
+    profile = "exhausted";
+  } else if (atrExtendedCount >= 2 || phaseLateCount >= 2) {
+    profile = "late_but_trend_ok";
+  } else if (supportiveSignals >= 3 && counterSignals === 0) {
+    profile = "supportive";
+  }
+
+  const blockMomentum = profile === "exhausted" || profile === "countertrend_peak_risk";
+  const blockReclaim = profile === "countertrend_peak_risk";
+  return {
+    profile,
+    blockMomentum,
+    blockReclaim,
+    atr,
+    phase,
+    pdz: {
+      D: pdzZoneD,
+      h4: pdzZone4h,
+      favorableCount: favorablePdz,
+      unfavorableCount: unfavorablePdz,
+    },
+    td: {
+      active: !!td9?.active,
+      direction: td9?.direction || null,
+      counterSignal: tdCounterSignal,
+    },
+    ew,
+    scores: {
+      atrExtendedCount,
+      atrExhaustedCount,
+      phaseLateCount,
+      phaseExtremeCount,
+      supportiveSignals,
+      counterSignals,
+    },
+    reasons: [...new Set(reasons)].slice(0, 8),
+    version: Number(daCfg.deep_audit_move_phase_profile_version) || 1,
+  };
+}
+
+function round3(value) {
+  return Math.round(Number(value || 0) * 1000) / 1000;
 }

@@ -6,6 +6,8 @@
 # Usage:
 #   ./scripts/replay-focused.sh --tickers "AAPL,TSLA,NVDA" --start 2025-10-01 --end 2025-10-31
 #   ./scripts/replay-focused.sh --tickers "AAPL" --start 2025-10-01 --end 2025-10-31 --label "aapl-deep-dive"
+#   ./scripts/replay-focused.sh --tickers "FIX,ETN" --start 2025-07-01 --end 2025-07-25 --config-file "configs/iter5-runtime-recovered-20260325.json"
+#   ./scripts/replay-focused.sh --tickers "FIX,ETN" --start 2025-07-01 --end 2025-07-25 --skip-backfill --clean-slate
 #   ./scripts/replay-focused.sh --from-losses 20  # Auto-pick the 20 worst-performing tickers
 
 set -e
@@ -21,6 +23,8 @@ RUN_LABEL=""
 INTERVAL_MIN=5
 FROM_LOSSES=0
 SKIP_BACKFILL=0
+CONFIG_FILE=""
+CLEAN_SLATE=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -31,6 +35,8 @@ while [[ $# -gt 0 ]]; do
     --interval) INTERVAL_MIN="$2"; shift 2 ;;
     --from-losses) FROM_LOSSES="$2"; shift 2 ;;
     --skip-backfill) SKIP_BACKFILL=1; shift ;;
+    --config-file) CONFIG_FILE="$2"; shift 2 ;;
+    --clean-slate) CLEAN_SLATE=1; shift ;;
     *) echo "Unknown arg: $1"; exit 1 ;;
   esac
 done
@@ -58,10 +64,23 @@ if [[ -z "$RUN_LABEL" ]]; then
   SAFE_TICKERS=$(echo "$TICKERS" | tr ',' '-' | head -c 40)
   RUN_LABEL="focused-${SAFE_TICKERS}-${START_DATE}"
 fi
+if [[ -n "$CONFIG_FILE" && ! -f "$CONFIG_FILE" ]]; then
+  echo "ERROR: --config-file not found: $CONFIG_FILE"
+  exit 1
+fi
 
 SNAPSHOT_TS=$(date "+%Y%m%d-%H%M%S")
 OUT_DIR="data/backtest-artifacts/focused-${RUN_LABEL}--${SNAPSHOT_TS}"
 mkdir -p "$OUT_DIR"
+GIT_SHA=$(git rev-parse HEAD 2>/dev/null || echo "")
+CONFIG_OVERRIDE_JSON="null"
+CONFIG_OVERRIDE_KEY_COUNT=0
+CONFIG_OVERRIDE_SOURCE_RUN_ID=""
+if [[ -n "$CONFIG_FILE" ]]; then
+  CONFIG_OVERRIDE_JSON=$(jq -c '.config // .' "$CONFIG_FILE")
+  CONFIG_OVERRIDE_KEY_COUNT=$(echo "$CONFIG_OVERRIDE_JSON" | jq 'keys | length')
+  CONFIG_OVERRIDE_SOURCE_RUN_ID=$(jq -r '.source_run_id // empty' "$CONFIG_FILE")
+fi
 
 REPLAY_LOCK=""
 
@@ -77,6 +96,8 @@ echo "║  Focused Replay"
 echo "║  Tickers: $TICKERS"
 echo "║  Range:   $START_DATE → $END_DATE"
 echo "║  Interval: ${INTERVAL_MIN}m"
+if [[ -n "$CONFIG_FILE" ]]; then echo "║  Config:  $CONFIG_FILE (${CONFIG_OVERRIDE_KEY_COUNT} keys)"; fi
+if [[ "$CLEAN_SLATE" -eq 1 ]]; then echo "║  Mode:    clean-slate (reset working replay state on day 1)"; fi
 echo "║  Output:  $OUT_DIR"
 echo "╚══════════════════════════════════════════════════════╝"
 echo ""
@@ -109,6 +130,35 @@ fi
 echo "  lock: $REPLAY_LOCK"
 echo ""
 
+# Step 1.6: Register focused run so config is snapshotted immediately
+echo "Step 1.6: Registering focused run..."
+REGISTER_PAYLOAD=$(jq -nc   --arg run_id "$REPLAY_LOCK"   --arg label "$RUN_LABEL"   --arg description "Focused replay for $TICKERS from $START_DATE to $END_DATE"   --arg start_date "$START_DATE"   --arg end_date "$END_DATE"   --argjson interval_min "$INTERVAL_MIN"   --argjson ticker_batch 0   --argjson ticker_universe_count 0   --arg status "running"   --arg status_note "Focused replay started"   --argjson trader_only true   --argjson keep_open_at_end false   --argjson low_write false   --argjson active_experiment_slot false   --arg config_file "$CONFIG_FILE"   --arg config_source_run_id "$CONFIG_OVERRIDE_SOURCE_RUN_ID"   --argjson config_key_count "$CONFIG_OVERRIDE_KEY_COUNT"   --argjson config_override "$CONFIG_OVERRIDE_JSON"   --argjson params "$(jq -nc     --arg tickers "$TICKERS"     --arg snapshot_ts "$SNAPSHOT_TS"     --arg git_sha "$GIT_SHA"     --arg config_file "$CONFIG_FILE"     --arg config_source_run_id "$CONFIG_OVERRIDE_SOURCE_RUN_ID"     --argjson config_key_count "$CONFIG_OVERRIDE_KEY_COUNT"     '{tickers: ($tickers | split(",") | map(select(length > 0))), snapshot_ts: $snapshot_ts, git_sha: ($git_sha | select(length > 0)), config_file: ($config_file | select(length > 0)), config_source_run_id: ($config_source_run_id | select(length > 0)), config_key_count: (if $config_key_count > 0 then $config_key_count else empty end)}')"   --argjson tags "$(jq -nc --arg label "$RUN_LABEL" '[$label, "focused_replay"] | map(select(length > 0))')"   '{
+    run_id: $run_id,
+    label: $label,
+    description: $description,
+    start_date: $start_date,
+    end_date: $end_date,
+    interval_min: $interval_min,
+    ticker_batch: $ticker_batch,
+    ticker_universe_count: $ticker_universe_count,
+    trader_only: $trader_only,
+    keep_open_at_end: $keep_open_at_end,
+    low_write: $low_write,
+    status: $status,
+    status_note: $status_note,
+    active_experiment_slot: $active_experiment_slot,
+    params: $params,
+    tags: $tags,
+    config_override: (if ($config_override | type) == "object" and ($config_override | length) > 0 then $config_override else empty end)
+  }')
+REGISTER_RESULT=$(curl -s -m 30 -X POST "$API_BASE/timed/admin/runs/register?key=$API_KEY"   -H "Content-Type: application/json"   -d "$REGISTER_PAYLOAD")
+if ! echo "$REGISTER_RESULT" | jq -e '.ok' >/dev/null 2>&1; then
+  echo "ERROR: failed to register focused run: $(echo "$REGISTER_RESULT" | head -c 300)"
+  exit 1
+fi
+echo "  run: $REPLAY_LOCK"
+echo ""
+
 # Step 2: Replay each day (ticker-filtered)
 echo "Step 2: Replaying..."
 CURRENT_DATE="$START_DATE"
@@ -125,6 +175,9 @@ while [[ "$CURRENT_DATE" < "$END_DATE" ]] || [[ "$CURRENT_DATE" == "$END_DATE" ]
 
   DAY_COUNT=$((DAY_COUNT + 1))
   REPLAY_URL="$API_BASE/timed/admin/candle-replay?date=$CURRENT_DATE&tickers=$TICKERS&intervalMinutes=$INTERVAL_MIN&skipInvestor=1&key=$API_KEY"
+  if [[ "$CLEAN_SLATE" -eq 1 && "$DAY_COUNT" -eq 1 ]]; then
+    REPLAY_URL="${REPLAY_URL}&cleanSlate=1"
+  fi
 
   RESULT=""
   for retry in 1 2 3; do
@@ -146,12 +199,33 @@ while [[ "$CURRENT_DATE" < "$END_DATE" ]] || [[ "$CURRENT_DATE" == "$END_DATE" ]
 done
 echo ""
 
-# Step 3: Capture artifacts
-echo "Step 3: Capturing artifacts..."
+# Step 3: Finalize focused run so trades + config are archived together
+echo "Step 3: Finalizing focused run..."
+FINALIZE_PAYLOAD=$(jq -nc   --arg run_id "$REPLAY_LOCK"   --arg label "$RUN_LABEL"   --arg description "Focused replay for $TICKERS from $START_DATE to $END_DATE"   --arg status "completed"   --arg status_note "Focused replay completed"   --argjson preserve_registered_config "$(if [[ -n "$CONFIG_FILE" ]]; then echo true; else echo false; fi)"   '{
+    run_id: $run_id,
+    label: $label,
+    description: $description,
+    status: $status,
+    status_note: $status_note,
+    preserve_registered_config: $preserve_registered_config
+  }')
+FINALIZE_RESULT=$(curl -s -m 120 -X POST "$API_BASE/timed/admin/runs/finalize?key=$API_KEY"   -H "Content-Type: application/json"   -d "$FINALIZE_PAYLOAD")
+echo "$FINALIZE_RESULT" > "$OUT_DIR/run-finalize.json"
+if ! echo "$FINALIZE_RESULT" | jq -e '.ok' >/dev/null 2>&1; then
+  echo "ERROR: failed to finalize focused run: $(echo "$FINALIZE_RESULT" | head -c 300)"
+  exit 1
+fi
+ARCHIVED_CONFIG_COUNT=$(echo "$FINALIZE_RESULT" | jq -r '.archived.config // 0' 2>/dev/null || echo "0")
+echo "  archived config rows: $ARCHIVED_CONFIG_COUNT"
+echo ""
+
+# Step 4: Capture artifacts
+echo "Step 4: Capturing artifacts..."
 EXPORT_SUMMARY=$(node "$(dirname "$0")/export-focused-run-artifacts.js"   --run-id "$REPLAY_LOCK"   --out-dir "$OUT_DIR"   --tickers "$TICKERS"   --api-base "$API_BASE"   --api-key "$API_KEY")
 echo "$EXPORT_SUMMARY"
 ARCHIVED_TRADE_COUNT=$(echo "$EXPORT_SUMMARY" | jq -r '.trade_count // 0' 2>/dev/null || echo "0")
 ARCHIVED_CLOSED_COUNT=$(echo "$EXPORT_SUMMARY" | jq -r '.closed_trade_count // 0' 2>/dev/null || echo "0")
+ARCHIVED_CONFIG_FILE_COUNT=$(echo "$EXPORT_SUMMARY" | jq -r '.config_key_count // 0' 2>/dev/null || echo "0")
 
 cat > "$OUT_DIR/manifest.json" <<EOF
 {
@@ -159,7 +233,8 @@ cat > "$OUT_DIR/manifest.json" <<EOF
   "type": "focused_replay",
   "label": "$RUN_LABEL",
   "run_id": "$REPLAY_LOCK",
-  "tickers": "$(echo "$TICKERS" | tr ',' '", "')",
+  "tickers": $(printf '%s
+' "$TICKERS" | jq -R 'split(",") | map(select(length > 0))'),
   "start_date": "$START_DATE",
   "end_date": "$END_DATE",
   "interval_min": $INTERVAL_MIN,
@@ -168,6 +243,8 @@ cat > "$OUT_DIR/manifest.json" <<EOF
   "created_trade_events": $TOTAL_TRADES,
   "archived_trade_count": $ARCHIVED_TRADE_COUNT,
   "archived_closed_trade_count": $ARCHIVED_CLOSED_COUNT,
+  "archived_config_count": $ARCHIVED_CONFIG_FILE_COUNT,
+  "git_sha": "${GIT_SHA}",
   "captured_at": "$SNAPSHOT_TS"
 }
 EOF
