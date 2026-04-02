@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Timed Trading - Debug Dashboard</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="tailwind.generated.css" />
+<style>
+        :root {
+          --tt-bg-base: #0c0f14;
+          --tt-bg-surface: #13171e;
+          --tt-border: #252b36;
+          --tt-text: #f0f2f5;
+          --tt-accent: #22c55e;
+        }
+        body { font-family: "Inter", -apple-system, BlinkMacSystemFont, sans-serif; background: var(--tt-bg-base); color: var(--tt-text); -webkit-font-smoothing: antialiased; }
+        /* Admin-only nav links: hidden for non-admin users */
+        body:not([data-user-role="admin"]) a[data-admin-only] {
+          display: none !important;
+        }
+        .code-block { background: var(--tt-bg-surface); padding: 1rem; border-radius: 0.5rem; overflow-x: auto; border: 1px solid var(--tt-border); }
+        pre { margin: 0; white-space: pre-wrap; word-wrap: break-word; }
+    </style>
+</head>
+<script>
+  // Admin-only gate: check authentication and admin tier
+  (async function() {
+    try {
+      const resp = await fetch("/timed/me", { credentials: "include" });
+      if (!resp.ok) throw new Error("Auth check failed");
+      const data = await resp.json();
+      const user = data?.user;
+      if (!user || !data?.authenticated) {
+        document.body.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100vh;background:#0b0e11;color:#6b7280;font-family:Inter,sans-serif;font-size:14px;">Please <a href="/index-react.html" style="color:#00c853;margin:0 4px;">sign in</a> to view this page.</div>';
+        return;
+      }
+      if (user.tier !== "admin" && user.role !== "admin") {
+        document.body.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100vh;background:#0b0e11;color:#6b7280;font-family:Inter,sans-serif;font-size:14px;">This page is restricted to admin users.</div>';
+        return;
+      }
+      document.body.dataset.userRole = "admin";
+      document.body.style.visibility = "visible";
+    } catch (e) {
+      document.body.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100vh;background:#0b0e11;color:#6b7280;font-family:Inter,sans-serif;font-size:14px;">Authentication required. <a href="/index-react.html" style="color:#00c853;margin-left:4px;">Sign in</a></div>';
+    }
+  })();
+</script>
+<style>body { visibility: hidden; }</style>
+<body>
+    <!-- Unified Nav Bar -->
+    <nav class="flex items-center justify-between px-4 py-2.5 border-b border-white/[0.04]" style="background:#0b0e11">
+      <div class="flex items-center gap-5">
+        <span class="text-[15px] font-semibold text-white tracking-tight">Timed Trading</span>
+        <div class="flex items-center gap-0.5">
+          <a href="index-react.html" class="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Analysis</a>
+          <a href="simulation-dashboard.html" class="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Trades</a>
+          <a href="system-intelligence.html" data-admin-only="true" class="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">System Intelligence</a>
+          <a href="screener.html" data-admin-only="true" class="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Screener</a>
+          <a href="ticker-management.html" data-admin-only="true" class="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Tickers</a>
+        </div>
+      </div>
+    </nav>
+    <div class="max-w-7xl mx-auto p-8">
+        <h1 class="text-3xl font-bold mb-6">🔍 Debug Dashboard</h1>
+        
+        <div class="mb-6">
+            <label class="block mb-2">API Key:</label>
+            <input type="password" id="apiKey" placeholder="Enter API key" 
+                   class="w-full px-4 py-2 bg-[#13171e] border border-[#252b36] rounded-lg text-white">
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+            <button onclick="checkTrades()" 
+                    class="px-6 py-3 bg-blue-600 hover:bg-blue-700 rounded-lg font-semibold">
+                📊 Check Trades
+            </button>
+            <button onclick="checkTickers()" 
+                    class="px-6 py-3 bg-green-600 hover:bg-green-700 rounded-lg font-semibold">
+                📈 Check Tickers
+            </button>
+            <button onclick="checkConfig()" 
+                    class="px-6 py-3 bg-purple-600 hover:bg-purple-700 rounded-lg font-semibold">
+                ⚙️ Check Config
+            </button>
+            <button onclick="simulateTrades()" 
+                    class="px-6 py-3 bg-orange-600 hover:bg-orange-700 rounded-lg font-semibold">
+                🔄 Simulate Trades
+            </button>
+        </div>
+
+        <div id="results" class="mt-6"></div>
+    </div>
+
+    <script>
+        const API_BASE = '';  // same-origin — proxied by Pages Function
+        
+        function getApiKey() {
+            return document.getElementById('apiKey').value || prompt('Enter API Key:');
+        }
+
+        async function checkTrades() {
+            const key = getApiKey();
+            if (!key) return;
+            
+            showLoading('Checking trades...');
+            try {
+                const res = await fetch(`${API_BASE}/timed/debug/trades?key=${encodeURIComponent(key)}`);
+                const data = await res.json();
+                showResults('Trades', data);
+            } catch (err) {
+                showError(err);
+            }
+        }
+
+        async function checkTickers() {
+            const key = getApiKey();
+            if (!key) return;
+            
+            showLoading('Checking tickers...');
+            try {
+                const res = await fetch(`${API_BASE}/timed/debug/tickers?key=${encodeURIComponent(key)}`);
+                const data = await res.json();
+                showResults('Tickers', data);
+            } catch (err) {
+                showError(err);
+            }
+        }
+
+        async function checkConfig() {
+            const key = getApiKey();
+            if (!key) return;
+            
+            showLoading('Checking configuration...');
+            try {
+                const res = await fetch(`${API_BASE}/timed/debug/config?key=${encodeURIComponent(key)}`);
+                const data = await res.json();
+                showResults('Configuration', data);
+            } catch (err) {
+                showError(err);
+            }
+        }
+
+        async function simulateTrades() {
+            const key = getApiKey();
+            if (!key) return;
+            
+            if (!confirm('This will process all tickers and create/update trades. Continue?')) return;
+            
+            showLoading('Simulating trades...');
+            try {
+                const res = await fetch(`${API_BASE}/timed/debug/simulate-trades?key=${encodeURIComponent(key)}`, {
+                    method: 'POST'
+                });
+                const data = await res.json();
+                showResults('Trade Simulation', data);
+            } catch (err) {
+                showError(err);
+            }
+        }
+
+        function showLoading(message) {
+            document.getElementById('results').innerHTML = `
+                <div class="bg-[#121a33] border border-[#26325f] rounded-lg p-4">
+                    <div class="text-lg">${message}</div>
+                </div>
+            `;
+        }
+
+        function showResults(title, data) {
+            const html = `
+                <div class="bg-[#121a33] border border-[#26325f] rounded-lg p-6">
+                    <h2 class="text-2xl font-bold mb-4">${title}</h2>
+                    <div class="code-block">
+                        <pre>${JSON.stringify(data, null, 2)}</pre>
+                    </div>
+                </div>
+            `;
+            document.getElementById('results').innerHTML = html;
+        }
+
+        function showError(err) {
+            document.getElementById('results').innerHTML = `
+                <div class="bg-red-900 border border-red-700 rounded-lg p-4">
+                    <div class="text-lg font-bold text-red-200">Error</div>
+                    <div class="mt-2">${err.message || String(err)}</div>
+                </div>
+            `;
+        }
+    </script>
+</body>
+</html>
+

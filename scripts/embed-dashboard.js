@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Embeds react-app/simulation-dashboard.html into worker/dashboard-html.js
+ * Embeds react-app-dist/simulation-dashboard.html into worker/dashboard-html.js
  * so the worker can serve the Trade Tracker at GET / and GET /dashboard.
  * Run before: npm run deploy:worker
  */
@@ -8,8 +8,13 @@ const fs = require("fs");
 const path = require("path");
 
 const repoRoot = path.resolve(__dirname, "..");
-const src = path.join(repoRoot, "react-app", "simulation-dashboard.html");
+const src = path.join(repoRoot, "react-app-dist", "simulation-dashboard.html");
 const out = path.join(repoRoot, "worker", "dashboard-html.js");
+
+if (!fs.existsSync(src)) {
+  console.error("Missing compiled dashboard. Run `npm run build:frontend` first.");
+  process.exit(1);
+}
 
 const html = fs.readFileSync(src, "utf8");
 const escaped = html

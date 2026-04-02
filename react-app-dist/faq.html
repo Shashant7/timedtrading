@@ -1,0 +1,599 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>FAQ — Timed Trading</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48' fill='none'%3E%3Cdefs%3E%3ClinearGradient id='r' x1='6' y1='42' x2='42' y2='6'%3E%3Cstop offset='0%25' stop-color='%2334d399'/%3E%3Cstop offset='100%25' stop-color='%2367e8f9'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='48' height='48' rx='11' fill='%23000'/%3E%3Ccircle cx='24' cy='24' r='17' stroke='url(%23r)' stroke-width='3' fill='none'/%3E%3Cline x1='24' y1='24' x2='19' y2='18.5' stroke='%23636366' stroke-width='4' stroke-linecap='round'/%3E%3Cline x1='24' y1='24' x2='29.5' y2='16.5' stroke='%2330d158' stroke-width='4.5' stroke-linecap='round'/%3E%3Ccircle cx='24' cy='24' r='3.5' fill='%2330d158'/%3E%3Ccircle cx='24' cy='24' r='1.5' fill='%23000'/%3E%3C/svg%3E" />
+  <meta name="description" content="Frequently asked questions about Timed Trading — scoring, the Kanban board, subscriptions, and more." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+    :root {
+      --bg-base: #0b0e11;
+      --bg-surface: rgba(255,255,255,0.025);
+      --bg-surface-hover: rgba(255,255,255,0.045);
+      --border: rgba(255,255,255,0.06);
+      --border-hover: rgba(255,255,255,0.12);
+      --text-primary: #e5e7eb;
+      --text-secondary: #9ca3af;
+      --text-muted: #6b7280;
+      --accent: #00c853;
+      --accent-glow: rgba(0,200,83,0.15);
+      --font: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      font-family: var(--font);
+      background: var(--bg-base);
+      color: var(--text-primary);
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+      line-height: 1.7;
+    }
+
+    .container { max-width: 800px; margin: 0 auto; padding: 0 24px; }
+
+    /* ── Nav ── */
+    nav {
+      position: fixed;
+      top: 0; left: 0; right: 0;
+      z-index: 100;
+      padding: 16px 0;
+      background: rgba(11,14,17,0.8);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border-bottom: 1px solid var(--border);
+    }
+    nav .nav-inner {
+      max-width: 1120px;
+      margin: 0 auto;
+      padding: 0 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .nav-brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      text-decoration: none;
+      color: var(--text-primary);
+      font-weight: 700;
+      font-size: 18px;
+      letter-spacing: -0.03em;
+    }
+    .nav-logo { width: 36px; height: 36px; flex-shrink: 0; }
+    .nav-links { display: flex; align-items: center; gap: 8px; }
+    .nav-links a {
+      text-decoration: none;
+      color: var(--text-secondary);
+      font-size: 14px;
+      font-weight: 500;
+      padding: 8px 16px;
+      border-radius: 8px;
+      transition: all 0.2s;
+    }
+    .nav-links a:hover { color: var(--text-primary); background: var(--bg-surface); }
+    .nav-links a.active { color: var(--text-primary); background: var(--bg-surface); }
+    .nav-links .btn-signin {
+      color: var(--bg-base);
+      background: var(--accent);
+      font-weight: 600;
+      padding: 8px 20px;
+    }
+    .nav-links .btn-signin:hover {
+      background: #00e676;
+      color: var(--bg-base);
+      transform: translateY(-1px);
+    }
+
+    /* ── Header ── */
+    .faq-header {
+      padding: 120px 0 40px;
+      text-align: center;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 48px;
+    }
+    .faq-header h1 {
+      font-size: clamp(28px, 4vw, 40px);
+      font-weight: 800;
+      letter-spacing: -0.04em;
+      margin-bottom: 12px;
+    }
+    .faq-header .meta {
+      font-size: 14px;
+      color: var(--text-muted);
+    }
+
+    /* ── FAQ Items ── */
+    .faq-content { padding-bottom: 80px; }
+
+    .faq-section {
+      margin-bottom: 48px;
+    }
+    .faq-section h2 {
+      font-size: 20px;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      margin-bottom: 20px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid var(--border);
+      color: var(--text-primary);
+    }
+
+    .faq-item {
+      margin-bottom: 16px;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      overflow: hidden;
+      transition: border-color 0.2s;
+    }
+    .faq-item:hover { border-color: var(--border-hover); }
+
+    .faq-q {
+      width: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 18px 20px;
+      background: var(--bg-surface);
+      border: none;
+      color: var(--text-primary);
+      font-family: var(--font);
+      font-size: 15px;
+      font-weight: 600;
+      text-align: left;
+      cursor: pointer;
+      transition: background 0.2s;
+      line-height: 1.4;
+    }
+    .faq-q:hover { background: var(--bg-surface-hover); }
+
+    .faq-q svg {
+      flex-shrink: 0;
+      color: var(--text-muted);
+      transition: transform 0.25s ease;
+    }
+    .faq-item.open .faq-q svg { transform: rotate(180deg); }
+
+    .faq-a {
+      max-height: 0;
+      overflow: hidden;
+      transition: max-height 0.3s ease, padding 0.3s ease;
+    }
+    .faq-item.open .faq-a {
+      max-height: 600px;
+      padding: 0 20px 20px;
+    }
+    .faq-a p, .faq-a ul {
+      color: var(--text-secondary);
+      font-size: 14px;
+      line-height: 1.7;
+      margin-top: 4px;
+    }
+    .faq-a ul {
+      padding-left: 20px;
+      margin-top: 8px;
+    }
+    .faq-a li { margin-bottom: 6px; }
+    .faq-a a {
+      color: var(--accent);
+      text-decoration: none;
+    }
+    .faq-a a:hover { text-decoration: underline; }
+
+    /* ── Contact CTA ── */
+    .contact-cta {
+      background: var(--accent-glow);
+      border: 1px solid rgba(0,200,83,0.15);
+      border-radius: 16px;
+      padding: 36px;
+      text-align: center;
+      margin-top: 48px;
+    }
+    .contact-cta h3 {
+      font-size: 20px;
+      font-weight: 700;
+      margin-bottom: 8px;
+    }
+    .contact-cta p {
+      color: var(--text-secondary);
+      font-size: 14px;
+      margin-bottom: 20px;
+    }
+    .contact-cta a {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 12px 28px;
+      background: var(--accent);
+      color: var(--bg-base);
+      font-weight: 600;
+      font-size: 14px;
+      border-radius: 10px;
+      text-decoration: none;
+      transition: all 0.2s;
+    }
+    .contact-cta a:hover {
+      background: #00e676;
+      transform: translateY(-1px);
+    }
+
+    /* ── Footer ── */
+    footer {
+      border-top: 1px solid var(--border);
+      padding: 32px 0;
+    }
+    footer .nav-inner {
+      max-width: 1120px;
+      margin: 0 auto;
+      padding: 0 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 16px;
+    }
+    .footer-brand {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--text-muted);
+      font-size: 13px;
+    }
+    .footer-links {
+      display: flex;
+      align-items: center;
+      gap: 20px;
+      font-size: 13px;
+    }
+    .footer-links a {
+      text-decoration: none;
+      color: var(--text-muted);
+      transition: color 0.2s;
+    }
+    .footer-links a:hover { color: var(--text-primary); }
+    .footer-disclaimer {
+      width: 100%;
+      text-align: center;
+      font-size: 11px;
+      color: var(--text-muted);
+      margin-top: 8px;
+    }
+    .footer-disclaimer a { color: var(--text-muted); text-decoration: underline; }
+
+    @media (max-width: 640px) {
+      .container { padding: 0 16px; }
+      nav .nav-inner { padding: 0 16px; }
+      .nav-links a:not(.btn-signin):not(.active) { display: none; }
+      footer .nav-inner { justify-content: center; text-align: center; flex-direction: column; }
+      .faq-q { font-size: 14px; padding: 16px; }
+      .contact-cta { padding: 24px; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ═══ NAV ═══ -->
+  <nav>
+    <div class="nav-inner">
+      <a href="/" class="nav-brand">
+        <svg class="nav-logo" width="36" height="36" viewBox="0 0 48 48" fill="none"><defs><linearGradient id="tt-ring" x1="6" y1="42" x2="42" y2="6"><stop offset="0%" stop-color="#34d399"/><stop offset="100%" stop-color="#67e8f9"/></linearGradient></defs><rect width="48" height="48" rx="11" fill="#000"/><circle cx="24" cy="24" r="17" stroke="url(#tt-ring)" stroke-width="2.5" fill="none"/><line x1="24" y1="7.5" x2="24" y2="10.5" stroke="#34d399" stroke-width="1.5" stroke-linecap="round" opacity="0.5"/><line x1="7.5" y1="24" x2="10.5" y2="24" stroke="#34d399" stroke-width="1.5" stroke-linecap="round" opacity="0.5"/><line x1="19" y1="18.5" x2="16" y2="15.5" stroke="#636366" stroke-width="1.2" stroke-linecap="round"/><line x1="24" y1="24" x2="19" y2="18.5" stroke="#636366" stroke-width="3.5" stroke-linecap="round"/><line x1="29.5" y1="16.5" x2="32" y2="12.9" stroke="#30d158" stroke-width="1.2" stroke-linecap="round"/><line x1="24" y1="24" x2="29.5" y2="16.5" stroke="#30d158" stroke-width="4" stroke-linecap="round"/><circle cx="24" cy="24" r="3.2" fill="#30d158"/><circle cx="24" cy="24" r="1.3" fill="#000"/></svg>
+        Timed Trading
+      </a>
+      <div class="nav-links">
+        <a href="/splash.html#how-it-works">How It Works</a>
+        <a href="/splash.html#pricing">Pricing</a>
+        <a href="/faq.html" class="active">FAQ</a>
+        <a href="/index-react.html" class="btn-signin">Sign In</a>
+      </div>
+    </div>
+  </nav>
+
+  <!-- ═══ HEADER ═══ -->
+  <div class="container">
+    <div class="faq-header">
+      <h1>Frequently Asked Questions</h1>
+      <p class="meta">Everything you need to know about Timed Trading</p>
+    </div>
+
+    <div class="faq-content">
+
+      <!-- ── General ── -->
+      <div class="faq-section">
+        <h2>General</h2>
+
+        <div class="faq-item open">
+          <button class="faq-q" onclick="this.parentElement.classList.toggle('open')">
+            What is Timed Trading?
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+          </button>
+          <div class="faq-a">
+            <p>Timed Trading is a scoring and timing system for swing and position traders. It watches a curated set of tickers positioned to outperform in the current market, scores them across 8 timeframes, and provides clear levels for support, resistance, and targets &mdash; along with precise timing on when to act. The goal is simple: stop guessing and start trading with conviction.</p>
+          </div>
+        </div>
+
+        <div class="faq-item">
+          <button class="faq-q" onclick="this.parentElement.classList.toggle('open')">
+            Is this financial advice?
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+          </button>
+          <div class="faq-a">
+            <p><strong>No.</strong> Timed Trading is not a registered investment advisor. All scores, signals, and levels are algorithmic outputs &mdash; not personal investment recommendations. The system is designed to provide structure and timing, but every trading decision is ultimately made by the individual. Always do your own research and consult a licensed financial advisor. See the <a href="/terms.html">Terms of Use</a> for the full disclaimer.</p>
+          </div>
+        </div>
+
+        <div class="faq-item">
+          <button class="faq-q" onclick="this.parentElement.classList.toggle('open')">
+            What markets and tickers are covered?
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+          </button>
+          <div class="faq-a">
+            <p>The system tracks a curated universe of tickers that are rotated periodically to match the current market environment. Coverage includes:</p>
+            <ul>
+              <li><strong>US Stocks &amp; ETFs</strong> &mdash; Large-caps (AAPL, MSFT, NVDA, etc.), sector ETFs (XLF, XLE, XLK), and high-potential names across all 11 GICS sectors.</li>
+              <li><strong>Crypto</strong> &mdash; Bitcoin (BTCUSD) and Ethereum (ETHUSD).</li>
+            </ul>
+            <p>The universe isn't fixed at a static number. Tickers are added and removed based on where the strongest opportunities are forming, drawing from momentum screens and sector rotation analysis.</p>
+          </div>
+        </div>
+
+        <div class="faq-item">
+          <button class="faq-q" onclick="this.parentElement.classList.toggle('open')">
+            How is the ticker universe selected?
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+          </button>
+          <div class="faq-a">
+            <p>Tickers are selected based on a combination of sector rotation signals, relative strength, momentum profiles, and volume characteristics. The system draws from curated screening processes to identify names that are positioned to outperform. The universe is not static &mdash; it rotates periodically as market conditions shift, so the focus stays on what matters now.</p>
+          </div>
+        </div>
+
+        <div class="faq-item">
+          <button class="faq-q" onclick="this.parentElement.classList.toggle('open')">
+            How does adding or removing tickers work?
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+          </button>
+          <div class="faq-a">
+            <p>The ticker universe is actively managed. The system periodically evaluates which names offer the best opportunities based on sector rotation, relative strength, and momentum characteristics. Tickers that no longer meet the criteria are rotated out, and new names with stronger setups are rotated in.</p>
+            <p>As a subscriber, you can also request tickers to be added through the watchlist feature. When a ticker is added, the system automatically backfills its historical data, begins scoring it across all 8 timeframes, and includes it in the model&rsquo;s evaluation. You can focus on specific names while the system handles the analysis.</p>
+          </div>
+        </div>
+
+        <div class="faq-item">
+          <button class="faq-q" onclick="this.parentElement.classList.toggle('open')">
+            How does the system adapt to market conditions?
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+          </button>
+          <div class="faq-a">
+            <p>The model is not static &mdash; it reads the market environment and adjusts how aggressively it trades. It monitors:</p>
+            <ul>
+              <li><strong>Market regime</strong> &mdash; Is the broad market trending, transitioning, or choppy? The system detects this from SPY, VIX, and sector rotation data, then adjusts position sizing and entry thresholds accordingly.</li>
+              <li><strong>Volatility</strong> &mdash; When fear spikes (VIX elevated), the model tightens its criteria and reduces exposure. In calm markets, it can be more aggressive with higher conviction setups.</li>
+              <li><strong>Sector rotation</strong> &mdash; The system tracks whether offensive sectors (tech, consumer discretionary) or defensive sectors (utilities, staples, healthcare) are leading. This helps determine the overall risk appetite of the market.</li>
+            </ul>
+            <p>The result is a system that trades more carefully during uncertainty and more decisively when conditions are favorable &mdash; without requiring the user to make those judgment calls manually.</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Using the System ── -->
+      <div class="faq-section">
+        <h2>Using the System</h2>
+
+        <div class="faq-item">
+          <button class="faq-q" onclick="this.parentElement.classList.toggle('open')">
+            How should I use the system day-to-day?
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+          </button>
+          <div class="faq-a">
+            <p>Here&rsquo;s a typical daily workflow:</p>
+            <ul>
+              <li><strong>Morning</strong> &mdash; Read the Daily Brief for a pre-market summary of top setups, sector themes, and any overnight changes. Check the Active Trader board for tickers in the &ldquo;Enter&rdquo; lane.</li>
+              <li><strong>During the day</strong> &mdash; The system scores continuously. Watch for tickers moving from Setup to Enter (new opportunities) or from Hold to Defend/Trim/Exit (positions that need attention).</li>
+              <li><strong>Evening</strong> &mdash; Review the Evening Brief for a recap of what happened. Check the Investor Dashboard for portfolio-level health and overall market conditions.</li>
+            </ul>
+            <p>The system does the heavy lifting &mdash; scanning, scoring, and alerting. Your job is to review, decide, and act when the signals align with your own conviction.</p>
+          </div>
+        </div>
+
+        <div class="faq-item">
+          <button class="faq-q" onclick="this.parentElement.classList.toggle('open')">
+            What is the simulated portfolio?
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+          </button>
+          <div class="faq-a">
+            <p>The system runs a paper-trading portfolio that executes trades based on its own signals &mdash; entering, trimming, and exiting positions automatically. No real money is involved.</p>
+            <p>This simulated portfolio serves two purposes:</p>
+            <ul>
+              <li><strong>Track record</strong> &mdash; It provides a transparent, auditable history of every trade the system has taken, including entry/exit levels, P&amp;L, and win rates.</li>
+              <li><strong>Signal validation</strong> &mdash; By putting its own signals to the test in real-time, the system demonstrates conviction. You can see exactly how the model performs before deciding to follow any given signal.</li>
+            </ul>
+            <p>You can view the full trade history, equity curve, and performance metrics on the Trades page.</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Scoring & Signals ── -->
+      <div class="faq-section">
+        <h2>Scoring &amp; Signals</h2>
+
+        <div class="faq-item">
+          <button class="faq-q" onclick="this.parentElement.classList.toggle('open')">
+            How does the scoring system work?
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+          </button>
+          <div class="faq-a">
+            <p>Each ticker receives a composite score (0&ndash;100) computed across 8 timeframes &mdash; from 5-minute bars up to monthly charts. The engine evaluates trend direction, momentum strength, volume profile, and risk/reward ratios. Higher scores indicate stronger conviction setups. Scores refresh every 5 minutes during market hours.</p>
+          </div>
+        </div>
+
+        <div class="faq-item">
+          <button class="faq-q" onclick="this.parentElement.classList.toggle('open')">
+            What do the action labels mean (Setup, Enter, Hold, Defend, Trim, Exit)?
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+          </button>
+          <div class="faq-a">
+            <p>Tickers flow through a pipeline based on their scoring trajectory:</p>
+            <ul>
+              <li><strong>Setup</strong> &mdash; Building a case. Early signs of a potential move are forming.</li>
+              <li><strong>Enter</strong> &mdash; Time to act. Score and conditions align for a new position.</li>
+              <li><strong>Hold</strong> &mdash; The trade thesis is intact. Stay the course.</li>
+              <li><strong>Defend</strong> &mdash; Caution. The trade is under pressure &mdash; tighten stops or reduce exposure.</li>
+              <li><strong>Trim</strong> &mdash; Take partial profits. Momentum is fading but the trend may continue.</li>
+              <li><strong>Exit</strong> &mdash; Close the position. The thesis is invalidated.</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="faq-item">
+          <button class="faq-q" onclick="this.parentElement.classList.toggle('open')">
+            How do I read the Active Trader board?
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+          </button>
+          <div class="faq-a">
+            <p>The Active Trader dashboard arranges tickers into swim-lanes by their current action phase (Setup, Enter, Hold, etc.). Within each lane, cards are sorted by score &mdash; the strongest setups appear first. Each card shows the ticker symbol, score, direction (LONG/SHORT), and price. Click any card to open the detail view with a full chart, technical breakdown, and precise levels.</p>
+          </div>
+        </div>
+
+        <div class="faq-item">
+          <button class="faq-q" onclick="this.parentElement.classList.toggle('open')">
+            What is the Daily Brief?
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+          </button>
+          <div class="faq-a">
+            <p>The Daily Brief is a pre-market summary generated each trading day. It highlights top-scoring setups, sector rotations, and notable changes from the previous session. Think of it as a game plan for the day &mdash; everything needed to walk in prepared.</p>
+          </div>
+        </div>
+
+        <div class="faq-item">
+          <button class="faq-q" onclick="this.parentElement.classList.toggle('open')">
+            What is the Investor Dashboard?
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+          </button>
+          <div class="faq-a">
+            <p>The Investor Dashboard provides a portfolio-level view of the simulated portfolio and overall market health:</p>
+            <ul>
+              <li><strong>Portfolio Health</strong> &mdash; An aggregate score showing how well current positions align with the system's signals.</li>
+              <li><strong>Sector Heatmap</strong> &mdash; Strength and weakness across all 11 GICS sectors at a glance.</li>
+              <li><strong>Market Health</strong> &mdash; Breadth, volatility, and regime indicators that provide context for the broader environment.</li>
+              <li><strong>Simulated Trades</strong> &mdash; A full record of trades the system has taken, with entry/exit levels and P&amp;L.</li>
+            </ul>
+            <p>The Investor Dashboard is designed for a higher-level view &mdash; understanding the "big picture" before drilling into individual tickers on the Active Trader page.</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Subscription ── -->
+      <div class="faq-section">
+        <h2>Subscription &amp; Billing</h2>
+
+        <div class="faq-item">
+          <button class="faq-q" onclick="this.parentElement.classList.toggle('open')">
+            What does the subscription include?
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+          </button>
+          <div class="faq-a">
+            <p>Full access to both modes with a 14-day free trial. No feature gates. The subscription includes:</p>
+            <ul>
+              <li>Curated ticker universe, scored across 8 timeframes every 5 minutes</li>
+              <li>Active Trader dashboard with the full trade pipeline (Setup &rarr; Exit)</li>
+              <li>Investor Dashboard with simulated portfolio, sector heatmap, and market health</li>
+              <li>AI-powered Daily Brief &mdash; pre-market and evening summaries</li>
+              <li>Right Rail detail view with charts, technicals, and precise levels</li>
+              <li>Bubble Chart for a visual read on relative strength across the universe</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="faq-item">
+          <button class="faq-q" onclick="this.parentElement.classList.toggle('open')">
+            How does the free trial work?
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+          </button>
+          <div class="faq-a">
+            <p>New subscribers start with a 14-day free trial with full access to everything. No charges during the trial period. After 14 days, the subscription is $60/month, billed automatically. Cancel anytime before the trial ends and nothing is charged.</p>
+          </div>
+        </div>
+
+        <div class="faq-item">
+          <button class="faq-q" onclick="this.parentElement.classList.toggle('open')">
+            How do I cancel my subscription?
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+          </button>
+          <div class="faq-a">
+            <p>Cancel anytime from the account menu &mdash; click the profile icon and select "Manage Subscription" to open the billing portal. Access continues until the end of the current billing period. For any issues, reach out to <a href="mailto:support@timed-trading.com">support@timed-trading.com</a>.</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Technical ── -->
+      <div class="faq-section">
+        <h2>Technical</h2>
+
+        <div class="faq-item">
+          <button class="faq-q" onclick="this.parentElement.classList.toggle('open')">
+            Do you support mobile?
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+          </button>
+          <div class="faq-a">
+            <p>Yes. Timed Trading works in any modern mobile browser (Safari, Chrome, Firefox). The interface adapts to smaller screens. For the best experience on mobile, landscape mode works well for the Kanban view, and portrait for the card list.</p>
+          </div>
+        </div>
+
+        <div class="faq-item">
+          <button class="faq-q" onclick="this.parentElement.classList.toggle('open')">
+            Where does the market data come from?
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+          </button>
+          <div class="faq-a">
+            <p>Market data is powered by <a href="https://twelvedata.com" target="_blank" rel="noopener">Twelve Data</a>, which provides real-time and historical price data for stocks, ETFs, and crypto. All scores and signals are computed from this data by the Timed Trading engine.</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Contact CTA ── -->
+      <div class="contact-cta">
+        <h3>Still have questions?</h3>
+        <p>Reach out and we'll get back to you as soon as possible.</p>
+        <a href="mailto:support@timed-trading.com">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+          support@timed-trading.com
+        </a>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ═══ FOOTER ═══ -->
+  <footer>
+    <div class="nav-inner">
+      <div class="footer-brand">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="22 7 13.5 15.5 8.5 10.5 2 17" /><polyline points="16 7 22 7 22 13" />
+        </svg>
+        &copy; 2026 Timed Trading. All rights reserved.
+      </div>
+      <div class="footer-links">
+        <a href="/splash.html">Home</a>
+        <a href="/terms.html">Terms of Use</a>
+        <a href="/faq.html">FAQ</a>
+        <a href="mailto:support@timed-trading.com">Contact</a>
+      </div>
+    </div>
+    <div class="nav-inner">
+      <div class="footer-disclaimer">
+        Not a registered investment advisor. For entertainment &amp; educational purposes only. Not financial advice. <a href="/terms.html">Full Terms</a><br />
+        Market data powered by <a href="https://twelvedata.com" target="_blank" rel="noopener">Twelve Data</a>
+      </div>
+    </div>
+  </footer>
+
+</body>
+</html>

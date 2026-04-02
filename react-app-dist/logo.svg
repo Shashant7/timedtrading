@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none">
+  <defs>
+    <linearGradient id="ring" x1="6" y1="42" x2="42" y2="6">
+      <stop offset="0%" stop-color="#34d399"/>
+      <stop offset="100%" stop-color="#67e8f9"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="24" cy="24" r="6">
+      <stop offset="0%" stop-color="#34d399" stop-opacity="0.18"/>
+      <stop offset="100%" stop-color="#34d399" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="48" height="48" rx="11" fill="#000"/>
+  <circle cx="24" cy="24" r="17" stroke="url(#ring)" stroke-width="1.8" fill="none"/>
+  <circle cx="24" cy="24" r="8" fill="url(#glow)"/>
+  <!-- Tick marks -->
+  <line x1="24" y1="7.5" x2="24" y2="10.5" stroke="#34d399" stroke-width="1" stroke-linecap="round" opacity="0.6"/>
+  <line x1="40.5" y1="24" x2="37.5" y2="24" stroke="#34d399" stroke-width="1" stroke-linecap="round" opacity="0.4"/>
+  <line x1="24" y1="40.5" x2="24" y2="37.5" stroke="#34d399" stroke-width="1" stroke-linecap="round" opacity="0.4"/>
+  <line x1="7.5" y1="24" x2="10.5" y2="24" stroke="#34d399" stroke-width="1" stroke-linecap="round" opacity="0.6"/>
+  <!-- Subtle TT -->
+  <text x="24" y="36" text-anchor="middle" font-family="Inter, -apple-system, sans-serif" font-size="5.5" font-weight="700" fill="#34d399" opacity="0.2" letter-spacing="0.8">TT</text>
+  <!-- Hour candle — bearish gray -->
+  <line x1="18.5" y1="18" x2="15.5" y2="15" stroke="#636366" stroke-width="0.8" stroke-linecap="round"/>
+  <line x1="24" y1="24" x2="18.5" y2="18" stroke="#636366" stroke-width="3" stroke-linecap="round"/>
+  <!-- Minute candle — bullish green (wick aligned to body angle) -->
+  <line x1="29.5" y1="16" x2="32" y2="12.4" stroke="#30d158" stroke-width="0.8" stroke-linecap="round"/>
+  <line x1="24" y1="24" x2="29.5" y2="16" stroke="#30d158" stroke-width="3.2" stroke-linecap="round"/>
+  <!-- Center pivot -->
+  <circle cx="24" cy="24" r="2.5" fill="#30d158"/>
+  <circle cx="24" cy="24" r="1" fill="#000"/>
+</svg>

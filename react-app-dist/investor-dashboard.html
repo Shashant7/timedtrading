@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes" />
+    <title>Timed Trading — Investor</title>
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48' fill='none'%3E%3Cdefs%3E%3ClinearGradient id='r' x1='6' y1='42' x2='42' y2='6'%3E%3Cstop offset='0%25' stop-color='%2334d399'/%3E%3Cstop offset='100%25' stop-color='%2367e8f9'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='48' height='48' rx='11' fill='%23000'/%3E%3Ccircle cx='24' cy='24' r='17' stroke='url(%23r)' stroke-width='3' fill='none'/%3E%3Cline x1='24' y1='24' x2='19' y2='18.5' stroke='%23636366' stroke-width='4' stroke-linecap='round'/%3E%3Cline x1='24' y1='24' x2='29.5' y2='16.5' stroke='%2330d158' stroke-width='4.5' stroke-linecap='round'/%3E%3Ccircle cx='24' cy='24' r='3.5' fill='%2330d158'/%3E%3Ccircle cx='24' cy='24' r='1.5' fill='%23000'/%3E%3C/svg%3E" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/prop-types@15/prop-types.min.js"></script>
+<link rel="stylesheet" href="tailwind.generated.css" />
+<script src="auth-gate.js?v=20260219a"></script>
+    <script src="shared-price-utils.js?v=20260225a"></script>
+    <style>
+      * { box-sizing: border-box; }
+      body { margin: 0; background: #0a0a0f; color: #e5e7eb; font-family: 'Inter', system-ui, sans-serif; }
+      .loading-spinner { width: 24px; height: 24px; position: relative; display: inline-block; }
+      .loading-spinner::before { content: ""; position: absolute; inset: 0; border-radius: 5px; background: linear-gradient(135deg, rgba(0,200,83,0.15), rgba(0,200,83,0.04)); animation: tt-loader-pulse 1.6s ease-in-out infinite; }
+      .loading-spinner::after { content: ""; position: absolute; left: 2px; right: 2px; top: 50%; height: 1.5px; background: linear-gradient(90deg, transparent, #00c853, #00e676, #69f0ae, transparent); background-size: 200% 100%; border-radius: 1px; animation: tt-loader-sweep 1.2s ease-in-out infinite; }
+      @keyframes tt-loader-pulse { 0%, 100% { opacity: 0.4; transform: scale(0.92); } 50% { opacity: 1; transform: scale(1); } }
+      @keyframes tt-loader-sweep { 0% { background-position: -100% 0; opacity: 0.5; } 50% { opacity: 1; } 100% { background-position: 200% 0; opacity: 0.5; } }
+      @keyframes spin { to { transform: rotate(360deg); } }
+      @keyframes pulse-badge {
+        0%, 100% { opacity: 1; transform: scale(1); }
+        50% { opacity: 0.7; transform: scale(1.15); }
+      }
+      @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+      .fade-in { animation: fadeIn 0.3s ease-out; }
+      .card { background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.06); border-radius: 12px; }
+      .card-hover:hover { background: rgba(255,255,255,0.04); border-color: rgba(255,255,255,0.1); }
+      .stage-badge { padding: 2px 8px; border-radius: 6px; font-size: 11px; font-weight: 600; text-transform: uppercase; }
+      .stage-accumulate { background: rgba(16,185,129,0.15); color: #34d399; border: 1px solid rgba(16,185,129,0.3); }
+      .stage-core_hold { background: rgba(59,130,246,0.15); color: #60a5fa; border: 1px solid rgba(59,130,246,0.3); }
+      .stage-watch { background: rgba(245,158,11,0.15); color: #fbbf24; border: 1px solid rgba(245,158,11,0.3); }
+      .stage-reduce { background: rgba(239,68,68,0.15); color: #f87171; border: 1px solid rgba(239,68,68,0.3); }
+      .stage-research_on_watch { background: rgba(167,139,250,0.15); color: #a78bfa; border: 1px solid rgba(167,139,250,0.3); }
+      .stage-research_low { background: rgba(139,92,246,0.15); color: #a78bfa; border: 1px solid rgba(139,92,246,0.3); }
+      .stage-research_avoid { background: rgba(107,114,128,0.15); color: #9ca3af; border: 1px solid rgba(107,114,128,0.3); }
+      .stage-exited { background: rgba(107,114,128,0.15); color: #9ca3af; border: 1px solid rgba(107,114,128,0.3); }
+      /* Admin-only nav links: hidden for non-admin users */
+      body:not([data-user-role="admin"]) a[data-admin-only] {
+        display: none !important;
+      }
+      /* Scrollbar styling */
+      ::-webkit-scrollbar { width: 4px; }
+      ::-webkit-scrollbar-track { background: transparent; }
+      ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 4px; }
+      ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.15); }
+      /* Responsive 3-panel layout */
+      .investor-3panel { min-height: 0; }
+      @media (min-width: 1024px) {
+        .investor-3panel { height: min(560px, calc(100vh - 300px)); min-height: 320px; }
+      }
+      /* Slide-in overlay from right (mobile right rail) */
+      @keyframes slideInRight {
+        from { transform: translateX(100%); opacity: 0; }
+        to { transform: translateX(0); opacity: 1; }
+      }
+      .slide-in-right { animation: slideInRight 0.3s ease-out; }
+      .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+      .scrollbar-hide::-webkit-scrollbar { display: none; }
+      @keyframes coachmark-pulse {
+        0%, 100% { box-shadow: 0 0 0 0 rgba(52,211,153,0.5); }
+        50% { box-shadow: 0 0 0 8px rgba(52,211,153,0); }
+      }
+      @keyframes coachmark-slide-in {
+        from { opacity: 0; transform: translateY(8px); }
+        to { opacity: 1; transform: translateY(0); }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+
+    <script src="investor-dashboard.compiled.9b6a91d8f7.js"></script>
+    <script>
+      (function() {
+        fetch("/timed/daily-brief/badge", { cache: "no-store" })
+          .then(function(r) { return r.json(); })
+          .then(function(d) {
+            if (d && d.badge && d.badge.ts) {
+              var seen = Number(localStorage.getItem("tt_brief_seen") || 0);
+              if (d.badge.ts > seen) {
+                var el = document.getElementById("brief-badge");
+                if (el) el.classList.remove("hidden");
+              }
+            }
+          })
+          .catch(function() {});
+      })();
+    </script>
+    <footer id="legal-footer" style="position:fixed;bottom:0;left:0;right:0;z-index:9999;background:rgba(10,10,15,0.92);backdrop-filter:blur(6px);border-top:1px solid rgba(255,255,255,0.06);padding:6px 16px;text-align:center;font-size:10px;color:#6b7280;line-height:1.4;">
+      For informational and educational purposes only. Not investment advice. Past performance does not guarantee future results. All trading involves risk of loss. <a href="/terms.html" style="color:#6b7280;text-decoration:underline;">Full Terms</a> · Market data powered by <a href="https://twelvedata.com" target="_blank" rel="noopener" style="color:#6b7280;text-decoration:underline;">Twelve Data</a>
+    </footer>
+    <script>if(new URLSearchParams(window.location.search).get("embedded")==="true"){document.getElementById("legal-footer").style.display="none";document.body.style.background="transparent";}</script>
+    <script>if(new URLSearchParams(window.location.search).get("embedded")==="true"){var f=document.getElementById("legal-footer");if(f)f.style.display="none";}</script>
+    <script>if(new URLSearchParams(window.location.search).get("embedded")==="true"){var f=document.getElementById("legal-footer");if(f)f.style.display="none";}</script>
+  </body>
+</html>

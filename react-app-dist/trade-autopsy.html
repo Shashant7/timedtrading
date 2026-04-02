@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+    <title>Trade Autopsy — Timed Trading</title>
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48' fill='none'%3E%3Cdefs%3E%3ClinearGradient id='r' x1='6' y1='42' x2='42' y2='6'%3E%3Cstop offset='0%25' stop-color='%2334d399'/%3E%3Cstop offset='100%25' stop-color='%2367e8f9'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='48' height='48' rx='11' fill='%23000'/%3E%3Ccircle cx='24' cy='24' r='17' stroke='url(%23r)' stroke-width='3' fill='none'/%3E%3Cline x1='24' y1='24' x2='19' y2='18.5' stroke='%23636366' stroke-width='4' stroke-linecap='round'/%3E%3Cline x1='24' y1='24' x2='29.5' y2='16.5' stroke='%2330d158' stroke-width='4.5' stroke-linecap='round'/%3E%3Ccircle cx='24' cy='24' r='3.5' fill='%2330d158'/%3E%3Ccircle cx='24' cy='24' r='1.5' fill='%23000'/%3E%3C/svg%3E" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<link rel="stylesheet" href="tailwind.generated.css" />
+<script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
+    <script src="auth-gate.js?v=20260219a"></script>
+    <style>
+      :root {
+        --tt-bg-base: #0b0e11;
+        --tt-bg-surface: rgba(255,255,255,0.02);
+        --tt-bg-elevated: rgba(255,255,255,0.035);
+        --tt-bg-hover: rgba(255,255,255,0.04);
+        --tt-border: rgba(255,255,255,0.04);
+        --tt-border-strong: rgba(255,255,255,0.08);
+        --tt-text: #e5e7eb;
+        --tt-text-muted: #6b7280;
+        --tt-text-faint: #4b5563;
+        --tt-accent: #14b8a6;
+        --tt-negative: #e11d48;
+        --tt-amber: #f59e0b;
+        --tt-radius: 12px;
+        --tt-radius-sm: 8px;
+        --tt-font: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      }
+      body { background: var(--tt-bg-base); color: var(--tt-text); font-family: var(--tt-font); -webkit-font-smoothing: antialiased; margin: 0; }
+      .tt-card { background: var(--tt-bg-surface); border: 1px solid var(--tt-border); border-radius: var(--tt-radius); }
+      .loading-spinner { width: 28px; height: 28px; position: relative; display: inline-block; }
+      .loading-spinner::before { content: ""; position: absolute; inset: 0; border-radius: 6px; background: linear-gradient(135deg, rgba(0,200,83,0.15), rgba(0,200,83,0.04)); animation: tt-loader-pulse 1.6s ease-in-out infinite; }
+      .loading-spinner::after { content: ""; position: absolute; left: 3px; right: 3px; top: 50%; height: 2px; background: linear-gradient(90deg, transparent, #00c853, #00e676, #69f0ae, transparent); background-size: 200% 100%; border-radius: 1px; animation: tt-loader-sweep 1.2s ease-in-out infinite; }
+      @keyframes tt-loader-pulse { 0%, 100% { opacity: 0.4; transform: scale(0.92); } 50% { opacity: 1; transform: scale(1); } }
+      @keyframes tt-loader-sweep { 0% { background-position: -100% 0; opacity: 0.5; } 50% { opacity: 1; } 100% { background-position: 200% 0; opacity: 0.5; } }
+      body:not([data-user-role="admin"]) a[data-admin-only] { display: none !important; }
+      ::-webkit-scrollbar { width: 6px; height: 6px; }
+      ::-webkit-scrollbar-track { background: transparent; }
+      ::-webkit-scrollbar-thumb { background: #374151; border-radius: 3px; }
+      .trade-row:hover { background: rgba(255,255,255,0.03); cursor: pointer; }
+      @keyframes pulse-badge { 0%, 100% { opacity: 0.5; transform: scale(0.9); } 50% { opacity: 1; transform: scale(1); } }
+      .autopsy-modal-card {
+        background: var(--tt-bg-base);
+        border: 1px solid var(--tt-border);
+      }
+      @media (min-width: 768px) {
+        .autopsy-modal-card { border-radius: var(--tt-radius); }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script src="trade-autopsy.compiled.26c6f2bfc8.js"></script>
+  </body>
+</html>

@@ -1,0 +1,635 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes"
+    />
+    <title>Timed Trading</title>
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48' fill='none'%3E%3Cdefs%3E%3ClinearGradient id='r' x1='6' y1='42' x2='42' y2='6'%3E%3Cstop offset='0%25' stop-color='%2334d399'/%3E%3Cstop offset='100%25' stop-color='%2367e8f9'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='48' height='48' rx='11' fill='%23000'/%3E%3Ccircle cx='24' cy='24' r='17' stroke='url(%23r)' stroke-width='3' fill='none'/%3E%3Cline x1='24' y1='24' x2='19' y2='18.5' stroke='%23636366' stroke-width='4' stroke-linecap='round'/%3E%3Cline x1='24' y1='24' x2='29.5' y2='16.5' stroke='%2330d158' stroke-width='4.5' stroke-linecap='round'/%3E%3Ccircle cx='24' cy='24' r='3.5' fill='%2330d158'/%3E%3Ccircle cx='24' cy='24' r='1.5' fill='%23000'/%3E%3C/svg%3E" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+
+    <!-- React & ReactDOM via CDN -->
+    <script
+      crossorigin
+      src="https://unpkg.com/react@18/umd/react.production.min.js"
+      onerror="console.error('Failed to load React')"
+    ></script>
+    <script
+      crossorigin
+      src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"
+      onerror="console.error('Failed to load ReactDOM')"
+    ></script>
+
+    <!-- PropTypes for Recharts compatibility (React 18 doesn't include it) -->
+    <script
+      crossorigin
+      src="https://unpkg.com/prop-types@15/prop-types.min.js"
+      onerror="console.error('Failed to load PropTypes')"
+    ></script>
+    <script>
+      // Make PropTypes available globally for Recharts
+      if (typeof PropTypes === "undefined" && typeof window !== "undefined") {
+        console.warn("PropTypes not loaded, Recharts may have issues");
+      } else if (typeof PropTypes !== "undefined") {
+        // Ensure React.PropTypes is available for older libraries
+        if (typeof React !== "undefined" && !React.PropTypes) {
+          React.PropTypes = PropTypes;
+        }
+      }
+    </script>
+
+    <!-- Babel Standalone for JSX -->
+<!-- Tailwind CSS -->
+    <link rel="stylesheet" href="tailwind.generated.css" />
+<!-- Recharts for lightweight charting - try multiple sources -->
+    <script
+      src="https://unpkg.com/recharts@2.10.3/umd/Recharts.js"
+      onerror="
+        console.error(
+          'Failed to load Recharts from unpkg, trying alternative...',
+        );
+        loadRechartsFallback();
+      "
+    ></script>
+    <script>
+      function loadRechartsFallback() {
+        // Try alternative CDN
+        const script = document.createElement("script");
+        script.src =
+          "https://cdn.jsdelivr.net/npm/recharts@2.10.3/umd/Recharts.js";
+        script.onerror = function () {
+          console.error("Recharts failed to load from all sources");
+          window.RechartsFailed = true;
+        };
+        script.onload = function () {
+          debugLog("Recharts loaded from jsdelivr");
+        };
+        document.head.appendChild(script);
+      }
+
+      // Check if Recharts loaded after a delay
+      window.addEventListener("load", function () {
+        setTimeout(function () {
+          if (typeof Recharts === "undefined" && !window.RechartsFailed) {
+            console.warn("Recharts may not have loaded yet");
+          }
+        }, 2000);
+      });
+    </script>
+
+    <!-- Loading indicator while scripts load -->
+    <script>
+      window.addEventListener("load", function () {
+        // Check if all scripts loaded
+        setTimeout(function () {
+          const root = document.getElementById("root");
+          if (root && root.innerHTML === "") {
+            if (typeof React === "undefined") {
+              root.innerHTML =
+                '<div style="padding: 40px; text-align: center; color: #f0f2f5;"><h2 style="color: #e11d48;">Loading Error</h2><p>React failed to load. Check console (F12) for details.</p></div>';
+            }
+          }
+        }, 2000);
+      });
+    </script>
+
+    <style>
+      /* Trade Tracker palette — Robinhood-inspired dark (v3) */
+      :root {
+        --tt-bg-base: #0b0e11;
+        --tt-bg-surface: rgba(255,255,255,0.02);
+        --tt-bg-elevated: rgba(255,255,255,0.035);
+        --tt-bg-hover: rgba(255,255,255,0.04);
+        --tt-border: rgba(255,255,255,0.04);
+        --tt-border-strong: rgba(255,255,255,0.08);
+        --tt-text: #e5e7eb;
+        --tt-text-muted: #6b7280;
+        --tt-text-faint: #4b5563;
+        --tt-accent: #14b8a6;
+        --tt-accent-dim: rgba(20, 184, 166, 0.12);
+        --tt-negative: #e11d48;
+        --tt-negative-dim: rgba(225, 29, 72, 0.12);
+        --tt-radius: 12px;
+        --tt-radius-sm: 8px;
+        --tt-font: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        --tt-shadow-sm: 0 1px 2px rgba(0,0,0,0.15);
+        --tt-shadow-md: 0 2px 8px rgba(0,0,0,0.12);
+        --tt-shadow-lg: 0 4px 16px rgba(0,0,0,0.15);
+        /* Aliases for existing usage */
+        --bg: var(--tt-bg-base);
+        --card: var(--tt-bg-surface);
+        --text: var(--tt-text);
+        --muted: var(--tt-text-muted);
+        --line: var(--tt-border);
+        --good: var(--tt-accent);
+        --bad: var(--tt-negative);
+      }
+
+      body {
+        margin: 0;
+        font-family: var(--tt-font);
+        background: var(--bg);
+        color: var(--text);
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+        letter-spacing: -0.01em;
+      }
+
+      /* Fix rare font ligature rendering issues (e.g., missing “r” in “tr”). */
+      .no-ligatures {
+        font-variant-ligatures: none;
+        font-feature-settings:
+          "liga" 0,
+          "clig" 0,
+          "calt" 0;
+      }
+
+      .slider-thumb::-webkit-slider-thumb {
+        appearance: none;
+        width: 16px;
+        height: 16px;
+        border-radius: 50%;
+        background: var(--tt-accent);
+        cursor: pointer;
+        box-shadow: 0 0 8px var(--tt-accent-dim);
+      }
+
+      .slider-thumb::-moz-range-thumb {
+        width: 16px;
+        height: 16px;
+        border-radius: 50%;
+        background: var(--tt-accent);
+        cursor: pointer;
+        border: none;
+        box-shadow: 0 0 8px var(--tt-accent-dim);
+      }
+
+      /* Investor panel stage badges */
+      .stage-badge { padding: 1px 6px; border-radius: 3px; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; }
+      .stage-accumulate { background: rgba(255,255,255,0.04); color: #e5e7eb; }
+      .stage-core_hold { background: rgba(255,255,255,0.04); color: #9ca3af; }
+      .stage-watch { background: rgba(255,255,255,0.03); color: #6b7280; }
+      .stage-reduce { background: rgba(255,255,255,0.03); color: #6b7280; }
+      .stage-research { background: rgba(255,255,255,0.03); color: #6b7280; }
+      .stage-exited { background: rgba(255,255,255,0.02); color: #4b5563; }
+      .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+      .scrollbar-hide::-webkit-scrollbar { display: none; }
+      .card { background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.06); border-radius: 12px; }
+
+      .loading-spinner {
+        width: 28px;
+        height: 28px;
+        position: relative;
+        display: inline-block;
+        will-change: transform;
+      }
+      .loading-spinner::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        border-radius: 50%;
+        border: 2.5px solid rgba(0,200,83,0.12);
+        border-top-color: #00c853;
+        animation: tt-spin 0.8s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+      }
+      .loading-spinner::after {
+        content: "";
+        position: absolute;
+        inset: 5px;
+        border-radius: 50%;
+        border: 2px solid transparent;
+        border-top-color: rgba(0,200,83,0.4);
+        animation: tt-spin 1.4s cubic-bezier(0.4, 0, 0.2, 1) infinite reverse;
+      }
+      .loading-spinner-sm { width: 16px; height: 16px; }
+      .loading-spinner-lg { width: 40px; height: 40px; }
+      @keyframes tt-spin {
+        to { transform: rotate(360deg); }
+      }
+      @keyframes fadeIn {
+        from { opacity: 0; }
+        to { opacity: 1; }
+      }
+      @keyframes spin {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
+      }
+      .bubble-g { transition: filter 0.15s ease-out; }
+      .bubble-g:hover { filter: brightness(1.3) drop-shadow(0 0 6px rgba(255,255,255,0.2)); }
+      @keyframes pulse-badge {
+        0%, 100% { opacity: 1; transform: scale(1); }
+        50% { opacity: 0.7; transform: scale(1.15); }
+      }
+      @keyframes coachmark-pulse {
+        0%, 100% { box-shadow: 0 0 20px rgba(52, 211, 153, 0.2), inset 0 0 20px rgba(52, 211, 153, 0.05); }
+        50% { box-shadow: 0 0 30px rgba(52, 211, 153, 0.35), inset 0 0 30px rgba(52, 211, 153, 0.1); }
+      }
+      @keyframes coachmark-slide-in {
+        from { opacity: 0; transform: translateY(8px); }
+        to { opacity: 1; transform: translateY(0); }
+      }
+
+      .prime-glow {
+        box-shadow: 0 0 12px var(--tt-accent-dim);
+        animation: pulse-glow 2s ease-in-out infinite;
+      }
+
+      @keyframes pulse-glow {
+        0%,
+        100% {
+          box-shadow: 0 0 12px var(--tt-accent-dim);
+        }
+        50% {
+          box-shadow: 0 0 20px rgba(34, 197, 94, 0.4);
+        }
+      }
+
+      .momentum-elite-glow {
+        box-shadow:
+          0 0 15px rgba(168, 85, 247, 0.5),
+          0 0 25px rgba(236, 72, 153, 0.3);
+        animation: momentum-pulse 2.5s ease-in-out infinite;
+      }
+
+      /* Subtle outline pulse for action-lane cards (ENTER NOW, TRIM, EXIT) */
+      .card-pulse {
+        animation: card-pulse 2s ease-in-out infinite;
+      }
+      @keyframes card-pulse {
+        0%, 100% { opacity: 1; box-shadow: 0 0 0 1px rgba(34, 211, 238, 0.2); }
+        50% { opacity: 1; box-shadow: 0 0 0 1px rgba(34, 211, 238, 0.5); }
+      }
+      @keyframes stage-dot-pulse {
+        0%, 100% { transform: scale(1); opacity: 0.85; }
+        50% { transform: scale(1.35); opacity: 1; }
+      }
+      .card-pulse-short {
+        animation: card-pulse-short 2s ease-in-out infinite;
+      }
+      @keyframes card-pulse-short {
+        0%, 100% { opacity: 1; box-shadow: 0 0 0 1px rgba(239, 68, 68, 0.2); }
+        50% { opacity: 1; box-shadow: 0 0 0 1px rgba(239, 68, 68, 0.5); }
+      }
+
+      /* Extreme move intensity pulse (>15% daily change) */
+      .intensity-pulse {
+        animation: intensity-pulse 1.8s ease-in-out infinite;
+      }
+      @keyframes intensity-pulse {
+        0%, 100% { opacity: 1; filter: brightness(1); }
+        50% { opacity: 0.92; filter: brightness(1.15); }
+      }
+
+      /* Sparkline live dot — pulses when market is open */
+      .sparkline-pulse-dot {
+        animation: sparkline-dot 1.8s ease-in-out infinite;
+      }
+      @keyframes sparkline-dot {
+        0%, 100% { transform: scale(1); opacity: 1; }
+        50% { transform: scale(1.4); opacity: 0.7; }
+      }
+      .sparkline-pulse-ring {
+        animation: sparkline-ring 1.8s ease-in-out infinite;
+      }
+      @keyframes sparkline-ring {
+        0% { transform: translate(-50%, -50%) scale(0.6); opacity: 0.3; }
+        50% { transform: translate(-50%, -50%) scale(1.3); opacity: 0; }
+        100% { transform: translate(-50%, -50%) scale(0.6); opacity: 0.3; }
+      }
+
+      /* Skeleton shimmer for card placeholders */
+      @keyframes skeleton-shimmer {
+        0% { background-position: -200% 0; }
+        100% { background-position: 200% 0; }
+      }
+      .skeleton-card {
+        background: linear-gradient(90deg, rgba(255,255,255,0.03) 25%, rgba(255,255,255,0.06) 50%, rgba(255,255,255,0.03) 75%);
+        background-size: 200% 100%;
+        animation: skeleton-shimmer 1.5s ease-in-out infinite;
+        border-radius: 0.5rem;
+        border: 1px solid rgba(255,255,255,0.04);
+      }
+
+      /* Prime + Entry Zone: amber glow card highlight */
+      .prime-entry-card {
+        animation: prime-entry-glow 2.5s ease-in-out infinite;
+        border-color: rgba(251,191,36,0.5) !important;
+      }
+      @keyframes prime-entry-glow {
+        0%, 100% { box-shadow: 0 0 8px rgba(251,191,36,0.15), 0 2px 6px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.04); }
+        50% { box-shadow: 0 0 16px rgba(251,191,36,0.35), 0 2px 6px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.04); }
+      }
+
+      @keyframes momentum-pulse {
+        0%,
+        100% {
+          box-shadow:
+            0 0 15px rgba(168, 85, 247, 0.5),
+            0 0 25px rgba(236, 72, 153, 0.3);
+        }
+        50% {
+          box-shadow:
+            0 0 25px rgba(168, 85, 247, 0.8),
+            0 0 45px rgba(236, 72, 153, 0.6);
+        }
+      }
+
+      /* Slide-in overlay from right */
+      .slide-in-right {
+        animation: slideInRight 0.3s ease-out;
+      }
+      @keyframes slideInRight {
+        from {
+          transform: translateX(100%);
+          opacity: 0;
+        }
+        to {
+          transform: translateX(0);
+          opacity: 1;
+        }
+      }
+
+      /* Comet trail effect */
+      .comet-trail {
+        stroke-dasharray: 5, 5;
+        animation: cometMove 2s linear infinite;
+      }
+      @keyframes cometMove {
+        from {
+          stroke-dashoffset: 0;
+        }
+        to {
+          stroke-dashoffset: 20;
+        }
+      }
+
+      /* Bubble Trail path (prefer readability over animation) */
+      .trail-path {
+        stroke-linecap: round;
+        stroke-linejoin: round;
+        filter: drop-shadow(0 0 4px rgba(0, 255, 255, 0.25));
+      }
+
+      @keyframes momentum-pulse-old {
+        0%,
+        100% {
+          box-shadow:
+            0 0 15px rgba(168, 85, 247, 0.5),
+            0 0 25px rgba(236, 72, 153, 0.3);
+        }
+        50% {
+          box-shadow:
+            0 0 25px rgba(168, 85, 247, 0.7),
+            0 0 35px rgba(236, 72, 153, 0.5);
+        }
+      }
+
+      .bubble-transition {
+        transition: all 0.2s ease-out;
+      }
+
+      .bubble-hover {
+        transform: scale(1.15);
+        filter: brightness(1.2);
+      }
+
+      .fade-in {
+        animation: fadeIn 0.3s ease-in;
+      }
+
+      /* Performance: isolate card/lane layout to prevent cascade reflows */
+      .kanban-card { contain: layout style paint; }
+      .kanban-lane { contain: layout style; }
+
+      @keyframes fadeIn {
+        from {
+          opacity: 0;
+          transform: translateY(10px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+
+      .slide-in {
+        animation: slideIn 0.3s ease-out;
+      }
+
+      @keyframes slideIn {
+        from {
+          opacity: 0;
+          transform: translateX(-20px);
+        }
+        to {
+          opacity: 1;
+          transform: translateX(0);
+        }
+      }
+
+      /* Phase color gradient helper — Trade Tracker palette */
+      .phase-gradient {
+        background: linear-gradient(
+          to right,
+          #14b8a6 0%,
+          #0d9488 20%,
+          #eab308 40%,
+          #f97316 60%,
+          #e11d48 80%,
+          #9f1239 100%
+        );
+      }
+
+      /* Hide scrollbars while keeping scroll functionality */
+      .scrollbar-hide {
+        -ms-overflow-style: none; /* IE and Edge */
+        scrollbar-width: none; /* Firefox */
+      }
+      .scrollbar-hide::-webkit-scrollbar {
+        display: none; /* Chrome, Safari, Opera */
+      }
+
+      /* Shell spacing for fixed legal footer + iOS safe area. */
+      .tt-page-shell {
+        padding-bottom: calc(148px + env(safe-area-inset-bottom));
+      }
+      @media (min-width: 768px) {
+        .tt-page-shell {
+          padding-bottom: 96px;
+        }
+      }
+
+      /* Admin-only nav links: hidden for non-admin users */
+      body:not([data-user-role="admin"]) a[data-admin-only] {
+        display: none !important;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root">
+      <div style="display:flex; flex-direction:column; align-items:center; justify-content:center; height:100vh; gap:16px; background:#0d1117">
+        <div class="loading-spinner loading-spinner-lg"></div>
+        <p style="font-family:Inter,sans-serif; font-size:13px; color:#6b7280; letter-spacing:0.02em">Loading dashboard...</p>
+      </div>
+    </div>
+
+    <script src="auth-gate.js?v=20260219a"></script>
+    <script src="shared-price-utils.js?v=20260211a"></script>
+    <script src="investor-panel.js?v=20260226a"></script>
+    <script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
+    <script src="shared-right-rail.compiled.js?v=20260318e"></script>
+    <script src="index-react.compiled.33befc672e.js"></script>
+
+    <!-- Initialize app - separate script to avoid Babel parsing issues -->
+    <script>
+      // Render with error handling
+      // Wait for all scripts to load before rendering
+      function initializeApp() {
+        try {
+          // Check if React and ReactDOM are loaded
+          if (typeof React === "undefined") {
+            throw new Error("React not loaded. Check CDN connection.");
+          }
+          if (typeof ReactDOM === "undefined") {
+            throw new Error("ReactDOM not loaded. Check CDN connection.");
+          }
+
+          const rootElement = document.getElementById("root");
+          if (!rootElement) {
+            throw new Error("Root element not found");
+          }
+
+          // Check if App component is available (from Babel script)
+          if (typeof window.App === "undefined") {
+            throw new Error(
+              "App component not loaded. Babel may not have finished processing.",
+            );
+          }
+
+          // Check if React 18 createRoot is available
+          const AuthGate = window.TimedAuthGate;
+          const wrappedApp = AuthGate
+            ? React.createElement(AuthGate, { apiBase: "", requiredTier: "pro" },
+                (user) => React.createElement(window.App, { user }))
+            : React.createElement(window.App);
+          if (ReactDOM.createRoot) {
+            const root = ReactDOM.createRoot(rootElement);
+            root.render(wrappedApp);
+          } else {
+            // Fallback for React 17
+            ReactDOM.render(wrappedApp, rootElement);
+          }
+
+          // Push notification registration is handled by AuthGate after server-verified auth.
+          // Do NOT call TimedPushRegister here — it would fire before auth is confirmed.
+          if (window.TimedSessionHeartbeat) window.TimedSessionHeartbeat(API_BASE);
+        } catch (error) {
+          console.error("Error rendering app:", error);
+          const rootElement = document.getElementById("root");
+          if (rootElement) {
+            rootElement.innerHTML = `
+              <div style="padding: 40px; text-align: center; color: #f0f2f5; max-width: 800px; margin: 0 auto;">
+                <h2 style="color: #e11d48; margin-bottom: 20px;">Error Loading Dashboard</h2>
+                <p style="margin-bottom: 20px; color: #ff6b6b;">${error.message}</p>
+                <div style="background: #1a2440; padding: 20px; border-radius: 8px; margin: 20px 0; text-align: left; color: #8b92a0;">
+                  <h3 style="color: #f0f2f5; margin-bottom: 10px;">Troubleshooting:</h3>
+                  <ul style="list-style: disc; padding-left: 20px; line-height: 1.8;">
+                    <li>Open browser console (F12 or Cmd+Option+I) to see detailed errors</li>
+                    <li>Check your internet connection - CDN resources need to load</li>
+                    <li>Try refreshing the page (Cmd+R or Ctrl+R)</li>
+                    <li>Check if React is loaded: <code style="background: #252b36; padding: 2px 6px; border-radius: 4px;">typeof React !== 'undefined'</code></li>
+                    <li>Check if API is reachable: <a href="/timed/health" target="_blank" style="color: #4a9eff;">API Health Check</a></li>
+                  </ul>
+                </div>
+                <button 
+                  onclick="window.location.reload()" 
+                  style="padding: 12px 24px; background: #4a9eff; color: white; border: none; border-radius: 8px; cursor: pointer; font-size: 16px; margin-top: 20px;"
+                >
+                  Reload Page
+                </button>
+              </div>
+            `;
+          }
+        }
+      }
+
+      // Poll for window.App in case the compiled bundle is still loading.
+      function waitForAppAndInit() {
+        var attempts = 0;
+        var maxAttempts = 100; // 10 seconds max (100 * 100ms)
+        function poll() {
+          attempts++;
+          if (typeof window.App !== "undefined") {
+            initializeApp();
+          } else if (attempts < maxAttempts) {
+            setTimeout(poll, 100);
+          } else {
+            console.error("[App] Timed out waiting for the app bundle after 10s");
+            initializeApp(); // will show error UI
+          }
+        }
+        poll();
+      }
+
+      if (document.readyState === "loading") {
+        document.addEventListener("DOMContentLoaded", waitForAppAndInit);
+      } else {
+        waitForAppAndInit();
+      }
+
+      // Fallback: If React still isn't loaded after 5 seconds, show error
+      setTimeout(function () {
+        if (typeof React === "undefined" || typeof ReactDOM === "undefined") {
+          const rootElement = document.getElementById("root");
+          if (
+            rootElement &&
+            rootElement.innerHTML.includes("Loading dashboard")
+          ) {
+            rootElement.innerHTML = `
+          <div style="padding: 40px; text-align: center; color: #f0f2f5;">
+                <h2 style="color: #e11d48;">CDN Resources Not Loading</h2>
+                <p style="margin: 20px 0; color: #8b92a0;">
+                  React or other CDN resources failed to load. This may be due to:
+                </p>
+                <ul style="text-align: left; display: inline-block; color: #8b92a0; margin: 20px 0;">
+                  <li>Network connectivity issues</li>
+                  <li>Ad blockers blocking CDN scripts</li>
+                  <li>Corporate firewall blocking unpkg.com</li>
+                </ul>
+                <p style="margin-top: 20px;">
+                  <button onclick="window.location.reload()" style="padding: 12px 24px; background: #4a9eff; color: white; border: none; border-radius: 8px; cursor: pointer;">
+                    Retry
+                  </button>
+            </p>
+          </div>
+        `;
+          }
+        }
+      }, 5000);
+    </script>
+    <script>
+      // Daily Brief badge check
+      (function() {
+        fetch("/timed/daily-brief/badge", { cache: "no-store" })
+          .then(r => r.json())
+          .then(d => {
+            if (d?.badge?.ts) {
+              const seen = Number(localStorage.getItem("tt_brief_seen") || 0);
+              if (d.badge.ts > seen) {
+                const el = document.getElementById("brief-badge");
+                if (el) el.classList.remove("hidden");
+              }
+            }
+          })
+          .catch(() => {});
+      })();
+    </script>
+    <footer id="legal-footer" style="position:fixed;bottom:0;left:0;right:0;z-index:9999;background:rgba(10,10,15,0.92);backdrop-filter:blur(6px);border-top:1px solid rgba(255,255,255,0.06);padding:6px 16px;text-align:center;font-size:10px;color:#6b7280;line-height:1.4;">
+      For informational and educational purposes only. Not investment advice. Past performance does not guarantee future results. All trading involves risk of loss. <a href="/terms.html" style="color:#6b7280;text-decoration:underline;">Full Terms</a> · Market data powered by <a href="https://twelvedata.com" target="_blank" rel="noopener" style="color:#6b7280;text-decoration:underline;">Twelve Data</a>
+    </footer>
+  </body>
+</html>

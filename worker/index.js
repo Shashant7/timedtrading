@@ -36,6 +36,7 @@ import {
   readBodyAsJSON,
   requireKeyOr401,
   requireKeyOrAdmin,
+  requireRuntimeConfig,
   checkRateLimit,
   checkRateLimitFixedWindow,
   authenticateUser,
@@ -27999,6 +28000,9 @@ export default {
           headers: corsHeaders(env, req),
         });
       }
+
+      const configFail = requireRuntimeConfig(env, req);
+      if (configFail) return configFail;
 
       // ── WebSocket upgrade: /timed/ws → Durable Object PriceHub ──
       if (url.pathname === "/timed/ws" || url.pathname === "/timed/ws/stats") {
@@ -56217,6 +56221,12 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
   // Handler maps current time → set of virtual crons that would have fired,
   // then dispatches to existing code blocks unchanged.
   async scheduled(event, env, ctx) {
+    const configFail = requireRuntimeConfig(env);
+    if (configFail) {
+      console.error("[CRON] Skipping scheduled run because runtime config is invalid");
+      return;
+    }
+
     const _now = new Date();
     const _utcH = _now.getUTCHours();
     const _utcM = _now.getUTCMinutes();

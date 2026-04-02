@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+    <meta http-equiv="Pragma" content="no-cache" />
+    <meta http-equiv="Expires" content="0" />
+    <title>Timed Trading - Trade Alerts</title>
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48' fill='none'%3E%3Cdefs%3E%3ClinearGradient id='r' x1='6' y1='42' x2='42' y2='6'%3E%3Cstop offset='0%25' stop-color='%2334d399'/%3E%3Cstop offset='100%25' stop-color='%2367e8f9'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='48' height='48' rx='11' fill='%23000'/%3E%3Ccircle cx='24' cy='24' r='17' stroke='url(%23r)' stroke-width='3' fill='none'/%3E%3Cline x1='24' y1='24' x2='19' y2='18.5' stroke='%23636366' stroke-width='4' stroke-linecap='round'/%3E%3Cline x1='24' y1='24' x2='29.5' y2='16.5' stroke='%2330d158' stroke-width='4.5' stroke-linecap='round'/%3E%3Ccircle cx='24' cy='24' r='3.5' fill='%2330d158'/%3E%3Ccircle cx='24' cy='24' r='1.5' fill='%23000'/%3E%3C/svg%3E" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="" />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<link rel="stylesheet" href="tailwind.generated.css" />
+<script src="auth-gate.js?v=20260316a"></script>
+    <script src="shared-price-utils.js?v=20260316a"></script>
+    <script src="shared-right-rail.compiled.js?v=20260318e"></script>
+    <style>
+      :root {
+        --tt-bg-base: #0b0e11;
+        --tt-bg-surface: rgba(255,255,255,0.02);
+        --tt-bg-elevated: rgba(255,255,255,0.035);
+        --tt-bg-hover: rgba(255,255,255,0.04);
+        --tt-border: rgba(255,255,255,0.04);
+        --tt-border-strong: rgba(255,255,255,0.08);
+        --tt-text: #e5e7eb;
+        --tt-text-muted: #6b7280;
+        --tt-text-faint: #4b5563;
+        --tt-accent: #00c853;
+        --tt-accent-dim: rgba(0, 200, 83, 0.12);
+        --tt-negative: #ff5252;
+        --tt-negative-dim: rgba(255, 82, 82, 0.12);
+        --tt-radius: 12px;
+        --tt-radius-sm: 8px;
+        --tt-font: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      }
+      body {
+        background: var(--tt-bg-base);
+        color: var(--tt-text);
+        font-family: var(--tt-font);
+        -webkit-font-smoothing: antialiased;
+        margin: 0;
+      }
+      body:not([data-user-role="admin"]) a[data-admin-only] { display: none !important; }
+
+      .alert-card {
+        background: transparent;
+        border-bottom: 1px solid rgba(255,255,255,0.04);
+        padding: 12px 0;
+        transition: background 0.12s;
+      }
+      .alert-card:hover { background: rgba(255,255,255,0.015); }
+      .alert-card:last-child { border-bottom: none; }
+
+      .week-header {
+        background: transparent;
+        border-bottom: 1px solid rgba(255,255,255,0.06);
+        cursor: pointer;
+        transition: background 0.12s;
+      }
+      .week-header:hover { background: rgba(255,255,255,0.02); }
+
+      .badge {
+        display: inline-flex; align-items: center;
+        padding: 1px 6px; border-radius: 3px;
+        font-size: 10px; font-weight: 700;
+        letter-spacing: 0.06em; text-transform: uppercase;
+      }
+      .badge-entry { background: rgba(255,255,255,0.06); color: #e5e7eb; }
+      .badge-trim { background: rgba(255,255,255,0.06); color: #d4a017; }
+      .badge-defend { background: rgba(255,255,255,0.06); color: #7da2c4; }
+      .badge-exit-win { background: rgba(34,197,94,0.08); color: #4ade80; }
+      .badge-exit-loss { background: rgba(239,68,68,0.08); color: #f87171; }
+      .badge-long { background: transparent; color: #4ade80; }
+      .badge-short { background: transparent; color: #f87171; }
+
+      .filter-pill {
+        padding: 5px 14px; border-radius: 4px; font-size: 11px; font-weight: 600;
+        letter-spacing: 0.03em; text-transform: uppercase;
+        border: 1px solid rgba(255,255,255,0.06); background: transparent; color: #4b5563;
+        cursor: pointer; transition: all 0.12s;
+      }
+      .filter-pill:hover { border-color: rgba(255,255,255,0.12); color: #9ca3af; }
+      .filter-pill.active { background: rgba(255,255,255,0.05); border-color: rgba(255,255,255,0.15); color: #e5e7eb; }
+
+      .skeleton { background: linear-gradient(90deg, rgba(255,255,255,0.02) 25%, rgba(255,255,255,0.04) 50%, rgba(255,255,255,0.02) 75%); background-size: 200% 100%; animation: shimmer 1.8s infinite; border-radius: 2px; }
+      @keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+
+      .ticker-link { cursor: pointer; font-weight: 600; letter-spacing: -0.01em; transition: opacity 0.12s; }
+      .ticker-link:hover { opacity: 0.7; }
+
+      .type-dot { width: 6px; height: 6px; border-radius: 1px; flex-shrink: 0; }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script src="alerts.compiled.e9636fffb4.js"></script>
+    <script>
+      (function() {
+        fetch("/timed/daily-brief/badge", { cache: "no-store" })
+          .then(r => r.json())
+          .then(d => {
+            if (d?.badge?.ts) {
+              const seen = Number(localStorage.getItem("tt_brief_seen") || 0);
+              if (d.badge.ts > seen) {
+                const el = document.getElementById("brief-badge");
+                if (el) el.classList.remove("hidden");
+              }
+            }
+          })
+          .catch(() => {});
+      })();
+    </script>
+  </body>
+</html>

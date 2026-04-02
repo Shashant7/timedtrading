@@ -75,7 +75,7 @@
           window.RechartsFailed = true;
         };
         script.onload = function () {
-          console.log("Recharts loaded from jsdelivr");
+          debugLog("Recharts loaded from jsdelivr");
         };
         document.head.appendChild(script);
       }
@@ -534,6 +534,25 @@
       const SHORT_CORRIDOR = { ltfMin: -12, ltfMax: 8 };
       const API_BASE = "";
       const ENABLE_UI_DIAGNOSTICS = false;
+      function isDebugConsoleEnabled() {
+        if (ENABLE_UI_DIAGNOSTICS) return true;
+        if (typeof window === "undefined") return false;
+        try {
+          const host = String(window.location?.hostname || "").toLowerCase();
+          return (
+            host === "localhost" ||
+            host === "127.0.0.1" ||
+            window.location.search.includes("debug=1") ||
+            window.localStorage.getItem("tt_debug") === "1"
+          );
+        } catch {
+          return false;
+        }
+      }
+      const DEBUG_CONSOLE_ENABLED = isDebugConsoleEnabled();
+      function debugLog(...args) {
+        if (DEBUG_CONSOLE_ENABLED) console.log(...args);
+      }
       const TRADE_SIZE = 1000; // $1000 per trade (used by Right Rail)
       const FUTURES_SPECS = {
         "ES1!": { pointValue: 50, name: "E-mini S&P 500" },
@@ -919,7 +938,7 @@
               setVersionInfo(nextVersionInfo);
 
               if (ENABLE_UI_DIAGNOSTICS) {
-                console.log(`[UI] Data Version Info:`, {
+                debugLog(`[UI] Data Version Info:`, {
                   storedVersion: dataVersion,
                   currentDataVersion: currentDataVersion,
                   versionsSeen: versionsSeen,
@@ -1006,10 +1025,10 @@
               });
 
               if (ENABLE_UI_DIAGNOSTICS) {
-                console.log(
+                debugLog(
                   `[UI] Loaded ${tickersWithData.length} tickers with scores, ${allTickers.length} total in index`,
                 );
-                console.log(`[UI] Tickers by version:`, tickersByVersion);
+                debugLog(`[UI] Tickers by version:`, tickersByVersion);
               }
               if (nextTickersWithoutScores.length > 0) {
                 if (ENABLE_UI_DIAGNOSTICS) {
@@ -1048,7 +1067,7 @@
               // Log sample tickers to see what we're getting
               if (ENABLE_UI_DIAGNOSTICS) {
                 const sampleTickers = Object.keys(tickerData).slice(0, 10);
-                console.log(
+                debugLog(
                   `[UI] Sample tickers:`,
                   sampleTickers.map((t) => ({
                     ticker: t,
@@ -1067,7 +1086,7 @@
                 const hasDynamicScore = Object.values(tickerData).some(
                   (t) => t?.dynamicScore !== undefined,
                 );
-                console.log(
+                debugLog(
                   `[UI] API provides dynamicScore: ${
                     hasDynamicScore
                       ? "YES ✅"
@@ -1076,7 +1095,7 @@
                 );
 
                 const apiTickerOrder = Object.keys(tickerData).slice(0, 10);
-                console.log(
+                debugLog(
                   `[UI] First 10 tickers from API (order):`,
                   apiTickerOrder,
                 );
@@ -1130,7 +1149,7 @@
           let warmRefreshTimer = null;
 
           const sess = isScoringSessionActive();
-          console.log("[Snapshot freshness]", {
+          debugLog("[Snapshot freshness]", {
             hasCached: !!cached,
             cacheAgeS: Math.round(cacheAge / 1000),
             builtAtAgeS: builtAt ? Math.round((Date.now() - builtAt) / 1000) : "none",
@@ -1349,7 +1368,7 @@
             wsRef.current = ws;
 
             ws.onopen = () => {
-              console.log("[WS] Connected");
+              debugLog("[WS] Connected");
               setWsConnected(true);
               reconnectDelay.current = 1000; // reset backoff
             };
@@ -1466,7 +1485,7 @@
             };
 
             ws.onclose = (event) => {
-              console.log(`[WS] Disconnected (code=${event.code})`);
+              debugLog(`[WS] Disconnected (code=${event.code})`);
               setWsConnected(false);
               wsRef.current = null;
               // Reconnect with exponential backoff
@@ -3561,15 +3580,6 @@
         );
       }
 
-      // Debug: Verify function is loaded correctly
-      console.log(
-        "🔍 [RANKING SYSTEM] computeDynamicScore function loaded (no 100 cap)",
-      );
-      console.log(
-        "🔍 [RANKING SYSTEM] Function signature:",
-        typeof computeDynamicScore,
-      );
-
       // Parse natural language query into filter conditions
       function parseNaturalLanguageQuery(query) {
         if (!query || typeof query !== "string") return null;
@@ -3905,7 +3915,7 @@
           // All tickers shown (either in a group or in "Other")
           // This check is now redundant but kept for clarity
           if (!inGroups) {
-            console.log(
+            debugLog(
               `[FILTER] ${ticker} skipped: unexpected - should be in a group`,
             );
             continue;
@@ -4130,7 +4140,7 @@
 
             // Debug logging for first few tickers when sector filter is active
             if (out.length < 3 && normalizedTickerSector) {
-              console.log(
+              debugLog(
                 `[SECTOR FILTER] ${ticker}: tickerSector="${normalizedTickerSector}", filterSector="${normalizedFilterSector}", matches=${matches}, fromMap=${!!getTickerSector(
                   ticker,
                 )}`,
@@ -4278,7 +4288,7 @@
 
           // Always log first 10 to see what's happening
           if (window._svgBubbleCallCount <= 10) {
-            console.log(
+            debugLog(
               `[SVGBUBBLE CALLED] #${window._svgBubbleCallCount} - ${
                 ticker?.ticker || "NO TICKER"
               }`,
@@ -4661,7 +4671,7 @@
                     ticker === "AAPL" ||
                     ticker === "MSFT"
                   ) {
-                    console.log(
+                    debugLog(
                       `[TRAILS] Loaded ${
                         Array.isArray(trail) ? trail.length : 0
                       } points for ${ticker}`,
@@ -4730,7 +4740,7 @@
         React.useEffect(() => {
           if (!window._bubbleChartPropsLogged) {
             window._bubbleChartPropsLogged = true;
-            console.log(`[BUBBLE CHART PROPS] Received:`, {
+            debugLog(`[BUBBLE CHART PROPS] Received:`, {
               tickersCount: tickers ? tickers.length : 0,
               hasTickers: !!tickers,
               isArray: Array.isArray(tickers),
@@ -5999,7 +6009,7 @@
                 })
               : tickers;
 
-          console.log(
+          debugLog(
             `[RECHARTS DATA] selectedTicker=${selectedTicker}, insightMode=${insightMode}, using ${tickersToUse.length} of ${tickers.length} tickers`,
           );
 
@@ -9387,7 +9397,7 @@
                 i += MAX_CONCURRENT
               ) {
                 if (cancelledRef.current) {
-                  console.log('[Time Travel] Load cancelled by user');
+                  debugLog('[Time Travel] Load cancelled by user');
                   break;
                 }
                 
@@ -9437,7 +9447,7 @@
                 const sampleTrail = trails[sampleKey] || [];
                 const minTs = sampleTrail.length > 0 ? Math.min(...sampleTrail.map(p => p.ts)) : null;
                 const maxTs = sampleTrail.length > 0 ? Math.max(...sampleTrail.map(p => p.ts)) : null;
-                console.log('[Time Travel] Trails loaded:', {
+                debugLog('[Time Travel] Trails loaded:', {
                   tickers: Object.keys(trails).length,
                   totalPoints,
                   sample: sampleKey ? `${sampleKey}: ${sampleTrail.length} points` : 'none',
@@ -9473,7 +9483,7 @@
           const trailCount = Object.keys(trailData).length;
           // Only trigger on actual trail data load (not on reset)
           if (trailCount > 0 && trailCount !== prevTrailCountRef.current && !loadingTrails) {
-            console.log('[Time Travel] Trails loaded, resetting to latest timestamp:', {
+            debugLog('[Time Travel] Trails loaded, resetting to latest timestamp:', {
               trailCount,
               maxTimestamp: new Date(maxTimestamp).toLocaleString(),
             });
@@ -9495,7 +9505,7 @@
           
           // Debug: log snapshot update
           const withData = snapshot.filter(t => !t._timeTravelMissing);
-          console.log('[Time Travel] Snapshot update:', {
+          debugLog('[Time Travel] Snapshot update:', {
             timestamp: new Date(roundedTimestamp).toLocaleString(),
             totalTickers: snapshot.length,
             withTrailData: withData.length,
@@ -16868,7 +16878,7 @@
                     // One-time sample log to confirm keys look right
                     if (!window._trailSampleLogged) {
                       window._trailSampleLogged = true;
-                      console.log(`[TRAIL SAMPLE] ${selectedTicker}`, {
+                      debugLog(`[TRAIL SAMPLE] ${selectedTicker}`, {
                         first: capped[0],
                         rawFirst: Array.isArray(data.trail)
                           ? data.trail[0]
@@ -19232,7 +19242,6 @@
             ReactDOM.render(wrappedApp, rootElement);
           }
 
-          console.log("[App] Dashboard initialized successfully");
           // Push notification registration is handled by AuthGate after server-verified auth.
           // Do NOT call TimedPushRegister here — it would fire before auth is confirmed.
           if (window.TimedSessionHeartbeat) window.TimedSessionHeartbeat(API_BASE);
@@ -19266,19 +19275,18 @@
         }
       }
 
-      // Poll for window.App (Babel may take a while on large scripts >500KB)
+      // Poll for window.App in case the compiled bundle is still loading.
       function waitForAppAndInit() {
         var attempts = 0;
         var maxAttempts = 100; // 10 seconds max (100 * 100ms)
         function poll() {
           attempts++;
           if (typeof window.App !== "undefined") {
-            console.log("[App] Babel ready after " + (attempts * 100) + "ms");
             initializeApp();
           } else if (attempts < maxAttempts) {
             setTimeout(poll, 100);
           } else {
-            console.error("[App] Timed out waiting for Babel after 10s");
+            console.error("[App] Timed out waiting for the app bundle after 10s");
             initializeApp(); // will show error UI
           }
         }

@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Timed Trading — Calibration</title>
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48' fill='none'%3E%3Cdefs%3E%3ClinearGradient id='r' x1='6' y1='42' x2='42' y2='6'%3E%3Cstop offset='0%25' stop-color='%2334d399'/%3E%3Cstop offset='100%25' stop-color='%2367e8f9'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='48' height='48' rx='11' fill='%23000'/%3E%3Ccircle cx='24' cy='24' r='17' stroke='url(%23r)' stroke-width='3' fill='none'/%3E%3Cline x1='24' y1='24' x2='19' y2='18.5' stroke='%23636366' stroke-width='4' stroke-linecap='round'/%3E%3Cline x1='24' y1='24' x2='29.5' y2='16.5' stroke='%2330d158' stroke-width='4.5' stroke-linecap='round'/%3E%3Ccircle cx='24' cy='24' r='3.5' fill='%2330d158'/%3E%3Ccircle cx='24' cy='24' r='1.5' fill='%23000'/%3E%3C/svg%3E" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<link rel="stylesheet" href="tailwind.generated.css" />
+<script src="auth-gate.js?v=20260219a"></script>
+    <script>
+      if (location.pathname.includes("calibration") || location.pathname.includes("model-dashboard")) location.replace("system-intelligence.html");
+    </script>
+<style>
+      body { font-family: "Inter", system-ui, sans-serif; background: #0b0e11; color: #e5e7eb; -webkit-font-smoothing: antialiased; letter-spacing: -0.01em; }
+      @keyframes spin { to { transform: rotate(360deg); } }
+      .card { background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.04); border-radius: 12px; }
+      .badge-good { background: rgba(16,185,129,0.15); color: #6ee7b7; }
+      .badge-warn { background: rgba(251,191,36,0.15); color: #fcd34d; }
+      .badge-bad { background: rgba(244,63,94,0.15); color: #fca5a5; }
+      .badge-info { background: rgba(56,189,248,0.12); color: #93c5fd; }
+      .btn { padding: 8px 16px; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; transition: all 0.15s; border: none; }
+      .btn-primary { background: linear-gradient(135deg, #059669, #10b981); color: white; }
+      .btn-primary:hover { background: linear-gradient(135deg, #047857, #059669); }
+      .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+      .btn-apply { background: #1d4ed8; color: white; }
+      .btn-apply:hover { background: #2563eb; }
+      .btn-secondary { background: #334155; color: #94a3b8; border: 1px solid #475569; }
+      .btn-secondary:hover { background: #475569; }
+      .tab-active { border-bottom: 2px solid #10b981; color: #e8eaf0; }
+      .tab-inactive { border-bottom: 2px solid transparent; color: #626b7d; cursor: pointer; }
+      .tab-inactive:hover { color: #9098a8; }
+      .meter-bar { height: 6px; border-radius: 3px; background: rgba(255,255,255,0.06); overflow: hidden; }
+      .meter-fill { height: 100%; border-radius: 3px; transition: width 0.5s ease; }
+      body:not([data-user-role="admin"]) [data-admin-only] { display: none !important; }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script src="calibration.compiled.51e2befb28.js"></script>
+  </body>
+</html>

@@ -1,0 +1,6451 @@
+/**
+ * Universal Right Rail Ticker Details — shared by Dashboard and Trade Tracker.
+ * Usage: const TickerDetailRightRail = window.TickerDetailRightRailFactory(deps);
+ * deps must include: React, API_BASE, fmtUsd, fmtUsdAbs, getDailyChange, isPrimeBubble,
+ * entryType, getActionDescription, rankScoreForTicker, getRankedTickers, getRankPosition,
+ * getRankPositionFromMap, detectPatterns, normalizeTrailPoints, phaseToColor, completionForSize,
+ * computeHorizonBucket, computeEtaDays, computeReturnPct, computeRiskPct, computeTpTargetPrice,
+ * computeTpMaxPrice, summarizeEntryDecision, getDirectionFromState, getDirection, numFromAny,
+ * groupsForTicker, GROUP_ORDER, GROUP_LABELS, TRADE_SIZE, FUTURES_SPECS, getStaleInfo,
+ * isNyRegularMarketOpen, downsampleByInterval, getTickerSector,
+ * normalizeSectorKey, sectorKeyToCanonicalName.
+ */
+(function () {
+  window.TickerDetailRightRailFactory = function (deps) {
+    const React = deps.React;
+    const { useState, useEffect, useMemo, useRef, useCallback } = React;
+    const API_BASE = deps.API_BASE;
+    const getTickerSector = deps.getTickerSector || (() => "");
+    const sectorNorm = (deps.normalizeSectorKey != null && typeof deps.normalizeSectorKey === "function")
+      ? deps.normalizeSectorKey
+      : (s) => String(s || "").trim().toLowerCase().replace(/\s+/g, " ");
+    const sectorCanon = (deps.sectorKeyToCanonicalName != null && typeof deps.sectorKeyToCanonicalName === "function")
+      ? deps.sectorKeyToCanonicalName
+      : (k) => k || "";
+    const fmtUsd = (deps.fmtUsd != null && typeof deps.fmtUsd === "function")
+      ? deps.fmtUsd
+      : (v) => (Number.isFinite(Number(v)) ? new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 }).format(Number(v)) : "—");
+    const fmtUsdAbs = (deps.fmtUsdAbs != null && typeof deps.fmtUsdAbs === "function")
+      ? deps.fmtUsdAbs
+      : (n) => (Number.isFinite(Number(n)) ? `$${Math.abs(Number(n)).toFixed(2)}` : "—");
+    const getDailyChange = deps.getDailyChange;
+    const isPrimeBubble = deps.isPrimeBubble;
+    const entryType = deps.entryType;
+    const getActionDescription = deps.getActionDescription;
+    const rankScoreForTicker = deps.rankScoreForTicker;
+    const getRankedTickers = deps.getRankedTickers;
+    const getRankPosition = deps.getRankPosition;
+    const getRankPositionFromMap = deps.getRankPositionFromMap;
+    const detectPatterns = deps.detectPatterns;
+    const normalizeTrailPoints = deps.normalizeTrailPoints;
+    const phaseToColor = deps.phaseToColor;
+    const completionForSize = deps.completionForSize;
+    const computeHorizonBucket = deps.computeHorizonBucket;
+    const computeEtaDays = deps.computeEtaDays;
+    const computeReturnPct = deps.computeReturnPct;
+    const computeRiskPct = deps.computeRiskPct;
+    const computeTpTargetPrice = deps.computeTpTargetPrice;
+    const computeTpMaxPrice = deps.computeTpMaxPrice;
+    const summarizeEntryDecision = deps.summarizeEntryDecision;
+    const getDirectionFromState = deps.getDirectionFromState;
+    const getDirection = deps.getDirection;
+    const numFromAny = deps.numFromAny;
+    const groupsForTicker = deps.groupsForTicker;
+    const GROUP_ORDER = deps.GROUP_ORDER;
+    const GROUP_LABELS = deps.GROUP_LABELS;
+    const TRADE_SIZE = deps.TRADE_SIZE;
+    const FUTURES_SPECS = deps.FUTURES_SPECS || {};
+    const getStaleInfo = deps.getStaleInfo;
+    const isNyRegularMarketOpen = deps.isNyRegularMarketOpen;
+    const downsampleByInterval = deps.downsampleByInterval;
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // Shared Signal Snapshot & Trade Autopsy Helpers
+    // ═══════════════════════════════════════════════════════════════════════
+    const TF_ORDER = ["15m", "30m", "1H", "4H", "D"];
+    const SIGNAL_LABELS = {
+      ema_cross: "EMA cross", supertrend: "SuperTrend", ema_structure: "EMA structure",
+      ema_depth: "EMA depth", rsi: "RSI", ema5_48: "EMA 5/48", s1_slope: "Slope",
+    };
+    const SETUP_NAME_MAP = {
+      ema_regime_confirmed_long: "TT Confirmed Long", ema_regime_confirmed_short: "TT Confirmed Short",
+      ema_regime_early_long: "TT Early Long", ema_regime_early_short: "TT Early Short",
+      gold_long: "TT Breakout Long", gold_short: "TT Reversal Short", gold_short_pullback: "TT Reversal Short Pullback",
+      momentum_score: "TT Momentum", squeeze_setup: "TT Squeeze", elite: "TT Elite",
+      breakout: "TT Breakout", mean_revert_td9: "TT Mean Revert TD9",
+      ripster_momentum: "TT Momentum", ripster_pullback: "TT Pullback",
+      ripster_reclaim: "TT Reclaim", ripster_short_pivot_reclaimed: "TT Pivot Reclaimed",
+      mean_reversion_pdz: "TT Mean Reversion",
+    };
+    function _formatPath(path) {
+      if (!path || typeof path !== "string") return null;
+      if (SETUP_NAME_MAP[path]) return SETUP_NAME_MAP[path];
+      return "TT " + path.replace(/^ripster_?/i, "").replace(/^saty_?/i, "").replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+    }
+    function _parseSnapshot(snap) {
+      if (!snap) return null;
+      try {
+        const parsed = typeof snap === "string" ? JSON.parse(snap) : snap;
+        if (!parsed?.tf || typeof parsed.tf !== "object") return null;
+        return TF_ORDER.filter(tf => parsed.tf[tf]).map(tf => ({ tf, signals: parsed.tf[tf]?.signals || {} }));
+      } catch (_) { return null; }
+    }
+    function _parseTfStack(tfStackJson) {
+      if (!tfStackJson) return null;
+      try {
+        const parsed = typeof tfStackJson === "string" ? JSON.parse(tfStackJson) : tfStackJson;
+        if (!Array.isArray(parsed)) return null;
+        return parsed.filter(e => e?.tf);
+      } catch (_) { return null; }
+    }
+    function _signalValueLabel(key, value) {
+      if (value == null || !Number.isFinite(value)) return null;
+      if (key === "ema_cross") return value === 1 ? "Bullish" : "Bearish";
+      if (key === "supertrend") return value === 1 ? "Bullish" : value === -1 ? "Bearish" : "Flat";
+      if (key === "rsi") return String(value);
+      return String(value);
+    }
+    function _signalValueColor(key, value) {
+      if (key === "ema_cross") return value === 1 ? "text-[#22c55e]" : "text-[#ef4444]";
+      if (key === "supertrend") return value === 1 ? "text-[#22c55e]" : value === -1 ? "text-[#ef4444]" : "text-[#9ca3af]";
+      if (key === "rsi") return value >= 70 ? "text-[#ef4444]" : value <= 30 ? "text-[#22c55e]" : "text-[#d1d5db]";
+      return "text-[#d1d5db]";
+    }
+    function _fmtPct(n, digits = 1) {
+      if (!Number.isFinite(Number(n))) return "\u2014";
+      return `${Number(n).toFixed(digits)}%`;
+    }
+    function _formatDate(ms) {
+      if (!Number.isFinite(ms)) return "\u2014";
+      const d = new Date(ms);
+      return d.toLocaleString("en-US", { timeZone: "America/New_York", month: "short", day: "numeric", hour: "numeric", minute: "2-digit", hour12: true });
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // Indicator Computation Helpers (from OHLC)
+    // ═══════════════════════════════════════════════════════════════════════
+    function computeEMA(data, period, source = 'close') {
+      const k = 2 / (period + 1);
+      const out = [];
+      let ema = null;
+      const val = (bar) => source === 'hl2' ? (bar.high + bar.low) / 2 : bar.close;
+      for (let i = 0; i < data.length; i++) {
+        const v = val(data[i]);
+        if (ema == null) {
+          let sum = 0;
+          for (let j = 0; j < Math.min(period, i + 1); j++) sum += val(data[j]);
+          ema = sum / Math.min(period, i + 1);
+        } else {
+          ema = v * k + ema * (1 - k);
+        }
+        out.push({ time: data[i].time, value: ema });
+      }
+      return out;
+    }
+    function computeSuperTrendSegments(data, period = 10, multiplier = 3) {
+      const segments = [];
+      if (!data || data.length < period + 1) return segments;
+      let atr = 0, trSum = 0;
+      let upperBand = Infinity, lowerBand = 0;
+      let dir = 1, prevDir = 1;
+      let currentSeg = null;
+      for (let i = 0; i < data.length; i++) {
+        const t = data[i].time;
+        const h = data[i].high, l = data[i].low, c = data[i].close;
+        const prevC = i > 0 ? data[i - 1].close : c;
+        const tr = Math.max(h - l, Math.abs(h - prevC), Math.abs(l - prevC));
+        if (i < period) { trSum += tr; continue; }
+        atr = i === period ? trSum / period : (atr * (period - 1) + tr) / period;
+        const hl2 = (h + l) / 2;
+        const bU = hl2 + multiplier * atr, bL = hl2 - multiplier * atr;
+        upperBand = (bU < upperBand || prevC > upperBand) ? bU : upperBand;
+        lowerBand = (bL > lowerBand || prevC < lowerBand) ? bL : lowerBand;
+        prevDir = dir;
+        if (dir === 1 && c > upperBand) dir = -1;
+        else if (dir === -1 && c < lowerBand) dir = 1;
+        const stVal = dir === -1 ? lowerBand : upperBand;
+        const color = dir === -1 ? '#22c55e' : '#ef4444';
+        if (dir !== prevDir || !currentSeg) {
+          currentSeg = { color, data: [] };
+          segments.push(currentSeg);
+        }
+        currentSeg.data.push({ time: t, value: stVal });
+      }
+      return segments;
+    }
+    function computeTDSequential(data, prepComp = 4, leadComp = 2) {
+      const markers = [];
+      let bullPrep = 0, bearPrep = 0;
+      let bullLead = null, bearLead = null;
+      for (let i = 0; i < data.length; i++) {
+        if (i < prepComp) continue;
+        const c = data[i].close;
+        const cComp = data[i - prepComp].close;
+        bullPrep = c < cComp ? bullPrep + 1 : 0;
+        bearPrep = c > cComp ? bearPrep + 1 : 0;
+        if (bullPrep >= 1 && bullPrep <= 9) markers.push({ time: data[i].time, position: 'belowBar', color: bullPrep === 9 ? '#089981' : 'rgba(8,153,129,0.65)', shape: 'circle', text: String(bullPrep), size: 0 });
+        if (bearPrep >= 1 && bearPrep <= 9) markers.push({ time: data[i].time, position: 'aboveBar', color: bearPrep === 9 ? '#f23645' : 'rgba(242,54,69,0.65)', shape: 'circle', text: String(bearPrep), size: 0 });
+        if (bullPrep === 9) { bullLead = 0; bearLead = null; }
+        if (bearPrep === 9) { bearLead = 0; bullLead = null; }
+        if (bullLead !== null && i >= leadComp && data[i].close < data[i - leadComp].low) {
+          bullLead++;
+          if (bullLead <= 13) markers.push({ time: data[i].time, position: 'belowBar', color: bullLead === 13 ? '#2962ff' : 'rgba(41,98,255,0.65)', shape: 'circle', text: String(bullLead), size: 0 });
+          if (bullLead >= 13) bullLead = null;
+        }
+        if (bearLead !== null && i >= leadComp && data[i].close > data[i - leadComp].high) {
+          bearLead++;
+          if (bearLead <= 13) markers.push({ time: data[i].time, position: 'aboveBar', color: bearLead === 13 ? '#ff5d00' : 'rgba(255,93,0,0.65)', shape: 'circle', text: String(bearLead), size: 0 });
+          if (bearLead >= 13) bearLead = null;
+        }
+      }
+      return markers;
+    }
+    function _findBarTime(mapped, tsMs) {
+      if (!mapped?.length || !Number.isFinite(tsMs)) return null;
+      const tsSec = tsMs > 1e12 ? Math.floor(tsMs / 1000) : tsMs;
+      const isDaily = typeof mapped[0].time === "string";
+      if (isDaily) {
+        const dayStr = new Date(tsSec * 1000).toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+        let best = null;
+        for (const b of mapped) { if (String(b.time) <= dayStr && (best === null || String(b.time) > String(best.time))) best = b; }
+        if (best) return best.time;
+        if (String(mapped[0].time) > dayStr) return mapped[0].time;
+        return null;
+      }
+      let best = null;
+      for (const b of mapped) { if (b.time <= tsSec && (best === null || b.time > best.time)) best = b; }
+      if (best) return best.time;
+      if (mapped[0].time > tsSec) return mapped[0].time;
+      return null;
+    }
+    const CLOUD_CONFIG = [
+      { key: 'cloud180200', s: 180, l: 200, color: '#26c6da', fill: 'rgba(38,198,218,0.18)', label: '180-200' },
+      { key: 'cloud7289', s: 72, l: 89, color: '#26a69a', fill: 'rgba(38,166,154,0.22)', label: '72-89' },
+      { key: 'cloud3450', s: 34, l: 50, color: '#42a5f5', fill: 'rgba(66,165,245,0.28)', label: '34-50' },
+      { key: 'cloud512', s: 5, l: 12, color: '#4caf50', fill: 'rgba(76,175,80,0.32)', label: '5-12' },
+    ];
+    const INDICATOR_KEYS = ["cloud512", "cloud3450", "cloud7289", "cloud180200", "superTrend", "tdSeq"];
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // ── Chart Analysis Utilities (ported from Daily Brief) ──────────────
+    const _rrLevelsCache = {};
+
+    function _rrDetectSwingPoints(candles, lookback = 3) {
+      const highs = [], lows = [];
+      for (let i = lookback; i < candles.length - lookback; i++) {
+        const c = candles[i];
+        let isHigh = true, isLow = true;
+        for (let j = 1; j <= lookback; j++) {
+          if (candles[i - j].h >= c.h || candles[i + j].h >= c.h) isHigh = false;
+          if (candles[i - j].l <= c.l || candles[i + j].l <= c.l) isLow = false;
+        }
+        if (isHigh) highs.push({ price: c.h, idx: i, ts: c.ts });
+        if (isLow) lows.push({ price: c.l, idx: i, ts: c.ts });
+      }
+      return { highs, lows };
+    }
+
+    function _rrFitTrendline(points) {
+      if (points.length < 2) return null;
+      const n = points.length;
+      let sx = 0, sy = 0, sxy = 0, sxx = 0;
+      for (const p of points) { sx += p.idx; sy += p.price; sxy += p.idx * p.price; sxx += p.idx * p.idx; }
+      const denom = n * sxx - sx * sx;
+      if (Math.abs(denom) < 1e-10) return null;
+      return { slope: (n * sxy - sx * sy) / denom, intercept: (sy - ((n * sxy - sx * sy) / denom) * sx) / n };
+    }
+
+    function _rrDetectPatterns(candles) {
+      if (candles.length < 15) return { trendlines: [], patterns: [] };
+      const { highs, lows } = _rrDetectSwingPoints(candles, 2);
+      const trendlines = [], patterns = [];
+      const rnd = v => Math.round(v * 100) / 100;
+      const recentHighs = highs.slice(-5);
+      const recentLows = lows.slice(-5);
+
+      if (recentHighs.length >= 2) {
+        const rl = _rrFitTrendline(recentHighs);
+        if (rl) {
+          const si = recentHighs[0].idx, ei = Math.min(candles.length - 1, recentHighs[recentHighs.length - 1].idx + 5);
+          trendlines.push({ type: "resistance", color: "rgba(239,83,80,0.50)", points: [
+            { time: candles[si].ts, value: rnd(rl.intercept + rl.slope * si) },
+            { time: candles[ei].ts, value: rnd(rl.intercept + rl.slope * ei) },
+          ]});
+        }
+      }
+      if (recentLows.length >= 2) {
+        const sl = _rrFitTrendline(recentLows);
+        if (sl) {
+          const si = recentLows[0].idx, ei = Math.min(candles.length - 1, recentLows[recentLows.length - 1].idx + 5);
+          trendlines.push({ type: "support", color: "rgba(38,166,154,0.50)", points: [
+            { time: candles[si].ts, value: rnd(sl.intercept + sl.slope * si) },
+            { time: candles[ei].ts, value: rnd(sl.intercept + sl.slope * ei) },
+          ]});
+        }
+      }
+
+      if (recentHighs.length >= 2 && recentLows.length >= 2) {
+        const avgPrice = candles[candles.length - 1].c;
+        const slopeThreshold = avgPrice * 0.0005;
+        const hSlope = (recentHighs[recentHighs.length - 1].price - recentHighs[0].price) / (recentHighs[recentHighs.length - 1].idx - recentHighs[0].idx || 1);
+        const lSlope = (recentLows[recentLows.length - 1].price - recentLows[0].price) / (recentLows[recentLows.length - 1].idx - recentLows[0].idx || 1);
+
+        if (hSlope < -slopeThreshold && Math.abs(lSlope) < slopeThreshold)
+          patterns.push({ type: "Desc Triangle", idx: recentLows[recentLows.length - 1].idx, ts: recentLows[recentLows.length - 1].ts, bias: "bearish" });
+        if (lSlope > slopeThreshold && Math.abs(hSlope) < slopeThreshold)
+          patterns.push({ type: "Asc Triangle", idx: recentHighs[recentHighs.length - 1].idx, ts: recentHighs[recentHighs.length - 1].ts, bias: "bullish" });
+        if (Math.abs(hSlope) < slopeThreshold && Math.abs(lSlope) < slopeThreshold) {
+          const hi = Math.max(...recentHighs.map(h => h.price)), lo = Math.min(...recentLows.map(l => l.price));
+          if ((hi - lo) / lo * 100 < 8) patterns.push({ type: `Range`, idx: candles.length - 3, ts: candles[candles.length - 3]?.ts, bias: "neutral" });
+        }
+        if (hSlope < -slopeThreshold && lSlope < -slopeThreshold && Math.abs(hSlope - lSlope) < slopeThreshold * 2)
+          patterns.push({ type: "Bear Flag", idx: recentLows[recentLows.length - 1].idx, ts: recentLows[recentLows.length - 1].ts, bias: "bearish" });
+        if (hSlope > slopeThreshold && lSlope > slopeThreshold && Math.abs(hSlope - lSlope) < slopeThreshold * 2)
+          patterns.push({ type: "Bull Flag", idx: recentHighs[recentHighs.length - 1].idx, ts: recentHighs[recentHighs.length - 1].ts, bias: "bullish" });
+      }
+      if (recentHighs.length >= 2) {
+        const l2 = recentHighs.slice(-2);
+        if (Math.abs(l2[0].price - l2[1].price) / l2[0].price < 0.005 && l2[1].idx - l2[0].idx >= 5)
+          patterns.push({ type: "Double Top", idx: l2[1].idx, ts: l2[1].ts, bias: "bearish" });
+      }
+      if (recentLows.length >= 2) {
+        const l2 = recentLows.slice(-2);
+        if (Math.abs(l2[0].price - l2[1].price) / l2[0].price < 0.005 && l2[1].idx - l2[0].idx >= 5)
+          patterns.push({ type: "Double Bottom", idx: l2[1].idx, ts: l2[1].ts, bias: "bullish" });
+      }
+      return { trendlines, patterns };
+    }
+
+    async function _rrFetchChartLevels(sym, chartTf, chartCandles) {
+      const ck = `${sym}-${chartTf}`;
+      if (_rrLevelsCache[ck] && Date.now() - _rrLevelsCache[ck].ts < 300000) return _rrLevelsCache[ck].data;
+      try {
+        const res = await fetch(`${API_BASE}/timed/candles?ticker=${encodeURIComponent(sym)}&tf=D&limit=40`, { cache: "no-store" });
+        const d = await res.json();
+        if (!d.ok || !d.candles || d.candles.length < 5) return null;
+        const dailies = d.candles;
+        const rnd = v => Math.round(v * 100) / 100;
+        const levels = [];
+
+        let atrSum = 0, atrN = 0;
+        for (let i = 1; i < dailies.length; i++) {
+          const h = Number(dailies[i].h), l = Number(dailies[i].l), pc = Number(dailies[i - 1].c);
+          const tr = Math.max(h - l, Math.abs(h - pc), Math.abs(l - pc));
+          if (tr > 0) { atrSum += tr; atrN++; }
+        }
+        const dayAtr = atrN > 0 ? atrSum / atrN : 0;
+        if (dayAtr <= 0) return null;
+
+        const prevDay = dailies[dailies.length - 2];
+        const anchor = Number(prevDay.c);
+        levels.push({ price: rnd(anchor), color: "rgba(255,255,255,0.40)", label: "Prev Close", lineWidth: 1, style: "dotted" });
+
+        const dailyParsed = dailies.map(c => ({ h: Number(c.h), l: Number(c.l), c: Number(c.c), o: Number(c.o), ts: Number(c.ts) / 1000 }));
+        const { highs, lows } = _rrDetectSwingPoints(dailyParsed, 2);
+        const curPx = dailyParsed[dailyParsed.length - 1].c;
+        const nearHighs = highs.filter(h => h.price > curPx * 0.98).sort((a, b) => a.price - b.price).slice(0, 2);
+        const nearLows = lows.filter(l => l.price < curPx * 1.02).sort((a, b) => b.price - a.price).slice(0, 2);
+        for (const h of nearHighs) levels.push({ price: rnd(h.price), color: "rgba(239,83,80,0.50)", label: `R ${rnd(h.price)}`, lineWidth: 1, style: "dashed" });
+        for (const l of nearLows) levels.push({ price: rnd(l.price), color: "rgba(38,166,154,0.50)", label: `S ${rnd(l.price)}`, lineWidth: 1, style: "dashed" });
+
+        if (chartTf !== "D" && chartTf !== "W") {
+          const dist = curPx - anchor;
+          const pctOfAtr = dist / dayAtr;
+          if (pctOfAtr > 0.382) {
+            levels.push({ price: rnd(anchor + dayAtr * 0.618), color: "rgba(245,158,11,0.50)", label: "ATR +61.8%", lineWidth: 1, style: "dashed" });
+            levels.push({ price: rnd(anchor + dayAtr * 1.0), color: "rgba(245,158,11,0.50)", label: "ATR +100%", lineWidth: 1, style: "dashed" });
+          } else if (pctOfAtr < -0.382) {
+            levels.push({ price: rnd(anchor - dayAtr * 0.618), color: "rgba(245,158,11,0.50)", label: "ATR -61.8%", lineWidth: 1, style: "dashed" });
+            levels.push({ price: rnd(anchor - dayAtr * 1.0), color: "rgba(245,158,11,0.50)", label: "ATR -100%", lineWidth: 1, style: "dashed" });
+          }
+        }
+
+        let patternData = { trendlines: [], patterns: [] };
+        if (chartCandles && chartCandles.length > 15) {
+          const parsed = chartCandles.map(c => ({
+            h: c.high !== undefined ? c.high : c.h, l: c.low !== undefined ? c.low : c.l,
+            c: c.close !== undefined ? c.close : c.c, o: c.open !== undefined ? c.open : c.o,
+            ts: c.time || c.ts,
+          }));
+          patternData = _rrDetectPatterns(parsed);
+        }
+        const result = { levels, dayAtr: rnd(dayAtr), anchor: rnd(anchor), trendlines: patternData.trendlines, patterns: patternData.patterns };
+        _rrLevelsCache[ck] = { data: result, ts: Date.now() };
+        return result;
+      } catch (e) {
+        console.error(`[RR] Chart levels error ${sym}:`, e);
+        return null;
+      }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // Skeleton loading placeholder — reserves layout space while async data loads
+    // ═══════════════════════════════════════════════════════════════════════
+    const _skelStyleInjected = useRef ? { current: false } : { current: false };
+    function SkeletonBlock({ height = 80, lines = 3, style: extraStyle }) {
+      if (!_skelStyleInjected.current && typeof document !== "undefined") {
+        _skelStyleInjected.current = true;
+        const id = "tt-skeleton-shimmer-css";
+        if (!document.getElementById(id)) {
+          const el = document.createElement("style");
+          el.id = id;
+          el.textContent = `.skeleton-shimmer{background:linear-gradient(90deg,rgba(255,255,255,0.04) 25%,rgba(255,255,255,0.08) 50%,rgba(255,255,255,0.04) 75%);background-size:200% 100%;animation:tt-shimmer 1.5s infinite}@keyframes tt-shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}`;
+          document.head.appendChild(el);
+        }
+      }
+      return React.createElement("div", {
+        className: "mb-4 p-3 rounded-lg bg-white/[0.02] border border-white/[0.04]",
+        style: { minHeight: height, ...extraStyle },
+      },
+        Array.from({ length: lines }).map((_, i) =>
+          React.createElement("div", {
+            key: i,
+            className: "rounded skeleton-shimmer",
+            style: { height: 10, marginBottom: i < lines - 1 ? 10 : 0, width: `${90 - i * 12}%`, borderRadius: 4 },
+          })
+        )
+      );
+    }
+
+    // TradingView Lightweight Charts Sub-Component for Right Rail
+    // ═══════════════════════════════════════════════════════════════════════
+    function LWChart({ candles: rawCandles, chartTf, overlays, onCrosshair, height: propHeight, priceLines: propPriceLines, markers: propMarkers, ticker: propTicker }) {
+      const containerRef = useRef(null);
+      const chartInstanceRef = useRef(null);
+      const candleSeriesRef = useRef(null);
+      const overlaySeriesRef = useRef({});
+      const levelPriceLinesRef = useRef([]);
+      const levelTrendSeriesRef = useRef([]);
+      const [ohlcHeader, setOhlcHeader] = useState(null);
+      const [patternLabel, setPatternLabel] = useState(null);
+
+      const LWC = typeof LightweightCharts !== "undefined" ? LightweightCharts : null;
+
+      // Normalize candles and sanitize ghost wicks
+      const mapped = useMemo(() => {
+        if (!rawCandles || rawCandles.length < 2) return [];
+        const toSec = (v) => {
+          if (!v) return 0;
+          const n = Number(v);
+          return n > 1e12 ? Math.floor(n / 1000) : n > 1e9 ? n : 0;
+        };
+        const raw = rawCandles
+          .map(c => {
+            const ts = toSec(c.ts ?? c.t ?? c.time ?? c.timestamp);
+            const o = Number(c.o ?? c.open);
+            const h = Number(c.h ?? c.high);
+            const l = Number(c.l ?? c.low);
+            const cl = Number(c.c ?? c.close);
+            if (!ts || !Number.isFinite(o) || !Number.isFinite(h)) return null;
+            return { time: ts, open: o, high: h, low: l, close: cl };
+          })
+          .filter(Boolean)
+          .sort((a, b) => a.time - b.time)
+          .filter((c, i, arr) => i === arr.length - 1 || c.time !== arr[i + 1].time);
+
+        // Pass 1: clamp wicks that are wildly wider than the body
+        for (let i = 0; i < raw.length; i++) {
+          const c = raw[i];
+          const body = Math.abs(c.open - c.close) || c.close * 0.001;
+          const wickRange = c.high - c.low;
+          const mid = (c.open + c.close) / 2;
+          if (mid > 0 && wickRange > body * 6 && wickRange / mid > 0.03) {
+            const cap = body * 3;
+            const top = Math.max(c.open, c.close);
+            const bot = Math.min(c.open, c.close);
+            c.high = Math.min(c.high, top + cap);
+            c.low = Math.max(c.low, bot - cap);
+          }
+        }
+
+        // Pass 2: clamp outlier highs/lows relative to neighbors
+        for (let i = 1; i < raw.length - 1; i++) {
+          const prev = raw[i - 1], cur = raw[i], next = raw[i + 1];
+          const refHigh = Math.max(prev.high, next.high, prev.close, next.close);
+          const refLow = Math.min(prev.low, next.low, prev.close, next.close);
+          const refRange = (refHigh - refLow) || refHigh * 0.01;
+          const threshold = refRange * 3;
+          if (cur.high > refHigh + threshold) cur.high = Math.max(cur.open, cur.close) + refRange * 0.5;
+          if (cur.low < refLow - threshold) cur.low = Math.min(cur.open, cur.close) - refRange * 0.5;
+          if (cur.low > cur.high) { const tmp = cur.low; cur.low = cur.high; cur.high = tmp; }
+        }
+
+        return raw;
+      }, [rawCandles]);
+
+      // Compute indicator overlays
+      const indicatorData = useMemo(() => {
+        if (mapped.length < 5) return {};
+        const closes = mapped.map(c => c.close);
+        const highs = mapped.map(c => c.high);
+        const lows = mapped.map(c => c.low);
+        const n = closes.length;
+        const result = {};
+
+        // EMA computation
+        const computeEMA = (data, period) => {
+          const k = 2 / (period + 1);
+          const out = new Array(data.length).fill(null);
+          if (data.length >= period) {
+            let s = 0;
+            for (let j = 0; j < period; j++) s += data[j];
+            out[period - 1] = s / period;
+            for (let j = period; j < data.length; j++) out[j] = data[j] * k + out[j - 1] * (1 - k);
+          } else {
+            out[0] = data[0];
+            for (let j = 1; j < data.length; j++) out[j] = data[j] * k + out[j - 1] * (1 - k);
+          }
+          return out;
+        };
+
+        if (overlays.ema21) {
+          const ema = computeEMA(closes, 21);
+          result.ema21 = mapped.map((c, i) => ema[i] != null ? { time: c.time, value: ema[i] } : null).filter(Boolean);
+        }
+        if (overlays.ema48) {
+          const ema = computeEMA(closes, 48);
+          result.ema48 = mapped.map((c, i) => ema[i] != null ? { time: c.time, value: ema[i] } : null).filter(Boolean);
+        }
+        if (overlays.ema200) {
+          const ema = computeEMA(closes, 200);
+          result.ema200 = mapped.map((c, i) => ema[i] != null ? { time: c.time, value: ema[i] } : null).filter(Boolean);
+        }
+
+        // SuperTrend — use segment-based approach for proper gaps at direction flips
+        if (overlays.supertrend && n >= 11) {
+          result.stSegments = computeSuperTrendSegments(mapped, 10, 3);
+        }
+
+        // TD Sequential — full 1-9 prep + 1-13 countdown via shared helper
+        if (overlays.tdSequential && n >= 5) {
+          result.tdMarkers = computeTDSequential(mapped, 4, 2);
+        }
+
+        return result;
+      }, [mapped, overlays]);
+
+      // Create / update chart
+      useEffect(() => {
+        if (!containerRef.current || !LWC || mapped.length < 2) return;
+
+        // Create chart
+        const chartHeight = propHeight || 320;
+        const chart = LWC.createChart(containerRef.current, {
+          width: containerRef.current.clientWidth,
+          height: chartHeight,
+          layout: {
+            background: { type: "solid", color: "#0b0e11" },
+            textColor: "#6b7280",
+            fontSize: 10,
+          },
+          grid: {
+            vertLines: { color: "rgba(38,50,95,0.35)" },
+            horzLines: { color: "rgba(38,50,95,0.35)" },
+          },
+          crosshair: {
+            mode: LWC.CrosshairMode.Normal,
+            vertLine: { color: "rgba(255,255,255,0.15)", width: 1, style: 2, labelBackgroundColor: "#1e293b" },
+            horzLine: { color: "rgba(255,255,255,0.15)", width: 1, style: 2, labelBackgroundColor: "#1e293b" },
+          },
+          rightPriceScale: {
+            borderColor: "rgba(38,50,95,0.5)",
+            scaleMargins: { top: 0.05, bottom: 0.05 },
+          },
+          timeScale: {
+            borderColor: "rgba(38,50,95,0.5)",
+            timeVisible: !["D", "W", "M"].includes(String(chartTf)),
+            secondsVisible: false,
+            tickMarkFormatter: (time) => {
+              try {
+                const d = new Date(time * 1000);
+                return d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: "America/New_York" });
+              } catch (_) { return ""; }
+            },
+          },
+          localization: {
+            timeFormatter: (time) => {
+              try {
+                const d = new Date(time * 1000);
+                return d.toLocaleString("en-US", { hour: "numeric", minute: "2-digit", second: "2-digit", timeZone: "America/New_York" });
+              } catch (_) { return ""; }
+            },
+          },
+          handleScroll: { vertTouchDrag: false },
+        });
+        chartInstanceRef.current = chart;
+
+        // Candlestick series — standardized colors across all charts
+        const candleSeries = chart.addCandlestickSeries({
+          upColor: "#22c55e",
+          downColor: "#ef4444",
+          borderUpColor: "#22c55e",
+          borderDownColor: "#ef4444",
+          wickUpColor: "#22c55e",
+          wickDownColor: "#ef4444",
+        });
+        candleSeries.setData(mapped);
+        candleSeriesRef.current = candleSeries;
+
+        // Overlay series
+        const addedSeries = {};
+        if (indicatorData.ema21?.length > 0) {
+          const s = chart.addLineSeries({ color: "#fbbf24", lineWidth: 1, priceLineVisible: false, lastValueVisible: false });
+          s.setData(indicatorData.ema21);
+          addedSeries.ema21 = s;
+        }
+        if (indicatorData.ema48?.length > 0) {
+          const s = chart.addLineSeries({ color: "#a78bfa", lineWidth: 1, priceLineVisible: false, lastValueVisible: false });
+          s.setData(indicatorData.ema48);
+          addedSeries.ema48 = s;
+        }
+        if (indicatorData.ema200?.length > 0) {
+          const s = chart.addLineSeries({ color: "#f87171", lineWidth: 1, priceLineVisible: false, lastValueVisible: false });
+          s.setData(indicatorData.ema200);
+          addedSeries.ema200 = s;
+        }
+        if (indicatorData.stSegments?.length > 0) {
+          const stSeriesList = [];
+          for (const seg of indicatorData.stSegments) {
+            if (!seg.data?.length) continue;
+            const s = chart.addLineSeries({ color: seg.color, lineWidth: 2, priceLineVisible: false, lastValueVisible: false });
+            s.setData(seg.data);
+            stSeriesList.push(s);
+          }
+          addedSeries.stSegments = stSeriesList;
+        }
+        // TD Sequential markers + external markers
+        const allMarkers = [
+          ...(indicatorData.tdMarkers || []),
+          ...(Array.isArray(propMarkers) ? propMarkers : []),
+        ].sort((a, b) => a.time - b.time);
+        if (allMarkers.length > 0) {
+          candleSeries.setMarkers(allMarkers);
+        }
+        overlaySeriesRef.current = addedSeries;
+
+        // External price lines (SL, TP, Entry)
+        if (Array.isArray(propPriceLines)) {
+          for (const pl of propPriceLines) {
+            if (pl && Number.isFinite(pl.price) && pl.price > 0) {
+              candleSeries.createPriceLine({
+                price: pl.price,
+                color: pl.color || '#ffffff',
+                lineWidth: pl.lineWidth || 1,
+                lineStyle: pl.lineStyle != null ? pl.lineStyle : 2,
+                axisLabelVisible: pl.axisLabelVisible !== false,
+                title: pl.title || '',
+              });
+            }
+          }
+        }
+
+        // Crosshair move → OHLC header
+        chart.subscribeCrosshairMove(param => {
+          if (!param.time || !param.seriesData) {
+            setOhlcHeader(null);
+            return;
+          }
+          const candleData = param.seriesData.get(candleSeries);
+          if (candleData) {
+            setOhlcHeader({
+              time: param.time,
+              o: candleData.open,
+              h: candleData.high,
+              l: candleData.low,
+              c: candleData.close,
+            });
+          }
+        });
+
+        // TF-specific visible range and bar spacing
+        const _visibleBars = { "5": 156, "15": 52, "30": 26, "60": 20, "240": 60, "D": 30, "W": 52 };
+        const _barsToShow = _visibleBars[String(chartTf)] || mapped.length;
+        const _tfBarSpacing = String(chartTf) === "D" ? 12 : String(chartTf) === "60" ? 8 : 6;
+        chart.applyOptions({ timeScale: { rightOffset: 5, barSpacing: _tfBarSpacing } });
+        if (mapped.length > _barsToShow) {
+          chart.timeScale().setVisibleLogicalRange({ from: mapped.length - _barsToShow, to: mapped.length + 5 });
+        } else {
+          chart.timeScale().fitContent();
+        }
+
+        // Fetch and apply S/R levels, trendlines, patterns
+        if (propTicker && overlays?.levels !== false) {
+          _rrFetchChartLevels(propTicker, String(chartTf), mapped).then(ovData => {
+            if (!ovData || !candleSeries || !chart) return;
+            // Price lines
+            for (const lvl of (ovData.levels || [])) {
+              try {
+                const styleMap = { dotted: LWC.LineStyle.Dotted, dashed: LWC.LineStyle.Dashed, solid: LWC.LineStyle.Solid };
+                const pl = candleSeries.createPriceLine({
+                  price: lvl.price, color: lvl.color || "rgba(255,255,255,0.2)", lineWidth: lvl.lineWidth || 1,
+                  lineStyle: styleMap[lvl.style] || LWC.LineStyle.Dashed, axisLabelVisible: true, title: lvl.label || "",
+                });
+                levelPriceLinesRef.current.push(pl);
+              } catch (_) {}
+            }
+            // Trendlines
+            for (const tl of (ovData.trendlines || [])) {
+              if (!tl.points || tl.points.length < 2) continue;
+              try {
+                const ls = chart.addLineSeries({
+                  color: tl.color || "rgba(255,255,255,0.3)", lineWidth: 2, lineStyle: LWC.LineStyle.LargeDashed,
+                  crosshairMarkerVisible: false, priceLineVisible: false, lastValueVisible: false,
+                });
+                ls.setData(tl.points);
+                levelTrendSeriesRef.current.push(ls);
+              } catch (_) {}
+            }
+            // Pattern markers (merge with existing)
+            if (ovData.patterns?.length > 0) {
+              const pMarkers = ovData.patterns.map(p => ({
+                time: p.ts, position: p.bias === "bearish" ? "aboveBar" : "belowBar",
+                color: p.bias === "bearish" ? "#ef5350" : p.bias === "bullish" ? "#26a69a" : "#7c8493",
+                shape: p.bias === "bearish" ? "arrowDown" : p.bias === "bullish" ? "arrowUp" : "circle",
+                text: p.type,
+              }));
+              try {
+                const existingMarkers = allMarkers || [];
+                candleSeries.setMarkers([...existingMarkers, ...pMarkers].sort((a, b) => a.time - b.time));
+              } catch (_) {}
+              setPatternLabel(ovData.patterns[ovData.patterns.length - 1]?.type || null);
+            }
+          }).catch(() => {});
+        }
+
+        // Resize — use ResizeObserver for portal/modal mount detection + window fallback
+        let resizeObserver = null;
+        const handleResize = () => {
+          if (containerRef.current && chart) {
+            const w = containerRef.current.clientWidth;
+            if (w > 0) {
+              chart.applyOptions({ width: w });
+            }
+          }
+        };
+        if (typeof ResizeObserver !== "undefined" && containerRef.current) {
+          resizeObserver = new ResizeObserver(handleResize);
+          resizeObserver.observe(containerRef.current);
+        }
+        window.addEventListener("resize", handleResize);
+
+        // Settle: when chart mounts inside a React portal (expanded modal),
+        // the container may not have its final width yet. Use rAF to sync.
+        requestAnimationFrame(() => {
+          if (containerRef.current && chart) {
+            const w = containerRef.current.clientWidth;
+            if (w > 0) {
+              chart.applyOptions({ width: w });
+            }
+            chart.timeScale().fitContent();
+          }
+          // Safety net for slow portal reflow
+          setTimeout(() => {
+            if (containerRef.current && chart) {
+              const w = containerRef.current.clientWidth;
+              if (w > 0) {
+                chart.applyOptions({ width: w });
+              }
+            }
+          }, 150);
+        });
+
+        return () => {
+          window.removeEventListener("resize", handleResize);
+          if (resizeObserver) resizeObserver.disconnect();
+          levelPriceLinesRef.current = [];
+          levelTrendSeriesRef.current = [];
+          chart.remove();
+          chartInstanceRef.current = null;
+          candleSeriesRef.current = null;
+          overlaySeriesRef.current = {};
+        };
+      }, [mapped, indicatorData, chartTf, LWC, propHeight, propTicker]);
+
+      if (!LWC) {
+        return React.createElement("div", { className: "text-xs text-[#6b7280]" }, "Charts library not loaded.");
+      }
+
+      // OHLC header data
+      const hdr = ohlcHeader || (mapped.length > 0 ? {
+        time: mapped[mapped.length - 1].time,
+        o: mapped[mapped.length - 1].open,
+        h: mapped[mapped.length - 1].high,
+        l: mapped[mapped.length - 1].low,
+        c: mapped[mapped.length - 1].close,
+      } : null);
+      const hdrUp = hdr ? hdr.c >= hdr.o : true;
+      const hdrChg = hdr ? hdr.c - hdr.o : 0;
+      const hdrPct = hdr && hdr.o ? (hdrChg / hdr.o * 100) : 0;
+
+      // Format time
+      let hdrTimeStr = "";
+      if (hdr) {
+        try {
+          const d = new Date(hdr.time * 1000);
+          const isDWM = ["D", "W", "M"].includes(String(chartTf));
+          hdrTimeStr = isDWM
+            ? d.toLocaleString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "America/New_York" })
+            : d.toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: "America/New_York" }) + " ET";
+        } catch (_) {}
+      }
+
+      return React.createElement("div", { className: "w-full relative -mx-3 px-3" },
+        // Overlay toggles
+        React.createElement("div", { className: "flex items-center gap-1.5 mb-1 flex-wrap" },
+          [
+            { key: "ema21", label: "21 EMA", color: "#fbbf24" },
+            { key: "ema48", label: "48 EMA", color: "#a78bfa" },
+            { key: "ema200", label: "200 EMA", color: "#f87171" },
+            { key: "supertrend", label: "SuperTrend", color: "#34d399" },
+            { key: "tdSequential", label: "TD Seq", color: "#f59e0b" },
+          ].map(ov =>
+            React.createElement("button", {
+              key: ov.key,
+              onClick: () => onCrosshair?.(ov.key), // toggle overlay via parent
+              className: `px-2 py-0.5 rounded text-[9px] font-semibold border transition-all ${
+                overlays[ov.key]
+                  ? "border-white/20 text-white"
+                  : "border-white/[0.06] text-[#555] hover:text-[#6b7280]"
+              }`,
+              style: overlays[ov.key] ? { borderColor: ov.color + "80", color: ov.color, background: ov.color + "15" } : {},
+            }, ov.label)
+          )
+        ),
+        // OHLC header
+        hdr && React.createElement("div", { className: "flex items-center gap-2 mb-0.5 text-[10px] font-mono h-5 select-none" },
+          React.createElement("span", { className: "text-[#6b7280]" }, hdrTimeStr),
+          React.createElement("span", { className: "text-[#6b7280]" }, "O"), React.createElement("span", { className: "text-white" }, hdr.o?.toFixed(2)),
+          React.createElement("span", { className: "text-[#6b7280]" }, "H"), React.createElement("span", { className: "text-sky-300" }, hdr.h?.toFixed(2)),
+          React.createElement("span", { className: "text-[#6b7280]" }, "L"), React.createElement("span", { className: "text-orange-300" }, hdr.l?.toFixed(2)),
+          React.createElement("span", { className: "text-[#6b7280]" }, "C"),
+          React.createElement("span", { className: hdrUp ? "text-teal-400 font-semibold" : "text-rose-400 font-semibold" }, hdr.c?.toFixed(2)),
+          React.createElement("span", { className: hdrUp ? "text-teal-400" : "text-rose-400" },
+            `${hdrUp ? "+" : ""}${hdrChg.toFixed(2)} (${hdrUp ? "+" : ""}${hdrPct.toFixed(2)}%)`),
+          patternLabel && React.createElement("span", {
+            className: "px-1.5 py-px rounded text-[8px] font-bold border border-violet-400/40 bg-violet-500/20 text-violet-300"
+          }, patternLabel)
+        ),
+        // Chart container
+        React.createElement("div", {
+          ref: containerRef,
+          className: "rounded-lg overflow-hidden",
+          style: { height: propHeight || 320, background: "#0b0e11" },
+        }),
+        // Status bar
+        React.createElement("div", { className: "mt-1 text-[10px] text-[#6b7280] flex items-center justify-between" },
+          React.createElement("span", null,
+            `${["D","W","M"].includes(String(chartTf)) ? (chartTf === "D" ? "Daily" : chartTf === "W" ? "Weekly" : "Monthly") : Number(chartTf) >= 60 ? `${Number(chartTf)/60}H` : `${chartTf}m`} • ${mapped.length} bars`),
+          React.createElement("span", { className: "text-[#555] text-[9px]" }, "scroll to zoom • drag to pan"),
+        )
+      );
+    }
+
+    // ── Full AutopsyChart (EMA clouds, SuperTrend, TD Seq, TF selector) ──
+    function AutopsyChart({ ticker: rawTicker, entryPrice, exitPrice, entryTs, exitTs, trimTs, slPrice, tpPrices, height = 360, compact = false }) {
+      const containerRef = useRef(null);
+      const chartRef = useRef(null);
+      const seriesRef = useRef(null);
+      const priceLinesRef = useRef([]);
+      const cloudAreaRef = useRef([]);
+      const emaSeriesRef = useRef([]);
+      const indicatorDataRef = useRef(null);
+      const tradeMarkersRef = useRef([]);
+      const [loading, setLoading] = useState(true);
+      const [error, setError] = useState(null);
+      const [tf, setTf] = useState("15");
+      const [showIndicators, setShowIndicators] = useState({ cloud512: true, cloud3450: true, cloud7289: false, cloud180200: false, superTrend: false, tdSeq: false });
+
+      const ticker = rawTicker ? String(rawTicker).toUpperCase() : "";
+      const LWC = typeof LightweightCharts !== "undefined" ? LightweightCharts : null;
+
+      const intradaySessionMode = useMemo(() => {
+        if (!ticker) return "rth";
+        if (ticker.endsWith("USD") || ticker.endsWith("USDT") || ticker.endsWith("1!")) return "extended";
+        if (["SPX", "US500", "DXY", "GOLD", "SILVER", "USOIL"].includes(ticker)) return "extended";
+        return "rth";
+      }, [ticker]);
+
+      const isRegularSessionBar = useCallback((tsSec) => {
+        if (!Number.isFinite(tsSec) || tsSec <= 0) return false;
+        try {
+          const parts = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", weekday: "short", hour: "2-digit", minute: "2-digit", hour12: false }).formatToParts(new Date(tsSec * 1000));
+          const map = {};
+          for (const p of parts) map[p.type] = p.value;
+          if (String(map.weekday || "") === "Sat" || String(map.weekday || "") === "Sun") return false;
+          const mins = Number(map.hour || 0) * 60 + Number(map.minute || 0);
+          return mins >= 570 && mins < 960;
+        } catch (_) { return true; }
+      }, []);
+
+      const mapCandles = useCallback((candles, timeframe) => {
+        const mapped = candles.map(c => {
+          const rawTs = Number(c.ts);
+          const ts = rawTs > 1e12 ? Math.floor(rawTs / 1000) : rawTs;
+          return { time: ts, open: Number(c.o), high: Number(c.h), low: Number(c.l), close: Number(c.c) };
+        }).filter(c => c.open > 0 && c.high > 0).sort((a, b) => a.time - b.time);
+        const seen = new Set();
+        const deduped = mapped.filter(x => { if (seen.has(x.time)) return false; seen.add(x.time); return true; });
+        if (timeframe === "D") {
+          const dayKey = (ts) => new Date(ts * 1000).toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+          const byDay = new Map();
+          for (const b of deduped) { const key = dayKey(b.time); const existing = byDay.get(key); if (!existing || b.time >= existing.time) byDay.set(key, { ...b, time: key }); }
+          return Array.from(byDay.entries()).sort((a, b) => a[0].localeCompare(b[0])).map(([, b]) => b);
+        }
+        if (intradaySessionMode === "rth") { const rthOnly = deduped.filter(b => isRegularSessionBar(b.time)); if (rthOnly.length >= 2) return rthOnly; }
+        return deduped;
+      }, [intradaySessionMode, isRegularSessionBar]);
+
+      useEffect(() => {
+        let cancelled = false;
+        setError(null);
+        setLoading(true);
+        if (!containerRef.current || !ticker || !LWC) { setLoading(false); setError("Charts unavailable"); return; }
+
+        const entryMs = Number.isFinite(Number(entryTs)) && entryTs ? (Number(entryTs) < 1e12 ? Number(entryTs) * 1000 : Number(entryTs)) : null;
+        const exitMs = Number.isFinite(Number(exitTs)) && exitTs ? (Number(exitTs) < 1e12 ? Number(exitTs) * 1000 : Number(exitTs)) : null;
+        const threeDaysMs = 3 * 24 * 3600 * 1000;
+        const asOfMs = exitMs ? exitMs + threeDaysMs : (entryMs || Date.now());
+        const limit = 3000;
+        const container = containerRef.current;
+        const initialWidth = Math.max(container.clientWidth || 400, 200);
+        const chartH = container.clientHeight > 50 ? container.clientHeight : height;
+
+        const chart = LWC.createChart(container, {
+          width: initialWidth, height: chartH,
+          layout: { background: { type: "solid", color: "#0b0e11" }, textColor: "#6b7280", fontSize: 10 },
+          grid: { vertLines: { color: "rgba(38,50,95,0.35)" }, horzLines: { color: "rgba(38,50,95,0.35)" } },
+          crosshair: { mode: LWC.CrosshairMode.Normal, vertLine: { color: "rgba(255,255,255,0.15)", width: 1, style: 2, labelBackgroundColor: "#1e293b" }, horzLine: { color: "rgba(255,255,255,0.15)", width: 1, style: 2, labelBackgroundColor: "#1e293b" } },
+          rightPriceScale: { borderColor: "rgba(38,50,95,0.5)", scaleMargins: { top: 0.08, bottom: 0.08 }, autoScale: true },
+          timeScale: { borderColor: "rgba(38,50,95,0.5)", timeVisible: true, secondsVisible: false, barSpacing: 4, rightOffset: 3, fixLeftEdge: true, fixRightEdge: true,
+            tickMarkFormatter: (time) => { try { if (typeof time === "string") { const [y, m, d] = time.split("-").map(Number); return new Date(y, (m||1)-1, d||1).toLocaleDateString("en-US", { month: "short", day: "numeric" }); } const dd = new Date(time * 1000); return dd.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "America/New_York" }) + " " + dd.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: "America/New_York" }); } catch (_) { return ""; } },
+          },
+          localization: { timeFormatter: (time) => { try { if (typeof time === "string") { const [y, m, d] = time.split("-").map(Number); return new Date(y, (m||1)-1, d||1).toLocaleDateString("en-US", { month: "short", day: "numeric" }); } const dd = new Date(time * 1000); return dd.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "America/New_York" }) + " " + dd.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", second: "2-digit", timeZone: "America/New_York" }); } catch (_) { return ""; } } },
+          handleScroll: { vertTouchDrag: false },
+        });
+        chartRef.current = chart;
+
+        const noLine = { lastValueVisible: false, priceLineVisible: false, crosshairMarkerVisible: false };
+        const BG_SEMI = 'rgba(11,14,17,0.82)';
+        const cloudAreas = CLOUD_CONFIG.map(cloud => ({
+          key: cloud.key,
+          upper: chart.addAreaSeries({ topColor: cloud.fill, bottomColor: cloud.fill, lineColor: 'transparent', lineWidth: 0, ...noLine }),
+          lower: chart.addAreaSeries({ topColor: BG_SEMI, bottomColor: BG_SEMI, lineColor: 'transparent', lineWidth: 0, ...noLine }),
+        }));
+        cloudAreaRef.current = cloudAreas;
+
+        const candleSeries = chart.addCandlestickSeries({ upColor: "#22c55e", downColor: "#ef4444", borderUpColor: "#22c55e", borderDownColor: "#ef4444", wickUpColor: "#22c55e", wickDownColor: "#ef4444" });
+        seriesRef.current = candleSeries;
+
+        let url = `${API_BASE}/timed/candles?ticker=${encodeURIComponent(ticker)}&tf=${tf}&limit=${limit}`;
+        if (asOfMs) url += `&asOfTs=${asOfMs}`;
+
+        const doRender = (candles) => {
+          if (cancelled) return;
+          if (!candles || candles.length === 0) { setError("No chart data"); setLoading(false); return; }
+          const mapped = mapCandles(candles, tf);
+          if (mapped.length < 2) { setError("Insufficient candle data"); setLoading(false); return; }
+          candleSeries.setData(mapped);
+
+          for (const s of emaSeriesRef.current) { try { chart.removeSeries(s); } catch (_) {} }
+          emaSeriesRef.current = [];
+          const noPriceLine = { lastValueVisible: false, priceLineVisible: false, crosshairMarkerVisible: false };
+          const allSeries = [];
+          const allData = {};
+          for (let ci = 0; ci < CLOUD_CONFIG.length; ci++) {
+            const cloud = CLOUD_CONFIG[ci];
+            const shortData = computeEMA(mapped, cloud.s, 'hl2');
+            const longData = computeEMA(mapped, cloud.l, 'hl2');
+            const upperData = [], lowerData = [];
+            for (let j = 0; j < shortData.length; j++) {
+              const sv = shortData[j].value, lv = longData[j].value, t = shortData[j].time;
+              upperData.push({ time: t, value: Math.max(sv, lv) });
+              lowerData.push({ time: t, value: Math.min(sv, lv) });
+            }
+            allData[cloud.key] = { upper: upperData, lower: lowerData };
+            const vis = showIndicators[cloud.key];
+            const ca = cloudAreaRef.current[ci];
+            if (ca) { ca.upper.setData(vis ? upperData : []); ca.lower.setData(vis ? lowerData : []); }
+          }
+          const stSegments = computeSuperTrendSegments(mapped, 10, 3);
+          allData.superTrend = stSegments;
+          for (const seg of stSegments) {
+            const s = chart.addLineSeries({ color: seg.color, lineWidth: 2, title: '', ...noPriceLine });
+            s.setData(showIndicators.superTrend ? seg.data : []);
+            allSeries.push(s);
+          }
+          allData.tdSeq = computeTDSequential(mapped);
+          indicatorDataRef.current = allData;
+          emaSeriesRef.current = allSeries;
+
+          for (const pl of priceLinesRef.current) { try { candleSeries.removePriceLine(pl); } catch (_) {} }
+          priceLinesRef.current = [];
+          const ep = Number(entryPrice);
+          const xp = Number(exitPrice);
+          if (Number.isFinite(ep) && ep > 0) priceLinesRef.current.push(candleSeries.createPriceLine({ price: ep, color: "#60a5fa", lineWidth: 2, lineStyle: LWC.LineStyle.Solid, axisLabelVisible: true, title: "Entry" }));
+          if (Number.isFinite(xp) && xp > 0 && xp !== ep) priceLinesRef.current.push(candleSeries.createPriceLine({ price: xp, color: "#f59e0b", lineWidth: 2, lineStyle: LWC.LineStyle.Solid, axisLabelVisible: true, title: "Exit" }));
+          const sl = Number(slPrice);
+          if (Number.isFinite(sl) && sl > 0) priceLinesRef.current.push(candleSeries.createPriceLine({ price: sl, color: "#ef4444", lineWidth: 1, lineStyle: LWC.LineStyle.Dashed, axisLabelVisible: true, title: "SL" }));
+          if (Array.isArray(tpPrices)) {
+            tpPrices.forEach((tp, i) => {
+              const tpVal = Number(typeof tp === "object" ? tp.price : tp);
+              if (Number.isFinite(tpVal) && tpVal > 0) priceLinesRef.current.push(candleSeries.createPriceLine({ price: tpVal, color: "#22c55e", lineWidth: 1, lineStyle: LWC.LineStyle.Dashed, axisLabelVisible: true, title: (typeof tp === "object" && tp.label) || `TP${i + 1}` }));
+            });
+          }
+
+          const entryBarMs = Number(entryTs);
+          const exitBarMs = Number(exitTs);
+          const trimBarMs = Number(trimTs);
+          const tradeMarkers = [];
+          const entryBar = _findBarTime(mapped, entryBarMs);
+          if (entryBar != null) tradeMarkers.push({ time: entryBar, position: "inBar", color: "#60a5fa", shape: "arrowUp", text: "Entry", size: 2 });
+          const exitBar = _findBarTime(mapped, exitBarMs);
+          if (exitBar != null && exitBar !== entryBar) tradeMarkers.push({ time: exitBar, position: "aboveBar", color: "#f59e0b", shape: "arrowDown", text: "Exit", size: 2 });
+          if (Number.isFinite(trimBarMs) && trimBarMs > 0) {
+            const trimBar = _findBarTime(mapped, trimBarMs);
+            if (trimBar != null && trimBar !== entryBar && trimBar !== exitBar) tradeMarkers.push({ time: trimBar, position: "aboveBar", color: "#a78bfa", shape: "circle", text: "Trim", size: 1.5 });
+          }
+          tradeMarkersRef.current = tradeMarkers;
+          const markers = [...tradeMarkers, ...(showIndicators.tdSeq ? allData.tdSeq : [])];
+          markers.sort((a, b) => (a.time < b.time ? -1 : a.time > b.time ? 1 : 0));
+          try { candleSeries.setMarkers(markers); } catch (_) {}
+
+          chart.timeScale().fitContent();
+          const entryBarTime = _findBarTime(mapped, entryTs);
+          const exitBarTime = _findBarTime(mapped, exitTs);
+          const hasTradeRange = entryBarTime != null && exitBarTime != null;
+          const isDailyTime = typeof mapped[0].time === "string";
+          let visibleFrom = mapped[0].time, visibleTo = mapped[mapped.length - 1].time;
+          if (hasTradeRange) {
+            if (isDailyTime) {
+              const idxEntry = mapped.findIndex(b => b.time === entryBarTime);
+              const idxExit = mapped.findIndex(b => b.time === exitBarTime);
+              if (idxEntry >= 0 && idxExit >= 0) { const pad = 10; visibleFrom = mapped[Math.max(0, idxEntry - pad)].time; visibleTo = mapped[Math.min(mapped.length - 1, idxExit + pad)].time; }
+            } else {
+              const twoWeekSec = 10 * 24 * 3600;
+              visibleFrom = Math.max(mapped[0].time, entryBarTime - twoWeekSec);
+              visibleTo = Math.min(mapped[mapped.length - 1].time, exitBarTime + twoWeekSec);
+            }
+            try { chart.timeScale().setVisibleRange({ from: visibleFrom, to: visibleTo }); } catch (_) {}
+          }
+          const visibleCandles = mapped.filter(b => (isDailyTime ? String(b.time) >= String(visibleFrom) && String(b.time) <= String(visibleTo) : b.time >= visibleFrom && b.time <= visibleTo));
+          const priceValues = [...visibleCandles.flatMap(b => [b.low, b.high])];
+          if (Number.isFinite(ep)) priceValues.push(ep);
+          if (Number.isFinite(xp)) priceValues.push(xp);
+          if (priceValues.length > 0) {
+            let mn = Math.min(...priceValues), mx = Math.max(...priceValues);
+            const range = Math.max(mx - mn, 1) * 1.16;
+            const center = (mn + mx) / 2;
+            try { candleSeries.priceScale().setVisibleRange({ from: center - range / 2, to: center + range / 2 }); } catch (_) {}
+          }
+          requestAnimationFrame(() => { if (chartRef.current && containerRef.current) { const w = containerRef.current.clientWidth, h = containerRef.current.clientHeight; if (w > 0 && h > 0) chartRef.current.resize(w, h); } });
+          setLoading(false);
+        };
+
+        fetch(url, { cache: "no-store" })
+          .then(r => r.json())
+          .then(data => {
+            if (cancelled) return;
+            if (!data.ok || !data.candles) { setError("No chart data"); setLoading(false); return; }
+            let candles = data.candles;
+            if (candles.length < 2 && asOfMs) {
+              return fetch(`${API_BASE}/timed/candles?ticker=${encodeURIComponent(ticker)}&tf=${tf}&limit=${limit}`, { cache: "no-store" })
+                .then(r => r.json()).then(d => { if (!cancelled) { if (d.ok && d.candles && d.candles.length >= 2) candles = d.candles; if (candles.length < 2) { setError("Insufficient chart data"); setLoading(false); } else doRender(candles); } })
+                .catch(() => { if (!cancelled) { if (candles.length < 2) { setError("Insufficient chart data"); setLoading(false); } else doRender(candles); } });
+            }
+            doRender(candles);
+          })
+          .catch(e => { if (!cancelled) { setError("Failed to load chart"); setLoading(false); } });
+
+        const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(() => { if (containerRef.current && chartRef.current) { const w = containerRef.current.clientWidth, h = containerRef.current.clientHeight; if (w > 0 && h > 0) chartRef.current.resize(w, h); } }) : null;
+        if (ro) ro.observe(containerRef.current);
+        return () => { cancelled = true; if (ro) ro.disconnect(); priceLinesRef.current = []; emaSeriesRef.current = []; cloudAreaRef.current = []; chart.remove(); chartRef.current = null; seriesRef.current = null; };
+      }, [ticker, tf, entryPrice, exitPrice, entryTs, exitTs, trimTs, height, mapCandles]);
+
+      useEffect(() => {
+        const series = emaSeriesRef.current;
+        const data = indicatorDataRef.current;
+        if (!data) return;
+        CLOUD_CONFIG.forEach((cloud, idx) => {
+          const d = data[cloud.key];
+          if (!d) return;
+          const vis = showIndicators[cloud.key];
+          const ca = cloudAreaRef.current[idx];
+          if (ca) { ca.upper.setData(vis ? d.upper : []); ca.lower.setData(vis ? d.lower : []); }
+        });
+        if (series && data.superTrend) {
+          const stVis = showIndicators.superTrend;
+          for (let si = 0; si < series.length; si++) { if (si < data.superTrend.length) series[si].setData(stVis ? data.superTrend[si].data : []); }
+        }
+        if (seriesRef.current && data.tdSeq) {
+          const tm = tradeMarkersRef.current || [];
+          const td = showIndicators.tdSeq ? data.tdSeq : [];
+          const all = [...tm, ...td].sort((a, b) => (a.time < b.time ? -1 : a.time > b.time ? 1 : 0));
+          try { seriesRef.current.setMarkers(all); } catch (_) {}
+        }
+      }, [showIndicators]);
+
+      if (!ticker) {
+        return (<div className="rounded-lg bg-white/[0.03] border border-white/[0.06] p-4 text-center text-[12px] text-[#6b7280]" style={{ minHeight: height }}>Select a trade to view chart</div>);
+      }
+      return (
+        <div className="rounded-lg border border-white/[0.06] bg-[#0b0e11] flex flex-col" style={{ minHeight: compact ? 220 : undefined }}>
+          <div className="shrink-0 px-3 py-2 flex items-center justify-between border-b border-white/[0.04]">
+            <span className="text-[13px] font-semibold text-[#14b8a6]">{ticker}</span>
+            <div className="flex items-center gap-0.5">
+              {["5", "15", "30", "60", "D"].map(t => (
+                <button key={t} onClick={() => setTf(t)} className={`px-2 py-1 rounded text-[11px] font-medium ${tf === t ? "bg-white/10 text-white" : "text-[#6b7280] hover:text-white"}`}>{t === "D" ? "1D" : t + "m"}</button>
+              ))}
+            </div>
+          </div>
+          <div ref={containerRef} style={{ minHeight: compact ? 180 : Math.max(height * 0.4, 180), minWidth: 200, width: "100%" }} className="w-full flex-1 min-h-0">
+            {error && !loading && (<div className="flex items-center justify-center h-full text-[#6b7280] text-[13px]">{error}</div>)}
+            {loading && (<div className="flex items-center justify-center h-full"><div className="loading-spinner" style={{ width: 24, height: 24 }} /></div>)}
+          </div>
+          <div className="shrink-0 px-2 py-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 border-t border-white/[0.04] bg-white/[0.02] text-[10px] text-[#9ca3af]">
+            <span className="flex items-center gap-1.5"><span className="inline-block w-3 h-0.5 rounded bg-[#60a5fa]" /> Entry</span>
+            <span className="flex items-center gap-1.5"><span className="inline-block w-3 h-0.5 rounded bg-[#f59e0b]" /> Exit</span>
+            {INDICATOR_KEYS.map(key => {
+              const labels = { cloud512: "5-12", cloud3450: "34-50", cloud7289: "72-89", cloud180200: "180-200", superTrend: "ST", tdSeq: "TD" };
+              const colors = { cloud512: "#4caf50", cloud3450: "#42a5f5", cloud7289: "#26a69a", cloud180200: "#26c6da", superTrend: "#f97316", tdSeq: "#2962ff" };
+              const on = showIndicators[key];
+              return (<button key={key} type="button" onClick={() => setShowIndicators(prev => ({ ...prev, [key]: !prev[key] }))} className={`flex items-center gap-1 rounded px-1.5 py-0.5 -m-0.5 hover:bg-white/[0.06] transition-all ${on ? "opacity-100" : "opacity-45"}`} title={on ? "Hide" : "Show"}>
+                <span className="inline-block w-3 h-0.5 rounded shrink-0" style={{ background: colors[key] }} /><span>{labels[key]}</span>
+              </button>);
+            })}
+          </div>
+        </div>
+      );
+    }
+
+    // Wrapper that accepts a `trade` prop (backward-compatible with old TradeEventChart callers)
+    function TradeEventChart({ trade, currentPrice, height = 260, apiBase }) {
+      if (!trade?.ticker) {
+        return (<div className="rounded-lg bg-white/[0.03] border border-white/[0.06] p-4 text-center text-[12px] text-[#6b7280]" style={{ minHeight: height }}>Select a trade to view chart</div>);
+      }
+      return (<AutopsyChart
+        ticker={trade.ticker}
+        entryPrice={Number(trade.entry_price || 0)}
+        exitPrice={Number(trade.exit_price || 0)}
+        entryTs={trade.entry_ts}
+        exitTs={trade.exit_ts}
+        trimTs={trade.trim_ts}
+        height={height}
+        compact={true}
+      />);
+    }
+
+    return function TickerDetailRightRail({
+        ticker,
+        trade = null,
+        onClose,
+        allLoadedData = null,
+        rankedTickers = null,
+        rankedTickerPositions = null,
+        rankAsOfMs = null,
+        sectors = [],
+        onJourneyHover = null,
+        onJourneySelect = null,
+        selectedJourneyTs = null,
+        initialRailTab = null,
+        effectiveStage = null,
+        earningsMap = null,
+        addingTicker = null,
+        openAutopsyForTrade = null,
+        modalOnly = false,
+      }) {
+        const tickerSymbol = ticker?.ticker ? String(ticker.ticker) : "";
+        const isAdding = addingTicker && String(addingTicker).toUpperCase() === tickerSymbol;
+
+        // Fetch full latest payload for Right Rail (ensures `context` shows even when /timed/all is context-light).
+        const [latestTicker, setLatestTicker] = useState(null);
+        const [latestTickerLoading, setLatestTickerLoading] = useState(false);
+        const [latestTickerError, setLatestTickerError] = useState(null);
+
+        const [ledgerTrades, setLedgerTrades] = useState([]);
+        const [ledgerTradesLoading, setLedgerTradesLoading] = useState(false);
+        const [ledgerTradesError, setLedgerTradesError] = useState(null);
+
+        const [bubbleJourney, setBubbleJourney] = useState([]);
+        const [bubbleJourneyLoading, setBubbleJourneyLoading] = useState(false);
+        const [bubbleJourneyError, setBubbleJourneyError] = useState(null);
+
+        // Candle-based performance data (5D/15D/30D/90D from daily candles)
+        const [candlePerf, setCandlePerf] = useState(null);
+        const [candlePerfLoading, setCandlePerfLoading] = useState(false);
+
+        const [railTab, setRailTab] = useState("ANALYSIS"); // ANALYSIS | TECHNICALS | MODEL | JOURNEY | TRADE_HISTORY | INVESTOR
+
+        // Investor tab: per-ticker data from /timed/investor/ticker
+        const [investorData, setInvestorData] = useState(null);
+        const [investorLoading, setInvestorLoading] = useState(false);
+        const [investorError, setInvestorError] = useState(null);
+        const [predictionContract, setPredictionContract] = useState(null);
+        const [predictionContractLoading, setPredictionContractLoading] = useState(false);
+        const [predictionContractError, setPredictionContractError] = useState(null);
+
+        // Right Rail: multi-timeframe candles chart (fetched on-demand)
+        const [chartTf, setChartTf] = useState("15"); // Default to 15m
+        const [chartCandles, setChartCandles] = useState([]);
+        const [chartLoading, setChartLoading] = useState(false);
+        const [chartError, setChartError] = useState(null);
+        const [crosshair, setCrosshair] = useState(null);
+        const chartScrollRef = useRef(null);
+        // TradingView-style zoom & pan state
+        const [chartVisibleCount, setChartVisibleCount] = useState(80); // candles visible
+        const [chartEndOffset, setChartEndOffset] = useState(0); // 0 = pinned to latest
+        const chartContainerRef = useRef(null);
+        const chartDragRef = useRef(null); // { startX, startOffset }
+        const chartStateRef = useRef({ totalCandles: 0, visCount: 80, startIdx: 0, vn: 0, candleStep: 0, leftMargin: 10, plotW: 0 });
+
+        // Native (non-passive) wheel listener for zoom — React onWheel is passive and ignores preventDefault
+        useEffect(() => {
+          const el = chartContainerRef.current;
+          if (!el) return;
+          const onWheel = (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            const { totalCandles, visCount, startIdx, vn, candleStep, leftMargin, plotW } = chartStateRef.current;
+            if (totalCandles < 2 || plotW <= 0) return;
+            const delta = e.deltaY;
+            const zoomSpeed = Math.max(1, Math.round(visCount * 0.1));
+            const newCount = delta > 0
+              ? Math.min(totalCandles, visCount + zoomSpeed)
+              : Math.max(10, visCount - zoomSpeed);
+            const svgRect = el.getBoundingClientRect();
+            const mouseXFrac = Math.max(0, Math.min(1, (e.clientX - svgRect.left - leftMargin) / plotW));
+            const candleUnderMouse = startIdx + Math.round(mouseXFrac * vn);
+            const newLeft = Math.max(0, Math.min(totalCandles - newCount, candleUnderMouse - Math.round(mouseXFrac * newCount)));
+            const newEnd = newLeft + newCount;
+            const newEndOff = Math.max(0, totalCandles - newEnd);
+            setChartVisibleCount(newCount);
+            setChartEndOffset(newEndOff);
+          };
+          el.addEventListener("wheel", onWheel, { passive: false });
+          return () => el.removeEventListener("wheel", onWheel);
+        });
+
+        // Window-level mousemove/mouseup for robust drag-to-pan
+        useEffect(() => {
+          const onMove = (e) => {
+            if (!chartDragRef.current) return;
+            const { totalCandles, visCount, candleStep } = chartStateRef.current;
+            if (candleStep <= 0) return;
+            const dx = e.clientX - chartDragRef.current.startX;
+            const candlesPanned = Math.round(dx / candleStep);
+            const newOffset = Math.max(0, Math.min(totalCandles - visCount, chartDragRef.current.startOffset + candlesPanned));
+            setChartEndOffset(newOffset);
+          };
+          const onUp = () => { chartDragRef.current = null; };
+          window.addEventListener("mousemove", onMove);
+          window.addEventListener("mouseup", onUp);
+          return () => {
+            window.removeEventListener("mousemove", onMove);
+            window.removeEventListener("mouseup", onUp);
+          };
+        }, []);
+
+        // Model signal data (ticker + sector + market level)
+        const [modelSignal, setModelSignal] = useState(null);
+        const modelSignalCacheRef = useRef({ data: null, ts: 0 });
+        const [chartOverlays, setChartOverlays] = useState({ ema21: true, ema48: true, ema200: false, supertrend: false, tdSequential: false });
+        const [chartExpanded, setChartExpanded] = useState(false);
+        const [modalTf, setModalTf] = useState("15");
+        const [modalCandles, setModalCandles] = useState([]);
+        const [modalLoading, setModalLoading] = useState(false);
+
+        // Close expanded chart on Escape
+        useEffect(() => {
+          if (!chartExpanded) return;
+          const onKey = (e) => { if (e.key === "Escape") setChartExpanded(false); };
+          window.addEventListener("keydown", onKey);
+          return () => window.removeEventListener("keydown", onKey);
+        }, [chartExpanded]);
+
+        // Sync modal TF with mini-chart TF when modal opens
+        useEffect(() => {
+          if (chartExpanded) {
+            setModalTf(chartTf);
+            setModalCandles([]);
+          }
+        }, [chartExpanded]);
+
+        // Fetch candles for expanded chart modal
+        useEffect(() => {
+          if (!chartExpanded || !tickerSymbol) return;
+          let cancelled = false;
+          const run = async () => {
+            try {
+              setModalLoading(true);
+              const qs = new URLSearchParams();
+              qs.set("ticker", tickerSymbol.toUpperCase());
+              qs.set("tf", modalTf);
+              qs.set("limit", "500");
+              const res = await fetch(`${API_BASE}/timed/candles?${qs.toString()}`, { cache: "no-store" });
+              if (!res.ok) throw new Error(`HTTP ${res.status}`);
+              const json = await res.json();
+              if (!json.ok) throw new Error(json.error || "candles_failed");
+              if (!cancelled) setModalCandles(Array.isArray(json.candles) ? json.candles : []);
+            } catch (e) {
+              if (!cancelled) setModalCandles([]);
+            } finally {
+              if (!cancelled) setModalLoading(false);
+            }
+          };
+          run();
+          return () => { cancelled = true; };
+        }, [chartExpanded, tickerSymbol, modalTf]);
+        
+        // Accordion states (MUST be at component level, not inside IIFE blocks)
+        const [scoreExpanded, setScoreExpanded] = useState(true);
+        const [emaExpanded, setEmaExpanded] = useState(true);
+        const [tpExpanded, setTpExpanded] = useState(true);
+        // Trade History: which trade's chart is shown (for embedded entry/exit/SL/TP chart)
+        const [tradeChartSelection, setTradeChartSelection] = useState(null);
+        const [autopsyModal, setAutopsyModal] = useState(null);
+        const [autopsyModalData, setAutopsyModalData] = useState(null);
+        const [autopsyModalLoading, setAutopsyModalLoading] = useState(false);
+        const [autopsyModalProfile, setAutopsyModalProfile] = useState(null);
+
+        // Auto-open autopsy modal when parent passes a closed trade via openAutopsyForTrade
+        useEffect(() => {
+          if (!openAutopsyForTrade) return;
+          const t = openAutopsyForTrade;
+          setAutopsyModal(t);
+          setAutopsyModalLoading(true);
+          setAutopsyModalData(null);
+          setAutopsyModalProfile(null);
+          const _tid = t.trade_id || t.id || "";
+          const _tk = String(t.ticker || "").toUpperCase();
+          fetch(`${API_BASE}/timed/admin/trade-autopsy/trades?key=${encodeURIComponent(window._ttApiKey || "")}`)
+            .then(r => r.json())
+            .then(d => {
+              const allTrades = Array.isArray(d?.trades) ? d.trades : [];
+              const match = _tid ? allTrades.find(tr => String(tr.trade_id || "") === String(_tid)) : null;
+              setAutopsyModalData(match || d?.trade || t);
+              setAutopsyModalLoading(false);
+            })
+            .catch(() => { setAutopsyModalData(t); setAutopsyModalLoading(false); });
+          if (_tk) fetch(`${API_BASE}/timed/profile/${encodeURIComponent(_tk)}`, { cache: "no-store" })
+            .then(r => { if (!r.ok) return null; return r.json(); }).then(d => { if (d?.ok) setAutopsyModalProfile(d.profile || d); }).catch(() => {});
+        }, [openAutopsyForTrade]);
+
+        // Price source: always use the ticker prop (same object the Card renders)
+        // for price/change display. latestTicker is only for context/scoring data.
+        // This guarantees the right rail shows identical values to the card.
+        const priceSrc = ticker || {};
+
+        // Prevent stale crosshair data from crashing renders when switching
+        // tickers/timeframes/tabs quickly (e.g. clicking Chart right after selecting a ticker).
+        useEffect(() => {
+          setCrosshair(null);
+        }, [tickerSymbol, chartTf, railTab]);
+
+        // Default tab: use initialRailTab when provided (Investor mode → INVESTOR, Trade Tracker → TRADE_HISTORY), else Analysis
+        useEffect(() => {
+          const def = initialRailTab || "ANALYSIS";
+          setRailTab(def === "INVESTOR" ? "INVESTOR" : def);
+        }, [tickerSymbol, initialRailTab]);
+
+        // Trade History: default chart selection to first trade when trades load
+        useEffect(() => {
+          if (railTab === "TRADE_HISTORY" && ledgerTrades.length > 0 && !tradeChartSelection) {
+            setTradeChartSelection(ledgerTrades[0]);
+          }
+        }, [railTab, ledgerTrades, tradeChartSelection]);
+
+        useEffect(() => {
+          setChartCandles([]);
+          setChartError(null);
+          setChartLoading(false);
+          setChartVisibleCount(80);
+          setChartEndOffset(0);
+          setTradeChartSelection(null);
+        }, [tickerSymbol]);
+
+        // Fetch investor data when INVESTOR tab is selected
+        useEffect(() => {
+          const sym = String(tickerSymbol || "").trim().toUpperCase();
+          if (railTab !== "INVESTOR" || !sym) {
+            setInvestorData(null);
+            setInvestorError(null);
+            setInvestorLoading(false);
+            return;
+          }
+          let cancelled = false;
+          const fetchInvestor = async () => {
+            try {
+              setInvestorLoading(true);
+              setInvestorError(null);
+              const res = await fetch(`${API_BASE}/timed/investor/ticker?ticker=${encodeURIComponent(sym)}`, { cache: "no-store" });
+              if (!res.ok) throw new Error(`HTTP ${res.status}`);
+              const json = await res.json();
+              if (!json.ok) throw new Error(json.error || "investor_failed");
+              if (!cancelled) setInvestorData({ ticker: sym, ...json });
+            } catch (e) {
+              if (!cancelled) {
+                setInvestorData(null);
+                setInvestorError(String(e?.message || e));
+              }
+            } finally {
+              if (!cancelled) setInvestorLoading(false);
+            }
+          };
+          fetchInvestor();
+          return () => { cancelled = true; };
+        }, [railTab, tickerSymbol]);
+
+        useEffect(() => {
+          const sym = String(tickerSymbol || "").trim().toUpperCase();
+          const mode = railTab === "INVESTOR" ? "investor" : "trader";
+          if (!sym) {
+            setPredictionContract(null);
+            setPredictionContractError(null);
+            setPredictionContractLoading(false);
+            return;
+          }
+          let cancelled = false;
+          const fetchContract = async () => {
+            try {
+              setPredictionContractLoading(true);
+              setPredictionContractError(null);
+              const qs = new URLSearchParams();
+              qs.set("ticker", sym);
+              qs.set("mode", mode);
+              const res = await fetch(`${API_BASE}/timed/prediction-contract?${qs.toString()}`, { cache: "no-store" });
+              if (!res.ok) throw new Error(`HTTP ${res.status}`);
+              const json = await res.json();
+              if (!json.ok) throw new Error(json.error || "prediction_contract_failed");
+              if (!cancelled) setPredictionContract(json.contract || null);
+            } catch (e) {
+              if (!cancelled) {
+                setPredictionContract(null);
+                setPredictionContractError(String(e?.message || e));
+              }
+            } finally {
+              if (!cancelled) setPredictionContractLoading(false);
+            }
+          };
+          fetchContract();
+          return () => { cancelled = true; };
+        }, [railTab, tickerSymbol]);
+
+        // Reset zoom/pan on timeframe change
+        useEffect(() => {
+          setChartVisibleCount(80);
+          setChartEndOffset(0);
+        }, [chartTf]);
+
+        // Auto-scroll chart to most recent candle when data loads
+        // Use multiple attempts with cleanup to handle rendering timing
+        useEffect(() => {
+          if (chartCandles.length > 0 && railTab === "ANALYSIS") {
+            const scrollToEnd = () => {
+              if (chartScrollRef.current) {
+                chartScrollRef.current.scrollLeft = chartScrollRef.current.scrollWidth;
+              }
+            };
+            // Immediate attempt
+            scrollToEnd();
+            // Delayed attempts for after layout computation
+            const t1 = setTimeout(scrollToEnd, 50);
+            const t2 = setTimeout(scrollToEnd, 200);
+            const t3 = setTimeout(scrollToEnd, 500);
+            // Use requestAnimationFrame for after-render scroll
+            const raf1 = requestAnimationFrame(() => {
+              scrollToEnd();
+              requestAnimationFrame(scrollToEnd);
+            });
+            return () => {
+              clearTimeout(t1);
+              clearTimeout(t2);
+              clearTimeout(t3);
+              cancelAnimationFrame(raf1);
+            };
+          }
+        }, [chartCandles.length, railTab, chartTf]);
+
+        // In-memory candle cache: key = "TICKER:TF", value = { data, ts }
+        const candleCacheRef = useRef({});
+
+        useEffect(() => {
+          const sym = String(tickerSymbol || "")
+            .trim()
+            .toUpperCase();
+          if (railTab !== "ANALYSIS" || !sym) return;
+
+          let cancelled = false;
+          const run = async () => {
+            try {
+              setChartLoading(true);
+              setChartError(null);
+              const tf = String(chartTf || "30");
+              const cacheKey = `${sym}:${tf}`;
+
+              // Check cache (60-second TTL)
+              const cached = candleCacheRef.current[cacheKey];
+              if (cached && Date.now() - cached.ts < 60000) {
+                if (!cancelled) setChartCandles(cached.data);
+                if (!cancelled) setChartLoading(false);
+                return;
+              }
+
+              const qs = new URLSearchParams();
+              qs.set("ticker", sym);
+              qs.set("tf", tf);
+              qs.set("limit", "500");
+              const res = await fetch(`${API_BASE}/timed/candles?${qs.toString()}`, {
+                cache: "no-store",
+              });
+              if (!res.ok) throw new Error(`HTTP ${res.status}`);
+              const json = await res.json();
+              if (!json.ok) throw new Error(json.error || "candles_failed");
+              const candles = Array.isArray(json.candles) ? json.candles : [];
+              // Store in cache
+              candleCacheRef.current[cacheKey] = { data: candles, ts: Date.now() };
+              if (!cancelled) setChartCandles(candles);
+            } catch (e) {
+              if (!cancelled) {
+                setChartCandles([]);
+                setChartError(String(e?.message || e));
+              }
+            } finally {
+              if (!cancelled) setChartLoading(false);
+            }
+          };
+          run();
+          return () => {
+            cancelled = true;
+          };
+        }, [railTab, tickerSymbol, chartTf]);
+
+        useEffect(() => {
+          const sym = String(tickerSymbol || "")
+            .trim()
+            .toUpperCase();
+          const contextReady = !!(
+            ticker?.context &&
+            typeof ticker.context === "object" &&
+            (ticker.context.name || ticker.context.industry || ticker.context.sector || ticker.context.description)
+          );
+          if (!sym) {
+            setLatestTicker(null);
+            setLatestTickerError(null);
+            setLatestTickerLoading(false);
+            return;
+          }
+          if (contextReady) {
+            setLatestTicker(null);
+            setLatestTickerError(null);
+            setLatestTickerLoading(false);
+            return;
+          }
+
+          let cancelled = false;
+          const fetchLatest = async () => {
+            try {
+              setLatestTickerLoading(true);
+              setLatestTickerError(null);
+              const qs = new URLSearchParams();
+              qs.set("ticker", sym);
+              const res = await fetch(
+                `${API_BASE}/timed/latest?${qs.toString()}`,
+                { cache: "no-store" },
+              );
+              if (!res.ok) throw new Error(`HTTP ${res.status}`);
+              const json = await res.json();
+              if (!json.ok) throw new Error(json.error || "latest_failed");
+              const data =
+                (json.latestData && typeof json.latestData === "object"
+                  ? json.latestData
+                  : json.data && typeof json.data === "object"
+                    ? json.data
+                    : null) || null;
+              if (!cancelled) setLatestTicker(data);
+            } catch (e) {
+              if (!cancelled) {
+                setLatestTicker(null);
+                setLatestTickerError(String(e?.message || e));
+              }
+            } finally {
+              if (!cancelled) setLatestTickerLoading(false);
+            }
+          };
+          fetchLatest();
+          return () => {
+            cancelled = true;
+          };
+        }, [tickerSymbol, ticker]);
+
+        // Fetch model signals (ticker + sector + market level)
+        useEffect(() => {
+          const sym = String(tickerSymbol || "").trim().toUpperCase();
+          if (!sym) { setModelSignal(null); return; }
+          let cancelled = false;
+          (async () => {
+            try {
+              let json = modelSignalCacheRef.current.data;
+              if (!json || (Date.now() - modelSignalCacheRef.current.ts) > 60000) {
+                const res = await fetch(`${API_BASE}/timed/model/signals`, { cache: "no-store" });
+                if (!res.ok) return;
+                json = await res.json();
+                if (!json?.ok) return;
+                modelSignalCacheRef.current = { data: json, ts: Date.now() };
+              }
+              if (!json.ok || cancelled) return;
+              const tickerSig = (json.ticker || []).find(t => t.ticker === sym);
+              const src = latestTicker || ticker;
+              const sectorName = src?.sector || tickerSig?.sector || "";
+              const sectorSig = (json.sector || []).find(s => s.sector === sectorName);
+              setModelSignal({
+                ticker: tickerSig || null,
+                sector: sectorSig || null,
+                market: json.market || null,
+                patternMatch: src?.pattern_match || null,
+              });
+            } catch (_) { /* model signals are a boost, not a gate */ }
+          })();
+          return () => { cancelled = true; };
+        }, [tickerSymbol, latestTicker, ticker]);
+
+        useEffect(() => {
+          const sym = String(tickerSymbol || "")
+            .trim()
+            .toUpperCase();
+          if (!sym || railTab !== "TRADE_HISTORY") {
+            setLedgerTrades([]);
+            setLedgerTradesError(null);
+            setLedgerTradesLoading(false);
+            setTradeChartSelection(null);
+            return;
+          }
+
+          setTradeChartSelection(null); // clear so default will be first of new list
+          let cancelled = false;
+          const fetchLedgerTrades = async () => {
+            try {
+              setLedgerTradesLoading(true);
+              setLedgerTradesError(null);
+              const qs = new URLSearchParams();
+              qs.set("ticker", sym);
+              qs.set("limit", "20");
+              const res = await fetch(
+                `${API_BASE}/timed/ledger/trades?${qs.toString()}`,
+                { cache: "no-store" },
+              );
+              if (!res.ok) throw new Error(`HTTP ${res.status}`);
+              const json = await res.json();
+              if (!json.ok)
+                throw new Error(json.error || "ledger_trades_failed");
+              const trades = Array.isArray(json.trades) ? json.trades : [];
+              // Filter out archived trades
+              const activeTrades = trades.filter(t => {
+                const status = String(t.status || "").toUpperCase();
+                return status !== "ARCHIVED";
+              });
+              if (!cancelled) setLedgerTrades(activeTrades);
+            } catch (e) {
+              if (!cancelled) {
+                setLedgerTrades([]);
+                setLedgerTradesError(String(e.message || e));
+              }
+            } finally {
+              if (!cancelled) setLedgerTradesLoading(false);
+            }
+          };
+
+          fetchLedgerTrades();
+          return () => {
+            cancelled = true;
+            setLedgerTradesLoading(false);
+          };
+        }, [tickerSymbol, railTab]);
+
+        // Default Trade History chart to first trade when tab has trades and no selection
+        useEffect(() => {
+          if (railTab === "TRADE_HISTORY" && ledgerTrades.length > 0 && tradeChartSelection == null) {
+            setTradeChartSelection(ledgerTrades[0]);
+          }
+        }, [railTab, ledgerTrades, tradeChartSelection]);
+
+        useEffect(() => {
+          const sym = String(tickerSymbol || "")
+            .trim()
+            .toUpperCase();
+          if (!sym || railTab !== "JOURNEY") {
+            setBubbleJourney([]);
+            setBubbleJourneyError(null);
+            setBubbleJourneyLoading(false);
+            setCandlePerf(null);
+            setCandlePerfLoading(false);
+            return;
+          }
+
+          let cancelled = false;
+
+          const toMs = (v) => {
+            if (v == null) return NaN;
+            if (typeof v === "number") return v;
+            const n = Number(v);
+            if (Number.isFinite(n)) return n;
+            const d = new Date(String(v));
+            const ms = d.getTime();
+            return Number.isFinite(ms) ? ms : NaN;
+          };
+
+          const fetchBubbleJourney = async () => {
+            try {
+              setBubbleJourneyLoading(true);
+              setBubbleJourneyError(null);
+              const qs = new URLSearchParams();
+              qs.set("ticker", sym);
+              // Last 7 days only — matches user preference for recent journey
+              qs.set("since", String(Date.now() - 7 * 24 * 60 * 60 * 1000));
+              qs.set("limit", "500");
+              const res = await fetch(
+                `${API_BASE}/timed/trail?${qs.toString()}`,
+                {
+                  cache: "no-store",
+                },
+              );
+              if (!res.ok) throw new Error(`HTTP ${res.status}`);
+              const json = await res.json();
+              if (!json.ok) throw new Error(json.error || "trail_failed");
+              const raw = Array.isArray(json.trail) ? json.trail : [];
+              const normalized = normalizeTrailPoints(raw);
+              const cutoff7d = Date.now() - 7 * 24 * 60 * 60 * 1000;
+              const withTs = normalized
+                .map((p) => {
+                  const ts = toMs(
+                    p.ts ?? p.timestamp ?? p.ingest_ts ?? p.ingest_time,
+                  );
+                  if (!Number.isFinite(ts) || ts < cutoff7d) return null;
+                  return { ...p, __ts_ms: ts };
+                })
+                .filter(Boolean)
+                .sort((a, b) => a.__ts_ms - b.__ts_ms);
+              // Keep last 200 for bubble journey table (which self-limits via downsample + slice)
+              const last200 = withTs.slice(-200);
+              if (!cancelled) setBubbleJourney(last200);
+            } catch (e) {
+              if (!cancelled) {
+                setBubbleJourney([]);
+                setBubbleJourneyError(String(e.message || e));
+              }
+            } finally {
+              if (!cancelled) setBubbleJourneyLoading(false);
+            }
+          };
+
+          fetchBubbleJourney();
+
+          // Also fetch candle-based performance (lightweight, separate from trail)
+          const fetchCandlePerf = async () => {
+            try {
+              setCandlePerfLoading(true);
+              const res = await fetch(
+                `${API_BASE}/timed/trail/performance?ticker=${encodeURIComponent(sym)}`,
+                { cache: "no-store" },
+              );
+              if (!res.ok) throw new Error(`HTTP ${res.status}`);
+              const json = await res.json();
+              if (json.ok && json.performance) {
+                if (!cancelled) setCandlePerf(json);
+              }
+            } catch (_) {
+              // Non-critical: performance section will just not render
+            } finally {
+              if (!cancelled) setCandlePerfLoading(false);
+            }
+          };
+          fetchCandlePerf();
+
+          return () => {
+            cancelled = true;
+          };
+        }, [tickerSymbol, railTab]);
+
+        const safeTicker =
+          ticker && typeof ticker === "object" ? ticker : null;
+        const patternFlags = safeTicker?.flags || {};
+
+        // IMPORTANT: Keep hooks unconditional (no early returns before hooks),
+        // otherwise React will throw "Rendered more hooks than during the previous render".
+        const detectedPatterns = React.useMemo(
+          () => detectPatterns(bubbleJourney, patternFlags || {}),
+          [bubbleJourney, patternFlags],
+        );
+
+        if (!safeTicker || !tickerSymbol) return null;
+
+        // ── Unified direction — single source of truth for the entire Right Rail ──
+        // Priority: 1) prediction contract  2) ticker.position_direction  3) trade.direction  4) HTF state
+        const resolvedDir = (() => {
+          // 1. Prediction contract direction (system recommendation — always highest priority)
+          if (predictionContract?.direction) {
+            const pcDir = String(predictionContract.direction).toUpperCase();
+            if (pcDir === "LONG" || pcDir === "SHORT") return pcDir;
+          }
+          // 2. Server-provided position direction
+          const posDirStr = String(ticker?.position_direction || "").toUpperCase();
+          if (ticker?.has_open_position && (posDirStr === "LONG" || posDirStr === "SHORT")) return posDirStr;
+          // 3. Open trade direction (fallback when no prediction available)
+          const tradeDirStr = String(trade?.direction || "").toUpperCase();
+          const tradeStatus = String(trade?.status || "").toUpperCase();
+          const tradeIsOpen = trade && (
+            tradeStatus === "OPEN" || tradeStatus === "TP_HIT_TRIM" ||
+            (!(trade?.exit_ts ?? trade?.exitTs) && tradeStatus !== "WIN" && tradeStatus !== "LOSS")
+          );
+          if (tradeIsOpen && (tradeDirStr === "LONG" || tradeDirStr === "SHORT")) return tradeDirStr;
+          // 4. HTF state (primary trend)
+          const state = String(ticker?.state || "");
+          if (state.startsWith("HTF_BULL")) return "LONG";
+          if (state.startsWith("HTF_BEAR")) return "SHORT";
+          if (state.includes("BULL")) return "LONG";
+          if (state.includes("BEAR")) return "SHORT";
+          return null;
+        })();
+
+        const prime = isPrimeBubble(ticker);
+        const ent = entryType(ticker);
+        const flags = patternFlags;
+        const phase = Number(ticker.phase_pct) || 0;
+        const phaseColor = phaseToColor(phase);
+        const actionInfo = getActionDescription(ticker, trade);
+        const decisionSummary = summarizeEntryDecision(ticker);
+
+        const triggerItems = (() => {
+          const items = [];
+
+          // Prefer explicit triggers from script payload
+          if (Array.isArray(ticker.triggers)) {
+            for (const t of ticker.triggers) {
+              if (typeof t === "string" && t.trim()) items.push(t.trim());
+            }
+          }
+
+          // Fallback to known fields/flags (backward compatible)
+          if (items.length === 0) {
+            const trigReason = String(ticker.trigger_reason || "").trim();
+            const trigDir = String(ticker.trigger_dir || "").trim();
+            const trigTf = String(ticker.trigger_tf || "").trim();
+            if (trigReason) {
+              const uncorroborated =
+                ticker.trigger_reason_corroborated === false &&
+                (trigReason === "EMA_CROSS_1H_13_48" ||
+                  trigReason === "EMA_CROSS_30M_13_48");
+              items.push(
+                trigTf
+                  ? `${trigReason}${trigDir ? " (" + trigDir + ")" : ""} [${trigTf}]${
+                      uncorroborated ? " ⚠️ unconfirmed" : ""
+                    }`
+                  : `${trigReason}${trigDir ? " (" + trigDir + ")" : ""}${
+                      uncorroborated ? " ⚠️ unconfirmed" : ""
+                    }`,
+              );
+            }
+            if (flags.sq30_release) items.push("SQUEEZE_RELEASE_30M");
+            if (flags.st_flip_30m) items.push("ST_FLIP_30M");
+            if (flags.st_flip_1h) items.push("ST_FLIP_1H");
+            if (flags.ema_cross_1h_13_48) items.push("EMA_CROSS_1H_13_48");
+            if (flags.buyable_dip_1h_13_48) items.push("BUYABLE_DIP_1H_13_48");
+          }
+
+          // Dedup
+          return Array.from(new Set(items));
+        })();
+        const tfTech =
+          ticker.tf_tech && typeof ticker.tf_tech === "object"
+            ? ticker.tf_tech
+            : null;
+        const tfOrder = [
+          { k: "W", label: "W" },
+          { k: "D", label: "D" },
+          { k: "4H", label: "4H" },
+          { k: "1H", label: "1H" },
+          { k: "30", label: "30m" },
+          { k: "15", label: "15m" },
+          { k: "5", label: "5m" },
+        ];
+        const emaLevels = [5, 13, 21, 48, 89, 200, 233];
+        const divIcon = (code) =>
+          code === "B" ? "🐂" : code === "S" ? "🐻" : "";
+        const phaseDotLabel = (code) => {
+          switch (code) {
+            case "P100":
+              return "↘︎ +100";
+            case "P618":
+              return "↘︎ +61.8";
+            case "N618":
+              return "↗︎ -61.8";
+            case "N100":
+              return "↗︎ -100";
+            default:
+              return code || "";
+          }
+        };
+
+        const baseScore = Number(ticker.rank) || 0;
+        const displayScore = rankScoreForTicker(ticker);
+        const sortedByRank =
+          rankedTickers && rankedTickers.length > 0
+            ? rankedTickers
+            : getRankedTickers(allLoadedData);
+        const rankPosition =
+          getRankPositionFromMap(rankedTickerPositions, tickerSymbol) ??
+          getRankPosition(sortedByRank, tickerSymbol);
+        const totalTickers = sortedByRank.length;
+        const rankTotal =
+          Number.isFinite(Number(ticker.rank_total)) &&
+          Number(ticker.rank_total) > 0
+            ? Number(ticker.rank_total)
+            : totalTickers;
+
+        const rankAsOfText = (() => {
+          const ms = Number(rankAsOfMs);
+          if (!Number.isFinite(ms)) return null;
+          try {
+            return new Date(ms).toLocaleTimeString("en-US", {
+              hour: "numeric",
+              minute: "2-digit",
+              hour12: true,
+            });
+          } catch (_) {
+            return null;
+          }
+        })();
+
+        return (
+          <>
+          <div className="w-full h-full flex flex-col" style={modalOnly ? { position: "absolute", width: 1, height: 1, overflow: "hidden", opacity: 0, pointerEvents: "none" } : undefined}>
+            <div
+              className="bg-[#0b0e11] border border-white/[0.04] rounded-xl w-full h-full flex flex-col shadow-xl"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Scrollable Content Area */}
+              <div className="flex-1 overflow-y-auto">
+                <div className="sticky top-0 z-30 bg-[#0b0e11] border-b border-white/[0.04] px-5 py-3">
+                  {/* ── Row 1: Ticker + Direction (left) | Close/Share (right) ── */}
+                  <div className="flex items-center justify-between mb-1">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <h3 className="text-xl font-bold leading-none">{tickerSymbol}</h3>
+                      {(() => {
+                        const d = resolvedDir;
+                        return (
+                          <span className={`inline-flex items-center justify-center px-1.5 py-px rounded text-[9px] font-black tracking-wide ${d === "LONG" ? "bg-cyan-500/80 text-white ring-1 ring-cyan-300/60" : d === "SHORT" ? "bg-rose-600/80 text-white ring-1 ring-rose-400/60" : "bg-white/[0.04] text-[#6b7280]"}`}>
+                            {d || "—"}
+                          </span>
+                        );
+                      })()}
+                    </div>
+                    <div className="flex items-center gap-0.5 shrink-0 ml-2">
+                      <button
+                        onClick={() => {
+                          try {
+                            const sym = String(ticker?.ticker || "").toUpperCase();
+                            const url = `${window.location.origin}${window.location.pathname}#ticker=${encodeURIComponent(sym)}`;
+                            if (navigator.share) {
+                              navigator.share({ title: `${sym} — Timed Trading`, url }).catch(() => {
+                                navigator.clipboard.writeText(url);
+                              });
+                            } else {
+                              navigator.clipboard.writeText(url).then(() => {
+                                const btn = document.getElementById("share-toast-btn");
+                                if (btn) { btn.textContent = "Copied!"; setTimeout(() => { btn.textContent = ""; }, 1500); }
+                              });
+                            }
+                          } catch (_) {}
+                        }}
+                        id="share-toast-btn"
+                        className="text-[#6b7280] hover:text-teal-300 transition-colors p-1.5 rounded hover:bg-white/[0.04]"
+                        title="Share this ticker"
+                      >
+                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>
+                      </button>
+                      <button
+                        onClick={onClose}
+                        className="text-[#6b7280] hover:text-white transition-colors text-lg leading-none w-7 h-7 flex items-center justify-center rounded hover:bg-white/[0.04]"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* ── Adding ticker progress banner ── */}
+                  {isAdding && (
+                    <div className="flex items-center gap-2 px-3 py-2 mt-1 rounded-lg bg-cyan-500/15 border border-cyan-500/30">
+                      <span className="loading-spinner loading-spinner-sm" style={{ width: "12px", height: "12px", borderWidth: "1.5px", borderColor: "rgba(6,182,212,0.25)", borderTopColor: "rgb(6,182,212)" }} />
+                      <span className="text-[11px] font-medium text-cyan-300">Adding ticker… Scoring {tickerSymbol}</span>
+                    </div>
+                  )}
+
+                  {/* ── Row 2: Price + Daily Change + EXT (admin only) ── */}
+                  {document.body.dataset.userRole === "admin" && (() => {
+                    const src = priceSrc;
+                    const price = Number(src?._live_price || src?.price || src?.close || 0);
+                    if (!price) return null;
+                    const priceAge = src._price_updated_at ? (Date.now() - src._price_updated_at) / 60000 : Infinity;
+                    const scoreAge = src.data_source_ts ? (Date.now() - src.data_source_ts) / 60000 : Infinity;
+                    const freshestAge = Math.min(priceAge, scoreAge);
+                    const freshnessColor = freshestAge <= 2 ? "bg-green-400" : freshestAge <= 10 ? "bg-amber-400" : "bg-red-400";
+                    const { dayChg, dayPct } = getDailyChange(src) || {};
+                    const chgVal = Number(dayChg || dayPct || 0);
+                    const chgColor = chgVal >= 0
+                      ? (Math.abs(dayPct || 0) >= 3 ? "#4ade80" : "#00e676")
+                      : (Math.abs(dayPct || 0) >= 3 ? "#fb7185" : "#f87171");
+                    const chgSign = chgVal >= 0 ? "+" : "";
+                    const _rrMktOpen = typeof isNyRegularMarketOpen === "function" ? isNyRegularMarketOpen() : false;
+                    const ahPct = _rrMktOpen ? null : Number(src?._ah_change_pct);
+                    const hasAH = Number.isFinite(ahPct) && ahPct !== 0;
+                    return (
+                      <div className="flex items-end justify-between mt-1.5">
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-white font-bold text-lg tabular-nums leading-tight" style={{ textShadow: "0 1px 3px rgba(0,0,0,0.8)" }}>
+                            ${price.toFixed(2)}
+                          </span>
+                          <span className={`inline-block w-1.5 h-1.5 rounded-full ${freshnessColor}`} title={`Updated ${Math.round(freshestAge)}m ago`} />
+                        </div>
+                        <div className="flex flex-col items-end">
+                          {Number.isFinite(dayPct) && (
+                            <span className="text-[11px] font-bold tabular-nums leading-tight" style={{ color: chgColor, textShadow: "0 1px 4px rgba(0,0,0,0.7)" }}>
+                              {chgSign}{dayPct.toFixed(2)}%
+                              {Number.isFinite(dayChg) ? ` (${chgSign}$${Math.abs(dayChg).toFixed(2)})` : ""}
+                            </span>
+                          )}
+                          {hasAH && (
+                            <span className={`text-[10px] font-medium tabular-nums leading-tight mt-0.5 ${ahPct >= 0 ? "text-[#00e676]" : "text-rose-400"}`}>
+                              <span className="text-[9px] text-gray-400 mr-0.5">EXT</span>
+                              {ahPct >= 0 ? "+" : ""}{ahPct.toFixed(2)}%
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })()}
+
+                  {/* ── Row 3: Entry stats (if open position) ── */}
+                  {(() => {
+                    const stage = String(ticker?.kanban_stage || "");
+                    const showEntryStats = ["enter_now", "hold", "just_entered", "trim", "exit", "tp_hit_trim"].includes(stage);
+                    if (!showEntryStats) return null;
+                    const price = numFromAny(ticker?.price);
+                    const entryPriceRaw = numFromAny(ticker?.entry_price);
+                    const entryRefRaw = numFromAny(ticker?.entry_ref);
+                    const triggerRaw = numFromAny(ticker?.trigger_price);
+                    const entryPx = [entryPriceRaw, entryRefRaw, triggerRaw].find(v => Number.isFinite(v) && v > 0) || null;
+                    const dir = resolvedDir; // unified direction
+                    const entryPctRaw = numFromAny(ticker?.entry_change_pct);
+                    const entryPct = Number.isFinite(entryPctRaw) ? entryPctRaw
+                      : (entryPx > 0 && price > 0 ? (dir === "SHORT" ? ((entryPx - price) / entryPx) * 100 : ((price - entryPx) / entryPx) * 100) : null);
+                    if (!Number.isFinite(entryPx) && !Number.isFinite(entryPct)) return null;
+                    return (
+                      <div className="text-[11px] mt-1 text-cyan-300/90">
+                        {Number.isFinite(entryPx) ? `Entry $${Number(entryPx).toFixed(2)}` : "Entry —"}
+                        {Number.isFinite(entryPct) ? ` • Since entry ${entryPct >= 0 ? "+" : ""}${entryPct.toFixed(2)}%` : ""}
+                      </div>
+                    );
+                  })()}
+
+                  {/* ── Row 3: Groups + Stage/Ingest ── */}
+                  <div className="mt-2 flex items-center gap-3 flex-wrap text-[10px]">
+                    {/* Groups */}
+                    {(() => {
+                      try {
+                        const gs = groupsForTicker(ticker.ticker);
+                        if (!Array.isArray(gs) || gs.length === 0) return null;
+                        const ordered = Array.isArray(GROUP_ORDER)
+                          ? [...gs].sort((a, b) => GROUP_ORDER.indexOf(a) - GROUP_ORDER.indexOf(b))
+                          : gs;
+                        const seen = new Set();
+                        return ordered.map((g) => {
+                          const label = GROUP_LABELS[g] || g;
+                          if (seen.has(label)) return null;
+                          seen.add(label);
+                          return (
+                            <span key={`group-${g}`} className="px-1.5 py-0.5 rounded border bg-white/[0.02] border-white/[0.06] text-[#f0f2f5]">
+                              {label}
+                            </span>
+                          );
+                        }).filter(Boolean);
+                      } catch (_) { return null; }
+                    })()}
+
+                    {/* Ingest age pill — prefer latestTicker (freshness-merged by price feed) */}
+                    {(() => {
+                      const ingestTime = latestTicker?.ingest_ts || latestTicker?.ingest_time || ticker.ingest_ts || ticker.ingest_time || ticker.ts;
+                      if (!ingestTime) return null;
+                      try {
+                        const tv = typeof ingestTime === "string" ? new Date(ingestTime) : new Date(Number(ingestTime));
+                        if (isNaN(tv.getTime())) return null;
+                        const ageMs = Date.now() - tv.getTime();
+                        const ageMin = Math.floor(ageMs / 60000);
+                        const ageH = Math.floor(ageMin / 60);
+                        const ageD = Math.floor(ageH / 24);
+                        const txt = ageMin < 60 ? `${ageMin}m` : ageH < 24 ? `${ageH}h` : `${ageD}d`;
+                        const cls = ageMin < 5 ? "text-green-400 border-green-400/30" : ageMin < 60 ? "text-yellow-400 border-yellow-400/30" : "text-orange-400 border-orange-400/30";
+                        return <span className={`px-1.5 py-0.5 rounded border font-semibold ${cls}`} title={`Last ingest: ${tv.toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", hour12: true })}`}>{txt}</span>;
+                      } catch (_) { return null; }
+                    })()}
+
+                    {/* Stage pill */}
+                    {(() => {
+                      const useEffectiveStage = effectiveStage != null && String(effectiveStage).trim() !== "";
+                      const kanbanStageRaw = useEffectiveStage ? String(effectiveStage).trim() : String(ticker?.kanban_stage || "").trim();
+                      const kanbanStage = kanbanStageRaw.toUpperCase();
+                      if (!kanbanStage) return null;
+                      const kanbanPill = kanbanStage === "EXIT" ? "bg-red-500/15 text-red-300 border-red-500/40"
+                        : kanbanStage === "TRIM" ? "bg-yellow-500/15 text-yellow-300 border-yellow-500/40"
+                        : kanbanStage === "DEFEND" ? "bg-orange-500/15 text-orange-300 border-orange-500/40"
+                        : kanbanStage === "HOLD" ? "bg-blue-500/15 text-blue-300 border-blue-500/40"
+                        : kanbanStage === "ENTER_NOW" ? "bg-green-500/15 text-green-300 border-green-500/40"
+                        : "bg-white/5 text-[#6b7280] border-white/10";
+                      const stageLabel = {
+                        "WATCH": "Watch", "SETUP_WATCH": "Setup Watch", "SETUP": "Setup",
+                        "FLIP_WATCH": "Flip Watch", "JUST_FLIPPED": "Just Flipped",
+                        "ENTER": "Enter", "ENTER_NOW": "Enter Now",
+                        "JUST_ENTERED": "Just Entered", "HOLD": "Hold",
+                        "DEFEND": "Defend", "TRIM": "Trim", "EXIT": "Exit",
+                      }[kanbanStage] || kanbanStage;
+                      return <span className={`px-1.5 py-0.5 rounded border font-semibold ${kanbanPill}`}>{stageLabel}</span>;
+                    })()}
+
+                    {/* Move status pill (if not suppressed) */}
+                    {(() => {
+                      const ms = ticker?.move_status && typeof ticker.move_status === "object" ? ticker.move_status : null;
+                      const rawStatus = (ms && ms.status) ? String(ms.status).trim() : "";
+                      const hasOpenInLedger = Array.isArray(ledgerTrades) && ledgerTrades.some(
+                        (t) => String(t?.ticker || "").toUpperCase() === tickerSymbol && t.status !== "WIN" && t.status !== "LOSS"
+                      );
+                      let status = rawStatus ? String(rawStatus).toUpperCase() : "";
+                      if ((status === "NONE" || status === "") && hasOpenInLedger) status = "ACTIVE";
+                      const discoveryStages = new Set(["watch", "setup_watch", "setup", "flip_watch", "enter", "enter_now", "just_flipped", ""]);
+                      const rawStage = effectiveStage ? String(effectiveStage).trim().toLowerCase() : String(ticker?.kanban_stage || "").trim().toLowerCase();
+                      const suppressMove = status === "ACTIVE" && discoveryStages.has(rawStage);
+                      if (!status || suppressMove) return null;
+                      const pill = status === "INVALIDATED" ? "bg-red-500/15 text-red-300 border-red-500/40" : status === "COMPLETED" ? "bg-purple-500/15 text-purple-300 border-purple-500/40" : "bg-green-500/10 text-green-300 border-green-500/30";
+                      const icon = status === "INVALIDATED" ? "⛔" : status === "COMPLETED" ? "✅" : "🟢";
+                      return <span className={`px-1.5 py-0.5 rounded border font-semibold ${pill}`}>{icon} {status}</span>;
+                    })()}
+
+                    {/* Badges inline with stage/groups row */}
+                    {(() => {
+                      const flags = ticker?.flags || {};
+                      const badges = [];
+                      if (isPrimeBubble(ticker)) badges.push({ icon: "💎", label: "Prime", tip: "Prime: Top-ranked setup with high conviction" });
+                      if (flags.flip_watch) badges.push({ icon: "🎯", label: "Entry Zone", tip: "Entry Zone: Price is near optimal entry level" });
+                      if (flags.momentum_elite) badges.push({ icon: "🔥", label: "MoElite", tip: "MoElite: Elite momentum alignment across timeframes" });
+                      if (flags.sq30_on && !flags.sq30_release) badges.push({ icon: "🧨", label: "Squeeze", tip: "Squeeze: Bollinger Band squeeze detected — volatility expansion expected" });
+                      if (flags.sq30_release) badges.push({ icon: "⚡", label: "Release", tip: "Release: Squeeze has fired — momentum breakout in progress" });
+                      if (flags.saty_compression_multi_tf) badges.push({ icon: "🗜️", label: "Compressed", tip: `Compressed: Phase oscillator near zero across ${flags.saty_compression_count || ""}/${flags.saty_compression_total || ""} timeframes — coiled for a move` });
+                      if (badges.length === 0) return null;
+                      return badges.map((b, i) => (
+                        <span key={`ib-${i}`} className="px-1.5 py-0.5 rounded border bg-white/5 border-white/10 text-[#d1d5db] font-semibold cursor-default" title={b.tip}>{b.icon} {b.label}</span>
+                      ));
+                    })()}
+                  </div>
+
+                  {/* Right Rail Tabs — single row, scrollable on mobile */}
+                  <div className="mt-3 flex items-center gap-1 overflow-x-auto" style={{ scrollbarWidth: "none", WebkitOverflowScrolling: "touch" }}>
+                    {[
+                      { k: "ANALYSIS", label: "Analysis", proOnly: false },
+                      { k: "INVESTOR", label: "Investor", proOnly: false },
+                      { k: "TECHNICALS", label: "Technicals", proOnly: false },
+                      { k: "MODEL", label: "Model", proOnly: true },
+                      { k: "JOURNEY", label: "Journey", proOnly: true },
+                      {
+                        k: "TRADE_HISTORY",
+                        label: `Trades (${Array.isArray(ledgerTrades) ? ledgerTrades.length : 0})`,
+                        proOnly: true,
+                      },
+                    ].map((t) => {
+                      const active = railTab === t.k;
+                      const locked = t.proOnly && !window._ttIsPro;
+                      return (
+                        <button
+                          key={`rail-tab-${t.k}`}
+                          onClick={() => setRailTab(t.k)}
+                          className={`px-2 py-1 rounded-lg border text-[10px] sm:text-[11px] font-semibold transition-all whitespace-nowrap flex-shrink-0 flex items-center gap-0.5 ${
+                            active
+                              ? "border-blue-400 bg-blue-500/20 text-blue-200"
+                              : locked
+                                ? "border-amber-500/20 bg-amber-500/5 text-amber-400/60 hover:text-amber-300"
+                                : "border-white/[0.06] bg-white/[0.03] text-[#6b7280] hover:text-white"
+                          }`}
+                        >
+                          {t.label}
+                          {locked && <svg className="w-3 h-3 text-amber-400/60" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd"/></svg>}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Padded body content (keeps header top-aligned) */}
+                <div className="p-6 pt-4">
+                  {!window._ttIsPro && railTab !== "ANALYSIS" && railTab !== "INVESTOR" && railTab !== "TECHNICALS" ? (
+                    <div className="flex flex-col items-center justify-center py-16 gap-4 text-center">
+                      <div className="w-16 h-16 rounded-full bg-amber-500/10 border border-amber-500/30 flex items-center justify-center">
+                        <svg className="w-8 h-8 text-amber-400" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd"/></svg>
+                      </div>
+                      <div>
+                        <h3 className="text-[14px] font-bold text-white mb-1">Pro Feature</h3>
+                        <p className="text-[11px] text-gray-400 max-w-[240px]">
+                          {railTab === "TECHNICALS" && "Deep multi-timeframe technical analysis with scoring breakdowns across all indicators."}
+                          {railTab === "MODEL" && "AI model confidence, signal strength, and entry/exit decision rationale."}
+                          {railTab === "JOURNEY" && "Full ticker journey tracking with historical stage transitions and time-in-stage analytics."}
+                          {railTab === "TRADE_HISTORY" && "Complete trade ledger with P&L, win rate, and performance analytics."}
+                        </p>
+                      </div>
+                      <button className="px-5 py-2 rounded-full bg-gradient-to-r from-amber-500 to-amber-600 text-white text-[12px] font-bold hover:from-amber-400 hover:to-amber-500 transition-all shadow-lg shadow-amber-500/20"
+                        onClick={() => window.dispatchEvent(new CustomEvent("tt-go-pro"))}>
+                        Upgrade to Pro
+                      </button>
+                    </div>
+                  ) : railTab === "INVESTOR" ? (
+                    /* ═══════════════════════════════════════════════════════════ */
+                    /* INVESTOR TAB — Long-term portfolio view (score, stage, Buy Zone, etc.) */
+                    /* ═══════════════════════════════════════════════════════════ */
+                    (() => {
+                      const COMPONENT_LABELS = {
+                        weeklyTrend: { label: "Weekly Trend", tip: "Is the stock trending up or down on a weekly basis?", max: 25 },
+                        monthlyTrend: { label: "Monthly Trend", tip: "The bigger-picture direction over months", max: 20 },
+                        relativeStrength: { label: "Strength vs Market", tip: "How this stock performs compared to the S&P 500", max: 20 },
+                        accumulationSignal: { label: "Buy Zone Signal", tip: "Has the stock pulled back to a favorable entry price?", max: 15 },
+                        marketHealth: { label: "Market Conditions", tip: "Is the overall market environment supportive?", max: 10 },
+                        trendDurability: { label: "Trend Durability", tip: "How long and consistently the trend has held", max: 10 },
+                        sectorContext: { label: "Sector Context", tip: "Is this stock's sector in favor right now?", max: 10 },
+                      };
+                      const getScoreLabel = (s) => s >= 70 ? "Strong" : s >= 50 ? "Mixed" : "Weak";
+                      const getTickerSummary = (score, stage) => {
+                        if (score >= 70 && stage === "accumulate") return "Strong setup. The system sees a buying opportunity.";
+                        if (score >= 70 && stage === "core_hold") return "Strong and steady. The system recommends holding.";
+                        if (score >= 70) return "Strong signals across the board.";
+                        if (score >= 50 && stage === "accumulate") return "Moderate setup with a buying opportunity. The system suggests smaller sizing.";
+                        if (score >= 50 && stage === "watch") return "Mixed signals. The system recommends watching for now.";
+                        if (score >= 50 && stage === "core_hold") return "Decent health but not firing on all cylinders. Hold and monitor.";
+                        if (score >= 50) return "Mixed signals — some positives, some caution flags.";
+                        if (score < 50 && stage === "reduce") return "Weak setup. The system recommends reducing or exiting.";
+                        if (score < 50 && stage === "watch") return "Weak signals. The system recommends caution.";
+                        if (stage === "research_on_watch") return "On the radar. Moderate score — worth tracking.";
+                        if (stage === "research_low") return "Low conviction. Not actionable yet.";
+                        if (stage === "research_avoid" || stage === "research") return "Weak signals. The system advises caution.";
+                        if (score < 50) return "Unfavorable conditions. The system advises caution.";
+                        return "The system is evaluating this stock.";
+                      };
+                      const getRsSummary = (rs) => {
+                        if (!rs) return null;
+                        const pos = [rs.rs1m, rs.rs3m, rs.rs6m].filter(v => Number.isFinite(v) && v > 0).length;
+                        const neg = [rs.rs1m, rs.rs3m, rs.rs6m].filter(v => Number.isFinite(v) && v < 0).length;
+                        if (pos === 3) return "Outperforming the market across all timeframes.";
+                        if (pos >= 2) return "Generally outperforming, with some recent softness.";
+                        if (neg === 3) return "Underperforming the market. Relative weakness across the board.";
+                        if (neg >= 2) return "Mostly underperforming. The market is doing better.";
+                        return "Mixed performance relative to the market.";
+                      };
+                      const fmtPct = (n) => Number.isFinite(n) ? `${n >= 0 ? "+" : ""}${n.toFixed(1)}%` : "—";
+                      const SIGNAL_LABELS = { rsi_oversold: "RSI is low (oversold)", above_monthly_ema: "Price above monthly trend line", monthly_trend_intact: "Monthly trend still healthy", weekly_trend_intact: "Weekly trend still healthy", above_weekly_ema: "Price above weekly trend line", rsi_divergence: "Momentum divergence detected", volume_climax: "Unusual selling volume (capitulation)", near_support: "Price near a support level" };
+
+                      if (investorLoading) return <SkeletonBlock height={200} lines={5} />;
+                      if (investorError) {
+                        const is404 = investorError.includes("404");
+                        return <div className="py-8 text-center">
+                          <p className="text-[#6b7280] text-sm mb-2">{is404 ? "This ticker is not in the investor universe." : investorError}</p>
+                          <p className="text-[#6b7280] text-xs">{is404 ? "Add it via Ticker Management to enable investor scoring." : "Investor scores are computed hourly. Try again later."}</p>
+                        </div>;
+                      }
+                      const d = investorData;
+                      if (!d) return <div className="py-8 text-center text-[#6b7280] text-sm">No investor data for this ticker yet.</div>;
+
+                      const merged = { ...ticker, ...d };
+                      const price = merged.price ?? ticker?.price ?? d?.price;
+                      const dc = getDailyChange(merged);
+                      const chgPct = dc?.dayPct ?? null;
+                      const chgVal = dc?.dayChg ?? null;
+                      const score = Number(d.score) || 0;
+                      const scoreCls = score >= 70 ? "text-[#00e676]" : score >= 50 ? "text-amber-400" : "text-red-400";
+                      const summary = getTickerSummary(score, d.stage);
+                      const INVESTOR_STAGE_LABELS = { accumulate: "Accumulate", core_hold: "Core Hold", watch: "Watch", reduce: "Reduce", research_on_watch: "On Watch", research_low: "Low Conviction", research_avoid: "Avoid", research: "Research", exited: "Exited" };
+                      const stageCls = { accumulate: "bg-[#00c853]/15 text-[#34d399] border-[#00c853]/30", core_hold: "bg-blue-500/15 text-[#60a5fa] border-blue-500/30", watch: "bg-amber-500/15 text-[#fbbf24] border-amber-500/30", reduce: "bg-red-500/15 text-[#f87171] border-red-500/30", research_on_watch: "bg-violet-500/15 text-[#a78bfa] border-violet-500/30", research_low: "bg-purple-500/15 text-[#a78bfa] border-purple-500/30", research_avoid: "bg-gray-500/15 text-[#9ca3af] border-gray-500/30", research: "bg-gray-500/15 text-[#9ca3af] border-gray-500/30", exited: "bg-gray-500/15 text-[#9ca3af] border-gray-500/30" }[d.stage] || "bg-gray-500/15 text-[#9ca3af] border-gray-500/30";
+
+                      return (
+                        <div className="space-y-5">
+                          <div>
+                            <div className="flex items-center justify-between mb-1">
+                              <div>
+                                <div className="text-lg font-bold text-white">{d.ticker}</div>
+                                {d.companyName && <div className="text-xs text-[#9ca3af]">{d.companyName}</div>}
+                                <div className="text-[10px] text-[#6b7280]">{d.sector || "Unknown"}</div>
+                              </div>
+                              <div className="text-right">
+                                <div className={`flex items-baseline gap-1.5 justify-end text-2xl font-bold ${scoreCls}`}>{score} <span className="text-xs font-semibold">{getScoreLabel(score)}</span></div>
+                                <div className="text-[10px] text-[#6b7280]">Investor Score</div>
+                              </div>
+                            </div>
+                            <div className="text-[11px] text-[#9ca3af] mt-2 italic leading-relaxed">{summary}</div>
+                          </div>
+
+                          {predictionContractLoading ? (
+                            <SkeletonBlock height={100} lines={4} />
+                          ) : predictionContract ? (
+                            <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-3">
+                              <div className="flex items-start justify-between gap-3">
+                                <div>
+                                  <div className="text-[10px] uppercase tracking-[0.16em] text-[#6b7280]">Model Guidance</div>
+                                  <div className="mt-1 text-sm font-semibold text-white">{predictionContract.action_label || "Monitor"}</div>
+                                </div>
+                                <div className="flex flex-wrap items-center justify-end gap-1.5">
+                                  <span className={`px-2 py-0.5 rounded-md text-[10px] font-semibold border ${
+                                    predictionContract.confidence === "high"
+                                      ? "bg-[#00c853]/12 text-[#34d399] border-[#00c853]/25"
+                                      : predictionContract.confidence === "medium"
+                                        ? "bg-amber-500/12 text-amber-300 border-amber-500/25"
+                                        : "bg-red-500/12 text-red-300 border-red-500/25"
+                                  }`}>
+                                    {String(predictionContract.confidence || "low").toUpperCase()}
+                                  </span>
+                                  {predictionContract.horizon && (
+                                    <span className="px-2 py-0.5 rounded-md text-[10px] font-medium border border-white/[0.08] text-[#9ca3af]">
+                                      {String(predictionContract.horizon).replace(/_/g, " ")}
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                              {predictionContract.thesis && (
+                                <div className="mt-2 text-[12px] text-[#d1d5db] leading-relaxed">{predictionContract.thesis}</div>
+                              )}
+                              {predictionContract.why_now && (
+                                <div className="mt-2 text-[11px] text-[#9ca3af] leading-relaxed">{predictionContract.why_now}</div>
+                              )}
+                              {Array.isArray(predictionContract.supporting) && predictionContract.supporting.length > 0 && (
+                                <div className="mt-2 flex flex-wrap gap-1.5">
+                                  {predictionContract.supporting.map((item, idx) => (
+                                    <span key={idx} className="px-1.5 py-0.5 rounded bg-white/[0.04] text-[10px] text-[#9ca3af] border border-white/[0.05]">
+                                      {item}
+                                    </span>
+                                  ))}
+                                </div>
+                              )}
+                              {Array.isArray(predictionContract.invalidation) && predictionContract.invalidation.length > 0 && (
+                                <div className="mt-2">
+                                  <div className="text-[10px] text-[#6b7280] mb-1">Invalidation</div>
+                                  {predictionContract.invalidation.slice(0, 3).map((item, idx) => (
+                                    <div key={idx} className="text-[11px] text-red-300/80 leading-relaxed">• {item}</div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          ) : predictionContractError ? (
+                            <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-3 text-[11px] text-[#6b7280]">
+                              Prediction contract unavailable.
+                            </div>
+                          ) : null}
+
+                          {price != null && Number.isFinite(price) && (
+                            <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-3 flex items-center justify-between">
+                              <div><div className="text-[10px] text-[#6b7280] uppercase">Price</div><div className="text-lg font-bold text-white tabular-nums">${Number(price).toFixed(2)}</div></div>
+                              {(chgPct != null && Number.isFinite(chgPct)) && <div className="text-right"><div className="text-[10px] text-[#6b7280] uppercase">Today</div><div className={`text-lg font-bold tabular-nums ${chgPct >= 0 ? "text-[#00e676]" : "text-red-400"}`}>{chgPct >= 0 ? "+" : ""}{chgPct.toFixed(2)}%</div>{Number.isFinite(chgVal) && <div className={`text-[11px] ${chgVal >= 0 ? "text-[#00e676]/70" : "text-red-400/70"}`}>{chgVal >= 0 ? "+" : "-"}${Math.abs(chgVal).toFixed(2)}</div>}</div>}
+                              {d.prevClose != null && Number.isFinite(d.prevClose) && <div className="text-right"><div className="text-[10px] text-[#6b7280] uppercase">Prev Close</div><div className="text-sm font-semibold text-[#9ca3af] tabular-nums">${d.prevClose.toFixed(2)}</div></div>}
+                            </div>
+                          )}
+
+                          <div>
+                            <div className="flex items-center gap-2 mb-1">
+                              <span className={`px-2 py-0.5 rounded-md text-[11px] font-semibold border ${stageCls}`}>{INVESTOR_STAGE_LABELS[d.stage] || (d.stage || "research_avoid").replace(/_/g, " ")}</span>
+                              {d.stage === "accumulate" && <span className="text-[10px] text-[#00e676]/80 bg-[#00c853]/10 px-2 py-0.5 rounded border border-[#00c853]/20">Buy signal — add in small portions</span>}
+                              {d.stage === "watch" && <span className="text-[10px] text-amber-400/80 bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/20">The system suggests a small starter position</span>}
+                              {d.stage === "reduce" && <span className="text-[10px] text-red-400/80 bg-red-500/10 px-2 py-0.5 rounded border border-red-500/20">Reduce signal — the system recommends trimming</span>}
+                            </div>
+                            {d.stageReason && <div className="text-[10px] text-[#6b7280]">{d.stageReason}</div>}
+                          </div>
+
+                          {d.components && Object.keys(d.components).length > 0 && (
+                            <div>
+                              <h3 className="text-xs font-semibold text-[#9ca3af] mb-1 uppercase">Score Breakdown</h3>
+                              <div className="text-[10px] text-[#4b5563] mb-2.5">How the system arrived at this stock's overall score.</div>
+                              <div className="space-y-2">
+                                {Object.entries(d.components).map(([k, v]) => {
+                                  const meta = COMPONENT_LABELS[k] || { label: k.replace(/([A-Z])/g, " $1").trim(), tip: "", max: 10 };
+                                  const maxVal = meta.max || 10;
+                                  const pct = v / maxVal;
+                                  const dotColor = pct >= 0.6 ? "bg-[#00e676]" : pct >= 0.3 ? "bg-amber-400" : "bg-red-400";
+                                  return (
+                                    <div key={k} className="flex items-center gap-2" title={meta.tip}>
+                                      <span className={`w-1.5 h-1.5 rounded-full ${dotColor} shrink-0`} />
+                                      <span className="text-[11px] text-[#9ca3af] w-28 shrink-0">{meta.label}</span>
+                                      <div className="flex-1 h-1.5 rounded-full bg-white/[0.06] overflow-hidden"><div className="h-full rounded-full bg-[#3b82f6]" style={{ width: `${Math.min(100, (v / maxVal) * 100)}%` }} /></div>
+                                      <span className="text-xs text-white w-6 text-right tabular-nums shrink-0">{v}</span>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          )}
+
+                          {d.rs && (
+                            <div>
+                              <h3 className="text-xs font-semibold text-[#9ca3af] mb-1 uppercase">Performance vs Market</h3>
+                              <div className="text-[10px] text-[#4b5563] mb-2.5">{getRsSummary(d.rs)}</div>
+                              <div className="grid grid-cols-3 gap-2">
+                                <div className="rounded-lg border border-white/[0.06] p-2.5 text-center"><div className="text-[10px] text-[#6b7280]">1 Month</div><div className={`text-sm font-semibold ${d.rs.rs1m >= 0 ? "text-[#00e676]" : "text-red-400"}`}>{fmtPct(d.rs.rs1m)}</div></div>
+                                <div className="rounded-lg border border-white/[0.06] p-2.5 text-center"><div className="text-[10px] text-[#6b7280]">3 Months</div><div className={`text-sm font-semibold ${d.rs.rs3m >= 0 ? "text-[#00e676]" : "text-red-400"}`}>{fmtPct(d.rs.rs3m)}</div></div>
+                                <div className="rounded-lg border border-white/[0.06] p-2.5 text-center"><div className="text-[10px] text-[#6b7280]">6 Months</div><div className={`text-sm font-semibold ${d.rs.rs6m >= 0 ? "text-[#00e676]" : "text-red-400"}`}>{fmtPct(d.rs.rs6m)}</div></div>
+                              </div>
+                              {d.rsRank != null && <div className="mt-2.5"><div className="flex items-center justify-between mb-1 text-[11px] text-[#9ca3af]">Outperforms {d.rsRank}% of all tracked stocks</div><div className="h-1.5 rounded-full bg-white/[0.06] overflow-hidden"><div className="h-full rounded-full bg-[#3b82f6]" style={{ width: `${Math.min(100, d.rsRank)}%` }} /></div></div>}
+                            </div>
+                          )}
+
+                          {d.accumZone && (
+                            <div>
+                              <h3 className="text-xs font-semibold text-[#9ca3af] mb-1 uppercase" title="Has the stock pulled back to an attractive price?">Buy Zone</h3>
+                              {d.accumZone.inZone ? (
+                                <div className="rounded-lg border border-[#00c853]/30 p-3">
+                                  <div className="flex items-center gap-2 mb-1.5"><span className="w-2 h-2 rounded-full bg-[#00e676] animate-pulse" /><span className="text-xs text-[#00e676] font-semibold">In Buy Zone</span><span className="text-[10px] text-[#9ca3af]">{d.accumZone.confidence}% confidence</span></div>
+                                  <div className="text-[11px] text-[#9ca3af] leading-relaxed mb-2">The stock dipped to a favorable price without breaking its uptrend.</div>
+                                  {d.accumZone.signals?.length > 0 && <div className="flex flex-wrap gap-1">{d.accumZone.signals.map((s, i) => <span key={i} className="text-[9px] px-1.5 py-0.5 rounded bg-white/[0.04] text-[#9ca3af]">{SIGNAL_LABELS[s] || s.replace(/_/g, " ")}</span>)}</div>}
+                                </div>
+                              ) : <div className="text-[11px] text-[#6b7280]">Not in a buy zone right now.</div>}
+                            </div>
+                          )}
+
+                          {d.thesis && (
+                            <div>
+                              <h3 className="text-xs font-semibold text-[#9ca3af] mb-1 uppercase">Investment Thesis</h3>
+                              <div className="text-[10px] text-[#4b5563] mb-2">Why the system is tracking this stock.</div>
+                              <div className="text-xs text-[#d1d5db] leading-relaxed mb-2">{d.thesis}</div>
+                              {d.thesisInvalidation?.length > 0 && <div><div className="text-[10px] text-[#6b7280] mb-1">What would change this view:</div>{d.thesisInvalidation.map((inv, i) => <div key={i} className="text-[11px] text-red-400/80 pl-2">• {inv}</div>)}</div>}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()
+                  ) : railTab === "ANALYSIS" ? (
+                    <>
+                      {/* ═══════════════════════════════════════════════════════════ */}
+                      {/* 1. CONTEXT                                                  */}
+                      {/* ═══════════════════════════════════════════════════════════ */}
+                      {(() => {
+                        const baseCtx =
+                          ticker?.context && typeof ticker.context === "object"
+                            ? ticker.context
+                            : null;
+                        const mergedCtx =
+                          latestTicker?.context &&
+                          typeof latestTicker.context === "object"
+                            ? latestTicker.context
+                            : null;
+                        const ctx = mergedCtx || baseCtx;
+                        if (!ctx) return null;
+                        const name = ctx.name || ctx.companyName || ctx.company_name;
+                        const description =
+                          ctx.description ||
+                          ctx.businessSummary ||
+                          ctx.business_summary;
+                        const sector = ctx.sector;
+                        const industry = ctx.industry;
+                        const country = ctx.country;
+                        const marketCap =
+                          Number(ctx.market_cap || ctx.marketCap || 0) || 0;
+                        const lastEarnTs = Number(ctx.last_earnings_ts || ctx.lastEarningsTs || 0) || 0;
+                        const events = ctx.events && typeof ctx.events === "object" ? ctx.events : null;
+
+                        // Merge model signal-level sector info
+                        const msSectorData = modelSignal?.sector;
+                        const enrichedSector = sector || msSectorData?.sector || null;
+                        const enrichedIndustry = industry || null;
+
+                        const fmtDate = (ts) => {
+                          if (!ts) return "—";
+                          const d = typeof ts === "number" && ts > 1e12
+                            ? new Date(ts) : typeof ts === "number" ? new Date(ts * 1000) : new Date(ts);
+                          if (isNaN(d)) return "—";
+                          return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+                        };
+                        const fmtMCap = (val) => {
+                          if (val >= 1e12) return `$${(val / 1e12).toFixed(2)}T`;
+                          if (val >= 1e9) return `$${(val / 1e9).toFixed(2)}B`;
+                          if (val >= 1e6) return `$${(val / 1e6).toFixed(0)}M`;
+                          return `$${val.toLocaleString()}`;
+                        };
+                        const nextEarnTs = Number(events?.next_earnings_ts || 0) || 0;
+                        const lastEarnEvt = Number(events?.last_earnings_ts || 0) || lastEarnTs;
+                        const showDesc = description && description !== name;
+
+                        // Finnhub upcoming earnings (fresher than context.events)
+                        const _rrEarnMap = earningsMap || window._ttEarningsMap;
+                        const finnhubEarn = _rrEarnMap?.[String(tickerSymbol).toUpperCase()];
+                        const finnhubEarnDate = finnhubEarn?.date;
+                        const finnhubEarnHour = finnhubEarn?.hour;
+                        const finnhubDaysAway = finnhubEarn?._daysAway;
+                        const hasFinnhubEarn = !!finnhubEarn;
+                        const isEarningsImminent = hasFinnhubEarn && finnhubDaysAway >= 0 && finnhubDaysAway <= 2;
+                        const earnLabel = (() => {
+                          if (!hasFinnhubEarn) return null;
+                          const d = finnhubDaysAway;
+                          if (d === 0) return "Today";
+                          if (d === 1) return "Tomorrow";
+                          if (d === -1) return "Yesterday";
+                          if (d < 0) return `${Math.abs(d)} day${Math.abs(d) !== 1 ? "s" : ""} ago`;
+                          return `in ${d} day${d !== 1 ? "s" : ""}`;
+                        })();
+                        const earnHourLabel = (() => {
+                          if (!finnhubEarnHour) return "";
+                          const h = String(finnhubEarnHour).toLowerCase();
+                          if (h === "bmo" || h === "before market open") return "Before Open";
+                          if (h === "amc" || h === "after market close") return "After Close";
+                          if (h === "dmh" || h === "during market hours") return "During Hours";
+                          return "";
+                        })();
+
+                        return (
+                          <div className="mb-3 px-2.5 py-2 bg-white/[0.03] border border-white/[0.06] rounded-lg">
+                            {name ? (
+                              <div className="text-xs font-semibold text-white truncate">{name}</div>
+                            ) : null}
+                            <div className="text-[10px] text-[#6b7280] mt-0.5">
+                              {[enrichedSector, enrichedIndustry, country]
+                                .filter(Boolean)
+                                .join(" • ") || "—"}
+                            </div>
+                            {showDesc ? (
+                              <div className="mt-1 text-[10px] text-[#6b7280] leading-snug" style={{ display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
+                                {description}
+                              </div>
+                            ) : null}
+
+                            {/* Upcoming earnings callout — prominent when imminent */}
+                            {hasFinnhubEarn && (
+                              <div className={`mt-1.5 flex items-center gap-2 px-2.5 py-2 rounded-lg border ${isEarningsImminent ? "bg-amber-500/15 border-amber-500/40" : "bg-blue-500/10 border-blue-500/25"}`}>
+                                <span className="text-base">📅</span>
+                                <div className="min-w-0">
+                                  <div className={`text-[11px] font-bold ${isEarningsImminent ? "text-amber-300" : "text-blue-300"}`}>
+                                    Earnings {earnLabel}
+                                  </div>
+                                  <div className="text-[10px] text-[#9ca3af]">
+                                    {new Date(finnhubEarnDate + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}
+                                    {earnHourLabel ? ` · ${earnHourLabel}` : ""}
+                                    {finnhubEarn.epsEstimate != null ? ` · Est. $${Number(finnhubEarn.epsEstimate).toFixed(2)}` : ""}
+                                  </div>
+                                  {finnhubEarn.epsActual != null && finnhubEarn.epsEstimate != null && (
+                                    <div className={`text-[10px] font-semibold mt-0.5 ${finnhubEarn.epsActual >= finnhubEarn.epsEstimate ? "text-green-400" : "text-rose-400"}`}>
+                                      Reported ${Number(finnhubEarn.epsActual).toFixed(2)} — {finnhubEarn.epsActual >= finnhubEarn.epsEstimate ? "Beat" : "Miss"} by ${Math.abs(finnhubEarn.epsActual - finnhubEarn.epsEstimate).toFixed(2)}
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            )}
+
+                            {(marketCap || (lastEarnEvt && !hasFinnhubEarn) || (nextEarnTs && !hasFinnhubEarn)) ? (
+                              <div className={`mt-1.5 grid gap-1.5 text-[10px]`} style={{ gridTemplateColumns: `repeat(${[marketCap, lastEarnEvt && !hasFinnhubEarn, nextEarnTs && !hasFinnhubEarn].filter(Boolean).length}, 1fr)` }}>
+                                {marketCap ? (
+                                  <div className="p-1.5 bg-white/[0.02] border border-white/[0.06] rounded text-center">
+                                    <div className="text-[9px] text-[#6b7280]">MCap</div>
+                                    <div className="text-[11px] font-semibold text-white">{fmtMCap(marketCap)}</div>
+                                  </div>
+                                ) : null}
+                                {lastEarnEvt && !hasFinnhubEarn ? (
+                                  <div className="p-1.5 bg-white/[0.02] border border-white/[0.06] rounded text-center">
+                                    <div className="text-[9px] text-[#6b7280]">Last Earnings</div>
+                                    <div className="text-[11px] font-semibold text-white">{fmtDate(lastEarnEvt)}</div>
+                                  </div>
+                                ) : null}
+                                {nextEarnTs && !hasFinnhubEarn ? (
+                                  <div className="p-1.5 bg-blue-500/10 border border-blue-500/30 rounded text-center">
+                                    <div className="text-[9px] text-blue-400">Next Earnings</div>
+                                    <div className="text-[11px] font-semibold text-blue-300">{fmtDate(nextEarnTs)}</div>
+                                  </div>
+                                ) : null}
+                              </div>
+                            ) : null}
+                          </div>
+                        );
+                      })()}
+
+                      {prime && (() => {
+                        const _primeLabels = { aligned: "Full Alignment", thesis: "Thesis Match", winner: "Winner Pattern", squeeze_release: "Squeeze Release", momentum: "Momentum Elite", phase_change: "Phase Shift" };
+                        const _primeReason = _primeLabels[prime.reason] || "High Conviction";
+                        return (
+                          <div className="mb-3 flex items-center gap-2.5 px-3 py-2 rounded-lg border border-amber-500/30 bg-amber-500/10">
+                            <span className="text-base">💎</span>
+                            <div className="min-w-0">
+                              <div className="text-[11px] font-bold text-amber-300 tracking-wide uppercase">Prime Setup</div>
+                              <div className="text-[10px] text-amber-300/60">{_primeReason}</div>
+                            </div>
+                          </div>
+                        );
+                      })()}
+
+                      {predictionContractLoading ? (
+                        <SkeletonBlock height={120} lines={4} />
+                      ) : predictionContract ? (
+                        <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-3 mb-4">
+                          <div className="flex items-start justify-between gap-3">
+                            <div>
+                              <div className="text-[10px] uppercase tracking-[0.16em] text-[#6b7280]">Model Guidance</div>
+                              <div className="mt-1 flex items-center gap-2">
+                                <span className="text-sm font-semibold text-white">{predictionContract.action_label || "Monitor"}</span>
+                                {predictionContract.setup_tier && (() => {
+                                  const _t = predictionContract.setup_tier;
+                                  const _cls = _t === "Prime" ? "bg-amber-500/15 text-amber-300 border-amber-500/30" : _t === "Confirmed" ? "bg-emerald-500/15 text-emerald-300 border-emerald-500/30" : "bg-blue-500/15 text-blue-300 border-blue-500/30";
+                                  return <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold border ${_cls}`}>{predictionContract.setup_tier_icon || ""} {_t}</span>;
+                                })()}
+                              </div>
+                            </div>
+                            <div className="flex flex-wrap items-center justify-end gap-1.5">
+                              {predictionContract.direction && (
+                                <span className={`px-2 py-0.5 rounded-md text-[10px] font-semibold border ${
+                                  predictionContract.direction === "LONG"
+                                    ? "bg-[#00c853]/12 text-[#34d399] border-[#00c853]/25"
+                                    : "bg-red-500/12 text-red-300 border-red-500/25"
+                                }`}>
+                                  {predictionContract.direction}
+                                </span>
+                              )}
+                              <span className={`px-2 py-0.5 rounded-md text-[10px] font-semibold border ${
+                                predictionContract.confidence === "high"
+                                  ? "bg-[#00c853]/12 text-[#34d399] border-[#00c853]/25"
+                                  : predictionContract.confidence === "medium"
+                                    ? "bg-amber-500/12 text-amber-300 border-amber-500/25"
+                                    : "bg-red-500/12 text-red-300 border-red-500/25"
+                              }`}>
+                                {String(predictionContract.confidence || "low").toUpperCase()}
+                              </span>
+                            </div>
+                          </div>
+                          {predictionContract.thesis && (
+                            <div className="mt-2 text-[12px] text-[#d1d5db] leading-relaxed">{predictionContract.thesis}</div>
+                          )}
+                          {predictionContract.why_now && (
+                            <div className="mt-2 text-[11px] text-[#9ca3af] leading-relaxed italic">{predictionContract.why_now}</div>
+                          )}
+                          {Array.isArray(predictionContract.supporting) && predictionContract.supporting.length > 0 && (
+                            <div className="mt-2 flex flex-wrap gap-1.5">
+                              {predictionContract.supporting.map((item, idx) => (
+                                <span key={idx} className="px-1.5 py-0.5 rounded bg-white/[0.04] text-[10px] text-[#9ca3af] border border-white/[0.05]">
+                                  {item}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                          {(() => {
+                            const _sl = predictionContract?.risk?.stop_loss != null ? Number(predictionContract.risk.stop_loss) : NaN;
+                            const _rr = predictionContract?.risk?.rr != null ? Number(predictionContract.risk.rr) : NaN;
+                            const _entry = Number(ticker?.position_entry || ticker?.entry_price || ticker?.entry_ref || ticker?.trigger_price || ticker?.price) || 0;
+                            const _slPct = Number.isFinite(_sl) && _entry > 0 ? Math.abs((_sl - _entry) / _entry) * 100 : NaN;
+                            const _hasSl = Number.isFinite(_sl) && _sl > 0;
+                            const _hasRr = Number.isFinite(_rr) && _rr > 0;
+                            if (!_hasSl && !_hasRr) return null;
+                            return (
+                              <div className="mt-3 grid grid-cols-2 gap-2">
+                                {_hasSl && (
+                                  <div className="rounded-lg border border-red-500/20 bg-red-500/8 p-2">
+                                    <div className="text-[10px] text-[#6b7280] uppercase">Stop Loss</div>
+                                    <div className="flex items-baseline gap-1.5">
+                                      <span className="text-sm font-semibold text-red-300 tabular-nums">${_sl.toFixed(2)}</span>
+                                      {Number.isFinite(_slPct) && <span className="text-[9px] text-red-300/60">{_slPct.toFixed(1)}%</span>}
+                                    </div>
+                                  </div>
+                                )}
+                                {_hasRr && (
+                                  <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-2">
+                                    <div className="text-[10px] text-[#6b7280] uppercase">Risk / Reward</div>
+                                    <div className="text-sm font-semibold text-white tabular-nums">{_rr.toFixed(2)}x</div>
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })()}
+                          {Array.isArray(predictionContract.targets) && predictionContract.targets.length > 0 && (
+                            <div className="mt-3">
+                              <div className="text-[10px] text-[#6b7280] mb-1 uppercase">Management Levels</div>
+                              <div className="space-y-1.5">
+                                {predictionContract.targets.slice(0, 3).map((target, idx) => {
+                                  const _tpPx = Number(target.price);
+                                  const _eRef = Number(ticker?.position_entry || ticker?.entry_price || ticker?.entry_ref || ticker?.trigger_price || ticker?.price) || 0;
+                                  const _pct = Number.isFinite(_tpPx) && _eRef > 0 ? Math.abs((_tpPx - _eRef) / _eRef) * 100 : NaN;
+                                  return (
+                                    <div key={idx} className="flex items-center justify-between rounded-lg border border-[#00c853]/18 bg-[#00c853]/8 px-2.5 py-1.5">
+                                      <span className="text-[11px] text-[#9ca3af]">{target.label}</span>
+                                      <div className="flex items-center gap-1.5">
+                                        <span className="text-[12px] font-semibold text-[#d1fae5] tabular-nums">${_tpPx.toFixed(2)}</span>
+                                        {Number.isFinite(_pct) && <span className="text-[9px] text-[#6b7280]">{_pct.toFixed(1)}%</span>}
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          )}
+                          {Array.isArray(predictionContract.invalidation) && predictionContract.invalidation.length > 0 && (
+                            <div className="mt-3">
+                              <div className="text-[10px] text-[#6b7280] mb-1 uppercase">Invalidation</div>
+                              {predictionContract.invalidation.slice(0, 3).map((item, idx) => (
+                                <div key={idx} className="text-[11px] text-red-300/80 leading-relaxed">• {item}</div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      ) : predictionContractError ? (
+                        <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-3 mb-4 text-[11px] text-[#6b7280]">
+                          Model guidance unavailable.
+                        </div>
+                      ) : null}
+
+                      {/* Prime Setup banner moved above Model Guidance */}
+
+                      {/* ═══════════════════════════════════════════════════════════ */}
+                      {/* 5. RISK / REWARD LEVELS — REMOVED (redundant with Model    */}
+                      {/*    Guidance targets above)                                  */}
+                      {/* ═══════════════════════════════════════════════════════════ */}
+                      {false && (() => {
+                        // Use position SL/TP when available (correct for SHORT trades)
+                        const posSlRaw = ticker?.has_open_position ? Number(ticker?.position_sl) : NaN;
+                        const posTpRaw = ticker?.has_open_position ? Number(ticker?.position_tp) : NaN;
+                        const price = Number(ticker?.price);
+                        const kijunSL = resolvedDir === "LONG" ? Number(ticker?.ichimoku_d?.kijunSL_long) : Number(ticker?.ichimoku_d?.kijunSL_short);
+                        const slRaw = Number.isFinite(posSlRaw) && posSlRaw > 0 ? posSlRaw : (ticker?.sl ?? ticker?.sl_price ?? ticker?.stop_loss) ? Number(ticker?.sl ?? ticker?.sl_price ?? ticker?.stop_loss) : (Number.isFinite(kijunSL) && kijunSL > 0 ? kijunSL : null);
+                        // Direction-aware SL sanity: LONG → SL below price; SHORT → SL above price.
+                        // Stale ingest data can have LONG-style SL when state flipped to SHORT.
+                        const slSane = (raw) => {
+                          if (!Number.isFinite(raw) || raw <= 0) return null;
+                          if (!resolvedDir || !Number.isFinite(price) || price <= 0) return raw;
+                          if (resolvedDir === "LONG" && raw >= price) return null;
+                          if (resolvedDir === "SHORT" && raw <= price) return null;
+                          return raw;
+                        };
+                        const sl = slSane(slRaw);
+                        // Original SL at trade creation — used to determine if TSL is active
+                        const slOrigRaw = Number(trade?.sl_original ?? ticker?.position_sl_original ?? 0);
+                        const slOrig = (Number.isFinite(slOrigRaw) && slOrigRaw > 0 ? slSane(slOrigRaw) : null);
+                        const rr = ticker.rr ? Number(ticker.rr) : null;
+                        const hasSl = sl != null && sl > 0;
+                        // TSL is active when current SL has moved > 0.5% from original
+                        const tslActive = hasSl && slOrig && Math.abs(sl - slOrig) / slOrig > 0.005;
+
+                        // Prefer trade-level tpArray (direction-aware) over ticker-level (may be LONG-only)
+                        const tradeTpArr = Array.isArray(trade?.tpArray) && trade.tpArray.length > 0
+                          ? trade.tpArray
+                          : (Array.isArray(ticker?.tpArray) ? ticker.tpArray : []);
+                        const tpTrimRaw = tradeTpArr.length > 0
+                          ? Number(tradeTpArr[0]?.price)
+                          : Number(ticker?.tp_trim);
+                        const tpExitRaw = tradeTpArr.length > 1
+                          ? Number(tradeTpArr[1]?.price)
+                          : Number(ticker?.tp_exit);
+                        const tpRunnerRaw = tradeTpArr.length > 2
+                          ? Number(tradeTpArr[2]?.price)
+                          : Number(ticker?.tp_runner);
+                        // Direction-aware TP sanity: filter out wrong-side TPs.
+                        // For SHORT, TPs must be BELOW entry/price. For LONG, ABOVE.
+                        const entryPxForTp = Number(ticker?.position_entry || trade?.entry_price || trade?.entryPrice || ticker?.entry_price || ticker?.entry_ref || ticker?.trigger_price) || 0;
+                        const tpSane = (raw) => {
+                          if (!Number.isFinite(raw) || raw <= 0) return NaN;
+                          if (!resolvedDir) return raw;
+                          // Check against entry price if available
+                          if (entryPxForTp > 0) {
+                            if (resolvedDir === "LONG" && raw <= entryPxForTp) return NaN;
+                            if (resolvedDir === "SHORT" && raw >= entryPxForTp) return NaN;
+                          }
+                          // Also check against current price — TP must not already be passed
+                          if (Number.isFinite(price) && price > 0) {
+                            if (resolvedDir === "LONG" && raw <= price) return NaN;
+                            if (resolvedDir === "SHORT" && raw >= price) return NaN;
+                          }
+                          return raw;
+                        };
+                        const tpTrim = tpSane(tpTrimRaw);
+                        const tpExit = tpSane(tpExitRaw);
+                        const tpRunner = tpSane(tpRunnerRaw);
+                        const has3Tier = (Number.isFinite(tpTrim) && tpTrim > 0) || (Number.isFinite(tpExit) && tpExit > 0);
+
+                        const legacyTargetRaw = computeTpTargetPrice(ticker);
+                        const legacyMaxRaw = computeTpMaxPrice(ticker);
+                        // Direction sanity: for LONG, TP must be above price; for SHORT, below
+                        const legacyTarget = (() => {
+                          if (!Number.isFinite(legacyTargetRaw) || legacyTargetRaw <= 0) return null;
+                          if (!resolvedDir || !Number.isFinite(price) || price <= 0) return legacyTargetRaw;
+                          if (resolvedDir === "LONG" && legacyTargetRaw <= price) return null;
+                          if (resolvedDir === "SHORT" && legacyTargetRaw >= price) return null;
+                          return legacyTargetRaw;
+                        })();
+                        const legacyMax = (() => {
+                          if (!Number.isFinite(legacyMaxRaw) || legacyMaxRaw <= 0) return null;
+                          if (!resolvedDir || !Number.isFinite(price) || price <= 0) return legacyMaxRaw;
+                          if (resolvedDir === "LONG" && legacyMaxRaw <= price) return null;
+                          if (resolvedDir === "SHORT" && legacyMaxRaw >= price) return null;
+                          return legacyMaxRaw;
+                        })();
+                        const hasLegacy = !has3Tier && (Number.isFinite(legacyTarget) || Number.isFinite(legacyMax));
+
+                        if (!hasSl && !has3Tier && !hasLegacy && !Number.isFinite(rr)) return null;
+
+                        const dir = resolvedDir; // unified direction from top of component
+                        // SL% = absolute risk distance from entry price (fall back to current price)
+                        const _entryRef = Number(ticker?.position_entry || trade?.entry_price || trade?.entryPrice || ticker?.entry_price || ticker?.entry_ref || ticker?.trigger_price) || price;
+                        const slDistPct = hasSl && Number.isFinite(_entryRef) && _entryRef > 0
+                          ? Math.abs((sl - _entryRef) / _entryRef) * 100
+                          : null;
+
+                        // Compute per-target R:R from current price (requires known direction)
+                        const computeTargetRR = (tpVal) => {
+                          if (!dir || !hasSl || !Number.isFinite(price) || price <= 0 || !Number.isFinite(tpVal) || tpVal <= 0) return null;
+                          const risk = dir === "LONG" ? price - sl : sl - price;
+                          const gain = dir === "LONG" ? tpVal - price : price - tpVal;
+                          if (risk <= 0 || gain <= 0) return null;
+                          return gain / risk;
+                        };
+
+                        // Per-target % distance from entry price (fallback to current price)
+                        const tpPct = (tpVal) => {
+                          const ref = Number.isFinite(_entryRef) && _entryRef > 0 ? _entryRef : price;
+                          if (!Number.isFinite(ref) || ref <= 0 || !Number.isFinite(tpVal) || tpVal <= 0) return null;
+                          return Math.abs((tpVal - ref) / ref) * 100;
+                        };
+
+                        const rrTrim = has3Tier ? computeTargetRR(tpTrim) : null;
+                        const rrExit = has3Tier ? computeTargetRR(tpExit) : null;
+                        const rrRunner = has3Tier ? computeTargetRR(tpRunner) : null;
+
+                        const getProgressToTp = (tpVal) => {
+                          if (!dir || !Number.isFinite(price) || price <= 0 || !Number.isFinite(tpVal)) return 0;
+                          const slVal = hasSl ? sl : price;
+                          const totalMove = Math.abs(tpVal - slVal);
+                          if (totalMove <= 0) return 0;
+                          const currentMove = dir === "LONG" ? price - slVal : slVal - price;
+                          return Math.max(0, Math.min(1, currentMove / totalMove));
+                        };
+                        const tierCards = [
+                          { tp: tpTrim, rr: rrTrim, label: "Take Profit 1", sub: "Trim 60%", icon: "🎯", bg: "bg-yellow-500/10", border: "border-yellow-500/30", text: "text-yellow-400" },
+                          { tp: tpExit, rr: rrExit, label: "Take Profit 2", sub: "Exit 85%", icon: "💰", bg: "bg-orange-500/10", border: "border-orange-500/30", text: "text-orange-400" },
+                          { tp: tpRunner, rr: rrRunner, label: "Take Profit 3", sub: "Runner", icon: "🚀", bg: "bg-teal-500/10", border: "border-teal-500/30", text: "text-teal-400" },
+                        ];
+                        return (
+                          <div className="mb-4 space-y-2">
+                            <div className="text-[10px] text-[#6b7280] font-semibold uppercase tracking-wider">Risk / Reward Levels</div>
+                            {hasSl && (
+                              <div className="space-y-1.5">
+                                {/* Original SL — always shown when SL exists */}
+                                {(() => { const slFromKijun = Number.isFinite(kijunSL) && kijunSL > 0 && slRaw === kijunSL; return (
+                                <div className={`p-2.5 rounded border flex items-center justify-between ${tslActive ? "bg-white/[0.02] border-white/[0.08]" : "bg-red-500/10 border-red-500/30"}`} title={slFromKijun ? "Kijun-Sen (Ichimoku Cloud) reference" : undefined}>
+                                  <span className={`text-xs font-semibold ${tslActive ? "text-[#6b7280]" : "text-red-400"}`}>Stop Loss{slFromKijun ? " (Kijun)" : ""}</span>
+                                  <div className="flex items-center gap-2">
+                                    <span className={`text-xs font-bold ${tslActive ? "text-[#6b7280]" : "text-red-400"}`}>{tslActive && slOrig ? `$${slOrig.toFixed(2)}` : `$${sl.toFixed(2)}`}</span>
+                                    {!tslActive && Number.isFinite(slDistPct) && <span className="text-[9px] text-red-300/70">{slDistPct.toFixed(1)}%</span>}
+                                    {!tslActive && Number.isFinite(rr) && rr > 0 && <span className="text-[9px] font-semibold text-blue-400">{Number(rr).toFixed(1)}:1</span>}
+                                    {tslActive && <span className="text-[9px] text-[#4b5563]">original</span>}
+                                  </div>
+                                </div>
+                                ); })()}
+                                {/* TSL — only shown when stop has been trailed */}
+                                {tslActive && (
+                                  <div className="p-2.5 rounded border bg-red-500/10 border-red-500/30 flex items-center justify-between">
+                                    <span className="text-xs font-semibold text-red-400" title="Trailing Stop Loss">TSL</span>
+                                    <span className="text-xs font-bold text-red-400">${sl.toFixed(2)}</span>
+                                    {Number.isFinite(slDistPct) && <span className="text-[9px] text-red-300/70">{slDistPct.toFixed(1)}% risk</span>}
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                            <div className="space-y-2">
+                              {has3Tier ? (
+                                tierCards.filter(t => Number.isFinite(t.tp) && t.tp > 0).map((tier, idx) => {
+                                  const progress = getProgressToTp(tier.tp);
+                                  return (
+                                    <div key={idx} className={`p-2.5 rounded border ${tier.bg} ${tier.border}`}>
+                                      <div className="flex justify-between items-center mb-1.5">
+                                        <div className="flex items-center gap-2">
+                                          <span className="text-sm">{tier.icon}</span>
+                                          <span className={`text-xs font-semibold ${tier.text}`}>{tier.label}</span>
+                                          <span className="text-[10px] text-[#6b7280]">({tier.sub})</span>
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                          <span className={`text-xs font-bold ${tier.text}`}>${tier.tp.toFixed(2)}</span>
+                                          {Number.isFinite(tpPct(tier.tp)) && <span className="text-[9px] text-[#6b7280]">{tpPct(tier.tp).toFixed(1)}%</span>}
+                                          {window._ttIsPro && Number.isFinite(tier.rr) && <span className="text-[10px] font-semibold text-blue-400">{tier.rr.toFixed(2)}:1</span>}
+                                        </div>
+                                      </div>
+                                      {window._ttIsPro && (
+                                        <div className="h-1.5 bg-white/[0.06] rounded-full overflow-hidden">
+                                          <div className={`h-full ${tier.label.includes("1") ? "bg-yellow-500" : tier.label.includes("2") ? "bg-orange-500" : "bg-teal-500"} transition-all`} style={{ width: `${Math.round(progress * 100)}%` }} />
+                                        </div>
+                                      )}
+                                    </div>
+                                  );
+                                })
+                              ) : hasLegacy ? (
+                                <>
+                                  {Number.isFinite(legacyTarget) && (
+                                    <div className="flex items-center justify-between gap-2 text-xs">
+                                      <div className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-teal-500/10 border border-teal-500/25">
+                                        <span className="text-[10px] text-teal-300">Target</span>
+                                        <span className="font-bold text-teal-400">${legacyTarget.toFixed(2)}</span>
+                                      </div>
+                                      {Number.isFinite(tpPct(legacyTarget)) && <span className="text-[9px] text-[#6b7280]">{tpPct(legacyTarget).toFixed(1)}%</span>}
+                                    </div>
+                                  )}
+                                  {Number.isFinite(legacyMax) && Math.abs(legacyMax - (legacyTarget || 0)) > 0.01 && (
+                                    <div className="flex items-center justify-between gap-2 text-xs">
+                                      <div className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-teal-500/10 border border-teal-500/25">
+                                        <span className="text-[10px] text-teal-300">Stretch</span>
+                                        <span className="font-bold text-teal-400">${legacyMax.toFixed(2)}</span>
+                                      </div>
+                                      {Number.isFinite(tpPct(legacyMax)) && <span className="text-[9px] text-[#6b7280]">{tpPct(legacyMax).toFixed(1)}%</span>}
+                                    </div>
+                                  )}
+                                </>
+                              ) : null}
+                            </div>
+                          </div>
+                        );
+                      })()}
+
+                      {/* ═══════════════════════════════════════════════════════════ */}
+                      {/* 5b. MINI PRICE CHART (SL / TP1 / Entry overlay)            */}
+                      {/* ═══════════════════════════════════════════════════════════ */}
+                      {(() => {
+                        if (chartLoading) return React.createElement(SkeletonBlock, { height: 200, lines: 0, style: { background: "rgba(255,255,255,0.02)" } });
+                        if (!Array.isArray(chartCandles) || chartCandles.length < 2) return null;
+
+                        const price = Number(ticker?.price);
+                        const posSlRaw = ticker?.has_open_position ? Number(ticker?.position_sl) : NaN;
+                        const kijunSL2 = resolvedDir === "LONG" ? Number(ticker?.ichimoku_d?.kijunSL_long) : Number(ticker?.ichimoku_d?.kijunSL_short);
+                        const slRaw = Number.isFinite(posSlRaw) && posSlRaw > 0 ? posSlRaw : (ticker?.sl ?? ticker?.sl_price ?? ticker?.stop_loss) ? Number(ticker?.sl ?? ticker?.sl_price ?? ticker?.stop_loss) : (Number.isFinite(kijunSL2) && kijunSL2 > 0 ? kijunSL2 : null);
+                        const slVal = (() => {
+                          if (!Number.isFinite(slRaw) || slRaw <= 0) return null;
+                          if (!resolvedDir || !Number.isFinite(price) || price <= 0) return slRaw;
+                          if (resolvedDir === "LONG" && slRaw >= price) return null;
+                          if (resolvedDir === "SHORT" && slRaw <= price) return null;
+                          return slRaw;
+                        })();
+
+                        const tradeTpArr = Array.isArray(trade?.tpArray) && trade.tpArray.length > 0
+                          ? trade.tpArray
+                          : (Array.isArray(ticker?.tpArray) ? ticker.tpArray : []);
+                        const tp1Raw = tradeTpArr.length > 0
+                          ? Number(tradeTpArr[0]?.price)
+                          : Number(ticker?.tp_trim);
+                        const tp1Val = Number.isFinite(tp1Raw) && tp1Raw > 0 ? tp1Raw : null;
+
+                        const entryPx = Number(
+                          ticker?.position_entry || trade?.entry_price || trade?.entryPrice || ticker?.entry_price
+                        ) || 0;
+                        const hasPosition = !!ticker?.has_open_position;
+
+                        const miniPriceLines = [];
+                        if (slVal != null && slVal > 0) {
+                          miniPriceLines.push({ price: slVal, color: '#ef4444', lineWidth: 1, lineStyle: 2, title: 'SL' });
+                        }
+                        if (tp1Val != null && tp1Val > 0) {
+                          miniPriceLines.push({ price: tp1Val, color: '#22c55e', lineWidth: 1, lineStyle: 2, title: 'TP1' });
+                        }
+                        if (hasPosition && entryPx > 0) {
+                          miniPriceLines.push({ price: entryPx, color: '#3b82f6', lineWidth: 2, lineStyle: 0, title: 'Entry' });
+                        }
+
+                        const miniMarkers = [];
+                        if (hasPosition && entryPx > 0) {
+                          const entryTs = Number(trade?.entry_ts || ticker?.position_entry_ts || 0);
+                          if (entryTs > 0) {
+                            const ts = entryTs > 1e12 ? Math.floor(entryTs / 1000) : entryTs;
+                            miniMarkers.push({
+                              time: ts,
+                              position: resolvedDir === "SHORT" ? "aboveBar" : "belowBar",
+                              color: '#3b82f6',
+                              shape: resolvedDir === "SHORT" ? "arrowDown" : "arrowUp",
+                              text: 'Entry',
+                            });
+                          }
+                        }
+
+                        return React.createElement("div", { className: "mb-4" },
+                          React.createElement("div", { className: "flex items-center justify-between mb-2" },
+                            React.createElement("div", {
+                              className: "text-[10px] text-[#6b7280] font-semibold uppercase tracking-wider"
+                            }, "Mini Chart"),
+                            React.createElement("button", {
+                              onClick: () => setChartExpanded(true),
+                              className: "text-[9px] text-blue-400 hover:text-blue-300 transition-colors px-1.5 py-0.5 rounded border border-blue-400/20 hover:border-blue-400/40",
+                            }, "Expand")
+                          ),
+                          React.createElement(LWChart, {
+                            candles: chartCandles,
+                            chartTf: chartTf,
+                            overlays: chartOverlays,
+                            onCrosshair: (key) => setChartOverlays(prev => ({ ...prev, [key]: !prev[key] })),
+                            height: 200,
+                            priceLines: miniPriceLines,
+                            markers: miniMarkers,
+                            ticker: tickerSymbol,
+                          })
+                        );
+                      })()}
+
+                      {/* ═══════════════════════════════════════════════════════════ */}
+                      {/* 1b. REGIME CONTEXT (v3)                                    */}
+                      {/* ═══════════════════════════════════════════════════════════ */}
+                      {(() => {
+                        const rc = String(ticker?.regime_class || "");
+                        if (!rc) return null;
+                        const rs = Number(ticker?.regime_score) || 0;
+                        const rf = ticker?.regime_factors || {};
+                        const rp = ticker?.regime_params || {};
+                        const rvolMap = ticker?.rvol_map || {};
+                        const rv30 = Number(rvolMap?.["30"]?.vr) || 0;
+                        const rv1h = Number(rvolMap?.["60"]?.vr) || 0;
+                        const rvBest = Math.max(rv30, rv1h);
+                        const regBg = rc === "TRENDING" ? "bg-emerald-500/10 border-emerald-500/30" : rc === "CHOPPY" ? "bg-rose-500/10 border-rose-500/30" : "bg-amber-500/10 border-amber-500/30";
+                        const regTxt = rc === "TRENDING" ? "text-emerald-300" : rc === "CHOPPY" ? "text-rose-300" : "text-amber-300";
+                        const factorKeys = Object.keys(rf);
+                        return (
+                          <div className={`mb-3 px-2.5 py-2 rounded-lg border ${regBg}`}>
+                            <div className="flex items-center justify-between mb-1.5">
+                              <div className="flex items-center gap-1.5">
+                                <span className={`text-[11px] font-bold ${regTxt}`}>{rc}</span>
+                                <span className="text-[10px] text-slate-400">Regime</span>
+                              </div>
+                              <span className={`text-[11px] font-bold tabular-nums ${regTxt}`}>{rs >= 0 ? "+" : ""}{rs}</span>
+                            </div>
+                            <div className="grid grid-cols-3 gap-1.5 text-[9px] mb-1.5">
+                              <div className="p-1 bg-white/[0.03] rounded text-center" title="Relative volume — how much trading activity vs. normal. Above 1.5x = high interest.">
+                                <div className="text-[8px] text-slate-500">Volume</div>
+                                <div className={`font-bold tabular-nums ${rvBest >= 1.5 ? "text-emerald-400" : rvBest >= 0.8 ? "text-white" : "text-rose-400"}`}>{rvBest.toFixed(2)}x</div>
+                                <div className={`text-[7px] mt-0.5 ${rvBest >= 1.5 ? "text-emerald-400/70" : rvBest >= 0.8 ? "text-slate-500" : "text-rose-400/70"}`}>{rvBest >= 1.5 ? "High" : rvBest >= 0.8 ? "Normal" : "Low"}</div>
+                              </div>
+                              <div className="p-1 bg-white/[0.03] rounded text-center" title="Trend quality — higher score = stronger, cleaner trend. Scale: 0 (choppy) to 25+ (strong trend).">
+                                <div className="text-[8px] text-slate-500">Trend Quality</div>
+                                <div className={`font-bold tabular-nums ${(rp.minHTFScore ?? 0) >= 15 ? "text-emerald-400" : (rp.minHTFScore ?? 0) >= 8 ? "text-white" : "text-rose-400"}`}>{rp.minHTFScore ?? "—"}</div>
+                                <div className={`text-[7px] mt-0.5 ${(rp.minHTFScore ?? 0) >= 15 ? "text-emerald-400/70" : (rp.minHTFScore ?? 0) >= 8 ? "text-slate-500" : "text-rose-400/70"}`}>{(rp.minHTFScore ?? 0) >= 15 ? "Strong" : (rp.minHTFScore ?? 0) >= 8 ? "Moderate" : "Weak"}</div>
+                              </div>
+                              <div className="p-1 bg-white/[0.03] rounded text-center" title="Suggested position sizing — 1x = normal, above 1x = conditions favor larger size, below 1x = reduce size.">
+                                <div className="text-[8px] text-slate-500">Sizing</div>
+                                <div className={`font-bold tabular-nums ${(rp.positionSizeMultiplier ?? 1) > 1 ? "text-emerald-400" : (rp.positionSizeMultiplier ?? 1) < 1 ? "text-rose-400" : "text-white"}`}>{rp.positionSizeMultiplier != null ? `${rp.positionSizeMultiplier}x` : "—"}</div>
+                                <div className={`text-[7px] mt-0.5 ${(rp.positionSizeMultiplier ?? 1) > 1 ? "text-emerald-400/70" : (rp.positionSizeMultiplier ?? 1) < 1 ? "text-rose-400/70" : "text-slate-500"}`}>{(rp.positionSizeMultiplier ?? 1) > 1 ? "Size up" : (rp.positionSizeMultiplier ?? 1) < 1 ? "Reduce" : "Normal"}</div>
+                              </div>
+                            </div>
+                            {factorKeys.length > 0 && (
+                              <div className="flex flex-wrap gap-x-2 gap-y-0.5 text-[8px] text-slate-400">
+                                {factorKeys.slice(0, 6).map(k => (
+                                  <span key={k} title={rf[k]}>{k.replace(/_/g," ")}: <span className={`font-semibold ${String(rf[k]).startsWith("+") ? "text-emerald-400" : String(rf[k]).startsWith("-") ? "text-rose-400" : "text-white"}`}>{String(rf[k]).split(" ")[0]}</span></span>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })()}
+
+                      {/* ═══════════════════════════════════════════════════════════ */}
+                      {/* 1c. TICKER PROFILE (Three-Tier Awareness)                  */}
+                      {/* ═══════════════════════════════════════════════════════════ */}
+                      {(() => {
+                        const tp = ticker?._ticker_profile;
+                        if (!tp || !tp.behavior_type) return null;
+                        const bt = String(tp.behavior_type);
+                        const btColor = bt === "MOMENTUM" ? "text-blue-300" : bt === "MEAN_REVERT" ? "text-purple-300" : "text-slate-300";
+                        const btBg = bt === "MOMENTUM" ? "bg-blue-500/10 border-blue-500/30" : bt === "MEAN_REVERT" ? "bg-purple-500/10 border-purple-500/30" : "bg-slate-500/10 border-slate-500/30";
+                        const slM = Number(tp.sl_mult) || 1;
+                        const tpM = Number(tp.tp_mult) || 1;
+                        const ethAdj = Number(tp.entry_threshold_adj) || 0;
+                        const atrPct = Number(tp.atr_pct_p50) || 0;
+                        const trendP = Number(tp.trend_persistence) || 0;
+                        const ichResp = Number(tp.ichimoku_responsiveness) || 0;
+                        return (
+                          <div className={`mb-3 px-2.5 py-2 rounded-lg border ${btBg}`}>
+                            <div className="flex items-center justify-between mb-1">
+                              <div className="flex items-center gap-1.5">
+                                <span className={`text-[11px] font-bold ${btColor}`}>{bt.replace("_", " ")}</span>
+                                <span className="text-[10px] text-slate-400">Profile</span>
+                              </div>
+                            </div>
+                            <div className="text-[9px] text-slate-400/80 italic mb-2 leading-snug">
+                              {bt === "MOMENTUM" ? "This stock tends to trend in one direction — once it moves, it keeps going. Best traded with the trend."
+                               : bt === "MEAN_REVERT" ? "This stock tends to bounce between levels — it reverses more often. Better for buying dips and selling rips."
+                               : "Balanced behavior — can trend or reverse depending on conditions."}
+                            </div>
+                            <div className="grid grid-cols-3 gap-1.5 text-[9px] mb-1.5">
+                              <div className="p-1 bg-white/[0.03] rounded text-center" title="Average daily price range — how much this stock typically moves in a day">
+                                <div className="text-[8px] text-slate-500">Daily Range</div>
+                                <div className="font-bold text-white tabular-nums">{atrPct > 0 ? `${(atrPct * 100).toFixed(1)}%` : "—"}</div>
+                              </div>
+                              <div className="p-1 bg-white/[0.03] rounded text-center" title="How long trends last — higher = trends persist longer, great for momentum plays">
+                                <div className="text-[8px] text-slate-500">Trend Follow</div>
+                                <div className={`font-bold tabular-nums ${trendP >= 0.6 ? "text-emerald-400" : trendP <= 0.35 ? "text-rose-400" : "text-white"}`}>{(trendP * 100).toFixed(0)}%</div>
+                                <div className={`text-[7px] mt-0.5 ${trendP >= 0.6 ? "text-emerald-400/70" : trendP <= 0.35 ? "text-rose-400/70" : "text-slate-500"}`}>{trendP >= 0.6 ? "Sticky" : trendP <= 0.35 ? "Choppy" : "Average"}</div>
+                              </div>
+                              <div className="p-1 bg-white/[0.03] rounded text-center" title="How well the stock responds to indicator signals — higher = more predictable">
+                                <div className="text-[8px] text-slate-500">Predictability</div>
+                                <div className={`font-bold tabular-nums ${ichResp >= 0.6 ? "text-emerald-400" : ichResp <= 0.35 ? "text-rose-400" : "text-white"}`}>{(ichResp * 100).toFixed(0)}%</div>
+                                <div className={`text-[7px] mt-0.5 ${ichResp >= 0.6 ? "text-emerald-400/70" : ichResp <= 0.35 ? "text-rose-400/70" : "text-slate-500"}`}>{ichResp >= 0.6 ? "Reliable" : ichResp <= 0.35 ? "Erratic" : "Moderate"}</div>
+                              </div>
+                            </div>
+                            <div className="grid grid-cols-2 gap-1.5 text-[9px]">
+                              <div className="p-1 bg-white/[0.03] rounded text-center" title="Stop loss is adjusted by this factor based on the stock's behavior">
+                                <div className="text-[8px] text-slate-500">Stop Width</div>
+                                <div className={`font-bold tabular-nums ${slM > 1.05 ? "text-amber-300" : slM < 0.95 ? "text-emerald-300" : "text-white"}`}>{slM > 1.05 ? "Wider" : slM < 0.95 ? "Tighter" : "Standard"}</div>
+                              </div>
+                              <div className="p-1 bg-white/[0.03] rounded text-center" title="Target is adjusted by this factor based on the stock's behavior">
+                                <div className="text-[8px] text-slate-500">Target</div>
+                                <div className={`font-bold tabular-nums ${tpM > 1.05 ? "text-emerald-300" : tpM < 0.95 ? "text-amber-300" : "text-white"}`}>{tpM > 1.05 ? "Extended" : tpM < 0.95 ? "Closer" : "Standard"}</div>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })()}
+
+                      {/* ═══════════════════════════════════════════════════════════ */}
+                      {/* 4. MODEL INTELLIGENCE                                      */}
+                      {/* ═══════════════════════════════════════════════════════════ */}
+                      {(() => {
+                        const ms = modelSignal;
+                        const pm = (latestTicker || ticker)?.pattern_match;
+                        const ts = ms?.ticker;
+                        const ss = ms?.sector;
+                        const mk = ms?.market;
+                        if (!ts && !pm && !mk) return null;
+
+                        const dirColor = (d) => d === "BULLISH" ? "text-[#00e676]" : d === "BEARISH" ? "text-red-400" : "text-slate-400";
+                        const dirBg = (d) => d === "BULLISH" ? "bg-[#00c853]/10 border-[#00c853]/30" : d === "BEARISH" ? "bg-red-500/10 border-red-500/30" : "bg-slate-500/10 border-slate-500/30";
+                        const regimeBg = (r) => {
+                          if (!r) return "";
+                          if (r.includes("BULL")) return "bg-[#00c853]/15 border-[#00c853]/40";
+                          if (r.includes("BEAR")) return "bg-red-500/15 border-red-500/40";
+                          return "bg-slate-500/10 border-slate-500/30";
+                        };
+
+                        // Plain English descriptions for layman interpretation
+                        const describeTickerDir = (d, net) => {
+                          if (d === "BULLISH") return net > 0.4 ? "Strong upward momentum — model and scoring both favor higher prices" : "Leaning bullish — more factors point up than down";
+                          if (d === "BEARISH") return net < -0.4 ? "Strong downward pressure — model and scoring both suggest lower prices" : "Leaning bearish — more factors point down than up";
+                          return "Mixed indicators — no clear directional edge right now";
+                        };
+                        const describeSector = (regime, pct) => {
+                          if (regime === "BULLISH") return `${pct}% of sector tickers trending up — sector tailwind`;
+                          if (regime === "BEARISH") return `Only ${pct}% bullish — sector headwind`;
+                          return `Sector is mixed — no strong sector-wide trend`;
+                        };
+                        const describeMarket = (sig, pct) => {
+                          if (!sig) return "";
+                          if (sig.includes("STRONG_BULL")) return `Broad rally — ${pct}% of all tickers bullish`;
+                          if (sig.includes("MILD_BULL")) return `Market leaning up — ${pct}% bullish`;
+                          if (sig.includes("STRONG_BEAR")) return `Broad weakness — only ${pct}% of tickers bullish`;
+                          if (sig.includes("MILD_BEAR")) return `Market leaning down — ${pct}% bullish`;
+                          return `Market is neutral — no strong trend`;
+                        };
+
+                        return (
+                          <div className="mb-4 p-3 rounded-2xl border border-white/[0.08]" style={{background:"rgba(255,255,255,0.03)",backdropFilter:"blur(12px) saturate(1.2)",WebkitBackdropFilter:"blur(12px) saturate(1.2)",boxShadow:"0 2px 12px rgba(0,0,0,0.25), inset 0 0.5px 0 rgba(255,255,255,0.06)"}}>
+                            <div className="flex items-center gap-2 mb-3">
+                              <div className="w-5 h-5 rounded-md bg-blue-500/20 flex items-center justify-center text-[10px]">🧠</div>
+                              <span className="text-xs font-bold text-slate-300 uppercase tracking-wider">Model Intelligence</span>
+                            </div>
+
+                            {/* Ticker Signal */}
+                            {(ts || pm) && (
+                              <div className={`rounded-lg p-2.5 mb-2 border ${dirBg(ts?.direction || pm?.direction)}`}>
+                                <div className="flex items-center justify-between mb-1">
+                                  <span className="text-[10px] text-slate-400 uppercase font-semibold">Ticker Indicator</span>
+                                  <span className={`text-xs font-bold ${dirColor(ts?.direction || pm?.direction)}`}>
+                                    {ts?.direction || pm?.direction || "—"}
+                                  </span>
+                                </div>
+                                <div className="flex items-center gap-3 text-[11px]">
+                                  <span className="text-slate-400">Strength: <span className={`font-semibold ${(ts?.netSignal || pm?.netSignal || 0) > 0 ? "text-[#00e676]" : (ts?.netSignal || pm?.netSignal || 0) < 0 ? "text-red-400" : "text-slate-300"}`}>
+                                    {((ts?.netSignal || pm?.netSignal || 0) > 0 ? "+" : "")}{(ts?.netSignal || pm?.netSignal || 0).toFixed(2)}
+                                  </span></span>
+                                  <span className="text-slate-400" title="Number of bullish vs bearish chart patterns detected">{ts?.bullPatterns || pm?.bullCount || 0} bullish / {ts?.bearPatterns || pm?.bearCount || 0} bearish <span className="text-slate-500">patterns</span></span>
+                                </div>
+                                {pm?.bestBull && (
+                                  <div className="mt-1.5 text-[10px] text-[#69f0ae]/80">
+                                    Top: {pm.bestBull.name} ({(pm.bestBull.conf * 100).toFixed(0)}% conf, EV: {pm.bestBull.ev > 0 ? "+" : ""}{pm.bestBull.ev})
+                                  </div>
+                                )}
+                                <div className="mt-1.5 text-[10px] text-slate-400/90 italic leading-snug">
+                                  {describeTickerDir(ts?.direction || pm?.direction, ts?.netSignal || pm?.netSignal || 0)}
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Sector + Market in a row */}
+                            <div className="grid grid-cols-2 gap-2">
+                              {ss && (
+                                <div className={`rounded-lg p-2 border ${regimeBg(ss.regime)}`}>
+                                  <div className="text-[9px] text-slate-400 uppercase font-semibold mb-0.5">Sector</div>
+                                  <div className="text-[11px] font-bold text-white truncate">{ss.sector}</div>
+                                  <div className="text-[10px] text-slate-400">{ss.breadthBullPct}% bull · {ss.regime}</div>
+                                  <div className="text-[9px] text-slate-400/80 italic mt-0.5">{describeSector(ss.regime, ss.breadthBullPct)}</div>
+                                </div>
+                              )}
+                              {mk && (mk.totalTickers || 0) > 5 && (
+                                <div className={`rounded-lg p-2 border ${regimeBg(mk.signal)}`}>
+                                  <div className="text-[9px] text-slate-400 uppercase font-semibold mb-0.5">Market</div>
+                                  <div className={`text-[11px] font-bold ${mk.signal?.includes("BULL") ? "text-[#00e676]" : mk.signal?.includes("BEAR") ? "text-red-400" : "text-slate-300"}`}>
+                                    {mk.signal?.replace(/_/g, " ")}
+                                  </div>
+                                  <div className="text-[10px] text-slate-400">{mk.breadthBullPct}% breadth</div>
+                                  <div className="text-[9px] text-slate-400/80 italic mt-0.5">{describeMarket(mk.signal, mk.breadthBullPct)}</div>
+                                </div>
+                              )}
+                            </div>
+                            {mk?.riskFlag && (mk.totalTickers || 0) > 5 && (
+                              <div className="mt-2 text-[10px] text-amber-300/80 bg-amber-500/10 border border-amber-500/20 rounded px-2 py-1">
+                                {mk.riskFlag}
+                              </div>
+                            )}
+
+                          {/* Active Position Guidance */}
+                          {(() => {
+                            if (!trade || trade.status === "closed" || trade.status === "exited") return null;
+                            const _tDir = trade.direction || "";
+                            const _tEntry = Number(trade.entry_price || trade.entryPrice) || 0;
+                            const _tShares = Number(trade.shares) || 0;
+                            const _tSetup = trade.setup_name || trade.setupName || trade.entry_path || "";
+                            const _tGrade = trade.setup_grade || trade.setupGrade || "";
+                            const _tPx = Number(ticker?.price) || 0;
+                            const _tPnlPct = _tEntry > 0 && _tPx > 0 ? ((_tPx - _tEntry) / _tEntry * 100 * (_tDir === "SHORT" ? -1 : 1)) : 0;
+                            const _tTrimPct = Number(trade.trimmed_pct || trade.trimmedPct) || 0;
+                            const _tSl = Number(trade.stop_loss || trade.sl) || 0;
+                            const _tTp = Number(trade.take_profit || trade.tp) || 0;
+                            return (
+                              <div className="mt-2 rounded-lg p-2.5 border border-[#14b8a6]/20 bg-[#14b8a6]/5">
+                                <div className="text-[9px] text-[#14b8a6] uppercase font-bold tracking-wider mb-1">Active Position</div>
+                                <div className="text-[11px] text-white font-semibold">{_tDir} @ ${_tEntry.toFixed(2)} · {_tShares > 0 ? `${Math.round(_tShares)} shares` : ""}</div>
+                                <div className={`text-[11px] font-bold mt-0.5 ${_tPnlPct >= 0 ? "text-[#22c55e]" : "text-[#ef4444]"}`}>
+                                  {_tPnlPct >= 0 ? "+" : ""}{_tPnlPct.toFixed(2)}% P&L
+                                  {_tTrimPct > 0 ? ` · ${Math.round(_tTrimPct * 100)}% trimmed` : ""}
+                                </div>
+                                {(_tSl > 0 || _tTp > 0) && (
+                                  <div className="text-[10px] text-slate-400 mt-1">
+                                    {_tSl > 0 && <span>Defend @ <span className="text-[#ef4444] font-medium">${_tSl.toFixed(2)}</span></span>}
+                                    {_tSl > 0 && _tTp > 0 && " · "}
+                                    {_tTp > 0 && <span>Target @ <span className="text-[#22c55e] font-medium">${_tTp.toFixed(2)}</span></span>}
+                                  </div>
+                                )}
+                                {_tSetup && <div className="text-[9px] text-slate-500 mt-1">{_formatPath(_tSetup)}{_tGrade ? ` · TT ${_tGrade}` : ""}</div>}
+                              </div>
+                            );
+                          })()}
+
+                          {/* Phase & Move Status */}
+                          {(() => {
+                            const _raw = Number(ticker?.saty_phase_pct ?? ticker?.phase_pct) || 0;
+                            if (_raw === 0) return null;
+                            const _phase = _raw <= 1 ? _raw * 100 : _raw;
+                            const _phaseStage = _phase < 25 ? "Early" : _phase < 50 ? "Building" : _phase < 75 ? "Mature" : "Late/Extended";
+                            const _phaseColor = _phase < 25 ? "#22c55e" : _phase < 50 ? "#86efac" : _phase < 75 ? "#fbbf24" : "#ef4444";
+                            const _phaseDesc = _phase < 25 ? "Fresh move — room to develop" : _phase < 50 ? "Gaining momentum — setup thesis intact" : _phase < 75 ? "Move maturing — watch for trim signals" : "Extended — high probability of pullback or reversal";
+                            return (
+                              <div className="mt-2 rounded-lg p-2 border border-white/[0.06] bg-white/[0.02]">
+                                <div className="flex items-center justify-between">
+                                  <span className="text-[9px] text-slate-400 uppercase font-semibold">TT Phase</span>
+                                  <span className="text-[11px] font-bold" style={{color: _phaseColor}}>{Math.round(_phase)}% — {_phaseStage}</span>
+                                </div>
+                                <div className="mt-1 h-1.5 rounded-full bg-white/[0.06] overflow-hidden">
+                                  <div className="h-full rounded-full transition-all" style={{width: `${Math.min(_phase, 100)}%`, background: _phaseColor}} />
+                                </div>
+                                <div className="text-[9px] text-slate-400/80 italic mt-1">{_phaseDesc}</div>
+                              </div>
+                            );
+                          })()}
+                        </div>
+                        );
+                      })()}
+
+                      {/* 6-10. Trend Alignment, Swing Analysis, Momentum Elite, Rank, Score + Breakdown */}
+                      <div className="space-y-2.5 text-sm">
+                        {/* Trend Alignment — moved up under Chart */}
+                        {(() => {
+                          const emaMap = ticker?.ema_map;
+                          if (!emaMap || typeof emaMap !== 'object') return null;
+                          const tfDisplayOrder = ['D', '240', '60', '30', '15', '3'];
+                          const tfLabels = { 'W': 'Weekly', 'D': 'Daily', '240': '4H', '60': '1H', '30': '30m', '15': '15m', '3': '3m' };
+                          const entries = tfDisplayOrder.map(tf => emaMap[tf] ? { tf, ...emaMap[tf] } : null).filter(Boolean);
+                          if (entries.length === 0) return null;
+                          const depthLabel = (d) => d >= 9 ? 'Strong Uptrend' : d >= 7 ? 'Uptrend' : d >= 5 ? 'Leaning Up' : d >= 4 ? 'Leaning Down' : d >= 2 ? 'Downtrend' : 'Strong Downtrend';
+                          const depthColor = (d) => d >= 8 ? 'text-green-400' : d >= 6 ? 'text-green-300/70' : d >= 4 ? 'text-yellow-300' : d >= 2 ? 'text-orange-400' : 'text-red-400';
+                          const depthBg = (d) => d >= 8 ? 'bg-green-500/20' : d >= 6 ? 'bg-green-500/10' : d >= 4 ? 'bg-yellow-500/10' : d >= 2 ? 'bg-orange-500/10' : 'bg-red-500/15';
+                          const trendWord = (s, m) => {
+                            const avg = (s + m) / 2;
+                            if (avg > 0.5) return { text: 'Accelerating', cls: 'text-green-400' };
+                            if (avg > 0.15) return { text: 'Trending Up', cls: 'text-green-300/80' };
+                            if (avg > -0.15) return { text: 'Flat', cls: 'text-slate-400' };
+                            if (avg > -0.5) return { text: 'Fading', cls: 'text-orange-400' };
+                            return { text: 'Reversing Down', cls: 'text-red-400' };
+                          };
+                          return (
+                            <div className="border-t border-white/[0.06] my-3 pt-3">
+                              <button
+                                onClick={() => setEmaExpanded?.(!emaExpanded)}
+                                className="w-full flex items-center justify-between text-xs text-[#6b7280] mb-2 font-semibold hover:text-white transition-colors"
+                              >
+                                <span>Trend Alignment</span>
+                                <span className="text-base">{emaExpanded ? "▼" : "▶"}</span>
+                              </button>
+                              {emaExpanded && (
+                                <div className="space-y-1.5">
+                                  {entries.map(e => {
+                                    const trend = trendWord(e.structure, e.momentum);
+                                    const pct = Math.round(e.depth * 10);
+                                    return (
+                                      <div key={e.tf} className={`flex items-center justify-between text-[11px] py-1.5 px-2 rounded-md ${depthBg(e.depth)}`}>
+                                        <span className="text-slate-300 font-medium w-12">{tfLabels[e.tf] || e.tf}</span>
+                                        <div className="flex-1 mx-2">
+                                          <div className="w-full bg-white/[0.06] rounded-full h-1.5 overflow-hidden">
+                                            <div
+                                              className={`h-full rounded-full transition-all ${e.depth >= 6 ? 'bg-green-500' : e.depth >= 4 ? 'bg-yellow-500' : 'bg-red-500'}`}
+                                              style={{ width: `${pct}%` }}
+                                            />
+                                          </div>
+                                        </div>
+                                        <div className="flex items-center gap-2 min-w-[110px] justify-end">
+                                          <span className={`font-bold ${depthColor(e.depth)}`} title={depthLabel(e.depth)}>
+                                            {depthLabel(e.depth)}
+                                          </span>
+                                          <span className={`text-[9px] font-medium ${trend.cls}`}>
+                                            {trend.text}
+                                          </span>
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
+                                  <div className="text-[9px] text-[#4b5563] mt-1.5 px-1">
+                                    Bar shows how many EMAs price is above (trend strength). Labels show if trend is accelerating or fading.
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })()}
+
+                        {/* Swing Analysis Panel — moved up under Trend Alignment */}
+                        {(() => {
+                          const eq = ticker?.entry_quality;
+                          const sc = ticker?.swing_consensus;
+                          const volTier = ticker?.volatility_tier;
+                          const volPct = ticker?.volatility_atr_pct;
+                          const reg = ticker?.regime;
+                          if (!eq && !sc && !volTier && !reg) return null;
+                          const eqScore = Number(eq?.score) || 0;
+                          const eqCls = eqScore >= 70 ? "text-green-400" : eqScore >= 50 ? "text-amber-300" : "text-rose-400";
+                          const eqBg = eqScore >= 70 ? "bg-green-500/15" : eqScore >= 50 ? "bg-amber-500/10" : "bg-rose-500/10";
+                          const volCls = volTier === "LOW" ? "text-blue-300 bg-blue-500/15" : volTier === "MEDIUM" ? "text-slate-300 bg-slate-500/15" : volTier === "HIGH" ? "text-orange-300 bg-orange-500/15" : "text-red-300 bg-red-500/15";
+                          const scDir = sc?.direction;
+                          const bullCt = Number(sc?.bullish_count) || 0;
+                          const bearCt = Number(sc?.bearish_count) || 0;
+                          const freshTf = sc?.freshest_cross_tf;
+                          const freshAge = sc?.freshest_cross_age;
+                          const tfStack = sc?.tf_stack || [];
+                          return (
+                            <div className="border-t border-white/[0.06] my-3 pt-3">
+                              <div className="text-xs text-[#6b7280] font-semibold mb-2">Swing Analysis</div>
+                              <div className="space-y-2">
+                                {eq && (
+                                  <div className={`rounded-md p-2 ${eqBg}`}>
+                                    <div className="flex items-center justify-between mb-1">
+                                      <span className="text-[10px] text-slate-400 font-medium">Entry Quality</span>
+                                      <span className={`text-sm font-bold ${eqCls}`}>{eqScore}/100</span>
+                                    </div>
+                                    <div className="flex gap-1.5 text-[9px]">
+                                      <span className="px-1 py-0.5 rounded bg-white/[0.06] text-slate-300">Struct: {eq.structure || 0}/35</span>
+                                      <span className="px-1 py-0.5 rounded bg-white/[0.06] text-slate-300">Mom: {eq.momentum || 0}/35</span>
+                                      <span className="px-1 py-0.5 rounded bg-white/[0.06] text-slate-300">Conf: {eq.confirmation || 0}/30</span>
+                                    </div>
+                                  </div>
+                                )}
+                                {reg && reg.combined && (
+                                  <div className="flex items-center justify-between text-[10px]">
+                                    <span className="text-slate-400">Regime</span>
+                                    <div className="flex items-center gap-1.5">
+                                      <span className={`px-1.5 py-0.5 rounded font-semibold ${
+                                        reg.combined.includes("BULL") ? "text-[#69f0ae] bg-[#00c853]/15"
+                                        : reg.combined.includes("BEAR") ? "text-rose-300 bg-rose-500/15"
+                                        : "text-slate-300 bg-slate-500/15"
+                                      }`}>{
+                                        ({STRONG_BULL:"Strong Bull",EARLY_BULL:"Early Bull",LATE_BULL:"Late Bull",COUNTER_TREND_BULL:"CT Bull",NEUTRAL:"Neutral",COUNTER_TREND_BEAR:"CT Bear",EARLY_BEAR:"Early Bear",LATE_BEAR:"Late Bear",STRONG_BEAR:"Strong Bear"})[reg.combined] || reg.combined
+                                      }</span>
+                                      <span className="text-[#6b7280]">D:{reg.daily?.charAt(0).toUpperCase() || "?"} W:{reg.weekly?.charAt(0).toUpperCase() || "?"}</span>
+                                    </div>
+                                  </div>
+                                )}
+                                {sc && (
+                                  <div className="rounded-md p-2 bg-white/[0.03]">
+                                    <div className="flex items-center justify-between mb-1">
+                                      <span className="text-[10px] text-slate-400 font-medium">TF Consensus</span>
+                                      <span className={`text-[11px] font-bold ${scDir === "LONG" ? "text-cyan-300" : scDir === "SHORT" ? "text-rose-300" : "text-slate-400"}`}>
+                                        {scDir || "NEUTRAL"} ({bullCt}/{5})
+                                      </span>
+                                    </div>
+                                    <div className="flex gap-0.5">
+                                      {tfStack.map((tf, i) => (
+                                        <div key={i} className={`flex-1 h-1.5 rounded-full ${tf.bias === "bullish" ? "bg-cyan-400" : tf.bias === "bearish" ? "bg-rose-400" : "bg-slate-600"}`}
+                                          title={`${tf.tf}: ${tf.bias}${tf.crossDir ? ` (cross ${tf.crossDir})` : ""}`} />
+                                      ))}
+                                    </div>
+                                    <div className="flex justify-between text-[8px] text-[#4b5563] mt-0.5">
+                                      {tfStack.map((tf, i) => (
+                                        <span key={i}>{tf.tf}</span>
+                                      ))}
+                                    </div>
+                                    {freshTf && (
+                                      <div className="text-[9px] text-purple-300 mt-1">
+                                        Fresh {freshTf} cross{freshAge != null ? ` (${freshAge}m ago)` : ""}
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
+                                {volTier && (
+                                  <div className="flex items-center justify-between text-[10px]">
+                                    <span className="text-slate-400">Volatility</span>
+                                    <div className="flex items-center gap-1.5">
+                                      <span className={`px-1.5 py-0.5 rounded font-semibold ${volCls}`}>{volTier}</span>
+                                      {Number.isFinite(volPct) && <span className="text-[#6b7280]">{volPct}% ATR/px</span>}
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })()}
+
+                        {/* AI CIO Review */}
+                        {(() => {
+                          const cioBlocked = !!ticker?.__cio_blocked;
+                          const cioReason = ticker?.__cio_block_reason || "";
+                          const cioFlags = ticker?.__cio_block_flags || "";
+                          const cioTs = ticker?.__cio_block_ts;
+                          if (!cioBlocked && !cioReason) return null;
+                          const cioDate = cioTs ? new Date(Number(cioTs)) : null;
+                          const cioTimeStr = cioDate && !isNaN(cioDate.getTime())
+                            ? cioDate.toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", hour12: true })
+                            : null;
+                          return (
+                            <div className="border-t border-red-500/20 my-3 pt-3">
+                              <div className="flex items-center justify-between mb-2">
+                                <span className="text-[11px] font-bold text-red-300">🛑 AI CIO Review</span>
+                                {cioTimeStr && <span className="text-[9px] text-slate-500">{cioTimeStr}</span>}
+                              </div>
+                              <div className="rounded-md p-2 bg-red-500/[0.08] border border-red-500/20">
+                                {cioBlocked && <div className="text-[10px] text-red-300 font-semibold mb-1">REJECTED</div>}
+                                {cioFlags && (
+                                  <div className="flex flex-wrap gap-1 mb-1.5">
+                                    {cioFlags.split(",").map((f, i) => (
+                                      <span key={i} className="px-1.5 py-0.5 rounded bg-red-500/15 text-red-300/90 text-[9px] border border-red-500/20">{f.trim()}</span>
+                                    ))}
+                                  </div>
+                                )}
+                                {cioReason && <div className="text-[10px] text-slate-300/80 leading-relaxed">{cioReason}</div>}
+                              </div>
+                            </div>
+                          );
+                        })()}
+
+                        {/* Momentum Elite */}
+                        {(() => {
+                          const mp = ticker?.momentum_pct || {};
+                          const adr14 = Number(ticker?.adr_14);
+                          const avgVol30 = Number(ticker?.avg_vol_30);
+                          const w = mp.week != null ? Number(mp.week) : null;
+                          const m = mp.month != null ? Number(mp.month) : null;
+                          const m3 = mp.three_months != null ? Number(mp.three_months) : null;
+                          const m6 = mp.six_months != null ? Number(mp.six_months) : null;
+                          const okAdr = Number.isFinite(adr14) && adr14 >= 2;
+                          const okVol = Number.isFinite(avgVol30) && avgVol30 >= 2_000_000;
+                          const okW = Number.isFinite(w) && w >= 10;
+                          const okM = Number.isFinite(m) && m >= 25;
+                          const ok3 = Number.isFinite(m3) && m3 >= 50;
+                          const ok6 = Number.isFinite(m6) && m6 >= 100;
+                          const okAnyMomentum = okW || okM || ok3 || ok6;
+                          const okBase = okAdr && okVol;
+                          const computedElite = okBase && okAnyMomentum;
+                          const elite = !!flags.momentum_elite || computedElite;
+                          if (!elite) return null;
+                          return (
+                            <div className="border-t border-white/[0.06] my-3 pt-3">
+                              <div className="flex items-center justify-between mb-2">
+                                <span className="text-sm font-extrabold text-purple-300 tracking-wide">🚀 MOMENTUM ELITE</span>
+                                <span className="text-[10px] px-2 py-0.5 rounded border bg-purple-500/25 border-purple-400/50 text-purple-200 font-bold">ACTIVE</span>
+                              </div>
+                              <div className="text-[10px] text-purple-200/70 space-y-0.5">
+                                {okAdr && <div>✅ ADR(14D) ≥ $2 • ${adr14.toFixed(2)}</div>}
+                                {okVol && <div>✅ Vol(30D) ≥ 2M • {(avgVol30 / 1_000_000).toFixed(2)}M</div>}
+                                {okW && <div>✅ 1W momentum {w.toFixed(1)}%</div>}
+                                {okM && <div>✅ 1M momentum {m.toFixed(1)}%</div>}
+                                {ok3 && <div>✅ 3M momentum {m3.toFixed(1)}%</div>}
+                                {ok6 && <div>✅ 6M momentum {m6.toFixed(1)}%</div>}
+                              </div>
+                            </div>
+                          );
+                        })()}
+
+                        {/* Rank */}
+                        {rankTotal > 0 && (
+                          <div className="flex justify-between items-center py-1 border-b border-white/[0.06]/50">
+                            <span className="text-[#6b7280]">Rank</span>
+                            <span className="font-semibold">
+                              {rankPosition > 0
+                                ? `#${rankPosition} of ${rankTotal}`
+                                : "—"}
+                              {rankAsOfText && (
+                                <span className="ml-2 text-[10px] text-[#6b7280] font-normal">
+                                  (as of {rankAsOfText})
+                                </span>
+                              )}
+                            </span>
+                          </div>
+                        )}
+
+                        {/* Score */}
+                        <div className="flex justify-between items-center py-1 border-b border-white/[0.06]/50">
+                          <span className="text-[#6b7280]">Score</span>
+                          <span className="font-semibold text-blue-400 text-lg">
+                            {Number.isFinite(displayScore)
+                              ? displayScore.toFixed(1)
+                              : "—"}
+                          </span>
+                        </div>
+
+                        {/* Dead code — Model Score removed */}
+                        {false && (() => {
+                          const ml =
+                            ticker?.ml ||
+                            ticker?.model ||
+                            ticker?.model_v1 ||
+                            ticker?.ml_v1 ||
+                            null;
+                          if (!ml || typeof ml !== "object") return null;
+                          const p4h = Number(
+                            ml?.p_win_4h ?? ml?.p4h ?? ml?.pWin4h,
+                          );
+                          const ev4h = Number(ml?.ev_4h ?? ml?.ev4h);
+                          const p1d = Number(
+                            ml?.p_win_1d ?? ml?.p1d ?? ml?.pWin1d,
+                          );
+                          const ev1d = Number(ml?.ev_1d ?? ml?.ev1d);
+                          const has4h =
+                            Number.isFinite(p4h) || Number.isFinite(ev4h);
+                          const has1d =
+                            Number.isFinite(p1d) || Number.isFinite(ev1d);
+                          if (!has4h && !has1d) return null;
+                          const fmtPct = (x) =>
+                            Number.isFinite(x) ? `${(x * 100).toFixed(1)}%` : "—";
+                          const fmtEv = (x) =>
+                            Number.isFinite(x) ? `${x.toFixed(2)}%` : "—";
+                          
+                          // Plain English interpretation
+                          const interpretML = (pWin, ev) => {
+                            const p = Number(pWin) * 100;
+                            const e = Number(ev);
+                            if (!Number.isFinite(p) || !Number.isFinite(e)) return null;
+                            
+                            // Strong patterns
+                            if (p >= 70 && e >= 15) return { text: "🎯 Strong pattern - high historical win%, favorable reward", color: "text-green-400", bg: "bg-green-500/10" };
+                            if (p >= 60 && e >= 10) return { text: "✅ Good setup - favorable odds", color: "text-green-400", bg: "bg-green-500/10" };
+                            
+                            // Positive but cautious
+                            if (e >= 5 && p >= 55) return { text: "🟢 Decent - small edge, manage risk", color: "text-blue-400", bg: "bg-blue-500/10" };
+                            if (e >= 0 && p >= 60) return { text: "⚖️ Neutral - breakeven odds", color: "text-yellow-400", bg: "bg-yellow-500/10" };
+                            
+                            // Warning patterns
+                            if (p >= 70 && e < 0) return { text: "⚠️ Too late - missed the entry", color: "text-orange-400", bg: "bg-orange-500/10" };
+                            if (e < -5 && p >= 50) return { text: "🛑 Skip - poor risk/reward", color: "text-red-400", bg: "bg-red-500/10" };
+                            if (p < 45) return { text: "❌ Avoid - low probability", color: "text-red-400", bg: "bg-red-500/10" };
+                            
+                            // Default
+                            return { text: "🤔 Unclear pattern - use caution", color: "text-gray-400", bg: "bg-gray-500/10" };
+                          };
+                          
+                          const interp4h = has4h ? interpretML(p4h, ev4h) : null;
+                          const interp1d = has1d ? interpretML(p1d, ev1d) : null;
+                          
+                          return (
+                            <>
+                              {has4h && (
+                                <>
+                                  <div className="flex justify-between items-center py-1 border-b border-white/[0.06]/50">
+                                    <span className="text-[#6b7280]">
+                                      Model (4h)
+                                    </span>
+                                    <span className="font-semibold text-purple-300">
+                                      pWin {fmtPct(p4h)} • EV {fmtEv(ev4h)}
+                                    </span>
+                                  </div>
+                                  {interp4h && (
+                                    <div className={`text-xs py-2 px-3 rounded ${interp4h.bg} border border-${interp4h.color.replace('text-', '')}/30 mb-2`}>
+                                      <span className={interp4h.color}>{interp4h.text}</span>
+                                    </div>
+                                  )}
+                                </>
+                              )}
+                              {has1d && (
+                                <>
+                                  <div className="flex justify-between items-center py-1 border-b border-white/[0.06]/50">
+                                    <span className="text-[#6b7280]">
+                                      Model (1d)
+                                    </span>
+                                    <span className="font-semibold text-purple-300">
+                                      pWin {fmtPct(p1d)} • EV {fmtEv(ev1d)}
+                                    </span>
+                                  </div>
+                                  {interp1d && (
+                                    <div className={`text-xs py-2 px-3 rounded ${interp1d.bg} border border-${interp1d.color.replace('text-', '')}/30 mb-2`}>
+                                      <span className={interp1d.color}>{interp1d.text}</span>
+                                    </div>
+                                  )}
+                                </>
+                              )}
+                            </>
+                          );
+                        })()}
+
+                        {/* Score Breakdown (Accordion) */}
+                        {(() => {
+                          const breakdown = calculateScoreBreakdown(ticker);
+                          const breakdownComponents = [
+                            {
+                              label: "Base Score",
+                              value: breakdown.base,
+                              color: "text-blue-400",
+                            },
+                            breakdown.corridor > 0
+                              ? {
+                                  label: "In Corridor",
+                                  value: `+${breakdown.corridor}`,
+                                  color: "text-cyan-400",
+                                }
+                              : null,
+                            breakdown.corridorAligned > 0
+                              ? {
+                                  label: "Aligned + Corridor",
+                                  value: `+${breakdown.corridorAligned}`,
+                                  color: "text-green-400",
+                                }
+                              : null,
+                            breakdown.htfStrength > 0
+                              ? {
+                                  label: "HTF Strength",
+                                  value: `+${breakdown.htfStrength.toFixed(2)}`,
+                                  color: "text-cyan-400",
+                                }
+                              : null,
+                            breakdown.ltfStrength > 0
+                              ? {
+                                  label: "LTF Strength",
+                                  value: `+${breakdown.ltfStrength.toFixed(2)}`,
+                                  color: "text-cyan-400",
+                                }
+                              : null,
+                            breakdown.completion !== 0
+                              ? {
+                                  label: "Completion",
+                                  value:
+                                    breakdown.completion > 0
+                                      ? `+${breakdown.completion}`
+                                      : `${breakdown.completion}`,
+                                  color:
+                                    breakdown.completion > 0
+                                      ? "text-yellow-400"
+                                      : "text-red-400",
+                                }
+                              : null,
+                            breakdown.phase !== 0
+                              ? {
+                                  label: "Phase",
+                                  value:
+                                    breakdown.phase > 0
+                                      ? `+${breakdown.phase}`
+                                      : `${breakdown.phase}`,
+                                  color:
+                                    breakdown.phase > 0
+                                      ? "text-green-400"
+                                      : "text-red-400",
+                                }
+                              : null,
+                            breakdown.squeezeRelease > 0
+                              ? {
+                                  label: "Squeeze Release (Corridor)",
+                                  value: `+${breakdown.squeezeRelease}`,
+                                  color: "text-purple-400",
+                                }
+                              : null,
+                            breakdown.squeezeOn > 0
+                              ? {
+                                  label: "Squeeze On (Corridor)",
+                                  value: `+${breakdown.squeezeOn}`,
+                                  color: "text-yellow-400",
+                                }
+                              : null,
+                            breakdown.phaseZoneChange > 0
+                              ? {
+                                  label: "Phase Zone Change",
+                                  value: `+${breakdown.phaseZoneChange}`,
+                                  color: "text-blue-400",
+                                }
+                              : null,
+                            breakdown.rr !== 0
+                              ? {
+                                  label: "Risk/Reward",
+                                  value: `+${breakdown.rr}`,
+                                  color: "text-green-400",
+                                }
+                              : null,
+                          ].filter(Boolean);
+
+                          return breakdownComponents.length > 0 ? (
+                            <div className="border-t border-white/[0.06] my-3 pt-3">
+                              <button
+                                onClick={() => setScoreExpanded(!scoreExpanded)}
+                                className="w-full flex items-center justify-between text-xs text-[#6b7280] mb-2 font-semibold hover:text-white transition-colors"
+                              >
+                                <span>Score Breakdown</span>
+                                <span className="text-base">{scoreExpanded ? "▼" : "▶"}</span>
+                              </button>
+                              {scoreExpanded && (
+                                <div className="space-y-1.5">
+                                  {breakdownComponents.map((comp, idx) => (
+                                    <div
+                                      key={idx}
+                                      className="flex justify-between items-center text-xs"
+                                    >
+                                      <span className="text-[#6b7280]">
+                                        {comp.label}
+                                      </span>
+                                      <span
+                                        className={`font-semibold ${comp.color}`}
+                                      >
+                                        {comp.value}
+                                      </span>
+                                    </div>
+                                  ))}
+                                  <div className="flex justify-between items-center text-sm mt-2 pt-2 border-t border-white/[0.06]">
+                                    <span className="text-[#6b7280] font-semibold">
+                                      Total Score
+                                    </span>
+                                    <span className="text-blue-400 font-bold text-base">
+                                      {Number.isFinite(breakdown.total)
+                                        ? breakdown.total.toFixed(1)
+                                        : "—"}
+                                    </span>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          ) : null;
+                        })()}
+
+                        {/* Mini Bubble Chart snapshot (ticker position + journey) */}
+                        {(() => {
+                          const htf = Number(ticker?.htf_score) || 0;
+                          const ltf = Number(ticker?.ltf_score) || 0;
+                          const domainMax = 50;
+                          const size = 140;
+                          const margin = 10;
+                          const plot = size - 2 * margin;
+                          const scale = plot / (2 * domainMax);
+                          const ox = margin;
+                          const oy = margin;
+                          const toX = (l) => ox + (l + domainMax) * scale;
+                          const toY = (h) => oy + (domainMax - h) * scale;
+                          const trail = Array.isArray(bubbleJourney) ? bubbleJourney : [];
+                          const trailPts = trail.slice(-40).map((p) => ({
+                            x: toX(Number(p?.ltf_score) || 0),
+                            y: toY(Number(p?.htf_score) || 0),
+                          })).filter((pt) => Number.isFinite(pt.x) && Number.isFinite(pt.y));
+                          const cx = toX(ltf);
+                          const cy = toY(htf);
+                          const bubbleColor = htf > 0 ? "#22c55e" : "#ef4444";
+                          const pathD = trailPts.length > 1
+                            ? trailPts.reduce((acc, pt, i) => acc + (i === 0 ? `M ${pt.x} ${pt.y}` : ` L ${pt.x} ${pt.y}`), "")
+                            : null;
+                          return (
+                            <div className="border-t border-white/[0.06] my-3 pt-3">
+                              <div className="text-[10px] text-[#6b7280] font-semibold mb-2">Bubble Chart</div>
+                              <div className="rounded-lg border border-white/[0.08] bg-white/[0.02] overflow-hidden" style={{ width: size, height: size }}>
+                                <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} className="block">
+                                  <defs>
+                                    <pattern id="rr-grid-mini" width="20" height="20" patternUnits="userSpaceOnUse">
+                                      <path d="M 20 0 L 0 0 0 20" fill="none" stroke="#252b36" strokeWidth="0.5" opacity="0.5" />
+                                    </pattern>
+                                  </defs>
+                                  <rect width="100%" height="100%" fill="url(#rr-grid-mini)" />
+                                  {/* Quadrant tints */}
+                                  <rect x={ox} y={oy} width={plot / 2} height={plot / 2} fill="rgba(34,197,94,0.08)" stroke="none" />
+                                  <rect x={ox + plot / 2} y={oy} width={plot / 2} height={plot / 2} fill="rgba(34,197,94,0.08)" stroke="none" />
+                                  <rect x={ox} y={oy + plot / 2} width={plot / 2} height={plot / 2} fill="rgba(239,68,68,0.08)" stroke="none" />
+                                  <rect x={ox + plot / 2} y={oy + plot / 2} width={plot / 2} height={plot / 2} fill="rgba(239,68,68,0.08)" stroke="none" />
+                                  {/* Axes */}
+                                  <line x1={ox + plot / 2} y1={oy} x2={ox + plot / 2} y2={oy + plot} stroke="#8b92a0" strokeWidth="1" opacity="0.6" />
+                                  <line x1={ox} y1={oy + plot / 2} x2={ox + plot} y2={oy + plot / 2} stroke="#8b92a0" strokeWidth="1" opacity="0.6" />
+                                  {/* Journey path */}
+                                  {pathD && (
+                                    <path d={pathD} fill="none" stroke="#eab308" strokeWidth="1.5" strokeDasharray="2 2" opacity="0.7" />
+                                  )}
+                                  {/* Journey points (small dots) */}
+                                  {trailPts.slice(0, -1).map((pt, idx) => (
+                                    <circle key={`j-${idx}`} cx={pt.x} cy={pt.y} r="2" fill="#eab308" fillOpacity={0.3 + (idx / trailPts.length) * 0.4} stroke="none" />
+                                  ))}
+                                  {/* Current ticker bubble */}
+                                  <circle cx={cx} cy={cy} r="6" fill={bubbleColor} fillOpacity="0.9" stroke="#fff" strokeWidth="1.2" />
+                                </svg>
+                              </div>
+                            </div>
+                          );
+                        })()}
+
+                      </div>
+
+                    </>
+                  ) : null}
+
+                  {railTab === "TECHNICALS" ? (
+                    <>
+                      {/* Current Position — moved to top of Technicals */}
+                      <div className="mb-4 p-3 bg-white/[0.03] border-2 border-white/[0.06] rounded-lg">
+                        <div className="text-sm font-bold text-[#6b7280] mb-2">
+                          Current Position
+                        </div>
+                        {(() => {
+                          const stateTranslations = {
+                            "HTF_BULL_LTF_BULL": { label: "Fully Bullish", desc: "Both long-term and short-term trends aligned up — strongest buying condition", color: "text-green-400" },
+                            "HTF_BULL_LTF_PULLBACK": { label: "Bullish Pullback", desc: "Long-term trend is up, short-term pulling back — potential buy-the-dip zone", color: "text-yellow-400" },
+                            "HTF_BULL_LTF_BEAR": { label: "Bull Trend, Bear Momentum", desc: "Long-term still bullish but short-term momentum has turned down — wait for stabilization", color: "text-yellow-400" },
+                            "HTF_BEAR_LTF_BEAR": { label: "Fully Bearish", desc: "Both long-term and short-term trends aligned down — strongest selling condition", color: "text-red-400" },
+                            "HTF_BEAR_LTF_PULLBACK": { label: "Bearish Bounce", desc: "Long-term trend is down, short-term bouncing — potential sell-the-rip zone", color: "text-orange-400" },
+                            "HTF_BEAR_LTF_BULL": { label: "Bear Trend, Bull Momentum", desc: "Long-term still bearish but short-term momentum has turned up — could be a reversal or dead cat bounce", color: "text-orange-400" },
+                          };
+                          const raw = ticker.state || "";
+                          const translated = stateTranslations[raw] || null;
+                          const horizonLabel = (() => {
+                            const bucket = String(ticker.horizon_bucket || "").trim().toUpperCase();
+                            if (bucket) {
+                              if (bucket.includes("SHORT")) return { label: "Short Term", desc: "Expected to play out within days" };
+                              if (bucket.includes("SWING")) return { label: "Swing", desc: "Expected to play out over 1-4 weeks" };
+                              if (bucket.includes("POSITION")) return { label: "Positional", desc: "Expected to play out over weeks to months" };
+                              return { label: bucket.replace("_", " "), desc: "" };
+                            }
+                            const eta = computeEtaDays(ticker);
+                            if (!Number.isFinite(eta)) return null;
+                            if (eta <= 7) return { label: "Short Term", desc: `~${eta.toFixed(0)} days remaining` };
+                            if (eta <= 30) return { label: "Swing", desc: `~${eta.toFixed(0)} days remaining` };
+                            return { label: "Positional", desc: `~${eta.toFixed(0)} days remaining` };
+                          })();
+                          return (
+                            <div className="space-y-2 text-xs">
+                              <div>
+                                <div className="flex justify-between items-center">
+                                  <span className="text-[#6b7280]">Market State</span>
+                                  <span className={`font-semibold ${translated ? translated.color : "text-white"}`}>{translated ? translated.label : (raw || "—")}</span>
+                                </div>
+                                {translated && <div className="text-[10px] text-slate-400/80 mt-0.5 leading-snug">{translated.desc}</div>}
+                              </div>
+                              {horizonLabel && (
+                                <div>
+                                  <div className="flex justify-between items-center">
+                                    <span className="text-[#6b7280]">Time Horizon</span>
+                                    <span className="font-semibold text-white">{horizonLabel.label}</span>
+                                  </div>
+                                  {horizonLabel.desc && <div className="text-[10px] text-slate-400/80 mt-0.5">{horizonLabel.desc}</div>}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })()}
+                      </div>
+
+                      {ticker.td_sequential &&
+                        (() => {
+                          const tdSeq = ticker.td_sequential;
+                          const bullPrep = Number(tdSeq.bullish_prep_count || 0);
+                          const bearPrep = Number(tdSeq.bearish_prep_count || 0);
+                          const bullLeadup = Number(tdSeq.bullish_leadup_count || 0);
+                          const bearLeadup = Number(tdSeq.bearish_leadup_count || 0);
+                          const hasTd9Bull = tdSeq.td9_bullish === true || tdSeq.td9_bullish === "true";
+                          const hasTd9Bear = tdSeq.td9_bearish === true || tdSeq.td9_bearish === "true";
+                          const hasTd13Bull = tdSeq.td13_bullish === true || tdSeq.td13_bullish === "true";
+                          const hasTd13Bear = tdSeq.td13_bearish === true || tdSeq.td13_bearish === "true";
+                          const hasExitLong = tdSeq.exit_long === true || tdSeq.exit_long === "true";
+                          const hasExitShort = tdSeq.exit_short === true || tdSeq.exit_short === "true";
+
+                          const tdSummary = (() => {
+                            if (hasExitLong) return "Exhaustion signal — the current up-move may be running out of steam. Consider tightening stops.";
+                            if (hasExitShort) return "Exhaustion signal — the current down-move may be running out of steam. Watch for a bounce.";
+                            if (hasTd13Bull) return "TD13 bullish complete — a strong reversal buy signal. The downtrend is likely exhausted.";
+                            if (hasTd13Bear) return "TD13 bearish complete — a strong reversal sell signal. The uptrend is likely exhausted.";
+                            if (hasTd9Bull) return "TD9 bullish complete — a potential buy reversal setup. Selling pressure may be near exhaustion.";
+                            if (hasTd9Bear) return "TD9 bearish complete — a potential sell reversal setup. Buying pressure may be near exhaustion.";
+                            if (bullPrep >= 7) return `Bullish setup ${bullPrep}/9 — nearing completion for a potential buy signal.`;
+                            if (bearPrep >= 7) return `Bearish setup ${bearPrep}/9 — nearing completion for a potential sell signal.`;
+                            if (bullPrep >= 4) return `Bullish setup building (${bullPrep}/9) — counting consecutive closes below prior close.`;
+                            if (bearPrep >= 4) return `Bearish setup building (${bearPrep}/9) — counting consecutive closes above prior close.`;
+                            return "No active TD Sequential patterns — the current trend hasn't reached a reversal count yet.";
+                          })();
+
+                          return (
+                            <div className="mb-4 p-3 bg-white/[0.03] border border-white/[0.06] rounded-lg">
+                              <div className="text-sm font-bold text-[#6b7280] mb-2">
+                                TD Sequential
+                              </div>
+                              <div className="text-[11px] text-slate-300/80 italic mb-3 leading-snug">{tdSummary}</div>
+
+                              <div className="p-3 bg-white/[0.03] rounded-lg border border-white/[0.06] space-y-2">
+                                <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-[11px]">
+                                  <div className="flex justify-between">
+                                    <span className="text-[#6b7280]" title="Counts consecutive closes lower than 4 bars ago — a buy setup forms at 9">Buy Setup</span>
+                                    <span className={`font-semibold ${bullPrep >= 7 ? "text-yellow-400" : bullPrep >= 4 ? "text-green-400" : "text-[#6b7280]"}`}>{bullPrep}/9</span>
+                                  </div>
+                                  <div className="flex justify-between">
+                                    <span className="text-[#6b7280]" title="Counts consecutive closes higher than 4 bars ago — a sell setup forms at 9">Sell Setup</span>
+                                    <span className={`font-semibold ${bearPrep >= 7 ? "text-yellow-400" : bearPrep >= 4 ? "text-red-400" : "text-[#6b7280]"}`}>{bearPrep}/9</span>
+                                  </div>
+                                  <div className="flex justify-between">
+                                    <span className="text-[#6b7280]" title="After a completed buy setup, counts 13 bars for a stronger buy signal">Buy Countdown</span>
+                                    <span className={`font-semibold ${bullLeadup >= 10 ? "text-yellow-400" : bullLeadup >= 4 ? "text-green-400" : "text-[#6b7280]"}`}>{bullLeadup}/13</span>
+                                  </div>
+                                  <div className="flex justify-between">
+                                    <span className="text-[#6b7280]" title="After a completed sell setup, counts 13 bars for a stronger sell signal">Sell Countdown</span>
+                                    <span className={`font-semibold ${bearLeadup >= 10 ? "text-yellow-400" : bearLeadup >= 4 ? "text-red-400" : "text-[#6b7280]"}`}>{bearLeadup}/13</span>
+                                  </div>
+                                </div>
+
+                                {(hasTd9Bull || hasTd9Bear || hasTd13Bull || hasTd13Bear) && (
+                                  <div className="pt-2 mt-1 border-t border-white/[0.06] space-y-1">
+                                    {hasTd9Bull && <div className="flex items-center gap-2 text-xs"><span className="w-2 h-2 rounded-full bg-green-400"></span><span className="text-green-400 font-semibold">TD9 Buy</span><span className="text-[#6b7280]">— setup complete, potential reversal up</span></div>}
+                                    {hasTd9Bear && <div className="flex items-center gap-2 text-xs"><span className="w-2 h-2 rounded-full bg-red-400"></span><span className="text-red-400 font-semibold">TD9 Sell</span><span className="text-[#6b7280]">— setup complete, potential reversal down</span></div>}
+                                    {hasTd13Bull && <div className="flex items-center gap-2 text-xs"><span className="w-2 h-2 rounded-full bg-green-400"></span><span className="text-green-400 font-semibold">TD13 Buy</span><span className="text-[#6b7280]">— countdown complete, strong buy signal</span></div>}
+                                    {hasTd13Bear && <div className="flex items-center gap-2 text-xs"><span className="w-2 h-2 rounded-full bg-red-400"></span><span className="text-red-400 font-semibold">TD13 Sell</span><span className="text-[#6b7280]">— countdown complete, strong sell signal</span></div>}
+                                  </div>
+                                )}
+                              </div>
+
+                              {(hasExitLong || hasExitShort) && (
+                                <div className="mt-2 p-3 rounded-lg border-2 bg-red-500/20 border-red-500/50">
+                                  <div className="flex items-center justify-between">
+                                    <span className="text-xs text-[#6b7280]">Exhaustion Warning</span>
+                                    <span className="font-bold text-sm text-red-400">{hasExitLong ? "EXIT LONG" : "EXIT SHORT"}</span>
+                                  </div>
+                                  <div className="text-[11px] text-[#6b7280] mt-1">
+                                    {hasExitLong ? "The current rally shows signs of exhaustion — momentum is fading. Consider taking profits or raising stops." : "The current decline shows signs of exhaustion — selling pressure is fading. Watch for a reversal bounce."}
+                                  </div>
+                                </div>
+                              )}
+
+                              {tdSeq.boost !== undefined && tdSeq.boost !== null && Number(tdSeq.boost) !== 0 && (
+                                <div className="mt-2 flex justify-between items-center text-xs px-3 py-2 bg-white/[0.03] rounded-lg border border-white/[0.06]">
+                                  <span className="text-[#6b7280]">Score impact from TD Sequential</span>
+                                  <span className={`font-semibold ${Number(tdSeq.boost) > 0 ? "text-green-400" : "text-red-400"}`}>{Number(tdSeq.boost) > 0 ? "+" : ""}{Number(tdSeq.boost).toFixed(1)}</span>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })()}
+
+                      {/* Triggers */}
+                      <div className="mt-6 pt-6 border-t-2 border-white/[0.06]">
+                        <div className="text-sm font-bold text-[#6b7280] mb-4">
+                          ⚡ Triggers
+                        </div>
+                        <div className="p-3 bg-white/[0.03] rounded-lg border border-white/[0.06]">
+                          {triggerItems.length > 0 ? (
+                            <div className="space-y-2">
+                              {triggerItems.slice(0, 12).map((t, idx) => {
+                                const translateTrigger = (raw) => {
+                                  const s = String(raw || "").trim();
+                                  const translations = {
+                                    'SQUEEZE_RELEASE_30M': 'Consolidation breakout (30min)',
+                                    'ST_FLIP_30M': 'Momentum flip detected (30min)',
+                                    'ST_FLIP_1H': 'Momentum flip detected (1hr)',
+                                    'EMA_CROSS_1H_13_48': 'Moving average crossover (1hr)',
+                                    'BUYABLE_DIP_1H_13_48': 'Pullback pattern detected (1hr)',
+                                    'EMA_CROSS_30M_13_48': 'Moving average crossover (30min)'
+                                  };
+                                  
+                                  // Check for exact match first
+                                  if (translations[s]) return translations[s];
+                                  
+                                  // Pattern matching for complex triggers
+                                  if (s.includes('EMA_CROSS') && s.includes('BULL')) {
+                                    return s.replace(/EMA_CROSS_(\w+)_\d+_\d+.*BULL.*/i, 'Bullish moving average cross ($1)');
+                                  }
+                                  if (s.includes('EMA_CROSS') && s.includes('BEAR')) {
+                                    return s.replace(/EMA_CROSS_(\w+)_\d+_\d+.*BEAR.*/i, 'Bearish moving average cross ($1)');
+                                  }
+                                  if (s.includes('SQUEEZE_RELEASE')) {
+                                    return 'Consolidation breakout';
+                                  }
+                                  if (s.includes('ST_FLIP')) {
+                                    return 'Momentum flip detected';
+                                  }
+                                  
+                                  // Keep unconfirmed warning
+                                  if (s.includes('⚠️')) {
+                                    const base = s.replace('⚠️ unconfirmed', '').trim();
+                                    return `${translateTrigger(base)} (unconfirmed)`;
+                                  }
+                                  
+                                  // Fallback: make it readable
+                                  return s.replace(/_/g, ' ').toLowerCase();
+                                };
+                                
+                                return (
+                                  <div
+                                    key={idx}
+                                    className="flex items-start gap-2 text-xs"
+                                  >
+                                    <span className="text-cyan-400 mt-0.5">•</span>
+                                    <span className="text-[#f0f2f5] flex-1">{translateTrigger(t)}</span>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          ) : (
+                            <div className="text-xs text-[#6b7280]">
+                              No trigger patterns detected.
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Timeframes (Per-TF technicals) */}
+                      <div className="mt-6 pt-6 border-t-2 border-white/[0.06]">
+                        <div className="text-sm font-bold text-[#6b7280] mb-4">
+                          Timeframe Analysis
+                        </div>
+                        <div className="space-y-2">
+                          {tfTech ? (
+                            tfOrder.map(({ k, label }) => {
+                                const row = tfTech[k] || null;
+                                if (!row) return null;
+                                const atr = row.atr || null;
+                                const ema = row.ema || null;
+                                const ph = row.ph || null;
+                                const sq = row.sq || null;
+                                const rsi = row.rsi || null;
+
+                                const structure = ema && Number.isFinite(Number(ema.structure)) ? Number(ema.structure) : 0;
+                                const sig = structure >= 0.3 ? 1 : structure <= -0.3 ? -1 : 0;
+                                const sigLabel = sig === 1 ? "Bullish" : sig === -1 ? "Bearish" : "Neutral";
+                                const sigColor = sig === 1 ? "text-green-400" : sig === -1 ? "text-red-400" : "text-[#6b7280]";
+                                const sigBg = sig === 1 ? "border-green-500/20" : sig === -1 ? "border-red-500/20" : "border-white/[0.06]";
+
+                                const depth = ema && Number.isFinite(Number(ema.depth)) ? Number(ema.depth) : 0;
+                                const aboveCount = Math.min(depth, emaLevels.length);
+                                const emaTotal = emaLevels.length;
+
+                                const emaSummary = (() => {
+                                  if (aboveCount === emaTotal) return "Price above all moving averages — strong uptrend";
+                                  if (aboveCount >= 5) return `Price above ${aboveCount} of ${emaTotal} MAs — bullish structure`;
+                                  if (aboveCount >= 3) return `Price above ${aboveCount} of ${emaTotal} MAs — mixed, trending sideways`;
+                                  if (aboveCount >= 1) return `Price above only ${aboveCount} of ${emaTotal} MAs — weak, mostly below`;
+                                  return "Price below all moving averages — deep pullback or downtrend";
+                                })();
+
+                                const atrSummary = (() => {
+                                  if (!atr) return null;
+                                  const side = Number(atr.s);
+                                  const lo = Number(atr.lo);
+                                  const hi = atr.hi != null ? Number(atr.hi) : null;
+                                  if (!Number.isFinite(lo)) return null;
+                                  const dir = side === -1 ? "below" : "above";
+                                  if (hi != null && Number.isFinite(hi)) {
+                                    if (lo <= 0.5) return `Near the mean — price is within normal range`;
+                                    if (lo <= 1.5) return `${lo.toFixed(1)}–${hi.toFixed(1)} ATRs ${dir} mean — moderately extended`;
+                                    return `${lo.toFixed(1)}–${hi.toFixed(1)} ATRs ${dir} mean — stretched, watch for reversion`;
+                                  }
+                                  if (lo <= 0.5) return `Near the mean — price is within normal range`;
+                                  if (lo <= 1.5) return `${lo.toFixed(1)}+ ATRs ${dir} mean — moderately extended`;
+                                  return `${lo.toFixed(1)}+ ATRs ${dir} mean — stretched, watch for reversion`;
+                                })();
+
+                                const sqParts = [];
+                                if (sq && sq.c) sqParts.push("Compressed");
+                                if (sq && sq.s) sqParts.push("Fired");
+                                if (sq && sq.r) sqParts.push("Released");
+                                const sqSummary = sqParts.length > 0
+                                  ? sqParts.join(" → ")
+                                  : null;
+                                const sqDesc = (() => {
+                                  if (sq && sq.r) return "Energy released — momentum expanding";
+                                  if (sq && sq.s) return "Squeeze fired — breakout imminent";
+                                  if (sq && sq.c) return "Volatility compressed — building energy for a move";
+                                  return null;
+                                })();
+
+                                const r5 = rsi && rsi.r5 != null ? Number(rsi.r5) : null;
+                                const r14 = rsi && rsi.r14 != null ? Number(rsi.r14) : null;
+                                const rsiSummary = (() => {
+                                  const v = r14 != null ? r14 : r5;
+                                  if (v == null) return null;
+                                  if (v >= 75) return `RSI ${v.toFixed(0)} — overbought, watch for pullback`;
+                                  if (v >= 60) return `RSI ${v.toFixed(0)} — healthy bullish momentum`;
+                                  if (v >= 40) return `RSI ${v.toFixed(0)} — neutral, no strong momentum`;
+                                  if (v >= 25) return `RSI ${v.toFixed(0)} — weak, approaching oversold`;
+                                  return `RSI ${v.toFixed(0)} — oversold, bounce potential`;
+                                })();
+
+                                const phaseSummary = (() => {
+                                  if (!ph || ph.v == null) return null;
+                                  const v = Number(ph.v);
+                                  if (!Number.isFinite(v)) return null;
+                                  if (v >= 80) return `Phase ${v} — late stage, most of the move is done`;
+                                  if (v >= 50) return `Phase ${v} — mid-move, momentum still active`;
+                                  if (v >= 20) return `Phase ${v} — early stage, plenty of room`;
+                                  return `Phase ${v} — very early or resetting`;
+                                })();
+
+                                const phDivSummary = (() => {
+                                  const divs = (ph && Array.isArray(ph.div) ? ph.div : []).slice(0, 3);
+                                  if (divs.length === 0) return null;
+                                  const d = divs[0];
+                                  if (d === "B") return "Bullish divergence — price falling but momentum building (potential reversal up)";
+                                  if (d === "S") return "Bearish divergence — price rising but momentum fading (potential reversal down)";
+                                  return null;
+                                })();
+
+                                const tfInterpretation = (() => {
+                                  const parts = [];
+                                  if (sig === 1) {
+                                    if (sq && sq.r) parts.push("Bullish with momentum expanding after squeeze release");
+                                    else if (sq && sq.s) parts.push("Bullish — squeeze just fired, breakout starting");
+                                    else if (aboveCount >= 5) parts.push("Bullish trend with strong MA support");
+                                    else parts.push("Leaning bullish");
+                                  } else if (sig === -1) {
+                                    if (sq && sq.r) parts.push("Bearish with selling accelerating after squeeze release");
+                                    else if (sq && sq.s) parts.push("Bearish — squeeze just fired, breakdown starting");
+                                    else if (aboveCount <= 2) parts.push("Bearish trend with price below most MAs");
+                                    else parts.push("Leaning bearish");
+                                  } else {
+                                    if (sq && sq.c) parts.push("Neutral — volatility compressed, waiting for direction");
+                                    else parts.push("No clear directional bias on this timeframe");
+                                  }
+                                  return parts[0] || "";
+                                })();
+
+                                return (
+                                  <div key={k} className={`rounded-lg p-3 bg-white/[0.02] border ${sigBg}`}>
+                                    <div className="flex items-center justify-between mb-1.5">
+                                      <span className="text-sm font-bold text-white">{label}</span>
+                                      <span className={`text-xs font-semibold px-2 py-0.5 rounded ${sig === 1 ? "bg-green-500/15 text-green-400" : sig === -1 ? "bg-red-500/15 text-red-400" : "bg-white/[0.05] text-[#6b7280]"}`}>{sigLabel}</span>
+                                    </div>
+                                    <div className="text-[11px] text-slate-300/80 italic mb-2.5 leading-snug">{tfInterpretation}</div>
+
+                                    <div className="space-y-1.5 text-[11px]">
+                                      <div className="flex items-start gap-2">
+                                        <span className="text-[#6b7280] w-12 shrink-0 pt-px" title="Moving Averages — how many EMAs price is above">MAs</span>
+                                        <span className="text-slate-300">{emaSummary}{ema && ema.stack != null ? ` (stack: ${ema.stack})` : ""}</span>
+                                      </div>
+                                      {atrSummary && (
+                                        <div className="flex items-start gap-2">
+                                          <span className="text-[#6b7280] w-12 shrink-0 pt-px" title="Average True Range — how far price is from its normal trading range">ATR</span>
+                                          <span className="text-slate-300">{atrSummary}</span>
+                                        </div>
+                                      )}
+                                      {rsiSummary && (
+                                        <div className="flex items-start gap-2">
+                                          <span className="text-[#6b7280] w-12 shrink-0 pt-px" title="Relative Strength Index — momentum oscillator (30=oversold, 70=overbought)">RSI</span>
+                                          <span className="text-slate-300">{rsiSummary}{r5 != null && r14 != null ? ` (fast: ${r5.toFixed(0)}, slow: ${r14.toFixed(0)})` : ""}</span>
+                                        </div>
+                                      )}
+                                      {sqSummary && (
+                                        <div className="flex items-start gap-2">
+                                          <span className="text-[#6b7280] w-12 shrink-0 pt-px" title="Bollinger Band Squeeze — volatility compression that often precedes big moves">Sqz</span>
+                                          <span className="text-slate-300">{sqDesc || sqSummary}</span>
+                                        </div>
+                                      )}
+                                      {phaseSummary && (
+                                        <div className="flex items-start gap-2">
+                                          <span className="text-[#6b7280] w-12 shrink-0 pt-px" title="Phase — how far along the current move is (0=early, 100=late)">Phase</span>
+                                          <span className="text-slate-300">{phaseSummary}</span>
+                                        </div>
+                                      )}
+                                      {phDivSummary && (
+                                        <div className="flex items-start gap-2">
+                                          <span className="text-[#6b7280] w-12 shrink-0 pt-px">Div</span>
+                                          <span className={`${(ph?.div?.[0]) === "B" ? "text-green-400/90" : "text-red-400/90"}`}>{phDivSummary}</span>
+                                        </div>
+                                      )}
+                                    </div>
+                                  </div>
+                                );
+                              })
+                          ) : (
+                            <div className="text-xs text-[#6b7280] p-3 bg-white/[0.03] rounded-lg border border-white/[0.06]">
+                              No per-timeframe technicals available yet.
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* RSI & Divergence */}
+                      {ticker.rsi &&
+                        (() => {
+                          const rsi = ticker.rsi;
+                          const rsiValue = Number(rsi.value || 0);
+                          const rsiLevel = rsi.level || "neutral";
+                          const divergence = rsi.divergence || {};
+                          const divType = divergence.type || "none";
+                          const divStrength = Number(divergence.strength || 0);
+
+                          const rsiColor = rsiValue >= 70 ? "text-red-400" : rsiValue <= 30 ? "text-green-400" : rsiValue >= 50 ? "text-yellow-400" : "text-blue-400";
+                          const barColor = rsiValue >= 70 ? "bg-red-500" : rsiValue <= 30 ? "bg-green-500" : rsiValue >= 50 ? "bg-yellow-500" : "bg-blue-500";
+
+                          const rsiInterpretation = (() => {
+                            if (rsiValue >= 80) return "Extremely overbought — the rally is stretched and a pullback is likely. Caution buying here.";
+                            if (rsiValue >= 70) return "Overbought territory — momentum is strong but the move is getting extended. Watch for signs of slowing.";
+                            if (rsiValue >= 55) return "Healthy bullish momentum — price is trending up without being overextended. A good zone for trend-following.";
+                            if (rsiValue >= 45) return "Neutral momentum — no strong directional pressure. Price is consolidating or transitioning.";
+                            if (rsiValue >= 30) return "Weak momentum — price is under pressure but not yet at extreme levels.";
+                            if (rsiValue >= 20) return "Oversold territory — selling may be overdone. Watch for a bounce or reversal setup.";
+                            return "Extremely oversold — panic selling or capitulation. A snapback rally is possible.";
+                          })();
+
+                          return (
+                            <div className="mt-6 pt-6 border-t-2 border-white/[0.06]">
+                              <div className="text-sm font-bold text-[#6b7280] mb-3">
+                                RSI & Divergence
+                              </div>
+
+                              <div className="p-3 bg-white/[0.03] rounded-lg border border-white/[0.06]">
+                                <div className="flex justify-between items-center mb-1">
+                                  <span className="text-xs text-[#6b7280]" title="Relative Strength Index (14-period) — measures momentum on a 0-100 scale. Below 30 is oversold, above 70 is overbought.">RSI (14)</span>
+                                  <span className={`font-bold text-lg ${rsiColor}`}>{rsiValue.toFixed(1)}</span>
+                                </div>
+                                <div className="mt-1.5 h-2 bg-white/[0.04] rounded-full overflow-hidden relative">
+                                  <div className={`h-full rounded-full transition-all ${barColor}`} style={{ width: `${rsiValue}%` }} />
+                                </div>
+                                <div className="flex justify-between text-[9px] text-[#4b5563] mt-0.5">
+                                  <span>Oversold</span>
+                                  <span>30</span>
+                                  <span>50</span>
+                                  <span>70</span>
+                                  <span>Overbought</span>
+                                </div>
+                                <div className="mt-2 text-[11px] text-slate-300/80 italic leading-snug">{rsiInterpretation}</div>
+                              </div>
+
+                              {divType !== "none" && (
+                                <div className={`mt-2 p-3 rounded-lg border-2 ${divType === "bullish" ? "bg-green-500/15 border-green-500/40" : "bg-red-500/15 border-red-500/40"}`}>
+                                  <div className="flex items-center justify-between mb-1">
+                                    <span className="text-xs font-semibold text-[#6b7280]">Divergence Detected</span>
+                                    <span className={`font-bold text-sm ${divType === "bullish" ? "text-green-400" : "text-red-400"}`}>{divType === "bullish" ? "Bullish" : "Bearish"}</span>
+                                  </div>
+                                  <div className="text-[11px] text-slate-300/80 leading-snug">
+                                    {divType === "bullish"
+                                      ? "Price made a lower low but RSI made a higher low — selling momentum is fading even as price drops. This often precedes a reversal upward."
+                                      : "Price made a higher high but RSI made a lower high — buying momentum is fading even as price rises. This often precedes a reversal downward."}
+                                  </div>
+                                  {divStrength > 0 && <div className="text-[10px] text-[#6b7280] mt-1">Signal strength: {divStrength.toFixed(2)}</div>}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })()}
+
+                      {/* Detected Patterns */}
+                      {detectedPatterns && detectedPatterns.length > 0 && (
+                        <div className="mb-4 p-3 bg-white/[0.03] border border-white/[0.06] rounded-lg">
+                          <div className="text-xs font-semibold text-yellow-400 mb-2">
+                            Detected Patterns
+                          </div>
+                          <div className="space-y-2">
+                            {detectedPatterns.map((pattern, idx) => (
+                              <div key={`pattern-${idx}`} className="p-2 rounded border bg-white/[0.02] border-white/[0.06]">
+                                <div className="flex items-center justify-between">
+                                  <div className="text-xs text-white font-semibold">{pattern.description}</div>
+                                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-yellow-500/20 text-yellow-300">{pattern.confidence}</span>
+                                </div>
+                                {pattern.quadrant && <div className="text-[10px] text-[#6b7280] mt-0.5">{pattern.quadrant}</div>}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* EMA Cloud Positions */}
+                      {(ticker.daily_ema_cloud || ticker.fourh_ema_cloud || ticker.oneh_ema_cloud) &&
+                        (() => {
+                          const clouds = [
+                            { data: ticker.daily_ema_cloud, label: "Daily", emas: "5/8 EMA", desc: "The short-term daily trend cloud" },
+                            { data: ticker.fourh_ema_cloud, label: "4H", emas: "8/13 EMA", desc: "The intermediate swing trend cloud" },
+                            { data: ticker.oneh_ema_cloud, label: "1H", emas: "13/21 EMA", desc: "The intraday momentum cloud" },
+                          ].filter(c => c.data);
+                          if (clouds.length === 0) return null;
+
+                          const posDesc = (pos) => {
+                            if (pos === "above") return { text: "Above", color: "text-green-400", bg: "bg-green-500/15 border-green-500/30", meaning: "bullish — price is above the cloud, confirming upward momentum" };
+                            if (pos === "below") return { text: "Below", color: "text-red-400", bg: "bg-red-500/15 border-red-500/30", meaning: "bearish — price is below the cloud, confirming downward pressure" };
+                            return { text: "Inside", color: "text-yellow-400", bg: "bg-yellow-500/15 border-yellow-500/30", meaning: "neutral — price is inside the cloud, direction is uncertain" };
+                          };
+
+                          return (
+                            <div className="mt-6 pt-6 border-t-2 border-white/[0.06]">
+                              <div className="text-sm font-bold text-[#6b7280] mb-2">
+                                EMA Clouds
+                              </div>
+                              <div className="text-[10px] text-slate-400/70 mb-3">EMA clouds show moving average zones — price above = bullish, below = bearish, inside = undecided</div>
+                              <div className="space-y-2">
+                                {clouds.map(({ data, label, emas, desc }) => {
+                                  const p = posDesc(data.position);
+                                  return (
+                                    <div key={label} className={`p-2.5 rounded-lg border ${p.bg}`}>
+                                      <div className="flex items-center justify-between mb-1">
+                                        <span className="text-xs font-semibold text-white" title={desc}>{label} <span className="text-[#6b7280] font-normal">({emas})</span></span>
+                                        <span className={`text-xs font-bold ${p.color}`}>{p.text}</span>
+                                      </div>
+                                      <div className="text-[10px] text-slate-400/80">{label} is {p.meaning}</div>
+                                      <div className="flex gap-4 mt-1.5 text-[10px] text-[#6b7280]">
+                                        <span>Cloud: ${Number(data.lower).toFixed(2)} – ${Number(data.upper).toFixed(2)}</span>
+                                        <span>Price: <span className="text-white font-semibold">${Number(data.price).toFixed(2)}</span></span>
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          );
+                        })()}
+
+                      {/* Fundamental & Valuation Metrics */}
+                      {ticker.fundamentals &&
+                        (() => {
+                          const fund = ticker.fundamentals;
+                          const hasValuationData =
+                            fund.pe_ratio !== null ||
+                            fund.peg_ratio !== null ||
+                            fund.eps_growth_rate !== null;
+
+                          if (!hasValuationData) return null;
+
+                          const valuationSignal =
+                            fund.valuation_signal || "fair";
+                          const signalColor =
+                            valuationSignal === "undervalued"
+                              ? "text-green-400"
+                              : valuationSignal === "overvalued"
+                                ? "text-red-400"
+                                : "text-yellow-400";
+                          const signalBg =
+                            valuationSignal === "undervalued"
+                              ? "bg-green-500/20 border-green-500/50"
+                              : valuationSignal === "overvalued"
+                                ? "bg-red-500/20 border-red-500/50"
+                                : "bg-yellow-500/20 border-yellow-500/50";
+
+                          return (
+                            <div className="mt-6 pt-6 border-t-2 border-white/[0.06]">
+                              <div className="text-sm font-bold text-[#6b7280] mb-4">
+                                Fundamental & Valuation
+                              </div>
+
+                              {/* Valuation Signal Badge */}
+                              {fund.valuation_signal && (
+                                <div
+                                  className={`mb-4 p-3 rounded-lg border-2 ${signalBg}`}
+                                >
+                                  <div className="flex items-center justify-between">
+                                    <span className="text-xs text-[#6b7280]">
+                                      Valuation Indicator
+                                    </span>
+                                    <span
+                                      className={`font-bold text-sm ${signalColor}`}
+                                    >
+                                      {fund.valuation_signal.toUpperCase()}
+                                    </span>
+                                  </div>
+                                  {fund.valuation_confidence && (
+                                    <div className="text-xs text-[#6b7280] mt-1">
+                                      Confidence:{" "}
+                                      <span className="font-semibold">
+                                        {fund.valuation_confidence}
+                                      </span>
+                                    </div>
+                                  )}
+                                  {fund.valuation_reasons &&
+                                    fund.valuation_reasons.length > 0 && (
+                                      <div className="mt-2 pt-2 border-t border-current/30">
+                                        <div className="text-[10px] text-[#6b7280] mb-1">
+                                          Reasons:
+                                        </div>
+                                        {fund.valuation_reasons.map(
+                                          (reason, idx) => (
+                                            <div
+                                              key={idx}
+                                              className="text-[10px] text-[#6b7280]/80 mb-0.5"
+                                            >
+                                              • {reason}
+                                            </div>
+                                          ),
+                                        )}
+                                      </div>
+                                    )}
+                                </div>
+                              )}
+
+                              {/* Basic Metrics */}
+                              <div className="space-y-2 text-sm mb-4">
+                                {fund.pe_ratio !== null && (
+                                  <div className="flex justify-between items-center py-1 border-b border-white/[0.06]/50">
+                                    <span className="text-[#6b7280]" title="Price-to-Earnings — how much investors pay per $1 of earnings. Lower = cheaper relative to profits.">
+                                      P/E Ratio
+                                    </span>
+                                    <span className="font-semibold">
+                                      {Number(fund.pe_ratio).toFixed(2)}
+                                    </span>
+                                  </div>
+                                )}
+                                {fund.peg_ratio !== null && (
+                                  <div className="flex justify-between items-center py-1 border-b border-white/[0.06]/50">
+                                    <span className="text-[#6b7280]" title="P/E divided by earnings growth rate. Below 1.0 = potentially undervalued for its growth. Above 1.5 = expensive.">
+                                      PEG Ratio
+                                    </span>
+                                    <span
+                                      className={`font-semibold ${
+                                        fund.peg_ratio < 0.8
+                                          ? "text-green-400"
+                                          : fund.peg_ratio < 1.0
+                                            ? "text-yellow-400"
+                                            : fund.peg_ratio > 1.5
+                                              ? "text-red-400"
+                                              : "text-[#6b7280]"
+                                      }`}
+                                    >
+                                      {Number(fund.peg_ratio).toFixed(2)}
+                                    </span>
+                                  </div>
+                                )}
+                                {fund.eps !== null && (
+                                  <div className="flex justify-between items-center py-1 border-b border-white/[0.06]/50">
+                                    <span className="text-[#6b7280]" title="Earnings Per Share (trailing 12 months) — how much profit the company earned per share over the past year.">
+                                      EPS (TTM)
+                                    </span>
+                                    <span className="font-semibold">
+                                      ${Number(fund.eps).toFixed(2)}
+                                    </span>
+                                  </div>
+                                )}
+                                {fund.eps_growth_rate !== null && (
+                                  <div className="flex justify-between items-center py-1 border-b border-white/[0.06]/50">
+                                    <span className="text-[#6b7280]" title="Year-over-year earnings growth rate. Higher = company is growing profits faster.">
+                                      EPS Growth (Annual)
+                                    </span>
+                                    <span
+                                      className={`font-semibold ${
+                                        fund.eps_growth_rate > 20
+                                          ? "text-green-400"
+                                          : fund.eps_growth_rate > 10
+                                            ? "text-yellow-400"
+                                            : fund.eps_growth_rate > 0
+                                              ? "text-[#6b7280]"
+                                              : "text-red-400"
+                                      }`}
+                                    >
+                                      {Number(fund.eps_growth_rate).toFixed(1)}%
+                                    </span>
+                                  </div>
+                                )}
+                                {(() => {
+                                  const marketCap = fund.market_cap;
+                                  const isValid =
+                                    marketCap !== null &&
+                                    marketCap !== undefined &&
+                                    marketCap !== "" &&
+                                    (typeof marketCap === "number" ||
+                                      typeof marketCap === "string") &&
+                                    !isNaN(Number(marketCap)) &&
+                                    Number(marketCap) > 0;
+                                  if (!isValid) return null;
+                                  const numCap = Number(marketCap);
+                                  let formatted;
+                                  if (numCap >= 1e12) {
+                                    formatted = `$${(numCap / 1e12).toFixed(2)}T`;
+                                  } else if (numCap >= 1e9) {
+                                    formatted = `$${(numCap / 1e9).toFixed(2)}B`;
+                                  } else if (numCap >= 1e6) {
+                                    formatted = `$${(numCap / 1e6).toFixed(2)}M`;
+                                  } else {
+                                    formatted = `$${numCap.toLocaleString()}`;
+                                  }
+                                  return (
+                                    <div className="flex justify-between items-center py-1 border-b border-white/[0.06]/50">
+                                      <span className="text-[#6b7280]" title="Total market value of all outstanding shares. Larger = more established company.">
+                                        Market Cap
+                                      </span>
+                                      <span className="font-semibold">
+                                        {formatted}
+                                      </span>
+                                    </div>
+                                  );
+                                })()}
+                                {fund.industry && (
+                                  <div className="flex justify-between items-center py-1 border-b border-white/[0.06]/50">
+                                    <span className="text-[#6b7280]">
+                                      Industry
+                                    </span>
+                                    <span className="font-semibold text-xs">
+                                      {fund.industry}
+                                    </span>
+                                  </div>
+                                )}
+                              </div>
+
+                              {/* Fair Value */}
+                              {fund.fair_value_price !== null &&
+                                fund.fair_value_price > 0 && (
+                                  <div className="mb-4 p-3 bg-white/[0.03] rounded-lg border border-white/[0.06]">
+                                    <div className="text-xs text-[#6b7280] mb-2">
+                                      Fair Value
+                                    </div>
+                                    <div className="flex items-center justify-between mb-2">
+                                      <span className="text-sm text-[#6b7280]">
+                                        Fair Value Price
+                                      </span>
+                                      <span className="font-bold text-lg text-blue-400">
+                                        $
+                                        {Number(fund.fair_value_price).toFixed(
+                                          2,
+                                        )}
+                                      </span>
+                                    </div>
+                                    {fund.premium_discount_pct !== null && (
+                                      <div className="flex items-center justify-between">
+                                        <span className="text-xs text-[#6b7280]">
+                                          Premium/Discount
+                                        </span>
+                                        <span
+                                          className={`font-semibold ${
+                                            fund.premium_discount_pct < -10
+                                              ? "text-green-400"
+                                              : fund.premium_discount_pct < 0
+                                                ? "text-yellow-400"
+                                                : fund.premium_discount_pct > 10
+                                                  ? "text-red-400"
+                                                  : "text-[#6b7280]"
+                                          }`}
+                                        >
+                                          {fund.premium_discount_pct > 0
+                                            ? "+"
+                                            : ""}
+                                          {Number(
+                                            fund.premium_discount_pct,
+                                          ).toFixed(1)}
+                                          %
+                                        </span>
+                                      </div>
+                                    )}
+                                    {fund.fair_value_pe &&
+                                      fund.fair_value_pe.preferred && (
+                                        <div className="mt-2 pt-2 border-t border-white/[0.06] text-xs text-[#6b7280]">
+                                          Fair P/E:{" "}
+                                          <span className="font-semibold">
+                                            {Number(
+                                              fund.fair_value_pe.preferred,
+                                            ).toFixed(2)}
+                                          </span>
+                                        </div>
+                                      )}
+                                  </div>
+                                )}
+
+                              {/* Historical P/E Percentiles */}
+                              {fund.pe_percentiles && (
+                                <div className="mb-4 p-3 bg-white/[0.03] rounded-lg border border-white/[0.06]">
+                                  <div className="text-xs text-[#6b7280] mb-2">
+                                    Historical P/E Percentiles
+                                  </div>
+                                  <div className="grid grid-cols-2 gap-2 text-xs">
+                                    {fund.pe_percentiles.p10 !== null && (
+                                      <div className="flex justify-between">
+                                        <span className="text-[#6b7280]">
+                                          10th:
+                                        </span>
+                                        <span className="font-semibold">
+                                          {Number(
+                                            fund.pe_percentiles.p10,
+                                          ).toFixed(1)}
+                                        </span>
+                                      </div>
+                                    )}
+                                    {fund.pe_percentiles.p25 !== null && (
+                                      <div className="flex justify-between">
+                                        <span className="text-[#6b7280]">
+                                          25th:
+                                        </span>
+                                        <span className="font-semibold">
+                                          {Number(
+                                            fund.pe_percentiles.p25,
+                                          ).toFixed(1)}
+                                        </span>
+                                      </div>
+                                    )}
+                                    {fund.pe_percentiles.p50 !== null && (
+                                      <div className="flex justify-between">
+                                        <span className="text-[#6b7280]">
+                                          50th (Median):
+                                        </span>
+                                        <span className="font-semibold text-blue-400">
+                                          {Number(
+                                            fund.pe_percentiles.p50,
+                                          ).toFixed(1)}
+                                        </span>
+                                      </div>
+                                    )}
+                                    {fund.pe_percentiles.p75 !== null && (
+                                      <div className="flex justify-between">
+                                        <span className="text-[#6b7280]">
+                                          75th:
+                                        </span>
+                                        <span className="font-semibold">
+                                          {Number(
+                                            fund.pe_percentiles.p75,
+                                          ).toFixed(1)}
+                                        </span>
+                                      </div>
+                                    )}
+                                    {fund.pe_percentiles.p90 !== null && (
+                                      <div className="flex justify-between">
+                                        <span className="text-[#6b7280]">
+                                          90th:
+                                        </span>
+                                        <span className="font-semibold">
+                                          {Number(
+                                            fund.pe_percentiles.p90,
+                                          ).toFixed(1)}
+                                        </span>
+                                      </div>
+                                    )}
+                                    {fund.pe_percentiles.avg !== null && (
+                                      <div className="flex justify-between col-span-2 pt-1 border-t border-white/[0.06]">
+                                        <span className="text-[#6b7280]">
+                                          Average:
+                                        </span>
+                                        <span className="font-semibold">
+                                          {Number(
+                                            fund.pe_percentiles.avg,
+                                          ).toFixed(1)}
+                                        </span>
+                                      </div>
+                                    )}
+                                  </div>
+                                  {fund.pe_percentile_position && (
+                                    <div className="mt-2 pt-2 border-t border-white/[0.06] text-xs">
+                                      <span className="text-[#6b7280]">
+                                        Current Position:{" "}
+                                      </span>
+                                      <span
+                                        className={`font-semibold ${
+                                          fund.pe_percentile_position.includes(
+                                            "Bottom",
+                                          )
+                                            ? "text-green-400"
+                                            : fund.pe_percentile_position.includes(
+                                                  "Top",
+                                                )
+                                              ? "text-red-400"
+                                              : "text-[#6b7280]"
+                                        }`}
+                                      >
+                                        {fund.pe_percentile_position}
+                                      </span>
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+
+                              {/* Valuation Boost in Rank */}
+                              {ticker.rank_components &&
+                                ticker.rank_components.valuation_boost !==
+                                  undefined &&
+                                ticker.rank_components.valuation_boost !==
+                                  0 && (
+                                  <div className="mb-4 p-3 bg-white/[0.03] rounded-lg border border-white/[0.06]">
+                                    <div className="text-xs text-[#6b7280] mb-1">
+                                      Rank Components
+                                    </div>
+                                    <div className="flex justify-between items-center text-xs">
+                                      <span className="text-[#6b7280]">
+                                        Base Rank
+                                      </span>
+                                      <span className="font-semibold">
+                                        {ticker.rank_components.base_rank ||
+                                          baseScore}
+                                      </span>
+                                    </div>
+                                    <div className="flex justify-between items-center text-xs mt-1">
+                                      <span className="text-[#6b7280]">
+                                        Valuation Boost
+                                      </span>
+                                      <span
+                                        className={`font-semibold ${
+                                          ticker.rank_components
+                                            .valuation_boost > 0
+                                            ? "text-green-400"
+                                            : "text-red-400"
+                                        }`}
+                                      >
+                                        {ticker.rank_components
+                                          .valuation_boost > 0
+                                          ? "+"
+                                          : ""}
+                                        {ticker.rank_components.valuation_boost}
+                                      </span>
+                                    </div>
+                                    <div className="flex justify-between items-center text-sm mt-2 pt-2 border-t border-white/[0.06]">
+                                      <span className="text-[#6b7280] font-semibold">
+                                        Final Rank
+                                      </span>
+                                      <span className="font-bold text-blue-400">
+                                        {baseScore}
+                                      </span>
+                                    </div>
+                                  </div>
+                                )}
+                            </div>
+                          );
+                        })()}
+
+                      {/* Trade Journey (Ledger trades) */}
+                    </>
+                  ) : null}
+
+                  {/* CHART tab removed — chart consolidated into ANALYSIS tab */}
+                  {false ? (
+                    <>
+                      <div className="mb-4 p-3 bg-white/[0.03] border-2 border-white/[0.06] rounded-lg">
+                        <div className="flex items-center justify-between gap-2 mb-3">
+                          <div className="text-sm text-[#6b7280]">Chart (REMOVED)</div>
+                          <div className="flex items-center gap-1 flex-wrap">
+                            {[
+                              { tf: "5", label: "5m" },
+                              { tf: "15", label: "15m" },
+                              { tf: "30", label: "30m" },
+                              { tf: "60", label: "1H" },
+                              { tf: "240", label: "4H" },
+                              { tf: "D", label: "D" },
+                              { tf: "W", label: "W" },
+                              { tf: "M", label: "M" },
+                            ].map((t) => {
+                              const active = String(chartTf) === String(t.tf);
+                              return (
+                                <button
+                                  key={`tf-${t.tf}`}
+                                  onClick={() => setChartTf(String(t.tf))}
+                                  className={`px-2 py-1 rounded border text-[11px] font-semibold transition-all ${
+                                    active
+                                      ? "border-blue-400 bg-blue-500/20 text-blue-200"
+                                      : "border-white/[0.06] bg-white/[0.02] text-[#6b7280] hover:text-white"
+                                  }`}
+                                  title={`Show ${t.label} candles`}
+                                >
+                                  {t.label}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+
+                        {chartLoading ? (
+                          <SkeletonBlock height={200} lines={0} style={{ background: "rgba(255,255,255,0.02)" }} />
+                        ) : chartError ? (
+                          <div className="text-xs text-yellow-300">
+                            Failed to load candles: {chartError}
+                          </div>
+                        ) : !Array.isArray(chartCandles) ||
+                          chartCandles.length < 2 ? (
+                          <div className="text-xs text-[#6b7280]">
+                            No candles yet for this timeframe. (Waiting for the
+                            TradingView candle capture feed.)
+                          </div>
+                        ) : (
+                          (() => {
+                            try {
+                              const toMs = (v) => {
+                                if (v == null) return NaN;
+                                if (typeof v === "number") {
+                                  // Heuristic: seconds vs ms
+                                  return v > 1e12 ? v : v * 1000;
+                                }
+                                const n = Number(v);
+                                if (Number.isFinite(n)) return n > 1e12 ? n : n * 1000;
+                                const d = new Date(String(v));
+                                const ms = d.getTime();
+                                return Number.isFinite(ms) ? ms : NaN;
+                              };
+
+                              const norm = (c) => {
+                                const tsRaw = c?.ts ?? c?.t ?? c?.time ?? c?.timestamp;
+                                const tsMs = toMs(tsRaw);
+                                const o = Number(c?.o ?? c?.open);
+                                const h = Number(c?.h ?? c?.high);
+                                const l = Number(c?.l ?? c?.low);
+                                const cl = Number(c?.c ?? c?.close);
+                                if (
+                                  !Number.isFinite(tsMs) ||
+                                  !Number.isFinite(o) ||
+                                  !Number.isFinite(h) ||
+                                  !Number.isFinite(l) ||
+                                  !Number.isFinite(cl)
+                                )
+                                  return null;
+                                return { ...c, ts: tsMs, __ts_ms: tsMs, o, h, l, c: cl };
+                              };
+
+                              let candles = (Array.isArray(chartCandles) ? chartCandles : [])
+                                .slice(-400)
+                                .map(norm)
+                                .filter(Boolean);
+
+                              // Sort + dedupe/aggregate to prevent duplicate bars (common on W captures).
+                              candles.sort((a, b) => Number(a.__ts_ms) - Number(b.__ts_ms));
+
+                              // Daily dedup: group by ET calendar date, keep the market-close candle (latest per day)
+                              if (String(chartTf) === "D") {
+                                const byDate = new Map();
+                                for (const c of candles) {
+                                  const etDate = new Date(c.__ts_ms - 5 * 3600 * 1000);
+                                  const dateKey = `${etDate.getUTCFullYear()}-${String(etDate.getUTCMonth() + 1).padStart(2, "0")}-${String(etDate.getUTCDate()).padStart(2, "0")}`;
+                                  const prev = byDate.get(dateKey);
+                                  if (!prev || c.__ts_ms > prev.__ts_ms) {
+                                    byDate.set(dateKey, { ...c, _dateKey: dateKey });
+                                  } else {
+                                    prev.h = Math.max(prev.h, c.h);
+                                    prev.l = Math.min(prev.l, c.l);
+                                  }
+                                }
+                                candles = Array.from(byDate.values()).sort((a, b) => a.__ts_ms - b.__ts_ms);
+                              }
+
+                              const weekStartUtcMs = (tsMs) => {
+                                const d0 = new Date(Number(tsMs));
+                                const day = d0.getUTCDay(); // 0=Sun..6=Sat
+                                const daysSinceMon = (day + 6) % 7; // Mon->0, Tue->1, ... Sun->6
+                                const d = new Date(
+                                  d0.getTime() - daysSinceMon * 24 * 60 * 60 * 1000,
+                                );
+                                d.setUTCHours(0, 0, 0, 0);
+                                return d.getTime();
+                              };
+
+                              if (String(chartTf) === "W") {
+                                // If the backend sends multiple snapshots within a week, aggregate them
+                                // into a single weekly candle: O=first, H=max, L=min, C=last.
+                                const byWeek = new Map(); // weekStartMs -> candle
+                                for (const c of candles) {
+                                  const wk = weekStartUtcMs(c.__ts_ms);
+                                  const prev = byWeek.get(wk);
+                                  if (!prev) {
+                                    byWeek.set(wk, {
+                                      ts: wk,
+                                      __ts_ms: wk,
+                                      o: Number(c.o),
+                                      h: Number(c.h),
+                                      l: Number(c.l),
+                                      c: Number(c.c),
+                                      _last_ts: Number(c.__ts_ms),
+                                    });
+                                  } else {
+                                    prev.h = Math.max(Number(prev.h), Number(c.h));
+                                    prev.l = Math.min(Number(prev.l), Number(c.l));
+                                    if (Number(c.__ts_ms) >= Number(prev._last_ts)) {
+                                      prev.c = Number(c.c);
+                                      prev._last_ts = Number(c.__ts_ms);
+                                    }
+                                  }
+                                }
+                                candles = Array.from(byWeek.values())
+                                  .sort((a, b) => Number(a.__ts_ms) - Number(b.__ts_ms))
+                                  .map((c) => {
+                                    const out = { ...c };
+                                    delete out._last_ts;
+                                    return out;
+                                  });
+                              } else {
+                                // Dedupe by timestamp (keep the latest sample per ts)
+                                const byTs = new Map();
+                                for (const c of candles) byTs.set(Number(c.__ts_ms), c);
+                                candles = Array.from(byTs.values()).sort(
+                                  (a, b) => Number(a.__ts_ms) - Number(b.__ts_ms),
+                                );
+                              }
+
+                              const totalCandles2 = candles.length;
+                              if (totalCandles2 < 2) {
+                                return (
+                                  <div className="text-xs text-[#6b7280]">
+                                    Candle data loaded, but not in expected OHLC format.
+                                  </div>
+                                );
+                              }
+
+                            // TradingView-style viewport (shared zoom/pan state)
+                            const visCount2 = Math.max(10, Math.min(totalCandles2, chartVisibleCount));
+                            const endIdx2 = Math.max(visCount2, totalCandles2 - chartEndOffset);
+                            const startIdx2 = Math.max(0, endIdx2 - visCount2);
+                            const visibleCandles2 = candles.slice(startIdx2, endIdx2);
+                            const vn2 = visibleCandles2.length;
+                            if (vn2 < 1) return null;
+
+
+                              const lows = visibleCandles2.map((c) => Number(c.l));
+                              const highs = visibleCandles2.map((c) => Number(c.h));
+                              let minL = Math.min(...lows);
+                              let maxH = Math.max(...highs);
+                              if (!Number.isFinite(minL) || !Number.isFinite(maxH))
+                                throw new Error("invalid_minmax");
+                              if (maxH <= minL) {
+                                maxH = minL + 1;
+                              }
+                              const pad = (maxH - minL) * 0.05;
+                              minL -= pad;
+                              maxH += pad;
+
+                            const H = 320;
+                            const leftMargin = 5;
+                            const rightMargin = 65;
+                            const ctrEl2 = chartContainerRef.current;
+                            const ctrW2 = ctrEl2 ? ctrEl2.clientWidth : 500;
+                            const W = ctrW2;
+                            const plotW = W - leftMargin - rightMargin;
+                            const plotH = H;
+                            const candleStep = plotW / vn2;
+                            const candleW = candleStep * 0.7;
+                            const bodyW = candleW * 0.9;
+                            const y = (p) => plotH - ((p - minL) / (maxH - minL)) * plotH;
+
+                            const priceStep = (maxH - minL) / 5;
+                            const priceTicks = [];
+                            for (let i = 0; i <= 5; i++) {
+                              priceTicks.push(minL + priceStep * i);
+                            }
+
+                            const handleMouseMove = (e) => {
+                              if (chartDragRef.current) {
+                                const dx = e.clientX - chartDragRef.current.startX;
+                                const cp = Math.round(dx / candleStep);
+                                setChartEndOffset(Math.max(0, Math.min(totalCandles2 - visCount2, chartDragRef.current.startOffset + cp)));
+                                return;
+                              }
+                              const rect = e.currentTarget.getBoundingClientRect();
+                              if (!rect || rect.width <= 0) return;
+                              const svgX = e.clientX - rect.left, svgY = e.clientY - rect.top;
+                              if (svgX < leftMargin || svgX > W - rightMargin) return;
+                              const idx = Math.floor(((svgX - leftMargin) / plotW) * vn2);
+                              if (idx >= 0 && idx < vn2) {
+                                const c = visibleCandles2[idx];
+                                if (!c) return;
+                                setCrosshair({ x: svgX, y: svgY, candle: c, price: minL + ((H - svgY) / plotH) * (maxH - minL) });
+                              }
+                            };
+                            const handleMouseDown = (e) => { if (e.button !== 0) return; e.preventDefault(); chartDragRef.current = { startX: e.clientX, startOffset: chartEndOffset }; setCrosshair(null); };
+                            const handleMouseUp = () => { chartDragRef.current = null; };
+                            const handleWheel = (e) => {
+                              e.preventDefault(); e.stopPropagation();
+                              const zs = Math.max(1, Math.round(visCount2 * 0.1));
+                              const nc = e.deltaY > 0 ? Math.min(totalCandles2, visCount2 + zs) : Math.max(10, visCount2 - zs);
+                              const sr = e.currentTarget.getBoundingClientRect();
+                              const mxf = (e.clientX - sr.left - leftMargin) / plotW;
+                              const cum = startIdx2 + Math.round(mxf * vn2);
+                              const nl = Math.max(0, Math.min(totalCandles2 - nc, cum - Math.round(mxf * nc)));
+                              setChartVisibleCount(nc); setChartEndOffset(Math.max(0, totalCandles2 - nl - nc));
+                            };
+                            // OHLC header
+                            const hc2 = crosshair?.candle || visibleCandles2[vn2 - 1];
+                            const hO2 = Number(hc2?.o), hH2 = Number(hc2?.h), hL2 = Number(hc2?.l), hC2 = Number(hc2?.c);
+                            const hChg2 = hC2 - hO2, hPct2 = hO2 > 0 ? (hChg2 / hO2) * 100 : 0, hUp2 = hChg2 >= 0;
+                            let hTime2 = "";
+                            try { const hTs = Number(hc2?.__ts_ms ?? hc2?.ts); if (Number.isFinite(hTs)) { const d = new Date(hTs); const isDWM = ["D","W","M"].includes(String(chartTf)); hTime2 = isDWM ? d.toLocaleString("en-US",{month:"short",day:"numeric",year:"numeric",timeZone:"America/New_York"}) : d.toLocaleString("en-US",{month:"short",day:"numeric",hour:"numeric",minute:"2-digit",timeZone:"America/New_York"})+" ET"; } } catch (_) {}
+
+                            return (
+                              <div className="w-full relative">
+                                {/* TradingView-style OHLC header */}
+                                <div className="flex items-center gap-2 mb-0.5 text-[10px] font-mono h-5 select-none">
+                                  <span className="text-[#6b7280]">{hTime2}</span>
+                                  <span className="text-[#6b7280]">O</span><span className="text-white">{hO2.toFixed(2)}</span>
+                                  <span className="text-[#6b7280]">H</span><span className="text-sky-300">{hH2.toFixed(2)}</span>
+                                  <span className="text-[#6b7280]">L</span><span className="text-orange-300">{hL2.toFixed(2)}</span>
+                                  <span className="text-[#6b7280]">C</span>
+                                  <span className={hUp2 ? "text-teal-400 font-semibold" : "text-rose-400 font-semibold"}>{hC2.toFixed(2)}</span>
+                                  <span className={hUp2 ? "text-teal-400" : "text-rose-400"}>
+                                    {hUp2 ? "+" : ""}{hChg2.toFixed(2)} ({hUp2 ? "+" : ""}{hPct2.toFixed(2)}%)
+                                  </span>
+                                </div>
+                                <div
+                                  ref={chartContainerRef}
+                                  className="rounded border border-white/[0.06] bg-[#0b0e11] overflow-hidden"
+                                  style={{ userSelect: "none" }}
+                                >
+                                  <svg
+                                    width={W} height={H} viewBox={`0 0 ${W} ${H}`}
+                                    style={{ display: "block", cursor: chartDragRef.current ? "grabbing" : "crosshair" }}
+                                    onMouseMove={handleMouseMove}
+                                    onMouseDown={handleMouseDown}
+                                    onMouseUp={handleMouseUp}
+                                    onMouseLeave={() => { setCrosshair(null); chartDragRef.current = null; }}
+                                    onWheel={handleWheel}
+                                  >
+                                  {/* Price grid lines */}
+                                  {priceTicks.map((p, i) => {
+                                    const yPos = y(p);
+                                    return (
+                                      <g key={`grid-${i}`}>
+                                        <line
+                                          x1={leftMargin}
+                                          y1={yPos}
+                                          x2={W - rightMargin}
+                                          y2={yPos}
+                                          stroke="rgba(38,50,95,0.5)"
+                                          strokeWidth="1"
+                                        />
+                                        <text
+                                          x={W - rightMargin + 6}
+                                          y={yPos + 4}
+                                          fontSize="11"
+                                          fill="#8b92a0"
+                                          fontFamily="monospace"
+                                        >
+                                          ${p.toFixed(2)}
+                                        </text>
+                                      </g>
+                                    );
+                                  })}
+
+                                  {/* Candles */}
+                                  {visibleCandles2.map((c, i) => {
+                                    const o = Number(c.o);
+                                    const h = Number(c.h);
+                                    const l = Number(c.l);
+                                    const cl = Number(c.c);
+                                    const up = cl >= o;
+                                    const stroke = up
+                                      ? "rgba(56,189,248,0.95)"
+                                      : "rgba(251,146,60,0.95)";
+                                    const fill = up
+                                      ? "rgba(56,189,248,0.90)"
+                                      : "rgba(251,146,60,0.90)";
+
+                                    const cx = leftMargin + i * candleStep + candleStep / 2;
+                                    const yH = y(h);
+                                    const yL = y(l);
+                                    const yO = y(o);
+                                    const yC = y(cl);
+                                    const top = Math.min(yO, yC);
+                                    const bot = Math.max(yO, yC);
+                                    const bodyH = Math.max(1.5, bot - top);
+
+                                    return (
+                                      <g key={`c-${Number(c.ts)}-${i}`}>
+                                        <line
+                                          x1={cx}
+                                          y1={yH}
+                                          x2={cx}
+                                          y2={yL}
+                                          stroke={stroke}
+                                          strokeWidth="1.2"
+                                        />
+                                        <rect
+                                          x={cx - bodyW / 2}
+                                          y={top}
+                                          width={bodyW}
+                                          height={bodyH}
+                                          fill={fill}
+                                          stroke="none"
+                                          rx="0.5"
+                                        />
+                                      </g>
+                                    );
+                                  })}
+
+                                  {/* Crosshair */}
+                                  {crosshair ? (
+                                    <>
+                                      <line
+                                        x1={leftMargin}
+                                        y1={crosshair.y}
+                                        x2={W - rightMargin}
+                                        y2={crosshair.y}
+                                        stroke="rgba(147,164,214,0.5)"
+                                        strokeWidth="1"
+                                        strokeDasharray="4 4"
+                                      />
+                                      <line
+                                        x1={crosshair.x}
+                                        y1={0}
+                                        x2={crosshair.x}
+                                        y2={H}
+                                        stroke="rgba(147,164,214,0.5)"
+                                        strokeWidth="1"
+                                        strokeDasharray="4 4"
+                                      />
+                                      {/* Crosshair price label (right side) */}
+                                      {(() => {
+                                        const yLabel = Math.max(
+                                          10,
+                                          Math.min(H - 10, Number(crosshair.y)),
+                                        );
+                                        const price = Number(crosshair.price);
+                                        const priceText = Number.isFinite(price)
+                                          ? `$${price.toFixed(2)}`
+                                          : "—";
+                                        return (
+                                          <g>
+                                            <rect
+                                              x={W - rightMargin + 2}
+                                              y={yLabel - 10}
+                                              width={rightMargin - 4}
+                                              height={20}
+                                              fill="rgba(18,26,51,0.92)"
+                                              stroke="rgba(38,50,95,0.9)"
+                                              strokeWidth="1"
+                                              rx="4"
+                                            />
+                                            <text
+                                              x={W - rightMargin + (rightMargin - 4) / 2}
+                                              y={yLabel + 4}
+                                              fontSize="11"
+                                              fill="#fbbf24"
+                                              fontFamily="monospace"
+                                              fontWeight="700"
+                                              textAnchor="middle"
+                                            >
+                                              {priceText}
+                                            </text>
+                                          </g>
+                                        );
+                                      })()}
+                                    </>
+                                  ) : null}
+                                  </svg>
+                                </div>
+
+                                {/* Tooltip removed - using OHLC header bar instead */}
+                                {false && crosshair && crosshair.candle ? (
+                                  <div
+                                    className="absolute top-2 left-2 px-3 py-2 border border-white/[0.10] rounded-2xl text-[11px] pointer-events-none z-10"
+                                    style={{
+                                      background: "rgba(255,255,255,0.06)",
+                                      backdropFilter: "blur(24px) saturate(1.4)",
+                                      WebkitBackdropFilter: "blur(24px) saturate(1.4)",
+                                      boxShadow: "0 8px 32px rgba(0,0,0,0.45), inset 0 0.5px 0 rgba(255,255,255,0.08)",
+                                    }}
+                                  >
+                                    <div className="font-semibold text-white mb-1">
+                                      {(() => {
+                                        try {
+                                          const ts = Number(
+                                            crosshair?.candle?.__ts_ms ??
+                                              crosshair?.candle?.ts,
+                                          );
+                                          if (!Number.isFinite(ts)) return "—";
+                                          if (String(chartTf) === "W") {
+                                            // Weekly candles: show the start-of-week (Monday) label
+                                            const d0 = new Date(ts);
+                                            const day = d0.getDay(); // 0=Sun..6=Sat
+                                            const daysSinceMon = (day + 6) % 7; // Mon->0, Tue->1, ... Sun->6
+                                            const d = new Date(
+                                              d0.getTime() - daysSinceMon * 24 * 60 * 60 * 1000,
+                                            );
+                                            d.setHours(0, 0, 0, 0);
+                                            return `Week of ${d.toLocaleDateString("en-US", {
+                                              month: "short",
+                                              day: "numeric",
+                                              year: "numeric",
+                                            })}`;
+                                          }
+                                          const d = new Date(ts);
+                                          return d.toLocaleString("en-US", {
+                                            month: "short",
+                                            day: "numeric",
+                                            hour: "numeric",
+                                            minute: "2-digit",
+                                          });
+                                        } catch (_) {
+                                          return "—";
+                                        }
+                                      })()}
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 text-[10px]">
+                                      <div className="text-[#6b7280]">Price:</div>
+                                      <div className="text-yellow-300 font-mono font-semibold">
+                                        ${Number(crosshair.price).toFixed(2)}
+                                      </div>
+                                      <div className="text-[#6b7280]">O:</div>
+                                      <div className="text-white font-mono">
+                                        ${Number(crosshair.candle.o).toFixed(2)}
+                                      </div>
+                                      <div className="text-[#6b7280]">H:</div>
+                                      <div className="text-sky-300 font-mono">
+                                        ${Number(crosshair.candle.h).toFixed(2)}
+                                      </div>
+                                      <div className="text-[#6b7280]">L:</div>
+                                      <div className="text-orange-300 font-mono">
+                                        ${Number(crosshair.candle.l).toFixed(2)}
+                                      </div>
+                                      <div className="text-[#6b7280]">C:</div>
+                                      <div
+                                        className={`font-mono font-semibold ${
+                                          Number(crosshair.candle.c) >=
+                                          Number(crosshair.candle.o)
+                                            ? "text-sky-300"
+                                            : "text-orange-300"
+                                        }`}
+                                      >
+                                        ${Number(crosshair.candle.c).toFixed(2)}
+                                      </div>
+                                    </div>
+                                  </div>
+                                ) : null}
+
+                                <div className="mt-2 text-[10px] text-[#6b7280] flex items-center justify-between">
+                                  <span>
+                                    {String(chartTf) === "D"
+                                      ? "Daily"
+                                      : String(chartTf) === "W"
+                                        ? "Weekly"
+                                        : `${chartTf}m`}{" "}
+                                    • {vn2}/{totalCandles2} bars
+                                  </span>
+                                  <span className="text-[#555] text-[9px]">scroll to zoom • drag to pan</span>
+                                  <span className="font-mono">
+                                    ${minL.toFixed(2)} – ${maxH.toFixed(2)}
+                                  </span>
+                                </div>
+                              </div>
+                            );
+                            } catch (e) {
+                              console.error("[RightRail Chart] render failed:", e);
+                              return (
+                                <div className="text-xs text-yellow-300">
+                                  Chart render error (data may be malformed). Check console for details.
+                                </div>
+                              );
+                            }
+                          })()
+                        )}
+                      </div>
+                    </>
+                  ) : null}
+
+                  {railTab === "TRADE_HISTORY" && window._ttIsPro ? (
+                    <>
+                      <div className="mb-4 p-3 bg-white/[0.03] border-2 border-white/[0.06] rounded-lg">
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="text-sm text-[#6b7280]">
+                            Trade History
+                          </div>
+                        </div>
+
+                        {ledgerTradesLoading ? (
+                          <SkeletonBlock height={150} lines={4} />
+                        ) : ledgerTradesError ? (
+                          <div className="text-xs text-red-400">
+                            Ledger unavailable: {ledgerTradesError}
+                          </div>
+                        ) : ledgerTrades.length === 0 ? (
+                          <div className="text-xs text-[#6b7280]">
+                            No trades found for this ticker.
+                          </div>
+                        ) : (
+                          <div className="space-y-3">
+                            {/* Ticker P&L Summary */}
+                            {(() => {
+                              const openTrades = ledgerTrades.filter(t => t.status !== "WIN" && t.status !== "LOSS");
+                              const closedTrades = ledgerTrades.filter(t => t.status === "WIN" || t.status === "LOSS");
+                              const totalClosedPnl = closedTrades.reduce((s, t) => s + Number(t.pnl || t.pnl_pct || 0), 0);
+                              const totalClosedPnlPct = closedTrades.reduce((s, t) => s + Number(t.pnl_pct || 0), 0);
+                              const wins = closedTrades.filter(t => Number(t.pnl_pct || t.pnl || 0) > 0).length;
+                              const losses = closedTrades.filter(t => Number(t.pnl_pct || t.pnl || 0) < 0).length;
+                              const flat = closedTrades.length - wins - losses;
+                              const isGain = totalClosedPnlPct >= 0;
+                              return (
+                                <div className="p-2.5 rounded bg-white/[0.03] border border-white/[0.08] mb-1">
+                                  <div className="flex items-center justify-between mb-1">
+                                    <span className="text-[11px] text-[#6b7280] font-medium">
+                                      {ledgerTrades.length} trade{ledgerTrades.length !== 1 ? "s" : ""}
+                                      {openTrades.length > 0 && <span className="text-blue-400 ml-1">({openTrades.length} open)</span>}
+                                    </span>
+                                    {closedTrades.length > 0 && (
+                                      <span className={`text-sm font-bold ${isGain ? "text-green-400" : "text-red-400"}`}>
+                                        {isGain ? "+" : ""}{totalClosedPnlPct.toFixed(2)}%
+                                      </span>
+                                    )}
+                                  </div>
+                                  {closedTrades.length > 0 && (
+                                    <div className="flex items-center gap-2 text-[10px] text-[#6b7280]">
+                                      {wins > 0 && <span className="text-green-400">{wins}W</span>}
+                                      {losses > 0 && <span className="text-red-400">{losses}L</span>}
+                                      {flat > 0 && <span className="text-[#6b7280]">{flat} flat</span>}
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })()}
+
+                            {/* All trades unified (open + closed, newest first) */}
+                            {ledgerTrades.slice(0, 10).map((t) => {
+                              const trimmedPct = Number(t.trimmed_pct || t.trimmedPct || 0);
+                              const isClosed = t.status === "WIN" || t.status === "LOSS" || t.status === "FLAT" || trimmedPct >= 0.9999;
+                              const rawExitPrice = Number(t.exit_price || 0);
+                              const exitPriceMissing = isClosed && rawExitPrice <= 0;
+                              const pnl = exitPriceMissing ? 0 : Number(t.pnl || 0);
+                              const pnlPct = exitPriceMissing ? 0 : Number(t.pnl_pct || 0);
+                              const entryPrice = Number(t.entry_price || 0);
+                              const exitPrice = rawExitPrice;
+                              const trimPrice = Number(t.trim_price || 0);
+                              const trimTs = t.trim_ts;
+                              const hasTrimmed = trimmedPct > 0;
+                              const remainingQty = Number(t.quantity ?? t.shares ?? 0);
+                              const entryQty = hasTrimmed && trimmedPct < 1 && remainingQty > 0
+                                ? Math.round(remainingQty / (1 - trimmedPct) * 100) / 100 : remainingQty;
+                              const trimmedQty = hasTrimmed ? Math.round((entryQty * trimmedPct) * 100) / 100 : 0;
+
+                              const exitReasonRaw = String(t.exit_reason || "").toLowerCase();
+                              const exitReasonLabel = (() => {
+                                if (!exitReasonRaw || !isClosed) return null;
+                                if (exitReasonRaw.includes("sl_breached")) return "SL Hit";
+                                if (exitReasonRaw.includes("max_loss")) return "Max Loss";
+                                if (exitReasonRaw.includes("bias_flip")) return "Bias Flip";
+                                if (exitReasonRaw.includes("hard_fuse")) return "RSI Extreme";
+                                if (exitReasonRaw.includes("soft_fuse")) return "RSI Confirmed";
+                                if (exitReasonRaw.includes("trigger_breached")) return "Trigger Breach";
+                                if (exitReasonRaw.includes("large_adverse")) return "Adverse Move";
+                                if (exitReasonRaw.includes("tp_hit")) return "TP Hit";
+                                if (exitReasonRaw.includes("critical")) return "Critical";
+                                if (exitReasonRaw) return exitReasonRaw.replace(/^ripster[_ ]?/i, "TT ").replace(/^saty[_ ]?/i, "TT ").replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+                                return null;
+                              })();
+
+                              const computedPnlPct = (() => {
+                                if (Math.abs(pnlPct) > 0.001) return pnlPct;
+                                if (!isClosed || entryPrice <= 0 || exitPrice <= 0) return 0;
+                                const dir = String(t.direction || "").toUpperCase();
+                                return dir === "LONG" ? ((exitPrice - entryPrice) / entryPrice) * 100 : ((entryPrice - exitPrice) / entryPrice) * 100;
+                              })();
+                              const isFlat = isClosed && Math.abs(computedPnlPct) < 0.01;
+
+                              const statusLabel = exitPriceMissing ? "ERR" : (t.status === "FLAT" || isFlat) ? "FLAT" : t.status === "WIN" ? "WIN" : t.status === "LOSS" ? "LOSS" : null;
+                              const statusCls = exitPriceMissing
+                                ? "bg-amber-500/20 text-amber-400 border-amber-500/30"
+                                : (t.status === "FLAT" || isFlat) ? "bg-[#6b7280]/20 text-[#9ca3af] border-[#6b7280]/30"
+                                : t.status === "WIN" ? "bg-green-500/20 text-green-400 border-green-500/30"
+                                : t.status === "LOSS" ? "bg-red-500/20 text-red-400 border-red-500/30" : "";
+
+                              const formatDt = (ts) => {
+                                if (!ts) return "\u2014";
+                                try { const d = new Date(Number(ts)); return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) + ", " + d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }); } catch (_) { return "\u2014"; }
+                              };
+                              const duration = (() => {
+                                const ems = Number(t.entry_ts); const xms = isClosed ? Number(t.exit_ts) : Date.now();
+                                if (!ems || !xms) return null;
+                                const dm = Math.round((xms - ems) / 60000);
+                                if (dm < 60) return `${dm}m`; const h = Math.floor(dm / 60); const m = dm % 60; return m > 0 ? `${h}h ${m}m` : `${h}h`;
+                              })();
+
+                              const _grade = t.setup_grade || t.setupGrade || "";
+                              const gradeCls = _grade === "Prime" ? "bg-amber-500/20 text-amber-300 border-amber-500/30" : _grade === "Confirmed" ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/30" : _grade === "Speculative" ? "bg-blue-500/20 text-blue-300 border-blue-500/30" : "";
+                              const isChartSelected = tradeChartSelection && (tradeChartSelection.trade_id || tradeChartSelection.id) === (t.trade_id || t.id);
+
+                              return (
+                                <div
+                                  key={t.trade_id || t.id}
+                                  role="button"
+                                  tabIndex={0}
+                                  onClick={() => setTradeChartSelection(t)}
+                                  onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setTradeChartSelection(t); } }}
+                                  className={`rounded-lg cursor-pointer transition-all ${isChartSelected ? "ring-2 ring-[#60a5fa]/60 bg-white/[0.06]" : "bg-white/[0.02] border border-white/[0.06] hover:bg-white/[0.05] hover:border-white/[0.12]"}`}
+                                  title="Click to show on chart"
+                                >
+                                  {/* Row 1: Status + Direction + P&L */}
+                                  <div className="flex items-center justify-between px-3 pt-2.5 pb-1">
+                                    <div className="flex items-center gap-1.5">
+                                      {isClosed ? (
+                                        <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold border ${statusCls}`}>{statusLabel}</span>
+                                      ) : (
+                                        <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-blue-500/15 text-blue-300 border border-blue-500/30">OPEN</span>
+                                      )}
+                                      <span className={`text-[11px] font-bold ${t.direction === "LONG" ? "text-green-400" : "text-red-400"}`}>{t.direction}</span>
+                                      {_grade && <span className={`px-1 py-0.5 rounded text-[8px] font-bold border ${gradeCls}`} title={t.setup_name || t.setupName || ""}>TT {_grade}</span>}
+                                    </div>
+                                    <div className="flex items-center gap-1.5">
+                                      {isClosed && Math.abs(pnl) > 0.01 && (
+                                        <span className={`text-[11px] font-bold ${computedPnlPct >= 0 ? "text-green-400" : "text-red-400"}`}>
+                                          {pnl >= 0 ? "+" : ""}{pnl < 0 ? "-" : ""}${Math.abs(pnl).toFixed(2)}
+                                        </span>
+                                      )}
+                                      {isClosed && (
+                                        <span className={`text-[10px] font-semibold ${isFlat ? "text-[#6b7280]" : computedPnlPct >= 0 ? "text-green-400/70" : "text-red-400/70"}`}>
+                                          ({computedPnlPct >= 0 ? "+" : ""}{computedPnlPct.toFixed(2)}%)
+                                        </span>
+                                      )}
+                                    </div>
+                                  </div>
+
+                                  {/* Row 2: Metadata tags */}
+                                  <div className="flex items-center gap-1.5 px-3 pb-2 flex-wrap">
+                                    {exitReasonLabel && <span className="px-1 py-0.5 rounded text-[8px] font-semibold bg-purple-500/15 text-purple-300 border border-purple-500/25">{exitReasonLabel}</span>}
+                                    {hasTrimmed && <span className="px-1 py-0.5 rounded text-[8px] font-semibold bg-yellow-500/15 text-yellow-300 border border-yellow-500/25">{Math.round(trimmedPct * 100)}% trimmed</span>}
+                                    {duration && <span className="text-[9px] text-[#6b7280]">{duration}</span>}
+                                    {entryQty > 0 && <span className="text-[9px] text-[#4b5563]">{entryQty % 1 === 0 ? entryQty : entryQty.toFixed(1)} sh</span>}
+                                  </div>
+
+                                  {/* Open trade live data (admin) */}
+                                  {!isClosed && document.body.dataset.userRole === "admin" && (() => {
+                                    const src = priceSrc;
+                                    const cp = Number(src?.currentPrice ?? src?.cp ?? 0);
+                                    const slVal = Number(src?.sl ?? t?.sl ?? 0);
+                                    const tpVal = Number(src?.tp ?? t?.tp ?? 0);
+                                    const isLong = String(t.direction || "").toUpperCase() === "LONG";
+                                    if (cp <= 0 && slVal <= 0 && tpVal <= 0) return null;
+                                    return (
+                                      <div className="mx-3 mb-2 p-2 rounded bg-white/[0.03] border border-white/[0.06] space-y-1">
+                                        <div className="flex items-center justify-between text-[10px]">
+                                          <span className="text-[#6b7280]">Current</span>
+                                          <span className="text-white font-bold">{cp > 0 ? `$${cp.toFixed(2)}` : "\u2014"}</span>
+                                        </div>
+                                        <div className="flex items-center justify-between text-[10px]">
+                                          <span className="text-rose-400">SL</span>
+                                          <span className="text-white font-medium">{slVal > 0 ? `$${slVal.toFixed(2)}` : "\u2014"}</span>
+                                          <span className="text-[#6b7280]">EP</span>
+                                          <span className="text-white font-medium">${entryPrice > 0 ? entryPrice.toFixed(2) : "\u2014"}</span>
+                                          <span className="text-teal-400">TP</span>
+                                          <span className="text-white font-medium">{tpVal > 0 ? `$${tpVal.toFixed(2)}` : "\u2014"}</span>
+                                        </div>
+                                        {slVal > 0 && tpVal > 0 && cp > 0 && entryPrice > 0 && (() => {
+                                          const lo = Math.min(slVal, tpVal), hi = Math.max(slVal, tpVal), range = hi - lo;
+                                          if (range <= 0) return null;
+                                          const rawCpPct = Math.max(0, Math.min(100, ((cp - lo) / range) * 100));
+                                          const rawEpPct = Math.max(0, Math.min(100, ((entryPrice - lo) / range) * 100));
+                                          const cpPct = isLong ? rawCpPct : (100 - rawCpPct);
+                                          const epPct = isLong ? rawEpPct : (100 - rawEpPct);
+                                          const isProfit = isLong ? cp >= entryPrice : cp <= entryPrice;
+                                          return (
+                                            <div className="relative h-1.5 rounded-full bg-white/[0.06] overflow-visible mt-1">
+                                              <div className={`absolute top-0 bottom-0 left-0 rounded-full ${isProfit ? "bg-teal-500/50" : "bg-rose-500/40"}`} style={{width: `${cpPct}%`}} />
+                                              <div className="absolute top-[-2px] bottom-[-2px] w-[2px] bg-white/60 rounded" style={{left: `${epPct}%`}} />
+                                              <div className={`absolute w-[5px] h-[5px] rounded-full border ${isProfit ? "bg-teal-400 border-teal-300" : "bg-rose-400 border-rose-300"}`} style={{left: `calc(${cpPct}% - 2.5px)`, top: "-1px"}} />
+                                            </div>
+                                          );
+                                        })()}
+                                      </div>
+                                    );
+                                  })()}
+
+                                  {/* Price details (compact table) */}
+                                  <div className="px-3 pb-2">
+                                    <table className="w-full text-[10px]">
+                                      <tbody>
+                                        {entryQty > 0 && (
+                                          <tr>
+                                            <td className="text-[#a78bfa] py-0.5 pr-2">Shares</td>
+                                            <td className="text-[#a78bfa] font-medium py-0.5" colSpan="2">
+                                              {Math.round(entryQty)} bought{hasTrimmed ? ` · ${Math.round(trimmedQty)} trimmed · ${Math.round(entryQty - trimmedQty)} left` : ""}
+                                            </td>
+                                          </tr>
+                                        )}
+                                        <tr>
+                                          <td className="text-[#6b7280] py-0.5 pr-2">Entry</td>
+                                          <td className="text-white font-medium py-0.5">${entryPrice > 0 ? entryPrice.toFixed(2) : "\u2014"}</td>
+                                          <td className="text-[#6b7280] py-0.5 text-right">{formatDt(t.entry_ts)}</td>
+                                        </tr>
+                                        {hasTrimmed && trimPrice > 0 && (
+                                          <tr>
+                                            <td className="text-yellow-500 py-0.5 pr-2">Trim</td>
+                                            <td className="text-yellow-300 font-medium py-0.5">${trimPrice.toFixed(2)}{trimmedQty > 0 ? ` (${trimmedQty % 1 === 0 ? trimmedQty : trimmedQty.toFixed(1)} sh)` : ""}</td>
+                                            <td className="text-yellow-300/60 py-0.5 text-right">{formatDt(trimTs)}</td>
+                                          </tr>
+                                        )}
+                                        {isClosed && (
+                                          <tr>
+                                            <td className="text-[#6b7280] py-0.5 pr-2">Exit</td>
+                                            <td className={`font-medium py-0.5 ${computedPnlPct >= 0 ? "text-green-400" : "text-red-400"}`}>{exitPrice > 0 ? `$${exitPrice.toFixed(2)}` : "\u2014"}</td>
+                                            <td className="text-[#6b7280] py-0.5 text-right">{formatDt(t.exit_ts)}</td>
+                                          </tr>
+                                        )}
+                                      </tbody>
+                                    </table>
+                                  </div>
+
+                                  {/* Footer: Trade Autopsy */}
+                                  <div className="px-3 pb-2.5 pt-1 border-t border-white/[0.05] flex items-center justify-between">
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setAutopsyModal(t);
+                                        setAutopsyModalLoading(true);
+                                        setAutopsyModalData(null);
+                                        setAutopsyModalProfile(null);
+                                        const _tid = t.trade_id || t.id || "";
+                                        const _tk = String(t.ticker || "").toUpperCase();
+                                        fetch(`${API_BASE}/timed/admin/trade-autopsy/trades?key=${encodeURIComponent(window._ttApiKey || "")}`)
+                                          .then(r => r.json())
+                                          .then(d => {
+                                            const allTrades = Array.isArray(d?.trades) ? d.trades : [];
+                                            const match = _tid ? allTrades.find(tr => String(tr.trade_id || "") === String(_tid)) : null;
+                                            setAutopsyModalData(match || d?.trade || t);
+                                            setAutopsyModalLoading(false);
+                                          })
+                                          .catch(() => { setAutopsyModalData(t); setAutopsyModalLoading(false); });
+                                        if (_tk) fetch(`${API_BASE}/timed/profile/${encodeURIComponent(_tk)}`, { cache: "no-store" })
+                                          .then(r => { if (!r.ok) return null; return r.json(); }).then(d => { if (d?.ok) setAutopsyModalProfile(d.profile || d); }).catch(() => {});
+                                      }}
+                                      className="text-[10px] px-2.5 py-1 rounded-md bg-[#1a2332] border border-[#60a5fa]/20 text-[#93b8f7] hover:text-white hover:bg-[#60a5fa]/15 hover:border-[#60a5fa]/40 transition-all inline-flex items-center gap-1"
+                                    >
+                                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
+                                      Trade Autopsy
+                                    </button>
+                                    <a
+                                      href={`trade-autopsy.html?trade_id=${encodeURIComponent(t.trade_id || t.id || "")}`}
+                                      target="_blank" rel="noopener noreferrer"
+                                      className="text-[9px] text-[#4b5563] hover:text-[#9ca3af] transition-colors"
+                                      onClick={(e) => e.stopPropagation()}
+                                    >
+                                      Full page &rarr;
+                                    </a>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                            {ledgerTrades.length > 10 && (
+                              <div className="text-[10px] text-[#4b5563] text-center py-1">
+                                Showing 10 of {ledgerTrades.length} trades
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Completion, Phase, Dynamic ETA */}
+                    </>
+                  ) : null}
+
+                  {railTab === "MODEL" ? (
+                    <>
+                      {(() => {
+                        const ms = modelSignal;
+                        const ts = ms?.ticker;
+                        const ss = ms?.sector;
+                        const mk = ms?.market;
+                        const src = latestTicker || ticker;
+                        const pm = ts || src?.pattern_match || ms?.patternMatch;
+                        const kanbanMeta = src?.kanban_meta;
+                        const patternBoost = src?.__pattern_boost;
+                        const patternCaution = src?.__pattern_caution;
+
+                        const hasAnyData = ts || pm || ss || mk;
+
+                        const dirColor = (d) => d === "BULLISH" ? "text-[#00e676]" : d === "BEARISH" ? "text-red-400" : "text-slate-400";
+                        const dirBg = (d) => d === "BULLISH" ? "bg-[#00c853]/15 border-[#00c853]/30" : d === "BEARISH" ? "bg-red-500/15 border-red-500/30" : "bg-slate-500/10 border-slate-500/30";
+
+                        const describeDir = (d, net) => {
+                          if (d === "BULLISH") return net > 0.4 ? "Strong upward momentum — the model's scoring, patterns, and state all favor higher prices." : "Leaning bullish — more factors point up than down, but conviction isn't extreme.";
+                          if (d === "BEARISH") return net < -0.4 ? "Strong downward pressure — the model's scoring, patterns, and state all suggest lower prices." : "Leaning bearish — more factors point down than up, but conviction isn't extreme.";
+                          return "Mixed signals — no clear directional edge. The model sees roughly equal bull and bear factors.";
+                        };
+                        const describeSector = (regime, pct) => {
+                          if (regime === "BULLISH") return `${pct}% of sector tickers are trending up — this provides a tailwind for the trade.`;
+                          if (regime === "BEARISH") return `Only ${pct}% of sector tickers are bullish — the sector is a headwind.`;
+                          return `The sector is mixed with no strong trend — neither helping nor hurting.`;
+                        };
+                        const describeMarket = (sig, pct) => {
+                          if (!sig) return "";
+                          if (sig.includes("STRONG_BULL")) return `Broad market rally with ${pct}% of all tickers bullish — a rising tide lifting most boats.`;
+                          if (sig.includes("MILD_BULL")) return `Market leaning up with ${pct}% bullish — a modest tailwind.`;
+                          if (sig.includes("STRONG_BEAR")) return `Broad market weakness with only ${pct}% bullish — most stocks are under pressure.`;
+                          if (sig.includes("MILD_BEAR")) return `Market leaning down with ${pct}% bullish — a mild headwind.`;
+                          return `Market is neutral — no strong broad trend either way.`;
+                        };
+
+                        const direction = ts?.direction || pm?.direction || null;
+                        const netSignal = ts?.netSignal || pm?.netSignal || 0;
+
+                        return (
+                          <div className="space-y-3">
+                            {/* Ticker-Level Signal */}
+                            <div className={`p-3 rounded-lg border ${dirBg(direction)}`}>
+                              <div className="flex items-center justify-between mb-1.5">
+                                <span className="text-sm font-bold text-[#6b7280]">Ticker Signal</span>
+                                {direction && <span className={`text-xs font-bold px-2 py-0.5 rounded ${direction === "BULLISH" ? "bg-green-500/20 text-green-400" : direction === "BEARISH" ? "bg-red-500/20 text-red-400" : "bg-slate-500/15 text-slate-400"}`}>{direction}</span>}
+                              </div>
+                              {(ts || pm) ? (
+                                <>
+                                  <div className="text-[11px] text-slate-300/80 italic mb-2 leading-snug">{describeDir(direction, netSignal)}</div>
+                                  <div className="space-y-1.5 text-[11px]">
+                                    <div className="flex justify-between items-center">
+                                      <span className="text-[#6b7280]" title="Overall conviction score from -1 (strongly bearish) to +1 (strongly bullish). Combines pattern matching with the ticker's current scoring state.">Net Signal</span>
+                                      <span className={`font-bold ${netSignal > 0 ? "text-[#00e676]" : netSignal < 0 ? "text-red-400" : "text-slate-300"}`}>{netSignal > 0 ? "+" : ""}{netSignal.toFixed(2)}</span>
+                                    </div>
+                                    {(ts?.bullPatterns != null || pm?.bullCount != null) && (
+                                      <div className="flex justify-between items-center">
+                                        <span className="text-[#6b7280]" title="How many historical winning patterns (bull vs bear) currently match this ticker's setup.">Patterns Matched</span>
+                                        <span className="text-white font-semibold">{ts?.bullPatterns || pm?.bullCount || 0} bull / {ts?.bearPatterns || pm?.bearCount || 0} bear</span>
+                                      </div>
+                                    )}
+                                    {ts?.stateSignal != null && (
+                                      <div className="flex justify-between items-center">
+                                        <span className="text-[#6b7280]" title="Signal derived from the ticker's current quadrant (HTF/LTF state), kanban stage, and HTF score. Independent of pattern matching.">State Signal</span>
+                                        <span className={`font-semibold ${ts.stateSignal > 0 ? "text-green-400" : ts.stateSignal < 0 ? "text-red-400" : "text-slate-400"}`}>{ts.stateSignal > 0 ? "+" : ""}{ts.stateSignal.toFixed(2)}</span>
+                                      </div>
+                                    )}
+                                    {ts?.state && (
+                                      <div className="flex justify-between items-center">
+                                        <span className="text-[#6b7280]">State</span>
+                                        <span className="text-white text-[10px]">{ts.state.replace(/_/g, " ")}</span>
+                                      </div>
+                                    )}
+                                    {ts?.kanbanStage && (
+                                      <div className="flex justify-between items-center">
+                                        <span className="text-[#6b7280]">Stage</span>
+                                        <span className="text-white capitalize">{ts.kanbanStage.replace(/_/g, " ")}</span>
+                                      </div>
+                                    )}
+                                  </div>
+                                  {patternBoost && (
+                                    <div className="mt-2 p-2 rounded bg-[#00c853]/20 border border-[#00c853]/40 text-[11px] text-[#69f0ae]">Entry confidence boosted to <strong>{patternBoost}</strong> by pattern match</div>
+                                  )}
+                                  {patternCaution && (
+                                    <div className="mt-2 p-2 rounded bg-amber-900/20 border border-amber-700/40 text-[11px] text-amber-300">Caution: strong bear patterns detected (confidence: {patternCaution})</div>
+                                  )}
+                                </>
+                              ) : (
+                                <div className="text-[11px] text-slate-400/80 italic leading-snug">
+                                  No ticker-level signal available yet. The model evaluates {tickerSymbol} against 17+ patterns every scoring cycle — matches appear when the ticker's state and indicators align with historically profitable setups.
+                                </div>
+                              )}
+                            </div>
+
+                            {/* Sector + Market */}
+                            {(ss || (mk && (mk.totalTickers || 0) > 5)) && (
+                              <div className="grid grid-cols-2 gap-2">
+                                {ss && (
+                                  <div className={`p-2.5 rounded-lg border ${ss.regime === "BULLISH" ? "bg-green-500/10 border-green-500/30" : ss.regime === "BEARISH" ? "bg-red-500/10 border-red-500/30" : "bg-slate-500/10 border-slate-500/30"}`}>
+                                    <div className="text-[9px] text-slate-400 uppercase font-bold mb-0.5">Sector</div>
+                                    <div className="text-[11px] font-bold text-white truncate">{ss.sector}</div>
+                                    <div className="text-[10px] text-slate-400 mt-0.5">{ss.breadthBullPct}% bullish · {ss.regime}</div>
+                                    <div className="text-[9px] text-slate-400/70 italic mt-1 leading-snug">{describeSector(ss.regime, ss.breadthBullPct)}</div>
+                                  </div>
+                                )}
+                                {mk && (mk.totalTickers || 0) > 5 && (
+                                  <div className={`p-2.5 rounded-lg border ${mk.signal?.includes("BULL") ? "bg-green-500/10 border-green-500/30" : mk.signal?.includes("BEAR") ? "bg-red-500/10 border-red-500/30" : "bg-slate-500/10 border-slate-500/30"}`}>
+                                    <div className="text-[9px] text-slate-400 uppercase font-bold mb-0.5">Market</div>
+                                    <div className={`text-[11px] font-bold ${mk.signal?.includes("BULL") ? "text-[#00e676]" : mk.signal?.includes("BEAR") ? "text-red-400" : "text-slate-300"}`}>{mk.signal?.replace(/_/g, " ")}</div>
+                                    <div className="text-[10px] text-slate-400 mt-0.5">{mk.breadthBullPct}% breadth</div>
+                                    <div className="text-[9px] text-slate-400/70 italic mt-1 leading-snug">{describeMarket(mk.signal, mk.breadthBullPct)}</div>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                            {mk?.riskFlag && (mk.totalTickers || 0) > 5 && (
+                              <div className="p-2 text-[11px] text-amber-300/80 bg-amber-500/10 border border-amber-500/20 rounded-lg">{mk.riskFlag}</div>
+                            )}
+
+                            {/* Matched Patterns Detail */}
+                            {pm && pm.matched && pm.matched.length > 0 && (
+                              <div className="p-3 bg-white/[0.03] border border-white/[0.06] rounded-lg">
+                                <div className="text-sm font-bold text-[#6b7280] mb-2">Matched Patterns</div>
+                                <div className="text-[10px] text-slate-400/70 mb-2">These are historical setups that match the current conditions for {tickerSymbol}.</div>
+                                <div className="space-y-1.5">
+                                  {pm.matched.map((m, i) => (
+                                    <div key={m.id || i} className="flex items-center justify-between bg-[#0d1117] rounded-lg p-2 border border-[#1e2530]">
+                                      <div className="flex-1 min-w-0">
+                                        <div className="text-xs font-semibold text-white truncate">{m.name}</div>
+                                      </div>
+                                      <div className="flex items-center gap-2 shrink-0 ml-2">
+                                        <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${m.dir === "UP" ? "bg-[#00c853]/50 text-[#69f0ae]" : "bg-red-900/50 text-red-300"}`}>{m.dir === "UP" ? "Bull" : "Bear"}</span>
+                                        <span className="text-[10px] text-[#6b7280]">{(m.conf * 100).toFixed(0)}%</span>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Kanban Meta */}
+                            {kanbanMeta && kanbanMeta.patternMatch && (
+                              <div className="p-2.5 bg-blue-500/10 border border-blue-500/25 rounded-lg">
+                                <div className="text-[11px] text-blue-300">This ticker was promoted to Setup by the pattern recognition engine — historical pattern matches triggered the stage advance.</div>
+                              </div>
+                            )}
+
+                            {/* Explainer when nothing loaded yet */}
+                            {!hasAnyData && (
+                              <div className="p-3 bg-white/[0.03] border border-white/[0.06] rounded-lg space-y-2">
+                                <div className="text-sm font-bold text-[#6b7280]">How the Model Works</div>
+                                <div className="text-[11px] text-slate-400/80 leading-relaxed space-y-1.5">
+                                  <p>Every scoring cycle, the system evaluates {tickerSymbol} across three levels:</p>
+                                  <p><span className="text-white font-semibold">Ticker:</span> Matches the current setup (state, scores, indicators) against 17+ historical winning patterns and computes a net bullish/bearish signal.</p>
+                                  <p><span className="text-white font-semibold">Sector:</span> Measures how many tickers in the same sector are trending bullish — providing context on whether the sector is a tailwind or headwind.</p>
+                                  <p><span className="text-white font-semibold">Market:</span> Reads the broad market breadth to gauge whether conditions favor risk-on or risk-off positioning.</p>
+                                  <p className="text-[10px] text-slate-500 pt-1">Signals appear once the scoring data is loaded. If this is empty, the model endpoint may be temporarily unavailable.</p>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })()}
+                    </>
+                  ) : null}
+
+                  {railTab === "JOURNEY" ? (
+                    <>
+
+                      {/* Bubble Journey */}
+                      <div className="mb-4 p-3 bg-white/[0.03] border-2 border-white/[0.06] rounded-lg">
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="text-sm font-bold text-[#6b7280]">
+                            Scoring Timeline
+                          </div>
+                          {window._ttIsPro ? (
+                            <a
+                              href={`index-react.html?timeTravel=1&ticker=${encodeURIComponent(String(tickerSymbol).toUpperCase())}`}
+                              className="text-xs px-2 py-1 rounded bg-purple-500/20 border border-purple-500/30 text-purple-300 hover:bg-purple-500/30"
+                              title="Open Time Travel"
+                            >
+                              Time Travel
+                            </a>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => window.dispatchEvent(new CustomEvent("tt-go-pro"))}
+                              className="text-xs px-2 py-1 rounded bg-amber-500/20 border border-amber-500/30 text-amber-300 hover:bg-amber-500/30"
+                              title="Time Travel — Pro feature"
+                            >
+                              Time Travel Pro
+                            </button>
+                          )}
+                        </div>
+
+                        {bubbleJourneyLoading ? (
+                          <SkeletonBlock height={120} lines={3} />
+                        ) : bubbleJourneyError ? (
+                          <div className="text-xs text-red-400">Trail unavailable: {bubbleJourneyError}</div>
+                        ) : bubbleJourney.length === 0 ? (
+                          <div className="text-xs text-[#6b7280]">No trail points found for this ticker.</div>
+                        ) : (
+                          <div className="space-y-0.5 max-h-72 overflow-y-auto pr-1">
+                            {(() => {
+                              const translateState = (raw) => {
+                                const map = {
+                                  "HTF_BULL_LTF_BULL": "Fully Bullish",
+                                  "HTF_BULL_LTF_PULLBACK": "Bullish, pulling back",
+                                  "HTF_BULL_LTF_BEAR": "Bullish trend, bearish momentum",
+                                  "HTF_BEAR_LTF_BEAR": "Fully Bearish",
+                                  "HTF_BEAR_LTF_PULLBACK": "Bearish, bouncing",
+                                  "HTF_BEAR_LTF_BULL": "Bear trend, bullish momentum",
+                                };
+                                return map[raw] || (raw || "—").replace(/_/g, " ");
+                              };
+                              const translateStage = (raw) => {
+                                const map = {
+                                  "watch": "Watch", "flip_watch": "Flip Watch", "just_flipped": "Just Flipped",
+                                  "setup": "Setup", "enter": "Enter", "enter_now": "Enter Now",
+                                  "just_entered": "Just Entered", "hold": "Hold", "defend": "Defend",
+                                  "trim": "Trim", "exit": "Exit", "parked": "Parked",
+                                };
+                                return map[String(raw || "").toLowerCase()] || raw || "";
+                              };
+                              const fmtShortDate = (ms) => {
+                                if (!Number.isFinite(ms)) return "—";
+                                const d = new Date(ms);
+                                return `${d.getMonth() + 1}/${d.getDate()}`;
+                              };
+                              const fmtDuration = (ms) => {
+                                if (!Number.isFinite(ms) || ms <= 0) return "";
+                                const mins = Math.round(ms / 60000);
+                                if (mins < 60) return `${mins}m`;
+                                const hrs = Math.floor(mins / 60);
+                                const rm = mins % 60;
+                                if (hrs < 24) return rm > 0 ? `${hrs}h ${rm}m` : `${hrs}h`;
+                                const days = Math.floor(hrs / 24);
+                                const rh = hrs % 24;
+                                return rh > 0 ? `${days}d ${rh}h` : `${days}d`;
+                              };
+
+                              // Daily snapshots: keep last point per calendar day
+                              const dailyMap = new Map();
+                              for (const p of bubbleJourney) {
+                                const ts = Number(p.__ts_ms);
+                                if (!Number.isFinite(ts)) continue;
+                                const d = new Date(ts);
+                                const dayKey = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+                                dailyMap.set(dayKey, p);
+                              }
+                              const allPoints = Array.from(dailyMap.values()).reverse().slice(0, 90);
+
+                              const groups = [];
+                              for (const p of allPoints) {
+                                const key = `${p.state || ""}|${p.kanban_stage || ""}`;
+                                const last = groups.length > 0 ? groups[groups.length - 1] : null;
+                                if (last && last.key === key) {
+                                  last.points.push(p);
+                                } else {
+                                  groups.push({ key, points: [p] });
+                                }
+                              }
+
+                              return groups.map((g, gIdx) => {
+                                const first = g.points[0];
+                                const last = g.points[g.points.length - 1];
+                                const rawState = first.state || first.quadrant || first.zone || "";
+                                const stateLabel = translateState(rawState);
+                                const stageLabel = translateStage(first.kanban_stage);
+
+                                const firstTs = Number(first.__ts_ms);
+                                const lastTs = Number(last.__ts_ms);
+                                const isSingle = g.points.length === 1;
+                                const duration = Math.abs(firstTs - lastTs);
+
+                                const scores = g.points.map(p => Number(p.rank)).filter(Number.isFinite);
+                                const minScore = scores.length > 0 ? Math.min(...scores) : null;
+                                const maxScore = scores.length > 0 ? Math.max(...scores) : null;
+                                const scoreStr = minScore != null ? (minScore === maxScore ? String(minScore) : `${minScore}–${maxScore}`) : "—";
+
+                                const htfs = g.points.map(p => Number(p.htf_score)).filter(Number.isFinite);
+                                const ltfs = g.points.map(p => Number(p.ltf_score)).filter(Number.isFinite);
+                                const htfStr = htfs.length > 0 ? (Math.min(...htfs).toFixed(1) === Math.max(...htfs).toFixed(1) ? htfs[0].toFixed(1) : `${Math.min(...htfs).toFixed(1)} to ${Math.max(...htfs).toFixed(1)}`) : "—";
+                                const ltfStr = ltfs.length > 0 ? (Math.min(...ltfs).toFixed(1) === Math.max(...ltfs).toFixed(1) ? ltfs[0].toFixed(1) : `${Math.min(...ltfs).toFixed(1)} to ${Math.max(...ltfs).toFixed(1)}`) : "—";
+
+                                const prevGroup = gIdx > 0 ? groups[gIdx - 1] : null;
+                                const transitions = [];
+                                if (prevGroup) {
+                                  const pFirst = prevGroup.points[0];
+                                  const prevRawState = pFirst.state || pFirst.quadrant || pFirst.zone || "";
+                                  const prevRawStage = pFirst.kanban_stage || "";
+                                  if (rawState !== prevRawState) transitions.push(`${translateState(prevRawState)} → ${stateLabel}`);
+                                  if ((first.kanban_stage || "") !== prevRawStage) transitions.push(`${translateStage(prevRawStage)} → ${stageLabel}`);
+                                }
+
+                                const latestPointForChart = {
+                                  ts: Number.isFinite(firstTs) ? firstTs : null,
+                                  htf_score: first.htf_score != null ? Number(first.htf_score) : null,
+                                  ltf_score: first.ltf_score != null ? Number(first.ltf_score) : null,
+                                  phase_pct: first.phase_pct != null ? Number(first.phase_pct) : null,
+                                  completion: first.completion != null ? Number(first.completion) : null,
+                                  rank: first.rank != null ? Number(first.rank) : null,
+                                  rr: first.rr != null ? Number(first.rr) : null,
+                                  state: first.state || null,
+                                };
+                                const isSelected = selectedJourneyTs != null && g.points.some(p => Number.isFinite(Number(p.__ts_ms)) && Number(p.__ts_ms) === Number(selectedJourneyTs));
+
+                                return (
+                                  <div key={`g-${gIdx}`}>
+                                    {transitions.length > 0 && (
+                                      <div className="py-1 flex items-center gap-1.5">
+                                        <div className="flex-1 h-px bg-cyan-500/20"></div>
+                                        <span className="text-[9px] text-cyan-400/70 whitespace-nowrap">{transitions.join(" · ")}</span>
+                                        <div className="flex-1 h-px bg-cyan-500/20"></div>
+                                      </div>
+                                    )}
+                                    <div
+                                      className={`px-2 py-1.5 bg-white/[0.02] border rounded cursor-pointer transition-colors ${isSelected ? "border-cyan-400/80 bg-cyan-500/10" : "border-white/[0.06] hover:border-cyan-400/40 hover:bg-[#16224a]"}`}
+                                      onMouseEnter={() => { if (onJourneyHover) onJourneyHover(latestPointForChart); }}
+                                      onMouseLeave={() => { if (onJourneyHover) onJourneyHover(null); }}
+                                      onClick={() => { if (onJourneySelect) onJourneySelect(latestPointForChart); }}
+                                    >
+                                      <div className="flex items-center justify-between gap-2">
+                                        <div className="min-w-0">
+                                          <div className="text-[10px] text-[#6b7280]">
+                                            {isSingle ? fmtShortDate(firstTs) : `${fmtShortDate(firstTs)} – ${fmtShortDate(lastTs)}`}
+                                            {!isSingle && duration > 0 && <span className="text-[#4b5563] ml-1">({fmtDuration(duration)})</span>}
+                                          </div>
+                                          <div className="text-[11px] text-white truncate">
+                                            {stateLabel}
+                                            {stageLabel && <span className="text-[#6b7280]"> · {stageLabel}</span>}
+                                            {!isSingle && <span className="text-[#4b5563] ml-1 text-[9px]">({g.points.length} snapshots)</span>}
+                                          </div>
+                                        </div>
+                                        <div className="text-right text-[10px] text-[#6b7280] whitespace-nowrap shrink-0">
+                                          <div>Score <span className="text-white font-semibold">{scoreStr}</span></div>
+                                          <div>HTF <span className="text-white font-semibold">{htfStr}</span></div>
+                                        </div>
+                                      </div>
+                                    </div>
+                                  </div>
+                                );
+                              });
+                            })()}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Current State Summary */}
+                      <div className="mb-4 p-3 bg-white/[0.03] border border-white/[0.06] rounded-lg">
+                        <div className="text-xs text-[#6b7280] mb-2 font-semibold">Where Things Stand</div>
+                        <div className="grid grid-cols-3 gap-2 text-xs">
+                          <div>
+                            <div className="text-[#6b7280] text-[10px]" title="How far along the current move cycle is (0% = just started, 100% = fully played out)">Phase</div>
+                            <div className="text-white font-semibold" style={{ color: phaseColor }}>
+                              {(phase * 100).toFixed(0)}%
+                            </div>
+                          </div>
+                          <div>
+                            <div className="text-[#6b7280] text-[10px]" title="How much of the expected price move has already happened">Completion</div>
+                            <div className="text-white font-semibold">
+                              {ticker.completion != null ? `${(Number(ticker.completion) * 100).toFixed(0)}%` : "—"}
+                            </div>
+                          </div>
+                          <div>
+                            <div className="text-[#6b7280] text-[10px]" title="Estimated time remaining for the current move to play out">ETA</div>
+                            <div className="text-white font-semibold">
+                              {(() => {
+                                const eta = computeEtaDays(ticker);
+                                return Number.isFinite(eta) ? `${eta.toFixed(1)}d` : "—";
+                              })()}
+                            </div>
+                          </div>
+                        </div>
+                        {(() => {
+                          const phasePct = Math.round(phase * 100);
+                          const completionPct = ticker.completion != null ? Math.round(Number(ticker.completion) * 100) : null;
+                          const eta = computeEtaDays(ticker);
+                          const parts = [];
+                          if (phasePct <= 25) parts.push("Still early in the move cycle");
+                          else if (phasePct <= 60) parts.push(`${phasePct}% through the move`);
+                          else if (phasePct <= 85) parts.push("Move is maturing");
+                          else parts.push("Late stage — most of the move is behind us");
+                          if (completionPct != null) {
+                            if (completionPct < 30) parts.push("plenty of room left to the target");
+                            else if (completionPct < 70) parts.push(`${completionPct}% of the expected move completed`);
+                            else parts.push("nearing the target");
+                          }
+                          if (Number.isFinite(eta)) parts.push(`~${eta.toFixed(1)} days estimated remaining`);
+                          return parts.length > 0 ? <div className="mt-2 text-[10px] text-slate-400/80 italic leading-snug">{parts.join(" — ")}.</div> : null;
+                        })()}
+                      </div>
+
+                      {/* Performance Overview — powered by daily candle closes */}
+                      {(() => {
+                        if (candlePerfLoading) {
+                          return React.createElement(SkeletonBlock, { height: 120, lines: 4 });
+                        }
+
+                        const perf = candlePerf?.performance;
+                        if (!perf || Object.keys(perf).length === 0) {
+                          return (
+                            <div className="mb-4 p-3 bg-white/[0.03] border border-white/[0.06] rounded-lg text-xs text-[#6b7280]">
+                              Performance data unavailable.
+                            </div>
+                          );
+                        }
+
+                        const sym = String(ticker.ticker).toUpperCase();
+                        const periods = [
+                          { label: '1D', key: '1D' },
+                          { label: '5D', key: '5D' },
+                          { label: '15D', key: '15D' },
+                          { label: '30D', key: '30D' },
+                          { label: '90D', key: '90D' },
+                        ];
+
+                        const available = periods
+                          .map(p => ({ ...p, data: perf[p.key] }))
+                          .filter(p => p.data);
+
+                        if (available.length === 0) return null;
+
+                        const dir = String(ticker.direction || "").toUpperCase();
+                        const stage = String(ticker.kanban_stage || "").toLowerCase().replace(/_/g, " ");
+                        const isLong = dir === "LONG" || dir === "BULLISH";
+                        const isShort = dir === "SHORT" || dir === "BEARISH";
+
+                        const getInterpretation = (changePct, isUp, label) => {
+                          const absChg = Math.abs(changePct);
+                          const aligned = (isLong && isUp) || (isShort && !isUp);
+                          const against = (isLong && !isUp) || (isShort && isUp);
+                          if (absChg < 0.5) {
+                            if (label === "1D") return "Little changed today — short-term tape is quiet.";
+                            if (label === "5D") return "Mostly unchanged over the last week — still basing, not yet breaking trend.";
+                            if (label === "15D") return "Still range-bound over the last two weeks — early evidence, but no decisive trend.";
+                            return "Price action has been relatively flat over this window.";
+                          }
+                          if (aligned && absChg >= 2) {
+                            if (label === "1D") return `Today's move is supporting the ${dir.toLowerCase()} thesis${stage ? ` while staying in "${stage}"` : ""}.`;
+                            if (label === "5D") return `The last week is trending with the ${dir.toLowerCase()} thesis${stage ? ` and still reads as "${stage}"` : ""}.`;
+                            return `Moving with the ${dir.toLowerCase()} thesis${stage ? ` — in "${stage}" stage` : ""}.`;
+                          } else if (against && absChg >= 3) {
+                            if (label === "1D") return `Today's move is pressing against the ${dir.toLowerCase()} thesis${stage ? ` even though the setup still reads "${stage}"` : ""}.`;
+                            if (label === "5D") return `The last week is working against the ${dir.toLowerCase()} thesis${stage ? ` — "${stage}" may need reassessment` : ""}.`;
+                            return `Moving against the ${dir.toLowerCase()} thesis${stage ? ` — "${stage}" stage may need reassessment` : ""}.`;
+                          }
+                          if (label === "1D") return "Today's move is notable but not decisive enough to change the setup on its own.";
+                          if (label === "5D") return "The last week adds some direction, but the bigger move still needs confirmation.";
+                          return "This window adds context, but not enough to change the broader read by itself.";
+                        };
+
+                        return (
+                          <div className="mb-4">
+                            <div className="text-xs font-semibold text-[#6b7280] uppercase tracking-wider mb-2">Price Performance</div>
+                            <div className="space-y-2">
+                              {available.map(({ label, data }) => {
+                                const { changePct, changePoints, isUp, actualDays } = data;
+                                const interp = getInterpretation(changePct, isUp, label);
+                                return (
+                                  <div key={label} className="p-2.5 bg-white/[0.03] border border-white/[0.06] rounded-lg">
+                                    <div className="flex items-center justify-between">
+                                      <div className="flex items-center gap-2">
+                                        <span className="text-xs font-bold text-white">{label}</span>
+                                        {actualDays != null && (
+                                          <span className="text-[10px] text-[#4b5563]">({actualDays}d ago)</span>
+                                        )}
+                                      </div>
+                                      <div className="flex items-center gap-2">
+                                        <span className={`text-sm font-bold ${isUp ? 'text-green-400' : 'text-red-400'}`}>
+                                          {isUp ? '+' : ''}{changePct.toFixed(2)}%
+                                        </span>
+                                        <span className={`text-[10px] ${isUp ? 'text-green-300/60' : 'text-red-300/60'}`}>
+                                          {isUp ? '+' : ''}${changePoints.toFixed(2)}
+                                        </span>
+                                      </div>
+                                    </div>
+                                    {interp && (
+                                      <div className="mt-1 text-[10px] text-slate-400/80 italic leading-snug">{interp}</div>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        );
+                      })()}
+                    </>
+                  ) : null}
+                </div>
+              </div>
+
+              {/* Fixed Footer */}
+              <div className="flex-shrink-0 p-6 pt-4 border-t border-white/[0.06] bg-white/[0.02]">
+                <a
+                  href={`https://www.tradingview.com/chart/?symbol=${encodeURIComponent(
+                    tickerSymbol,
+                  )}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="block w-full text-center px-4 py-2 bg-blue-500/20 border border-blue-500 rounded-lg hover:bg-blue-500/30 transition-all hover:scale-105 font-semibold"
+                >
+                  📊 Open in TradingView
+                </a>
+              </div>
+            </div>
+
+            {/* ═══════════════════════════════════════════════════════════════════════ */}
+            {/* EXPANDED CHART MODAL                                                   */}
+            {/* ═══════════════════════════════════════════════════════════════════════ */}
+            {chartExpanded && (() => {
+              const price = Number(ticker?.price);
+              const posSlRaw = ticker?.has_open_position ? Number(ticker?.position_sl) : NaN;
+              const kijunSL3 = resolvedDir === "LONG" ? Number(ticker?.ichimoku_d?.kijunSL_long) : Number(ticker?.ichimoku_d?.kijunSL_short);
+              const slRaw = Number.isFinite(posSlRaw) && posSlRaw > 0 ? posSlRaw : (ticker?.sl ?? ticker?.sl_price ?? ticker?.stop_loss) ? Number(ticker?.sl ?? ticker?.sl_price ?? ticker?.stop_loss) : (Number.isFinite(kijunSL3) && kijunSL3 > 0 ? kijunSL3 : null);
+              const slVal = (() => {
+                if (!Number.isFinite(slRaw) || slRaw <= 0) return null;
+                if (!resolvedDir || !Number.isFinite(price) || price <= 0) return slRaw;
+                if (resolvedDir === "LONG" && slRaw >= price) return null;
+                if (resolvedDir === "SHORT" && slRaw <= price) return null;
+                return slRaw;
+              })();
+              const tradeTpArr = Array.isArray(trade?.tpArray) && trade.tpArray.length > 0
+                ? trade.tpArray
+                : (Array.isArray(ticker?.tpArray) ? ticker.tpArray : []);
+              const tp1Raw = tradeTpArr.length > 0
+                ? Number(tradeTpArr[0]?.price)
+                : Number(ticker?.tp_trim);
+              const tp1Val = Number.isFinite(tp1Raw) && tp1Raw > 0 ? tp1Raw : null;
+              const entryPx = Number(
+                ticker?.position_entry || trade?.entry_price || trade?.entryPrice || ticker?.entry_price
+              ) || 0;
+              const hasPosition = !!ticker?.has_open_position;
+
+              const modalPriceLines = [];
+              if (slVal != null && slVal > 0)
+                modalPriceLines.push({ price: slVal, color: '#ef4444', lineWidth: 1, lineStyle: 2, title: 'SL' });
+              if (tp1Val != null && tp1Val > 0)
+                modalPriceLines.push({ price: tp1Val, color: '#22c55e', lineWidth: 1, lineStyle: 2, title: 'TP1' });
+              if (hasPosition && entryPx > 0)
+                modalPriceLines.push({ price: entryPx, color: '#3b82f6', lineWidth: 2, lineStyle: 0, title: 'Entry' });
+
+              const modalMarkers = [];
+              if (hasPosition && entryPx > 0) {
+                const entryTs = Number(trade?.entry_ts || ticker?.position_entry_ts || 0);
+                if (entryTs > 0) {
+                  const ts = entryTs > 1e12 ? Math.floor(entryTs / 1000) : entryTs;
+                  modalMarkers.push({
+                    time: ts,
+                    position: resolvedDir === "SHORT" ? "aboveBar" : "belowBar",
+                    color: '#3b82f6',
+                    shape: resolvedDir === "SHORT" ? "arrowDown" : "arrowUp",
+                    text: 'Entry',
+                  });
+                }
+              }
+
+              const tfOptions = [
+                { label: "15m", tf: "15" },
+                { label: "1H", tf: "60" },
+                { label: "4H", tf: "240" },
+                { label: "D", tf: "D" },
+                { label: "W", tf: "W" },
+              ];
+
+              const chartH = Math.max(300, Math.floor(window.innerHeight * 0.8 - 120));
+
+              return (
+                <div
+                  style={{ position: 'fixed', inset: 0, zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                  onClick={() => setChartExpanded(false)}
+                >
+                  <div style={{ position: 'absolute', inset: 0, backgroundColor: 'rgba(0,0,0,0.85)' }} />
+                  <div
+                    style={{ position: 'relative', width: '90vw', maxWidth: 1400, borderRadius: 12, overflow: 'hidden' }}
+                    className="bg-[#0b0e11] border border-white/[0.08] shadow-2xl"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    {/* Header */}
+                    <div className="flex items-center justify-between px-5 py-3 border-b border-white/[0.06]">
+                      <div className="flex items-center gap-3">
+                        <span className="text-lg font-bold text-white">{tickerSymbol}</span>
+                        {resolvedDir && (
+                          <span className={`px-1.5 py-px rounded text-[9px] font-black tracking-wide ${resolvedDir === "LONG" ? "bg-cyan-500/80 text-white" : "bg-rose-600/80 text-white"}`}>
+                            {resolvedDir}
+                          </span>
+                        )}
+                        {Number.isFinite(price) && price > 0 && (
+                          <span className="text-sm text-white/70 font-mono">${price.toFixed(2)}</span>
+                        )}
+                      </div>
+                      <button
+                        onClick={() => setChartExpanded(false)}
+                        className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-white/10 text-white/60 hover:text-white transition-colors text-lg"
+                      >
+                        ✕
+                      </button>
+                    </div>
+
+                    {/* TF Selector */}
+                    <div className="flex items-center gap-1.5 px-5 py-2 border-b border-white/[0.04]">
+                      {tfOptions.map(t => {
+                        const active = String(modalTf) === String(t.tf);
+                        return (
+                          <button
+                            key={t.tf}
+                            onClick={() => setModalTf(t.tf)}
+                            className={`px-3 py-1 rounded text-xs font-semibold transition-all ${
+                              active
+                                ? "bg-blue-500/30 text-blue-300 border border-blue-400/50"
+                                : "text-white/40 hover:text-white/70 border border-transparent hover:border-white/10"
+                            }`}
+                          >
+                            {t.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    {/* Chart Area */}
+                    <div style={{ padding: '12px 20px 20px' }}>
+                      {modalLoading ? (
+                        React.createElement(SkeletonBlock, { height: chartH, lines: 0, style: { background: "rgba(255,255,255,0.02)" } })
+                      ) : !Array.isArray(modalCandles) || modalCandles.length < 2 ? (
+                        <div style={{ height: chartH }} className="w-full flex items-center justify-center text-white/30 text-sm">
+                          No candle data
+                        </div>
+                      ) : (
+                        <LWChart
+                          candles={modalCandles}
+                          chartTf={modalTf}
+                          overlays={chartOverlays}
+                          onCrosshair={(key) => setChartOverlays(prev => ({ ...prev, [key]: !prev[key] }))}
+                          height={chartH}
+                          priceLines={modalPriceLines}
+                          markers={modalMarkers}
+                          ticker={tickerSymbol}
+                        />
+                      )}
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
+
+          </div>
+
+          {autopsyModal && (() => {
+              const mt = autopsyModalData || autopsyModal;
+              const _dir = String(mt.direction || "").toUpperCase();
+              const _ticker = String(mt.ticker || "").toUpperCase();
+              const _entry = Number(mt.entryPrice || mt.entry_price) || 0;
+              const _exit = Number(mt.exitPrice || mt.exit_price) || 0;
+              const _pnl = Number(mt.pnl || mt.realized_pnl) || 0;
+              const _pnlPct = Number(mt.pnlPct || mt.pnl_pct) || 0;
+              const _status = String(mt.status || "").toUpperCase();
+              const _grade = mt.setup_grade || mt.setupGrade || "";
+              const _riskBudget = mt.risk_budget || mt.riskBudget || "";
+              const _exitReason = mt.exitReason || mt.exit_reason || "";
+              const _mfe = Number(mt.max_favorable_excursion);
+              const _mae = Number(mt.max_adverse_excursion);
+              const _entryPath = mt.entry_path || "";
+              const _statusCls = _status === "WIN" ? "text-green-400" : _status === "LOSS" ? "text-red-400" : "text-[#93b8f7]";
+              const _gradeCls = _grade === "Prime" ? "bg-amber-500/20 text-amber-300 border-amber-500/30" : _grade === "Confirmed" ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/30" : _grade === "Speculative" ? "bg-blue-500/20 text-blue-300 border-blue-500/30" : "bg-white/10 text-white/60 border-white/10";
+              const entrySnap = _parseSnapshot(mt.signal_snapshot_json || mt.signalSnapshot);
+              const tfStack = _parseTfStack(mt.tf_stack_json || mt.tfStack);
+              const learningCtx = (() => {
+                try {
+                  const raw = mt.signal_snapshot_json || mt.signalSnapshot;
+                  const parsed = typeof raw === "string" ? JSON.parse(raw) : raw;
+                  return parsed?.precision?.learningContext || parsed?.learningContext || null;
+                } catch (_) { return null; }
+              })();
+              const _lineage = (() => {
+                try {
+                  const raw = mt.signal_snapshot_json || mt.signalSnapshot;
+                  const parsed = typeof raw === "string" ? JSON.parse(raw) : raw;
+                  return parsed?.lineage || null;
+                } catch (_) { return null; }
+              })();
+
+              const closeAutopsyModal = () => {
+                setAutopsyModal(null);
+                if (modalOnly && typeof onClose === "function") onClose();
+              };
+
+              return (
+                <div
+                  className="fixed inset-0 z-[9999] flex items-center justify-center md:p-4"
+                  style={{ background: "rgba(0,0,0,0.7)", backdropFilter: "blur(4px)" }}
+                  onClick={closeAutopsyModal}
+                >
+                  <div
+                    className="w-full h-full md:h-auto md:max-w-[85vw] md:max-h-[88vh] overflow-hidden flex flex-col rounded-none md:rounded-2xl border-0 md:border border-white/[0.1] bg-[#0b0e11] shadow-2xl"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    {/* Header */}
+                    <div className="flex items-center justify-between px-4 py-2.5 border-b border-white/[0.06] shrink-0" style={{ background: "var(--tt-bg-surface, #0b0e11)" }}>
+                      <h2 className="text-[15px] font-semibold text-white truncate mr-2">
+                        {_ticker} {_dir} — Trade Review
+                      </h2>
+                      <button onClick={closeAutopsyModal} className="p-2 -mr-1 rounded-md text-[#6b7280] hover:text-white hover:bg-white/[0.06] shrink-0">✕</button>
+                    </div>
+
+                    {autopsyModalLoading ? (
+                      React.createElement("div", { className: "p-4 flex-1" }, React.createElement(SkeletonBlock, { height: 200, lines: 6 }))
+                    ) : (
+                      <div className="p-3 md:p-4 flex-1 min-h-0 overflow-y-auto flex flex-col gap-3">
+                        {/* Entry/Exit summary badges */}
+                        <div className="flex flex-col sm:flex-row flex-wrap items-start sm:items-center gap-2 sm:gap-3 shrink-0">
+                          <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#60a5fa]/15 border border-[#60a5fa]/30">
+                            <span className="text-[10px] font-semibold text-[#60a5fa] uppercase tracking-wider shrink-0">Entry</span>
+                            <span className="text-[13px] font-semibold text-white truncate">{_formatDate(mt.entry_ts)} @ {fmtUsd(_entry)}</span>
+                          </div>
+                          {(_exit > 0 || mt.exit_ts) && (
+                            <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#f59e0b]/15 border border-[#f59e0b]/30">
+                              <span className="text-[10px] font-semibold text-[#f59e0b] uppercase tracking-wider shrink-0">Exit</span>
+                              <span className="text-[13px] font-semibold text-white truncate">{_formatDate(mt.exit_ts)} @ {_exit > 0 ? fmtUsd(_exit) : "\u2014"}</span>
+                            </div>
+                          )}
+                          {(() => {
+                            const _sh = Number(mt.shares ?? mt.quantity ?? 0);
+                            if (!_sh || !Number.isFinite(_sh) || _sh <= 0) return null;
+                            const _trimPct = Number(mt.trimmed_pct || mt.trimmedPct || 0);
+                            const _trimmed = Math.round(_sh * Math.min(_trimPct, 1));
+                            const _remaining = Math.max(0, Math.round(_sh) - _trimmed);
+                            return (
+                              <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#a78bfa]/15 border border-[#a78bfa]/30">
+                                <span className="text-[10px] font-semibold text-[#a78bfa] uppercase tracking-wider shrink-0">Shares</span>
+                                <span className="text-[13px] font-semibold text-white">{Math.round(_sh)}</span>
+                                {_trimmed > 0 && <span className="text-[11px] text-[#a78bfa]/70">({_trimmed} trimmed · {_remaining} left)</span>}
+                              </div>
+                            );
+                          })()}
+                          <div className="flex items-center gap-3">
+                            <div className="text-[12px] text-[#9ca3af]">P&L: <span className={_pnl >= 0 ? "text-[#22c55e] font-semibold" : "text-[#ef4444] font-semibold"}>{fmtUsd(_pnl)}</span></div>
+                            {_pnlPct ? <span className={`text-[11px] ${_statusCls}`}>({_pnlPct > 0 ? "+" : ""}{_pnlPct.toFixed(2)}%)</span> : null}
+                            {_status && <span className={`text-[12px] font-semibold ${_statusCls}`}>{_status}</span>}
+                          </div>
+                        </div>
+
+                        {/* 3-column grid: sidebar + chart */}
+                        <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 md:gap-4 lg:flex-1 lg:min-h-0">
+                          {/* Left sidebar */}
+                          <div className="lg:col-span-1 flex flex-col gap-3 min-h-0 lg:overflow-y-auto order-2 lg:order-1">
+                            {/* Signal Snapshot at Entry */}
+                            {(entrySnap || tfStack || _entryPath || _grade) && (
+                              <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-3 shrink-0">
+                                <div className="text-[11px] font-semibold text-[#14b8a6] uppercase tracking-wider mb-2">Signal snapshot at entry</div>
+                                {(_entryPath || _grade) && (
+                                  <div className="mb-3 px-2.5 py-1.5 rounded-lg bg-[#14b8a6]/10 border border-[#14b8a6]/20">
+                                    <span className="text-[10px] text-[#9ca3af] uppercase tracking-wider">Setup</span>
+                                    <div className="text-[13px] font-semibold text-white mt-0.5 flex items-center gap-2 flex-wrap">
+                                      {_entryPath ? _formatPath(_entryPath) : (mt.setup_name ? _formatPath(mt.setup_name) : null)}
+                                      {_grade && <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold border ${_gradeCls}`}>TT {_grade}</span>}
+                                      {Number(_riskBudget) > 0.001 && <span className="text-[10px] text-[#6b7280]">{Number(_riskBudget) < 1 ? `${(Number(_riskBudget) * 100).toFixed(1)}% risk` : `$${_riskBudget} risk`}</span>}
+                                    </div>
+                                  </div>
+                                )}
+                                {tfStack && tfStack.length > 0 && (
+                                  <div className="mb-3">
+                                    <span className="text-[10px] text-[#9ca3af] uppercase tracking-wider block mb-1.5">Timeframe bias</span>
+                                    <div className="flex flex-wrap gap-1.5">
+                                      {tfStack.map(({ tf: tfLabel, bias }) => {
+                                        const b = String(bias || "").toLowerCase();
+                                        const isBull = b === "bullish";
+                                        const isBear = b === "bearish";
+                                        const label = isBull ? "Bullish" : isBear ? "Bearish" : (bias || "\u2014");
+                                        const style = isBull ? "bg-[#22c55e]/15 text-[#22c55e]" : isBear ? "bg-[#ef4444]/15 text-[#ef4444]" : "bg-white/[0.06] text-[#9ca3af]";
+                                        return (<span key={tfLabel} className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium ${style}`}><span className="opacity-80">{tfLabel}</span><span>{label}</span></span>);
+                                      })}
+                                    </div>
+                                  </div>
+                                )}
+                                {entrySnap && entrySnap.length > 0 && (
+                                  <div>
+                                    <span className="text-[10px] text-[#9ca3af] uppercase tracking-wider block mb-1.5">Indicators by timeframe</span>
+                                    <div className="space-y-2">
+                                      {entrySnap.map(({ tf: tfLabel, signals }) => (
+                                        <div key={tfLabel} className="px-2 py-1.5 rounded-md bg-white/[0.03] border border-white/[0.06]">
+                                          <div className="text-[10px] font-medium text-[#9ca3af] mb-1">{tfLabel}</div>
+                                          <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-[11px]">
+                                            {Object.entries(signals).filter(([, v]) => v != null && Number.isFinite(v)).map(([k, v]) => (
+                                              <span key={k} className="flex items-center gap-1">
+                                                <span className="text-[#6b7280]">{SIGNAL_LABELS[k] || k}:</span>
+                                                <span className={_signalValueColor(k, v)}>{_signalValueLabel(k, v)}</span>
+                                              </span>
+                                            ))}
+                                          </div>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+
+                            {/* Context at Entry */}
+                            {_lineage && (_lineage.regime_class || _lineage.execution_profile || _lineage.vix_at_entry) && (
+                              <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-3 shrink-0">
+                                <div className="text-[11px] font-semibold text-[#f59e0b] uppercase tracking-wider mb-2">Context at entry</div>
+                                <div className="grid grid-cols-2 gap-2 text-[12px]">
+                                  {_lineage.regime_class && (() => {
+                                    const rc = _lineage.regime_class;
+                                    const rcColor = rc === "TRENDING" ? "#22c55e" : rc === "TRANSITIONAL" ? "#f59e0b" : rc === "CHOPPY" ? "#ef4444" : "#9ca3af";
+                                    return (
+                                      <div className="px-2.5 py-2 rounded-lg bg-white/[0.03] border border-white/[0.06]">
+                                        <div className="text-[10px] text-[#6b7280] uppercase tracking-wider">Regime</div>
+                                        <div className="mt-0.5"><span className="px-1.5 py-0.5 rounded text-[10px] font-bold" style={{ background: rcColor + "22", color: rcColor, border: `1px solid ${rcColor}44` }}>{rc}</span></div>
+                                        {_lineage.regime_score != null && <div className="text-[10px] text-[#6b7280] mt-1">Score: {_lineage.regime_score}</div>}
+                                      </div>
+                                    );
+                                  })()}
+                                  {_lineage.execution_profile && (
+                                    <div className="px-2.5 py-2 rounded-lg bg-white/[0.03] border border-white/[0.06]">
+                                      <div className="text-[10px] text-[#6b7280] uppercase tracking-wider">Execution Profile</div>
+                                      <div className="text-white font-semibold mt-0.5 text-[11px]">{(_lineage.execution_profile.active_profile || "").replace(/_/g, " ")}</div>
+                                      {_lineage.execution_profile.confidence && <div className="text-[10px] text-[#6b7280] mt-1">{Math.round(_lineage.execution_profile.confidence * 100)}% conf</div>}
+                                    </div>
+                                  )}
+                                  {_lineage.market_internals && (
+                                    <div className="px-2.5 py-2 rounded-lg bg-white/[0.03] border border-white/[0.06]">
+                                      <div className="text-[10px] text-[#6b7280] uppercase tracking-wider">Market State</div>
+                                      <div className="text-white font-semibold mt-0.5 text-[11px]">{(_lineage.market_internals.overall || "").replace(/_/g, " ")}</div>
+                                      {_lineage.market_internals.score != null && <div className="text-[10px] text-[#6b7280] mt-1">Score: {_lineage.market_internals.score}</div>}
+                                    </div>
+                                  )}
+                                  {_lineage.vix_at_entry && (
+                                    <div className="px-2.5 py-2 rounded-lg bg-white/[0.03] border border-white/[0.06]">
+                                      <div className="text-[10px] text-[#6b7280] uppercase tracking-wider">VIX at Entry</div>
+                                      <div className="text-white font-semibold mt-0.5">{Number(_lineage.vix_at_entry).toFixed(1)}</div>
+                                      <div className="text-[10px] text-[#6b7280] mt-1">{_lineage.vix_at_entry < 15 ? "Low" : _lineage.vix_at_entry < 22 ? "Medium" : _lineage.vix_at_entry < 30 ? "High" : "Extreme"}</div>
+                                    </div>
+                                  )}
+                                  {_lineage.state && (
+                                    <div className="px-2.5 py-2 rounded-lg bg-white/[0.03] border border-white/[0.06] col-span-2">
+                                      <div className="text-[10px] text-[#6b7280] uppercase tracking-wider">HTF/LTF State</div>
+                                      <div className="text-white font-semibold mt-0.5 text-[11px]">{_lineage.state.replace(/_/g, " ")}</div>
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Ticker Learning Profile */}
+                            {learningCtx && (
+                              <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-3 shrink-0">
+                                <div className="text-[11px] font-semibold text-[#a78bfa] uppercase tracking-wider mb-2">Ticker Learning Profile</div>
+                                <div className="text-[12px] text-[#d1d5db] space-y-1.5">
+                                  {learningCtx.personality && (() => {
+                                    const pColor = learningCtx.personality === "VOLATILE_RUNNER" ? "#ef4444" : learningCtx.personality === "PULLBACK_PLAYER" ? "#f59e0b" : learningCtx.personality === "SLOW_GRINDER" ? "#60a5fa" : "#a78bfa";
+                                    return (<div className="flex items-center gap-2"><span className="text-[#9ca3af]">Personality:</span><span className="px-1.5 py-0.5 rounded text-[10px] font-semibold" style={{ background: pColor + "22", color: pColor, border: `1px solid ${pColor}44` }}>{learningCtx.personality.replace(/_/g, " ")}</span></div>);
+                                  })()}
+                                  {learningCtx.trail_style && <div><span className="text-[#9ca3af]">Trail style:</span> {learningCtx.trail_style}</div>}
+                                  {learningCtx.tp_mult && <div><span className="text-[#9ca3af]">Expected TP:</span> {learningCtx.tp_mult}x ATR</div>}
+                                  {learningCtx.sl_mult && <div><span className="text-[#9ca3af]">Expected SL:</span> {learningCtx.sl_mult}x ATR</div>}
+                                  {learningCtx.boost != null && learningCtx.boost !== 0 && <div><span className="text-[#9ca3af]">Learning boost:</span> <span className={learningCtx.boost > 0 ? "text-[#22c55e]" : "text-[#ef4444]"}>{learningCtx.boost > 0 ? "+" : ""}{learningCtx.boost}</span></div>}
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Canonical Ticker Context */}
+                            {autopsyModalProfile && (
+                              <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-3 shrink-0">
+                                <div className="text-[11px] font-semibold text-[#60a5fa] uppercase tracking-wider mb-2">Canonical ticker context</div>
+                                <div className="space-y-2">
+                                  <div className="grid grid-cols-2 gap-2 text-[12px]">
+                                    <div className="px-2.5 py-2 rounded-lg bg-white/[0.03] border border-white/[0.06]">
+                                      <div className="text-[10px] text-[#6b7280] uppercase tracking-wider">Personality</div>
+                                      <div className="text-white font-semibold mt-0.5">{(autopsyModalProfile.personality || "\u2014").replace(/_/g, " ")}</div>
+                                      <div className="text-[10px] text-[#6b7280] mt-1">{(autopsyModalProfile.behavior_type || "\u2014").replace(/_/g, " ")}</div>
+                                    </div>
+                                    <div className="px-2.5 py-2 rounded-lg bg-white/[0.03] border border-white/[0.06]">
+                                      <div className="text-[10px] text-[#6b7280] uppercase tracking-wider">Context sample</div>
+                                      <div className="text-white font-semibold mt-0.5">{autopsyModalProfile.contract?.context?.sample_count ?? "\u2014"} trades</div>
+                                      <div className="text-[10px] text-[#6b7280] mt-1">{_fmtPct(autopsyModalProfile.contract?.context?.win_rate)} WR</div>
+                                    </div>
+                                  </div>
+                                  {(() => {
+                                    const ctx = autopsyModalProfile.contract?.context;
+                                    const exec = autopsyModalProfile.contract?.execution;
+                                    if (!ctx && !exec) return null;
+                                    const favRegime = ctx?.favored_regime || "\u2014";
+                                    const favVix = ctx?.favored_vix_bucket || "\u2014";
+                                    const favPath = ctx?.favored_entry_path || null;
+                                    return (
+                                      <div className="flex flex-wrap gap-1.5">
+                                        <span className="px-2 py-1 rounded-md bg-[#22c55e]/10 border border-[#22c55e]/20 text-[#86efac] text-[11px]">Regime: {favRegime}</span>
+                                        <span className="px-2 py-1 rounded-md bg-[#a78bfa]/10 border border-[#a78bfa]/20 text-[#c4b5fd] text-[11px]">VIX: {favVix}</span>
+                                        {favPath && <span className="px-2 py-1 rounded-md bg-[#14b8a6]/10 border border-[#14b8a6]/20 text-[#5eead4] text-[11px]">Path: {_formatPath(favPath)}</span>}
+                                      </div>
+                                    );
+                                  })()}
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Exit Context */}
+                            {(_exitReason || Number.isFinite(_mfe) || Number.isFinite(_mae)) && (
+                              <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-3 shrink-0">
+                                <div className="text-[11px] font-semibold text-[#f59e0b] uppercase tracking-wider mb-2">Exit context</div>
+                                <div className="text-[12px] text-[#d1d5db] space-y-1">
+                                  {_exitReason && <div style={{ overflowWrap: "anywhere" }}><span className="text-[#9ca3af]">Reason:</span> {_exitReason.replace(/,/g, ", ")}</div>}
+                                  {Number.isFinite(_mfe) && <div><span className="text-[#9ca3af]">MFE:</span> <span className="text-[#22c55e]">{_mfe.toFixed(2)}%</span></div>}
+                                  {Number.isFinite(_mae) && <div><span className="text-[#9ca3af]">MAE:</span> <span className="text-[#ef4444]">{_mae.toFixed(2)}%</span></div>}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Chart area (2 cols) */}
+                          <div className="lg:col-span-2 min-h-[240px] md:min-h-[300px] flex flex-col order-1 lg:order-2">
+                            <AutopsyChart
+                              ticker={_ticker}
+                              entryPrice={_entry}
+                              exitPrice={_exit}
+                              entryTs={mt.entry_ts}
+                              exitTs={mt.exit_ts}
+                              trimTs={mt.trim_ts}
+                              slPrice={mt.sl || mt.stop_loss || mt.sl_price}
+                              tpPrices={mt.tpArray || mt.tp_array || (mt.tp_price ? [{ price: mt.tp_price, label: "TP" }] : null)}
+                              height={typeof window !== "undefined" && window.innerWidth < 768 ? 220 : 320}
+                            />
+                          </div>
+                        </div>
+
+                        
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })()}
+          </>
+        );
+      }
+  };
+})();

@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Timed Trading — System Intelligence</title>
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48' fill='none'%3E%3Cdefs%3E%3ClinearGradient id='r' x1='6' y1='42' x2='42' y2='6'%3E%3Cstop offset='0%25' stop-color='%2334d399'/%3E%3Cstop offset='100%25' stop-color='%2367e8f9'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='48' height='48' rx='11' fill='%23000'/%3E%3Ccircle cx='24' cy='24' r='17' stroke='url(%23r)' stroke-width='3' fill='none'/%3E%3Cline x1='24' y1='24' x2='19' y2='18.5' stroke='%23636366' stroke-width='4' stroke-linecap='round'/%3E%3Cline x1='24' y1='24' x2='29.5' y2='16.5' stroke='%2330d158' stroke-width='4.5' stroke-linecap='round'/%3E%3Ccircle cx='24' cy='24' r='3.5' fill='%2330d158'/%3E%3Ccircle cx='24' cy='24' r='1.5' fill='%23000'/%3E%3C/svg%3E" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<link rel="stylesheet" href="tailwind.generated.css" />
+<script src="auth-gate.js?v=20260220a"></script>
+<style>
+      body { font-family: "Inter", system-ui, sans-serif; background: #0b0e11; color: #e5e7eb; -webkit-font-smoothing: antialiased; letter-spacing: -0.01em; }
+      @keyframes spin { to { transform: rotate(360deg); } }
+      .card { background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.04); border-radius: 12px; }
+      .badge-good { background: rgba(16,185,129,0.15); color: #6ee7b7; }
+      .badge-warn { background: rgba(251,191,36,0.15); color: #fcd34d; }
+      .badge-bad { background: rgba(244,63,94,0.15); color: #fca5a5; }
+      .badge-info { background: rgba(56,189,248,0.12); color: #93c5fd; }
+      .btn { padding: 8px 16px; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; transition: all 0.15s; border: none; }
+      .btn-primary { background: linear-gradient(135deg, #059669, #10b981); color: white; }
+      .btn-primary:hover { background: linear-gradient(135deg, #047857, #059669); }
+      .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+      .btn-apply { background: #1d4ed8; color: white; }
+      .btn-apply:hover { background: #2563eb; }
+      .btn-secondary { background: #334155; color: #94a3b8; border: 1px solid #475569; }
+      .btn-secondary:hover { background: #475569; }
+      .tab-active { border-bottom: 2px solid #10b981; color: #e8eaf0; }
+      .tab-inactive { border-bottom: 2px solid transparent; color: #626b7d; cursor: pointer; }
+      .tab-inactive:hover { color: #9098a8; }
+      .meter-bar { height: 6px; border-radius: 3px; background: rgba(255,255,255,0.06); overflow: hidden; }
+      .meter-fill { height: 100%; border-radius: 3px; transition: width 0.5s ease; }
+      .runs-shell { background: linear-gradient(180deg, rgba(255,255,255,0.018), rgba(255,255,255,0.008)); }
+      .runs-metric-card { background: rgba(255,255,255,0.015); border: 1px solid rgba(255,255,255,0.05); border-radius: 12px; padding: 12px 14px; }
+      .runs-metric-label { font-size: 10px; color: #7b8698; text-transform: uppercase; letter-spacing: 0.08em; }
+      .runs-metric-value { font-size: 13px; color: #e5e7eb; font-weight: 600; margin-top: 4px; line-height: 1.35; }
+      .runs-control { display: inline-flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 999px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.05); color: #a8b1bf; }
+      .runs-table-wrap { border-top: 1px solid rgba(255,255,255,0.05); background: linear-gradient(180deg, rgba(255,255,255,0.012), rgba(255,255,255,0.006)); }
+      .runs-table { width: 100%; min-width: 1180px; border-collapse: separate; border-spacing: 0; font-size: 12px; }
+      .runs-table thead th { font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: #7b8698; font-weight: 700; padding-top: 11px; padding-bottom: 11px; border-bottom: 1px solid rgba(255,255,255,0.06); }
+      .runs-table tbody td { border-top: 1px solid rgba(255,255,255,0.04); vertical-align: top; }
+      .runs-row:hover { background: rgba(255,255,255,0.024); }
+      .run-id { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; font-size: 11px; color: #d7dde7; line-height: 1.4; white-space: normal; overflow-wrap: anywhere; word-break: break-word; }
+      .run-subtle { font-size: 10px; color: #7b8698; line-height: 1.35; }
+      .run-pill { display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px; border-radius: 999px; font-size: 10px; font-weight: 700; letter-spacing: 0.03em; border: 1px solid transparent; }
+      .run-pill-live { color: #6ee7b7; background: rgba(16,185,129,0.12); border-color: rgba(16,185,129,0.18); }
+      .run-pill-protected { color: #fcd34d; background: rgba(251,191,36,0.12); border-color: rgba(251,191,36,0.18); }
+      .run-pill-active { color: #7dd3fc; background: rgba(14,165,233,0.12); border-color: rgba(14,165,233,0.2); }
+      .run-pill-archived { color: #cbd5e1; background: rgba(148,163,184,0.12); border-color: rgba(148,163,184,0.18); }
+      .run-pill-status { color: #d8dee8; background: rgba(255,255,255,0.04); border-color: rgba(255,255,255,0.07); }
+      .run-token { display: inline-flex; align-items: center; padding: 2px 7px; margin: 2px 6px 2px 0; border-radius: 999px; font-size: 10px; line-height: 1.3; color: #cbd5e1; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.05); white-space: nowrap; }
+      .run-action-btn { padding: 6px 10px; border-radius: 9px; font-size: 11px; font-weight: 700; line-height: 1; cursor: pointer; transition: all 0.15s ease; border: 1px solid rgba(255,255,255,0.1); background: rgba(255,255,255,0.035); color: #d6dbe4; }
+      .run-action-btn:hover { transform: translateY(-1px); background: rgba(255,255,255,0.06); }
+      .run-action-btn:disabled { opacity: 0.45; cursor: not-allowed; transform: none; }
+      .run-action-btn-primary { background: rgba(29,78,216,0.18); color: #bfdbfe; border-color: rgba(96,165,250,0.24); }
+      .run-action-btn-success { background: rgba(16,185,129,0.14); color: #86efac; border-color: rgba(16,185,129,0.22); }
+      .run-action-btn-warn { background: rgba(251,191,36,0.14); color: #fcd34d; border-color: rgba(251,191,36,0.24); }
+      .run-action-btn-info { background: rgba(20,184,166,0.14); color: #99f6e4; border-color: rgba(20,184,166,0.22); }
+      .run-action-btn-muted { background: rgba(100,116,139,0.15); color: #cbd5e1; border-color: rgba(100,116,139,0.28); }
+      .run-action-btn-danger { background: rgba(239,68,68,0.12); color: #fca5a5; border-color: rgba(239,68,68,0.2); }
+      body:not([data-user-role="admin"]) [data-admin-only] { display: none !important; }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script src="system-intelligence.compiled.76680c43a0.js"></script>
+  </body>
+</html>

@@ -7,6 +7,60 @@ export const sendJSON = (obj, status = 200, headers = {}) =>
     headers: { "Content-Type": "application/json", ...headers },
   });
 
+const CRITICAL_ENV_KEYS = [
+  "TIMED_API_KEY",
+  "CORS_ALLOW_ORIGIN",
+  "CF_ACCESS_TEAM_DOMAIN",
+  "CF_ACCESS_AUD",
+  "ADMIN_EMAIL",
+];
+
+let _runtimeEnvValidation = { fingerprint: null, issues: [] };
+
+function getRuntimeEnvFingerprint(env) {
+  return CRITICAL_ENV_KEYS
+    .map((key) => `${key}:${String(env?.[key] || "").trim()}`)
+    .join("|");
+}
+
+export function getRuntimeEnvIssues(env) {
+  const fingerprint = getRuntimeEnvFingerprint(env);
+  if (_runtimeEnvValidation.fingerprint === fingerprint) {
+    return _runtimeEnvValidation.issues;
+  }
+
+  const issues = [];
+  for (const key of CRITICAL_ENV_KEYS) {
+    if (!String(env?.[key] || "").trim()) {
+      issues.push(`missing:${key}`);
+    }
+  }
+
+  const corsOrigin = String(env?.CORS_ALLOW_ORIGIN || "").trim();
+  if (corsOrigin === "*" || corsOrigin.includes("*")) {
+    issues.push("invalid:CORS_ALLOW_ORIGIN");
+  }
+
+  _runtimeEnvValidation = { fingerprint, issues };
+  return issues;
+}
+
+export function requireRuntimeConfig(env, req = null) {
+  const issues = getRuntimeEnvIssues(env);
+  if (!issues.length) return null;
+
+  console.error("[CONFIG] Critical runtime configuration invalid", { issues });
+  return sendJSON(
+    {
+      ok: false,
+      error: "runtime_misconfigured",
+      issues,
+    },
+    503,
+    corsHeaders(env, req, true),
+  );
+}
+
 export function corsHeaders(env, req, allowNoOrigin = false) {
   const corsConfig = env.CORS_ALLOW_ORIGIN || "";
   const allowedOrigins = corsConfig
@@ -15,45 +69,15 @@ export function corsHeaders(env, req, allowNoOrigin = false) {
     .filter(Boolean);
   const origin = req?.headers?.get("Origin") || "";
 
-  const isCloudflarePages =
-    origin.includes(".pages.dev") || origin.includes("pages.dev") ||
-    origin.includes("timed-trading.com");
-
-  console.log("CORS check:", {
-    hasConfig: !!corsConfig,
-    configLength: corsConfig.length,
-    configValue: corsConfig.substring(0, 50),
-    allowedOriginsCount: allowedOrigins.length,
-    allowedOrigins,
-    requestedOrigin: origin,
-    originLength: origin.length,
-    allowNoOrigin,
-    isCloudflarePages,
-  });
-
   let allowed;
-  // Cloudflare Pages origins MUST get the specific origin back (not "*")
-  // so that credentials: "include" works for cross-origin CF Access cookies.
-  if (isCloudflarePages) {
-    allowed = origin;
-  } else if (allowedOrigins.length === 0 || allowedOrigins.includes("*")) {
+  if (!origin && allowNoOrigin) {
     allowed = "*";
-  } else if (origin === "" && allowNoOrigin) {
+  } else if (!origin) {
     allowed = "*";
   } else if (allowedOrigins.includes(origin)) {
     allowed = origin;
   } else {
-    console.log("CORS mismatch:", {
-      requested: origin,
-      requestedLength: origin.length,
-      allowed: allowedOrigins,
-      allowedLengths: allowedOrigins.map((o) => o.length),
-      config: corsConfig,
-      exactMatch: allowedOrigins.some((o) => o === origin),
-      caseInsensitiveMatch: allowedOrigins.some(
-        (o) => o.toLowerCase() === origin.toLowerCase(),
-      ),
-    });
+    console.warn("[CORS] Rejected origin", { origin, allowedOrigins });
     allowed = "null";
   }
 
@@ -101,7 +125,13 @@ export async function readBodyAsJSON(req) {
 
 export function requireKeyOr401(req, env) {
   const expected = env.TIMED_API_KEY;
-  if (!expected) return null;
+  if (!expected) {
+    return sendJSON(
+      { ok: false, error: "unauthorized" },
+      401,
+      corsHeaders(env, req),
+    );
+  }
   const url = new URL(req.url);
   const qKey = url.searchParams.get("key");
   if (qKey && qKey === expected) return null;
@@ -516,18 +546,22 @@ export async function requireUser(req, env, opts = {}) {
  * Returns null if authorized, or a 401/403 Response if not.
  */
 export async function requireKeyOrAdmin(req, env) {
-  // Try API key first (machine-to-machine: scripts, webhooks)
-  const keyResult = requireKeyOr401(req, env);
-  if (!keyResult) return null; // API key is valid
-
-  // Try JWT auth (human via Cloudflare Access)
-  const user = await authenticateUser(req, env);
-  if (user && (user.role === "admin" || user.tier === "admin" || user.email === env.ADMIN_EMAIL)) {
-    return null; // Admin user authenticated
+  const expected = env.TIMED_API_KEY;
+  if (expected) {
+    const keyResult = requireKeyOr401(req, env);
+    if (!keyResult) return null;
   }
 
-  // Neither worked
-  return keyResult; // Return the 401 from API key check
+  const user = await authenticateUser(req, env);
+  if (user && (user.role === "admin" || user.tier === "admin" || user.email === env.ADMIN_EMAIL)) {
+    return null;
+  }
+
+  return sendJSON(
+    { ok: false, error: "unauthorized" },
+    401,
+    corsHeaders(env, req),
+  );
 }
 
 // COST OPTIMIZATION: Fixed-window rate limiting also uses Workers Cache API.

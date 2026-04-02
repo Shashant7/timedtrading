@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Timed Trading — Model Dashboard</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<link rel="stylesheet" href="tailwind.generated.css" />
+<script src="auth-gate.js?v=20260219a"></script>
+    <script>
+      if (location.pathname.includes("calibration") || location.pathname.includes("model-dashboard")) location.replace("system-intelligence.html");
+    </script>
+<style>
+      body { font-family: "Inter", system-ui, sans-serif; background: #0b0e11; color: #e5e7eb; -webkit-font-smoothing: antialiased; letter-spacing: -0.01em; }
+      @keyframes spin { to { transform: rotate(360deg); } }
+      @keyframes pulse-badge {
+        0%, 100% { opacity: 1; transform: scale(1); }
+        50% { opacity: 0.7; transform: scale(1.15); }
+      }
+      .card { background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.04); border-radius: 12px; }
+      .badge-bull { background: rgba(16, 185, 129, 0.15); color: #6ee7b7; }
+      .badge-bear { background: rgba(244, 63, 94, 0.15); color: #fca5a5; }
+      .badge-neutral { background: rgba(255,255,255,0.05); color: #d6d3d1; }
+      .badge-degraded { background: rgba(251, 191, 36, 0.15); color: #fcd34d; }
+      .badge-active { background: rgba(56, 189, 248, 0.12); color: #93c5fd; }
+      .btn { padding: 6px 14px; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; transition: all 0.15s; }
+      .btn-approve { background: #065f46; color: #6ee7b7; border: 1px solid #059669; }
+      .btn-approve:hover { background: #047857; }
+      .btn-reject { background: #7f1d1d; color: #fca5a5; border: 1px solid #dc2626; }
+      .btn-reject:hover { background: #991b1b; }
+      .btn-secondary { background: #334155; color: #94a3b8; border: 1px solid #475569; }
+      .btn-secondary:hover { background: #475569; }
+      .tab-active { border-bottom: 2px solid #10b981; color: #e8eaf0; }
+      .tab-inactive { border-bottom: 2px solid transparent; color: #626b7d; }
+      .tab-inactive:hover { color: #9098a8; }
+      /* Admin-only nav links: hidden for non-admin users */
+      body:not([data-user-role="admin"]) a[data-admin-only] {
+        display: none !important;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script src="model-dashboard.compiled.34db5b1e28.js"></script>
+    <script>
+      (function() {
+        fetch("/timed/daily-brief/badge", { cache: "no-store" })
+          .then(r => r.json())
+          .then(d => {
+            if (d?.badge?.ts) {
+              const seen = Number(localStorage.getItem("tt_brief_seen") || 0);
+              if (d.badge.ts > seen) {
+                const el = document.getElementById("brief-badge");
+                if (el) el.classList.remove("hidden");
+              }
+            }
+          })
+          .catch(() => {});
+      })();
+    </script>
+  </body>
+</html>
