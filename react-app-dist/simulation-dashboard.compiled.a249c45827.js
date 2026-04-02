@@ -5468,6 +5468,7 @@ function App() {
   const [ledgerStatusFilter, setLedgerStatusFilter] = useState("all");
   const [accountChartRange, setAccountChartRange] = useState("30D");
   const [ledgerIncludeEvidence, setLedgerIncludeEvidence] = useState(true);
+  const paperPortfolio = usePaperPortfolio();
   const ledgerRangeDays = useMemo(() => {
     const a = ledgerDateRange.start.getTime();
     const b = ledgerDateRange.end.getTime();
@@ -5636,7 +5637,6 @@ function App() {
     since: ledgerSince,
     until: ledgerUntil
   });
-  const paperPortfolio = usePaperPortfolio();
   const rankedTickers = useMemo(() => {
     return getRankedTickers(data);
   }, [data]);

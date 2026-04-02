@@ -6735,6 +6735,7 @@
         const [accountChartRange, setAccountChartRange] = useState("30D");
         const [ledgerIncludeEvidence, setLedgerIncludeEvidence] =
           useState(true);
+        const paperPortfolio = usePaperPortfolio();
 
         const ledgerRangeDays = useMemo(() => {
           const a = ledgerDateRange.start.getTime();
@@ -6910,7 +6911,6 @@
           since: ledgerSince,
           until: ledgerUntil,
         });
-        const paperPortfolio = usePaperPortfolio();
         // Legacy "Trade Detail" right rail removed; use unified ticker right rail instead.
 
         const rankedTickers = useMemo(() => {
