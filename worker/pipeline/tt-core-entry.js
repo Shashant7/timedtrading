@@ -40,6 +40,7 @@ const TT_CORE_TRACE_CASES = new Map([
   ["AA:1753718400000", "aa_bear_div_entry_0728"],
   ["INTU:1752003600000", "intu_jul8_regression_entry"],
   ["XLB:1772479200000", "xlb_mar2_premium_exhaustion_entry"],
+  ["CW:1772656200000", "cw_mar3_ltf_exhaustion_entry"],
   ["APP:1755527400000", "app_aug18_hard_loss_cap"],
   ["APP:1755528000000", "app_aug18_hard_loss_cap_retry"],
   ["APP:1761767400000", "app_oct29_pre_pce_loss"],
@@ -1074,6 +1075,25 @@ export function evaluateEntry(ctx) {
       && Math.abs(phase4h) <= 10
       && (Number(gapContext?.barsSinceOpen) || 0) >= 45
     );
+    const exhaustedGapContinuationLong = !!(
+      pullbackPlayerPersonality
+      && dualPremiumApproachLong
+      && !!dailyBearDivergenceSummary
+      && entrySupportProfile?.profile === "supportive"
+      && Number(entrySupportProfile?.score) >= 4
+      && gapContext?.direction === "up"
+      && !!gapContext?.halfGapHeld
+      && !!gapContext?.fullGapFilled
+      && !!cvgContext?.bullish?.active
+      && !!cvgContext?.bullish?.untestedImpulse
+      && Number(movePhaseScores.atrExhaustedCount) >= 2
+      && Number(movePhaseScores.phaseLateCount) >= 1
+      && Number.isFinite(phaseD)
+      && phaseD >= 30
+      && Number.isFinite(rsiW)
+      && rsiW >= 68
+      && stDir15m < 0
+    );
     const lateOrExhaustedCorrectionMomentum = (Number(movePhaseScores.atrExhaustedCount) || 0) >= 1
       || (Number(movePhaseScores.phaseLateCount) || 0) >= 1
       || (Number(gapContext?.barsSinceOpen) || 0) >= 30
@@ -1102,6 +1122,23 @@ export function evaluateEntry(ctx) {
         entrySupport: summarizeEntrySupport(entrySupportProfile),
         movePhase: summarizeMovePhase(movePhase),
         adverseRsiDivergence: adverseRsiDivSummary,
+      });
+    }
+    if (exhaustedGapContinuationLong) {
+      return rejectEntry("tt_momentum_correction_transition_exhausted_gap_continuation", {
+        executionProfileName,
+        tickerPersonality,
+        setupGrade,
+        rank: rankScore,
+        rsiW,
+        st15m: stDir15m,
+        pdzZone: { D: pdz.zoneD, h4: pdzZone4h },
+        gapContext: summarizeGapContext(gapContext),
+        cvgContext: summarizeCvgContext(cvgContext),
+        phaseContext,
+        entrySupport: summarizeEntrySupport(entrySupportProfile),
+        movePhase: summarizeMovePhase(movePhase),
+        dailyBearDivergence: dailyBearDivergenceSummary,
       });
     }
   }
