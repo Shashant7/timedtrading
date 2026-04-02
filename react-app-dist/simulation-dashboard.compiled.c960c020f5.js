@@ -5478,6 +5478,53 @@ function App() {
     const days = ledgerRangeDays;
     return days === 1 ? "Today" : `Last ${days}d`;
   }, [ledgerRangeDays]);
+  const startOfDay = d => {
+    const x = new Date(d);
+    x.setHours(0, 0, 0, 0);
+    return x;
+  };
+  const endOfDay = d => {
+    const x = new Date(d);
+    x.setHours(23, 59, 59, 999);
+    return x;
+  };
+  const ledgerSince = useMemo(() => startOfDay(ledgerDateRange.start).getTime(), [ledgerDateRange.start]);
+  const ledgerUntil = useMemo(() => endOfDay(ledgerDateRange.end).getTime(), [ledgerDateRange.end]);
+  const ledgerTrades = useLedgerTrades({
+    ticker: ledgerTickerFilter.trim(),
+    status: ledgerStatusFilter,
+    since: ledgerSince,
+    until: ledgerUntil,
+    pageSize: 500
+  });
+  const ledgerAlerts = useLedgerAlerts({
+    ticker: ledgerTickerFilter.trim(),
+    since: ledgerSince,
+    until: ledgerUntil,
+    pageSize: 500
+  });
+  const ledgerSummary = useLedgerSummary({
+    since: ledgerSince,
+    until: ledgerUntil
+  });
+  const allLedgerItems = useMemo(() => {
+    const lt = ledgerTrades ?? {};
+    return Array.isArray(lt.items) ? lt.items : [];
+  }, [ledgerTrades?.items]);
+  const ledgerFilteredTrades = useMemo(() => {
+    if (horizonFilter === "ALL") return allLedgerItems;
+    return allLedgerItems.filter(t => {
+      const sym = String(t.ticker || "").toUpperCase();
+      const live = data && (data[sym] || data[t.ticker]);
+      const key = computeHorizonKey(live || t);
+      return key === horizonFilter;
+    });
+  }, [allLedgerItems, horizonFilter, data]);
+  const ledgerOpenTrades = useMemo(() => ledgerFilteredTrades.filter(t => {
+    const trimmedPct = Number(t.trimmed_pct ?? t.trimmedPct ?? 0);
+    return t.status !== "WIN" && t.status !== "LOSS" && !t.exit_ts && trimmedPct < 0.9999;
+  }), [ledgerFilteredTrades]);
+  const ledgerClosedTrades = useMemo(() => ledgerFilteredTrades.filter(t => t.status === "WIN" || t.status === "LOSS" || t.status === "FLAT" || Number(t.trimmed_pct ?? t.trimmedPct ?? 0) >= 0.9999), [ledgerFilteredTrades]);
   const pnlByTickerWindow = useMemo(() => {
     const pp = paperPortfolio ?? {};
     const openPos = Array.isArray(pp.data?.portfolio?.openPositions) ? pp.data.portfolio.openPositions : [];
@@ -5608,35 +5655,6 @@ function App() {
     }
     return out;
   }, [paperPortfolio?.data, ledgerClosedTrades, ledgerRangeDays]);
-  const startOfDay = d => {
-    const x = new Date(d);
-    x.setHours(0, 0, 0, 0);
-    return x;
-  };
-  const endOfDay = d => {
-    const x = new Date(d);
-    x.setHours(23, 59, 59, 999);
-    return x;
-  };
-  const ledgerSince = useMemo(() => startOfDay(ledgerDateRange.start).getTime(), [ledgerDateRange.start]);
-  const ledgerUntil = useMemo(() => endOfDay(ledgerDateRange.end).getTime(), [ledgerDateRange.end]);
-  const ledgerTrades = useLedgerTrades({
-    ticker: ledgerTickerFilter.trim(),
-    status: ledgerStatusFilter,
-    since: ledgerSince,
-    until: ledgerUntil,
-    pageSize: 500
-  });
-  const ledgerAlerts = useLedgerAlerts({
-    ticker: ledgerTickerFilter.trim(),
-    since: ledgerSince,
-    until: ledgerUntil,
-    pageSize: 500
-  });
-  const ledgerSummary = useLedgerSummary({
-    since: ledgerSince,
-    until: ledgerUntil
-  });
   const rankedTickers = useMemo(() => {
     return getRankedTickers(data);
   }, [data]);
@@ -5652,24 +5670,6 @@ function App() {
     });
     return map;
   }, [rankedTickers]);
-  const allLedgerItems = useMemo(() => {
-    const lt = ledgerTrades ?? {};
-    return Array.isArray(lt.items) ? lt.items : [];
-  }, [ledgerTrades?.items]);
-  const ledgerFilteredTrades = useMemo(() => {
-    if (horizonFilter === "ALL") return allLedgerItems;
-    return allLedgerItems.filter(t => {
-      const sym = String(t.ticker || "").toUpperCase();
-      const live = data && (data[sym] || data[t.ticker]);
-      const key = computeHorizonKey(live || t);
-      return key === horizonFilter;
-    });
-  }, [allLedgerItems, horizonFilter, data]);
-  const ledgerOpenTrades = useMemo(() => ledgerFilteredTrades.filter(t => {
-    const trimmedPct = Number(t.trimmed_pct ?? t.trimmedPct ?? 0);
-    return t.status !== "WIN" && t.status !== "LOSS" && !t.exit_ts && trimmedPct < 0.9999;
-  }), [ledgerFilteredTrades]);
-  const ledgerClosedTrades = useMemo(() => ledgerFilteredTrades.filter(t => t.status === "WIN" || t.status === "LOSS" || t.status === "FLAT" || Number(t.trimmed_pct ?? t.trimmedPct ?? 0) >= 0.9999), [ledgerFilteredTrades]);
   const ledgerActivityDays = useMemo(() => {
     const MIN_SANE_TS = 946684800000;
     const sane = ts => ts != null && Number.isFinite(ts) && ts > 0 && ts >= MIN_SANE_TS;
