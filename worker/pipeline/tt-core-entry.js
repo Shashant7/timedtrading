@@ -24,6 +24,31 @@ const TT_CORE_TRACE_CASES = new Map([
   ["RBLX:1752846000000", "rblx_bad_momentum_late"],
   ["RBLX:1753201800000", "rblx_remaining_remote_loss_0722"],
   ["RBLX:1753118400000", "rblx_bad_pullback_hard_cap"],
+  ["GDX:1753373700000", "gdx_initial_entry_0724"],
+  ["GDX:1754058600000", "gdx_aug1_breakout_probe_1030"],
+  ["GDX:1754317800000", "gdx_aug4_breakout_probe_1030"],
+  ["GDX:1754326800000", "gdx_aug4_breakout_probe_1300"],
+  ["GDX:1754404200000", "gdx_aug5_breakout_probe_1030"],
+  ["GDX:1754413200000", "gdx_aug5_breakout_probe_1300"],
+  ["GDX:1754490600000", "gdx_aug6_breakout_probe_1030"],
+  ["GDX:1768923000000", "gdx_reentry_probe_0120_1030"],
+  ["GDX:1769009400000", "gdx_reentry_probe_0121_1030"],
+  ["GDX:1769095800000", "gdx_reentry_probe_0122_1030"],
+  ["GDX:1769182200000", "gdx_reentry_probe_0123_1030"],
+  ["GDX:1769441400000", "gdx_reentry_probe_0126_1030"],
+  ["PPG:1753464600000", "ppg_earnings_loss_entry_0725"],
+  ["AA:1753718400000", "aa_bear_div_entry_0728"],
+  ["INTU:1752003600000", "intu_jul8_regression_entry"],
+  ["XLB:1772479200000", "xlb_mar2_premium_exhaustion_entry"],
+  ["APP:1755527400000", "app_aug18_hard_loss_cap"],
+  ["APP:1755528000000", "app_aug18_hard_loss_cap_retry"],
+  ["APP:1761767400000", "app_oct29_pre_pce_loss"],
+  ["APP:1765822200000", "app_dec15_pre_earnings_reclaim"],
+  ["APP:1766523000000", "app_dec23_mtf_loss"],
+  ["IESC:1753378800000", "iesc_regression_entry_0724"],
+  ["IREN:1753299000000", "iren_timing_entry_0723"],
+  ["KWEB:1753731000000", "kweb_pullback_entry_0728"],
+  ["TSM:1753799400000", "tsm_timing_entry_0729"],
 ]);
 
 /**
@@ -32,9 +57,12 @@ const TT_CORE_TRACE_CASES = new Map([
  * @returns {EntryResult}
  */
 export function evaluateEntry(ctx) {
-  const { side, tf, scores, flags, config, raw, pdz, regime, movePhase } = ctx;
+  const { side, tf, scores, flags, config, raw, pdz, regime, movePhase, gap, cvg, entrySupport } = ctx;
   const d = raw;
   const traceCase = resolveTraceCase(ctx);
+  const gapContext = gap || d?.overnight_gap || null;
+  const cvgContext = cvg || d?.intraday_cvg || null;
+  const entrySupportProfile = entrySupport || d?.entry_support_profile || null;
 
   let momentumTrigger = false;
   let pullbackTrigger = false;
@@ -54,6 +82,7 @@ export function evaluateEntry(ctx) {
   let rsi1h = null;
   let rsi4h = null;
   let rsiD = null;
+  let rsiW = null;
   let stDir10m = 0;
   let stDir15m = 0;
   let stDir30m = 0;
@@ -61,6 +90,9 @@ export function evaluateEntry(ctx) {
   let trendExtensionPct = 0;
   let bearishPullbackCount = 0;
   let emaStructure15m = 0;
+  let adverseRsiDivSummary = null;
+  let dailyBearDivergenceSummary = null;
+  let phaseContext = null;
 
   const traceDecision = (decision, payload = {}) => {
     if (!traceCase) return;
@@ -111,10 +143,19 @@ export function evaluateEntry(ctx) {
         h1: rsi1h,
         h4: rsi4h,
         D: rsiD,
+        W: rsiW,
       },
       emaStructure15m,
       trendExtensionPct,
+      gapContext: summarizeGapContext(gapContext),
+      cvgContext: summarizeCvgContext(cvgContext),
+      entrySupport: summarizeEntrySupport(entrySupportProfile),
       movePhase: summarizeMovePhase(movePhase),
+      divergence: {
+        adverse: adverseRsiDivSummary,
+        dailyBear: dailyBearDivergenceSummary,
+      },
+      phaseContext,
       ...payload,
     });
   };
@@ -135,9 +176,13 @@ export function evaluateEntry(ctx) {
   const h1 = tf.h1;
   const h4 = tf.h4;
   const D = tf.D;
+  const W = tf.W;
 
   const emaRegimeDaily = Number(d?.ema_regime_daily) || 0;
+  const emaRegime4h = Number(d?.ema_regime_4h) || 0;
+  const emaRegime1h = Number(d?.ema_regime_1H ?? d?.ema_regime_1h) || 0;
   const daCfg = config.deepAudit || {};
+  const currentState = String(ctx.state || d?.state || "");
 
   // ── 1. CLOUD BIAS ALIGNMENT (D + 1H + LTF 34/50) ──
   const cD_34 = D?.ripster?.c34_50;
@@ -157,10 +202,32 @@ export function evaluateEntry(ctx) {
   const alignedCount = [dAligned, structuralAligned, m10Aligned].filter(Boolean).length;
   const strongDailyTrend = (side === "LONG" && emaRegimeDaily >= 2)
     || (side === "SHORT" && emaRegimeDaily <= -2);
+  const rankScore = Number(scores?.rank ?? d?.rank) || 0;
+  const laggingH1BreakoutLong = config.ripsterTuneV2
+    && side === "LONG"
+    && strongDailyTrend
+    && dAligned
+    && m10Aligned
+    && h1Available
+    && !h1Aligned
+    && !!(c10_5?.bull || c10_5?.inCloud)
+    && !c10_5?.below
+    && !!c30_5?.bull
+    && !!c30_5?.above
+    && rankScore >= 90
+    && !!entrySupportProfile
+    && Number(entrySupportProfile.score) >= 2
+    && movePhase?.profile !== "countertrend_peak_risk"
+    && movePhase?.profile !== "exhausted"
+    && gapContext?.direction === "up"
+    && Number(gapContext?.absGapPct) >= 1
+    && Number(gapContext?.absGapPct) <= 2.5
+    && !!gapContext?.halfGapHeld;
 
-  const biasAligned = config.ripsterTuneV2
+  const baseBiasAligned = config.ripsterTuneV2
     ? (dAligned && structuralAligned && (strongDailyTrend ? alignedCount >= 2 : m10Aligned))
     : (dAligned && structuralAligned && m10Aligned);
+  const biasAligned = baseBiasAligned || laggingH1BreakoutLong;
 
   traceDecision("entry", {
     bias: {
@@ -223,6 +290,7 @@ export function evaluateEntry(ctx) {
   const adverseRsiDiv = side === "LONG"
     ? collectActiveRsiDivergence([m10, m30, h1, h4, D], "bear")
     : collectActiveRsiDivergence([m10, m30, h1, h4, D], "bull");
+  adverseRsiDivSummary = summarizeDivergence(adverseRsiDiv);
   ltfConfirm = side === "LONG"
     ? (ltfRecovering || hasRsiDivBull)
     : (scores.ltf < 10 || hasStFlipBear || hasEmaCrossBear || hasSqRelease || hasRsiDivBear);
@@ -239,6 +307,9 @@ export function evaluateEntry(ctx) {
   reclaimTrigger = config.ripsterTuneV2 && (side === "LONG"
     ? !!((c10_8?.crossUp || (c10_8?.bull && c10_8?.above)) && hasStFlipBull && ltfRecovering && c10_8?.fastSlope >= 0)
     : !!((c10_8?.crossDn || (c10_8?.bear && c10_8?.below)) && hasStFlipBear && ltfConfirm && c10_8?.fastSlope <= 0));
+  if (laggingH1BreakoutLong && !momentumTrigger && !pullbackTrigger && !reclaimTrigger) {
+    reclaimTrigger = true;
+  }
 
   c10FiveTwelveConfirmed = side === "LONG"
     ? !!(c10_5?.bull && c10_5?.above)
@@ -249,6 +320,16 @@ export function evaluateEntry(ctx) {
   c30FiveTwelveOpposed = side === "LONG"
     ? !!c30_5?.below
     : !!c30_5?.above;
+  const bearishFiveTwelveRecoveryLong = side === "LONG"
+    && pullbackTrigger
+    && !reclaimTrigger
+    && hasEmaCrossBull
+    && !hasStFlipBull
+    && !c10FiveTwelveConfirmed
+    && !c30FiveTwelveConfirmed
+    && !!(c10_5?.bear || c10_5?.inCloud)
+    && !!(c30_5?.bear || c30_5?.inCloud);
+  const confirmedBullContinuationLong = laggingH1BreakoutLong;
 
   // ── 4. QUALITY REJECTION GATES ──
   rsi10m = Number(m10?.rsi?.r5) || 50;
@@ -256,6 +337,7 @@ export function evaluateEntry(ctx) {
   rsi1h = Number(h1?.rsi?.r5) || 50;
   rsi4h = Number(h4?.rsi?.r5) || 50;
   rsiD = Number(D?.rsi?.r5) || 50;
+  rsiW = Number(W?.rsi?.r5) || 50;
   stDir10m = Number(m10?.stDir) || 0;
   stDir30m = Number(m30?.stDir) || 0;
   stDirD = Number(D?.stDir) || 0;
@@ -268,16 +350,97 @@ export function evaluateEntry(ctx) {
   const chaseDistPct = Number(daCfg.deep_audit_ripster_chase_dist_to_cloud_pct) || 0.0045;
   const heatRsi30 = Number(daCfg.deep_audit_ripster_momentum_heat_rsi30) || 70;
   const heatRsi1H = Number(daCfg.deep_audit_ripster_momentum_heat_rsi1h) || 70;
-  const executionProfileName = String(d?.execution_profile?.active_profile || "");
-  const tickerPersonality = String(d?._ticker_profile?.learning?.personality || "");
+  const executionProfileName = String(
+    d?.execution_profile?.active_profile
+    || d?.execution_profile_name
+    || d?.executionProfileName
+    || d?.execution_profile?.name
+    || ""
+  );
+  const tickerPersonality = String(
+    d?._ticker_profile?.learning?.personality
+    || d?.ticker_character?.personality
+    || d?._ticker_profile?.behavior_type
+    || d?._ticker_profile?.personality
+    || d?.execution_profile?.personality
+    || ""
+  ).toUpperCase();
   const correctionTransitionProfile = executionProfileName === "correction_transition";
   const pullbackPlayerPersonality = tickerPersonality === "PULLBACK_PLAYER"
     || tickerPersonality === "MEAN_REVERT";
   const volatileRunnerPersonality = tickerPersonality === "VOLATILE_RUNNER";
+  const setupGrade = String(d?.setup_grade || d?.setupGrade || "").trim();
+  const isPrimeGrade = setupGrade.toLowerCase() === "prime";
+  const entryQualityScore = Number(
+    d?.entry_quality_score
+    ?? d?.entryQualityScore
+    ?? d?.entry_quality?.score
+    ?? scores?.entryQualityScore
+  ) || 0;
+  const gapAndGoBlockEnabled = String(daCfg.deep_audit_gap_and_go_block_enabled ?? "true") === "true";
+  const gapAndGoMinGapPct = Number(daCfg.deep_audit_gap_and_go_min_gap_pct) || 2.0;
+  const entrySupportGateEnabled = String(daCfg.deep_audit_entry_support_gate_enabled ?? "true") === "true";
+  const entrySupportMinScore = Number(daCfg.deep_audit_entry_support_min_score) || 2;
+  const entrySupportPrimeMinScore = Number(daCfg.deep_audit_entry_support_prime_min_score) || 1;
+  const matureContinuationGuardEnabled = String(daCfg.deep_audit_mature_continuation_guard_enabled ?? "true") === "true";
+  const matureContinuationFuelMin = Number(daCfg.deep_audit_mature_continuation_primary_fuel_min) || 75;
+  const matureContinuationLtfMax = Number(daCfg.deep_audit_mature_continuation_ltf_max) || 12;
+  const matureContinuationSupportMax = Number(daCfg.deep_audit_mature_continuation_support_max) || 3;
+  const overheatedDivergenceGuardEnabled = String(daCfg.deep_audit_overheated_divergence_guard_enabled ?? "true") === "true";
+  const overheatedDivergenceDailyRsiMin = Number(daCfg.deep_audit_overheated_divergence_daily_rsi_min) || 68;
+  const overheatedDivergenceWeeklyRsiMin = Number(daCfg.deep_audit_overheated_divergence_weekly_rsi_min) || 80;
+  const overheatedDivergenceFuelMin = Number(daCfg.deep_audit_overheated_divergence_primary_fuel_min) || 75;
+  const overheatedDivergencePhaseResetMax = Number(daCfg.deep_audit_overheated_divergence_phase_reset_max) || 12;
 
   const openNoiseEndMin = Number(daCfg.deep_audit_ripster_opening_noise_end_minute) || 45;
   const nowEt = getEasternParts(new Date(now));
   const inOpeningNoise = nowEt.hour === 9 && nowEt.minute < openNoiseEndMin;
+
+  const momentumPullbackLtfMinScore = Number(daCfg.deep_audit_momentum_pullback_ltf_min_score) || 0;
+  const momentumPullbackMin4hRegime = Number(daCfg.deep_audit_momentum_pullback_min_ema_regime_4h) || 2;
+
+  const shouldRejectWeakMomentumPullback = config.ripsterTuneV2
+    && side === "LONG"
+    && momentumTrigger
+    && currentState.includes("PULLBACK")
+    && (scores.ltf < momentumPullbackLtfMinScore || emaRegime4h < momentumPullbackMin4hRegime);
+  const pdz4h = h4?.pdz || {};
+  const pdzZone4h = String(pdz4h.zone || d?.pdz_zone_4h || "unknown");
+  const fvgD = d?.fvg_D || {};
+  const liqD = d?.liq_D || {};
+  const hasNearbyFallbackSupport = side === "LONG" && (
+    pdz.zoneD === "discount"
+    || pdz.zoneD === "discount_approach"
+    || pdzZone4h === "discount"
+    || pdzZone4h === "discount_approach"
+    || !!fvgD.inBullGap
+    || (Number(fvgD.activeBull) > 0 && Number(fvgD.nearestBullDist) >= 0 && Number(fvgD.nearestBullDist) <= 0.35)
+    || (Number(liqD.nearestSellsideDist) >= 0 && Number(liqD.nearestSellsideDist) <= 0.35)
+  );
+  const shouldRejectUnsupportedGapAndGo = config.ripsterTuneV2
+    && gapAndGoBlockEnabled
+    && side === "LONG"
+    && (momentumTrigger || (pullbackTrigger && !reclaimTrigger))
+    && gapContext?.direction === "up"
+    && Number(gapContext?.absGapPct) >= gapAndGoMinGapPct
+    && !!gapContext?.untestedImpulse
+    && !gapContext?.halfGapHeld
+    && !hasNearbyFallbackSupport;
+
+  if (shouldRejectUnsupportedGapAndGo) {
+    return rejectEntry("tt_gap_and_go_unsupported", {
+      gapContext: summarizeGapContext(gapContext),
+      cvgContext: summarizeCvgContext(cvgContext),
+      requiredGapPct: gapAndGoMinGapPct,
+      pdzZone: { D: pdz.zoneD, h4: pdzZone4h },
+      fallbackSupport: {
+        inBullGap: !!fvgD.inBullGap,
+        activeBull: Number(fvgD.activeBull) || 0,
+        nearestBullDist: Number(fvgD.nearestBullDist),
+        nearestSellsideDist: Number(liqD.nearestSellsideDist),
+      },
+    });
+  }
 
   if (config.ripsterTuneV2 && momentumTrigger && !pullbackTrigger && !reclaimTrigger) {
     const chasingLong = side === "LONG" && rsi10m >= chaseRsi10L
@@ -375,18 +538,46 @@ export function evaluateEntry(ctx) {
     });
   }
 
+  if (config.ripsterTuneV2 && bearishFiveTwelveRecoveryLong) {
+    return rejectEntry("tt_pullback_ema_bounce_unreclaimed_bear_clouds", {
+      c10_5: summarizeCloud(c10_5),
+      c10_8: summarizeCloud(c10_8),
+      c30_5: summarizeCloud(c30_5),
+      emaStructure15m: Number(m15?.ema?.structure) || 0,
+      hasEmaCrossBull,
+      hasStFlipBull,
+      entrySupport: summarizeEntrySupport(entrySupportProfile),
+    });
+  }
+
   stDir15m = Number(m15?.stDir) || 0;
   bearishPullbackCount = [stDir15m, stDir30m, Number(h1?.stDir) || 0]
     .filter((dir) => dir === 1)
     .length;
   if (config.ripsterTuneV2 && side === "LONG"
     && (pullbackTrigger || reclaimTrigger)
+    && !confirmedBullContinuationLong
     && bearishPullbackCount < 2) {
     return rejectEntry("tt_pullback_not_deep_enough", {
       stDir15m,
       stDir30m,
       stDir1h: Number(h1?.stDir) || 0,
       bearishPullbackCount,
+      reclaimTrigger,
+    });
+  }
+
+  const bullishPullbackCount = [stDir15m, stDir30m, Number(h1?.stDir) || 0]
+    .filter((dir) => dir === -1)
+    .length;
+  if (config.ripsterTuneV2 && side === "SHORT"
+    && (pullbackTrigger || reclaimTrigger)
+    && bullishPullbackCount < 2) {
+    return rejectEntry("tt_short_pullback_not_deep_enough", {
+      stDir15m,
+      stDir30m,
+      stDir1h: Number(h1?.stDir) || 0,
+      bullishPullbackCount,
       reclaimTrigger,
     });
   }
@@ -417,6 +608,398 @@ export function evaluateEntry(ctx) {
   if (config.ripsterTuneV2 && pullbackTrigger && !reclaimTrigger
     && side === "LONG" && rsiD >= 85 && rsi4h >= 75 && !hasEmaCrossBull) {
     return rejectEntry("tt_pullback_daily_rsi_exhausted", { rsi4h, rsiD });
+  }
+
+  if (config.ripsterTuneV2 && side === "SHORT"
+    && (pullbackTrigger || reclaimTrigger)
+    && stDirD === -1) {
+    return rejectEntry("tt_short_pullback_daily_st_conflict", {
+      stDirD,
+      reclaimTrigger,
+      executionProfileName,
+    });
+  }
+
+  if (config.ripsterTuneV2 && side === "LONG" && pullbackTrigger && !reclaimTrigger) {
+    const selectivePullbackEnabled = String(daCfg.deep_audit_pullback_selective_enabled ?? "true") === "true";
+    const selectiveNonPrimeMinRank = Number(daCfg.deep_audit_pullback_non_prime_min_rank) || 90;
+    const selectivePrimeMinRank = Number(daCfg.deep_audit_pullback_prime_min_rank) || 0;
+    const requiredRank = isPrimeGrade ? selectivePrimeMinRank : selectiveNonPrimeMinRank;
+    if (!confirmedBullContinuationLong && selectivePullbackEnabled && requiredRank > 0 && rankScore < requiredRank) {
+      return rejectEntry(
+        isPrimeGrade ? "tt_pullback_prime_rank_selective" : "tt_pullback_non_prime_rank_selective",
+        { setupGrade, rank: rankScore, requiredRank },
+      );
+    }
+  }
+
+  const primeSupportLeniency = config.ripsterTuneV2
+    && isPrimeGrade
+    && rankScore >= 95
+    && emaRegimeDaily >= 2
+    && emaRegime4h >= 2
+    && Number(scores?.htf) >= 30
+    && Number(scores?.ltf) >= 10
+    && entrySupportProfile?.profile !== "unsupported_impulse";
+  const shouldRejectWeakEntrySupport = config.ripsterTuneV2
+    && entrySupportGateEnabled
+    && side === "LONG"
+    && !reclaimTrigger
+    && !confirmedBullContinuationLong
+    && !primeSupportLeniency
+    && !!entrySupportProfile
+    && (momentumTrigger || pullbackTrigger)
+    && (
+      entrySupportProfile.profile === "unsupported_impulse"
+      || entrySupportProfile.profile === "speculative"
+      || (!isPrimeGrade && correctionTransitionProfile)
+    )
+    && Number(entrySupportProfile.score) < (isPrimeGrade ? entrySupportPrimeMinScore : entrySupportMinScore);
+  if (shouldRejectWeakEntrySupport) {
+    return rejectEntry("tt_entry_support_weak", {
+      setupGrade,
+      requiredSupportScore: isPrimeGrade ? entrySupportPrimeMinScore : entrySupportMinScore,
+      entrySupport: summarizeEntrySupport(entrySupportProfile),
+      gapContext: summarizeGapContext(gapContext),
+      cvgContext: summarizeCvgContext(cvgContext),
+      pdzZone: { D: pdz.zoneD, h4: pdzZone4h },
+      executionProfileName,
+    });
+  }
+
+  const freshBullImpulse = hasStFlipBull || hasEmaCrossBull || hasSqRelease || reclaimTrigger;
+  const shouldRejectMatureContinuation = config.ripsterTuneV2
+    && matureContinuationGuardEnabled
+    && side === "LONG"
+    && !reclaimTrigger
+    && !!entrySupportProfile
+    && (momentumTrigger || pullbackTrigger)
+    && Number(scores?.primaryFuel) >= matureContinuationFuelMin
+    && (pullbackTrigger || Number(scores?.ltf) <= matureContinuationLtfMax)
+    && Number(entrySupportProfile.score) <= matureContinuationSupportMax
+    && !freshBullImpulse;
+  if (shouldRejectMatureContinuation) {
+    return rejectEntry("tt_mature_continuation_weak_reclaim", {
+      setupGrade,
+      primaryFuel: Number(scores?.primaryFuel) || 0,
+      ltfScore: Number(scores?.ltf) || 0,
+      requiredFreshImpulse: true,
+      freshBullImpulse,
+      matureContinuationFuelMin,
+      matureContinuationLtfMax,
+      matureContinuationSupportMax,
+      entrySupport: summarizeEntrySupport(entrySupportProfile),
+      gapContext: summarizeGapContext(gapContext),
+      cvgContext: summarizeCvgContext(cvgContext),
+      executionProfileName,
+      triggerType: pullbackTrigger ? "pullback" : momentumTrigger ? "momentum" : "unknown",
+    });
+  }
+
+  const phaseD = Number(D?.ph?.v ?? D?.saty?.v);
+  const phase4h = Number(h4?.ph?.v ?? h4?.saty?.v);
+  const prevPhaseD = Number(D?.ph?.prev ?? D?.saty?.p);
+  const prevPhase4h = Number(h4?.ph?.prev ?? h4?.saty?.p);
+  const phaseDLeaving = (
+    Number.isFinite(phaseD)
+    && Number.isFinite(prevPhaseD)
+    && Math.abs(phaseD) < 10
+    && Math.abs(prevPhaseD) > 20
+  );
+  const phase4hLeaving = (
+    Number.isFinite(phase4h)
+    && Number.isFinite(prevPhase4h)
+    && Math.abs(phase4h) < 10
+    && Math.abs(prevPhase4h) > 20
+  );
+  const dailyBearDivergence = side === "LONG"
+    ? collectTfRsiDivergence(D, "D", "bear", {
+        preferRecent: true,
+        requireActive: false,
+        minStrength: 1.0,
+        maxAge: 15,
+      })
+    : null;
+  dailyBearDivergenceSummary = summarizeDivergence(dailyBearDivergence);
+  const hasDailyBearDivergence = !!dailyBearDivergence
+    || !!adverseRsiDivSummary?.tfs?.includes?.("D");
+  const hasStaleDailyBearDivergence = !!(D?.rsiDiv?.bear ?? D?.rsiDiv?.b ?? D?.rsiDiv?.rb);
+  const phaseResetReady = reclaimTrigger
+    || phaseDLeaving
+    || phase4hLeaving
+    || (Number.isFinite(phaseD) && Math.abs(phaseD) <= overheatedDivergencePhaseResetMax)
+    || (Number.isFinite(phase4h) && Math.abs(phase4h) <= overheatedDivergencePhaseResetMax);
+  const overheatedHigherTfContext = Number(rsiD) >= overheatedDivergenceDailyRsiMin
+    || Number(rsiW) >= overheatedDivergenceWeeklyRsiMin
+    || Number(scores?.primaryFuel) >= overheatedDivergenceFuelMin;
+  const adversePdzContext = side === "LONG"
+    ? (pdz.zoneD === "premium" || pdz.zoneD === "premium_approach" || pdzZone4h === "premium" || pdzZone4h === "premium_approach")
+    : false;
+  const shouldRejectOverheatedDivergence = config.ripsterTuneV2
+    && overheatedDivergenceGuardEnabled
+    && side === "LONG"
+    && !reclaimTrigger
+    && (momentumTrigger || pullbackTrigger)
+    && hasDailyBearDivergence
+    && overheatedHigherTfContext
+    && !phaseResetReady;
+  const shouldRejectSpeculativeBearDivMomentum = config.ripsterTuneV2
+    && side === "LONG"
+    && momentumTrigger
+    && !reclaimTrigger
+    && !isPrimeGrade
+    && (hasDailyBearDivergence || hasStaleDailyBearDivergence)
+    && adversePdzContext
+    && entrySupportProfile?.profile === "speculative"
+    && Number(rsiD) >= 70
+    && Number.isFinite(phaseD)
+    && phaseD >= 60;
+  const shouldRejectBearDivRolloverLong = config.ripsterTuneV2
+    && side === "LONG"
+    && (momentumTrigger || pullbackTrigger)
+    && !reclaimTrigger
+    && !isPrimeGrade
+    && rankScore < 95
+    && (hasDailyBearDivergence || hasStaleDailyBearDivergence)
+    && emaRegime4h <= -2
+    && Number.isFinite(rsiD)
+    && rsiD >= 60
+    && Number.isFinite(phaseD)
+    && phaseD >= 15;
+  const shouldRejectPrimeCorrectionMomentumBearDiv = config.ripsterTuneV2
+    && side === "LONG"
+    && momentumTrigger
+    && !reclaimTrigger
+    && !confirmedBullContinuationLong
+    && isPrimeGrade
+    && correctionTransitionProfile
+    && pullbackPlayerPersonality
+    && rankScore < 90
+    && entryQualityScore <= 60
+    && Number(scores?.ltf) <= 15
+    && !h1Aligned
+    && (hasDailyBearDivergence || hasStaleDailyBearDivergence)
+    && Number.isFinite(rsiD)
+    && rsiD >= 60;
+  const dualPremiumApproachLong = side === "LONG"
+    && ["premium", "premium_approach"].includes(String(pdz.zoneD || "unknown"))
+    && ["premium", "premium_approach"].includes(String(pdzZone4h || "unknown"));
+  const shouldRejectPrimeCorrectionMomentumPremiumBearDiv = config.ripsterTuneV2
+    && side === "LONG"
+    && momentumTrigger
+    && !reclaimTrigger
+    && !confirmedBullContinuationLong
+    && isPrimeGrade
+    && correctionTransitionProfile
+    && rankScore < 90
+    && emaRegimeDaily >= 2
+    && emaRegime4h >= 2
+    && emaRegime1h < 1
+    && dualPremiumApproachLong
+    && (hasDailyBearDivergence || hasStaleDailyBearDivergence);
+  const shouldRejectUnsupportedPremiumRollover = config.ripsterTuneV2
+    && side === "LONG"
+    && momentumTrigger
+    && !isPrimeGrade
+    && rankScore < 85
+    && adversePdzContext
+    && entrySupportProfile?.profile === "unsupported_impulse"
+    && Number(entrySupportProfile?.score) <= -3
+    && emaRegime4h <= -2
+    && Number.isFinite(phase4h)
+    && phase4h <= -20;
+  const shouldRejectHotReclaimOverheat = config.ripsterTuneV2
+    && side === "LONG"
+    && reclaimTrigger
+    && !!dailyBearDivergence
+    && Number(rsiD) >= 80
+    && adversePdzContext
+    && Number(entrySupportProfile?.score) <= 0
+    && !phaseDLeaving
+    && !phase4hLeaving
+    && Number.isFinite(phaseD)
+    && Number.isFinite(phase4h)
+    && Math.abs(phaseD) > overheatedDivergencePhaseResetMax
+    && Math.abs(phase4h) > overheatedDivergencePhaseResetMax;
+  const shouldRejectSpeculativeBearDivReclaim = config.ripsterTuneV2
+    && side === "LONG"
+    && reclaimTrigger
+    && !!dailyBearDivergence
+    && adversePdzContext
+    && !isPrimeGrade
+    && rankScore < 90
+    && Number(entrySupportProfile?.score) <= -2
+    && Number.isFinite(phaseD)
+    && phaseD > 30
+    && Number.isFinite(phase4h)
+    && Math.abs(phase4h) <= 10;
+  const shouldRejectCorrectionTransitionSpeculativeBearDivReclaim = config.ripsterTuneV2
+    && side === "LONG"
+    && reclaimTrigger
+    && correctionTransitionProfile
+    && pullbackPlayerPersonality
+    && rankScore < 90
+    && entryQualityScore <= 60
+    && emaRegimeDaily >= 2
+    && emaRegime4h >= 2
+    && emaRegime1h < 1
+    && dualPremiumApproachLong
+    && (hasDailyBearDivergence || hasStaleDailyBearDivergence)
+    && Number(entrySupportProfile?.score) <= -1
+    && Number.isFinite(phaseD)
+    && phaseD >= 20
+    && Number.isFinite(phase4h)
+    && Math.abs(phase4h) <= 10;
+  phaseContext = {
+    phaseD: Number.isFinite(phaseD) ? phaseD : null,
+    prevPhaseD: Number.isFinite(prevPhaseD) ? prevPhaseD : null,
+    phase4h: Number.isFinite(phase4h) ? phase4h : null,
+    prevPhase4h: Number.isFinite(prevPhase4h) ? prevPhase4h : null,
+    phaseDLeaving,
+    phase4hLeaving,
+    phaseResetReady,
+  };
+  if (shouldRejectOverheatedDivergence) {
+    return rejectEntry("tt_overheated_bear_div_phase_pending", {
+      triggerType: pullbackTrigger ? "pullback" : momentumTrigger ? "momentum" : "unknown",
+      dailyBearDivergence: dailyBearDivergenceSummary,
+      rsiD,
+      rsiW,
+      primaryFuel: Number(scores?.primaryFuel) || 0,
+      phaseContext,
+      overheatedDivergenceDailyRsiMin,
+      overheatedDivergenceWeeklyRsiMin,
+      overheatedDivergenceFuelMin,
+      overheatedDivergencePhaseResetMax,
+      entrySupport: summarizeEntrySupport(entrySupportProfile),
+      movePhase: summarizeMovePhase(movePhase),
+      executionProfileName,
+    });
+  }
+  if (shouldRejectSpeculativeBearDivMomentum) {
+    return rejectEntry("tt_momentum_speculative_bear_div_overheat", {
+      triggerType: "momentum",
+      setupGrade,
+      rank: rankScore,
+      dailyBearDivergence: dailyBearDivergenceSummary,
+      adverseRsiDivergence: adverseRsiDivSummary,
+      rsiD,
+      rsiW,
+      staleDailyBearDivergence: hasStaleDailyBearDivergence,
+      pdzZone: { D: pdz.zoneD, h4: pdzZone4h },
+      entrySupport: summarizeEntrySupport(entrySupportProfile),
+      phaseContext,
+      movePhase: summarizeMovePhase(movePhase),
+      executionProfileName,
+    });
+  }
+  if (shouldRejectBearDivRolloverLong) {
+    return rejectEntry("tt_daily_bear_div_4h_rollover", {
+      triggerType: pullbackTrigger ? "pullback" : momentumTrigger ? "momentum" : "unknown",
+      setupGrade,
+      rank: rankScore,
+      dailyBearDivergence: dailyBearDivergenceSummary,
+      adverseRsiDivergence: adverseRsiDivSummary,
+      staleDailyBearDivergence: hasStaleDailyBearDivergence,
+      emaRegime4h,
+      rsiD,
+      phaseContext,
+      entrySupport: summarizeEntrySupport(entrySupportProfile),
+      movePhase: summarizeMovePhase(movePhase),
+      executionProfileName,
+    });
+  }
+  if (shouldRejectPrimeCorrectionMomentumBearDiv) {
+    return rejectEntry("tt_prime_correction_transition_bear_div_extension", {
+      triggerType: "momentum",
+      setupGrade,
+      rank: rankScore,
+      entryQualityScore,
+      ltfScore: Number(scores?.ltf) || 0,
+      h1Aligned,
+      rsiD,
+      dailyBearDivergence: dailyBearDivergenceSummary,
+      adverseRsiDivergence: adverseRsiDivSummary,
+      tickerPersonality,
+      executionProfileName,
+      phaseContext,
+    });
+  }
+  if (shouldRejectPrimeCorrectionMomentumPremiumBearDiv) {
+    return rejectEntry("tt_prime_correction_transition_premium_bear_div_h1_weak", {
+      triggerType: "momentum",
+      setupGrade,
+      rank: rankScore,
+      emaRegimeDaily,
+      emaRegime4h,
+      emaRegime1h,
+      pdzZone: { D: pdz.zoneD, h4: pdzZone4h },
+      dailyBearDivergence: dailyBearDivergenceSummary,
+      staleDailyBearDivergence: hasStaleDailyBearDivergence,
+      executionProfileName,
+      phaseContext,
+    });
+  }
+  if (shouldRejectUnsupportedPremiumRollover) {
+    return rejectEntry("tt_momentum_unsupported_premium_rollover", {
+      triggerType: "momentum",
+      setupGrade,
+      rank: rankScore,
+      pdzZone: { D: pdz.zoneD, h4: pdzZone4h },
+      emaRegime4h,
+      phaseContext,
+      entrySupport: summarizeEntrySupport(entrySupportProfile),
+      movePhase: summarizeMovePhase(movePhase),
+      executionProfileName,
+    });
+  }
+  if (shouldRejectHotReclaimOverheat) {
+    return rejectEntry("tt_hot_reclaim_overheat_recent_divergence", {
+      triggerType: "reclaim",
+      dailyBearDivergence: dailyBearDivergenceSummary,
+      rsiD,
+      rsiW,
+      pdzZone: { D: pdz.zoneD, h4: pdzZone4h },
+      adversePdzContext,
+      entrySupport: summarizeEntrySupport(entrySupportProfile),
+      phaseContext,
+      movePhase: summarizeMovePhase(movePhase),
+      executionProfileName,
+    });
+  }
+  if (shouldRejectSpeculativeBearDivReclaim) {
+    return rejectEntry("tt_reclaim_daily_bear_div_speculative", {
+      triggerType: "reclaim",
+      setupGrade,
+      rank: rankScore,
+      dailyBearDivergence: dailyBearDivergenceSummary,
+      pdzZone: { D: pdz.zoneD, h4: pdzZone4h },
+      adversePdzContext,
+      entrySupport: summarizeEntrySupport(entrySupportProfile),
+      phaseContext,
+      movePhase: summarizeMovePhase(movePhase),
+      executionProfileName,
+    });
+  }
+  if (shouldRejectCorrectionTransitionSpeculativeBearDivReclaim) {
+    return rejectEntry("tt_correction_transition_reclaim_bear_div_pending", {
+      triggerType: "reclaim",
+      setupGrade,
+      rank: rankScore,
+      entryQualityScore,
+      dailyBearDivergence: dailyBearDivergenceSummary,
+      staleDailyBearDivergence: hasStaleDailyBearDivergence,
+      emaRegimeDaily,
+      emaRegime4h,
+      emaRegime1h,
+      pdzZone: { D: pdz.zoneD, h4: pdzZone4h },
+      adversePdzContext,
+      entrySupport: summarizeEntrySupport(entrySupportProfile),
+      phaseContext,
+      movePhase: summarizeMovePhase(movePhase),
+      executionProfileName,
+      tickerPersonality,
+    });
   }
 
   if (config.ripsterTuneV2 && correctionTransitionProfile && pullbackPlayerPersonality
@@ -469,18 +1052,68 @@ export function evaluateEntry(ctx) {
     }
   }
 
+  if (config.ripsterTuneV2 && correctionTransitionProfile
+    && side === "LONG" && momentumTrigger) {
+    const movePhaseScores = movePhase?.scores || {};
+    const hotUnsupportedMomentum = !!(
+      c10_5?.above && !c10_5?.inCloud
+      && c10_8?.above && !c10_8?.inCloud
+      && adversePdzContext
+      && entrySupportProfile?.profile === "unsupported_impulse"
+      && Number(entrySupportProfile?.score) <= -1
+    );
+    const exhaustedPremiumSpeculativeMomentum = !!(
+      dualPremiumApproachLong
+      && rankScore < 95
+      && entrySupportProfile?.profile === "speculative"
+      && Number(entrySupportProfile?.score) <= -2
+      && Number(movePhaseScores.atrExhaustedCount) >= 2
+      && Number.isFinite(phaseD)
+      && phaseD >= 40
+      && Number.isFinite(phase4h)
+      && Math.abs(phase4h) <= 10
+      && (Number(gapContext?.barsSinceOpen) || 0) >= 45
+    );
+    const lateOrExhaustedCorrectionMomentum = (Number(movePhaseScores.atrExhaustedCount) || 0) >= 1
+      || (Number(movePhaseScores.phaseLateCount) || 0) >= 1
+      || (Number(gapContext?.barsSinceOpen) || 0) >= 30
+      || !!dailyBearDivergenceSummary;
+    if (!isPrimeGrade && hotUnsupportedMomentum && lateOrExhaustedCorrectionMomentum) {
+      return rejectEntry("tt_momentum_correction_transition_unsupported_extension", {
+        executionProfileName,
+        tickerPersonality,
+        distToCloudPct: trendExtensionPct,
+        pdzZone: { D: pdz.zoneD, h4: pdzZone4h },
+        barsSinceOpen: Number(gapContext?.barsSinceOpen) || 0,
+        entrySupport: summarizeEntrySupport(entrySupportProfile),
+        movePhase: summarizeMovePhase(movePhase),
+        dailyBearDivergence: dailyBearDivergenceSummary,
+      });
+    }
+    if (exhaustedPremiumSpeculativeMomentum) {
+      return rejectEntry("tt_momentum_correction_transition_premium_exhausted", {
+        executionProfileName,
+        tickerPersonality,
+        setupGrade,
+        rank: rankScore,
+        pdzZone: { D: pdz.zoneD, h4: pdzZone4h },
+        barsSinceOpen: Number(gapContext?.barsSinceOpen) || 0,
+        phaseContext,
+        entrySupport: summarizeEntrySupport(entrySupportProfile),
+        movePhase: summarizeMovePhase(movePhase),
+        adverseRsiDivergence: adverseRsiDivSummary,
+      });
+    }
+  }
+
   // ── 5. MEAN REVERSION TRIGGER ──
   const pdzZoneD = pdz.zoneD;
-  const pdz4h = h4?.pdz || {};
-  const pdzZone4h = String(pdz4h.zone || d?.pdz_zone_4h || "unknown");
-  const fvgD = d?.fvg_D || {};
-  const liqD = d?.liq_D || {};
   const td9 = d?.mean_revert_td9 || {};
-  const phaseD = Number(D?.ph?.v) || 0;
-  const phase4h = Number(h4?.ph?.v) || 0;
-  const phaseDLeaving = Math.abs(phaseD) < 10 && Math.abs(Number(D?.ph?.prev) || 0) > 20;
-  const phase4hLeaving = Math.abs(phase4h) < 10 && Math.abs(Number(h4?.ph?.prev) || 0) > 20;
-  const phaseOrTd9 = phaseDLeaving || phase4hLeaving || !!td9?.active;
+  const meanReversionPhaseD = Number(D?.ph?.v) || 0;
+  const meanReversionPhase4h = Number(h4?.ph?.v) || 0;
+  const meanReversionPhaseDLeaving = Math.abs(meanReversionPhaseD) < 10 && Math.abs(Number(D?.ph?.prev) || 0) > 20;
+  const meanReversionPhase4hLeaving = Math.abs(meanReversionPhase4h) < 10 && Math.abs(Number(h4?.ph?.prev) || 0) > 20;
+  const phaseOrTd9 = meanReversionPhaseDLeaving || meanReversionPhase4hLeaving || !!td9?.active;
 
   const mrPdzLong = pdzZoneD === "discount" || pdzZoneD === "discount_approach";
   const mrPdzShort = pdzZoneD === "premium" || pdzZoneD === "premium_approach";
@@ -500,8 +1133,8 @@ export function evaluateEntry(ctx) {
 
   const meanReversionTrigger = mrPdzValid && mrRsiValid && phaseOrTd9 && (mrFvgReclaim || mrLiqSwept);
   const movePhaseSummary = summarizeMovePhase(movePhase);
-  const adverseRsiDivSummary = summarizeDivergence(adverseRsiDiv);
   const shouldBlockMomentumPeak = config.ripsterTuneV2 && momentumTrigger
+    && !confirmedBullContinuationLong
     && (
       movePhase?.profile === "countertrend_peak_risk"
       || (
@@ -553,6 +1186,52 @@ export function evaluateEntry(ctx) {
     internals: 1.0,
   };
 
+  if (shouldRejectWeakMomentumPullback) {
+    return rejectEntry("tt_momentum_pullback_state_weak", {
+      state: currentState,
+      ltfScore: scores.ltf,
+      requiredLtfScore: momentumPullbackLtfMinScore,
+      emaRegime4h,
+      requiredEmaRegime4h: momentumPullbackMin4hRegime,
+      pullbackTrigger,
+      reclaimTrigger,
+    });
+  }
+
+  if (momentumTrigger
+    && config.ripsterTuneV2
+    && !isPrimeGrade
+    && adversePdzContext
+    && entrySupportProfile?.profile === "unsupported_impulse"
+    && Number(entrySupportProfile?.score) <= -3
+    && emaRegime4h <= -2
+    && Number.isFinite(phase4h)
+    && phase4h <= -20) {
+    return rejectEntry("tt_momentum_unsupported_premium_rollover", {
+      triggerType: reclaimTrigger
+        ? "momentum_reclaim_hybrid"
+        : pullbackTrigger
+          ? "momentum_pullback_hybrid"
+          : "momentum_5_12_cross",
+      setupGrade,
+      rank: rankScore,
+      momentumTrigger,
+      pullbackTrigger,
+      reclaimTrigger,
+      pdzZone: { D: pdzZoneD, h4: pdzZone4h },
+      emaRegime4h,
+      phaseContext,
+      entrySupport: summarizeEntrySupport(entrySupportProfile),
+      movePhase: movePhaseSummary,
+      executionProfile: {
+        name: executionProfileName || null,
+        personality: tickerPersonality || null,
+        profileRegimeMult,
+        volatileMomentumMult,
+      },
+    });
+  }
+
   if (momentumTrigger) {
     return qualifyEntry("tt_momentum", "medium", "tt_5_12_trend_trigger", {
       ...baseSizing,
@@ -560,6 +1239,9 @@ export function evaluateEntry(ctx) {
       cloudAlignment: cloudMeta,
       triggerType: "momentum_5_12_cross",
       pdzZone: { D: pdzZoneD, h4: pdzZone4h },
+      gapContext: summarizeGapContext(gapContext),
+      cvgContext: summarizeCvgContext(cvgContext),
+      entrySupport: summarizeEntrySupport(entrySupportProfile),
       rsiHeat: { m10: rsi10m, m30: rsi30m, h1: rsi1h },
       movePhase: movePhaseSummary,
       adverseRsiDivergence: adverseRsiDivSummary,
@@ -578,6 +1260,9 @@ export function evaluateEntry(ctx) {
       cloudAlignment: cloudMeta,
       triggerType: "pullback_8_9_bounce",
       pdzZone: { D: pdzZoneD, h4: pdzZone4h },
+      gapContext: summarizeGapContext(gapContext),
+      cvgContext: summarizeCvgContext(cvgContext),
+      entrySupport: summarizeEntrySupport(entrySupportProfile),
       rsiHeat: { m10: rsi10m, m30: rsi30m, h1: rsi1h },
       movePhase: movePhaseSummary,
       adverseRsiDivergence: adverseRsiDivSummary,
@@ -596,6 +1281,9 @@ export function evaluateEntry(ctx) {
       cloudAlignment: cloudMeta,
       triggerType: "reclaim_8_9_st_flip",
       pdzZone: { D: pdzZoneD, h4: pdzZone4h },
+      gapContext: summarizeGapContext(gapContext),
+      cvgContext: summarizeCvgContext(cvgContext),
+      entrySupport: summarizeEntrySupport(entrySupportProfile),
       rsiHeat: { m10: rsi10m, m30: rsi30m, h1: rsi1h },
       movePhase: movePhaseSummary,
       adverseRsiDivergence: adverseRsiDivSummary,
@@ -616,6 +1304,9 @@ export function evaluateEntry(ctx) {
         cloudAlignment: cloudMeta,
         triggerType: "mean_reversion_pdz",
         pdzZone: { D: pdzZoneD, h4: pdzZone4h },
+        gapContext: summarizeGapContext(gapContext),
+        cvgContext: summarizeCvgContext(cvgContext),
+        entrySupport: summarizeEntrySupport(entrySupportProfile),
         meanRevert: {
           pdzZoneD, pdzZone4h,
           rsiExtremeCount: rsiExtremes.filter(r => side === "LONG" ? r < 30 : r > 70).length,
@@ -681,23 +1372,116 @@ function summarizeMovePhase(movePhase) {
   };
 }
 
+function summarizeGapContext(gapContext) {
+  if (!gapContext) return null;
+  return {
+    direction: gapContext.direction || "flat",
+    absGapPct: Number(gapContext.absGapPct) || 0,
+    gapPct: Number(gapContext.gapPct) || 0,
+    enteredGapBody: !!gapContext.enteredGapBody,
+    halfGapTouched: !!gapContext.halfGapTouched,
+    halfGapHeld: !!gapContext.halfGapHeld,
+    fullGapFilled: !!gapContext.fullGapFilled,
+    untestedImpulse: !!gapContext.untestedImpulse,
+    priceVsOpenPct: Number(gapContext.priceVsOpenPct) || 0,
+    barsSinceOpen: Number(gapContext.barsSinceOpen) || 0,
+  };
+}
+
+function summarizeCvgContext(cvgContext) {
+  if (!cvgContext) return null;
+  return {
+    tf: cvgContext.tf || null,
+    bullish: summarizeDirectionalCvg(cvgContext.bullish),
+    bearish: summarizeDirectionalCvg(cvgContext.bearish),
+  };
+}
+
+function summarizeDirectionalCvg(cvg) {
+  if (!cvg) return null;
+  return {
+    gapPct: Number(cvg.gapPct) || 0,
+    barsSinceFormed: Number(cvg.barsSinceFormed) || 0,
+    enteredBody: !!cvg.enteredBody,
+    held: !!cvg.held,
+    filled: !!cvg.filled,
+    active: !!cvg.active,
+    inZone: !!cvg.inZone,
+    untestedImpulse: !!cvg.untestedImpulse,
+    distancePct: Number(cvg.distancePct) || 0,
+  };
+}
+
+function summarizeEntrySupport(entrySupport) {
+  if (!entrySupport) return null;
+  return {
+    profile: entrySupport.profile || "mixed",
+    score: Number(entrySupport.score) || 0,
+    supportiveSignals: Number(entrySupport.supportiveSignals) || 0,
+    penaltySignals: Number(entrySupport.penaltySignals) || 0,
+    reasons: Array.isArray(entrySupport.reasons) ? entrySupport.reasons.slice(0, 6) : [],
+  };
+}
+
 function hasActiveRsiDivergence(tfs, side) {
   return !!collectActiveRsiDivergence(tfs, side);
 }
 
 function collectActiveRsiDivergence(tfs, side) {
+  return collectRsiDivergence(tfs, side);
+}
+
+function collectTfRsiDivergence(tf, tfLabel, side, opts = {}) {
+  if (!tf?.rsiDiv) return null;
+  const requireActive = opts.requireActive ?? true;
+  const minStrength = Number(opts.minStrength ?? 1.5);
+  const maxAge = Number(opts.maxAge ?? 8);
+  const preferRecent = !!opts.preferRecent;
+  const bucketKeys = side === "bear"
+    ? (preferRecent ? ["rb", "bear"] : ["bear", "rb"])
+    : (preferRecent ? ["ru", "bull"] : ["bull", "ru"]);
+  for (const key of bucketKeys) {
+    const div = tf.rsiDiv?.[key];
+    if (!div) continue;
+    const active = div?.active ?? div?.a;
+    const strength = Number(div?.strength ?? div?.s) || 0;
+    const barsSince = Number(div?.barsSince ?? div?.bs);
+    if (requireActive && !active) continue;
+    if (strength < minStrength) continue;
+    if (Number.isFinite(barsSince) && barsSince > maxAge) continue;
+    return [{
+      tf: tfLabel,
+      strength,
+      barsSince: Number.isFinite(barsSince) ? barsSince : null,
+      active: !!active,
+      source: key === "rb" || key === "ru" ? "recent" : "active",
+    }];
+  }
+  return null;
+}
+
+function collectRsiDivergence(tfs, side, opts = {}) {
+  const requireActive = opts.requireActive ?? true;
+  const minStrength = Number(opts.minStrength ?? 1.5);
+  const defaultMaxAge = Number(opts.maxAge ?? 8);
+  const maxAgeByTf = opts.maxAgeByTf || {};
   const hits = [];
   for (const [idx, tf] of (tfs || []).entries()) {
     const div = tf?.rsiDiv?.[side];
-    if (!div?.active) continue;
-    const strength = Number(div.strength) || 0;
-    const barsSince = Number(div.barsSince);
-    if (strength < 1.5) continue;
-    if (Number.isFinite(barsSince) && barsSince > 8) continue;
+    if (!div) continue;
+    const active = div?.active ?? div?.a;
+    if (requireActive && !active) continue;
+    const strength = Number(div?.strength ?? div?.s) || 0;
+    const barsSince = Number(div?.barsSince ?? div?.bs);
+    const tfLabel = tfLabelForIndex(idx);
+    const maxAge = Number(maxAgeByTf?.[tfLabel] ?? defaultMaxAge);
+    if (strength < minStrength) continue;
+    if (Number.isFinite(barsSince) && barsSince > maxAge) continue;
     hits.push({
-      tf: tfLabelForIndex(idx),
+      tf: tfLabel,
       strength,
       barsSince: Number.isFinite(barsSince) ? barsSince : null,
+      active: !!active,
     });
   }
   return hits.length ? hits : null;
